@@ -1,5 +1,7 @@
 @import 'tailwindcss';
 
+@import '../builds/tailwind/studio_engine';
+
 @config '../../../config/tailwind.config.js';
 
 /*
@@ -126,116 +128,44 @@
   }
 }
 
+/* .card (base), .card-hover, .badge, .input-field, .empty-state, .json-debug,
+   .label-upper and the full .btn* system now come from the studio-engine import
+   at the top of this file (studio-engine 0.15+ ships them as @utility, lifted
+   verbatim from these MS-canonical definitions). Re-declaring a shared @utility
+   here is ADDITIVE in Tailwind v4 — both the engine's and a local copy emit and
+   the engine's rules leak in — so the byte-identical forks are DELETED, not
+   overridden. Only TM-unique CSS and the token-driven divergences remain. */
+
+/* TM's divergence from the engine defaults, expressed through the engine's
+   btn token contract (studio-engine 0.15+) instead of a local @utility fork:
+     - secondary action is VIOLET, not the engine's success-green default.
+       bg #8E82FE (bg-violet) with a straight color swap to #6558E5
+       (bg-violet-600) on hover — no brightness filter.
+     - neutral button lightens in place on hover (brightness 1.3) rather than
+       swapping surface-alt -> surface, so bg-hover is pinned back to the base.
+   Values mirror TM's previous forks exactly, so the compiled result is
+   visually identical (btn-secondary resolves to the same violet as before). */
+:root {
+  --btn-secondary-bg: #8e82fe;
+  --btn-secondary-bg-hover: #6558e5;
+  --btn-secondary-hover-filter: none;
+  --btn-neutral-bg-hover: var(--color-surface-alt);
+  --btn-neutral-hover-filter: brightness(1.3);
+}
+
+/* .card's BASE (bg-surface rounded-xl border border-subtle) now comes from the
+   engine import; only TM's contextual card tweaks remain. These ADD to the
+   engine's .card (Tailwind v4 @utility is additive) rather than fork it — no
+   base @apply here. The same two rules are also emitted by @utility lp-splash /
+   seeds-invite-row and the compiler dedupes, so the output is unchanged. */
 @utility card {
   .lp-splash & {
     box-shadow: 0 24px 55px -15px rgba(0, 0, 0, 0.6);
   }
-  @apply bg-surface rounded-xl border border-subtle;
-
   .seeds-invite-row & {
     margin-bottom: 0;
     height: 100%;
   }
-}
-
-@utility card-hover {
-  @apply bg-surface rounded-xl border border-subtle hover:border-primary-700/50 hover:shadow-lg hover:shadow-primary-900/10 transition;
-}
-
-@utility badge {
-  @apply inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium border;
-}
-
-@utility input-field {
-  @apply w-full bg-surface-alt border border-strong rounded-lg px-4 py-3 text-heading focus:border-primary focus:outline-hidden;
-}
-
-@utility empty-state {
-  @apply bg-surface rounded-xl border border-subtle p-8 text-center;
-}
-
-@utility json-debug {
-  @apply bg-inset rounded-xl border border-subtle p-4 overflow-x-auto;
-}
-
-@utility label-upper {
-  @apply text-xs text-muted uppercase tracking-wider;
-}
-
-@utility btn {
-  /* -- Button System (standardized across all Studio apps) -- */
-  @apply inline-flex items-center justify-center font-bold rounded-lg transition px-6 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed;
-}
-
-@utility btn-primary {
-  @apply text-white;
-  background-color: var(--color-cta);
-  &:hover {
-    background-color: var(--color-cta-hover);
-  }
-}
-
-@utility btn-secondary {
-  @apply bg-violet hover:bg-violet-600 text-white;
-}
-
-@utility btn-outline {
-  @apply bg-transparent border text-heading;
-  border-color: var(--color-cta);
-  &:hover {
-    @apply text-white;
-    background-color: var(--color-cta);
-  }
-}
-
-@utility btn-danger {
-  @apply text-white;
-  background-color: var(--color-danger);
-  &:hover {
-    filter: brightness(0.9);
-  }
-}
-
-@utility btn-warning {
-  @apply text-white;
-  background-color: var(--color-warning);
-  &:hover {
-    filter: brightness(0.9);
-  }
-}
-
-@utility btn-success {
-  @apply text-white;
-  background-color: var(--color-success);
-  &:hover {
-    filter: brightness(0.9);
-  }
-}
-
-@utility btn-google {
-  @apply bg-white border border-strong shadow-xs text-gray-700;
-  &:hover {
-    @apply bg-gray-50;
-  }
-}
-
-@utility btn-neutral {
-  /* Neutral filled "panel" button (Helius-style) — a soft-bordered surface
-     tile for non-primary auth options (Google / Solana / wallet picker) so
-     only the green primary CTA pops. Theme-aware via surface tokens; subtle
-     lighten on hover (same filter pattern as the status buttons above). */
-  @apply bg-surface-alt border border-strong text-heading;
-  &:hover {
-    filter: brightness(1.3);
-  }
-}
-
-@utility btn-sm {
-  @apply px-3 py-1.5 text-xs;
-}
-
-@utility btn-lg {
-  @apply px-8 py-3 text-base rounded-xl shadow-sm;
 }
 
 @utility backdrop-overlay {
