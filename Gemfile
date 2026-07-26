@@ -89,7 +89,7 @@ gem "sentry-rails"
 # 0.11.0 widens the Rails bound to allow 8.1; it also ships the opt-in
 # Studio::Enumeral table (0.9.0) and the Studio::Redis / Studio::Cable
 # websocket primitives (0.10.0), neither of which turf adopts yet.
-gem "studio-engine", "~> 0.13" # 0.13 ships engine component CSS + de-forked modal/user-nav primitives; 0.12 added the model-page protocol (Studio::ModelPage)
+gem "studio-engine", "~> 0.15" # 0.15 makes btn-secondary/btn-neutral token-driven (--btn-* custom props) so TM expresses its violet secondary via :root tokens instead of forking; 0.13 shipped engine component CSS + de-forked modal/user-nav primitives
 
 # Solana primitives (Client, Keypair, Borsh, Transaction, AuthVerifier)
 # 0.4.7 adds Solana::Transaction.cosign_wire + Client#simulate_transaction for the
