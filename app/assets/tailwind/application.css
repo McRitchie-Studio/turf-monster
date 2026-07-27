@@ -2,6 +2,13 @@
 
 @import '../builds/tailwind/studio_engine';
 
+/* studio-engine's opt-in motion/effect primitives (.spinner, .progress-meter,
+   .studio-border-glow, .sheen, .ping, ...). This layer does NOT auto-bundle via
+   the engines contract, so lib/tasks/tailwindcss_engine_motion.rake generates
+   this gitignored entry (gem-resolved absolute path) on every tailwindcss build.
+   Imported AFTER studio_engine so the theme role vars are in scope. */
+@import '../builds/tailwind/studio_engine_motion';
+
 @config '../../../config/tailwind.config.js';
 
 /*
