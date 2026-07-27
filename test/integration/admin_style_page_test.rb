@@ -28,6 +28,15 @@ class AdminStylePageTest < ActionDispatch::IntegrationTest
     assert_select "section#modals"
     assert_select "section#tricks"
     assert_select "section#tasks"
+
+    # TM is an on-chain app: config.features enables :web3 + :leveling, so the
+    # Web3 modal specimens and leveling tricks render ENABLED, not capability-
+    # gated. No "disabled on this app" badge appears anywhere, and the Auth
+    # specimen defaults the Solana Wallet method ON. Guards the studio.rb
+    # config.features fix — a revert would grey these and re-add the badge.
+    assert_no_match(/disabled on this app/, @response.body)
+    assert_match(/wallet:\s*true/, @response.body)
+    assert_no_match(/wallet:\s*false/, @response.body)
   end
 
   test "redirects a non-admin away from /admin/style" do
