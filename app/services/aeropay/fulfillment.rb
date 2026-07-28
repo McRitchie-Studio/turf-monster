@@ -10,8 +10,9 @@ module Aeropay
   # and marked `captured` by begin_fulfillment! here BEFORE TokenPurchaseJob
   # mints anything. We never mint then record — the captured row is the durable
   # record that the settlement happened, so a crash between settlement and mint
-  # is recoverable, never a silent double-send (the StripeDepositJob
-  # double-transfer trap).
+  # is recoverable, never a silent double-send — the transfer-then-record
+  # double-pay trap that StripeDepositJob's deposit path itself closed by
+  # claiming its TransactionLog row before it funds.
   #
   # SETTLEMENT CAVEAT: for a standard ACH pay-in, `transaction_completed` means
   # APPROVED, not settled (funds final ~3 business days later). Production should
