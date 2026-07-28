@@ -148,6 +148,9 @@
       <template x-if="$store.modals.current().id === 'wallet-connect'">
         <%= render "modals/wallet_connect" %>
       </template>
+      <template x-if="$store.modals.current().id === 'buy-entry-token'">
+        <%= render "modals/buy_entry_token" %>
+      </template>
       <%# cdp-ramp — NOT flag-gated here (unlike the app layout): the gallery
           is the admin dev tool and should preview the Coinbase flow even
           while ENABLE_CDP_RAMP is unset. The modal alone makes no requests

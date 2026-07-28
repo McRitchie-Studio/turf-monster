@@ -675,10 +675,11 @@ window.selectionBoard = function() {
       switch (blocker.reason) {
         case 'not_logged_in':        this.showLoginModal(); break;
         case 'age_required':         this.showAgeVerifyModal(); break;
-        // Funds-needed entry wall: the Coinbase-forward Top Up Wallet modal is
-        // now the FIRST modal here (was the Get Entry Tokens pack picker). The
-        // picker stays reachable via the hub's "More ways to add funds" rail.
-        case 'no_funding':           this.showWalletTopup(); break;
+        // Funds-needed entry wall. Audience split via showFundsNeeded: a web2 /
+        // managed player buys an entry token (the Buy an Entry Token modal —
+        // Coinflow + Stripe rails), a web3 wallet keeps the Coinbase-forward USDC
+        // Top Up Wallet. Every funds-needed reroute funnels through the dispatcher.
+        case 'no_funding':           this.showFundsNeeded(); break;
         case 'insufficient_balance': this.showInsufficientBalanceModal(blocker); break;
         default:                     this.resetHoldButtons();
       }
@@ -958,6 +959,36 @@ window.selectionBoard = function() {
         s.swap('wallet-topup', {});
       } else {
         s.open('wallet-topup', { enterAnim: 'shake' });
+      }
+    },
+
+    // Funds-needed dispatcher — a logged-in player tried to enter and lacks
+    // funds. The audience split lives in ONE place: a web2 / managed player buys
+    // an entry token (showBuyEntryToken — the Coinflow + Stripe token rails), a
+    // web3 wallet keeps the USDC Top Up Wallet (showWalletTopup, unchanged).
+    // Every funds-needed reroute (the no_funding blocker, the hold-window check,
+    // the chain-layer "no entry token" twin) funnels through here.
+    showFundsNeeded() {
+      if (Alpine.store('session').mode === 'web2') {
+        this.showBuyEntryToken();
+      } else {
+        this.showWalletTopup();
+      }
+    },
+
+    // Open (or swap into) the Buy an Entry Token modal — the web2 / managed funds
+    // modal at the entry blocker. Two stacked entry-token rails (Coinflow buy-1 on
+    // top, the Stripe pack picker below). Mirrors showWalletTopup's open-vs-swap:
+    // its own modal id, so swap() when a modal is already up, else open() a fresh
+    // shake-in.
+    showBuyEntryToken() {
+      this.profileModal = false;
+      var s   = Alpine.store('modals');
+      var cur = s.current();
+      if (cur && cur.id) {
+        s.swap('buy-entry-token', {});
+      } else {
+        s.open('buy-entry-token', { enterAnim: 'shake' });
       }
     },
 
@@ -1282,7 +1313,7 @@ window.selectionBoard = function() {
         if (funding && funding.fundable === false) {
           this.submitting = false;
           this.resetHoldButtons();
-          this.showWalletTopup();
+          this.showFundsNeeded();
           return;
         }
       }
@@ -1523,14 +1554,15 @@ window.selectionBoard = function() {
           } else if (/entry token/i.test(data.error || '')) {
             // Defense-in-depth — older string-match for the "no tokens" raise
             // from the server (the chain-layer twin of the 'no_funding' eligibility
-            // blocker). Routes to the same Top Up Wallet modal so the funds-needed
-            // UX is identical whether the wall is caught pre-flight or surfaced
-            // from the server. Kept so a deploy of the controller ahead of the
-            // interpreter doesn't lose the funds panel.
+            // blocker). Routes through the same funds-needed dispatcher so the UX
+            // is identical whether the wall is caught pre-flight or surfaced from
+            // the server (web2 buys an entry token, web3 keeps Top Up Wallet). Kept
+            // so a deploy of the controller ahead of the interpreter doesn't lose
+            // the funds panel.
             if (Alpine.store('solanaModal').visible) Alpine.store('solanaModal').close();
             this.resetHoldButtons();
             this.submitting = false;
-            this.showWalletTopup();
+            this.showFundsNeeded();
           } else {
             if (Alpine.store('solanaModal').visible) {
               Alpine.store('solanaModal').error(data.error || 'Something went wrong');
