@@ -20,7 +20,7 @@ class ApplicationController < ActionController::Base
   before_action :detect_geo_state
   before_action :require_profile_completion
   before_action :preload_navbar_solana_data
-  helper_method :geo_state, :geo_country, :geo_blocked?, :geo_override_active?, :display_balance, :display_seeds_data, :onchain_session?, :wallet_context, :client_session_payload, :true_user, :impersonating?
+  helper_method :geo_state, :geo_country, :geo_blocked?, :geo_override_active?, :display_balance, :display_seeds_data, :display_entry_token_count, :onchain_session?, :wallet_context, :client_session_payload, :true_user, :impersonating?
 
   # OPSEC-045: extend the engine's set_app_session to also bind a per-user
   # session_token in the cookie. The verify_session_token before_action
@@ -281,20 +281,21 @@ class ApplicationController < ActionController::Base
   end
 
   # Payload serialised into #session-context for Alpine.store('session').
-  # SessionContext stays pure (identity only); on-chain balances come from
-  # @wallet_balances + @entry_token_balance which preload_navbar_solana_data
-  # already populated for this request — no extra RPC.
+  # SessionContext stays pure (identity only); on-chain values are read
+  # CACHE-FIRST here so this render path issues no Solana RPC — the client
+  # hydrates them via refreshSession() after first paint.
   #
-  # When the parallel preload's balances_thread silently returns nil (an
-  # RPC flake — see perform_solana_preload), the cents fields are emitted
-  # as null so the client-side eligibility check can recognise "unknown"
-  # and fail open (let the server enforce) instead of zero-blocking a user
-  # who actually has funds.
+  # cents + tokensAvailable are emitted as null when the cache is cold (an
+  # "unknown" state): the client's eligibility check recognises null and fails
+  # OPEN (let the server-side enter enforce) instead of zero-blocking a user
+  # who actually has funds/tokens. The store initializer coerces a null
+  # tokensAvailable to 0, and entry funding re-derives tokens live server-side,
+  # so a cold/null token hint can never mis-fund.
   def client_session_payload
     wallet_context.to_h.merge(
       usdcCents:       wallet_field_cents(:usdc),
       usdtCents:       wallet_field_cents(:usdt),
-      tokensAvailable: (current_user&.entry_token_balance.to_i rescue 0),
+      tokensAvailable: display_entry_token_count,
       # ENABLE_WEB2_USDC_ENTRY kill-switch — eligibilityBlocker reads this to
       # decide whether a web2 user's USDC counts as a funding method (token-first,
       # then USDC). Static per render (the flag can't change mid-session), so
@@ -493,8 +494,23 @@ class ApplicationController < ActionController::Base
       end
     end
 
+    # Entry-token count. list_entry_tokens WARMS the SAME entry_tokens:<address>
+    # cache the navbar reads cache-first (display_entry_token_count), so the next
+    # render is a cache hit; the count feeds the client's updateNavTokens repaint
+    # of the 🎟️ badge. nil on an RPC flake so the client preserves the prior
+    # badge value instead of zeroing it.
+    tokens_thread = Thread.new do
+      Rails.application.executor.wrap do
+        Solana::Vault.new.list_entry_tokens(address).count { |t| !t[:consumed] }
+      rescue => e
+        Rails.logger.warn("[hydrate] list_entry_tokens failed: #{e.message}")
+        nil
+      end
+    end
+
     balances = balances_thread.value
     seeds    = seeds_thread.value
+    tokens   = tokens_thread.value
 
     if balances.is_a?(Hash)
       Rails.cache.write(usdc_cache_key(user), balances[:usdc] || 0, expires_in: 60.seconds)
@@ -511,7 +527,8 @@ class ApplicationController < ActionController::Base
       usdc:  balances.is_a?(Hash) ? (balances[:usdc] || 0) : nil,
       usdt:  balances.is_a?(Hash) ? (balances[:usdt] || 0) : nil,
       sol:   balances.is_a?(Hash) ? (balances[:sol]  || 0) : nil,
-      seeds: seeds
+      seeds: seeds,
+      entry_token_count: tokens
     }
   end
 
@@ -568,12 +585,42 @@ class ApplicationController < ActionController::Base
     Rails.cache.delete(seeds_cache_key(user))
   end
 
-  # Prefetches all on-chain data the navbar (+ gear sidebar) needs in
-  # parallel, so the view phase has zero blocking Solana RPCs. Fires as a
-  # before_action on every HTML request for a logged-in wallet user.
-  # Thin wrapper around perform_solana_preload — only the gating logic
-  # lives here so the underlying parallel fetch is reusable from JSON
-  # endpoints (e.g. AccountsController#session_refresh).
+  # Navbar 🎟️ entry-token count — cache-first, same contract as
+  # display_balance. NON-BLOCKING: the render path NEVER issues a
+  # getProgramAccounts scan.
+  #   - the non-consumed count derived from the cached entry-token LIST
+  #     (warm cache, written by the hydrate endpoint or a prior request) via
+  #     Rails.cache.read — no fetch-on-miss
+  #   - nil when the cache is cold ("loading" — the client-side updateNavTokens
+  #     paints the 🎟️ badge once refreshSession lands)
+  #   - 0 for guests / non-wallet users (definitive)
+  #
+  # Reads the SAME key Solana::Vault#list_entry_tokens writes and mint/consume
+  # invalidate (entry_tokens:<address>), so no third cache key is introduced
+  # and the badge stays correct post-action. The count is DISPLAY-ONLY — entry
+  # funding re-derives tokens live (User#next_unconsumed_entry_token_for), so a
+  # stale/nil navbar count can never mis-fund.
+  #
+  # Per-request memoized: the navbar + entry-token badge partials both ask for
+  # this in the same render.
+  def display_entry_token_count
+    return @display_entry_token_count if defined?(@display_entry_token_count)
+
+    @display_entry_token_count =
+      if current_user&.solana_connected?
+        # Cache-only read: warm → count, cold → nil ("loading"). No RPC.
+        tokens = Rails.cache.read(Solana::Vault.entry_tokens_cache_key(current_user.solana_address))
+        tokens.nil? ? nil : tokens.count { |t| !t[:consumed] }
+      else
+        0
+      end
+  end
+
+  # Warms the navbar's on-chain values cache-first so the view phase has zero
+  # blocking Solana RPCs. Fires as a before_action on every HTML request for a
+  # logged-in wallet user. Thin wrapper around perform_solana_preload — only the
+  # gating logic lives here so the underlying warm-up is reusable from JSON
+  # endpoints.
   def preload_navbar_solana_data
     return unless request.format.html?
     return unless current_user&.solana_connected?
@@ -581,20 +628,19 @@ class ApplicationController < ActionController::Base
     perform_solana_preload
   end
 
-  # The actual parallel-RPC fetch. Callable directly when a JSON endpoint
-  # needs fresh on-chain state (e.g. after a write, for a client-side
-  # refreshSession() refresh).
+  # Cache-first navbar warm-up — issues NO Solana RPC. Every on-chain value the
+  # navbar shows is now read from Rails.cache only (balance/seeds via their
+  # helpers; here the entry-token count + admin vault_state). The client
+  # hydrates + WRITES these caches after first paint via refreshSession() →
+  # /account/session_refresh, so the next render is warm.
   #
-  # Fans out 3 (or 4 for admins) RPCs in independent threads; total wall
-  # time = max(N) instead of sum(N). Each thread gets its own
-  # Solana::Vault.new (Net::HTTP isn't safe to share across threads) and is
-  # wrapped in Rails.application.executor.wrap so the OutboundRequest
-  # audit write gets a proper AR connection from the pool.
-  #
-  # Results are written to instance variables / Current so view helpers
-  # (display_balance, display_seeds_data, User#entry_token_balance,
-  # Solana::Vault.cached_vault_state) read prefetched values without
-  # firing fresh RPCs.
+  # On a WARM cache this memoizes the prefetched values (User#entry_token_balance
+  # via @entry_token_balance, Current.vault_state) so view helpers read them
+  # without any fetch. On a COLD cache it leaves them unset — the badge/navbar
+  # render "loading" (display_entry_token_count → nil) and nothing lazily
+  # re-fetches on the render path. Kept as a method (not inlined into the
+  # before_action) so it stays reusable; no threads remain, but the name is
+  # preserved to avoid churning its callers.
   def perform_solana_preload
     return unless current_user&.solana_connected?
 
@@ -602,53 +648,36 @@ class ApplicationController < ActionController::Base
     wallet_address = current_user.solana_address
     is_admin       = current_user.admin?
 
-    # NOTE (async-navbar-balance): the wallet-balances (USDC/USDT) and the
-    # seeds sync_balance RPCs are NO LONGER preloaded here. They were the two
-    # uncached Helius calls that blocked every logged-in HTML render. The
-    # navbar now renders cache-first (display_balance / display_seeds_data
-    # read Rails.cache only) and the client hydrates them via refreshBalance()
-    # → /admin/usdc_balance on page load. @wallet_balances / @user_seeds are
-    # left unset (nil) so wallet_field_cents emits null cents (fail-open
-    # eligibility hint) and the seeds bar uses its localStorage state.
-    # KEPT below: the cached token count (60s) + the cached admin vault state
-    # (1min) — both fast.
+    # NOTE (async-navbar-balance): NONE of the navbar's on-chain reads issue an
+    # RPC on this render path anymore — all four are CACHE-FIRST.
+    #
+    # PR #92 moved the wallet balances (USDC/USDT) + the seeds sync_balance off
+    # here (display_balance / display_seeds_data are Rails.cache.read-only). The
+    # residual — the entry-token COUNT (a getProgramAccounts scan) and the admin
+    # vault_state (read_vault_state) — used to block first paint on a cold 60s
+    # cache by JOINING two RPC threads here. They are now cache-first too. The
+    # client hydrates every piece via refreshSession() → /account/session_refresh
+    # on page load (which WRITES these caches), so the very next render is warm.
+    # @wallet_balances / @user_seeds stay unset (nil) so wallet_field_cents emits
+    # null cents (fail-open eligibility hint) and the seeds bar uses localStorage.
 
-    tokens_thread = Thread.new do
-      Rails.application.executor.wrap do
-        Solana::Vault.new.list_entry_tokens(wallet_address).count { |tk| !tk[:consumed] }
-      rescue => e
-        Rails.logger.warn("[preload] entry_token_balance failed: #{e.message}")
-        0
-      end
+    # Entry-token COUNT — cache-first, NO fetch-on-miss. The 🎟️ badge reads
+    # display_entry_token_count (the same Rails.cache.read); warm @entry_token_balance
+    # here ONLY when the list cache is already warm, so User#entry_token_balance
+    # (/account, /wallet) stays RPC-free too, and leave it UNSET on a cold cache
+    # so nothing lazily re-fetches on the render path.
+    if (cached_tokens = Rails.cache.read(Solana::Vault.entry_tokens_cache_key(wallet_address)))
+      current_user.instance_variable_set(:@entry_token_balance, cached_tokens.count { |tk| !tk[:consumed] })
     end
 
-    vault_state_thread = if is_admin
-      Thread.new do
-        Rails.application.executor.wrap do
-          Rails.cache.fetch("solana:vault_state", expires_in: 1.minute) do
-            Solana::Vault.new.read_vault_state
-          end
-        rescue => e
-          Rails.logger.warn("[preload] vault_state failed: #{e.message}")
-          # Sentinel so the main thread can distinguish "confirmed nil"
-          # (truly uninitialized) from "RPC errored" — vault_uninitialized?
-          # fails safe to false in the latter case.
-          :__preload_error__
-        end
-      end
-    end
-
-    current_user.instance_variable_set(:@entry_token_balance, tokens_thread.value)
-
-    if vault_state_thread
-      result = vault_state_thread.value
+    # Admin vault_state — cache-first, NO fetch-on-miss. Warm → memoize into
+    # Current so the admin hub renders it RPC-free; cold → leave
+    # vault_state_fetched FALSE so ONLY the page that actually shows it (admin
+    # hub / contract) lazily fetches once via Solana::Vault.cached_vault_state,
+    # instead of EVERY admin HTML render paying a cold RPC here.
+    if is_admin && (cached_state = Rails.cache.read(Solana::Vault::VAULT_STATE_CACHE_KEY))
+      Current.vault_state         = cached_state
       Current.vault_state_fetched = true
-      if result == :__preload_error__
-        Current.vault_state_error = true
-        Current.vault_state       = nil
-      else
-        Current.vault_state = result
-      end
     end
 
     # debug-level (not info) so this fires once per authenticated HTML
