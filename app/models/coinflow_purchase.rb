@@ -37,6 +37,30 @@ class CoinflowPurchase < ApplicationRecord
   scope :refunded,      -> { where(status: "refunded") }
   scope :for_reference, ->(reference) { where(coinflow_reference: reference) }
 
+  # Tier-3 settlement resolution — the ONLY path a real `Settled` event takes,
+  # because Coinflow's payload carries no reference field (see
+  # Webhooks::CoinflowController#purchase_for_event). Given the buyer and the
+  # settled amount, pick their OLDEST pending row AT THAT PRICE.
+  #
+  # The price scope is load-bearing, not defensive. Oldest-first consumption is
+  # only fungible among rows that cost the same: while the Coinflow rail sold
+  # nothing but the $19 single, any pending row was as good as any other. Once
+  # the buy page offers single AND trio (and the Add Funds hub / buy-entry modal
+  # still open $19 rows), an abandoned $19 row would otherwise absorb a later
+  # $49 trio settlement — capture_matches? then fails on the amount and the
+  # settlement is REJECTED, so the buyer pays $49 and receives nothing.
+  # Scoping by price keeps oldest-first fungibility WITHIN a price class and
+  # makes the cross-pack hijack unrepresentable.
+  #
+  # Fails closed on an unreadable amount: with no trustworthy price there is no
+  # safe row to pick, and guessing is precisely the bug above.
+  def self.pending_for_settlement(user_id:, cents:)
+    cents = cents.to_i
+    return nil unless cents.positive?
+
+    where(user_id: user_id, status: "pending", price_cents: cents).order(:created_at).first
+  end
+
   # Atomic pending → captured transition — the exactly-once fulfillment gate.
   # A Coinflow `Settled` webhook can be redelivered (webhooks may arrive more
   # than once); the single-row `UPDATE ... WHERE status = 'pending'` guarantees

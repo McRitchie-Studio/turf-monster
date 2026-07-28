@@ -14,11 +14,14 @@ module Coinflow
   #              x-coinflow-auth-user-id: <stable per-user id>,
   #              Content-Type: application/json
   #     Body:    { subtotal: { cents:, currency: "USD" },
+  #                chargebackProtectionData: [{ productName:, productType:,
+  #                                             quantity:, rawProductData: }],
+  #                email:,   # omitted when the buyer has none
   #                standaloneLinkConfig: { callbackUrl:, endUserDeviceIpAddress: } }
   #     -> { "link": "https://sandbox-merchant.coinflow.cash/purchase-v2/..." }
   #
   # Coinflow's flow is a redirect + webhook — no client-side capture leg like
-  # PayPal's onApprove. On the `Settled` webhook we mint exactly 1 entry token.
+  # PayPal's onApprove. On the `Settled` webhook we mint the PACK's quantity.
   class Client
     Error = Class.new(StandardError)
 
@@ -35,6 +38,17 @@ module Coinflow
     # a supporting device/browser; PayPal/Venmo also require account-level
     # enablement by Coinflow's integrations team, Venmo is US-only; `card` is ungated.
     ALLOWED_PAYMENT_METHODS = %w[applePay googlePay card paypal venmo].freeze
+
+    # Cart description for Coinflow's Chargeback Protection underwriter, sent as
+    # the top-level `chargebackProtectionData` array. REQUIRED once the merchant
+    # account has chargeback protection enabled — and the failure is late and
+    # confusing: Coinflow still answers the create-link call 200 without it, then
+    # the HOSTED checkout page refuses the buyer's Confirm Purchase with
+    # "chargebackProtectionData is required". `productType` is Coinflow's enum;
+    # `gameOfSkill` is the honest classification for a Turf Monster entry token
+    # (skill-based contests), and the underwriter prices against it.
+    PRODUCT_NAME = "Turf Monster entry token".freeze
+    PRODUCT_TYPE = "gameOfSkill".freeze
 
     class << self
       def base_url
@@ -53,15 +67,33 @@ module Coinflow
     # x-coinflow-auth-user-id is a stable per-user handle so Coinflow's webhook
     # can echo it back as customerId; the purchase reference rides the
     # callbackUrl so the settlement resolves to the exact row.
-    def create_checkout_link(user:, pack:, return_url:, ip:)
+    def create_checkout_link(user:, pack:, pack_id:, return_url:, ip:)
       body = {
         subtotal: { cents: Integer(pack.fetch(:price_cents)), currency: "USD" },
         allowedPaymentMethods: ALLOWED_PAYMENT_METHODS,
+        chargebackProtectionData: [
+          {
+            productName: PRODUCT_NAME,
+            productType: PRODUCT_TYPE,
+            quantity: Integer(pack.fetch(:quantity)),
+            rawProductData: {
+              packId: pack_id.to_s,
+              priceCents: Integer(pack.fetch(:price_cents))
+            }
+          }
+        ],
         standaloneLinkConfig: {
           callbackUrl: return_url,
           endUserDeviceIpAddress: ip
         }
       }
+      # Identity signal for the underwriter — Coinflow's acceptance-rate guidance
+      # asks for email, name, and device behavior. Email is the ONLY one of those
+      # we hold for every buyer (first_name/last_name exist on users but are not
+      # reliably populated), so send it alone rather than a half-filled
+      # customerInfo. Omit the key entirely when blank: never send `email: null`.
+      body[:email] = user.email if user.email.present?
+
       response = request(:post, "/api/checkout/link", body: body,
                          headers: { "x-coinflow-auth-user-id" => self.class.auth_user_id(user) })
       link = response["link"]

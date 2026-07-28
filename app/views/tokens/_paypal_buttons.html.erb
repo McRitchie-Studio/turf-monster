@@ -34,6 +34,7 @@
           <%= render "tokens/pack_button",
               pack_id:       pack_id,
               pack:          pack,
+              provider:      "paypal",
               select_js:     "selectPack('#{pack_id}')",
               selected_expr: "pack === '#{pack_id}'" %>
         <% end %>

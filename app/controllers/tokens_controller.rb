@@ -208,9 +208,9 @@ class TokensController < ApplicationController
   # Coinflow hosted-checkout kickoff (additive rail, gated on AppFlags.coinflow?).
   # JSON-only. Coinflow's flow is a redirect (no client-side capture leg): we
   # create the pending purchase row FIRST, ask Coinflow for a hosted-checkout
-  # link, and hand the browser that link. On `Settled` the webhook mints exactly
-  # 1 entry token (Webhooks::CoinflowController) — the same on-chain end state as
-  # the PayPal token-buy. The amount derives SERVER-SIDE from the pack; the
+  # link, and hand the browser that link. On `Settled` the webhook mints the
+  # PACK's quantity (Webhooks::CoinflowController) — the same on-chain end state
+  # as the PayPal token-buy. The amount derives SERVER-SIDE from the pack; the
   # client only ever names a pack id.
   def coinflow_order
     pack_id = params[:pack].to_s
@@ -253,7 +253,8 @@ class TokensController < ApplicationController
 
       return_url = "#{tokens_buy_url}?coinflow=return&reference=#{@coinflow_purchase.coinflow_reference}"
       link = Coinflow::Client.new.create_checkout_link(
-        user: current_user, pack: pack, return_url: return_url, ip: request.remote_ip
+        user: current_user, pack: pack, pack_id: pack_id,
+        return_url: return_url, ip: request.remote_ip
       )
       Rails.logger.info "[tokens] coinflow.order_created purchase=#{@coinflow_purchase.id} " \
                         "reference=#{@coinflow_purchase.coinflow_reference} pack=#{pack_id} user=#{current_user.id}"
@@ -356,9 +357,17 @@ class TokensController < ApplicationController
   def coinflow_simulate_settle
     return head :not_found if Rails.env.production?
 
-    purchase = current_user.coinflow_purchases.where(status: "pending").order(:created_at).last
+    # Resolve EXACTLY as production does. The newest pending row only names the
+    # amount the buyer just checked out with; the row that actually settles is
+    # then chosen by CoinflowPurchase.pending_for_settlement — the same tier-3
+    # resolver the real webhook uses. This previously took `.last` outright,
+    # the OPPOSITE end from the webhook's oldest-first, and built its event from
+    # the row it had already picked, so capture_matches? could never fail and
+    # the dev button structurally could not reproduce production resolution.
+    intent   = current_user.coinflow_purchases.where(status: "pending").order(:created_at).last
+    purchase = CoinflowPurchase.pending_for_settlement(user_id: current_user.id, cents: intent&.price_cents)
     unless purchase
-      return render json: { error: "No pending Coinflow purchase — click Buy 1 entry first." }, status: :not_found
+      return render json: { error: "No pending Coinflow purchase — start a Coinflow checkout first." }, status: :not_found
     end
 
     # The subtotal we set server-side at checkout-link time — exactly what a real

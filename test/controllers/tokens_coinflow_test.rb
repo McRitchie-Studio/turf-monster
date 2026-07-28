@@ -4,6 +4,26 @@ require "minitest/mock"
 # Coinflow-rails onramp: TokensController#coinflow_order and the reference
 # branch of #status. Mirrors the PayPal coverage in tokens_paypal_test.rb.
 class TokensCoinflowTest < ActionDispatch::IntegrationTest
+  # Net::HTTP stand-in that records the outgoing request and replays one canned
+  # Coinflow link response — lets a test drive the REAL Coinflow::Client through
+  # the controller and then inspect the exact JSON that would hit the wire.
+  class CapturingHttp
+    Response = Struct.new(:code, :body)
+
+    attr_reader :requests
+    attr_accessor :use_ssl, :open_timeout, :read_timeout
+
+    def initialize(link:)
+      @link = link
+      @requests = []
+    end
+
+    def request(req)
+      @requests << req
+      Response.new("200", { link: @link }.to_json)
+    end
+  end
+
   setup do
     @alex = users(:alex)
     @jordan = users(:jordan)
@@ -92,7 +112,34 @@ class TokensCoinflowTest < ActionDispatch::IntegrationTest
     # carrying the reference for settlement resolution.
     call = client.checkout_calls.first
     assert_equal 19_00, call[:pack][:price_cents]
+    assert_equal "single", call[:pack_id], "pack_id must reach the client for chargeback cart data"
     assert_includes call[:return_url], "reference=#{purchase.coinflow_reference}"
+  end
+
+  # Integration tier for the chargeback-protection fix: the unit test proves the
+  # client BUILDS the field, this proves the controller's real request CARRIES it
+  # to the wire. The seam that broke was the wiring (pack_id never reached the
+  # client), so drive the genuine Coinflow::Client and stub only Net::HTTP.
+  test "coinflow_order's outgoing checkout-link request carries chargebackProtectionData" do
+    log_in_as_with_wallet @jordan
+    http = CapturingHttp.new(
+      link: "https://sandbox-merchant.coinflow.cash/purchase-v2/CBP"
+    )
+
+    with_coinflow_enabled do
+      Net::HTTP.stub :new, http do
+        post tokens_coinflow_order_path, params: { pack: "trio" }, as: :json
+      end
+    end
+    assert_response :success
+
+    body = JSON.parse(http.requests.last.body)
+    item = body.fetch("chargebackProtectionData").first
+    assert_equal "gameOfSkill", item["productType"]
+    assert_equal "Turf Monster entry token", item["productName"]
+    assert_equal 3, item["quantity"], "trio pack is 3 entry tokens"
+    assert_equal "trio", item.dig("rawProductData", "packId")
+    assert_equal @jordan.email, body["email"]
   end
 
   test "coinflow_order records the contest context when given" do
@@ -123,16 +170,26 @@ class TokensCoinflowTest < ActionDispatch::IntegrationTest
 
   # ── buy page card (flag-gated, additive) ──────────────────────────────────
 
-  test "buy page shows the Coinflow buy-1 card when the flag is on" do
+  test "buy page offers a Coinflow card per pack when the flag is on" do
     log_in_as @jordan
     with_coinflow_enabled do
       get tokens_buy_path
     end
     assert_response :success
     assert_select "[data-coinflow-buy]"
-    assert_match "Buy 1 entry with Coinflow", response.body
-    assert_match "tmCoinflowBuyOne('single')", response.body
     assert_match "window.tmCoinflowBuyOne", response.body, "the shared kickoff script must render"
+
+    # EVERY purchasable pack gets a Coinflow card, not just the single — the
+    # pack id rides through to /tokens/coinflow_order, and TokenPurchaseJob
+    # mints pack[:quantity], so the trio card charges $49 and mints 3.
+    StripePurchase.available_packs.each_key do |pack_id|
+      assert_match "tmCoinflowBuyOne('#{pack_id}')", response.body,
+                   "expected a Coinflow card for the #{pack_id} pack"
+    end
+    # Each card names its rail — the only on-card tell once Coinflow and Stripe
+    # share the orb-glow shape.
+    assert_select "[data-coinflow-buy] .provider-badge-coinflow",
+                  count: StripePurchase.available_packs.size
   end
 
   test "buy page hides the Coinflow buy-1 card when the flag is off" do

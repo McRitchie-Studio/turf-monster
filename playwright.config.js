@@ -24,6 +24,10 @@ module.exports = defineConfig({
     // process at its own isolated stack's port. Defaults to the canonical :3100.
     baseURL: process.env.PW_BASE_URL || "http://127.0.0.1:3100",
     headless: true,
+    // Smooth-load (engine 0.24) enables same-origin view transitions; under
+    // prefers-reduced-motion Turbo never starts the view transition at all,
+    // so e2e gets instant swaps.
+    reducedMotion: "reduce",
     // Capture a Playwright trace + screenshot when a test retries/fails so
     // CI-only failures (which don't reproduce locally — e.g. geo.spec.js:54)
     // are diagnosable from the uploaded test-results/ artifact. on-first-retry

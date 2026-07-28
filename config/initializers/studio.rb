@@ -29,6 +29,18 @@ Studio.draw_link_routes = false
 Studio.configure do |config|
   config.app_name = "Turf Monster"
   config.sticky_table_headers = true
+
+  # Smooth-load convention (engine 0.24): same-origin view transitions +
+  # turbo-cache-control no-preview metas via the engine layout contract.
+  config.smooth_load = true
+
+  # nav_spinner_min_ms is a minimum DISPLAY FLOOR, not a timeout: the engine
+  # computes remaining = max(0, min_ms - elapsed), so a slow op (Solana RPC
+  # included) already exceeds any floor and is unaffected — the floor only
+  # pads FAST navigations so a sub-floor load doesn't flash the spinner.
+  # Per the engine's smooth-load guidance, drop it to 300ms so fast loads
+  # absorb flicker without the spinner lingering after every turbo:load.
+  config.nav_spinner_min_ms = 300
   config.session_key = :turf_user_id
   config.welcome_message = ->(user) { "Welcome to Turf Totals, #{user.display_name}!" }
   # Passwordless: email auth is magic-link only. Permit just :email (+ funnel

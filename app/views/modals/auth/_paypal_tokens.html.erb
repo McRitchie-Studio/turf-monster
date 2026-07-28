@@ -81,9 +81,13 @@
                   between picker → waiting. target_blank + data-turbo=false
                   (from the partial) preserve the new-tab Stripe checkout
                   flow — the slide happens alongside the popup open. %>
+              <%# Despite this partial's name, THIS branch is the Stripe flow
+                  (target_blank Stripe checkout, gated on stripe_on) — the
+                  PayPal picker is tokens/_paypal_buttons. Badge it Stripe. %>
               <%= render "tokens/pack_button",
                   pack_id:      pack_id,
                   pack:         pack,
+                  provider:     "stripe",
                   extra_params: { contest: @contest&.slug },
                   target_blank: true,
                   disabled:     !stripe_on,

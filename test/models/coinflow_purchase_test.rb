@@ -136,6 +136,77 @@ class CoinflowPurchaseTest < ActiveSupport::TestCase
     assert_equal "minted", purchase.reload.status, "H8: never downgrade a minted purchase"
   end
 
+  # ── pending_for_settlement (tier-3 resolution, the ONLY real webhook path) ──
+  #
+  # The regression this guards: while the Coinflow rail sold nothing but the $19
+  # single, "oldest pending row" was fungible. Offering single AND trio makes
+  # heterogeneous-price pending rows reachable, and an amount-blind pick lets an
+  # abandoned $19 row absorb a $49 trio settlement — capture_matches? then fails
+  # on the amount and the buyer is charged $49 for tokens that never mint.
+  # Assert the ROW CHOSEN, not a proxy: a count or a bare non-nil would pass
+  # against exactly the wrong row.
+
+  test "picks the buyer's oldest pending row AT THE SETTLED PRICE, not the oldest overall" do
+    stale_single = build_purchase(price_cents: 19_00, pack_id: "single", quantity: 1)
+    stale_single.created_at = 2.hours.ago
+    stale_single.save!
+    trio = build_purchase(price_cents: 49_00, pack_id: "trio", quantity: 3)
+    trio.created_at = 1.minute.ago
+    trio.save!
+
+    found = CoinflowPurchase.pending_for_settlement(user_id: @user.id, cents: 49_00)
+    assert_equal trio.id, found.id,
+                 "a $49 settlement must bind the trio row, never the older $19 single"
+  end
+
+  test "still consumes oldest-first among rows of the SAME price" do
+    older = build_purchase(price_cents: 19_00)
+    older.created_at = 2.hours.ago
+    older.save!
+    newer = build_purchase(price_cents: 19_00)
+    newer.created_at = 1.minute.ago
+    newer.save!
+
+    found = CoinflowPurchase.pending_for_settlement(user_id: @user.id, cents: 19_00)
+    assert_equal older.id, found.id,
+                 "fungible within a price class — N settlements must drain N rows"
+  end
+
+  test "returns nil when no pending row matches the settled amount" do
+    build_purchase(price_cents: 19_00).save!
+    assert_nil CoinflowPurchase.pending_for_settlement(user_id: @user.id, cents: 49_00)
+  end
+
+  # Fail closed: with no trustworthy amount there is no safe row to pick, and
+  # guessing is the whole bug.
+  test "returns nil on an unreadable settled amount rather than guessing a row" do
+    build_purchase(price_cents: 19_00).save!
+    [nil, 0, "", "abc"].each do |bad|
+      assert_nil CoinflowPurchase.pending_for_settlement(user_id: @user.id, cents: bad),
+                 "cents=#{bad.inspect} must not resolve to any row"
+    end
+  end
+
+  test "never reaches another buyer's pending row" do
+    other = users(:sam)
+    mine = build_purchase(price_cents: 19_00)
+    mine.created_at = 1.minute.ago
+    mine.save!
+    theirs = CoinflowPurchase.new(user: other, pack_id: "single", quantity: 1,
+                                  price_cents: 19_00, status: "pending")
+    theirs.created_at = 2.hours.ago
+    theirs.save!
+
+    found = CoinflowPurchase.pending_for_settlement(user_id: @user.id, cents: 19_00)
+    assert_equal mine.id, found.id
+  end
+
+  test "ignores rows that are no longer pending" do
+    captured = build_purchase(price_cents: 19_00, status: "captured")
+    captured.save!
+    assert_nil CoinflowPurchase.pending_for_settlement(user_id: @user.id, cents: 19_00)
+  end
+
   private
 
   def build_purchase(**overrides)

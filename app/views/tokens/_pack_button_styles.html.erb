@@ -73,4 +73,34 @@
   .glow-pair-btn > .glow-content { position: relative; z-index: 20; }
 
   .glow-brand { --orb1: #4BAF50; --orb2: #f97316; --orb-accent: #f97316; }
+
+  /* Coinflow rail — same orb choreography, cooler hues so the two payment rails
+     read as siblings rather than the same button twice. Indigo/cyan echoes
+     Coinflow's own hosted checkout. */
+  .glow-coinflow { --orb1: #6366f1; --orb2: #22d3ee; --orb-accent: #818cf8; }
+
+  /* PayPal rail — the select-mode picker. Neutral blues, distinct from both the
+     brand green/orange and Coinflow's indigo/cyan. */
+  .glow-paypal { --orb1: #0070ba; --orb2: #64748b; --orb-accent: #38bdf8; }
+
+  /* Provider badge. SOLID fills with white text, deliberately — a translucent
+     tint plus light text composites against the card, so it inverts with the
+     theme: the first cut measured 8.00:1 on dark but 1.28:1 on light, and the
+     badge is the ONLY on-card tell of which rail takes the money. An opaque
+     fill contrasts identically in every theme, so there is no light variant to
+     forget. Same trap this repo already documented one file over
+     (modals/auth/_paypal_tokens: "bare text-yellow-300 on the light theme's
+     white card is near-invisible"). Ratios vs #fff: stripe 5.13:1,
+     coinflow 7.90:1, paypal 6.66:1 — all clear AA's 4.5:1.
+     The theme primary (#4BAF50) is NOT usable here: white on it is 2.78:1. */
+  .provider-badge {
+    display: inline-block; flex-shrink: 0;
+    padding: 4px 10px; border-radius: 9999px;
+    font-size: 10px; font-weight: 800;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    line-height: 1; color: #ffffff;
+  }
+  .provider-badge-stripe   { background: #2e7d32; }
+  .provider-badge-coinflow { background: #4338ca; }
+  .provider-badge-paypal   { background: #005ea6; }
 </style>
