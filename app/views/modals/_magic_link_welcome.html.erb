@@ -22,7 +22,7 @@
   props reader is defined inline — no importmap factory.
 %>
 <div x-data="{ get props() { return ($store.modals.current() || {}).props || {} } }">
-  <%= render 'modals/blocks/card_header',
+  <%= render 'studio/modals/blocks/card_header',
         size:        :lg,
         icon_emoji:  '🎉',
         title:       "Welcome" do %>
@@ -33,7 +33,7 @@
   <%# props.next is null for this welcome (the user is already ON the featured
       contest), so the cta_redirect block drains then simply CLOSES the modal,
       revealing the contest underneath. Clicking the CTA closes immediately. %>
-  <%= render 'modals/blocks/cta_redirect',
+  <%= render 'studio/modals/blocks/cta_redirect',
         href_key:         "props.next",
         label_html:       "Let's go &rarr;",
         duration_seconds: 4 %>

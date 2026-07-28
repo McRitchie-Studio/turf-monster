@@ -17,7 +17,7 @@
 %>
 <% if current_user.can_change_username? %>
   <%# usernameRenameForm() factory lives in app/javascript/username_rename_form.js.
-      The shell partial (modals/blocks/_shell) provides the title row + close ×
+      The shell partial (studio/modals/blocks/_shell) provides the title row + close ×
       so we don't repeat that boilerplate. %>
   <div x-data="usernameRenameForm({
          initialUsername: '<%= j current_user.username %>',
@@ -25,7 +25,7 @@
          confirmUrl: '<%= confirm_username_account_path %>',
          initialSaving: (($store.modals.current() || {}).props || {}).previewLoading || false
        })">
-    <%= render layout: "modals/blocks/shell", locals: { title: "Change Username" } do %>
+    <%= render layout: "studio/modals/blocks/shell", locals: { title: "Change Username" } do %>
       <p class="text-sm text-muted mb-4">
         Your username is stored on-chain.
         <%= current_user.phantom_wallet? ? "Saving opens your Phantom wallet to sign." : "Changes are saved via your managed wallet." %>
@@ -58,7 +58,7 @@
       block_given? trap is dodged by passing subtitle explicitly. %>
   <% locked_target = SeasonConfig.main_contest %>
   <div x-data="{}">
-    <%= render 'modals/blocks/card_header',
+    <%= render 'studio/modals/blocks/card_header',
           size: :lg,
           icon: :error,
           title: "Enter Contest First",

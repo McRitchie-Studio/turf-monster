@@ -231,7 +231,7 @@
                 class="absolute top-0 right-0 -mr-2 text-secondary hover:text-heading text-xl leading-none"
                 aria-label="Close">&times;</button>
       </div>
-      <%= render "modals/blocks/progress_pill", current: 1, total: 3 %>
+      <%= render "studio/modals/blocks/progress_pill", current: 1, total: 3 %>
       <p class="text-xs text-secondary mb-4 text-center"
          x-text="'Your ' + ((props && props.picksRequired) || 6) + ' picks are saved — sign in to submit your lineup.'"></p>
 
@@ -285,10 +285,10 @@
               "email" via x-model (the form dispatches that value rather than
               natively posting); the emailValidator child scope does not define
               "email" or "props", so both bind upward to the modal's x-data. %>
-          <%= render "shared/email_field",
+          <%= render "studio/modals/shared/email_field",
                 name: nil, x_model: "email",
                 placeholder: "you@example.com", required: true,
-                disabled_expr: "props.submitting" %>
+                disabled_expr: "props.submitting", validator: true %>
         </div>
         <template x-if="props.formError">
           <p class="text-red-400 text-xs mb-3" x-text="props.formError"></p>
@@ -308,7 +308,7 @@
       link (resend stays a link, per the design call). %>
   <template x-if="props.step === 'magic-link-sent'">
     <div>
-      <%= render 'modals/blocks/card_header', icon_emoji: '📬', title: 'Check your inbox' do %>
+      <%= render 'studio/modals/blocks/card_header', icon_emoji: '📬', title: 'Check your inbox' do %>
         We emailed <span class="text-heading font-medium break-all" x-text="props.sentEmail"></span>
         a one-tap sign-in link. Check your email and
         <span class="text-heading font-semibold">Click the Magic Link</span> to continue.
@@ -327,7 +327,7 @@
       resend again once the cooldown clears (re-advancing re-runs the slide). %>
   <template x-if="props.step === 'magic-link-resent'">
     <div>
-      <%= render 'modals/blocks/card_header', icon_color: 'primary', title: 'Link Resent!' do %>
+      <%= render 'studio/modals/blocks/card_header', icon_color: 'primary', title: 'Link Resent!' do %>
         We just resent <span class="text-heading font-medium break-all" x-text="props.sentEmail"></span>
         a one-tap sign-in link. Check your email and
         <span class="text-heading font-semibold">Click the Magic Link</span> to continue.
@@ -360,11 +360,11 @@
       the null-bypass (gallery preview). %>
   <template x-if="props.step === 'redirect'">
     <div>
-      <%= render 'modals/blocks/card_header',
+      <%= render 'studio/modals/blocks/card_header',
             icon_emoji_key: "props.icon",
             title_key:      "props.title",
             subtitle_key:   "props.message" %>
-      <%= render 'modals/blocks/cta_redirect',
+      <%= render 'studio/modals/blocks/cta_redirect',
             href_key:         "props.url",
             label_key:        "props.cta || 'Go now'",
             duration_seconds: 5 %>

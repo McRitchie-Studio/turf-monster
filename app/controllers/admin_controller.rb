@@ -18,28 +18,28 @@ class AdminController < ApplicationController
     # testing (backdrop, escape, click-outside).
     { group: "Templates",
       label: "Wizard (Step N of M + nav)", key: "template-wizard",
-      modal_id: "template-wizard", file: "app/views/modals/templates/_wizard.html.erb",
-      partial: "modals/templates/wizard",
+      modal_id: "template-wizard", file: "[studio-engine] app/views/studio/modals/templates/_wizard.html.erb",
+      partial: "studio/modals/templates/wizard",
       props: {} },
     { group: "Templates",
       label: "Success (large title — celebration)", key: "template-success",
-      modal_id: "template-success", file: "app/views/modals/templates/_success.html.erb",
-      partial: "modals/templates/success",
+      modal_id: "template-success", file: "[studio-engine] app/views/studio/modals/templates/_success.html.erb",
+      partial: "studio/modals/templates/success",
       props: {} },
     { group: "Templates",
       label: "Status (small title — in-flight)", key: "template-status",
-      modal_id: "template-status", file: "app/views/modals/templates/_status.html.erb",
-      partial: "modals/templates/status",
+      modal_id: "template-status", file: "[studio-engine] app/views/studio/modals/templates/_status.html.erb",
+      partial: "studio/modals/templates/status",
       props: {} },
     { group: "Templates",
       label: "Action (icon + question + dual CTA)", key: "template-action",
-      modal_id: "template-action", file: "app/views/modals/templates/_action.html.erb",
-      partial: "modals/templates/action",
+      modal_id: "template-action", file: "[studio-engine] app/views/studio/modals/templates/_action.html.erb",
+      partial: "studio/modals/templates/action",
       props: {} },
     { group: "Templates",
       label: "Form (title + body + CTA)", key: "template-form",
-      modal_id: "template-form", file: "app/views/modals/templates/_form.html.erb",
-      partial: "modals/templates/form",
+      modal_id: "template-form", file: "[studio-engine] app/views/studio/modals/templates/_form.html.erb",
+      partial: "studio/modals/templates/form",
       props: {} },
 
     { group: "Auth — credentials",
@@ -111,6 +111,14 @@ class AdminController < ApplicationController
       label: "Picker (insufficient USDC/USDT)", key: "wallet-deposit-picker",
       modal_id: "wallet-deposit", file: "app/views/modals/_wallet_deposit.html.erb",
       props: { neededCents: 1900, usdcCents: 300, usdtCents: 0 } },
+
+    # The web2 / managed funds modal at the entry blocker — two stacked
+    # entry-token rails (Coinflow buy-1 on top, the Stripe pack picker below).
+    # Its web3 counterpart at the same wall is wallet-topup above.
+    { group: "Funding",
+      label: "Buy an Entry Token (web2 — Coinflow + Stripe)", key: "buy-entry-token",
+      modal_id: "buy-entry-token", file: "app/views/modals/_buy_entry_token.html.erb",
+      props: {} },
 
     # === CDP ramp (Coinbase buy / cash-out) ================================
     # One modal id ('cdp-ramp'), step machine on props.step + props.flow.
@@ -245,7 +253,7 @@ class AdminController < ApplicationController
       props: { seeds_earned: 25, seeds_total: 75, seeds_level: 1 } },
     { group: "Quest / Newsletter",
       label: "Free entry earned (100 seeds / level up)", key: "free-entry-earned",
-      modal_id: "free-entry-earned", file: "app/views/modals/_free_entry_earned.html.erb",
+      modal_id: "free-entry-earned", file: "[studio-engine] app/views/studio/modals/blocks/_free_entry_earned.html.erb",
       props: {} },
     { group: "Quest / Newsletter",
       label: "Newsletter subscribe (consent-gated)", key: "newsletter-subscribe",

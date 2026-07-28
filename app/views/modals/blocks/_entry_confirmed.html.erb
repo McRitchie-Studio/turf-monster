@@ -3,16 +3,25 @@
   BOTH web3 (on-chain Solana entry) and web2 (entry-token-funded)
   flows so the user sees the same UX regardless of payment method.
 
-  Componentized from modals/templates/_success.html.erb — same visual
-  spine (card_header at :lg + primary btn-lg CTA + subtle dismiss
-  link) plus three on-chain enrichments that make this distinct from
-  a generic success modal:
+  KEPT as a turf fork (studio-engine 0.20 homed its own
+  studio/modals/blocks/_entry_confirmed, but this one stays): the engine
+  block has no slot for the kickoff_at "Kicks off in" contest countdown
+  below, and it roots props off $store.modals.current().props whereas
+  this card is driven by $store.solanaModal (a direct-field store with no
+  .current()). Reconcile both — add a kickoff yield slot + a store-
+  agnostic props source to the engine block — in a follow-up before
+  adopting. The generic building blocks it composes ARE the engine's:
+  card_header + cta_redirect under studio/modals/blocks/.
+
+  Same visual spine as the engine success template (card_header at :lg
+  + primary btn-lg CTA + subtle dismiss link) plus three on-chain
+  enrichments that make this distinct from a generic success modal:
 
     - Branded Solana tx link (gradient mark + truncated signature)
     - Seeds bar with level-up celebration animation
     - 5-second drain countdown on the primary CTA + auto-redirect
-      (delegated to modals/blocks/_cta_redirect — that partial owns
-      the timer + drain styling; this card only fires confetti)
+      (delegated to studio/modals/blocks/_cta_redirect — that partial
+      owns the timer + drain styling; this card only fires confetti)
 
   Owns the confetti setTimeout; destroy() clears it so a mid-modal
   close doesn't fire confetti past unmount.
@@ -63,7 +72,7 @@
       app; bg-mint/15 isn't in the Tailwind safelist so the previous
       mint accent rendered the check without its containing pill).
       "Good Luck" headline + "Entry Confirmed" subtitle. %>
-  <%= render "modals/blocks/card_header",
+  <%= render "studio/modals/blocks/card_header",
         size: :lg,
         icon_color: 'primary',
         title: "Good Luck",
@@ -187,10 +196,10 @@
   </template>
 
   <%# Primary CTA — drain-overlay button + 5s auto-redirect, all
-      managed by modals/blocks/_cta_redirect. When lobby_url_key
+      managed by studio/modals/blocks/_cta_redirect. When lobby_url_key
       resolves to null (gallery preview), the drain still plays but
       the timer-end redirect is a no-op so the iframe stays put. %>
-  <%= render "modals/blocks/cta_redirect",
+  <%= render "studio/modals/blocks/cta_redirect",
         href_key:   lobby_url_key,
         label_html: "Contest Lobby &#x2694;&#xFE0F;" %>
 

@@ -89,7 +89,7 @@ gem "sentry-rails"
 # 0.11.0 widens the Rails bound to allow 8.1; it also ships the opt-in
 # Studio::Enumeral table (0.9.0) and the Studio::Redis / Studio::Cable
 # websocket primitives (0.10.0), neither of which turf adopts yet.
-gem "studio-engine", "~> 0.19" # 0.19 ships the dev-only /_studio/local_review mint endpoint (the local half of the board WAITING APPROVAL button — turf stacks host most local demos); 0.18 ships the /admin/style Design System page + engine-motion.css (opt-in motion/effect layer, generated via lib/tasks/tailwindcss_engine_motion.rake); 0.15 made btn-secondary/btn-neutral token-driven (--btn-* custom props) so TM expresses its violet secondary via :root tokens instead of forking
+gem "studio-engine", "~> 0.21" # 0.20 homes the shared modal-block superset TM now renders instead of forking: the entry-confirmed celebration + seeds bar + digit reel + free-entry-earned blocks and the wallet brand sprite, all gated behind config.features %i[web3 leveling] (TM enables both); 0.19 ships the dev-only /_studio/local_review mint endpoint (the local half of the board WAITING APPROVAL button — turf stacks host most local demos); 0.18 ships the /admin/style Design System page + engine-motion.css (opt-in motion/effect layer, generated via lib/tasks/tailwindcss_engine_motion.rake); 0.15 made btn-secondary/btn-neutral token-driven (--btn-* custom props) so TM expresses its violet secondary via :root tokens instead of forking
 
 # Solana primitives (Client, Keypair, Borsh, Transaction, AuthVerifier)
 # 0.4.7 adds Solana::Transaction.cosign_wire + Client#simulate_transaction for the

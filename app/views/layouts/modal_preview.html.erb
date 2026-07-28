@@ -148,6 +148,9 @@
       <template x-if="$store.modals.current().id === 'wallet-connect'">
         <%= render "modals/wallet_connect" %>
       </template>
+      <template x-if="$store.modals.current().id === 'buy-entry-token'">
+        <%= render "modals/buy_entry_token" %>
+      </template>
       <%# cdp-ramp — NOT flag-gated here (unlike the app layout): the gallery
           is the admin dev tool and should preview the Coinbase flow even
           while ENABLE_CDP_RAMP is unset. The modal alone makes no requests
@@ -164,19 +167,19 @@
       <%# Template reference modals — surfaced in the gallery as "Templates". %>
       <% unless Rails.env.production? %>
         <template x-if="$store.modals.current().id === 'template-form'">
-          <%= render "modals/templates/form" %>
+          <%= render "studio/modals/templates/form" %>
         </template>
         <template x-if="$store.modals.current().id === 'template-action'">
-          <%= render "modals/templates/action" %>
+          <%= render "studio/modals/templates/action" %>
         </template>
         <template x-if="$store.modals.current().id === 'template-status'">
-          <%= render "modals/templates/status" %>
+          <%= render "studio/modals/templates/status" %>
         </template>
         <template x-if="$store.modals.current().id === 'template-success'">
-          <%= render "modals/templates/success" %>
+          <%= render "studio/modals/templates/success" %>
         </template>
         <template x-if="$store.modals.current().id === 'template-wizard'">
-          <%= render "modals/templates/wizard" %>
+          <%= render "studio/modals/templates/wizard" %>
         </template>
       <% end %>
     <% end %>

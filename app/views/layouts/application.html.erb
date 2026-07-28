@@ -995,6 +995,16 @@
       <template x-if="$store.modals.current().id === 'wallet-topup'">
         <%= render "modals/wallet_topup" %>
       </template>
+      <%# Buy an Entry Token — the web2 / managed funds modal at the entry blocker
+          (selectionBoard#showBuyEntryToken, via the showFundsNeeded dispatcher).
+          Two stacked entry-token rails (Coinflow buy-1 on top, the Stripe pack
+          picker below); web3 keeps the USDC Top Up Wallet above. Registered ungated
+          alongside wallet-topup / onramp-hub for the same reason (an in-session
+          signup rendered the layout while logged out); each rail self-gates via
+          onramp_rail_visible?. %>
+      <template x-if="$store.modals.current().id === 'buy-entry-token'">
+        <%= render "modals/buy_entry_token" %>
+      </template>
       <% if logged_in? %>
         <template x-if="$store.modals.current().id === 'username'">
           <%= render "modals/username" %>
@@ -1026,7 +1036,11 @@
         <%# free-entry-earned — level-up (every 100 seeds) free-entry celebration,
             opened by the seeds StateFanout level-up handler. %>
         <template x-if="$store.modals.current().id === 'free-entry-earned'">
-          <%= render "modals/free_entry_earned" %>
+          <%# free-entry-earned now renders studio-engine's shared block (0.20);
+              TM supplies only the reward copy. The block reads props.level off
+              $store.modals.current().props and fires window.fireFreeEntryConfetti. %>
+          <%= render "studio/modals/blocks/free_entry_earned",
+                subtitle: "Well done! You earned a <strong class='text-heading font-semibold'>Free Entry Token &#127915;</strong> that will arrive in 48 hours. Keep earning more free entries with each level.".html_safe %>
         </template>
       <% end %>
       <%# crop-photo gets pushed on top of whatever modal owns the avatar
@@ -1068,19 +1082,19 @@
           starting points. %>
       <% unless Rails.env.production? %>
         <template x-if="$store.modals.current().id === 'template-form'">
-          <%= render "modals/templates/form" %>
+          <%= render "studio/modals/templates/form" %>
         </template>
         <template x-if="$store.modals.current().id === 'template-action'">
-          <%= render "modals/templates/action" %>
+          <%= render "studio/modals/templates/action" %>
         </template>
         <template x-if="$store.modals.current().id === 'template-status'">
-          <%= render "modals/templates/status" %>
+          <%= render "studio/modals/templates/status" %>
         </template>
         <template x-if="$store.modals.current().id === 'template-success'">
-          <%= render "modals/templates/success" %>
+          <%= render "studio/modals/templates/success" %>
         </template>
         <template x-if="$store.modals.current().id === 'template-wizard'">
-          <%= render "modals/templates/wizard" %>
+          <%= render "studio/modals/templates/wizard" %>
         </template>
       <% end %>
     <% end %>

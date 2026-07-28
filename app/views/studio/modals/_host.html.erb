@@ -15,8 +15,13 @@
   Backdrop fade + scroll lock + escape + click-outside + ARIA all stay
   identical to the engine so future engine bug fixes can be cherry-picked.
 
-  Promote back to studio-engine in a future release as a configurable
-  set of transition class names; this local copy is the dev preview.
+  studio-engine 0.20 now ships a reconciled host carrying this machinery
+  (ModalAnimations, swap/advance, holdAtLeast) PLUS two guards this copy
+  lacks (the open() stale-entry guard and the cardClasses() set-key
+  guard). This override is intentionally KEPT for now — it also registers
+  the turf cosign-rejected modal inline, which the engine host does not.
+  Reconciling the two (adopt the engine host + a configurable transition-
+  class set + an app modal-registration hook) is a dedicated follow-up.
 %>
 <%# body.modal-open + @keyframes studio-modal-drain live in
     app/assets/tailwind/application.css (migrated 2026-05-24). %>
