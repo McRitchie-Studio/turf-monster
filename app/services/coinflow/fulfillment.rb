@@ -8,8 +8,9 @@ module Coinflow
   # TokensController#coinflow_order and marked `captured` by begin_fulfillment!
   # here BEFORE TokenPurchaseJob mints anything. We never mint then record — the
   # captured row is the durable record that the settlement happened, so a crash
-  # between settlement and mint is recoverable, never a silent double-send (the
-  # StripeDepositJob double-transfer trap).
+  # between settlement and mint is recoverable, never a silent double-send —
+  # the transfer-then-record double-pay trap that StripeDepositJob's deposit
+  # path itself closed by claiming its TransactionLog row before it funds.
   module Fulfillment
     # How old a captured-but-unminted row must be before a redelivered webhook
     # treats it as stranded and re-enqueues. A fresh capture is almost always
