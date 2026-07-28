@@ -29,6 +29,12 @@ Studio.draw_link_routes = false
 Studio.configure do |config|
   config.app_name = "Turf Monster"
   config.sticky_table_headers = true
+
+  # Smooth-load convention (engine 0.24): same-origin view transitions +
+  # turbo-cache-control no-preview metas via the engine layout contract.
+  # nav_spinner_min_ms stays at the 2500 default DELIBERATELY — Solana RPC
+  # ops ride the spinner, so turf keeps the longer minimum.
+  config.smooth_load = true
   config.session_key = :turf_user_id
   config.welcome_message = ->(user) { "Welcome to Turf Totals, #{user.display_name}!" }
   # Passwordless: email auth is magic-link only. Permit just :email (+ funnel

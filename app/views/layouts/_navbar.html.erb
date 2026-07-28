@@ -25,8 +25,13 @@
     needed !important to beat the engine's old inline `style="z-index:60"`;
     the engine no longer uses inline, so the var-based override wins
     via normal cascade. %>
+<%# vt-pinned-header (engine 0.24 smooth-load): names this header as the shared
+    view-transition element so it stays pinned while page content cross-fades.
+    NON-PREVIEW ONLY — the admin navbar-review page renders preview copies of
+    this partial inside the body, and a duplicate view-transition-name silently
+    disables ALL view transitions on the page. Exactly one pinned header per page. %>
 <header data-navbar-root x-data="{ scrolled: false }" <%= '@scroll.window="scrolled = scrolled ? (window.scrollY > 5) : (window.scrollY > 60)"'.html_safe unless is_preview %>
-        class="<%= is_preview ? 'bg-page' : 'sticky top-0 z-[130] bg-page transition-shadow duration-300' %>"
+        class="<%= is_preview ? 'bg-page' : 'vt-pinned-header sticky top-0 z-[130] bg-page transition-shadow duration-300' %>"
         :class="scrolled && 'shadow-lg border-b border-subtle is-scrolled'">
   <% if show_environment_banner %>
     <% environment_actions = capture do %>
