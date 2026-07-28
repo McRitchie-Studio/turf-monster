@@ -73,4 +73,27 @@
   .glow-pair-btn > .glow-content { position: relative; z-index: 20; }
 
   .glow-brand { --orb1: #4BAF50; --orb2: #f97316; --orb-accent: #f97316; }
+
+  /* Coinflow rail — same orb choreography, cooler hues so the two payment rails
+     read as siblings rather than the same button twice. Indigo/cyan echoes
+     Coinflow's own hosted checkout. */
+  .glow-coinflow { --orb1: #6366f1; --orb2: #22d3ee; --orb-accent: #818cf8; }
+
+  /* Provider badge. Colours live here, not in Tailwind utilities — the palette
+     is per-rail and belongs beside the orb vars it has to harmonise with. */
+  .provider-badge {
+    display: inline-block; flex-shrink: 0;
+    padding: 4px 10px; border-radius: 9999px;
+    font-size: 10px; font-weight: 800;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    line-height: 1;
+  }
+  .provider-badge-stripe {
+    background: rgba(75, 175, 80, 0.16); color: #86e08a;
+    box-shadow: inset 0 0 0 1px rgba(75, 175, 80, 0.4);
+  }
+  .provider-badge-coinflow {
+    background: rgba(99, 102, 241, 0.18); color: #a5b4fc;
+    box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.45);
+  }
 </style>

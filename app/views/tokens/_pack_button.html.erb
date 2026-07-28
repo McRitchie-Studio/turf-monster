@@ -24,6 +24,10 @@
     selected_expr - Required with select_js. Alpine expression for "this
                     pack is the selected one" — drives the selected
                     border/background state.
+    provider      - Optional String, "stripe" (default) or "coinflow". Picks
+                    the payment rail the card ACTS on — Stripe posts the
+                    checkout form, Coinflow calls tmCoinflowBuyOne — plus the
+                    orb hues and the badge. An unknown value raises.
 %>
 <%
   extra_params  ||= {}
@@ -32,6 +36,19 @@
   disabled      ||= false
   select_js     ||= nil
   selected_expr ||= "false"
+  provider      ||= "stripe"
+
+  # Provider skin. `stripe` is the default so the three PayPal/modal call sites
+  # keep their exact markup; `coinflow` swaps the orb hues and posts through the
+  # hosted-checkout JS instead of the Stripe checkout form. Badge label is what
+  # the buyer reads, so it names the rail, not the vendor's internal id.
+  # Badge colours live in _pack_button_styles.html.erb's <style> block rather
+  # than Tailwind utilities — the orb hues are already CSS vars there, and an
+  # invented `bg-coinflow` utility would silently render colourless.
+  provider_skin = {
+    "stripe"   => { glow: "glow-brand",    badge: "Stripe" },
+    "coinflow" => { glow: "glow-coinflow", badge: "Coinflow" }
+  }.fetch(provider)
 
   format_price = ->(cents) { cents % 100 == 0 ? "$#{cents / 100}" : dollars(cents / 100.0) }
   per_token        = StripePurchase.per_token_cents(pack_id)
@@ -57,7 +74,7 @@
     method:   :post,
     form:     form_opts,
     disabled: disabled,
-    class:    "glow-pair-btn glow-brand group block w-full text-left p-6 rounded-xl border-2 border-primary/40 hover:border-primary bg-primary/5 transition"
+    class:    "glow-pair-btn #{provider_skin[:glow]} group block w-full text-left p-6 rounded-xl border-2 border-primary/40 hover:border-primary bg-primary/5 transition"
   }
 
   inner = capture do %>
@@ -70,11 +87,16 @@
       <div class="text-5xl font-extrabold text-white leading-none font-mono"><%= pack[:quantity] %></div>
       <div class="text-[10px] uppercase tracking-widest text-white/70 mt-1"><%= pack[:quantity] == 1 ? 'Entry' : 'Entries' %></div>
     </div>
-    <div class="flex-1 border-l border-strong pl-6 text-right">
-      <div class="text-3xl font-bold text-heading font-mono"><%= format_price.call(pack[:price_cents]) %></div>
-      <div class="text-xs text-secondary mt-1">
-        <%= subtitle %>
-        <% if pack[:quantity] > 1 %><span class="ml-1 inline-block px-1.5 py-0.5 rounded bg-primary text-white text-[10px] font-extrabold tracking-wider uppercase">Save <%= savings_pct %>%</span><% end %>
+    <div class="flex-1 border-l border-strong pl-6 flex items-center justify-between gap-4">
+      <%# Provider badge sits in the card's dead middle — it reads as "this many
+          entries, paid this way", which is the whole point of the page. %>
+      <span class="provider-badge provider-badge-<%= provider %>"><%= provider_skin[:badge] %></span>
+      <div class="text-right">
+        <div class="text-3xl font-bold text-heading font-mono"><%= format_price.call(pack[:price_cents]) %></div>
+        <div class="text-xs text-secondary mt-1">
+          <%= subtitle %>
+          <% if pack[:quantity] > 1 %><span class="ml-1 inline-block px-1.5 py-0.5 rounded bg-primary text-white text-[10px] font-extrabold tracking-wider uppercase">Save <%= savings_pct %>%</span><% end %>
+        </div>
       </div>
     </div>
   </div>
@@ -87,7 +109,19 @@
   <button type="button"
           x-on:click="<%= select_js %>"
           :class="(<%= selected_expr %>) ? 'border-primary bg-primary/10' : 'border-primary/40 bg-primary/5'"
-          class="glow-pair-btn glow-brand group block w-full text-left p-6 rounded-xl border-2 transition">
+          class="glow-pair-btn <%= provider_skin[:glow] %> group block w-full text-left p-6 rounded-xl border-2 transition">
+    <%= inner %>
+  </button>
+<% elsif provider == "coinflow" %>
+  <%# COINFLOW mode — same orb-glow card, no Stripe form. tmCoinflowBuyOne
+      (tokens/_coinflow_script) POSTs /tokens/coinflow_order and sends the buyer
+      to the hosted checkout; it opens its own tab inside the click gesture, so
+      this stays a plain button rather than a form. The pack id rides through,
+      so a trio card charges $49 and TokenPurchaseJob mints 3. %>
+  <button type="button"
+          onclick="tmCoinflowBuyOne('<%= pack_id %>'); return false;"
+          <%= "disabled" if disabled %>
+          class="glow-pair-btn <%= provider_skin[:glow] %> group block w-full text-left p-6 rounded-xl border-2 border-primary/40 hover:border-primary bg-primary/5 transition disabled:opacity-50 disabled:cursor-not-allowed">
     <%= inner %>
   </button>
 <% else %>
