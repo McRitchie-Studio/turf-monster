@@ -42,12 +42,29 @@ class TokensPackButtonTest < ActionView::TestCase
                     "stripe card must not drive Coinflow's checkout"
   end
 
-  # The default guards the three PayPal/modal call sites that never pass a
-  # provider — they must keep rendering the Stripe form exactly as before.
-  test "provider defaults to stripe when the caller omits it" do
+  # A caller that names no rail must claim NO rail. The first cut defaulted to
+  # "stripe", which badged the PayPal/Venmo picker "Stripe" on the buy page —
+  # a badge that lies about who takes the money is worse than no badge. Assert
+  # the ABSENCE of any badge, not that some particular default was chosen.
+  test "an unnamed provider renders no badge at all" do
     html = render_pack("single")
-    assert_includes html, "stripe_checkout"
-    assert_includes html, "provider-badge-stripe"
+    assert_includes html, "stripe_checkout", "routing still defaults to the Stripe form"
+    refute_includes html, "provider-badge", "an unnamed rail must not claim one"
+  end
+
+  # select_js mode is rail-agnostic on ROUTING, but must still be able to SAY
+  # which rail it is. The original branch order (`if select_js` before
+  # `elsif provider ==`) made that structurally impossible.
+  test "select mode still honours its provider badge" do
+    html = render_pack("single", provider: "paypal", select_js: "selectPack('single')")
+    assert_includes html, "provider-badge-paypal"
+    assert_includes html, "PayPal"
+    # ERB escapes the quotes inside the attribute, so match the call, not the
+    # literal source spelling.
+    assert_match(/x-on:click="selectPack\(&#39;single&#39;\)"/, html,
+                 "the caller's click expression still owns routing")
+    refute_includes html, "tmCoinflowBuyOne", "select mode must not route through Coinflow"
+    refute_includes html, "provider-badge-stripe"
   end
 
   # ── The badge: the only on-card tell of which rail this is ─────────────────
@@ -83,6 +100,29 @@ class TokensPackButtonTest < ActionView::TestCase
     assert_includes html, "Entry"
     assert_includes html, "Single contest entry"
     refute_includes html, "Save ", "a single pack has nothing to save against"
+  end
+
+  # Every call site of this partial, asserted where it LANDS rather than in the
+  # abstract — the defect was never in the partial's logic, it was that one
+  # caller's badge named the wrong company. If a new render site appears without
+  # a deliberate provider decision, this list is where that gets noticed.
+  test "each render site of the partial names its own rail" do
+    sites = {
+      "app/views/tokens/buy.html.erb"                => %w[coinflow stripe],
+      "app/views/tokens/_paypal_buttons.html.erb"    => %w[paypal],
+      "app/views/modals/auth/_tokens.html.erb"       => %w[stripe],
+      "app/views/modals/auth/_paypal_tokens.html.erb" => %w[stripe]
+    }
+    sites.each do |path, expected|
+      src = Rails.root.join(path).read
+      renders = src.scan(/render\s+"tokens\/pack_button"(.{0,400}?)%>/m).flatten
+      assert_equal expected.length, renders.length,
+                   "#{path}: expected #{expected.length} pack_button render(s)"
+      renders.each_with_index do |call, i|
+        assert_match(/provider:\s*"#{expected[i]}"/, call,
+                     "#{path} render ##{i + 1} must name the #{expected[i]} rail explicitly")
+      end
+    end
   end
 
   # An unknown provider is a developer typo, and silently falling back to Stripe

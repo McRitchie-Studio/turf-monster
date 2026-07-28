@@ -1,11 +1,13 @@
 <%#
-  Shared client kickoff for the Coinflow "Buy 1 entry" rail. Defines the global
+  Shared client kickoff for the Coinflow rail. Defines the global
   window.tmCoinflowBuyOne() once (idempotent reassignment on re-render). Both
-  the Add Funds hub rail (modals/_onramp_hub) and the /tokens/buy card call it.
+  the Add Funds hub rail (modals/_onramp_hub, always the single) and the
+  /tokens/buy cards (one per pack) call it.
 
   It POSTs the pack to /tokens/coinflow_order (amount derives server-side from
   the pack), then redirects the browser to Coinflow's returned hosted-checkout
-  link. On `Settled`, /webhooks/coinflow mints exactly 1 entry token.
+  link. On `Settled`, /webhooks/coinflow mints the PACK's quantity — the name is
+  historical: it takes a pack id and buys that pack, not always one entry.
 
   Uses window.authedFetch so a session lapse / rate-limit surfaces the shared
   modal (returns null → we stop). Parity with the paypal createOrder fetch.

@@ -18,7 +18,7 @@ module Coinflow
   #     -> { "link": "https://sandbox-merchant.coinflow.cash/purchase-v2/..." }
   #
   # Coinflow's flow is a redirect + webhook — no client-side capture leg like
-  # PayPal's onApprove. On the `Settled` webhook we mint exactly 1 entry token.
+  # PayPal's onApprove. On the `Settled` webhook we mint the PACK's quantity.
   class Client
     Error = Class.new(StandardError)
 

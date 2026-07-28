@@ -223,6 +223,77 @@ class Webhooks::CoinflowControllerTest < ActionDispatch::IntegrationTest
 
   private
 
+  # ── heterogeneous pending rows (the mixed-pack money regression) ───────────
+  #
+  # Every other fixture in this file is single/$19, so this whole class was
+  # uncovered. Once the buy page offers single AND trio, a buyer can leave an
+  # abandoned $19 row and later pay $49. Amount-blind oldest-first resolution
+  # bound the settlement to the stale $19 row, capture_matches? failed on the
+  # amount, and the buyer was charged $49 for tokens that never minted.
+  # Assert the EFFECT — which row captured — not that "a" row was touched.
+
+  test "a trio settlement captures the trio row, not the older abandoned single" do
+    with_webhook_env do
+      stale = create_purchase(price_cents: 19_00, pack_id: "single", quantity: 1)
+      stale.update_column(:created_at, 2.hours.ago)
+      trio = create_purchase(price_cents: 49_00, pack_id: "trio", quantity: 3)
+
+      assert_enqueued_with(job: TokenPurchaseJob) do
+        post_webhook(settled_event(purchase: trio, cents: 4900))
+      end
+      assert_response :success
+
+      assert_equal "captured", trio.reload.status, "the $49 row must be the one that settles"
+      assert_equal "pending",  stale.reload.status, "the stale $19 row must be left untouched"
+    end
+  end
+
+  test "a single settlement still captures the single row when a trio is also pending" do
+    with_webhook_env do
+      single = create_purchase(price_cents: 19_00, pack_id: "single", quantity: 1)
+      trio   = create_purchase(price_cents: 49_00, pack_id: "trio", quantity: 3)
+      trio.update_column(:created_at, 2.hours.ago)
+
+      post_webhook(settled_event(purchase: single, cents: 1900))
+      assert_response :success
+
+      assert_equal "captured", single.reload.status
+      assert_equal "pending",  trio.reload.status
+    end
+  end
+
+  # Money moved and nothing minted is the one failure that must be diagnosable
+  # in seconds — it used to be a bare logger.warn nobody tails.
+  test "an unmatched settlement records an ErrorLog rather than failing silently" do
+    with_webhook_env do
+      # A pending row exists, but none at the settled price — so tier 3 resolves
+      # to nothing and the settlement matches no purchase at all.
+      row = create_purchase(price_cents: 19_00)
+
+      assert_difference "ErrorLog.count", 1 do
+        post_webhook(settled_event(purchase: row, cents: 9999))
+      end
+      assert_response :success
+      assert_match(/matched no pending purchase/, ErrorLog.last.message)
+    end
+  end
+
+  test "an amount-mismatched settlement records an ErrorLog" do
+    with_webhook_env do
+      row = create_purchase(price_cents: 19_00)
+      # Resolves by reference (tier 1), then fails capture_matches? on amount.
+      event = settled_event(purchase: row, cents: 1900).merge("reference" => row.coinflow_reference)
+      event["subtotal"] = { "cents" => 4900, "currency" => "USD" }
+
+      assert_difference "ErrorLog.count", 1 do
+        post_webhook(event)
+      end
+      assert_response :success
+      assert_equal "pending", row.reload.status
+      assert_match(/rejected on amount mismatch/, ErrorLog.last.message)
+    end
+  end
+
   def post_webhook(event, auth: VALIDATION_KEY)
     post "/webhooks/coinflow", params: event.to_json, headers: {
       "Content-Type" => "application/json",

@@ -59,6 +59,7 @@
             <%= render "tokens/pack_button",
                 pack_id:      pack_id,
                 pack:         pack,
+                provider:     "stripe",
                 extra_params: { contest: @contest&.slug },
                 target_blank: true,
                 on_click_js:  "$store.modals.advance({ step: 'tokens-waiting' })" %>
