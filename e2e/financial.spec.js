@@ -108,7 +108,12 @@ test.describe("Coinflow entry-token buy", () => {
     });
 
     await page.goto("/tokens/buy");
-    const buyButton = page.locator('[data-coinflow-buy] button');
+    // The rail now renders one card PER PACK plus the dev simulate button, so a
+    // bare [data-coinflow-buy] button locator matches N elements and trips
+    // Playwright strict mode. Pin the single-entry card by its own click target.
+    const buyButton = page.locator(
+      '[data-coinflow-buy] button[onclick*="tmCoinflowBuyOne(\'single\')"]',
+    );
     await expect(buyButton).toBeVisible();
     await buyButton.click();
 

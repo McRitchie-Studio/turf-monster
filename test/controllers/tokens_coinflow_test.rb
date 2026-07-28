@@ -170,16 +170,26 @@ class TokensCoinflowTest < ActionDispatch::IntegrationTest
 
   # ── buy page card (flag-gated, additive) ──────────────────────────────────
 
-  test "buy page shows the Coinflow buy-1 card when the flag is on" do
+  test "buy page offers a Coinflow card per pack when the flag is on" do
     log_in_as @jordan
     with_coinflow_enabled do
       get tokens_buy_path
     end
     assert_response :success
     assert_select "[data-coinflow-buy]"
-    assert_match "Buy 1 entry with Coinflow", response.body
-    assert_match "tmCoinflowBuyOne('single')", response.body
     assert_match "window.tmCoinflowBuyOne", response.body, "the shared kickoff script must render"
+
+    # EVERY purchasable pack gets a Coinflow card, not just the single — the
+    # pack id rides through to /tokens/coinflow_order, and TokenPurchaseJob
+    # mints pack[:quantity], so the trio card charges $49 and mints 3.
+    StripePurchase.available_packs.each_key do |pack_id|
+      assert_match "tmCoinflowBuyOne('#{pack_id}')", response.body,
+                   "expected a Coinflow card for the #{pack_id} pack"
+    end
+    # Each card names its rail — the only on-card tell once Coinflow and Stripe
+    # share the orb-glow shape.
+    assert_select "[data-coinflow-buy] .provider-badge-coinflow",
+                  count: StripePurchase.available_packs.size
   end
 
   test "buy page hides the Coinflow buy-1 card when the flag is off" do

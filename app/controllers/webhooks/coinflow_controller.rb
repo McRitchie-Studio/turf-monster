@@ -8,6 +8,11 @@ module Webhooks
   # COINFLOW_WEBHOOK_VALIDATION_KEY), NOT an HMAC signature. Exactly-once minting
   # is arbitrated by CoinflowPurchase#begin_fulfillment! via Coinflow::Fulfillment.
   class CoinflowController < ApplicationController
+    # Raised only to be captured — a settlement that moved money but minted
+    # nothing. Never propagated: Coinflow does not retry, so raising for real
+    # would only 500 the ack without recovering anything.
+    SettlementAnomaly = Class.new(StandardError)
+
     skip_before_action :verify_authenticity_token
     skip_before_action :require_authentication
     skip_before_action :detect_geo_state
@@ -75,6 +80,11 @@ module Webhooks
       unless purchase
         Rails.logger.error "[tokens] coinflow.webhook.settled UNMATCHED id=#{payment_id} " \
                            "customer=#{event['customerId']} — manual review required"
+        record_settlement_anomaly!(
+          "Coinflow settlement matched no pending purchase — funds settled, nothing minted. " \
+          "payment_id=#{payment_id} customer=#{event['customerId']} " \
+          "subtotal_cents=#{subtotal_field(event, 'cents')}"
+        )
         return
       end
 
@@ -99,6 +109,13 @@ module Webhooks
                           "subtotal=#{subtotal_field(event, 'cents')} " \
                           "currency=#{subtotal_field(event, 'currency')} " \
                           "expected=#{purchase.expected_amount_cents}"
+        record_settlement_anomaly!(
+          "Coinflow settlement rejected on amount mismatch — funds settled, nothing minted. " \
+          "purchase=#{purchase.id} payment_id=#{payment_id} " \
+          "settled_cents=#{subtotal_field(event, 'cents')} " \
+          "currency=#{subtotal_field(event, 'currency')} " \
+          "expected_cents=#{purchase.expected_amount_cents}"
+        )
         return
       end
 
@@ -116,8 +133,11 @@ module Webhooks
     #   Tier 2 — customerId AS a reference (if the operator keys
     #            x-coinflow-auth-user-id to the reference).
     #   Tier 3 — customerId as "tm_user_<id>" → the user's oldest pending row
-    #            (oldest-first so N concurrent settlements consume N pending
-    #            rows, one token each — never double-minting one row).
+    #            AT THE SETTLED PRICE (CoinflowPurchase.pending_for_settlement).
+    #            Oldest-first still lets N concurrent settlements consume N
+    #            pending rows, one token each, but only among rows that cost the
+    #            same — otherwise a stale $19 row absorbs a $49 trio settlement
+    #            and the buyer is charged for tokens that never mint.
     def purchase_for_event(event)
       reference = event["reference"].presence || subtotal_field(event, "reference").presence
       if reference && (purchase = CoinflowPurchase.for_reference(reference).first)
@@ -130,10 +150,25 @@ module Webhooks
       end
 
       if (user_id = customer_id[/\Atm_user_(\d+)\z/, 1])
-        return CoinflowPurchase.where(user_id: user_id, status: "pending").order(:created_at).first
+        return CoinflowPurchase.pending_for_settlement(
+          user_id: user_id, cents: subtotal_field(event, "cents")
+        )
       end
 
       nil
+    end
+
+    # Money moved and nothing minted — the one class of failure that MUST be
+    # diagnosable in seconds (backend discipline), and the one this controller
+    # previously swallowed into a bare logger.warn. ErrorLog is the operator's
+    # triage view (and fans out to Sentry); a log line in a webhook nobody tails
+    # is not a signal. Constructed rather than raised — capture! tolerates a nil
+    # backtrace, and raising here would only break the 200 ack Coinflow needs.
+    # Never let telemetry take down fulfillment: a logging failure is swallowed.
+    def record_settlement_anomaly!(message)
+      ErrorLog.capture!(SettlementAnomaly.new(message))
+    rescue StandardError => e
+      Rails.logger.error "[tokens] coinflow.webhook.error_log_failed #{e.class}: #{e.message}"
     end
 
     # Fail-closed read of a `subtotal` sub-field. Coinflow documents `subtotal`
