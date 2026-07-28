@@ -139,16 +139,20 @@ class WalletTopupTest < ActionDispatch::IntegrationTest
 
   # --- entry-blocker re-route (render level; e2e gap noted above) ---
 
-  test "the board entry blocker routes the funds-needed wall to showWalletTopup" do
+  test "the board entry blocker routes the funds-needed wall through showFundsNeeded (web3 keeps Top Up Wallet)" do
     get contest_path(contests(:one))
     assert_response :success
     body = response.body
-    # The showWalletTopup method exists on the board component.
+    # web3's showWalletTopup method still exists and still opens the USDC Top Up
+    # Wallet — the web3 branch of the dispatcher is byte-identical to before.
     assert_includes body, "showWalletTopup()"
+    assert_includes body, "s.open('wallet-topup', { enterAnim: 'shake' })"
     # The 'no_funding' eligibility-blocker case (renamed from 'no_tokens' in the
-    # unified-funding refactor) opens the Top Up Wallet modal.
-    assert_match(/case 'no_funding':\s+this\.showWalletTopup\(\);/, body,
-                 "the no_funding entry wall must reroute to showWalletTopup")
+    # unified-funding refactor) now routes through the audience dispatcher:
+    # web2 → Buy an Entry Token modal, web3 → Top Up Wallet.
+    assert_match(/case 'no_funding':\s+this\.showFundsNeeded\(\);/, body,
+                 "the no_funding entry wall must route through showFundsNeeded")
+    assert_includes body, "if (Alpine.store('session').mode === 'web2') {"
     refute_match(/case 'no_tokens':/, body,
                  "the legacy no_tokens blocker case must be gone (renamed no_funding)")
   end
@@ -213,16 +217,18 @@ class WalletTopupTest < ActionDispatch::IntegrationTest
     assert_includes body, "this._fundingCheck = window.authedFetch("
   end
 
-  test "confirmEntry awaits the hold-window check and reroutes an unfundable web2 entry to Top Up Wallet" do
+  test "confirmEntry awaits the hold-window check and reroutes an unfundable web2 entry through showFundsNeeded" do
     get contest_path(contests(:one))
     assert_response :success
     body = response.body
     # The gate consumes the pre-check (single-use, freshness-bounded) and only a
-    # DEFINITIVE fundable:false aborts into showWalletTopup() — fail-open otherwise.
+    # DEFINITIVE fundable:false aborts into the funds-needed dispatcher — which
+    # sends this web2 (managed) session to the Buy an Entry Token modal. Fail-open
+    # otherwise. (The check is web2-scoped, so web3 never reaches this branch.)
     assert_includes body, "if (this._fundingCheck && (Date.now() - (this._fundingCheckAt || 0)) < 8000) {"
     assert_includes body, "this._fundingCheck = null;   // single-use — consume it for this attempt"
-    assert_match(/if \(funding && funding\.fundable === false\) \{\s*\n\s*this\.submitting = false;\s*\n\s*this\.resetHoldButtons\(\);\s*\n\s*this\.showWalletTopup\(\);/, body,
-                 "an unfundable hold-window verdict must abort the entry into the Top Up Wallet")
+    assert_match(/if \(funding && funding\.fundable === false\) \{\s*\n\s*this\.submitting = false;\s*\n\s*this\.resetHoldButtons\(\);\s*\n\s*this\.showFundsNeeded\(\);/, body,
+                 "an unfundable hold-window verdict must abort the entry through showFundsNeeded")
   end
 
   test "the eligibilityBlocker keeps web2 null-usdcCents fail-open and documents the hold-window layering" do

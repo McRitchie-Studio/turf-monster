@@ -112,6 +112,14 @@ class AdminController < ApplicationController
       modal_id: "wallet-deposit", file: "app/views/modals/_wallet_deposit.html.erb",
       props: { neededCents: 1900, usdcCents: 300, usdtCents: 0 } },
 
+    # The web2 / managed funds modal at the entry blocker — two stacked
+    # entry-token rails (Coinflow buy-1 on top, the Stripe pack picker below).
+    # Its web3 counterpart at the same wall is wallet-topup above.
+    { group: "Funding",
+      label: "Buy an Entry Token (web2 — Coinflow + Stripe)", key: "buy-entry-token",
+      modal_id: "buy-entry-token", file: "app/views/modals/_buy_entry_token.html.erb",
+      props: {} },
+
     # === CDP ramp (Coinbase buy / cash-out) ================================
     # One modal id ('cdp-ramp'), step machine on props.step + props.flow.
     # The send-step variants use demoCountdownMinutes — cdpRampFlow's

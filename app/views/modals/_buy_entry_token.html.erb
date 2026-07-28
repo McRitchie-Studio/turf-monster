@@ -1,0 +1,83 @@
+<%#
+  Buy an Entry Token modal. The funds-needed modal for a WEB2 / managed player
+  at the entry blocker: selectionBoard#showFundsNeeded routes web2 here, while a
+  web3 wallet keeps the Coinbase-forward USDC Top Up Wallet (modals/_wallet_topup,
+  unchanged). One token buys exactly one contest entry.
+
+  Two stacked entry-token rails, composed from the ones the Add Funds hub already
+  ships (modals/_onramp_hub):
+    1. Coinflow, featured on top: the buy-1-entry hosted checkout. tmCoinflowBuyOne
+       POSTs /tokens/coinflow_order, opens Coinflow's hosted checkout, and on
+       Settled mints exactly one entry token. The new, fastest way.
+    2. Stripe, below: the proven pack picker. Swaps into the auth-wizard
+       tokens-picker step (the existing Stripe checkout flow).
+
+  Each rail self-gates via onramp_rail_visible?, so a flagged-off Coinflow rail
+  (ENABLE_COINFLOW off, the prod default while KYB is pending) never ships a dead
+  button; both rails always show in dev / test.
+
+  CRITICAL: rendered inside a host template x-if, so a SINGLE root element. x-data
+  is a double-quoted attribute, so single-quote everything inside the Alpine
+  expressions.
+%>
+<div x-data="{ get props() { return ($store.modals.current() || {}).props || {} } }"
+     class="relative">
+
+  <%# Top-right close. Backdrop close still works too. %>
+  <button @click="$store.modals.close()"
+          class="absolute top-0 right-0 -mt-2 -mr-2 text-secondary hover:text-heading text-xl leading-none z-10"
+          aria-label="Close">&times;</button>
+
+  <div class="text-center pt-1 mb-2">
+    <h3 class="text-heading font-bold text-lg leading-tight">Buy an Entry Token</h3>
+  </div>
+  <p class="text-xs text-secondary mb-4 text-center">
+    1 token = 1 contest entry. Your lineup is saved &mdash; pick how to pay.
+  </p>
+
+  <div class="space-y-3">
+    <% if onramp_rail_visible?(:coinflow) %>
+      <%# Coinflow: the featured buy-1-entry rail on top (the new paradigm).
+          Bordered primary to mark it the lead action. NOT gated on tokenFallback:
+          unlike a USDC buy, this mints a spendable entry token regardless of the
+          web2-USDC kill-switch. %>
+      <button type="button" data-buy-rail="coinflow"
+              @click="tmCoinflowBuyOne('single')"
+              class="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-primary bg-inset hover:bg-surface transition text-left">
+        <span class="shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-white font-extrabold text-lg" style="background-color:#14B8A6">CF</span>
+        <span class="flex-1 min-w-0">
+          <span class="flex items-center gap-2">
+            <span class="text-heading font-semibold text-sm">Coinflow &middot; $19</span>
+            <span class="shrink-0 text-[10px] uppercase tracking-widest font-bold text-primary bg-surface border border-primary rounded-full px-2 py-0.5">New</span>
+          </span>
+          <span class="block text-xs text-secondary">Buy 1 entry with a card &middot; fastest</span>
+        </span>
+        <svg class="shrink-0 w-4 h-4 text-primary" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
+        </svg>
+      </button>
+    <% end %>
+
+    <% if onramp_rail_visible?(:stripe) %>
+      <%# Stripe: the proven pack picker below. Swaps into the existing auth-wizard
+          tokens-picker step (the Stripe checkout flow), mirroring the board
+          showTokensPanel props so the picker mounts clean. %>
+      <button type="button" data-buy-rail="stripe"
+              @click="$store.modals.swap('auth', { step: 'tokens-picker', mintedCount: 0, mintedBalance: 0, errorText: '', redirectUrl: '', txSignature: '' })"
+              class="w-full flex items-center gap-4 p-4 rounded-xl border border-strong hover:border-primary bg-inset transition text-left">
+        <span class="shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-white font-extrabold text-lg" style="background-color:#635BFF">S</span>
+        <span class="flex-1 min-w-0">
+          <span class="block text-heading font-semibold text-sm">Card &middot; $19</span>
+          <span class="block text-xs text-secondary">Buy an entry token with a card</span>
+        </span>
+        <svg class="shrink-0 w-4 h-4 text-muted" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
+        </svg>
+      </button>
+    <% end %>
+  </div>
+
+  <%# Defines window.tmCoinflowBuyOne for the Coinflow rail above. Inside the single
+      root div so the modal stays one element under its x-if host. Idempotent. %>
+  <% if onramp_rail_visible?(:coinflow) %><%= render "tokens/coinflow_script" %><% end %>
+</div>

@@ -995,6 +995,16 @@
       <template x-if="$store.modals.current().id === 'wallet-topup'">
         <%= render "modals/wallet_topup" %>
       </template>
+      <%# Buy an Entry Token — the web2 / managed funds modal at the entry blocker
+          (selectionBoard#showBuyEntryToken, via the showFundsNeeded dispatcher).
+          Two stacked entry-token rails (Coinflow buy-1 on top, the Stripe pack
+          picker below); web3 keeps the USDC Top Up Wallet above. Registered ungated
+          alongside wallet-topup / onramp-hub for the same reason (an in-session
+          signup rendered the layout while logged out); each rail self-gates via
+          onramp_rail_visible?. %>
+      <template x-if="$store.modals.current().id === 'buy-entry-token'">
+        <%= render "modals/buy_entry_token" %>
+      </template>
       <% if logged_in? %>
         <template x-if="$store.modals.current().id === 'username'">
           <%= render "modals/username" %>
