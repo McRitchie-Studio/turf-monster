@@ -37,6 +37,18 @@ Studio.configure do |config|
   config.registration_params = [:email, :reference]
   config.configure_new_user = ->(user) { }
   config.configure_sso_user = ->(user) { }
+
+  # On-chain app: Solana wallet auth (SIWS) + USDC/seeds/vault, plus the
+  # seeds→levels system. Without :web3 the engine hides the wallet sign-in
+  # button (auth_method?(:wallet) && feature?(:web3)) and marks Web3 surfaces
+  # disabled on this app.
+  config.features = %i[web3 leveling]
+
+  # Passwordless + wallet: magic-link, Google OAuth, and Solana wallet are all
+  # real sign-in methods (no password). Equals the engine default — pinned
+  # explicitly so a future default change can't silently drop wallet.
+  config.auth_methods = %i[magic_link google wallet]
+
   config.mailer_from = Studio.mailer_from_for_transport(
     ses_from: "Turf Monster <team@turfmonster.media>"
   )
