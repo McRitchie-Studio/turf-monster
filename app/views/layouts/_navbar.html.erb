@@ -82,7 +82,10 @@
       <% balance_loading = display_balance.nil? %>
       <% balance_dollars = display_balance.to_f %>
       <% balance_zero    = !balance_loading && balance_dollars.zero? %>
-      <% has_tokens      = (current_user.entry_token_balance rescue 0).positive? %>
+      <%# Cache-first (display_entry_token_count) — nil while cold counts as
+          "no tokens" so we don't hide a real $0 balance during loading;
+          updateNavTokens re-applies the hide-$0-with-token rule after hydrate. %>
+      <% has_tokens      = display_entry_token_count.to_i.positive? %>
       <% hide_balance    = balance_loading || (balance_zero && has_tokens) %>
       <%# Balance link — USDC + USDT combined (display_balance). Free-entry
           tokens are surfaced by the 🎟️ badge in _user_nav (next to the
