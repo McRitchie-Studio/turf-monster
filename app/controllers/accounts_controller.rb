@@ -55,19 +55,23 @@ class AccountsController < ApplicationController
   # fetches them explicitly and warms the navbar caches so subsequent renders
   # are warm.
   def session_refresh
-    perform_solana_preload if current_user&.solana_connected?
+    # fetch_navbar_hydrate does all the (blocking, off-render-path) on-chain
+    # reads AND warms the navbar caches — including the entry-tokens cache the
+    # navbar reads cache-first — so there's no separate perform_solana_preload
+    # pass to do here.
     hydrate = current_user&.solana_connected? ? fetch_navbar_hydrate(current_user) : {}
 
     seeds = hydrate[:seeds].to_i
     # When the wallet-balances read flaked (nil), emit null instead of 0 so
     # the client can recognise "unknown" and preserve whatever value the
-    # store last held. seeds + tokens default to 0 (acceptable temporary
-    # conservative mis-read).
+    # store last held. Tokens ride the same nil-means-flake contract now that
+    # they come from the hydrate fetch (updateNavTokens leaves the prior badge
+    # value on null instead of zeroing it). seeds defaults to 0.
     render json: {
       usdc:        hydrate[:usdc],
       usdt:        hydrate[:usdt],
       sol:         hydrate[:sol],
-      tokens:      (current_user&.entry_token_balance rescue 0),
+      tokens:      hydrate[:entry_token_count],
       seeds:       seeds,
       level:       User.level_for(seeds),
       toward_next: User.seeds_toward_next_level(seeds),

@@ -63,45 +63,49 @@ class AccountsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "client_session_payload converts uiAmount dollars to integer cents" do
-    # Direct check of the conversion math — uses an inline controller subclass
-    # so we can inject @wallet_balances without going through the RPC preload.
-    user = @alex
-    user.instance_variable_set(:@entry_token_balance, 4)
+    # Direct check of the conversion math + the cache-first tokensAvailable —
+    # inject @wallet_balances for cents, and warm the entry-tokens cache for the
+    # count. Neither goes through an RPC (mirrors the cache-first render
+    # contract; test env is :null_store, so inject a MemoryStore for the read).
+    user = users(:sam) # web3_solana_address fixture → solana_connected?
     ctl = ApplicationController.new
     ctl.instance_variable_set(:@wallet_balances, { usdc: 12.34, usdt: 0.5, sol: 1.0 })
     ctl.define_singleton_method(:current_user)     { user }
     ctl.define_singleton_method(:onchain_session?) { false }
 
-    payload = ctl.send(:client_session_payload)
+    payload = Rails.stub(:cache, ActiveSupport::Cache::MemoryStore.new) do
+      Rails.cache.write(Solana::Vault.entry_tokens_cache_key(user.solana_address),
+                        [{ consumed: false }, { consumed: true }, { consumed: false }, { consumed: false }])
+      ctl.send(:client_session_payload)
+    end
     assert_equal 1234, payload[:usdcCents],
                  "12.34 USDC should round to 1234 cents"
     assert_equal 50,   payload[:usdtCents],
                  "0.5 USDT should round to 50 cents"
-    assert_equal 4,    payload[:tokensAvailable]
+    assert_equal 3,    payload[:tokensAvailable],
+                 "warm entry-tokens cache → non-consumed count (cache-first, no RPC)"
     # SessionContext identity fields still present.
     assert_equal user.id, payload[:userId]
     assert payload[:loggedIn]
   end
 
   test "session_state emits null usdcCents/usdtCents when preload nil'd (flake signal)" do
-    # When the navbar preload's balances_thread silently nils (RPC flake —
-    # see ApplicationController#perform_solana_preload), client_session_payload
-    # emits null for usdcCents / usdtCents so the client can recognise
-    # "unknown" and fail open in the eligibility check. tokensAvailable
-    # still emits an integer because the token thread defaults to 0 on
-    # error, accepting a temporary mis-read in exchange for type stability.
+    # client_session_payload reads its on-chain fields CACHE-FIRST. With no
+    # preloaded @wallet_balances and a cold cache, usdcCents / usdtCents emit
+    # null so the client recognises "unknown" and fails open in the eligibility
+    # check. tokensAvailable comes from display_entry_token_count; @alex is a
+    # non-wallet (email) user, so it's the definitive 0 (an Integer) here.
     log_in_as @alex
     get session_state_account_path, as: :json
     body = JSON.parse(response.body)
     assert body.key?("usdcCents"),       "expected usdcCents key in payload"
     assert body.key?("usdtCents"),       "expected usdtCents key in payload"
     assert body.key?("tokensAvailable"), "expected tokensAvailable key in payload"
-    # In the integration test the preload before_action does NOT run (this
-    # is the JSON session_state endpoint, gated to HTML format) so
-    # @wallet_balances is nil → null fields. Token balance defaults to 0.
+    # session_state is JSON (the preload before_action is HTML-only) → no
+    # @wallet_balances → null cents. A non-wallet user's token count is 0.
     assert_nil body["usdcCents"], "expected null when @wallet_balances is nil"
     assert_nil body["usdtCents"], "expected null when @wallet_balances is nil"
-    assert_kind_of Integer, body["tokensAvailable"]
+    assert_equal 0, body["tokensAvailable"], "non-wallet user → definitive 0"
   end
 
   test "session_state returns web2 shape for an email-logged-in user" do

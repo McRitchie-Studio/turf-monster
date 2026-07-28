@@ -29,6 +29,12 @@ module Solana
     # winners (spec §3.12, §10.1, §11 Q7).
     SETTLE_COMPUTE_UNIT_LIMIT = 400_000
 
+    # Single source of truth for the admin vault-state cache key. Read
+    # cache-first on the navbar preload path (ApplicationController) and
+    # fetch-with-race_condition_ttl in .cached_vault_state, so read-key and
+    # write-key can never drift.
+    VAULT_STATE_CACHE_KEY = "solana:vault_state"
+
     # ComputeBudget program id (deterministic).
     COMPUTE_BUDGET_PROGRAM_ID = Keypair.decode_base58("ComputeBudget111111111111111111111111111111")
 
@@ -560,7 +566,10 @@ module Solana
       return Current.vault_state if Current.vault_state_fetched
 
       Current.vault_state_fetched = true
-      Current.vault_state = Rails.cache.fetch("solana:vault_state", expires_in: 1.minute) do
+      # race_condition_ttl damps the every-60s stampede: when the entry expires
+      # under concurrent admin renders, the first reader bumps the expiry by
+      # this window while it regenerates instead of all firing read_vault_state.
+      Current.vault_state = Rails.cache.fetch(VAULT_STATE_CACHE_KEY, expires_in: 1.minute, race_condition_ttl: 5.seconds) do
         new.read_vault_state
       end
     rescue StandardError => e
@@ -1772,7 +1781,16 @@ module Solana
     end
 
     def list_entry_tokens(wallet_address, commitment: "confirmed")
-      Rails.cache.fetch(entry_tokens_cache_key(wallet_address), expires_in: 60.seconds) do
+      # race_condition_ttl bounds the thundering herd when the 60s entry-token
+      # cache expires under concurrent hydrate calls: the first reader bumps the
+      # expiry by this window while it regenerates, so the others serve the
+      # still-warm list instead of all firing the getProgramAccounts scan. It
+      # affects only PASSIVE 60s expiry — the write-time invalidation on
+      # mint/consume (invalidate_entry_tokens_cache) DELETEs the key, which
+      # race_condition_ttl does not touch, so a consumed token is never served
+      # stale past a write. The cached list is display-only anyway: entry
+      # funding re-derives tokens live and fails safe on-chain.
+      Rails.cache.fetch(entry_tokens_cache_key(wallet_address), expires_in: 60.seconds, race_condition_ttl: 5.seconds) do
         owner_b58 = wallet_address
         program_id_b58 = Keypair.encode_base58(@program_id)
         result = client.send(:call, "getProgramAccounts", [
@@ -1794,8 +1812,18 @@ module Solana
       Rails.cache.delete(entry_tokens_cache_key(wallet_address))
     end
 
-    def entry_tokens_cache_key(wallet_address)
+    # Class method so the navbar render path (ApplicationController) can build
+    # the key WITHOUT allocating a Vault instance — and so it's a single source
+    # of truth shared by the cache-first read (display_entry_token_count), the
+    # warm-on-hydrate write (list_entry_tokens), and the mint/consume
+    # invalidation (invalidate_entry_tokens_cache). Read-key ≡ write-key ≡
+    # invalidate-key, by construction.
+    def self.entry_tokens_cache_key(wallet_address)
       "entry_tokens:#{wallet_address}"
+    end
+
+    def entry_tokens_cache_key(wallet_address)
+      self.class.entry_tokens_cache_key(wallet_address)
     end
 
     # ── Seasons (turf-vault v0.11.0+) ────────────────────────────────────────

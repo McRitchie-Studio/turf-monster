@@ -20,7 +20,12 @@
                                   so the JS selectors above can surface
                                   the badge after a mint without a reload.
 %>
-<% free_entries = current_user.entry_token_balance rescue 0 %>
+<%# Cache-first count (display_entry_token_count): a warm cache renders the
+    real count immediately; a COLD cache renders nil → the badge starts hidden
+    ("loading") and refreshSession()'s updateNavTokens paints it once the
+    hydrate lands — same loading→hydrated UX the balance pill already uses. The
+    count is display-only; funding re-derives tokens live server-side. %>
+<% free_entries = display_entry_token_count.to_i %>
 <% plural_suffix = free_entries == 1 ? "" : "s" %>
 
 <%# .free-entry-badge / .free-entry-punch / @keyframes free-entry-punch

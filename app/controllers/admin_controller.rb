@@ -330,6 +330,13 @@ class AdminController < ApplicationController
       # client null-guards each field.
       usdc:        hydrate[:usdc],
       usdt:        hydrate[:usdt],
+      # Entry-token count — same fetch that warms the navbar cache. Feeds the
+      # /account data-wallet-tile="tokens" span via updateWalletTiles; null on
+      # an RPC flake leaves the prior value. (This endpoint's refreshBalance
+      # caller does not repaint the 🎟️ badge itself — page-load hydrate goes
+      # through refreshSession — but returning it keeps the two endpoints
+      # symmetric and warms the same cache.)
+      tokens:      hydrate[:entry_token_count],
       seeds:       seeds,
       level:       (User.level_for(seeds) if seeds),
       toward_next: (User.seeds_toward_next_level(seeds) if seeds),
