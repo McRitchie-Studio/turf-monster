@@ -2,7 +2,7 @@
 //
 // OFF the contest page there is no quest card to advance in place, so the same
 // quest actions take the MODAL route instead:
-//   username change  -> usernameRenameForm._afterSuccess swaps in the
+//   username change  -> the studio:username-saved listener swaps in the
 //                       'quest-success' celebration ("Great Username")
 //   Next Quest        -> swaps to 'newsletter-subscribe'
 //   newsletter join   -> swaps to 'newsletter-success' ("Subscribed!")

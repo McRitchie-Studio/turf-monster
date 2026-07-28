@@ -527,6 +527,14 @@ class FakeVault
     @quest_seed_reward || 25
   end
 
+  # Used by AccountsController#confirm_username (Phantom set_username step 2). The
+  # real Vault returns [pda_bytes, bump]; the controller passes pda_bytes through
+  # Solana::Keypair.encode_base58 (stubbed to identity in the confirm test), so a
+  # deterministic string here is enough to exercise the derive → verify → mirror path.
+  def user_account_pda(wallet_address)
+    ["upda-#{wallet_address.to_s[0, 6]}", 254]
+  end
+
   # Custodial (managed-wallet) on-chain username co-sign — see
   # AccountsController#update_username. The controller ignores the return value
   # (it mirrors the username to the DB itself), so a recorded no-op is enough.

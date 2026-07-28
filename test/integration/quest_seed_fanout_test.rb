@@ -17,11 +17,14 @@ class QuestSeedFanoutTest < ActionDispatch::IntegrationTest
     assert_includes src, "window.applyStateFanoutWhenReady(\"seeds\", payload"
   end
 
-  test "username modal fallback path uses the shared seed fanout retry helper" do
-    src = Rails.root.join("app/javascript/username_rename_form.js").read
+  test "username saved fallback path uses the shared seed fanout retry helper" do
+    # The engine leveling-modal adoption moved this beat into the
+    # studio:username-saved listener in shared/_alpine_factories. Off the contest
+    # page (/account) it must fan seeds out through the retry-aware helper, never a
+    # raw StateFanout that would no-op before StateFanout loads.
+    src = Rails.root.join("app/views/shared/_alpine_factories.html.erb").read
 
-    assert_includes src, "function applySeedFanout(data, opts)"
-    assert_includes src, "window.applyStateFanoutWhenReady(\"seeds\", data, opts)"
+    assert_includes src, "window.applyStateFanoutWhenReady(\"seeds\", data, { source: \"quest-username\""
     refute_includes src, "data && data.seeds_earned && window.StateFanout"
   end
 end

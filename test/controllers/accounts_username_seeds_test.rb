@@ -24,11 +24,11 @@ class AccountsUsernameSeedsTest < ActionDispatch::IntegrationTest
     log_in_as @user
     fake = FakeVault.new
     Solana::Vault.stub :new, fake do
-      post update_username_account_path, params: { username: "renamed-first" }, as: :json
+      post update_username_account_path, params: { value: "renamed-first" }, as: :json
     end
     assert_response :success
     body = response.parsed_body
-    assert body["success"]
+    assert_equal "saved", body["status"]
     assert_equal "renamed-first", @user.reload.username
     assert_equal 25, body["seeds_earned"], "the first rename pays the quest bonus"
     assert @user.username_changed_at.present?, "the once-ever marker is stamped"
@@ -40,13 +40,13 @@ class AccountsUsernameSeedsTest < ActionDispatch::IntegrationTest
     log_in_as @user
     fake = FakeVault.new
     Solana::Vault.stub :new, fake do
-      post update_username_account_path, params: { username: "renamed-first" }, as: :json
+      post update_username_account_path, params: { value: "renamed-first" }, as: :json
       assert_equal 25, response.parsed_body["seeds_earned"]
 
-      post update_username_account_path, params: { username: "renamed-second" }, as: :json
+      post update_username_account_path, params: { value: "renamed-second" }, as: :json
       assert_response :success
       body = response.parsed_body
-      assert body["success"]
+      assert_equal "saved", body["status"]
       assert_equal "renamed-second", @user.reload.username, "the rename itself still applies"
       assert_nil body["seeds_earned"], "the username bonus only fires once"
     end
@@ -62,12 +62,12 @@ class AccountsUsernameSeedsTest < ActionDispatch::IntegrationTest
     fake.sync_balance_seeds = 460
 
     Solana::Vault.stub :new, fake do
-      post update_username_account_path, params: { username: "renamed-snapshot" }, as: :json
+      post update_username_account_path, params: { value: "renamed-snapshot" }, as: :json
     end
 
     assert_response :success
     body = response.parsed_body
-    assert body["success"]
+    assert_equal "saved", body["status"]
     assert_equal "renamed-snapshot", @user.reload.username
     assert_nil body["seeds_earned"], "a duplicate on-chain grant must not claim a fresh award"
     assert_equal 460, body["seeds_total"], "the client can reconcile the navbar from the latest total"
@@ -90,5 +90,34 @@ class AccountsUsernameSeedsTest < ActionDispatch::IntegrationTest
     assert_equal original, @user.username, "username is not settable via the plain account update"
     assert_equal "Keep Me", @user.name, "permitted fields still save"
     assert @user.first_username_change?, "the once-ever seed marker is untouched by a plain update"
+  end
+
+  test "confirm_username (phantom step 2) verifies the tx, mirrors the DB, and pays the first-username bonus" do
+    # Phantom / self-custody step 2: the engine finalize step POSTs { token, proof }
+    # (proof = the tx signature TM's finalize_hook returned). The controller verifies
+    # the on-chain set_username, mirrors the rename to the DB, and pays the one-time
+    # bonus. Solana::TxVerifier + the PDA derivation are stubbed so no live RPC is
+    # needed — this is the coverage substitute for the browser Phantom step we can't
+    # drive headless.
+    log_in_as @user
+    token = Rails.application.message_verifier(:account_username_change)
+                 .generate({ user_id: @user.id, username: "phantom-confirmed" }, expires_in: 10.minutes)
+    fake = FakeVault.new
+
+    Solana::Keypair.stub :encode_base58, ->(bytes) { bytes.to_s } do
+      Solana::TxVerifier.stub :verify!, true do
+        Solana::Vault.stub :new, fake do
+          post confirm_username_account_path, params: { token: token, proof: "phantom-sig" }, as: :json
+        end
+      end
+    end
+
+    assert_response :success
+    body = response.parsed_body
+    assert_equal "saved", body["status"]
+    assert_equal "phantom-confirmed", @user.reload.username, "the confirmed rename mirrors to the DB"
+    assert_equal 25, body["seeds_earned"], "the first confirmed rename pays the quest bonus"
+    assert_equal 1, fake.grant_calls.length
+    assert_equal :username, fake.grant_calls.first[:kind]
   end
 end

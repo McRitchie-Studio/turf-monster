@@ -772,6 +772,11 @@
         modules load AFTER Alpine processes x-data. See the partial's
         header for the full diagnostic. %>
     <%= render "shared/alpine_factories" %>
+    <%# studio-engine leveling-activity factory (window.levelingActionModal). Homed
+        here at parse time — like shared/alpine_factories — because the leveling modals
+        (change-username, quests) mount inside the modal host's single-root template,
+        and a <script> cloned out of a template never runs. See the partial header. %>
+    <%= render "studio/leveling_activity_assets" %>
     <%# User-change cleanup. The seeds bar (and the welcome modal flag,
         and any other per-user localStorage state) used to leak across
         sessions when User A logged out and User B logged in in the
