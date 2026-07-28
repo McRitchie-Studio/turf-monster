@@ -650,21 +650,6 @@ load Rails.root.join("db/seeds/nfl_2026.rb")
 # ─── NFL 2026 Expected Team Totals ────────────────────────────
 load Rails.root.join("db/seeds/nfl_expected_team_totals_2026.rb")
 
-# ─── Dev demo contest (NFL Weeks 1-3) ─────────────────────────
-# DEVELOPMENT ONLY — the no-demo-contests rule above holds for QA and
-# production; a fresh worktree needs a contest to play with or /contests just
-# reads "No contests yet." Runs after the NFL blocks because the span slate is
-# assembled from their weekly slates. Never fatal: a worktree's `bin/rails
-# db:prepare` must finish even when the span can't build.
-if Rails.env.development?
-  load Rails.root.join("db/seeds/nfl_demo_contest.rb")
-  begin
-    seed_nfl_demo_contest!
-  rescue => e
-    puts "  ⚠️  Could not seed the dev demo contest: #{e.message}"
-  end
-end
-
 # ─── Default Slate (formula defaults record) ──────────────────
 Slate.find_or_create_by!(name: "Default")
 puts "  Created Default slate for formula defaults"
@@ -719,6 +704,29 @@ if Soccer::CacheTeamTotalOdds::DEFAULT_PATH.exist?
   odds = Soccer::CacheTeamTotalOdds.call
   puts "  Cached DK team-total odds (#{odds.rows} rows, #{odds.matchups_updated} matchups updated" \
        "#{odds.teams_missing.any? ? ", missing teams: #{odds.teams_missing.join(', ')}" : ''})"
+end
+
+# ─── Dev demo contest (rolling 3-week NFL span) ───────────────
+# DEVELOPMENT ONLY — the no-demo-contests rule above holds for QA and
+# production; a fresh worktree needs a contest to play with or /contests just
+# reads "No contests yet."
+#
+# Placed AFTER the Season bootstrap on purpose. Contest's before_create stamps
+# `season_id ||= SeasonConfig.current_season_id`, and 0 is truthy in Ruby — a
+# contest created before the bootstrap keeps season_id 0 for good, which would
+# bind a later `create_onchain!` to a Season that doesn't exist. It still runs
+# after the NFL blocks either way, since the span slate is assembled from their
+# weekly slates.
+#
+# Never fatal: a worktree's `bin/rails db:prepare` must finish even when the
+# span can't build.
+if Rails.env.development?
+  load Rails.root.join("db/seeds/nfl_demo_contest.rb")
+  begin
+    seed_nfl_demo_contest!
+  rescue => e
+    puts "  ⚠️  Could not seed the dev demo contest: #{e.message}"
+  end
 end
 
 # ─── Landing pages (marketing funnels) ───────────────────────

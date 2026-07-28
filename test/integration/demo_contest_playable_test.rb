@@ -17,6 +17,11 @@ class DemoContestPlayableTest < ActionDispatch::IntegrationTest
   }.freeze
 
   setup do
+    # Anchor "now" a week before the fixture's first kickoff — see the same
+    # guard in test/seeds/nfl_demo_contest_seed_test.rb. Picking a team is only
+    # legal before kickoff (Entry#toggle_selection!), so on the real clock this
+    # file would start failing on 2026-09-10 and redden every PR in the repo.
+    travel_to FIRST_KICKOFF - 1.week
     SeasonConfig.set_current!(1)
     build_weekly_nfl_slates!
     silence_warnings { load Rails.root.join("db/seeds/nfl_demo_contest.rb") }
