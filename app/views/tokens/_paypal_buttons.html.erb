@@ -96,7 +96,7 @@
         (which stays Stripe-only); the PayPal path never leaves this page. %>
     <template x-if="phase === 'confirming'">
       <div class="card shadow p-8 text-center">
-        <%= render "modals/blocks/card_header",
+        <%= render "studio/modals/blocks/card_header",
               spinner: true,
               title: "Confirming your purchase…",
               subtitle: "Minting your entry tokens on-chain." %>

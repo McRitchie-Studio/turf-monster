@@ -26,7 +26,7 @@
         <div class="text-center pt-1 mb-3">
           <h3 class="text-heading font-bold text-lg leading-tight">Add USDC to Play</h3>
         </div>
-        <%= render "modals/blocks/progress_pill", current: 2, total: 3 %>
+        <%= render "studio/modals/blocks/progress_pill", current: 2, total: 3 %>
         <% if AppFlags.cdp_ramp? %>
           <% entry_fee_dollars = ((@contest&.entry_fee_cents || 1900) / 100) %>
           <p class="text-xs text-secondary mb-4 text-center">Entry fee is $<%= entry_fee_dollars %> in USDC. Your lineup is saved &mdash; add USDC to finish.</p>
@@ -42,7 +42,7 @@
           </div>
           <p class="text-center text-xs text-muted mt-4">Pay with debit, Apple Pay, or your Coinbase balance. USDC lands in your wallet &mdash; then hold to confirm your entry.</p>
         <% else %>
-          <%= render "modals/blocks/card_header",
+          <%= render "studio/modals/blocks/card_header",
                 icon: :error,
                 title: "Purchases temporarily offline",
                 subtitle: "Entry purchases are paused while we upgrade checkout. Your picks are saved." %>

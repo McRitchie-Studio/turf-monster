@@ -58,7 +58,7 @@
           <h3 class="text-heading font-bold text-lg leading-tight">Get Entry Tokens</h3>
         </div>
         <%# Picker is step 2 of the 3-step onboarding journey. %>
-        <%= render "modals/blocks/progress_pill", current: 2, total: 3 %>
+        <%= render "studio/modals/blocks/progress_pill", current: 2, total: 3 %>
         <p class="text-xs text-secondary mb-4 text-center">1 token = 1 contest entry. Your lineup is saved &mdash; pick a pack to finish.</p>
         <% if Payments.paypal_checkout? %>
           <%# PayPal/Venmo path — pack cards select, the standalone buttons
@@ -119,7 +119,7 @@
         the new tab. %>
     <template x-if="props.step === 'tokens-waiting'">
       <div>
-        <%= render "modals/blocks/card_header",
+        <%= render "studio/modals/blocks/card_header",
               icon: :external_tab,
               title: "Finish checkout in the new tab",
               subtitle: "We'll bring you back here automatically once payment clears." %>
@@ -134,12 +134,12 @@
         Confirming — Status template shape (default :md card_header) with
         a spinner. Replaces the engine's processing_card so this state
         renders through the same template family as Waiting and Minted;
-        visually identical, but the chain of dependencies now stops at
-        modals/blocks/_card_header instead of reaching into studio-engine
-        for a near-duplicate component. No secondary action — the webhook
-        + job are already in flight, the user just has to wait. %>
+        visually identical, but now rendered through the shared engine block
+        studio/modals/blocks/_card_header (studio-engine 0.20) — the same
+        header every status / confirmation card uses. No secondary action —
+        the webhook + job are already in flight, the user just has to wait. %>
     <template x-if="props.step === 'tokens-confirming'">
-      <%= render "modals/blocks/card_header",
+      <%= render "studio/modals/blocks/card_header",
             spinner: true,
             title: "Confirming your purchase…",
             subtitle: "Minting your entry tokens on-chain." %>
@@ -156,7 +156,7 @@
         IS the on-chain commit signal. %>
     <template x-if="props.step === 'tokens-minted'">
       <div>
-        <%= render "modals/blocks/card_header",
+        <%= render "studio/modals/blocks/card_header",
               icon_color: 'primary',
               title_key: "(props.mintedCount === 1 ? 'Entry Token Minted' : 'Entry Tokens Minted')" do %>
           You now have <span class="font-bold text-primary font-mono" x-text="props.mintedBalance"></span> available. Hold to confirm your entry.
@@ -196,7 +196,7 @@
         the live message from the polling timeout surfaces unchanged. %>
     <template x-if="props.step === 'tokens-error'">
       <div>
-        <%= render "modals/blocks/card_header",
+        <%= render "studio/modals/blocks/card_header",
               icon: :error,
               title: "Still processing",
               subtitle_key: "props.errorText" %>

@@ -17,9 +17,9 @@
        get props() { var c = $store.modals.current(); return (c && c.props) || {}; },
        wallets: [],
        installs: [
-         { name: 'Phantom',  url: 'https://phantom.app/download',   icon: '/wallet-phantom.png' },
-         { name: 'Solflare', url: 'https://solflare.com/download',  icon: '/wallet-solflare.png' },
-         { name: 'Backpack', url: 'https://backpack.app/downloads', icon: '/wallet-backpack.png' }
+         { name: 'Phantom',  url: 'https://phantom.app/download' },
+         { name: 'Solflare', url: 'https://solflare.com/download' },
+         { name: 'Backpack', url: 'https://backpack.app/downloads' }
        ],
        connecting: false,
        picking: '',
@@ -59,6 +59,15 @@
        hasWallet(name) {
          var n = ('' + name).toLowerCase();
          return (this.wallets || []).some(function(w) { return w.name && w.name.toLowerCase() === n; });
+       },
+       // Resolve a known install-brand name to its engine wallet-sprite symbol
+       // suffix (studio-engine 0.20 _wallet_brand_sprite). The three install
+       // rows are always known brands, so this always resolves; an unknown name
+       // returns null → <use> paints nothing (detected rows never use this —
+       // they keep the wallet's own Wallet-Standard icon).
+       brandIcon(name) {
+         var n = ('' + name).toLowerCase();
+         return ['phantom', 'solflare', 'backpack'].indexOf(n) !== -1 ? n : null;
        },
        get missingInstalls() {
          var self = this;
@@ -109,6 +118,15 @@
      }"
      class="relative">
 
+  <%# Wallet brand-icon sprite (studio-engine 0.20). Inline SVG <symbol> marks
+      for the known install brands, referenced by the install rows below via
+      <use href="#se-wallet-…">. MUST live inside this picker's single root so
+      the host's <template x-if="id==='wallet-connect'"> clones it with the card
+      (a sibling of the root would be dropped, painting empty icons). Replaces
+      the former /wallet-phantom.png|/wallet-solflare.png|/wallet-backpack.png
+      app assets. %>
+  <%= render "studio/modals/blocks/wallet_brand_sprite" %>
+
   <div class="relative mb-4">
     <h3 class="text-heading font-bold text-lg text-center pt-1">Connect Wallet</h3>
     <button @click="$store.modals.close()"
@@ -144,7 +162,7 @@
     <template x-for="i in missingInstalls" :key="i.name">
       <a :href="i.url" target="_blank" rel="noopener noreferrer"
          class="w-full flex items-center gap-3 p-3 rounded-xl bg-surface-alt border border-strong hover:bg-surface transition no-underline">
-        <img :src="i.icon" alt="" class="w-9 h-9 rounded-lg">
+        <svg class="w-9 h-9" aria-hidden="true"><use :href="'#se-wallet-' + brandIcon(i.name)"></use></svg>
         <span class="font-semibold text-heading" x-text="i.name"></span>
         <span class="ml-auto flex items-center gap-2">
           <span class="text-xs text-muted uppercase tracking-wide">Install</span>

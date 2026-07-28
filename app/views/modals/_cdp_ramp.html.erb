@@ -115,7 +115,7 @@
 
   <%# === OPENING — minting the single-use session token =================== %>
   <template x-if="props.step === 'opening'">
-    <%= render "modals/blocks/card_header",
+    <%= render "studio/modals/blocks/card_header",
           spinner: true,
           title: "Connecting to Coinbase…",
           subtitle: "Setting up your secure Coinbase session." %>
@@ -124,7 +124,7 @@
   <%# === WAITING (BUY) — Coinbase tab open, polling our local row ========= %>
   <template x-if="props.step === 'waiting'">
     <div>
-      <%= render "modals/blocks/card_header",
+      <%= render "studio/modals/blocks/card_header",
             icon: :external_tab,
             title: "Finish your purchase in the Coinbase tab",
             subtitle: "We'll update here automatically once your USDC lands in your wallet." %>
@@ -138,7 +138,7 @@
   <%# === AWAITING-CDP (SELL) — polling until CDP reports the sell ========= %>
   <template x-if="props.step === 'awaiting-cdp'">
     <div>
-      <%= render "modals/blocks/card_header",
+      <%= render "studio/modals/blocks/card_header",
             icon: :external_tab,
             title: "Finish setting up in the Coinbase tab",
             subtitle: "Pick your amount and payout method, then choose Cash out now. We'll take it from there." %>
@@ -216,7 +216,7 @@
 
   <%# === SETTLING (SELL) — broadcast done, waiting on confirmation ======== %>
   <template x-if="props.step === 'settling'">
-    <%= render "modals/blocks/card_header",
+    <%= render "studio/modals/blocks/card_header",
           spinner: true,
           title: "Finishing your cash-out…",
           subtitle: "Your USDC is on its way to Coinbase. This usually takes under a minute." %>
@@ -225,7 +225,7 @@
   <%# === DONE ============================================================= %>
   <template x-if="props.step === 'done' && isBuy">
     <div>
-      <%= render "modals/blocks/card_header", size: :lg,
+      <%= render "studio/modals/blocks/card_header", size: :lg,
             icon_color: 'primary',
             title: "USDC purchased!",
             subtitle: "Your USDC has landed in your wallet. Your balance updates in a moment." %>
@@ -234,7 +234,7 @@
   </template>
   <template x-if="props.step === 'done' && !isBuy">
     <div>
-      <%= render "modals/blocks/card_header", size: :lg,
+      <%= render "studio/modals/blocks/card_header", size: :lg,
             icon_color: 'primary',
             title: "Cash-out complete!",
             subtitle: "Coinbase received your USDC. Your payout is on its way to your linked account — bank transfers can take a few business days." %>
@@ -245,7 +245,7 @@
   <%# === FAILED =========================================================== %>
   <template x-if="props.step === 'failed' && isBuy">
     <div>
-      <%= render "modals/blocks/card_header",
+      <%= render "studio/modals/blocks/card_header",
             icon: :error,
             title: "Purchase didn't complete",
             subtitle: "Coinbase marked this purchase failed and no USDC was delivered. Check your Coinbase account for details." %>
@@ -254,7 +254,7 @@
   </template>
   <template x-if="props.step === 'failed' && !isBuy">
     <div>
-      <%= render "modals/blocks/card_header",
+      <%= render "studio/modals/blocks/card_header",
             icon: :error,
             title: "Cash-out not completed" do %>
         Coinbase marked this cash-out failed. If your USDC was sent after the
@@ -270,7 +270,7 @@
   <%# === ERROR — a request in this flow errored =========================== %>
   <template x-if="props.step === 'error'">
     <div>
-      <%= render "modals/blocks/card_header",
+      <%= render "studio/modals/blocks/card_header",
             icon: :error,
             title: "Something went wrong",
             subtitle_key: "props.errorText || 'Could not reach Coinbase. Please try again.'" %>

@@ -15,7 +15,10 @@
   generic _processing_card and _error_card engine blocks cover the
   non-Solana-specific states; the rich success state stays inline
   here because the Solana mark + lobby drain + seeds animation are
-  turf-specific. Promoting them to the engine is step F.
+  turf-specific. studio-engine 0.20 homed generic celebration blocks,
+  but the turf entry cards stay forked (kickoff countdown + the
+  $store.solanaModal drive); reconciling them into the engine is a
+  follow-up (see modals/blocks/_entry_confirmed's KEEP note).
 
   Single root: this partial's content lives inside one <div> so
   Alpine's <template x-if> clones it whole (see
@@ -48,7 +51,7 @@
       structural family as the auth-modal tokens-confirming step so
       both on-chain wait states read identically. %>
   <template x-if="$store.solanaModal.state === 'processing'">
-    <%= render 'modals/blocks/card_header',
+    <%= render 'studio/modals/blocks/card_header',
           spinner: true,
           title_key:    "$store.solanaModal.title",
           subtitle_key: "$store.solanaModal.message" %>
@@ -98,7 +101,7 @@
       subtitle_key so the live errorMessage surfaces unchanged. %>
   <template x-if="$store.solanaModal.state === 'error'">
     <div>
-      <%= render 'modals/blocks/card_header',
+      <%= render 'studio/modals/blocks/card_header',
             icon: :error,
             title_key:    "$store.solanaModal.title",
             subtitle_key: "$store.solanaModal.errorMessage" %>
