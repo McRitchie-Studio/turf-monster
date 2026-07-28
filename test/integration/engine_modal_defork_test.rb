@@ -25,11 +25,11 @@ class EngineModalDeforkTest < ActionDispatch::IntegrationTest
     # right-edge indicator with the engine's canonical `.spinner` primitive.
     assert_includes response.body, 'x-data="emailValidator()"'
     assert_includes response.body,
-      %q{<span x-show="status === 'loading'" x-cloak class="spinner text-secondary"}
+      %q(<span x-show="status === 'loading'" x-cloak class="spinner text-secondary")
     # The deleted fork painted the indicator with `.cta-spinner` — must be gone
     # from the email field (bare .cta-spinner still lives on other buttons).
     assert_not_includes response.body,
-      %q{<span x-show="status === 'loading'" x-cloak class="cta-spinner text-secondary"}
+      %q(<span x-show="status === 'loading'" x-cloak class="cta-spinner text-secondary")
   end
 
   test "connect-wallet picker renders the engine wallet-brand sprite, not app PNGs" do
@@ -100,7 +100,7 @@ class EngineModalDeforkTest < ActionDispatch::IntegrationTest
       %r{["']modals/blocks/shell["']},
       %r{["']modals/templates/(?:action|form|status|success|wizard)["']},
       %r{["']modals/free_entry_earned["']},
-      %r{["']shared/email_field["']},
+      %r{["']shared/email_field["']}
     ]
     roots = [Rails.root.join("app/views/**/*.erb"), Rails.root.join("app/controllers/**/*.rb")]
     offenders = []
