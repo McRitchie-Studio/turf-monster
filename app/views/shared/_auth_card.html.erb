@@ -84,10 +84,10 @@
               The form reads the value by id (document.getElementById('email'))
               because x-ref now lives in this field's own emailValidator scope,
               which the form's $refs cannot see. %>
-          <%= render "shared/email_field",
+          <%= render "studio/modals/shared/email_field",
                 name: "email", id: "email",
                 value: params[:email], placeholder: "you@example.com",
-                required: true, autofocus: true %>
+                required: true, autofocus: true, validator: true %>
         </div>
         <button type="submit" :disabled="sending" class="btn btn-neutral btn-lg w-full disabled:cursor-wait">
           <span x-text="sending ? 'Sending…' : 'Email Link'">Email Link</span>

@@ -12,7 +12,7 @@
 %>
 <% min_age = AgePolicy.minimum_age(geo_state) %>
 <div x-data="ageVerifyModal({ minAge: <%= min_age %>, state: '<%= j geo_state.to_s %>', url: '<%= age_verify_path %>' })">
-  <%= render layout: "modals/blocks/shell", locals: { title: "Verify your age" } do %>
+  <%= render layout: "studio/modals/blocks/shell", locals: { title: "Verify your age" } do %>
     <p class="text-sm text-muted mb-4">
       You must be <span class="text-heading font-semibold"><%= min_age %>+</span>
       to enter skill-based contests<%= geo_state.present? ? " in #{geo_state}" : "" %>.
