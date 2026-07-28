@@ -46,13 +46,18 @@ class Coinflow::ClientTest < ActiveSupport::TestCase
 
   # ── create_checkout_link ─────────────────────────────────────────────────
 
+  # A buyer stand-in: the client reads only #id (auth header) and #email.
+  def fake_user(id: 42, email: "buyer@example.com")
+    Struct.new(:id, :email).new(id, email)
+  end
+
   test "create_checkout_link derives the pack subtotal and lists the wallet + card/paypal/venmo methods" do
     http = FakeHttp.new([ok_link])
-    user = Struct.new(:id).new(42)
+    user = fake_user
 
     link = Net::HTTP.stub(:new, http) do
       @client.create_checkout_link(
-        user: user, pack: StripePurchase.pack("single"),
+        user: user, pack: StripePurchase.pack("single"), pack_id: "single",
         return_url: "http://localhost:3111/tokens/buy?coinflow=return", ip: "1.2.3.4"
       )
     end
@@ -75,12 +80,68 @@ class Coinflow::ClientTest < ActiveSupport::TestCase
     assert_equal "1.2.3.4", body.dig("standaloneLinkConfig", "endUserDeviceIpAddress")
   end
 
+  # The regression this file exists to hold: without chargebackProtectionData the
+  # create-link call still returns 200, and the buyer only discovers the problem
+  # at Confirm Purchase on Coinflow's hosted page ("chargebackProtectionData is
+  # required"). Assert the ARRAY IS SENT and carries the underwriter's fields —
+  # a 200 response proves nothing here, so there is no proxy to assert instead.
+  test "create_checkout_link sends chargebackProtectionData describing the entry-token cart" do
+    http = FakeHttp.new([ok_link])
+
+    Net::HTTP.stub(:new, http) do
+      @client.create_checkout_link(
+        user: fake_user, pack: StripePurchase.pack("trio"), pack_id: "trio",
+        return_url: "http://x", ip: "1.2.3.4"
+      )
+    end
+
+    items = JSON.parse(http.requests.last.body)["chargebackProtectionData"]
+    assert_equal 1, items.length, "expected exactly one cart item"
+    item = items.first
+    assert_equal "Turf Monster entry token", item["productName"]
+    # Coinflow's productType enum — skill-based contests, not a game of chance.
+    assert_equal "gameOfSkill", item["productType"]
+    # Quantity is the PACK's token count (trio => 3), not the number of carts.
+    assert_equal 3, item["quantity"]
+    assert_equal "trio", item.dig("rawProductData", "packId")
+    assert_equal 4900, item.dig("rawProductData", "priceCents")
+  end
+
+  test "create_checkout_link sends the buyer email as an underwriter identity signal" do
+    http = FakeHttp.new([ok_link])
+
+    Net::HTTP.stub(:new, http) do
+      @client.create_checkout_link(
+        user: fake_user(email: "buyer@example.com"), pack: StripePurchase.pack("single"),
+        pack_id: "single", return_url: "http://x", ip: "1.2.3.4"
+      )
+    end
+    assert_equal "buyer@example.com", JSON.parse(http.requests.last.body)["email"]
+  end
+
+  # Never send `email: null` — omit the key so Coinflow validates the rest of the
+  # body instead of rejecting an explicit null.
+  test "create_checkout_link omits email entirely when the buyer has none" do
+    http = FakeHttp.new([ok_link])
+
+    Net::HTTP.stub(:new, http) do
+      @client.create_checkout_link(
+        user: fake_user(email: nil), pack: StripePurchase.pack("single"),
+        pack_id: "single", return_url: "http://x", ip: "1.2.3.4"
+      )
+    end
+    body = JSON.parse(http.requests.last.body)
+    refute body.key?("email"), "blank email must be omitted, not sent as null"
+    # The cart data still rides along — a missing email must not drop it.
+    assert_equal 1, body["chargebackProtectionData"].length
+  end
+
   test "create_checkout_link raises Coinflow::Client::Error when the response has no link" do
     http = FakeHttp.new([FakeHttp::Response.new("200", {}.to_json)])
     assert_raises(Coinflow::Client::Error) do
       Net::HTTP.stub(:new, http) do
         @client.create_checkout_link(
-          user: Struct.new(:id).new(7), pack: StripePurchase.pack("single"),
+          user: fake_user(id: 7), pack: StripePurchase.pack("single"), pack_id: "single",
           return_url: "http://x", ip: "1.2.3.4"
         )
       end
@@ -92,7 +153,7 @@ class Coinflow::ClientTest < ActiveSupport::TestCase
     err = assert_raises(Coinflow::Client::Error) do
       Net::HTTP.stub(:new, http) do
         @client.create_checkout_link(
-          user: Struct.new(:id).new(7), pack: StripePurchase.pack("single"),
+          user: fake_user(id: 7), pack: StripePurchase.pack("single"), pack_id: "single",
           return_url: "http://x", ip: "1.2.3.4"
         )
       end

@@ -4,6 +4,26 @@ require "minitest/mock"
 # Coinflow-rails onramp: TokensController#coinflow_order and the reference
 # branch of #status. Mirrors the PayPal coverage in tokens_paypal_test.rb.
 class TokensCoinflowTest < ActionDispatch::IntegrationTest
+  # Net::HTTP stand-in that records the outgoing request and replays one canned
+  # Coinflow link response — lets a test drive the REAL Coinflow::Client through
+  # the controller and then inspect the exact JSON that would hit the wire.
+  class CapturingHttp
+    Response = Struct.new(:code, :body)
+
+    attr_reader :requests
+    attr_accessor :use_ssl, :open_timeout, :read_timeout
+
+    def initialize(link:)
+      @link = link
+      @requests = []
+    end
+
+    def request(req)
+      @requests << req
+      Response.new("200", { link: @link }.to_json)
+    end
+  end
+
   setup do
     @alex = users(:alex)
     @jordan = users(:jordan)
@@ -92,7 +112,34 @@ class TokensCoinflowTest < ActionDispatch::IntegrationTest
     # carrying the reference for settlement resolution.
     call = client.checkout_calls.first
     assert_equal 19_00, call[:pack][:price_cents]
+    assert_equal "single", call[:pack_id], "pack_id must reach the client for chargeback cart data"
     assert_includes call[:return_url], "reference=#{purchase.coinflow_reference}"
+  end
+
+  # Integration tier for the chargeback-protection fix: the unit test proves the
+  # client BUILDS the field, this proves the controller's real request CARRIES it
+  # to the wire. The seam that broke was the wiring (pack_id never reached the
+  # client), so drive the genuine Coinflow::Client and stub only Net::HTTP.
+  test "coinflow_order's outgoing checkout-link request carries chargebackProtectionData" do
+    log_in_as_with_wallet @jordan
+    http = CapturingHttp.new(
+      link: "https://sandbox-merchant.coinflow.cash/purchase-v2/CBP"
+    )
+
+    with_coinflow_enabled do
+      Net::HTTP.stub :new, http do
+        post tokens_coinflow_order_path, params: { pack: "trio" }, as: :json
+      end
+    end
+    assert_response :success
+
+    body = JSON.parse(http.requests.last.body)
+    item = body.fetch("chargebackProtectionData").first
+    assert_equal "gameOfSkill", item["productType"]
+    assert_equal "Turf Monster entry token", item["productName"]
+    assert_equal 3, item["quantity"], "trio pack is 3 entry tokens"
+    assert_equal "trio", item.dig("rawProductData", "packId")
+    assert_equal @jordan.email, body["email"]
   end
 
   test "coinflow_order records the contest context when given" do
