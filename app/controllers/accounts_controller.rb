@@ -300,9 +300,18 @@ class AccountsController < ApplicationController
   # On-chain username edit. Custodial (managed) wallets: the server co-signs
   # set_username immediately. Phantom wallets: returns a partial TX for the
   # wallet to co-sign, confirmed via #confirm_username.
+  #
+  # Wire contract is studio-engine's leveling-activity NEUTRAL contract (the modal
+  # is engine studio/modals/blocks/_change_username): the request posts { value },
+  # responses are { status: "saved" | "needs_step" | "error", ... }. The on-chain
+  # surface is UNCHANGED — set_username / build_set_username / the managed keypair /
+  # TxVerifier all still live here; the engine only ferries an OPAQUE challenge/proof
+  # to TM's finalize_hook (window.tmUsernameFinalize). No signing/keys leave TM.
   def update_username
     @user = current_user
-    new_username = params[:username].to_s.strip
+    # Engine posts { value }; accept the legacy { username } for one deploy so a
+    # page loaded before this ship still renames (retryable, no funds at risk).
+    new_username = (params[:value].presence || params[:username]).to_s.strip
     @user.username = new_username
 
     # Server-side mirror of the UI gate (modals/_username.html.erb +
@@ -310,11 +319,11 @@ class AccountsController < ApplicationController
     # can't bypass the "enter a contest first" lock.
     unless @user.can_change_username?
       reason = @user.solana_connected? ? "Enter a contest first to unlock username changes." : "No wallet on this account."
-      return render json: { success: false, error: reason }, status: :forbidden
+      return render json: { status: "error", message: reason }, status: :forbidden
     end
 
     unless @user.valid?
-      return render json: { success: false, error: @user.errors.full_messages.first }, status: :unprocessable_entity
+      return render json: { status: "error", message: @user.errors.full_messages.first }, status: :unprocessable_entity
     end
 
     # Self-custodied users (task #11) hold their own key — the server must
@@ -324,10 +333,12 @@ class AccountsController < ApplicationController
     # into during the export flow.
     if @user.phantom_wallet? || @user.self_custodied?
       # Phantom / self-custody: hand the client a partial set_username TX to co-sign.
+      # `challenge` is that base64 TX — an opaque blob the engine hands straight to
+      # TM's finalize_hook; the sign/broadcast happens entirely client-side in TM.
       result = Solana::Vault.new.build_set_username(@user.solana_address, new_username)
       render json: {
-        needs_signature: true,
-        serialized_tx: result[:serialized_tx],
+        status: "needs_step",
+        challenge: result[:serialized_tx],
         token: sign_username_payload(new_username)
       }
     else
@@ -336,15 +347,17 @@ class AccountsController < ApplicationController
         Solana::Vault.new.set_username(@user.solana_address, new_username, user_keypair: @user.solana_keypair)
         @user.save!
         seeds = grant_first_username_seeds(@user)
-        render json: { success: true, username: @user.username }.merge(seeds || {})
+        render json: { status: "saved", username: @user.username }.merge(seeds || {})
       end
     end
   rescue StandardError => e
-    render json: { success: false, error: e.message }, status: :unprocessable_entity
+    render json: { status: "error", message: e.message }, status: :unprocessable_entity
   end
 
   # Phantom username edit, step 2: the wallet co-signed + broadcast the
   # set_username TX; verify it on-chain (OPSEC-010), then mirror to the DB.
+  # The engine finalize step posts { token, proof }; `proof` is the tx signature
+  # TM's finalize_hook returned (legacy { tx_signature } accepted for one deploy).
   def confirm_username
     @user = current_user
     payload = verify_username_payload(params[:token])
@@ -355,7 +368,7 @@ class AccountsController < ApplicationController
       Solana::Vault.new.user_account_pda(@user.solana_address).first
     )
     Solana::TxVerifier.verify!(
-      signature: params[:tx_signature],
+      signature: (params[:proof].presence || params[:tx_signature]),
       instruction_name: "set_username",
       signer_pubkey: @user.solana_address,
       writable_pubkey: user_pda_b58
@@ -364,12 +377,12 @@ class AccountsController < ApplicationController
     rescue_and_log(target: @user) do
       @user.update!(username: new_username)
       seeds = grant_first_username_seeds(@user)
-      render json: { success: true, username: @user.username }.merge(seeds || {})
+      render json: { status: "saved", username: @user.username }.merge(seeds || {})
     end
   rescue ActiveSupport::MessageVerifier::InvalidSignature
-    render json: { success: false, error: "Rename expired — please try again." }, status: :unprocessable_entity
+    render json: { status: "error", message: "Rename expired — please try again." }, status: :unprocessable_entity
   rescue StandardError => e
-    render json: { success: false, error: e.message }, status: :unprocessable_entity
+    render json: { status: "error", message: e.message }, status: :unprocessable_entity
   end
 
   # POST /account/initiate_wallet_export

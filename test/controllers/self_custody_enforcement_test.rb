@@ -73,13 +73,13 @@ class SelfCustodyEnforcementTest < ActionDispatch::IntegrationTest
     end
     Solana::Vault.stub :new, fake_vault do
       post update_username_account_path,
-           params: { username: "newname#{SecureRandom.hex(2)}" },
+           params: { value: "newname#{SecureRandom.hex(2)}" },
            as: :json
     end
     assert_response :success
     body = JSON.parse(response.body)
-    assert body["needs_signature"], "self-custodied user must be routed to the partial-tx + co-sign path"
-    assert_equal "fake-base64-tx", body["serialized_tx"]
+    assert_equal "needs_step", body["status"], "self-custodied user must be routed to the partial-tx + co-sign path"
+    assert_equal "fake-base64-tx", body["challenge"]
     assert body["token"].present?
   end
 
@@ -96,13 +96,13 @@ class SelfCustodyEnforcementTest < ActionDispatch::IntegrationTest
     end
     Solana::Vault.stub :new, fake_vault do
       post update_username_account_path,
-           params: { username: "newname#{SecureRandom.hex(2)}" },
+           params: { value: "newname#{SecureRandom.hex(2)}" },
            as: :json
     end
     assert_response :success
     body = JSON.parse(response.body)
-    refute body["needs_signature"], "non-self-custodied managed user must stay on the server-sign path"
-    assert body["success"]
+    refute_equal "needs_step", body["status"], "non-self-custodied managed user must stay on the server-sign path"
+    assert_equal "saved", body["status"]
   end
 
 end

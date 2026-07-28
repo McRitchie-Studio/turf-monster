@@ -417,33 +417,9 @@ window.confirmSolanaNetworkIntent = confirmSolanaNetworkIntent;
 window.refreshBalance = refreshBalance;
 window.refreshBalanceDelayed = refreshBalanceDelayed;
 window.refreshSession = refreshSession;
-// Confetti burst that originates from the currently-open modal card —
-// used for the entry-confirmation celebration where the user is looking
-// at the modal, not the navbar badge. Targets the modal_host's
-// max-w-sm card (role="dialog"); falls back to screen center if no
-// modal is mounted.
-export function fireConfettiFromModal() {
-  if (typeof confetti === 'undefined') return;
-  var card   = document.querySelector('[role="dialog"] > div') ||
-               document.querySelector('[role="dialog"]');
-  var rect   = card && card.getBoundingClientRect();
-  var hidden = !rect || (rect.width === 0 && rect.height === 0);
-  var origin = hidden
-    ? { x: 0.5, y: 0.5 }
-    : {
-        x: (rect.left + rect.width  / 2) / window.innerWidth,
-        y: (rect.top  + rect.height / 2) / window.innerHeight
-      };
-  var colors = window.CONFETTI_COLORS || ['#4BAF50', '#8E82FE', '#06D6A0', '#FF7C47', '#FFD700', '#00BFFF', '#FF6B9D', '#C084FC'];
-  // Bigger, more spread-out burst than the badge version — the modal
-  // is the focal point of the moment, give the celebration room.
-  confetti({ particleCount: 140, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: 9999, startVelocity: 30, gravity: 0.7, ticks: 220, scalar: 1.0 });
-  // Sweep-up follow shells from the bottom corners for theatre.
-  setTimeout(function() {
-    confetti({ particleCount: 60, angle: 60, spread: 70, origin: { x: Math.max(0, origin.x - 0.18), y: Math.min(1, origin.y + 0.05) }, colors: colors, zIndex: 9999, startVelocity: 40, gravity: 0.9, ticks: 200, scalar: 0.9 });
-    confetti({ particleCount: 60, angle: 120, spread: 70, origin: { x: Math.min(1, origin.x + 0.18), y: Math.min(1, origin.y + 0.05) }, colors: colors, zIndex: 9999, startVelocity: 40, gravity: 0.9, ticks: 200, scalar: 0.9 });
-  }, 180);
-}
+// fireConfettiFromModal was removed (it had no call sites). Its exact radial
+// card-burst now lives in studio-engine as window.studioConfetti.burst(el) — a
+// faithful, byte-for-byte port (see studio/studio_confetti.js). Use that.
 
 // Synchronous entry-eligibility check against the running $store.session.
 // Returns null if the viewer can submit, or { reason, mode, data } describing
@@ -515,5 +491,4 @@ window.eligibilityBlocker = eligibilityBlocker;
 window.updateNavTokens = updateNavTokens;
 window.animateFreeEntryBadge = animateFreeEntryBadge;
 window.fireConfettiFromBadge = fireConfettiFromBadge;
-window.fireConfettiFromModal = fireConfettiFromModal;
 window.CONFETTI_COLORS = CONFETTI_COLORS;

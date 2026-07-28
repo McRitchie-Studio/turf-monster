@@ -164,13 +164,14 @@ async function stubQuestEndpoints(page, opts = {}) {
     seeds_level: opts.seedsLevel ?? 0,
   };
 
-  // Username rename (on-chain set_username) — return the confirmed-rename payload.
+  // Username rename (on-chain set_username) — return the confirmed-rename payload in
+  // the studio-engine leveling-activity neutral contract ({ status: "saved", ... }).
   await page.route("**/account/update_username", async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ success: true, username: "renamed-quest", ...seeds }),
+      body: JSON.stringify({ status: "saved", username: "renamed-quest", ...seeds }),
     });
   });
 

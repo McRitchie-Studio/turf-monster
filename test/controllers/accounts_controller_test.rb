@@ -147,9 +147,9 @@ class AccountsControllerTest < ActionDispatch::IntegrationTest
     # validation check; otherwise the gate intercepts first with 403.
     @alex.update_columns(web2_solana_address: "test_wallet_alex_111", contest_entered: true)
     log_in_as @alex
-    post update_username_account_path, params: { username: users(:jordan).username }, as: :json
+    post update_username_account_path, params: { value: users(:jordan).username }, as: :json
     assert_response :unprocessable_entity
-    assert_not JSON.parse(response.body)["success"]
+    assert_equal "error", JSON.parse(response.body)["status"]
   end
 
   test "update_username (custodial) saves via a server-signed set_username" do
@@ -161,20 +161,21 @@ class AccountsControllerTest < ActionDispatch::IntegrationTest
       { signature: "sig_test" }
     end
     Solana::Vault.stub :new, fake_vault do
-      post update_username_account_path, params: { username: "renamed-fox" }, as: :json
+      post update_username_account_path, params: { value: "renamed-fox" }, as: :json
     end
     assert_response :success
+    assert_equal "saved", JSON.parse(response.body)["status"]
     assert_equal "renamed-fox", user.reload.username
   end
 
   test "update_username is gated until contest_entered" do
     user = User.create!(email: "gated@mcritchie.studio") # managed wallet, contest_entered: false
     log_in_as user
-    post update_username_account_path, params: { username: "new-name-here" }, as: :json
+    post update_username_account_path, params: { value: "new-name-here" }, as: :json
     assert_response :forbidden
     body = JSON.parse(response.body)
-    assert_not body["success"]
-    assert_match(/Enter a contest first/i, body["error"])
+    assert_equal "error", body["status"]
+    assert_match(/Enter a contest first/i, body["message"])
     assert_equal user.username, user.reload.username, "username should not have changed"
   end
 
@@ -182,10 +183,10 @@ class AccountsControllerTest < ActionDispatch::IntegrationTest
     user = User.create!(email: "nowallet@mcritchie.studio")
     user.update_columns(web2_solana_address: nil, web3_solana_address: nil, contest_entered: true)
     log_in_as user
-    post update_username_account_path, params: { username: "new-name" }, as: :json
+    post update_username_account_path, params: { value: "new-name" }, as: :json
     assert_response :forbidden
     body = JSON.parse(response.body)
-    assert_match(/No wallet/i, body["error"])
+    assert_match(/No wallet/i, body["message"])
   end
 
   test "show renders for logged in user" do

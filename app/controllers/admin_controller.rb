@@ -224,9 +224,11 @@ class AdminController < ApplicationController
     { group: "Profile",
       label: "Change username", key: "username",
       # loadable → the gallery shows a "Load" button (next to Open) that opens
-      # this modal with previewLoading:true, driving the CTA spinner. The
-      # username modal maps previewLoading → initialSaving (no request runs).
-      # This is the generic pending-state preview convention to propagate.
+      # this modal with previewLoading:true. The rename now adopts the engine
+      # leveling-activity primitive (studio/modals/blocks/_change_username), which
+      # has no synthetic saving state, so previewLoading is ignored here — Load
+      # opens the same view as Open. Kept loadable so the gallery convention stays
+      # uniform across profile modals.
       modal_id: "username", file: "app/views/modals/_username.html.erb",
       loadable: true, props: {} },
     { group: "Profile",
