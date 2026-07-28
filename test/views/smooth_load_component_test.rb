@@ -6,13 +6,14 @@ require "test_helper"
 # convention (Studio.smooth_load = true → same-origin view-transition +
 # turbo-cache-control no-preview metas via layouts/studio/head), pins the
 # navbar as the page's ONE shared view-transition element (vt-pinned-header,
-# non-preview renders only), keeps the nav spinner minimum at the 2500 default
-# (deliberate — Solana RPC ops ride the spinner), and forces reducedMotion in
-# Playwright so e2e never waits on a transition.
+# non-preview renders only), drops the nav spinner display floor to 300ms per
+# the engine's smooth-load guidance (the floor only pads fast navigations —
+# remaining = max(0, min_ms - elapsed) — so slow RPC ops are unaffected by it),
+# and forces reducedMotion in Playwright so e2e never waits on a transition.
 #
 # Structural regression risks: the config flag flipping back off, a future
-# engine bump dropping the smooth-load CSS layer, the spinner minimum being
-# "tidied" down, the preview navbar copies gaining the pin (a duplicate
+# engine bump dropping the smooth-load CSS layer, the spinner floor drifting
+# back up to the 2500 default, the preview navbar copies gaining the pin (a duplicate
 # view-transition-name silently disables ALL transitions on the page), or the
 # Playwright reducedMotion line being dropped and e2e going flaky on swaps.
 class SmoothLoadComponentTest < ActiveSupport::TestCase
@@ -25,10 +26,11 @@ class SmoothLoadComponentTest < ActiveSupport::TestCase
       "config/initializers/studio.rb must set config.smooth_load = true"
   end
 
-  test "[component] nav spinner minimum stays at the 2500 default" do
-    assert_equal 2500, Studio.nav_spinner_min_ms,
-      "turf keeps the engine's 2500ms default deliberately — Solana RPC ops ride the spinner; " \
-      "do not set config.nav_spinner_min_ms"
+  test "[component] nav spinner display floor is 300ms per smooth-load guidance" do
+    assert_equal 300, Studio.nav_spinner_min_ms,
+      "nav_spinner_min_ms is a minimum DISPLAY floor (remaining = max(0, min_ms - elapsed)) — " \
+      "it only pads fast navigations and does nothing for slow RPC ops. Smooth-load apps keep " \
+      "it low (300ms) so the spinner never lingers after every turbo:load"
   end
 
   test "[component] engine gem resolves to 0.24+ and ships the smooth-load CSS layer" do
