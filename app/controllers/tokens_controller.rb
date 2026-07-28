@@ -253,7 +253,8 @@ class TokensController < ApplicationController
 
       return_url = "#{tokens_buy_url}?coinflow=return&reference=#{@coinflow_purchase.coinflow_reference}"
       link = Coinflow::Client.new.create_checkout_link(
-        user: current_user, pack: pack, return_url: return_url, ip: request.remote_ip
+        user: current_user, pack: pack, pack_id: pack_id,
+        return_url: return_url, ip: request.remote_ip
       )
       Rails.logger.info "[tokens] coinflow.order_created purchase=#{@coinflow_purchase.id} " \
                         "reference=#{@coinflow_purchase.coinflow_reference} pack=#{pack_id} user=#{current_user.id}"

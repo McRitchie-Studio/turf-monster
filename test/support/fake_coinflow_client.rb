@@ -19,9 +19,9 @@ class FakeCoinflowClient
     @verify_calls = []
   end
 
-  def create_checkout_link(user:, pack:, return_url:, ip:)
+  def create_checkout_link(user:, pack:, pack_id:, return_url:, ip:)
     raise Coinflow::Client::Error, @raises if @raises
-    @checkout_calls << { user: user, pack: pack, return_url: return_url, ip: ip }
+    @checkout_calls << { user: user, pack: pack, pack_id: pack_id, return_url: return_url, ip: ip }
     @link
   end
 
