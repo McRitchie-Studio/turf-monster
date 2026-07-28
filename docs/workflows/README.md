@@ -33,8 +33,8 @@ What a Turf Monster operator does from the admin surface or rake tasks.
 | Workflow | Entrypoint | One-liner |
 |---|---|---|
 | [admin-contest-setup](admin-contest-setup.md) | Phantom login → `GET /contests/new` | Phantom auth → create on-chain Contest PDA → admin enters via Phantom. |
-| [market-snapshot](market-snapshot.md) | `npm run market-snapshot` | Scrape DK, prefer posted team totals, derive from spread + total when absent. |
-| [slate-build](slate-build.md) | `bin/rails slates:build` | Projections → slate → rank by summed expectation → freeze the multiplier. |
+| [market-snapshot](market-snapshot.md) | `bin/rails nfl:expected_team_totals_cache` (🔨 `npm run market-snapshot` planned) | Prefer DK posted team totals, derive from spread + total when absent. |
+| [slate-build](slate-build.md) | `Nfl::BuildSpanSlate.call` (🔨 `bin/rails slates:build` planned) | Projections → slate → rank by summed expectation → freeze the multiplier. |
 
 ## Dev / deploy
 

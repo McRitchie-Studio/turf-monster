@@ -40,7 +40,10 @@ prices deeply. The rest of the year it posts the primitives: a **game total** an
 
 **Prefer `posted`. Fall back to `derived`. Never mix silently — always stamp `basis`.**
 
-The derive math is live today at `app/services/nfl/cache_expected_team_totals.rb:22`:
+The derive math is live today in `Nfl::CacheExpectedTeamTotals.derive`
+(`app/services/nfl/cache_expected_team_totals.rb:22` is the `def`; the arithmetic is at
+`:25` and `:29`). Paraphrased below for readability — the real locals are `total` and
+`spread`:
 
 ```ruby
 home_points = ((game_total - home_spread) / 2).round(2)
@@ -57,10 +60,42 @@ favorite, `home_spread` is that negative number. When the away team is the favor
 `home_spread` is its absolute value. A row whose `favorite_team_slug` matches neither
 side falls through to `0`.
 
-**Re-running upgrades a week in place.** A Week 3 snapshot taken in July is `derived`;
-the same command on the Thursday of Week 3 overwrites it with `posted`. When both exist,
-keep both — the gap between DK's posted number and your derived one is the accuracy
-check on the formula above.
+**Re-running upgrades a week's projections in place.** A Week 3 snapshot taken in July is
+`derived`; the same command on the Thursday of Week 3 overwrites it with `posted`. When
+both exist, keep both — the gap between DK's posted number and your derived one is the
+accuracy check on the formula above.
+
+---
+
+## ⛔ Today, re-running this SOP can re-price a live contest
+
+**This warning belongs here, not only in [[slate-build]], because the dangerous command is
+in THIS file** (step 3).
+
+Until `slate-build-split` lands, the ✅ LIVE command `nfl:expected_team_totals_cache` does
+not stop at projections. It also creates Slates and rewrites **`rank` and `turf_score` on
+every matchup**, unconditionally:
+
+```ruby
+# app/services/nfl/cache_expected_team_totals.rb:172 — no guard of any kind
+matchup.update!(rank: ranking[:rank], turf_score: ranking[:turf_score])
+```
+
+`Nfl::BuildSpanSlate` refuses to rebuild a slate backing live Selections
+(`app/services/nfl/build_span_slate.rb:44`). **The weekly path has no equivalent guard.**
+Settlement
+multiplies by the stored `turf_score` (`app/models/selection.rb:35`, `:42`), so re-running
+this command against a week whose slate already backs picks re-prices those picks after
+they were locked — and payouts settle on-chain.
+
+**Before running step 3 against a week that may already be picked**, check first:
+
+```bash
+bin/rails runner 'slate = Slate.find_by(name: "NFL 2026 Week 3"); \
+  puts slate && slate.slate_matchups.joins(:selections).exists? ? "HAS PICKS — do not re-run" : "safe"'
+```
+
+Full rule and rationale: [[slate-build]], "The freeze rule".
 
 ---
 
@@ -80,6 +115,18 @@ to a World Cup URL (`scripts/scrape_draftkings.js:22`), carries a 60-country nam
 (`scripts/scrape_draftkings.js:25`), and picks the O/U line whose over-odds sit closest to
 even money (`scripts/scrape_draftkings.js:146`). Sport, league, and week must become
 parameters. Run it today with `npm run scrape` / `npm run scrape:headed` (`package.json`).
+
+**Preconditions for the scraper** — it needs a browser installed, and `package.json`
+declares only `@playwright/test` while `scripts/scrape_draftkings.js:14` requires the
+`playwright` package itself:
+
+```bash
+npm install
+npx playwright install chromium
+```
+
+Run it from the **primary checkout** (`/Users/alex/projects/turf-monster`). A fresh
+worktree has no `node_modules`, so the `require("playwright")` fails there.
 
 **Pattern to copy:** `Nfl::FetchHistoricalScores` (`app/services/nfl/fetch_historical_scores.rb:9`)
 already models fetch-to-checked-in-dataset correctly — network only on the rake task, a
@@ -102,23 +149,51 @@ Columns — extending the live header at `db/seeds/data/nfl/2026_expected_team_t
 | `basis` | 🔨 `posted` or `derived` |
 | `posted_line`, `over_odds`, `under_odds` | 🔨 DK's own number, blank when unposted |
 
+**⚠️ Today's NFL numbers did not come from DraftKings.** The checked-in
+`db/seeds/data/nfl/2026_expected_team_totals.csv` was **hand-transcribed from a Yahoo
+article** — its `source` column reads `yahoo_sports_2026_lookahead`, with the article URL
+in `source_url` and the quoted line in `source_text`. Every row is `derived`; none is
+`posted`.
+
+So until step 1 ships, **today's actual refresh procedure is manual**: edit or replace the
+CSV by hand, keep the `source*` columns honest, then run step 3 with
+`CSV_PATH=/path/to/your.csv`. There is no NFL scraper to run.
+
 ### 3. Ingest — ✅ LIVE (as `nfl:expected_team_totals_cache`)
 
 ```bash
-bin/rails market:snapshot SPORT=nfl WEEK=3      # 🔨 PLANNED name
-bin/rails nfl:expected_team_totals_cache YEAR=2026   # ✅ what runs today
+# 🔨 PLANNED name
+bin/rails market:snapshot SPORT=nfl WEEK=3
+
+# ✅ what runs today — read the ⛔ warning above before running this
+bin/rails nfl:expected_team_totals_cache YEAR=2026 SKIP_SCHEDULE=1
+bin/rails nfl:expected_team_totals_cache YEAR=2026 CSV_PATH=/path/to/refreshed.csv
 ```
 
 Reads the dataset, derives where needed, and upserts one row per team per game.
 
-**Today this task does far more than ingest.** `lib/tasks/nfl.rake:3` also loads the
-season schedule, and `Nfl::CacheExpectedTeamTotals#call` (`:43`) creates Games (`:112`),
-creates Slates (`:126`), creates SlateMatchups and ranks them (`:136`, `:164`). Those four
-belong to [[slate-build]] and move there under `slate-build-split`.
+**`SKIP_SCHEDULE=1` is the lever that makes today's command behave like the pure ingest
+this SOP describes.** Without it, `lib/tasks/nfl.rake:6` also loads
+`db/seeds/nfl_2026.rb` — the whole season schedule — before ingesting. `CSV_PATH`
+(`nfl.rake:5`) points it at a refreshed line sheet instead of the checked-in default.
 
-Idempotency is already correct and must survive the split: `upsert_projection!` (`:176`)
-keys on `(year, week, game_slug, team_slug)`, and `delete_stale_rows` (`:204`) drops any
-row the current run did not touch. Re-running is safe and self-cleaning.
+**Even with `SKIP_SCHEDULE=1`, this task does far more than ingest.**
+`Nfl::CacheExpectedTeamTotals#call` (`app/services/nfl/cache_expected_team_totals.rb:43`)
+creates Games (`:112`), creates Slates (`:126`), and creates SlateMatchups and ranks them
+(`:136`, `:164`). Those four belong to [[slate-build]] and move there under
+`slate-build-split`.
+
+**Idempotency — correct today, but its grain changes under the split.**
+`upsert_projection!` (`app/services/nfl/cache_expected_team_totals.rb:176`) keys on
+`(year, week, game_slug, team_slug)`, which is already per-week and needs no change.
+`delete_stale_rows` (`:204`) is the problem: it
+scopes to `where(year: @year)` and deletes every row the current run did not touch. That
+is right today, when one run ingests the **whole season** from one CSV.
+
+⚠️ **The split makes the run per-week** (`market:snapshot … WEEK=3`, one
+`<year>-w<NN>-team-totals.csv`). A year-scoped sweep after a single-week run would delete
+weeks 1–2. `slate-build-split` must re-scope the sweep to `(year, week)` — do not carry
+`delete_stale_rows` across unchanged.
 
 ### 4. Record the artifact — 🔨 PLANNED (`market-snapshot-impl`)
 
@@ -138,13 +213,26 @@ Every projection `belongs_to :market_snapshot`. This replaces the debug PNGs in
 
 ## Data touched
 
+**Target state**, once `slate-build-split` lands:
+
 - `team_total_projections` (upsert, delete stale) — today `nfl_team_total_projections`
 - `market_snapshots` (insert) — 🔨 planned
 - `db/seeds/data/<sport>/*.csv` (write)
 - external: DraftKings sportsbook over HTTPS, browser-driven
 
-**Not touched:** `slates`, `slate_matchups`, `selections`, `contests`. If a change to this
-SOP writes to any of those, it belongs in [[slate-build]] instead.
+**Today the ✅ LIVE command in step 3 writes far more than that.**
+`nfl:expected_team_totals_cache` also writes:
+
+- `games` (insert, update) — `app/services/nfl/cache_expected_team_totals.rb:112`
+- `slates` (insert, update) — `app/services/nfl/cache_expected_team_totals.rb:126`
+- `slate_matchups` (insert, update — including **`rank` and `turf_score`**) —
+  `app/services/nfl/cache_expected_team_totals.rb:136` and `:164`
+
+Only `selections` and `contests` are genuinely untouched, and even those are reached
+indirectly: a rewritten `turf_score` is what settlement multiplies by.
+
+Once the split lands, this SOP touches only the first list. Until then, treat step 3 as a
+[[slate-build]] operation wearing an ingest's name.
 
 ---
 
@@ -162,8 +250,12 @@ SOP writes to any of those, it belongs in [[slate-build]] instead.
 - **DK markup changes** — the scraper parses `document.body.innerText`
   (`scripts/scrape_draftkings.js:71`), so a layout change yields zero rows rather than an
   exception. Assert a minimum row count for the week before writing the dataset.
-- **Stale rows from a shrinking week** — handled: `delete_stale_rows`
-  (`app/services/nfl/cache_expected_team_totals.rb:204`) removes untouched rows for the year.
+- **Stale rows from a shrinking week** — handled *today* by `delete_stale_rows`
+  (`app/services/nfl/cache_expected_team_totals.rb:204`), which removes untouched rows for
+  the whole **year**. Correct while one run ingests the whole season; **destructive once
+  the run is per-week** — see the grain warning in step 3.
+- **Re-running against an already-picked week** — see the ⛔ warning above. Today's LIVE
+  command rewrites `rank` and `turf_score` with no live-Selections guard.
 
 ---
 

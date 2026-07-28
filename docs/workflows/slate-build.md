@@ -55,8 +55,11 @@ refresh this one.**
 ### 1. Read the projections — ✅ LIVE
 
 ```bash
-bin/rails slates:build SPORT=nfl YEAR=2026 WEEKS=3     # 🔨 PLANNED name
-bin/rails nfl:expected_team_totals_cache YEAR=2026     # ✅ what runs today
+# 🔨 PLANNED name
+bin/rails slates:build SPORT=nfl YEAR=2026 WEEKS=3
+
+# ✅ what runs today — read the freeze rule above first; this rewrites rank + turf_score
+bin/rails nfl:expected_team_totals_cache YEAR=2026 SKIP_SCHEDULE=1
 ```
 
 Today the read is a CSV parse fused into the market ingest
@@ -89,7 +92,8 @@ game, one per team, each carrying that team's expected score.
 
 The column is `slate_matchups.dk_goals_expectation` today and becomes **`expected_score`**
 under `expected-score-rename` — it holds NFL *points*, not goals, and never came from DK.
-Ten files read it; the rename is its own task, run alone and last.
+**23 files reference it** — 7 in `app/`, 12 in `test/`, 3 in `db/` (schema, migration,
+seeds), 1 doc. The rename is its own task, run alone and last.
 
 ### 5. Rank by TEAM — ✅ LIVE
 
@@ -114,26 +118,46 @@ ordering it replaced, so a one-week slate ranks identically to before. NFL games
 | `fifa` | `1.0 + 2.0 * ln(rank)/ln(n)` — log decay | x3.0 |
 
 Rank 1 always prices **x1.0**; the base is pinned, not tunable
-(`app/models/slate.rb:60`). The NFL curve is linear because it was measured that way —
-`Nfl::PointsDistribution` fits 2023–25 ESPN scores at **r² 0.958** linear vs 0.918 log.
+(`app/models/slate.rb:60`). The NFL curve is linear because it was measured that way:
+`Nfl::PointsDistribution` computes the fit dynamically from the checked-in ESPN dataset,
+and the 2023–25 snapshot is written down at `docs/FORMULAS.md:15` — linear **r² 0.9583**
+(`6.76 + 31.54 * (32-rank)/31`) against log **r² 0.9184** at `docs/FORMULAS.md:14`.
 
-The rank and score are written to **every row of that team** (`:164` weekly,
-`app/services/nfl/build_span_slate.rb:114` span). That is the freeze: pick time and
-settlement read the same stored column.
+The rank and score are written to **every row of that team** —
+`app/services/nfl/cache_expected_team_totals.rb:164` on the weekly path,
+`app/services/nfl/build_span_slate.rb:114` on the span path. That is the freeze: pick time
+and settlement read the same stored column.
 
-### 7. Span slates — ✅ LIVE
+### 7. Span slates — ✅ LIVE (no rake task; call the service)
+
+**There is no `slates:build` rake task.** `lib/tasks/slates.rake` defines only
+`recompute_turf_scores`, and no rake task invokes `BuildSpanSlate` at all. The capability
+is live — it just has no CLI of its own yet. Three ways in:
 
 ```bash
-bin/rails slates:build SPORT=nfl YEAR=2026 WEEKS=1-3    # 🔨 PLANNED name
+# ✅ what runs today — call the service directly
+bin/rails runner 'slate = Nfl::BuildSpanSlate.call(year: 2026, weeks: [1,2,3]); \
+  puts "#{slate.name}: #{slate.slate_matchups.count} matchups"'
+
+# 🔨 PLANNED wrapper for the above (slate-build-split)
+bin/rails slates:build SPORT=nfl YEAR=2026 WEEKS=1-3
 ```
+
+The two production callers, for reference:
+
+| Caller | Where |
+|---|---|
+| Contest creation (the real path) | `app/controllers/contests_controller.rb:1708` |
+| Demo seed | `db/seeds/nfl_demo_contest.rb:51` |
 
 `Nfl::BuildSpanSlate` (`app/services/nfl/build_span_slate.rb:29`) assembles one slate from
 the weekly ones. It **refuses rather than truncates**: a gap in the requested weeks raises
 (`:78`), because a "Weeks 1-3" sold as three weeks and scored as two is a different
 contest than the operator asked for.
 
-Sources must be single-week slates (`:70`). Without that filter a rebuild matched the span
-as its own week-1 source, wiped its rows, then copied from the now-empty slate.
+Sources must be single-week slates — the `reject` at `:72` filters them; `:70` is the week
+scope and `:71` the season scope. Without that filter a rebuild matched the span as its own
+week-1 source, wiped its rows, then copied from the now-empty slate.
 
 ---
 
@@ -153,13 +177,13 @@ as its own week-1 source, wiped its rows, then copied from the now-empty slate.
 
 - **Rebuilding a picked slate** — guarded at `app/services/nfl/build_span_slate.rb:44`;
   returns the existing slate untouched. **The weekly path has no equivalent guard** —
-  `ensure_matchups!` (`:136`) updates rows in place, so a re-run after a projections
-  refresh re-ranks a weekly slate that may already back picks. Closing that gap is the
-  first job of `slate-build-split`.
+  `ensure_matchups!` (`app/services/nfl/cache_expected_team_totals.rb:136`) updates rows in
+  place, so a re-run after a projections refresh re-ranks a weekly slate that may already
+  back picks. Closing that gap is the first job of `slate-build-split`.
 - **Missing week in a span** — raises `Nfl::BuildSpanSlate::Error` (`:78`). Build the
   missing weekly slate first, then re-run.
 - **Wrong-season absorption** — a 2025 slate pulled into a 2026 span. Guarded today by
-  the `name LIKE` scope (`:70`); guarded properly by the `year` column after
+  the `name LIKE` scope (`:71`); guarded properly by the `year` column after
   `slates-sport-year`.
 - **Slate built but never ranked** — `team_rows` (`app/models/slate.rb:140`) falls back to
   a computed ranking when nothing is stored, so the page still renders in a sane order.
