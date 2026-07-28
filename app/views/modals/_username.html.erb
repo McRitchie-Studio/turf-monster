@@ -16,40 +16,30 @@
        POST confirm_username_account_path with the tx_signature
 %>
 <% if current_user.can_change_username? %>
-  <%# usernameRenameForm() factory lives in app/javascript/username_rename_form.js.
-      The shell partial (studio/modals/blocks/_shell) provides the title row + close ×
-      so we don't repeat that boilerplate. %>
-  <div x-data="usernameRenameForm({
-         initialUsername: '<%= j current_user.username %>',
-         updateUrl: '<%= update_username_account_path %>',
-         confirmUrl: '<%= confirm_username_account_path %>',
-         initialSaving: (($store.modals.current() || {}).props || {}).previewLoading || false
-       })">
-    <%= render layout: "studio/modals/blocks/shell", locals: { title: "Change Username" } do %>
-      <p class="text-sm text-muted mb-4">
-        Your username is stored on-chain.
-        <%= current_user.phantom_wallet? ? "Saving opens your Phantom wallet to sign." : "Changes are saved via your managed wallet." %>
-      </p>
-
-      <template x-if="error">
-        <p class="text-red-400 text-sm mb-3" x-text="error"></p>
-      </template>
-
-      <form @submit.prevent="save()" class="space-y-4">
-        <input type="text" x-model="username" class="input-field w-full"
-               placeholder="username" minlength="3" maxlength="30" pattern="[a-zA-Z0-9_-]+"
-               title="3-30 characters — letters, numbers, hyphens, and underscores"
-               autofocus>
-        <button type="submit" class="btn btn-primary btn-lg w-full" :disabled="saving || !changed">
-          <span x-show="!saving" x-text="changed ? 'Save' : 'Saved'">Save</span>
-          <span x-show="saving" class="inline-flex items-center justify-center gap-2">
-            <span class="cta-spinner" aria-hidden="true"></span>
-            <span x-text="savingLabel">Saving…</span>
-          </span>
-        </button>
-      </form>
-    <% end %>
-  </div>
+  <%# On-chain rename via studio-engine's leveling-activity primitive
+      (studio/modals/blocks/_change_username). The engine owns the input + Save +
+      Saved + spinner; TM owns the on-chain save as an app-supplied callback:
+        submit_url    -> accounts#update_username (custodial co-sign, or a phantom
+                         { status: "needs_step", challenge } partial-tx)
+        finalize_hook  window.tmUsernameFinalize (shared/_alpine_factories) does the
+                         Phantom signTransaction + broadcast + poll and returns the
+                         tx signature as the opaque `proof`
+        finalize_url  -> accounts#confirm_username (verifies on-chain, mirrors DB, seeds)
+        saved_event    studio:username-saved -> a TM listener runs the completeQuest /
+                         quest-success choreography.
+      leveling:false so the engine does NOT fire its own seeds celebration — TM's
+      completeQuest / quest-success flow stays authoritative. The signing round-trip,
+      keypair, TxVerifier, seed bonus, impersonation guard and enter-contest gate all
+      stay server-side in TM (accounts_controller). %>
+  <% wallet_line = current_user.phantom_wallet? ? "Saving opens your Phantom wallet to sign." : "Changes are saved via your managed wallet." %>
+  <%= render "studio/modals/blocks/change_username",
+        current_username: current_user.username,
+        submit_url:       update_username_account_path,
+        finalize_url:     confirm_username_account_path,
+        finalize_hook:    "tmUsernameFinalize",
+        saved_event:      "studio:username-saved",
+        leveling:         false,
+        description:      "Your username is stored on-chain. #{wallet_line}" %>
 <% else %>
   <%# Locked state — Success-template spine via card_header :lg + :error
       icon. CTA targets the admin-set main contest (via SeasonConfig.main_contest,

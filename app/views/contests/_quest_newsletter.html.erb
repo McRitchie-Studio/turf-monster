@@ -6,18 +6,6 @@
 <% needs_email = current_user.email.blank? %>
 <div x-data="questNewsletter({ url: '<%= newsletter_subscribe_path %>', needsEmail: <%= needs_email %> })"
      class="card shadow p-5 relative h-full">
-  <style>
-    /* Pulse beat once every 3s (ring expands + fades, tiny pop), then rests. */
-    @keyframes questPulse {
-      0%        { transform: scale(1);    box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.5); }
-      10%       { transform: scale(1.03); box-shadow: 0 0 0 6px rgba(74, 222, 128, 0.25); }
-      22%       { transform: scale(1);    box-shadow: 0 0 0 10px rgba(74, 222, 128, 0); }
-      100%      { transform: scale(1);    box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
-    }
-    .quest-pulse { animation: questPulse 3s ease-out infinite; }
-    @media (prefers-reduced-motion: reduce) { .quest-pulse { animation: none; } }
-  </style>
-
   <%# Row 1 — header + quest badge %>
   <div class="flex items-center justify-between gap-3 mb-3">
     <h3 class="text-heading font-semibold text-sm">Join the Newsletter</h3>
@@ -38,7 +26,7 @@
     </div>
     <button type="button" @click="start()" :disabled="saving || !consent"
             class="btn btn-primary w-full h-full disabled:opacity-50 disabled:cursor-not-allowed"
-            :class="{ 'quest-pulse': consent && !saving }">
+            :class="{ 'pulse-cta': consent && !saving }" style="--pulse-cta-color: rgb(74 222 128)">
       <span x-show="!saving">Subscribe</span>
       <span x-show="saving" x-cloak>Subscribing…</span>
     </button>

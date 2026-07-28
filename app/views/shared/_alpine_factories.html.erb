@@ -541,90 +541,74 @@
     };
   };
 
-  // === usernameRenameForm — modals/_username.html.erb ==============
-  window.usernameRenameForm = function (opts) {
+  // === Change-username on-chain callbacks (studio-engine leveling primitive) ===
+  // The engine studio/modals/blocks/_change_username owns the modal UI + POST to
+  // update_username; TM supplies the on-chain half as two callbacks. This REPLACES
+  // the old window.usernameRenameForm factory (and its importmap module twin) — the
+  // engine's levelingActionModal drives the form now.
+
+  // finalize_hook — the OPAQUE second step for phantom / self-custodied wallets.
+  // The engine hands us the base64 partial-tx it received as `challenge`; we sign it
+  // in the wallet, broadcast, poll, and return the tx signature as the opaque
+  // `proof`. Same on-chain arc as the old _signAndBroadcast:
+  //   detect → connect → signTransaction → sendRawTransaction → pollConfirmation.
+  window.tmUsernameFinalize = async function (challenge, opts) {
     opts = opts || {};
-    return {
-      initial: opts.initialUsername || "",
-      username: opts.initialUsername || "",
-      saving: false,
-      error: null,
-      get changed() { return this.username && this.username !== this.initial; },
-      async save() {
-        if (!this.changed || this.saving) return;
-        this.saving = true; this.error = null;
-        var csrf = document.querySelector("meta[name='csrf-token']")?.content || "";
-        var fetcher = window.authedFetch || fetch;
-        var headers = { "Content-Type": "application/json", "X-CSRF-Token": csrf, "Accept": "application/json" };
-        try {
-          var resp = await fetcher(opts.updateUrl, {
-            method: "POST", headers: headers,
-            body: JSON.stringify({ username: this.username })
-          });
-          if (!resp) return;
-          var data = await resp.json();
-          if (data.error) throw new Error(data.error);
-          if (data.success) { this._afterSuccess(data); return; }
-          if (data.needs_signature) {
-            var sig = await this._signAndBroadcast(data.serialized_tx);
-            var confirmResp = await fetcher(opts.confirmUrl, {
-              method: "POST", headers: headers,
-              body: JSON.stringify({ token: data.token, tx_signature: sig })
-            });
-            if (!confirmResp) return;
-            var cdata = await confirmResp.json();
-            if (cdata.error) throw new Error(cdata.error);
-            this._afterSuccess(cdata);
-          }
-        } catch (e) {
-          this.error = this._friendlyError(e);
-          this.saving = false;
-        }
-      },
-      // Context-aware success beat — MUST mirror app/javascript/username_rename_form.js
-      // (this inline copy is what Alpine uses at x-data parse time; the module is the
-      // importmap-testable duplicate). Contest page (questCard present) → advance the
-      // quest card to the CHAT step + close, no reload. Elsewhere (/account) → swap
-      // the username modal for the quest-success "+25 seeds!" celebration. Both fire
-      // StateFanout so the seeds bar animates.
-      _afterSuccess(data) {
-        var hasQuestCard = !!document.querySelector('[x-data^="questCard"]');
-        if (hasQuestCard) {
-          window.completeQuest(data, { to: "chat" }); // unified celebration: badge confetti → bar → advance
-          try { this.$store.modals.close(); } catch (e) {}
-        } else {
-          if (window.seedFanoutPayloadPresent(data)) {
-            window.applyStateFanoutWhenReady("seeds", data, { source: "quest-username", dispatchDelay: 200 });
-          }
-          try {
-            this.$store.modals.swap("quest-success", {
-              seeds_earned: data && data.seeds_earned,
-              seeds_total:  data && data.seeds_total,
-              seeds_level:  data && data.seeds_level
-            });
-          } catch (e) {
-            try { this.$store.modals.close(); } catch (_) {}
-          }
-        }
-      },
-      async _signAndBroadcast(serializedTxB64) {
-        var provider = window.walletProvider && window.walletProvider.detect();
-        if (!provider) throw new Error("Connect your Phantom wallet to rename.");
-        await provider.connect();
-        var txBytes = Uint8Array.from(atob(serializedTxB64), function (c) { return c.charCodeAt(0); });
-        var tx = solanaWeb3.Transaction.from(txBytes);
-        var signed = await provider.signTransaction(tx);
-        var conn = new solanaWeb3.Connection(document.body.dataset.solanaRpcUrl, "confirmed");
-        var sig = await conn.sendRawTransaction(signed.serialize(), { skipPreflight: true, maxRetries: 3 });
-        await conn.confirmTransaction(sig, "confirmed");
-        return sig;
-      },
-      _friendlyError(e) {
-        if (e && e.code === 4001) return "Signature rejected";
-        return (e && e.message) || "Could not save username";
-      }
-    };
+    var onProgress = (opts && opts.onProgress) || function () {};
+    try {
+      var provider = window.walletProvider && window.walletProvider.detect();
+      if (!provider) throw new Error("Connect your Phantom wallet to rename.");
+      onProgress("Approve in Phantom…");
+      await provider.connect();
+      var txBytes = Uint8Array.from(atob(challenge), function (c) { return c.charCodeAt(0); });
+      var tx = solanaWeb3.Transaction.from(txBytes);
+      var signed = await provider.signTransaction(tx);
+      var rpcUrl = document.body.dataset.solanaRpcUrl;
+      var conn = new solanaWeb3.Connection(rpcUrl, "confirmed");
+      var sig = await conn.sendRawTransaction(signed.serialize(), { skipPreflight: true, maxRetries: 3 });
+      onProgress("Confirming…");
+      // HTTP poll (no WebSocket "unknown" timeout) — same helper the entry flow uses.
+      await window.pollConfirmation(rpcUrl, sig);
+      return sig; // opaque proof; engine POSTs { token, proof } to confirm_username
+    } catch (e) {
+      if (e && e.code === 4001) throw new Error("Signature rejected");
+      throw new Error((e && e.message) || "Could not save username");
+    }
   };
+
+  // saved_event listener — the context-aware success beat, ported verbatim from the
+  // old usernameRenameForm._afterSuccess. Fires on studio:username-saved (dispatched
+  // by the engine factory with the server payload). Contest page (a questCard is
+  // mounted) → advance the quest card to CHAT + close, no reload. Elsewhere
+  // (/account) → StateFanout the seeds, then swap the modal for the quest-success
+  // "+25 seeds!" celebration. Reaches the store via Alpine.store (this listener is
+  // OUTSIDE any Alpine component). Guarded so a re-run of this partial never
+  // double-binds.
+  if (!window.__tmUsernameSavedBound) {
+    window.__tmUsernameSavedBound = true;
+    window.addEventListener("studio:username-saved", function (e) {
+      var data = (e && e.detail) || {};
+      var store = window.Alpine && Alpine.store && Alpine.store("modals");
+      var hasQuestCard = !!document.querySelector('[x-data^="questCard"]');
+      if (hasQuestCard) {
+        window.completeQuest(data, { to: "chat" }); // unified celebration: badge confetti → bar → advance
+        try { store && store.close(); } catch (err) {}
+      } else {
+        if (window.seedFanoutPayloadPresent && window.seedFanoutPayloadPresent(data)) {
+          window.applyStateFanoutWhenReady("seeds", data, { source: "quest-username", dispatchDelay: 200 });
+        }
+        try {
+          store.swap("quest-success", {
+            seeds_earned: data && data.seeds_earned,
+            seeds_total:  data && data.seeds_total,
+            seeds_level:  data && data.seeds_level
+          });
+        } catch (err) {
+          try { store && store.close(); } catch (e2) {}
+        }
+      }
+    });
+  }
 
   // === emailValidator — studio/modals/shared/_email_field.html.erb live email check ======
   // Mirror of the (tightened) server-side User#email format validation —
