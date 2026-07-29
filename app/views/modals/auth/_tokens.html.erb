@@ -49,6 +49,23 @@
         <%# Picker is step 2 of the 3-step onboarding journey. %>
         <%= render "studio/modals/blocks/progress_pill", current: 2, total: 3 %>
         <p class="text-xs text-secondary mb-4 text-center">1 token = 1 contest entry. Your lineup is saved &mdash; pick a pack to finish.</p>
+        <%# DEFENSIVE DEPTH, not a live path. modals/_auth:346 renders this
+            picker only when entry_funding_mode == :stripe, which IS
+            Payments.stripe? (application_helper#entry_funding_mode) — so
+            stripe_on is a tautology here and these cards never render disabled
+            today. With Stripe off the buyer never reaches this picker at all;
+            they get modals/auth/_usdc_funding's "Purchases temporarily offline".
+            The sibling picker's identical gate is ALSO dead, for its own
+            reason: modals/auth/_paypal_tokens renders only under :paypal, i.e.
+            Payments.paypal_checkout? true — which is exactly the condition its
+            :63 branch tests, so the Stripe fallback holding that gate is
+            unreachable. Enumerating all 12 provider × stripe_enabled ×
+            paypal_enabled configs, ZERO reach it.
+            The gate that genuinely varies is tokens/buy.html.erb:70 — the buy
+            PAGE is not gated by entry_funding_mode, so Stripe really can be off
+            beneath it. That is the live case; both modal gates are belt-and-
+            braces against their render guards loosening. %>
+        <% stripe_on = Payments.stripe? && Rails.application.config.x.stripe_enabled %>
         <div class="space-y-3">
           <% StripePurchase.available_packs.each do |pack_id, pack| %>
             <%# Pack click advances to 'tokens-waiting' through the store's
@@ -62,10 +79,21 @@
                 provider:     "stripe",
                 extra_params: { contest: @contest&.slug },
                 target_blank: true,
+                disabled:     !stripe_on,
                 on_click_js:  "$store.modals.advance({ step: 'tokens-waiting' })" %>
           <% end %>
         </div>
-        <p class="text-center text-xs text-muted mt-4">Secure checkout opens in a new tab.</p>
+        <%# text-body, not text-muted: this line is the buyer's only explanation
+            of what the picker is doing, and text-muted measures 2.34:1 dark /
+            2.56:1 light — under AA's 4.5:1. Disabled controls are exempt from
+            1.4.3; a paragraph explaining them is not. %>
+        <p class="text-center text-xs text-body mt-4">
+          <% if stripe_on %>
+            Secure checkout opens in a new tab.
+          <% else %>
+            Purchases are temporarily unavailable &mdash; check back shortly.
+          <% end %>
+        </p>
         <%# Cross-modal handoff to the Add Funds hub (Coinbase / PayPal /
             Venmo / Stripe). swap() runs the host directional slide;
             returnStep returns the buyer to this picker for the Stripe path. %>

@@ -217,6 +217,60 @@ class TokensPackButtonTest < ActionView::TestCase
     assert_match(/disabled:cursor-not-allowed/, tag)
   end
 
+  # ── contrast, asserted as a PROPERTY ──────────────────────────────────────
+  #
+  # The savings pill was `bg-primary text-white` — 2.78:1 at 10px, failing AA in
+  # BOTH themes. The first version of this test only checked that the MARKUP no
+  # longer said `bg-primary`, which is true no matter what colour the CSS
+  # actually paints: restoring the failing #4BAF50 in the stylesheet left all
+  # tests green. It asserted a spelling, not the property that matters.
+  #
+  # Compute the ratio from the DECLARED values instead. This is the whole
+  # guarantee — swap in any failing fill and it goes red.
+
+  STYLES_PARTIAL = "app/views/tokens/_pack_button_styles.html.erb".freeze
+
+  # WCAG 2.1 relative luminance / contrast ratio.
+  def contrast(hex_a, hex_b)
+    rel = lambda do |hex|
+      r, g, b = hex.delete("#").scan(/../).map { |c| c.to_i(16) / 255.0 }
+      lin = ->(v) { v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055)**2.4 }
+      0.2126 * lin[r] + 0.7152 * lin[g] + 0.0722 * lin[b]
+    end
+    a, b = rel[hex_a], rel[hex_b]
+    (([a, b].max + 0.05) / ([a, b].min + 0.05))
+  end
+
+  # Pulls a rule's declared background/color out of the styles partial.
+  def declared_colors(selector)
+    css = Rails.root.join(STYLES_PARTIAL).read
+    body = css[/\.#{Regexp.escape(selector)}\s*\{(.*?)\}/m, 1]
+    raise "no .#{selector} rule found in #{STYLES_PARTIAL}" unless body
+    [body[/background:\s*(#[0-9a-fA-F]{6})/, 1], body[/(?<!-)color:\s*(#[0-9a-fA-F]{6})/, 1]]
+  end
+
+  test "the savings pill's declared fill clears AA against its own text" do
+    bg, fg = declared_colors("savings-pill")
+    refute_nil bg, "the pill must declare an explicit background"
+    refute_nil fg, "the pill must declare an explicit text colour"
+
+    ratio = contrast(bg, fg)
+    assert_operator ratio, :>=, 4.5,
+                    "savings pill is #{format('%.2f', ratio)}:1 (#{fg} on #{bg}) — " \
+                    "AA needs 4.5:1 for 10px text. The theme primary #4BAF50 is 2.78:1, " \
+                    "which is the bug this guards."
+  end
+
+  test "the savings pill still renders on multi-packs only" do
+    pill = render_pack("trio", provider: "stripe")[/<span class="savings-pill">.*?<\/span>/m]
+    refute_nil pill, "the trio card must carry a savings pill"
+    assert_match(/Save \d+%/, pill)
+  end
+
+  test "a single pack has no savings pill to mis-colour" do
+    refute_match(/savings-pill/, render_pack("single", provider: "stripe"))
+  end
+
   test "an enabled card carries NO disabled attribute" do
     tag = button_tag_for(disabled: false)
     refute_match(/\sdisabled="disabled"/, tag,
