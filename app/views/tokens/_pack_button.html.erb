@@ -93,7 +93,7 @@
     # renders identically to a live one — so a buyer sees a full-price pack that
     # silently does nothing when clicked. The coinflow branch carried them; this
     # one did not, while the docstring claimed it "greys the button out".
-    class:    "glow-pair-btn #{provider_skin[:glow]} group block w-full text-left p-6 rounded-xl border-2 border-primary/40 hover:border-primary bg-primary/5 transition disabled:opacity-50 disabled:cursor-not-allowed"
+    class:    "glow-pair-btn #{provider_skin[:glow]} group block w-full text-left p-6 rounded-xl border-2 border-primary/40 enabled:hover:border-primary bg-primary/5 transition disabled:opacity-50 disabled:cursor-not-allowed"
   }
 
   inner = capture do %>
@@ -159,7 +159,7 @@
   <button type="button"
           onclick="tmCoinflowBuyOne('<%= pack_id %>'); return false;"
           <%= "disabled" if disabled %>
-          class="glow-pair-btn <%= provider_skin[:glow] %> group block w-full text-left p-6 rounded-xl border-2 border-primary/40 hover:border-primary bg-primary/5 transition disabled:opacity-50 disabled:cursor-not-allowed">
+          class="glow-pair-btn <%= provider_skin[:glow] %> group block w-full text-left p-6 rounded-xl border-2 border-primary/40 enabled:hover:border-primary bg-primary/5 transition disabled:opacity-50 disabled:cursor-not-allowed">
     <%= inner %>
   </button>
 <% else %>
