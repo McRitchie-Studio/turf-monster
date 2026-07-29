@@ -54,6 +54,13 @@ class CoinflowPurchase < ApplicationRecord
   #
   # Fails closed on an unreadable amount: with no trustworthy price there is no
   # safe row to pick, and guessing is precisely the bug above.
+  #
+  # DEPENDS ON: every StripePurchase::PACKS price being DISTINCT. Price is the
+  # only discriminator Coinflow's payload gives us, so two packs sharing one
+  # makes this ambiguous — and silently: the older row wins, capture_matches?
+  # compares the same price_cents and passes, and the buyer is minted the wrong
+  # QUANTITY. StripePurchaseTest guards the invariant ("every pack has a
+  # DISTINCT price"); if you reprice a pack, that test is the tripwire.
   def self.pending_for_settlement(user_id:, cents:)
     cents = cents.to_i
     return nil unless cents.positive?
