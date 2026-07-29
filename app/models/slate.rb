@@ -27,11 +27,6 @@ class Slate < ApplicationRecord
   # which silently drops null rows — this keeps that query honest.
   before_validation :derive_sport_and_year_from_name
 
-  def derive_sport_and_year_from_name
-    self.sport = self.class.sport_from_name(name) if self[:sport].blank?
-    self.year = name.to_s[/\b(20\d{2})\b/, 1]&.to_i if self[:year].blank?
-  end
-
   # Weekly slates in week order. Excludes the "Default" formula-holder row and
   # any slate with no week (World Cup slates).
   scope :weekly, -> { where.not(name: "Default").where.not(week: nil).order(:week) }
@@ -68,9 +63,9 @@ class Slate < ApplicationRecord
   # bare form raises NoMethodError while `self[:year]` returns nil and degrades to the
   # name — matching #sport below.
   def season_year
-    return self[:year].to_s if self[:year].present?
+    return self[:year].to_s if has_attribute?(:year) && self[:year].present?
 
-    name.to_s[/\b(20\d{2})\b/, 1]
+    self.class.year_from_name(name)&.to_s
   end
 
   def self.default_record
@@ -229,12 +224,15 @@ class Slate < ApplicationRecord
   # `slates-sport-year`. The fallback is kept deliberately: a null must degrade to the
   # old behaviour, never to a wrong answer.
   #
-  # SETTLEMENT-ADJACENT. This selects the multiplier curve
-  # (`SlateMatchup.turf_score_for(rank, n, sport:)`), and the frozen `turf_score` it
-  # produces is what `Selection#compute_points!` pays out on. A slate whose sport flips
-  # re-prices every pick on it, so the column backfill was derived with exactly these
-  # rules and `test/models/slate_sport_year_test.rb` asserts column and fallback agree
-  # for every persisted slate.
+  # PRICING-ADJACENT — but NOT retroactive, and the distinction matters. This selects
+  # the multiplier curve (`SlateMatchup.turf_score_for(rank, n, sport:)`). That curve's
+  # output is PERSISTED onto `slate_matchups.turf_score` at rank time, and
+  # `Selection#compute_points!` (`app/models/selection.rb:35`, `:42`) reads the stored
+  # column and never recomputes — so a sport flip CANNOT re-price a pick that is
+  # already made. What it does break is the NEXT ranking. Still worth the care: the
+  # backfill derives with exactly these rules, and
+  # `test/models/slate_sport_year_test.rb` asserts the migration's rule and this one
+  # cannot drift.
   def sport
     return self[:sport] if self[:sport].present?
 
@@ -246,6 +244,12 @@ class Slate < ApplicationRecord
   # would miss.
   def self.sport_from_name(name)
     name.to_s.downcase.match?(/\bnfl\b|\bweeks?\s+\d/) ? "nfl" : "fifa"
+  end
+
+  # The year the name carries, or nil. Bounded to 20xx so a stray week number can never
+  # read as a year — `/(\d{1,2})/` would make "Week 3" a year 3 slate.
+  def self.year_from_name(name)
+    name.to_s[/\b(20\d{2})\b/, 1]&.to_i
   end
 
   # Sport marker for the selector row, so a glance separates the football slates
@@ -294,5 +298,20 @@ class Slate < ApplicationRecord
 
   def first_game_starts_at
     first_game&.kickoff_at
+  end
+
+  private
+
+  # Fills `sport` / `year` from the name for any writer that did not set them.
+  #
+  # ROLLBACK-SAFE, and this guard is the whole reason the method is worth reading:
+  # `has_attribute?` is checked BEFORE the writers. `self[:sport]` degrades to nil when
+  # the column is gone, but `self.sport =` raises NoMethodError — so without this, a
+  # `db:rollback` would break EVERY Slate save rather than just losing the derivation.
+  # The readers above advertise rollback tolerance; this keeps that promise true for
+  # writes as well.
+  def derive_sport_and_year_from_name
+    self.sport = self.class.sport_from_name(name) if has_attribute?(:sport) && self[:sport].blank?
+    self.year = self.class.year_from_name(name) if has_attribute?(:year) && self[:year].blank?
   end
 end

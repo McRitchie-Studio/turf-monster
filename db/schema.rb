@@ -548,7 +548,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_29_000000) do
     t.integer "week"
     t.integer "year"
     t.index ["slug"], name: "index_slates_on_slug", unique: true
-    t.index ["sport"], name: "index_slates_on_sport"
     t.index ["week"], name: "index_slates_on_week"
     t.index ["year", "week"], name: "index_slates_on_year_and_week"
   end

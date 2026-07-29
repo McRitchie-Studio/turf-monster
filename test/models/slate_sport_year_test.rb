@@ -6,11 +6,11 @@ require "test_helper"
 # fallback for rows written before this migration.
 #
 # The load-bearing property is VALUE PRESERVATION, not "the column exists". `sport`
-# selects the multiplier curve (`SlateMatchup.turf_score_for(rank, n, sport:)`) and the
-# frozen `turf_score` it produces is what `Selection#compute_points!` settles on-chain.
-# A slate whose sport FLIPS re-prices every pick already made on it. So the tests that
-# matter assert the column agrees with what the name always implied — for every slate,
-# including the ones the fixtures happen to define.
+# selects the multiplier curve (`SlateMatchup.turf_score_for(rank, n, sport:)`).
+# Settlement reads the PERSISTED `slate_matchups.turf_score` and never recomputes, so a
+# flipped sport cannot re-price a pick already made — it corrupts the NEXT ranking. That
+# is still worth guarding, so the tests that matter assert the migration's rule and the
+# model's rule cannot drift, over a corpus built here rather than borrowed.
 class SlateSportYearTest < ActiveSupport::TestCase
   test "[unit] sport reads the column when set" do
     slate = Slate.create!(name: "Anything At All", sport: "nfl", year: 2026)
@@ -77,11 +77,13 @@ class SlateSportYearTest < ActiveSupport::TestCase
     # must not drift. Nothing else in the suite loads `up`, because the test DB is
     # built from schema.rb.
     require Rails.root.join("db/migrate/20260729000000_add_sport_and_year_to_slates.rb").to_s
-    migration_rule = AddSportAndYearToSlates::NFL_NAME
 
     checked = 0
     NAME_CORPUS.each do |name, expected|
-      from_migration = name.downcase.match?(migration_rule) ? "nfl" : "fifa"
+      # CALL the migration's own derivation — do not re-implement it here. An earlier
+      # version compared only the CONSTANT, so inverting the ternary inside `up` (which
+      # backfills all 28 slates wrong) left this green.
+      from_migration = AddSportAndYearToSlates.sport_for(name)
       from_model     = Slate.sport_from_name(name)
 
       assert_equal expected, from_migration, "migration rule misreads #{name.inspect}"
@@ -96,11 +98,39 @@ class SlateSportYearTest < ActiveSupport::TestCase
     assert_equal NAME_CORPUS.size, checked, "the corpus loop must actually execute"
   end
 
-  test "[unit] no persisted slate's column sport disagrees with its name" do
-    # Build the corpus so this can never run on an empty set (the original bug).
-    NAME_CORPUS.each_with_index do |(name, expected), i|
-      Slate.create!(name: "#{name} probe#{i}", sport: expected, year: 2026)
+  # The migration writes TWO columns and only `sport` had a drift test. A `year` rule
+  # that misreads is just as damaging: `/(19\d{2})/` backfills every year NULL, and
+  # `/(\d{1,2})/` makes "Week 3" a year-3 slate.
+  test "[unit] the migration's year rule executes and agrees with the model" do
+    require Rails.root.join("db/migrate/20260729000000_add_sport_and_year_to_slates.rb").to_s
+
+    checked = 0
+    NAME_CORPUS.each do |name, _sport|
+      expected = name[/\b(20\d{2})\b/, 1]&.to_i
+      from_migration = AddSportAndYearToSlates.year_for(name)
+      from_model     = Slate.year_from_name(name)
+
+      if expected.nil?
+        assert_nil from_migration, "migration year rule invented a year for #{name.inspect}"
+        assert_nil from_model, "model year rule invented a year for #{name.inspect}"
+      else
+        assert_equal expected, from_migration, "migration year rule misreads #{name.inspect}"
+        assert_equal expected, from_model, "model year rule misreads #{name.inspect}"
+      end
+      assert_equal from_model, from_migration, "the year rules have drifted on #{name.inspect}"
+      checked += 1
     end
+
+    assert_equal NAME_CORPUS.size, checked, "the corpus loop must actually execute"
+    # A bounded rule, asserted directly: an unbounded \d{1,2} would read "Week 3" as a year.
+    assert_nil AddSportAndYearToSlates.year_for("NFL Week 3"), "a week number must never read as a year"
+  end
+
+  # Deliberately does NOT pass sport/year in — seeding a row with the answer and then
+  # asserting the answer is a tautology. These rows are created the way a real writer
+  # creates them, so the derivation is what fills them.
+  test "[unit] no persisted slate's column sport disagrees with its name" do
+    NAME_CORPUS.each_with_index { |(name, _expected), i| Slate.create!(name: "#{name} probe#{i}") }
 
     checked = 0
     Slate.where.not(sport: nil).find_each do |slate|
@@ -123,7 +153,7 @@ class SlateSportYearTest < ActiveSupport::TestCase
     via_name = SlateMatchup.turf_score_for(5, 32, sport: slate.reload.sport)
 
     assert_equal via_column, via_name,
-                 "the column and the fallback must price a pick the same, or the migration itself re-prices"
+                 "the column and the fallback must select the same curve, or the migration changes future pricing"
   end
 
   # Blocker from review: only 2 of 7 writers set the columns, so a fresh seed left them
@@ -144,6 +174,23 @@ class SlateSportYearTest < ActiveSupport::TestCase
     end
   end
 
+  # The derivation runs on EVERY save, so it must survive the columns being absent —
+  # otherwise `db:rollback` turns a lost derivation into a hard failure on every Slate
+  # write. A partial select reproduces that state: the attributes are not loaded, so
+  # `self.sport =` raises NoMethodError exactly as it would post-rollback.
+  #
+  # Written after the fix went in unguarded: removing the `has_attribute?` check passed
+  # the whole suite, which meant the fix was asserted by nothing.
+  test "[unit] saving a slate whose sport/year attributes are absent does not raise" do
+    Slate.create!(name: "NFL 2026 Week 21")
+    partial = Slate.select(:id, :name, :slug).find_by(name: "NFL 2026 Week 21")
+
+    refute partial.has_attribute?(:sport), "precondition: the attribute must be absent"
+    assert_nothing_raised do
+      partial.send(:derive_sport_and_year_from_name)
+    end
+  end
+
   test "[unit] an explicit sport from the caller still wins over the derived one" do
     slate = Slate.create!(name: "World Cup 2026 Group 4", sport: "nfl")
 
@@ -151,18 +198,21 @@ class SlateSportYearTest < ActiveSupport::TestCase
                  "the derivation must fill BLANKS only — never override a caller"
   end
 
-  test "[unit] a slate built through the real NFL path carries both columns" do
-    slate = Slate.create!(name: "NFL 2026 Week 12")
-    slate.update_columns(sport: nil, year: nil)
+  # Named for the real path, so it must CALL the real path. The previous version
+  # hand-rolled a find_or_initialize_by that mimicked `ensure_slate!` without invoking
+  # it, leaving both service hunks with zero coverage.
+  test "[integration] Nfl::BuildSpanSlate's slate carries both columns" do
+    team_a = Team.create!(slug: "aaa-test", name: "AAA", league: "nfl")
+    team_b = Team.create!(slug: "bbb-test", name: "BBB", league: "nfl")
+    weekly = Slate.create!(name: "NFL 2031 Week 1", week: 1)
+    game = Game.create!(slug: "aaa-test-vs-bbb-test",
+                        home_team_slug: team_a.slug, away_team_slug: team_b.slug, status: "scheduled")
+    SlateMatchup.create!(slate: weekly, team_slug: team_a.slug, opponent_team_slug: team_b.slug,
+                         game_slug: game.slug, week: 1, dk_goals_expectation: 20.0)
 
-    # ensure_slate! backfills on every save, not only on create.
-    rebuilt = Slate.find_or_initialize_by(name: "NFL 2026 Week 12")
-    rebuilt.week = 12
-    rebuilt.sport = "nfl"
-    rebuilt.year = 2026
-    rebuilt.save!
+    span = Nfl::BuildSpanSlate.call(year: 2031, weeks: [1])
 
-    assert_equal "nfl", rebuilt.reload[:sport]
-    assert_equal 2026, rebuilt[:year]
+    assert_equal "nfl", span.reload[:sport], "the span slate must persist its sport column"
+    assert_equal 2031, span[:year], "the span slate must persist its year column"
   end
 end

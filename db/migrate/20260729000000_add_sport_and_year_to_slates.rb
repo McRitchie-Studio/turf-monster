@@ -3,12 +3,17 @@
 # `\b(20\d{2})\b` scan (`Slate#season_year`), and span lookups by `name LIKE 'NFL <y> %'`.
 # That works only while names follow one convention and one sport owns the `NFL` token.
 #
-# SETTLEMENT-ADJACENT, so the backfill is written to be provably value-preserving:
-# `sport` selects the multiplier curve (`SlateMatchup.turf_score_for(..., sport:)`), and
-# the frozen `turf_score` it produces is what `Selection#compute_points!` pays out on. A
-# slate whose sport FLIPS re-prices every pick on it. The backfill therefore derives each
-# value with the SAME rules the readers used, so no existing row changes meaning — the
-# columns record what the names already implied.
+# PRICING-ADJACENT, so the backfill is written to be provably value-preserving.
+# `sport` selects the multiplier curve (`SlateMatchup.turf_score_for(..., sport:)`).
+# That curve's output is PERSISTED onto `slate_matchups.turf_score` at rank time and
+# settlement reads the stored column, so a flipped sport cannot re-price an EXISTING
+# pick — it corrupts the next ranking instead. The backfill therefore derives each value
+# with the SAME rules the readers used, so no existing row changes meaning: the columns
+# record what the names already implied.
+#
+# Only ONE index: [year, week], which is how spans are looked up. A sport index would be
+# dead weight — two distinct values across a table holding tens of rows, so no planner
+# would ever choose it.
 #
 # Nullable on purpose: the model keeps the name-derived fallback for any row this misses
 # (and for rows created by older code paths mid-deploy), so a null is degraded, never
@@ -23,20 +28,29 @@ class AddSportAndYearToSlates < ActiveRecord::Migration[8.1]
   # read as a year.
   YEAR_IN_NAME = /\b(20\d{2})\b/
 
+  # The derivation, as CALLABLE methods rather than expressions inlined in `up`.
+  # `up` calls these and so does the drift test, so the test executes the real thing
+  # instead of re-implementing it. An earlier version compared only the CONSTANTS,
+  # which let an inverted ternary in `up` backfill all 28 slates wrong while the suite
+  # stayed green — the constant matched, the behaviour did not.
+  def self.sport_for(name)
+    name.to_s.downcase.match?(NFL_NAME) ? "nfl" : "fifa"
+  end
+
+  def self.year_for(name)
+    name.to_s[YEAR_IN_NAME, 1]&.to_i
+  end
+
   def up
     add_column :slates, :sport, :string
     add_column :slates, :year, :integer
-    add_index :slates, :sport
     add_index :slates, [:year, :week]
 
     say_with_time "backfilling slates.sport / slates.year from each name" do
       updated = 0
       Slate.reset_column_information
       Slate.find_each do |slate|
-        name = slate.name.to_s
-        sport = name.downcase.match?(NFL_NAME) ? "nfl" : "fifa"
-        year  = name[YEAR_IN_NAME, 1]&.to_i
-        slate.update_columns(sport: sport, year: year)
+        slate.update_columns(sport: self.class.sport_for(slate.name), year: self.class.year_for(slate.name))
         updated += 1
       end
       updated
@@ -45,7 +59,6 @@ class AddSportAndYearToSlates < ActiveRecord::Migration[8.1]
 
   def down
     remove_index :slates, [:year, :week]
-    remove_index :slates, :sport
     remove_column :slates, :year
     remove_column :slates, :sport
   end
