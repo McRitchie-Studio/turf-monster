@@ -18,6 +18,11 @@ module Coinflow
     # so we never run two jobs concurrently racing the same source_refs.
     STRANDED_AFTER = 5.minutes
 
+    # Raised only to be captured — money settled with nothing minted. Never
+    # propagated: the settlement itself succeeded, and raising would only turn a
+    # recoverable hold into a failed webhook.
+    MintAnomaly = Class.new(StandardError)
+
     module_function
 
     # Enqueues TokenPurchaseJob when this caller wins the atomic
@@ -39,6 +44,14 @@ module Coinflow
         Rails.logger.error "[tokens] coinflow.mint_blocked purchase=#{purchase.id} user=#{user.id} " \
                            "frozen=#{user.frozen?} risk_flag=#{user.payment_risk_flag} " \
                            "— captured but NOT minting, manual review required"
+        # This is a DELIBERATE hold, not a bug — but it is still money settled
+        # with nothing minted, and it resolves only when an operator reviews it.
+        # A log line does not summon anyone; an ErrorLog does.
+        record_anomaly!(
+          "Coinflow mint withheld pending review — funds settled, nothing minted. " \
+          "purchase=#{purchase.id} user=#{user.id} frozen=#{user.frozen?} " \
+          "risk_flag=#{user.payment_risk_flag}"
+        )
         return false
       end
 
@@ -52,6 +65,16 @@ module Coinflow
       Rails.logger.info "[tokens] coinflow.mint_enqueued purchase=#{purchase.id} " \
                         "reference=#{purchase.coinflow_reference} won_cas=#{won}"
       true
+    end
+
+    # Operator-visible record of a money-settled-nothing-minted condition
+    # (Webhooks::CoinflowController#record_settlement_anomaly! sibling).
+    # Telemetry must never take down fulfillment, so a logging failure is
+    # swallowed after being logged itself.
+    def record_anomaly!(message)
+      ErrorLog.capture!(MintAnomaly.new(message))
+    rescue StandardError => e
+      Rails.logger.error "[tokens] coinflow.fulfillment.error_log_failed #{e.class}: #{e.message}"
     end
 
     # Captured, unminted, and old enough that the original job has clearly died.

@@ -104,22 +104,52 @@ class TokensPackButtonTest < ActionView::TestCase
 
   # Every call site of this partial, asserted where it LANDS rather than in the
   # abstract — the defect was never in the partial's logic, it was that one
-  # caller's badge named the wrong company. If a new render site appears without
-  # a deliberate provider decision, this list is where that gets noticed.
+  # caller's badge named the wrong company.
+  #
+  # DISCOVERS its render sites by globbing app/views rather than trusting a
+  # hardcoded list. The first cut enumerated four paths and only checked those,
+  # which was blind to a render site in a NEW file — precisely the vector that
+  # produced the PayPal-badged-Stripe defect. The expectation below is the
+  # allow-list; anything found outside it fails, so adding a render site forces
+  # a deliberate provider decision here.
+  EXPECTED_RENDER_SITES = {
+    "app/views/tokens/buy.html.erb"                 => %w[coinflow stripe],
+    "app/views/tokens/_paypal_buttons.html.erb"     => %w[paypal],
+    "app/views/modals/auth/_tokens.html.erb"        => %w[stripe],
+    "app/views/modals/auth/_paypal_tokens.html.erb" => %w[stripe]
+  }.freeze
+
+  # Matches any quoting style and both render forms — "tokens/pack_button",
+  # 'tokens/pack_button', and partial: "tokens/pack_button".
+  RENDER_CALL = /render\s*\(?\s*(?:partial:\s*)?["']tokens\/pack_button["'](.{0,600}?)%>/m
+
+  def discovered_render_sites
+    Dir.glob(Rails.root.join("app/views/**/*.erb")).each_with_object({}) do |abs, found|
+      rel = Pathname.new(abs).relative_path_from(Rails.root).to_s
+      calls = File.read(abs).scan(RENDER_CALL).flatten
+      found[rel] = calls if calls.any?
+    end
+  end
+
+  test "no pack_button render site exists outside the reviewed allow-list" do
+    unexpected = discovered_render_sites.keys - EXPECTED_RENDER_SITES.keys
+    assert_empty unexpected,
+                 "new pack_button render site(s) #{unexpected.inspect} — each card must " \
+                 "name the rail that takes the money, or omit provider deliberately. " \
+                 "Add them to EXPECTED_RENDER_SITES with their rail."
+
+    missing = EXPECTED_RENDER_SITES.keys - discovered_render_sites.keys
+    assert_empty missing, "expected render site(s) vanished: #{missing.inspect}"
+  end
+
   test "each render site of the partial names its own rail" do
-    sites = {
-      "app/views/tokens/buy.html.erb"                => %w[coinflow stripe],
-      "app/views/tokens/_paypal_buttons.html.erb"    => %w[paypal],
-      "app/views/modals/auth/_tokens.html.erb"       => %w[stripe],
-      "app/views/modals/auth/_paypal_tokens.html.erb" => %w[stripe]
-    }
-    sites.each do |path, expected|
-      src = Rails.root.join(path).read
-      renders = src.scan(/render\s+"tokens\/pack_button"(.{0,400}?)%>/m).flatten
-      assert_equal expected.length, renders.length,
+    discovered = discovered_render_sites
+    EXPECTED_RENDER_SITES.each do |path, expected|
+      calls = discovered.fetch(path, [])
+      assert_equal expected.length, calls.length,
                    "#{path}: expected #{expected.length} pack_button render(s)"
-      renders.each_with_index do |call, i|
-        assert_match(/provider:\s*"#{expected[i]}"/, call,
+      calls.each_with_index do |call, i|
+        assert_match(/provider:\s*["']#{expected[i]}["']/, call,
                      "#{path} render ##{i + 1} must name the #{expected[i]} rail explicitly")
       end
     end
