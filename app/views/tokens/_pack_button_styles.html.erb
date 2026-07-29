@@ -105,6 +105,33 @@
        inset ring gives it a definite boundary in both themes. */
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
   }
+  /* Savings accent. Was `bg-primary text-white`, which is white on #4BAF50 =
+     2.78:1 at 10px — failing AA in BOTH themes, not just light. That exact
+     figure is computed a few lines above as the reason the provider badge does
+     NOT use the theme primary; the same trap was sitting one line away on the
+     same card.
+     #1b5e20 is 7.87:1 against white — clears AA with room.
+     It is deliberately not #2e7d32 (the stripe provider badge), but do NOT rely
+     on the hue to tell them apart: measured against each other the two greens
+     are only ~1.5:1, which is not a visible difference. What separates a
+     savings accent from a provider badge here is SHAPE and POSITION — the badge
+     is a pill in the card's middle column, this is a small rounded tag riding
+     the subtitle ~380px away — plus the wording. Changing either colour will
+     not change that; changing the layout would.
+     The fill is opaque, so at rest the ratio is identical in both themes. It is
+     NOT immune to compositing: on a disabled card the parent's
+     disabled:opacity-50 drops it to ~3.75:1 dark / ~2.48:1 light. That is
+     WCAG-exempt (disabled controls) and intentional, but it is compositing —
+     "opaque" means no alpha of its own, not untouchable. */
+  .savings-pill {
+    display: inline-block; margin-left: 0.25rem;
+    padding: 2px 6px; border-radius: 0.25rem;
+    font-size: 10px; font-weight: 800;
+    letter-spacing: 0.05em; text-transform: uppercase;
+    line-height: 1.1;
+    background: #1b5e20; color: #ffffff;
+  }
+
   .provider-badge-stripe   { background: #2e7d32; }
   .provider-badge-coinflow { background: #4338ca; }
   .provider-badge-paypal   { background: #005ea6; }
