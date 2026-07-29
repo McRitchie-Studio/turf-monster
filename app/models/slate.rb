@@ -15,6 +15,23 @@ class Slate < ApplicationRecord
 
   validates :name, presence: true
 
+  # Fill `sport` / `year` from the name whenever a writer did not set them. Six call
+  # sites create Slates (two services, three seed paths, one controller) and a seventh
+  # will appear; patching each is how a column ends up null in production. Deriving
+  # here means EVERY path — present and future — persists the columns.
+  #
+  # Only fills BLANKS, so an explicit `sport:` from a caller always wins. And the
+  # derived value is exactly what #sport / #season_year would have computed from the
+  # same name, so this records what a reader already saw rather than changing anyone's
+  # answer. That matters because the new `sport` index invites `where(sport: "nfl")`,
+  # which silently drops null rows — this keeps that query honest.
+  before_validation :derive_sport_and_year_from_name
+
+  def derive_sport_and_year_from_name
+    self.sport = self.class.sport_from_name(name) if self[:sport].blank?
+    self.year = name.to_s[/\b(20\d{2})\b/, 1]&.to_i if self[:year].blank?
+  end
+
   # Weekly slates in week order. Excludes the "Default" formula-holder row and
   # any slate with no week (World Cup slates).
   scope :weekly, -> { where.not(name: "Default").where.not(week: nil).order(:week) }
@@ -37,19 +54,21 @@ class Slate < ApplicationRecord
     wanted.take_while { |number| found.key?(number) }.map { |number| found[number] }
   end
 
-  # The season a weekly slate belongs to, read as the 4-digit year in its name
-  # ("NFL 2026 Week 1" → "2026"). slates carry a week but no season/year column,
-  # so the year lives in the name. Nil when the name carries no year — those
-  # slates scope only to other year-less slates, never cross-matching a dated
-  # one. Bounded to 20xx so a stray week number can't read as a year.
-  # Reads the `year` COLUMN, falling back to the 4-digit year in the name for any row
-  # written before `slates-sport-year` (or by an older code path mid-deploy). Returned
-  # as a String because every caller compares it to another #season_year, and the
-  # name-derived form was always a String — changing the type here would silently make
-  # a column-backed slate stop matching a fallback one. Bounded to 20xx so a stray week
-  # number can never read as a year.
+  # The season a weekly slate belongs to. Reads the `year` COLUMN, falling back to the
+  # 4-digit year in the name for any row written before `slates-sport-year` (or by an
+  # older code path mid-deploy). Nil when neither carries one — those slates scope only
+  # to other year-less slates, never cross-matching a dated one.
+  #
+  # Returned as a String because every caller compares it to another #season_year, and
+  # the name-derived form was always a String — an Integer here would silently make a
+  # column-backed slate stop matching a fallback one, DROPPING weeks from a span.
+  # Bounded to 20xx so a stray week number can never read as a year.
+  #
+  # `self[:year]`, not the bare reader: after a rollback the attribute is gone, and the
+  # bare form raises NoMethodError while `self[:year]` returns nil and degrades to the
+  # name — matching #sport below.
   def season_year
-    return year.to_s if year.present?
+    return self[:year].to_s if self[:year].present?
 
     name.to_s[/\b(20\d{2})\b/, 1]
   end
@@ -193,9 +212,7 @@ class Slate < ApplicationRecord
     first..[last, first].max
   end
 
-  # Which sport this slate belongs to. Slate carries no sport column yet, so this
-  # matches the name — which is safe because slate names are operator-controlled
-  # and generated to a fixed convention ("NFL <year> Week <n>").
+  # Which sport this slate belongs to.
   #
   # Canonical home for this rule: ContestsController#sport_for_slate delegates
   # here rather than keeping a second copy of the regex.
