@@ -154,6 +154,43 @@ class StripeDepositJobTest < ActiveJob::TestCase
                  "a claim whose completion write never lands stays pending, not re-transferred"
   end
 
+  test "durable capture: a completion-write fault leaves a RECONCILABLE pending row WITH the signature" do
+    # The split-write (capture onchain_tx in its own write BEFORE flipping to
+    # completed) is what lets PendingDepositReconcilerJob later CONFIRM the
+    # signature on-chain and finalize the row. Prove it: fund_user SUCCEEDS
+    # (returns a signature), then the completion write faults — the row must be
+    # left `pending` WITH onchain_tx set, not `pending` with a null signature.
+    @user.update!(web2_solana_address: @wallet, encrypted_web2_solana_private_key: "ciphertext")
+    vault = FakeVault.new
+
+    # Real claim row; intercept ONLY the completion write (status: "completed").
+    log = TransactionLog.record!(user: @user, type: "deposit", amount_cents: 2500,
+                                 direction: "credit", status: "pending", stripe_session_id: @sid)
+    real_update = log.method(:update!)
+    log.define_singleton_method(:update!) do |attrs|
+      raise ActiveRecord::StatementInvalid, "simulated completion crash" if attrs[:status].to_s == "completed"
+
+      real_update.call(attrs)
+    end
+
+    Solana::Keypair.stub :from_encrypted, "fake-kp" do
+      Solana::Vault.stub :new, vault do
+        TransactionLog.stub :record!, log do
+          # retry_on swallows the StatementInvalid and enqueues a retry we do
+          # not drain here — perform_now returns without raising.
+          StripeDepositJob.perform_now(user_id: @user.id, amount_cents: 2500,
+                                       wallet_address: @wallet, stripe_session_id: @sid)
+        end
+      end
+    end
+
+    reloaded = TransactionLog.find_by(stripe_session_id: @sid)
+    assert_equal 1, vault.fund_calls.length, "the transfer happened exactly once"
+    assert_equal "pending", reloaded.status, "the completion crash leaves the row un-finalized"
+    assert_match(/fake-fund/, reloaded.onchain_tx,
+                 "the signature was captured DURABLY before completion — the reconcilable state")
+  end
+
   test "money-path: a duplicate delivery after a claim-without-completion funds EXACTLY ONCE" do
     @user.update!(web2_solana_address: @wallet, encrypted_web2_solana_private_key: "ciphertext")
     vault = ClaimThenTransientFundVault.new
