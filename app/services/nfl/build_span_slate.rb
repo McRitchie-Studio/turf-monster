@@ -86,6 +86,11 @@ module Nfl
       Slate.find_or_create_by!(name: name) do |slate|
         slate.slug = name.parameterize
         slate.week = @weeks.first
+        # Columns, not name-parsing — see Slate#sport. A span slate is football by
+        # construction (this service only builds NFL spans), and its year is the one
+        # every source lookup here is already scoped to.
+        slate.sport = "nfl"
+        slate.year = @year
       end
     end
 

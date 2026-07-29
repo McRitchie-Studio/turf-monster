@@ -42,7 +42,15 @@ class Slate < ApplicationRecord
   # so the year lives in the name. Nil when the name carries no year — those
   # slates scope only to other year-less slates, never cross-matching a dated
   # one. Bounded to 20xx so a stray week number can't read as a year.
+  # Reads the `year` COLUMN, falling back to the 4-digit year in the name for any row
+  # written before `slates-sport-year` (or by an older code path mid-deploy). Returned
+  # as a String because every caller compares it to another #season_year, and the
+  # name-derived form was always a String — changing the type here would silently make
+  # a column-backed slate stop matching a fallback one. Bounded to 20xx so a stray week
+  # number can never read as a year.
   def season_year
+    return year.to_s if year.present?
+
     name.to_s[/\b(20\d{2})\b/, 1]
   end
 
@@ -194,11 +202,27 @@ class Slate < ApplicationRecord
   #
   # Note `weeks?` — a span slate is named "Weeks 1-3", which a singular `week\s+\d`
   # would miss (it only classifies today by also matching the "NFL" token).
+  # Reads the `sport` COLUMN, falling back to the name for rows written before
+  # `slates-sport-year`. The fallback is kept deliberately: a null must degrade to the
+  # old behaviour, never to a wrong answer.
+  #
+  # SETTLEMENT-ADJACENT. This selects the multiplier curve
+  # (`SlateMatchup.turf_score_for(rank, n, sport:)`), and the frozen `turf_score` it
+  # produces is what `Selection#compute_points!` pays out on. A slate whose sport flips
+  # re-prices every pick on it, so the column backfill was derived with exactly these
+  # rules and `test/models/slate_sport_year_test.rb` asserts column and fallback agree
+  # for every persisted slate.
   def sport
-    downcased = name.to_s.downcase
-    return "nfl" if downcased.match?(/\bnfl\b|\bweeks?\s+\d/)
+    return self[:sport] if self[:sport].present?
 
-    "fifa"
+    self.class.sport_from_name(name)
+  end
+
+  # The pre-column rule, kept as the single source both the fallback and the backfill
+  # read. Note `weeks?` — a span slate is named "Weeks 1-3", which a singular `week\s+\d`
+  # would miss.
+  def self.sport_from_name(name)
+    name.to_s.downcase.match?(/\bnfl\b|\bweeks?\s+\d/) ? "nfl" : "fifa"
   end
 
   # Sport marker for the selector row, so a glance separates the football slates
