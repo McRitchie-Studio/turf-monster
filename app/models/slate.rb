@@ -124,8 +124,14 @@ class Slate < ApplicationRecord
   # The tie-break — earliest kickoff, then team name — deliberately mirrors the
   # per-row ordering this replaced, so a ONE-week slate ranks identically to
   # before. Changing it would silently re-price tied teams on every existing
-  # slate. (NFL games currently carry no kickoff_at at all, so ties in practice
-  # fall straight through to the name.)
+  # slate.
+  #
+  # The kickoff key is the ACTIVE discriminator, not a dormant one. (An earlier
+  # version of this comment claimed "NFL games currently carry no kickoff_at at all,
+  # so ties fall straight through to the name" — false on the current seeds, and a
+  # SOP inherited the error from here. Measured 2026-07-29: db/seeds/nfl_2026.rb:144
+  # and :152 set it, 256 of 272 weekly-slate games carry one, and Week 3 is 16/16.)
+  # Tied teams are separated by kickoff BEFORE the name is ever consulted.
   def team_rankings
     by_team = matchups_by_team
     return {} if by_team.empty?
