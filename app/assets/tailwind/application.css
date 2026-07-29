@@ -97,19 +97,6 @@
   --studio-toast-blur-z: 199;
 }
 
-/* Smooth-load pinned header (engine 0.24): engine.css animates only the root
-   view-transition group, so the studio-header group (our vt-pinned-header
-   navbar) would get the browser-DEFAULT cross-fade — a visible logo/title
-   squash-stretch when navigating while scrolled (collapsed py-2/w-8 morphing
-   to py-6/w-12). Suppress its animation so the header just stays put while
-   the page body cross-fades. BRIDGE: app-side until task
-   engine-navbar-self-pins lifts this rule into the engine (mcritchie-studio
-   keeps the same app-side rule for the same reason). */
-::view-transition-old(studio-header),
-::view-transition-new(studio-header) {
-  animation: none;
-}
-
 /* Navbar gear-sidebar emoji hover slide (components/_gear_sidebar via the
    emoji_swap helper). Both emoji are stacked in a fixed gutter; on row hover the
    base slides off to the RIGHT + fades while the hover emoji slides in from the
