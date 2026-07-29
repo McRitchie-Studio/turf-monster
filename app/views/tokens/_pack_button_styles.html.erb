@@ -99,6 +99,11 @@
     font-size: 10px; font-weight: 800;
     letter-spacing: 0.08em; text-transform: uppercase;
     line-height: 1; color: #ffffff;
+    /* The pill's own fill is only ~2-3:1 against the card surface in dark
+       theme. Not a 1.4.11 failure — the pill carries its own white text, which
+       is what has to be readable — but the EDGE reads soft, so a hairline
+       inset ring gives it a definite boundary in both themes. */
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
   }
   .provider-badge-stripe   { background: #2e7d32; }
   .provider-badge-coinflow { background: #4338ca; }

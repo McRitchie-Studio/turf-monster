@@ -165,4 +165,41 @@ class TokensPackButtonTest < ActionView::TestCase
     end
     assert_match(/key not found: "bogus"/, error.message)
   end
+
+  # ── theme legibility ──────────────────────────────────────────────────────
+  #
+  # The entry count is the most important number on the card, and it sat at
+  # 1.10:1 in light theme — invisible — because it was hard-coded text-white on
+  # a bg-primary/5 surface that is near-white there. Light is a real user choice
+  # (the navbar toggle writes localStorage theme=light), not a hypothetical.
+  #
+  # Assert the TOKEN, because that is the property that makes it correct in
+  # BOTH themes; asserting a literal colour would just re-pin one theme. The
+  # painted-pixel ratios are verified separately in a browser, both themes.
+
+  test "the entry numeral and label use theme tokens, never literal white" do
+    %w[stripe coinflow].each do |provider|
+      html = render_pack("trio", provider: provider)
+      column = html[/<div class="w-16 text-center">.*?<\/div>\s*<\/div>/m]
+      refute_nil column, "#{provider}: could not find the entry-count column"
+
+      assert_match(/text-heading/, column,
+                   "#{provider}: the numeral must use text-heading (var(--color-text))")
+      # text-body, not text-secondary — at 10px the label is small text, and
+      # text-secondary measured 4.07:1 in light theme, under AA's 4.5:1.
+      assert_match(/text-body/, column,
+                   "#{provider}: the Entry/Entries label must use text-body")
+      refute_match(/text-white/, column,
+                   "#{provider}: literal white is invisible on the light-theme card")
+    end
+  end
+
+  # A disabled card must LOOK disabled. `disabled: true` alone makes it
+  # unclickable while rendering identically to a live card, so a buyer sees a
+  # full-price pack that silently does nothing.
+  test "a disabled card renders the disabled affordance, not just the attribute" do
+    html = render_pack("single", provider: "stripe", disabled: true)
+    assert_match(/disabled="disabled"|disabled/, html, "the button must actually be disabled")
+    assert_match(/disabled:opacity-50/, html, "and must visibly read as disabled")
+  end
 end
