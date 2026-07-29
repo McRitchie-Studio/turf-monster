@@ -133,7 +133,7 @@
         <div class="text-3xl font-bold text-heading font-mono"><%= format_price.call(pack[:price_cents]) %></div>
         <div class="text-xs text-secondary mt-1">
           <%= subtitle %>
-          <% if pack[:quantity] > 1 %><span class="ml-1 inline-block px-1.5 py-0.5 rounded bg-primary text-white text-[10px] font-extrabold tracking-wider uppercase">Save <%= savings_pct %>%</span><% end %>
+          <% if pack[:quantity] > 1 %><span class="savings-pill">Save <%= savings_pct %>%</span><% end %>
         </div>
       </div>
     </div>

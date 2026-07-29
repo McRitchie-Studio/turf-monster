@@ -217,6 +217,23 @@ class TokensPackButtonTest < ActionView::TestCase
     assert_match(/disabled:cursor-not-allowed/, tag)
   end
 
+  # The savings pill was `bg-primary text-white` — 2.78:1 at 10px, failing AA in
+  # BOTH themes. Assert the pill no longer paints itself from the theme primary;
+  # the ratio itself is verified by measurement and recorded on the task, since
+  # a unit test cannot composite pixels.
+  test "the savings pill does not use the theme primary as its fill" do
+    html = render_pack("trio", provider: "stripe")
+    pill = html[/<span class="savings-pill">.*?<\/span>/m]
+    refute_nil pill, "the trio card must carry a savings pill"
+    assert_match(/Save \d+%/, pill)
+    refute_match(/bg-primary/, pill,
+                 "white on the theme primary is 2.78:1 — the pill needs its own AA-passing fill")
+  end
+
+  test "a single pack has no savings pill to mis-colour" do
+    refute_match(/savings-pill/, render_pack("single", provider: "stripe"))
+  end
+
   test "an enabled card carries NO disabled attribute" do
     tag = button_tag_for(disabled: false)
     refute_match(/\sdisabled="disabled"/, tag,
