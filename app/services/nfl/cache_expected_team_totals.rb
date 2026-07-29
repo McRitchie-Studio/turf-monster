@@ -132,8 +132,8 @@ module Nfl
       # every save (not just create) so a pre-`slates-sport-year` row picks them up the
       # first time this touches it.
       slate.week = week
-      slate.sport = "nfl"
-      slate.year = @year
+      # sport/year derive from the name in Slate's before_validation — see
+      # Nfl::BuildSpanSlate#ensure_slate! for why they are not duplicated here.
       slate.save!
       slate
     end

@@ -233,8 +233,14 @@ class Slate < ApplicationRecord
   # backfill derives with exactly these rules, and
   # `test/models/slate_sport_year_test.rb` asserts the migration's rule and this one
   # cannot drift.
+  # `has_attribute?` first, symmetric with #season_year. Two different absences to
+  # survive, and they behave differently — measured, not assumed:
+  #   * post-rollback (column GONE):  self[:sport] -> nil          (degrades)
+  #   * partial select (not LOADED):  self[:sport] -> RAISES       (MissingAttributeError)
+  # Only the guard covers the second. No caller partial-selects Slate today, so this is
+  # a trap being closed rather than a live bug.
   def sport
-    return self[:sport] if self[:sport].present?
+    return self[:sport] if has_attribute?(:sport) && self[:sport].present?
 
     self.class.sport_from_name(name)
   end

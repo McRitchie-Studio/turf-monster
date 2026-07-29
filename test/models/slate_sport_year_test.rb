@@ -174,21 +174,67 @@ class SlateSportYearTest < ActiveSupport::TestCase
     end
   end
 
-  # The derivation runs on EVERY save, so it must survive the columns being absent —
-  # otherwise `db:rollback` turns a lost derivation into a hard failure on every Slate
-  # write. A partial select reproduces that state: the attributes are not loaded, so
-  # `self.sport =` raises NoMethodError exactly as it would post-rollback.
+  # There are TWO different absences and they behave differently. A reviewer measured
+  # both, which corrected this test's original premise — it had claimed a partial select
+  # "reproduces" the post-rollback state and that `self.sport =` raises there. Neither
+  # is true:
   #
-  # Written after the fix went in unguarded: removing the `has_attribute?` check passed
-  # the whole suite, which meant the fix was asserted by nothing.
-  test "[unit] saving a slate whose sport/year attributes are absent does not raise" do
+  #                         post-rollback (column GONE)   partial select (NOT loaded)
+  #   self[:sport]          nil                            RAISES MissingAttributeError
+  #   self.sport =          RAISES NoMethodError            works (the setter exists)
+  #
+  # So the partial select exercises the READER guards, and only a genuinely rolled-back
+  # schema exercises the WRITER guard. Both are covered below rather than conflated.
+  test "[unit] readers survive a partial select, where the attribute is not loaded" do
     Slate.create!(name: "NFL 2026 Week 21")
     partial = Slate.select(:id, :name, :slug).find_by(name: "NFL 2026 Week 21")
 
-    refute partial.has_attribute?(:sport), "precondition: the attribute must be absent"
-    assert_nothing_raised do
-      partial.send(:derive_sport_and_year_from_name)
+    refute partial.has_attribute?(:sport), "precondition: the attribute must not be loaded"
+    # Without the has_attribute? guards these raise MissingAttributeError.
+    assert_equal "nfl", partial.sport, "#sport must fall back rather than raise"
+    assert_equal "2026", partial.season_year, "#season_year must fall back rather than raise"
+  end
+
+  test "[unit] the writer guard checks has_attribute? before assigning" do
+    slate = Slate.new(name: "NFL 2026 Week 22")
+
+    # The guard is what makes the post-rollback write survivable: with the column gone,
+    # `self.sport =` raises NoMethodError. Assert the guard is CONSULTED, so removing it
+    # cannot pass silently — a rolled-back schema cannot be built inside this suite,
+    # which is why the previous version of this test was asserting nothing.
+    called = []
+    slate.define_singleton_method(:has_attribute?) do |attr|
+      called << attr.to_sym
+      super(attr)
     end
+    slate.valid?
+
+    assert_includes called, :sport, "derivation must consult has_attribute?(:sport) before writing"
+    assert_includes called, :year, "derivation must consult has_attribute?(:year) before writing"
+  end
+
+  # Pins the MECHANISM, not just the outcome. Reverting `source_slates` to
+  # `where("name LIKE ?", "NFL <year> %")` passes every other test in this suite, because
+  # a conventionally-named slate satisfies both. Only a slate whose COLUMNS are right
+  # while its NAME would defeat the LIKE can tell them apart — which is also the real
+  # scenario the columns exist for: a renamed slate must still be findable.
+  test "[integration] BuildSpanSlate finds a source by COLUMN, not by its name" do
+    team_a = Team.create!(slug: "ccc-test", name: "CCC", league: "nfl")
+    team_b = Team.create!(slug: "ddd-test", name: "DDD", league: "nfl")
+    # Name deliberately does NOT start with "NFL 2032" — a name-LIKE scope misses it.
+    weekly = Slate.create!(name: "Week 1 Showcase 2032", week: 1, sport: "nfl", year: 2032)
+    refute weekly.name.start_with?("NFL 2032"), "precondition: the name must defeat a LIKE scope"
+
+    game = Game.create!(slug: "ccc-test-vs-ddd-test", home_team_slug: team_a.slug,
+                        away_team_slug: team_b.slug, status: "scheduled")
+    SlateMatchup.create!(slate: weekly, team_slug: team_a.slug, opponent_team_slug: team_b.slug,
+                         game_slug: game.slug, week: 1, dk_goals_expectation: 21.0)
+
+    span = Nfl::BuildSpanSlate.call(year: 2032, weeks: [1])
+
+    assert_equal 1, span.slate_matchups.count,
+                 "the span must be assembled from the column-matched source; a name-LIKE scope " \
+                 "would have raised 'no slate for week 1'"
   end
 
   test "[unit] an explicit sport from the caller still wins over the derived one" do
