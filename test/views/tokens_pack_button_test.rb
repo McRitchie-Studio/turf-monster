@@ -165,4 +165,62 @@ class TokensPackButtonTest < ActionView::TestCase
     end
     assert_match(/key not found: "bogus"/, error.message)
   end
+
+  # ── theme legibility ──────────────────────────────────────────────────────
+  #
+  # The entry count is the most important number on the card, and it sat at
+  # 1.10:1 in light theme — invisible — because it was hard-coded text-white on
+  # a bg-primary/5 surface that is near-white there. Light is a real user choice
+  # (the navbar toggle writes localStorage theme=light), not a hypothetical.
+  #
+  # Assert the TOKEN, because that is the property that makes it correct in
+  # BOTH themes; asserting a literal colour would just re-pin one theme. The
+  # painted-pixel ratios are verified separately in a browser, both themes.
+
+  test "the entry numeral and label use theme tokens, never literal white" do
+    %w[stripe coinflow].each do |provider|
+      html = render_pack("trio", provider: provider)
+      column = html[/<div class="w-16 text-center">.*?<\/div>\s*<\/div>/m]
+      refute_nil column, "#{provider}: could not find the entry-count column"
+
+      assert_match(/text-heading/, column,
+                   "#{provider}: the numeral must use text-heading (var(--color-text))")
+      # text-body, not text-secondary — at 10px the label is small text, and
+      # text-secondary measured 4.07:1 in light theme, under AA's 4.5:1.
+      assert_match(/text-body/, column,
+                   "#{provider}: the Entry/Entries label must use text-body")
+      refute_match(/text-white/, column,
+                   "#{provider}: literal white is invisible on the light-theme card")
+    end
+  end
+
+  # A disabled card must LOOK disabled. `disabled: true` alone makes it
+  # unclickable while rendering identically to a live card, so a buyer sees a
+  # full-price pack that silently does nothing.
+  #
+  # Assert on the OPENING BUTTON TAG, not on the whole document. The first cut
+  # matched /disabled="disabled"|disabled/ against the full html, and that bare
+  # second alternative matches inside the CLASS NAME `disabled:opacity-50` —
+  # which is emitted whether or not the card is disabled. The test passed with
+  # `disabled: false` and guarded nothing. The `disabled:` variant classes are
+  # always present by design (a CSS variant only fires when the attribute is
+  # set), so the attribute is the only thing that discriminates — which makes
+  # the negative case below the load-bearing half of this test.
+  def button_tag_for(**locals)
+    render_pack("single", provider: "stripe", **locals)[/<button[^>]*>/]
+  end
+
+  test "a disabled card carries the disabled attribute AND the visual affordance" do
+    tag = button_tag_for(disabled: true)
+    assert_match(/\sdisabled="disabled"/, tag, "the button must actually be disabled")
+    assert_match(/disabled:opacity-50/, tag, "and must visibly read as disabled")
+    assert_match(/disabled:cursor-not-allowed/, tag)
+  end
+
+  test "an enabled card carries NO disabled attribute" do
+    tag = button_tag_for(disabled: false)
+    refute_match(/\sdisabled="disabled"/, tag,
+                 "a live card must not be marked disabled — this is the assertion the " \
+                 "original substring match could not make")
+  end
 end

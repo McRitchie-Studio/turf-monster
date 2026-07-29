@@ -88,7 +88,12 @@
     method:   :post,
     form:     form_opts,
     disabled: disabled,
-    class:    "glow-pair-btn #{provider_skin[:glow]} group block w-full text-left p-6 rounded-xl border-2 border-primary/40 hover:border-primary bg-primary/5 transition"
+    # The disabled: variants are load-bearing, not decoration. `disabled: true`
+    # above already makes the button unclickable, but WITHOUT these the card
+    # renders identically to a live one — so a buyer sees a full-price pack that
+    # silently does nothing when clicked. The coinflow branch carried them; this
+    # one did not, while the docstring claimed it "greys the button out".
+    class:    "glow-pair-btn #{provider_skin[:glow]} group block w-full text-left p-6 rounded-xl border-2 border-primary/40 hover:border-primary bg-primary/5 transition disabled:opacity-50 disabled:cursor-not-allowed"
   }
 
   inner = capture do %>
@@ -97,9 +102,22 @@
     <span class="orb orb-<%= pos %> orb-big"></span>
   <% end %>
   <div class="glow-content flex items-center gap-6">
+    <%# Theme tokens, NOT literal white. The card surface is bg-primary/5, which
+        is near-white in light theme, so a hard-coded text-white numeral measured
+        1.10:1 there — the entry count, the single most important number on the
+        card, was invisible to anyone who had picked light mode. text-heading
+        (var(--color-text)) is #ffffff in dark and #0f172a in light, so dark
+        renders exactly as before. These are the same tokens the price row below
+        already uses. The 3-entry cards were only ACCIDENTALLY legible where an
+        orb happened to fall behind them; the 1-entry card sets clusters=[:r], so
+        nothing landed behind its numeral at all. %>
     <div class="w-16 text-center">
-      <div class="text-5xl font-extrabold text-white leading-none font-mono"><%= pack[:quantity] %></div>
-      <div class="text-[10px] uppercase tracking-widest text-white/70 mt-1"><%= pack[:quantity] == 1 ? 'Entry' : 'Entries' %></div>
+      <div class="text-5xl font-extrabold text-heading leading-none font-mono"><%= pack[:quantity] %></div>
+      <%# text-body, not text-secondary: at 10px this is small text, so it needs
+          AA's 4.5:1. Measured in-browser, text-secondary lands at 4.07:1 in
+          light theme — a big lift from the 1.06:1 it was, but still short.
+          text-body (#334155 light / #e2e8f0 dark) clears it in both. %>
+      <div class="text-[10px] uppercase tracking-widest text-body mt-1"><%= pack[:quantity] == 1 ? 'Entry' : 'Entries' %></div>
     </div>
     <div class="flex-1 border-l border-strong pl-6 flex items-center justify-between gap-4">
       <%# Provider badge sits in the card's dead middle — it reads as "this many
@@ -108,10 +126,10 @@
           rather than one naming the wrong payment provider. %>
       <% if provider_skin[:badge] %>
         <span class="provider-badge provider-badge-<%= provider %>"><%= provider_skin[:badge] %></span>
-      <% else %>
-        <span></span><%# keeps justify-between's two-column balance %>
       <% end %>
-      <div class="text-right">
+      <%# ml-auto pins the price right whether or not a badge rendered — this
+          replaced an empty <span> that existed only to feed justify-between. %>
+      <div class="text-right ml-auto">
         <div class="text-3xl font-bold text-heading font-mono"><%= format_price.call(pack[:price_cents]) %></div>
         <div class="text-xs text-secondary mt-1">
           <%= subtitle %>
