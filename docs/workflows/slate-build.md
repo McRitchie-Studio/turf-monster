@@ -35,15 +35,34 @@ That is not a preference. Recomputing at settlement drifted a real pick from **1
 3.0x** because a projections refresh re-ranked the span after picks were locked. Payouts
 settle on-chain in USDC. A player must be paid the price they were shown.
 
-The guard is live at `app/services/nfl/build_span_slate.rb:44`:
+A guard exists — but **on one path only**.
+
+**✅ The SPAN path is guarded** at `app/services/nfl/build_span_slate.rb:44`:
 
 ```ruby
 return slate.reload if slate.slate_matchups.joins(:selections).exists?
 ```
 
-An already-built slate is returned **as-is**. A rebuild would `destroy_all` its matchups
-(`:94`), and `SlateMatchup has_many :selections, dependent: :destroy` cascades that wipe
-into live Selections.
+An already-built span slate is returned **as-is**. A rebuild would `destroy_all` its
+matchups (`app/services/nfl/build_span_slate.rb:95`), and `SlateMatchup has_many
+:selections, dependent: :destroy` cascades that wipe into live Selections.
+
+**⛔ The WEEKLY path has NO equivalent guard.** The very next thing this SOP hands you —
+step 1's `bin/rails nfl:expected_team_totals_cache` — reaches `rank_slate_matchups!`,
+which rewrites `rank` and `turf_score` on every matchup unconditionally:
+
+```ruby
+# app/services/nfl/cache_expected_team_totals.rb:172 — no guard of any kind
+matchup.update!(rank: ranking[:rank], turf_score: ranking[:turf_score])
+```
+
+**Do not read "the guard is live" as "the code will refuse."** On a weekly slate it will
+not refuse; it will silently re-price picks that are already locked, and those payouts
+settle on-chain in USDC. Closing that gap is the first job of `slate-build-split`.
+
+Before running step 1 or [[market-snapshot]] step 3 against a week that may already be
+picked, check first — the check is in [[market-snapshot]], "⛔ Today, re-running this SOP
+can re-price a live contest".
 
 **If a slate needs different numbers after it has been picked, build a new slate. Do not
 refresh this one.**
@@ -67,6 +86,12 @@ Today the read is a CSV parse fused into the market ingest
 `team_total_projections` — the table [[market-snapshot]] owns — so a slate can be rebuilt
 without re-scraping.
 
+**⚠️ Composition seam — do not run both today.** Until `slate-build-split` lands, this is
+the *same command* as [[market-snapshot]] step 3. If you have just run that, **steps 1–6
+of this SOP have already happened** — running it again re-executes the whole thing,
+including the unguarded rank + `turf_score` rewrite. Skip to step 7 for a span slate, or
+stop here.
+
 ### 2. Ensure Games — ✅ LIVE
 
 `app/services/nfl/cache_expected_team_totals.rb:112` (`ensure_game!`). Slug is
@@ -78,7 +103,7 @@ without re-scraping.
 `app/services/nfl/cache_expected_team_totals.rb:126` (`ensure_slate!`). Names it
 `NFL <year> Week <n>` and writes `week` as a real column.
 
-**The name is load-bearing today, and that is the bug task 1 fixes.** `slates` carries no
+**The name is load-bearing today, and that is the bug `slates-sport-year` fixes.** `slates` carries no
 `sport` and no `year` column, so both are parsed out of the name: sport by regex at
 `app/models/slate.rb:197`, year by regex at `:45`. Every span lookup then scopes by
 `name LIKE 'NFL <year> %'` (`app/services/nfl/build_span_slate.rb:71`) to stop a 2025
@@ -143,12 +168,14 @@ bin/rails runner 'slate = Nfl::BuildSpanSlate.call(year: 2026, weeks: [1,2,3]); 
 bin/rails slates:build SPORT=nfl YEAR=2026 WEEKS=1-3
 ```
 
-The two production callers, for reference:
+Every caller in the repo, for reference:
 
 | Caller | Where |
 |---|---|
 | Contest creation (the real path) | `app/controllers/contests_controller.rb:1708` |
 | Demo seed | `db/seeds/nfl_demo_contest.rb:51` |
+| E2E seed — span 15-17 | `e2e/seed.rb:113` |
+| E2E seed — span 1-3 | `e2e/seed.rb:223` |
 
 `Nfl::BuildSpanSlate` (`app/services/nfl/build_span_slate.rb:29`) assembles one slate from
 the weekly ones. It **refuses rather than truncates**: a gap in the requested weeks raises
@@ -162,6 +189,10 @@ week-1 source, wiped its rows, then copied from the now-empty slate.
 ---
 
 ## Data touched
+
+**Target state**, once `slate-build-split` lands. The column names below are the
+post-rename ones: `expected_score` is `dk_goals_expectation` today (see step 4), and
+`team_total_projections` is `nfl_team_total_projections` today.
 
 - `games` (insert, update)
 - `slates` (insert, update)

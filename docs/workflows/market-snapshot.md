@@ -61,9 +61,15 @@ favorite, `home_spread` is that negative number. When the away team is the favor
 side falls through to `0`.
 
 **Re-running upgrades a week's projections in place.** A Week 3 snapshot taken in July is
-`derived`; the same command on the Thursday of Week 3 overwrites it with `posted`. When
-both exist, keep both — the gap between DK's posted number and your derived one is the
-accuracy check on the formula above.
+`derived`; the same command on the Thursday of Week 3 overwrites it with `posted`. It is a
+genuine overwrite, not an accumulation: the upsert key is one row per
+`(year, week, game_slug, team_slug)`
+(`app/services/nfl/cache_expected_team_totals.rb:177`), so a week holds exactly one
+projection per team and the derived value is gone once posted lands.
+
+🔨 **PLANNED (`market-snapshot-impl`):** keep the posted line alongside the derived one
+(the `posted_line` column in step 2) so the gap between DK's number and ours becomes a
+standing accuracy check on the formula above. That comparison is not possible today.
 
 ---
 
@@ -88,12 +94,30 @@ multiplies by the stored `turf_score` (`app/models/selection.rb:35`, `:42`), so 
 this command against a week whose slate already backs picks re-prices those picks after
 they were locked — and payouts settle on-chain.
 
-**Before running step 3 against a week that may already be picked**, check first:
+**Before running step 3 against a week that may already be picked**, check first.
+
+Slate names follow a fixed convention — **`NFL <year> Week <n>`** (a span slate is
+`NFL <year> Weeks <a>-<b>`), written by
+`app/services/nfl/cache_expected_team_totals.rb:127`. Get the name wrong and there is no
+slate to find, so the check must say so rather than fall through to "safe":
 
 ```bash
-bin/rails runner 'slate = Slate.find_by(name: "NFL 2026 Week 3"); \
-  puts slate && slate.slate_matchups.joins(:selections).exists? ? "HAS PICKS — do not re-run" : "safe"'
+bin/rails runner '
+  name  = "NFL 2026 Week 3"
+  slate = Slate.find_by(name: name)
+  if slate.nil?
+    puts "NO SLATE NAMED #{name} — check the name (format: NFL <year> Week <n>)"
+  elsif slate.slate_matchups.joins(:selections).exists?
+    puts "HAS PICKS — do not re-run"
+  else
+    puts "safe"
+  end'
 ```
+
+**Three outcomes, deliberately.** An earlier draft of this check collapsed the first two
+with `slate && … ? "HAS PICKS" : "safe"`; `&&` binds tighter than the ternary, so a
+missing slate is falsy and prints **"safe"**. A settlement-affecting check must never fail
+open — an unrecognised name is an unknown, not an all-clear.
 
 Full rule and rationale: [[slate-build]], "The freeze rule".
 
@@ -104,29 +128,36 @@ Full rule and rationale: [[slate-build]], "The freeze rule".
 ### 1. Fetch — 🔨 PLANNED (`market-snapshot-impl`)
 
 ```bash
+# 🔨 PLANNED — package.json defines only `scrape` / `scrape:headed`, so this
+# script does not exist yet and pasting it yields "Missing script".
 npm run market-snapshot -- --sport nfl --week 3
 ```
 
 Drives a headless browser against the DK sportsbook and writes the dataset. Network
 lives here and nowhere else.
 
-**Today:** `scripts/scrape_draftkings.js` does this shape for soccer only. It is hard-wired
-to a World Cup URL (`scripts/scrape_draftkings.js:22`), carries a 60-country name map
-(`scripts/scrape_draftkings.js:25`), and picks the O/U line whose over-odds sit closest to
-even money (`scripts/scrape_draftkings.js:146`). Sport, league, and week must become
-parameters. Run it today with `npm run scrape` / `npm run scrape:headed` (`package.json`).
+**Today:** `scripts/scrape_draftkings.js` does this shape for soccer only. It is
+hard-wired to a World Cup URL (`scripts/scrape_draftkings.js:22`), carries a country name
+map of 48 codes across 59 alias keys (`scripts/scrape_draftkings.js:25`), and picks the
+O/U line whose over-odds sit closest to even money
+(`scripts/scrape_draftkings.js:146`). Sport, league, and week must become parameters.
 
-**Preconditions for the scraper** — it needs a browser installed, and `package.json`
-declares only `@playwright/test` while `scripts/scrape_draftkings.js:14` requires the
-`playwright` package itself:
+**✅ LIVE — the soccer scraper, and its setup.** These prerequisites are live today and
+apply to the command below; do not skip them because the heading above is PLANNED:
 
 ```bash
-npm install
-npx playwright install chromium
+# ✅ LIVE — one-time setup
+npm install                        # installs playwright transitively via @playwright/test
+npx playwright install chromium    # downloads the browser binary
+
+# ✅ LIVE — the soccer scraper as it exists now
+npm run scrape                     # or: npm run scrape:headed
 ```
 
-Run it from the **primary checkout** (`/Users/alex/projects/turf-monster`). A fresh
-worktree has no `node_modules`, so the `require("playwright")` fails there.
+`scripts/scrape_draftkings.js:14` requires the `playwright` package, which `package.json`
+does not declare directly — it resolves transitively through `@playwright/test`, so
+`npm install` is enough. Run it from the **primary checkout**
+(`/Users/alex/projects/turf-monster`): a fresh worktree has no `node_modules`.
 
 **Pattern to copy:** `Nfl::FetchHistoricalScores` (`app/services/nfl/fetch_historical_scores.rb:9`)
 already models fetch-to-checked-in-dataset correctly — network only on the rake task, a
