@@ -60,9 +60,10 @@ matchup.update!(rank: ranking[:rank], turf_score: ranking[:turf_score])
 not refuse; it will silently re-price picks that are already locked, and those payouts
 settle on-chain in USDC. Closing that gap is the first job of `slate-build-split`.
 
-Before running step 1 or [[market-snapshot]] step 3 against a week that may already be
-picked, check first — the check is in [[market-snapshot]], "⛔ Today, re-running this SOP
-can re-price a live contest".
+Before running step 1 or [[market-snapshot]] step 3, check first — and check the WHOLE
+SEASON, not one week. The live command takes no `WEEK` parameter and re-ranks every week
+its CSV covers. The check is in [[market-snapshot]], under the heading "⛔ Today,
+re-running this SOP can re-price a live contest".
 
 **If a slate needs different numbers after it has been picked, build a new slate. Do not
 refresh this one.**
@@ -73,11 +74,16 @@ refresh this one.**
 
 ### 1. Read the projections — ✅ LIVE
 
-```bash
-# 🔨 PLANNED name
-bin/rails slates:build SPORT=nfl YEAR=2026 WEEKS=3
+🔨 **PLANNED** (`slate-build-split`) — does not exist yet:
 
-# ✅ what runs today — read the freeze rule above first; this rewrites rank + turf_score
+```bash
+bin/rails slates:build SPORT=nfl YEAR=2026 WEEKS=3
+```
+
+✅ **LIVE** — read the freeze rule above first; this rewrites `rank` + `turf_score`
+season-wide:
+
+```bash
 bin/rails nfl:expected_team_totals_cache YEAR=2026 SKIP_SCHEDULE=1
 ```
 
@@ -128,9 +134,21 @@ seeds), 1 doc. The rename is its own task, run alone and last.
 per row. A three-week span ranks 32 teams, not 96 rows. A one-week slate is the
 degenerate case — summing one game is that game.
 
-Tie-break is earliest kickoff, then team name. Do not change it: it mirrors the per-row
-ordering it replaced, so a one-week slate ranks identically to before. NFL games carry no
-`kickoff_at`, so ties fall through to the name.
+Tie-break is earliest kickoff, then team name (`app/models/slate.rb:109`). Do not change
+it: it mirrors the per-row ordering it replaced, so a one-week slate ranks identically to
+before.
+
+**The kickoff key is the ACTIVE discriminator, not a dormant one.**
+`db/seeds/nfl_2026.rb:144` and `:152` set `kickoff_at` from the schedule — measured on the
+seeded 2026 season, **256 of 272** weekly-slate games carry it, and Week 3 is 16/16. Two
+teams tied on expected score are separated by kickoff *before* the name is ever consulted,
+so changing the key re-prices tied teams on every existing slate.
+
+> A stale comment at `app/models/slate.rb:100-101` still claims "NFL games currently carry
+> no `kickoff_at` at all". That is false on the current seeds, and this doc originally
+> inherited the error from it. Correcting it is a code change, so it is filed on
+> `slates-sport-year` (which already edits this file) rather than smuggled into a
+> `kind: docs` diff.
 
 ### 6. Freeze the multiplier — ✅ LIVE
 
@@ -159,16 +177,20 @@ and settlement read the same stored column.
 `recompute_turf_scores`, and no rake task invokes `BuildSpanSlate` at all. The capability
 is live — it just has no CLI of its own yet. Three ways in:
 
+✅ **LIVE** — call the service directly:
+
 ```bash
-# ✅ what runs today — call the service directly
 bin/rails runner 'slate = Nfl::BuildSpanSlate.call(year: 2026, weeks: [1,2,3]); \
   puts "#{slate.name}: #{slate.slate_matchups.count} matchups"'
+```
 
-# 🔨 PLANNED wrapper for the above (slate-build-split)
+🔨 **PLANNED** (`slate-build-split`) — a wrapper for the above:
+
+```bash
 bin/rails slates:build SPORT=nfl YEAR=2026 WEEKS=1-3
 ```
 
-Every caller in the repo, for reference:
+Every **non-test** caller, for reference (a dozen more live under `test/`):
 
 | Caller | Where |
 |---|---|
@@ -211,10 +233,12 @@ post-rename ones: `expected_score` is `dk_goals_expectation` today (see step 4),
   `ensure_matchups!` (`app/services/nfl/cache_expected_team_totals.rb:136`) updates rows in
   place, so a re-run after a projections refresh re-ranks a weekly slate that may already
   back picks. Closing that gap is the first job of `slate-build-split`.
-- **Missing week in a span** — raises `Nfl::BuildSpanSlate::Error` (`:78`). Build the
+- **Missing week in a span** — raises `Nfl::BuildSpanSlate::Error`
+  (`app/services/nfl/build_span_slate.rb:78`). Build the
   missing weekly slate first, then re-run.
 - **Wrong-season absorption** — a 2025 slate pulled into a 2026 span. Guarded today by
-  the `name LIKE` scope (`:71`); guarded properly by the `year` column after
+  the `name LIKE` scope (`app/services/nfl/build_span_slate.rb:71`); guarded properly by
+  the `year` column after
   `slates-sport-year`.
 - **Slate built but never ranked** — `team_rows` (`app/models/slate.rb:140`) falls back to
   a computed ranking when nothing is stored, so the page still renders in a sane order.
@@ -230,3 +254,6 @@ post-rename ones: `expected_score` is `dk_goals_expectation` today (see step 4),
 
 - [[market-snapshot]] — the predecessor. Owns the network, the derive math, and the
   projections table this SOP reads.
+- [[admin-contest-setup]] — the successor. `app/controllers/contests_controller.rb:1708` (step 7's real
+  contest-creation path) is that workflow's entrypoint, so a slate built here is what a
+  contest is then opened on.

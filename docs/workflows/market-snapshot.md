@@ -10,8 +10,9 @@
 
 **Trigger:** Operator command, weekly per sport — before [[slate-build]]
 **Actors:** Operator · DraftKings sportsbook (public web) · Postgres
-**Outcome:** A seed-format dataset on disk, a `MarketSnapshot` artifact row, and one
-`TeamTotalProjection` per team per game
+**Outcome:** A seed-format dataset on disk, plus one projection row per team per game.
+(🔨 Target-state names: the `MarketSnapshot` artifact does not exist yet, and the
+projection table is `nfl_team_total_projections` today.)
 **Preconditions:** `Team` rows seeded for the sport; the week's games are posted on DK
 
 ---
@@ -89,37 +90,52 @@ matchup.update!(rank: ranking[:rank], turf_score: ranking[:turf_score])
 
 `Nfl::BuildSpanSlate` refuses to rebuild a slate backing live Selections
 (`app/services/nfl/build_span_slate.rb:44`). **The weekly path has no equivalent guard.**
-Settlement
-multiplies by the stored `turf_score` (`app/models/selection.rb:35`, `:42`), so re-running
-this command against a week whose slate already backs picks re-prices those picks after
-they were locked — and payouts settle on-chain.
+Settlement multiplies by the stored `turf_score` (`app/models/selection.rb:35`, `:42`), so
+re-running this command re-prices any picks already locked on the slates it touches — and
+payouts settle on-chain.
 
-**Before running step 3 against a week that may already be picked**, check first.
+**⚠️ The LIVE command is SEASON-scoped, not week-scoped.** There is no `WEEK` parameter:
+`lib/tasks/nfl.rake:4-5` reads only `YEAR` and `CSV_PATH`, and
+`app/services/nfl/cache_expected_team_totals.rb:47` iterates **every row of the CSV** — 272
+rows spanning weeks 1–18 in the checked-in default. So one run re-ranks **every week the
+CSV covers**, and a check that asks about a single week is itself a fail-open.
+
+**Before running step 3, check every slate the run can touch:**
 
 Slate names follow a fixed convention — **`NFL <year> Week <n>`** (a span slate is
 `NFL <year> Weeks <a>-<b>`), written by
-`app/services/nfl/cache_expected_team_totals.rb:127`. Get the name wrong and there is no
-slate to find, so the check must say so rather than fall through to "safe":
+`app/services/nfl/cache_expected_team_totals.rb:127`. That convention is what makes a
+season-wide sweep possible:
 
 ```bash
 bin/rails runner '
-  name  = "NFL 2026 Week 3"
-  slate = Slate.find_by(name: name)
-  if slate.nil?
-    puts "NO SLATE NAMED #{name} — check the name (format: NFL <year> Week <n>)"
-  elsif slate.slate_matchups.joins(:selections).exists?
-    puts "HAS PICKS — do not re-run"
+  year   = 2026
+  slates = Slate.where("name LIKE ?", "NFL #{year} %")
+  picked = slates.select { |s| s.slate_matchups.joins(:selections).exists? }
+  if slates.empty?
+    puts "NO SLATES MATCHING NFL #{year} % — check the year (format: NFL <year> Week <n>)"
+  elsif picked.any?
+    puts "HAS PICKS — do not re-run. Picked slates (#{picked.size}/#{slates.size}):"
+    picked.each { |s| puts "  #{s.name}" }
   else
-    puts "safe"
+    puts "safe — #{slates.size} slate(s) for NFL #{year}, none backing picks"
   end'
 ```
 
-**Three outcomes, deliberately.** An earlier draft of this check collapsed the first two
-with `slate && … ? "HAS PICKS" : "safe"`; `&&` binds tighter than the ternary, so a
-missing slate is falsy and prints **"safe"**. A settlement-affecting check must never fail
-open — an unrecognised name is an unknown, not an all-clear.
+**Three outcomes, deliberately, and season-wide.** Two fail-open bugs have already been
+found in this one check, so it is worth stating what each guards against:
 
-Full rule and rationale: [[slate-build]], "The freeze rule".
+- **Precedence.** An early draft used `slate && … ? "HAS PICKS" : "safe"`. `&&` binds
+  tighter than the ternary, so a missing slate was falsy and printed **"safe"**.
+- **Scope.** The next draft asked about one week while the command it guards rewrites the
+  whole season — checking Week 3 and reading "safe" said nothing about weeks 1, 2, 4–18.
+
+A settlement-affecting check must never fail open, and it must cover everything the
+command it guards can reach. It prints the picked slate **names** so you can see exactly
+what would be re-priced.
+
+Full rule and rationale: [[slate-build]], "⛔ The freeze rule — read before running this
+on anything live".
 
 ---
 
@@ -128,8 +144,8 @@ Full rule and rationale: [[slate-build]], "The freeze rule".
 ### 1. Fetch — 🔨 PLANNED (`market-snapshot-impl`)
 
 ```bash
-# 🔨 PLANNED — package.json defines only `scrape` / `scrape:headed`, so this
-# script does not exist yet and pasting it yields "Missing script".
+# 🔨 PLANNED — package.json defines no `market-snapshot` script (its scrapers are
+# `scrape` and `scrape:headed`), so pasting this yields "Missing script".
 npm run market-snapshot -- --sport nfl --week 3
 ```
 
@@ -192,11 +208,15 @@ CSV by hand, keep the `source*` columns honest, then run step 3 with
 
 ### 3. Ingest — ✅ LIVE (as `nfl:expected_team_totals_cache`)
 
-```bash
-# 🔨 PLANNED name
-bin/rails market:snapshot SPORT=nfl WEEK=3
+🔨 **PLANNED** (`market-snapshot-impl`) — per-week, and does not exist yet:
 
-# ✅ what runs today — read the ⛔ warning above before running this
+```bash
+bin/rails market:snapshot SPORT=nfl WEEK=3
+```
+
+✅ **LIVE** — season-scoped. Run the ⛔ pre-flight check above first:
+
+```bash
 bin/rails nfl:expected_team_totals_cache YEAR=2026 SKIP_SCHEDULE=1
 bin/rails nfl:expected_team_totals_cache YEAR=2026 CSV_PATH=/path/to/refreshed.csv
 ```
@@ -206,7 +226,7 @@ Reads the dataset, derives where needed, and upserts one row per team per game.
 **`SKIP_SCHEDULE=1` is the lever that makes today's command behave like the pure ingest
 this SOP describes.** Without it, `lib/tasks/nfl.rake:6` also loads
 `db/seeds/nfl_2026.rb` — the whole season schedule — before ingesting. `CSV_PATH`
-(`nfl.rake:5`) points it at a refreshed line sheet instead of the checked-in default.
+(`lib/tasks/nfl.rake:5`) points it at a refreshed line sheet instead of the checked-in default.
 
 **Even with `SKIP_SCHEDULE=1`, this task does far more than ingest.**
 `Nfl::CacheExpectedTeamTotals#call` (`app/services/nfl/cache_expected_team_totals.rb:43`)
