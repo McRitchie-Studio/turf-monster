@@ -78,6 +78,20 @@ module Webhooks
       payment_id = event["id"].to_s
       purchase   = purchase_for_event(event)
       unless purchase
+        # A redelivery of a settlement we ALREADY recorded looks identical to a
+        # genuine orphan here: tier-3 resolution only sees `pending` rows, so
+        # once the first delivery captured the row, the second resolves to
+        # nothing. Webhooks arrive more than once by design, so treating that as
+        # an anomaly files a false alarm on every redelivery — and an ErrorLog
+        # stream full of false alarms is one nobody reads. The payment id is
+        # unique per settlement and we stamp it at capture, so its presence on
+        # any row proves this settlement was already handled.
+        if payment_id.present? && CoinflowPurchase.exists?(coinflow_payment_id: payment_id)
+          Rails.logger.info "[tokens] coinflow.webhook.redelivery id=#{payment_id} " \
+                            "— already recorded, nothing owed"
+          return
+        end
+
         Rails.logger.error "[tokens] coinflow.webhook.settled UNMATCHED id=#{payment_id} " \
                            "customer=#{event['customerId']} — manual review required"
         record_settlement_anomaly!(
@@ -122,7 +136,30 @@ module Webhooks
       if Coinflow::Fulfillment.enqueue_mint!(purchase, payment_id: payment_id)
         Rails.logger.info "[tokens] coinflow.webhook.job_enqueued purchase=#{purchase.id}"
       else
-        Rails.logger.info "[tokens] coinflow.webhook.already_fulfilled purchase=#{purchase.id} status=#{purchase.status}"
+        # enqueue_mint! declined. Two very different things land here and they
+        # used to be indistinguishable at INFO:
+        #
+        #   BENIGN — a redelivery of the settlement this row already recorded.
+        #   Nothing owed; the recorded payment id matches.
+        #
+        #   MONEY — a DIFFERENT settlement that lost the begin_fulfillment! CAS
+        #   on this row. Two settlements, one mint: the buyer paid twice and was
+        #   minted once. The recorded payment id is the tell — it belongs to the
+        #   settlement that won, so a mismatch means this one was dropped.
+        recorded = purchase.coinflow_payment_id
+        if recorded.present? && payment_id.present? && recorded != payment_id
+          Rails.logger.error "[tokens] coinflow.webhook.settlement_lost purchase=#{purchase.id} " \
+                             "incoming=#{payment_id} recorded=#{recorded} status=#{purchase.status}"
+          record_settlement_anomaly!(
+            "Coinflow settlement lost a concurrent race — a SECOND settlement hit a row " \
+            "already claimed by another, so the buyer may have paid twice and minted once. " \
+            "purchase=#{purchase.id} incoming_payment_id=#{payment_id} " \
+            "recorded_payment_id=#{recorded} status=#{purchase.status} " \
+            "settled_cents=#{subtotal_field(event, 'cents')}"
+          )
+        else
+          Rails.logger.info "[tokens] coinflow.webhook.already_fulfilled purchase=#{purchase.id} status=#{purchase.status}"
+        end
       end
     end
 

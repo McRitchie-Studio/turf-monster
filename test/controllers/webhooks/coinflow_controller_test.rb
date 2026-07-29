@@ -294,6 +294,88 @@ class Webhooks::CoinflowControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # ── concurrent settlements (the lost-race money path) ─────────────────────
+  #
+  # Two settlements, one row: the second loses begin_fulfillment!'s CAS. Before
+  # this it logged "already_fulfilled" at INFO, indistinguishable from a benign
+  # webhook redelivery — so a buyer paying twice and minting once looked exactly
+  # like normal traffic. The recorded payment id is the discriminator.
+
+  # Reaching the claimed row requires TIER-1 resolution (an explicit reference),
+  # because tier 3 only sees `pending` rows and cannot re-resolve a captured one.
+  # That is the honest shape of this path: a second settlement carrying the same
+  # reference is two payments against one order.
+  test "a SECOND distinct settlement on a claimed row records an ErrorLog" do
+    with_webhook_env do
+      row = create_purchase(price_cents: 19_00)
+      first = settled_event(purchase: row, payment_id: "PAY_FIRST", cents: 1900)
+                .merge("reference" => row.coinflow_reference)
+      post_webhook(first)
+      assert_equal "captured", row.reload.status
+      assert_equal "PAY_FIRST", row.coinflow_payment_id
+
+      # A DIFFERENT settlement now lands on the same claimed row.
+      second = settled_event(purchase: row, payment_id: "PAY_SECOND", cents: 1900)
+                 .merge("reference" => row.coinflow_reference)
+      assert_difference "ErrorLog.count", 1 do
+        post_webhook(second)
+      end
+      assert_response :success
+      assert_match(/lost a concurrent race/, ErrorLog.last.message)
+      assert_match(/PAY_SECOND/, ErrorLog.last.message)
+      assert_equal "PAY_FIRST", row.reload.coinflow_payment_id, "the winner's id must stand"
+    end
+  end
+
+  # The benign twin — the SAME settlement redelivered. Webhooks arrive more than
+  # once by design, and after the first delivery captures the row tier 3 can no
+  # longer see it, so this lands in the "unmatched" branch. It must stay quiet:
+  # an ErrorLog stream with a false alarm per redelivery is one nobody reads.
+  test "a redelivery of the SAME settlement records no ErrorLog" do
+    with_webhook_env do
+      row = create_purchase(price_cents: 19_00)
+      post_webhook(settled_event(purchase: row, payment_id: "PAY_SAME", cents: 1900))
+      assert_equal "captured", row.reload.status
+      assert_equal "PAY_SAME", row.coinflow_payment_id
+
+      assert_no_difference "ErrorLog.count" do
+        post_webhook(settled_event(purchase: row, payment_id: "PAY_SAME", cents: 1900))
+      end
+      assert_response :success
+    end
+  end
+
+  # The guard keys on the recorded payment id, so an unknown settlement that
+  # matches nothing must STILL raise the alarm — the quiet path above must not
+  # have silenced the genuine orphan case.
+  test "an unknown settlement still records an ErrorLog after the redelivery guard" do
+    with_webhook_env do
+      row = create_purchase(price_cents: 19_00)
+      post_webhook(settled_event(purchase: row, payment_id: "PAY_KNOWN", cents: 1900))
+
+      assert_difference "ErrorLog.count", 1 do
+        post_webhook(settled_event(purchase: row, payment_id: "PAY_STRANGER", cents: 1900))
+      end
+      assert_match(/matched no pending purchase/, ErrorLog.last.message)
+    end
+  end
+
+  # A deliberate hold, but still money settled with nothing minted — it resolves
+  # only when an operator looks, and a log line summons no one.
+  test "a mint withheld for a risk-flagged buyer records an ErrorLog" do
+    with_webhook_env do
+      row = create_purchase(price_cents: 19_00)
+      @user.update!(payment_risk_flag: true)
+
+      assert_difference "ErrorLog.count", 1 do
+        post_webhook(settled_event(purchase: row, cents: 1900))
+      end
+      assert_response :success
+      assert_match(/withheld pending review/, ErrorLog.last.message)
+      assert_equal "captured", row.reload.status, "the settlement is still recorded"
+    end
+  end
+
   def post_webhook(event, auth: VALIDATION_KEY)
     post "/webhooks/coinflow", params: event.to_json, headers: {
       "Content-Type" => "application/json",

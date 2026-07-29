@@ -2,6 +2,34 @@ require "test_helper"
 require "minitest/mock"
 
 class StripePurchaseTest < ActiveSupport::TestCase
+  # PACKS prices must stay DISTINCT — a load-bearing invariant nothing else
+  # enforces. CoinflowPurchase.pending_for_settlement resolves a Coinflow
+  # settlement by (user, pending, price_cents), because Coinflow's `Settled`
+  # payload carries no reference and the amount is the only discriminator we
+  # get. Two packs sharing a price makes that resolution ambiguous, and the
+  # failure is SILENT: the resolver picks whichever row is older,
+  # capture_matches? compares the same price_cents and passes, and the buyer is
+  # minted the WRONG QUANTITY with every check green.
+  #
+  # This is a live risk, not a hypothetical: PACKS is deliberately keyed by
+  # string id rather than quantity precisely so two packs can share a quantity
+  # (trio and test_trio both sell 3), so the constant's own shape invites a
+  # near-collision. A repricing is all it would take.
+  #
+  # If you are here because this test failed: DO NOT just make the prices
+  # unique again and move on — first check whether pending_for_settlement still
+  # resolves unambiguously, because a same-price pair breaks it by construction.
+  test "every pack has a DISTINCT price — Coinflow settlement resolution depends on it" do
+    prices = StripePurchase::PACKS.values.map { |pack| pack[:price_cents] }
+    duplicates = prices.tally.select { |_cents, count| count > 1 }.keys
+
+    assert_empty duplicates,
+                 "packs share a price (#{duplicates.inspect} cents) — " \
+                 "CoinflowPurchase.pending_for_settlement resolves by price and " \
+                 "would mint the wrong quantity for one of them"
+    assert_equal StripePurchase::PACKS.length, prices.uniq.length
+  end
+
   test "PACKS resolves price + quantity by string id" do
     assert_equal 19_00, StripePurchase.pack_price_cents("single")
     assert_equal 1,     StripePurchase.pack_quantity("single")
