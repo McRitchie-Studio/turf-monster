@@ -24,3 +24,13 @@ pending_transaction_sweeper:
   class: PendingTransactionSweeperJob
   description: Flip stale entry-flow PendingTransactions (pending/submitted older than 1h) to failed so admin reports surface real backlogs only.
   queue: default
+
+pending_deposit_reconciler:
+  cron: "*/15 * * * *"   # every 15 minutes
+  class: PendingDepositReconcilerJob
+  description: >-
+    Reconcile stranded pending TransactionLog DEPOSIT rows (die-after-claim in
+    StripeDepositJob). READ-ONLY on-chain confirm of the recorded signature:
+    landed -> completed; failed/not-found/no-signature -> needs_review + alert.
+    NEVER re-transfers. 10-minute threshold leaves in-flight deposits untouched.
+  queue: default
