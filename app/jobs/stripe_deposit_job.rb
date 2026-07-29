@@ -56,17 +56,21 @@ class StripeDepositJob < ApplicationJob
     # operation for a deposit in v0.16.
     fund_result = vault.fund_user(wallet_address, amount_lamports)
 
-    # Transfer landed — finalize the claimed row with the signature. If THIS
-    # write faults transiently, retry_on re-runs perform, the claim above trips
-    # RecordNotUnique, and we return without re-transferring. The row is then
-    # left `pending` (never a double-payment; heals toward under-credit).
-    #
-    # NOTE (reconciliation gap): PendingTransactionSweeperJob operates on the
-    # PendingTransaction model scoped to `enter_contest_direct` and does NOT
-    # touch TransactionLog, so a die-after-claim `pending` deposit row is not
-    # auto-reconciled today. It is SAFE (never re-transfers), but its true
-    # on-chain outcome must be resolved by an on-chain check, not by blindly
-    # failing the row. Tracked: task `reconcile-stuck-pending-deposits`.
-    log.update!(status: "completed", onchain_tx: fund_result[:signature])
+    # Transfer landed. Capture the signature DURABLY the instant fund_user
+    # returns, in its OWN write, BEFORE flipping to completed (backend-discipline
+    # §2: "capture durably, immediately"). If the completion write below faults
+    # and retry_on re-runs perform, the claim above trips RecordNotUnique and we
+    # return without re-transferring — the row is left `pending` WITH onchain_tx
+    # set, the exact state Deposits::OnchainReconciler needs to CONFIRM the
+    # signature on-chain and finalize it. (Pre-split, the signature was written
+    # only in the completing update!, so a die-after-transfer stranded a
+    # `pending` row with NO signature — unconfirmable, forcing needs_review.)
+    sig = fund_result[:signature]
+    log.update!(onchain_tx: sig) if sig.present?
+
+    # Finalize. A fault here strands a reconcilable `pending`+signature row that
+    # PendingDepositReconcilerJob (config/schedule.yml) heals on its next sweep;
+    # it is NEVER re-transferred (the claim on stripe_session_id guarantees it).
+    log.update!(status: "completed")
   end
 end
