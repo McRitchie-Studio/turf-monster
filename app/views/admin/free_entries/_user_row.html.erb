@@ -13,14 +13,24 @@
       </div>
     </div>
   </td>
+  <%# seeds/level come from the denormalized users.seeds mirror — always
+      accurate, shown even while the on-chain token list is warming. %>
   <td class="px-3 py-3 text-right font-mono"><%= row[:seeds] %></td>
   <td class="px-3 py-3 text-right font-mono"><%= row[:level] %></td>
-  <td class="px-3 py-3 text-right font-mono"><%= row[:minted] %></td>
-  <td class="px-3 py-3 text-right font-mono"><%= row[:unconsumed] %></td>
-  <td class="px-3 py-3 text-right font-mono font-bold" style="<%= row[:owed] > 0 ? 'color: var(--color-cta);' : 'color: var(--color-text-muted);' %>"><%= row[:owed] %></td>
+  <%# minted/unconsumed/owed derive from the CACHE-FIRST entry-token list. On a
+      cold cache the row is "loading" (a background job warms it) — show a muted
+      "…" instead of a misleading 0. %>
+  <td class="px-3 py-3 text-right font-mono"><%= row[:loading] ? tag.span("…", class: "text-muted", title: "Syncing on-chain data…") : row[:minted] %></td>
+  <td class="px-3 py-3 text-right font-mono"><%= row[:loading] ? tag.span("…", class: "text-muted", title: "Syncing on-chain data…") : row[:unconsumed] %></td>
+  <td class="px-3 py-3 text-right font-mono font-bold" style="<%= !row[:loading] && row[:owed] > 0 ? 'color: var(--color-cta);' : 'color: var(--color-text-muted);' %>"><%= row[:loading] ? tag.span("…", class: "font-normal", title: "Syncing on-chain data…") : row[:owed] %></td>
   <td class="px-4 py-3 text-right">
     <div class="inline-flex items-center justify-end gap-2">
-      <% if row[:owed] > 0 %>
+      <%# Cold cache: don't offer a Mint on unverified counts — the background
+          job is warming this row; a refresh surfaces the real owed. %>
+      <% if row[:loading] %>
+        <span class="text-muted text-xs">syncing…</span>
+      <% end %>
+      <% if !row[:loading] && row[:owed] > 0 %>
         <%= button_to admin_mint_free_entries_path(user_slug: user.slug),
                       class: "btn btn-success btn-sm",
                       form_class: "inline-block",
@@ -37,7 +47,7 @@
                       form_class: "inline-block",
                       data: { turbo_confirm: "Act as #{user.display_name}? You'll browse the app as this user until you return." } %>
       <% end %>
-      <% if row[:owed] <= 0 && user.admin? %>
+      <% if !row[:loading] && row[:owed] <= 0 && user.admin? %>
         <span class="text-muted text-xs">—</span>
       <% end %>
     </div>
