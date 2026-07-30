@@ -1608,3 +1608,29 @@ html.dark { --rx-fill: 0 0 0; }
   .holo-border::before,
   .holo-border-glow::before { animation: none; }
 }
+
+/* ── Accessibility guard: small white text on bg-primary ─────────────────────
+   The theme primary (#4baf50) paints white text at only 2.78:1 — below WCAG AA
+   (4.5:1 for small text) in BOTH themes. PR 249 fixed one instance (the
+   pack-button savings pill); a Carl sweep then found ~10 more small-text
+   bg-primary/text-white fills still at 2.78:1 (six text-xs, four text-sm:
+   report tabs, sort/type pills, "Best fit"/version/pending badges).
+
+   Rather than hand-edit each pill, tab, and badge, darken the FILL to an
+   AA-passing green whenever bg-primary carries small white text — the white
+   text (the design intent) is preserved. #1b5e20 is 7.87:1 against white: the
+   same AA green .savings-pill already uses, so the app carries ONE AA green.
+
+   This is the DURABLE, last-wins default. The compound selector (0,0,3,0)
+   outranks Tailwind's single-class .bg-primary (0,0,1,0), AND this rule sits
+   unlayered at the very end of the file — so it wins the cascade by
+   specificity, by layer, and by source order. A future `bg-primary text-white
+   text-xs` fill inherits AA automatically and cannot silently reintroduce the
+   2.78:1 failure. Guard: test/views/bg_primary_small_text_contrast_test.rb.
+
+   Large text (>=18pt, or 14pt bold) needs only 3:1, so the ~16 larger
+   bg-primary fills are left to per-case triage rather than blanket-darkened. */
+.bg-primary.text-white.text-xs,
+.bg-primary.text-white.text-sm {
+  background-color: #1b5e20;
+}

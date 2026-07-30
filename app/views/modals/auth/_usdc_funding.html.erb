@@ -29,7 +29,7 @@
         <%= render "studio/modals/blocks/progress_pill", current: 2, total: 3 %>
         <% if AppFlags.cdp_ramp? %>
           <% entry_fee_dollars = ((@contest&.entry_fee_cents || 1900) / 100) %>
-          <p class="text-xs text-secondary mb-4 text-center">Entry fee is $<%= entry_fee_dollars %> in USDC. Your lineup is saved &mdash; add USDC to finish.</p>
+          <p class="text-xs text-body mb-4 text-center">Entry fee is $<%= entry_fee_dollars %> in USDC. Your lineup is saved &mdash; add USDC to finish.</p>
           <p class="text-xs text-muted mb-4 text-center"
              x-show="$store.session && ($store.session.usdcCents || 0) > 0">
             Wallet balance:
