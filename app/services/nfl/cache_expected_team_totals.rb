@@ -127,10 +127,7 @@ module Nfl
       slate = Slate.find_or_initialize_by(name: "NFL #{@year} Week #{week}")
       @slates_created += 1 if slate.new_record?
       # Record the week as data, not just as a substring of the name — it's what
-      # multi-week contests order and validate consecutiveness on. Same for sport and
-      # year: written as COLUMNS so no reader has to parse the name back apart. Set on
-      # every save (not just create) so a pre-`slates-sport-year` row picks them up the
-      # first time this touches it.
+      # multi-week contests order and validate consecutiveness on.
       slate.week = week
       # sport/year derive from the name in Slate's before_validation — see
       # Nfl::BuildSpanSlate#ensure_slate! for why they are not duplicated here.

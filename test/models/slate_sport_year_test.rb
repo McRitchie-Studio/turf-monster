@@ -157,16 +157,17 @@ class SlateSportYearTest < ActiveSupport::TestCase
   end
 
   # Blocker from review: only 2 of 7 writers set the columns, so a fresh seed left them
-  # null and `where(sport: "nfl")` — which the new index invites — silently dropped
-  # those rows. Fixed at the MODEL, so this holds for every writer rather than the two
-  # that happened to get patched.
+  # null and the live `where(sport: "nfl")` in BuildSpanSlate silently dropped those rows.
+  # Fixed at the MODEL, so this holds for every writer rather than the two that happened
+  # to get patched. (There is no `sport` index — the migration refuses one; the hazard is
+  # the query, not an index.)
   test "[unit] any writer persists both columns without setting them" do
     NAME_CORPUS.each do |name, expected|
       slate = Slate.create!(name: "#{name} writer-probe")
 
       assert_equal expected, slate.reload[:sport],
                    "#{name.inspect} persisted sport #{slate[:sport].inspect} — a null here is invisible to " \
-                   "where(sport:), which the new index invites"
+                   "the live where(sport:) scope in BuildSpanSlate"
       expected_year = name[/\b(20\d{2})\b/, 1]&.to_i
       next if expected_year.nil? # "Default" carries no year by design
 
@@ -235,6 +236,19 @@ class SlateSportYearTest < ActiveSupport::TestCase
     assert_equal 1, span.slate_matchups.count,
                  "the span must be assembled from the column-matched source; a name-LIKE scope " \
                  "would have raised 'no slate for week 1'"
+  end
+
+  # The span entry point (contests_controller.rb:1705) used to read the year from the name
+  # with an UNBOUNDED /\b(\d{4})\b/, so a slate named "Week 1234 Showcase" resolved year
+  # 1234. It now reads #season_year, which is column-first and bounded to 20xx. Asserted
+  # here rather than in a controller test because the property belongs to the reader.
+  test "[unit] season_year is bounded, so a 4-digit non-year cannot read as a year" do
+    slate = Slate.create!(name: "Week 1234 Showcase", week: 1)
+
+    assert_nil slate.season_year,
+               "an unbounded /\\b(\\d{4})\\b/ would return \"1234\" here and build a year-1234 span"
+    assert_equal "1234", slate.name[/\b(\d{4})\b/, 1],
+                 "sanity: the old unbounded rule really did match this name"
   end
 
   test "[unit] an explicit sport from the caller still wins over the derived one" do

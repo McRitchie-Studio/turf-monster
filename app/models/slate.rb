@@ -23,8 +23,9 @@ class Slate < ApplicationRecord
   # Only fills BLANKS, so an explicit `sport:` from a caller always wins. And the
   # derived value is exactly what #sport / #season_year would have computed from the
   # same name, so this records what a reader already saw rather than changing anyone's
-  # answer. That matters because the new `sport` index invites `where(sport: "nfl")`,
-  # which silently drops null rows — this keeps that query honest.
+  # answer. That matters because `where(sport: "nfl")` is a live query
+  # (app/services/nfl/build_span_slate.rb:77) and it silently drops NULL rows — this keeps
+  # it honest. (No `sport` index exists; the migration deliberately refuses one.)
   before_validation :derive_sport_and_year_from_name
 
   # Weekly slates in week order. Excludes the "Default" formula-holder row and

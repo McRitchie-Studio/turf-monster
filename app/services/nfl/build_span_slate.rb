@@ -75,7 +75,10 @@ module Nfl
       # renamed slate; the columns cannot. A weekly slate with a NULL year no longer
       # matches, which surfaces as the same "no slate for week N" refusal this method
       # already raises — fail-closed, not a silently shorter span.
-      candidates = Slate.where(week: @weeks, year: @year, sport: "nfl")
+      # .order(:id) because index_by below keeps the LAST row per week, and admission
+      # widened from "name starts with NFL <year> " to any nfl row with year=<year> — so
+      # two same-week rows must resolve deterministically rather than by scan order.
+      candidates = Slate.where(week: @weeks, year: @year, sport: "nfl").order(:id)
                         .reject { |slate| slate.week_range.nil? || slate.week_range.size > 1 }
 
       scoped = candidates.index_by(&:week)

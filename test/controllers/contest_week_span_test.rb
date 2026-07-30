@@ -19,6 +19,26 @@ class ContestWeekSpanTest < ActionDispatch::IntegrationTest
     log_in_as(users(:alex)) # admin
   end
 
+  # Pins the CALL SITE. contests_controller previously derived the span year from the
+  # anchor's NAME with an unbounded /\b(\d{4})\b/, so "Week 1234 Showcase" resolved year
+  # 1234. It now reads Slate#season_year (column-first, bounded to 20xx).
+  #
+  # A SOURCE assertion, deliberately, and the repo already uses this shape
+  # (test/views/tokens_pack_button_test.rb greps render sites). Asserting only that
+  # #season_year is bounded left the controller free to go back to the regex — that
+  # mutation passed the entire suite. This is narrow but it kills exactly that.
+  test "the span year is read from the slate column, not parsed from its name" do
+    source = File.read(Rails.root.join("app/controllers/contests_controller.rb"))
+    span_method = source[/def resolve_span_slate.*?\n  end/m]
+    refute_nil span_method, "resolve_span_slate not found — update this guard"
+
+    assert_includes span_method, "anchor.season_year",
+                    "the span year must come from the column via Slate#season_year"
+    refute_match(/anchor\.name\[/, span_method,
+                 "the span year must not be parsed out of the slate NAME — an unbounded " \
+                 "4-digit match reads \"Week 1234\" as year 1234")
+  end
+
   test "the create form offers a week span control" do
     get new_contest_path
 
