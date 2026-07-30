@@ -77,7 +77,7 @@ end
 gem "dotenv-rails", groups: [:development, :test]
 gem "tailwindcss-rails", "~> 4.5"
 # Sidekiq + scheduled jobs (Reconciler cron, ATA ensure jobs, deposit jobs)
-gem "sidekiq-cron", "~> 1.12"
+gem "sidekiq-cron", "~> 2.4"
 
 # Sentry — production error monitoring. ErrorLog.capture! fans out to Sentry
 # when SENTRY_DSN env var is set. No-op if absent.
