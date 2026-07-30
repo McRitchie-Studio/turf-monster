@@ -59,7 +59,7 @@
         </div>
         <%# Picker is step 2 of the 3-step onboarding journey. %>
         <%= render "studio/modals/blocks/progress_pill", current: 2, total: 3 %>
-        <p class="text-xs text-secondary mb-4 text-center">1 token = 1 contest entry. Your lineup is saved &mdash; pick a pack to finish.</p>
+        <p class="text-xs text-body mb-4 text-center">1 token = 1 contest entry. Your lineup is saved &mdash; pick a pack to finish.</p>
         <% if Payments.paypal_checkout? %>
           <%# PayPal/Venmo path — pack cards select, the standalone buttons
               pay, everything stays on-page (the SDK drives its own popup or

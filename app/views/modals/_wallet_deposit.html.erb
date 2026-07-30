@@ -26,7 +26,7 @@
   <div class="text-center pt-1 mb-3">
     <h3 class="text-heading font-bold text-lg leading-tight">Top Up Your Wallet</h3>
   </div>
-  <p class="text-xs text-secondary mb-4 text-center">
+  <p class="text-xs text-body mb-4 text-center">
     You need $<span class="font-mono"
                     x-text="((props.neededCents || 0) / 100).toFixed(2)"></span>
     to enter.
@@ -64,7 +64,7 @@
     <%# Send-to-address — Phantom users with an existing balance in
         another wallet can self-fund. Address from $store.session.address. %>
     <div class="border-t border-strong pt-3" x-data="{ copied: false }">
-      <p class="text-xs text-secondary text-center mb-2">Or send USDC/USDT to your wallet:</p>
+      <p class="text-xs text-body text-center mb-2">Or send USDC/USDT to your wallet:</p>
       <div class="flex items-center gap-2">
         <code class="flex-1 px-2 py-1 bg-surface rounded text-xs font-mono truncate"
               x-text="$store.session.address"></code>

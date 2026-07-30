@@ -281,4 +281,34 @@ class TokensPackButtonTest < ActionView::TestCase
                  "a live card must not be marked disabled — this is the assertion the " \
                  "original substring match could not make")
   end
+
+  # ── hover must not revive a disabled card ─────────────────────────────────
+  #
+  # A disabled card carried the full hover treatment: the CSS .glow-pair-btn:hover
+  # rules and the Tailwind hover:border-primary utility both fired regardless of
+  # the disabled attribute, so hovering a dead card lit its accent border and
+  # sent the orbs flying — LOUDER than a resting live card, undoing the very
+  # affordance disabled:opacity-50 exists to provide.
+  #
+  # Two layers, so two assertions. Scoping only the stylesheet leaves the
+  # Tailwind border utility firing, which is the half that is easy to miss.
+
+  test "the hover treatment is scoped away from disabled cards in CSS" do
+    css = Rails.root.join("app/views/tokens/_pack_button_styles.html.erb").read
+    bare = css.scan(/\.glow-pair-btn:hover(?!:not\(:disabled\))/)
+    assert_empty bare,
+                 "#{bare.length} .glow-pair-btn:hover rule(s) still fire on a disabled card — " \
+                 "each needs :not(:disabled)"
+    assert_operator css.scan(/\.glow-pair-btn:hover:not\(:disabled\)/).length, :>=, 7,
+                    "expected every hover rule scoped"
+  end
+
+  test "the border hover utility is scoped to enabled buttons" do
+    %w[stripe coinflow].each do |provider|
+      tag = render_pack("single", provider: provider)[/<button[^>]*>/]
+      refute_match(/(?<!enabled:)hover:border-primary/, tag,
+                   "#{provider}: a bare hover:border-primary lights the border on a dead card")
+      assert_match(/enabled:hover:border-primary/, tag)
+    end
+  end
 end

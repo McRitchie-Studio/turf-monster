@@ -49,11 +49,11 @@
   <%# Header balance line. Default: the USDC balance (the funding currency),
       em-dash when the navbar cache is cold. Degrade: the entry-token count for
       the kill-switch (web2 + flag off) audience, who fund with a token. %>
-  <p x-show="!tokenFallback" class="text-xs text-secondary mb-4 text-center">
+  <p x-show="!tokenFallback" class="text-xs text-body mb-4 text-center">
     USDC balance:
     <span class="font-mono font-semibold text-heading" x-text="usdcDisplay"></span>
   </p>
-  <p x-show="tokenFallback" class="text-xs text-secondary mb-4 text-center">
+  <p x-show="tokenFallback" class="text-xs text-body mb-4 text-center">
     Entry tokens:
     <span class="font-mono font-semibold text-heading"
           x-text="($store.session.tokensAvailable | 0)"></span>
