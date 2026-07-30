@@ -55,17 +55,14 @@
             stripe_on is a tautology here and these cards never render disabled
             today. With Stripe off the buyer never reaches this picker at all;
             they get modals/auth/_usdc_funding's "Purchases temporarily offline".
-            The sibling picker's identical gate is ALSO dead, for its own
-            reason: modals/auth/_paypal_tokens renders only under :paypal, i.e.
-            Payments.paypal_checkout? true — which is exactly the condition its
-            :63 branch tests, so the Stripe fallback holding that gate is
-            unreachable. Enumerating all 12 provider × stripe_enabled ×
-            paypal_enabled configs, ZERO reach it.
             The gate that genuinely varies is tokens/buy.html.erb:70 — the buy
             PAGE is not gated by entry_funding_mode, so Stripe really can be off
-            beneath it. That is the live case; both modal gates are belt-and-
-            braces against their render guards loosening. %>
-        <% stripe_on = Payments.stripe? && Rails.application.config.x.stripe_enabled %>
+            beneath it. That is the live case; this modal gate is belt-and-braces
+            against its render guard loosening.
+            Payments.stripe? already means "provider == 'stripe' AND
+            config.x.stripe_enabled" (app/services/payments.rb), so anding the
+            flag again is redundant — the single call carries the whole gate. %>
+        <% stripe_on = Payments.stripe? %>
         <div class="space-y-3">
           <% StripePurchase.available_packs.each do |pack_id, pack| %>
             <%# Pack click advances to 'tokens-waiting' through the store's

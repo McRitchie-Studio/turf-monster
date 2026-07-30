@@ -18,8 +18,13 @@
   or from the tokens picker, would put a flag-off web2 user one click from a
   real-money USDC buy that dead-ends their entry. tokenFallback mirrors the
   wallet-topup getter exactly (web2 mode AND the flag off, read from
-  $store.session); web3 + flag-on web2 still see Coinbase. The Stripe entry-token
-  rail stays visible for the degraded audience, so the hub never empties.
+  $store.session); web3 + flag-on web2 still see Coinbase. The token-minting
+  rails (Coinflow, Aeropay, Stripe) are NOT hidden for the degraded audience, so
+  any one of them that is live keeps the hub useful. But none is guaranteed on:
+  each gates on its own backend flag in production (onramp_rail_visible?), and
+  Stripe is the dormant fallback (off by default). So with Coinbase hidden for
+  the degraded viewer and every token rail off, the hub CAN render empty for that
+  audience — hiding Coinbase does not, on its own, guarantee a non-empty hub.
 
   Back-navigation returns to wherever the hub was opened FROM, keyed on the
   props it was opened with:
