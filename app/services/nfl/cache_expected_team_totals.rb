@@ -129,6 +129,8 @@ module Nfl
       # Record the week as data, not just as a substring of the name — it's what
       # multi-week contests order and validate consecutiveness on.
       slate.week = week
+      # sport/year derive from the name in Slate's before_validation — see
+      # Nfl::BuildSpanSlate#ensure_slate! for why they are not duplicated here.
       slate.save!
       slate
     end
