@@ -1702,7 +1702,12 @@ class ContestsController < ApplicationController
     anchor = Slate.find_by(id: params.dig(:contest, :slate_id)) || contest.slate
     return nil if anchor.nil? || anchor.week.blank?
 
-    year = anchor.name[/\b(\d{4})\b/, 1] || Time.current.year
+    # The COLUMN, via Slate#season_year, not a name regex. This is the entry point to
+    # the span lookup `slates-sport-year` converted to columns, so parsing the name here
+    # would leave the rename half-done — and the old `/\b(\d{4})\b/` was unbounded, so a
+    # slate named "Week 1234" read as year 1234. #season_year is bounded to 20xx and
+    # falls back to the name only when the column is null.
+    year = anchor.season_year || Time.current.year
     weeks = (anchor.week...(anchor.week + span)).to_a
 
     Nfl::BuildSpanSlate.call(year: year, weeks: weeks)

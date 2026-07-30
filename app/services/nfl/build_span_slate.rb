@@ -13,7 +13,8 @@ module Nfl
   #     would be sold as three weeks and scored as two)
   #   * a year with no weekly slates at all
   # Scoping every lookup by YEAR is what keeps a 2026 span from absorbing a 2025
-  # slate — slates carry a week but no year column, so the year lives in the name.
+  # slate. Since `slates-sport-year` that scope is the `year` + `sport` COLUMNS, not a
+  # LIKE against the name.
   class BuildSpanSlate
     class Error < StandardError; end
 
@@ -59,16 +60,25 @@ module Nfl
 
     private
 
-    # The weekly slates the span is assembled from, scoped to THIS year by name.
-    # Every requested week must exist — a missing one is an error, not a shorter
-    # contest.
+    # The weekly slates the span is assembled from, scoped to THIS year and sport by
+    # COLUMN. Every requested week must exist — a missing one is an error, not a
+    # shorter contest.
     def source_slates
       # Sources must be SINGLE-week slates. A span slate is itself named
       # "NFL 2026 Weeks 1-3" and carries week=1, so without this filter a REBUILD
       # matched the span as its own source for week 1, wiped its rows, and then
       # copied from the now-empty slate — silently returning a shorter span.
-      candidates = Slate.where(week: @weeks)
-                        .where("name LIKE ?", "NFL #{@year} %")
+      #
+      # Was `where("name LIKE ?", "NFL #{@year} %")`. Scoping by the `year` + `sport`
+      # COLUMNS is what `slates-sport-year` exists to enable — and it is what gives the
+      # [year, week] index a reader. A LIKE on the name could also be defeated by a
+      # renamed slate; the columns cannot. A weekly slate with a NULL year no longer
+      # matches, which surfaces as the same "no slate for week N" refusal this method
+      # already raises — fail-closed, not a silently shorter span.
+      # .order(:id) because index_by below keeps the LAST row per week, and admission
+      # widened from "name starts with NFL <year> " to any nfl row with year=<year> — so
+      # two same-week rows must resolve deterministically rather than by scan order.
+      candidates = Slate.where(week: @weeks, year: @year, sport: "nfl").order(:id)
                         .reject { |slate| slate.week_range.nil? || slate.week_range.size > 1 }
 
       scoped = candidates.index_by(&:week)
@@ -86,6 +96,10 @@ module Nfl
       Slate.find_or_create_by!(name: name) do |slate|
         slate.slug = name.parameterize
         slate.week = @weeks.first
+        # sport/year are NOT set here on purpose: Slate's before_validation derives both
+        # from the name for every writer. A reviewer mutation proved these assignments
+        # were dead — deleting them left the suite green — so one derivation point beats
+        # two that can disagree.
       end
     end
 
