@@ -79,32 +79,61 @@ standing accuracy check on the formula above. That comparison is not possible to
 **This warning belongs here, not only in [[slate-build]], because the dangerous command is
 in THIS file** (step 3).
 
-Until `slate-build-split` lands, the ✅ LIVE command `nfl:expected_team_totals_cache` does
-not stop at projections. It also creates Slates and rewrites **`rank` and `turf_score` on
-every matchup**, unconditionally:
+Until `slate-build-split` lands, the ✅ LIVE command `nfl:expected_team_totals_cache`
+rewrites **`rank` and `turf_score`** from **TWO** unguarded sites. Both matter; the second
+is the nastier one.
+
+**Site 1 — the ingest's own re-rank** (`app/services/nfl/cache_expected_team_totals.rb:172`):
 
 ```ruby
-# app/services/nfl/cache_expected_team_totals.rb:172 — no guard of any kind
 matchup.update!(rank: ranking[:rank], turf_score: ranking[:turf_score])
 ```
 
+Ranked by summed expected score, so a re-run yields *stale* prices — the right formula on
+refreshed numbers.
+
+**Site 2 — the schedule seed** (`db/seeds/nfl_2026.rb:186-188`), reached because
+`lib/tasks/nfl.rake:6` loads that seed unless you pass `SKIP_SCHEDULE=1`:
+
+```ruby
+sorted_matchups = slate.slate_matchups.includes(:team, :game).sort_by do |matchup|
+  [matchup.game&.kickoff_at || first_game_at, matchup.team.name]   # :182-184
+end
+sorted_matchups.each_with_index do |matchup, index|
+  matchup.update!(rank: index + 1, turf_score: SlateMatchup.turf_score_for(...))
+end
+```
+
+**This one ranks by KICKOFF TIME, not by expected score.** So it does not produce stale
+prices — it produces **wrong** ones: rank 1 (and the 1.0x multiplier) goes to whichever
+team kicks off earliest. It runs over weeks 1–17, 256 games, unguarded.
+
+**And its year is HARDCODED.** `db/seeds/nfl_2026.rb:163` builds
+`"NFL 2026 Week #{week}"` regardless of the `YEAR` you passed the rake task. So
+`YEAR=2027` makes the pre-flight check below inspect `NFL 2027 %` while the seed rewrites
+`NFL 2026 %` — **the check's scope and the command's write set come apart.** Always pass
+`SKIP_SCHEDULE=1` unless you specifically intend to reseed the 2026 schedule.
+
 `Nfl::BuildSpanSlate` refuses to rebuild a slate backing live Selections
-(`app/services/nfl/build_span_slate.rb:44`). **The weekly path has no equivalent guard.**
-Settlement multiplies by the stored `turf_score` (`app/models/selection.rb:35`, `:42`), so
-re-running this command re-prices any picks already locked on the slates it touches — and
+(`app/services/nfl/build_span_slate.rb:44`). **Neither weekly site has an equivalent
+guard.** Settlement multiplies by the stored `turf_score` (`app/models/selection.rb:35`,
+`:42`), so re-running re-prices any picks already locked on the slates it touches — and
 payouts settle on-chain.
+
+> ⚠️ `slate-build-split` as scoped closes **site 1 only**. Site 2 lives in the seed and
+> needs its own guard, or the gap survives the task that promises to close it.
 
 **⚠️ The LIVE command is SEASON-scoped, not week-scoped.** There is no `WEEK` parameter:
 `lib/tasks/nfl.rake:4-5` reads only `YEAR` and `CSV_PATH`, and
-`app/services/nfl/cache_expected_team_totals.rb:47` iterates **every row of the CSV** — 272
+`app/services/nfl/cache_expected_team_totals.rb:48` iterates **every row of the CSV** — 272
 rows spanning weeks 1–18 in the checked-in default. So one run re-ranks **every week the
 CSV covers**, and a check that asks about a single week is itself a fail-open.
 
 **Before running step 3, check every slate the run can touch:**
 
-Slate names follow a fixed convention — **`NFL <year> Week <n>`** (a span slate is
-`NFL <year> Weeks <a>-<b>`), written by
-`app/services/nfl/cache_expected_team_totals.rb:127`. That convention is what makes a
+Slate names follow a fixed convention — **`NFL <year> Week <n>`**, written by
+`app/services/nfl/cache_expected_team_totals.rb:127` (a span slate is
+`NFL <year> Weeks <a>-<b>`, built separately at `app/services/nfl/build_span_slate.rb:57`). That convention is what makes a
 season-wide sweep possible:
 
 ```bash
@@ -122,13 +151,21 @@ bin/rails runner '
   end'
 ```
 
-**Three outcomes, deliberately, and season-wide.** Two fail-open bugs have already been
-found in this one check, so it is worth stating what each guards against:
+**Three outcomes, deliberately, and season-wide.** THREE fail-open bugs have been found
+in this one check across successive reviews, so it is worth stating what each guards
+against — the pattern is that the check kept being narrower than the command:
 
 - **Precedence.** An early draft used `slate && … ? "HAS PICKS" : "safe"`. `&&` binds
   tighter than the ternary, so a missing slate was falsy and printed **"safe"**.
 - **Scope.** The next draft asked about one week while the command it guards rewrites the
   whole season — checking Week 3 and reading "safe" said nothing about weeks 1, 2, 4–18.
+- **Write set.** The check's year is a variable; the seed's is HARDCODED to 2026
+  (`db/seeds/nfl_2026.rb:163`). With `YEAR=2027` and no `SKIP_SCHEDULE=1`, the check
+  inspects `NFL 2027 %` while the seed rewrites `NFL 2026 %`. The `year` below must match
+  the year the command will actually write, which for the seed path is always 2026.
+
+**The check's scope must equal the command's WRITE SET, not its arguments.** That is the
+invariant all three bugs violated in different ways.
 
 A settlement-affecting check must never fail open, and it must cover everything the
 command it guards can reach. It prints the picked slate **names** so you can see exactly
@@ -218,8 +255,12 @@ bin/rails market:snapshot SPORT=nfl WEEK=3
 
 ```bash
 bin/rails nfl:expected_team_totals_cache YEAR=2026 SKIP_SCHEDULE=1
-bin/rails nfl:expected_team_totals_cache YEAR=2026 CSV_PATH=/path/to/refreshed.csv
+bin/rails nfl:expected_team_totals_cache YEAR=2026 SKIP_SCHEDULE=1 CSV_PATH=/path/to/refreshed.csv
 ```
+
+**`SKIP_SCHEDULE=1` on BOTH lines is not optional.** Without it `lib/tasks/nfl.rake:6`
+loads `db/seeds/nfl_2026.rb`, which is unguarded write site 2 above — it re-ranks weeks
+1-17 by KICKOFF TIME and its year is hardcoded to 2026 whatever `YEAR` you passed.
 
 Reads the dataset, derives where needed, and upserts one row per team per game.
 
@@ -241,10 +282,15 @@ creates Games (`:112`), creates Slates (`:126`), and creates SlateMatchups and r
 scopes to `where(year: @year)` and deletes every row the current run did not touch. That
 is right today, when one run ingests the **whole season** from one CSV.
 
-⚠️ **The split makes the run per-week** (`market:snapshot … WEEK=3`, one
-`<year>-w<NN>-team-totals.csv`). A year-scoped sweep after a single-week run would delete
-weeks 1–2. `slate-build-split` must re-scope the sweep to `(year, week)` — do not carry
-`delete_stale_rows` across unchanged.
+⚠️ **It is destructive TODAY, not only after the split.** The refresh procedure this
+SOP prescribes at step 2 is to hand-edit or narrow the CSV. Feed it a CSV covering only
+week 3 and the year-scoped sweep deletes every *other* week's projections in the same run
+— the rows are simply "untouched". So the hazard is not deferred: **any run whose CSV is
+narrower than the season deletes the weeks the CSV omits.**
+
+`slate-build-split` must re-scope the sweep to `(year, week)` — do not carry
+`delete_stale_rows` across unchanged. Until then, only ever pass a CSV that covers every
+week you intend to keep.
 
 ### 4. Record the artifact — 🔨 PLANNED (`market-snapshot-impl`)
 
@@ -258,7 +304,7 @@ One `MarketSnapshot` row per run — the historical record of the process having
 | `row_count`, `posted_count`, `derived_count` | how much, and by which basis |
 
 Every projection `belongs_to :market_snapshot`. This replaces the debug PNGs in
-`scripts/data/` (3.5 MB of committed screenshots) as the record of what ran.
+`scripts/data/` (3.6 MB of committed screenshots) as the record of what ran.
 
 ---
 
@@ -301,10 +347,10 @@ Once the split lands, this SOP touches only the first list. Until then, treat st
 - **DK markup changes** — the scraper parses `document.body.innerText`
   (`scripts/scrape_draftkings.js:71`), so a layout change yields zero rows rather than an
   exception. Assert a minimum row count for the week before writing the dataset.
-- **Stale rows from a shrinking week** — handled *today* by `delete_stale_rows`
-  (`app/services/nfl/cache_expected_team_totals.rb:204`), which removes untouched rows for
-  the whole **year**. Correct while one run ingests the whole season; **destructive once
-  the run is per-week** — see the grain warning in step 3.
+- **A CSV narrower than the season silently deletes the omitted weeks** —
+  `delete_stale_rows` (`app/services/nfl/cache_expected_team_totals.rb:204`) removes every
+  untouched row for the whole **year**, so a week-3-only CSV drops weeks 1-2 and 4-18 today.
+  See the grain warning in step 3.
 - **Re-running against an already-picked week** — see the ⛔ warning above. Today's LIVE
   command rewrites `rank` and `turf_score` with no live-Selections guard.
 
