@@ -34,6 +34,10 @@ module Nfl
       @year = year.to_i
       @path = Pathname(path)
       @touched_projection_ids = []
+      # The set of weeks this run actually built. The stale sweep is scoped to
+      # these weeks so a partial-CSV rebuild (e.g. a single-week correction)
+      # can never delete another week's projections.
+      @touched_weeks = Set.new
       @games_created = 0
       @slates_created = 0
       @matchups_created = 0
@@ -64,6 +68,7 @@ module Nfl
 
     def cache_row(row)
       week = integer(row.fetch("week"))
+      @touched_weeks << week
       away_team = Team.find_by!(slug: row.fetch("away_team_slug"))
       home_team = Team.find_by!(slug: row.fetch("home_team_slug"))
       favorite_team = Team.find_by!(slug: row.fetch("favorite_team_slug"))
@@ -157,9 +162,18 @@ module Nfl
     #
     # The resulting rank + turf_score are written to EVERY row of that team, so
     # each row still carries the value that prices it. That keeps every existing
-    # per-row read working untouched, and it FREEZES the multiplier: it is stored
-    # at ingest rather than recomputed on each render, so a pick cannot be
-    # repriced under a player after they commit.
+    # per-row read working untouched, and it stores the multiplier at ingest
+    # rather than recomputing it on each render.
+    #
+    # Storing-at-ingest freezes the price against a RENDER recompute, but on its
+    # own it does NOT freeze it against a re-INGEST: a later rebuild (new lines,
+    # a sport flip, a correction) re-ranks the slate and would overwrite the
+    # stored turf_score of a matchup a player has already picked. Settlement is
+    # on-chain and reads the STORED column (Selection#compute_points! never
+    # recomputes), so that overwrite silently re-prices committed money. The
+    # guard below is what actually makes the price un-repriceable after a pick:
+    # once a matchup carries any Selection, its rank + turf_score are frozen and
+    # the rebuild re-ranks only the still-open matchups around it.
     #
     # A one-week slate is the degenerate case — one game per team, so this
     # reduces exactly to the previous per-row ranking.
@@ -170,6 +184,12 @@ module Nfl
       slate.slate_matchups.includes(:team).find_each do |matchup|
         ranking = rankings[matchup.team_slug]
         next if ranking.nil?
+
+        # MONEY-SAFETY GUARD: never re-price a matchup a player has committed to.
+        # A picked matchup's turf_score is the number the player was shown and
+        # will be settled at, so a rebuild must leave it (and the rank that
+        # derives it) exactly as picked.
+        next if matchup.selections.exists?
 
         matchup.update!(rank: ranking[:rank], turf_score: ranking[:turf_score])
       end
@@ -203,8 +223,16 @@ module Nfl
       projection
     end
 
+    # Remove projections that no longer appear in the CSV — but ONLY within the
+    # weeks this run actually built. Scoping to @touched_weeks is a money-safety
+    # invariant: the previous `where(year:)` scope meant a rebuild of one week's
+    # CSV deleted every OTHER week's projections (and an empty CSV wiped the
+    # whole year). A rebuild must never reach outside the weeks it covered.
+    # (The model is NFL-only, so year + week already scopes to this sport.)
     def delete_stale_rows
-      scope = NflTeamTotalProjection.where(year: @year)
+      return 0 if @touched_weeks.empty?
+
+      scope = NflTeamTotalProjection.where(year: @year, week: @touched_weeks.to_a)
       scope = scope.where.not(id: @touched_projection_ids) if @touched_projection_ids.any?
       scope.delete_all
     end
