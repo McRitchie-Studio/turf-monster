@@ -35,7 +35,7 @@ That is not a preference. Recomputing at settlement drifted a real pick from **1
 3.0x** because a projections refresh re-ranked the span after picks were locked. Payouts
 settle on-chain in USDC. A player must be paid the price they were shown.
 
-A guard exists — but **on one path only**.
+A guard exists on **both** service paths now.
 
 **✅ The SPAN path is guarded** at `app/services/nfl/build_span_slate.rb:45`:
 
@@ -47,23 +47,38 @@ An already-built span slate is returned **as-is**. A rebuild would `destroy_all`
 matchups (`app/services/nfl/build_span_slate.rb:109`), and `SlateMatchup has_many
 :selections, dependent: :destroy` cascades that wipe into live Selections.
 
-**⛔ The WEEKLY path has NO equivalent guard.** The very next thing this SOP hands you —
-step 1's `bin/rails nfl:expected_team_totals_cache` — reaches `rank_slate_matchups!`,
-which rewrites `rank` and `turf_score` on every matchup unconditionally:
+**✅ The WEEKLY path is now guarded too — `slate-build-split` shipped the freeze-on-pick
+guard.** Step 1's `bin/rails nfl:expected_team_totals_cache` reaches `rank_slate_matchups!`
+(`app/services/nfl/cache_expected_team_totals.rb:180`), which now **skips any matchup a
+player has already picked** before it rewrites `rank` and `turf_score`:
 
 ```ruby
-# app/services/nfl/cache_expected_team_totals.rb:174 — no guard of any kind
+# app/services/nfl/cache_expected_team_totals.rb:192 — the money-safety guard
+next if matchup.selections.exists?
+# :194 — reached only for still-open matchups
 matchup.update!(rank: ranking[:rank], turf_score: ranking[:turf_score])
 ```
 
-**Do not read "the guard is live" as "the code will refuse."** On a weekly slate it will
-not refuse; it will silently re-price picks that are already locked, and those payouts
-settle on-chain in USDC. Closing that gap is the first job of `slate-build-split`.
+The code's own comment tells the freeze story
+(`app/services/nfl/cache_expected_team_totals.rb:168-179`): storing rank + `turf_score` at
+ingest freezes the price against a **render** recompute, but not against a **re-ingest** — a
+later rebuild (new lines, a sport flip, a correction) would re-rank the slate and overwrite
+the stored score of a matchup a player has already picked. Settlement is on-chain and reads
+the **stored** column (`Selection#compute_points!` never recomputes), so that overwrite
+would silently re-price committed money. The guard at `:192` is what makes the price
+un-repriceable after a pick: a picked matchup keeps its rank + `turf_score` exactly as
+shown, and the rebuild re-ranks only the still-open matchups around it.
 
-Before running step 1 or [[market-snapshot]] step 3, check first — and check the WHOLE
-SEASON, not one week. The live command takes no `WEEK` parameter and re-ranks every week
-its CSV covers. The check is in [[market-snapshot]], under the heading "⛔ Today,
-re-running this SOP can re-price a live contest".
+**One exposure remains — the SEED path, not this service.** The same rake command, run
+**without `SKIP_SCHEDULE=1`**, also loads `db/seeds/nfl_2026.rb`, whose
+`matchup.update!(rank:, turf_score:)` (`db/seeds/nfl_2026.rb:188`) has **no Selections
+guard**. That is a reseed of the 2026 schedule, not a market rebuild — see
+[[market-snapshot]], "⛔ Today, re-running this SOP can re-price a live contest", for the
+site-2 detail and the season-wide pre-flight check.
+
+Before running step 1 or [[market-snapshot]] step 3 without `SKIP_SCHEDULE=1`, check the
+WHOLE SEASON, not one week. The live command takes no `WEEK` parameter and reseeds every
+week its schedule covers.
 
 **If a slate needs different numbers after it has been picked, build a new slate. Do not
 refresh this one.**
@@ -88,25 +103,27 @@ bin/rails nfl:expected_team_totals_cache YEAR=2026 SKIP_SCHEDULE=1
 ```
 
 Today the read is a CSV parse fused into the market ingest
-(`app/services/nfl/cache_expected_team_totals.rb:43`). After `slate-build-split` it reads
+(`app/services/nfl/cache_expected_team_totals.rb:50`). After `slate-build-split` it reads
 `team_total_projections` — the table [[market-snapshot]] owns — so a slate can be rebuilt
 without re-scraping.
 
-**⚠️ Composition seam — do not run both today.** Until `slate-build-split` lands, this is
-the *same command* as [[market-snapshot]] step 3. If you have just run that, **steps 1–6
-of this SOP have already happened** — running it again re-executes the whole thing,
-including the unguarded rank + `turf_score` rewrite. Skip to step 7 for a span slate, or
-stop here.
+**⚠️ Composition seam — do not run both today.** The `slates:build` split has not landed,
+so this is still the *same command* as [[market-snapshot]] step 3. If you have just run
+that, **steps 1–6 of this SOP have already happened** — running it again re-executes the
+whole thing. The service now freezes picked matchups
+(`app/services/nfl/cache_expected_team_totals.rb:192`), but a reseed without
+`SKIP_SCHEDULE=1` still re-ranks via the unguarded seed. Skip to step 7 for a span slate,
+or stop here.
 
 ### 2. Ensure Games — ✅ LIVE
 
-`app/services/nfl/cache_expected_team_totals.rb:112` (`ensure_game!`). Slug is
+`app/services/nfl/cache_expected_team_totals.rb:117` (`ensure_game!`). Slug is
 `<home>-vs-<away>`; venue defaults to the home team's arena; status defaults to
 `scheduled`. Idempotent via `find_or_initialize_by`.
 
 ### 3. Ensure the Slate — ✅ LIVE
 
-`app/services/nfl/cache_expected_team_totals.rb:126` (`ensure_slate!`). Names it
+`app/services/nfl/cache_expected_team_totals.rb:131` (`ensure_slate!`). Names it
 `NFL <year> Week <n>` and writes `week` as a real column.
 
 **`slates` carries `sport` and `year` COLUMNS (`slates-sport-year`, DONE).** `Slate#sport`
@@ -120,7 +137,7 @@ not `name LIKE` — so a 2025 slate cannot be absorbed into a 2026 contest.
 
 ### 4. Ensure the matchups — ✅ LIVE
 
-`app/services/nfl/cache_expected_team_totals.rb:138` (`ensure_matchups!`). Two rows per
+`app/services/nfl/cache_expected_team_totals.rb:143` (`ensure_matchups!`). Two rows per
 game, one per team, each carrying that team's expected score.
 
 The column is `slate_matchups.dk_goals_expectation` today and becomes **`expected_score`**
@@ -165,10 +182,11 @@ Rank 1 always prices **x1.0**; the base is pinned, not tunable
 and the 2023–25 snapshot is written down at `docs/FORMULAS.md:15` — linear **r² 0.9583**
 (`6.76 + 31.54 * (32-rank)/31`) against log **r² 0.9184** at `docs/FORMULAS.md:14`.
 
-The rank and score are written to **every row of that team** —
-`app/services/nfl/cache_expected_team_totals.rb:174` on the weekly path,
-`app/services/nfl/build_span_slate.rb:135` on the span path. That is the freeze: pick time
-and settlement read the same stored column.
+The rank and score are written to **every still-open row of that team** —
+`app/services/nfl/cache_expected_team_totals.rb:194` on the weekly path (skipping any picked
+matchup via the `:192` guard), `app/services/nfl/build_span_slate.rb:135` on the span path.
+That is the freeze: pick time and settlement read the same stored column, and once a matchup
+is picked a rebuild leaves it untouched.
 
 ### 7. Span slates — ✅ LIVE (no rake task; call the service)
 
@@ -227,11 +245,14 @@ post-rename ones: `expected_score` is `dk_goals_expectation` today (see step 4),
 
 ## Failure modes
 
-- **Rebuilding a picked slate** — guarded at `app/services/nfl/build_span_slate.rb:45`;
-  returns the existing slate untouched. **The weekly path has no equivalent guard** —
-  `ensure_matchups!` (`app/services/nfl/cache_expected_team_totals.rb:138`) updates rows in
-  place, so a re-run after a projections refresh re-ranks a weekly slate that may already
-  back picks. Closing that gap is the first job of `slate-build-split`.
+- **Rebuilding a picked slate** — guarded on **both service paths**. The span path returns
+  the existing slate untouched (`app/services/nfl/build_span_slate.rb:45`). The weekly path
+  now skips any picked matchup before re-ranking — `rank_slate_matchups!` via the `next if
+  matchup.selections.exists?` guard `slate-build-split` shipped
+  (`app/services/nfl/cache_expected_team_totals.rb:192`), so a re-run after a projections
+  refresh re-ranks only the still-open matchups. **The remaining gap is the SEED path**
+  (`db/seeds/nfl_2026.rb:188`), reached by a reseed without `SKIP_SCHEDULE=1` — see
+  [[market-snapshot]] site 2.
 - **Missing week in a span** — raises `Nfl::BuildSpanSlate::Error`
   (`app/services/nfl/build_span_slate.rb:88`). Build the
   missing weekly slate first, then re-run.
