@@ -68,7 +68,9 @@ class OnrampHubTest < ActionDispatch::IntegrationTest
   # an entry — so a "More ways to add funds" hop from the (already-degraded)
   # wallet-topup modal must not surface a real-money USDC dead-end. The Coinbase
   # rail is gated behind !tokenFallback client-side (mirrors the wallet-topup
-  # getter); the Stripe entry-token rail stays so the hub never empties. The live
+  # getter); the Stripe entry-token rail is NOT gated behind it, so it stays for
+  # the degraded audience whenever Stripe is live (it still gates on its own
+  # backend flag, so this is not a guarantee the hub is non-empty). The live
   # branching is Alpine-runtime, so it's asserted at the render level only.
   test "the hub Coinbase rail is gated behind !tokenFallback for the web2 kill-switch" do
     get contests_path

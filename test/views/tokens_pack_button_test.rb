@@ -112,11 +112,15 @@ class TokensPackButtonTest < ActionView::TestCase
   # produced the PayPal-badged-Stripe defect. The expectation below is the
   # allow-list; anything found outside it fails, so adding a render site forces
   # a deliberate provider decision here.
+  # modals/auth/_paypal_tokens is intentionally absent: its Stripe pack_button
+  # lived in an unreachable `else` fallback that was removed
+  # (dedupe-stripe-gate-conjunct). That partial now renders only its PayPal
+  # picker (tokens/_paypal_buttons), which carries the paypal-provider render
+  # site already listed above.
   EXPECTED_RENDER_SITES = {
-    "app/views/tokens/buy.html.erb"                 => %w[coinflow stripe],
-    "app/views/tokens/_paypal_buttons.html.erb"     => %w[paypal],
-    "app/views/modals/auth/_tokens.html.erb"        => %w[stripe],
-    "app/views/modals/auth/_paypal_tokens.html.erb" => %w[stripe]
+    "app/views/tokens/buy.html.erb"              => %w[coinflow stripe],
+    "app/views/tokens/_paypal_buttons.html.erb"  => %w[paypal],
+    "app/views/modals/auth/_tokens.html.erb"     => %w[stripe]
   }.freeze
 
   # Matches any quoting style and both render forms — "tokens/pack_button",

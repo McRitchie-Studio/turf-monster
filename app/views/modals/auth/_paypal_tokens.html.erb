@@ -67,40 +67,14 @@
               paypal-order-captured listener advances this wizard to
               tokens-confirming and polls /tokens/status by order_id. %>
           <%= render "tokens/paypal_buttons", flow: "modal", contest: @contest&.slug %>
-        <% else %>
-          <%# Same gate as tokens/buy.html.erb: with the provider on "none"
-              (or paypal without creds) the Stripe endpoint refuses, so the
-              buttons must grey out instead of posting into a dead checkout.
-              Inert on the default deploy; provider "stripe" plus a key
-              intentionally revives the dormant fallback (disabled: false). %>
-          <% stripe_on = Payments.stripe? && Rails.application.config.x.stripe_enabled %>
-          <div class="space-y-3">
-            <% StripePurchase.available_packs.each do |pack_id, pack| %>
-              <%# Pack click advances to 'tokens-waiting' through the store's
-                  advance() so the host card runs its directional slide
-                  between picker → waiting. target_blank + data-turbo=false
-                  (from the partial) preserve the new-tab Stripe checkout
-                  flow — the slide happens alongside the popup open. %>
-              <%# Despite this partial's name, THIS branch is the Stripe flow
-                  (target_blank Stripe checkout, gated on stripe_on) — the
-                  PayPal picker is tokens/_paypal_buttons. Badge it Stripe. %>
-              <%= render "tokens/pack_button",
-                  pack_id:      pack_id,
-                  pack:         pack,
-                  provider:     "stripe",
-                  extra_params: { contest: @contest&.slug },
-                  target_blank: true,
-                  disabled:     !stripe_on,
-                  on_click_js:  "$store.modals.advance({ step: 'tokens-waiting' })" %>
-            <% end %>
-          </div>
-          <p class="text-center text-xs text-muted mt-4">
-            <% if stripe_on %>
-              Secure checkout opens in a new tab.
-            <% else %>
-              Purchases are temporarily unavailable &mdash; check back shortly.
-            <% end %>
-          </p>
+        <%# No Stripe `else` fallback: this partial renders only under
+            entry_funding_mode == :paypal (modals/_auth), and entry_funding_mode
+            returns :paypal only when Payments.paypal_checkout? is true
+            (application_helper) — so the guard above is always true when this
+            partial renders and the former Stripe fallback was unreachable dead
+            code (verified across all 12 provider × stripe × paypal configs). The
+            live Stripe pack picker is modals/auth/_tokens, reached under the
+            :stripe funding mode. %>
         <% end %>
         <%# Cross-modal handoff to the Add Funds hub (Coinbase / PayPal /
             Venmo / Stripe). swap() runs the host directional slide;
