@@ -21,16 +21,16 @@ class Soccer::CacheTeamTotalOddsTest < ActiveSupport::TestCase
     @matchup.reload
     assert_equal(-165, @matchup.team_total_over_odds)
     assert_equal 100, @matchup.team_total_under_odds
-    assert_equal BigDecimal("1.5"), @matchup.dk_goals_expectation
+    assert_equal BigDecimal("1.5"), @matchup.expected_score
   end
 
   test "never clobbers an existing goals expectation and stays idempotent" do
-    @matchup.update!(dk_goals_expectation: 2.0)
+    @matchup.update!(expected_score: 2.0)
 
     2.times { Soccer::CacheTeamTotalOdds.call(path: dataset_path) }
 
     @matchup.reload
-    assert_equal BigDecimal("2.0"), @matchup.dk_goals_expectation
+    assert_equal BigDecimal("2.0"), @matchup.expected_score
     assert_equal(-165, @matchup.team_total_over_odds)
   end
 

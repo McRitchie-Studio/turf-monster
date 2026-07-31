@@ -140,10 +140,10 @@ not `name LIKE` — so a 2025 slate cannot be absorbed into a 2026 contest.
 `app/services/nfl/cache_expected_team_totals.rb:143` (`ensure_matchups!`). Two rows per
 game, one per team, each carrying that team's expected score.
 
-The column is `slate_matchups.dk_goals_expectation` today and becomes **`expected_score`**
-under `expected-score-rename` — it holds NFL *points*, not goals, and never came from DK.
-**23 files reference it** — 7 in `app/`, 12 in `test/`, 3 in `db/` (schema, migration,
-seeds), 1 doc. The rename is its own task, run alone and last.
+The column is `slate_matchups.expected_score` — it holds NFL *points*, not goals, and
+never came from DK, so it was renamed from the misnomer `dk_goals_expectation` under
+`expected-score-rename` (a pure value-preserving rename; the ranking and the frozen
+`turf_score` it feeds are unchanged).
 
 ### 5. Rank by TEAM — ✅ LIVE
 
@@ -229,9 +229,9 @@ its own week-1 source, wiped its rows, then copied from the now-empty slate.
 
 ## Data touched
 
-**Target state**, once `slate-build-split` lands. The column names below are the
-post-rename ones: `expected_score` is `dk_goals_expectation` today (see step 4), and
-`team_total_projections` is `nfl_team_total_projections` today.
+**Target state**, once `slate-build-split` lands. `expected_score` is now the live
+column name (renamed from `dk_goals_expectation`, see step 4); `team_total_projections`
+is `nfl_team_total_projections` today.
 
 - `games` (insert, update)
 - `slates` (insert, update)

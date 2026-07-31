@@ -22,10 +22,10 @@ class SlatesController < ApplicationController
     matchups = @slate&.slate_matchups&.includes(:team) || []
 
     @sample_matchups = matchups.filter_map do |m|
-      next unless m.dk_goals_expectation && m.team_total_over_odds
+      next unless m.expected_score && m.team_total_over_odds
 
       odds = m.team_total_over_odds
-      line = m.dk_goals_expectation.to_f
+      line = m.expected_score.to_f
       prob = if odds < 0
         odds.abs.to_f / (odds.abs + 100)
       else

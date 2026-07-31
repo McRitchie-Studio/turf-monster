@@ -115,7 +115,7 @@ module Nfl
             team_slug: matchup.team_slug,
             opponent_team_slug: matchup.opponent_team_slug,
             game_slug: matchup.game_slug,
-            dk_goals_expectation: matchup.dk_goals_expectation,
+            expected_score: matchup.expected_score,
             status: matchup.status
           )
         end

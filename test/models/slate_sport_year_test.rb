@@ -229,7 +229,7 @@ class SlateSportYearTest < ActiveSupport::TestCase
     game = Game.create!(slug: "ccc-test-vs-ddd-test", home_team_slug: team_a.slug,
                         away_team_slug: team_b.slug, status: "scheduled")
     SlateMatchup.create!(slate: weekly, team_slug: team_a.slug, opponent_team_slug: team_b.slug,
-                         game_slug: game.slug, week: 1, dk_goals_expectation: 21.0)
+                         game_slug: game.slug, week: 1, expected_score: 21.0)
 
     span = Nfl::BuildSpanSlate.call(year: 2032, weeks: [1])
 
@@ -268,7 +268,7 @@ class SlateSportYearTest < ActiveSupport::TestCase
     game = Game.create!(slug: "aaa-test-vs-bbb-test",
                         home_team_slug: team_a.slug, away_team_slug: team_b.slug, status: "scheduled")
     SlateMatchup.create!(slate: weekly, team_slug: team_a.slug, opponent_team_slug: team_b.slug,
-                         game_slug: game.slug, week: 1, dk_goals_expectation: 20.0)
+                         game_slug: game.slug, week: 1, expected_score: 20.0)
 
     span = Nfl::BuildSpanSlate.call(year: 2031, weeks: [1])
 

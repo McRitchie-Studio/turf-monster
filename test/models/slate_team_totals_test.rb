@@ -15,7 +15,7 @@ class SlateTeamTotalsTest < ActiveSupport::TestCase
       kickoff_at: kickoff, status: "scheduled"
     )
     SlateMatchup.create!(slate: @slate, team_slug: team_slug, opponent_team_slug: opponent_slug,
-                         game_slug: game.slug, dk_goals_expectation: expected, status: "pending")
+                         game_slug: game.slug, expected_score: expected, status: "pending")
   end
 
   # --- the core idea ------------------------------------------------------
@@ -128,7 +128,7 @@ class SlateTeamTotalsTest < ActiveSupport::TestCase
     duplicate = SlateMatchup.new(slate: @slate, team_slug: "team-a",
                                  opponent_team_slug: "team-b",
                                  game_slug: matchup.game_slug,
-                                 dk_goals_expectation: 20.0, status: "pending")
+                                 expected_score: 20.0, status: "pending")
 
     assert_not duplicate.valid?, "a team may play many games here, but not the SAME game twice"
   end
