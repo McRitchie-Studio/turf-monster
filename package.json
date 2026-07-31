@@ -12,8 +12,10 @@
     "test:comprehensive": "npx playwright test --grep-invert @smoke",
     "test:parallel": "bin/e2e-parallel",
     "test:smoke:parallel": "bin/e2e-parallel -- --grep @smoke",
+    "market-snapshot": "node scripts/scrape_draftkings.js",
     "scrape": "node scripts/scrape_draftkings.js",
-    "scrape:headed": "node scripts/scrape_draftkings.js --headed"
+    "scrape:headed": "node scripts/scrape_draftkings.js --headed",
+    "test:scrape": "node --test scripts/"
   },
   "devDependencies": {
     "@playwright/test": "^1.52.0",

@@ -51,3 +51,10 @@ playwright/.cache/
 /app/assets/builds/*
 !/app/assets/builds/.keep
 coverage/
+
+# DraftKings scraper debug artifacts — screenshots + raw page dumps are opt-in
+# (--debug/--headed) and must never be committed again. The scraped odds JSON
+# (scripts/data/draftkings_team_totals.json, consumed by db/seeds.rb) stays tracked.
+scripts/data/*.png
+scripts/data/dk_*_raw.txt
+scripts/data/dk_market_raw.txt
