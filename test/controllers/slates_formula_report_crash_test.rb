@@ -3,7 +3,7 @@ require "test_helper"
 # Regression: /slates/formula_report must render for EVERY slate data state.
 # The report's sample tables read odds fields (over_odds, prob, v1..v3) that
 # left SlateMatchup in the schema audit (1fd6c50), so any matchup carrying a
-# dk_goals_expectation produced a partial sample and 500'd the page — which is
+# expected_score produced a partial sample and 500'd the page — which is
 # exactly what happened on prod when NFL 2026 Week 1 became the next slate.
 class SlatesFormulaReportCrashTest < ActionDispatch::IntegrationTest
   setup do
@@ -37,7 +37,7 @@ class SlatesFormulaReportCrashTest < ActionDispatch::IntegrationTest
       home_team_slug: "team-a", away_team_slug: "team-b", status: "scheduled"
     )
     SlateMatchup.create!(slate: slate, team_slug: "team-a", opponent_team_slug: "team-b",
-                         game_slug: game.slug, dk_goals_expectation: 24.5, status: "pending")
+                         game_slug: game.slug, expected_score: 24.5, status: "pending")
     slate
   end
 end

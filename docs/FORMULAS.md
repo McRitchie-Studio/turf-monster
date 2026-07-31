@@ -81,7 +81,7 @@ This avoids Alpine `$dispatch`/`$store` complexity for components that need to s
 Admin page for managing game results within a slate. Each game renders as a card with score table, goal timeline, add goal form, and simulation controls.
 
 ### Game Simulation
-- **10 ticks** per game, each tick gives both teams a goal chance: `P(goal) = dkGoalsExpectation / 10`
+- **10 ticks** per game, each tick gives both teams a goal chance: `P(goal) = expectedScore / 10`
 - Goals POST to the server as real Goal records, assigned to a random player with a random minute (90 min / 10 ticks = 9-minute windows)
 - Progress bar animates smoothly via `requestAnimationFrame`
 - Toast notifications fire for each goal and at full time

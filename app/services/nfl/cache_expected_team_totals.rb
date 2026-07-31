@@ -215,7 +215,7 @@ module Nfl
           week: slate.week,
           opponent_team_slug: opponent.slug,
           game_slug: game.slug,
-          dk_goals_expectation: expected_points_by_team_slug.fetch(team.slug).round(1)
+          expected_score: expected_points_by_team_slug.fetch(team.slug).round(1)
         )
         matchup.save!
       end

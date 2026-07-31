@@ -14,7 +14,7 @@ class MultiWeekBreakdownTest < ActionView::TestCase
       SlateMatchup.create!(
         slate: @span, team_slug: "team-a", opponent_team_slug: "team-f",
         game_slug: "team-a-wk#{week}-#{SecureRandom.hex(3)}",
-        week: week, dk_goals_expectation: 25.0, turf_score: 2.0, rank: 1, status: "pending"
+        week: week, expected_score: 25.0, turf_score: 2.0, rank: 1, status: "pending"
       )
     end
     @contest.update!(slate: @span)

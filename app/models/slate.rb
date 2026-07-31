@@ -107,10 +107,10 @@ class Slate < ApplicationRecord
                   .transform_values { |matchups| matchups.sort_by { |m| m.game&.kickoff_at || Time.at(0) } }
   end
 
-  # { team_slug => summed dk_goals_expectation }
+  # { team_slug => summed expected_score }
   def expected_points_by_team
     matchups_by_team.transform_values do |matchups|
-      matchups.sum { |matchup| matchup.dk_goals_expectation.to_f }
+      matchups.sum { |matchup| matchup.expected_score.to_f }
     end
   end
 
@@ -134,7 +134,7 @@ class Slate < ApplicationRecord
 
     ranked = by_team.sort_by do |_team_slug, matchups|
       [
-        -matchups.sum { |matchup| matchup.dk_goals_expectation.to_f },
+        -matchups.sum { |matchup| matchup.expected_score.to_f },
         matchups.filter_map { |matchup| matchup.game&.kickoff_at }.min || Time.at(0),
         matchups.first.team.name
       ]
@@ -156,7 +156,7 @@ class Slate < ApplicationRecord
   #
   # This is load-bearing, not a preference. Rendering from a live #team_rankings
   # call made the page disagree with settlement in three ways:
-  #   * World Cup slates never set dk_goals_expectation, so a live ranking ties
+  #   * World Cup slates never set expected_score, so a live ranking ties
   #     everything and falls through to alphabetical — the favourite rendered as
   #     the 3.0x longshot, exactly inverted from how it actually scores.
   #   * The admin drag-to-reorder wrote stored ranks the page then ignored, so it
@@ -177,7 +177,7 @@ class Slate < ApplicationRecord
         team_slug: team_slug,
         team: anchor.team,
         matchups: matchups,
-        expected_points: matchups.sum { |matchup| matchup.dk_goals_expectation.to_f },
+        expected_points: matchups.sum { |matchup| matchup.expected_score.to_f },
         rank: anchor.rank || computed[:rank],
         turf_score: anchor.turf_score || computed[:turf_score]
       )

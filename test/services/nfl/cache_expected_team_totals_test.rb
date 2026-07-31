@@ -32,8 +32,8 @@ class Nfl::CacheExpectedTeamTotalsTest < ActiveSupport::TestCase
 
     home_matchup = slate.slate_matchups.find_by!(team_slug: "team-a")
     away_matchup = slate.slate_matchups.find_by!(team_slug: "team-b")
-    assert_equal BigDecimal("25.0"), home_matchup.dk_goals_expectation
-    assert_equal BigDecimal("22.0"), away_matchup.dk_goals_expectation
+    assert_equal BigDecimal("25.0"), home_matchup.expected_score
+    assert_equal BigDecimal("22.0"), away_matchup.expected_score
     assert_equal 1, home_matchup.rank
     assert_equal 2, away_matchup.rank
   end

@@ -13,7 +13,7 @@ class ContestWeekSpanTest < ActionDispatch::IntegrationTest
       %w[team-a team-b].each_with_index do |team, index|
         SlateMatchup.create!(slate: slate, team_slug: team, opponent_team_slug: "team-f",
                              game_slug: "#{team}-wk#{week}-#{SecureRandom.hex(3)}",
-                             week: week, dk_goals_expectation: 25.0 - index, status: "pending")
+                             week: week, expected_score: 25.0 - index, status: "pending")
       end
     end
     log_in_as(users(:alex)) # admin
@@ -124,7 +124,7 @@ class ContestWeekSpanTest < ActionDispatch::IntegrationTest
     other = Slate.create!(name: "NFL 2025 Week 1", slug: "nfl-2025-week-1", week: 1)
     SlateMatchup.create!(slate: other, team_slug: "team-c", opponent_team_slug: "team-f",
                          game_slug: "stale-#{SecureRandom.hex(3)}", week: 1,
-                         dk_goals_expectation: 99.0, status: "pending")
+                         expected_score: 99.0, status: "pending")
 
     span = Nfl::BuildSpanSlate.call(year: 2026, weeks: [1, 2, 3])
 

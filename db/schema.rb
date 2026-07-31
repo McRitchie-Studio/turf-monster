@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_07_30_000001) do
+ActiveRecord::Schema[8.1].define(version: 2026_07_30_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -532,7 +532,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_30_000001) do
 
   create_table "slate_matchups", force: :cascade do |t|
     t.datetime "created_at", null: false
-    t.decimal "dk_goals_expectation", precision: 3, scale: 1
+    t.decimal "expected_score", precision: 3, scale: 1
     t.string "game_slug"
     t.integer "goals"
     t.string "opponent_team_slug"
