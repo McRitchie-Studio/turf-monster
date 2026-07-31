@@ -565,13 +565,13 @@ def create_slate_with_contest(slate_name:, contest_name:, games:, teams:, dk_odd
 
       line = dk["line"]&.to_f
 
-      m.update!(dk_goals_expectation: line)
+      m.update!(expected_score: line)
     end
 
-    # Rank by dk_goals_expectation DESC. Teams without DK data sort to end alphabetically.
+    # Rank by expected_score DESC. Teams without DK data sort to end alphabetically.
     sorted = matchups.sort_by do |m|
-      if m.dk_goals_expectation.present?
-        [0, -m.dk_goals_expectation.to_f, m.team.name]
+      if m.expected_score.present?
+        [0, -m.expected_score.to_f, m.team.name]
       else
         [1, 0, m.team.name]
       end
