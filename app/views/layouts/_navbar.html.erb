@@ -5,13 +5,6 @@
 %>
 <% show_user = local_assigns.fetch(:show_logged_in, logged_in?) %>
 <% is_preview = local_assigns.fetch(:preview, false) %>
-<% qa_environment = AppFlags.qa_environment? %>
-<% show_environment_banner = !is_preview && (!Rails.env.production? || qa_environment) %>
-<% environment_message = if qa_environment
-     ["QA Environment", "Non-production", ("Devnet" if Solana::Config.devnet?)].compact.join(" · ")
-   else
-     "#{Rails.env.capitalize} Environment"
-   end %>
 
 <%# z-[130] sits ABOVE the modal host's z-[120] backdrop so the navbar
     (and especially the 🎟️ Entry badge) stays bright during a token-
@@ -33,20 +26,15 @@
 <header data-navbar-root x-data="{ scrolled: false }" <%= '@scroll.window="scrolled = scrolled ? (window.scrollY > 5) : (window.scrollY > 60)"'.html_safe unless is_preview %>
         class="<%= is_preview ? 'bg-page' : 'vt-pinned-header sticky top-0 z-[130] bg-page transition-shadow duration-300' %>"
         :class="scrolled && 'shadow-lg border-b border-subtle is-scrolled'">
-  <% if show_environment_banner %>
-    <% environment_actions = capture do %>
-        <% if Solana::Config.devnet? && !qa_environment %>
-          <span class="rounded" style="font-size:10px; font-weight:700; padding:1px 6px; background:rgba(0,0,0,0.2);">DEVNET</span>
-        <% end %>
-        <%= render "shared/dev_mode_button" %>
-        <%= render "shared/email_status_button" %>
-    <% end %>
-    <%= render "shared/app_banner",
-               tone: :environment,
-               density: :normal,
-               message: environment_message,
-               actions: environment_actions %>
-  <% end %>
+  <%# Self-gating (studio-engine >= 0.30). The engine partial was built by
+      lifting THIS app's behavior — the QA message composition, the DEVNET chip
+      when devnet && !qa, and the link-vs-inert-chip email button — so this is a
+      swap, not a downgrade. preview: keeps the admin navbar-review page from
+      rendering a second banner (a duplicate vt-pinned-header silently disables
+      every view transition on the page). %>
+  <%= render "studio/banners/environment",
+             preview: is_preview,
+             devnet: Solana::Config.devnet? %>
   <%= render "shared/impersonation_banner" if !is_preview && impersonating? %>
   <%# .user-nav-col / .nav-title / .nav-logo / .nav-logo-link responsive
       rules live in app/assets/tailwind/application.css @layer utilities (migrated
