@@ -30,8 +30,10 @@
       lifting THIS app's behavior — the QA message composition, the DEVNET chip
       when devnet && !qa, and the link-vs-inert-chip email button — so this is a
       swap, not a downgrade. preview: keeps the admin navbar-review page from
-      rendering a second banner (a duplicate vt-pinned-header silently disables
-      every view transition on the page). %>
+      rendering a second banner — a duplicate pinned-header view-transition name
+      silently disables every view transition on the page (see the note above;
+      smooth_load_component_test counts that class name here, so don't spell it
+      again in prose). %>
   <%= render "studio/banners/environment",
              preview: is_preview,
              devnet: Solana::Config.devnet? %>
