@@ -105,7 +105,7 @@ When hold-to-confirm hits a blocker (geo-blocked, not logged in, insufficient fu
 
 ## Navbar
 
-Extracted to `layouts/_navbar.html.erb` partial. Sticky, scroll-responsive. Full-width `sticky top-0 z-50 bg-page` with Alpine `scrolled` state using hysteresis (scrolls past 30px to compact, back below 5px to expand — prevents jittery toggling). On scroll: header adds `is-scrolled` class + `shadow-lg border-b border-subtle`, logo shrinks `w-12→w-8` (mobile: `w-10`), title `text-3xl→text-xl`, padding `py-6→py-2`. All transitions 300ms via `transition-all duration-300`.
+Extracted to `layouts/_navbar.html.erb` partial. Sticky, scroll-responsive. The non-preview header is `vt-pinned-header sticky top-0 z-[130] bg-page transition-shadow duration-300` (`_navbar.html.erb:27`) — `z-[130]` deliberately sits above the modal host backdrop, see the Toast manager section. Alpine `scrolled` state uses hysteresis: past 60px to compact, back below 5px to expand (`_navbar.html.erb:26`) — prevents jittery toggling. On scroll: header adds `is-scrolled` class + `shadow-lg border-b border-subtle`, logo shrinks `w-12→w-8` (mobile: `w-10`), title `text-3xl→text-xl`, padding `py-6→py-2`. All transitions 300ms via `transition-all duration-300`.
 
 ### Partial locals
 - `show_logged_in` — override `logged_in?` (default: real session). Used by admin preview to force logged-in/out views.
@@ -127,10 +127,10 @@ Scrolled state on mobile (via `.is-scrolled` ancestor):
 | **400–767px** | 1rem | 1.15rem | 2.5rem (w-10) |
 
 ### Left side
-Logo (`.nav-logo`) + "Turf Totals" brand title (`.nav-title` with two `<span>`s), desktop nav links (`hidden md:flex`: Contests, Rules, geo badge).
+Logo (`.nav-logo`) + "Turf Totals" brand title (`.nav-title` with two `<span>`s), desktop nav links (`hidden md:flex`: Contests, NFL Totals, Rules, Reserves, geo badge — `_navbar.html.erb:55-60`).
 
 ### Mobile sub-navbar
-`flex md:hidden` compact row below main nav with `bg-surface-alt border-t border-subtle`. Contains: Contests, Rules, geo badge. Gear sidebar trigger + theme toggle morph pushed right via `ml-auto`.
+`flex md:hidden` compact row below main nav with `bg-surface-alt border-t border-subtle`. Contains: Contests, NFL Totals, Rules, Reserves, geo badge (`_navbar.html.erb:108-112`). Gear sidebar trigger + theme toggle morph pushed right via `ml-auto`.
 
 ### Environment banner
 Owned by **studio-engine** (>= 0.30), not by this app: the markup lives in the gem at `app/views/studio/banners/_environment.html.erb`. Turf renders it from `app/views/layouts/_navbar.html.erb:37`, **inside** the sticky `<header>` (opened at `_navbar.html.erb:26`, closed at `:118`) — so it stays pinned with the navbar instead of scrolling away. Turf passes two locals and nothing else:
@@ -145,10 +145,10 @@ The partial decides for itself whether to appear, what to say, and whether the l
 
 - **When it shows** — `!preview && Studio.show_environment_banner?` (gem `_environment.html.erb:29`). That is true in every environment except real production; a QA app runs Rails in production mode, so `QA_ENV` re-opens it there (gem `lib/studio/environment_banner.rb:30-34`). It is **not** conditional on `Solana::Config.devnet?`. `preview: true` — the admin navbar-review page — suppresses it so a preview copy can't duplicate live chrome.
 - **What `devnet:` actually drives** — never visibility. It renders a `DEVNET` chip beside the buttons when `devnet && !qa`, and instead appends `Devnet` to the message when `devnet && qa` (gem `_environment.html.erb:21-22`).
-- **Message** — `Studio.environment_banner_message`: `"Development Environment"` off QA, `"QA Environment · Non-production"` on QA, plus any extra segments joined with ` · ` (gem `environment_banner.rb:38-46`).
+- **Message** — `Studio.environment_banner_message`. Off QA it is **derived**, not a literal: `"#{rails_env.to_s.capitalize} Environment"`, which yields `"Development Environment"` in development (gem `environment_banner.rb:42`). On QA it is the fixed pair `"QA Environment · Non-production"`. Extra segments join with ` · ` (gem `environment_banner.rb:38-46`).
 - **Colors** — `tone: :environment` in the shared `studio/banners/_app_banner`: a `linear-gradient(90deg, #9d174d 0%, #f72585 100%)` strip with `#ffffff` text and a `0 2px 8px rgba(0,0,0,0.25)` shadow (gem `_app_banner.html.erb:8-12`). Pink/magenta, applied as inline styles — not a Tailwind color utility.
-- **Alignment** — the background is full-bleed (`w-full`), but the content is capped at `max-w-7xl mx-auto` and laid out `flex items-center justify-between`: message left (truncating), actions right. Nothing is centered (gem `_app_banner.html.erb:28-33`).
-- **Actions**, in render order — the `DEVNET` chip (only when `devnet && !qa`), the `DEV MODE` toggle, then the `Email` status button (gem `_environment.html.erb:31-35`). Email links `/_studio/local_emails` only where that page actually answers; on QA it degrades to an inert status chip so the banner can never advertise a 404 (gem `_email_status_button.html.erb:8-11`).
+- **Alignment** — the background is full-bleed (`w-full`), but the content is capped at `max-w-7xl mx-auto` and laid out `flex items-center justify-between`: message left (truncating), actions right. Nothing is horizontally centered — `items-center` aligns the row vertically (gem `_app_banner.html.erb:28-33`).
+- **Actions**, in render order — the `DEVNET` chip (only when `devnet && !qa`), the `DEV MODE` toggle, then the `Email` status button (gem `_environment.html.erb:31-35`). Email links `/_studio/local_emails` only where that page actually answers; on QA it degrades to an inert status chip so the banner can never advertise a 404 (reachability is computed at gem `_email_status_button.html.erb:8-11`; the link-vs-inert-chip branch is at `:30-42`).
 
 The DEV MODE toggle drives `$store.devMode` (see Dev Mode section).
 
@@ -165,7 +165,9 @@ Extracted to `_geo_badge.html.erb` partial — shared by desktop nav and mobile 
 - User nav column has `pl-0 pr-4 md:px-4` — no left padding on mobile.
 
 ### Right side — logged out
-- Theme toggle morph (`hidden md:flex`) + green "Log in" button, right-aligned. Theme toggle morph appears in mobile sub-navbar instead.
+- Theme toggle morph (`hidden md:flex`) + a **"Sign in"** button, right-aligned. Theme toggle morph appears in mobile sub-navbar instead.
+- The button is `class="btn btn-primary"` — the theme's primary color, not a hardcoded green.
+- It is a **modal trigger, not a navigation**: `@click.prevent` opens the in-page auth modal via `$store.modals.open('auth', { step: 'credentials', mode: 'signup', … })`. The `signin_path` href is only the no-JS fallback. Login and signup are one create-or-login flow, so the single CTA reads "Sign in" while opening at `mode: 'signup'` (`_navbar.html.erb:96-101`).
 
 ## Theme Toggle Morph (Spinner Swap)
 
@@ -385,7 +387,7 @@ Do move pure helper logic into modules when it does not participate in early `x-
 - **Soccer dropdown** (`components/_soccer_dropdown.html.erb`): Soccer ball emoji trigger, links to Teams and Games pages.
 
 ## Dev Mode
-- **Toggle**: DEV MODE button in the environment banner (top of page). It renders whenever the banner renders — development **and** QA, not devnet only (gem `studio/banners/_environment.html.erb:34`). Styling is the engine `studio/banners/_button` outline variant: transparent background, `1px solid rgba(255,255,255,0.9)` border, white text, inverting to a white fill with `#be185d` text on hover/focus (gem `_button.html.erb:27-34`). The button carries **no** active/inactive styling — dev mode reads off the `.dev-mode` body class and the `dm-*` classes below, never off the button's own appearance (gem `_dev_mode_button.html.erb:1-4`).
+- **Toggle**: DEV MODE button in the environment banner (top of page). It renders whenever the banner renders — development **and** QA, not devnet only (gem `studio/banners/_environment.html.erb:34`). Styling is the engine `studio/banners/_button` outline variant: transparent background, `1px solid rgba(255,255,255,0.9)` border, white text, inverting to a white fill with `#be185d` text on hover/focus (gem `_button.html.erb:27-34` for the outline defaults; the `1px solid` border string is assembled at `:39`, and `#be185d` is the `hover_text_color` default at `:12`). The button carries **no** active/inactive styling — dev mode reads off the `.dev-mode` body class and the `dm-*` classes below, never off the button's own appearance (gem `_dev_mode_button.html.erb:1-4`).
 - **Store**: Global `Alpine.store('devMode')` persisted to `localStorage`, initialized on `alpine:init`
 - **Body class**: `<body>` gets `.dev-mode` class when active — use `.dev-mode .your-class` for CSS-only debug visuals
 
@@ -508,7 +510,9 @@ Practical implications:
 
 ## Toast manager z-index override
 
-The studio-engine `_flash.html.erb` partial ships toasts at `z-index: 60` (above most content but below sticky-fixed-tops). Turf Monster overrides this to `z-index: 200` in `_navbar.html.erb:21-22` so toasts render **above** both the sticky navbar AND any open modal. Without this, the sticky navbar (z-50) and the modal host (z-100) eclipse the toast. If you change the modal z-index, update the toast override too — the rule is "toast always wins".
+The studio-engine `_flash.html.erb` partial ships toasts at `z-index: 60` (above most content but below sticky-fixed-tops). Turf Monster overrides this with the engine's CSS custom properties — `--studio-toast-z: 200` and `--studio-toast-blur-z: 199`, set on `:root` in `app/assets/tailwind/application.css:95-98` and read by studio-engine 0.4.10+ — so toasts render **above** both the sticky navbar AND any open modal. Without this, the sticky navbar (`z-[130]`, `_navbar.html.erb:27`) and the modal host backdrop (`z-[120]`) eclipse the toast. If you change the modal z-index, update the toast override too — the rule is "toast always wins".
+
+The override used to live in an inline `<style>` block in `_navbar.html.erb` and needed `!important` to beat the engine's old inline `style="z-index:60"`. The engine no longer renders that inline style, so the variable-based override now wins by normal cascade. Only the explanatory comment remains in the navbar, at `_navbar.html.erb:15-20`.
 
 ## Test scaffolding feature flag (`ENABLE_TEST_SCAFFOLDING`)
 
