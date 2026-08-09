@@ -4,17 +4,20 @@ require "test_helper"
 # folded into sweep-bg-primary-contrast).
 #
 # Modal lead-in copy sat at `text-secondary`, which measured 4.35:1 on the
-# modal surface in DARK under engine < 0.31 — below WCAG AA (4.5:1). It passes
+# modal surface in DARK under legacy engines — below WCAG AA (4.5:1). It passes
 # in light (4.76:1), so this was a dark-mode-only failure that reasoning-by-eye
 # missed. The sweep moved the surface lead-in paragraphs to `text-body`
 # (9.05:1 dark / 10.35:1 light — AA and AAA). Copy that already sits on the
 # darker sub-surfaces (bg-inset, bg-surface-alt) stays text-secondary: it
 # measures 7+:1 there and passes.
 #
-# Engine 0.31 changed the ground truth: text-secondary now DERIVES from the
-# theme base by a bounded contrast search and clears AA (~5.74:1 here), so the
-# characterization below is version-aware — it asserts the sub-AA bug only on
-# pre-0.31 engines and the fixed property from 0.31 on. (The sweep to
+# The engine's ink-derivation fix changes the ground truth: text-secondary
+# DERIVES from the theme base by a bounded contrast search and clears AA
+# (~5.74:1 here). The characterization below is BEHAVIOR-gated, not
+# version-gated: it keys on ColorScale.respond_to?(:contrast_ratio), the
+# method the derivation ships with. A version predicate was tried first and
+# was falsified within a day — 0.31.0 published WITHOUT the fix — so the guard
+# asks the engine what it can do, never what it is called. (The sweep to
 # text-body stays correct either way — belt on top of the engine's fix.)
 #
 # Tokens are resolved exactly as production resolves them (Studio::ThemeResolver
@@ -51,24 +54,26 @@ class ModalCopyContrastTest < ActiveSupport::TestCase
 
   # ── the token we swept AWAY from, measured as the reason ──────────────────
 
-  test "text-secondary contrast on the modal surface matches the engine era" do
+  test "text-secondary contrast on the modal surface matches the engine behavior" do
     vars  = theme[:dark]
     ratio = contrast(vars["--color-text-secondary"], vars["--color-surface"])
-    if Gem::Version.new(Studio::VERSION) >= Gem::Version.new("0.31.0")
+    if Studio::ColorScale.respond_to?(:contrast_ratio)
       assert_operator ratio, :>=, 4.5,
-                      "text-secondary is #{format('%.2f', ratio)}:1 on bg-surface (dark) — engine >= 0.31 " \
-                      "derives it to clear AA; below 4.5:1 the engine regressed"
+                      "text-secondary is #{format('%.2f', ratio)}:1 on bg-surface (dark) — an engine that " \
+                      "ships contrast-derived ink must clear AA; below 4.5:1 the derivation regressed"
     else
       assert_operator ratio, :<, 4.5,
                       "text-secondary is #{format('%.2f', ratio)}:1 on bg-surface (dark) — the sub-AA " \
-                      "value the sweep replaced (pre-0.31 characterization)"
+                      "value the sweep replaced (legacy-engine characterization)"
     end
   end
 
   # ── regression invariant: centered modal copy never uses text-secondary ────
   #
   # Centered <p> copy is the lead-in text that sits on the modal SURFACE, where
-  # text-secondary fails AA in dark. text-body passes on every modal background
+  # text-secondary failed AA in dark on legacy engines (contrast-derived
+  # engines clear it, but text-body is the stronger choice on every engine).
+  # text-body passes on every modal background
   # (surface 9.05:1, the darker sub-surfaces higher still), so the safe rule is:
   # centered modal paragraph copy uses text-body, never text-secondary. The scan
   # is multiline-aware so a <p> whose class list wraps across lines can't slip
@@ -89,8 +94,8 @@ class ModalCopyContrastTest < ActiveSupport::TestCase
   test "no centered modal paragraph uses text-secondary" do
     offenders = offending_centered_paragraphs
     assert_empty offenders,
-                 "centered modal copy sits on bg-surface, where text-secondary is 4.35:1 in dark " \
-                 "(below AA). Use text-body (9.05:1). Offending file(s): #{offenders.uniq.inspect}"
+                 "centered modal copy sits on bg-surface, where text-secondary measured 4.35:1 in dark " \
+                 "on legacy engines (below AA). Use text-body (9.05:1). Offending file(s): #{offenders.uniq.inspect}"
   end
 
   # Anchor the specific flagged instance so the fix can't be reverted silently.
