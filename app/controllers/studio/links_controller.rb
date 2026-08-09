@@ -20,7 +20,13 @@ module Studio
       when "magic_link"
         @token = params[:token]
         @consume_path = link_consume_path(token: @token) # confirm view posts here
-        render "magic_links/confirm", layout: "loading"
+        # Inert, exactly as on /magic_link/:token — preview_magic_link never
+        # burns. A live link gets the spinner; a dead one is settled here with
+        # the session left alone, instead of spinning to a POST that only
+        # rediscovers it is dead.
+        if preview_magic_link(link) == :live
+          render "magic_links/confirm", layout: "loading"
+        end
       when "referral"
         capture_referral(link)
         redirect_to(safe_path(link.target) || root_path, allow_other_host: false)
@@ -34,14 +40,13 @@ module Studio
     end
 
     # POST burns the single-use magic-link token + signs in/up through turf's
-    # GATED MagicLinksController#consume. Referral links are GET-only, so any
-    # non-magic token here is rejected (no gateless account-creation path).
+    # GATED MagicLinksController#consume. Referral links are GET-only, and the
+    # kind check now lives in the lookup there (Studio::Link.magic_links), so a
+    # referral token posted here resolves to nil and takes the dead path — same
+    # refusal, no gateless account-creation path, and the visitor actually SEES
+    # why (the old guard here set a plain flash[:alert], which turf renders
+    # nowhere).
     def consume
-      link = ::Studio::Link.find_by(token: params[:token])
-      unless link&.kind == "magic_link"
-        return redirect_to signin_path, alert: "That sign-in link is invalid or has expired. Request a fresh one below."
-      end
-
       super # MagicLinksController#consume — gated create-or-login
     end
 
