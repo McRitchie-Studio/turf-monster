@@ -3,12 +3,19 @@ require "test_helper"
 # Component tier for modal body-copy contrast (task: raise-modal-copy-contrast,
 # folded into sweep-bg-primary-contrast).
 #
-# Modal lead-in copy sat at `text-secondary`, which measures 4.35:1 on the modal
-# surface in DARK — below WCAG AA (4.5:1). It passes in light (4.76:1), so this
-# is a dark-mode-only failure that reasoning-by-eye missed. The sweep moved the
-# surface lead-in paragraphs to `text-body` (9.05:1 dark / 10.35:1 light — AA
-# and AAA). Copy that already sits on the darker sub-surfaces (bg-inset,
-# bg-surface-alt) stays text-secondary: it measures 7+:1 there and passes.
+# Modal lead-in copy sat at `text-secondary`, which measured 4.35:1 on the
+# modal surface in DARK under engine < 0.31 — below WCAG AA (4.5:1). It passes
+# in light (4.76:1), so this was a dark-mode-only failure that reasoning-by-eye
+# missed. The sweep moved the surface lead-in paragraphs to `text-body`
+# (9.05:1 dark / 10.35:1 light — AA and AAA). Copy that already sits on the
+# darker sub-surfaces (bg-inset, bg-surface-alt) stays text-secondary: it
+# measures 7+:1 there and passes.
+#
+# Engine 0.31 changed the ground truth: text-secondary now DERIVES from the
+# theme base by a bounded contrast search and clears AA (~5.74:1 here), so the
+# characterization below is version-aware — it asserts the sub-AA bug only on
+# pre-0.31 engines and the fixed property from 0.31 on. (The sweep to
+# text-body stays correct either way — belt on top of the engine's fix.)
 #
 # Tokens are resolved exactly as production resolves them (Studio::ThemeResolver
 # over Studio.theme_config), so both claims are MEASURED, not asserted from a
@@ -44,12 +51,18 @@ class ModalCopyContrastTest < ActiveSupport::TestCase
 
   # ── the token we swept AWAY from, measured as the reason ──────────────────
 
-  test "text-secondary fails AA on the modal surface in dark (the bug this guards)" do
+  test "text-secondary contrast on the modal surface matches the engine era" do
     vars  = theme[:dark]
     ratio = contrast(vars["--color-text-secondary"], vars["--color-surface"])
-    assert_operator ratio, :<, 4.5,
-                    "text-secondary is #{format('%.2f', ratio)}:1 on bg-surface (dark) — the sub-AA " \
-                    "value the sweep replaced. If it ever clears 4.5:1 the sweep is unnecessary."
+    if Gem::Version.new(Studio::VERSION) >= Gem::Version.new("0.31.0")
+      assert_operator ratio, :>=, 4.5,
+                      "text-secondary is #{format('%.2f', ratio)}:1 on bg-surface (dark) — engine >= 0.31 " \
+                      "derives it to clear AA; below 4.5:1 the engine regressed"
+    else
+      assert_operator ratio, :<, 4.5,
+                      "text-secondary is #{format('%.2f', ratio)}:1 on bg-surface (dark) — the sub-AA " \
+                      "value the sweep replaced (pre-0.31 characterization)"
+    end
   end
 
   # ── regression invariant: centered modal copy never uses text-secondary ────
