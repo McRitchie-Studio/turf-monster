@@ -133,7 +133,24 @@ Logo (`.nav-logo`) + "Turf Totals" brand title (`.nav-title` with two `<span>`s)
 `flex md:hidden` compact row below main nav with `bg-surface-alt border-t border-subtle`. Contains: Contests, Rules, geo badge. Gear sidebar trigger + theme toggle morph pushed right via `ml-auto`.
 
 ### Environment banner
-Lives in `application.html.erb`, **not** in the navbar partial. Conditional on `Solana::Config.devnet?`. Full-width yellow bar (`bg-yellow-500 text-black`) above the sticky header. Contains: centered "X Environment" label, right-aligned DEV MODE toggle + DEVNET badge. Not sticky — scrolls away naturally. The DEV MODE toggle uses `$store.devMode` (see Dev Mode section).
+Owned by **studio-engine** (>= 0.30), not by this app: the markup lives in the gem at `app/views/studio/banners/_environment.html.erb`. Turf renders it from `app/views/layouts/_navbar.html.erb:37`, **inside** the sticky `<header>` (opened at `_navbar.html.erb:26`, closed at `:118`) — so it stays pinned with the navbar instead of scrolling away. Turf passes two locals and nothing else:
+
+```erb
+<%= render "studio/banners/environment",
+           preview: is_preview,
+           devnet: Solana::Config.devnet? %>
+```
+
+The partial decides for itself whether to appear, what to say, and whether the local inbox is linkable:
+
+- **When it shows** — `!preview && Studio.show_environment_banner?` (gem `_environment.html.erb:29`). That is true in every environment except real production; a QA app runs Rails in production mode, so `QA_ENV` re-opens it there (gem `lib/studio/environment_banner.rb:30-34`). It is **not** conditional on `Solana::Config.devnet?`. `preview: true` — the admin navbar-review page — suppresses it so a preview copy can't duplicate live chrome.
+- **What `devnet:` actually drives** — never visibility. It renders a `DEVNET` chip beside the buttons when `devnet && !qa`, and instead appends `Devnet` to the message when `devnet && qa` (gem `_environment.html.erb:21-22`).
+- **Message** — `Studio.environment_banner_message`: `"Development Environment"` off QA, `"QA Environment · Non-production"` on QA, plus any extra segments joined with ` · ` (gem `environment_banner.rb:38-46`).
+- **Colors** — `tone: :environment` in the shared `studio/banners/_app_banner`: a `linear-gradient(90deg, #9d174d 0%, #f72585 100%)` strip with `#ffffff` text and a `0 2px 8px rgba(0,0,0,0.25)` shadow (gem `_app_banner.html.erb:8-12`). Pink/magenta, applied as inline styles — not a Tailwind color utility.
+- **Alignment** — the background is full-bleed (`w-full`), but the content is capped at `max-w-7xl mx-auto` and laid out `flex items-center justify-between`: message left (truncating), actions right. Nothing is centered (gem `_app_banner.html.erb:28-33`).
+- **Actions**, in render order — the `DEVNET` chip (only when `devnet && !qa`), the `DEV MODE` toggle, then the `Email` status button (gem `_environment.html.erb:31-35`). Email links `/_studio/local_emails` only where that page actually answers; on QA it degrades to an inert status chip so the banner can never advertise a 404 (gem `_email_status_button.html.erb:8-11`).
+
+The DEV MODE toggle drives `$store.devMode` (see Dev Mode section).
 
 ### Geo badge
 Extracted to `_geo_badge.html.erb` partial — shared by desktop nav and mobile sub-navbar. State flag image uses inline styles for reliable sizing (`height: 12px; width: 16px; object-fit: cover`). Badge shape is `rounded-lg`.
@@ -368,7 +385,7 @@ Do move pure helper logic into modules when it does not participate in early `x-
 - **Soccer dropdown** (`components/_soccer_dropdown.html.erb`): Soccer ball emoji trigger, links to Teams and Games pages.
 
 ## Dev Mode
-- **Toggle**: DEV MODE button in the environment banner (top of page, devnet only). Highlights `bg-primary text-white` when active, subtle `bg-black/20` when off.
+- **Toggle**: DEV MODE button in the environment banner (top of page). It renders whenever the banner renders — development **and** QA, not devnet only (gem `studio/banners/_environment.html.erb:34`). Styling is the engine `studio/banners/_button` outline variant: transparent background, `1px solid rgba(255,255,255,0.9)` border, white text, inverting to a white fill with `#be185d` text on hover/focus (gem `_button.html.erb:27-34`). The button carries **no** active/inactive styling — dev mode reads off the `.dev-mode` body class and the `dm-*` classes below, never off the button's own appearance (gem `_dev_mode_button.html.erb:1-4`).
 - **Store**: Global `Alpine.store('devMode')` persisted to `localStorage`, initialized on `alpine:init`
 - **Body class**: `<body>` gets `.dev-mode` class when active — use `.dev-mode .your-class` for CSS-only debug visuals
 
