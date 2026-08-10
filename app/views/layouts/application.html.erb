@@ -849,7 +849,7 @@
     <% if flash[:auth_toast].present? %>
       <% auth_toast = flash[:auth_toast].with_indifferent_access %>
       <script type="application/json" id="auth-toast-data">
-        <%= raw({ title: auth_toast[:title], message: auth_toast[:message] }.to_json) %>
+        <%= raw({ type: (auth_toast[:type].presence || "notice"), title: auth_toast[:title], message: auth_toast[:message] }.to_json) %>
       </script>
     <% end %>
     <script>
@@ -896,8 +896,13 @@
           try { data = JSON.parse(el.textContent); } catch (e) { return; }
           fired = true;
           el.remove();
+          // type carries the SEVERITY. It was hard-coded 'notice', which painted
+          // every auth toast with the green success check — including "Sign-in
+          // link expired", an error. The engine toast picks its icon colour from
+          // this ('notice' -> --color-success, anything else -> --color-danger),
+          // and both are theme tokens, so honouring it fixes light and dark at once.
           window.dispatchEvent(new CustomEvent('toast', { detail: {
-            type: 'notice', title: data.title, message: data.message, duration: 5000
+            type: data.type || 'notice', title: data.title, message: data.message, duration: 5000
           } }));
         }
         // Alpine already started (its components — incl. the toast manager — are
