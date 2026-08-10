@@ -40,12 +40,22 @@ module Studio
     end
 
     # POST burns the single-use magic-link token + signs in/up through turf's
-    # GATED MagicLinksController#consume. Referral links are GET-only, and the
-    # kind check now lives in the lookup there (Studio::Link.magic_links), so a
-    # referral token posted here resolves to nil and takes the dead path — same
-    # refusal, no gateless account-creation path, and the visitor actually SEES
-    # why (the old guard here set a plain flash[:alert], which turf renders
-    # nowhere).
+    # GATED MagicLinksController#consume.
+    #
+    # The kind check that used to live here now rides on the lookup there
+    # (Studio::Link.magic_links.find_by), so a referral token resolves to nil and
+    # takes the dead path. That is the SAME refusal, and it matters: without it a
+    # referral link burns as a reusable kind, exposes no email, and consume falls
+    # through to User.find_by(email: nil) — which matches a real row here,
+    # because users.email is nullable for wallet-only accounts. It is pinned by
+    # magic_link_reclick_test.rb's referral case, which asserts the dead path was
+    # taken and includes a nil-email account so the takeover is reachable if the
+    # scope is ever removed.
+    #
+    # (An earlier note here said the old guard's flash[:alert] "turf renders
+    # nowhere". That was wrong — the engine's layouts/studio/flash partial, which
+    # both turf layouts render, shows notice and alert. It was visible, as a red
+    # error toast.)
     def consume
       super # MagicLinksController#consume — gated create-or-login
     end

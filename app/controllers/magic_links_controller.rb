@@ -253,19 +253,30 @@ class MagicLinksController < ApplicationController
   end
 
   # A used, expired, or unrecognized link. The concern guarantees this never
-  # touches the session; turf's job is only to make the message VISIBLE.
+  # touches the session; this override only chooses HOW the message is shown.
   #
-  # This override is load-bearing, not cosmetic: turf renders flash[:auth_toast]
-  # and flash[:magic_link_welcome] and NOTHING ELSE — plain flash[:notice] /
-  # flash[:alert] appear nowhere in any layout or view. Inheriting the concern's
-  # default would have redirected correctly and shown the visitor nothing at
-  # all, which is precisely wrong for the case the message exists to explain
-  # ("that link was for someone else, and you are still signed in as you").
+  # It is a PRESENTATION choice, not a necessity. An earlier version of this
+  # comment claimed turf renders auth_toast and nothing else, and that plain
+  # flash[:notice]/[:alert] appear in no layout or view. That was FALSE: both
+  # application.html.erb and landing.html.erb render layouts/studio/flash, and
+  # the engine partial selects exactly notice+alert. The proof was in this very
+  # file — #create ships `notice: "Check your inbox…"`, the most important
+  # message in the flow. The override is kept because the bespoke title reads
+  # better than a bare sentence, and because it lets the outcome's severity ride
+  # through to the toast; inheriting the default would have worked too.
   def link_dead(outcome, result)
     path = link_destination(outcome.destination, result)
     return redirect_to(path) if outcome.silent?
 
-    redirect_to path, flash: { auth_toast: { title: dead_link_title(outcome), message: outcome.message } }
+    redirect_to path, flash: { auth_toast: {
+      # `type` is the SEVERITY, and it has to ride along: the layout's toast
+      # dispatch used to hard-code 'notice', so "Sign-in link expired" painted
+      # the green success check. The engine toast reads this to pick between
+      # --color-success and --color-danger.
+      type:    outcome.level == :alert ? "alert" : "notice",
+      title:   dead_link_title(outcome),
+      message: outcome.message
+    } }
   end
 
   def dead_link_title(outcome)

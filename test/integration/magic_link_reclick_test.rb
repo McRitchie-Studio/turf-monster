@@ -18,11 +18,12 @@ require "test_helper"
 #
 # The invariant underneath all of it: a DEAD link never touches the session.
 #
-# Turf-specific and load-bearing: the message rides in flash[:auth_toast].
-# This app renders auth_toast and magic_link_welcome and NOTHING ELSE — plain
-# flash[:notice] / flash[:alert] appear in no layout or view — so a message
-# delivered the engine's default way would be invisible. These assert the toast,
-# because that is what a person actually sees.
+# Turf-specific: the message rides in flash[:auth_toast], because this app
+# overrides link_dead to give it a bespoke title and to carry the outcome's
+# severity. That is a presentation choice, NOT a necessity — plain
+# flash[:notice]/[:alert] render here too, via the engine's layouts/studio/flash
+# partial that both turf layouts include. These assert the toast because it is
+# the channel this app actually uses, not because the alternative is invisible.
 class MagicLinkReclickTest < ActionDispatch::IntegrationTest
   setup    { ENV["ENABLE_AGE_ATTESTATION"] = "true" }
   teardown { ENV.delete("ENABLE_AGE_ATTESTATION") }
@@ -88,7 +89,7 @@ class MagicLinkReclickTest < ActionDispatch::IntegrationTest
     assert_equal users(:alex).id, session[Studio.session_key],
                  "an expired link for another person must not log YOU out"
     toast = flash[:auth_toast]&.with_indifferent_access
-    refute_nil toast, "turf renders auth_toast only — a notice here would be invisible"
+    refute_nil toast, "the explanation must arrive in the channel link_dead actually uses"
     assert_includes toast[:message], other.email, "the toast names the address the link was for"
     assert_includes toast[:message], users(:alex).email, "and reassures them their session survived"
   end
@@ -102,15 +103,39 @@ class MagicLinkReclickTest < ActionDispatch::IntegrationTest
     refute_nil flash[:auth_toast]
   end
 
-  # A referral token is reusable and GET-only. Posted at the consume door it must
-  # sign nobody in — and, unlike before, the visitor is told why.
-  test "a referral token posted to the consume door signs nobody in" do
+  # A referral token posted at the CONSUME door must be refused — and this is
+  # the only thing standing between a public, unauthenticated POST and account
+  # takeover, so it is pinned on the DEAD PATH rather than on "the session did
+  # not move".
+  #
+  # The kind check lives in the lookup (Studio::Link.magic_links.find_by) in a
+  # different file from this door. Without it, a referral link resolves, burns
+  # as a reusable kind, exposes no email, and consume falls through to
+  # User.find_by(email: nil) — which in THIS app matches a real row, because
+  # users.email is nullable for wallet-only accounts (partial unique index).
+  # That signs the visitor in as a stranger.
+  #
+  # An earlier version of this test passed for the WRONG REASON: with no
+  # nil-email user present, find_by returned nil and the age gate refused the
+  # signup, so the assertion held even with the scope mutated away. Both halves
+  # below exist to close that: a wallet-only account makes the takeover
+  # reachable, and asserting the dead-link toast proves the refusal came from
+  # the kind check rather than from the age gate.
+  test "a referral token posted to the consume door takes the dead path, not a sign-in" do
+    wallet_only = User.create!(username: "wallet_only_test",
+                               web3_solana_address: "So11111111111111111111111111111111111111112")
+    assert_nil wallet_only.email, "the vector needs a nil-email account to be reachable"
+
     log_in_as(users(:alex))
     referral = Studio::Link.referral_for(users(:jordan))
 
     post link_consume_path(token: referral.token)
 
-    assert_equal users(:alex).id, session[Studio.session_key]
+    refute_equal wallet_only.id, session[Studio.session_key],
+                 "a referral token must never sign anyone in as a nil-email account"
+    assert_equal users(:alex).id, session[Studio.session_key], "the held session is untouched"
+    refute_nil flash[:auth_toast],
+               "the refusal must come from the DEAD path (kind check), not from the age gate"
     assert_nil referral.reload.consumed_at, "a referral link is reusable — it must not burn"
   end
 
