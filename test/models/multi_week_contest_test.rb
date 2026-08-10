@@ -140,6 +140,24 @@ class MultiWeekContestTest < ActiveSupport::TestCase
     assert_in_delta 21.0, entry.reload.score, 0.001, "(6 x 2.0) + (3 x 3.0)"
   end
 
+  test "weekly_breakdown stays week-ordered when kickoff times tie" do
+    # Regression (engine PR #81's consumer lane, 2026-08-09): with no Game rows
+    # every sort key ties at Time.at(0), so the breakdown inherited DB return
+    # order — [3, 1, 2] on CI. Create the weeks OUT of order so unpinned code
+    # fails deterministically instead of by permutation luck.
+    [ 2, 3, 1 ].each do |wk|
+      SlateMatchup.create!(
+        slate: @span, team_slug: "team-a", opponent_team_slug: "team-f",
+        game_slug: "team-a-wk#{wk}-#{SecureRandom.hex(3)}",
+        week: wk, expected_score: 25.0, turf_score: 2.0, rank: 1, status: "pending"
+      )
+    end
+    span_contest!
+    selection = pick!("team-a")
+
+    assert_equal [ 1, 2, 3 ], selection.weekly_breakdown.map(&:first)
+  end
+
   test "weekly_breakdown labels each game by its own week" do
     add_games!("team-a", [25.0, 25.0, 25.0], turf_score: 2.0, goals: [2, 3, 1])
     span_contest!
