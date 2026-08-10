@@ -100,11 +100,14 @@ class Slate < ApplicationRecord
   #
   # A one-week slate is the degenerate case: summing one game is that game.
 
-  # { team_slug => [matchup, ...] }, each team's games in kickoff order.
+  # { team_slug => [matchup, ...] }, each team's games in kickoff order,
+  # week-tie-broken: matchups without games (or sharing a kickoff) all tie on
+  # the time key, and an unqualified tie inherits DB return order — which is
+  # how the weekly breakdown once rendered [3, 1, 2] on CI.
   def matchups_by_team
     slate_matchups.includes(:team, :opponent_team, :game)
                   .group_by(&:team_slug)
-                  .transform_values { |matchups| matchups.sort_by { |m| m.game&.kickoff_at || Time.at(0) } }
+                  .transform_values { |matchups| matchups.sort_by { |m| [ m.game&.kickoff_at || Time.at(0), m.week || 0 ] } }
   end
 
   # { team_slug => summed expected_score }

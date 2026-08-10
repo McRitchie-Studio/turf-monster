@@ -10,6 +10,19 @@
 # is safely logged in here and stamped email_verified_at (unlike from_omniauth,
 # which refuses that collision precisely because it lacked this proof).
 class MagicLinksController < ApplicationController
+  # The shared click flow (studio-engine >= 0.31): preview_magic_link for the
+  # inert GET, consume_magic_link for the burning POST, and the decision table
+  # behind them (Studio::LinkResolution). Turf keeps its own rich behavior by
+  # overriding the HOOKS below — the age gate, the toasts, the contest landing —
+  # never by re-deciding what a click means.
+  #
+  # The rule that made this worth adopting: a DEAD link must not touch the
+  # session, and a re-click on your OWN live link must not either. Before this,
+  # every consume ran reset_prior_session! and every failure bounced to
+  # /signin — so clicking your own link twice logged you out of a session that
+  # was perfectly valid.
+  include Studio::LinkConsumption
+
   skip_before_action :require_authentication
 
   # The confirm interstitial is a transient loading screen (just a spinner that
@@ -62,23 +75,26 @@ class MagicLinksController < ApplicationController
     # protection is off in the test env.)
     response.set_header("Referrer-Policy", "strict-origin")
     @token = params[:token]
-    # We render WITHOUT verifying the signature: a verify here would have to
-    # decode + check expiry, and surfacing "expired" vs "invalid" on a GET adds
-    # nothing — the POST does the authoritative check and shows the same error.
-    # Keeping confirm signature-free also means a malformed/garbage token still
-    # gets a friendly page instead of a 500.
+    # preview_magic_link is INERT — it never burns. It returns :live when the
+    # link is still good (we render the spinner, which auto-POSTs to #consume),
+    # and otherwise settles the click here and returns :handled. A dead link
+    # therefore stops going through a spinner that only POSTs to learn what a
+    # read already knew — and a visitor clicking their own spent link is
+    # redirected on the spot, session untouched.
+    render :confirm if preview_magic_link(::Studio::Link.magic_links.find_by(token: params[:token])) == :live
   end
 
   # POST /magic_link/:token — the authoritative consume. This is the ONLY place
   # the single-use token is burned, and it only runs on the human's button press
   # (a scanner won't POST a CSRF-protected form). Mirrors the prior GET behavior.
+  # consume_magic_link burns first — winning the atomic burn IS the proof the
+  # link was live — then routes through Studio::LinkResolution to one of three
+  # outcomes: authenticate (sign_in_existing / sign_up_new below), continue (the
+  # viewer's own live link: burn it, keep the session exactly as it stands), or
+  # dead (never touch the session at all).
   def consume
     response.set_header("Referrer-Policy", "strict-origin")
-    result = Studio::Link.consume!(params[:token])
-    user = User.find_by(email: result.email)
-    user ? sign_in_existing(user, result) : sign_up_new(result)
-  rescue Studio::Link::InvalidToken
-    redirect_to signin_path, alert: "That sign-in link is invalid or has expired. Request a fresh one below."
+    consume_magic_link(::Studio::Link.magic_links.find_by(token: params[:token]))
   end
 
   private
@@ -101,11 +117,23 @@ class MagicLinksController < ApplicationController
     Current.reset
   end
 
+  # Reached ONLY when the identity actually changes — a signed-out visitor, or a
+  # link belonging to someone other than the current user. That is what makes
+  # reset_prior_session! safe to keep here: the concern routes a re-click by the
+  # SAME user to link_continue instead, which never reaches this method. Before
+  # the adoption this ran on every consume, so a second click cost the visitor
+  # their whole session (onchain flag, geo override, picks in flight) to
+  # re-establish the identity they already had.
   def sign_in_existing(user, result)
     reset_prior_session!
     user.claim_parked_username!
     set_app_session(user)
-    user.update!(email_verified_at: Time.current) if user.email_verified_at.blank?
+    # rescue_and_log because the session is already established above: a User
+    # validation failing here would otherwise 500 a signed-in visitor with
+    # nothing in ErrorLog to attribute it to.
+    rescue_and_log(target: user) do
+      user.update!(email_verified_at: Time.current) if user.email_verified_at.blank?
+    end
     # Returning login: a quiet "welcome back" toast — no celebratory modal and no
     # token upsell (they already have an account). Land on the contest they came
     # from, else the featured contest.
@@ -202,6 +230,59 @@ class MagicLinksController < ApplicationController
     p.start_with?("/") && !p.start_with?("//") ? p : nil
   end
 
+  # --- Studio::LinkConsumption hooks -----------------------------------------
+
+  # Turf's sign-in page is /signin, not the engine's /login.
+  def link_login_path
+    signin_path
+  end
+
+  # "Home" for turf is the live featured contest, resolved at click time.
+  def link_home_path
+    featured_contest ? contest_path(featured_contest) : contests_path
+  end
+
+  # The concern's default treats a bare "/" as a real destination; turf treats it
+  # as "no destination" and lands on the featured contest instead
+  # (landing_path_for). Overridden rather than reimplemented so the login/home
+  # cases keep coming from the hooks above.
+  def link_destination(destination, result)
+    return super unless destination == :return_to
+
+    landing_path_for(result)
+  end
+
+  # A used, expired, or unrecognized link. The concern guarantees this never
+  # touches the session; this override only chooses HOW the message is shown.
+  #
+  # It is a PRESENTATION choice, not a necessity. An earlier version of this
+  # comment claimed turf renders auth_toast and nothing else, and that plain
+  # flash[:notice]/[:alert] appear in no layout or view. That was FALSE: both
+  # application.html.erb and landing.html.erb render layouts/studio/flash, and
+  # the engine partial selects exactly notice+alert. The proof was in this very
+  # file — #create ships `notice: "Check your inbox…"`, the most important
+  # message in the flow. The override is kept because the bespoke title reads
+  # better than a bare sentence, and because it lets the outcome's severity ride
+  # through to the toast; inheriting the default would have worked too.
+  def link_dead(outcome, result)
+    path = link_destination(outcome.destination, result)
+    return redirect_to(path) if outcome.silent?
+
+    redirect_to path, flash: { auth_toast: {
+      # `type` is the SEVERITY, and it has to ride along: the layout's toast
+      # dispatch used to hard-code 'notice', so "Sign-in link expired" painted
+      # the green success check. The engine toast reads this to pick between
+      # --color-success and --color-danger.
+      type:    outcome.level == :alert ? "alert" : "notice",
+      title:   dead_link_title(outcome),
+      message: outcome.message
+    } }
+  end
+
+  def dead_link_title(outcome)
+    outcome.level == :alert ? "Sign-in link expired" : "Still signed in"
+  end
+
   # True when the link carried a specific contest (resolved_return_to bakes the
   # contest path — and any validated picks — in at request time).
   def contest_return_to?(result)
@@ -218,7 +299,8 @@ class MagicLinksController < ApplicationController
   # contest, or e.g. /account — and otherwise (no destination, or a bare "/")
   # drop them on the live featured contest, else the contests index.
   def landing_path_for(result)
-    rt = result.return_to
+    # `result` is nil for an unrecognized token — the dead path calls this too.
+    rt = result&.return_to
     return rt if rt.present? && rt != "/"
 
     featured_contest ? contest_path(featured_contest) : contests_path

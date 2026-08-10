@@ -20,7 +20,13 @@ module Studio
       when "magic_link"
         @token = params[:token]
         @consume_path = link_consume_path(token: @token) # confirm view posts here
-        render "magic_links/confirm", layout: "loading"
+        # Inert, exactly as on /magic_link/:token — preview_magic_link never
+        # burns. A live link gets the spinner; a dead one is settled here with
+        # the session left alone, instead of spinning to a POST that only
+        # rediscovers it is dead.
+        if preview_magic_link(link) == :live
+          render "magic_links/confirm", layout: "loading"
+        end
       when "referral"
         capture_referral(link)
         redirect_to(safe_path(link.target) || root_path, allow_other_host: false)
@@ -34,14 +40,23 @@ module Studio
     end
 
     # POST burns the single-use magic-link token + signs in/up through turf's
-    # GATED MagicLinksController#consume. Referral links are GET-only, so any
-    # non-magic token here is rejected (no gateless account-creation path).
+    # GATED MagicLinksController#consume.
+    #
+    # The kind check that used to live here now rides on the lookup there
+    # (Studio::Link.magic_links.find_by), so a referral token resolves to nil and
+    # takes the dead path. That is the SAME refusal, and it matters: without it a
+    # referral link burns as a reusable kind, exposes no email, and consume falls
+    # through to User.find_by(email: nil) — which matches a real row here,
+    # because users.email is nullable for wallet-only accounts. It is pinned by
+    # magic_link_reclick_test.rb's referral case, which asserts the dead path was
+    # taken and includes a nil-email account so the takeover is reachable if the
+    # scope is ever removed.
+    #
+    # (An earlier note here said the old guard's flash[:alert] "turf renders
+    # nowhere". That was wrong — the engine's layouts/studio/flash partial, which
+    # both turf layouts render, shows notice and alert. It was visible, as a red
+    # error toast.)
     def consume
-      link = ::Studio::Link.find_by(token: params[:token])
-      unless link&.kind == "magic_link"
-        return redirect_to signin_path, alert: "That sign-in link is invalid or has expired. Request a fresh one below."
-      end
-
       super # MagicLinksController#consume — gated create-or-login
     end
 
