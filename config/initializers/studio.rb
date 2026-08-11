@@ -76,5 +76,11 @@ Studio.configure do |config|
   config.theme_accent = "#8E82FE"
 
   # S3 — overrides engine default ("mcritchie-studio") to use this app's bucket
+  # Draw the shared email manager at /admin/emails (studio-engine). Turf Monster
+  # used to own this path with its own Admin::EmailsController; that page and its
+  # routes are gone, so the engine's — which does everything the old one did plus
+  # banner management — takes the URL.
+  config.draw_admin_emails_routes = true
+
   config.s3_bucket_prefix = "turf-monster"
 end
