@@ -55,13 +55,29 @@ test.describe("Admin emails manager", () => {
     await expect(frame.locator("img").first()).toBeVisible();
   });
 
-  test("upload goes through the shared crop modal @smoke", async ({ page }) => {
+  // SCOPE NOTE — read before "strengthening" this test.
+  //
+  // It stops at "the form submitted and the page came back". It deliberately
+  // does NOT assert that the row became app-owned, because the banner write
+  // goes through Studio::S3 to a REAL bucket, and CI runs with deliberately
+  // dummy AWS credentials (see ci.yml: test storage is :test/Disk, so the creds
+  // never reach real S3). The avatar upload beside this one survives that
+  // because it rides ActiveStorage; this one does not. Asserting the app-owned
+  // outcome here fails on CI and passes locally, which is the worst shape a
+  // test can have.
+  //
+  // That outcome IS covered, at the tier that can stub the bucket:
+  // test/integration/email_banner_test.rb, "an uploaded banner overrides this
+  // app's committed asset".
+  //
+  // What only a browser can prove, and what this therefore keeps: the page
+  // mounts its OWN modal host (emailModals) because not every consuming app
+  // renders a shared one — if that store fails to register, the Upload button
+  // is inert and NO server-side test notices.
+  test("upload opens the shared crop modal and submits @smoke", async ({ page }) => {
     await loginAdmin(page);
     await page.goto("/admin/emails");
 
-    // The page mounts its OWN modal host (emailModals) because not every app
-    // renders a shared one. If that store fails to register, this click is a
-    // no-op and the modal never appears.
     await page.getByRole("button", { name: /^(Upload|Replace)$/ }).first().click();
     await expect(page.getByText("Crop Photo")).toBeVisible();
 
@@ -70,7 +86,14 @@ test.describe("Admin emails manager", () => {
 
     await page.getByRole("button", { name: /Crop & Save/i }).click();
 
-    // Saving lands the row on this app's own image, with a way back.
-    await expect(page.getByRole("button", { name: "Revert" }).first()).toBeVisible({ timeout: 20000 });
+    // The saving card is the proof the cropped blob reached the row's hidden
+    // form and submitted — it is opened by submitFormWithProgress on the same
+    // page-scoped store.
+    await expect(page.getByText("Saving banner")).toBeVisible();
+
+    // Whatever the bucket says, the flow returns to the manager and the modal
+    // does not stick. A card left on screen is the failure this guards.
+    await expect(page).toHaveURL(/\/admin\/emails$/, { timeout: 20000 });
+    await expect(page.getByText("Crop Photo")).toBeHidden();
   });
 });
