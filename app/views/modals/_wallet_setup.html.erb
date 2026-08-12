@@ -32,6 +32,11 @@
        connecting: false,
        error: '',
        installUrl: 'https://phantom.com/download',
+       // Set when the user leaves for the install page. It is what turns the
+       // 'Installed it? Reload' hint on — see the INSTALL row below for why a
+       // reload is genuinely required and not just belt-and-braces.
+       installClicked: false,
+       _onWake: null,
        init() {
          this.refresh();
          // Wallet Standard registration can land a tick after the module
@@ -39,6 +44,27 @@
          // Connect rather than Install.
          var self = this;
          setTimeout(function() { if (!self.connecting) self.refresh(); }, 300);
+
+         // Re-read when the user comes BACK to this tab. Installing Phantom is
+         // a trip to another tab that takes minutes (download, create wallet,
+         // write down the recovery phrase), and this modal was reading the
+         // wallet list exactly twice, inside the first 300ms. So the row sat on
+         // INSTALL forever and the user had no way to reach Connect.
+         //
+         // This alone is not always enough: Chrome does not inject a
+         // newly-installed extension into pages that were ALREADY open, so a
+         // tab loaded before the install has no provider to find and needs a
+         // reload. It IS enough for the cases that do not need one — Phantom
+         // installed but locked, or registered late — and it costs one listener.
+         this._onWake = function() { if (!document.hidden && !self.connecting) self.refresh(); };
+         document.addEventListener('visibilitychange', this._onWake);
+         window.addEventListener('focus', this._onWake);
+       },
+       destroy() {
+         if (!this._onWake) return;
+         document.removeEventListener('visibilitychange', this._onWake);
+         window.removeEventListener('focus', this._onWake);
+         this._onWake = null;
        },
        refresh() {
          this.wallets = (window.walletProvider && window.walletProvider.available && window.walletProvider.available()) || [];
@@ -110,33 +136,66 @@
 
   <%# === THE PHANTOM ROW ====================================================
       Installed → Connect (links the wallet to this account). Not installed →
-      the install page, same row shape as the wallet-connect picker. %>
+      the install page, same row shape as the wallet-connect picker.
+
+      The CONNECT branch carries one line on what that DOES: a first-time user is
+      about to get a signature prompt from a wallet they installed five minutes
+      ago, and "sign to prove you own it, no funds move" is the difference
+      between clicking and bailing. %>
   <template x-if="hasPhantom">
-    <button type="button" @click="connect()" :disabled="connecting"
-            class="w-full flex items-center gap-3 p-3 rounded-xl bg-surface-alt border border-strong hover:bg-surface transition text-left disabled:opacity-60 disabled:cursor-wait">
-      <img :src="phantomIcon || '/phantom-purple.png'" alt="" class="w-9 h-9 rounded-lg">
-      <span class="font-semibold text-heading">Phantom</span>
-      <span class="ml-auto flex items-center gap-2">
-        <span x-show="connecting" class="inline-flex items-center gap-1.5 text-xs text-secondary"><span class="cta-spinner" aria-hidden="true"></span>Connecting…</span>
-        <span x-show="!connecting" class="text-xs text-primary uppercase tracking-wide font-semibold">Connect</span>
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-muted">
-          <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-        </svg>
-      </span>
-    </button>
+    <div>
+      <button type="button" @click="connect()" :disabled="connecting"
+              class="w-full flex items-center gap-3 p-3 rounded-xl bg-surface-alt border border-strong hover:bg-surface transition text-left disabled:opacity-60 disabled:cursor-wait">
+        <img :src="phantomIcon || '/phantom-purple.png'" alt="" class="w-9 h-9 rounded-lg">
+        <span class="font-semibold text-heading">Phantom</span>
+        <span class="ml-auto flex items-center gap-2">
+          <span x-show="connecting" class="inline-flex items-center gap-1.5 text-xs text-secondary"><span class="cta-spinner" aria-hidden="true"></span>Connecting…</span>
+          <span x-show="!connecting" class="text-xs text-primary uppercase tracking-wide font-semibold">Connect</span>
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-muted">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+          </svg>
+        </span>
+      </button>
+      <p class="text-[11px] text-muted mt-1.5 px-1">
+        Phantom will ask you to sign a message to prove the wallet is yours. It
+        does not move any funds.
+      </p>
+    </div>
   </template>
   <template x-if="!hasPhantom">
-    <a :href="installUrl" target="_blank" rel="noopener noreferrer"
-       class="w-full flex items-center gap-3 p-3 rounded-xl bg-surface-alt border border-strong hover:bg-surface transition no-underline">
-      <svg class="w-9 h-9" aria-hidden="true"><use href="#se-wallet-phantom"></use></svg>
-      <span class="font-semibold text-heading">Phantom</span>
-      <span class="ml-auto flex items-center gap-2">
-        <span class="text-xs text-muted uppercase tracking-wide">Install</span>
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-muted">
-          <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-        </svg>
-      </span>
-    </a>
+    <div>
+      <a :href="installUrl" target="_blank" rel="noopener noreferrer"
+         @click="installClicked = true"
+         class="w-full flex items-center gap-3 p-3 rounded-xl bg-surface-alt border border-strong hover:bg-surface transition no-underline">
+        <svg class="w-9 h-9" aria-hidden="true"><use href="#se-wallet-phantom"></use></svg>
+        <span class="font-semibold text-heading">Phantom</span>
+        <span class="ml-auto flex items-center gap-2">
+          <span class="text-xs text-muted uppercase tracking-wide">Install</span>
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-muted">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+          </svg>
+        </span>
+      </a>
+
+      <%# THE STEP THAT WAS MISSING — how a user gets from "installed" to
+          "connected". Chrome does not inject a newly-installed extension into
+          tabs that were already open, so this tab cannot see Phantom until it
+          reloads: without this the row reads INSTALL forever and the flow dead
+          ends one step short of the wallet. Shown once they have actually left
+          for the install page, so a first-time reader is not told to reload
+          something they have not done yet. The session survives the reload
+          (it is a cookie) and so does a staged lineup (saved before the modal
+          opens), so this costs the user nothing. %>
+      <template x-if="installClicked">
+        <div class="mt-2 flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-surface border border-strong">
+          <span class="text-xs text-body">Installed it? Reload to connect.</span>
+          <button type="button" @click="window.location.reload()"
+                  class="text-xs font-semibold text-primary hover:underline whitespace-nowrap">
+            Reload page
+          </button>
+        </div>
+      </template>
+    </div>
   </template>
 
   <%# Mobile has no extension to install — deep-link into the Phantom app. %>

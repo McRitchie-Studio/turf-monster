@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { reseed } = require("./helpers");
+const { reseed, setupPhantomMock, MOCK_PUBKEY_B58 } = require("./helpers");
 
 // Web3-only onboarding (ENABLE_WEB3_ONLY_ONBOARDING) — the "Set up your wallet"
 // step a brand-new email/Google account lands on now that signup mints no
@@ -121,6 +121,69 @@ test("the entry gate brings the wallet-setup modal back", async ({ page }) => {
   });
 
   await expect(page.getByRole("heading", { name: "Set up your wallet" })).toBeVisible();
+});
+
+// The point of the whole modal: the INSTALL row is the easy branch, and it was
+// the only one a headless browser could reach (no wallet is injected). These two
+// cover the branch that actually finishes the job.
+// seedByte 1 (setupPhantomMock's default) is MOCK_PUBKEY_B58 — the wallet
+// e2e/global-setup.js parks on the seeded ADMIN so loginViaPhantom resolves to
+// them. Linking it to a fresh account is not a no-op: AccountsController
+// #link_solana treats "this wallet belongs to someone else" as a consolidation
+// and calls merge_users!, which absorbed the admin into a throwaway signup and
+// left global-teardown unable to find them. Any spec that links a wallet to a
+// NEW user must therefore bring a wallet nobody owns.
+const UNOWNED_WALLET_SEED = 7;
+
+test("with Phantom present the row offers Connect and says what signing does", async ({ page }) => {
+  await setupPhantomMock(page, { seedByte: UNOWNED_WALLET_SEED });
+  await signUpFreshEmail(page);
+
+  await expect(page.getByRole("heading", { name: "Set up your wallet" })).toBeVisible();
+  await expect(page.getByText("Connect", { exact: true })).toBeVisible();
+  await expect(page.getByText(/sign a message to prove the wallet is yours/i)).toBeVisible();
+  // The install link is the OTHER branch — it must not be showing.
+  await expect(page.locator('a[href="https://phantom.com/download"]')).toBeHidden();
+});
+
+test("Connect links the wallet to the signed-in account and clears the gate", async ({ page }) => {
+  await setupPhantomMock(page, { seedByte: UNOWNED_WALLET_SEED });
+  await signUpFreshEmail(page);
+  await expect(page.getByRole("heading", { name: "Set up your wallet" })).toBeVisible();
+
+  // Real Ed25519 signing (phantom-mock) through the real SIWS round trip, so
+  // the server's verify_solana_signature! + /account/link_solana run unstubbed.
+  await page.getByText("Connect", { exact: true }).click();
+
+  // A successful link reloads back to where the user was — the returnUrl the
+  // modal was opened with — NOT /account.
+  await page.waitForFunction(() => {
+    const el = document.getElementById("session-context");
+    if (!el) return false;
+    return JSON.parse(el.textContent).walletSetupRequired === false;
+  }, null, { timeout: 20000 });
+
+  // #session-context is SERVER-rendered from the reloaded User row, so these are
+  // assertions about what actually persisted — not about client state.
+  const ctx = await page.evaluate(() =>
+    JSON.parse(document.getElementById("session-context").textContent)
+  );
+  expect(ctx.loggedIn).toBe(true);
+  expect(ctx.phantomLinked).toBe(true);
+  expect(ctx.walletSetupRequired).toBe(false);
+  expect(ctx.address).toMatch(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/); // base58 pubkey
+  expect(ctx.address).not.toBe(MOCK_PUBKEY_B58); // never the seeded admin's wallet
+
+  // The gate is satisfied: the modal is gone and does not come back at entry.
+  await expect(page.getByRole("heading", { name: "Set up your wallet" })).toBeHidden();
+  const blocker = await page.evaluate(() =>
+    window.eligibilityBlocker(
+      Object.assign({}, Alpine.store("session"), { ageVerified: true }),
+      1900,
+      { acceptsUsdt: false }
+    )
+  );
+  expect(blocker && blocker.reason).not.toBe("wallet_setup_required");
 });
 
 test("the free-contest path is gated too (entry is on-chain either way)", async ({ page }) => {

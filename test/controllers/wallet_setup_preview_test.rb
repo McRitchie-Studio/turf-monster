@@ -28,6 +28,28 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "#se-wallet-phantom"
   end
 
+  test "wallet-setup preview ships the post-install reload path and the signing line" do
+    # The step the first cut was missing: Chrome does not inject a
+    # newly-installed extension into an already-open tab, so without a reload
+    # affordance the INSTALL row is a dead end — it reads INSTALL forever and the
+    # user never reaches Connect.
+    log_in_as users(:alex)
+    get admin_modal_preview_path(modal_id: "wallet-setup")
+    assert_response :success
+
+    assert_includes response.body, "installClicked = true",
+                    "leaving for the install page must arm the reload hint"
+    assert_includes response.body, "Installed it? Reload to connect."
+    assert_includes response.body, "window.location.reload()"
+    # Coming back to the tab re-reads the wallet list (covers install-but-locked
+    # and late Wallet-Standard registration without a reload).
+    assert_includes response.body, "visibilitychange"
+    # And the listeners are torn down, so reopening the modal can't stack them.
+    assert_includes response.body, "removeEventListener"
+    # What Connect actually does, for someone who just met Phantom.
+    assert_includes response.body, "sign a message to prove the wallet is yours"
+  end
+
   test "wallet-setup preview renders the teaching block with both screenshots" do
     log_in_as users(:alex)
     get admin_modal_preview_path(modal_id: "wallet-setup")
