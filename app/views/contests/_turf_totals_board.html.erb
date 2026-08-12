@@ -339,7 +339,10 @@ window.selectionBoard = function() {
           var step = JSON.parse(stepRaw);
           sessionStorage.removeItem('pendingAuthStep');
           if (step && step.contestSlug === this.contestId) {
-            if (step.step === 'tokens') {
+            // Web3-only onboarding: a wallet-less account has nothing to buy an
+            // entry token WITH, so the wallet-setup modal (auto-opened by the
+            // layout) owns this render — don't stack the picker on top of it.
+            if (step.step === 'tokens' && !window.__walletSetupPrompt) {
               // Post-signup pack-picker resume — deliberately STAYS the Get
               // Entry Tokens picker (not the Top Up Wallet modal). This restores
               // the buy-tokens step the user was on through the signup reload,
@@ -409,23 +412,36 @@ window.selectionBoard = function() {
             this.cartOpen = true;
           }
           if (this.loggedIn && pending.autoEnter && this.selectionCount === this.picksRequired) {
-            var self = this;
-            // Let Alpine flush the state, then replay + enter. When the
-            // magic-link welcome modal is showing, hold ~3s first so its
-            // success beat isn't instantly covered by the tokens picker the
-            // auto-enter opens (showTokensPanel swaps the welcome out at fire).
-            var autoEnterDelay = window.__magicLinkWelcome ? 3000 : 50;
-            setTimeout(function () {
-              // Single-owner handoff: if the magic-link welcome modal is up,
-              // neutralize ITS auto-redirect NOW (before the network-heavy
-              // replay below) so it can't navigate to /tokens/buy mid-handoff —
-              // afterLoginSuccess replays 6 selections + enters, and that tail
-              // can outlast the welcome's 3.5s drain. The board owns the
-              // transition; it swaps the welcome out for the picker on resolve.
-              var wc = Alpine.store('modals').current();
-              if (wc && wc.id === 'magic-link-welcome') wc.props.next = null;
-              self.afterLoginSuccess();
-            }, autoEnterDelay);
+            // Web3-only onboarding: the wallet-setup modal is already up (the
+            // layout opened it) and this entry CANNOT go through without a
+            // wallet, so don't replay it into a guaranteed block. Re-save the
+            // cart instead: linking Phantom reloads the page, and this is the
+            // only thing standing between that reload and a lost lineup —
+            // init() consumed the localStorage copy on the way in.
+            //
+            // if/else, NOT an early return: the stranded-entry recovery below
+            // this try/catch still has to run.
+            if (window.__walletSetupPrompt) {
+              this.saveCartForRedirect(true);
+            } else {
+              var self = this;
+              // Let Alpine flush the state, then replay + enter. When the
+              // magic-link welcome modal is showing, hold ~3s first so its
+              // success beat isn't instantly covered by the tokens picker the
+              // auto-enter opens (showTokensPanel swaps the welcome out at fire).
+              var autoEnterDelay = window.__magicLinkWelcome ? 3000 : 50;
+              setTimeout(function () {
+                // Single-owner handoff: if the magic-link welcome modal is up,
+                // neutralize ITS auto-redirect NOW (before the network-heavy
+                // replay below) so it can't navigate to /tokens/buy mid-handoff —
+                // afterLoginSuccess replays 6 selections + enters, and that tail
+                // can outlast the welcome's 3.5s drain. The board owns the
+                // transition; it swaps the welcome out for the picker on resolve.
+                var wc = Alpine.store('modals').current();
+                if (wc && wc.id === 'magic-link-welcome') wc.props.next = null;
+                self.afterLoginSuccess();
+              }, autoEnterDelay);
+            }
           }
         }
       } catch (e) {
@@ -675,6 +691,10 @@ window.selectionBoard = function() {
       switch (blocker.reason) {
         case 'not_logged_in':        this.showLoginModal(); break;
         case 'age_required':         this.showAgeVerifyModal(); break;
+        // Web3-only onboarding: signed in, but no wallet to sign the entry with.
+        // The dismissible setup modal comes BACK here — this is the "re-opens
+        // when it matters" half of letting the user close it after auth.
+        case 'wallet_setup_required': this.showWalletSetupModal(); break;
         // Funds-needed entry wall. Audience split via showFundsNeeded: a web2 /
         // managed player buys an entry token (the Buy an Entry Token modal —
         // Coinflow + Stripe rails), a web3 wallet keeps the Coinbase-forward USDC
@@ -693,6 +713,23 @@ window.selectionBoard = function() {
     showAgeVerifyModal() {
       this.resetHoldButtons();
       Alpine.store('modals').open('age-verify', { enterAnim: 'shake' });
+    },
+
+    // Wallet setup gate (web3-only onboarding). Saves the staged lineup first —
+    // linking Phantom reloads the page, and the cart must survive that round
+    // trip exactly as it does for the auth and wallet-connect flows — then
+    // opens the setup modal with a returnUrl back to this contest.
+    showWalletSetupModal() {
+      this.resetHoldButtons();
+      // autoEnter: true — same contract as openWalletConnect. Linking Phantom
+      // reloads the page, and init() replays the cart and resumes the entry, so
+      // the user picks up mid-flow (a fresh wallet with no USDC then lands on
+      // the top-up wall, which is the honest next step, not a dead end).
+      this.saveCartForRedirect(true);
+      Alpine.store('modals').open('wallet-setup', {
+        returnUrl: window.location.href,
+        enterAnim: 'shake'
+      });
     },
 
     // Open the standalone wallet-deposit modal. Hands the blocker's data

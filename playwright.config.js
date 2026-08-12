@@ -64,6 +64,10 @@ module.exports = defineConfig({
         // marginal once the NFL cache joined the seed and red-flaked shard 1
         // twice; the floor is guarded by test/lib/playwright_config_contract_test.rb.
         timeout: 120_000,
-        env: { RAILS_ENV: "test", PLAYWRIGHT_SEED: "true" },
+        // ENABLE_WEB3_ONLY_ONBOARDING mirrors the NFL-2026 production config:
+        // signup mints no custodial wallet and auth success lands on the
+        // wallet-setup modal (e2e/wallet_setup.spec.js). The e2e lane runs the
+        // configuration we ship, so this gate is exercised rather than assumed.
+        env: { RAILS_ENV: "test", PLAYWRIGHT_SEED: "true", ENABLE_WEB3_ONLY_ONBOARDING: "true" },
       },
 });

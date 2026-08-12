@@ -55,6 +55,9 @@ class SolanaSessionsController < ApplicationController
       cookies.delete(:reference) if is_new
       set_app_session(user)
       session[:onchain] = true
+      # A wallet login IS the wallet setup — drop any nudge a prior email login
+      # left in this browser's session.
+      clear_wallet_setup_state!
       linked = apply_pending_google_link!(user)
       # New signups land on the entry-tokens page (post-signup upsell);
       # a completed Google link goes to /account; everyone else to the root.

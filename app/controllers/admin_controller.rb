@@ -64,6 +64,14 @@ class AdminController < ApplicationController
       label: "Connect Wallet (picker)", key: "wallet-connect",
       modal_id: "wallet-connect", file: "app/views/modals/_wallet_connect.html.erb",
       props: {} },
+    # Web3-only onboarding (AppFlags.web3_only_onboarding?) — the post-auth
+    # "Set up your wallet" step. In the gallery the Phantom row renders in its
+    # INSTALL state unless the previewing browser actually has Phantom, which is
+    # the state a brand-new player sees.
+    { group: "Web3",
+      label: "Set up your wallet (post-auth)", key: "wallet-setup",
+      modal_id: "wallet-setup", file: "app/views/modals/_wallet_setup.html.erb",
+      props: {} },
     { group: "Web3",
       label: "Success (Entry Confirmed)", key: "onchain-success",
       modal_id: "onchain-tx", file: "app/views/modals/blocks/_entry_confirmed.html.erb",

@@ -89,4 +89,24 @@ module AppFlags
   def self.web2_usdc_entry?
     ENV.fetch("ENABLE_WEB2_USDC_ENTRY", "true").to_s.strip.downcase != "false"
   end
+
+  # True when new email / Google accounts are WEB3-ONLY: signup no longer mints
+  # a custodial web2 wallet (User#generate_managed_wallet! returns early), and
+  # auth success routes the user into the wallet-setup modal to link Phantom
+  # instead (WalletSetupPolicy).
+  #
+  # Operator call for NFL 2026: supporting web2 players carries a legal cost
+  # Turf can't absorb this season, so early adopters onboard pure web3.
+  #
+  # OFF by default (opt-in, like every flag above except web2_usdc_entry?) so
+  # merging this changes nothing until the operator sets
+  # ENABLE_WEB3_ONLY_ONBOARDING=true on the QA and production apps. Flipping it
+  # back is a single env change — no code deploy — which is why the wallet
+  # generation is gated here rather than deleted.
+  #
+  # EXISTING managed wallets are untouched either way: this gates MINTING at
+  # signup, never the rails that serve the wallets already out there.
+  def self.web3_only_onboarding?
+    ENV["ENABLE_WEB3_ONLY_ONBOARDING"].to_s.strip.downcase == "true"
+  end
 end
