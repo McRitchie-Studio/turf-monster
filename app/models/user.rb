@@ -455,6 +455,14 @@ class User < ApplicationRecord
 
   def generate_managed_wallet!
     return if web2_solana_address.present?
+    # Web3-only onboarding (NFL 2026 operator call — AppFlags.web3_only_onboarding?):
+    # no custodial wallet is minted at signup at all. The account is created and
+    # signed in exactly as before; it simply has no wallet until the user links
+    # Phantom through the wallet-setup modal (WalletSetupPolicy decides when to
+    # show it). Same shape as the OPSEC-044 admin rule below — "no managed
+    # wallet" is an already-supported state (wallet_kind :none), which is why
+    # this is a one-line early return rather than a flow change.
+    return if AppFlags.web3_only_onboarding?
     # OPSEC-044: admins go web3-only. Server should never hold custodial keys
     # for accounts with elevated privileges — a managed wallet for an admin
     # combines the highest-value account with the largest decryption surface.

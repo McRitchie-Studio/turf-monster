@@ -396,6 +396,11 @@
             // pops the DOB modal at hold-time when required && !verified.
             ageGateRequired: false,
             ageVerified: false,
+            // Web3-only onboarding: this account still has to link a wallet.
+            // eligibilityBlocker returns 'wallet_setup_required' ahead of every
+            // funding check while it is true (entry is on-chain, so there is
+            // nothing to fund yet). Server-derived, RPC-free.
+            walletSetupRequired: false,
             get isGuest() { return this.mode === 'guest'; },
             get isWeb2() { return this.mode === 'web2'; },
             get isWeb3() { return this.mode === 'web3'; },
@@ -415,6 +420,7 @@
               if (ctx.web2UsdcEntry   !== undefined) this.web2UsdcEntry   = !!ctx.web2UsdcEntry;
               if (ctx.ageGateRequired !== undefined) this.ageGateRequired = !!ctx.ageGateRequired;
               if (ctx.ageVerified     !== undefined) this.ageVerified     = !!ctx.ageVerified;
+              if (ctx.walletSetupRequired !== undefined) this.walletSetupRequired = !!ctx.walletSetupRequired;
             }
           });
           (function() {
@@ -852,7 +858,47 @@
         <%= raw({ type: (auth_toast[:type].presence || "notice"), title: auth_toast[:title], message: auth_toast[:message] }.to_json) %>
       </script>
     <% end %>
+    <%# Wallet setup (web3-only onboarding) — the post-auth "Set up your wallet"
+        beat. Rides the SESSION, not the flash, because the Google popup path
+        never redirects: finish_oauth renders a window-closer and the OPENER
+        reloads, and a flash set during the popup request would be consumed by
+        whichever of the two renders happened to land first. The session key is
+        one-shot (consume_wallet_setup_prompt? deletes on read), so it opens
+        exactly once no matter which path got the user here.
+
+        Emitted as a marker tag + the same window flag shape as
+        __magicLinkWelcome so the contest board can see it (it defers its own
+        post-login tokens picker — a wallet-less user has nothing to buy with). %>
+    <% if consume_wallet_setup_prompt? %>
+      <script type="application/json" id="wallet-setup-prompt-data">{"open":true}</script>
+      <script>window.__walletSetupPrompt = true;</script>
+    <% end %>
     <script>
+      (function() {
+        var fired = false;
+        function openWalletSetup() {
+          if (fired) return;
+          var el = document.getElementById('wallet-setup-prompt-data');
+          if (!el) return;
+          var attempts = 0;
+          (function tryOpen() {
+            var m = (window.Alpine && Alpine.store) ? Alpine.store('modals') : null;
+            if (m && typeof m.open === 'function') {
+              fired = true;
+              m.open('wallet-setup', { returnUrl: window.location.href });
+              // Drop the one-shot marker so a later turbo:load (bfcache restore,
+              // re-navigation) can't replay it.
+              el.remove();
+              return;
+            }
+            if (attempts++ < 50) setTimeout(tryOpen, 50); // up to ~2.5s for Alpine boot
+          })();
+        }
+        document.addEventListener('turbo:load', openWalletSetup);
+        if (document.readyState !== 'loading') openWalletSetup();
+        else document.addEventListener('DOMContentLoaded', openWalletSetup);
+      })();
+
       (function() {
         var fired = false;
         function openMagicLinkWelcome() {
@@ -965,6 +1011,13 @@
           and passes returnUrl). %>
       <template x-if="$store.modals.current().id === 'wallet-connect'">
         <%= render "modals/wallet_connect" %>
+      </template>
+      <%# "Set up your wallet" — the web3-only onboarding step. Auto-opens on the
+          render right after auth success (session prompt, below) and on demand
+          from the entry gate's 'wallet_setup_required' blocker. Registered
+          ungated so the entry gate can always reach it. %>
+      <template x-if="$store.modals.current().id === 'wallet-setup'">
+        <%= render "modals/wallet_setup" %>
       </template>
       <template x-if="$store.modals.current().id === 'wallet-changed'">
         <%= render "modals/wallet_changed" %>

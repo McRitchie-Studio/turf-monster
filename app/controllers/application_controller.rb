@@ -110,6 +110,58 @@ class ApplicationController < ActionController::Base
   end
   helper_method :age_gate_required?, :age_verification_pending?
 
+  # ── Wallet setup (web3-only onboarding, 2026-08) ───────────────────────────
+  # Two session keys, doing two different jobs:
+  #
+  #   session[:wallet_setup]        — STATE. The authoritative WalletSetupPolicy
+  #                                   verdict, computed ONCE at sign-in (it can
+  #                                   cost a USDC balance RPC) and read for free
+  #                                   on every later render.
+  #   session[:wallet_setup_prompt] — ONE-SHOT. "Open the modal on the next
+  #                                   render." Survives both auth shapes: the
+  #                                   magic-link redirect AND the Google popup,
+  #                                   whose opener reloads the page rather than
+  #                                   redirecting (so flash would be a coin flip).
+  #
+  # Called from every auth-success path right after set_app_session.
+  def record_wallet_setup_state!(user, prompt: true)
+    required = WalletSetupPolicy.required_for?(user)
+    session[:wallet_setup] = required
+    session[:wallet_setup_prompt] = true if required && prompt
+    required
+  end
+
+  # Cleared when the user actually links a wallet (SolanaSessionsController
+  # #verify), so the nudge stops the moment it is satisfied.
+  def clear_wallet_setup_state!
+    session.delete(:wallet_setup)
+    session.delete(:wallet_setup_prompt)
+  end
+
+  # RENDER-PATH SAFE — never issues a Solana RPC.
+  #
+  # Phantom linked and no-wallet-at-all are both decidable from columns alone.
+  # Only the managed-wallet case needs a balance, and that verdict was recorded
+  # at sign-in; when it is absent (a session predating this deploy, or a path
+  # that never computed it) we fail OPEN and stay quiet rather than nag a user
+  # who may well be funded — the entry gate still refuses them server-side.
+  def wallet_setup_required?
+    return false if current_user.blank?
+    # Same flag gate as WalletSetupPolicy — with web3-only onboarding off,
+    # nothing here fires (see the policy's comment for why that matters).
+    return false unless AppFlags.web3_only_onboarding?
+    return false if current_user.phantom_wallet?
+    return true unless current_user.managed_wallet?
+
+    session[:wallet_setup] == true
+  end
+
+  # One-shot read: true once, for the render right after auth success.
+  def consume_wallet_setup_prompt?
+    session.delete(:wallet_setup_prompt) == true
+  end
+  helper_method :wallet_setup_required?, :consume_wallet_setup_prompt?
+
   # Public, crawlable GET pages that must unfurl in link previews (and never
   # 406 a visitor). These carry og/twitter tags and are the URLs people paste
   # into Messages/Slack/social: the marketing funnel + the public contest reads.
@@ -305,7 +357,13 @@ class ApplicationController < ActionController::Base
       # synchronously at hold-time and pops the DOB modal BEFORE the tokens /
       # balance check when the gate is on and this user hasn't verified yet.
       ageGateRequired: age_gate_required?,
-      ageVerified:     current_user&.age_attested_at.present? || false
+      ageVerified:     current_user&.age_attested_at.present? || false,
+      # Web3-only onboarding: true when this account still has to link a
+      # self-custody wallet. eligibilityBlocker reads it at hold-time and pops
+      # the wallet-setup modal BEFORE the funding checks — entry is on-chain, so
+      # a wallet-less account can't enter even a FREE contest. Derived
+      # RPC-free (see wallet_setup_required?).
+      walletSetupRequired: wallet_setup_required?
     )
   end
 

@@ -488,6 +488,19 @@ class ContestsController < ApplicationController
 
     return if render_age_gate_required
 
+    # Web3-only onboarding (AppFlags.web3_only_onboarding?) — the AUTHORITATIVE
+    # half of the client's 'wallet_setup_required' blocker. An account with no
+    # wallet at all cannot be entered on-chain in ANY contest, free included,
+    # so refuse here rather than fail deeper with an opaque Solana error. The
+    # wallet_setup flag tells the client to reopen the setup modal.
+    if current_user.wallet_kind == :none
+      return render json: {
+        success: false,
+        error: "Connect a Solana wallet to enter — entries are signed on-chain.",
+        wallet_setup: true
+      }, status: :unprocessable_entity
+    end
+
     # Self-custody guard (task #11 Stage 3). Runs FIRST so it catches
     # self-custodied users regardless of cart / contest state. The server
     # must not auto-sign for them; route to the Phantom-prepare path.

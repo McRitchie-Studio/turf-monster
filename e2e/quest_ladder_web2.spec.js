@@ -1,9 +1,20 @@
 // Quest ladder — web2 (email / managed-wallet) user, driven on the contest page.
 //
 // Same client step machine as quest_ladder_web3, but the user signs in with a
-// magic link, so they already have an email on file + a managed wallet
-// (User#generate_managed_wallet! runs after_create for non-admins). The two
-// web2 divergences this spec pins down:
+// magic link, so they already have an email on file, and we then hand them a
+// managed wallet.
+//
+// That second half USED to be free: User#generate_managed_wallet! ran
+// after_create for every non-admin. Web3-only onboarding
+// (ENABLE_WEB3_ONLY_ONBOARDING — no custodial wallet at signup) ended that, so
+// this spec now grants the wallet explicitly via grantManagedWallet(). The
+// audience it covers is the GRANDFATHERED web2 user, who still exists and is
+// still supported — the flag changed who gets MINTED a wallet, not who is
+// served. Without the explicit grant the user has no wallet, the username modal
+// renders the non-managed copy, and this spec fails on a premise it no longer
+// gets for free.
+//
+// The two web2 divergences this spec pins down:
 //   1. The username modal renders the managed-wallet copy and the custodial
 //      save path (still on-chain server-side — stubbed; see stubQuestEndpoints).
 //   2. The newsletter quest is ONE-CLICK: with an email already on file,
@@ -19,6 +30,7 @@ const {
   login,
   reseed,
   createActiveEntry,
+  grantManagedWallet,
   stubQuestEndpoints,
 } = require("./helpers");
 
@@ -30,11 +42,14 @@ test.beforeEach(async ({ request }) => await reseed(request));
 test("web2 user climbs the full quest ladder on the contest page", async ({ page }) => {
   test.setTimeout(60_000);
 
-  // A fresh email → magic-link consume creates a web2 user: email on file,
-  // managed wallet (so solana_connected? / can_change_username? unlock with an
-  // entry), auto username, fresh quest state → quest_step starts at :username.
+  // A fresh email → magic-link consume creates the account: email on file, auto
+  // username, fresh quest state → quest_step starts at :username. The managed
+  // wallet is then granted explicitly (see the header) so solana_connected? /
+  // can_change_username? unlock with an entry — this is the grandfathered web2
+  // user, not a brand-new signup, which no longer gets a custodial wallet.
   const email = `quest-web2-${Date.now().toString(36)}@mcritchie.studio`;
   await login(page, email);
+  await grantManagedWallet(page);
 
   await createActiveEntry(page, CONTEST_SLUG);
   await stubQuestEndpoints(page);

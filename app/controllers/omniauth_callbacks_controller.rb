@@ -133,9 +133,18 @@ class OmniauthCallbacksController < ApplicationController
 
       rescue_and_log(target: result) do
         set_app_session(result)
+        # Web3-only onboarding: records the verdict and arms the one-shot prompt
+        # that opens the wallet-setup modal on the next render. In popup mode
+        # that render is the OPENER'S RELOAD (finish_oauth renders a closer page
+        # instead of redirecting), which is why this rides the session rather
+        # than the flash.
+        needs_wallet = record_wallet_setup_state!(result)
         # New signups land on the entry-tokens page (post-signup upsell);
-        # returning Google users go to the app root.
-        finish_oauth(new_signup ? tokens_buy_path : root_path, success: true,
+        # returning Google users go to the app root. A wallet-less signup skips
+        # that upsell — /tokens/buy sells web2 entry tokens it cannot pay for —
+        # and lands on the app root, where the setup modal opens.
+        landing = new_signup && !needs_wallet ? tokens_buy_path : root_path
+        finish_oauth(landing, success: true,
                      needs_profile: !result.profile_complete?,
                      notice: "Signed in with Google!")
       end

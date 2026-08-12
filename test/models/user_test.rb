@@ -23,6 +23,51 @@ class UserTest < ActiveSupport::TestCase
     assert_equal "chosen-name", user.username
   end
 
+  # --- Web3-only onboarding (AppFlags.web3_only_onboarding?) ------------------
+
+  test "signup mints a managed wallet while web3-only onboarding is off" do
+    # The pre-existing behaviour, asserted so the flag's OFF path stays honest.
+    with_web3_only(nil) do
+      user = User.create!(email: "web2wallet@mcritchie.studio")
+      assert user.web2_solana_address.present?, "flag off should still mint a custodial wallet"
+      assert_equal :managed, user.wallet_kind
+    end
+  end
+
+  test "signup mints NO managed wallet while web3-only onboarding is on" do
+    with_web3_only("true") do
+      user = User.create!(email: "web3only@mcritchie.studio")
+      assert_nil user.web2_solana_address, "web3-only onboarding must not mint a custodial wallet"
+      assert_nil user.encrypted_web2_solana_private_key, "no custodial key should be stored either"
+      assert_equal :none, user.wallet_kind
+      # The account itself is fully valid and signed-in-able — the wallet is the
+      # only thing missing (has_authentication_method is satisfied by the email).
+      assert user.persisted?
+      assert user.username.present?
+    end
+  end
+
+  test "an existing managed wallet is untouched when the flag is on" do
+    # The flag gates MINTING at signup, never the wallets already out there.
+    with_web3_only("true") do
+      user = users(:jordan)
+      user.update_columns(web2_solana_address: "PreexistingManaged1")
+      user.generate_managed_wallet!
+      assert_equal "PreexistingManaged1", user.reload.web2_solana_address
+    end
+  end
+
+  # Deliberately NOT under `private` — Minitest collects tests from public
+  # instance methods, and a stray visibility change here would silently stop
+  # every `test` block defined after it in this file from running.
+  def with_web3_only(value)
+    original = ENV["ENABLE_WEB3_ONLY_ONBOARDING"]
+    value.nil? ? ENV.delete("ENABLE_WEB3_ONLY_ONBOARDING") : ENV["ENABLE_WEB3_ONLY_ONBOARDING"] = value
+    yield
+  ensure
+    original.nil? ? ENV.delete("ENABLE_WEB3_ONLY_ONBOARDING") : ENV["ENABLE_WEB3_ONLY_ONBOARDING"] = original
+  end
+
   test "new wallet account claims parked username before generating a random one" do
     wallet = User.parked_identity_for(email: "alex@mcritchie.studio").fetch(:wallet)
 

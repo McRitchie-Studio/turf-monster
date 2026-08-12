@@ -206,6 +206,31 @@ class TestController < ApplicationController
     }
   end
 
+  # Give the signed-in user a managed (custodial) wallet — i.e. make them a
+  # GRANDFATHERED web2 user.
+  #
+  # Why this exists: web3-only onboarding (AppFlags.web3_only_onboarding?) means
+  # signup no longer mints a managed wallet, so a spec whose SUBJECT is the
+  # managed-wallet path (quest_ladder_web2) can no longer get one as a side
+  # effect of signing up. That audience still exists and is still supported —
+  # so the spec now STATES its premise here instead of inheriting it.
+  #
+  # Mints its own keypair rather than calling User#generate_managed_wallet!,
+  # which deliberately early-returns while the flag is on.
+  def grant_managed_wallet
+    return render json: { error: "not logged in" }, status: :unauthorized unless current_user
+
+    if current_user.web2_solana_address.blank?
+      keypair = Solana::Keypair.generate
+      current_user.update!(web2_solana_address: keypair.to_base58,
+                           encrypted_web2_solana_private_key: keypair.encrypt)
+    end
+
+    render json: { ok: true, slug: current_user.slug,
+                   address: current_user.web2_solana_address,
+                   wallet_kind: current_user.wallet_kind }
+  end
+
   # Stage a user's quest ladder position so Playwright can land on a specific
   # quest_step / next_quest without driving the (on-chain) username + chat
   # quests first. The contest-card ladder + the gear "Next: …" pointer both read

@@ -52,7 +52,7 @@ Important invariants:
 - `display_name` falls back through username, name, email prefix, truncated wallet address, then `"anon"`.
 - `profile_complete?` is `username.present?`; usernames are auto-generated on create, so normal signups are immediately complete.
 - `before_create :set_initial_session_token` writes the OPSEC-045 session-binding token.
-- `after_create :generate_managed_wallet!` creates a server-managed Solana wallet for non-admin users.
+- `after_create :generate_managed_wallet!` creates a server-managed Solana wallet for non-admin users — **unless `ENABLE_WEB3_ONLY_ONBOARDING` is set** (see [Web3-only onboarding](#web3-only-onboarding)), which mints no custodial wallet at all.
 - `after_commit :enqueue_onchain_account_setup` creates the on-chain username PDA asynchronously.
 
 ## Email Magic Links
@@ -119,6 +119,39 @@ wallet linked but currently be signed in via magic link or Google.
 Signup itself does not touch Solana RPC. New wallet users get a Rails row and
 managed wallet immediately; on-chain `UserAccount` creation is async and
 idempotent.
+
+## Web3-only onboarding
+
+`ENABLE_WEB3_ONLY_ONBOARDING=true` (`AppFlags.web3_only_onboarding?`, opt-in and
+OFF by default) makes email/Google signup **web3-only**: no custodial web2
+wallet is minted, and auth success sends the user to the wallet-setup modal to
+link Phantom instead. Operator call for NFL 2026 — supporting web2 players
+carries a legal cost Turf can't absorb this season. Reversing it is one env
+change, no deploy.
+
+| Piece | Where |
+|-------|-------|
+| The flag | `AppFlags.web3_only_onboarding?` |
+| Wallet minting skipped | `User#generate_managed_wallet!` early-returns |
+| Who gets prompted | `WalletSetupPolicy` — one rule, both auth paths + the entry gate |
+| Recorded at sign-in | `record_wallet_setup_state!` → `session[:wallet_setup]` (state) + `session[:wallet_setup_prompt]` (one-shot auto-open) |
+| Read on render | `wallet_setup_required?` — RPC-free; feeds `walletSetupRequired` in the client session payload |
+| The modal | `app/views/modals/_wallet_setup.html.erb` (Phantom row + install guide) |
+| Entry gate | `eligibilityBlocker` → `wallet_setup_required`; server-side refusal in `ContestsController#enter` |
+
+Rules worth knowing:
+
+- **A grandfathered web2 user holding ≥ `WalletSetupPolicy::MIN_USDC` (19) USDC
+  is left alone.** 19 USDC is exactly one paid entry (`Contest::FORMATS`), so
+  they can still play on their custodial rails and are never interrupted.
+- **The prompt is dismissible** and re-opens at the entry gate.
+- **The gate runs before the free-contest short-circuit.** Entry is an on-chain
+  instruction, so a wallet-less account can't enter a free contest either.
+- **With the flag off, none of it fires** — not the minting change, and not the
+  policy. Web2 is a supported path then, and a "link Phantom" nudge would stand
+  in front of the web2 funding rails that fix a low balance.
+- Existing managed wallets are untouched either way: the flag gates **minting**,
+  never the rails that serve wallets already out there.
 
 ## Account Management
 

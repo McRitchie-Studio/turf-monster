@@ -444,6 +444,16 @@ export function eligibilityBlocker(session, neededCents, opts) {
     return { reason: 'age_required', mode: session.mode || 'guest', data: {} };
   }
 
+  // Web3-only onboarding — BEFORE the free-contest short-circuit on purpose.
+  // Entry is an on-chain instruction signed against the user's wallet, so an
+  // account with no wallet can't enter a FREE contest either; gating this
+  // behind the fee check would let a wallet-less user hold-to-confirm a free
+  // entry straight into a server-side refusal. Server re-checks (the
+  // authoritative gate is ContestsController#enter).
+  if (session.walletSetupRequired) {
+    return { reason: 'wallet_setup_required', mode: session.mode || 'web2', data: {} };
+  }
+
   if ((neededCents | 0) <= 0) return null;  // free contest
 
   if (session.mode === 'web2') {

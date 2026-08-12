@@ -1,0 +1,204 @@
+<%#
+  "Set up your wallet" — the post-auth step for web3-only onboarding
+  (AppFlags.web3_only_onboarding?). Email / Google auth no longer mints a
+  custodial web2 wallet, so a freshly signed-in account has no way to transact
+  until it links Phantom. This modal is that step.
+
+  WHO SEES IT: WalletSetupPolicy decides, server-side, at sign-in. A user whose
+  managed wallet still holds an entry's worth of USDC (>= 19) never sees it —
+  they are useable as-is.
+
+  HOW IT OPENS:
+    - auto, on the render right after auth success (layout reads the one-shot
+      session[:wallet_setup_prompt]), and
+    - on demand, when a wallet-less user tries to enter a contest
+      (eligibilityBlocker 'wallet_setup_required' -> showWalletSetupModal).
+
+  DISMISSIBLE by design (operator call): closing it leaves the user browsing
+  with their picks intact, and the entry gate brings it back when it matters.
+
+  Props (all optional):
+    returnUrl — where to land after a successful link (defaults to the current
+                page, so the user resumes exactly where they were).
+
+  CRITICAL (Alpine): this partial is cloned from <template x-if="...">, so it
+  must have ONE root element, and the x-data attribute below is double-quoted —
+  keep every inner string in SINGLE quotes and use no backticks, or the
+  attribute closes early and the whole modal silently mounts as a no-op.
+%>
+<div x-data="{
+       get props() { var c = $store.modals.current(); return (c && c.props) || {}; },
+       wallets: [],
+       connecting: false,
+       error: '',
+       installUrl: 'https://phantom.com/download',
+       init() {
+         this.refresh();
+         // Wallet Standard registration can land a tick after the module
+         // loads — re-read once so a just-installed Phantom still shows as
+         // Connect rather than Install.
+         var self = this;
+         setTimeout(function() { if (!self.connecting) self.refresh(); }, 300);
+       },
+       refresh() {
+         this.wallets = (window.walletProvider && window.walletProvider.available && window.walletProvider.available()) || [];
+       },
+       get hasPhantom() {
+         return (this.wallets || []).some(function(w) { return w.name && w.name.toLowerCase() === 'phantom'; });
+       },
+       get phantomIcon() {
+         var found = (this.wallets || []).find(function(w) { return w.name && w.name.toLowerCase() === 'phantom'; });
+         return (found && found.icon) || null;
+       },
+       get isMobile() { return !!(window.walletProvider && window.walletProvider.isMobile && window.walletProvider.isMobile()); },
+       // Link Phantom to the account that just signed in. linkMode routes to
+       // /account/link_solana (OPSEC-005 binds the signature to the user id);
+       // a guest — this modal should never be open for one, but be safe —
+       // falls back to the create-or-login verify path.
+       async connect() {
+         if (this.connecting) return;
+         this.connecting = true; this.error = '';
+         var sess = Alpine.store('session');
+         var linkMode = !!(sess && sess.loggedIn);
+         try {
+           var result = await window.solanaConnectAndVerify('Phantom', {
+             linkMode: linkMode,
+             currentUserId: (sess && sess.userId) || null
+           });
+           if (result && result.success) {
+             if (typeof window.handleSolanaVerifySuccess === 'function') window.handleSolanaVerifySuccess(result);
+             // Land back where they were by default, so a user who was mid-
+             // lineup returns to their picks instead of /account.
+             window.location.href = this.props.returnUrl || window.location.href;
+           } else {
+             this.error = (result && result.error) || 'Verification failed.';
+             this.connecting = false;
+           }
+         } catch (e) {
+           var msg = (e && e.code === 4001) ? 'Signature rejected' : ((e && e.message) || 'Connection failed');
+           if (typeof parseSolanaError === 'function') msg = parseSolanaError(msg);
+           this.error = msg; this.connecting = false;
+         }
+       },
+       deepLink() {
+         var sess = Alpine.store('session');
+         var linkMode = !!(sess && sess.loggedIn);
+         if (typeof startPhantomDeepLink === 'function') {
+           startPhantomDeepLink(linkMode, (linkMode && sess && sess.userId) || null);
+         }
+       }
+     }"
+     class="relative">
+
+  <%# Phantom brand sprite (studio-engine). MUST live inside this single root —
+      a sibling of the root would be dropped by the host's <template x-if>,
+      painting an empty icon. %>
+  <%= render "studio/modals/blocks/wallet_brand_sprite" %>
+
+  <div class="relative mb-3 -mt-2">
+    <h3 class="text-heading font-bold text-lg leading-tight text-center pt-1">Set up your wallet</h3>
+    <%# Dismissible: closing leaves the user browsing with picks intact. %>
+    <button @click="$store.modals.close()"
+            class="absolute top-0 right-0 -mr-2 text-secondary hover:text-heading text-xl leading-none"
+            aria-label="Close">&times;</button>
+  </div>
+  <%= render "studio/modals/blocks/progress_pill", current: 2, total: 3 %>
+  <p class="text-xs text-body mb-4 text-center">
+    You're signed in. Turf Monster runs on Solana, so you need a wallet to enter
+    contests and collect winnings.
+  </p>
+
+  <%# === THE PHANTOM ROW ====================================================
+      Installed → Connect (links the wallet to this account). Not installed →
+      the install page, same row shape as the wallet-connect picker. %>
+  <template x-if="hasPhantom">
+    <button type="button" @click="connect()" :disabled="connecting"
+            class="w-full flex items-center gap-3 p-3 rounded-xl bg-surface-alt border border-strong hover:bg-surface transition text-left disabled:opacity-60 disabled:cursor-wait">
+      <img :src="phantomIcon || '/phantom-purple.png'" alt="" class="w-9 h-9 rounded-lg">
+      <span class="font-semibold text-heading">Phantom</span>
+      <span class="ml-auto flex items-center gap-2">
+        <span x-show="connecting" class="inline-flex items-center gap-1.5 text-xs text-secondary"><span class="cta-spinner" aria-hidden="true"></span>Connecting…</span>
+        <span x-show="!connecting" class="text-xs text-primary uppercase tracking-wide font-semibold">Connect</span>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-muted">
+          <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+        </svg>
+      </span>
+    </button>
+  </template>
+  <template x-if="!hasPhantom">
+    <a :href="installUrl" target="_blank" rel="noopener noreferrer"
+       class="w-full flex items-center gap-3 p-3 rounded-xl bg-surface-alt border border-strong hover:bg-surface transition no-underline">
+      <svg class="w-9 h-9" aria-hidden="true"><use href="#se-wallet-phantom"></use></svg>
+      <span class="font-semibold text-heading">Phantom</span>
+      <span class="ml-auto flex items-center gap-2">
+        <span class="text-xs text-muted uppercase tracking-wide">Install</span>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-muted">
+          <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+        </svg>
+      </span>
+    </a>
+  </template>
+
+  <%# Mobile has no extension to install — deep-link into the Phantom app. %>
+  <button x-show="isMobile" x-cloak type="button" @click="deepLink()"
+          class="mt-2 w-full flex items-center gap-3 p-3 rounded-xl bg-surface-alt border border-strong hover:bg-surface transition text-left">
+    <img src="/phantom-white.png" alt="" class="w-9 h-9 rounded-lg bg-violet p-1.5">
+    <span class="font-semibold text-heading">Open in Phantom app</span>
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="ml-auto w-4 h-4 text-muted">
+      <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+    </svg>
+  </button>
+
+  <template x-if="error">
+    <p class="text-red-400 text-sm mt-3 text-center" x-text="error"></p>
+  </template>
+
+  <%# === NEW TO SOLANA WALLETS? ============================================
+      The teaching half: what Phantom is, the two screens they will actually
+      see, and a link to the house guide that walks the whole thing. %>
+  <div class="mt-5 pt-4 border-t border-strong">
+    <h4 class="text-heading font-semibold text-sm mb-1.5">New to Solana Wallets?</h4>
+    <p class="text-xs text-body mb-3">
+      Phantom is a free browser extension that holds your USDC and signs your
+      entries — a bank card for the internet, where only you hold the keys.
+    </p>
+
+    <%# The two onboarding screens, side by side. grid (not flex) so both cells
+        stay equal width as the modal narrows; each image keeps its own aspect
+        ratio and the pair links to the guide. %>
+    <% guide_url = wallet_setup_guide_url %>
+    <% guide_target = wallet_setup_guide_external? ? "_blank" : nil %>
+    <% guide_rel = wallet_setup_guide_external? ? "noopener noreferrer" : nil %>
+    <div class="grid grid-cols-2 gap-2">
+      <a href="<%= guide_url %>" target="<%= guide_target %>" rel="<%= guide_rel %>" class="block no-underline group">
+        <img src="/phantom-step-download.png"
+             alt="The Phantom download page with the Chrome option highlighted"
+             class="w-full h-auto rounded-lg border border-strong group-hover:border-primary transition"
+             loading="lazy">
+        <span class="block text-center text-[11px] text-muted mt-1 leading-tight">1. Download for your browser</span>
+      </a>
+      <a href="<%= guide_url %>" target="<%= guide_target %>" rel="<%= guide_rel %>" class="block no-underline group">
+        <img src="/phantom-step-create-wallet.png"
+             alt="The Phantom welcome screen with Create a New Wallet highlighted"
+             class="w-full h-auto rounded-lg border border-strong group-hover:border-primary transition"
+             loading="lazy">
+        <span class="block text-center text-[11px] text-muted mt-1 leading-tight">2. Create a new wallet</span>
+      </a>
+    </div>
+
+    <%# CTA to the install guide — the house /getting-started page once that
+        task lands, Phantom's own guide until then (wallet_setup_guide_url). %>
+    <a href="<%= guide_url %>" target="<%= guide_target %>" rel="<%= guide_rel %>"
+       class="btn btn-neutral btn-sm w-full mt-3 gap-2 no-underline">
+      Read the setup guide
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
+        <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+      </svg>
+    </a>
+  </div>
+
+  <button type="button" @click="$store.modals.close()" :disabled="connecting"
+          class="mt-4 w-full text-center text-sm text-secondary hover:text-heading disabled:opacity-50">
+    Maybe later
+  </button>
+</div>

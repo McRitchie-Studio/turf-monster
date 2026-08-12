@@ -128,6 +128,10 @@ class MagicLinksController < ApplicationController
     reset_prior_session!
     user.claim_parked_username!
     set_app_session(user)
+    # Web3-only onboarding: a RETURNING web2 user is nudged to link Phantom
+    # unless their managed wallet still holds an entry's worth of USDC — those
+    # users are useable as-is (operator call) and see nothing new.
+    needs_wallet = record_wallet_setup_state!(user)
     # rescue_and_log because the session is already established above: a User
     # validation failing here would otherwise 500 a signed-in visitor with
     # nothing in ErrorLog to attribute it to.
@@ -136,7 +140,11 @@ class MagicLinksController < ApplicationController
     end
     # Returning login: a quiet "welcome back" toast — no celebratory modal and no
     # token upsell (they already have an account). Land on the contest they came
-    # from, else the featured contest.
+    # from, else the featured contest. When wallet setup is due, the toast is
+    # dropped: the setup modal (auto-opened from the session prompt) IS the
+    # message, and a toast underneath it would just talk over it.
+    return redirect_to landing_path_for(result) if needs_wallet
+
     redirect_to landing_path_for(result),
                 flash: { auth_toast: { title: "Welcome back", message: "Signed in as #{user.username}." } }
   end
@@ -165,16 +173,31 @@ class MagicLinksController < ApplicationController
       cookies.delete(:reference)
       user.update!(email_verified_at: Time.current)
       set_app_session(user)
+      # Web3-only onboarding: with no managed wallet minted at signup, this is
+      # ALWAYS true for a brand-new account while the flag is on. The wallet-
+      # setup modal replaces the entry-token upsell as the next step — the
+      # session prompt opens it wherever the user lands, so both branches below
+      # just skip the copy that would talk over it.
+      needs_wallet = record_wallet_setup_state!(user)
       if contest_return_to?(result)
         # New user landing on a SPECIFIC contest: confirm auth with a toast and
         # let the board's existing post-login flow open the get-entry-tokens
         # picker (a web2 magic-link user needs a token to play). No celebratory
         # modal here — the toast + tokens picker carry the moment.
-        redirect_to result.return_to,
-                    flash: { auth_toast: {
+        #
+        # Wallet setup pending: no toast promising an entry token, because a
+        # wallet-less account can't buy one. Land on the contest (picks intact)
+        # and let the setup modal carry the next step.
+        redirect_to result.return_to, **(needs_wallet ? {} : { flash: { auth_toast: {
                       title:   "You're signed in",
                       message: "Grab an entry token to lock in your picks."
-                    } }
+                    } } })
+      elsif needs_wallet
+        # New user via a GENERIC /signin with wallet setup due: land on the
+        # featured contest and let the setup modal be the whole moment. The
+        # celebratory welcome modal is skipped rather than stacked — two modals
+        # deep on the first render reads as a bug.
+        redirect_to landing_path_for(result)
       else
         # New user via a GENERIC /signin: celebratory welcome modal on the
         # featured contest (resolved live below), with a CTA that drops them onto
