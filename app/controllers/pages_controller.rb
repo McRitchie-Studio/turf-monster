@@ -29,4 +29,9 @@ class PagesController < ApplicationController
   # with self-exclusion + deposit-limit policy (manual fulfillment for now).
   def responsible_gaming
   end
+
+  # Web3 onboarding guide: Phantom install → recovery phrase → $25 MoonPay
+  # USDC purchase → first contest entry.
+  def getting_started
+  end
 end

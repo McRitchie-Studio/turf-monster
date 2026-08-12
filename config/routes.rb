@@ -76,6 +76,11 @@ Rails.application.routes.draw do
   get "responsible-gaming", to: "pages#responsible_gaming", as: :responsible_gaming
   get "state-eligibility",  to: "pages#state_eligibility",  as: :state_eligibility
 
+  # Web3 onboarding guide (NFL 2026): with web2 entry off, this is the public
+  # walkthrough early adopters follow — install Phantom, secure the recovery
+  # phrase, buy $25 of USDC through MoonPay inside Phantom, enter a contest.
+  get "getting-started", to: "pages#getting_started", as: :getting_started
+
   # Public proof-of-reserves — reads on-chain Contest PDAs and the shared
   # vault USDC token account from the browser via Solana RPC, then displays
   # them next to the Rails-reported figures.
