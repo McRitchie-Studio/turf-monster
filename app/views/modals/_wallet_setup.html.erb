@@ -32,9 +32,9 @@
        connecting: false,
        error: '',
        installUrl: 'https://phantom.com/download',
-       // Set when the user leaves for the install page. It is what turns the
-       // 'Installed it? Reload' hint on — see the INSTALL row below for why a
-       // reload is genuinely required and not just belt-and-braces.
+       // Set when the user leaves for the install page. It puts the row into its
+       // waiting state (spinner) and is the precondition for the one automatic
+       // reload on return — see init() for why a reload is unavoidable.
        installClicked: false,
        _onWake: null,
        _onRegister: null,
@@ -66,27 +66,43 @@
          this._onRegister = function() { if (!self.connecting) self.refresh(); };
          window.addEventListener('wallet-standard:register-wallet', this._onRegister);
 
-         var waited = 0;
+         // The ping. Free (available() is an array copy), so it runs for as long
+         // as the row has no wallet to show and stops the moment it does. It
+         // covers every case where the provider CAN appear without a reload:
+         // registration landing late, a locked extension waking up, a wallet
+         // installed in a tab opened after this one.
          this._poll = setInterval(function() {
-           waited += 250;
-           if (!self.connecting) self.refresh();
-           // Stop as soon as we have an answer, or after ~6s — long enough to
-           // cover a cold extension wake-up, short enough to be free.
-           if (self.wallets.length > 0 || waited >= 6000) self._stopPoll();
-         }, 250);
+           if (self.connecting) return;
+           self.refresh();
+           if (self.wallets.length > 0) self._stopPoll();
+         }, 1000);
 
-         // Re-read when the user comes BACK to this tab. Installing Phantom is
-         // a trip to another tab that takes minutes (download, create wallet,
-         // write down the recovery phrase), and this modal was reading the
-         // wallet list exactly twice, inside the first 300ms. So the row sat on
-         // INSTALL forever and the user had no way to reach Connect.
+         // ...and the half the ping CANNOT do. Chrome injects an extension's
+         // content script only into pages loaded AFTER the install, and Phantom
+         // registers from that script. So in THIS tab — open since before the
+         // install — there is nothing for any amount of polling to find. That is
+         // why every wallet doc says refresh after installing.
          //
-         // This alone is not always enough: Chrome does not inject a
-         // newly-installed extension into pages that were ALREADY open, so a
-         // tab loaded before the install has no provider to find and needs a
-         // reload. It IS enough for the cases that do not need one — Phantom
-         // installed but locked, or registered late — and it costs one listener.
-         this._onWake = function() { if (!document.hidden && !self.connecting) self.refresh(); };
+         // Rather than tell the user to reload, do it FOR them, at the one moment
+         // it is invisible: they clicked Install, left for another tab, and have
+         // just come back. Guarded so it happens at most once (no focus loop),
+         // only after they actually left to install, and only while the row still
+         // has nothing — if the ping already found the wallet, no reload happens.
+         //
+         // What survives it: the session (a cookie), a staged lineup (saved to
+         // localStorage before this modal opens), and the modal itself, which
+         // re-opens via the sessionStorage key the layout reads on load.
+         this._onWake = function() {
+           if (document.hidden || self.connecting) return;
+           self.refresh();
+           if (self.wallets.length > 0 || !self.installClicked) return;
+           try {
+             if (sessionStorage.getItem('walletSetupAutoReloaded') === '1') return;
+             sessionStorage.setItem('walletSetupAutoReloaded', '1');
+             sessionStorage.setItem('walletSetupReopen', '1');
+           } catch (e) { return; } // storage blocked — leave the user in place
+           window.location.reload();
+         };
          document.addEventListener('visibilitychange', this._onWake);
          window.addEventListener('focus', this._onWake);
        },
@@ -191,51 +207,45 @@
         <span class="font-semibold text-heading">Phantom</span>
         <span class="ml-auto flex items-center gap-2">
           <span x-show="connecting" class="inline-flex items-center gap-1.5 text-xs text-secondary"><span class="cta-spinner" aria-hidden="true"></span>Connecting…</span>
-          <span x-show="!connecting" class="text-xs text-primary uppercase tracking-wide font-semibold">Connect</span>
+          <%# Detected: the same green Installed badge the wallet-connect picker
+              uses, so a detected wallet reads identically in both places. The
+              row is the button — chevron + hover carry the click affordance. %>
+          <span x-show="!connecting" class="badge border-primary text-primary">Installed</span>
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-muted">
             <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
           </svg>
         </span>
       </button>
       <p class="text-[11px] text-muted mt-1.5 px-1">
-        Phantom will ask you to sign a message to prove the wallet is yours. It
-        does not move any funds.
+        Click to connect. Phantom will ask you to sign a message proving the
+        wallet is yours — it does not move any funds.
       </p>
     </div>
   </template>
   <template x-if="!hasPhantom">
     <div>
+      <%# Not installed. Once the user leaves for the install page, a spinner
+          appears LEFT of the label: the row is now actively watching for Phantom
+          (the 1s ping) and will flip itself to the green Installed badge the
+          moment it appears — no instruction to follow, no button to press. The
+          row stays a link so a user who closed the install tab can re-open it. %>
       <a :href="installUrl" target="_blank" rel="noopener noreferrer"
          @click="installClicked = true"
          class="w-full flex items-center gap-3 p-3 rounded-xl bg-surface-alt border border-strong hover:bg-surface transition no-underline">
         <svg class="w-9 h-9" aria-hidden="true"><use href="#se-wallet-phantom"></use></svg>
         <span class="font-semibold text-heading">Phantom</span>
         <span class="ml-auto flex items-center gap-2">
-          <span class="text-xs text-muted uppercase tracking-wide">Install</span>
+          <span x-show="installClicked" class="cta-spinner" aria-hidden="true"></span>
+          <span class="text-xs text-muted uppercase tracking-wide"
+                x-text="installClicked ? 'Waiting…' : 'Install'"></span>
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-muted">
             <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
           </svg>
         </span>
       </a>
-
-      <%# THE STEP THAT WAS MISSING — how a user gets from "installed" to
-          "connected". Chrome does not inject a newly-installed extension into
-          tabs that were already open, so this tab cannot see Phantom until it
-          reloads: without this the row reads INSTALL forever and the flow dead
-          ends one step short of the wallet. Shown once they have actually left
-          for the install page, so a first-time reader is not told to reload
-          something they have not done yet. The session survives the reload
-          (it is a cookie) and so does a staged lineup (saved before the modal
-          opens), so this costs the user nothing. %>
-      <template x-if="installClicked">
-        <div class="mt-2 flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-surface border border-strong">
-          <span class="text-xs text-body">Installed it? Reload to connect.</span>
-          <button type="button" @click="window.location.reload()"
-                  class="text-xs font-semibold text-primary hover:underline whitespace-nowrap">
-            Reload page
-          </button>
-        </div>
-      </template>
+      <p x-show="installClicked" x-cloak class="text-[11px] text-muted mt-1.5 px-1">
+        Waiting for Phantom — this updates on its own once it's installed.
+      </p>
     </div>
   </template>
 

@@ -57,6 +57,8 @@ test("a fresh email signup lands on the wallet-setup modal @smoke", async ({ pag
   await expect(phantomRow).toBeVisible();
   await expect(phantomRow).toContainText("Phantom");
   await expect(phantomRow).toContainText(/install/i);
+  // Not waiting yet — the spinner only appears once they leave to install.
+  await expect(phantomRow.locator(".cta-spinner")).toBeHidden();
 
   // The teaching block: heading, both screenshots side by side, and the CTA.
   await expect(page.getByText("New to Solana Wallets?")).toBeVisible();
@@ -124,8 +126,9 @@ test("the entry gate brings the wallet-setup modal back", async ({ page }) => {
 });
 
 // The point of the whole modal: the INSTALL row is the easy branch, and it was
-// the only one a headless browser could reach (no wallet is injected). These two
-// cover the branch that actually finishes the job.
+// the only one a headless browser could reach (no wallet is injected). The specs
+// below cover the branch that actually finishes the job.
+//
 // seedByte 1 (setupPhantomMock's default) is MOCK_PUBKEY_B58 — the wallet
 // e2e/global-setup.js parks on the seeded ADMIN so loginViaPhantom resolves to
 // them. Linking it to a fresh account is not a no-op: AccountsController
@@ -135,15 +138,54 @@ test("the entry gate brings the wallet-setup modal back", async ({ page }) => {
 // NEW user must therefore bring a wallet nobody owns.
 const UNOWNED_WALLET_SEED = 7;
 
-test("with Phantom present the row offers Connect and says what signing does", async ({ page }) => {
+test("with Phantom present the row shows Installed and says what signing does", async ({ page }) => {
   await setupPhantomMock(page, { seedByte: UNOWNED_WALLET_SEED });
   await signUpFreshEmail(page);
 
   await expect(page.getByRole("heading", { name: "Set up your wallet" })).toBeVisible();
-  await expect(page.getByText("Connect", { exact: true })).toBeVisible();
-  await expect(page.getByText(/sign a message to prove the wallet is yours/i)).toBeVisible();
+  await expect(page.getByText("Installed", { exact: true })).toBeVisible();
+  // Fragment kept inside one source line — the copy wraps in the ERB, so a
+  // regex spanning the wrap would depend on how whitespace survives rendering.
+  await expect(page.getByText(/sign a message proving/i)).toBeVisible();
   // The install link is the OTHER branch — it must not be showing.
   await expect(page.locator('a[href="https://phantom.com/download"]')).toBeHidden();
+});
+
+test("leaving to install puts the row in a waiting state that resolves itself", async ({ page }) => {
+  // The operator's design: no instruction to follow. Clicking Install arms a
+  // spinner, and the row updates on its own — via the 1s ping when the provider
+  // can appear without a reload, and via ONE automatic reload when it cannot
+  // (Chrome does not inject a new extension into an already-open tab).
+  await signUpFreshEmail(page);
+  const row = page.locator('a[href="https://phantom.com/download"]');
+  await expect(row).toBeVisible();
+
+  const [installTab] = await Promise.all([
+    page.context().waitForEvent("page").catch(() => null),
+    row.click(),
+  ]);
+  if (installTab) await installTab.close().catch(() => {});
+
+  // Waiting state: spinner + Waiting…, and NO instruction to press anything.
+  await expect(row.locator(".cta-spinner")).toBeVisible();
+  await expect(row).toContainText(/waiting/i);
+  await expect(page.getByText(/updates on its own/i)).toBeVisible();
+  await expect(page.getByText("Reload page")).toBeHidden();
+
+  // Coming back to the tab triggers the single automatic reload, and the modal
+  // has to survive it — the server-side prompt was spent on the first render, so
+  // the reopen rides sessionStorage.
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await page.waitForLoadState("load");
+  await expect(page.getByRole("heading", { name: "Set up your wallet" })).toBeVisible({
+    timeout: 15000,
+  });
+
+  // And it reloads AT MOST once — a focus loop must not reload forever.
+  const reloadedFlag = await page.evaluate(() => sessionStorage.getItem("walletSetupAutoReloaded"));
+  expect(reloadedFlag).toBe("1");
+  const reopenFlag = await page.evaluate(() => sessionStorage.getItem("walletSetupReopen"));
+  expect(reopenFlag).toBeNull(); // consumed by the layout on load
 });
 
 test("a wallet that registers AFTER the modal opens still flips to Connect", async ({ page }) => {
@@ -180,8 +222,8 @@ test("a wallet that registers AFTER the modal opens still flips to Connect", asy
     );
   });
 
-  // No reload, no click: the row must notice on its own.
-  await expect(page.getByText("Connect", { exact: true })).toBeVisible({ timeout: 10000 });
+  // No reload, no click: the row must notice on its own and flip to Installed.
+  await expect(page.getByText("Installed", { exact: true })).toBeVisible({ timeout: 10000 });
   await expect(page.locator('a[href="https://phantom.com/download"]')).toBeHidden();
 });
 
@@ -192,7 +234,7 @@ test("Connect links the wallet to the signed-in account and clears the gate", as
 
   // Real Ed25519 signing (phantom-mock) through the real SIWS round trip, so
   // the server's verify_solana_signature! + /account/link_solana run unstubbed.
-  await page.getByText("Connect", { exact: true }).click();
+  await page.getByText("Installed", { exact: true }).click();
 
   // A successful link reloads back to where the user was — the returnUrl the
   // modal was opened with — NOT /account.

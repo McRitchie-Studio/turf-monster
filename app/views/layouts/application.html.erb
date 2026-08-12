@@ -879,7 +879,16 @@
         function openWalletSetup() {
           if (fired) return;
           var el = document.getElementById('wallet-setup-prompt-data');
-          if (!el) return;
+          // The modal reloads the page ITSELF when the user comes back from
+          // installing Phantom (Chrome only injects a new extension into pages
+          // loaded after the install, so the open tab can never see it). The
+          // server-side prompt is one-shot and was already spent on the first
+          // render, so without this key that reload would drop the user on a bare
+          // page mid-flow — the reload has to carry the modal with it.
+          var reopen = null;
+          try { reopen = sessionStorage.getItem('walletSetupReopen'); } catch (e) {}
+          if (!el && reopen !== '1') return;
+          try { sessionStorage.removeItem('walletSetupReopen'); } catch (e) {}
           var attempts = 0;
           (function tryOpen() {
             var m = (window.Alpine && Alpine.store) ? Alpine.store('modals') : null;
@@ -887,8 +896,10 @@
               fired = true;
               m.open('wallet-setup', { returnUrl: window.location.href });
               // Drop the one-shot marker so a later turbo:load (bfcache restore,
-              // re-navigation) can't replay it.
-              el.remove();
+              // re-navigation) can't replay it. Null on the post-reload reopen
+              // path, which has no marker tag — the sessionStorage key was
+              // already cleared above, so that path is one-shot too.
+              if (el) el.remove();
               return;
             }
             if (attempts++ < 50) setTimeout(tryOpen, 50); // up to ~2.5s for Alpine boot

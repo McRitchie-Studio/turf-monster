@@ -49,26 +49,49 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "#se-wallet-phantom"
   end
 
-  test "wallet-setup preview ships the post-install reload path and the signing line" do
-    # The step the first cut was missing: Chrome does not inject a
-    # newly-installed extension into an already-open tab, so without a reload
-    # affordance the INSTALL row is a dead end — it reads INSTALL forever and the
-    # user never reaches Connect.
+  test "wallet-setup preview ships the self-updating install row" do
+    # The install row has to carry the user to a wallet with no instruction to
+    # follow: a spinner while it waits, then it flips itself to the Installed
+    # badge. Two mechanisms behind that, because neither is sufficient alone —
+    # the ping catches every case where the provider CAN appear without a reload,
+    # and the automatic reload covers the case where it cannot (Chrome does not
+    # inject a newly-installed extension into an already-open tab).
     log_in_as users(:alex)
     get admin_modal_preview_path(modal_id: "wallet-setup")
     assert_response :success
 
-    assert_includes response.body, "installClicked = true",
-                    "leaving for the install page must arm the reload hint"
-    assert_includes response.body, "Installed it? Reload to connect."
-    assert_includes response.body, "window.location.reload()"
-    # Coming back to the tab re-reads the wallet list (covers install-but-locked
-    # and late Wallet-Standard registration without a reload).
+    # Spinner + Waiting…, armed by leaving for the install page.
+    assert_includes response.body, "installClicked = true"
+    assert_includes response.body, "installClicked ? 'Waiting…' : 'Install'"
+    assert_includes response.body, "cta-spinner"
+    assert_includes response.body, "updates on its own"
+    # The ping.
+    assert_includes response.body, "self._stopPoll()"
+    # The automatic reload, and its guards: only after they left to install, and
+    # at most once (or a focus loop reloads the page forever).
+    assert_includes response.body, "walletSetupAutoReloaded"
+    assert_includes response.body, "walletSetupReopen"
     assert_includes response.body, "visibilitychange"
-    # And the listeners are torn down, so reopening the modal can't stack them.
+    # Listeners torn down, so reopening the modal can't stack them.
     assert_includes response.body, "removeEventListener"
+    # Detected state uses the same green badge as the wallet-connect picker.
+    assert_includes response.body, "badge border-primary text-primary"
     # What Connect actually does, for someone who just met Phantom.
-    assert_includes response.body, "sign a message to prove the wallet is yours"
+    assert_includes response.body, "sign a message proving the"
+    # The instruction the operator rejected must be gone.
+    assert_not_includes response.body, "Reload page"
+    assert_not_includes response.body, "Installed it?"
+  end
+
+  test "the post-reload reopen path is wired in the layout" do
+    # The modal reloads the page itself; the server-side prompt is one-shot and
+    # already spent, so the reload must carry the modal with it or the user lands
+    # on a bare page mid-flow.
+    layout = Rails.root.join("app/views/layouts/application.html.erb").read
+    assert_includes layout, "walletSetupReopen",
+                    "the layout must reopen the modal after the modal's own reload"
+    assert_match(/if \(el\) el\.remove\(\)/, layout,
+                 "the reopen path has no marker tag — removing it unguarded would throw")
   end
 
   test "wallet-setup preview renders the teaching block with both screenshots" do
