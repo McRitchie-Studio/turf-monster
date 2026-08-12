@@ -68,4 +68,19 @@ class AppFlagsTest < ActiveSupport::TestCase
     with_env("1", var: "ENABLE_WEB2_USDC_ENTRY")     { assert AppFlags.web2_usdc_entry? }
     with_env("", var: "ENABLE_WEB2_USDC_ENTRY")      { assert AppFlags.web2_usdc_entry? }
   end
+
+  test "web3_only_onboarding? defaults OFF when unset (opt-in)" do
+    # Merging the feature must change nothing until the operator flips the env
+    # var on the QA / production apps.
+    with_env(nil, var: "ENABLE_WEB3_ONLY_ONBOARDING") { assert_not AppFlags.web3_only_onboarding? }
+  end
+
+  test "web3_only_onboarding? is true only for a 'true' value" do
+    with_env("true",   var: "ENABLE_WEB3_ONLY_ONBOARDING") { assert AppFlags.web3_only_onboarding? }
+    with_env("TRUE",   var: "ENABLE_WEB3_ONLY_ONBOARDING") { assert AppFlags.web3_only_onboarding? }
+    with_env(" true ", var: "ENABLE_WEB3_ONLY_ONBOARDING") { assert AppFlags.web3_only_onboarding? }
+    with_env("false",  var: "ENABLE_WEB3_ONLY_ONBOARDING") { assert_not AppFlags.web3_only_onboarding? }
+    with_env("1",      var: "ENABLE_WEB3_ONLY_ONBOARDING") { assert_not AppFlags.web3_only_onboarding? }
+    with_env("",       var: "ENABLE_WEB3_ONLY_ONBOARDING") { assert_not AppFlags.web3_only_onboarding? }
+  end
 end

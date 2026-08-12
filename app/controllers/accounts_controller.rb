@@ -258,10 +258,14 @@ class AccountsController < ApplicationController
       existing = User.from_solana_wallet(pubkey_b58)
       if existing && existing.id != current_user.id
         merge_users!(survivor: current_user, absorbed: existing)
+        # The account now holds a web3 wallet — the wallet-setup nudge is
+        # satisfied, so drop it in the same breath as the link.
+        clear_wallet_setup_state!
         return render json: { success: true, redirect: account_path, notice: "Accounts merged." }
       end
 
       current_user.update!(web3_solana_address: pubkey_b58)
+      clear_wallet_setup_state!
       render json: { success: true, redirect: account_path }
     end
   rescue Solana::AuthVerifier::VerificationError => e

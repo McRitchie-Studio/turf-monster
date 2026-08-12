@@ -121,6 +121,22 @@ async function createActiveEntry(page, contestSlug) {
 }
 
 /**
+ * Give the signed-in user a managed (custodial) wallet — a GRANDFATHERED web2
+ * user (TestController#grant_managed_wallet).
+ *
+ * Web3-only onboarding (ENABLE_WEB3_ONLY_ONBOARDING) stopped signup from
+ * minting one, so a spec about the managed-wallet path has to ask for it
+ * explicitly rather than inherit it from signing up.
+ */
+async function grantManagedWallet(page) {
+  const res = await page.request.post("/test/grant_managed_wallet");
+  if (!res.ok()) {
+    throw new Error(`grant_managed_wallet failed: ${res.status()} ${await res.text()}`);
+  }
+  return res.json();
+}
+
+/**
  * Stage the current user's quest ladder position (TestController#set_quest_state)
  * so a spec can land on a given quest_step / next_quest without driving the
  * on-chain username + chat quests first. Pass any of:
@@ -207,6 +223,7 @@ module.exports = {
   loginViaPhantom,
   reseed,
   createActiveEntry,
+  grantManagedWallet,
   setQuestState,
   stubQuestEndpoints,
   setupPhantomMock,
