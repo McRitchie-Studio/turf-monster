@@ -56,6 +56,32 @@ class PagesControllerTest < ActionDispatch::IntegrationTest
     assert_match(/close your account/i, response.body)
   end
 
+  # ── web3 onboarding guide ─────────────────────────────────────────────────
+
+  test "getting started guide renders without auth with all five steps" do
+    get getting_started_path
+    assert_response :success
+    assert_select "h1", "Getting Started"
+    # The five steps, in order: Phantom → wallet → account → USDC → entry.
+    assert_select "h2", /Download Phantom/
+    assert_select "h2", /Create a new wallet/
+    assert_select "h2", /Create your account/
+    assert_select "h2", /Buy \$25 of USDC/
+    assert_select "h2", /Sign in and enter a contest/
+    # Official download link only — the guide must never point at a mirror.
+    assert_select "a[href=?]", "https://phantom.com/download"
+    # The operator's annotated walkthrough screenshots, one per setup beat.
+    assert_select "section figure img[src*=?]", "guide/", minimum: 7
+    # The fee expectation the operator verified: $25 purchase ≈ $20 after MoonPay fees.
+    assert_match "MoonPay", response.body
+    assert_match(/\$20 of USDC/, response.body)
+    # Safety commitments: nobody asks for credentials; funnel into the app.
+    assert_match(/never Turf Totals/i, response.body)
+    assert_select "a[href=?]", signin_path
+    assert_select "a[href=?]", proof_of_reserves_path
+    assert_select "a[href=?]", responsible_gaming_path
+  end
+
   test "state eligibility page renders the enforced GeoSetting list" do
     get state_eligibility_path
     assert_response :success
