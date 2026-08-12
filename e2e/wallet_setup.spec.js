@@ -146,6 +146,45 @@ test("with Phantom present the row offers Connect and says what signing does", a
   await expect(page.locator('a[href="https://phantom.com/download"]')).toBeHidden();
 });
 
+test("a wallet that registers AFTER the modal opens still flips to Connect", async ({ page }) => {
+  // The bug this pins down: walletProvider.available() is documented "CALL AT
+  // CLICK TIME — the list fills in asynchronously as wallets register after
+  // module load". This modal auto-opens at page load, mid-handshake, so a single
+  // early read is a coin flip — an installed Phantom painted INSTALL and the user
+  // was told to install what they already had.
+  //
+  // Reproduced by registering a wallet a full second AFTER the modal is up, which
+  // is later than any single early read could ever catch.
+  await signUpFreshEmail(page);
+  await expect(page.getByRole("heading", { name: "Set up your wallet" })).toBeVisible();
+  await expect(page.locator('a[href="https://phantom.com/download"]')).toBeVisible();
+
+  await page.waitForTimeout(1000);
+  await page.evaluate(() => {
+    // A minimal Wallet-Standard wallet with the two features the SIWS flow
+    // requires, announced the way a late wallet announces itself.
+    const wallet = {
+      name: "Phantom",
+      icon: "data:image/svg+xml;base64,",
+      chains: ["solana:mainnet"],
+      accounts: [],
+      features: {
+        "standard:connect": { version: "1.0.0", connect: async () => ({ accounts: [] }) },
+        "solana:signMessage": { version: "1.0.0", signMessage: async () => [] },
+      },
+    };
+    window.dispatchEvent(
+      new CustomEvent("wallet-standard:register-wallet", {
+        detail: (api) => api.register(wallet),
+      })
+    );
+  });
+
+  // No reload, no click: the row must notice on its own.
+  await expect(page.getByText("Connect", { exact: true })).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('a[href="https://phantom.com/download"]')).toBeHidden();
+});
+
 test("Connect links the wallet to the signed-in account and clears the gate", async ({ page }) => {
   await setupPhantomMock(page, { seedByte: UNOWNED_WALLET_SEED });
   await signUpFreshEmail(page);

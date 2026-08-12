@@ -7,6 +7,27 @@ require "test_helper"
 # three things the operator specified — the Phantom row, the "New to Solana
 # Wallets?" teaching block with both screenshots side by side, and the guide CTA.
 class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
+  # The failure mode no other assertion in this file can see.
+  #
+  # The modal's x-data is a DOUBLE-QUOTED HTML attribute. One double-quote
+  # character inside it — trivially easy to type in a code comment — closes the
+  # attribute early, and Alpine then mounts the whole component as a silent
+  # no-op: the markup still renders, so every `assert_includes response.body`
+  # below still PASSES while the modal is dead in a real browser. It regressed
+  # the auth modal once (PR #30) and it regressed this one during development;
+  # both times only a browser caught it.
+  #
+  # This reads the source rather than the response because that is where the
+  # defect lives, and it is the cheapest place to fail loudly.
+  test "the wallet-setup x-data attribute contains no double quotes" do
+    source = Rails.root.join("app/views/modals/_wallet_setup.html.erb").read
+    x_data = source[/<div x-data="(.*?)"\s*\n\s*class=/m, 1]
+    assert x_data.present?, "could not locate the x-data attribute — did the root element change?"
+    assert_not_includes x_data, '"',
+                        "a double quote inside the double-quoted x-data closes it early and " \
+                        "silently kills the modal in the browser (markup assertions won't catch it)"
+  end
+
   test "admin modal gallery lists the wallet-setup variant" do
     log_in_as users(:alex)
     get admin_modals_path

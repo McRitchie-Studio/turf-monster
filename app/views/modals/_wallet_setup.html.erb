@@ -37,13 +37,43 @@
        // reload is genuinely required and not just belt-and-braces.
        installClicked: false,
        _onWake: null,
+       _onRegister: null,
+       _poll: null,
        init() {
-         this.refresh();
-         // Wallet Standard registration can land a tick after the module
-         // loads — re-read once so a just-installed Phantom still shows as
-         // Connect rather than Install.
          var self = this;
-         setTimeout(function() { if (!self.connecting) self.refresh(); }, 300);
+         this.refresh();
+
+         // WHY THIS POLLS. walletProvider.available() carries an explicit
+         // warning in wallet_provider.js -- CALL AT CLICK TIME, because the list
+         // fills in asynchronously as wallets register after module load, so
+         // reading it during x-data init returns an empty list. Every other
+         // consumer honours that by being opened BY a click, late in page life. This modal
+         // AUTO-OPENS on the render right after auth — the worst possible moment,
+         // mid-handshake — so a single early read is a coin flip: an installed
+         // Phantom paints INSTALL, and the user is told to install what they
+         // already have, with no way to reach Connect.
+         //
+         // There is no wallet-registered notification to subscribe to: a wallet
+         // that answers our app-ready broadcast just calls register() directly,
+         // dispatching nothing. So we listen to the one event that does exist AND
+         // poll until the list fills, whichever lands first.
+         //
+         // NOTE FOR THE NEXT EDITOR: this comment block lives inside a
+         // DOUBLE-QUOTED HTML attribute. A single double-quote character
+         // anywhere in here closes it and the whole modal mounts as a silent
+         // no-op -- it renders, string assertions still pass, and only a browser
+         // notices. That is how this very block broke once; keep it quote-free.
+         this._onRegister = function() { if (!self.connecting) self.refresh(); };
+         window.addEventListener('wallet-standard:register-wallet', this._onRegister);
+
+         var waited = 0;
+         this._poll = setInterval(function() {
+           waited += 250;
+           if (!self.connecting) self.refresh();
+           // Stop as soon as we have an answer, or after ~6s — long enough to
+           // cover a cold extension wake-up, short enough to be free.
+           if (self.wallets.length > 0 || waited >= 6000) self._stopPoll();
+         }, 250);
 
          // Re-read when the user comes BACK to this tab. Installing Phantom is
          // a trip to another tab that takes minutes (download, create wallet,
@@ -60,11 +90,22 @@
          document.addEventListener('visibilitychange', this._onWake);
          window.addEventListener('focus', this._onWake);
        },
+       _stopPoll() {
+         if (!this._poll) return;
+         clearInterval(this._poll);
+         this._poll = null;
+       },
        destroy() {
-         if (!this._onWake) return;
-         document.removeEventListener('visibilitychange', this._onWake);
-         window.removeEventListener('focus', this._onWake);
-         this._onWake = null;
+         this._stopPoll();
+         if (this._onRegister) {
+           window.removeEventListener('wallet-standard:register-wallet', this._onRegister);
+           this._onRegister = null;
+         }
+         if (this._onWake) {
+           document.removeEventListener('visibilitychange', this._onWake);
+           window.removeEventListener('focus', this._onWake);
+           this._onWake = null;
+         }
        },
        refresh() {
          this.wallets = (window.walletProvider && window.walletProvider.available && window.walletProvider.available()) || [];
