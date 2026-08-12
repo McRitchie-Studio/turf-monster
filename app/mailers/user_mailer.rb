@@ -12,7 +12,7 @@ class UserMailer < ApplicationMailer
     @user = user
     @contest = contest
     @verify_url = email_verifications_verify_url(token: token)
-    @banner_url = email_banner_url("verify-banner.png")
+    @banner_url = Studio::EmailCatalog.resolved_url(:email_verification)
     @banner_alt = "Verify Your Email"
     mail(to: user.email, subject: "Verify your Turf Monster email")
   end
@@ -27,7 +27,7 @@ class UserMailer < ApplicationMailer
     @magic_url = link_url(token: token) # unified /l/<token> (Studio::LinksController)
     # Admin-managed banner (Studio::EmailImage) with the versioned asset as the
     # fallback until an operator uploads one. Manage at /admin/email_images.
-    @banner_url = Studio::EmailImage.url(:magic_link) || email_banner_url("magic-link-banner.jpg")
+    @banner_url = Studio::EmailCatalog.resolved_url(:magic_link)
     @banner_alt = "Your Magic Link"
     mail(to: email, subject: "🐊🪄 Turf Totals Sign-in Link")
   end
@@ -39,7 +39,7 @@ class UserMailer < ApplicationMailer
     @user = user
     @export_url = url_for(controller: "wallet_exports", action: "show", token: token, only_path: false)
     @support_email = "alex@turfmonster.media"
-    @banner_url = email_banner_url("wallet-export-banner.png")
+    @banner_url = Studio::EmailCatalog.resolved_url(:wallet_export)
     @banner_alt = "Your Wallet Keys"
     mail(to: user.email, subject: "Your Turf Monster wallet export link")
   end
@@ -53,7 +53,7 @@ class UserMailer < ApplicationMailer
     @old_email = old_email
     @new_email = new_email
     @account_url = account_url
-    @banner_url = email_banner_url("email-change-notify-banner.png")
+    @banner_url = Studio::EmailCatalog.resolved_url(:email_change_notification)
     @banner_alt = "Heads Up"
     mail(to: old_email, subject: "Your Turf Monster email was changed")
   end
@@ -68,7 +68,7 @@ class UserMailer < ApplicationMailer
     @current_email = current_email
     @new_email = new_email
     @confirm_url = confirm_email_change_url(token)
-    @banner_url = email_banner_url("email-change-confirm-banner.png")
+    @banner_url = Studio::EmailCatalog.resolved_url(:email_change_confirmation)
     @banner_alt = "Confirm Your Email"
     mail(to: current_email, subject: "Confirm your Turf Monster email change")
   end

@@ -387,11 +387,10 @@ Rails.application.routes.draw do
     # User browser — refer chain, invitees count, audit columns. Read-only.
     resources :users, only: [:index]
 
-    # Email manager — every email the app sends, typed (transactional/marketing)
-    # with a live preview. See Admin::EmailsController + EmailCatalog.
-    get "emails",          to: "emails#index", as: :emails
-    get "emails/:key/raw", to: "emails#raw",   as: :raw_email
-    get "emails/:key",     to: "emails#show",  as: :email
+    # Email manager lives in studio-engine now — /admin/emails is drawn by
+    # Studio.routes (config.draw_admin_emails_routes). These three routes owned
+    # the admin_emails / admin_email helper NAMES, which is what made the engine
+    # page opt-in; removing them hands the names over.
 
     # OPSEC-046: admin "act as user" impersonation. POST enters (target by
     # slug), DELETE returns to the admin account. See Admin::ImpersonationsController.
