@@ -76,6 +76,11 @@ Rails.application.routes.draw do
   get "responsible-gaming", to: "pages#responsible_gaming", as: :responsible_gaming
   get "state-eligibility",  to: "pages#state_eligibility",  as: :state_eligibility
 
+  # Web3 onboarding guide (NFL 2026): with web2 entry off, this is the public
+  # walkthrough early adopters follow — install Phantom, secure the recovery
+  # phrase, buy $25 of USDC through MoonPay inside Phantom, enter a contest.
+  get "getting-started", to: "pages#getting_started", as: :getting_started
+
   # Public proof-of-reserves — reads on-chain Contest PDAs and the shared
   # vault USDC token account from the browser via Solana RPC, then displays
   # them next to the Rails-reported figures.
@@ -382,11 +387,10 @@ Rails.application.routes.draw do
     # User browser — refer chain, invitees count, audit columns. Read-only.
     resources :users, only: [:index]
 
-    # Email manager — every email the app sends, typed (transactional/marketing)
-    # with a live preview. See Admin::EmailsController + EmailCatalog.
-    get "emails",          to: "emails#index", as: :emails
-    get "emails/:key/raw", to: "emails#raw",   as: :raw_email
-    get "emails/:key",     to: "emails#show",  as: :email
+    # Email manager lives in studio-engine now — /admin/emails is drawn by
+    # Studio.routes (config.draw_admin_emails_routes). These three routes owned
+    # the admin_emails / admin_email helper NAMES, which is what made the engine
+    # page opt-in; removing them hands the names over.
 
     # OPSEC-046: admin "act as user" impersonation. POST enters (target by
     # slug), DELETE returns to the admin account. See Admin::ImpersonationsController.

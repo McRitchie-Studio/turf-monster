@@ -1,0 +1,207 @@
+<% content_for :title, "Getting Started — Turf Totals" %>
+<% content_for :meta_description, "Enter your first Turf Totals contest in about ten minutes: download Phantom, create your account, buy $25 of USDC with Apple Pay or a debit card, and play." %>
+
+<div class="max-w-3xl mx-auto py-10 px-2 space-y-12">
+  <header>
+    <h1 class="text-4xl font-extrabold text-heading mb-2">Getting Started</h1>
+    <p class="text-secondary text-sm">
+      Your first contest entry, start to finish, in about ten minutes &mdash; no crypto experience required.
+    </p>
+  </header>
+
+  <%# At-a-glance overview of the five steps below. %>
+  <section aria-label="Overview">
+    <ol class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <% [["1", "Get Phantom", "1 min"],
+          ["2", "Create a wallet", "1 min"],
+          ["3", "Create your account", "2 min"],
+          ["4", "Buy $25 of USDC", "3 min"],
+          ["5", "Enter a contest", "3 min"]].each do |number, label, minutes| %>
+        <li class="card p-4 text-center space-y-1">
+          <span class="mx-auto flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary font-bold"><%= number %></span>
+          <p class="text-body font-semibold text-sm leading-tight"><%= label %></p>
+          <p class="text-secondary text-xs"><%= minutes %></p>
+        </li>
+      <% end %>
+    </ol>
+  </section>
+
+  <section class="space-y-4">
+    <h2 class="text-2xl font-bold text-heading">Step 1 &mdash; Download Phantom</h2>
+    <p class="text-body leading-relaxed">
+      Phantom is a free crypto wallet used by millions of people. It holds your money on your
+      own device &mdash; not on our servers, and not on an exchange. You will use it twice:
+      once to buy your entry money, and once to approve your contest entry.
+    </p>
+    <p class="text-body leading-relaxed">
+      Get it from the official site only:
+      <a href="https://phantom.com/download" target="_blank" rel="noopener" class="text-primary hover:underline">phantom.com/download</a>.
+      Pick your browser &mdash; Chrome is shown below &mdash; and add the extension from the
+      official listing. On a phone, the same page routes you to the App Store or Google Play,
+      and every step below looks the same in the app.
+    </p>
+    <div class="grid sm:grid-cols-2 gap-4">
+      <%= render "pages/guide_figure",
+            image: "01-download-phantom.png",
+            alt: "Phantom download page with browser choices and Chrome highlighted",
+            caption: "phantom.com/download — pick your browser" %>
+      <%= render "pages/guide_figure",
+            image: "02-add-to-chrome.png",
+            alt: "Phantom on the Chrome Web Store with the Add to Chrome button highlighted",
+            caption: "Add to Chrome from the official listing" %>
+    </div>
+  </section>
+
+  <section class="space-y-4">
+    <h2 class="text-2xl font-bold text-heading">Step 2 &mdash; Create a new wallet</h2>
+    <p class="text-body leading-relaxed">
+      When the extension opens, choose <strong>Create a New Wallet</strong>, then
+      <strong>Continue with Email</strong>. Your wallet is created from your email or
+      Google/Apple account and stored securely across multiple factors &mdash; if you ever lose
+      this computer, you recover it with that account and a 4-digit PIN. There are no seed
+      phrases to copy down on this path, and nothing to lose.
+    </p>
+    <div class="grid sm:grid-cols-2 gap-4">
+      <%= render "pages/guide_figure",
+            image: "03-create-new-wallet.png",
+            alt: "Phantom setup screen with the Create a New Wallet button highlighted",
+            caption: "Choose Create a New Wallet" %>
+      <%= render "pages/guide_figure",
+            image: "04-continue-with-email.png",
+            alt: "Create a Wallet screen with the Continue with Email button highlighted",
+            caption: "Continue with Email — the simplest setup" %>
+    </div>
+    <div class="card p-6 space-y-2">
+      <p class="text-body font-semibold">Prefer the classic way?</p>
+      <p class="text-body leading-relaxed">
+        <strong>Create a Recovery Phrase Wallet</strong> gives you a 12-word Secret Recovery
+        Phrase instead. If you choose it: write the words on paper, never share them, and know
+        they are the only backup &mdash; whoever has the words has the money.
+      </p>
+    </div>
+  </section>
+
+  <section class="space-y-4">
+    <h2 class="text-2xl font-bold text-heading">Step 3 &mdash; Create your account</h2>
+    <ol class="list-decimal list-inside text-body space-y-2">
+      <li>Set a <strong>strong password</strong> &mdash; it unlocks Phantom on this computer.</li>
+      <li>Agree to the terms and press <strong>Continue</strong>.</li>
+      <li>Pick a <strong>username</strong>, and you're good to go.</li>
+    </ol>
+    <div class="grid sm:grid-cols-2 gap-4">
+      <%= render "pages/guide_figure",
+            image: "05-create-password.png",
+            alt: "Create a password screen with the terms checkbox and Continue button highlighted",
+            caption: "Set a strong password and agree to the terms" %>
+      <%= render "pages/guide_figure",
+            image: "06-choose-username.png",
+            alt: "Choose a username screen showing an available username",
+            caption: "Pick a username" %>
+      <%= render "pages/guide_figure",
+            image: "07-good-to-go.png",
+            alt: "Phantom confirmation screen reading You're good to go",
+            caption: "That's the whole setup" %>
+    </div>
+    <div class="card p-6 space-y-3">
+      <p class="text-body font-semibold">&#128273; Three safety rules</p>
+      <ul class="list-disc list-inside text-body space-y-2">
+        <li><strong>Download only from phantom.com/download.</strong> Ignore lookalikes and ads.</li>
+        <li><strong>Your password, PIN, and recovery phrase are yours alone.</strong> Nobody legitimate will ever ask for them &mdash; not Phantom support, and never Turf Totals. Anyone who asks is a scammer.</li>
+        <li><strong>Guard the email account behind your wallet.</strong> It can recover your wallet, so keep its own password strong and protected.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="space-y-4">
+    <h2 class="text-2xl font-bold text-heading">Step 4 &mdash; Buy $25 of USDC</h2>
+    <p class="text-body leading-relaxed">
+      Contests are paid in <strong>USDC</strong>, a digital dollar: one USDC is worth one U.S. dollar,
+      and it is backed one-for-one by real dollar reserves. You can buy it inside Phantom with
+      Apple&nbsp;Pay or a debit card &mdash; no exchange account needed.
+    </p>
+    <ol class="list-decimal list-inside text-body space-y-2">
+      <li>In Phantom, choose <strong>Buy</strong>.</li>
+      <li>Choose <strong>USDC</strong> (Phantom picks the Solana network for you &mdash; that is the right one).</li>
+      <li>Enter <strong>$25</strong> &mdash; the minimum purchase &mdash; and select <strong>MoonPay</strong>.</li>
+      <li>Pay with Apple&nbsp;Pay or your debit card. The USDC usually arrives in a minute or two.</li>
+    </ol>
+    <p class="text-body leading-relaxed">
+      Expect roughly <strong>$20 of USDC</strong> to arrive from a $25 purchase &mdash; the difference
+      is MoonPay&rsquo;s card-processing fee, which goes to MoonPay, not to us. Twenty dollars covers a
+      full contest entry, so one purchase is all you need to play. Your card statement will show
+      the charge from MoonPay.
+    </p>
+    <div class="card p-6 space-y-2">
+      <p class="text-body font-semibold">Already own crypto?</p>
+      <p class="text-body leading-relaxed">
+        Skip MoonPay. Withdraw USDC from Coinbase, Kraken, or any exchange straight to your
+        Phantom address &mdash; just be sure to choose the <strong>Solana network</strong> when you
+        withdraw. Tap your wallet address at the top of Phantom to copy it.
+      </p>
+    </div>
+  </section>
+
+  <section class="space-y-4">
+    <h2 class="text-2xl font-bold text-heading">Step 5 &mdash; Sign in and enter a contest</h2>
+    <ol class="list-decimal list-inside text-body space-y-2">
+      <li><%= link_to "Sign in", signin_path, class: "text-primary hover:underline" %> and choose <strong>Solana wallet</strong>.</li>
+      <li>Approve the connection in Phantom, then approve the sign-in signature. The signature is free &mdash; it proves the wallet is yours and moves no money.</li>
+      <li><%= link_to "Open a contest", root_path, class: "text-primary hover:underline" %> and make your six picks.</li>
+      <li>Confirm the entry in Phantom. The approval screen shows the exact entry fee in USDC &mdash; that amount moves, and nothing else.</li>
+    </ol>
+    <p class="text-body leading-relaxed">
+      That last point is worth repeating: entering a contest is a single transfer of the exact
+      entry fee. Turf Totals never asks for an open-ended spending approval, and your USDC stays
+      in your own wallet until the moment you enter. You can verify every contest&rsquo;s funds on our
+      <%= link_to "Proof of Reserves", proof_of_reserves_path, class: "text-primary hover:underline" %> page.
+    </p>
+  </section>
+
+  <section class="space-y-4">
+    <h2 class="text-2xl font-bold text-heading">Good questions</h2>
+    <div class="space-y-5">
+      <div>
+        <h3 class="text-lg font-semibold text-heading">Why $25 when the entry is $20?</h3>
+        <p class="text-body leading-relaxed">
+          $25 is MoonPay&rsquo;s minimum card purchase. Their processing fee takes roughly $5, and
+          about $20 of USDC lands in your wallet &mdash; a full entry.
+        </p>
+      </div>
+      <div>
+        <h3 class="text-lg font-semibold text-heading">Is connecting my wallet safe?</h3>
+        <p class="text-body leading-relaxed">
+          Yes. Signing in is a free message signature, not a payment. Money moves only when you
+          confirm a contest entry, and each entry moves exactly the fee shown &mdash; our
+          <%= link_to "About page", about_path, class: "text-primary hover:underline" %> explains
+          the on-chain design in detail.
+        </p>
+      </div>
+      <div>
+        <h3 class="text-lg font-semibold text-heading">How do I cash out?</h3>
+        <p class="text-body leading-relaxed">
+          Winnings are paid in USDC straight to your wallet. From Phantom you can sell USDC back
+          to your card through MoonPay, or send it to an exchange like Coinbase and withdraw to
+          your bank.
+        </p>
+      </div>
+      <div>
+        <h3 class="text-lg font-semibold text-heading">What if I get stuck?</h3>
+        <p class="text-body leading-relaxed">
+          Email <a href="mailto:alex@turfmonster.media" class="text-primary hover:underline">alex@turfmonster.media</a>
+          and a human will help you through it.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="card p-6 space-y-2">
+    <p class="text-body leading-relaxed">
+      Turf Totals is a skill-based game, and paid contests involve real money. Play with money
+      you can afford to lose, and read our
+      <%= link_to "Responsible Gaming", responsible_gaming_path, class: "text-primary hover:underline" %>
+      and
+      <%= link_to "State Eligibility", state_eligibility_path, class: "text-primary hover:underline" %>
+      pages before you enter.
+    </p>
+  </section>
+</div>
