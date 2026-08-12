@@ -61,6 +61,20 @@ class User < ApplicationRecord
   before_validation :ensure_username, on: :create
   before_save :set_name_parts, if: -> { name_changed? }
   before_create :set_initial_session_token  # OPSEC-045
+  # Sluggable's before_save builds "<base>-<id>" — but on CREATE the id does not
+  # exist yet, so every fresh row lands with a DANGLING "<base>-". Until now the
+  # id got filled in by ACCIDENT: generate_managed_wallet! ran an update! on
+  # every non-admin immediately after create, and that second save re-ran the
+  # slug builder with the id present. Admins, who never get a managed wallet,
+  # have always kept the dangling shape (see the seeded `alex-` / `turf-`), and
+  # web3-only onboarding extends that to EVERY new account — silently changing
+  # the URL shape of every new profile, and breaking anything that looks a user
+  # up by the id-bearing slug.
+  #
+  # So finalize it explicitly rather than depending on whether some other
+  # callback happens to save the row. Runs BEFORE generate_managed_wallet! so
+  # the slug is settled no matter what that one does.
+  after_create :finalize_slug!
   after_create :generate_managed_wallet!
   # The username's master record lives on-chain — create the UserAccount PDA
   # (with the username) right after signup. after_commit so the managed wallet
@@ -688,5 +702,19 @@ class User < ApplicationRecord
   def name_slug
     base = username.presence || name.presence || email.presence || solana_address.presence || "user"
     "#{base}-#{id}".downcase.gsub(/\s+/, "-")
+  end
+
+  # Re-run the slug builder now that the row HAS an id (see the after_create
+  # declaration for why this is not already true).
+  #
+  # update_column, deliberately: no validations, no callbacks (Sluggable's
+  # before_save would recurse), no updated_at churn on a row created microseconds
+  # ago. It cannot collide with the unique index either — the id in the slug is
+  # unique by construction, so the value it writes is unique by construction.
+  def finalize_slug!
+    expected = name_slug
+    return if slug == expected
+
+    update_column(:slug, expected)
   end
 end

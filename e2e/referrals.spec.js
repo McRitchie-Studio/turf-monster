@@ -21,12 +21,19 @@ test.beforeEach(async ({ request }) => await reseed(request));
 const CONTEST_SLUG = "world-cup-2026";
 
 // Seeded users — these slugs come from the deterministic E2E seed.
-// CORE_USERS order: human (mcritchie, id 1), bot (alex), mason (3),
-// mack (4), turf. Reserved usernames such as alex/turf currently keep the
-// trailing dash slug shape created before an id is assigned.
+// CORE_USERS order: human (mcritchie, id 1), bot (alex, 2), mason (3),
+// mack (4), turf (5).
+//
+// Every slug now carries its id. It did not always: Sluggable builds
+// "<base>-<id>" in a before_save, which on CREATE runs before the id exists, so
+// rows landed as "<base>-" and only gained the id if something saved them again.
+// generate_managed_wallet! was that something — for non-admins only, which is
+// why the reserved-username admins (alex, turf) kept the dangling shape and this
+// file used to say "turf-". User#finalize_slug! settles it on create instead, so
+// the shape no longer depends on which callbacks happened to fire.
 const INVITER_FOR_PHANTOM = "mason-3";
 const INVITER_FOR_GOOGLE  = "mack-4";
-const INVITER_FOR_EMAIL   = "turf-";
+const INVITER_FOR_EMAIL   = "turf-5";
 const ALEX_SLUG           = "mcritchie-1"; // the human operator (id 1)
 
 // --- Helpers --------------------------------------------------------------

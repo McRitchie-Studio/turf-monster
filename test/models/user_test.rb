@@ -23,6 +23,45 @@ class UserTest < ActiveSupport::TestCase
     assert_equal "chosen-name", user.username
   end
 
+  # --- Slug finalization ------------------------------------------------------
+  #
+  # Sluggable's before_save runs BEFORE the insert, so the id is nil and the slug
+  # lands as "<base>-". It used to gain the id only because
+  # generate_managed_wallet! saved the row a second time — an accident that
+  # web3-only onboarding removes. These pin the slug to the id regardless.
+
+  test "a new account's slug carries its id" do
+    user = User.create!(email: "slug-basic@mcritchie.studio", username: "slugbasic")
+    assert_equal "slugbasic-#{user.id}", user.reload.slug
+  end
+
+  test "the slug carries its id even with no managed wallet minted" do
+    with_web3_only("true") do
+      user = User.create!(email: "slug-web3@mcritchie.studio", username: "slugweb3")
+      assert_nil user.web2_solana_address, "precondition: no wallet was minted"
+      assert_equal "slugweb3-#{user.id}", user.reload.slug,
+                   "the slug must not depend on the managed-wallet callback saving the row"
+    end
+  end
+
+  test "an admin's slug carries its id too" do
+    # Admins never get a managed wallet (OPSEC-044), so before this fix they kept
+    # the dangling shape — the seeded `alex-` / `turf-` slugs are exactly that.
+    user = User.create!(email: "slug-admin@mcritchie.studio", username: "slugadmin", role: "admin")
+    assert_equal "slugadmin-#{user.id}", user.reload.slug
+  end
+
+  test "two accounts with the same display name get distinct slugs" do
+    # The id is what makes the slug unique, and users.slug carries a UNIQUE
+    # index — a dangling "<base>-" for two same-named users is a collision
+    # waiting to happen.
+    a = User.create!(email: "dup-a@mcritchie.studio", name: "Same Name", username: "dupa")
+    b = User.create!(email: "dup-b@mcritchie.studio", name: "Same Name", username: "dupb")
+    assert_not_equal a.reload.slug, b.reload.slug
+    assert_match(/-#{a.id}\z/, a.slug)
+    assert_match(/-#{b.id}\z/, b.slug)
+  end
+
   # --- Web3-only onboarding (AppFlags.web3_only_onboarding?) ------------------
 
   test "signup mints a managed wallet while web3-only onboarding is off" do
