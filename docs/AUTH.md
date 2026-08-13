@@ -175,8 +175,11 @@ follows it.
 Rules worth knowing:
 
 - **Steps 1-2 are one modal** with an internal step machine, like `modals/_auth`.
-  The older `magic-link-welcome` modal still serves the paths that only need a
-  celebration-then-close; the chain needs advance, not close.
+  The older `magic-link-welcome` modal was RETIRED with this change: the chain
+  greets every signup itself, which made that modal's only writer unreachable,
+  and a modal nothing can open is worse than no modal (it reads as a live
+  alternative). The chain needs advance, not close, which is why it did not
+  simply reuse it.
 - **The first name is skippable** (link *and* the ×), recorded in the session
   only — so a later visit may ask again while the field is blank. It never
   blocks the wallet step.
@@ -188,6 +191,15 @@ Rules worth knowing:
   driver and the contest board's `age-verified` resume route to `wallet-setup`;
   both now no-op when it is already on the stack, so the fix does not depend on
   which fires first.
+- **The chain does NOT announce its completion, and nothing waits for it.** An
+  earlier revision had the driver fire `onboarding-chain-complete` and the contest
+  board hold its tokens picker until then. It was withdrawn: the announcement ran
+  SYNCHRONOUSLY inside the dispatching modal's `finish()`, before that modal's own
+  `close()`, so a listener that opened a card in that window had it closed by the
+  dispatcher instead — the picker was destroyed and a returning user was stranded
+  on the first-name card. The picker can therefore still land on top of a walking
+  chain (a cosmetic stack). Who owns the screen after the chain, and after age
+  verification where the board runs its own resume, is an open design question.
 - **The showroom** is `/admin/modals` → **Flows** (`AdminController::MODAL_FLOWS`),
   which walks the steps on the live modal host. It is pinned to
   `OnboardingFlow::STEPS` by a test, so a new step cannot go unshown. These

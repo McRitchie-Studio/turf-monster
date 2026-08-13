@@ -183,8 +183,6 @@ class MagicLinksController < ApplicationController
       # to ALSO say something in a toast/modal, and anything the chain is about
       # to show wins — two greetings on one render reads as a bug.
       onboarding_steps = record_onboarding_state!(user, welcome: true)
-      needs_wallet = onboarding_steps.include?(:wallet)
-      chain_greets = onboarding_steps.include?(:welcome)
       if contest_return_to?(result)
         # New user landing on a SPECIFIC contest: confirm auth with a toast and
         # let the board's existing post-login flow open the get-entry-tokens
@@ -198,20 +196,15 @@ class MagicLinksController < ApplicationController
                       title:   "You're signed in",
                       message: "Grab an entry token to lock in your picks."
                     } } })
-      elsif chain_greets || needs_wallet
-        # The chain opens with its own welcome step, so the flash welcome modal
-        # below would be a second greeting stacked on the first.
-        redirect_to landing_path_for(result)
       else
-        # New user via a GENERIC /signin: celebratory welcome modal on the
-        # featured contest (resolved live below), with a CTA that drops them onto
-        # the contest. No token upsell — they haven't picked anything yet.
-        redirect_to landing_path_for(result),
-                    flash: { magic_link_welcome: {
-                      username: user.username,
-                      message:  featured_contest ? "You're all set — dive into #{featured_contest.name}." : "You're all set — let's play.",
-                      next:     nil
-                    } }
+        # A GENERIC /signin signup: the onboarding chain owns this moment. It
+        # ALWAYS opens with its own welcome step here (record_onboarding_state!
+        # is called with welcome: true, and that step is outstanding by
+        # definition for an account created in this request), so there is no
+        # second greeting to add — a flash welcome modal would stack on the
+        # chain's. The old flash[:magic_link_welcome] branch that used to live
+        # here was unreachable for exactly that reason and has been retired.
+        redirect_to landing_path_for(result)
       end
     end
   rescue ActiveRecord::RecordNotUnique

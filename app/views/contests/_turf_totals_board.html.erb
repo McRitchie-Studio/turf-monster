@@ -339,25 +339,24 @@ window.selectionBoard = function() {
           var step = JSON.parse(stepRaw);
           sessionStorage.removeItem('pendingAuthStep');
           if (step && step.contestSlug === this.contestId) {
-            // Web3-only onboarding: a wallet-less account has nothing to buy an
-            // entry token WITH, so the wallet-setup modal (auto-opened by the
-            // layout) owns this render — don't stack the picker on top of it.
-            if (step.step === 'tokens' && !window.__walletSetupPrompt) {
+            if (step.step === 'tokens') {
               // Post-signup pack-picker resume — deliberately STAYS the Get
               // Entry Tokens picker (not the Top Up Wallet modal). This restores
               // the buy-tokens step the user was on through the signup reload,
               // not the in-entry funds wall (that's the 'no_funding' blocker +
               // its chain-layer twin, both rerouted to showWalletTopup).
               //
-              // If the magic-link welcome modal is showing (flag set by the
-              // layout when flash[:magic_link_welcome] is present), give it its
-              // ~3s success beat THEN swap to the tokens picker. Otherwise
-              // (Google / direct) open immediately — no welcome to wait on.
-              if (window.__magicLinkWelcome) {
-                setTimeout(function () { board.showTokensPanel(); }, 3000);
-              } else {
-                this.showTokensPanel();
-              }
+              // The onboarding chain may be walking (welcome -> first name ->
+              // age -> wallet), and this picker can land on top of it — a
+              // cosmetic stack, and a KNOWN one. An earlier revision made the
+              // picker wait for an 'onboarding-chain-complete' announcement;
+              // that was withdrawn because the announcement fired inside the
+              // dispatching modal's own close window and the picker was
+              // destroyed instead of deferred, which cost the user the purchase
+              // step entirely. A stack the user can dismiss beats a step they
+              // never get. Who owns the screen after the chain is tracked as its
+              // own design task.
+              this.showTokensPanel();
             }
           }
         }
@@ -425,22 +424,13 @@ window.selectionBoard = function() {
               this.saveCartForRedirect(true);
             } else {
               var self = this;
-              // Let Alpine flush the state, then replay + enter. When the
-              // magic-link welcome modal is showing, hold ~3s first so its
-              // success beat isn't instantly covered by the tokens picker the
-              // auto-enter opens (showTokensPanel swaps the welcome out at fire).
-              var autoEnterDelay = window.__magicLinkWelcome ? 3000 : 50;
+              // Let Alpine flush the restored selections, then replay + enter.
+              // 50ms is that flush and nothing more. (It used to branch to
+              // 3000ms to let the magic-link welcome modal drain its countdown
+              // first; that modal is retired, so the branch went with it.)
               setTimeout(function () {
-                // Single-owner handoff: if the magic-link welcome modal is up,
-                // neutralize ITS auto-redirect NOW (before the network-heavy
-                // replay below) so it can't navigate to /tokens/buy mid-handoff —
-                // afterLoginSuccess replays 6 selections + enters, and that tail
-                // can outlast the welcome's 3.5s drain. The board owns the
-                // transition; it swaps the welcome out for the picker on resolve.
-                var wc = Alpine.store('modals').current();
-                if (wc && wc.id === 'magic-link-welcome') wc.props.next = null;
                 self.afterLoginSuccess();
-              }, autoEnterDelay);
+              }, 50);
             }
           }
         }
@@ -978,11 +968,13 @@ window.selectionBoard = function() {
       };
       if (cur && cur.id === 'auth') {
         s.advance(props);
-      } else if (cur && cur.id === 'magic-link-welcome') {
-        // Replace the welcome beat with the picker (directional slide) so the
-        // welcome modal doesn't linger underneath after the hand-off.
-        s.swap('auth', props);
       } else {
+        // Plain push. The one id this used to SWAP away — 'magic-link-welcome' —
+        // is retired, and swapping is wrong for the modal that replaced it: the
+        // onboarding chain's card must close on its OWN hand-off, so swapping it
+        // away would strand the chain mid-flow. Pushing can leave the chain card
+        // underneath (a known cosmetic stack, see init() above); that is the
+        // lesser evil until screen ownership is designed.
         s.open('auth', props);
       }
     },
@@ -993,8 +985,8 @@ window.selectionBoard = function() {
     // still the picker, reached via the hub's Stripe card + the post-signup
     // resume). wallet-topup is its OWN modal id, so unlike showTokensPanel
     // (which advance()s WITHIN the auth wizard) the choice is open-vs-swap:
-    //   - any modal currently open (auth wizard, magic-link welcome beat) →
-    //     swap() runs the host's cross-modal directional slide.
+    //   - any modal currently open (e.g. the auth wizard) → swap() runs the
+    //     host's cross-modal directional slide.
     //   - cold board (no modal open) → open() plays the fresh mount.
     showWalletTopup() {
       this.profileModal = false;

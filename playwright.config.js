@@ -71,7 +71,15 @@ module.exports = defineConfig({
         // ENABLE_AGE_GATE joins the flags here because the onboarding chain's
         // third step IS the age gate (e2e/onboarding_chain.spec.js) — without it
         // that step silently drops and the spec would assert an order the lane
-        // never runs. Both flags mirror the NFL-2026 production config.
+        // never runs.
+        //
+        // THESE FLAGS DO NOT MIRROR PRODUCTION, and an earlier version of this
+        // comment claimed they did. ENABLE_AGE_GATE does match, but
+        // ENABLE_WEB3_ONLY_ONBOARDING is UNSET on turf-monster-mainnet and
+        // turf-monster-qa — so production's chain is [welcome, first_name, age]
+        // with age as its TERMINAL step, an edge this lane never runs (its chain
+        // always ends in the wallet step). That false claim framed a whole
+        // review. Read the deployed config before repeating it.
         //
         // CAUTION: this env applies to db:test:prepare and e2e/seed.rb in the
         // same webServer command, so a flag added here can change SEEDED DATA,
