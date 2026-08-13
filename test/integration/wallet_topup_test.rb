@@ -165,7 +165,12 @@ class WalletTopupTest < ActionDispatch::IntegrationTest
     # card + the post-signup pendingAuthStep resume), so the deferred buy-tokens
     # step is unchanged.
     assert_includes body, "showTokensPanel()"
-    assert_includes body, "board.showTokensPanel();"
+    # The resume calls it DIRECTLY. It used to appear as `board.showTokensPanel()`
+    # inside a setTimeout — the 3s deferral that let the magic-link welcome modal
+    # drain its countdown first. That modal is retired, so the deferral and its
+    # closure-captured `board` alias went with it; pinning the old spelling would
+    # be pinning a dead branch.
+    assert_includes body, "this.showTokensPanel();"
   end
 
   # --- hold-window funding pre-check wiring (render level; e2e gap noted above) ---
