@@ -21,7 +21,17 @@ class EmailRegistrationTest < ActiveSupport::TestCase
   }.freeze
 
   test "every email this app sends is registered" do
-    assert_equal EXPECTED.keys.sort, Studio::EmailCatalog.keys.sort
+    # A SUBSET, which is what this test's name claims. The catalogue is shared:
+    # studio-engine pre-registers the emails every Studio app sends, and it can
+    # add one — newsletter_subscribed arrived that way. Asserting EQUALITY made
+    # an inherited addition turn this app red without this app changing anything,
+    # while saying nothing extra about the nine emails turf-monster actually sends.
+    #
+    # What must hold is that none of ours goes missing. That is asserted here, and
+    # each one's type and artwork are asserted in the test below.
+    missing = EXPECTED.keys - Studio::EmailCatalog.keys
+
+    assert_empty missing, "turf-monster sends these but nothing registers them: #{missing.join(", ")}"
   end
 
   test "each email carries its type and its own banner asset" do
