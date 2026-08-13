@@ -35,7 +35,12 @@ Rails.application.config.to_prepare do
     type: :transactional,
     default_asset: "emails/magic-link-banner.jpg",
     background: "emails/magic-link-background.gif",
-    logo: "emails/logo-horizontal.png",
+    # DO NOT DELETE THIS LINE TO REMOVE THE LOGO — deleting it puts the wordmark
+    # BACK. register merges with `logo.presence` (studio-engine email_catalog.rb),
+    # so only an empty string clears: "" -> nil, while nil and an omitted key both
+    # inherit, and the engine's STANDARD seed already carries logo-horizontal.png.
+    # An operator can also clear it with no deploy via hide_logo? on /admin/emails.
+    logo: "",   # clear the engine's inherited McRITCHIE STUDIO wordmark
     preview: -> { UserMailer.magic_link(sample_user.call.email, sample_token) }
   )
 

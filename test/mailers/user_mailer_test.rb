@@ -32,11 +32,27 @@ class UserMailerTest < ActionMailer::TestCase
       "Outlook renders through Word and needs the VML block or the banner is blank there"
   end
 
+  # OWNERSHIP, not spelling. The previous guard here asserted that the resolved
+  # URL CONTAINED "magic-link-background" — which passes whether the file comes
+  # from this app or from studio-engine's own asset tree, because registering a
+  # name this app does not own still resolves: Sprockets happily serves the
+  # gem's copy. So a test named "this app's own background" went green while the
+  # engine's artwork shipped, and it is the guard that let the inherited
+  # wordmark through beside it.
+  #
+  # The file on disk is the only thing that separates the two, so that is what
+  # is asserted — the same shape email_registration_test.rb uses for
+  # default_asset. Ownership is the property; the filename is a proxy for it.
   test "this app's own background is what ships" do
-    assert Studio::EmailCatalog.entry("magic_link").layered?,
-      "a host that registers a background is asking to layer"
-    assert_includes Studio::EmailCatalog.background_url("magic_link").to_s,
-                    "magic-link-background"
+    entry = Studio::EmailCatalog.entry("magic_link")
+
+    assert entry.layered?, "a host that registers a background is asking to layer"
+
+    path = Rails.root.join("app/assets/images", entry.background)
+    assert path.exist?,
+      "#{entry.background} is registered but this app does not own it — it is " \
+      "resolving from studio-engine, so the sign-in email ships the ENGINE's " \
+      "artwork. Add the file to app/assets/images or register the app's own."
   end
 
   # --- who it greets --------------------------------------------------------
