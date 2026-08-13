@@ -11,11 +11,22 @@ class User < ApplicationRecord
   # QA reset, or unseeded wallet login does not mint a random fruit-animal name
   # for a known operator wallet/email.
   PARKED_IDENTITIES = [
-    { email: "alex@mcritchie.studio",    name: "Mr. McRitchie",   username: "mcritchie", role: "admin", wallet: "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr" },
+    # "Alex McRitchie", not "Mr. McRitchie": the layered email banner greets by
+    # the FIRST NAME TOKEN, so the old value rendered "Welcome Mr.!" in every
+    # sign-in email and on /admin/emails. mcritchie-studio already names the same
+    # person "Alex McRitchie" — one person, one name, across the apps.
+    { email: "alex@mcritchie.studio",    name: "Alex McRitchie",  username: "mcritchie", role: "admin", wallet: "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr" },
     { email: "team@mcritchie.studio",    name: "Team McRitchie",  username: "alex",      role: "admin", wallet: "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd" },
     { email: "mason@mcritchie.studio",   name: "Mason McRitchie", username: "mason",     role: "user",  wallet: "CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR" },
     { email: "mack@mcritchie.studio",    name: "Mack McRitchie",  username: "mack",      role: "user",  wallet: "foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds" },
-    { email: TURF_HOUSE_EMAIL,           name: "Turf Monster",    username: "turf",      role: "admin", wallet: "BLSBw8fXHzZc5pbaYCKMpMSsrtXBTbWXpUPVzMrXx9oo" }
+    { email: TURF_HOUSE_EMAIL,           name: "Turf Monster",    username: "turf",      role: "admin", wallet: "BLSBw8fXHzZc5pbaYCKMpMSsrtXBTbWXpUPVzMrXx9oo" },
+    # THIS APP'S OWN ADMIN, on its own domain. Distinct from the shared
+    # alex@mcritchie.studio above (one operator, every app) and from
+    # TURF_HOUSE_EMAIL (the house ACCOUNT that User.turf keys on, not a person).
+    # Every app seeds the shared pair plus an admin on its own domain, so a
+    # session can be signed in as "the operator of THIS app" without borrowing
+    # Studio's identity.
+    { email: "alex@turfmonster.media",   name: "Alex McRitchie",  username: "alexturf",  role: "admin" }
   ].freeze
 
   # Rails mirror of turf-vault's on-chain reserved-prefix list — keep in sync

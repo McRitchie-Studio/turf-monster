@@ -17,13 +17,20 @@ class EnginePinContractTest < ActiveSupport::TestCase
   #          makes the task board's email-free WAITING APPROVAL button work.
   #   0.42 — Studio::EmailSetting backs the operator-editable layered email
   #          banner on /admin/emails, a page this app mounts from the engine.
-  MINIMUM = Gem::Version.new("0.42.0")
+  #   0.43 — EmailCatalog records WHOSE a background is at registration, so a
+  #          host that ships its own artwork can layer. 0.42 gated it on the
+  #          ENGINE owning the flat image, and this app owns its own .jpg — so
+  #          on 0.42 the sign-in email silently falls back to the flat banner.
+  #          That is the failure this floor exists to catch: nothing raises, the
+  #          email just stops carrying the artwork.
+  MINIMUM = Gem::Version.new("0.43.0")
 
   test "the resolved studio-engine is at or above the floor this app depends on" do
     resolved = Gem::Version.new(Studio::VERSION)
     assert_operator resolved, :>=, MINIMUM,
                     "studio-engine #{resolved} is below the #{MINIMUM} floor this app depends on " \
-                    "(the email-free local-review CTA needs >= 0.36; Studio::EmailSetting needs >= 0.42)"
+                    "(the email-free local-review CTA needs >= 0.36; Studio::EmailSetting needs >= 0.42; " \
+                    "a host-owned layered banner needs >= 0.43)"
   end
 
   test "the engine tables this app's mounted pages read actually exist" do

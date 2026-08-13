@@ -62,8 +62,24 @@ test.describe("Admin emails manager", () => {
 
     // The preview is an iframe over /admin/emails/:key/raw — the actual email
     // document, banner and all.
-    const frame = page.frameLocator("iframe");
+    // TARGETED BY SRC, not a bare "iframe". studio-engine 0.43 gives this page a
+    // SECOND iframe — the banner-text preview, rendered from a srcdoc — so a
+    // bare locator matches two elements and fails on strict mode. Resolving that
+    // with .first() would be worse than the error: the spec would keep passing
+    // while silently asserting against the banner widget instead of the email.
+    const frame = page.frameLocator('iframe[src*="/raw"]');
+
+    // The artwork is a CSS/VML background once the email is layered, so the
+    // surviving image is the logo drawn over it — which is what proves the frame
+    // rendered a real email document and loaded its assets.
     await expect(frame.locator("img").first()).toBeVisible();
+
+    // ASSERTS THE LAYERING, NOT THE FILENAME. Pinning the committed artwork's
+    // name goes red the moment the upload spec above runs first — an operator
+    // upload REPLACING committed artwork is the inherit-then-own model working,
+    // not a regression. Layering is a property of how the email is registered,
+    // so it survives whichever image is current.
+    await expect(frame.locator('td[style*="background-size:cover"]')).toHaveCount(1);
   });
 
   // SCOPE NOTE — read before "strengthening" this test.
