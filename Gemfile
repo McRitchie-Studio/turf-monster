@@ -66,7 +66,7 @@ group :test do
   # (Minitest::Mock + Object#stub) into a separate gem; the suite relies on
   # `.stub` extensively. Rails 8.1 only requires minitest >= 5.15, so we stay
   # on the well-understood 5.x series and keep this upgrade scoped to Rails.
-  gem "minitest", "~> 5.25"
+  gem "minitest", "~> 6.0"
 
   # Use system testing [https://guides.rubyonrails.org/testing.html#system-testing]
   gem "capybara"
