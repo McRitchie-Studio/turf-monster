@@ -12,7 +12,7 @@ const IMG = path.join(__dirname, "..", "test", "fixtures", "files", "banner_wide
 // resolves to a 404 renders as a broken image while every server-side
 // assertion still passes), and the upload runs through the shared crop modal
 // on the page-scoped `emailModals` store — a store that fails to register
-// leaves the Upload button inert with no server-side symptom at all.
+// leaves the upload control inert with no server-side symptom at all.
 //
 // Tagged @smoke: this is the only admin surface for every email the app sends.
 test.beforeEach(async ({ request }) => await reseed(request));
@@ -62,23 +62,23 @@ test.describe("Admin emails manager", () => {
 
     // The preview is an iframe over /admin/emails/:key/raw — the actual email
     // document, banner and all.
-    //
-    // TARGETED BY SRC, not a bare "iframe". The page now carries TWO: this one,
-    // and the banner-text preview that renders the banner alone from a srcdoc.
-    // A bare locator matches both and fails on strict mode — and if it were
-    // resolved by taking .first() instead, the test would silently start
-    // asserting against the banner widget rather than the email.
+    // TARGETED BY SRC, not a bare "iframe". studio-engine 0.43 gives this page a
+    // SECOND iframe — the banner-text preview, rendered from a srcdoc — so a
+    // bare locator matches two elements and fails on strict mode. Resolving that
+    // with .first() would be worse than the error: the spec would keep passing
+    // while silently asserting against the banner widget instead of the email.
     const frame = page.frameLocator('iframe[src*="/raw"]');
 
-    // The artwork is a CSS/VML background now, not an <img>, so the surviving
-    // image is the logo drawn over it — which is exactly what proves the frame
+    // The artwork is a CSS/VML background once the email is layered, so the
+    // surviving image is the logo drawn over it — which is what proves the frame
     // rendered a real email document and loaded its assets.
     await expect(frame.locator("img").first()).toBeVisible();
-    // ASSERTS THE LAYERING, NOT THE FILENAME. An earlier draft pinned
-    // "magic-link-background" and went red the moment the upload spec above ran
-    // first — because an operator upload REPLACING the committed artwork is the
-    // inherit-then-own model working, not a regression. Layering is a property
-    // of how the email is registered, so it survives whichever image is current.
+
+    // ASSERTS THE LAYERING, NOT THE FILENAME. Pinning the committed artwork's
+    // name goes red the moment the upload spec above runs first — an operator
+    // upload REPLACING committed artwork is the inherit-then-own model working,
+    // not a regression. Layering is a property of how the email is registered,
+    // so it survives whichever image is current.
     await expect(frame.locator('td[style*="background-size:cover"]')).toHaveCount(1);
   });
 
@@ -99,21 +99,25 @@ test.describe("Admin emails manager", () => {
   //
   // What only a browser can prove, and what this therefore keeps: the page
   // mounts its OWN modal host (emailModals) because not every consuming app
-  // renders a shared one — if that store fails to register, the Upload button
+  // renders a shared one — if that store fails to register, the upload control
   // is inert and NO server-side test notices.
-  test("upload opens the shared crop modal and submits @smoke", async ({ page }) => {
+  //
+  // WHERE the control lives is engine-owned and has already moved once. Through
+  // studio-engine 0.42 the list page carried an Upload/Replace button per row;
+  // 0.43 deleted it and left one control, on the email's OWN page, over the
+  // artwork it replaces. Both versions render that control, so this spec runs on
+  // either. It is pinned by its accessible name — the label an operator reads —
+  // and deliberately NOT by `data-modify-artwork`, which appears exactly once in
+  // the whole engine (on the button) with nothing reading it: an attribute no
+  // engine test protects is a worse contract than the words on the button.
+  test("an email's page uploads through the shared crop modal @smoke", async ({ page }) => {
     await loginAdmin(page);
-    // THE UPLOAD CONTROL MOVED. It used to sit in the index's Image/Actions
-    // columns; those columns are gone, and uploading is now done on an email's
-    // own page. The flow under test is unchanged — only where it starts.
-    await page.goto("/admin/emails/magic_link");
+    await page.goto("/admin/emails");
+    await page.getByRole("link", { name: "Magic-link sign-in" }).click();
 
-    // TARGETED BY ITS DATA HOOK, not its label. The control is now the
-    // "Modify image" overlay on the artwork — a hover-reveal button, renamed
-    // and restyled since this spec was written. data-modify-artwork is the
-    // stable handle the engine ships for it; a label regex re-breaks on the
-    // next wording change without anything actually being wrong.
-    await page.locator("[data-modify-artwork]").first().click();
+    // Hidden until hover (opacity-0 group-hover:opacity-100) — Playwright hovers
+    // before it clicks, and opacity alone never made an element unclickable.
+    await page.getByRole("button", { name: "Modify image" }).click();
     await expect(page.getByText("Crop Photo")).toBeVisible();
 
     await page.locator('input[type="file"][x-ref="filePicker"]').setInputFiles(IMG);
@@ -121,13 +125,14 @@ test.describe("Admin emails manager", () => {
 
     await page.getByRole("button", { name: /Crop & Save/i }).click();
 
-    // The saving card is the proof the cropped blob reached the row's hidden
-    // form and submitted — it is opened by submitFormWithProgress on the same
-    // page-scoped store.
+    // The saving card is the proof the cropped blob reached the page's hidden
+    // multipart form and submitted — it is opened by submitFormWithProgress on
+    // the same page-scoped store.
     await expect(page.getByText("Saving banner")).toBeVisible();
 
-    // Whatever the bucket says, the flow returns to the manager and the modal
-    // does not stick. A card left on screen is the failure this guards.
+    // The banner PATCH redirects back to the manager index (not to the email's
+    // own page), whatever the bucket says, and the modal does not stick. A card
+    // left on screen is the failure this guards.
     await expect(page).toHaveURL(/\/admin\/emails$/, { timeout: 20000 });
     await expect(page.getByText("Crop Photo")).toBeHidden();
   });
