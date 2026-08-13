@@ -1,6 +1,42 @@
 class AdminController < ApplicationController
   before_action :require_admin, except: [:usdc_balance]
 
+  # Named modal FLOWS — an ordered sequence a real user walks, as opposed to
+  # MODAL_VARIANTS below, which is a flat catalogue of individual states.
+  #
+  # A flow exists because the interesting bug in a multi-step experience is the
+  # ORDER, and a catalogue cannot show order: reviewing "welcome" and "first
+  # name" as two unrelated tiles tells you nothing about which one a new user
+  # meets first, or what happens when they skip. Each step names a variant key
+  # from MODAL_VARIANTS, so the two stay in one registry and the gallery can
+  # deep-link a step without duplicating its props.
+  #
+  # These two mirror OnboardingFlow::STEPS exactly — that service decides the
+  # order at runtime, this decides how it is PRESENTED, and
+  # test/controllers/onboarding_flow_gallery_test.rb pins them to each other so
+  # a step added to the chain cannot go unshown here.
+  #
+  # Eventually these move to the engine's living style guide at
+  # /admin/style#modals (operator direction) — which needs a studio-engine
+  # release plus turf bumping its engine pin, so they live here first.
+  MODAL_FLOWS = [
+    { key: "onboarding",
+      label: "Onboarding (after first auth)",
+      summary: "What a brand-new account meets the moment it signs in for the first time.",
+      steps: [
+        { key: "onboarding-welcome",    note: "Auto-generated username, no action required" },
+        { key: "onboarding-first-name", note: "Marketing capture — SKIPPABLE, never blocks the wallet" }
+      ] },
+    { key: "wallet-setup",
+      label: "Wallet setup",
+      summary: "Runs straight after onboarding, and again from the entry gate if dismissed. " \
+               "Skipped entirely for a web2 user already holding an entry's worth of USDC.",
+      steps: [
+        { key: "age-verify",   note: "Prompted here now; STILL enforced at contest entry" },
+        { key: "wallet-setup", note: "Install → waiting → Installed → connect" }
+      ] }
+  ].freeze
+
   # Manifest of every modal partial + interesting internal state, used by
   # the /admin/modals gallery (see views/admin/modals.html.erb). Each
   # variant is rendered in an iframe via #modal_preview. Keep this in
@@ -71,6 +107,24 @@ class AdminController < ApplicationController
     { group: "Web3",
       label: "Set up your wallet (post-auth)", key: "wallet-setup",
       modal_id: "wallet-setup", file: "app/views/modals/_wallet_setup.html.erb",
+      props: {} },
+    # === Onboarding chain ====================================================
+    # The two steps of the `onboarding` modal, plus the age gate that follows.
+    # Presented as ordered flows by MODAL_FLOWS above; catalogued here as
+    # individual states so each can be opened and eyeballed on its own.
+    { group: "Onboarding",
+      label: "Welcome (username)", key: "onboarding-welcome",
+      modal_id: "onboarding", file: "app/views/modals/_onboarding.html.erb",
+      props: { step: "welcome", username: "gentle-eggplant", steps: %w[welcome first_name age wallet] } },
+    { group: "Onboarding",
+      label: "First name (skippable)", key: "onboarding-first-name",
+      modal_id: "onboarding", file: "app/views/modals/_onboarding.html.erb",
+      props: { step: "first-name", steps: %w[first_name age wallet] } },
+    # The DOB gate. Prompted as the first step of Wallet setup since 2026-08-12,
+    # and STILL the enforcement point at contest entry — same modal, two callers.
+    { group: "Onboarding",
+      label: "Age gate (DOB)", key: "age-verify",
+      modal_id: "age-verify", file: "app/views/modals/_age_verify.html.erb",
       props: {} },
     { group: "Web3",
       label: "Success (Entry Confirmed)", key: "onchain-success",
@@ -291,6 +345,12 @@ class AdminController < ApplicationController
 
   def modals
     @variants = MODAL_VARIANTS
+    # Resolve each flow's steps to their full variant records once, here, so the
+    # view never has to look a key up (and a typo'd key fails loudly in the
+    # gallery test instead of rendering a blank step).
+    @flows = MODAL_FLOWS.map do |flow|
+      flow.merge(steps: flow[:steps].map { |s| s.merge(variant: MODAL_VARIANTS.find { |v| v[:key] == s[:key] }) })
+    end
   end
 
   def modal_preview

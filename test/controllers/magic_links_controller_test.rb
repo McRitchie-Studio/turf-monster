@@ -104,7 +104,11 @@ class MagicLinksControllerTest < ActionDispatch::IntegrationTest
   # the welcome SUCCESS MODAL via flash[:magic_link_welcome] = { message, next };
   # the modal auto-redirects to the entry-tokens upsell client-side. It does NOT
   # redirect straight to tokens_buy_path nor set a :notice toast anymore.
-  test "consume creates a passwordless, email-verified account and shows the welcome modal" do
+  # The greeting MOVED (2026-08-12): the post-auth onboarding chain opens with its
+  # own welcome step, so a second greeting from flash[:magic_link_welcome] would
+  # stack two cards on one render. The flash modal still exists for the paths that
+  # only need celebrate-then-close; this path now hands off to the chain.
+  test "consume creates a passwordless, email-verified account and arms the onboarding chain" do
     token = magic_token(email: "brand-new@example.com", age_attested: true)
     assert_difference "User.count", 1 do
       post magic_link_consume_path(token: token)
@@ -113,35 +117,36 @@ class MagicLinksControllerTest < ActionDispatch::IntegrationTest
     assert user.email_verified_at.present?, "new user should be email-verified by clicking the link"
     assert user.age_attested_at.present?, "new user should carry the legal-age attestation timestamp"
     # No contest return_to → a NEW generic signup lands on the live featured
-    # contest (resolved at click) and gets the celebratory welcome modal.
+    # contest (resolved at click).
     assert_redirected_to contest_path(contests(:one))
-    assert_nil flash[:notice], "the welcome should be a modal, not a toast"
-    assert_nil flash[:auth_toast], "a generic new signup gets the modal, not the toast"
-    welcome = flash[:magic_link_welcome]
-    assert welcome.present?, "consume should set the welcome modal flash signal"
-    # No token upsell on a generic welcome (the user hasn't picked anything) —
-    # the CTA just closes onto the contest, so next is nil.
-    assert_nil welcome[:next] || welcome["next"]
-    assert (welcome[:message] || welcome["message"]).present?
-    # The welcome modal renders the new user's auto-generated username under
-    # the title; it must be carried in the flash (layout JSON → modal props).
-    assert_equal user.username, welcome[:username] || welcome["username"]
+    assert_nil flash[:notice], "the welcome is a modal, not a toast"
+    assert_nil flash[:auth_toast], "the chain greets; a toast would talk over it"
+    assert_nil flash[:magic_link_welcome], "the chain's welcome step replaces the flash modal here"
+    # The chain is armed, and it OPENS with the welcome beat carrying the
+    # auto-generated username (the layout renders it into the driver payload).
+    assert_equal "welcome", session[:onboarding_prompt].first
+    follow_redirect!
+    assert_includes response.body, user.username
   end
 
   test "consume lands a new signup on the contest return_to with an auth toast + tokens picker" do
     token = magic_token(email: "newpicker@example.com", return_to: "/contests/the-cup?picks=1,2,3", age_attested: true)
     post magic_link_consume_path(token: token)
     assert_redirected_to "/contests/the-cup?picks=1,2,3"
-    # New user on a SPECIFIC contest: a toast confirms auth; the board opens the
-    # get-entry-tokens picker. No celebratory modal here.
+    # New user on a SPECIFIC contest: the return_to (with picks) is honored, and
+    # the onboarding chain owns the greeting. The auth toast is suppressed while
+    # the chain has anything to say — two greetings on one render reads as a bug.
     assert_nil flash[:magic_link_welcome]
-    toast = flash[:auth_toast]
-    assert toast.present?, "a new user on a contest gets the auth toast"
-    assert (toast[:title] || toast["title"]).present?
+    assert_nil flash[:auth_toast], "the chain speaks; the toast would talk over it"
+    assert_equal "welcome", session[:onboarding_prompt].first
   end
 
   test "consume logs in an existing user on a safe return_to with a welcome-back toast" do
     existing = users(:alex)
+    # This test is about the TOAST, so leave the onboarding chain nothing to ask:
+    # a returning user who still owes a step (a blank first name, say) is armed
+    # with the chain instead, and the toast is deliberately suppressed then.
+    existing.update_columns(first_name: "Mr.", age_attested_at: 30.years.ago)
     token = magic_token(email: existing.email, return_to: "/account")
     assert_no_difference "User.count" do
       post magic_link_consume_path(token: token)

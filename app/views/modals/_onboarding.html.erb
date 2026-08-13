@@ -1,0 +1,164 @@
+<%#
+  Onboarding — the first of the two post-auth flows (operator spec 2026-08-12).
+  ONE modal id with an internal step machine, exactly like modals/_auth:
+
+    welcome     — "you're in", with the auto-generated username
+    first-name  — captured for marketing; SKIPPABLE, and skipping is remembered
+                  for the session so it does not re-ask on the next page
+
+  The chain does not end here. On completion this dispatches
+  'onboarding-step-done' with the steps the SERVER says are still outstanding,
+  and the layout's chain driver opens the next flow (Wallet setup: age → wallet).
+
+  WHY THE WELCOME BEAT LIVES HERE and not in modals/_magic_link_welcome: that one
+  renders the shared cta_redirect block, whose whole job is to drain a countdown
+  and then close or navigate. A chain needs "advance", not "close", and bending a
+  shared block to also mean advance would change every other modal using it. The
+  existing welcome modal keeps serving the paths that really do just close.
+
+  Props:
+    username — shown on the welcome step (server-rendered value, not a guess)
+    steps    — the remaining chain, so this modal knows whether to ask the name
+
+  CRITICAL (Alpine): cloned from <template x-if>, so ONE root element; and the
+  x-data below is a DOUBLE-QUOTED attribute — a single " anywhere inside it (a
+  code comment included) closes it early and the whole modal mounts as a silent
+  no-op that still renders markup. Keep every string SINGLE-quoted.
+%>
+<div x-data="{
+       get props() { var c = $store.modals.current(); return (c && c.props) || {}; },
+       firstName: '',
+       submitting: false,
+       error: '',
+       get step() { return this.props.step || 'welcome'; },
+       get username() { return this.props.username || ''; },
+       // The welcome step advances to the name ask only when the server still
+       // wants it; otherwise it hands straight off to the next flow.
+       get asksFirstName() {
+         var s = this.props.steps || [];
+         return s.indexOf('first_name') !== -1;
+       },
+       continueFromWelcome() {
+         if (this.asksFirstName) {
+           $store.modals.advance({ step: 'first-name' });
+           return;
+         }
+         this.finish(this.props.steps || []);
+       },
+       async save() {
+         if (this.submitting) return;
+         var value = (this.firstName || '').trim();
+         if (!value) { this.error = 'Enter your first name, or skip for now.'; return; }
+         this.submitting = true; this.error = '';
+         var data = await this.post('/onboarding/first_name', { first_name: value });
+         this.submitting = false;
+         if (!data || !data.ok) {
+           this.error = (data && data.error) || 'Could not save that — try again.';
+           return;
+         }
+         this.finish(data.next || []);
+       },
+       async skip() {
+         if (this.submitting) return;
+         this.submitting = true; this.error = '';
+         var data = await this.post('/onboarding/skip_first_name', {});
+         this.submitting = false;
+         this.finish((data && data.next) || []);
+       },
+       async post(url, body) {
+         var meta = document.querySelector('meta[name=csrf-token]');
+         try {
+           var res = await fetch(url, {
+             method: 'POST',
+             headers: {
+               'Content-Type': 'application/json',
+               'Accept': 'application/json',
+               'X-CSRF-Token': meta ? meta.content : ''
+             },
+             body: JSON.stringify(body)
+           });
+           return await res.json();
+         } catch (e) { return null; }
+       },
+       // Hand the REMAINING steps to the chain driver and get out of the way.
+       // Closing here (rather than letting the driver swap) keeps this modal
+       // ignorant of what comes next — the driver owns the order.
+       finish(next) {
+         window.dispatchEvent(new CustomEvent('onboarding-step-done', { detail: { next: next } }));
+         $store.modals.close();
+       }
+     }"
+     class="relative">
+
+  <%# === WELCOME ============================================================ %>
+  <template x-if="step === 'welcome'">
+    <div>
+      <%= render 'studio/modals/blocks/card_header',
+            size:       :lg,
+            icon_emoji: '🎉',
+            title:      "You're in" do %>
+        <span class="block text-heading font-semibold text-base" x-show="username" x-cloak x-text="username"></span>
+        <span class="block mt-1">That's your player name — you can change it any time in your account.</span>
+      <% end %>
+      <button type="button" @click="continueFromWelcome()"
+              class="btn btn-primary btn-lg w-full mt-1">
+        Let's go &rarr;
+      </button>
+    </div>
+  </template>
+
+  <%# === FIRST NAME ========================================================= %>
+  <%# Skippable by design: this lands seconds after signup, the highest
+      drop-off moment there is, so the Skip link is a peer of Save rather than
+      buried. Skipping is recorded for the session only — the field stays blank,
+      so a later visit may ask again. %>
+  <template x-if="step === 'first-name'">
+    <div>
+      <div class="relative mb-3 -mt-2">
+        <h3 class="text-heading font-bold text-lg leading-tight text-center pt-1">What should we call you?</h3>
+        <button @click="skip()"
+                class="absolute top-0 right-0 -mr-2 text-secondary hover:text-heading text-xl leading-none"
+                aria-label="Skip">&times;</button>
+      </div>
+      <%# Same 2-of-3 as the wallet step: the app's pill frame is
+          sign in (auth modal, 1) → set up (this whole chain, 2) → play (3), so
+          every setup step reads 2, not its own index within the chain. %>
+      <%= render "studio/modals/blocks/progress_pill", current: 2, total: 3 %>
+      <p class="text-xs text-body mb-4 text-center">
+        Just your first name — we use it to address you in emails about your
+        contests and payouts.
+      </p>
+
+      <form @submit.prevent="save()" novalidate>
+        <div class="mb-3">
+          <label class="block text-xs text-secondary mb-1 font-medium" for="onboarding-first-name">First name</label>
+          <%# Autofocus so the user can just type (operator call). The plain HTML
+              autofocus attribute is NOT enough here: browsers honour it when the
+              document is parsed, and this modal mounts from a <template x-if>
+              long after that — so it needs Alpine. $nextTick waits for the step's
+              DOM to exist before focusing; preventScroll keeps the mount
+              animation from being yanked by the browser scrolling to the field. %>
+          <input id="onboarding-first-name" type="text" x-model="firstName"
+                 maxlength="40" autocomplete="given-name" enterkeyhint="done"
+                 placeholder="Alex"
+                 :disabled="submitting"
+                 x-init="$nextTick(() => $el.focus({ preventScroll: true }))"
+                 class="input-field">
+        </div>
+        <template x-if="error">
+          <p class="text-red-400 text-xs mb-3" x-text="error"></p>
+        </template>
+        <button type="submit" :disabled="submitting"
+                class="btn btn-primary btn-lg w-full gap-2 disabled:cursor-wait">
+          <span x-show="submitting" class="cta-spinner" aria-hidden="true"></span>
+          <span x-text="submitting ? 'Saving…' : 'Save and continue'"></span>
+        </button>
+      </form>
+
+      <button type="button" @click="skip()" :disabled="submitting"
+              class="mt-3 w-full text-center text-sm text-secondary hover:text-heading disabled:opacity-50">
+        Skip for now
+      </button>
+    </div>
+  </template>
+</div>

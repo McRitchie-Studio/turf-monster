@@ -136,7 +136,53 @@ class ApplicationController < ActionController::Base
   def clear_wallet_setup_state!
     session.delete(:wallet_setup)
     session.delete(:wallet_setup_prompt)
+    session.delete(:onboarding_prompt)
   end
+
+  # ── The post-auth onboarding chain (2026-08) ───────────────────────────────
+  #
+  # ONE call at every auth success, replacing the wallet-only prompt as the
+  # thing that decides what the user sees next. It still records the wallet
+  # STATE (session[:wallet_setup]) because the entry gate reads that on every
+  # later render — the chain is about what we ASK, the state is about what we
+  # ENFORCE, and they are deliberately separate.
+  #
+  # `welcome:` is true only for an account created in THIS request; only the
+  # signup paths know that, and inferring it from created_at would re-fire the
+  # celebration on later logins.
+  # Returns the ordered steps it armed, so a caller can ask what the user is
+  # about to be shown (e.g. "will the chain welcome them itself?") instead of
+  # re-deriving it from a boolean.
+  def record_onboarding_state!(user, welcome: false)
+    record_wallet_setup_state!(user, prompt: false)
+    steps = onboarding_steps_for(user, welcome: welcome)
+    # One-shot, and it carries the STEPS rather than a bare boolean so the
+    # client walks exactly what the server resolved. Rides the session (not the
+    # flash) because the Google popup never redirects — its opener reloads, and a
+    # flash would be consumed by whichever render landed first.
+    session[:onboarding_prompt] = steps.map(&:to_s) if steps.any?
+    steps
+  end
+
+  def onboarding_steps_for(user, welcome: false)
+    OnboardingFlow.steps_for(
+      user,
+      welcome: welcome,
+      skipped_first_name: session[:onboarding_skipped_first_name] == true,
+      age_gate_enabled: age_gate_required?
+    )
+  end
+
+  # One-shot read: the ordered step list for the render right after auth success,
+  # else nil. Deleting on read is what keeps the chain from re-opening on every
+  # later page view.
+  def consume_onboarding_prompt
+    steps = session.delete(:onboarding_prompt)
+    return nil if steps.blank?
+
+    Array(steps).map(&:to_s) & OnboardingFlow::STEPS.map(&:to_s)
+  end
+  helper_method :consume_onboarding_prompt
 
   # RENDER-PATH SAFE — never issues a Solana RPC.
   #

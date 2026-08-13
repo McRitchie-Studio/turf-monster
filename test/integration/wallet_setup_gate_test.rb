@@ -25,7 +25,23 @@ class WalletSetupGateTest < ActionDispatch::IntegrationTest
   # The layout consumes session[:wallet_setup_prompt] on render and emits this
   # marker, which is what actually opens the modal. Asserting the RENDERED
   # marker (not just the session key) keeps the two halves honest together.
-  PROMPT_MARKER = 'id="wallet-setup-prompt-data"'.freeze
+  #
+  # Since the post-auth onboarding chain landed (2026-08-12) the wallet prompt is
+  # the LAST STEP of that chain rather than its own one-shot key, so the rendered
+  # marker is the chain payload. `window.__walletSetupPrompt` survives unchanged —
+  # the contest board still reads it to defer its tokens picker — and is emitted
+  # whenever the chain ends in the wallet step.
+  PROMPT_MARKER = 'id="onboarding-chain-data"'.freeze
+
+  # Isolate the WALLET question: this file is about WalletSetupPolicy, so settle
+  # the chain's other steps (a first name, a verified DOB) and let the wallet step
+  # be the only thing that can still be outstanding. Without this a returning
+  # user with a blank first_name gets asked for it, which is correct behaviour and
+  # pure noise here.
+  def settle_non_wallet_steps(user)
+    user.update_columns(first_name: "Jordan", age_attested_at: 30.years.ago)
+    user
+  end
 
   test "a new email signup gets no custodial wallet and lands with setup armed" do
     assert_difference "User.count", 1 do
@@ -54,7 +70,7 @@ class WalletSetupGateTest < ActionDispatch::IntegrationTest
   end
 
   test "a returning web2 user holding an entry's worth of USDC is not interrupted" do
-    user = users(:jordan)
+    user = settle_non_wallet_steps(users(:jordan))
     user.update_columns(web2_solana_address: "FundedManaged1", web3_solana_address: nil)
     with_usdc(25.0) do
       post magic_link_consume_path(token: magic_token(email: user.email))
@@ -62,8 +78,9 @@ class WalletSetupGateTest < ActionDispatch::IntegrationTest
 
     assert_equal user.id, session[Studio.session_key]
     assert_equal false, session[:wallet_setup], "19+ USDC means useable as-is"
-    assert_nil session[:wallet_setup_prompt]
-    # They keep their normal welcome-back toast.
+    assert_nil session[:onboarding_prompt], "nothing outstanding means no chain"
+    # They keep their normal welcome-back toast. Read BEFORE follow_redirect! —
+    # the followed render consumes the flash.
     assert_equal "Welcome back", flash[:auth_toast][:title]
 
     follow_redirect!
@@ -71,7 +88,7 @@ class WalletSetupGateTest < ActionDispatch::IntegrationTest
   end
 
   test "a returning web2 user under the threshold is prompted" do
-    user = users(:jordan)
+    user = settle_non_wallet_steps(users(:jordan))
     user.update_columns(web2_solana_address: "EmptyManaged1", web3_solana_address: nil)
     with_usdc(3.0) do
       post magic_link_consume_path(token: magic_token(email: user.email))
@@ -85,7 +102,7 @@ class WalletSetupGateTest < ActionDispatch::IntegrationTest
   end
 
   test "a phantom-linked user is never prompted" do
-    user = users(:jordan)
+    user = settle_non_wallet_steps(users(:jordan))
     user.update_columns(web3_solana_address: "PhantomLinked1")
     post magic_link_consume_path(token: magic_token(email: user.email))
 
@@ -151,11 +168,17 @@ class WalletSetupGateTest < ActionDispatch::IntegrationTest
     assert user.web2_solana_address.present?, "flag off keeps the pre-existing behaviour"
     assert_equal :managed, user.wallet_kind
     assert_equal false, session[:wallet_setup]
-    assert_nil session[:wallet_setup_prompt]
 
     follow_redirect!
-    assert_not_includes response.body, PROMPT_MARKER
+    # The CHAIN still runs with the feature off — a new signup is still welcomed
+    # and still asked for a first name. What must be absent is the WALLET step,
+    # because web2 is a supported path when the flag is off.
+    assert_includes response.body, PROMPT_MARKER
+    assert_not_includes response.body, "window.__walletSetupPrompt = true",
+                        "no wallet step, so the board must not defer its tokens picker"
     assert_includes response.body, '"walletSetupRequired":false'
+    steps = JSON.parse(response.body[/id="onboarding-chain-data">\s*(\{.*?\})\s*<\/script>/m, 1])["steps"]
+    assert_not_includes steps, "wallet"
   end
 
   test "with the flag OFF an empty managed wallet can still reach the web2 rails" do
@@ -164,7 +187,7 @@ class WalletSetupGateTest < ActionDispatch::IntegrationTest
     # would be nudged to Phantom and — worse — blocked by the entry gate from
     # the web2 funding rails that exist to fix exactly that balance.
     ENV.delete("ENABLE_WEB3_ONLY_ONBOARDING")
-    user = users(:jordan)
+    user = settle_non_wallet_steps(users(:jordan))
     user.update_columns(web2_solana_address: "EmptyManagedFlagOff", web3_solana_address: nil)
     with_usdc(0.0) do
       post magic_link_consume_path(token: magic_token(email: user.email))
