@@ -6,10 +6,19 @@ require "test_helper"
 # string alone does NOT tell you what this app runs. That gap has bitten twice.
 # Reading the pin as the version is how "turf is on 0.31" got believed while the
 # lockfile said 0.39; and `~> 0.42` later let the lockfile reach 0.43 with nobody
-# ADOPTING 0.43, which is what installs its migrations — the drift the columns
-# below now assert against.
+# ADOPTING 0.43, which is what installs its migrations — the drift the migration
+# check below now asserts against.
 # These assert the FLOOR we actually depend on, so a `bundle update` that walked
 # the resolved version backwards fails here instead of at runtime.
+#
+# THE CONTRACT IS NOW DERIVED, NOT ENUMERATED. This file used to answer "is the
+# schema current?" with a hand-written list of `studio_email_settings` columns.
+# That list went stale at the 0.42 columns while the lockfile resolved 0.43 —
+# green test, drifted app — and re-typing it only resets the clock. Worse, a
+# column list can only ever defend the ONE table somebody thought to list: when
+# 0.46 added the standard user-profile columns to `users`, this file stayed green
+# through the entire drift, because `users` was not on the list and never would
+# have been. The migration check below asks the general question instead.
 class EnginePinContractTest < ActiveSupport::TestCase
   # Raised deliberately by the 0.42 adoption. Each entry is a feature this app
   # now relies on, with the version that introduced it — so the floor is
@@ -36,6 +45,31 @@ class EnginePinContractTest < ActiveSupport::TestCase
                     "a host-owned layered banner needs >= 0.43)"
   end
 
+  # THE TEST THAT CATCHES A GEM BUMP OUTRUNNING AN ADOPTION.
+  #
+  # `studio_engine:install:migrations` COPIES the gem's migrations into this
+  # repo, renumbering each to the install time and appending a `.studio_engine`
+  # scope suffix — so the version never survives the copy and only the bare name
+  # does. That copy is a MANUAL step: bumping the gem does not perform it, and an
+  # app that skips it boots perfectly, passes its suite, and is missing columns
+  # the gem's own code writes to.
+  #
+  # A pending-migration check cannot answer this. The test schema is loaded from
+  # schema.rb, which stamps every version as already run, so a migration that was
+  # never copied is not "pending" — it is invisible. Comparing NAMES is the
+  # honest question, and it is the same question install:migrations itself asks.
+  #
+  # This is not hypothetical here: engine 0.46 shipped
+  # add_standard_user_profile_columns and this app did not install it, while
+  # every other assertion in this file stayed green.
+  test "every migration the resolved engine ships has been installed here" do
+    assert_empty missing_engine_migrations,
+                 "the resolved studio-engine (#{Studio::VERSION}) ships migrations this app never " \
+                 "copied: #{missing_engine_migrations.join(", ")}. Run " \
+                 "`bin/rails studio_engine:install:migrations && bin/rails db:migrate` — " \
+                 "bumping the gem does NOT do it for you."
+  end
+
   test "the engine tables this app's mounted pages read actually exist" do
     # The engine ships these as migrations; a host that skips
     # `studio_engine:install:migrations` boots fine and then 500s on the page
@@ -52,25 +86,19 @@ class EnginePinContractTest < ActiveSupport::TestCase
     # `copy` and `subject` columns in two follow-ups, and a host that ran only
     # the create would pass the check above and still break /admin/emails.
     assert_nothing_raised { Studio::EmailSetting.limit(1).to_a }
-    # The two follow-ups add the banner's WORDS (add_copy → header,
-    # header_fallback, subtext) and its subject line (add_subject → subject).
-    # Named by the columns they create, not by the migration filenames: the
-    # "copy" migration adds no column called `copy`, and asserting the filename's
-    # noun is how this test first failed.
-    #
-    # 0.43 adds the body, the CTA and the shared footer. This list stopped at the
-    # 0.42 columns while the resolved gem moved to 0.43 — because a two-segment
-    # `~> 0.42` PERMITS 0.43, so the lockfile advanced without anyone ADOPTING
-    # 0.43, and adopting is what installs its migrations.
-    %w[header header_fallback subtext subject
-       body cta_text cta_color cta_enabled discord_url].each do |column|
-      assert_includes Studio::EmailSetting.column_names, column,
-                      "studio_email_settings.#{column} is missing — a follow-up migration did not run"
-    end
   end
 
-  # THE PATH THAT ACTUALLY BREAKS, and the reason the column list above is not
-  # enough on its own.
+  # THE COLUMN LIST THAT USED TO LIVE ABOVE IS DELIBERATELY GONE.
+  #
+  # It named the same nine columns the save below writes, so it asserted a strict
+  # SUBSET of what this test proves — a missing column is a NoMethodError on
+  # assignment, which fails here first and with a better message. Keeping both
+  # bought nothing and cost the thing that actually hurt: the list had to be
+  # hand-extended on every engine release, and the release it was NOT extended
+  # for is the one that drifted. The general question ("is any engine migration
+  # uninstalled?") is now asked once, above, for every engine table at once.
+  #
+  # THE PATH THAT ACTUALLY BREAKS:
   #
   # Studio::EmailSetting.table_ready? checks only table_exists?, never columns,
   # so nothing raises at boot. READS survive too — the table is empty in a fresh
@@ -96,4 +124,46 @@ class EnginePinContractTest < ActiveSupport::TestCase
 
     assert_equal "Hi {name}, tap the button below.", setting.reload.body
   end
+
+  private
+
+    # Engine migration names with no counterpart in this repo's db/migrate.
+    #
+    # Both sides are reduced to the bare name, because the copy rewrites
+    # everything else: the gem's
+    # `20260813220000_add_standard_user_profile_columns.rb` installs here as
+    # `20260813222322_add_standard_user_profile_columns.studio_engine.rb`, so the
+    # timestamp and the scope suffix are both noise. The suffix is STRIPPED by
+    # pattern rather than matched literally, because it has been spelled both
+    # `.studio_engine` and `.studio` across the engine's history.
+    #
+    # THIS APP COVERS TWO ENGINE MIGRATIONS WITH ITS OWN NATIVES, and that is
+    # correct rather than drift: `create_studio_links` and
+    # `allow_null_image_cache_owner` exist here as hand-written migrations
+    # (db/migrate/20260621120000_create_studio_links.rb and
+    # 20260621120001_allow_null_image_cache_owner.rb) that predate the engine
+    # shipping its own. `install:migrations` itself skips them for exactly this
+    # reason ("Migration with the same name already exists"). Matching on the
+    # bare name — not on the suffix — is what makes this check agree with the
+    # installer instead of reporting two permanent false positives.
+    def missing_engine_migrations
+      @missing_engine_migrations ||= engine_migration_names - installed_migration_names
+    end
+
+    def engine_migration_names
+      Studio::Engine.paths["db/migrate"].existent
+                    .flat_map { |dir| Dir.children(dir) }
+                    .grep(/\.rb\z/)
+                    .map { |file| bare_migration_name(file) }
+    end
+
+    def installed_migration_names
+      Dir.children(Rails.root.join("db/migrate"))
+         .grep(/\.rb\z/)
+         .map { |file| bare_migration_name(file) }
+    end
+
+    def bare_migration_name(file)
+      file.sub(/\A\d+_/, "").sub(/\.[a-z_]+\.rb\z/, "").sub(/\.rb\z/, "")
+    end
 end
