@@ -358,6 +358,22 @@ window.selectionBoard = function() {
               // Note this is a HAND-OFF, not a swap: swapping the chain's modal
               // away would strand it (its step never reports 'done', so the
               // remaining steps never open). The chain finishes, THEN we open.
+              //
+              // A WALLET-LESS USER NOW GETS THE PICKER TOO, deliberately. The
+              // old guard here ('&& !window.__walletSetupPrompt') was written to
+              // stop the picker STACKING over the auto-opened wallet-setup card;
+              // waiting for the chain does that for every step, so all the guard
+              // still did was drop the picker for a user who declined a wallet.
+              // Honour the request instead of swallowing it: they clicked Get
+              // Entry Tokens and signed up to do exactly this, and a bare board
+              // after four cards reads as the flow forgetting them. Declining is
+              // not a dead end either — the entry gate reopens wallet setup on
+              // their next attempt (showWalletSetupModal). Reachable only under
+              // web3-only onboarding, since WalletSetupPolicy#required? is gated
+              // on that flag and it is OFF in production today; if it ships and
+              // the picker proves unusable without a linked wallet, suppress it
+              // HERE rather than re-reading __walletSetupPrompt, which describes
+              // the CHAIN'S SHAPE, not what the picker can do.
               if (window.__onboardingChainArmed) {
                 window.addEventListener('onboarding-chain-complete', function () {
                   board.showTokensPanel();
@@ -432,12 +448,10 @@ window.selectionBoard = function() {
               this.saveCartForRedirect(true);
             } else {
               var self = this;
-              // Let Alpine flush the state, then replay + enter. When the
-              // magic-link welcome modal is showing, hold ~3s first so its
-              // success beat isn't instantly covered by the tokens picker the
-              // auto-enter opens (showTokensPanel swaps the welcome out at fire).
-              // 50ms is just an Alpine state flush; the old 3000ms branch existed
-              // to let the retired magic-link welcome modal finish its drain.
+              // Let Alpine flush the restored selections, then replay + enter.
+              // 50ms is that flush and nothing more. (It used to branch to
+              // 3000ms to let the magic-link welcome modal drain its countdown
+              // first; that modal is retired, so the branch went with it.)
               setTimeout(function () {
                 self.afterLoginSuccess();
               }, 50);
@@ -995,8 +1009,8 @@ window.selectionBoard = function() {
     // still the picker, reached via the hub's Stripe card + the post-signup
     // resume). wallet-topup is its OWN modal id, so unlike showTokensPanel
     // (which advance()s WITHIN the auth wizard) the choice is open-vs-swap:
-    //   - any modal currently open (auth wizard, magic-link welcome beat) →
-    //     swap() runs the host's cross-modal directional slide.
+    //   - any modal currently open (e.g. the auth wizard) → swap() runs the
+    //     host's cross-modal directional slide.
     //   - cold board (no modal open) → open() plays the fresh mount.
     showWalletTopup() {
       this.profileModal = false;
