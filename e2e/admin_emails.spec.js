@@ -12,7 +12,7 @@ const IMG = path.join(__dirname, "..", "test", "fixtures", "files", "banner_wide
 // resolves to a 404 renders as a broken image while every server-side
 // assertion still passes), and the upload runs through the shared crop modal
 // on the page-scoped `emailModals` store — a store that fails to register
-// leaves the Upload button inert with no server-side symptom at all.
+// leaves the upload control inert with no server-side symptom at all.
 //
 // Tagged @smoke: this is the only admin surface for every email the app sends.
 test.beforeEach(async ({ request }) => await reseed(request));
@@ -83,13 +83,25 @@ test.describe("Admin emails manager", () => {
   //
   // What only a browser can prove, and what this therefore keeps: the page
   // mounts its OWN modal host (emailModals) because not every consuming app
-  // renders a shared one — if that store fails to register, the Upload button
+  // renders a shared one — if that store fails to register, the upload control
   // is inert and NO server-side test notices.
-  test("upload opens the shared crop modal and submits @smoke", async ({ page }) => {
+  //
+  // WHERE the control lives is engine-owned and has already moved once. Through
+  // studio-engine 0.42 the list page carried an Upload/Replace button per row;
+  // 0.43 deleted it and left one control, on the email's OWN page, over the
+  // artwork it replaces. Both versions render that control, so this spec runs on
+  // either. It is pinned by its accessible name — the label an operator reads —
+  // and deliberately NOT by `data-modify-artwork`, which appears exactly once in
+  // the whole engine (on the button) with nothing reading it: an attribute no
+  // engine test protects is a worse contract than the words on the button.
+  test("an email's page uploads through the shared crop modal @smoke", async ({ page }) => {
     await loginAdmin(page);
     await page.goto("/admin/emails");
+    await page.getByRole("link", { name: "Magic-link sign-in" }).click();
 
-    await page.getByRole("button", { name: /^(Upload|Replace)$/ }).first().click();
+    // Hidden until hover (opacity-0 group-hover:opacity-100) — Playwright hovers
+    // before it clicks, and opacity alone never made an element unclickable.
+    await page.getByRole("button", { name: "Modify image" }).click();
     await expect(page.getByText("Crop Photo")).toBeVisible();
 
     await page.locator('input[type="file"][x-ref="filePicker"]').setInputFiles(IMG);
@@ -97,13 +109,14 @@ test.describe("Admin emails manager", () => {
 
     await page.getByRole("button", { name: /Crop & Save/i }).click();
 
-    // The saving card is the proof the cropped blob reached the row's hidden
-    // form and submitted — it is opened by submitFormWithProgress on the same
-    // page-scoped store.
+    // The saving card is the proof the cropped blob reached the page's hidden
+    // multipart form and submitted — it is opened by submitFormWithProgress on
+    // the same page-scoped store.
     await expect(page.getByText("Saving banner")).toBeVisible();
 
-    // Whatever the bucket says, the flow returns to the manager and the modal
-    // does not stick. A card left on screen is the failure this guards.
+    // The banner PATCH redirects back to the manager index (not to the email's
+    // own page), whatever the bucket says, and the modal does not stick. A card
+    // left on screen is the failure this guards.
     await expect(page).toHaveURL(/\/admin\/emails$/, { timeout: 20000 });
     await expect(page.getByText("Crop Photo")).toBeHidden();
   });
