@@ -132,10 +132,17 @@
       <form @submit.prevent="save()" novalidate>
         <div class="mb-3">
           <label class="block text-xs text-secondary mb-1 font-medium" for="onboarding-first-name">First name</label>
+          <%# Autofocus so the user can just type (operator call). The plain HTML
+              autofocus attribute is NOT enough here: browsers honour it when the
+              document is parsed, and this modal mounts from a <template x-if>
+              long after that — so it needs Alpine. $nextTick waits for the step's
+              DOM to exist before focusing; preventScroll keeps the mount
+              animation from being yanked by the browser scrolling to the field. %>
           <input id="onboarding-first-name" type="text" x-model="firstName"
                  maxlength="40" autocomplete="given-name" enterkeyhint="done"
                  placeholder="Alex"
                  :disabled="submitting"
+                 x-init="$nextTick(() => $el.focus({ preventScroll: true }))"
                  class="input-field">
         </div>
         <template x-if="error">

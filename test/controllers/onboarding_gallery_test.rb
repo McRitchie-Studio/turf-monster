@@ -37,6 +37,10 @@ class OnboardingGalleryTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "What should we call you?"
     assert_includes response.body, 'id="onboarding-first-name"'
     assert_includes response.body, "Save and continue"
+    # Focused on open (operator call). Alpine, not the HTML autofocus attribute:
+    # browsers honour that at parse time, and this modal mounts from a
+    # <template x-if> long afterwards. e2e proves the focus actually lands.
+    assert_includes response.body, "$el.focus({ preventScroll: true })"
     # Skippable was an explicit operator call: the link AND the × both skip, so
     # closing the card is never a dead end that loses the rest of the chain.
     assert_includes response.body, "Skip for now"

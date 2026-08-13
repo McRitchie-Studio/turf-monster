@@ -86,6 +86,21 @@ test("a new signup walks welcome → first name → age → wallet in order @smo
   expect(await currentModal(page)).toMatchObject({ id: "wallet-setup" });
 });
 
+test("the first-name field is focused on open, so the user can just type @smoke", async ({ page }) => {
+  // Only a browser can prove this: the HTML autofocus attribute does nothing for
+  // a modal mounted from <template x-if> after the document parsed, so the focus
+  // comes from Alpine ($nextTick + $el.focus). Asserting activeElement alone
+  // could pass on a field that is focused but unusable, so type WITHOUT clicking
+  // and check the value landed.
+  await signUpFresh(page, { contest: "world-cup-2026" });
+  await page.getByRole("button", { name: /Let's go/i }).click();
+  await expect(page.getByRole("heading", { name: /What should we call you/i })).toBeVisible();
+
+  await expect(page.locator("#onboarding-first-name")).toBeFocused();
+  await page.keyboard.type("Alex");
+  await expect(page.locator("#onboarding-first-name")).toHaveValue("Alex");
+});
+
 test("skipping the first name still reaches the age and wallet steps @smoke", async ({ page }) => {
   // Skippable was an explicit operator call, and the risk in a skip is that it
   // ends the chain instead of advancing it.
