@@ -57,11 +57,31 @@ class SeedIdentitiesTest < ActiveSupport::TestCase
     assert_includes walletless.map { |i| i[:email] }, "alex@turfmonster.media"
   end
 
-  test "the seed guards its wallet and username lookups on presence" do
-    seed = Rails.root.join("db/seeds/users.rb").read
+  # THE PROPERTY, NOT ITS SPELLING. An unguarded
+  # `find_by(web3_solana_address: data[:wallet])` matches the FIRST wallet-less
+  # user when an identity carries no wallet, so the seed ADOPTS a stranger:
+  # their email and username are overwritten, their role becomes admin, and
+  # `encrypted_web2_solana_private_key` is nulled while their USDC stays
+  # on-chain. This assertion used to read the seed's SOURCE TEXT, which an
+  # equivalent rewrite (`data.fetch(:wallet, nil)`) satisfied while the bug ran
+  # live. Assert the effect on the rows instead.
+  test "the seed adopts no existing row for a wallet-less identity" do
+    parked = User::PARKED_IDENTITIES.map { |i| i[:email] }
+    User.create!(email: "stranger@example.com", username: "stranger", role: "user",
+                 web2_solana_address: "So11111111111111111111111111111111111111112",
+                 encrypted_web2_solana_private_key: "managed-key")
+    # The row an unguarded wallet lookup would match first.
+    victim = User.where(web3_solana_address: nil).where.not(email: parked).order(:id).first
+    before = victim.slice("email", "username", "role")
+    existing_ids = User.pluck(:id)
 
-    refute_match(/User\.find_by\(web3_solana_address: data\[:wallet\]\)\s*\|\|/, seed,
-      "an unguarded wallet lookup adopts the first wallet-less user for any identity without one")
+    silence_warnings { load Rails.root.join("db/seeds/users.rb") }
+    seeded = seed_core_users!.fetch("alexturf")
+
+    refute_includes existing_ids, seeded.id, "the wallet-less identity adopted an existing row"
+    assert_equal before, victim.reload.slice("email", "username", "role")
+    assert_equal "managed-key",
+      User.find_by(email: "stranger@example.com").encrypted_web2_solana_private_key
   end
 
   test "every seeded identity is unique by email and username" do
