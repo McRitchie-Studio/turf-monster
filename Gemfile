@@ -89,7 +89,7 @@ gem "sentry-rails"
 # 0.11.0 widens the Rails bound to allow 8.1; it also ships the opt-in
 # Studio::Enumeral table (0.9.0) and the Studio::Redis / Studio::Cable
 # websocket primitives (0.10.0), neither of which turf adopts yet.
-gem "studio-engine", "~> 0.42" # 0.42 is the floor: /admin/emails needs Studio::EmailSetting + EmailPreviewTarget, and magic_link registers a layered `background:` that only 0.42 knows about. (0.31 was the previous floor — Studio::LinkConsumption, Studio::LinkResolution and Studio::Link#burn/#dead_status — and 0.30 is why the layout renders studio/banners/environment and nothing else: the partial self-gates.)
+gem "studio-engine", "~> 0.43" # 0.43 is the floor: this app registers its OWN background for magic_link, and only 0.43 honours that — 0.42 gated background_url on whether the ENGINE owned the flat artwork, so a host with its own .jpg could not opt into a layered banner at all. (0.31 was the previous floor: Studio::LinkConsumption, Studio::LinkResolution, Studio::Link#burn/#dead_status. 0.30 is why the layout renders studio/banners/environment and nothing else — the partial self-gates.)
 
 # Solana primitives (Client, Keypair, Borsh, Transaction, AuthVerifier)
 # 0.4.7 adds Solana::Transaction.cosign_wire + Client#simulate_transaction for the
