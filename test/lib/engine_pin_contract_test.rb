@@ -2,9 +2,12 @@ require "test_helper"
 
 # Contract for the studio-engine pin.
 #
-# The Gemfile pin is `~> 0.31`, which permits anything below 1.0 — so the pin
-# string alone does NOT tell you what this app runs, and reading it as the
-# version is how "turf is on 0.31" got believed while the lockfile said 0.39.
+# The Gemfile pin is `~> 0.43`, which permits anything below 1.0 — so the pin
+# string alone does NOT tell you what this app runs. That gap has bitten twice.
+# Reading the pin as the version is how "turf is on 0.31" got believed while the
+# lockfile said 0.39; and `~> 0.42` later let the lockfile reach 0.43 with nobody
+# ADOPTING 0.43, which is what installs its migrations — the drift the columns
+# below now assert against.
 # These assert the FLOOR we actually depend on, so a `bundle update` that walked
 # the resolved version backwards fails here instead of at runtime.
 class EnginePinContractTest < ActiveSupport::TestCase
