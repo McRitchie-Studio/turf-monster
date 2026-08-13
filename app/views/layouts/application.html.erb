@@ -869,25 +869,128 @@
         Emitted as a marker tag + the same window flag shape as
         __magicLinkWelcome so the contest board can see it (it defers its own
         post-login tokens picker — a wallet-less user has nothing to buy with). %>
-    <% if consume_wallet_setup_prompt? %>
-      <script type="application/json" id="wallet-setup-prompt-data">{"open":true}</script>
-      <script>window.__walletSetupPrompt = true;</script>
+    <%# The CHAIN (2026-08): the server resolves which steps are still
+        outstanding (OnboardingFlow) and emits them in order; the driver below
+        walks them. Steps: welcome + first_name are the `onboarding` modal, then
+        age is `age-verify`, then wallet is `wallet-setup`.
+
+        __walletSetupPrompt keeps its old name and meaning — the contest board
+        reads it to defer its post-login tokens picker (a wallet-less user has
+        nothing to buy with) — and is now set whenever the chain ends in the
+        wallet step, which is the same condition it always described. %>
+    <% onboarding_steps = consume_onboarding_prompt %>
+    <% if onboarding_steps.present? %>
+      <script type="application/json" id="onboarding-chain-data">
+        <%= raw({ steps: onboarding_steps, username: current_user&.username }.to_json) %>
+      </script>
+      <% if onboarding_steps.include?("wallet") %>
+        <script>window.__walletSetupPrompt = true;</script>
+      <% end %>
     <% end %>
     <script>
+      // ── Onboarding chain driver ───────────────────────────────────────────
+      // Owns the ORDER so no modal has to know what follows it. Each step ends
+      // by handing back the steps the SERVER says remain, and we open the next.
+      (function() {
+        var started = false;
+
+        // Idempotent per id: never push a modal that is already on the stack.
+        //
+        // TWO independent things open the wallet step after the age gate — this
+        // driver, and the contest board's own 'age-verified' handler, which
+        // resumes confirmEntry() and routes through the eligibility blocker to
+        // the same modal. Both are correct in isolation; together they pushed
+        // wallet-setup TWICE, and closing popped one and revealed the other, so
+        // "Maybe later" looked like it did nothing. Guarding by id makes
+        // whichever runs second a no-op, so the fix does not depend on their
+        // order — see the matching guard in selectionBoard#showWalletSetupModal.
+        function open(id, props) {
+          var attempts = 0;
+          (function tryOpen() {
+            var m = (window.Alpine && Alpine.store) ? Alpine.store('modals') : null;
+            if (m && typeof m.open === 'function') {
+              var already = (m.stack || []).some(function (e) { return e && e.id === id && !e._closing; });
+              if (!already) m.open(id, props || {});
+              return;
+            }
+            if (attempts++ < 50) setTimeout(tryOpen, 50); // ~2.5s for Alpine boot
+          })();
+        }
+
+        // The chain's single decision point, used for the first step and every
+        // hand-off after it. Unknown/absent steps end the chain quietly.
+        function openStep(steps, username) {
+          var next = (steps || [])[0];
+          if (!next) return;
+          if (next === 'welcome' || next === 'first_name') {
+            open('onboarding', {
+              step: next === 'welcome' ? 'welcome' : 'first-name',
+              steps: steps,
+              username: username || ''
+            });
+          } else if (next === 'age') {
+            open('age-verify', {});
+          } else if (next === 'wallet') {
+            open('wallet-setup', { returnUrl: window.location.href });
+          }
+        }
+
+        var chainUsername = '';
+
+        // The onboarding modal reports what is left after welcome/first-name.
+        window.addEventListener('onboarding-step-done', function (e) {
+          var next = (e && e.detail && e.detail.next) || [];
+          // Drop the steps this modal just handled, whatever the server echoed.
+          next = next.filter(function (s) { return s !== 'welcome' && s !== 'first_name'; });
+          if (next.length) setTimeout(function () { openStep(next, chainUsername); }, 250);
+        });
+
+        // The age modal has no chain awareness: it sets $store.session.ageVerified,
+        // closes, and dispatches 'age-verified' (the contest board's resume hook).
+        // Continue to the wallet step from here, but ONLY while a chain is live —
+        // otherwise verifying age at hold-time on a contest would also pop the
+        // wallet modal on top of the board's own resume.
+        window.addEventListener('age-verified', function () {
+          if (!window.__onboardingChainActive) return;
+          window.__onboardingChainActive = false;
+          var sess = window.Alpine && Alpine.store && Alpine.store('session');
+          if (sess && sess.walletSetupRequired) {
+            setTimeout(function () { openStep(['wallet'], chainUsername); }, 250);
+          }
+        });
+
+        function startChain() {
+          if (started) return;
+          var el = document.getElementById('onboarding-chain-data');
+          if (!el) return;
+          var data;
+          try { data = JSON.parse(el.textContent); } catch (e) { return; }
+          started = true;
+          el.remove(); // one-shot: a later turbo:load must not replay it
+          chainUsername = data.username || '';
+          // Live only while the chain still has an age or wallet step to reach.
+          window.__onboardingChainActive = (data.steps || []).indexOf('age') !== -1;
+          openStep(data.steps || [], chainUsername);
+        }
+
+        document.addEventListener('turbo:load', startChain);
+        if (document.readyState !== 'loading') startChain();
+        else document.addEventListener('DOMContentLoaded', startChain);
+      })();
+
+      // Post-install REOPEN only. The wallet modal reloads the page itself when
+      // the user comes back from installing Phantom (Chrome only injects a new
+      // extension into pages loaded after the install, so the open tab can never
+      // see it) — and that reload lands with the chain prompt already spent, so
+      // without this the user would arrive on a bare page mid-flow. The chain
+      // driver above owns the FIRST open; this owns only the return trip.
       (function() {
         var fired = false;
         function openWalletSetup() {
           if (fired) return;
-          var el = document.getElementById('wallet-setup-prompt-data');
-          // The modal reloads the page ITSELF when the user comes back from
-          // installing Phantom (Chrome only injects a new extension into pages
-          // loaded after the install, so the open tab can never see it). The
-          // server-side prompt is one-shot and was already spent on the first
-          // render, so without this key that reload would drop the user on a bare
-          // page mid-flow — the reload has to carry the modal with it.
           var reopen = null;
           try { reopen = sessionStorage.getItem('walletSetupReopen'); } catch (e) {}
-          if (!el && reopen !== '1') return;
+          if (reopen !== '1') return;
           try { sessionStorage.removeItem('walletSetupReopen'); } catch (e) {}
           var attempts = 0;
           (function tryOpen() {
@@ -895,11 +998,9 @@
             if (m && typeof m.open === 'function') {
               fired = true;
               m.open('wallet-setup', { returnUrl: window.location.href });
-              // Drop the one-shot marker so a later turbo:load (bfcache restore,
-              // re-navigation) can't replay it. Null on the post-reload reopen
-              // path, which has no marker tag — the sessionStorage key was
-              // already cleared above, so that path is one-shot too.
-              if (el) el.remove();
+              // One-shot already: the sessionStorage key was cleared above, so a
+              // later turbo:load (bfcache restore, re-navigation) finds nothing
+              // to replay. There is no marker tag on this path.
               return;
             }
             if (attempts++ < 50) setTimeout(tryOpen, 50); // up to ~2.5s for Alpine boot
@@ -1027,6 +1128,12 @@
           render right after auth success (session prompt, below) and on demand
           from the entry gate's 'wallet_setup_required' blocker. Registered
           ungated so the entry gate can always reach it. %>
+      <%# Onboarding chain step 1 — welcome + first-name capture. One id, internal
+          step machine (see the partial). Registered ungated so the chain driver
+          can always reach it. %>
+      <template x-if="$store.modals.current().id === 'onboarding'">
+        <%= render "modals/onboarding" %>
+      </template>
       <template x-if="$store.modals.current().id === 'wallet-setup'">
         <%= render "modals/wallet_setup" %>
       </template>

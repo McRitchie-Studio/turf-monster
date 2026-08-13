@@ -68,6 +68,21 @@ module.exports = defineConfig({
         // signup mints no custodial wallet and auth success lands on the
         // wallet-setup modal (e2e/wallet_setup.spec.js). The e2e lane runs the
         // configuration we ship, so this gate is exercised rather than assumed.
-        env: { RAILS_ENV: "test", PLAYWRIGHT_SEED: "true", ENABLE_WEB3_ONLY_ONBOARDING: "true" },
+        // ENABLE_AGE_GATE joins the flags here because the onboarding chain's
+        // third step IS the age gate (e2e/onboarding_chain.spec.js) — without it
+        // that step silently drops and the spec would assert an order the lane
+        // never runs. Both flags mirror the NFL-2026 production config.
+        //
+        // CAUTION: this env applies to db:test:prepare and e2e/seed.rb in the
+        // same webServer command, so a flag added here can change SEEDED DATA,
+        // not just app behavior. ENABLE_WEB3_ONLY_ONBOARDING already does that
+        // (it skips the managed-wallet mint at signup); verify seeded rows after
+        // touching this list, and run per-shard on a fresh DB.
+        env: {
+          RAILS_ENV: "test",
+          PLAYWRIGHT_SEED: "true",
+          ENABLE_WEB3_ONLY_ONBOARDING: "true",
+          ENABLE_AGE_GATE: "true"
+        },
       },
 });

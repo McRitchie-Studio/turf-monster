@@ -721,6 +721,14 @@ window.selectionBoard = function() {
     // opens the setup modal with a returnUrl back to this contest.
     showWalletSetupModal() {
       this.resetHoldButtons();
+      // Idempotent: the layout's onboarding-chain driver opens this same modal
+      // after the age step, and this method is also reached from that step's
+      // 'age-verified' resume — pushing twice left a duplicate underneath, so
+      // "Maybe later" closed one and revealed the other. Bail if it is already
+      // up; the guard is mirrored in the driver so order does not matter.
+      var modals = Alpine.store('modals');
+      var open = (modals.stack || []).some(function (e) { return e && e.id === 'wallet-setup' && !e._closing; });
+      if (open) return;
       // autoEnter: true — same contract as openWalletConnect. Linking Phantom
       // reloads the page, and init() replays the cart and resumes the entry, so
       // the user picks up mid-flow (a fresh wallet with no USDC then lands on

@@ -18,6 +18,76 @@
     </p>
   </div>
 
+  <%# === FLOWS ==============================================================
+      Ordered sequences a real user walks, above the flat catalogue. The
+      catalogue answers "what states exist"; a flow answers "in what order, and
+      what happens if they bail" — which is the part that actually breaks.
+      Source: AdminController::MODAL_FLOWS, whose steps resolve to the same
+      variant records rendered below. %>
+  <section class="space-y-4">
+    <h2 class="text-heading text-lg font-semibold border-b border-subtle pb-2">Flows</h2>
+    <p class="text-muted text-sm -mt-2">
+      Ordered, end-to-end sequences. Play walks the steps on this page's live
+      modal host, in order, exactly as a user meets them.
+    </p>
+
+    <% @flows.each do |flow| %>
+      <div class="card border border-subtle overflow-hidden">
+        <div class="bg-inset px-4 py-3 border-b border-subtle flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <div class="text-heading font-semibold"><%= flow[:label] %></div>
+            <div class="text-xs text-muted mt-0.5"><%= flow[:summary] %></div>
+          </div>
+          <%# Play: push step 1 onto this page's real host. Each step's own CTA
+              carries the chain forward from there, so what you walk here is the
+              same code path a user walks — not a gallery simulation. %>
+          <button type="button"
+                  class="btn btn-primary btn-sm whitespace-nowrap"
+                  data-flow-play="<%= flow[:key] %>"
+                  data-flow-steps="<%= flow[:steps].map { |s| { id: s[:variant] && s[:variant][:modal_id], props: (s[:variant] && s[:variant][:props]) || {} } }.to_json %>">
+            Play flow &rarr;
+          </button>
+        </div>
+        <ol class="divide-y divide-subtle">
+          <% flow[:steps].each_with_index do |step, i| %>
+            <li class="px-4 py-3 flex items-start gap-3">
+              <span class="badge border-strong text-secondary shrink-0 mt-0.5"><%= i + 1 %></span>
+              <div class="min-w-0">
+                <div class="text-heading text-sm font-medium">
+                  <%= step[:variant] ? step[:variant][:label] : "MISSING VARIANT: #{step[:key]}" %>
+                </div>
+                <div class="text-[11px] text-muted"><%= step[:note] %></div>
+                <% if step[:variant] && step[:variant][:modal_id] %>
+                  <a class="text-[11px] text-primary hover:underline"
+                     href="<%= admin_modal_preview_path(modal_id: step[:variant][:modal_id], props: step[:variant][:props].to_json) %>"
+                     target="_blank" rel="noopener">open this step alone &rarr;</a>
+                <% end %>
+              </div>
+            </li>
+          <% end %>
+        </ol>
+      </div>
+    <% end %>
+  </section>
+
+  <script>
+    // Play a flow on this page's live modal host: open step 1 and let each
+    // step's own CTA advance. We do NOT drive the steps ourselves — the point is
+    // to exercise the real hand-offs (the onboarding modal dispatches
+    // onboarding-step-done, the age modal dispatches age-verified), so a broken
+    // hand-off shows up here rather than being papered over by the gallery.
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest && e.target.closest('[data-flow-play]');
+      if (!btn) return;
+      var steps;
+      try { steps = JSON.parse(btn.getAttribute('data-flow-steps')); } catch (err) { return; }
+      if (!steps || !steps.length || !steps[0].id) return;
+      var m = window.Alpine && Alpine.store && Alpine.store('modals');
+      if (!m) return;
+      m.open(steps[0].id, steps[0].props || {});
+    });
+  </script>
+
   <% @variants.group_by { |v| v[:group] }.each do |group, items| %>
     <section class="space-y-4">
       <h2 class="text-heading text-lg font-semibold border-b border-subtle pb-2"><%= group %></h2>
