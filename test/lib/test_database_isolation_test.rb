@@ -119,6 +119,49 @@ class TestDatabaseIsolationTest < ActiveSupport::TestCase
     assert_equal 5432, config[:port]
   end
 
+  # THE SEAM THIS FIX NEARLY BROKE. `bin/e2e-parallel` gives each shard its own
+  # database by exporting DATABASE_URL — which the new `url:` now OUTRANKS. Inside
+  # a worktree .env.test.local has already set TEST_DATABASE_URL at the DESK's
+  # database, so a shard that exports DATABASE_URL alone resolves to the desk's DB
+  # instead of its own. Measured before the script was updated: with
+  # DATABASE_URL=postgres:///turf_monster_e2e_shard_3 the test env still resolved
+  # to turf_monster_test_isolate_turf_test_database. The stakes are not a shared
+  # database but a DROPPED one — each stack runs `db:drop db:create`.
+  #
+  # The ambient desk variable is what makes this test bite: the shard's exports are
+  # applied ON TOP of it, exactly as they are in a real desk. Drop the
+  # TEST_DATABASE_URL export from bin/e2e-parallel and the ambient value survives
+  # and this goes red.
+  test "every e2e-parallel stack resolves the test env to that stack's own database" do
+    shard_database = "turf_monster_e2e_stack_7"
+    ambient_desk   = "postgresql://localhost/turf_monster_test_a_sibling_desk"
+
+    exports = File.readlines(Rails.root.join("bin/e2e-parallel"))
+                  .grep(/^\s*export\s.*(?<!TEST_)DATABASE_URL=/)
+
+    assert_predicate exports, :any?,
+                     "bin/e2e-parallel no longer exports a per-stack database; this guard has gone blind"
+
+    exports.each do |line|
+      database_url      = line[/(?<!TEST_)DATABASE_URL="([^"]+)"/, 1]
+      test_database_url = line[/TEST_DATABASE_URL="([^"]+)"/, 1]
+
+      # `${db}` is the shell's per-stack name; stand a concrete one in its place.
+      concrete = ->(value) { value&.gsub('${db}', shard_database) }
+
+      resolved = resolved_test_database(
+        # A stack that never sets TEST_DATABASE_URL inherits the desk's.
+        test_url:     concrete.call(test_database_url) || ambient_desk,
+        database_url: concrete.call(database_url)
+      )
+
+      assert_equal shard_database, resolved,
+                   "an e2e-parallel stack resolved to #{resolved} instead of its own database — " \
+                   "in a worktree the desk's ambient TEST_DATABASE_URL outranks this stack's " \
+                   "DATABASE_URL, and every stack runs `db:drop db:create`. Offending line: #{line.strip}"
+    end
+  end
+
   # ASSERTS THE RUNNING PROCESS, not only the file. The two can disagree — the
   # file can be right while dotenv never loads .env.test.local — and it is the
   # running process that decides whose fixtures get written.
