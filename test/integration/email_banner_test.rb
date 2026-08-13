@@ -90,6 +90,20 @@ class EmailBannerTest < ActionDispatch::IntegrationTest
     get admin_emails_path
     assert_response :success
     assert_select "tbody tr", count: Studio::EmailCatalog.entries.size
+
+    # THE SHARED LAYOUT, asserted here because this app ships no views and no
+    # controller for /admin/emails — the whole page is the engine's, so the
+    # resolved engine version IS the layout and a stale pin is the only way two
+    # apps mounting one shared page can drift apart. They did: on 0.42 this
+    # table had five columns (Banner/Email/Subject/Image/Actions) and McRitchie
+    # Industries was still drawing it while Studio drew the three-column one.
+    # The floor in test/lib/engine_pin_contract_test.rb says which version; this
+    # says what the version must actually render, because a floor alone would
+    # still pass if the engine changed the table again.
+    assert_select "table thead th", count: 3
+    assert_select "table thead th", text: /Banner/i
+    assert_select "table thead th", text: /Subject/i
+    assert_select "table thead th", text: /Email/i
   end
 
   test "an email's own page previews it" do
