@@ -147,7 +147,7 @@ class TestDatabaseIsolationTest < ActiveSupport::TestCase
       test_database_url = line[/TEST_DATABASE_URL="([^"]+)"/, 1]
 
       # `${db}` is the shell's per-stack name; stand a concrete one in its place.
-      concrete = ->(value) { value&.gsub('${db}', shard_database) }
+      concrete = ->(value) { value&.gsub("${db}", shard_database) }
 
       resolved = resolved_test_database(
         # A stack that never sets TEST_DATABASE_URL inherits the desk's.
