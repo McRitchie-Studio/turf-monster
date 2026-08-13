@@ -14,7 +14,10 @@ class CoreUsersSeedTest < ActiveSupport::TestCase
     seeded.reload
     assert_equal "admin", seeded.role
     assert_equal "alex@mcritchie.studio", seeded.email
-    assert_equal "Mr. McRitchie", seeded.name
+    # Derived, not spelled out: this test is about the seed ADOPTING an existing
+    # wallet-created row, and pinning the literal name made a rename of the seed
+    # copy fail here as though the adoption had broken.
+    assert_equal User.parked_identity_for(email: "alex@mcritchie.studio").fetch(:name), seeded.name
     assert_equal ALEX_WALLET, seeded.web3_solana_address
   end
 end

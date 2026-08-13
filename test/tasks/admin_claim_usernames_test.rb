@@ -66,7 +66,9 @@ class AdminClaimUsernamesTaskTest < ActiveSupport::TestCase
     user.reload
     assert_equal "admin", user.role
     assert_equal "alex@mcritchie.studio", user.email
-    assert_equal "Mr. McRitchie", user.name
+    # Derived from the identity list: this asserts the REPAIR, and pinning the
+    # literal name made a seed-copy rename read as a broken repair.
+    assert_equal User.parked_identity_for(email: "alex@mcritchie.studio").fetch(:name), user.name
   end
 
   test "second run is a no-op (idempotent)" do

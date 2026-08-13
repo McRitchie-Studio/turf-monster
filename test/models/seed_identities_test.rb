@@ -43,6 +43,27 @@ class SeedIdentitiesTest < ActiveSupport::TestCase
     end
   end
 
+  # THE NIL-LOOKUP TRAP. db/seeds/users.rb adopts an existing row by wallet, and
+  # find_by(web3_solana_address: nil) matches the FIRST user with no wallet
+  # rather than nobody — so an identity without a wallet would adopt a
+  # stranger's row and overwrite their email, name, username and role. The seed
+  # guards each lookup on presence; this pins the shape that makes the guard
+  # necessary, so removing it fails here rather than in someone's account.
+  test "an identity without a wallet exists, which is what the seed must tolerate" do
+    walletless = User::PARKED_IDENTITIES.reject { |i| i[:wallet].present? }
+
+    refute_empty walletless,
+      "if every identity gains a wallet, keep the presence guards anyway — the next one may not"
+    assert_includes walletless.map { |i| i[:email] }, "alex@turfmonster.media"
+  end
+
+  test "the seed guards its wallet and username lookups on presence" do
+    seed = Rails.root.join("db/seeds/users.rb").read
+
+    refute_match(/User\.find_by\(web3_solana_address: data\[:wallet\]\)\s*\|\|/, seed,
+      "an unguarded wallet lookup adopts the first wallet-less user for any identity without one")
+  end
+
   test "every seeded identity is unique by email and username" do
     emails = User::PARKED_IDENTITIES.map { |i| i[:email] }
     usernames = User::PARKED_IDENTITIES.map { |i| i[:username] }.compact
