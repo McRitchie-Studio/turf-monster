@@ -10,11 +10,12 @@
   'onboarding-step-done' with the steps the SERVER says are still outstanding,
   and the layout's chain driver opens the next flow (Wallet setup: age → wallet).
 
-  WHY THE WELCOME BEAT LIVES HERE and not in modals/_magic_link_welcome: that one
-  renders the shared cta_redirect block, whose whole job is to drain a countdown
-  and then close or navigate. A chain needs "advance", not "close", and bending a
-  shared block to also mean advance would change every other modal using it. The
-  existing welcome modal keeps serving the paths that really do just close.
+  WHY THE WELCOME BEAT LIVES HERE rather than reusing the old
+  modals/_magic_link_welcome: that one rendered the shared cta_redirect block,
+  whose whole job is to drain a countdown and then close or navigate. A chain
+  needs "advance", not "close", and bending a shared block to also mean advance
+  would change every other modal using it. That modal has since been RETIRED —
+  this step left it with no reachable caller.
 
   Props:
     username — shown on the welcome step (server-rendered value, not a guess)
