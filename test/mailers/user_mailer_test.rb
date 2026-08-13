@@ -32,27 +32,97 @@ class UserMailerTest < ActionMailer::TestCase
       "Outlook renders through Word and needs the VML block or the banner is blank there"
   end
 
-  # OWNERSHIP, not spelling. The previous guard here asserted that the resolved
-  # URL CONTAINED "magic-link-background" — which passes whether the file comes
-  # from this app or from studio-engine's own asset tree, because registering a
-  # name this app does not own still resolves: Sprockets happily serves the
-  # gem's copy. So a test named "this app's own background" went green while the
-  # engine's artwork shipped, and it is the guard that let the inherited
-  # wordmark through beside it.
+  # INHERITED ON PURPOSE — "island now, gator later" (Mr. McRitchie, 2026-08-13).
   #
-  # The file on disk is the only thing that separates the two, so that is what
-  # is asserted — the same shape email_registration_test.rb uses for
-  # default_asset. Ownership is the property; the filename is a proxy for it.
-  test "this app's own background is what ships" do
+  # The guard here asserted that THIS APP owns the registered file
+  # (Rails.root.join("app/assets/images", entry.background).exist?) and it was
+  # RED, correctly: turf owns no layered artwork, so the sign-in email draws
+  # studio-engine's shared violet island. That is now the decision rather than
+  # the defect — turf's own background is deferred to
+  # https://mcritchie.studio/tasks/turf-owns-its-banner-artwork.
+  #
+  # What this does NOT go back to is the substring check that ownership
+  # assertion replaced ("does the resolved URL contain magic-link-background").
+  # That passed whether the file came from this app or from the gem, so it was
+  # blind to the one thing the decision is about — and it is the guard that let
+  # the engine's wordmark ship beside it unnoticed. This one is not blind: it
+  # names the engine as the source and goes red if that stops being true.
+  #
+  # Two properties, deliberately different in kind:
+  #
+  #   1. IT RESOLVES. The one an inbox feels. EmailCatalog#asset_path rescues
+  #      StandardError to nil, and _layered_banner.html.erb gates every
+  #      background path — the td attribute, the CSS, the whole VML block — on
+  #      background_url.present?. So an upstream rename or removal raises
+  #      NOTHING: the email quietly ships a flat theme-colour box with the
+  #      greeting on it. Asking the pipeline unrescued is what turns that
+  #      silence into a red test.
+  #   2. IT IS THE ENGINE'S, AND THAT IS A CHOICE. Asserted positively against
+  #      the gem's own asset tree, so "inherited" is something the suite checks
+  #      rather than a comment someone has to take on faith.
+  #
+  # WHEN THE GATOR LANDS: committing app/assets/images/emails/
+  # magic-link-background.gif fires the last assertion below, by design.
+  # Replace the two provenance assertions with the ownership one this task
+  # relaxed —
+  #   assert Rails.root.join("app/assets/images", entry.background).exist?
+  # — and delete this paragraph. The resolution assertion stays either way.
+  # OWNERSHIP, flipped as the tripwire that used to live here instructed. This
+  # asserted the file was still studio-engine's and REFUTED that turf owned it,
+  # because turf deliberately inherited the island loop. Turf now commits its own
+  # copy — Mr. McRitchie's call, keeping the Studio artwork for now and swapping
+  # in turf's later — so the provenance flipped and the assertion flips with it.
+  #
+  # A copy rather than a re-registered gem path, because owning the file is what
+  # makes "swap it later" a one-file change, and it is what stops the silent
+  # inheritance this entry had before: the same NAME resolved from studio-engine
+  # and nothing on the page or in the email could tell you which one shipped.
+  test "this app owns the background it registers" do
     entry = Studio::EmailCatalog.entry("magic_link")
 
     assert entry.layered?, "a host that registers a background is asking to layer"
 
-    path = Rails.root.join("app/assets/images", entry.background)
-    assert path.exist?,
+    resolved =
+      begin
+        ActionController::Base.helpers.asset_path(entry.background)
+      rescue StandardError
+        nil # Sprockets raises AssetNotFound here; the message below says the cost
+      end
+    assert resolved.present?,
+      "#{entry.background} is registered but does not resolve in this app's asset " \
+      "pipeline. Nothing raises in production — the layered banner is gated on " \
+      "background_url.present?, so the sign-in email would ship a bare colour box."
+
+    assert Rails.root.join("app/assets/images", entry.background).exist?,
       "#{entry.background} is registered but this app does not own it — it is " \
       "resolving from studio-engine, so the sign-in email ships the ENGINE's " \
       "artwork. Add the file to app/assets/images or register the app's own."
+  end
+
+  # THE SAME GUARD FOR THE LOGO, because the logo is where the leak actually
+  # shipped: this entry registered "emails/logo-horizontal.png", turf has no such
+  # file, and Sprockets served studio-engine's — so the sign-in email carried the
+  # McRITCHIE STUDIO wordmark. The alt text said "Turf Monster" the whole time,
+  # which is what made it invisible. A URL-substring assertion cannot see this;
+  # only the file on disk separates ours from the gem's.
+  test "this app's own logo is what ships" do
+    entry = Studio::EmailCatalog.entry("magic_link")
+    skip "this entry ships no logo" if entry.logo.blank?
+
+    path = Rails.root.join("app/assets/images", entry.logo)
+    assert path.exist?,
+      "#{entry.logo} is registered but this app does not own it — it is resolving " \
+      "from studio-engine, so the sign-in email ships the ENGINE's mark."
+  end
+
+  # The wordmark by name, so a re-introduction is caught however it gets there —
+  # a reverted line, a merge, or an operator upload that happens to be named for
+  # the engine's asset.
+  test "the engine's wordmark does not ride along" do
+    html, = render(users(:alex).email)
+
+    refute_includes html, "logo-horizontal",
+      "that asset is studio-engine's McRitchie Studio wordmark"
   end
 
   # --- who it greets --------------------------------------------------------
