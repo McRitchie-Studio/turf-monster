@@ -34,6 +34,8 @@ Rails.application.config.to_prepare do
     description: "Passwordless create-or-login link.",
     type: :transactional,
     default_asset: "emails/magic-link-banner.jpg",
+    background: "emails/magic-link-background.gif",
+    logo: "emails/logo-horizontal.png",
     preview: -> { UserMailer.magic_link(sample_user.call.email, sample_token) }
   )
 
