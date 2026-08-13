@@ -18,8 +18,15 @@ test.setTimeout(60_000);
 
 test.beforeEach(async ({ request }) => await reseed(request));
 
-// Sign in a brand-new email through the real magic-link round trip. Under the
-// flag this account has NO wallet, which is the state under test.
+// Sign in a brand-new email through the real magic-link round trip, then WALK
+// THE ONBOARDING CHAIN to the wallet step.
+//
+// The wallet modal is no longer the first thing a signup sees: since the
+// post-auth chain landed (2026-08-12) the order is welcome → first name → age →
+// wallet, so reaching this modal means answering the three steps ahead of it.
+// These specs are about the wallet card itself, not about how it is reached
+// (e2e/onboarding_chain.spec.js owns the order), so the walk lives in the helper
+// and each spec below starts where it always did.
 async function signUpFreshEmail(page) {
   const email = `walletsetup-${Date.now().toString(36)}@example.com`;
   const resp = await page.request.post("/test/magic_link_token", { data: { email } });
@@ -29,6 +36,47 @@ async function signUpFreshEmail(page) {
   await page.waitForURL(
     (u) => !u.pathname.startsWith("/signin") && !u.pathname.startsWith("/magic_link")
   );
+
+  // NOTE on the waits below: locator.isVisible() does NOT wait — it answers for
+  // the DOM as it stands right now and ignores a timeout option. Using it to
+  // decide whether to click races each step's advance animation, which is
+  // exactly how an earlier version of this helper silently stopped on the
+  // first-name step and every spec here failed at the final assertion. Wait
+  // explicitly with waitFor(), and treat a timeout as "that step isn't in the
+  // chain" (the flags could legitimately drop the age step).
+  const appears = async (locator, ms = 10000) =>
+    await locator
+      .waitFor({ state: "visible", timeout: ms })
+      .then(() => true)
+      .catch(() => false);
+
+  // Step 1 — welcome.
+  const letsGo = page.getByRole("button", { name: /Let's go/i });
+  if (await appears(letsGo)) await letsGo.click();
+
+  // Step 2 — first name. Skipped: these specs are not about it, and skipping is
+  // the path that must still reach the wallet.
+  const skip = page.getByRole("button", { name: "Skip for now" });
+  if (await appears(skip)) await skip.click();
+
+  // Step 3 — the DOB gate (ENABLE_AGE_GATE is on for this lane).
+  const ageHeading = page.getByRole("heading", { name: /Verify your age/i });
+  if (await appears(ageHeading)) {
+    await page.evaluate(() => {
+      const els = document.querySelectorAll("[x-data]");
+      for (const el of els) {
+        const d = Alpine.$data(el);
+        if (d && "year" in d && "month" in d && "day" in d) {
+          d.year = "1990"; d.month = "6"; d.day = "15";
+          return;
+        }
+      }
+    });
+    await page.getByRole("button", { name: /Confirm & Continue/i }).click();
+  }
+
+  // Step 4 — the wallet card these specs are about.
+  await expect(page.getByRole("heading", { name: "Set up your wallet" })).toBeVisible({ timeout: 20000 });
   return email;
 }
 
@@ -45,11 +93,9 @@ async function satisfyAgeGate(page) {
   });
 }
 
-test("a fresh email signup lands on the wallet-setup modal @smoke", async ({ page }) => {
+test("the wallet step renders the Phantom row and the teaching block @smoke", async ({ page }) => {
+  // The helper walks the chain and already asserts the card is up.
   await signUpFreshEmail(page);
-
-  // Auto-opened by the layout's one-shot session prompt.
-  await expect(page.getByRole("heading", { name: "Set up your wallet" })).toBeVisible();
 
   // The Phantom row. On a headless browser no wallet is injected, so this is
   // the INSTALL branch — the state a brand-new player sees.

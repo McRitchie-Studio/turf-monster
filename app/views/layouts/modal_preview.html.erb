@@ -151,6 +151,12 @@
       <%# wallet-setup — the web3-only onboarding step. Registered here as well
           as in the app layout; this preview layout keeps its OWN registration
           list, so a modal added to only one of them renders blank in the other. %>
+      <%# Onboarding chain step 1 — welcome + first-name capture. One id, internal
+          step machine (see the partial). Registered ungated so the chain driver
+          can always reach it. %>
+      <template x-if="$store.modals.current().id === 'onboarding'">
+        <%= render "modals/onboarding" %>
+      </template>
       <template x-if="$store.modals.current().id === 'wallet-setup'">
         <%= render "modals/wallet_setup" %>
       </template>

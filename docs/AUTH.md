@@ -153,6 +153,47 @@ Rules worth knowing:
 - Existing managed wallets are untouched either way: the flag gates **minting**,
   never the rails that serve wallets already out there.
 
+## The post-auth onboarding chain
+
+One deliberate sequence after a successful auth, instead of modals firing
+independently from three controllers (operator call, 2026-08-12):
+
+| # | Step | Modal | Outstanding while… |
+|---|------|-------|--------------------|
+| 1 | Welcome (username) | `onboarding` (`step: welcome`) | the account was created in THIS request |
+| 2 | First name | `onboarding` (`step: first-name`) | `first_name` is blank and not skipped this session |
+| 3 | Age gate (DOB) | `age-verify` | `ENABLE_AGE_GATE` and `age_attested_at` is blank |
+| 4 | Wallet setup | `wallet-setup` | `WalletSetupPolicy.required_for?` |
+
+`OnboardingFlow` resolves the outstanding steps server-side; every auth-success
+path calls `record_onboarding_state!`, which arms them one-shot on the session
+(not the flash — the Google popup never redirects, so its opener's reload would
+race a flash). The layout's **chain driver** owns the order: each step reports
+the steps still remaining and the driver opens the next, so no modal knows what
+follows it.
+
+Rules worth knowing:
+
+- **Steps 1-2 are one modal** with an internal step machine, like `modals/_auth`.
+  The older `magic-link-welcome` modal still serves the paths that only need a
+  celebration-then-close; the chain needs advance, not close.
+- **The first name is skippable** (link *and* the ×), recorded in the session
+  only — so a later visit may ask again while the field is blank. It never
+  blocks the wallet step.
+- **Moving the age PROMPT did not move the age GATE.** The chain is dismissible,
+  so `ContestsController#enter` and `eligibilityBlocker` still refuse an
+  unverified entry. That backstop is the compliance property of this change, not
+  a redundancy — see `test/integration/onboarding_chain_test.rb`.
+- **Opening the wallet step is idempotent.** After the age step, both the chain
+  driver and the contest board's `age-verified` resume route to `wallet-setup`;
+  both now no-op when it is already on the stack, so the fix does not depend on
+  which fires first.
+- **The showroom** is `/admin/modals` → **Flows** (`AdminController::MODAL_FLOWS`),
+  which walks the steps on the live modal host. It is pinned to
+  `OnboardingFlow::STEPS` by a test, so a new step cannot go unshown. These
+  flows are intended to move to the engine's `/admin/style#modals` later, which
+  needs a studio-engine release plus a pin bump in turf.
+
 ## Account Management
 
 `AccountsController` owns profile, identity, and account-level wallet actions:

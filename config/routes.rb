@@ -306,7 +306,13 @@ Rails.application.routes.draw do
   get "nfl/team-totals", to: "nfl_team_totals#index", as: :nfl_team_totals
 
   # Entry-time age gate (ENABLE_AGE_GATE) — DOB verification before first entry.
+  # ALSO prompted earlier, as a step in the post-auth onboarding chain; this
+  # endpoint is unchanged and remains the enforcement point either way.
   post "/age/verify", to: "age_verifications#create", as: :age_verify
+
+  # Post-auth onboarding chain — the first-name capture and its skip.
+  post "/onboarding/first_name",      to: "onboarding#first_name",      as: :onboarding_first_name
+  post "/onboarding/skip_first_name", to: "onboarding#skip_first_name", as: :onboarding_skip_first_name
 
   resource :wallet, only: [:show] do
     post :stripe_deposit

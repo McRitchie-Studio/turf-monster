@@ -84,14 +84,22 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
   end
 
   test "the post-reload reopen path is wired in the layout" do
-    # The modal reloads the page itself; the server-side prompt is one-shot and
-    # already spent, so the reload must carry the modal with it or the user lands
-    # on a bare page mid-flow.
+    # The modal reloads the page itself when the user returns from installing
+    # Phantom; the server-side prompt is one-shot and already spent, so the
+    # reload must carry the modal with it or the user lands on a bare page
+    # mid-flow.
+    #
+    # Assert the CONTRACT (a sessionStorage key drives the reopen), not the shape
+    # of the code around it: this test used to pin `if (el) el.remove()`, and it
+    # went red the moment the onboarding chain took over the FIRST open and that
+    # branch stopped reading a marker tag at all — a passing behaviour reported
+    # as a failure. What matters is that a reopen key exists and the chain driver
+    # owns the first open.
     layout = Rails.root.join("app/views/layouts/application.html.erb").read
     assert_includes layout, "walletSetupReopen",
                     "the layout must reopen the modal after the modal's own reload"
-    assert_match(/if \(el\) el\.remove\(\)/, layout,
-                 "the reopen path has no marker tag — removing it unguarded would throw")
+    assert_includes layout, "onboarding-chain-data",
+                    "the chain driver owns the first open; this path is the return trip only"
   end
 
   test "wallet-setup preview renders the teaching block with both screenshots" do
