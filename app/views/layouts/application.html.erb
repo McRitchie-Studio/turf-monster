@@ -832,10 +832,11 @@
 
         __walletSetupPrompt keeps its old name and its old condition (the chain
         ends in the wallet step) but a NARROWER job. It no longer defers the
-        contest board's post-login tokens picker; the chain announcement below
-        owns that now, for every step rather than just the wallet one. What
-        still reads it is the board's saved-cart auto-enter, which re-saves the
-        lineup instead of replaying an entry that cannot clear the wallet gate. %>
+        contest board's post-login tokens picker; NOTHING defers that now, so the
+        picker opens on its own schedule and can land on top of a walking chain —
+        the known cosmetic stack the driver note below describes. What still
+        reads it is the board's saved-cart auto-enter, which re-saves the lineup
+        instead of replaying an entry that cannot clear the wallet gate. %>
     <% onboarding_steps = consume_onboarding_prompt %>
     <% if onboarding_steps.present? %>
       <script type="application/json" id="onboarding-chain-data">
