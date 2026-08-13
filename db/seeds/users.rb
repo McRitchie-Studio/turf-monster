@@ -12,9 +12,14 @@ def seed_core_users!
     # Passwordless (Lazarus audit #4): no password is set — email auth is
     # magic-link only. has_secure_password was removed, so `u.password=` no
     # longer exists; the password_digest column is dormant.
+    # EACH LOOKUP GUARDED ON PRESENCE. Not every parked identity has a wallet —
+    # alex@turfmonster.media is an email-only operator admin — and
+    # find_by(web3_solana_address: nil) does not mean "no match", it matches the
+    # FIRST user who happens to have no wallet. The seed would then have adopted
+    # a stranger's row and overwritten their email, name, username and role.
     user = User.find_by(email: data[:email]) ||
-           User.find_by(web3_solana_address: data[:wallet]) ||
-           User.find_by(username: data[:username]) ||
+           (data[:wallet].present? ? User.find_by(web3_solana_address: data[:wallet]) : nil) ||
+           (data[:username].present? ? User.find_by(username: data[:username]) : nil) ||
            User.new(email: data[:email])
 
     # Ensure fields are up to date on existing records

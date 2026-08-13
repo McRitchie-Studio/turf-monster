@@ -114,7 +114,10 @@ class UserTest < ActiveSupport::TestCase
 
     assert_equal "mcritchie", user.username
     assert_equal "admin", user.role
-    assert_equal "Mr. McRitchie", user.name
+    # Derived from the identity list, not spelled out: the claim is what this
+    # test is about, and pinning the literal name made a seed-copy change fail
+    # here as though the claim had broken.
+    assert_equal User.parked_identity_for(email: "alex@mcritchie.studio").fetch(:name), user.name
   end
 
   test "new email account claims parked username before generating a random one" do
@@ -134,7 +137,7 @@ class UserTest < ActiveSupport::TestCase
     assert user.claim_parked_username!
     assert_equal "mcritchie", user.reload.username
     assert_equal "admin", user.role
-    assert_equal "Mr. McRitchie", user.name
+    assert_equal User.parked_identity_for(email: "alex@mcritchie.studio").fetch(:name), user.name
   end
 
   test "parked username falls back to generated username when claim is already taken" do

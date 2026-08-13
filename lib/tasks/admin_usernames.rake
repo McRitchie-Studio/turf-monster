@@ -19,8 +19,15 @@
 namespace :admin do
   desc "Idempotently claim parked kickoff usernames in the DB by wallet (DRY_RUN=1 to preview)"
   task claim_usernames: :environment do
+    # KEYED BY WALLET, so an identity without one has nothing for this task to
+    # claim and is skipped rather than fetched. Not every parked identity has a
+    # wallet: alex@turfmonster.media is an email-only operator admin, and
+    # `fetch` raised KeyError on it, taking the whole task down.
     kickoff = User::PARKED_IDENTITIES.each_with_object({}) do |identity, claims|
-      claims[identity.fetch(:wallet)] = identity
+      wallet = identity[:wallet]
+      next if wallet.blank?
+
+      claims[wallet] = identity
     end.freeze
 
     dry_run = ENV["DRY_RUN"].present?
