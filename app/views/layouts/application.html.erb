@@ -841,15 +841,6 @@
       <script type="application/json" id="onboarding-chain-data">
         <%= raw({ steps: onboarding_steps, username: current_user&.username }.to_json) %>
       </script>
-      <script>
-        // Armed BEFORE any client code runs, deliberately. The contest board's
-        // Alpine init reads this to decide whether to wait its turn, and the
-        // board can initialise BEFORE the chain driver's DOMContentLoaded
-        // handler — so setting it inside the driver was a race the board lost,
-        // opening the tokens picker over the chain exactly as if the guard were
-        // not there. Same server-rendered shape as __walletSetupPrompt below.
-        window.__onboardingChainArmed = true;
-      </script>
       <% if onboarding_steps.include?("wallet") %>
         <script>window.__walletSetupPrompt = true;</script>
       <% end %>
@@ -858,25 +849,26 @@
       // ── Onboarding chain driver ───────────────────────────────────────────
       // Owns the ORDER so no modal has to know what follows it. Each step ends
       // by handing back the steps the SERVER says remain, and we open the next.
+      //
+      // NOTE ON WHAT IS DELIBERATELY ABSENT: the chain does NOT announce its own
+      // completion, and nothing waits for it. An earlier revision did — the
+      // contest board held its tokens picker until an 'onboarding-chain-complete'
+      // event — and that mechanism was withdrawn because the announcement fired
+      // SYNCHRONOUSLY inside the dispatching modal's finish(), before that
+      // modal's own close(). A listener that opened a card in that window had it
+      // closed by the dispatcher's close() instead, destroying the tokens picker
+      // and stranding a returning user on the first-name card. Who owns the
+      // screen after the chain (and after age verification, where the board runs
+      // its own resume) is a design question, tracked separately. Until it is
+      // answered, the picker opens on its own schedule as it always did.
       (function() {
         var started = false;
 
-        // The ids the chain owns, and whether one has been on screen yet. Both
-        // live up here because open() below is what makes sawChain TRUE — see
-        // watchForChainExit for why a poll cannot be trusted to notice.
-        var CHAIN_IDS = ['onboarding', 'age-verify', 'wallet-setup'];
-        var sawChain = false;
-
         // Idempotent per id: never push a modal that is already on the stack.
-        //
         // TWO independent things open the wallet step after the age gate — this
-        // driver, and the contest board's own 'age-verified' handler, which
-        // resumes confirmEntry() and routes through the eligibility blocker to
-        // the same modal. Both are correct in isolation; together they pushed
-        // wallet-setup TWICE, and closing popped one and revealed the other, so
-        // "Maybe later" looked like it did nothing. Guarding by id makes
-        // whichever runs second a no-op, so the fix does not depend on their
-        // order — see the matching guard in selectionBoard#showWalletSetupModal.
+        // driver, and the contest board's own 'age-verified' handler — and
+        // together they pushed it twice, so closing popped one and revealed the
+        // other. Guarding by id makes whichever runs second a no-op.
         function open(id, props) {
           var attempts = 0;
           (function tryOpen() {
@@ -884,104 +876,19 @@
             if (m && typeof m.open === 'function') {
               var already = (m.stack || []).some(function (e) { return e && e.id === id && !e._closing; });
               if (!already) m.open(id, props || {});
-              // The chain HAS been on screen — recorded here, at the push, not
-              // inferred from a later poll. See watchForChainExit.
-              if (CHAIN_IDS.indexOf(id) !== -1) sawChain = true;
               return;
             }
             if (attempts++ < 50) setTimeout(tryOpen, 50); // ~2.5s for Alpine boot
           })();
         }
 
-        // The chain's single decision point, used for the first step and every
-        // hand-off after it. Unknown/absent steps end the chain quietly.
-        // Announced ONCE when the chain runs out of steps, so anything that
-        // wants the screen after onboarding can wait its turn instead of
-        // opening on top of it. The contest board's tokens picker is the first
-        // such caller (see selectionBoard#init) — before this, a new signup
-        // returning to a contest got the picker PUSHED OVER the greeting.
-        function finishChain() {
-          // A hand-off in flight is NOT an ending — see handOff() below.
-          if (handoffPending) return;
-          if (!window.__onboardingChainArmed) return;
-          window.__onboardingChainArmed = false;
-          if (chainWatch) { clearInterval(chainWatch); chainWatch = null; }
-          window.dispatchEvent(new CustomEvent('onboarding-chain-complete'));
-        }
-
-        // Every modal-to-modal hand-off in the chain is a GAP. The step that
-        // just finished closes ITSELF (modals/_onboarding finish(): dispatch,
-        // then $store.modals.close()), and the engine's close() flips _closing
-        // at once and splices the entry when the exit animation ends. We then
-        // wait out that animation before opening the next step, so the cards
-        // never overlap on screen.
-        //
-        // For that gap the stack holds no LIVE chain card, which reads to
-        // watchForChainExit below exactly like a dismissal. It would announce
-        // the chain complete, the contest board's waiter would take the screen
-        // with the tokens picker, and the next step would then push ON TOP of
-        // it — the stacked pair this chain exists to prevent, in the other
-        // order. So EVERY delayed hand-off goes through here, and the chain is
-        // not over while one is in flight.
-        //
-        // This is a flag rather than a longer poll or a debounce on purpose: a
-        // timing guess against a timing bug is the same bug with a smaller
-        // window, and the driver already KNOWS a step is on its way.
-        //
-        // It cannot strand the waiter (the failure watchForChainExit exists to
-        // prevent): the same timer that sets the flag clears it, at the top of
-        // openStep, before anything else runs. There is no path that sets it
-        // and never fires.
-        //
-        // 250ms clears the engine's 220ms CLOSE_ANIM_MS with a little air.
+        // 250ms clears the engine's 220ms CLOSE_ANIM_MS with a little air, so
+        // the outgoing card is gone before the next one mounts.
         var HANDOFF_MS = 250;
-        var handoffPending = false;
-        function handOff(steps) {
-          handoffPending = true;
-          setTimeout(function () { openStep(steps, chainUsername); }, HANDOFF_MS);
-        }
-
-        // The chain also ends when the user DISMISSES it — and that path reports
-        // nothing, because a closed modal fires no hand-off. Without this the
-        // waiter (the contest board's tokens picker) would hang forever on a
-        // chain the user walked away from: a stack traded for a silence, which
-        // is worse. So watch the stack, and once every chain card has left the
-        // screen, the chain is over however it ended.
-        //
-        // "A chain card appeared" is recorded by open() at the moment it
-        // PUSHES one — deliberately, and this is the second timing bug this
-        // watcher has had. sawChain used to be latched here instead, by a tick
-        // that happened to catch a card on screen. A user who dismissed the
-        // greeting inside the first 300ms (a quick Escape, or the × on a fast
-        // machine) beat every tick: the first one to run saw a _closing card,
-        // so sawChain stayed false and the chain was NEVER declared over. The
-        // tokens picker then waited forever — the exact silent hang this
-        // watcher exists to prevent, hiding in its own start-up window. A poll
-        // cannot be trusted to observe a transient; the driver already KNOWS.
-        //
-        // The tick still latches sawChain too, because the driver is not the
-        // only opener — selectionBoard#showWalletSetupModal pushes
-        // 'wallet-setup' on its own resume path.
-        var chainWatch = null;
-        function watchForChainExit() {
-          if (chainWatch) return;
-          chainWatch = setInterval(function () {
-            var m = (window.Alpine && Alpine.store) ? Alpine.store('modals') : null;
-            if (!m) return;
-            var live = (m.stack || []).some(function (e) {
-              return e && !e._closing && CHAIN_IDS.indexOf(e.id) !== -1;
-            });
-            if (live) { sawChain = true; return; }
-            if (sawChain) finishChain();
-          }, 300);
-        }
 
         function openStep(steps, username) {
-          // The hand-off has landed — clear it FIRST, so the finishChain() call
-          // below (an empty `steps` ends the chain here) is not blocked by it.
-          handoffPending = false;
           var next = (steps || [])[0];
-          if (!next) { finishChain(); return; }
+          if (!next) return;
           if (next === 'welcome' || next === 'first_name') {
             open('onboarding', {
               step: next === 'welcome' ? 'welcome' : 'first-name',
@@ -998,12 +905,13 @@
         var chainUsername = '';
 
         // The onboarding modal reports what is left after welcome/first-name.
+        // An empty list ends the chain silently — deliberately nothing else, see
+        // the note above: this runs inside the dispatching modal's finish(),
+        // before its close(), so anything that opens a card here loses it.
         window.addEventListener('onboarding-step-done', function (e) {
           var next = (e && e.detail && e.detail.next) || [];
-          // Drop the steps this modal just handled, whatever the server echoed.
           next = next.filter(function (s) { return s !== 'welcome' && s !== 'first_name'; });
-          if (next.length) handOff(next);
-          else finishChain();
+          if (next.length) setTimeout(function () { openStep(next, chainUsername); }, HANDOFF_MS);
         });
 
         // The age modal has no chain awareness: it sets $store.session.ageVerified,
@@ -1016,9 +924,7 @@
           window.__onboardingChainActive = false;
           var sess = window.Alpine && Alpine.store && Alpine.store('session');
           if (sess && sess.walletSetupRequired) {
-            handOff(['wallet']);
-          } else {
-            finishChain();
+            setTimeout(function () { openStep(['wallet'], chainUsername); }, HANDOFF_MS);
           }
         });
 
@@ -1034,7 +940,6 @@
           // Live only while the chain still has an age or wallet step to reach.
           window.__onboardingChainActive = (data.steps || []).indexOf('age') !== -1;
           openStep(data.steps || [], chainUsername);
-          watchForChainExit();
         }
 
         document.addEventListener('turbo:load', startChain);

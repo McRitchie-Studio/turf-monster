@@ -346,41 +346,17 @@ window.selectionBoard = function() {
               // not the in-entry funds wall (that's the 'no_funding' blocker +
               // its chain-layer twin, both rerouted to showWalletTopup).
               //
-              // WAIT FOR THE ONBOARDING CHAIN. A brand-new signup is walking
-              // welcome -> first name -> age -> wallet, and opening the picker
-              // now PUSHES IT OVER that chain — the greeting lingers underneath
-              // and the user answers the two cards in the wrong order. So take
-              // our turn: the layout's driver announces
-              // 'onboarding-chain-complete' when the last step is answered, and
-              // that is our cue. When no chain is armed (returning user, Google,
-              // direct) there is nothing to wait for and we open immediately.
-              //
-              // Note this is a HAND-OFF, not a swap: swapping the chain's modal
-              // away would strand it (its step never reports 'done', so the
-              // remaining steps never open). The chain finishes, THEN we open.
-              //
-              // A WALLET-LESS USER NOW GETS THE PICKER TOO, deliberately. The
-              // old guard here ('&& !window.__walletSetupPrompt') was written to
-              // stop the picker STACKING over the auto-opened wallet-setup card;
-              // waiting for the chain does that for every step, so all the guard
-              // still did was drop the picker for a user who declined a wallet.
-              // Honour the request instead of swallowing it: they clicked Get
-              // Entry Tokens and signed up to do exactly this, and a bare board
-              // after four cards reads as the flow forgetting them. Declining is
-              // not a dead end either — the entry gate reopens wallet setup on
-              // their next attempt (showWalletSetupModal). Reachable only under
-              // web3-only onboarding, since WalletSetupPolicy#required? is gated
-              // on that flag and it is OFF in production today; if it ships and
-              // the picker proves unusable without a linked wallet, suppress it
-              // HERE rather than re-reading __walletSetupPrompt, which describes
-              // the CHAIN'S SHAPE, not what the picker can do.
-              if (window.__onboardingChainArmed) {
-                window.addEventListener('onboarding-chain-complete', function () {
-                  board.showTokensPanel();
-                }, { once: true });
-              } else {
-                this.showTokensPanel();
-              }
+              // The onboarding chain may be walking (welcome -> first name ->
+              // age -> wallet), and this picker can land on top of it — a
+              // cosmetic stack, and a KNOWN one. An earlier revision made the
+              // picker wait for an 'onboarding-chain-complete' announcement;
+              // that was withdrawn because the announcement fired inside the
+              // dispatching modal's own close window and the picker was
+              // destroyed instead of deferred, which cost the user the purchase
+              // step entirely. A stack the user can dismiss beats a step they
+              // never get. Who owns the screen after the chain is tracked as its
+              // own design task.
+              this.showTokensPanel();
             }
           }
         }
@@ -995,10 +971,10 @@ window.selectionBoard = function() {
       } else {
         // Plain push. The one id this used to SWAP away — 'magic-link-welcome' —
         // is retired, and swapping is wrong for the modal that replaced it: the
-        // onboarding chain's card must close on its OWN hand-off or the chain
-        // strands mid-flow. init() therefore waits for
-        // 'onboarding-chain-complete' before calling this at all, so by the time
-        // we get here nothing of the chain's is on the stack to push over.
+        // onboarding chain's card must close on its OWN hand-off, so swapping it
+        // away would strand the chain mid-flow. Pushing can leave the chain card
+        // underneath (a known cosmetic stack, see init() above); that is the
+        // lesser evil until screen ownership is designed.
         s.open('auth', props);
       }
     },

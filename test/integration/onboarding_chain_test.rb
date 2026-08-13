@@ -88,40 +88,6 @@ class OnboardingChainTest < ActionDispatch::IntegrationTest
                  "a login is not a signup — no welcome, just the outstanding step"
   end
 
-  test "the chain ARMS its flag in the rendered body" do
-    # The contest board reads window.__onboardingChainArmed to decide whether to
-    # wait its turn before opening the tokens picker, and it must be set
-    # SERVER-SIDE — the board's Alpine init can run before the chain driver's
-    # DOMContentLoaded handler, so arming it in the driver is a race the board
-    # loses. Nothing pinned this: delete the arming script tag and the original
-    # stacking bug returns with nothing red. Mirrors how wallet_setup_gate_test
-    # pins __walletSetupPrompt.
-    post magic_link_consume_path(token: magic_token(email: "armed-flag@example.com"))
-    follow_redirect!
-    assert_response :success
-    assert_includes response.body, "window.__onboardingChainArmed = true",
-                    "the board waits on this flag; without it the picker opens over the chain"
-  end
-
-  test "a settled login arms NO chain flag" do
-    user = users(:jordan)
-    user.update_columns(first_name: "Alex", age_attested_at: Time.current,
-                        web3_solana_address: "PhantomArmed#{user.id}")
-    post magic_link_consume_path(token: magic_token(email: user.email))
-    follow_redirect!
-    # A bare assert_not_includes would pass on an error page, a redirect
-    # elsewhere, or an empty body — it would prove nothing. So pin the POSITIVE
-    # control first, in the same region of the same template: a settled login
-    # gets the quiet toast, whose payload tag is rendered a few lines above the
-    # arming script. If the layout's script block failed to render at all, this
-    # fails instead of the absence silently "passing".
-    assert_response :success
-    assert_includes response.body, "auth-toast-data",
-                    "control: the layout's script region rendered, so an ABSENT chain flag means absent"
-    assert_not_includes response.body, "window.__onboardingChainArmed = true",
-                        "nothing outstanding means nothing to wait for"
-  end
-
   # --- The retired welcome flash --------------------------------------------
 
   test "no signup path sets the retired magic_link_welcome flash" do

@@ -191,18 +191,15 @@ Rules worth knowing:
   driver and the contest board's `age-verified` resume route to `wallet-setup`;
   both now no-op when it is already on the stack, so the fix does not depend on
   which fires first.
-- **The chain announces when it is over, and that announcement is a contract.**
-  `window.__onboardingChainArmed` is rendered `true` alongside the chain payload,
-  before any client code runs; the driver then fires an `onboarding-chain-complete`
-  window event exactly once when the last step is answered **or dismissed**.
-  Anything that wants the screen after onboarding waits for it rather than
-  opening on top — the contest board's post-signup tokens picker is the first
-  such caller (`selectionBoard#init`). Two properties keep the contract honest:
-  it fires on dismissal too (a stack traded for a silent hang is worse than the
-  stack), and it does **not** fire during a hand-off, the ~250ms gap in which one
-  step has closed and the next has not yet opened. A waiter should therefore
-  check `__onboardingChainArmed` first and open immediately when no chain is
-  armed, since the event will never come.
+- **The chain does NOT announce its completion, and nothing waits for it.** An
+  earlier revision had the driver fire `onboarding-chain-complete` and the contest
+  board hold its tokens picker until then. It was withdrawn: the announcement ran
+  SYNCHRONOUSLY inside the dispatching modal's `finish()`, before that modal's own
+  `close()`, so a listener that opened a card in that window had it closed by the
+  dispatcher instead — the picker was destroyed and a returning user was stranded
+  on the first-name card. The picker can therefore still land on top of a walking
+  chain (a cosmetic stack). Who owns the screen after the chain, and after age
+  verification where the board runs its own resume, is an open design question.
 - **The showroom** is `/admin/modals` → **Flows** (`AdminController::MODAL_FLOWS`),
   which walks the steps on the live modal host. It is pinned to
   `OnboardingFlow::STEPS` by a test, so a new step cannot go unshown. These
