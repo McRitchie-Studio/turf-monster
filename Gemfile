@@ -40,6 +40,22 @@ gem "bootsnap", require: false
 
 # Use Active Storage variants [https://guides.rubyonrails.org/active_storage_overview.html#transforming-images]
 gem "image_processing", "~> 1.2"
+# Declared DIRECTLY rather than left to image_processing to supply it. Active
+# Storage hardens libvips against untrusted content by calling
+# Vips.block_untrusted(true), but only when `require "ruby-vips"` succeeds
+# (activestorage/lib/active_storage/vips.rb). If the gem ever leaves the bundle
+# that require fails, VIPS_AVAILABLE flips to false, and the hardening silently
+# never runs — the app still boots and still handles images through mini_magick,
+# so nothing reports the loss. image_processing 1.14 happens to pull ruby-vips
+# in; 2.0 declares no such dependency, so bumping it alone would delete the gem.
+# 2.2.1 is the floor that has block_untrusted.
+#
+# `require: false` is LOAD-BEARING, not tidiness. ruby-vips binds the libvips C
+# library at REQUIRE time, so letting Bundler.require it would abort boot with
+# LoadError on any machine that lacks libvips — every developer Mac. Active
+# Storage does its own require inside a rescue, which is the only require this
+# gem needs. Guarded by test/lib/vips_dependency_test.rb.
+gem "ruby-vips", ">= 2.2.1", "< 3", require: false
 gem "aws-sdk-s3", require: false
 
 group :development, :test do
