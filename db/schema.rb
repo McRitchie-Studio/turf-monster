@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_13_065630) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_13_193048) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -615,7 +615,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_13_065630) do
   end
 
   create_table "studio_email_settings", force: :cascade do |t|
+    t.text "body"
     t.datetime "created_at", null: false
+    t.string "cta_color"
+    t.boolean "cta_enabled"
+    t.string "cta_text"
+    t.string "discord_url"
     t.string "email_key", null: false
     t.string "header"
     t.string "header_fallback"
