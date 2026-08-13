@@ -25,11 +25,22 @@ class EmailBannerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # UPDATED, NOT RELAXED. This asserted "magic-link-banner" — the flat JPEG
+  # <img> — which was right until this app registered a layered background. The
+  # email now draws that artwork as a CSS/VML background with the greeting on
+  # top as live HTML, so the flat filename is legitimately gone. Asserting the
+  # layered structure is strictly stronger than asserting a filename: it pins
+  # the artwork, the Outlook path, and the fact that this is a banner at all.
   test "magic-link email renders the registered banner" do
     mail = UserMailer.magic_link("x@example.com", magic_token(email: "x@example.com"))
     html = (mail.html_part&.body || mail.body).to_s
 
-    assert_includes html, "magic-link-banner", "the magic-link email should carry its banner"
+    assert_includes html, "magic-link-background",
+      "the magic-link email should carry this app's registered artwork"
+    assert_includes html, "background-size:cover",
+      "a layered banner draws the artwork as a background, not an <img>"
+    assert_includes html, "v:rect",
+      "Outlook renders through Word and needs the VML block or the banner is blank there"
   end
 
   # An operator upload wins over the committed file — the whole point of the
@@ -88,7 +99,9 @@ class EmailBannerTest < ActionDispatch::IntegrationTest
 
     get admin_email_raw_path("magic_link")
     assert_response :success
-    assert_includes response.body, "magic-link-banner"
+    # Same swap as above: the preview renders the real email, so it follows the
+    # email from the flat <img> to the layered background.
+    assert_includes response.body, "magic-link-background"
   end
 
   # REGRESSION GUARD. turf-monster's own routes.rb used to define admin_emails

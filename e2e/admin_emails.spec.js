@@ -62,8 +62,24 @@ test.describe("Admin emails manager", () => {
 
     // The preview is an iframe over /admin/emails/:key/raw — the actual email
     // document, banner and all.
-    const frame = page.frameLocator("iframe");
+    //
+    // TARGETED BY SRC, not a bare "iframe". The page now carries TWO: this one,
+    // and the banner-text preview that renders the banner alone from a srcdoc.
+    // A bare locator matches both and fails on strict mode — and if it were
+    // resolved by taking .first() instead, the test would silently start
+    // asserting against the banner widget rather than the email.
+    const frame = page.frameLocator('iframe[src*="/raw"]');
+
+    // The artwork is a CSS/VML background now, not an <img>, so the surviving
+    // image is the logo drawn over it — which is exactly what proves the frame
+    // rendered a real email document and loaded its assets.
     await expect(frame.locator("img").first()).toBeVisible();
+    // ASSERTS THE LAYERING, NOT THE FILENAME. An earlier draft pinned
+    // "magic-link-background" and went red the moment the upload spec above ran
+    // first — because an operator upload REPLACING the committed artwork is the
+    // inherit-then-own model working, not a regression. Layering is a property
+    // of how the email is registered, so it survives whichever image is current.
+    await expect(frame.locator('td[style*="background-size:cover"]')).toHaveCount(1);
   });
 
   // SCOPE NOTE — read before "strengthening" this test.
@@ -87,9 +103,17 @@ test.describe("Admin emails manager", () => {
   // is inert and NO server-side test notices.
   test("upload opens the shared crop modal and submits @smoke", async ({ page }) => {
     await loginAdmin(page);
-    await page.goto("/admin/emails");
+    // THE UPLOAD CONTROL MOVED. It used to sit in the index's Image/Actions
+    // columns; those columns are gone, and uploading is now done on an email's
+    // own page. The flow under test is unchanged — only where it starts.
+    await page.goto("/admin/emails/magic_link");
 
-    await page.getByRole("button", { name: /^(Upload|Replace)$/ }).first().click();
+    // TARGETED BY ITS DATA HOOK, not its label. The control is now the
+    // "Modify image" overlay on the artwork — a hover-reveal button, renamed
+    // and restyled since this spec was written. data-modify-artwork is the
+    // stable handle the engine ships for it; a label regex re-breaks on the
+    // next wording change without anything actually being wrong.
+    await page.locator("[data-modify-artwork]").first().click();
     await expect(page.getByText("Crop Photo")).toBeVisible();
 
     await page.locator('input[type="file"][x-ref="filePicker"]').setInputFiles(IMG);
