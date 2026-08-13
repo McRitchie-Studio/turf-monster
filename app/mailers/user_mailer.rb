@@ -25,10 +25,23 @@ class UserMailer < ApplicationMailer
     @contest = contest
     @email = email
     @magic_url = link_url(token: token) # unified /l/<token> (Studio::LinksController)
-    # Admin-managed banner (Studio::EmailImage) with the versioned asset as the
-    # fallback until an operator uploads one. Manage at /admin/email_images.
+    # THE LAYERED BANNER: this app's artwork with the greeting drawn on top as
+    # live HTML. The mailer supplies only WHO the recipient is — what the banner
+    # SAYS about them is the operator's, editable on /admin/emails. Handing over
+    # a finished header here would leave those fields accepting edits no inbox
+    # ever sees.
+    #
+    # username/name rather than display_name: display_name falls back to the
+    # email local part, so it ALWAYS returns something and a recipient with no
+    # handle would be greeted by a fragment of their address instead of getting
+    # the name-free header a stranger should see.
+    recipient = User.find_by(email: email.to_s.strip.downcase)
+    @banner = Studio::Banner.for(:magic_link,
+                                 name: recipient&.username.presence || recipient&.name.presence)
+    # KEPT AS THE FLOOR. @banner wins when present; this is what still ships if
+    # the layered artwork is ever unregistered.
     @banner_url = Studio::EmailCatalog.resolved_url(:magic_link)
-    @banner_alt = "Your Magic Link"
+    @banner_alt = @banner&.header.presence || "Your Magic Link"
     mail(to: email, subject: "🐊🪄 Turf Totals Sign-in Link")
   end
 

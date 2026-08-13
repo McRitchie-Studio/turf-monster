@@ -34,6 +34,30 @@ Rails.application.config.to_prepare do
     description: "Passwordless create-or-login link.",
     type: :transactional,
     default_asset: "emails/magic-link-banner.jpg",
+    # A COPY of the shared studio artwork, committed HERE deliberately rather
+    # than resolved from the gem — Mr. McRitchie's call: keep the Studio loop for
+    # now and swap in turf's own later. Owning the file is what makes "later" a
+    # one-file change, and it is what stops the silent inheritance this entry had
+    # before: the same name resolved from studio-engine and nobody could tell.
+    background: "emails/magic-link-background.gif",
+    # THIS APP'S OWN MARK, and it must stay a path this app OWNS. The value here
+    # was "emails/logo-horizontal.png" — a file turf does not have. Sprockets
+    # served studio-engine's copy of that name, so the sign-in email went out
+    # carrying the McRITCHIE STUDIO wordmark under an alt of "Turf Monster".
+    # Nothing raised; the guard in test/mailers/user_mailer_test.rb now asserts
+    # the file exists HERE rather than that the URL merely contains the name.
+    #
+    # PLACEHOLDER, by Mr. McRitchie's call — the green monster mark from
+    # public/icon-512.png, resized to 360px so it is retina-sharp at the 180px
+    # the banner draws it. It is square where the engine's is horizontal, so it
+    # sits taller in the banner than a wordmark would. Replace it with a proper
+    # horizontal Turf Monster wordmark when one exists.
+    #
+    # If you ever want NO logo, set "" — deleting the line puts the engine's
+    # wordmark BACK, because register merges on `logo.presence`: "" clears, while
+    # nil and an omitted key both inherit the STANDARD seed. An operator can also
+    # clear it with no deploy via hide_logo? on /admin/emails.
+    logo: "emails/turf-logo.png",
     preview: -> { UserMailer.magic_link(sample_user.call.email, sample_token) }
   )
 
