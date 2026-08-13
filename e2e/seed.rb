@@ -196,6 +196,20 @@ human.update!(web3_solana_address: human_wallet)
 # Keep web2_solana_address so managed_wallet? stays true (needed for deposits).
 User.update_all(encrypted_web2_solana_private_key: nil)
 
+# Stamp the DOB gate on the SEEDED users (ENABLE_AGE_GATE, now on for the e2e
+# server — the onboarding chain's third step is the age gate).
+#
+# These five are PRE-EXISTING accounts by construction: they own contests,
+# entries, wallets and usernames, and a real player with that history verified
+# their age once, long ago. Leaving them unverified would make the gate fire on
+# every spec that enters a contest (survivor, smoke, quests, referrals, geo) —
+# a DOB modal in front of a dozen specs that are not about age at all.
+#
+# NEW signups are untouched and still walk the gate, which is what
+# e2e/onboarding_chain.spec.js exercises. If a spec ever needs an unverified
+# EXISTING user, clear the column for that one user in the spec.
+User.update_all(age_attested_at: 30.years.ago, date_of_birth: 30.years.ago.to_date)
+
 # Pre-seed a faucet TransactionLog so admin transaction log tests have something to render.
 TransactionLog.create!(
   user: human,

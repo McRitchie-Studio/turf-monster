@@ -22,8 +22,19 @@ test.describe("Admin emails manager", () => {
     await loginAdmin(page);
     await page.goto("/admin/emails");
 
+    // Assert the table against what the SERVER says it registered, not against a
+    // hardcoded total. The count is engine-owned and moves whenever the shared
+    // catalogue does: studio-engine 0.42 added `newsletter_subscribed` to the
+    // standard set, which took this app from 8 to 9 and failed a literal `8`
+    // here — the third place that number had to be updated by hand. The page
+    // prints "N email(s) registered" from Studio::EmailCatalog, so read that and
+    // require a row for each, which is the property this spec actually claims
+    // ("lists EVERY registered email").
+    const summary = await page.locator("text=/\\d+ emails? registered/").first().innerText();
+    const registered = parseInt(summary.match(/(\d+) emails? registered/)[1], 10);
+    expect(registered).toBeGreaterThan(0);
     const rows = page.locator("tbody tr");
-    await expect(rows).toHaveCount(8);
+    await expect(rows).toHaveCount(registered);
 
     // Names come from the registry, not the view.
     await expect(page.getByText("Magic-link sign-in")).toBeVisible();

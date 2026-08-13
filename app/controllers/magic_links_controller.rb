@@ -131,7 +131,11 @@ class MagicLinksController < ApplicationController
     # Web3-only onboarding: a RETURNING web2 user is nudged to link Phantom
     # unless their managed wallet still holds an entry's worth of USDC — those
     # users are useable as-is (operator call) and see nothing new.
-    needs_wallet = record_wallet_setup_state!(user)
+    # A returning login gets no welcome beat, but may still owe a step (a blank
+    # first name, an unverified DOB, a wallet). Any armed step means a modal is
+    # about to open, and a toast underneath it would just talk over it.
+    onboarding_steps = record_onboarding_state!(user)
+    needs_wallet = onboarding_steps.any?
     # rescue_and_log because the session is already established above: a User
     # validation failing here would otherwise 500 a signed-in visitor with
     # nothing in ErrorLog to attribute it to.
@@ -173,12 +177,14 @@ class MagicLinksController < ApplicationController
       cookies.delete(:reference)
       user.update!(email_verified_at: Time.current)
       set_app_session(user)
-      # Web3-only onboarding: with no managed wallet minted at signup, this is
-      # ALWAYS true for a brand-new account while the flag is on. The wallet-
-      # setup modal replaces the entry-token upsell as the next step — the
-      # session prompt opens it wherever the user lands, so both branches below
-      # just skip the copy that would talk over it.
-      needs_wallet = record_wallet_setup_state!(user)
+      # The onboarding chain owns this moment now: welcome (username) → first
+      # name → age → wallet, resolved server-side and walked by the layout's
+      # driver wherever the user lands. Both branches below only decide whether
+      # to ALSO say something in a toast/modal, and anything the chain is about
+      # to show wins — two greetings on one render reads as a bug.
+      onboarding_steps = record_onboarding_state!(user, welcome: true)
+      needs_wallet = onboarding_steps.include?(:wallet)
+      chain_greets = onboarding_steps.include?(:welcome)
       if contest_return_to?(result)
         # New user landing on a SPECIFIC contest: confirm auth with a toast and
         # let the board's existing post-login flow open the get-entry-tokens
@@ -188,15 +194,13 @@ class MagicLinksController < ApplicationController
         # Wallet setup pending: no toast promising an entry token, because a
         # wallet-less account can't buy one. Land on the contest (picks intact)
         # and let the setup modal carry the next step.
-        redirect_to result.return_to, **(needs_wallet ? {} : { flash: { auth_toast: {
+        redirect_to result.return_to, **(onboarding_steps.any? ? {} : { flash: { auth_toast: {
                       title:   "You're signed in",
                       message: "Grab an entry token to lock in your picks."
                     } } })
-      elsif needs_wallet
-        # New user via a GENERIC /signin with wallet setup due: land on the
-        # featured contest and let the setup modal be the whole moment. The
-        # celebratory welcome modal is skipped rather than stacked — two modals
-        # deep on the first render reads as a bug.
+      elsif chain_greets || needs_wallet
+        # The chain opens with its own welcome step, so the flash welcome modal
+        # below would be a second greeting stacked on the first.
         redirect_to landing_path_for(result)
       else
         # New user via a GENERIC /signin: celebratory welcome modal on the
