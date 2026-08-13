@@ -100,14 +100,14 @@ class MagicLinksControllerTest < ActionDispatch::IntegrationTest
   end
 
   # ── consume (POST /magic_link/:token) ────────────────────────────────────
-  # consume redirects to the LANDING page (return_to, else root) and carries
-  # the welcome SUCCESS MODAL via flash[:magic_link_welcome] = { message, next };
-  # the modal auto-redirects to the entry-tokens upsell client-side. It does NOT
-  # redirect straight to tokens_buy_path nor set a :notice toast anymore.
-  # The greeting MOVED (2026-08-12): the post-auth onboarding chain opens with its
-  # own welcome step, so a second greeting from flash[:magic_link_welcome] would
-  # stack two cards on one render. The flash modal still exists for the paths that
-  # only need celebrate-then-close; this path now hands off to the chain.
+  # consume redirects to the LANDING page (return_to, else root); the post-auth
+  # ONBOARDING CHAIN carries the greeting from there (welcome -> first name ->
+  # age -> wallet), armed one-shot on the session.
+  #
+  # The `flash[:magic_link_welcome]` modal this used to set is RETIRED (2026-08).
+  # The chain opens with its own welcome step for every signup, which made that
+  # flash's only writer unreachable — so the assertions below pin it as ABSENT
+  # rather than as an alternative path that still fires somewhere.
   test "consume creates a passwordless, email-verified account and arms the onboarding chain" do
     token = magic_token(email: "brand-new@example.com", age_attested: true)
     assert_difference "User.count", 1 do

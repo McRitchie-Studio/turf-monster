@@ -88,6 +88,30 @@ class OnboardingChainTest < ActionDispatch::IntegrationTest
                  "a login is not a signup — no welcome, just the outstanding step"
   end
 
+  # --- The retired welcome flash --------------------------------------------
+
+  test "no signup path sets the retired magic_link_welcome flash" do
+    # It had ONE writer (MagicLinksController#sign_up_new's generic-signin
+    # branch) and the chain made that branch unreachable: welcome: true means
+    # the welcome step is always outstanding for an account created in this
+    # request, so the branch above it always won. Dead-but-documented-as-live is
+    # the state this retirement removes — assert the absence on BOTH signup
+    # shapes so a future edit cannot quietly resurrect a second greeting.
+    post magic_link_consume_path(token: magic_token(email: "no-flash-generic@example.com"))
+    assert_nil flash[:magic_link_welcome], "generic /signin signup"
+
+    reset!
+    post magic_link_consume_path(token: magic_token(email: "no-flash-contest@example.com",
+                                                    return_to: "/contests/the-cup"))
+    assert_nil flash[:magic_link_welcome], "contest return_to signup"
+  end
+
+  test "the retired welcome modal partial is gone, not merely unreferenced" do
+    # A partial left on disk reads as a live alternative to the next person.
+    assert_not Rails.root.join("app/views/modals/_magic_link_welcome.html.erb").exist?,
+               "the retired welcome modal partial should be deleted"
+  end
+
   # --- The compliance property -----------------------------------------------
 
   test "dismissing the chain does NOT let an unverified user enter a contest" do

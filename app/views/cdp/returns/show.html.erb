@@ -69,11 +69,12 @@
 </script>
 
 <script>
-  // Auto-open the cdp-ramp modal at the row's current step. Same wiring as
-  // the layout's magic-link-welcome auto-open: bind to turbo:load AND the
-  // cold-load path, one-shot guard, and poll briefly for the modals store in
-  // case this script wins the race against Alpine boot. The modal's
-  // cdpRampFlow factory resumes polling/countdown from the props.
+  // Auto-open the cdp-ramp modal at the row's current step. Same wiring as the
+  // layout's onboarding-chain auto-open: bind to turbo:load AND the cold-load
+  // path, one-shot guard, and poll briefly for the modals store in case this
+  // script wins the race against Alpine boot. The modal's cdpRampFlow factory
+  // resumes polling/countdown from the props. (This used to cite the
+  // magic-link-welcome auto-open, which has been retired.)
   (function () {
     var fired = false;
     function openCdpRampModal() {

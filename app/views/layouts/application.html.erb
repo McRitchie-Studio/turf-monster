@@ -815,39 +815,6 @@
         } catch (_) {}
       })();
     </script>
-    <%# Auto-open the magic-link welcome modal after a consumed magic link.
-        MagicLinksController#consume redirects to the contest (return_to) with
-        flash[:magic_link_welcome] = { message:, next: } (NOT a :notice — that
-        renders a toast; this celebratory beat wants a modal). We render the
-        signal into a JSON script tag and open the modal on load.
-
-        Same wiring as the email-change-pending auto-open in accounts/show, but
-        hoisted to the layout because the landing page varies (whichever contest
-        the link returned to). turbo-stream <script> tags don't execute, but this
-        is a redirect + normal page render so an inline page script runs fine.
-
-        Timing: the redirect can land via Turbo Drive (body swap) on an in-app
-        navigation OR a hard load (cold click from the email). We bind to
-        turbo:load (fires on every Turbo navigation incl. the post-redirect
-        render AND the initial hard load) with a one-shot guard so a back/forward
-        turbo:load can't replay a stale flash, and poll briefly for the modals
-        store in case turbo:load wins the race against Alpine boot on cold paint.
-        Flash is single-render so the JSON tag is absent on any later visit. %>
-    <% if flash[:magic_link_welcome].present? %>
-      <%# Flash round-trips through the session cookie as JSON, so the hash comes
-          back with STRING keys; with_indifferent_access lets us read it symbol-
-          style. %>
-      <% welcome = flash[:magic_link_welcome].with_indifferent_access %>
-      <script type="application/json" id="magic-link-welcome-data">
-        <%= raw({ message: welcome[:message], username: welcome[:username], next: welcome[:next] }.to_json) %>
-      </script>
-      <%# Stable flag (the JSON tag above gets consumed + removed by the
-          auto-open script, so the contest board can't rely on it). The board
-          reads this to defer its post-login tokens-picker (both the ?picks
-          auto-enter path and the pendingAuthStep path) until AFTER the welcome
-          modal has had its ~3s success beat. %>
-      <script>window.__magicLinkWelcome = true;</script>
-    <% end %>
     <%# Returning logins + new-user-on-a-contest get a quiet toast instead of the
         celebratory modal (MagicLinksController sets flash[:auth_toast]). Dispatched
         as a 'toast' window event so we can give it a real title (the flash→toast
@@ -858,17 +825,6 @@
         <%= raw({ type: (auth_toast[:type].presence || "notice"), title: auth_toast[:title], message: auth_toast[:message] }.to_json) %>
       </script>
     <% end %>
-    <%# Wallet setup (web3-only onboarding) — the post-auth "Set up your wallet"
-        beat. Rides the SESSION, not the flash, because the Google popup path
-        never redirects: finish_oauth renders a window-closer and the OPENER
-        reloads, and a flash set during the popup request would be consumed by
-        whichever of the two renders happened to land first. The session key is
-        one-shot (consume_wallet_setup_prompt? deletes on read), so it opens
-        exactly once no matter which path got the user here.
-
-        Emitted as a marker tag + the same window flag shape as
-        __magicLinkWelcome so the contest board can see it (it defers its own
-        post-login tokens picker — a wallet-less user has nothing to buy with). %>
     <%# The CHAIN (2026-08): the server resolves which steps are still
         outstanding (OnboardingFlow) and emits them in order; the driver below
         walks them. Steps: welcome + first_name are the `onboarding` modal, then
@@ -882,6 +838,15 @@
     <% if onboarding_steps.present? %>
       <script type="application/json" id="onboarding-chain-data">
         <%= raw({ steps: onboarding_steps, username: current_user&.username }.to_json) %>
+      </script>
+      <script>
+        // Armed BEFORE any client code runs, deliberately. The contest board's
+        // Alpine init reads this to decide whether to wait its turn, and the
+        // board can initialise BEFORE the chain driver's DOMContentLoaded
+        // handler — so setting it inside the driver was a race the board lost,
+        // opening the tokens picker over the chain exactly as if the guard were
+        // not there. Same server-rendered shape as __walletSetupPrompt below.
+        window.__onboardingChainArmed = true;
       </script>
       <% if onboarding_steps.include?("wallet") %>
         <script>window.__walletSetupPrompt = true;</script>
@@ -919,9 +884,46 @@
 
         // The chain's single decision point, used for the first step and every
         // hand-off after it. Unknown/absent steps end the chain quietly.
+        // Announced ONCE when the chain runs out of steps, so anything that
+        // wants the screen after onboarding can wait its turn instead of
+        // opening on top of it. The contest board's tokens picker is the first
+        // such caller (see selectionBoard#init) — before this, a new signup
+        // returning to a contest got the picker PUSHED OVER the greeting.
+        function finishChain() {
+          if (!window.__onboardingChainArmed) return;
+          window.__onboardingChainArmed = false;
+          if (chainWatch) { clearInterval(chainWatch); chainWatch = null; }
+          window.dispatchEvent(new CustomEvent('onboarding-chain-complete'));
+        }
+
+        // The chain also ends when the user DISMISSES it — and that path reports
+        // nothing, because a closed modal fires no hand-off. Without this the
+        // waiter (the contest board's tokens picker) would hang forever on a
+        // chain the user walked away from: a stack traded for a silence, which
+        // is worse. So watch the stack, and once every chain card has left the
+        // screen, the chain is over however it ended.
+        var CHAIN_IDS = ['onboarding', 'age-verify', 'wallet-setup'];
+        var chainWatch = null;
+        function watchForChainExit() {
+          if (chainWatch) return;
+          var sawChain = false;
+          chainWatch = setInterval(function () {
+            var m = (window.Alpine && Alpine.store) ? Alpine.store('modals') : null;
+            if (!m) return;
+            var live = (m.stack || []).some(function (e) {
+              return e && !e._closing && CHAIN_IDS.indexOf(e.id) !== -1;
+            });
+            if (live) { sawChain = true; return; }
+            // Only after a chain card actually appeared — otherwise the very
+            // first tick (before Alpine mounts the modal) would end the chain
+            // before it started.
+            if (sawChain) finishChain();
+          }, 300);
+        }
+
         function openStep(steps, username) {
           var next = (steps || [])[0];
-          if (!next) return;
+          if (!next) { finishChain(); return; }
           if (next === 'welcome' || next === 'first_name') {
             open('onboarding', {
               step: next === 'welcome' ? 'welcome' : 'first-name',
@@ -943,6 +945,7 @@
           // Drop the steps this modal just handled, whatever the server echoed.
           next = next.filter(function (s) { return s !== 'welcome' && s !== 'first_name'; });
           if (next.length) setTimeout(function () { openStep(next, chainUsername); }, 250);
+          else finishChain();
         });
 
         // The age modal has no chain awareness: it sets $store.session.ageVerified,
@@ -956,6 +959,8 @@
           var sess = window.Alpine && Alpine.store && Alpine.store('session');
           if (sess && sess.walletSetupRequired) {
             setTimeout(function () { openStep(['wallet'], chainUsername); }, 250);
+          } else {
+            finishChain();
           }
         });
 
@@ -971,6 +976,7 @@
           // Live only while the chain still has an age or wallet step to reach.
           window.__onboardingChainActive = (data.steps || []).indexOf('age') !== -1;
           openStep(data.steps || [], chainUsername);
+          watchForChainExit();
         }
 
         document.addEventListener('turbo:load', startChain);
@@ -1009,33 +1015,6 @@
         document.addEventListener('turbo:load', openWalletSetup);
         if (document.readyState !== 'loading') openWalletSetup();
         else document.addEventListener('DOMContentLoaded', openWalletSetup);
-      })();
-
-      (function() {
-        var fired = false;
-        function openMagicLinkWelcome() {
-          if (fired) return;
-          var el = document.getElementById('magic-link-welcome-data');
-          if (!el) return;
-          var data;
-          try { data = JSON.parse(el.textContent); } catch (e) { return; }
-          var attempts = 0;
-          (function tryOpen() {
-            var m = (window.Alpine && Alpine.store) ? Alpine.store('modals') : null;
-            if (m && typeof m.open === 'function') {
-              fired = true;
-              m.open('magic-link-welcome', { message: data.message, username: data.username, next: data.next });
-              // Drop the one-shot payload so a later turbo:load (bfcache restore,
-              // re-navigation) can't replay it.
-              el.remove();
-              return;
-            }
-            if (attempts++ < 50) setTimeout(tryOpen, 50); // up to ~2.5s for Alpine boot
-          })();
-        }
-        document.addEventListener('turbo:load', openMagicLinkWelcome);
-        if (document.readyState !== 'loading') openMagicLinkWelcome();
-        else document.addEventListener('DOMContentLoaded', openMagicLinkWelcome);
       })();
 
       // Auth toast (welcome back / signed-in). The toast manager's
@@ -1097,14 +1076,7 @@
       <template x-if="$store.modals.current().id === 'email-change-pending'">
         <%= render "modals/email_change_pending" %>
       </template>
-      <%# Magic-link welcome — opened on the contest landing page after a
-          consumed magic link (MagicLinksController#consume). Celebration +
-          ~2.5s auto-redirect to the entry-tokens upsell. Auto-opened from the
-          server flash[:magic_link_welcome] via the inline script below. %>
-      <template x-if="$store.modals.current().id === 'magic-link-welcome'">
-        <%= render "modals/magic_link_welcome" %>
-      </template>
-      <%# Tier-1 "general" rate-limit wait modal — opened by the authedFetch 429
+            <%# Tier-1 "general" rate-limit wait modal — opened by the authedFetch 429
           interceptor (solana_utils.js) when a general-tier throttle trips. %>
       <template x-if="$store.modals.current().id === 'rate-limit-general'">
         <%= render "modals/rate_limit_general" %>

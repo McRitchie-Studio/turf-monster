@@ -175,8 +175,11 @@ follows it.
 Rules worth knowing:
 
 - **Steps 1-2 are one modal** with an internal step machine, like `modals/_auth`.
-  The older `magic-link-welcome` modal still serves the paths that only need a
-  celebration-then-close; the chain needs advance, not close.
+  The older `magic-link-welcome` modal was RETIRED with this change: the chain
+  greets every signup itself, which made that modal's only writer unreachable,
+  and a modal nothing can open is worse than no modal (it reads as a live
+  alternative). The chain needs advance, not close, which is why it did not
+  simply reuse it.
 - **The first name is skippable** (link *and* the ×), recorded in the session
   only — so a later visit may ask again while the field is blank. It never
   blocks the wallet step.
