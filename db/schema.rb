@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_13_193048) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_13_222322) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -775,6 +775,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_13_193048) do
   create_table "users", force: :cascade do |t|
     t.datetime "age_attested_at"
     t.date "birth_date"
+    t.integer "birth_day"
+    t.integer "birth_month"
     t.integer "birth_year"
     t.boolean "contest_entered", default: false, null: false
     t.datetime "created_at", null: false
@@ -790,6 +792,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_13_193048) do
     t.bigint "invited_by_id"
     t.integer "invitees_count", default: 0, null: false
     t.integer "invitees_in_contest_count", default: 0, null: false
+    t.jsonb "ip_locations", default: [], null: false
     t.jsonb "ips", default: {}, null: false
     t.datetime "joined_email_list_at"
     t.string "last_name"
