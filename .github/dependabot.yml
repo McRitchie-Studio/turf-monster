@@ -1,12 +1,22 @@
+# target-branch pins every version-update PR to `accepted`, the first rung of
+# the accepted -> release -> main ladder. Without it Dependabot targets the
+# default branch (main); merging there puts a commit on main that `release`
+# lacks, and the next `bin/release ship` fails closed on the divergence.
+# Set it on EVERY entry — target-branch is per-entry, not global.
+#
+# Caveat: Dependabot SECURITY updates always target the default branch and
+# cannot be retargeted. Retarget those to `accepted` by hand before merging.
 version: 2
 updates:
 - package-ecosystem: bundler
   directory: "/"
+  target-branch: accepted
   schedule:
     interval: daily
   open-pull-requests-limit: 10
 - package-ecosystem: github-actions
   directory: "/"
+  target-branch: accepted
   schedule:
     interval: daily
   open-pull-requests-limit: 10

@@ -69,6 +69,13 @@ class EnginePinContractTest < ActiveSupport::TestCase
   # This is not hypothetical here: engine 0.46 shipped
   # add_standard_user_profile_columns and this app did not install it, while
   # every other assertion in this file stayed green.
+  #
+  # IT IS THE NAME HALF OF THE CONTRACT, AND ONLY THE NAME HALF. Reducing both
+  # sides to the bare name is what makes the comparison possible — the installer
+  # renumbers every copy — and it is equally this test's ceiling: a migration
+  # whose BODY changed in the gem keeps its name, so this stays green while the
+  # installed copy is a stale fork. That happened on 2026-08-13.
+  # `test/lib/engine_migration_content_test.rb` is the content half.
   test "every migration the resolved engine ships has been installed here" do
     assert_empty missing_engine_migrations,
                  "the resolved studio-engine (#{Studio::VERSION}) ships migrations this app never " \

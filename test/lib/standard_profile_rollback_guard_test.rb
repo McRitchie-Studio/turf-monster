@@ -19,6 +19,13 @@ require "test_helper"
 # in it: `up` then `down` left the column GONE and the row's value destroyed, with
 # no error raised. turf-monster owned `first_name` AND `birth_year` before the
 # engine ever shipped this migration, so both were in that blast radius.
+#
+# The GENERAL case — any of the engine's other migrations rewritten in the gem
+# while this app's copy stands still — is guarded by
+# `test/lib/engine_migration_content_test.rb`, which digests the code of every
+# installed copy against the gem's. The two fail differently and both are worth
+# having: the digest says "your copy is not the gem's", and only this file says
+# "and a rollback would take turf's first_name and birth_year with it".
 class StandardProfileRollbackGuardTest < ActiveSupport::TestCase
   MIGRATION = Rails.root.glob("db/migrate/*_add_standard_user_profile_columns.studio_engine.rb").freeze
 
