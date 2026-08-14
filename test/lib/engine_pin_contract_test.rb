@@ -35,14 +35,21 @@ class EnginePinContractTest < ActiveSupport::TestCase
   #          on 0.42 the sign-in email silently falls back to the flat banner.
   #          That is the failure this floor exists to catch: nothing raises, the
   #          email just stops carrying the artwork.
-  MINIMUM = Gem::Version.new("0.43.0")
+  #   0.46 — Studio::OnboardingController serves the first-name step, and
+  #          Studio.first_name_outstanding? / FIRST_NAME_SKIP_SESSION_KEY /
+  #          draw_onboarding_routes / onboarding_steps_resolver are the seam this
+  #          app adopted it through. This app DELETED its local copy, so below
+  #          0.46 the routes are never drawn and the onboarding modal's two
+  #          hardcoded POSTs 404 — the chain stalls on the first-name step.
+  MINIMUM = Gem::Version.new("0.46.0")
 
   test "the resolved studio-engine is at or above the floor this app depends on" do
     resolved = Gem::Version.new(Studio::VERSION)
     assert_operator resolved, :>=, MINIMUM,
                     "studio-engine #{resolved} is below the #{MINIMUM} floor this app depends on " \
                     "(the email-free local-review CTA needs >= 0.36; Studio::EmailSetting needs >= 0.42; " \
-                    "a host-owned layered banner needs >= 0.43)"
+                    "a host-owned layered banner needs >= 0.43; the adopted first-name onboarding " \
+                    "endpoints need >= 0.46)"
   end
 
   # THE TEST THAT CATCHES A GEM BUMP OUTRUNNING AN ADOPTION.

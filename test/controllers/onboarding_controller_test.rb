@@ -1,11 +1,31 @@
 require "test_helper"
 
 # The onboarding chain's two writes: capture a first name, or skip it.
+#
+# These are now served by studio-engine (Studio::OnboardingController) — this app
+# deleted its own copy and opted into the shared endpoints, so McRitchie Studio
+# and McRitchie Industries ask the same question the same way. The behaviour
+# asserted below is unchanged; that is the point of the adoption, and the reason
+# these tests were kept rather than rewritten.
+#
+# What is still THIS app's is the SEQUENCE around the step: the `next` array
+# comes from config.onboarding_steps_resolver -> OnboardingFlow.
 class OnboardingControllerTest < ActionDispatch::IntegrationTest
   setup do
     @user = users(:jordan)
     @user.update_columns(first_name: nil, name: nil)
     log_in_as @user
+  end
+
+  test "the endpoints are served by the ENGINE, not a local controller" do
+    # The adoption's actual claim. Without this, a future local
+    # app/controllers/onboarding_controller.rb would silently take the routes
+    # back and every other test in this file would still pass.
+    recognized = Rails.application.routes.recognize_path(onboarding_first_name_path, method: :post)
+
+    assert_equal "studio/onboarding", recognized[:controller]
+    assert_not Object.const_defined?(:OnboardingController),
+      "the local copy is deleted — the engine owns these writes now"
   end
 
   test "capturing a first name writes it and reports what remains" do
@@ -30,7 +50,8 @@ class OnboardingControllerTest < ActionDispatch::IntegrationTest
     post onboarding_first_name_path, params: { first_name: "  Alex   James#{'x' * 80}  " }, as: :json
     assert_response :success
     stored = @user.reload.first_name
-    assert_equal OnboardingController::MAX_FIRST_NAME, stored.length
+    # The bound now belongs to the engine's controller — this app deleted its own.
+    assert_equal Studio::OnboardingController::MAX_FIRST_NAME, stored.length
     assert stored.start_with?("Alex James"), "expected collapsed whitespace, got #{stored.inspect}"
   end
 

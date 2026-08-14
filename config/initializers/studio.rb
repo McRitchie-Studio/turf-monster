@@ -82,5 +82,29 @@ Studio.configure do |config|
   # banner management — takes the URL.
   config.draw_admin_emails_routes = true
 
+  # Draw the engine's first-name onboarding endpoints. This app used to own both
+  # routes and their controller; they are deleted in the same change, which is
+  # what frees the names for the gem. The engine's flag is opt-in precisely
+  # BECAUSE this app held them — drawing them here before the deletion would
+  # raise `Invalid route name, already in use` at route-load and take down every
+  # route in the app.
+  config.draw_onboarding_routes = true
+
+  # What the engine's endpoints report back as still-remaining after the name is
+  # saved or skipped. The engine owns the STEP; this app owns the SEQUENCE, and
+  # this is that seam — turf walks welcome → first name → age → wallet, which
+  # means nothing in a hub app.
+  #
+  # `welcome: false` is not an omission: that beat is behind us by definition if
+  # we are answering a first-name call.
+  config.onboarding_steps_resolver = lambda { |user, session|
+    OnboardingFlow.steps_for(
+      user,
+      welcome: false,
+      skipped_first_name: session[Studio::FIRST_NAME_SKIP_SESSION_KEY] == true,
+      age_gate_enabled: AppFlags.age_gate?
+    )
+  }
+
   config.s3_bucket_prefix = "turf-monster"
 end

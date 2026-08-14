@@ -54,10 +54,21 @@ class OnboardingFlow
   # Marketing wants a first name; friction says do not wall a brand-new user in
   # behind it. So: asked while blank, dropped for the rest of the session the
   # moment they skip.
+  #
+  # Delegated to the engine (studio-engine 0.46.0), which now owns this rule for
+  # every Studio app — McRitchie Studio and McRitchie Industries ask the same
+  # question. The rule left here would be a second copy free to drift from the
+  # one the shared endpoint enforces; what stays turf's is the ORDER around it,
+  # which is the rest of this file.
   def first_name_outstanding?
-    return false if @skipped_first_name
+    Studio.first_name_outstanding?(user, skip_session)
+  end
 
-    user.first_name.blank?
+  # The engine reads the skip from a session-shaped object; this flow is handed a
+  # boolean by the controller. Same key either way — Studio::FIRST_NAME_SKIP_SESSION_KEY
+  # IS :onboarding_skipped_first_name, the key this app already wrote.
+  def skip_session
+    @skipped_first_name ? { Studio::FIRST_NAME_SKIP_SESSION_KEY => true } : {}
   end
 
   # ENABLE_AGE_GATE only. Prompting here is a MOVE of the prompt, not of the

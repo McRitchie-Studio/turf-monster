@@ -310,9 +310,10 @@ Rails.application.routes.draw do
   # endpoint is unchanged and remains the enforcement point either way.
   post "/age/verify", to: "age_verifications#create", as: :age_verify
 
-  # Post-auth onboarding chain — the first-name capture and its skip.
-  post "/onboarding/first_name",      to: "onboarding#first_name",      as: :onboarding_first_name
-  post "/onboarding/skip_first_name", to: "onboarding#skip_first_name", as: :onboarding_skip_first_name
+  # Post-auth onboarding chain — the first-name capture and its skip now come
+  # from studio-engine (Studio::OnboardingController), drawn by
+  # config.draw_onboarding_routes in config/initializers/studio.rb. Same two
+  # paths, same two helper names; this app no longer owns the code behind them.
 
   resource :wallet, only: [:show] do
     post :stripe_deposit

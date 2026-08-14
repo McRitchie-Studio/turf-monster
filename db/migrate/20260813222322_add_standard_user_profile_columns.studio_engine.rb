@@ -35,8 +35,37 @@
 # belong to Studio::IpLocations — the column is just where it lands. It holds
 # IP-derived location data, which is personal data in most jurisdictions; the
 # 50-entry cap there bounds it, and no app writes to it until it opts in.
+# ON THE DOWN: this migration REFUSES to reverse, deliberately.
+#
+# `up` is idempotent by design — every add is `if_not_exists`, precisely so it can
+# run against apps that already disagree. That guard is what makes it safe going
+# in, and it is exactly what makes an honest `down` impossible: the migration
+# records NOTHING about which columns it actually created on this host.
+#
+# So a `down` cannot tell "I added this" from "the host has had it since 2024":
+#
+#   - mcritchie-studio owned `users.first_name` BEFORE this ran.
+#   - turf-monster owned `users.first_name` AND `users.birth_year`.
+#   - mcritchie-industries owned none of the five.
+#
+# The two apps the `up` was careful not to touch are the two a `DROP COLUMN`
+# would rob. Rails' auto-inverse does precisely that: `INVERT_METHODS` maps
+# `add_column` to `remove_column` and passes the same options through, and
+# `remove_column` honours only `if_exists`. A stray `if_not_exists:` there is
+# silently DISCARDED rather than raising.
+#
+# `if_exists` is NOT the fix, and it is worth saying why since it is the reflex:
+# it asks "does this column exist?" — and on those two apps it does. That is the
+# whole hazard. `if_exists` only protects a SECOND rollback, after the data is
+# already gone.
+#
+# Refusing turns silent data loss into a loud, actionable error. An operator who
+# genuinely wants these columns gone can drop the ones they know they own, by
+# hand, with the schema in front of them.
 class AddStandardUserProfileColumns < ActiveRecord::Migration[7.2]
-  def change
+  COLUMNS = %i[first_name birth_day birth_month birth_year ip_locations].freeze
+
+  def up
     # An app that has no users table (the engine's dummy, and any future
     # consumer that names its accounts something else) is simply skipped.
     return unless table_exists?(:users)
@@ -48,5 +77,23 @@ class AddStandardUserProfileColumns < ActiveRecord::Migration[7.2]
     add_column :users, :birth_year,  :integer, if_not_exists: true
 
     add_column :users, :ip_locations, :jsonb, default: [], null: false, if_not_exists: true
+  end
+
+  def down
+    # Nothing was added, so nothing is owed — an app without `users` never ran
+    # the `up` body either, and reversing that is genuinely a no-op.
+    return unless table_exists?(:users)
+
+    raise ActiveRecord::IrreversibleMigration, <<~MSG
+      AddStandardUserProfileColumns cannot be reversed safely.
+
+      Its `up` adds #{COLUMNS.join(", ")} with `if_not_exists`, so it does not
+      know which of them it created on this host and which the host already
+      owned. Dropping them all would destroy host-owned data (mcritchie-studio
+      owned first_name; turf-monster owned first_name and birth_year).
+
+      If you truly want a column gone, drop the ones you know this app did not
+      own before the migration, by hand, in their own migration.
+    MSG
   end
 end
