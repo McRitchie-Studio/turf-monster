@@ -325,11 +325,25 @@ window.selectionBoard = function() {
       // the entry back up so the user flows straight to the next gate / entry
       // without re-holding. confirmEntry re-runs eligibilityBlocker — age now
       // passes, so it advances to tokens/balance or submits.
-      window.addEventListener('age-verified', function () {
+      // DECIDED AT BOOT, not inside the event. The age gate has two callers: this
+      // hold-time resume (the user was mid-entry) and the chain's own age STEP
+      // (they just signed in and are entering nothing). Acting on both is how two
+      // live modals ended up stacked.
+      //
+      // The guard is on REGISTRATION rather than inside the handler on purpose.
+      // Both this and the chain driver listen for 'age-verified', and the driver
+      // clears __onboardingChainArmed as it releases the screen — so a handler
+      // that read the flag at dispatch time would behave differently depending on
+      // which listener registered first. That is the same order-dependence this
+      // task exists to remove. __onboardingChainArmed is server-rendered before
+      // any client code runs, so reading it HERE is a stable fact.
+      if (!window.__onboardingChainArmed) {
+        window.addEventListener('age-verified', function () {
         Promise.resolve()
           .then(function () { return board.confirmEntry(); })
           .catch(function (e) { console.error('[age-verified] confirmEntry rejected:', e); });
-      });
+        });
+      }
 
       // Reopen the post-signup step after submitProfile()'s reload —
       // Google → buy entry tokens; email → check your email.
@@ -340,23 +354,33 @@ window.selectionBoard = function() {
           sessionStorage.removeItem('pendingAuthStep');
           if (step && step.contestSlug === this.contestId) {
             if (step.step === 'tokens') {
+              // TAKE OUR TURN. While the onboarding chain owns the screen we do
+              // not open anything — we register for the hand-back and run once
+              // it arrives. Opening now would put this picker on top of a card
+              // the user is still answering.
+              //
+              // Safe to run from the announcement because the chain closes its
+              // own card BEFORE announcing (modals/_onboarding finish()), so the
+              // picker we open here is not the card its close() takes.
+              var resumed = false;
+              var resume = function () {
+                if (resumed) return;
+                resumed = true;
+                board.showTokensPanel();
+              };
+              if (window.__onboardingChainArmed) {
+                window.addEventListener('onboarding-chain-complete', resume, { once: true });
+                return;
+              }
               // Post-signup pack-picker resume — deliberately STAYS the Get
               // Entry Tokens picker (not the Top Up Wallet modal). This restores
               // the buy-tokens step the user was on through the signup reload,
               // not the in-entry funds wall (that's the 'no_funding' blocker +
               // its chain-layer twin, both rerouted to showWalletTopup).
               //
-              // The onboarding chain may be walking (welcome -> first name ->
-              // age -> wallet), and this picker can land on top of it — a
-              // cosmetic stack, and a KNOWN one. An earlier revision made the
-              // picker wait for an 'onboarding-chain-complete' announcement;
-              // that was withdrawn because the announcement fired inside the
-              // dispatching modal's own close window and the picker was
-              // destroyed instead of deferred, which cost the user the purchase
-              // step entirely. A stack the user can dismiss beats a step they
-              // never get. Who owns the screen after the chain is tracked as its
-              // own design task.
-              this.showTokensPanel();
+              // No chain armed (returning user with nothing outstanding, Google,
+              // direct) — nothing to wait for, so open immediately as always.
+              resume();
             }
           }
         }

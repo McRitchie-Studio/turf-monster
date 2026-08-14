@@ -84,9 +84,24 @@
        // Hand the REMAINING steps to the chain driver and get out of the way.
        // Closing here (rather than letting the driver swap) keeps this modal
        // ignorant of what comes next — the driver owns the order.
+       // CLOSE FIRST, THEN ANNOUNCE — the order is the whole fix.
+       //
+       // dispatchEvent is SYNCHRONOUS, so announcing first runs every listener
+       // inside this method, BEFORE our own close(). A listener that opened a
+       // modal there put its card on top of the stack, and our close() then took
+       // THAT card instead of ours: the listener's modal was destroyed and this
+       // one stayed on screen. It cost a returning user the tokens picker and
+       // stranded them here.
+       //
+       // Closing first makes the close target unambiguous — it is always our own
+       // card, because nothing else has run yet. Any listener that opens
+       // something is then pushing onto a stack whose top is already closing,
+       // which is the ordinary case the host handles. This protects EVERY
+       // listener, including ones written later, rather than asking each of them
+       // to defer.
        finish(next) {
-         window.dispatchEvent(new CustomEvent('onboarding-step-done', { detail: { next: next } }));
          $store.modals.close();
+         window.dispatchEvent(new CustomEvent('onboarding-step-done', { detail: { next: next } }));
        }
      }"
      class="relative">

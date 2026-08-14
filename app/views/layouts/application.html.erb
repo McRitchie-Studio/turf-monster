@@ -841,6 +841,13 @@
       <script type="application/json" id="onboarding-chain-data">
         <%= raw({ steps: onboarding_steps, username: current_user&.username }.to_json) %>
       </script>
+      <script>
+        // THE CHAIN OWNS THE SCREEN while it is walking. Rendered before any
+        // client code runs, because the contest board's Alpine init can start
+        // BEFORE this driver's DOMContentLoaded handler — arming it in the
+        // driver is a race the board loses.
+        window.__onboardingChainArmed = true;
+      </script>
       <% if onboarding_steps.include?("wallet") %>
         <script>window.__walletSetupPrompt = true;</script>
       <% end %>
@@ -886,9 +893,52 @@
         // the outgoing card is gone before the next one mounts.
         var HANDOFF_MS = 250;
 
+        // ── Screen ownership ────────────────────────────────────────────────
+        // While a chain is armed the CHAIN owns the screen; everything else that
+        // wants it after auth waits for this ONE hand-back. Called exactly once,
+        // however the chain ends — walked through, or dismissed.
+        //
+        // This is safe to call synchronously now: modals/_onboarding finish()
+        // closes its own card BEFORE announcing, so a listener that opens
+        // something here can no longer have it closed by the announcer.
+        var handoffPending = false;
+        function releaseScreen() {
+          if (handoffPending) return;               // a step is on its way in
+          if (!window.__onboardingChainArmed) return;
+          window.__onboardingChainArmed = false;
+          if (chainWatch) { clearInterval(chainWatch); chainWatch = null; }
+          window.dispatchEvent(new CustomEvent('onboarding-chain-complete'));
+        }
+
+        function handOff(steps) {
+          handoffPending = true;
+          setTimeout(function () { openStep(steps, chainUsername); }, HANDOFF_MS);
+        }
+
+        // The chain also ends when the user DISMISSES it, and a closed modal
+        // announces nothing — so watch the stack and release once every chain
+        // card has left the screen. Without this the waiter hangs forever on a
+        // chain the user walked away from.
+        var CHAIN_IDS = ['onboarding', 'age-verify', 'wallet-setup'];
+        var sawChain = false;
+        var chainWatch = null;
+        function watchForChainExit() {
+          if (chainWatch) return;
+          chainWatch = setInterval(function () {
+            var m = (window.Alpine && Alpine.store) ? Alpine.store('modals') : null;
+            if (!m) return;
+            var live = (m.stack || []).some(function (e) {
+              return e && !e._closing && CHAIN_IDS.indexOf(e.id) !== -1;
+            });
+            if (live) { sawChain = true; return; }
+            if (sawChain) releaseScreen();
+          }, 300);
+        }
+
         function openStep(steps, username) {
+          handoffPending = false;                   // the hand-off landed
           var next = (steps || [])[0];
-          if (!next) return;
+          if (!next) { releaseScreen(); return; }
           if (next === 'welcome' || next === 'first_name') {
             open('onboarding', {
               step: next === 'welcome' ? 'welcome' : 'first-name',
@@ -911,7 +961,8 @@
         window.addEventListener('onboarding-step-done', function (e) {
           var next = (e && e.detail && e.detail.next) || [];
           next = next.filter(function (s) { return s !== 'welcome' && s !== 'first_name'; });
-          if (next.length) setTimeout(function () { openStep(next, chainUsername); }, HANDOFF_MS);
+          if (next.length) handOff(next);
+          else releaseScreen();
         });
 
         // The age modal has no chain awareness: it sets $store.session.ageVerified,
@@ -923,9 +974,8 @@
           if (!window.__onboardingChainActive) return;
           window.__onboardingChainActive = false;
           var sess = window.Alpine && Alpine.store && Alpine.store('session');
-          if (sess && sess.walletSetupRequired) {
-            setTimeout(function () { openStep(['wallet'], chainUsername); }, HANDOFF_MS);
-          }
+          if (sess && sess.walletSetupRequired) handOff(['wallet']);
+          else releaseScreen();
         });
 
         function startChain() {
@@ -940,6 +990,7 @@
           // Live only while the chain still has an age or wallet step to reach.
           window.__onboardingChainActive = (data.steps || []).indexOf('age') !== -1;
           openStep(data.steps || [], chainUsername);
+          watchForChainExit();
         }
 
         document.addEventListener('turbo:load', startChain);
