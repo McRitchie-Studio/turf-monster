@@ -416,7 +416,7 @@
       its card and heading from the engine's section wrapper. %>
   <div class="card shadow p-6 mb-6">
     <h2 class="text-lg font-bold text-heading mb-4">Newsletter</h2>
-    <%= render "accounts/newsletter_section" %>
+    <%= render "accounts/newsletter_section", user: current_user %>
   </div>
 
   <%# -- Quests progress -- %>
