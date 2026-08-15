@@ -75,26 +75,43 @@ Studio.configure do |config|
   # that property rather than this spelling.
   config.wallet_address_method = :web3_solana_address
 
-  # THE NEWSLETTER ROW IS HELD BACK FROM /profile, and it is the one row on that
-  # page this app cannot simply inherit.
+  # THE PROFILE PAGE'S ROWS: the engine's defaults, plus this app's own Quests card.
   #
-  # The engine's row writes joined_email_list_at directly. This app's 25-seed
-  # welcome bonus is gated on User#first_newsletter_join?, which is literally
-  # `joined_email_list_at.nil?` — so a subscribe on /profile would set that column,
-  # grant no seeds, and leave the bonus UNCLAIMABLE FOREVER. Not recoverable by
-  # unsubscribing either: leaving stamps left_email_list_at and never clears the
-  # join, deliberately, so the once-ever bonus cannot be re-earned by cycling. The
-  # on-chain SeedGrant[newsletter] PDA would refuse a second grant regardless.
+  # THE NEWSLETTER ROW IS BACK. It was held off this page because the engine's row
+  # writes joined_email_list_at directly, and this app's 25-seed welcome bonus is
+  # gated on User#first_newsletter_join? — literally `joined_email_list_at.nil?`.
+  # A subscribe on /profile therefore set the column, granted no seeds, and left
+  # the bonus unclaimable forever. Studio.after_newsletter_change (engine 0.53.0)
+  # closes that: the grant now runs from the callback below, so joining from
+  # either page pays exactly once. See the callback for the ordering that makes
+  # `first_join` meaningful.
   #
-  # So /account keeps the newsletter card and its seeds path until that flow moves
-  # over deliberately. Every OTHER row is genuinely independent of /account and
-  # renders here from day one.
+  # QUESTS ARE THIS APP'S OWN, and the engine has no concept of them by design —
+  # they are seeds-shaped, and seeds do not belong in a gem four other apps
+  # install. The registry takes a host row naming a host partial, so the card that
+  # already renders on /account renders here unchanged.
   #
-  # Composed against Studio.default_profile_sections rather than a literal list, so
-  # a row the engine adds later arrives here automatically — this holds ONE row
-  # back, it does not freeze the page.
+  # Composed against Studio.default_profile_sections rather than a literal list,
+  # so a row the engine adds later arrives here automatically.
   config.profile_sections = lambda do |_view|
-    Studio.default_profile_sections.reject { |section| section[:key] == :newsletter }
+    Studio.default_profile_sections + [
+      { key: :quests, title: "Quests", page: :show, partial: "accounts/quests" }
+    ]
+  end
+
+  # THE SEEDS HALF OF A NEWSLETTER JOIN, which the engine deliberately knows
+  # nothing about.
+  #
+  # `first_join` is computed by the engine BEFORE it writes the column — asked
+  # afterwards it would always be false and this bonus could never be paid.
+  #
+  # NO DOUBLE GRANT: /account subscribes through this app's own
+  # NewsletterController and never reaches here; this fires only for the engine's
+  # /profile row. Both call the same NewsletterSeedGrant, and the on-chain
+  # SeedGrant[newsletter] PDA refuses a second grant regardless — so the worst
+  # case of any mistake here is a no-op, never a double payout.
+  config.after_newsletter_change = lambda do |user, subscribed:, first_join:|
+    NewsletterSeedGrant.call(user) if subscribed && first_join
   end
 
   config.mailer_from = Studio.mailer_from_for_transport(
