@@ -2,11 +2,24 @@ require "test_helper"
 
 # [integration] The newsletter and quests cards on the shared /profile page.
 #
-# Two things meet here that the engine deliberately keeps apart: the engine owns
-# the newsletter row and knows nothing about seeds, and this app owns the seeds
-# and the quests and knows nothing about how the row is rendered. The seam
-# between them is Studio.after_newsletter_change, and it is the only place a
-# subscribe on /profile can pay the welcome bonus.
+# TWO PATHS REACH THE SAME SUBSCRIPTION, and it is worth being exact about which
+# one the UI uses, because they pay the seeds differently.
+#
+#   THE UI PATH. This app replaces the engine's newsletter row with its own, and
+#   that card opens this app's modals, which POST to newsletter_subscribe_path —
+#   this app's NewsletterController. The seeds are granted there, directly. The
+#   engine is not involved in the write at all.
+#
+#   THE ENGINE PATH. POST /profile/newsletter still exists and still works; it
+#   fires Studio.after_newsletter_change, which this app wires to the same
+#   NewsletterSeedGrant. Nothing in the UI calls it today.
+#
+# THE CALLBACK IS THEREFORE A SAFETY NET RATHER THAN THE MECHANISM, and it is
+# kept deliberately: the engine route is public, the engine may grow its own UI
+# for it, and a subscribe that reached it WITHOUT the callback would set
+# joined_email_list_at, grant nothing, and burn first_newsletter_join? forever —
+# the exact bug the row was held back for. The tests below cover both paths and
+# say which is which.
 class ProfileNewsletterQuestsTest < ActionDispatch::IntegrationTest
   setup do
     @user = users(:alex)
@@ -37,6 +50,42 @@ class ProfileNewsletterQuestsTest < ActionDispatch::IntegrationTest
       "the row was held back while a subscribe here burned the seeds bonus; the callback closed that"
   end
 
+  # THIS APP'S ROW, NOT THE ENGINE'S. The engine ships a plain form and a confirm
+  # dialog — right for an app with no rewards, wrong here, where joining is worth
+  # 25 seeds and leaving costs them. The replacement is what makes /profile open
+  # the same five-modal flow /account has walked people through since the quest
+  # system shipped.
+  test "the newsletter row opens this app's modal flow, not the engine's" do
+    sign_in_as(@user)
+    get "/profile"
+
+    assert_includes response.body, "$store.modals.open('newsletter-subscribe')",
+      "the card must open THIS app's subscribe modal on the shared host"
+    refute_includes response.body, "profileModals.open('newsletter-unsubscribe')",
+      "the engine's own confirm dialog must not be what /profile offers here"
+  end
+
+  # Replaced by KEY, so it keeps the engine's POSITION rather than being shuffled
+  # to the end of the page.
+  test "the replacement keeps the engine's row order" do
+    keys = Studio.profile_sections.call(nil).map { |s| s[:key].to_sym }
+    defaults = Studio.default_profile_sections.map { |s| s[:key].to_sym }
+
+    assert_equal defaults + [:quests], keys
+    assert_equal "accounts/newsletter_section",
+                 Studio.profile_sections.call(nil).find { |s| s[:key] == :newsletter }[:partial]
+  end
+
+  # ONE IMPLEMENTATION, TWO CALL SITES. The card was extracted from /account so the
+  # two pages cannot drift on copy, states, or which modal a button opens.
+  test "the account page renders the same card" do
+    sign_in_as(@user)
+    get "/account"
+
+    assert_response :success
+    assert_includes response.body, "$store.modals.open('newsletter-subscribe')"
+  end
+
   # The engine has no quests concept by design — seeds do not belong in a gem four
   # other apps install. This is a HOST row naming a HOST partial, which is what
   # the registry is for.
@@ -52,10 +101,12 @@ class ProfileNewsletterQuestsTest < ActionDispatch::IntegrationTest
 
   # --- the seam ----------------------------------------------------------------
 
+  # --- the ENGINE path (the safety net, not what the UI calls) -----------------
+  #
   # THE ORDERING THAT MAKES THE BONUS PAYABLE. The engine computes first_join
   # BEFORE it writes joined_email_list_at; asked afterwards it is always false.
   # This asserts the app's callback receives it true on a first-ever join.
-  test "subscribing on the profile page grants the welcome seeds" do
+  test "a subscribe through the engine route grants the welcome seeds" do
     sign_in_as(@user)
     @user.update!(joined_email_list_at: nil, left_email_list_at: nil)
 
@@ -114,8 +165,11 @@ class ProfileNewsletterQuestsTest < ActionDispatch::IntegrationTest
            "the grant blew up and took the subscription with it"
   end
 
-  # /account keeps its own path, and the two must not both fire for one join.
-  test "the account page still subscribes and still grants" do
+  # --- the UI path (what the cards on BOTH pages actually post to) -------------
+  #
+  # Both cards open this app's modals, which POST here. This is the path a person
+  # actually takes, from /account and from /profile alike.
+  test "the app's own subscribe endpoint grants — the path both cards use" do
     sign_in_as(@user)
     @user.update!(joined_email_list_at: nil, left_email_list_at: nil)
 
