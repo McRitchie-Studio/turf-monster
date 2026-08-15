@@ -75,6 +75,28 @@ Studio.configure do |config|
   # that property rather than this spelling.
   config.wallet_address_method = :web3_solana_address
 
+  # THE NEWSLETTER ROW IS HELD BACK FROM /profile, and it is the one row on that
+  # page this app cannot simply inherit.
+  #
+  # The engine's row writes joined_email_list_at directly. This app's 25-seed
+  # welcome bonus is gated on User#first_newsletter_join?, which is literally
+  # `joined_email_list_at.nil?` — so a subscribe on /profile would set that column,
+  # grant no seeds, and leave the bonus UNCLAIMABLE FOREVER. Not recoverable by
+  # unsubscribing either: leaving stamps left_email_list_at and never clears the
+  # join, deliberately, so the once-ever bonus cannot be re-earned by cycling. The
+  # on-chain SeedGrant[newsletter] PDA would refuse a second grant regardless.
+  #
+  # So /account keeps the newsletter card and its seeds path until that flow moves
+  # over deliberately. Every OTHER row is genuinely independent of /account and
+  # renders here from day one.
+  #
+  # Composed against Studio.default_profile_sections rather than a literal list, so
+  # a row the engine adds later arrives here automatically — this holds ONE row
+  # back, it does not freeze the page.
+  config.profile_sections = lambda do |_view|
+    Studio.default_profile_sections.reject { |section| section[:key] == :newsletter }
+  end
+
   config.mailer_from = Studio.mailer_from_for_transport(
     ses_from: "Turf Monster <team@turfmonster.media>"
   )
