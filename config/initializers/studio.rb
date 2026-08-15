@@ -61,6 +61,42 @@ Studio.configure do |config|
   # explicitly so a future default change can't silently drop wallet.
   config.auth_methods = %i[magic_link google wallet]
 
+  # WHICH column a wallet signs in with. Declaring :wallet above is only half the
+  # statement — the engine will not guess the column, and until this line existed
+  # Studio::OauthIdentity.wallet_present? was always false here, so a wallet-only
+  # account reported NO remaining sign-in method and was refused a Google unlink
+  # that User#has_authentication_method explicitly permits.
+  #
+  # :web3_solana_address, NOT :solana_address. That reader is
+  # `web3_solana_address || web2_solana_address`, and the web2 address is
+  # CUSTODIAL — held by the platform, with no signer. Naming it here would count
+  # an address nobody can sign with as a way back into the account and permit an
+  # unlink that orphans it. test/initializers/studio_wallet_method_test.rb asserts
+  # that property rather than this spelling.
+  config.wallet_address_method = :web3_solana_address
+
+  # THE NEWSLETTER ROW IS HELD BACK FROM /profile, and it is the one row on that
+  # page this app cannot simply inherit.
+  #
+  # The engine's row writes joined_email_list_at directly. This app's 25-seed
+  # welcome bonus is gated on User#first_newsletter_join?, which is literally
+  # `joined_email_list_at.nil?` — so a subscribe on /profile would set that column,
+  # grant no seeds, and leave the bonus UNCLAIMABLE FOREVER. Not recoverable by
+  # unsubscribing either: leaving stamps left_email_list_at and never clears the
+  # join, deliberately, so the once-ever bonus cannot be re-earned by cycling. The
+  # on-chain SeedGrant[newsletter] PDA would refuse a second grant regardless.
+  #
+  # So /account keeps the newsletter card and its seeds path until that flow moves
+  # over deliberately. Every OTHER row is genuinely independent of /account and
+  # renders here from day one.
+  #
+  # Composed against Studio.default_profile_sections rather than a literal list, so
+  # a row the engine adds later arrives here automatically — this holds ONE row
+  # back, it does not freeze the page.
+  config.profile_sections = lambda do |_view|
+    Studio.default_profile_sections.reject { |section| section[:key] == :newsletter }
+  end
+
   config.mailer_from = Studio.mailer_from_for_transport(
     ses_from: "Turf Monster <team@turfmonster.media>"
   )
