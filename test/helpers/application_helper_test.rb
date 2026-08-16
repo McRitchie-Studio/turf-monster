@@ -48,6 +48,25 @@ class ApplicationHelperTest < ActionView::TestCase
     end
   end
 
+  test "fizz bits cover every color slot so a full pick set shows all twelve colors" do
+    bits = hold_button_fizz_bits("desktop")
+    slots = bits.map { |b| b[:slot] }
+
+    assert_equal (1..ApplicationHelper::FIZZ_SLOTS).to_a, slots.uniq.sort,
+      "every one of the twelve slots must be worn by at least one bubble"
+    assert_equal 26, slots.size
+    # Round-robin, so no slot hogs the button.
+    assert_operator slots.tally.values.max - slots.tally.values.min, :<=, 1
+  end
+
+  test "a fizz bit reads its slot's color and falls back to its own hue" do
+    bit = hold_button_fizz_bits("desktop").first
+    color = hold_button_fizz_color(bit)
+
+    assert_equal "var(--fizz-c-#{bit[:slot]}, hsl(#{bit[:hue]} 92% 70%))", color,
+      "unbound slots must still paint a bubble"
+  end
+
   test "fizz bits drift off both edges so the button looks carbonated, not top-heavy" do
     bits = hold_button_fizz_bits("desktop")
 

@@ -10,10 +10,10 @@
   <header>
     <h1 class="text-heading text-3xl font-extrabold mb-1">Hold Button — Fizz Lab</h1>
     <p class="text-secondary text-sm">
-      Carbonation on the hold-to-confirm CTA. Bubbles simmer at rest, boil on hover, on the
-      nudge shake and through the hold, then burst outward when the entry confirms.
-      Bubbles are seeded per <code class="text-xs">hold_id</code>, so each button scatters
-      differently and scatters the same way on every render.
+      Carbonation on the hold-to-confirm CTA. Bubbles sit <em>behind</em> the button and only show
+      where they escape its edges: they simmer at rest, boil on hover, on the nudge shake and
+      through the hold, then burst outward when the entry confirms. Each button's scatter is
+      seeded per <code class="text-xs">hold_id</code> — different per button, identical on every render.
     </p>
   </header>
 
@@ -61,6 +61,36 @@
           </div>
           <p class="text-muted text-xs"><%= demo[:note] %></p>
         </div>
+      <% end %>
+    </div>
+  </section>
+
+  <section class="space-y-3">
+    <h2 class="text-heading text-lg font-bold">Dressed in team colors</h2>
+    <p class="text-muted text-xs">
+      What the board's button wears once six picks are in: each team's light and dark brand color,
+      twelve slots in pick order. On the board these ride <code>:style="fizzPalette"</code> and
+      re-dress themselves as picks change; unfilled slots keep the candy color.
+    </p>
+    <div class="card p-6 space-y-4">
+      <div style="max-width:18rem">
+        <%= render "shared/hold_button", hold_id: "fizz-teams",
+              default_text: "Hold to Confirm",
+              fizz_colors: @fizz_palette.flat_map { |pair| [ pair[:light], pair[:dark] ] } %>
+      </div>
+      <div class="flex flex-wrap gap-3">
+        <% @fizz_palette.each do |pair| %>
+          <div class="flex items-center gap-2 text-xs text-secondary">
+            <span class="inline-flex rounded-full overflow-hidden border border-subtle" style="width:2.25rem;height:1.125rem">
+              <span style="flex:1;background:<%= pair[:light] %>"></span>
+              <span style="flex:1;background:<%= pair[:dark] %>"></span>
+            </span>
+            <%= pair[:label] %>
+          </div>
+        <% end %>
+      </div>
+      <% if @fizz_palette_source == :candy %>
+        <p class="text-muted text-xs">No teams carry both brand colors in this database, so these are the built-in candy hues — the slot wiring is the same.</p>
       <% end %>
     </div>
   </section>

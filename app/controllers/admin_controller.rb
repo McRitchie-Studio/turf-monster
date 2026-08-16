@@ -347,6 +347,23 @@ class AdminController < ApplicationController
   # page, because the real button only exists at the bottom of a contest board
   # behind six picks, and its success state is one-shot.
   def hold_button
+    # Six real teams, so the palette demo shows what an actual entry looks like
+    # rather than invented swatches. The board binds the same pair per pick.
+    teams = Team.where.not(color_light: nil).where.not(color_dark: nil).order(:slug).limit(6)
+    @fizz_palette = teams.map do |team|
+      pal = helpers.team_card_palette(team)
+      { label: team.mascot.presence || team.name, light: pal[:fizz_light], dark: pal[:fizz_dark] }
+    end
+    @fizz_palette_source = :teams
+
+    # A database with no branded teams (a bare test/dev DB) still gets to see
+    # the slot mechanism, dressed in the built-in candy hues instead.
+    return if @fizz_palette.any?
+
+    @fizz_palette_source = :candy
+    @fizz_palette = ApplicationHelper::FIZZ_HUES.first(6).map do |hue|
+      { label: "Hue #{hue}", light: "hsl(#{hue} 92% 70%)", dark: "hsl(#{hue} 80% 42%)" }
+    end
   end
 
   def modals

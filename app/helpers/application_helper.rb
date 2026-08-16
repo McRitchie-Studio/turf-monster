@@ -97,18 +97,32 @@ module ApplicationHelper
   # is px, delay/duration are seconds, hue indexes FIZZ_HUES. The CSS scales
   # dx/dy up per state — a fraction while idle, full while held, ~2.6x on the
   # success burst — so one table drives every phase.
+  #
+  # `slot` is the bubble's COLOR SLOT, 1..FIZZ_SLOTS, assigned round-robin so
+  # every slot shows up on every button. A caller that dresses the button in a
+  # palette (the board sends the six picked teams' light + dark colors) sets
+  # --fizz-c-1..12 on the stack; the bubble reads its slot's var and falls back
+  # to its own FIZZ_HUES candy color when nothing is bound.
+  FIZZ_SLOTS = 12
+
   def hold_button_fizz_bits(hold_id, count: 26)
     prng = Random.new(hold_id.to_s.each_byte.sum * 7919 + count)
 
     Array.new(count) do |i|
       # 4-in-10 along the bottom edge, 4-in-10 along the top, 1 off each end.
-      case i % 10
+      bit = case i % 10
       when 0, 1, 2, 3 then bottom_fizz_bit(prng)
       when 4, 5, 6, 7 then top_fizz_bit(prng)
       when 8          then side_fizz_bit(prng, :left)
       else                 side_fizz_bit(prng, :right)
       end
+      bit.merge(slot: (i % FIZZ_SLOTS) + 1)
     end
+  end
+
+  # One bubble's color: its slot's bound color, else its own candy hue.
+  def hold_button_fizz_color(bit)
+    "var(--fizz-c-#{bit[:slot]}, hsl(#{bit[:hue]} 92% 70%))"
   end
 
   private

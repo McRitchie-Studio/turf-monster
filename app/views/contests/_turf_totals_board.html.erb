@@ -77,7 +77,11 @@
       fgSoft: pal[:fg_soft],
       fgFaint: pal[:fg_faint],
       accent: pal[:accent],
-      mascotShadow: pal[:mascot_shadow]
+      mascotShadow: pal[:mascot_shadow],
+      # The hold button's fizz wears the picked teams — light + dark per team,
+      # twelve colors across six picks (see fizzPalette below).
+      colorLight: pal[:fizz_light],
+      colorDark: pal[:fizz_dark]
     }
   end
 
@@ -525,8 +529,25 @@ window.selectionBoard = function() {
         fgSoft: matchupData[matchupId]?.fgSoft || '',
         fgFaint: matchupData[matchupId]?.fgFaint || '',
         accent: matchupData[matchupId]?.accent || '',
-        mascotShadow: matchupData[matchupId]?.mascotShadow || ''
+        mascotShadow: matchupData[matchupId]?.mascotShadow || '',
+        colorLight: matchupData[matchupId]?.colorLight || '',
+        colorDark: matchupData[matchupId]?.colorDark || ''
       }));
+    },
+
+    // Fizz palette for the hold button — the picked teams' brand colors mapped
+    // onto the twelve --fizz-c-* slots the bubbles read (team 1 light, team 1
+    // dark, team 2 light, …). Bound to the button's stack with :style, so the
+    // carbonation re-dresses itself as picks change; slots left unbound (fewer
+    // than six picks, or a team with no brand color) keep the built-in candy
+    // color, so the button is never colorless.
+    get fizzPalette() {
+      var vars = {};
+      this.selectionSlots.forEach(function(slot, i) {
+        if (slot.colorLight) vars['--fizz-c-' + (i * 2 + 1)] = slot.colorLight;
+        if (slot.colorDark) vars['--fizz-c-' + (i * 2 + 2)] = slot.colorDark;
+      });
+      return vars;
     },
 
     toggleSelection(matchupId) {
@@ -1887,6 +1908,7 @@ window.selectionBoard = function() {
           success_text: "Confirmed!",
           duration: 2000,
           hold_id: "desktop",
+          fizz_bind: "fizzPalette",
           guard: "data.selectionCount === #{@contest.picks_required}",
           on_hold_start: "window.dispatchEvent(new CustomEvent('hold-funding-check'))",
           validate: "d.runHoldValidations()",
@@ -1957,6 +1979,7 @@ window.selectionBoard = function() {
         success_text: "Confirmed!",
         duration: 2000,
         hold_id: "mobile",
+        fizz_bind: "fizzPalette",
         guard: "data.selectionCount === #{@contest.picks_required}",
         on_hold_start: "window.dispatchEvent(new CustomEvent('hold-funding-check'))",
         validate: "d.runHoldValidations()",

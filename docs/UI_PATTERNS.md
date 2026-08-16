@@ -92,11 +92,14 @@ JS-driven, big nudge at 3s then soft nudge every 10s. Resets on hold, soft-only 
 
 ### Fizz Layer
 Carbonation bubbles that make the CTA catch the eye. Default on; pass `fizz: false` for the flat button.
-- **Markup**: `<span class="fizz">` of 26 `<i class="fizz-bit">`, first child of the button, `aria-hidden` and `pointer-events:none` (pure decoration).
-- **Table**: `ApplicationHelper#hold_button_fizz_bits(hold_id)` — placement, drift, size, delay, duration and hue per bubble, emitted as inline custom properties. Seeded from `hold_id`, so a button scatters the same way on every render (Turbo restores a cached page unchanged) and the desktop/mobile pair do not fizz in lockstep.
-- **Phases** (each is a multiplier on the bubble's own drift): rest simmers at ~40%, hover / `.nudge` / `.process` / `.loading` boil at 100% on a shorter cycle, `.success` bursts one-shot at 260%, `.error` cuts them dead.
-- **CSS**: inside `@utility hold-btn` ("Fizz layer") plus `@keyframes fizz-simmer|fizz-boil|fizz-burst`. Transform + opacity only, so the bubbles stay on the compositor; `prefers-reduced-motion: reduce` switches them off entirely.
-- **Preview**: `/admin/hold_button` — every phase pinned side by side, plus a live button.
+- **Markup**: `<span class="hold-stack">` wraps `<span class="hold-fizz">` (26 `<i class="fizz-bit">`, `aria-hidden`, `pointer-events:none`) **and then** the button. The bubbles are the button's SIBLING, not its child: the button's `transform` makes it a stacking context, so a negative z-index inside would still paint above its own background. As a sibling the button paints over them and they only show where they escape its edges. `isolation: isolate` on the stack keeps the button's `z-index: 1` from competing with the page.
+- **Table**: `ApplicationHelper#hold_button_fizz_bits(hold_id)` — placement, drift, size, delay, duration, hue and color slot per bubble, emitted as inline custom properties. Seeded from `hold_id`, so a button scatters the same way on every render (Turbo restores a cached page unchanged) and the desktop/mobile pair do not fizz in lockstep.
+- **Phases** (each is a multiplier on the bubble's own drift): rest simmers at ~40%, hover / `.nudge` / `.process` / `.loading` boil at 100% on a shorter cycle, `.success` bursts one-shot at 260%, `.error` cuts them dead. State lives on the button, so the stack reads it with `:has()`.
+- **Colors**: each bubble owns a slot, 1–12 round-robin (`ApplicationHelper::FIZZ_SLOTS`), and paints `var(--fizz-c-<slot>, <its candy hue>)`. Unbound slots keep the built-in candy palette (`ApplicationHelper::FIZZ_HUES`), so the button is never colorless.
+  - `fizz_colors: [...]` — a static palette, written to the stack's `style` (used by the gallery).
+  - `fizz_bind: "fizzPalette"` — an Alpine expression bound to the stack's `:style`. The board's `fizzPalette` getter maps the six picked teams' `fizz_light` / `fizz_dark` (from `team_card_palette`) onto slots 1–12 in pick order, so the carbonation re-dresses itself as picks change.
+- **CSS**: `@utility hold-stack` ("Hold Button Fizz") plus `@keyframes fizz-simmer|fizz-boil|fizz-burst`. Transform + opacity only, so the bubbles stay on the compositor; `prefers-reduced-motion: reduce` switches them off entirely.
+- **Preview**: `/admin/hold_button` — every phase pinned side by side, a team-colored button, and a live one.
 
 ## Pick Slot Animations
 - `pick-pulse` (gentle glow, picks 3-4)

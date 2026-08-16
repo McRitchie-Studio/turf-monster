@@ -32,42 +32,67 @@ class CssComponentHooksTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "hold button renders a fizz layer the hold-btn utility animates" do
+  test "hold button renders a fizz layer the hold-stack utility animates behind it" do
     html = ApplicationController.render(partial: "shared/hold_button", locals: { hold_id: "desktop" })
     doc = Nokogiri::HTML::DocumentFragment.parse(html)
 
-    layer = doc.at_css(".hold-btn > .fizz")
-    assert layer, "fizz layer must render inside the button"
+    # The bubbles must be a SIBLING the button paints over, never a child: a
+    # child cannot get behind the button's own background, because the button's
+    # transform makes it a stacking context.
+    layer = doc.at_css(".hold-stack > .hold-fizz")
+    assert layer, "fizz layer must render inside the stack, outside the button"
+    assert doc.at_css(".hold-stack > button.hold-btn"), "the button is the fizz layer's sibling"
+    assert_nil doc.at_css(".hold-btn .fizz-bit"), "no bubble may live inside the button"
     assert_equal "true", layer["aria-hidden"], "decoration must be hidden from assistive tech"
 
-    bits = doc.css(".hold-btn > .fizz > .fizz-bit")
+    bits = doc.css(".hold-stack > .hold-fizz > .fizz-bit")
     assert_equal 26, bits.size, "the fizz layer needs its full bubble table"
 
     # Each bubble carries its own placement + animation table inline; the
     # keyframes read them back as vars, so a dropped property = a dead bubble.
     bits.each do |bit|
       style = bit["style"].to_s
-      %w[left: top: --fs: --fx: --fy: --fd: --ft: --fh:].each do |prop|
+      %w[left: top: --fs: --fx: --fy: --fd: --ft: --fc:].each do |prop|
         assert_includes style, prop, "every bubble needs #{prop}"
       end
+      assert_match(/--fc:var\(--fizz-c-\d+, hsl\(/, style,
+        "a bubble reads its color slot and falls back to its candy hue")
     end
+
+    # A static palette paints the slots; the board binds the same slots live.
+    dressed = Nokogiri::HTML::DocumentFragment.parse(
+      ApplicationController.render(partial: "shared/hold_button",
+                                   locals: { hold_id: "teams", fizz_colors: %w[#ff0000 #00ff00] })
+    )
+    assert_includes dressed.at_css(".hold-stack")["style"], "--fizz-c-1:#ff0000"
+    assert_includes dressed.at_css(".hold-stack")["style"], "--fizz-c-2:#00ff00"
+
+    bound = Nokogiri::HTML::DocumentFragment.parse(
+      ApplicationController.render(partial: "shared/hold_button",
+                                   locals: { hold_id: "bound", fizz_bind: "fizzPalette" })
+    )
+    assert_equal "fizzPalette", bound.at_css(".hold-stack")[":style"]
 
     # Opt-out for any call site that wants the flat button back.
     flat = Nokogiri::HTML::DocumentFragment.parse(
       ApplicationController.render(partial: "shared/hold_button", locals: { fizz: false })
     )
-    assert_nil flat.at_css(".fizz"), "fizz: false must render no particle layer"
+    assert_nil flat.at_css(".hold-fizz"), "fizz: false must render no particle layer"
 
-    # Styling lives INSIDE @utility hold-btn (the dedupe rule), the keyframes
+    # Styling lives INSIDE @utility hold-stack (the dedupe rule), the keyframes
     # at file level, and reduced motion switches the whole thing off.
-    %w[.fizz-bit .fizz].each do |hook|
-      assert_match(/@utility hold-btn \{.*#{Regexp.escape(hook)}/m, CSS,
-        "#{hook} must be styled within @utility hold-btn")
+    %w[.fizz-bit .hold-fizz].each do |hook|
+      assert_match(/@utility hold-stack \{.*#{Regexp.escape(hook)}/m, CSS,
+        "#{hook} must be styled within @utility hold-stack")
     end
+    assert_match(/@utility hold-stack \{.*isolation: isolate/m, CSS,
+      "the stack must isolate its z-order from the page")
+    assert_match(/@utility hold-stack \{.*:has\(> \.hold-btn\.process\)/m, CSS,
+      "hold state lives on the button, so the stack reads it with :has()")
     %w[fizz-simmer fizz-boil fizz-burst].each do |frames|
       assert_match(/@keyframes #{frames}\s*\{/, CSS, "@keyframes #{frames} must exist")
     end
-    assert_match(/@media \(prefers-reduced-motion: reduce\) \{\s*\.hold-btn \.fizz-bit \{\s*animation: none/m, CSS,
+    assert_match(/@media \(prefers-reduced-motion: reduce\) \{\s*\.hold-stack \.fizz-bit \{\s*animation: none/m, CSS,
       "reduced motion must stop the bubbles")
   end
 

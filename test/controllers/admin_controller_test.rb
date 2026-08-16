@@ -68,13 +68,17 @@ class AdminControllerTest < ActionDispatch::IntegrationTest
     get admin_hold_button_path
     assert_response :success
     assert_select "h1", text: "Hold Button — Fizz Lab"
-    # The comparison pair: default fizz vs the fizz: false opt-out.
-    assert_select ".hold-btn[data-hold-id=?] .fizz", "fizz-on"
-    assert_select ".hold-btn[data-hold-id=?] .fizz", "fizz-off", count: 0
-    # Every pinned phase plus the live button.
-    %w[fizz-rest fizz-process fizz-success fizz-error fizz-live].each do |id|
+    # The comparison pair: default fizz vs the fizz: false opt-out. The bubbles
+    # are the button's SIBLING (they paint behind it), so they hang off the
+    # stack, not the button.
+    assert_select ".hold-stack:has(.hold-btn[data-hold-id=?]) > .hold-fizz", "fizz-on"
+    assert_select ".hold-stack:has(.hold-btn[data-hold-id=?]) > .hold-fizz", "fizz-off", count: 0
+    # Every pinned phase plus the live button and the team-colored one.
+    %w[fizz-rest fizz-process fizz-success fizz-error fizz-teams fizz-live].each do |id|
       assert_select ".hold-btn[data-hold-id=?]", id
     end
+    # The team demo wears real brand colors in the twelve slots.
+    assert_select ".hold-stack[style*=?]", "--fizz-c-1:"
   end
 
   test "hold button fizz lab is admin only" do

@@ -333,52 +333,6 @@
     opacity: var(--ul-o-4, 0);
   }
 
-  /* Fizz layer — carbonation bubbles.
-     The partial places each bit (left/top %) and hands it its own drift, size,
-     delay, duration and hue as custom properties, so ONE keyframe set drives
-     all 26. Amplitude is the STATE's job, expressed as a multiplier on the
-     bit's own drift: the resting simmer travels a fraction of it, the held
-     boil travels all of it, the success burst overshoots it. Decorative only —
-     the partial marks the layer aria-hidden. */
-  & .fizz {
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    pointer-events: none;
-  }
-  & .fizz-bit {
-    position: absolute;
-    width: var(--fs, 4px);
-    height: var(--fs, 4px);
-    margin-left: calc(var(--fs, 4px) / -2);
-    margin-top: calc(var(--fs, 4px) / -2);
-    border-radius: 100px;
-    background: hsl(var(--fh, 292) 92% 70%);
-    box-shadow: 0 0 6px hsl(var(--fh, 292) 92% 70% / 0.55);
-    opacity: 0;
-    will-change: transform, opacity;
-    animation: fizz-simmer var(--ft, 1.8s) linear var(--fd, 0s) infinite;
-  }
-  /* Hover and the nudge shake both mean "look at me" — boil for the moment. */
-  &:hover:not(.process):not(.success):not(.error) .fizz-bit {
-    animation: fizz-boil calc(var(--ft, 1.8s) * 0.62) linear calc(var(--fd, 0s) * 0.35) infinite;
-  }
-  &.nudge .fizz-bit,
-  &.nudge-soft .fizz-bit {
-    animation: fizz-boil calc(var(--ft, 1.8s) * 0.55) linear calc(var(--fd, 0s) * 0.25) infinite;
-  }
-  &.process .fizz-bit,
-  &.loading .fizz-bit {
-    animation: fizz-boil calc(var(--ft, 1.8s) * 0.45) linear calc(var(--fd, 0s) * 0.2) infinite;
-  }
-  &.success .fizz-bit {
-    animation: fizz-burst 1.1s cubic-bezier(0.12, 0.72, 0.24, 1) forwards;
-  }
-  &.error .fizz-bit {
-    animation: none;
-    opacity: 0;
-  }
-
   /* State: hover */
   &:hover:not(.process):not(.success) {
     --shadow-color: var(--shadow-active);
@@ -511,6 +465,74 @@
     opacity: 0;
   }
   &.success .nudge-debug {
+    opacity: 0;
+  }
+}
+
+@utility hold-stack {
+  /* ── Hold Button Fizz ──
+     Wrapper for shared/_hold_button so the carbonation can sit BEHIND the
+     button. Inside the button a negative z-index would still paint above its
+     own background — the button's `transform` makes it a stacking context, and
+     a stacking context paints its background before its negative-z children —
+     so the bubbles are a SIBLING the button paints over, and only show where
+     they escape its edges. `isolation` keeps that z-order private, so the
+     button's z-index:1 never competes with the page around it.
+
+     The partial places each bit (left/top %) and hands it its own drift, size,
+     delay, duration and color as custom properties, so ONE keyframe set drives
+     all 26. Amplitude is the STATE's job, expressed as a multiplier on the
+     bit's own drift: the resting simmer travels a fraction of it, the held boil
+     travels all of it, the success burst overshoots it. The state lives on the
+     button, hence :has(). */
+  position: relative;
+  display: block;
+  isolation: isolate;
+
+  & > .hold-btn {
+    z-index: 1;
+  }
+  & > .hold-fizz {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+  }
+  & .fizz-bit {
+    position: absolute;
+    width: var(--fs, 4px);
+    height: var(--fs, 4px);
+    margin-left: calc(var(--fs, 4px) / -2);
+    margin-top: calc(var(--fs, 4px) / -2);
+    border-radius: 100px;
+    /* --fc resolves to the bubble's color slot (--fizz-c-1..12, e.g. the six
+       picked teams' light + dark colors) or, unbound, its own candy hue. The
+       hairline rim keeps a near-black team color visible on a dark page. */
+    background: var(--fc, hsl(292 92% 70%));
+    box-shadow:
+      0 0 6px var(--fc, hsl(292 92% 70%)),
+      0 0 0 0.5px rgba(255, 255, 255, 0.35);
+    opacity: 0;
+    will-change: transform, opacity;
+    animation: fizz-simmer var(--ft, 1.8s) linear var(--fd, 0s) infinite;
+  }
+  /* Hover and the nudge shake both mean "look at me" — boil for the moment. */
+  &:has(> .hold-btn:hover:not(.process):not(.success):not(.error)) .fizz-bit {
+    animation: fizz-boil calc(var(--ft, 1.8s) * 0.62) linear calc(var(--fd, 0s) * 0.35) infinite;
+  }
+  &:has(> .hold-btn.nudge) .fizz-bit,
+  &:has(> .hold-btn.nudge-soft) .fizz-bit {
+    animation: fizz-boil calc(var(--ft, 1.8s) * 0.55) linear calc(var(--fd, 0s) * 0.25) infinite;
+  }
+  &:has(> .hold-btn.process) .fizz-bit,
+  &:has(> .hold-btn.loading) .fizz-bit {
+    animation: fizz-boil calc(var(--ft, 1.8s) * 0.45) linear calc(var(--fd, 0s) * 0.2) infinite;
+  }
+  &:has(> .hold-btn.success) .fizz-bit {
+    animation: fizz-burst 1.1s cubic-bezier(0.12, 0.72, 0.24, 1) forwards;
+  }
+  &:has(> .hold-btn.error) .fizz-bit {
+    animation: none;
     opacity: 0;
   }
 }
@@ -1130,7 +1152,7 @@
 /* Decoration, not information — a reduced-motion viewer loses nothing by
    losing it, and 26 looping bubbles is exactly what that setting is for. */
 @media (prefers-reduced-motion: reduce) {
-  .hold-btn .fizz-bit {
+  .hold-stack .fizz-bit {
     animation: none;
     opacity: 0;
   }
