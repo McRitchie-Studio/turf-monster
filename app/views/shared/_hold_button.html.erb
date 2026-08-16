@@ -27,6 +27,19 @@
                          kick off work that should run in parallel with the hold
                          (e.g. the board's authoritative funding pre-check fetch,
                          resolved by the time the hold completes ~2s later).
+    fizz               - Render the fizz particle layer (default: true). Pass
+                         false for a flat button. Preview: /admin/hold_button.
+    fizz_level         - :lively (default) or :calm. Lively rests at a full
+                         boil, and hovering DOUBLES THE BUBBLE COUNT (a second
+                         layer fades in over the gaps) at the same speed. Calm
+                         simmers at rest and boils on hover instead — one
+                         layer, for a button that should not compete.
+    fizz_colors        - Up to 12 CSS colors the bubbles wear, as a static
+                         array (default: none = the built-in candy palette).
+    fizz_bind          - Alpine expression bound to the stack's :style, for a
+                         palette that changes at runtime (default: none). The
+                         board passes "fizzPalette", which maps the six picked
+                         teams' light + dark colors onto --fizz-c-1..12.
 %>
 <% default_text       ||= "Hold to Confirm" %>
 <% hold_text          ||= "Almost there..." %>
@@ -42,7 +55,36 @@
 <% early_action_at    ||= 1500 %>
 <% early_action_guard ||= nil %>
 <% on_hold_start      ||= nil %>
+<%# `fizz ||= true` would coerce an explicit `fizz: false` back to true, so
+    read the key instead of the value. %>
+<% fizz = local_assigns.key?(:fizz) ? local_assigns[:fizz] : true %>
+<% fizz_colors ||= nil %>
+<% fizz_bind ||= nil %>
+<% fizz_level ||= :lively %>
+<%# Static palette (gallery, or any call site with fixed colors). A runtime
+    palette rides fizz_bind instead. %>
+<% fizz_style = Array(fizz_colors).first(ApplicationHelper::FIZZ_SLOTS)
+                                  .each_with_index.map { |c, i| "--fizz-c-#{i + 1}:#{c}" }.join(";") %>
 
+<%# The stack exists so the fizz can sit BEHIND the button. Inside the button
+    a negative z-index still paints above its own background (the button's
+    transform makes it a stacking context), so the bubbles have to be a
+    sibling the button paints over — they only show where they escape its
+    edges, like carbonation coming off the sides. %>
+<span class="hold-stack<%= " fizz-lively" if fizz_level.to_s == "lively" %>"<% if fizz_bind %> :style="<%= fizz_bind %>"<% end %><% if fizz_style.present? %> style="<%= fizz_style %>"<% end %>>
+  <%# Fizz layer — bubbles that simmer at rest, boil while the button is held,
+      and burst outward on success. Purely decorative, so it is aria-hidden and
+      pointer-events:none; the table behind it is seeded per hold_id (see
+      ApplicationHelper#hold_button_fizz_bits). %>
+  <% if fizz %>
+    <%= render "shared/hold_fizz_layer", seed: hold_id %>
+    <%# Lively's hover doubles the COUNT, not the speed: a second scatter that
+        rests invisible, fades in over the gaps in the first, and fades back
+        out when the pointer leaves. %>
+    <% if fizz_level.to_s == "lively" %>
+      <%= render "shared/hold_fizz_layer", seed: "#{hold_id}~extra", extra: true %>
+    <% end %>
+  <% end %>
 <button class="hold-btn"
         data-hold-id="<%= hold_id %>"
         data-duration="<%= duration %>"
@@ -73,6 +115,7 @@
     <span class="countdown-num"></span>
   </div>
 </button>
+</span>
 
 <script>
   (function() {

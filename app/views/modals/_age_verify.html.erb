@@ -19,35 +19,30 @@
       Enter your date of birth — we only ask once.
     </p>
 
-    <%# Month / Day / Year selectors %>
-    <div class="grid grid-cols-3 gap-2 mb-4">
-      <div>
-        <label class="label-upper block mb-1">Month</label>
-        <select x-model="month" @change="onMonthChange()" class="input-field !px-3 !py-2.5 text-sm appearance-none cursor-pointer">
-          <option value="" disabled>Month</option>
-          <template x-for="m in months" :key="m.n">
-            <option :value="m.n" x-text="m.label"></option>
-          </template>
-        </select>
-      </div>
-      <div>
-        <label class="label-upper block mb-1">Day</label>
-        <select x-model="day" @change="error = ''" class="input-field !px-3 !py-2.5 text-sm appearance-none cursor-pointer">
-          <option value="" disabled>Day</option>
-          <template x-for="d in dayOptions" :key="d">
-            <option :value="d" x-text="d"></option>
-          </template>
-        </select>
-      </div>
-      <div>
-        <label class="label-upper block mb-1">Year</label>
-        <select x-model="year" @change="onMonthChange()" class="input-field !px-3 !py-2.5 text-sm appearance-none cursor-pointer">
-          <option value="" disabled>Year</option>
-          <template x-for="y in years" :key="y">
-            <option :value="y" x-text="y"></option>
-          </template>
-        </select>
-      </div>
+    <%# Month / Day / Year selectors — the ENGINE's field (0.54.0), not a copy.
+        These three selects lived here as a second copy of
+        studio/modals/blocks/_age_verify's, and the engine extracted them into
+        studio/fields/_date_of_birth precisely because two copies of one field
+        drift. This app renders its own modal (it bakes in AgePolicy's per-state
+        minimum and posts to /age/verify), but the FIELD inside it is now shared.
+
+        THE ONE BINDING THAT CHANGED, and why it is not a behaviour change. The
+        day select used @change="error = ''"; the shared field runs the same
+        on_change on all three, which here is this app's own onMonthChange():
+
+          onMonthChange() {
+            if (this.day && parseInt(this.day, 10) > this.dayOptions.length) this.day = "";
+            this.error = "";
+          }
+
+        The first line clears a day left out of range by a month/year change —
+        and a day just chosen FROM dayOptions is never out of range, so on this
+        select it cannot fire. What remains is this.error = "", which is exactly
+        what the binding did before. Checked against THIS app's component in
+        shared/_alpine_factories rather than inherited from the engine's note,
+        because the equivalence is a property of the component, not the field. %>
+    <div class="mb-4">
+      <%= render "studio/fields/date_of_birth" %>
     </div>
 
     <%# Live too-young hint — shown only once a full date is picked and it
