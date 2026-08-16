@@ -1,0 +1,149 @@
+<%# "Bring 2 Friends, Get a Free Entry" — the referral link, its share targets,
+    and how far along the two-friend goal is.
+
+    Locals:
+      user          (required)
+      share_contest (optional) — the contest a shared link should land on.
+                    Defaults to the ApplicationHelper#referral_share_contest
+                    helper, which resolves SeasonConfig.main_contest once per
+                    request — exactly what AccountsController assigned to
+                    @referral_share_contest, minus the controller.
+
+    IT RESOLVES ITS OWN DEFAULT, and that is the point of the change. It used to
+    read @referral_share_contest, an ivar set by AccountsController — so the card
+    rendered on /account and NOWHERE ELSE, because the engine's ProfilesController
+    cannot set a host controller's ivars and would not know to. A partial that
+    depends on its caller's ivars is only reusable by callers that know its
+    secrets. The local keeps the seam explicit for a caller that wants a different
+    contest.
+
+    BODY ONLY, MINUS THE CARD — but it keeps its own HEADER, unlike the newsletter
+    and quests partials. Its heading carries an info toggle and three share
+    targets, which is not something a section title can express, so /profile
+    registers this row with NO title and lets the header below be the header.
+
+    THE ROOT DIV STAYS. `x-data` is the copy/info state and `relative` is the
+    positioning context the info popover anchors to — both belong to the
+    component. Only `card shadow p-6 mb-6` came off, because that is chrome and
+    the call site owns it.
+%>
+<% share_contest = local_assigns.fetch(:share_contest, referral_share_contest) %>
+  <%
+    referral_target_path = share_contest ? contest_path(share_contest) : root_path
+    referral_url = referral_link_url(referral_target_path)
+    referral_share_title = "Weekly World Cup DFS ⚽️ - Turf Totals"
+    referral_encoded_url   = ERB::Util.url_encode(referral_url)
+    referral_encoded_title = ERB::Util.url_encode(referral_share_title)
+    referral_twitter_url  = "https://twitter.com/intent/tweet?text=#{referral_encoded_title}&url=#{referral_encoded_url}"
+    referral_facebook_url = "https://www.facebook.com/sharer/sharer.php?u=#{referral_encoded_url}"
+    referral_whatsapp_url = "https://wa.me/?text=#{ERB::Util.url_encode("#{referral_share_title}\n#{referral_url}")}"
+    invitees_in_contest = user.invitees_in_contest_count
+    invitees_total = user.invitees_count
+    target_count = 2
+    progress_filled = [invitees_in_contest, target_count].min
+    token_earned = invitees_in_contest >= target_count
+  %>
+<div x-data="{ copied: false, infoOpen: false }" class="relative">
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-2 min-w-0">
+        <h2 class="text-lg font-bold text-heading">Bring ✌️ Friends, Get a Free Entry</h2>
+        <button type="button" @click="infoOpen = !infoOpen"
+                class="w-4 h-4 rounded-full bg-surface-alt text-muted hover:text-heading hover:bg-inset flex items-center justify-center text-[10px] font-bold leading-none transition flex-shrink-0"
+                aria-label="How invites work">i</button>
+      </div>
+      <div class="flex items-center gap-1">
+        <a href="<%= referral_twitter_url %>" target="_blank" rel="noopener" class="p-1.5 rounded-md text-muted hover:text-heading hover:bg-surface-alt transition" title="Share on X">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+        </a>
+        <a href="<%= referral_facebook_url %>" target="_blank" rel="noopener" class="p-1.5 rounded-md text-muted hover:text-heading hover:bg-surface-alt transition" title="Share on Facebook">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+        </a>
+        <a href="<%= referral_whatsapp_url %>" target="_blank" rel="noopener" class="p-1.5 rounded-md text-muted hover:text-heading hover:bg-surface-alt transition" title="Share on WhatsApp">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+        </a>
+      </div>
+    </div>
+
+    <%# Info popover — same explainer used on the contest page card %>
+    <div x-show="infoOpen" x-cloak
+         x-transition:enter="transition ease-out duration-150"
+         x-transition:enter-start="opacity-0 -translate-y-1"
+         x-transition:enter-end="opacity-100 translate-y-0"
+         x-transition:leave="transition ease-in duration-100"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0"
+         @click.outside="infoOpen = false"
+         @keydown.escape.window="infoOpen = false"
+         class="absolute left-6 top-14 z-20 w-72 max-w-[calc(100%-3rem)] bg-surface border border-subtle rounded-lg shadow-2xl p-4">
+      <div class="flex items-start justify-between mb-2">
+        <h4 class="text-heading font-semibold text-sm">How it works</h4>
+        <button type="button" @click="infoOpen = false" class="text-muted hover:text-heading text-lg leading-none" aria-label="Close">&times;</button>
+      </div>
+      <p class="text-secondary text-xs leading-relaxed mb-3">
+        You get a free contest entry once <strong class="text-heading">two friends</strong> sign up <em>and</em> submit a contest entry of their own. The referral is locked in the moment they click your link &mdash; even before they sign up.
+      </p>
+      <%= link_to "Read full terms &rarr;".html_safe, "/terms#referrals", class: "text-primary hover:underline text-xs font-medium" %>
+    </div>
+
+    <%# Copy-link row %>
+    <% copy_js = "navigator.clipboard.writeText('#{referral_url}'); copied = true; setTimeout(() => copied = false, 1500)" %>
+    <div class="flex items-center gap-2 mb-4">
+      <div @click="<%= copy_js %>" class="flex-1 min-w-0 bg-inset border border-subtle rounded-lg px-3 py-2 text-xs font-mono text-muted truncate cursor-pointer hover:border-primary/40 transition"><%= referral_url %></div>
+      <button @click="<%= copy_js %>" class="btn btn-sm whitespace-nowrap transition-colors" :class="copied ? 'btn-secondary' : 'btn-primary'" style="min-width:5.5rem">
+        <span x-show="!copied" x-cloak.remove>Copy Link</span>
+        <span x-show="copied" x-cloak>Copied!</span>
+      </button>
+    </div>
+
+    <%# Progress — two states: a prominent card with friend silhouettes the
+        moment at least one invitee enters a contest (progress_filled > 0),
+        and a single subtle line of helper text before that. Pre-progress
+        the silhouettes were noisy at 0/0; gate them behind real progress
+        so the card stays quiet until the user has something to celebrate. %>
+    <% if progress_filled.positive? %>
+      <div class="bg-inset rounded-lg p-4">
+        <div class="flex items-center justify-center gap-4 mb-3">
+          <% target_count.times do |i| %>
+            <% filled = i < progress_filled %>
+            <div class="rounded-full flex items-center justify-center transition-all"
+                 style="width: 56px; height: 56px; <%= filled ? 'background-color: rgb(var(--color-primary-500-rgb) / 0.15); border: 2px solid rgb(var(--color-primary-500-rgb));' : 'background-color: transparent; border: 2px dashed var(--color-subtle);' %>">
+              <% if filled %>
+                <svg class="w-7 h-7 text-primary" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                </svg>
+              <% else %>
+                <svg class="w-7 h-7 text-muted" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                </svg>
+              <% end %>
+            </div>
+          <% end %>
+        </div>
+
+        <div class="text-center">
+          <% if token_earned %>
+            <div class="flex items-center justify-center gap-2 flex-wrap">
+              <span class="text-heading font-bold text-sm"><%= invitees_in_contest %> friends entered</span>
+              <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/15 text-primary border border-primary/40">
+                🎟️ ENTRY TOKEN COMING SOON
+              </span>
+            </div>
+          <% else %>
+            <p class="text-heading text-sm">
+              <strong>1 of 2 friends</strong> has entered a contest &mdash;
+              <span class="text-secondary">bring one more for a free entry token.</span>
+            </p>
+          <% end %>
+        </div>
+      </div>
+    <% elsif invitees_total.positive? %>
+      <p class="text-secondary text-xs text-center">
+        <strong class="text-heading"><%= invitees_total %> <%= "friend".pluralize(invitees_total) %></strong> signed up &mdash;
+        once two enter a contest, you&rsquo;ll earn a free entry token.
+      </p>
+    <% else %>
+      <p class="text-secondary text-xs text-center">
+        Two friends who enter a contest = one free entry token for you.
+      </p>
+    <% end %>
+</div>
