@@ -46,7 +46,7 @@ class CssComponentHooksTest < ActionDispatch::IntegrationTest
     assert_equal "true", layer["aria-hidden"], "decoration must be hidden from assistive tech"
 
     bits = doc.css(".hold-stack > .hold-fizz:not(.hold-fizz-extra) > .fizz-bit")
-    assert_equal 26, bits.size, "the resting layer needs its full bubble table"
+    assert_equal 30, bits.size, "the resting layer needs its full bubble table (5 per zone)"
 
     # Each bubble carries its own placement + animation table inline; the
     # keyframes read them back as vars, so a dropped property = a dead bubble.
@@ -96,17 +96,20 @@ class CssComponentHooksTest < ActionDispatch::IntegrationTest
     assert doc.at_css(".hold-stack.fizz-lively"), "lively is the default level"
     assert_equal 2, doc.css(".hold-stack > .hold-fizz").size, "lively renders both layers"
     assert doc.at_css(".hold-stack > .hold-fizz-extra"), "the hover layer must be marked"
-    assert_equal 52, doc.css(".fizz-bit").size, "hover doubles 26 bubbles to 52"
+    assert_equal 60, doc.css(".fizz-bit").size, "hover doubles 30 bubbles to 60"
     # Seeded apart, or the second layer would sit exactly on top of the first.
     assert_not_equal doc.css(".hold-fizz:not(.hold-fizz-extra) > .fizz-bit").map { |b| b["style"] },
                      doc.css(".hold-fizz-extra > .fizz-bit").map { |b| b["style"] },
                      "the extra scatter must fill gaps, not shadow the base one"
-    # The layers split the palette: lights rest, darks arrive on hover.
+    # The layers split each zone's three colors: light rests, dark and alt arrive
+    # on hover (slots run light, dark, alt per team, six teams = eighteen).
     slot_of = ->(bit) { bit["style"][/--fizz-c-(\d+)/, 1].to_i }
-    assert doc.css(".hold-fizz:not(.hold-fizz-extra) > .fizz-bit").map(&slot_of).all?(&:odd?),
-      "the resting layer wears the teams' light colors"
-    assert doc.css(".hold-fizz-extra > .fizz-bit").map(&slot_of).all?(&:even?),
-      "the hover layer wears their dark colors"
+    assert_equal [ 1, 4, 7, 10, 13, 16 ],
+                 doc.css(".hold-fizz:not(.hold-fizz-extra) > .fizz-bit").map(&slot_of).uniq.sort,
+                 "the resting layer wears each team's light color"
+    assert_equal [ 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18 ],
+                 doc.css(".hold-fizz-extra > .fizz-bit").map(&slot_of).uniq.sort,
+                 "the hover layer alternates each team's dark and its alt"
 
     # Calm is the quiet alternative — one layer, and it must be asked for.
     calm = Nokogiri::HTML::DocumentFragment.parse(
@@ -115,7 +118,7 @@ class CssComponentHooksTest < ActionDispatch::IntegrationTest
     )
     assert_nil calm.at_css(".fizz-lively"), "fizz_level: :calm drops the modifier"
     assert_nil calm.at_css(".hold-fizz-extra"), "calm pays for no second layer"
-    assert_equal 26, calm.css(".fizz-bit").size
+    assert_equal 30, calm.css(".fizz-bit").size
 
     assert_match(/@utility hold-stack \{.*&\.fizz-lively \.fizz-bit/m, CSS,
       "the lively rest rule must exist")

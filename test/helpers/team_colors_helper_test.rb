@@ -89,7 +89,7 @@ class TeamColorsHelperTest < ActionView::TestCase
     # consumer. Lock the contract.
     pal = team_card_palette(dark_team)
     assert_equal %i[gradient fg fg_soft fg_faint border divider accent location grey glow mascot_shadow
-                    fizz_light fizz_dark].sort,
+                    fizz_light fizz_dark fizz_alt].sort,
                  pal.keys.sort
   end
 

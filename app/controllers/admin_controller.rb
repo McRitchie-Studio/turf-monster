@@ -360,7 +360,9 @@ class AdminController < ApplicationController
                              .select { |team| team.color_light.present? && team.color_dark.present? }
     @fizz_palette = teams.map do |team|
       pal = helpers.team_card_palette(team)
-      { label: team.mascot.presence || team.name, light: pal[:fizz_light], dark: pal[:fizz_dark] }
+      { label: team.mascot.presence || team.name,
+        light: pal[:fizz_light], dark: pal[:fizz_dark], alt: pal[:fizz_alt],
+        alt_curated: pal[:fizz_alt] != pal[:fizz_dark] }
     end
     @fizz_palette_source = :teams
 
@@ -369,8 +371,9 @@ class AdminController < ApplicationController
     return if @fizz_palette.any?
 
     @fizz_palette_source = :candy
-    @fizz_palette = ApplicationHelper::FIZZ_HUES.first(6).map do |hue|
-      { label: "Hue #{hue}", light: "hsl(#{hue} 92% 70%)", dark: "hsl(#{hue} 80% 42%)" }
+    @fizz_palette = ApplicationHelper::FIZZ_HUES.first(ApplicationHelper::FIZZ_ZONES).map do |hue|
+      { label: "Hue #{hue}", light: "hsl(#{hue} 92% 70%)", dark: "hsl(#{hue} 80% 42%)",
+        alt: "hsl(#{hue + 30} 85% 55%)", alt_curated: true }
     end
   end
 

@@ -42,9 +42,9 @@
     <p class="text-muted text-xs">
       Two intensities. <code>fizz_level: :lively</code> is the DEFAULT — it rests at a full boil, and
       hovering doubles the bubble <em>count</em> at the same speed: a second scatter fades in over the
-      gaps in the first, and fades back out when you leave. The resting layer wears the six teams'
-      <em>light</em> colors and the hover layer their <em>dark</em> ones, so the bright set carries the
-      button and hover fills the gaps with the deep colors. <code>fizz_level: :calm</code> is the quiet alternative — one
+      gaps in the first, and fades back out when you leave. The resting layer wears each team's
+      <em>light</em> color and the hover layer its <em>dark</em> and <em>alt</em>, so the bright set
+      carries the button and hover fills the gaps with the deep colors. <code>fizz_level: :calm</code> is the quiet alternative — one
       layer, simmering at rest, boiling on hover. Held, submitting, confirmed and blocked are identical.
     </p>
     <div class="card p-6 grid md:grid-cols-2 gap-8">
@@ -129,8 +129,12 @@
     <h2 class="text-heading text-lg font-bold">Dressed in team colors</h2>
     <p class="text-muted text-xs">
       What the board's button wears once six picks are in: each team's light and dark brand color,
-      twelve slots in pick order. The resting layer takes the six <em>light</em> colors, the hover layer
-      the six <em>dark</em> ones — hover this one and watch the deep colors fill in. On the board these ride
+      eighteen slots in pick order — three per team. The button is cut into six <em>zones</em> in a 3&times;2
+      grid — three along the top edge, three along the bottom, left to right — one per pick, and a bubble
+      only wears the colors of the team whose zone it sits in, so the fizz reads as six teams standing
+      around the button. The resting layer takes each team's <em>light</em> color; the hover layer
+      alternates its <em>dark</em> and its <em>alt</em>. Most teams have no alt and fall back to their
+      dark — the third color is the flourish where one exists (the Ravens' red, the Buccaneers' orange). On the board these ride
       <code>:style="fizzPalette"</code> and re-dress themselves as picks change; unfilled slots keep
       the candy color.
     </p>
@@ -138,16 +142,19 @@
       <div style="max-width:18rem">
         <%= render "shared/hold_button", hold_id: "fizz-teams",
               default_text: "Hold to Confirm",
-              fizz_colors: @fizz_palette.flat_map { |pair| [ pair[:light], pair[:dark] ] } %>
+              fizz_colors: @fizz_palette.flat_map { |team| [ team[:light], team[:dark], team[:alt] ] } %>
       </div>
       <div class="flex flex-wrap gap-3">
-        <% @fizz_palette.each do |pair| %>
+        <% @fizz_palette.each_with_index do |team, i| %>
           <div class="flex items-center gap-2 text-xs text-secondary">
-            <span class="inline-flex rounded-full overflow-hidden border border-subtle" style="width:2.25rem;height:1.125rem">
-              <span style="flex:1;background:<%= pair[:light] %>"></span>
-              <span style="flex:1;background:<%= pair[:dark] %>"></span>
+            <span class="inline-flex rounded-full overflow-hidden border border-subtle" style="width:3rem;height:1.125rem">
+              <span style="flex:1;background:<%= team[:light] %>"></span>
+              <span style="flex:1;background:<%= team[:dark] %>"></span>
+              <% if team[:alt_curated] %>
+                <span style="flex:1;background:<%= team[:alt] %>"></span>
+              <% end %>
             </span>
-            <%= pair[:label] %>
+            <span>Zone <%= i + 1 %> · <%= team[:label] %></span>
           </div>
         <% end %>
       </div>

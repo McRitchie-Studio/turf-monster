@@ -36,7 +36,7 @@ class ApplicationHelperTest < ActionView::TestCase
 
   test "fizz bits stay inside the button box and carry a full animation table" do
     bits = hold_button_fizz_bits("desktop")
-    assert_equal 26, bits.size
+    assert_equal 30, bits.size, "five bubbles in each of the six zones"
 
     bits.each do |bit|
       assert_includes 0..100, bit[:x], "x must be a percentage inside the button"
@@ -48,22 +48,53 @@ class ApplicationHelperTest < ActionView::TestCase
     end
   end
 
-  test "the two fizz layers split the palette light-at-rest, dark-on-hover" do
-    # Slots alternate light, dark, light, dark by team (the board's fizzPalette
-    # getter fills them in pick order), so the split is on parity: the resting
-    # layer wears the six lights, the layer that fades in on hover the six darks.
-    base = hold_button_fizz_bits("desktop", layer: :base).map { |b| b[:slot] }
-    hover = hold_button_fizz_bits("desktop~extra", layer: :hover).map { |b| b[:slot] }
+  test "each zone keeps to its own corner of the button" do
+    # Six zones in a 3x2 grid — three along the top edge, three along the bottom,
+    # numbered left to right, top row first. A bubble only ever wears the colors
+    # of the team whose zone it sits in.
+    bits = hold_button_fizz_bits("desktop")
+    span = 100.0 / ApplicationHelper::FIZZ_ZONE_COLUMNS
 
-    assert_equal [ 1, 3, 5, 7, 9, 11 ], base.uniq.sort, "the resting layer is the teams' light colors"
-    assert_equal [ 2, 4, 6, 8, 10, 12 ], hover.uniq.sort, "the hover layer is their dark colors"
-    assert_empty base & hover, "a color belongs to one layer or the other, never both"
-    assert_equal (1..ApplicationHelper::FIZZ_SLOTS).to_a, (base + hover).uniq.sort,
-      "between them the layers wear all twelve"
-    # Round-robin within a layer, so no slot hogs it.
-    [ base, hover ].each do |slots|
-      assert_equal 26, slots.size
-      assert_operator slots.tally.values.max - slots.tally.values.min, :<=, 1
+    assert_equal (1..ApplicationHelper::FIZZ_ZONES).to_a, bits.map { |b| b[:zone] }.uniq.sort
+    bits.group_by { |b| b[:zone] }.each do |zone, zone_bits|
+      row = (zone - 1) / ApplicationHelper::FIZZ_ZONE_COLUMNS
+      col = (zone - 1) % ApplicationHelper::FIZZ_ZONE_COLUMNS
+      side = zone_bits.select { |b| b[:dx].abs > 8 } # the outer columns' side spray
+
+      (zone_bits - side).each do |bit|
+        assert_operator bit[:x], :>=, col * span, "zone #{zone} drifted left of its column"
+        assert_operator bit[:x], :<=, (col + 1) * span, "zone #{zone} drifted right of its column"
+      end
+      # Top-row zones ride the top edge and rise; bottom-row zones the bottom.
+      zone_bits.each do |bit|
+        if row.zero?
+          assert_operator bit[:y], :<, 50, "zone #{zone} belongs to the top edge"
+          assert_operator bit[:dy], :<, 0, "a top-row bubble must rise"
+        else
+          assert_operator bit[:y], :>, 50, "zone #{zone} belongs to the bottom edge"
+          assert_operator bit[:dy], :>, 0, "a bottom-row bubble must fall"
+        end
+      end
+    end
+  end
+
+  test "the layers split each zone's three colors light-at-rest, dark-and-alt-on-hover" do
+    # Slots run light, dark, alt per team in pick order (the board's fizzPalette
+    # getter fills them), so zone N owns slots 3N-2, 3N-1, 3N.
+    base = hold_button_fizz_bits("desktop", layer: :base)
+    hover = hold_button_fizz_bits("desktop~extra", layer: :hover)
+
+    assert_equal [ 1, 4, 7, 10, 13, 16 ], base.map { |b| b[:slot] }.uniq.sort,
+      "the resting layer wears each team's light color"
+    assert_equal [ 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18 ], hover.map { |b| b[:slot] }.uniq.sort,
+      "the hover layer alternates each team's dark and its alt"
+    assert_empty base.map { |b| b[:slot] } & hover.map { |b| b[:slot] },
+      "a color belongs to one layer or the other, never both"
+
+    # And a bubble's color always belongs to its own zone.
+    (base + hover).each do |bit|
+      assert_equal bit[:zone], ((bit[:slot] - 1) / ApplicationHelper::FIZZ_COLORS_PER_TEAM) + 1,
+        "a bubble must wear the colors of the team whose zone it sits in"
     end
   end
 

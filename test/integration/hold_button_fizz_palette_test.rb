@@ -14,6 +14,7 @@ class HoldButtonFizzPaletteTest < ActionDispatch::IntegrationTest
 
     assert_includes response.body, "colorLight:", "matchupData must carry the team's light color"
     assert_includes response.body, "colorDark:", "matchupData must carry the team's dark color"
+    assert_includes response.body, "colorAlt:", "matchupData must carry the team's alt color"
 
     team = contests(:one).pickable_matchups.first.team
     pal = ActionController::Base.helpers.extend(TeamColorsHelper).team_card_palette(team)
@@ -34,8 +35,8 @@ class HoldButtonFizzPaletteTest < ActionDispatch::IntegrationTest
     assert_equal 2, response.body.scan("hold-fizz hold-fizz-extra").size,
       "and each renders its hover layer"
     assert_includes response.body, "get fizzPalette()", "the board must map picks onto the slots"
-    assert_includes response.body, "'--fizz-c-' + (i * 2 + 1)",
-      "slot order is team 1 light, team 1 dark, team 2 light, …"
+    assert_includes response.body, "'--fizz-c-' + (i * 3 + 1)",
+      "three slots per pick: light, dark, alt — one zone per pick"
   end
 
   test "a team with no brand colors leaves its slots unbound rather than blank" do
@@ -46,5 +47,21 @@ class HoldButtonFizzPaletteTest < ActionDispatch::IntegrationTest
 
     assert pal[:fizz_light].present?, "a colorless team still yields a light color"
     assert pal[:fizz_dark].present?, "a colorless team still yields a dark color"
+    assert pal[:fizz_alt].present?, "and an alt, so its third slot is never blank"
+  end
+
+  test "the alt color is the flourish: curated where a team has one, its dark otherwise" do
+    helpers = ActionController::Base.helpers.extend(TeamColorsHelper)
+
+    ravens = Team.new(color_light: "#9e7c0c", color_dark: "#241773", color_alt: "#c60c30")
+    assert_equal "#c60c30", helpers.team_card_palette(ravens)[:fizz_alt], "the Ravens' red"
+
+    bucs = Team.new(color_light: "#d50a0a", color_dark: "#3e3c3b", color_alt: "#ff7900")
+    assert_equal "#ff7900", helpers.team_card_palette(bucs)[:fizz_alt], "the Buccaneers' orange"
+
+    plain = Team.new(color_light: "#69be28", color_dark: "#002244")
+    pal = helpers.team_card_palette(plain)
+    assert_equal pal[:fizz_dark], pal[:fizz_alt],
+      "a team with no alt falls back to its dark, so its zone stays on-brand"
   end
 end

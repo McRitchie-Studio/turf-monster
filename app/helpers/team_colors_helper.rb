@@ -49,11 +49,14 @@ module TeamColorsHelper
       grey: normalize_hex(team&.color_grey) || DEFAULT_TEAM_GREY, # OPPONENTS strip
       # Holographic hover/select tint: the alt color when present, else the light.
       glow: normalize_hex(team&.color_alt) || normalize_hex(team&.color_light) || mascot,
-      # Hold-button fizz: the team's brand pair, light then dark. The card wears
-      # the disposition-swapped background/mascot; the fizz wants the raw pair,
-      # so six picks dress the button in twelve team colors.
+      # Hold-button fizz: the team's brand colors, light then dark then alt. The
+      # card wears the disposition-swapped background/mascot; the fizz wants them
+      # raw, so six picks dress the button in eighteen team colors. Most teams
+      # curate no alt and fall back to their dark — the third color is a flourish
+      # where a team has one (the Ravens' red, the Buccaneers' orange).
       fizz_light: normalize_hex(team&.color_light) || mascot,
       fizz_dark: normalize_hex(team&.color_dark) || bg,
+      fizz_alt: normalize_hex(team&.color_alt) || normalize_hex(team&.color_dark) || bg,
       mascot_shadow: mascot_shadow(mascot) # legibility halo on the gradient
     }
   end

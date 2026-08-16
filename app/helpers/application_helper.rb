@@ -98,37 +98,44 @@ module ApplicationHelper
   # dx/dy up per state — a fraction while idle, full while held, ~2.6x on the
   # success burst — so one table drives every phase.
   #
-  # `slot` is the bubble's COLOR SLOT, 1..FIZZ_SLOTS, assigned round-robin so
-  # every slot in the layer's set shows up on every button. A caller that
-  # dresses the button in a palette (the board sends the six picked teams'
-  # light + dark colors) sets --fizz-c-1..12 on the stack; the bubble reads its
-  # slot's var and falls back to its own FIZZ_HUES candy color when nothing is
-  # bound.
+  # `slot` is the bubble's COLOR SLOT. A caller that dresses the button in a
+  # palette (the board sends the six picked teams' colors) sets --fizz-c-1..18
+  # on the stack; the bubble reads its slot's var and falls back to its own
+  # FIZZ_HUES candy color when nothing is bound.
   #
-  # The slots alternate light, dark, light, dark … by team (see the board's
-  # fizzPalette getter), and the two fizz layers split them on that seam: the
-  # resting layer wears the six LIGHT colors, and the layer that fades in on
-  # hover wears the six DARK ones — the bright set carries the button at rest,
-  # and hover fills the gaps with the teams' deep colors.
-  FIZZ_SLOTS = 12
-  FIZZ_LAYER_SLOTS = {
-    base: (1..FIZZ_SLOTS).select(&:odd?).freeze,   # team light colors
-    hover: (1..FIZZ_SLOTS).select(&:even?).freeze  # team dark colors
+  # ZONES. The button is cut into a 3x2 grid of zones — three along the top edge,
+  # three along the bottom, numbered left-to-right, top row first — one per pick.
+  # A bubble only ever wears the colors of the team whose zone it sits in, so the
+  # carbonation reads as six teams standing around the button rather than one
+  # shaken-up bag of confetti. The outer columns also own the spray off the left
+  # and right sides, each within its own half.
+  #
+  # Each team brings three colors — light, dark, alt — and the layers split them:
+  # the resting layer wears the LIGHT one, and the layer that fades in on hover
+  # alternates the DARK and the ALT. Most teams curate no alt and fall back to
+  # their dark (see TeamColorsHelper#team_card_palette), so the third color is a
+  # flourish where a team has one: the Ravens' red, the Buccaneers' orange.
+  FIZZ_ZONE_COLUMNS = 3
+  FIZZ_ZONE_ROWS = 2
+  FIZZ_ZONES = FIZZ_ZONE_COLUMNS * FIZZ_ZONE_ROWS
+  FIZZ_COLORS_PER_TEAM = 3
+  FIZZ_SLOTS = FIZZ_ZONES * FIZZ_COLORS_PER_TEAM
+  FIZZ_LAYER_OFFSETS = {
+    base: [ 0 ].freeze,      # light
+    hover: [ 1, 2 ].freeze   # dark, alt, dark, alt …
   }.freeze
 
-  def hold_button_fizz_bits(seed, layer: :base, count: 26)
-    slots = FIZZ_LAYER_SLOTS.fetch(layer)
-    prng = Random.new(seed.to_s.each_byte.sum * 7919 + count)
+  def hold_button_fizz_bits(seed, layer: :base, per_zone: 5)
+    offsets = FIZZ_LAYER_OFFSETS.fetch(layer)
+    prng = Random.new(seed.to_s.each_byte.sum * 7919 + per_zone)
 
-    Array.new(count) do |i|
-      # 4-in-10 along the bottom edge, 4-in-10 along the top, 1 off each end.
-      bit = case i % 10
-      when 0, 1, 2, 3 then bottom_fizz_bit(prng)
-      when 4, 5, 6, 7 then top_fizz_bit(prng)
-      when 8          then side_fizz_bit(prng, :left)
-      else                 side_fizz_bit(prng, :right)
+    FIZZ_ZONES.times.flat_map do |zone|
+      Array.new(per_zone) do |i|
+        zone_fizz_bit(prng, zone: zone, index: i).merge(
+          zone: zone + 1,
+          slot: (zone * FIZZ_COLORS_PER_TEAM) + offsets[i % offsets.size] + 1
+        )
       end
-      bit.merge(slot: slots[i % slots.size])
     end
   end
 
@@ -139,23 +146,43 @@ module ApplicationHelper
 
   private
 
-  def bottom_fizz_bit(prng)
-    fizz_bit(prng, x: 4 + prng.rand(92), y: 86 + prng.rand(12),
+  # Where in its own zone a bubble sits. A zone owns one third of one edge; the
+  # outer columns also throw one bubble off the side of the button, kept in
+  # their own half so the top-left zone never sprays into the bottom-left one.
+  def zone_fizz_bit(prng, zone:, index:)
+    row = zone / FIZZ_ZONE_COLUMNS # 0 = the top edge, 1 = the bottom
+    col = zone % FIZZ_ZONE_COLUMNS
+
+    return side_fizz_bit(prng, :left, row) if index.zero? && col.zero?
+    return side_fizz_bit(prng, :right, row) if index.zero? && col == FIZZ_ZONE_COLUMNS - 1
+
+    x = zone_fizz_x(prng, col)
+    row.zero? ? top_fizz_bit(prng, x) : bottom_fizz_bit(prng, x)
+  end
+
+  def zone_fizz_x(prng, col)
+    span = 100.0 / FIZZ_ZONE_COLUMNS
+    inset = span * 0.06 # a little breathing room, so neighbouring zones do not touch
+    (col * span + inset + prng.rand(span - (inset * 2))).round(1)
+  end
+
+  def bottom_fizz_bit(prng, x)
+    fizz_bit(prng, x: x, y: 86 + prng.rand(12),
                    dx: prng.rand(-8..8), dy: 12 + prng.rand(24))
   end
 
-  def top_fizz_bit(prng)
-    fizz_bit(prng, x: 4 + prng.rand(92), y: 2 + prng.rand(12),
+  def top_fizz_bit(prng, x)
+    fizz_bit(prng, x: x, y: 2 + prng.rand(12),
                    dx: prng.rand(-8..8), dy: -(12 + prng.rand(24)))
   end
 
-  def side_fizz_bit(prng, side)
+  def side_fizz_bit(prng, side, row)
     reach = 10 + prng.rand(18)
     fizz_bit(prng,
              x: side == :left ? prng.rand(5) : 95 + prng.rand(5),
-             y: 18 + prng.rand(64),
+             y: row.zero? ? 14 + prng.rand(30) : 56 + prng.rand(30),
              dx: side == :left ? -reach : reach,
-             dy: prng.rand(-6..6))
+             dy: row.zero? ? -(2 + prng.rand(10)) : 2 + prng.rand(10))
   end
 
   def fizz_bit(prng, x:, y:, dx:, dy:)

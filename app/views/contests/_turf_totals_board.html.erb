@@ -78,10 +78,11 @@
       fgFaint: pal[:fg_faint],
       accent: pal[:accent],
       mascotShadow: pal[:mascot_shadow],
-      # The hold button's fizz wears the picked teams — light + dark per team,
-      # twelve colors across six picks (see fizzPalette below).
+      # The hold button's fizz wears the picked teams — light, dark and alt per
+      # team, eighteen colors across six picks (see fizzPalette below).
       colorLight: pal[:fizz_light],
-      colorDark: pal[:fizz_dark]
+      colorDark: pal[:fizz_dark],
+      colorAlt: pal[:fizz_alt]
     }
   end
 
@@ -531,21 +532,28 @@ window.selectionBoard = function() {
         accent: matchupData[matchupId]?.accent || '',
         mascotShadow: matchupData[matchupId]?.mascotShadow || '',
         colorLight: matchupData[matchupId]?.colorLight || '',
-        colorDark: matchupData[matchupId]?.colorDark || ''
+        colorDark: matchupData[matchupId]?.colorDark || '',
+        colorAlt: matchupData[matchupId]?.colorAlt || ''
       }));
     },
 
     // Fizz palette for the hold button — the picked teams' brand colors mapped
-    // onto the twelve --fizz-c-* slots the bubbles read (team 1 light, team 1
-    // dark, team 2 light, …). Bound to the button's stack with :style, so the
-    // carbonation re-dresses itself as picks change; slots left unbound (fewer
+    // onto the eighteen --fizz-c-* slots the bubbles read, three per pick in
+    // pick order: light, dark, alt. The button is cut into six zones, one per
+    // pick, and a bubble only wears the colors of the team whose zone it sits
+    // in — so the fizz reads as six teams side by side. Bound to the stack with
+    // :style, so it re-dresses itself as picks change; slots left unbound (fewer
     // than six picks, or a team with no brand color) keep the built-in candy
     // color, so the button is never colorless.
     get fizzPalette() {
       var vars = {};
       this.selectionSlots.forEach(function(slot, i) {
-        if (slot.colorLight) vars['--fizz-c-' + (i * 2 + 1)] = slot.colorLight;
-        if (slot.colorDark) vars['--fizz-c-' + (i * 2 + 2)] = slot.colorDark;
+        if (slot.colorLight) vars['--fizz-c-' + (i * 3 + 1)] = slot.colorLight;
+        if (slot.colorDark) vars['--fizz-c-' + (i * 3 + 2)] = slot.colorDark;
+        // The alt is the flourish: the Ravens' red, the Buccaneers' orange. A
+        // team without one falls back to its dark, so the zone stays on-brand.
+        var alt = slot.colorAlt || slot.colorDark;
+        if (alt) vars['--fizz-c-' + (i * 3 + 3)] = alt;
       });
       return vars;
     },
