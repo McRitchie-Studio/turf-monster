@@ -131,8 +131,16 @@ class CssComponentHooksTest < ActionDispatch::IntegrationTest
     %w[fizz-simmer fizz-boil fizz-burst].each do |frames|
       assert_match(/@keyframes #{frames}\s*\{/, CSS, "@keyframes #{frames} must exist")
     end
-    assert_match(/@media \(prefers-reduced-motion: reduce\) \{\s*\.hold-stack \.fizz-bit \{\s*animation: none/m, CSS,
-      "reduced motion must stop the bubbles")
+    # The off switch, and it must be able to WIN: the state rules inside
+    # @utility hold-stack are more specific than anything this media query can
+    # write, so without !important a lively button kept fizzing at a viewer who
+    # asked for less motion (caught in a browser by e2e/hold_button_fizz_*).
+    guard = CSS[/@media \(prefers-reduced-motion: reduce\) \{\s*\.hold-stack.*?\n\}/m]
+    assert guard, "reduced motion must stop the bubbles"
+    assert_includes guard, ".hold-stack .fizz-bit", "both variants' bubbles"
+    assert_includes guard, ".hold-stack .hold-fizz-extra", "and the hover layer itself"
+    assert_match(/animation: none !important/, guard, "the guard has to outrank the state rules")
+    assert_match(/opacity: 0 !important/, guard)
   end
 
   test "hold button face wears the brand green — resting gradient, confirmed in the same family" do
