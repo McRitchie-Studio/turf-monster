@@ -92,10 +92,51 @@ class CiBundleRetryTest < Minitest::Test
     assert File.executable?(script), "#{script} is not executable, so `run:` will fail with permission denied"
 
     body = File.read(script)
-    refute_match(/^\s*exit\s+1\b/, body,
-                 "the await script must stay FAIL-SOFT: it runs before the install on every job, so an " \
-                 "`exit 1` would turn a CDN hiccup into a brand-new way for CI to go red — the exact " \
-                 "opposite of why it exists")
+    code = body.lines.reject { |l| l.strip.start_with?("#") }.join
+
+    # POSITIVE form. The previous spelling of this guard refuted exactly
+    # `/^\s*exit\s+1\b/` and nothing else, so `set -euo pipefail` and `exit 2`
+    # both passed GREEN while being just as fatal — a guard that names one
+    # spelling of a failure and calls the class closed. Assert the property
+    # instead: EVERY exit in the script is exit 0, and errexit is never armed.
+    exits = code.scan(/^\s*exit\s+(\S+)/).flatten
+    refute_empty exits, "the await script has no explicit exit — it must end in an explicit `exit 0`"
+
+    non_zero = exits.reject { |c| c == "0" }
+    assert_empty non_zero,
+                 "the await script must stay FAIL-SOFT and every exit must be `exit 0`; found #{non_zero.inspect}. " \
+                 "It runs before the install in every job, so any hard exit turns a CDN hiccup into a brand-new " \
+                 "way for CI to go red — the exact opposite of why it exists"
+
+    # `set -e` (in any bundle: -e, -eu, -euo pipefail) makes the NEXT failing
+    # command fatal without an `exit` line anywhere, which is how a fail-soft
+    # script stops being fail-soft while still reading as one.
+    set_flags = code.scan(/^\s*set\s+-([a-zA-Z]+)/).flatten
+    errexit = set_flags.select { |f| f.include?("e") }
+    assert_empty errexit,
+                 "the await script must not arm errexit (`set -#{errexit.first}`): with it, any failing command " \
+                 "aborts the step and fails the job, with no `exit` line for the check above to catch"
+  end
+
+  # The whole point of the wait is WHICH FILE it asks about. `/info/<gem>` is a
+  # correlated proxy — the two files publish together — but bundler's "can no
+  # longer be found" is raised from the resolver's version list, built from
+  # `/versions`, and a stale `/versions` additionally makes bundler trust its
+  # cached `/info` and skip re-fetching it. A script that polls only `/info` can
+  # therefore read fresh while the install still fails, which is exactly what
+  # shipped first. This pins the corrected mechanism so it cannot silently
+  # regress to the proxy.
+  def test_the_await_script_polls_the_versions_list_bundler_resolves_through
+    body = File.read(File.join(ROOT, ".github/scripts", AWAIT_SCRIPT))
+    code = body.lines.reject { |l| l.strip.start_with?("#") }.join
+
+    assert_includes code, "index.rubygems.org/versions",
+                    "the await script must poll /versions — the list bundler's resolver is built from. " \
+                    "/info alone is a proxy that can read fresh while the install still fails"
+
+    assert_match(/--range\s+"?-/, code,
+                 "/versions is ~23MB, so it must be read with an HTTP range request on the tail; " \
+                 "a full GET per job is not an acceptable cost")
   end
 
   def test_every_gem_installing_step_waits_for_propagation_first
