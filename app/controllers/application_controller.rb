@@ -147,15 +147,15 @@ class ApplicationController < ActionController::Base
   # later render — the chain is about what we ASK, the state is about what we
   # ENFORCE, and they are deliberately separate.
   #
-  # `welcome:` is true only for an account created in THIS request; only the
-  # signup paths know that, and inferring it from created_at would re-fire the
-  # celebration on later logins.
+  # Signup and login arm the SAME chain: every step is outstanding-or-not on the
+  # account's own state, so no caller has to say which it is. (It used to take a
+  # `welcome:` flag for the celebratory first card — the one step that could not
+  # be derived from the record. That card is retired, and the flag went with it.)
   # Returns the ordered steps it armed, so a caller can ask what the user is
-  # about to be shown (e.g. "will the chain welcome them itself?") instead of
-  # re-deriving it from a boolean.
-  def record_onboarding_state!(user, welcome: false)
+  # about to be shown instead of re-deriving it from a boolean.
+  def record_onboarding_state!(user)
     record_wallet_setup_state!(user, prompt: false)
-    steps = onboarding_steps_for(user, welcome: welcome)
+    steps = onboarding_steps_for(user)
     # One-shot, and it carries the STEPS rather than a bare boolean so the
     # client walks exactly what the server resolved. Rides the session (not the
     # flash) because the Google popup never redirects — its opener reloads, and a
@@ -164,10 +164,9 @@ class ApplicationController < ActionController::Base
     steps
   end
 
-  def onboarding_steps_for(user, welcome: false)
+  def onboarding_steps_for(user)
     OnboardingFlow.steps_for(
       user,
-      welcome: welcome,
       skipped_first_name: session[:onboarding_skipped_first_name] == true,
       age_gate_enabled: age_gate_required?
     )
@@ -409,7 +408,27 @@ class ApplicationController < ActionController::Base
       # the wallet-setup modal BEFORE the funding checks — entry is on-chain, so
       # a wallet-less account can't enter even a FREE contest. Derived
       # RPC-free (see wallet_setup_required?).
-      walletSetupRequired: wallet_setup_required?
+      walletSetupRequired: wallet_setup_required?,
+      # The first-name ask, as an ENTRY VALIDATION (operator call, 2026-08-15).
+      # eligibilityBlocker reads this FIRST — ahead of age, wallet and funding —
+      # so hold-to-confirm collects the name before anything else.
+      #
+      # A COLUMN READ, not OnboardingFlow: the chain's first_name step drops out
+      # for the rest of the session the moment the user skips it, and a skip must
+      # not buy anyone past a validation. The two questions differ on purpose —
+      # "should we ASK again on this page view" (the chain) vs. "is it there"
+      # (here) — so this asks the column and nothing else.
+      firstNameRequired: current_user.present? && current_user.first_name.blank?,
+      # Does this account have ANY wallet — managed or Phantom? The wallet-setup
+      # modal's card-payment link reads it to decide whether that link can work
+      # at all: every entry-token rail refuses a wallet-less buyer, because a
+      # token has to be minted somewhere (TokensController#stripe_checkout and
+      # #coinflow_order both guard on solana_connected?).
+      #
+      # THE SAME PREDICATE the rails enforce, not a proxy for it. `mode` looks
+      # like it would do — but a wallet-less account reads mode "web2", so
+      # branching on that would show the link to exactly the people it refuses.
+      walletConnected: current_user&.solana_connected? || false
     )
   end
 

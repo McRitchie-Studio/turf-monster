@@ -52,7 +52,7 @@ Important invariants:
 - `display_name` falls back through username, name, email prefix, truncated wallet address, then `"anon"`.
 - `profile_complete?` is `username.present?`; usernames are auto-generated on create, so normal signups are immediately complete.
 - `before_create :set_initial_session_token` writes the OPSEC-045 session-binding token.
-- `after_create :generate_managed_wallet!` creates a server-managed Solana wallet for non-admin users — **unless `ENABLE_WEB3_ONLY_ONBOARDING` is set** (see [Web3-only onboarding](#web3-only-onboarding)), which mints no custodial wallet at all.
+- `after_create :generate_managed_wallet!` creates a server-managed Solana wallet for non-admin users — **but mints nothing while web3-only onboarding is on, which is the default** (see [Web3-only onboarding](#web3-only-onboarding)). A new account therefore has NO wallet until it links Phantom, unless `ENABLE_WEB3_ONLY_ONBOARDING=false` restores custodial minting.
 - `after_commit :enqueue_onchain_account_setup` creates the on-chain username PDA asynchronously.
 
 ## Email Magic Links
@@ -122,12 +122,25 @@ idempotent.
 
 ## Web3-only onboarding
 
-`ENABLE_WEB3_ONLY_ONBOARDING=true` (`AppFlags.web3_only_onboarding?`, opt-in and
-OFF by default) makes email/Google signup **web3-only**: no custodial web2
+`AppFlags.web3_only_onboarding?` is a **kill-switch: ON by default** since
+2026-08-15, off only when `ENABLE_WEB3_ONLY_ONBOARDING` is set to the literal
+`"false"`. Email/Google signup is therefore **web3-only**: no custodial web2
 wallet is minted, and auth success sends the user to the wallet-setup modal to
 link Phantom instead. Operator call for NFL 2026 — supporting web2 players
 carries a legal cost Turf can't absorb this season. Reversing it is one env
 change, no deploy.
+
+It was an opt-in (default OFF) through the build-out, and stayed unset on
+`turf-monster-mainnet` and `turf-monster-qa` — so the wallet step was written,
+wired and dark, and a new player fell through the chain to the web2 Buy an Entry
+Token modal. Flipping the default is what closed that gap.
+
+**Knock-on for anything that spends:** a fresh account has no wallet, so
+`User#solana_connected?` is false and every entry-token rail refuses it
+(`TokensController#stripe_checkout`, `#coinflow_order`) — a token must be minted
+somewhere. Surfaces that offer a purchase to a signed-in user should branch on
+`walletConnected` in the session payload, which IS `solana_connected?`. Do not
+branch on `mode`: a wallet-less account reads `"web2"`.
 
 | Piece | Where |
 |-------|-------|
@@ -156,14 +169,14 @@ Rules worth knowing:
 ## The post-auth onboarding chain
 
 One deliberate sequence after a successful auth, instead of modals firing
-independently from three controllers (operator call, 2026-08-12):
+independently from three controllers (operator call, 2026-08-12; the welcome
+step was retired 2026-08-15):
 
 | # | Step | Modal | Outstanding while… |
 |---|------|-------|--------------------|
-| 1 | Welcome (username) | `onboarding` (`step: welcome`) | the account was created in THIS request |
-| 2 | First name | `onboarding` (`step: first-name`) | `first_name` is blank and not skipped this session |
-| 3 | Age gate (DOB) | `age-verify` | `ENABLE_AGE_GATE` and `age_attested_at` is blank |
-| 4 | Wallet setup | `wallet-setup` | `WalletSetupPolicy.required_for?` |
+| 1 | First name | `onboarding` | `first_name` is blank and not skipped this session |
+| 2 | Age gate (DOB) | `age-verify` | `ENABLE_AGE_GATE` and `age_attested_at` is blank |
+| 3 | Wallet setup | `wallet-setup` | `WalletSetupPolicy.required_for?` |
 
 `OnboardingFlow` resolves the outstanding steps server-side; every auth-success
 path calls `record_onboarding_state!`, which arms them one-shot on the session
@@ -174,15 +187,22 @@ follows it.
 
 Rules worth knowing:
 
-- **Steps 1-2 are one modal** with an internal step machine, like `modals/_auth`.
-  The older `magic-link-welcome` modal was RETIRED with this change: the chain
-  greets every signup itself, which made that modal's only writer unreachable,
-  and a modal nothing can open is worse than no modal (it reads as a live
-  alternative). The chain needs advance, not close, which is why it did not
-  simply reuse it.
-- **The first name is skippable** (link *and* the ×), recorded in the session
-  only — so a later visit may ask again while the field is blank. It never
-  blocks the wallet step.
+- **The chain opens on the first-name ask.** A `welcome` step ("You're in", with
+  the auto-generated username) led it until 2026-08-15 and was retired: it cost a
+  click to deliver something the user had not asked for. With one step left the
+  `onboarding` modal's internal step machine went too — it is a single card
+  taking no props, and signup and login now arm the SAME chain (there is no
+  `welcome:` argument to `OnboardingFlow` any more). The older
+  `magic-link-welcome` modal had already been RETIRED for a related reason: the
+  chain greets every signup itself, which made that modal's only writer
+  unreachable, and a modal nothing can open reads as a live alternative.
+- **The first name is skippable IN THE CHAIN** (link *and* the ×), recorded in
+  the session only — so a later visit may ask again while the field is blank. It
+  never blocks the wallet step. It IS enforced at contest entry, though:
+  `eligibilityBlocker` returns `first_name_required` ahead of every other gate,
+  and that check reads the `first_name` COLUMN, so a session skip changes what we
+  ask and not what we gate. The entry gate opens the same card with
+  `{ required: true }`, which hides both skip affordances.
 - **Moving the age PROMPT did not move the age GATE.** The chain is dismissible,
   so `ContestsController#enter` and `eligibilityBlocker` still refuse an
   unverified entry. That backstop is the compliance property of this change, not

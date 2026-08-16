@@ -2,10 +2,17 @@ require "test_helper"
 
 # OnboardingFlow — which post-auth steps a user still owes, in order.
 #
-# The ORDER is the product decision (operator, 2026-08-12): welcome → first name
-# → age → wallet. Everything else here is about a step dropping out once it is
-# satisfied, so the chain a user walks is only what they have left.
+# The ORDER is the product decision (operator, 2026-08-15): first name → age →
+# wallet. Everything else here is about a step dropping out once it is satisfied,
+# so the chain a user walks is only what they have left.
+#
+# A `welcome` step led that order until 2026-08-15 and was retired with the card
+# it opened; the negative pin below is what keeps it retired.
 class OnboardingFlowTest < ActiveSupport::TestCase
+  # Explicit, not inherited from the default. web3_only_onboarding? defaults ON
+  # now, so setting it here changes nothing about the run — it states which side
+  # of the flag these expectations belong to, and keeps them honest if the
+  # default ever moves back.
   def setup
     ENV["ENABLE_WEB3_ONLY_ONBOARDING"] = "true"
   end
@@ -23,18 +30,28 @@ class OnboardingFlowTest < ActiveSupport::TestCase
   end
 
   test "a brand-new signup walks the full chain in order" do
-    steps = OnboardingFlow.steps_for(fresh_user, welcome: true, age_gate_enabled: true)
-    assert_equal [:welcome, :first_name, :age, :wallet], steps,
-                 "the operator's order is welcome -> first name -> age -> wallet"
+    steps = OnboardingFlow.steps_for(fresh_user, age_gate_enabled: true)
+    assert_equal [:first_name, :age, :wallet], steps,
+                 "the operator's order is first name -> age -> wallet"
   end
 
   test "the order is fixed, not the order the caller happens to ask in" do
     # STEPS is the single source of order; the selection must not reorder it.
-    assert_equal [:welcome, :first_name, :age, :wallet], OnboardingFlow::STEPS
+    assert_equal [:first_name, :age, :wallet], OnboardingFlow::STEPS
   end
 
-  test "a returning login gets no welcome beat" do
-    steps = OnboardingFlow.steps_for(fresh_user, welcome: false, age_gate_enabled: true)
+  # The retirement, pinned three ways: the step is not in the list, the flow
+  # takes no `welcome:` argument any more, and signup and login now resolve to
+  # the SAME chain — which is the whole behavioral point of dropping it.
+  test "the welcome step is retired" do
+    assert_not_includes OnboardingFlow::STEPS, :welcome
+    assert_raises(ArgumentError) do
+      OnboardingFlow.steps_for(fresh_user, welcome: true, age_gate_enabled: true)
+    end
+  end
+
+  test "a signup and a returning login walk the same chain" do
+    steps = OnboardingFlow.steps_for(fresh_user, age_gate_enabled: true)
     assert_equal [:first_name, :age, :wallet], steps
     assert_not_includes steps, :welcome
   end
@@ -86,6 +103,6 @@ class OnboardingFlowTest < ActiveSupport::TestCase
   end
 
   test "no user means no chain" do
-    assert_empty OnboardingFlow.steps_for(nil, welcome: true, age_gate_enabled: true)
+    assert_empty OnboardingFlow.steps_for(nil, age_gate_enabled: true)
   end
 end

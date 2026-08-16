@@ -401,6 +401,17 @@
             // funding check while it is true (entry is on-chain, so there is
             // nothing to fund yet). Server-derived, RPC-free.
             walletSetupRequired: false,
+            // The first-name ask as an ENTRY VALIDATION: eligibilityBlocker
+            // returns 'first_name_required' ahead of every other gate while this
+            // is true. Server-derived from the COLUMN (a session skip must not
+            // buy anyone past it), and cleared client-side by the onboarding
+            // modal the moment the name saves, so the resumed hold passes.
+            firstNameRequired: false,
+            // Any wallet at all (managed OR Phantom) — User#solana_connected?,
+            // the same predicate the entry-token rails guard on. The
+            // wallet-setup modal's card-payment link reads it; do NOT substitute
+            // `mode`, which reads 'web2' for a wallet-less account.
+            walletConnected: false,
             get isGuest() { return this.mode === 'guest'; },
             get isWeb2() { return this.mode === 'web2'; },
             get isWeb3() { return this.mode === 'web3'; },
@@ -421,6 +432,8 @@
               if (ctx.ageGateRequired !== undefined) this.ageGateRequired = !!ctx.ageGateRequired;
               if (ctx.ageVerified     !== undefined) this.ageVerified     = !!ctx.ageVerified;
               if (ctx.walletSetupRequired !== undefined) this.walletSetupRequired = !!ctx.walletSetupRequired;
+              if (ctx.firstNameRequired   !== undefined) this.firstNameRequired   = !!ctx.firstNameRequired;
+              if (ctx.walletConnected     !== undefined) this.walletConnected     = !!ctx.walletConnected;
             }
           });
           (function() {
@@ -827,8 +840,9 @@
     <% end %>
     <%# The CHAIN (2026-08): the server resolves which steps are still
         outstanding (OnboardingFlow) and emits them in order; the driver below
-        walks them. Steps: welcome + first_name are the `onboarding` modal, then
-        age is `age-verify`, then wallet is `wallet-setup`.
+        walks them. Steps: first_name is the `onboarding` modal, then age is
+        `age-verify`, then wallet is `wallet-setup`. (A `welcome` step led the
+        chain until 2026-08-15; it is retired, and nothing emits it.)
 
         __walletSetupPrompt keeps its old name and its old condition (the chain
         ends in the wallet step) but a NARROWER job. It no longer defers the
@@ -839,8 +853,10 @@
         instead of replaying an entry that cannot clear the wallet gate. %>
     <% onboarding_steps = consume_onboarding_prompt %>
     <% if onboarding_steps.present? %>
+      <%# STEPS ONLY. The username used to ride along for the retired welcome
+          card, which was the only thing that read it. %>
       <script type="application/json" id="onboarding-chain-data">
-        <%= raw({ steps: onboarding_steps, username: current_user&.username }.to_json) %>
+        <%= raw({ steps: onboarding_steps }.to_json) %>
       </script>
       <% if onboarding_steps.include?("wallet") %>
         <script>window.__walletSetupPrompt = true;</script>
@@ -887,15 +903,13 @@
         // the outgoing card is gone before the next one mounts.
         var HANDOFF_MS = 250;
 
-        function openStep(steps, username) {
+        // The onboarding modal takes no props — it asks one question and reports
+        // what the server says is left.
+        function openStep(steps) {
           var next = (steps || [])[0];
           if (!next) return;
-          if (next === 'welcome' || next === 'first_name') {
-            open('onboarding', {
-              step: next === 'welcome' ? 'welcome' : 'first-name',
-              steps: steps,
-              username: username || ''
-            });
+          if (next === 'first_name') {
+            open('onboarding', {});
           } else if (next === 'age') {
             open('age-verify', {});
           } else if (next === 'wallet') {
@@ -903,16 +917,14 @@
           }
         }
 
-        var chainUsername = '';
-
-        // The onboarding modal reports what is left after welcome/first-name.
+        // The onboarding modal reports what is left after the first-name ask.
         // An empty list ends the chain silently — deliberately nothing else, see
         // the note above: this runs inside the dispatching modal's finish(),
         // before its close(), so anything that opens a card here loses it.
         window.addEventListener('onboarding-step-done', function (e) {
           var next = (e && e.detail && e.detail.next) || [];
-          next = next.filter(function (s) { return s !== 'welcome' && s !== 'first_name'; });
-          if (next.length) setTimeout(function () { openStep(next, chainUsername); }, HANDOFF_MS);
+          next = next.filter(function (s) { return s !== 'first_name'; });
+          if (next.length) setTimeout(function () { openStep(next); }, HANDOFF_MS);
         });
 
         // The age modal has no chain awareness: it sets $store.session.ageVerified,
@@ -925,7 +937,7 @@
           window.__onboardingChainActive = false;
           var sess = window.Alpine && Alpine.store && Alpine.store('session');
           if (sess && sess.walletSetupRequired) {
-            setTimeout(function () { openStep(['wallet'], chainUsername); }, HANDOFF_MS);
+            setTimeout(function () { openStep(['wallet']); }, HANDOFF_MS);
           }
         });
 
@@ -937,10 +949,9 @@
           try { data = JSON.parse(el.textContent); } catch (e) { return; }
           started = true;
           el.remove(); // one-shot: a later turbo:load must not replay it
-          chainUsername = data.username || '';
           // Live only while the chain still has an age or wallet step to reach.
           window.__onboardingChainActive = (data.steps || []).indexOf('age') !== -1;
-          openStep(data.steps || [], chainUsername);
+          openStep(data.steps || []);
         }
 
         document.addEventListener('turbo:load', startChain);
@@ -1064,9 +1075,9 @@
           render right after auth success (session prompt, below) and on demand
           from the entry gate's 'wallet_setup_required' blocker. Registered
           ungated so the entry gate can always reach it. %>
-      <%# Onboarding chain step 1 — welcome + first-name capture. One id, internal
-          step machine (see the partial). Registered ungated so the chain driver
-          can always reach it. %>
+      <%# Onboarding chain step 1 — the first-name capture, and the whole modal
+          (the welcome step and its step machine were retired 2026-08-15).
+          Registered ungated so the chain driver can always reach it. %>
       <template x-if="$store.modals.current().id === 'onboarding'">
         <%= render "modals/onboarding" %>
       </template>

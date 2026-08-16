@@ -6,7 +6,10 @@ require "test_helper"
 class Cdp::OfframpSendJobTest < ActiveJob::TestCase
   setup do
     @user = users(:jordan)
-    @user.generate_managed_wallet!
+    # This job SIGNS from the custodial wallet, so the user must have one.
+    # generate_managed_wallet! alone stopped providing it when web3-only
+    # onboarding became the default (2026-08-15) — it returns early on the flag.
+    grant_managed_wallet!(@user)
     @to_address = Solana::Keypair.generate.address
   end
 

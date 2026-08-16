@@ -18,21 +18,26 @@ class OnboardingGalleryTest < ActionDispatch::IntegrationTest
                         "silently kills the modal in the browser (markup assertions won't catch it)"
   end
 
-  test "the welcome step renders the username and a continue CTA" do
+  # The welcome step was RETIRED on 2026-08-15 (operator call): the chain greets
+  # with the first-name ask. This is the negative pin — the card, its username
+  # line and the step machine that walked to it must all be gone, so a partial
+  # revert that leaves one of them behind is caught here rather than in a
+  # browser.
+  test "the retired welcome step leaves nothing behind" do
     log_in_as users(:alex)
-    get admin_modal_preview_path(modal_id: "onboarding",
-                                 props: { step: "welcome", username: "keen-persimmon",
-                                          steps: %w[welcome first_name age wallet] }.to_json)
+    get admin_modal_preview_path(modal_id: "onboarding", props: {}.to_json)
     assert_response :success
-    assert_includes response.body, "You&#39;re in"
-    assert_includes response.body, "keen-persimmon"
-    assert_includes response.body, "continueFromWelcome()"
+    assert_not_includes response.body, "You&#39;re in"
+    assert_not_includes response.body, "continueFromWelcome"
+    assert_not_includes response.body, "asksFirstName"
+    assert_not_includes AdminController::MODAL_VARIANTS.map { |v| v[:key] }, "onboarding-welcome"
   end
 
-  test "the first-name step renders the field, save, and BOTH skip affordances" do
+  # No props: the modal asks one question now, so there is nothing to pass it.
+  # The empty hash IS the assertion — the card has to render on its own.
+  test "the first-name card renders the field, save, and BOTH skip affordances" do
     log_in_as users(:alex)
-    get admin_modal_preview_path(modal_id: "onboarding",
-                                 props: { step: "first-name", steps: %w[first_name age wallet] }.to_json)
+    get admin_modal_preview_path(modal_id: "onboarding", props: {}.to_json)
     assert_response :success
     assert_includes response.body, "What should we call you?"
     assert_includes response.body, 'id="onboarding-first-name"'
@@ -43,14 +48,19 @@ class OnboardingGalleryTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "$el.focus({ preventScroll: true })"
     # Skippable was an explicit operator call: the link AND the × both skip, so
     # closing the card is never a dead end that loses the rest of the chain.
+    #
+    # The × label is BOUND rather than static since the entry gate started
+    # opening this same card in a required mode, where the × only closes — so
+    # assert the binding, and that this (chain) caller is the Skip side of it.
     assert_includes response.body, "Skip for now"
-    assert_includes response.body, 'aria-label="Skip"'
+    assert_includes response.body, %(:aria-label="required ? 'Close' : 'Skip'")
+    assert_includes response.body, %(@click="required ? $store.modals.close() : skip()")
     assert_includes response.body, "/onboarding/skip_first_name"
   end
 
   test "the modal hands the remaining steps to the chain driver" do
     log_in_as users(:alex)
-    get admin_modal_preview_path(modal_id: "onboarding", props: { step: "welcome" }.to_json)
+    get admin_modal_preview_path(modal_id: "onboarding", props: {}.to_json)
     assert_response :success
     # The modal must not know what comes after it — it reports and closes.
     assert_includes response.body, "onboarding-step-done"
@@ -85,13 +95,11 @@ class OnboardingGalleryTest < ActionDispatch::IntegrationTest
     # The showroom must not fall behind the chain: a step added to the service
     # with no gallery step means a state nobody can review.
     #
-    # welcome + first_name are both the `onboarding` modal, so map service steps
-    # onto the modal ids the flows actually open.
+    # Map service steps onto the modal ids the flows actually open.
     flow_modal_ids = AdminController::MODAL_FLOWS.flat_map { |f|
       f[:steps].map { |s| AdminController::MODAL_VARIANTS.find { |v| v[:key] == s[:key] }[:modal_id] }
     }.uniq
-    expected = { welcome: "onboarding", first_name: "onboarding",
-                 age: "age-verify", wallet: "wallet-setup" }
+    expected = { first_name: "onboarding", age: "age-verify", wallet: "wallet-setup" }
 
     assert_equal OnboardingFlow::STEPS.sort, expected.keys.sort,
                  "OnboardingFlow::STEPS changed — update this map AND the gallery flows"

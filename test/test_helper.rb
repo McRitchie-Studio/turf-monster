@@ -62,6 +62,33 @@ module ActiveSupport
     end
 
     fixtures :all
+
+    # Give `user` a managed (custodial) wallet, whatever the onboarding flag says.
+    #
+    # Signup stopped minting one when web3-only onboarding became the DEFAULT
+    # (2026-08-15 — AppFlags.web3_only_onboarding?), and a large family of suites
+    # used to inherit their custodial wallet from that mint: wallet export,
+    # withdraw, cash-out, off-ramp, self-custody. None of them are about
+    # onboarding. They are about the rails that still serve every managed wallet
+    # ALREADY out there, and those users need to exist to be tested.
+    #
+    # The flag gates minting AT SIGNUP, so this turns it off for exactly the
+    # length of the mint and restores whatever was there — including "not set".
+    # Prefer this over stamping web2_solana_address by hand: generate_managed_wallet!
+    # also writes the encrypted key, without which solana_keypair returns nil and
+    # the signing half of those suites is silently untested.
+    def grant_managed_wallet!(user)
+      original = ENV["ENABLE_WEB3_ONLY_ONBOARDING"]
+      ENV["ENABLE_WEB3_ONLY_ONBOARDING"] = "false"
+      user.generate_managed_wallet!
+      user.reload
+    ensure
+      if original.nil?
+        ENV.delete("ENABLE_WEB3_ONLY_ONBOARDING")
+      else
+        ENV["ENABLE_WEB3_ONLY_ONBOARDING"] = original
+      end
+    end
   end
 end
 
@@ -87,6 +114,27 @@ class ActionDispatch::IntegrationTest
     # is hermetic against ambient .env. The age-gate tests opt back IN
     # explicitly via with_age_gate (test/controllers/contests_age_gate_test.rb).
     ENV.delete("ENABLE_AGE_GATE")
+  end
+
+  # Follow the redirect chain all the way to the page that actually RENDERS.
+  #
+  # A magic-link consume lands on the ROOT since 2026-08-15, and root is
+  # contests#world_cup — a redirector to the live board. So the render an auth
+  # test wants to assert on is two hops away, not one, and it would move again
+  # the day root's target changes. Following to the first non-redirect keeps
+  # these assertions about the LANDING PAGE instead of about the hop count.
+  #
+  # Safe for the one-shot session payloads these tests read (the onboarding
+  # chain, the wallet-setup prompt): a redirect renders nothing, so no
+  # intermediate hop can consume them on the way through.
+  def follow_redirects!(limit: 5)
+    limit.times do
+      break unless response.redirect?
+
+      follow_redirect!
+    end
+    assert_not response.redirect?, "still redirecting after #{limit} hops — is there a loop?"
+    response
   end
 
   # Passwordless: email auth is magic-link only. Logging in = mint a magic-link

@@ -69,18 +69,21 @@ class AppFlagsTest < ActiveSupport::TestCase
     with_env("", var: "ENABLE_WEB2_USDC_ENTRY")      { assert AppFlags.web2_usdc_entry? }
   end
 
-  test "web3_only_onboarding? defaults OFF when unset (opt-in)" do
-    # Merging the feature must change nothing until the operator flips the env
-    # var on the QA / production apps.
-    with_env(nil, var: "ENABLE_WEB3_ONLY_ONBOARDING") { assert_not AppFlags.web3_only_onboarding? }
+  # ENABLE_WEB3_ONLY_ONBOARDING became a KILL-SWITCH on 2026-08-15 (NFL 2026 is
+  # web3-only), joining ENABLE_WEB2_USDC_ENTRY above. It was an opt-in through
+  # the build-out, which is why a new signup still landed on the web2 entry-token
+  # modal: the wallet step was written and dark. Read these two together — the
+  # default is the season's behavior, and "false" is the one way back.
+  test "web3_only_onboarding? defaults ON when unset (kill-switch)" do
+    with_env(nil, var: "ENABLE_WEB3_ONLY_ONBOARDING") { assert AppFlags.web3_only_onboarding? }
   end
 
-  test "web3_only_onboarding? is true only for a 'true' value" do
-    with_env("true",   var: "ENABLE_WEB3_ONLY_ONBOARDING") { assert AppFlags.web3_only_onboarding? }
-    with_env("TRUE",   var: "ENABLE_WEB3_ONLY_ONBOARDING") { assert AppFlags.web3_only_onboarding? }
-    with_env(" true ", var: "ENABLE_WEB3_ONLY_ONBOARDING") { assert AppFlags.web3_only_onboarding? }
+  test "web3_only_onboarding? is on for everything except a 'false' value" do
     with_env("false",  var: "ENABLE_WEB3_ONLY_ONBOARDING") { assert_not AppFlags.web3_only_onboarding? }
-    with_env("1",      var: "ENABLE_WEB3_ONLY_ONBOARDING") { assert_not AppFlags.web3_only_onboarding? }
-    with_env("",       var: "ENABLE_WEB3_ONLY_ONBOARDING") { assert_not AppFlags.web3_only_onboarding? }
+    with_env("FALSE",  var: "ENABLE_WEB3_ONLY_ONBOARDING") { assert_not AppFlags.web3_only_onboarding? }
+    with_env(" false ", var: "ENABLE_WEB3_ONLY_ONBOARDING") { assert_not AppFlags.web3_only_onboarding? }
+    with_env("true",   var: "ENABLE_WEB3_ONLY_ONBOARDING") { assert AppFlags.web3_only_onboarding? }
+    with_env("1",      var: "ENABLE_WEB3_ONLY_ONBOARDING") { assert AppFlags.web3_only_onboarding? }
+    with_env("",       var: "ENABLE_WEB3_ONLY_ONBOARDING") { assert AppFlags.web3_only_onboarding? }
   end
 end

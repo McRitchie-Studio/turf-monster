@@ -151,8 +151,11 @@ class WalletSetupPolicyTest < ActiveSupport::TestCase
   # reads this policy would block them outright. So "flag off ⇒ nothing
   # changes" has to hold for the POLICY, not just for wallet minting.
 
+  # "Off" is now an EXPLICIT "false", not an absent var: the flag became a
+  # kill-switch on 2026-08-15, so deleting it turns the policy ON. Setting the
+  # value is what these three actually mean.
   test "an empty managed wallet is left alone while the flag is off" do
-    ENV.delete("ENABLE_WEB3_ONLY_ONBOARDING")
+    ENV["ENABLE_WEB3_ONLY_ONBOARDING"] = "false"
     user = managed_user
     vault = StubVault.new(usdc: 0.0)
     assert_not WalletSetupPolicy.required_for?(user, vault: vault)
@@ -162,7 +165,7 @@ class WalletSetupPolicyTest < ActiveSupport::TestCase
   test "a wallet-less account is left alone while the flag is off" do
     # With the flag off, signup mints a wallet, so the only wallet-less accounts
     # are admins (OPSEC-044) — who must not be nagged on every login.
-    ENV.delete("ENABLE_WEB3_ONLY_ONBOARDING")
+    ENV["ENABLE_WEB3_ONLY_ONBOARDING"] = "false"
     user = users(:jordan)
     user.update_columns(web2_solana_address: nil, web3_solana_address: nil)
     assert_not WalletSetupPolicy.required_for?(user)

@@ -57,12 +57,14 @@ class SessionsControllerTest < ActionDispatch::IntegrationTest
   end
 
   # Passwordless: log_in_as goes through the magic-link consume. A returning
-  # login with no return_to now lands directly on the live featured contest.
+  # login with no return_to lands on the ROOT (operator call, 2026-08-15), which
+  # is contests#world_cup — a redirector to the live featured contest, the
+  # destination this used to reach in one hop.
   test "login via magic link establishes a session" do
     log_in_as users(:alex)
-    assert_redirected_to contest_path(contests(:one))
+    assert_redirected_to root_path
     follow_redirect!
-    assert_response :success
+    assert_redirected_to contest_path(contests(:one))
     assert_equal users(:alex).id, session[Studio.session_key]
   end
 

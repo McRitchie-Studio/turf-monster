@@ -101,13 +101,14 @@ class MagicLinksControllerTest < ActionDispatch::IntegrationTest
 
   # ── consume (POST /magic_link/:token) ────────────────────────────────────
   # consume redirects to the LANDING page (return_to, else root); the post-auth
-  # ONBOARDING CHAIN carries the greeting from there (welcome -> first name ->
-  # age -> wallet), armed one-shot on the session.
+  # ONBOARDING CHAIN carries the greeting from there (first name -> age ->
+  # wallet), armed one-shot on the session.
   #
-  # The `flash[:magic_link_welcome]` modal this used to set is RETIRED (2026-08).
-  # The chain opens with its own welcome step for every signup, which made that
-  # flash's only writer unreachable — so the assertions below pin it as ABSENT
-  # rather than as an alternative path that still fires somewhere.
+  # The `flash[:magic_link_welcome]` modal this used to set is RETIRED (2026-08),
+  # as is the chain's own `welcome` step (2026-08-15). The chain opens on the
+  # first-name ask, outstanding by definition for an account created in this
+  # request, which keeps that flash's only writer unreachable — so the assertions
+  # below pin it as ABSENT rather than as an alternative path that still fires.
   test "consume creates a passwordless, email-verified account and arms the onboarding chain" do
     token = magic_token(email: "brand-new@example.com", age_attested: true)
     assert_difference "User.count", 1 do
@@ -116,17 +117,57 @@ class MagicLinksControllerTest < ActionDispatch::IntegrationTest
     user = User.find_by(email: "brand-new@example.com")
     assert user.email_verified_at.present?, "new user should be email-verified by clicking the link"
     assert user.age_attested_at.present?, "new user should carry the legal-age attestation timestamp"
-    # No contest return_to → a NEW generic signup lands on the live featured
-    # contest (resolved at click).
-    assert_redirected_to contest_path(contests(:one))
-    assert_nil flash[:notice], "the welcome is a modal, not a toast"
+    # No contest return_to → a NEW generic signup lands on the ROOT board
+    # (operator call, 2026-08-15; it used to resolve Contest.featured here).
+    assert_redirected_to root_path
+    assert_nil flash[:notice], "the greeting is a modal, not a toast"
     assert_nil flash[:auth_toast], "the chain greets; a toast would talk over it"
-    assert_nil flash[:magic_link_welcome], "the chain's welcome step replaces the flash modal here"
-    # The chain is armed, and it OPENS with the welcome beat carrying the
-    # auto-generated username (the layout renders it into the driver payload).
-    assert_equal "welcome", session[:onboarding_prompt].first
+    assert_nil flash[:magic_link_welcome], "the chain's opening card replaces the flash modal here"
+    # The chain is armed, and it OPENS on the first-name ask — no welcome beat in
+    # front of it (retired 2026-08-15).
+    assert_equal "first_name", session[:onboarding_prompt].first
+    # Root redirects on to the live board — the destination the old inline
+    # Contest.featured lookup produced directly.
     follow_redirect!
-    assert_includes response.body, user.username
+    assert_redirected_to contest_path(contests(:one))
+  end
+
+  # --- the auth pages are a way IN, never a place to arrive -------------------
+  #
+  # THE BUG (operator, 2026-08-15): a link requested from the sign-in card is
+  # minted with return_to "/signin". Honoring that literally landed a
+  # freshly-signed-in user back on /signin, where redirect_if_authenticated
+  # bounced them to /account — so clicking a magic link put them on their account
+  # page. Both halves are asserted: the redirect, and that FOLLOWING it stays put
+  # (a landing that bounces is the whole defect, and the redirect alone can't see
+  # it).
+  test "a link that returns to the sign-in page lands on the root, not /account" do
+    existing = users(:alex)
+    existing.update_columns(first_name: "Mr.", age_attested_at: 30.years.ago,
+                            web3_solana_address: "PhantomSigninReturn#{existing.id}")
+    token = magic_token(email: existing.email, return_to: "/signin")
+    post magic_link_consume_path(token: token)
+
+    assert_redirected_to root_path
+    # Root is contests#world_cup, a redirector to the live board, so ONE more hop
+    # is expected and correct. What must never happen is landing back on an auth
+    # page or on /account — that bounce IS the bug.
+    follow_redirect!
+    assert_not_equal account_path, request.path
+    assert_not_equal signin_path, request.path
+  end
+
+  test "every auth path is treated as no destination at all" do
+    # One rule, not a special case for /signin: /login, the magic-link pages and
+    # the short /l/ links are all ways in.
+    ["/signin", "/login", "/magic_link/abc", "/l/abc", "/"].each do |path|
+      existing = users(:jordan)
+      existing.update_columns(first_name: "Jo", age_attested_at: 30.years.ago,
+                              web3_solana_address: "PhantomLoop#{existing.id}")
+      post magic_link_consume_path(token: magic_token(email: existing.email, return_to: path))
+      assert_redirected_to root_path, "return_to #{path} is a way in, not a landing"
+      reset!
+    end
   end
 
   test "consume lands a new signup on the contest return_to with an auth toast + tokens picker" do
@@ -138,15 +179,19 @@ class MagicLinksControllerTest < ActionDispatch::IntegrationTest
     # the chain has anything to say — two greetings on one render reads as a bug.
     assert_nil flash[:magic_link_welcome]
     assert_nil flash[:auth_toast], "the chain speaks; the toast would talk over it"
-    assert_equal "welcome", session[:onboarding_prompt].first
+    assert_equal "first_name", session[:onboarding_prompt].first
   end
 
   test "consume logs in an existing user on a safe return_to with a welcome-back toast" do
     existing = users(:alex)
     # This test is about the TOAST, so leave the onboarding chain nothing to ask:
-    # a returning user who still owes a step (a blank first name, say) is armed
-    # with the chain instead, and the toast is deliberately suppressed then.
-    existing.update_columns(first_name: "Mr.", age_attested_at: 30.years.ago)
+    # a returning user who still owes a step is armed with the chain instead, and
+    # the toast is deliberately suppressed then. The WALLET is part of "nothing to
+    # ask" now — web3-only onboarding defaults ON (2026-08-15), and alex is an
+    # admin, who never gets a managed wallet (OPSEC-044), so without a linked
+    # Phantom the chain would still have the wallet step to open.
+    existing.update_columns(first_name: "Mr.", age_attested_at: 30.years.ago,
+                            web3_solana_address: "PhantomSettledToast#{existing.id}")
     token = magic_token(email: existing.email, return_to: "/account")
     assert_no_difference "User.count" do
       post magic_link_consume_path(token: token)
@@ -244,8 +289,8 @@ class MagicLinksControllerTest < ActionDispatch::IntegrationTest
   test "consume sanitizes a protocol-relative return_to (open-redirect guard)" do
     token = magic_token(email: users(:alex).email, return_to: "//evil.com/x")
     post magic_link_consume_path(token: token)
-    # The evil path is dropped to nil → falls back to the safe featured contest.
-    assert_redirected_to contest_path(contests(:one))
+    # The evil path is dropped to nil → falls back to the safe in-app root.
+    assert_redirected_to root_path
   end
 
   # ── legal-age attestation (underwriting compliance) ───────────────────────

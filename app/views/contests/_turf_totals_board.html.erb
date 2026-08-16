@@ -171,6 +171,12 @@ window.selectionBoard = function() {
     profileError: '',
     profileSubmitting: false,
     signupMethod: '',
+    // True only while THIS board is waiting on the first-name card it opened as
+    // an entry gate. Declared here rather than assigned ad hoc so it exists
+    // before the 'first-name-saved' listener can ever read it — the post-auth
+    // chain fires that event too, and an undefined flag would be re-created on
+    // every entry path that touched it.
+    _resumeAfterFirstName: false,
 
     init() {
       // Stripe checkout runs in a NEW TAB (see the buy-tokens panel). When
@@ -320,6 +326,23 @@ window.selectionBoard = function() {
         catch (e) { console.error('[hold-funding-check] beginFundingCheck threw:', e); }
       });
 
+      // First-name gate: the onboarding card fired 'first-name-saved' after a
+      // successful save (it already cleared $store.session.firstNameRequired).
+      // Same resume shape as 'age-verified' below — confirmEntry re-runs
+      // eligibilityBlocker, the name now passes, and the user flows on to the
+      // age / wallet / funding gates without re-holding.
+      //
+      // GUARDED on the flag this board sets when IT opened the card: the
+      // post-auth chain opens the same modal and fires the same event, and
+      // resuming an entry nobody held would submit a lineup out of nowhere.
+      window.addEventListener('first-name-saved', function () {
+        if (!board._resumeAfterFirstName) return;
+        board._resumeAfterFirstName = false;
+        Promise.resolve()
+          .then(function () { return board.confirmEntry(); })
+          .catch(function (e) { console.error('[first-name-saved] confirmEntry rejected:', e); });
+      });
+
       // Age gate (ENABLE_AGE_GATE): the DOB modal fired 'age-verified' after a
       // successful verify (it already flipped $store.session.ageVerified). Pick
       // the entry back up so the user flows straight to the next gate / entry
@@ -346,8 +369,8 @@ window.selectionBoard = function() {
               // not the in-entry funds wall (that's the 'no_funding' blocker +
               // its chain-layer twin, both rerouted to showWalletTopup).
               //
-              // The onboarding chain may be walking (welcome -> first name ->
-              // age -> wallet), and this picker can land on top of it — a
+              // The onboarding chain may be walking (first name -> age ->
+              // wallet), and this picker can land on top of it — a
               // cosmetic stack, and a KNOWN one. An earlier revision made the
               // picker wait for an 'onboarding-chain-complete' announcement;
               // that was withdrawn because the announcement fired inside the
@@ -680,6 +703,9 @@ window.selectionBoard = function() {
       if (!blocker) return;
       switch (blocker.reason) {
         case 'not_logged_in':        this.showLoginModal(); break;
+        // First validation of the hold (operator call, 2026-08-15) — the name is
+        // collected before the user is asked for a DOB, a wallet, or money.
+        case 'first_name_required':  this.showFirstNameModal(); break;
         case 'age_required':         this.showAgeVerifyModal(); break;
         // Web3-only onboarding: signed in, but no wallet to sign the entry with.
         // The dismissible setup modal comes BACK here — this is the "re-opens
@@ -693,6 +719,19 @@ window.selectionBoard = function() {
         case 'insufficient_balance': this.showInsufficientBalanceModal(blocker); break;
         default:                     this.resetHoldButtons();
       }
+    },
+
+    // First-name gate: open the onboarding card in its REQUIRED mode (no skip
+    // affordances — the hold cannot proceed without the name).
+    //
+    // _resumeAfterFirstName is what separates this caller from the post-auth
+    // chain, which opens the SAME modal and fires the SAME 'first-name-saved'
+    // event. Without the flag, answering the chain's card seconds after signup
+    // would fire a confirmEntry for a hold nobody performed.
+    showFirstNameModal() {
+      this.resetHoldButtons();
+      this._resumeAfterFirstName = true;
+      Alpine.store('modals').open('onboarding', { required: true, enterAnim: 'shake' });
     },
 
     // Age gate (ENABLE_AGE_GATE): open the date-of-birth verification modal.
