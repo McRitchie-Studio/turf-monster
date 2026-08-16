@@ -311,4 +311,42 @@
           class="mt-4 w-full text-center text-sm text-secondary hover:text-heading disabled:opacity-50">
     Maybe later
   </button>
+
+  <%# The card-payment escape hatch, and the ONLY way the Buy an Entry Token
+      modal is still reachable from onboarding — that modal used to be where this
+      moment landed, and web3-only onboarding (AppFlags.web3_only_onboarding?)
+      took its place. Kept small and quiet on purpose: linking Phantom is the
+      season's path, and this is the door beside it, not a second front door.
+
+      TWO STATES, because the door only opens for half this modal's audience:
+
+        · WITH a wallet — the grandfathered managed player under 19 USDC. Their
+          rails work, so this swaps to the token modal. swap(), not open(): this
+          modal is already up, so swapping runs the host's cross-modal slide and
+          leaves ONE card on screen instead of stacking two.
+        · WITHOUT one — a fresh web3-only signup, which is now most of the people
+          who see this card. EVERY entry-token rail refuses them
+          (TokensController#stripe_checkout redirects with "Connect a wallet
+          first." and navigates them off the contest; #coinflow_order 422s the
+          same string into a window.alert), because a token has to be minted
+          somewhere. So say that, and do not offer a button that cannot work.
+          Kept VISIBLE rather than hidden (operator call, 2026-08-15): the card
+          rail is a real option here, one step later, and a control that vanishes
+          teaches nothing about why.
+
+      walletConnected is User#solana_connected? — the SAME predicate those rails
+      guard on. Not `mode`, which reads 'web2' for a wallet-less account and
+      would show the button to precisely the people it refuses. %>
+  <template x-if="$store.session.walletConnected">
+    <button type="button" @click="$store.modals.swap('buy-entry-token', {})" :disabled="connecting"
+            class="mt-2 w-full text-center text-xs text-muted hover:text-secondary disabled:opacity-50">
+      Rather pay by card? <span class="underline">Buy an entry token</span>
+    </button>
+  </template>
+  <template x-if="!$store.session.walletConnected">
+    <p class="mt-2 w-full text-center text-xs text-muted">
+      Rather pay by card? Link a wallet first &mdash; an entry token needs
+      somewhere to land.
+    </p>
+  </template>
 </div>

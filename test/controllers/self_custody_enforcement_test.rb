@@ -15,6 +15,9 @@ class SelfCustodyEnforcementTest < ActionDispatch::IntegrationTest
       email: "sc-#{SecureRandom.hex(2)}@example.test",
       email_verified_at: Time.current
     )
+    # Custodial by design — this suite is the enforcement around a managed
+    # wallet, which signup no longer mints (web3-only onboarding, 2026-08-15).
+    grant_managed_wallet!(@user)
     assert @user.reload.managed_wallet?
 
     @contest = Contest.create!(

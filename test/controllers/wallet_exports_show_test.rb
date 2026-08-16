@@ -11,7 +11,8 @@ class WalletExportsShowTest < ActionDispatch::IntegrationTest
       email: "secret-#{SecureRandom.hex(2)}@example.test",
       email_verified_at: Time.current
     )
-    assert @managed.reload.managed_wallet?, "every account auto-provisions a managed wallet"
+    grant_managed_wallet!(@managed)
+    assert @managed.reload.managed_wallet?, "the export page needs a custodial wallet to reveal"
 
     # Pin export_initiated_at and mint the token the magic email would have
     # carried — same shape as AccountsController#initiate_wallet_export.

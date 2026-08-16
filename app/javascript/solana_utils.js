@@ -437,6 +437,21 @@ export function eligibilityBlocker(session, neededCents, opts) {
   if (!session) return null;            // store missing — let server decide
   if (!session.loggedIn) return { reason: 'not_logged_in', mode: 'guest', data: {} };
 
+  // First name — the FIRST validation of the hold (operator call, 2026-08-15),
+  // ahead of age, wallet and funding, so the name is collected before the user
+  // is asked for anything heavier. Mirrors the onboarding chain's order, which
+  // also opens on this question.
+  //
+  // UNLIKE the gates below it, this one has no server-side twin: a first name is
+  // marketing copy for emails, not a compliance or capability property, so
+  // ContestsController#enter does NOT refuse without it. That is the deliberate
+  // difference — the age and wallet gates keep their server teeth because an
+  // entry that slips past them is an illegal or unsignable entry, while one that
+  // slips past this is merely an entry from someone we will address by username.
+  if (session.firstNameRequired) {
+    return { reason: 'first_name_required', mode: session.mode || 'guest', data: {} };
+  }
+
   // Age gate (ENABLE_AGE_GATE) — checked BEFORE tokens/balance and even before
   // the free-contest short-circuit, so the DOB modal fires ahead of the Get
   // Entry Tokens modal and applies to every contest. Server re-checks.

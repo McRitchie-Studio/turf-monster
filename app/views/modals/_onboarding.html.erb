@@ -1,25 +1,37 @@
 <%#
-  Onboarding — the first of the two post-auth flows (operator spec 2026-08-12).
-  ONE modal id with an internal step machine, exactly like modals/_auth:
+  Onboarding — the first of the two post-auth flows, and the first thing a
+  brand-new account sees. ONE card: the first-name ask.
 
-    welcome     — "you're in", with the auto-generated username
     first-name  — captured for marketing; SKIPPABLE, and skipping is remembered
                   for the session so it does not re-ask on the next page
+
+  WHAT WAS HERE BEFORE (operator call, 2026-08-15): a `welcome` step opened this
+  modal with "You're in" and the auto-generated username, and an internal step
+  machine walked welcome → first-name. Both are gone. The welcome card cost a
+  click to deliver something the user had not asked for, and with one step left
+  the machine — the step getter, the two <template x-if> branches, the
+  asksFirstName lookahead — was a switch with a single arm. The card renders
+  directly now, and the modal takes NO props.
 
   The chain does not end here. On completion this dispatches
   'onboarding-step-done' with the steps the SERVER says are still outstanding,
   and the layout's chain driver opens the next flow (Wallet setup: age → wallet).
 
-  WHY THE WELCOME BEAT LIVES HERE rather than reusing the old
-  modals/_magic_link_welcome: that one rendered the shared cta_redirect block,
-  whose whole job is to drain a countdown and then close or navigate. A chain
-  needs "advance", not "close", and bending a shared block to also mean advance
-  would change every other modal using it. That modal has since been RETIRED —
-  this step left it with no reachable caller.
+  TWO CALLERS, ONE CARD:
+    - the post-auth chain, which opens it with no props. Skippable — this lands
+      seconds after signup, the highest drop-off moment there is.
+    - the ENTRY GATE (operator call, 2026-08-15), which opens it with
+      { required: true } as the first validation of hold-to-confirm. There the
+      skip affordances are hidden: the hold cannot proceed without the name, so
+      offering to skip would promise something the gate will not honour. Closing
+      is still allowed — it abandons the entry, it does not slip past it.
 
-  Props:
-    username — shown on the welcome step (server-rendered value, not a guess)
-    steps    — the remaining chain, so this modal knows whether to ask the name
+  On a successful save this ALSO clears $store.session.firstNameRequired and
+  dispatches 'first-name-saved', which is how the board resumes an entry that
+  was interrupted by the gate — the same shape as the age modal's 'age-verified'.
+
+  Props (all optional):
+    required — hide the skip affordances (the entry-gate caller)
 
   CRITICAL (Alpine): cloned from <template x-if>, so ONE root element; and the
   x-data below is a DOUBLE-QUOTED attribute — a single " anywhere inside it (a
@@ -28,24 +40,10 @@
 %>
 <div x-data="{
        get props() { var c = $store.modals.current(); return (c && c.props) || {}; },
+       get required() { return !!this.props.required; },
        firstName: '',
        submitting: false,
        error: '',
-       get step() { return this.props.step || 'welcome'; },
-       get username() { return this.props.username || ''; },
-       // The welcome step advances to the name ask only when the server still
-       // wants it; otherwise it hands straight off to the next flow.
-       get asksFirstName() {
-         var s = this.props.steps || [];
-         return s.indexOf('first_name') !== -1;
-       },
-       continueFromWelcome() {
-         if (this.asksFirstName) {
-           $store.modals.advance({ step: 'first-name' });
-           return;
-         }
-         this.finish(this.props.steps || []);
-       },
        async save() {
          if (this.submitting) return;
          var value = (this.firstName || '').trim();
@@ -57,6 +55,12 @@
            this.error = (data && data.error) || 'Could not save that — try again.';
            return;
          }
+         // The entry gate reads the STORE, not the server, on the resumed hold —
+         // so clear it here or the resumed confirmEntry re-blocks on a name that
+         // is already saved. Dispatched before finish(), which closes the card.
+         var sess = Alpine.store('session');
+         if (sess) sess.firstNameRequired = false;
+         window.dispatchEvent(new CustomEvent('first-name-saved'));
          this.finish(data.next || []);
        },
        async skip() {
@@ -91,75 +95,67 @@
      }"
      class="relative">
 
-  <%# === WELCOME ============================================================ %>
-  <template x-if="step === 'welcome'">
-    <div>
-      <%= render 'studio/modals/blocks/card_header',
-            size:       :lg,
-            icon_emoji: '🎉',
-            title:      "You're in" do %>
-        <span class="block text-heading font-semibold text-base" x-show="username" x-cloak x-text="username"></span>
-        <span class="block mt-1">That's your player name — you can change it any time in your account.</span>
-      <% end %>
-      <button type="button" @click="continueFromWelcome()"
-              class="btn btn-primary btn-lg w-full mt-1">
-        Let's go &rarr;
-      </button>
-    </div>
-  </template>
-
   <%# === FIRST NAME ========================================================= %>
-  <%# Skippable by design: this lands seconds after signup, the highest
-      drop-off moment there is, so the Skip link is a peer of Save rather than
-      buried. Skipping is recorded for the session only — the field stays blank,
-      so a later visit may ask again. %>
-  <template x-if="step === 'first-name'">
-    <div>
-      <div class="relative mb-3 -mt-2">
-        <h3 class="text-heading font-bold text-lg leading-tight text-center pt-1">What should we call you?</h3>
-        <button @click="skip()"
-                class="absolute top-0 right-0 -mr-2 text-secondary hover:text-heading text-xl leading-none"
-                aria-label="Skip">&times;</button>
-      </div>
-      <%# Same 2-of-3 as the wallet step: the app's pill frame is
-          sign in (auth modal, 1) → set up (this whole chain, 2) → play (3), so
-          every setup step reads 2, not its own index within the chain. %>
-      <%= render "studio/modals/blocks/progress_pill", current: 2, total: 3 %>
-      <p class="text-xs text-body mb-4 text-center">
-        Just your first name — we use it to address you in emails about your
-        contests and payouts.
-      </p>
+  <%# Skippable in the CHAIN by design: it lands seconds after signup, the
+      highest drop-off moment there is, so the Skip link is a peer of Save rather
+      than buried. Skipping is recorded for the session only — the field stays
+      blank, so a later visit may ask again.
 
-      <form @submit.prevent="save()" novalidate>
-        <div class="mb-3">
-          <label class="block text-xs text-secondary mb-1 font-medium" for="onboarding-first-name">First name</label>
-          <%# Autofocus so the user can just type (operator call). The plain HTML
-              autofocus attribute is NOT enough here: browsers honour it when the
-              document is parsed, and this modal mounts from a <template x-if>
-              long after that — so it needs Alpine. $nextTick waits for the step's
-              DOM to exist before focusing; preventScroll keeps the mount
-              animation from being yanked by the browser scrolling to the field. %>
-          <input id="onboarding-first-name" type="text" x-model="firstName"
-                 maxlength="40" autocomplete="given-name" enterkeyhint="done"
-                 placeholder="Alex"
-                 :disabled="submitting"
-                 x-init="$nextTick(() => $el.focus({ preventScroll: true }))"
-                 class="input-field">
-        </div>
-        <template x-if="error">
-          <p class="text-red-400 text-xs mb-3" x-text="error"></p>
-        </template>
-        <button type="submit" :disabled="submitting"
-                class="btn btn-primary btn-lg w-full gap-2 disabled:cursor-wait">
-          <span x-show="submitting" class="cta-spinner" aria-hidden="true"></span>
-          <span x-text="submitting ? 'Saving…' : 'Save and continue'"></span>
-        </button>
-      </form>
+      At the ENTRY GATE (required) the × merely CLOSES: skipping would record a
+      session skip that the gate deliberately ignores (it reads the column), so
+      the button would look like a way past a wall it cannot move. %>
+  <div class="relative mb-3 -mt-2">
+    <h3 class="text-heading font-bold text-lg leading-tight text-center pt-1">What should we call you?</h3>
+    <button @click="required ? $store.modals.close() : skip()"
+            class="absolute top-0 right-0 -mr-2 text-secondary hover:text-heading text-xl leading-none"
+            :aria-label="required ? 'Close' : 'Skip'">&times;</button>
+  </div>
+  <%# Same 2-of-3 as the wallet step: the app's pill frame is
+      sign in (auth modal, 1) → set up (this whole chain, 2) → play (3), so
+      every setup step reads 2, not its own index within the chain. %>
+  <%= render "studio/modals/blocks/progress_pill", current: 2, total: 3 %>
+  <%# Two readings of the same ask. From the chain it is an invitation; from the
+      entry gate it is the last thing between the user and their picks, and
+      saying so is what makes the missing Skip link read as intent. %>
+  <p class="text-xs text-body mb-4 text-center" x-show="!required">
+    Just your first name — we use it to address you in emails about your
+    contests and payouts.
+  </p>
+  <p class="text-xs text-body mb-4 text-center" x-show="required" x-cloak>
+    One last thing before your entry — just your first name, so we can address
+    you in emails about your contests and payouts.
+  </p>
 
-      <button type="button" @click="skip()" :disabled="submitting"
-              class="mt-3 w-full text-center text-sm text-secondary hover:text-heading disabled:opacity-50">
-        Skip for now
-      </button>
+  <form @submit.prevent="save()" novalidate>
+    <div class="mb-3">
+      <label class="block text-xs text-secondary mb-1 font-medium" for="onboarding-first-name">First name</label>
+      <%# Autofocus so the user can just type (operator call). The plain HTML
+          autofocus attribute is NOT enough here: browsers honour it when the
+          document is parsed, and this modal mounts from a <template x-if>
+          long after that — so it needs Alpine. $nextTick waits for the step's
+          DOM to exist before focusing; preventScroll keeps the mount
+          animation from being yanked by the browser scrolling to the field. %>
+      <input id="onboarding-first-name" type="text" x-model="firstName"
+             maxlength="40" autocomplete="given-name" enterkeyhint="done"
+             placeholder="Alex"
+             :disabled="submitting"
+             x-init="$nextTick(() => $el.focus({ preventScroll: true }))"
+             class="input-field">
     </div>
-  </template>
+    <template x-if="error">
+      <p class="text-red-400 text-xs mb-3" x-text="error"></p>
+    </template>
+    <button type="submit" :disabled="submitting"
+            class="btn btn-primary btn-lg w-full gap-2 disabled:cursor-wait">
+      <span x-show="submitting" class="cta-spinner" aria-hidden="true"></span>
+      <span x-text="submitting ? 'Saving…' : 'Save and continue'"></span>
+    </button>
+  </form>
+
+  <%# Hidden at the entry gate — see the × above for why offering it there would
+      promise a way past a wall that does not move. %>
+  <button type="button" x-show="!required" @click="skip()" :disabled="submitting"
+          class="mt-3 w-full text-center text-sm text-secondary hover:text-heading disabled:opacity-50">
+    Skip for now
+  </button>
 </div>

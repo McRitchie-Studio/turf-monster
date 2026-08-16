@@ -5,8 +5,8 @@ class AdminController < ApplicationController
   # MODAL_VARIANTS below, which is a flat catalogue of individual states.
   #
   # A flow exists because the interesting bug in a multi-step experience is the
-  # ORDER, and a catalogue cannot show order: reviewing "welcome" and "first
-  # name" as two unrelated tiles tells you nothing about which one a new user
+  # ORDER, and a catalogue cannot show order: reviewing "first name" and "age
+  # gate" as two unrelated tiles tells you nothing about which one a new user
   # meets first, or what happens when they skip. Each step names a variant key
   # from MODAL_VARIANTS, so the two stay in one registry and the gallery can
   # deep-link a step without duplicating its props.
@@ -24,7 +24,6 @@ class AdminController < ApplicationController
       label: "Onboarding (after first auth)",
       summary: "What a brand-new account meets the moment it signs in for the first time.",
       steps: [
-        { key: "onboarding-welcome",    note: "Auto-generated username, no action required" },
         { key: "onboarding-first-name", note: "Marketing capture — SKIPPABLE, never blocks the wallet" }
       ] },
     { key: "wallet-setup",
@@ -109,17 +108,15 @@ class AdminController < ApplicationController
       modal_id: "wallet-setup", file: "app/views/modals/_wallet_setup.html.erb",
       props: {} },
     # === Onboarding chain ====================================================
-    # The two steps of the `onboarding` modal, plus the age gate that follows.
+    # The single card of the `onboarding` modal, plus the age gate that follows.
     # Presented as ordered flows by MODAL_FLOWS above; catalogued here as
     # individual states so each can be opened and eyeballed on its own.
-    { group: "Onboarding",
-      label: "Welcome (username)", key: "onboarding-welcome",
-      modal_id: "onboarding", file: "app/views/modals/_onboarding.html.erb",
-      props: { step: "welcome", username: "gentle-eggplant", steps: %w[welcome first_name age wallet] } },
+    # (A "Welcome (username)" variant sat above this one until 2026-08-15, when
+    # the welcome step was retired from the chain.)
     { group: "Onboarding",
       label: "First name (skippable)", key: "onboarding-first-name",
       modal_id: "onboarding", file: "app/views/modals/_onboarding.html.erb",
-      props: { step: "first-name", steps: %w[first_name age wallet] } },
+      props: {} },
     # The DOB gate. Prompted as the first step of Wallet setup since 2026-08-12,
     # and STILL the enforcement point at contest entry — same modal, two callers.
     { group: "Onboarding",

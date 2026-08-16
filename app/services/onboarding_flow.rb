@@ -2,12 +2,17 @@
 #
 # ONE resolver for the post-auth chain, so "which modal comes next" is decided
 # server-side in a single place instead of being spread across three controllers
-# and a layout script. Two named flows, in order (operator spec, 2026-08-12):
+# and a layout script. Two named flows, in order (operator spec, 2026-08-15):
 #
-#   Onboarding    :welcome     — "you're in, here's your username"
-#                 :first_name  — captured for marketing; SKIPPABLE
+#   Onboarding    :first_name  — captured for marketing; SKIPPABLE
 #   Wallet setup  :age         — the DOB gate
 #                 :wallet      — link Phantom
+#
+# THE WELCOME BEAT IS GONE (operator call, 2026-08-15). A "you're in, here's
+# your username" card opened the chain until then; it cost a click and told the
+# user something they had not asked for, so the chain now greets with the first
+# real question. Removed rather than skipped: a step nothing ever emits is a
+# dead branch in the modal, the driver and this list at once.
 #
 # Each step is listed only while it is still OUTSTANDING, so the chain a user
 # walks is exactly what they have left: a returning web2 player with a funded
@@ -19,11 +24,10 @@
 # refuses in ContestsController#enter — because the chain is dismissible and a
 # user who closes it must not thereby skip a gate. See the age note below.
 class OnboardingFlow
-  STEPS = [:welcome, :first_name, :age, :wallet].freeze
+  STEPS = [:first_name, :age, :wallet].freeze
 
-  def initialize(user, welcome: false, skipped_first_name: false, age_gate_enabled: false)
+  def initialize(user, skipped_first_name: false, age_gate_enabled: false)
     @user = user
-    @welcome = welcome
     @skipped_first_name = skipped_first_name
     @age_gate_enabled = age_gate_enabled
   end
@@ -42,14 +46,6 @@ class OnboardingFlow
   private
 
   attr_reader :user
-
-  # Shown once, for an account created in this session. The caller passes the
-  # flag (only the signup controllers know a create from a login) rather than
-  # inferring it from created_at, which would re-fire on every login inside some
-  # arbitrary window.
-  def welcome_outstanding?
-    @welcome
-  end
 
   # Marketing wants a first name; friction says do not wall a brand-new user in
   # behind it. So: asked while blank, dropped for the rest of the session the

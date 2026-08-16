@@ -22,8 +22,9 @@ test.beforeEach(async ({ request }) => await reseed(request));
 // THE ONBOARDING CHAIN to the wallet step.
 //
 // The wallet modal is no longer the first thing a signup sees: since the
-// post-auth chain landed (2026-08-12) the order is welcome → first name → age →
-// wallet, so reaching this modal means answering the three steps ahead of it.
+// post-auth chain landed (2026-08-12) reaching it means answering the steps
+// ahead of it. The order is first name → age → wallet as of 2026-08-15, when the
+// welcome card was retired.
 // These specs are about the wallet card itself, not about how it is reached
 // (e2e/onboarding_chain.spec.js owns the order), so the walk lives in the helper
 // and each spec below starts where it always did.
@@ -50,16 +51,12 @@ async function signUpFreshEmail(page) {
       .then(() => true)
       .catch(() => false);
 
-  // Step 1 — welcome.
-  const letsGo = page.getByRole("button", { name: /Let's go/i });
-  if (await appears(letsGo)) await letsGo.click();
-
-  // Step 2 — first name. Skipped: these specs are not about it, and skipping is
-  // the path that must still reach the wallet.
+  // Step 1 — first name, the chain's opening card. Skipped: these specs are not
+  // about it, and skipping is the path that must still reach the wallet.
   const skip = page.getByRole("button", { name: "Skip for now" });
   if (await appears(skip)) await skip.click();
 
-  // Step 3 — the DOB gate (ENABLE_AGE_GATE is on for this lane).
+  // Step 2 — the DOB gate (ENABLE_AGE_GATE is on for this lane).
   const ageHeading = page.getByRole("heading", { name: /Verify your age/i });
   if (await appears(ageHeading)) {
     await page.evaluate(() => {
@@ -75,7 +72,7 @@ async function signUpFreshEmail(page) {
     await page.getByRole("button", { name: /Confirm & Continue/i }).click();
   }
 
-  // Step 4 — the wallet card these specs are about.
+  // Step 3 — the wallet card these specs are about.
   await expect(page.getByRole("heading", { name: "Set up your wallet" })).toBeVisible({ timeout: 20000 });
   return email;
 }
@@ -90,6 +87,19 @@ async function satisfyAgeGate(page) {
   await page.evaluate(() => {
     const sess = Alpine.store("session");
     if (sess) sess.ageVerified = true;
+  });
+}
+
+// The first-name gate sits AHEAD of the wallet gate in eligibilityBlocker since
+// 2026-08-15, and the helper above skips the name rather than saving it — so
+// without this every blocker assertion in this file would read
+// first_name_required and never reach its own subject. Same shape as
+// satisfyAgeGate: settle the store field the synchronous blocker reads, so the
+// spec stays about the WALLET.
+async function satisfyFirstNameGate(page) {
+  await page.evaluate(() => {
+    const sess = Alpine.store("session");
+    if (sess) sess.firstNameRequired = false;
   });
 }
 
@@ -152,6 +162,7 @@ test("the entry gate brings the wallet-setup modal back", async ({ page }) => {
   await page.goto("/");
   await page.waitForLoadState("networkidle");
   await satisfyAgeGate(page);
+  await satisfyFirstNameGate(page);
 
   const blocker = await page.evaluate(() =>
     window.eligibilityBlocker(Alpine.store("session"), 1900, { acceptsUsdt: false })
@@ -318,6 +329,7 @@ test("the free-contest path is gated too (entry is on-chain either way)", async 
   await page.goto("/");
   await page.waitForLoadState("networkidle");
   await satisfyAgeGate(page);
+  await satisfyFirstNameGate(page);
 
   // neededCents 0 = a free contest. The wallet check sits BEFORE that
   // short-circuit on purpose: a wallet-less account can't sign a free entry.

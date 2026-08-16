@@ -55,7 +55,7 @@ class WalletSetupGateTest < ActionDispatch::IntegrationTest
     assert_equal true, session[:wallet_setup], "the policy verdict should be recorded on the session"
 
     # Follow the redirect: the landing render arms the modal.
-    follow_redirect!
+    follow_redirects!
     assert_response :success
     assert_includes response.body, PROMPT_MARKER
     assert_includes response.body, "window.__walletSetupPrompt = true"
@@ -83,7 +83,7 @@ class WalletSetupGateTest < ActionDispatch::IntegrationTest
     # the followed render consumes the flash.
     assert_equal "Welcome back", flash[:auth_toast][:title]
 
-    follow_redirect!
+    follow_redirects!
     assert_not_includes response.body, PROMPT_MARKER
   end
 
@@ -97,7 +97,7 @@ class WalletSetupGateTest < ActionDispatch::IntegrationTest
     assert_equal true, session[:wallet_setup]
     assert_nil flash[:auth_toast], "the setup modal is the message; no toast over it"
 
-    follow_redirect!
+    follow_redirects!
     assert_includes response.body, PROMPT_MARKER
   end
 
@@ -107,13 +107,13 @@ class WalletSetupGateTest < ActionDispatch::IntegrationTest
     post magic_link_consume_path(token: magic_token(email: user.email))
 
     assert_equal false, session[:wallet_setup]
-    follow_redirect!
+    follow_redirects!
     assert_not_includes response.body, PROMPT_MARKER
   end
 
   test "the prompt is one-shot — a second page view does not re-open the modal" do
     post magic_link_consume_path(token: magic_token(email: "one-shot@example.com"))
-    follow_redirect!
+    follow_redirects!
     assert_includes response.body, PROMPT_MARKER
 
     get contests_path
@@ -127,7 +127,7 @@ class WalletSetupGateTest < ActionDispatch::IntegrationTest
     # reads has to survive it, or a user who dismisses the modal can hold-to-
     # confirm straight into a server refusal.
     post magic_link_consume_path(token: magic_token(email: "state-persists@example.com"))
-    follow_redirect!
+    follow_redirects!
     get contests_path
     assert_response :success
     assert_includes response.body, '"walletSetupRequired":true'
@@ -160,8 +160,12 @@ class WalletSetupGateTest < ActionDispatch::IntegrationTest
     assert_nil session[:wallet_setup], "a wallet login satisfies the nudge"
   end
 
+  # The two tests below turn the flag OFF with an explicit "false". It became a
+  # kill-switch on 2026-08-15 (NFL 2026 is web3-only), so deleting the var —
+  # which is what these used to do — now leaves the feature ON and would assert
+  # the reverse of their names.
   test "with the flag OFF a new signup still mints a wallet and sees no prompt" do
-    ENV.delete("ENABLE_WEB3_ONLY_ONBOARDING")
+    ENV["ENABLE_WEB3_ONLY_ONBOARDING"] = "false"
     post magic_link_consume_path(token: magic_token(email: "flag-off@example.com"))
     user = User.find_by(email: "flag-off@example.com")
 
@@ -169,10 +173,10 @@ class WalletSetupGateTest < ActionDispatch::IntegrationTest
     assert_equal :managed, user.wallet_kind
     assert_equal false, session[:wallet_setup]
 
-    follow_redirect!
-    # The CHAIN still runs with the feature off — a new signup is still welcomed
-    # and still asked for a first name. What must be absent is the WALLET step,
-    # because web2 is a supported path when the flag is off.
+    follow_redirects!
+    # The CHAIN still runs with the feature off — a new signup is still asked
+    # for a first name. What must be absent is the WALLET step, because web2 is
+    # a supported path when the flag is off.
     assert_includes response.body, PROMPT_MARKER
     assert_not_includes response.body, "window.__walletSetupPrompt = true",
                         "no wallet step, so the board must not defer its tokens picker"
@@ -186,7 +190,7 @@ class WalletSetupGateTest < ActionDispatch::IntegrationTest
     # policy live with the feature off, so an existing web2 user under 19 USDC
     # would be nudged to Phantom and — worse — blocked by the entry gate from
     # the web2 funding rails that exist to fix exactly that balance.
-    ENV.delete("ENABLE_WEB3_ONLY_ONBOARDING")
+    ENV["ENABLE_WEB3_ONLY_ONBOARDING"] = "false"
     user = settle_non_wallet_steps(users(:jordan))
     user.update_columns(web2_solana_address: "EmptyManagedFlagOff", web3_solana_address: nil)
     with_usdc(0.0) do
@@ -196,7 +200,7 @@ class WalletSetupGateTest < ActionDispatch::IntegrationTest
     assert_equal false, session[:wallet_setup]
     assert_equal "Welcome back", flash[:auth_toast][:title], "web2 login is untouched with the feature off"
 
-    follow_redirect!
+    follow_redirects!
     assert_not_includes response.body, PROMPT_MARKER
     assert_includes response.body, '"walletSetupRequired":false',
                     "the entry gate must not block a web2 user while web2 is supported"
