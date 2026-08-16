@@ -343,6 +343,12 @@ class AdminController < ApplicationController
   def level_badges
   end
 
+  # Fizz lab for shared/_hold_button — every phase of the particle layer on one
+  # page, because the real button only exists at the bottom of a contest board
+  # behind six picks, and its success state is one-shot.
+  def hold_button
+  end
+
   def modals
     @variants = MODAL_VARIANTS
     # Resolve each flow's steps to their full variant records once, here, so the

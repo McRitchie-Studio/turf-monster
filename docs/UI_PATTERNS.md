@@ -78,7 +78,7 @@ Uses `outline` (not border) for selection highlight — avoids layout shift. Dyn
 `_hold_button.html.erb` — reusable partial with four states:
 - **idle** (green) → **holding** (`.process`, mint glow builds) → **success** (`.success`, mint gradient + checkmark) or **error** (`.error`, red background)
 - After hold completes, stays in `.process` for 500ms while resolving before transitioning to success or error
-- Params: `default_text`, `hold_text`, `success_text`, `error_text`, `duration`, `hold_id`, `guard`, `on_success`, `validate`, `validate_at`
+- Params: `default_text`, `hold_text`, `success_text`, `error_text`, `duration`, `hold_id`, `guard`, `on_success`, `validate`, `validate_at`, `fizz`
 - The `on_success` callback sets the final state via `setHoldSuccess()` or `setHoldError()`
 - Renders in both desktop + mobile cart (2 DOM elements, differentiated by `hold_id`)
 - **CSS**: All hold button styles (`.hold-btn`, state classes, keyframes) live in `app/assets/tailwind/application.css` using CSS variables (`--color-cta`, `--color-danger`, `--color-page`). Duration passed via inline `style="--duration: Xms"`.
@@ -89,6 +89,14 @@ Optional mid-hold validation via `validate`/`validate_at` params. `validate` is 
 
 ### Nudge Animation
 JS-driven, big nudge at 3s then soft nudge every 10s. Resets on hold, soft-only after release.
+
+### Fizz Layer
+Carbonation bubbles that make the CTA catch the eye. Default on; pass `fizz: false` for the flat button.
+- **Markup**: `<span class="fizz">` of 26 `<i class="fizz-bit">`, first child of the button, `aria-hidden` and `pointer-events:none` (pure decoration).
+- **Table**: `ApplicationHelper#hold_button_fizz_bits(hold_id)` — placement, drift, size, delay, duration and hue per bubble, emitted as inline custom properties. Seeded from `hold_id`, so a button scatters the same way on every render (Turbo restores a cached page unchanged) and the desktop/mobile pair do not fizz in lockstep.
+- **Phases** (each is a multiplier on the bubble's own drift): rest simmers at ~40%, hover / `.nudge` / `.process` / `.loading` boil at 100% on a shorter cycle, `.success` bursts one-shot at 260%, `.error` cuts them dead.
+- **CSS**: inside `@utility hold-btn` ("Fizz layer") plus `@keyframes fizz-simmer|fizz-boil|fizz-burst`. Transform + opacity only, so the bubbles stay on the compositor; `prefers-reduced-motion: reduce` switches them off entirely.
+- **Preview**: `/admin/hold_button` — every phase pinned side by side, plus a live button.
 
 ## Pick Slot Animations
 - `pick-pulse` (gentle glow, picks 3-4)

@@ -32,6 +32,45 @@ class CssComponentHooksTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "hold button renders a fizz layer the hold-btn utility animates" do
+    html = ApplicationController.render(partial: "shared/hold_button", locals: { hold_id: "desktop" })
+    doc = Nokogiri::HTML::DocumentFragment.parse(html)
+
+    layer = doc.at_css(".hold-btn > .fizz")
+    assert layer, "fizz layer must render inside the button"
+    assert_equal "true", layer["aria-hidden"], "decoration must be hidden from assistive tech"
+
+    bits = doc.css(".hold-btn > .fizz > .fizz-bit")
+    assert_equal 26, bits.size, "the fizz layer needs its full bubble table"
+
+    # Each bubble carries its own placement + animation table inline; the
+    # keyframes read them back as vars, so a dropped property = a dead bubble.
+    bits.each do |bit|
+      style = bit["style"].to_s
+      %w[left: top: --fs: --fx: --fy: --fd: --ft: --fh:].each do |prop|
+        assert_includes style, prop, "every bubble needs #{prop}"
+      end
+    end
+
+    # Opt-out for any call site that wants the flat button back.
+    flat = Nokogiri::HTML::DocumentFragment.parse(
+      ApplicationController.render(partial: "shared/hold_button", locals: { fizz: false })
+    )
+    assert_nil flat.at_css(".fizz"), "fizz: false must render no particle layer"
+
+    # Styling lives INSIDE @utility hold-btn (the dedupe rule), the keyframes
+    # at file level, and reduced motion switches the whole thing off.
+    %w[.fizz-bit .fizz].each do |hook|
+      assert_match(/@utility hold-btn \{.*#{Regexp.escape(hook)}/m, CSS,
+        "#{hook} must be styled within @utility hold-btn")
+    end
+    %w[fizz-simmer fizz-boil fizz-burst].each do |frames|
+      assert_match(/@keyframes #{frames}\s*\{/, CSS, "@keyframes #{frames} must exist")
+    end
+    assert_match(/@media \(prefers-reduced-motion: reduce\) \{\s*\.hold-btn \.fizz-bit \{\s*animation: none/m, CSS,
+      "reduced motion must stop the bubbles")
+  end
+
   test "gear sidebar renders the nav emoji swap hooks the stylesheet styles" do
     log_in_as(users(:alex))
     get account_path

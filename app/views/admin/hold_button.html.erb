@@ -1,0 +1,113 @@
+<% content_for(:title, "Hold Button Fizz Lab — Turf Monster") %>
+
+<%# Fizz lab for shared/_hold_button. The real button lives at the bottom of a
+    contest board behind six picks and its success state is one-shot, so every
+    phase of the particle layer is forced side by side here instead.
+    CSS lives in app/assets/tailwind/application.css inside @utility hold-btn
+    ("Fizz layer"); the per-bubble table is ApplicationHelper#hold_button_fizz_bits. %>
+
+<div class="max-w-5xl mx-auto py-8 px-4 space-y-10" x-data="{ submitting: false }">
+  <header>
+    <h1 class="text-heading text-3xl font-extrabold mb-1">Hold Button — Fizz Lab</h1>
+    <p class="text-secondary text-sm">
+      Carbonation on the hold-to-confirm CTA. Bubbles simmer at rest, boil on hover, on the
+      nudge shake and through the hold, then burst outward when the entry confirms.
+      Bubbles are seeded per <code class="text-xs">hold_id</code>, so each button scatters
+      differently and scatters the same way on every render.
+    </p>
+  </header>
+
+  <section class="space-y-3">
+    <h2 class="text-heading text-lg font-bold">With and without</h2>
+    <p class="text-muted text-xs">Hover each one. Left is the new default; right is <code>fizz: false</code>.</p>
+    <div class="card p-6 grid md:grid-cols-2 gap-8">
+      <div class="space-y-2">
+        <p class="text-heading font-semibold text-sm">Fizz on (default)</p>
+        <div style="max-width:18rem">
+          <%= render "shared/hold_button", hold_id: "fizz-on" %>
+        </div>
+      </div>
+      <div class="space-y-2">
+        <p class="text-heading font-semibold text-sm">Fizz off</p>
+        <div style="max-width:18rem">
+          <%= render "shared/hold_button", hold_id: "fizz-off", fizz: false %>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="space-y-3">
+    <h2 class="text-heading text-lg font-bold">Every phase</h2>
+    <p class="text-muted text-xs">
+      States are pinned by class here — the live button below walks them for real.
+      Replay re-runs the one-shot burst.
+    </p>
+    <div class="card p-6 grid md:grid-cols-2 gap-8">
+      <% [
+           { id: "fizz-rest",    state: nil,       label: "Rest — simmer",   note: "Always on. Low amplitude, ~40% of each bubble's drift." },
+           { id: "fizz-process", state: "process", label: "Held — boil",     note: "Full drift, faster cycle, bright. Runs for the 2s hold." },
+           { id: "fizz-success", state: "success", label: "Confirmed — burst", note: "One-shot spew at 2.6x drift, then gone." },
+           { id: "fizz-error",   state: "error",   label: "Blocked — no fizz", note: "Bubbles cut dead; the red state stays plain." }
+         ].each do |demo| %>
+        <div class="space-y-2" data-fizz-demo="<%= demo[:id] %>" data-fizz-state="<%= demo[:state] %>">
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-heading font-semibold text-sm"><%= demo[:label] %></p>
+            <% if demo[:state] %>
+              <button type="button" class="text-xs text-secondary underline" data-fizz-replay="<%= demo[:id] %>">Replay</button>
+            <% end %>
+          </div>
+          <div style="max-width:18rem">
+            <%= render "shared/hold_button", hold_id: demo[:id] %>
+          </div>
+          <p class="text-muted text-xs"><%= demo[:note] %></p>
+        </div>
+      <% end %>
+    </div>
+  </section>
+
+  <section class="space-y-3">
+    <h2 class="text-heading text-lg font-bold">Live</h2>
+    <p class="text-muted text-xs">Press and hold for two seconds — the real thing, end to end.</p>
+    <div class="card p-6 space-y-3">
+      <div style="max-width:18rem">
+        <%= render "shared/hold_button", hold_id: "fizz-live", duration: 2000 %>
+      </div>
+      <button type="button" class="text-xs text-secondary underline" data-fizz-reset>Reset</button>
+    </div>
+  </section>
+</div>
+
+<script>
+  (function() {
+    function btn(id) { return document.querySelector('.hold-btn[data-hold-id="' + id + '"]'); }
+
+    function paint() {
+      document.querySelectorAll('[data-fizz-demo]').forEach(function(wrap) {
+        var state = wrap.dataset.fizzState;
+        if (!state) return;
+        var el = btn(wrap.dataset.fizzDemo);
+        if (el) el.classList.add(state);
+      });
+    }
+
+    document.addEventListener('click', function(e) {
+      var replay = e.target.closest('[data-fizz-replay]');
+      if (replay) {
+        var wrap = document.querySelector('[data-fizz-demo="' + replay.dataset.fizzReplay + '"]');
+        var el = btn(replay.dataset.fizzReplay);
+        if (!wrap || !el) return;
+        el.classList.remove(wrap.dataset.fizzState);
+        void el.offsetWidth; // force reflow so the one-shot animation re-runs
+        el.classList.add(wrap.dataset.fizzState);
+        return;
+      }
+      if (e.target.closest('[data-fizz-reset]')) {
+        var live = btn('fizz-live');
+        if (live) live.classList.remove('process', 'success', 'error', 'loading');
+      }
+    });
+
+    document.addEventListener('turbo:load', paint);
+    paint();
+  })();
+</script>

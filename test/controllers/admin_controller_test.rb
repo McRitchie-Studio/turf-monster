@@ -61,6 +61,28 @@ class AdminControllerTest < ActionDispatch::IntegrationTest
     assert_response :redirect
   end
 
+  # --- hold button fizz lab ---
+
+  test "hold button fizz lab renders every state for admins" do
+    log_in_as(@admin)
+    get admin_hold_button_path
+    assert_response :success
+    assert_select "h1", text: "Hold Button — Fizz Lab"
+    # The comparison pair: default fizz vs the fizz: false opt-out.
+    assert_select ".hold-btn[data-hold-id=?] .fizz", "fizz-on"
+    assert_select ".hold-btn[data-hold-id=?] .fizz", "fizz-off", count: 0
+    # Every pinned phase plus the live button.
+    %w[fizz-rest fizz-process fizz-success fizz-error fizz-live].each do |id|
+      assert_select ".hold-btn[data-hold-id=?]", id
+    end
+  end
+
+  test "hold button fizz lab is admin only" do
+    log_in_as(@user)
+    get admin_hold_button_path
+    assert_response :redirect
+  end
+
   # --- navbar gear sidebar ---
 
   test "navbar gear sidebar renders for admins" do

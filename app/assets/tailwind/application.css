@@ -333,6 +333,52 @@
     opacity: var(--ul-o-4, 0);
   }
 
+  /* Fizz layer — carbonation bubbles.
+     The partial places each bit (left/top %) and hands it its own drift, size,
+     delay, duration and hue as custom properties, so ONE keyframe set drives
+     all 26. Amplitude is the STATE's job, expressed as a multiplier on the
+     bit's own drift: the resting simmer travels a fraction of it, the held
+     boil travels all of it, the success burst overshoots it. Decorative only —
+     the partial marks the layer aria-hidden. */
+  & .fizz {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+  & .fizz-bit {
+    position: absolute;
+    width: var(--fs, 4px);
+    height: var(--fs, 4px);
+    margin-left: calc(var(--fs, 4px) / -2);
+    margin-top: calc(var(--fs, 4px) / -2);
+    border-radius: 100px;
+    background: hsl(var(--fh, 292) 92% 70%);
+    box-shadow: 0 0 6px hsl(var(--fh, 292) 92% 70% / 0.55);
+    opacity: 0;
+    will-change: transform, opacity;
+    animation: fizz-simmer var(--ft, 1.8s) linear var(--fd, 0s) infinite;
+  }
+  /* Hover and the nudge shake both mean "look at me" — boil for the moment. */
+  &:hover:not(.process):not(.success):not(.error) .fizz-bit {
+    animation: fizz-boil calc(var(--ft, 1.8s) * 0.62) linear calc(var(--fd, 0s) * 0.35) infinite;
+  }
+  &.nudge .fizz-bit,
+  &.nudge-soft .fizz-bit {
+    animation: fizz-boil calc(var(--ft, 1.8s) * 0.55) linear calc(var(--fd, 0s) * 0.25) infinite;
+  }
+  &.process .fizz-bit,
+  &.loading .fizz-bit {
+    animation: fizz-boil calc(var(--ft, 1.8s) * 0.45) linear calc(var(--fd, 0s) * 0.2) infinite;
+  }
+  &.success .fizz-bit {
+    animation: fizz-burst 1.1s cubic-bezier(0.12, 0.72, 0.24, 1) forwards;
+  }
+  &.error .fizz-bit {
+    animation: none;
+    opacity: 0;
+  }
+
   /* State: hover */
   &:hover:not(.process):not(.success) {
     --shadow-color: var(--shadow-active);
@@ -1056,6 +1102,38 @@
   40% { transform: scale(1.03) rotate(1deg); }
   60% { transform: scale(1.02) rotate(-0.5deg); }
   80% { transform: scale(1.01) rotate(0.5deg); }
+}
+/* Fizz — one bubble's life. --fx/--fy are ITS drift (set per bit by the
+   partial); the multiplier here is the state's intensity. Transform+opacity
+   only, so all 26 stay on the compositor. */
+@keyframes fizz-simmer {
+  0% { opacity: 0; transform: translate3d(0, 0, 0) scale(0.5); }
+  30% { opacity: 0.4; }
+  70% { opacity: 0.24; }
+  100% { opacity: 0; transform: translate3d(calc(var(--fx, 0px) * 0.4), calc(var(--fy, 0px) * 0.4), 0) scale(1); }
+}
+@keyframes fizz-boil {
+  0% { opacity: 0; transform: translate3d(0, 0, 0) scale(0.4); }
+  20% { opacity: 0.95; }
+  70% { opacity: 0.7; }
+  100% { opacity: 0; transform: translate3d(var(--fx, 0px), var(--fy, 0px), 0) scale(1.15); }
+}
+/* The burst holds its brightness through most of the flight on purpose: an
+   opacity that eases out with the travel is over in ~100ms and reads as a
+   flicker, which is what the first cut did. */
+@keyframes fizz-burst {
+  0% { opacity: 0.3; transform: translate3d(0, 0, 0) scale(0.6); }
+  12% { opacity: 1; transform: translate3d(calc(var(--fx, 0px) * 0.4), calc(var(--fy, 0px) * 0.4), 0) scale(1.5); }
+  65% { opacity: 0.9; }
+  100% { opacity: 0; transform: translate3d(calc(var(--fx, 0px) * 2.6), calc(var(--fy, 0px) * 2.6), 0) scale(0.5); }
+}
+/* Decoration, not information — a reduced-motion viewer loses nothing by
+   losing it, and 26 looping bubbles is exactly what that setting is for. */
+@media (prefers-reduced-motion: reduce) {
+  .hold-btn .fizz-bit {
+    animation: none;
+    opacity: 0;
+  }
 }
 
 /* Seeds bar animations */

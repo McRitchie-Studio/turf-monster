@@ -26,7 +26,7 @@ class TailwindCssDedupeTest < ActiveSupport::TestCase
     # hooks styled via compound selectors INSIDE @utility hold-btn. Bare
     # utilities with these common names get emitted whenever the token
     # appears anywhere Tailwind scans (flash[:success], prose, JS strings).
-    %w[process success error loading nudge nudge-soft hold-icon hold-text].each do |name|
+    %w[process success error loading nudge nudge-soft hold-icon hold-text fizz fizz-bit].each do |name|
       refute_match(/^@utility\s+#{Regexp.escape(name)}\s*\{/, css,
         "@utility #{name} reintroduced — hold-button states belong inside @utility hold-btn")
     end

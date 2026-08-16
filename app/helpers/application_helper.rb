@@ -75,4 +75,68 @@ module ApplicationHelper
   def logrocket_sessions_url
     "https://app.logrocket.com/#{LOGROCKET_APP_PATH}/sessions"
   end
+
+  # --- Hold button "fizz" layer (shared/_hold_button) ---
+  # Candy hues the bubbles pick from: TM violet through pink, then the mint /
+  # cyan the success state already uses, plus one gold. Deliberately narrow —
+  # the CodePen this adapts spanned the whole wheel and read as confetti; the
+  # button wants carbonation that still looks like the brand.
+  FIZZ_HUES = [ 262, 276, 292, 318, 336, 190, 168, 46 ].freeze
+
+  # Deterministic bubble table for one hold button's fizz layer.
+  #
+  # The CodePen scattered its 52 particles with Sass `random()` at compile
+  # time. Tailwind v4 gives us no Sass, and a runtime `rand` would re-scatter
+  # the bubbles on every render — which fights Turbo's page cache (a restored
+  # page would not match the one it replaced) and leaves the markup untestable.
+  # So the scatter is SEEDED FROM hold_id: stable for a given button across
+  # renders, and different between the board's "desktop" and "mobile" buttons.
+  #
+  # Each bit is one bubble. x/y place it in the button's box (%), dx/dy are the
+  # drift it travels before fading (dy negative = rises off the top edge), size
+  # is px, delay/duration are seconds, hue indexes FIZZ_HUES. The CSS scales
+  # dx/dy up per state — a fraction while idle, full while held, ~2.6x on the
+  # success burst — so one table drives every phase.
+  def hold_button_fizz_bits(hold_id, count: 26)
+    prng = Random.new(hold_id.to_s.each_byte.sum * 7919 + count)
+
+    Array.new(count) do |i|
+      # 4-in-10 along the bottom edge, 4-in-10 along the top, 1 off each end.
+      case i % 10
+      when 0, 1, 2, 3 then bottom_fizz_bit(prng)
+      when 4, 5, 6, 7 then top_fizz_bit(prng)
+      when 8          then side_fizz_bit(prng, :left)
+      else                 side_fizz_bit(prng, :right)
+      end
+    end
+  end
+
+  private
+
+  def bottom_fizz_bit(prng)
+    fizz_bit(prng, x: 4 + prng.rand(92), y: 86 + prng.rand(12),
+                   dx: prng.rand(-8..8), dy: 12 + prng.rand(24))
+  end
+
+  def top_fizz_bit(prng)
+    fizz_bit(prng, x: 4 + prng.rand(92), y: 2 + prng.rand(12),
+                   dx: prng.rand(-8..8), dy: -(12 + prng.rand(24)))
+  end
+
+  def side_fizz_bit(prng, side)
+    reach = 10 + prng.rand(18)
+    fizz_bit(prng,
+             x: side == :left ? prng.rand(5) : 95 + prng.rand(5),
+             y: 18 + prng.rand(64),
+             dx: side == :left ? -reach : reach,
+             dy: prng.rand(-6..6))
+  end
+
+  def fizz_bit(prng, x:, y:, dx:, dy:)
+    { x: x, y: y, dx: dx, dy: dy,
+      size: 2 + prng.rand(5),
+      delay: (prng.rand(180) / 100.0).round(2),
+      duration: (1.4 + prng.rand(120) / 100.0).round(2),
+      hue: FIZZ_HUES[prng.rand(FIZZ_HUES.size)] }
+  end
 end

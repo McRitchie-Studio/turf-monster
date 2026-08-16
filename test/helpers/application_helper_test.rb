@@ -21,4 +21,38 @@ class ApplicationHelperTest < ActionView::TestCase
       Rails.env = original_env
     end
   end
+
+  # --- Hold button fizz table ---
+  # The whole point of seeding off hold_id (rather than calling rand at render
+  # time) is that the markup is STABLE: Turbo restores a cached page and the
+  # bubbles must land where they were, and the component test must be able to
+  # assert on them at all.
+  test "fizz bits are deterministic per hold_id and differ between buttons" do
+    assert_equal hold_button_fizz_bits("desktop"), hold_button_fizz_bits("desktop"),
+      "same hold_id must produce the identical scatter on every render"
+    assert_not_equal hold_button_fizz_bits("desktop"), hold_button_fizz_bits("mobile"),
+      "two buttons on one page should not fizz in lockstep"
+  end
+
+  test "fizz bits stay inside the button box and carry a full animation table" do
+    bits = hold_button_fizz_bits("desktop")
+    assert_equal 26, bits.size
+
+    bits.each do |bit|
+      assert_includes 0..100, bit[:x], "x must be a percentage inside the button"
+      assert_includes 0..100, bit[:y], "y must be a percentage inside the button"
+      assert bit[:size].positive?, "a bubble needs a size"
+      assert bit[:duration].positive?, "a bubble needs a cycle duration"
+      assert bit[:delay] >= 0, "delay must not be negative"
+      assert_includes ApplicationHelper::FIZZ_HUES, bit[:hue], "hues stay in the brand palette"
+    end
+  end
+
+  test "fizz bits drift off both edges so the button looks carbonated, not top-heavy" do
+    bits = hold_button_fizz_bits("desktop")
+
+    assert bits.any? { |b| b[:dy].negative? }, "some bubbles must rise off the top edge"
+    assert bits.any? { |b| b[:dy].positive? }, "some bubbles must fall off the bottom edge"
+    assert bits.any? { |b| b[:dx].abs > 8 }, "the end bubbles must spray sideways"
+  end
 end
