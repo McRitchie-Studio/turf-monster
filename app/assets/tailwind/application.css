@@ -1208,12 +1208,20 @@
   65% { opacity: 0.9; }
   100% { opacity: 0; transform: translate3d(calc(var(--fx, 0px) * 2.6), calc(var(--fy, 0px) * 2.6), 0) scale(0.5); }
 }
-/* Decoration, not information — a reduced-motion viewer loses nothing by
-   losing it, and 26 looping bubbles is exactly what that setting is for. */
+/* Decoration, not information — a reduced-motion viewer loses nothing by losing
+   it, and 60 looping bubbles is exactly what that setting is for.
+   !important because this is an OFF SWITCH: the state rules inside @utility
+   hold-stack are more specific than any selector this media query can write
+   (`.hold-stack.fizz-lively .fizz-bit`, `:has()` compounds), so without it the
+   guard silently loses and a lively button keeps fizzing at someone who asked
+   it not to. Caught in a browser by e2e/hold_button_fizz.spec.js — every
+   server-side assertion passed while this was broken. */
 @media (prefers-reduced-motion: reduce) {
-  .hold-stack .fizz-bit {
-    animation: none;
-    opacity: 0;
+  .hold-stack .fizz-bit,
+  .hold-stack .hold-fizz-extra {
+    animation: none !important;
+    opacity: 0 !important;
+    transition: none !important;
   }
 }
 
