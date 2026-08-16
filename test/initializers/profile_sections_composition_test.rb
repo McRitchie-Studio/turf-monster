@@ -17,12 +17,35 @@ require "test_helper"
 class ProfileSectionsCompositionTest < ActiveSupport::TestCase
   def declared = Studio.profile_sections.call(nil)
 
+  # ASSERTED AS A PREFIX, not as a literal total. This read
+  # `engine_keys + [:quests]`, which is itself a literal list of this app's rows —
+  # the exact thing the test warns against, one level up. It broke the moment the
+  # wallet and referral rows joined, and a test you must edit every time the app
+  # adds a row is measuring the row COUNT rather than the property.
+  #
+  # THE PROPERTY: the engine's rows all arrive, IN ORDER, and FIRST. What this app
+  # appends after them is this app's business.
   test "the engine's rows arrive in the engine's order, plus this app's own" do
     engine_keys = Studio.default_profile_sections.map { |s| s[:key].to_sym }
+    keys = declared.map { |s| s[:key].to_sym }
 
-    assert_equal engine_keys + [:quests], declared.map { |s| s[:key].to_sym },
+    assert_equal engine_keys, keys.first(engine_keys.length),
                  "a literal list here would drop the next row the engine adds; " \
                  "appending our newsletter row instead of replacing it would reorder the page"
+    assert_empty engine_keys - keys, "an engine row went missing from this app's composition"
+    assert_operator keys.length, :>, engine_keys.length,
+                    "this app appends rows of its own; none of them are here"
+  end
+
+  # THE TWO WEB3 ROWS this app moved onto /profile from /account. Named
+  # explicitly rather than counted, because WHICH rows they are is the point —
+  # a count would stay green if one were swapped for something else.
+  test "this app's own rows include the wallet, referral and quests" do
+    keys = declared.map { |s| s[:key].to_sym }
+
+    assert_includes keys, :solana_wallet
+    assert_includes keys, :referral
+    assert_includes keys, :quests
   end
 
   # THE ROW THIS APP TAKES OVER. The engine's newsletter row is a plain form and a
