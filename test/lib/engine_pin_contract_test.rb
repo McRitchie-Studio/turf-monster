@@ -41,7 +41,20 @@ class EnginePinContractTest < ActiveSupport::TestCase
   #          app adopted it through. This app DELETED its local copy, so below
   #          0.46 the routes are never drawn and the onboarding modal's two
   #          hardcoded POSTs 404 — the chain stalls on the first-name step.
-  MINIMUM = Gem::Version.new("0.46.0")
+  #   0.52 — Studio.draw_profile_routes serves the shared /profile page,
+  #          Studio::ProfileSections is the registry this app declares its own
+  #          rows through (config/initializers/studio.rb replaces the newsletter
+  #          row and appends quests), and Studio::Newsletter backs both. The
+  #          Gemfile comment moved to 0.52 when that landed; THIS constant did
+  #          not, which is the drift the file exists to catch and did not.
+  #   0.54 — studio/fields/_date_of_birth, the engine's one DOB field.
+  #          app/views/modals/_age_verify renders it instead of its old forked
+  #          copy of the three selects. This is the sharpest floor in the list
+  #          because it fails LOUDLY and immediately: below 0.54 the partial does
+  #          not exist, so the age-gate modal raises on render rather than
+  #          degrading. It also carries /profile/edit's birthday row off the
+  #          retired calendar popover onto the same three selects.
+  MINIMUM = Gem::Version.new("0.54.0")
 
   test "the resolved studio-engine is at or above the floor this app depends on" do
     resolved = Gem::Version.new(Studio::VERSION)
@@ -49,7 +62,30 @@ class EnginePinContractTest < ActiveSupport::TestCase
                     "studio-engine #{resolved} is below the #{MINIMUM} floor this app depends on " \
                     "(the email-free local-review CTA needs >= 0.36; Studio::EmailSetting needs >= 0.42; " \
                     "a host-owned layered banner needs >= 0.43; the adopted first-name onboarding " \
-                    "endpoints need >= 0.46)"
+                    "endpoints need >= 0.46; the shared /profile page and its section registry need " \
+                    ">= 0.52; the shared date-of-birth field rendered by modals/_age_verify needs " \
+                    ">= 0.54)"
+  end
+
+  # THE FLOOR AND THE PIN MUST AGREE. Two places state the same fact — the
+  # Gemfile's `~> x.y` and MINIMUM above — and the interesting failure is not
+  # either one being wrong, it is them DISAGREEING, which is what happened
+  # between 0.52 and this commit: the Gemfile said 0.52 while MINIMUM still said
+  # 0.46, so a resolve back to 0.46 would have passed this file and broken the
+  # app. Asserting the relationship costs one test and closes that gap for good.
+  #
+  # `~>` on two segments allows anything below the next MAJOR, so the pin can
+  # never be a ceiling here — only its lower bound is meaningful, and that lower
+  # bound is what must match.
+  test "the Gemfile pin's lower bound is the floor this file declares" do
+    gemfile = Rails.root.join("Gemfile").read
+    pin = gemfile[/^\s*gem\s+["']studio-engine["'],\s*["']~>\s*([\d.]+)["']/, 1]
+
+    assert pin, "no `gem \"studio-engine\", \"~> x.y\"` line found in the Gemfile"
+    assert_equal Gem::Version.new(pin).segments.first(2), MINIMUM.segments.first(2),
+                 "the Gemfile pins ~> #{pin} but MINIMUM says #{MINIMUM}. One of them was moved " \
+                 "and the other was not — the version this app actually requires must be stated " \
+                 "the same way in both places."
   end
 
   # THE TEST THAT CATCHES A GEM BUMP OUTRUNNING AN ADOPTION.
