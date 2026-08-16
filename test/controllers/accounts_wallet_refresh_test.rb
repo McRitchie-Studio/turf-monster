@@ -13,6 +13,9 @@ class AccountsWalletRefreshTest < ActionDispatch::IntegrationTest
       email: "rr-#{SecureRandom.hex(2)}@example.test",
       email_verified_at: Time.current
     )
+    # The balance tiles need a wallet to hydrate; signup stopped minting one
+    # when web3-only onboarding became the default (2026-08-15).
+    grant_managed_wallet!(@user)
     assert @user.reload.solana_connected?
   end
 

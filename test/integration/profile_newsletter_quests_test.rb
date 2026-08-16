@@ -71,7 +71,14 @@ class ProfileNewsletterQuestsTest < ActionDispatch::IntegrationTest
     keys = Studio.profile_sections.call(nil).map { |s| s[:key].to_sym }
     defaults = Studio.default_profile_sections.map { |s| s[:key].to_sym }
 
-    assert_equal defaults + [:quests], keys
+    # POSITION, not the whole list. The claim is that swapping the newsletter row
+    # by KEY leaves it where the engine put it — so it is asserted as an INDEX
+    # match against the defaults, which stays true as this app appends more rows
+    # (the wallet and referral rows broke the literal version of this).
+    assert_equal defaults.index(:newsletter), keys.index(:newsletter),
+                 "the replacement was appended instead of swapped in place"
+    assert_equal defaults, keys.first(defaults.length),
+                 "the engine's rows must all still be here, in order"
     assert_equal "accounts/newsletter_section",
                  Studio.profile_sections.call(nil).find { |s| s[:key] == :newsletter }[:partial]
   end

@@ -17,7 +17,8 @@ class AccountsUsernameSeedsTest < ActionDispatch::IntegrationTest
     # self-custodied) that has entered a contest, so can_change_username? holds.
     @user = User.create!(email: "renamer-seeds@mcritchie.studio")
     @user.update_columns(contest_entered: true)
-    assert @user.managed_wallet?, "email signup should auto-generate a managed wallet"
+    grant_managed_wallet!(@user)
+    assert @user.managed_wallet?, "the co-sign rename path needs a custodial wallet"
   end
 
   test "the FIRST username change returns the seed payload and stamps username_changed_at" do

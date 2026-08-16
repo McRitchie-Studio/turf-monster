@@ -16,6 +16,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
+      - name: Await RubyGems propagation for locked gems
+        run: .github/scripts/await-gem-propagation.sh
+
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
@@ -33,6 +36,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
+      - name: Await RubyGems propagation for locked gems
+        run: .github/scripts/await-gem-propagation.sh
+
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
@@ -48,6 +54,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+
+      - name: Await RubyGems propagation for locked gems
+        run: .github/scripts/await-gem-propagation.sh
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
@@ -99,6 +108,9 @@ jobs:
 
       - name: Checkout code
         uses: actions/checkout@v7
+
+      - name: Await RubyGems propagation for locked gems
+        run: .github/scripts/await-gem-propagation.sh
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
@@ -230,6 +242,9 @@ jobs:
         options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
     steps:
       - uses: actions/checkout@v7
+      - name: Await RubyGems propagation for locked gems
+        run: .github/scripts/await-gem-propagation.sh
+
       - uses: ruby/setup-ruby@v1
         with: { ruby-version: .ruby-version, rubygems: 3.5.11, bundler-cache: true }
       - uses: actions/setup-node@v4

@@ -1,0 +1,175 @@
+<%# The Solana wallet — address, balances, and the three wallet actions.
+
+    Locals:
+      user  (required)
+      seeds (optional) — a preloaded seed count. Defaults to nil, which renders
+            the placeholder and lets the client fill it, and nil is what BOTH
+            call sites pass today: @user_seeds is read by
+            ApplicationController#display_seeds_data but is assigned NOWHERE, so
+            this tile has always hydrated client-side. It is a local rather than
+            an ivar read so that stays a deliberate seam instead of an undefined
+            instance variable quietly evaluating to nil in whichever controller
+            happens to render the page.
+
+    BODY ONLY — no card, no heading. Two call sites own their own chrome and they
+    are not the same shape: /account nests this under an "Identities" card beside
+    Google and Email, while /profile gives it a card and an h2 of its own from the
+    section registry. A partial carrying either would double-frame one of them.
+
+    THE GATE LIVES IN HERE, not in the registry row, because the not-connected
+    branch is not "render nothing" — it is the CONNECT button, which both pages
+    want. A row-level `if:` gate would drop the whole row on /profile and leave an
+    account with no wallet no way to link one from that page.
+
+    FOUR OF THE FIVE TILES RENDER RPC-FREE. The server paints em-dash
+    placeholders; the layout's hydrateNavbar fires refreshSession() on load, which
+    fills every data-wallet-tile span here PLUS the navbar pill, the token badge,
+    $store.session cents and the seeds bar in ONE call. The Refresh Wallet button
+    re-pulls on demand. Do not add a render-time balance read to any of them.
+
+    THE FIFTH IS ENTRY TOKENS, and the comment this block inherited said the whole
+    render path was RPC-free, which is not true of that one. It renders
+    User#entry_token_balance, which is Rails.cache-backed for 60 seconds with a
+    Solana::Vault call on a MISS — so a cold cache puts a chain round-trip in
+    front of the first paint. It is per-request memoised, so it happens at most
+    once, and test/integration/profile_query_budget_test.rb pins that.
+
+    THIS IS PRE-EXISTING, NOT NEW. /account has rendered it this way all along and
+    this extraction carried the tile across unaltered — but /profile now inherits
+    it too, so it is written down rather than left to the next reader to discover.
+    Worth noting for whoever picks it up: refreshSession ALSO fills this tile's
+    span client-side, so the server-rendered number is overwritten moments later
+    and the round-trip buys nothing a placeholder would not.
+%>
+<% seeds = local_assigns.fetch(:seeds, nil) %>
+
+    <% if user.solana_connected? %>
+      <div class="mb-4">
+        <div class="flex items-center gap-2 flex-wrap">
+          <svg class="w-4 h-4 text-green-400 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+          </svg>
+          <span class="text-body font-mono text-sm break-all"><%= user.solana_address %></span>
+          <%# Badge keys on wallet_kind (phantom takes precedence), NOT
+              managed_wallet? — every account gets an after_create managed
+              wallet, so managed_wallet? is always true and would mislabel Phantom
+              users as "Managed". %>
+          <% if user.wallet_kind == :phantom %>
+            <span class="text-xs text-violet px-2 py-0.5 rounded bg-violet/10">Phantom</span>
+          <% else %>
+            <span class="text-xs text-muted px-2 py-0.5 rounded bg-surface-alt">Managed</span>
+          <% end %>
+        </div>
+      </div>
+
+      <%# Balance tiles row — USDC | USDT | Entry Tokens | SOL | Seeds.
+          Values are ON-CHAIN truth, hydrated client-side: the layout's
+          hydrateNavbar fires refreshSession() on every page load, and the
+          Refresh Wallet button (walletRefresh factory) re-pulls on demand.
+          refreshSession fills the data-wallet-tile spans here PLUS the
+          navbar pill, token badge, $store.session cents, and the seeds bar
+          — one call, every component. The server renders "—" placeholders
+          (the render path is RPC-free by design — see
+          perform_solana_preload). %>
+      <div x-data="walletRefresh()">
+      <div class="grid grid-cols-5 gap-2 mb-3">
+        <%# All five tiles share an icon row with a fixed 28px height so the
+            labels + values line up across emoji icons and the 24px SVGs/PNG. %>
+        <%# USDC %>
+        <div class="bg-inset rounded-lg p-3 flex flex-col items-center text-center">
+          <div class="flex items-center justify-center mb-1" style="height: 28px;">
+            <img src="/usdc-mark.svg" alt="USDC" style="width: 24px; height: 24px;">
+          </div>
+          <span class="text-[10px] uppercase tracking-wide text-muted">USDC</span>
+          <span class="font-mono font-bold text-primary text-sm mt-0.5" data-wallet-tile="usdc">—</span>
+        </div>
+
+        <%# USDT %>
+        <div class="bg-inset rounded-lg p-3 flex flex-col items-center text-center">
+          <div class="flex items-center justify-center mb-1" style="height: 28px;">
+            <%= image_tag "tokens/usdt.png", alt: "USDT", style: "width: 24px; height: 24px;" %>
+          </div>
+          <span class="text-[10px] uppercase tracking-wide text-muted">USDT</span>
+          <span class="font-mono font-bold text-heading text-sm mt-0.5" data-wallet-tile="usdt">—</span>
+        </div>
+
+        <%# Entry Tokens %>
+        <div class="bg-inset rounded-lg p-3 flex flex-col items-center text-center">
+          <div class="flex items-center justify-center mb-1" style="height: 28px;">
+            <span style="font-size: 22px; line-height: 1;">🎟️</span>
+          </div>
+          <span class="text-[10px] uppercase tracking-wide text-muted">Entry Tokens</span>
+          <span class="font-mono font-bold text-heading text-sm mt-0.5" data-wallet-tile="tokens"><%= user.entry_token_balance %></span>
+        </div>
+
+        <%# SOL %>
+        <div class="bg-inset rounded-lg p-3 flex flex-col items-center text-center">
+          <div class="flex items-center justify-center mb-1" style="height: 28px;">
+            <img src="/solana-mark.svg" alt="SOL" style="width: 24px; height: 24px;">
+          </div>
+          <span class="text-[10px] uppercase tracking-wide text-muted">SOL</span>
+          <span class="font-mono font-bold text-heading text-sm mt-0.5" data-wallet-tile="sol">—</span>
+        </div>
+
+        <%# Seeds — ticks up live on quest completion (navbar-seeds-update);
+            seedsTile self-heals the value from the seedsNavbar cache when the
+            server read is cold (the "—" below shows pre-Alpine only). %>
+        <div x-data="seedsTile({ initial: <%= seeds.to_i %> })"
+             class="bg-inset rounded-lg p-3 flex flex-col items-center text-center">
+          <div class="flex items-center justify-center mb-1" style="height: 28px;">
+            <span style="font-size: 22px; line-height: 1;">🌱</span>
+          </div>
+          <span class="text-[10px] uppercase tracking-wide text-muted">Seeds</span>
+          <span class="font-mono font-bold text-heading text-sm mt-0.5" x-text="seeds">
+            <%= seeds.nil? ? "—" : seeds %>
+          </span>
+        </div>
+      </div>
+
+      <%# Wallet actions — Refresh Wallet re-pulls every on-chain value via
+          refreshSession(); Cash out for managed users (the server can sign on
+          their behalf), Manage callout for self-custodied users (server can't
+          sign; they cash out from their imported wallet). Phantom-only users
+          see only Refresh — they cash out in their own wallet app. The actual
+          withdraw form lives at /wallet — #cash-out auto-opens it. %>
+      <div class="flex items-center gap-3 mb-6 flex-wrap">
+        <%# Buy USDC (Coinbase CDP onramp) — primary CTA, first in the row;
+            outline style matches Refresh; serves both web2 + web3 wallets. %>
+        <%= render "shared/buy_usdc_button", button_class: "btn btn-outline btn-sm" %>
+        <%# Buy Entry Token — deep-link to the entry-token purchase page (/tokens/buy),
+            sitting beside Buy USDC + Refresh in the wallet-actions row. %>
+        <%= link_to tokens_buy_path, class: "btn btn-outline btn-sm", data: { testid: "buy-entry-token" } do %>
+          <span class="inline-flex items-center gap-1.5"><span aria-hidden="true">🎟️</span> Buy Entry Token</span>
+        <% end %>
+        <button type="button" @click="refresh()" :disabled="refreshing"
+                class="btn btn-outline btn-sm">
+          <span x-show="!refreshing" class="inline-flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/>
+            </svg>
+            Refresh Wallet
+          </span>
+          <span x-show="refreshing" class="inline-flex items-center gap-2" style="display: none;">
+            <span class="cta-spinner" aria-hidden="true"></span>
+            Refreshing…
+          </span>
+        </button>
+        <% if user.can_use_managed_withdraw? %>
+          <%= link_to "Cash out", "#{wallet_path}#cash-out", class: "btn btn-outline btn-sm" %>
+        <% elsif user.self_custodied? %>
+          <span class="text-xs text-emerald-300 px-2 py-0.5 rounded bg-emerald-500/10">Self-custodied — cash out from your own wallet</span>
+        <% end %>
+        <% if Solana::Config.devnet? %>
+          <a href="https://explorer.solana.com/address/<%= user.solana_address %>?cluster=devnet"
+             target="_blank" class="text-xs text-secondary hover:text-primary transition">
+            View on Solana Explorer &rarr;
+          </a>
+        <% end %>
+      </div>
+      <%= render "shared/buy_usdc_geo_note" %>
+      </div><%# /walletRefresh %>
+    <% else %>
+      <div class="mb-6">
+        <%= render "shared/solana_wallet_connect", link_mode: true %>
+      </div>
+    <% end %>

@@ -3,8 +3,8 @@ require "test_helper"
 # The post-auth onboarding chain, end to end across the auth boundary.
 #
 # What this tier owns:
-#   1. a brand-new magic-link signup is armed with welcome → first name → age →
-#      wallet, IN THAT ORDER, and the layout renders the driver payload;
+#   1. a brand-new magic-link signup is armed with first name → age → wallet,
+#      IN THAT ORDER, and the layout renders the driver payload;
 #   2. the prompt is one-shot (it must not re-open on every later page);
 #   3. moving the age PROMPT earlier did NOT move the age GATE — dismissing the
 #      chain still cannot buy an unverified entry. That is the compliance
@@ -37,14 +37,25 @@ class OnboardingChainTest < ActionDispatch::IntegrationTest
     user = User.find_by(email: "chain-new@example.com")
     assert_equal user.id, session[Studio.session_key], "still signed in"
 
-    follow_redirect!
+    follow_redirects!
     assert_response :success
     assert_includes response.body, CHAIN_MARKER
-    assert_equal %w[welcome first_name age wallet], rendered_steps,
-                 "the operator's order: welcome -> first name -> age -> wallet"
-    # The username is handed over server-rendered, so the welcome step shows a
-    # real value rather than the client guessing at one.
-    assert_includes response.body, user.username
+    assert_equal %w[first_name age wallet], rendered_steps,
+                 "the operator's order: first name -> age -> wallet"
+  end
+
+  # The welcome step's retirement, at the layer that carries it to the browser.
+  # The step must be absent from the payload, and the payload must have stopped
+  # carrying the username the retired card was the only reader of.
+  test "the chain payload carries steps only, and never the welcome step" do
+    post magic_link_consume_path(token: magic_token(email: "chain-nowelcome@example.com"))
+    follow_redirects!
+    assert_not_includes rendered_steps, "welcome"
+    assert_equal "first_name", rendered_steps.first,
+                 "the chain greets with the first-name ask now"
+    payload = JSON.parse(response.body[/id="onboarding-chain-data">\s*(\{.*?\})\s*<\/script>/m, 1])
+    assert_equal %w[steps], payload.keys,
+                 "username rode along for the retired welcome card and has no reader left"
   end
 
   test "the new-signup landing does not also fire the old welcome modal or a toast" do
@@ -57,7 +68,7 @@ class OnboardingChainTest < ActionDispatch::IntegrationTest
 
   test "the chain prompt is one-shot" do
     post magic_link_consume_path(token: magic_token(email: "chain-once@example.com"))
-    follow_redirect!
+    follow_redirects!
     assert_includes response.body, CHAIN_MARKER
 
     get contests_path
@@ -74,29 +85,30 @@ class OnboardingChainTest < ActionDispatch::IntegrationTest
     # Read the flash BEFORE following the redirect — the followed render CONSUMES
     # it, so asserting afterwards reads nil and looks like a missing toast.
     assert_equal "Welcome back", flash[:auth_toast][:title], "a settled login keeps its quiet toast"
-    follow_redirect!
+    follow_redirects!
     assert_not_includes response.body, CHAIN_MARKER
   end
 
-  test "a returning user who still owes a step is armed WITHOUT the welcome beat" do
+  test "a returning user who still owes a step is armed with just that step" do
     user = users(:jordan)
     user.update_columns(first_name: nil, name: nil, age_attested_at: Time.current,
                         web3_solana_address: "PhantomReturning#{user.id}")
     post magic_link_consume_path(token: magic_token(email: user.email))
-    follow_redirect!
+    follow_redirects!
     assert_equal %w[first_name], rendered_steps,
-                 "a login is not a signup — no welcome, just the outstanding step"
+                 "the chain is what you still owe, nothing else"
   end
 
   # --- The retired welcome flash --------------------------------------------
 
   test "no signup path sets the retired magic_link_welcome flash" do
     # It had ONE writer (MagicLinksController#sign_up_new's generic-signin
-    # branch) and the chain made that branch unreachable: welcome: true means
-    # the welcome step is always outstanding for an account created in this
-    # request, so the branch above it always won. Dead-but-documented-as-live is
-    # the state this retirement removes — assert the absence on BOTH signup
-    # shapes so a future edit cannot quietly resurrect a second greeting.
+    # branch) and the chain made that branch unreachable: an account created in
+    # this request always owes the first-name ask, so the branch above it always
+    # won — and still does, now that the ask is the chain's opening card.
+    # Dead-but-documented-as-live is the state this retirement removes — assert
+    # the absence on BOTH signup shapes so a future edit cannot quietly
+    # resurrect a second greeting.
     post magic_link_consume_path(token: magic_token(email: "no-flash-generic@example.com"))
     assert_nil flash[:magic_link_welcome], "generic /signin signup"
 
@@ -147,15 +159,17 @@ class OnboardingChainTest < ActionDispatch::IntegrationTest
   test "with the age gate OFF the chain skips that step but still asks the rest" do
     ENV.delete("ENABLE_AGE_GATE")
     post magic_link_consume_path(token: magic_token(email: "chain-noage@example.com"))
-    follow_redirect!
-    assert_equal %w[welcome first_name wallet], rendered_steps
+    follow_redirects!
+    assert_equal %w[first_name wallet], rendered_steps
   end
 
+  # "OFF" is an explicit "false" since the flag became a kill-switch — deleting
+  # it now means ON.
   test "with web3-only onboarding OFF the wallet step drops out of the chain" do
-    ENV.delete("ENABLE_WEB3_ONLY_ONBOARDING")
+    ENV["ENABLE_WEB3_ONLY_ONBOARDING"] = "false"
     post magic_link_consume_path(token: magic_token(email: "chain-web2@example.com"))
-    follow_redirect!
-    assert_equal %w[welcome first_name age], rendered_steps,
-                 "a managed-wallet signup still gets welcomed and asked, minus the wallet step"
+    follow_redirects!
+    assert_equal %w[first_name age], rendered_steps,
+                 "a managed-wallet signup is still asked, minus the wallet step"
   end
 end

@@ -66,7 +66,10 @@ class UserTest < ActiveSupport::TestCase
 
   test "signup mints a managed wallet while web3-only onboarding is off" do
     # The pre-existing behaviour, asserted so the flag's OFF path stays honest.
-    with_web3_only(nil) do
+    # "Off" is an explicit "false" since the flag became a kill-switch on
+    # 2026-08-15 — an absent var is now the ON side, and passing nil here would
+    # test the opposite of what this test's name claims.
+    with_web3_only("false") do
       user = User.create!(email: "web2wallet@mcritchie.studio")
       assert user.web2_solana_address.present?, "flag off should still mint a custodial wallet"
       assert_equal :managed, user.wallet_kind
