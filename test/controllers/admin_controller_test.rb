@@ -61,6 +61,66 @@ class AdminControllerTest < ActionDispatch::IntegrationTest
     assert_response :redirect
   end
 
+  # --- hold button fizz lab ---
+
+  test "hold button fizz lab renders every state for admins" do
+    log_in_as(@admin)
+    get admin_hold_button_path
+    assert_response :success
+    assert_select "h1", text: "Hold Button — Fizz Lab"
+    # The comparison pair: default fizz vs the fizz: false opt-out. The bubbles
+    # are the button's SIBLING (they paint behind it), so they hang off the
+    # stack, not the button.
+    assert_select ".hold-stack:has(.hold-btn[data-hold-id=?]) > .hold-fizz", "fizz-on"
+    assert_select ".hold-stack:has(.hold-btn[data-hold-id=?]) > .hold-fizz", "fizz-off", count: 0
+    # Every pinned phase plus the live button, the team-colored one, the two
+    # fizz levels, and the three candidate confirmed greens.
+    %w[fizz-rest fizz-process fizz-success fizz-error fizz-teams fizz-live
+       fizz-calm fizz-lively fizz-green-brand fizz-green-deep fizz-green-mint].each do |id|
+      assert_select ".hold-btn[data-hold-id=?]", id
+    end
+    # The lively variant is the stack's modifier, not a button state, and it is
+    # the one that carries the hover-only second bubble layer.
+    assert_select ".hold-stack.fizz-lively:has(.hold-btn[data-hold-id=?])", "fizz-lively"
+    assert_select ".hold-stack.fizz-lively:has(.hold-btn[data-hold-id=?])", "fizz-calm", count: 0
+    assert_select ".hold-stack:has(.hold-btn[data-hold-id=?]) > .hold-fizz-extra", "fizz-lively"
+    assert_select ".hold-stack:has(.hold-btn[data-hold-id=?]) > .hold-fizz-extra", "fizz-calm", count: 0
+    # The team demo wears brand colors in the twelve slots.
+    assert_select ".hold-stack[style*=?]", "--fizz-c-1:"
+  end
+
+  test "hold button fizz lab dresses its palette in the named teams, in order" do
+    # The six are a curated set (AdminController::FIZZ_DEMO_MASCOTS), not
+    # whatever the database happens to sort first — and they keep that order.
+    broncos = Team.create!(name: "Denver Broncos", slug: "denver-broncos-demo", mascot: "Broncos",
+                           sport: "football", league: "nfl", color_light: "#FB4F14", color_dark: "#002244",
+                           color_alt: "#FFB612")
+    bills = Team.create!(name: "Buffalo Bills", slug: "buffalo-bills-demo", mascot: "Bills",
+                         sport: "football", league: "nfl", color_light: "#C60C30", color_dark: "#00338D")
+
+    log_in_as(@admin)
+    get admin_hold_button_path
+    assert_response :success
+
+    assert_equal %w[Broncos Bills Chargers Seahawks Buccaneers Ravens], AdminController::FIZZ_DEMO_MASCOTS
+    # Three slots per team — light, dark, alt — one zone each, in this order.
+    # team_card_palette normalizes brand hex to lower case on the way out.
+    style = css_select(".hold-stack[style*='--fizz-c-1:']").first["style"]
+    assert_includes style, "--fizz-c-1:#{broncos.color_light.downcase}"
+    assert_includes style, "--fizz-c-2:#{broncos.color_dark.downcase}"
+    assert_includes style, "--fizz-c-3:#{broncos.color_alt.downcase}", "the curated alt is the third color"
+    assert_includes style, "--fizz-c-4:#{bills.color_light.downcase}"
+    assert_includes style, "--fizz-c-5:#{bills.color_dark.downcase}"
+    assert_includes style, "--fizz-c-6:#{bills.color_dark.downcase}",
+      "a team with no alt falls back to its dark, never to nothing"
+  end
+
+  test "hold button fizz lab is admin only" do
+    log_in_as(@user)
+    get admin_hold_button_path
+    assert_response :redirect
+  end
+
   # --- navbar gear sidebar ---
 
   test "navbar gear sidebar renders for admins" do

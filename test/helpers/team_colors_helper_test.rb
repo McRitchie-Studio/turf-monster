@@ -84,11 +84,21 @@ class TeamColorsHelperTest < ActionView::TestCase
   end
 
   test "palette exposes exactly the keys the card and picks sidebar consume" do
-    # The board cards, the cart rows, and the compact pick chips all read these
-    # keys — renaming one silently breaks a consumer. Lock the contract.
+    # The board cards, the cart rows, the compact pick chips, and the hold
+    # button's fizz all read these keys — renaming one silently breaks a
+    # consumer. Lock the contract.
     pal = team_card_palette(dark_team)
-    assert_equal %i[gradient fg fg_soft fg_faint border divider accent location grey glow mascot_shadow].sort,
+    assert_equal %i[gradient fg fg_soft fg_faint border divider accent location grey glow mascot_shadow
+                    fizz_light fizz_dark fizz_alt].sort,
                  pal.keys.sort
+  end
+
+  test "fizz colors are the team's raw brand pair, not the card's swapped field" do
+    # The card swaps background/mascot by disposition; the fizz wants the pair
+    # as curated, so six picks read as twelve distinct team colors.
+    pal = team_card_palette(light_team(color_light: "#d3bc8d", color_dark: "#101820"))
+    assert_equal "#d3bc8d", pal[:fizz_light]
+    assert_equal "#101820", pal[:fizz_dark]
   end
 
   # --- glow: the holographic hover/select tint ---

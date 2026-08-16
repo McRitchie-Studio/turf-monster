@@ -1,0 +1,16 @@
+<%#
+  One layer of the hold button's fizz.
+
+  Locals:
+    seed  - the string the bubble table is seeded from (the button's hold_id,
+            or "<hold_id>~extra" for the second layer, so the two scatters land
+            in each other's gaps rather than on top of each other)
+    extra - true for the hover-only layer, which rests invisible and fades in
+            when the pointer arrives (default: false)
+
+  The two layers also split the palette: the resting one wears the six teams'
+  LIGHT colors, the hover one their DARK colors (ApplicationHelper::
+  FIZZ_LAYER_SLOTS). Decoration only: aria-hidden, pointer-events off in CSS.
+%>
+<% extra ||= false %>
+<span class="hold-fizz<%= " hold-fizz-extra" if extra %>" aria-hidden="true"><% hold_button_fizz_bits(seed, layer: extra ? :hover : :base).each do |bit| %><i class="fizz-bit" style="left:<%= bit[:x] %>%;top:<%= bit[:y] %>%;--fs:<%= bit[:size] %>px;--fx:<%= bit[:dx] %>px;--fy:<%= bit[:dy] %>px;--fd:<%= bit[:delay] %>s;--ft:<%= bit[:duration] %>s;--fc:<%= hold_button_fizz_color(bit) %>"></i><% end %></span>
