@@ -180,6 +180,47 @@ class ProfileWalletReferralTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "Copy Link"
   end
 
+  # NO PAGE-LEVEL SCRIPT-BALANCE TEST HERE, and that is a decision rather than an
+  # omission. Three formulations were tried against a real leak and all three
+  # failed, two by accusing innocent code and one by being blind:
+  #
+  #   refute_includes body, "<%"          — a legitimate JS comment in an existing
+  #                                         script reads `// <%= render
+  #                                         "studio/modals/host" %> below.` A page
+  #                                         is allowed to TALK about ERB.
+  #   count("<script") == count("</script>")
+  #                                       — 33 vs 32, on ANOTHER legitimate JS
+  #                                         comment in shared/_alpine_factories:
+  #                                         "(regex literal inside a <script>, not
+  #                                         an x-data attribute)". Inside a script
+  #                                         element that is text, not a tag.
+  #   parser elements == "</script>" count — STRUCTURALLY BLIND. A phantom script
+  #                                         opened by leaked prose swallows the
+  #                                         next real one and consumes its closer,
+  #                                         so both numbers stay equal. Verified
+  #                                         against an injected leak: green.
+  #
+  # The risk this change actually carries is that ITS OWN comments leak, and the
+  # test below covers that correctly — on the partials, which contain no
+  # JavaScript to confuse a scan. A page-level guard for pre-existing markup is a
+  # different job, and shipping one that cannot fail would be worse than none.
+
+  # AND NEITHER OF THE TWO PARTIALS LEAKS ERB, which IS a clean scan because they
+  # contain no JavaScript to talk about it. Rendered rather than read, so a
+  # comment that lost its terminator shows up as the prose it becomes.
+  test "neither partial leaks its own comments into the page" do
+    connect_wallet(@user)
+
+    %w[solana_wallet_section referral_section].each do |name|
+      html = ApplicationController.renderer.render(
+        partial: "accounts/#{name}", locals: { user: @user.reload }
+      )
+
+      refute_includes html, "<%", "#{name} leaked an ERB opener into its output"
+      refute_includes html, "%>", "#{name} leaked an ERB terminator into its output"
+    end
+  end
+
   # THE HEADING BELONGS TO THE CALL SITE, and the two call sites disagree about
   # it on purpose: /account nests the wallet under "Identities" as an h3 beside
   # Google and Email, /profile gives it an h2 of its own from the registry.
