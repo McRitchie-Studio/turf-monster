@@ -9,17 +9,31 @@
 # the master list, one line per publish: `<gem> <version> <md5>`, where the md5
 # is a checksum OF THAT GEM'S `/info` FILE.
 #
-# Bundler reads `/versions` for BOTH of its decisions: which versions exist (the
-# list whose absence produces "can no longer be found"), and whether its cached
-# `/info/<gem>` is stale (by comparing that md5). So a stale `/versions` at an
-# edge does two things at once — it hides the version from the resolver AND it
-# makes bundler trust its cached `/info`, so it never re-fetches the very file a
-# freshness check on `/info` would have looked at.
+# The two files split the job, and getting the split backwards is easy — an
+# earlier draft of this script did (verified against bundler 2.5.23, the version
+# both lockfiles pin):
 #
-# The first version of this script polled `/info/<gem>`. That is a correlated
-# proxy — the two files are published together — but it is not the condition
-# bundler evaluates, and it can read fresh while `/versions` is still stale.
-# This version asks the question bundler actually asks.
+#   · `/info/<gem>` SUPPLIES THE VERSIONS the resolver enumerates.
+#     `fetcher/compact_index.rb:30-47` → `compact_index_client.info(name)` →
+#     `parser.rb:43` parses the /info body. The "can no longer be found" raise
+#     is `definition.rb:594`. `Parser#versions` is never called on this path.
+#   · `/versions` GATES WHETHER /info IS RE-FETCHED. Its third field is an md5
+#     of that gem's /info file (`parser.rb:53-57`), and `cache.rb:29-38` skips
+#     the network entirely when the local /info already matches it.
+#
+# So a fresh `/versions` is NECESSARY BUT NOT SUFFICIENT: confirming it and then
+# skipping /info leaves the resolver reading a file nobody checked. This script
+# therefore confirms BOTH, and never breaks on /versions alone.
+#
+# SIGPIPE, and why every read here uses a command substitution rather than a
+# pipe: `curl … | grep -q` looks right and is a false-negative generator. `grep
+# -q` exits on its FIRST match, curl then dies of EPIPE, and under `pipefail`
+# that non-zero status becomes the pipeline's — so a genuine hit reads as a
+# miss. MEASURED against the live index: a match early in the tail returned
+# pipeline status 56 (curl write error) while the same query for the LAST line
+# returned 0. The bug is invisible for a just-published version, which sits at
+# the very end and lets curl finish writing — i.e. it hides in exactly the case
+# this script is written for, and bites every other one.
 #
 # WHY THIS EXISTS. `bin/release prepare` publishes a gem, commits the consumer
 # `Gemfile.lock` bump onto `origin/release`, and that commit triggers CI seconds
@@ -99,37 +113,48 @@ for gem in $GEMS; do
   # `/info/<gem>` lists a version as "<version> <deps>|<checksums>".
   info_pattern="^$(printf '%s' "$version" | sed 's/\./\\./g') "
 
+  # `/info` is NECESSARY on every path, so it is never skipped; `/versions` is
+  # the freshness gate on top of it. Both are read with the substitution OUTSIDE
+  # the pipeline — see the SIGPIPE note in the header. `grep -c` counts instead
+  # of short-circuiting, and its own non-zero exit on "no match" is absorbed by
+  # the `|| true` so `pipefail` has nothing to propagate.
+  seen_info_only=0
+
   while :; do
-    # 1. The TAIL of /versions — the authoritative list, cheaply. `curl --range
-    #    -N` sends `Range: bytes=-N` and the index answers 206 with the last N
-    #    bytes. A server that ignores the range answers 200 with the whole file,
-    #    which still greps correctly — just expensively — so this degrades to
-    #    slow, never to wrong. A version published moments ago is here.
-    if curl -fsS --max-time 20 --range "-${TAIL_BYTES}" \
-         "https://index.rubygems.org/versions" 2>/dev/null \
-      | grep -qE "$pattern"; then
-      echo "${gem} ${version} is on /versions — the list bundler's resolver is built from"
+    versions_tail=$(curl -fsS --max-time 20 --range "-${TAIL_BYTES}" \
+                      "https://index.rubygems.org/versions" 2>/dev/null || true)
+    info_body=$(curl -fsS --max-time 20 \
+                  "https://index.rubygems.org/info/${gem}" 2>/dev/null || true)
+
+    on_versions=$(printf '%s\n' "$versions_tail" | grep -cE "$pattern" || true)
+    on_info=$(printf '%s\n' "$info_body" | grep -cE "$info_pattern" || true)
+
+    # BOTH fresh — the fully-propagated case, and the one a just-published
+    # version reaches within seconds.
+    if [ "${on_versions:-0}" -gt 0 ] && [ "${on_info:-0}" -gt 0 ]; then
+      echo "${gem} ${version} is on /versions AND /info — this edge is fully caught up"
       break
     fi
 
-    # 2. Not in the tail is AMBIGUOUS, and getting this wrong costs the whole
-    #    timeout in every job. It means either (a) the version is OLD, published
-    #    further back than the tail window, and therefore long since propagated
-    #    everywhere — or (b) it is brand new and this edge has not caught up.
-    #    `/info/<gem>` separates them: an old version is listed there, while a
-    #    version too new for a stale edge is missing from BOTH files, since
-    #    /info never leads /versions. So a hit here means "old and fine, do not
-    #    wait", and only a miss in both is a genuine not-yet-propagated version.
-    #    Without this branch, every pin older than the tail window would burn
-    #    the full timeout on every job — measured against studio-engine 0.54.1.
-    if curl -fsS --max-time 20 "https://index.rubygems.org/info/${gem}" 2>/dev/null \
-      | grep -qE "$info_pattern"; then
-      echo "${gem} ${version} predates the /versions tail window and is listed on /info — already propagated"
-      break
+    # /info alone. This is EXPECTED for any pin older than the tail window: its
+    # /versions line exists, just further back than the range we read. It is
+    # also what a stale-/versions edge looks like for a fresh publish, and the
+    # two are indistinguishable from here — so give /versions a short grace to
+    # catch up, then proceed rather than burn the whole timeout on an old pin
+    # (measured: studio-engine 0.54.1 otherwise waits the full TIMEOUT in every
+    # job). Proceeding is safe on a cold bundler cache, which is the case that
+    # fails: with no local /info to compare against, bundler fetches /info and
+    # sees the version regardless of what /versions says.
+    if [ "${on_info:-0}" -gt 0 ]; then
+      seen_info_only=$(( seen_info_only + 1 ))
+      if [ "$seen_info_only" -ge 2 ] || [ "$(date +%s)" -ge "$deadline" ]; then
+        echo "${gem} ${version} is on /info (the list the resolver enumerates); not in the /versions tail window — proceeding"
+        break
+      fi
     fi
 
     if [ "$(date +%s)" -ge "$deadline" ]; then
-      echo "::warning::${gem} ${version} is on neither /versions nor /info after ${TIMEOUT}s — continuing anyway; bundle install may hit the propagation race"
+      echo "::warning::${gem} ${version} is not on /info after ${TIMEOUT}s — continuing anyway; bundle install may hit the propagation race"
       break
     fi
 

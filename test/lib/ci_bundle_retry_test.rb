@@ -131,12 +131,37 @@ class CiBundleRetryTest < Minitest::Test
     code = body.lines.reject { |l| l.strip.start_with?("#") }.join
 
     assert_includes code, "index.rubygems.org/versions",
-                    "the await script must poll /versions — the list bundler's resolver is built from. " \
-                    "/info alone is a proxy that can read fresh while the install still fails"
+                    "the await script must consult /versions — it gates whether bundler re-fetches /info at all"
+
+    assert_includes code, "index.rubygems.org/info/",
+                    "the await script must consult /info — it SUPPLIES the versions the resolver enumerates " \
+                    "(bundler 2.5.23: fetcher/compact_index.rb:30-47 -> parser.rb:43). A fresh /versions is " \
+                    "necessary but NOT sufficient, and an earlier draft broke out on /versions alone"
 
     assert_match(/--range\s+"?-/, code,
                  "/versions is ~23MB, so it must be read with an HTTP range request on the tail; " \
                  "a full GET per job is not an acceptable cost")
+  end
+
+  # `curl … | grep -q` is a false-negative generator here, and it hides in
+  # exactly the case this script exists for. `grep -q` exits on its FIRST match,
+  # curl dies of EPIPE, and under `pipefail` that becomes the pipeline's status —
+  # so a genuine hit reads as a miss. MEASURED against the live index: a match
+  # early in the tail returned status 56, the same query for the LAST line
+  # returned 0. A just-published version sits at the very end and lets curl
+  # finish, so CI goes green while every older lookup silently misses.
+  def test_the_await_script_never_pipes_curl_into_grep
+    body = File.read(File.join(ROOT, ".github/scripts", AWAIT_SCRIPT))
+    code = body.lines.reject { |l| l.strip.start_with?("#") }.join
+
+    piped = code.lines.select { |l| l.include?("curl") && l.include?("|") && !l.include?("||") }
+    assert_empty piped.map(&:strip),
+                 "curl must not be piped (its output belongs in a command substitution): under `pipefail`, " \
+                 "a downstream `grep -q` that exits early EPIPEs curl and turns a HIT into a MISS"
+
+    refute_match(/grep\s+-[a-zA-Z]*q/, code,
+                 "use `grep -c` (which reads the whole input) rather than `grep -q` (which short-circuits): " \
+                 "the early exit is what EPIPEs curl and produces the false negative above")
   end
 
   def test_every_gem_installing_step_waits_for_propagation_first
