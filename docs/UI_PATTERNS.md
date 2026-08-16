@@ -11,7 +11,7 @@
 - **Theme config**: `theme_primary = "#4BAF50"` (green), `theme_accent = "#8E82FE"` (violet) in `studio.rb`
 - **Admin theme page**: `/admin/theme` — color editor + styleguide (from engine)
 - **Primary**: `#4BAF50` Green — brand text, CTAs, buttons, nav hovers, money displays, balances, checkmarks, hold button idle state
-- **Mint**: `#06D6A0` — win badges, contest status (open), hold button success glow. Reserved for game mechanics (win), not general selection UI.
+- **Mint**: `#06D6A0` — win badges, contest status (open). Reserved for game mechanics (win), not general selection UI. NOT the hold button's success state any more (2026-08): confirming used to jump to mint/teal, a different hue from the button pressed, with a mint check that barely showed on it — it now brightens within the brand green and draws the check in white.
 - **Accent**: `#8E82FE` Violet — scores, draft badges, `.btn-secondary`, Phantom wallet badge. NOT for CTA-intent elements (use `primary` instead). NOT for turf scores (use `primary`).
 - **Primary for selection UI**: Selection count badges, cart slot borders, matchup selection rings/tints, turf score values, links, sort toggle active state, and FAB buttons all use `primary` (green), not mint or violet.
 - **Warning**: `#FF7C47` Orange — warning states, `.btn-warning`
@@ -76,9 +76,10 @@ Uses `outline` (not border) for selection highlight — avoids layout shift. Dyn
 ## Long-Press Button
 
 `_hold_button.html.erb` — reusable partial with four states:
-- **idle** (green) → **holding** (`.process`, mint glow builds) → **success** (`.success`, mint gradient + checkmark) or **error** (`.error`, red background)
+- **idle** (brand-green gradient, `--bg-image`: primary-400 → primary-500 → primary-700) → **holding** (`.process`, flat dark face, green glow builds) → **success** (`.success`, brighter gradient in the SAME green family + white checkmark) or **error** (`.error`, flat red)
+- **Face colors are re-themable per instance.** Each reads a `--hold-*` input before its default, so an ancestor can dress one button (or a page of them) without touching the stylesheet: `--hold-bg-from` / `--hold-bg-mid` / `--hold-bg-to` for the resting face, `--hold-success-from` / `--hold-success-to` / `--hold-success-glow-rgb` for the confirmed one. Candidates side by side at `/admin/hold_button`.
 - After hold completes, stays in `.process` for 500ms while resolving before transitioning to success or error
-- Params: `default_text`, `hold_text`, `success_text`, `error_text`, `duration`, `hold_id`, `guard`, `on_success`, `validate`, `validate_at`, `fizz`
+- Params: `default_text`, `hold_text`, `success_text`, `error_text`, `duration`, `hold_id`, `guard`, `on_success`, `validate`, `validate_at`, `fizz`, `fizz_level`, `fizz_colors`, `fizz_bind`
 - The `on_success` callback sets the final state via `setHoldSuccess()` or `setHoldError()`
 - Renders in both desktop + mobile cart (2 DOM elements, differentiated by `hold_id`)
 - **CSS**: All hold button styles (`.hold-btn`, state classes, keyframes) live in `app/assets/tailwind/application.css` using CSS variables (`--color-cta`, `--color-danger`, `--color-page`). Duration passed via inline `style="--duration: Xms"`.
@@ -95,6 +96,7 @@ Carbonation bubbles that make the CTA catch the eye. Default on; pass `fizz: fal
 - **Markup**: `<span class="hold-stack">` wraps `<span class="hold-fizz">` (26 `<i class="fizz-bit">`, `aria-hidden`, `pointer-events:none`) **and then** the button. The bubbles are the button's SIBLING, not its child: the button's `transform` makes it a stacking context, so a negative z-index inside would still paint above its own background. As a sibling the button paints over them and they only show where they escape its edges. `isolation: isolate` on the stack keeps the button's `z-index: 1` from competing with the page.
 - **Table**: `ApplicationHelper#hold_button_fizz_bits(hold_id)` — placement, drift, size, delay, duration, hue and color slot per bubble, emitted as inline custom properties. Seeded from `hold_id`, so a button scatters the same way on every render (Turbo restores a cached page unchanged) and the desktop/mobile pair do not fizz in lockstep.
 - **Phases** (each is a multiplier on the bubble's own drift): rest simmers at ~40%, hover / `.nudge` / `.process` / `.loading` boil at 100% on a shorter cycle, `.success` bursts one-shot at 260%, `.error` cuts them dead. State lives on the button, so the stack reads it with `:has()`.
+- **Levels**: `fizz_level: :calm` (default) simmers at rest and boils on hover. `fizz_level: :lively` adds `.fizz-lively` to the stack — it rests AT the calm hover and doubles the rate on hover, for a button carrying a page on its own. Held/confirmed/blocked are identical in both.
 - **Colors**: each bubble owns a slot, 1–12 round-robin (`ApplicationHelper::FIZZ_SLOTS`), and paints `var(--fizz-c-<slot>, <its candy hue>)`. Unbound slots keep the built-in candy palette (`ApplicationHelper::FIZZ_HUES`), so the button is never colorless.
   - `fizz_colors: [...]` — a static palette, written to the stack's `style` (used by the gallery).
   - `fizz_bind: "fizzPalette"` — an Alpine expression bound to the stack's `:style`. The board's `fizzPalette` getter maps the six picked teams' `fizz_light` / `fizz_dark` (from `team_card_palette`) onto slots 1–12 in pick order, so the carbonation re-dresses itself as picks change.

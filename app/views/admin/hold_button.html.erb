@@ -3,8 +3,9 @@
 <%# Fizz lab for shared/_hold_button. The real button lives at the bottom of a
     contest board behind six picks and its success state is one-shot, so every
     phase of the particle layer is forced side by side here instead.
-    CSS lives in app/assets/tailwind/application.css inside @utility hold-btn
-    ("Fizz layer"); the per-bubble table is ApplicationHelper#hold_button_fizz_bits. %>
+    CSS lives in app/assets/tailwind/application.css: the face colors in
+    @utility hold-btn, the bubbles in @utility hold-stack ("Hold Button Fizz").
+    The per-bubble table is ApplicationHelper#hold_button_fizz_bits. %>
 
 <div class="max-w-5xl mx-auto py-8 px-4 space-y-10" x-data="{ submitting: false }">
   <header>
@@ -37,6 +38,29 @@
   </section>
 
   <section class="space-y-3">
+    <h2 class="text-heading text-lg font-bold">Calm and lively</h2>
+    <p class="text-muted text-xs">
+      Two intensities. <code>fizz_level: :calm</code> (the default) simmers at rest and boils on hover.
+      <code>fizz_level: :lively</code> rests <em>at</em> that boil and doubles the rate when you hover it.
+      Held, confirmed and blocked look the same in both.
+    </p>
+    <div class="card p-6 grid md:grid-cols-2 gap-8">
+      <div class="space-y-2">
+        <p class="text-heading font-semibold text-sm">Calm (default)</p>
+        <div style="max-width:18rem">
+          <%= render "shared/hold_button", hold_id: "fizz-calm" %>
+        </div>
+      </div>
+      <div class="space-y-2">
+        <p class="text-heading font-semibold text-sm">Lively</p>
+        <div style="max-width:18rem">
+          <%= render "shared/hold_button", hold_id: "fizz-lively", fizz_level: :lively %>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="space-y-3">
     <h2 class="text-heading text-lg font-bold">Every phase</h2>
     <p class="text-muted text-xs">
       States are pinned by class here — the live button below walks them for real.
@@ -55,6 +79,39 @@
             <% if demo[:state] %>
               <button type="button" class="text-xs text-secondary underline" data-fizz-replay="<%= demo[:id] %>">Replay</button>
             <% end %>
+          </div>
+          <div style="max-width:18rem">
+            <%= render "shared/hold_button", hold_id: demo[:id] %>
+          </div>
+          <p class="text-muted text-xs"><%= demo[:note] %></p>
+        </div>
+      <% end %>
+    </div>
+  </section>
+
+  <section class="space-y-3">
+    <h2 class="text-heading text-lg font-bold">Confirmed — which green?</h2>
+    <p class="text-muted text-xs">
+      The confirmed face used to jump to mint/teal, a different hue from the button you pressed,
+      with a mint check on top of it that barely showed. The default is now the same brand green,
+      lit brighter, with a white check. Say the word and any of these becomes the default —
+      each is three variables (<code>--hold-success-from</code>, <code>--hold-success-to</code>, <code>--hold-success-glow-rgb</code>), settable on any ancestor.
+    </p>
+    <div class="card p-6 grid md:grid-cols-3 gap-8">
+      <% [
+           { id: "fizz-green-brand", label: "Brand lit (default)", style: "",
+             note: "primary-300 → primary-700. Same family as the resting button." },
+           { id: "fizz-green-deep", label: "Deep forest",
+             style: "--hold-success-from:#4BAF50;--hold-success-to:#1E4620;--hold-success-glow-rgb:41 96 44",
+             note: "Brand green → near-black green. Heavier, less shout." },
+           { id: "fizz-green-mint", label: "Emerald (the old one)",
+             style: "--hold-success-from:#06d6a0;--hold-success-to:#025e40;--hold-success-glow-rgb:6 214 160",
+             note: "What it looked like before — teal, off the brand." }
+         ].each do |demo| %>
+        <div class="space-y-2" data-fizz-demo="<%= demo[:id] %>" data-fizz-state="success" style="<%= demo[:style] %>">
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-heading font-semibold text-sm"><%= demo[:label] %></p>
+            <button type="button" class="text-xs text-secondary underline" data-fizz-replay="<%= demo[:id] %>">Replay</button>
           </div>
           <div style="max-width:18rem">
             <%= render "shared/hold_button", hold_id: demo[:id] %>

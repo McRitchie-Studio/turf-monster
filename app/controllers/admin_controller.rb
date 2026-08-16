@@ -337,6 +337,10 @@ class AdminController < ApplicationController
       props: {} }
   ].freeze
 
+  # The six teams the hold-button fizz lab dresses its palette demo in, in the
+  # order they appear (operator's pick — a believable six-pick spread).
+  FIZZ_DEMO_MASCOTS = %w[Broncos Bills Chargers Seahawks Buccaneers Ravens].freeze
+
   def navbar
   end
 
@@ -349,7 +353,11 @@ class AdminController < ApplicationController
   def hold_button
     # Six real teams, so the palette demo shows what an actual entry looks like
     # rather than invented swatches. The board binds the same pair per pick.
-    teams = Team.where.not(color_light: nil).where.not(color_dark: nil).order(:slug).limit(6)
+    # Named (operator's pick) and kept in that order — alphabetical gave a
+    # washed-out set, and the point of the demo is a believable six-pick spread.
+    by_mascot = Team.where(mascot: FIZZ_DEMO_MASCOTS).index_by(&:mascot)
+    teams = FIZZ_DEMO_MASCOTS.filter_map { |mascot| by_mascot[mascot] }
+                             .select { |team| team.color_light.present? && team.color_dark.present? }
     @fizz_palette = teams.map do |team|
       pal = helpers.team_card_palette(team)
       { label: team.mascot.presence || team.name, light: pal[:fizz_light], dark: pal[:fizz_dark] }

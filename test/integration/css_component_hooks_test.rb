@@ -89,11 +89,41 @@ class CssComponentHooksTest < ActionDispatch::IntegrationTest
       "the stack must isolate its z-order from the page")
     assert_match(/@utility hold-stack \{.*:has\(> \.hold-btn\.process\)/m, CSS,
       "hold state lives on the button, so the stack reads it with :has()")
+
+    # The lively variant is a stack modifier: rest at the calm hover, double on
+    # hover. Rendered as a class, so a call site can't typo it into a state.
+    lively = Nokogiri::HTML::DocumentFragment.parse(
+      ApplicationController.render(partial: "shared/hold_button",
+                                   locals: { hold_id: "lively", fizz_level: :lively })
+    )
+    assert lively.at_css(".hold-stack.fizz-lively"), "fizz_level: :lively marks the stack"
+    assert_nil doc.at_css(".fizz-lively"), "calm is the default"
+    assert_match(/@utility hold-stack \{.*&\.fizz-lively \.fizz-bit/m, CSS,
+      "the lively rest rule must exist")
+    assert_match(/@utility hold-stack \{.*&\.fizz-lively:has\(> \.hold-btn:hover/m, CSS,
+      "the lively hover rule must exist")
     %w[fizz-simmer fizz-boil fizz-burst].each do |frames|
       assert_match(/@keyframes #{frames}\s*\{/, CSS, "@keyframes #{frames} must exist")
     end
     assert_match(/@media \(prefers-reduced-motion: reduce\) \{\s*\.hold-stack \.fizz-bit \{\s*animation: none/m, CSS,
       "reduced motion must stop the bubbles")
+  end
+
+  test "hold button face wears the brand green — resting gradient, confirmed in the same family" do
+    # The resting face is a gradient (flat read as a paint chip), and the
+    # confirmed face stays in the brand green rather than jumping to the mint
+    # it used to use — with a WHITE check, because mint-on-mint was invisible.
+    face = CSS[/@utility hold-btn \{.*?\n\}/m]
+    assert face, "@utility hold-btn must define the face"
+
+    assert_match(/--bg-image: linear-gradient\(/, face, "the resting face is a gradient")
+    assert_match(/--progress-success: #f6f8ff/, face, "the check is white on the green face")
+    assert_match(/--success-from: var\(--hold-success-from,/, face,
+      "success colors read a --hold-* input so an ancestor can retheme them")
+    assert_match(/&\.process \{[^}]*--bg-image: none/m, face, "the hold face stays flat")
+    assert_match(/&\.error \{[^}]*--bg-image: none/m, face, "the blocked face stays flat")
+    refute_match(/#06d6a0/, face, "the confirmed face must not go back to mint")
+    refute_match(/rgba\(6, 214, 160/, face, "nor its mint glow")
   end
 
   test "gear sidebar renders the nav emoji swap hooks the stylesheet styles" do

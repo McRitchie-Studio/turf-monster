@@ -192,12 +192,31 @@
   /* ── Hold Button Component ── */
   --duration: 2000ms;
   --color: #f6f8ff;
+  /* --bg is the button's SOLID color; the hold-icon punches its ring hole with
+     it, so it has to stay a flat value. The face itself wears --bg-image on top
+     — brand green lit from the top-left down into the deep green, so the CTA
+     reads as a raised surface instead of a paint chip. A state that wants a
+     flat face (the transparent hold, the red error) sets --bg-image: none.
+     Each color reads a --hold-* INPUT first, so an ancestor can re-theme one
+     button (or a whole page of them) without touching this file — a declaration
+     here would otherwise beat anything inherited. */
   --bg: var(--color-cta);
+  --bg-from: var(--hold-bg-from, rgb(var(--color-primary-400-rgb)));
+  --bg-mid: var(--hold-bg-mid, rgb(var(--color-primary-rgb)));
+  --bg-to: var(--hold-bg-to, rgb(var(--color-primary-700-rgb)));
+  --bg-image: linear-gradient(160deg, var(--bg-from) 0%, var(--bg-mid) 45%, var(--bg-to) 100%);
+  /* Success keeps the SAME green family as the resting face, lit brighter —
+     the old mint/teal was a different hue entirely, so confirming read as a
+     jump to some other button. Overridable per instance (see /admin/hold_button). */
+  --success-from: var(--hold-success-from, rgb(var(--color-primary-300-rgb)));
+  --success-to: var(--hold-success-to, rgb(var(--color-primary-700-rgb)));
+  --success-glow-rgb: var(--hold-success-glow-rgb, var(--color-primary-rgb));
   --shadow: rgba(0, 61, 9, 0.2);
   --shadow-active: rgba(0, 61, 9, 0.32);
   --progress-border: var(--color-inset, #3a3359);
   --progress-active: #f6f8ff;
-  --progress-success: #06d6a0;
+  /* The check itself: white on the green face. Mint-on-mint was invisible. */
+  --progress-success: #f6f8ff;
   --tick-stroke: var(--progress-active);
 
   position: relative;
@@ -215,6 +234,7 @@
   backface-visibility: hidden;
   color: var(--color);
   background: var(--bg);
+  background-image: var(--bg-image, none);
   transition:
     transform 0.3s,
     box-shadow 0.3s,
@@ -357,7 +377,10 @@
     --ul-o-1: 0;
     --ul-o-2: 1;
     --ul-o-3: 0;
+    /* The hold face is deliberately flat and dark — the gradient would fight
+       the ring and the glow it builds. */
     --bg: var(--color-page, #1e1b35);
+    --bg-image: none;
     border-color: rgb(var(--color-primary-rgb) / 0.7);
     box-shadow:
       0 0 30px rgb(var(--color-primary-rgb) / 0.45),
@@ -394,13 +417,14 @@
     --ul-o-1: 0;
     --ul-o-2: 0;
     --ul-o-3: 1;
-    border-color: #06d6a0;
-    background: linear-gradient(135deg, #025e40, #06d6a0);
+    --bg: var(--success-to);
+    --bg-image: linear-gradient(160deg, var(--success-from) 0%, var(--success-to) 100%);
+    border-color: var(--success-from);
     --color: #fff;
     box-shadow:
-      0 0 40px rgba(6, 214, 160, 0.7),
-      0 0 100px rgba(6, 214, 160, 0.4),
-      0 0 160px rgba(6, 214, 160, 0.15);
+      0 0 40px rgb(var(--success-glow-rgb) / 0.7),
+      0 0 100px rgb(var(--success-glow-rgb) / 0.4),
+      0 0 160px rgb(var(--success-glow-rgb) / 0.15);
     animation: hold-glow-pulse 0.8s ease-in-out 1;
   }
   &.success > .hold-icon svg.progress {
@@ -417,6 +441,7 @@
     --ul-o-3: 0;
     --ul-o-4: 1;
     --bg: var(--color-danger, #ef4444);
+    --bg-image: none;
     border-color: rgba(239, 68, 68, 0.7);
     box-shadow: 0 0 30px rgba(239, 68, 68, 0.4);
     animation: none;
@@ -434,6 +459,7 @@
     --ul-o-2: 1;
     --ul-o-3: 0;
     --bg: var(--color-page, #1e1b35);
+    --bg-image: none;
     --ul-x: 8px;
     --icon-o: 1;
     border-color: rgb(var(--color-primary-rgb) / 0.7);
@@ -519,6 +545,16 @@
   /* Hover and the nudge shake both mean "look at me" — boil for the moment. */
   &:has(> .hold-btn:hover:not(.process):not(.success):not(.error)) .fizz-bit {
     animation: fizz-boil calc(var(--ft, 1.8s) * 0.62) linear calc(var(--fd, 0s) * 0.35) infinite;
+  }
+  /* The LIVELY variant (fizz_level: :lively) — for a button that has to carry a
+     page on its own. It rests where the calm one hovers, and hovering doubles
+     the rate from there. Held/confirmed/blocked are unchanged: those states say
+     something specific, and both variants should say it the same way. */
+  &.fizz-lively .fizz-bit {
+    animation: fizz-boil calc(var(--ft, 1.8s) * 0.62) linear calc(var(--fd, 0s) * 0.35) infinite;
+  }
+  &.fizz-lively:has(> .hold-btn:hover:not(.process):not(.success):not(.error)) .fizz-bit {
+    animation: fizz-boil calc(var(--ft, 1.8s) * 0.31) linear calc(var(--fd, 0s) * 0.18) infinite;
   }
   &:has(> .hold-btn.nudge) .fizz-bit,
   &:has(> .hold-btn.nudge-soft) .fizz-bit {
@@ -1107,7 +1143,12 @@
   100% { transform: rotate(-90deg) translate(0, -5px) scale(var(--progress-scale)); }
 }
 @keyframes hold-glow-pulse {
-  50% { box-shadow: 0 0 60px rgba(6, 214, 160, 0.9), 0 0 140px rgba(6, 214, 160, 0.5), 0 0 200px rgba(6, 214, 160, 0.2); }
+  50% {
+    box-shadow:
+      0 0 60px rgb(var(--success-glow-rgb, 75 175 80) / 0.9),
+      0 0 140px rgb(var(--success-glow-rgb, 75 175 80) / 0.5),
+      0 0 200px rgb(var(--success-glow-rgb, 75 175 80) / 0.2);
+  }
 }
 @keyframes hold-nudge {
   0%, 100% { transform: scale(1) rotate(0deg); }
