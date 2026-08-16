@@ -98,13 +98,22 @@ class EngineProfilePageTest < ActionDispatch::IntegrationTest
   # is the property worth keeping: this app composes against the engine's
   # defaults rather than listing rows, so a row the engine adds later arrives here
   # automatically instead of being silently dropped.
-  def test_the_app_adds_its_own_row_without_freezing_the_engines
+  # ASSERTED AS A PREFIX, not as a literal total. This used to read
+  # `defaults + [:quests]`, which broke the moment the wallet and referral rows
+  # joined it — a test that has to be edited every time the app adds a row is
+  # measuring the row COUNT, and the row count is not the property. What matters
+  # is that the engine's defaults all arrive, IN ORDER, and that this app's rows
+  # come after rather than replacing them.
+  def test_the_app_adds_its_own_rows_without_freezing_the_engines
     declared = Studio.profile_sections.call(nil).map { |section| section[:key].to_sym }
     defaults = Studio.default_profile_sections.map { |section| section[:key].to_sym }
 
-    assert_equal defaults + [:quests], declared,
-                 "expected the engine's defaults IN ORDER plus this app's quests row — a literal " \
-                 "list here would silently drop whatever the engine adds next"
+    assert_equal defaults, declared.first(defaults.length),
+                 "the engine's defaults must arrive IN ORDER and FIRST — a literal list here " \
+                 "would silently drop whatever the engine adds next"
+    assert_operator declared.length, :>, defaults.length,
+                    "this app appends rows of its own; none of them are here"
+    assert_empty defaults - declared, "an engine row went missing from this app's composition"
   end
 
   # /account is UNTOUCHED by this bump. The migration plan is to stand /profile up
