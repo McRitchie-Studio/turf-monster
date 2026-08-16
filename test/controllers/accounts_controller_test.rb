@@ -157,7 +157,8 @@ class AccountsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "update_username (custodial) saves via a server-signed set_username" do
-    user = User.create!(email: "renamer@mcritchie.studio") # managed wallet
+    user = User.create!(email: "renamer@mcritchie.studio")
+    grant_managed_wallet!(user) # the custodial rename signs with the server-held key
     user.update_columns(contest_entered: true) # satisfy the gate
     log_in_as user
     fake_vault = Object.new
@@ -173,7 +174,11 @@ class AccountsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "update_username is gated until contest_entered" do
-    user = User.create!(email: "gated@mcritchie.studio") # managed wallet, contest_entered: false
+    # Managed wallet, contest_entered: false — the wallet has to exist or the
+    # request fails on "No wallet on this account" and never reaches the gate
+    # this test is about.
+    user = User.create!(email: "gated@mcritchie.studio")
+    grant_managed_wallet!(user)
     log_in_as user
     post update_username_account_path, params: { value: "new-name-here" }, as: :json
     assert_response :forbidden

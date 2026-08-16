@@ -7,6 +7,7 @@ class WalletExportsCompleteTest < ActionDispatch::IntegrationTest
       email: "managed-#{SecureRandom.hex(2)}@example.test",
       email_verified_at: Time.current
     )
+    grant_managed_wallet!(@managed)
     assert @managed.reload.managed_wallet?
 
     # Pin export_initiated_at and mint the token the magic email would have

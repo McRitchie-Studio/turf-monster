@@ -311,4 +311,19 @@
           class="mt-4 w-full text-center text-sm text-secondary hover:text-heading disabled:opacity-50">
     Maybe later
   </button>
+
+  <%# The card-payment escape hatch, and the ONLY way the Buy an Entry Token
+      modal is still reachable from onboarding — that modal used to be where this
+      moment landed, and web3-only onboarding (AppFlags.web3_only_onboarding?)
+      took its place. Kept small and quiet on purpose: linking Phantom is the
+      season's path, and this is the door beside it, not a second front door.
+
+      swap(), not open(): this modal is already up, so swapping runs the host's
+      cross-modal slide and leaves ONE card on screen instead of stacking two.
+      buy-entry-token is registered ungated in the layout, so the swap lands for
+      any user who can see this modal. %>
+  <button type="button" @click="$store.modals.swap('buy-entry-token', {})" :disabled="connecting"
+          class="mt-2 w-full text-center text-xs text-muted hover:text-secondary disabled:opacity-50">
+    Rather pay by card? <span class="underline">Buy an entry token</span>
+  </button>
 </div>

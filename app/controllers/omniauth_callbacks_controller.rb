@@ -138,12 +138,12 @@ class OmniauthCallbacksController < ApplicationController
         # that render is the OPENER'S RELOAD (finish_oauth renders a closer page
         # instead of redirecting), which is why this rides the session rather
         # than the flash.
-        # Arms the onboarding chain (welcome → first name → age → wallet). The
-        # landing below still keys on the WALLET step alone, deliberately: with
-        # web3-only onboarding off, a new Google signup has a managed wallet and
+        # Arms the onboarding chain (first name → age → wallet). The landing
+        # below still keys on the WALLET step alone, deliberately: with web3-only
+        # onboarding switched off, a new Google signup has a managed wallet and
         # its entry-token upsell is still the right destination — the chain simply
         # opens on top of whichever page that is.
-        onboarding_steps = record_onboarding_state!(result, welcome: new_signup)
+        onboarding_steps = record_onboarding_state!(result)
         needs_wallet = onboarding_steps.include?(:wallet)
         # New signups land on the entry-tokens page (post-signup upsell);
         # returning Google users go to the app root. A wallet-less signup skips

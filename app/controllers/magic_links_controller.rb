@@ -177,12 +177,12 @@ class MagicLinksController < ApplicationController
       cookies.delete(:reference)
       user.update!(email_verified_at: Time.current)
       set_app_session(user)
-      # The onboarding chain owns this moment now: welcome (username) → first
-      # name → age → wallet, resolved server-side and walked by the layout's
-      # driver wherever the user lands. Both branches below only decide whether
-      # to ALSO say something in a toast/modal, and anything the chain is about
-      # to show wins — two greetings on one render reads as a bug.
-      onboarding_steps = record_onboarding_state!(user, welcome: true)
+      # The onboarding chain owns this moment now: first name → age → wallet,
+      # resolved server-side and walked by the layout's driver wherever the user
+      # lands. Both branches below only decide whether to ALSO say something in a
+      # toast/modal, and anything the chain is about to show wins — two greetings
+      # on one render reads as a bug.
+      onboarding_steps = record_onboarding_state!(user)
       if contest_return_to?(result)
         # New user landing on a SPECIFIC contest: confirm auth with a toast and
         # let the board's existing post-login flow open the get-entry-tokens
@@ -197,13 +197,13 @@ class MagicLinksController < ApplicationController
                       message: "Grab an entry token to lock in your picks."
                     } } })
       else
-        # A GENERIC /signin signup: the onboarding chain owns this moment. It
-        # ALWAYS opens with its own welcome step here (record_onboarding_state!
-        # is called with welcome: true, and that step is outstanding by
-        # definition for an account created in this request), so there is no
-        # second greeting to add — a flash welcome modal would stack on the
-        # chain's. The old flash[:magic_link_welcome] branch that used to live
-        # here was unreachable for exactly that reason and has been retired.
+        # A GENERIC /signin signup: the onboarding chain owns this moment. Its
+        # first card here is the first-name ask, outstanding by definition for an
+        # account created in this request (nothing has set a first name yet), so
+        # there is no second greeting to add — a flash welcome modal would stack
+        # on the chain's opening card. The old flash[:magic_link_welcome] branch
+        # that used to live here was unreachable for exactly that reason and has
+        # been retired.
         redirect_to landing_path_for(result)
       end
     end
@@ -257,15 +257,17 @@ class MagicLinksController < ApplicationController
     signin_path
   end
 
-  # "Home" for turf is the live featured contest, resolved at click time.
+  # "Home" for turf is the root board (contests#world_cup) — the same place
+  # landing_path_for sends a link with no destination, so both halves of a link
+  # click agree on where "the app" is.
   def link_home_path
-    featured_contest ? contest_path(featured_contest) : contests_path
+    root_path
   end
 
   # The concern's default treats a bare "/" as a real destination; turf treats it
-  # as "no destination" and lands on the featured contest instead
-  # (landing_path_for). Overridden rather than reimplemented so the login/home
-  # cases keep coming from the hooks above.
+  # as "no destination" and lands on the root instead (landing_path_for, which
+  # says the same of the auth pages). Overridden rather than reimplemented so the
+  # login/home cases keep coming from the hooks above.
   def link_destination(destination, result)
     return super unless destination == :return_to
 
@@ -309,20 +311,38 @@ class MagicLinksController < ApplicationController
     result.return_to.to_s.start_with?("/contests/")
   end
 
-  # The featured contest, resolved at CLICK time (not baked into the token) so
-  # it's always current. Single source of truth shared with the root redirect.
-  def featured_contest
-    @featured_contest ||= Contest.featured
+  # Paths that are NOT destinations. A link requested from the sign-in card
+  # carries return_to: "/signin", and honoring that lands a freshly signed-in
+  # user back on the sign-in page — where SessionsController#new's
+  # redirect_if_authenticated bounces them to /account. That is how clicking a
+  # magic link put the operator on their account page instead of the app
+  # (2026-08-15). The auth pages are a WAY IN, never a place to arrive.
+  # Written WITHOUT trailing slashes, and matched as "the path itself, or a
+  # segment under it" — so /l matches /l/abc but never /login, and /login is
+  # listed on its own rather than being swallowed by a sloppier prefix test.
+  NON_DESTINATION_PREFIXES = ["/signin", "/login", "/magic_link", "/l"].freeze
+
+  def non_destination?(path)
+    p = path.to_s.split("?").first.to_s.chomp("/")
+    return true if p.empty? # a bare "/"
+
+    NON_DESTINATION_PREFIXES.any? { |prefix| p == prefix || p.start_with?("#{prefix}/") }
   end
 
   # Where a login lands: honor any explicit (already-sanitized) return_to — a
-  # contest, or e.g. /account — and otherwise (no destination, or a bare "/")
-  # drop them on the live featured contest, else the contests index.
+  # contest, or e.g. /account — and otherwise drop them on the ROOT (operator
+  # call, 2026-08-15). "Otherwise" covers no destination, a bare "/", and the
+  # auth pages above, which used to be honored literally.
+  #
+  # Root is contests#world_cup, the app's home board. It replaces a redirect to
+  # `Contest.featured` here: same intent, one destination, and it cannot resolve
+  # to nil the way the featured lookup could (which is why the contests-index
+  # fallback beside it is gone too).
   def landing_path_for(result)
     # `result` is nil for an unrecognized token — the dead path calls this too.
     rt = result&.return_to
-    return rt if rt.present? && rt != "/"
+    return rt if rt.present? && !non_destination?(rt)
 
-    featured_contest ? contest_path(featured_contest) : contests_path
+    root_path
   end
 end

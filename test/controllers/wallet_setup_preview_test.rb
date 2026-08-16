@@ -125,6 +125,29 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "wallet-setup carries the small link back to Buy an Entry Token" do
+    # Web3-only onboarding put this modal where Buy an Entry Token used to land,
+    # and the operator asked for a way back to it. Small and quiet by design —
+    # linking Phantom is the season's path — but it has to WORK, so pin the swap
+    # target rather than the wording.
+    log_in_as users(:alex)
+    get admin_modal_preview_path(modal_id: "wallet-setup")
+    assert_response :success
+
+    assert_includes response.body, "Buy an entry token"
+    assert_includes response.body, "$store.modals.swap('buy-entry-token', {})",
+                    "the link must swap (one card on screen), not stack a second modal"
+  end
+
+  test "the buy-entry-token modal the link swaps to is registered in the layout" do
+    # The swap above is a dead button unless the host registers that id. It is
+    # registered UNGATED, so this holds for any user who can reach the modal —
+    # and it is the half of the link no markup assertion on the modal can see.
+    layout = Rails.root.join("app/views/layouts/application.html.erb").read
+    assert_includes layout, "$store.modals.current().id === 'buy-entry-token'",
+                    "wallet-setup swaps to buy-entry-token; the host must register it"
+  end
+
   test "the guide CTA falls back to Phantom's guide until /getting-started ships" do
     # The house guide is a SEPARATE task (phantom-onboarding-guide-page). This
     # asserts the seam, not a particular winner: whichever target resolves, the

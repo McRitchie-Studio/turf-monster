@@ -174,15 +174,15 @@ Studio.configure do |config|
 
   # What the engine's endpoints report back as still-remaining after the name is
   # saved or skipped. The engine owns the STEP; this app owns the SEQUENCE, and
-  # this is that seam — turf walks welcome → first name → age → wallet, which
-  # means nothing in a hub app.
+  # this is that seam — turf walks first name → age → wallet, which means nothing
+  # in a hub app.
   #
-  # `welcome: false` is not an omission: that beat is behind us by definition if
-  # we are answering a first-name call.
+  # (It used to pass `welcome: false` here, since that beat was behind us by
+  # definition once a first-name call was being answered. The welcome step was
+  # retired on 2026-08-15 and OnboardingFlow no longer takes the argument.)
   config.onboarding_steps_resolver = lambda { |user, session|
     OnboardingFlow.steps_for(
       user,
-      welcome: false,
       skipped_first_name: session[Studio::FIRST_NAME_SKIP_SESSION_KEY] == true,
       age_gate_enabled: AppFlags.age_gate?
     )
