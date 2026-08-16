@@ -27,9 +27,6 @@
     not-subscribed does not change the card height (no jump). `subscribed` is
     server-seeded and kept in sync by the newsletter-state-changed event, which
     the modals dispatch. %>
-    Each x-show state carries a matching min-height so toggling subscribed
-    <-> not-subscribed doesn't change the card height (no jump). subscribed
-    is server-seeded + kept in sync by the newsletter-state-changed event. %>
 <%# BODY ONLY — no card, no heading. Each call site owns its own chrome:
     /account wraps this in its `card shadow p-6 mb-6` with an <h2>, and the
     /profile row gets both from the engine's section wrapper and its `title:`.

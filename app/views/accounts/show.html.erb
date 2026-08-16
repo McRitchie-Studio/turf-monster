@@ -419,8 +419,12 @@
     <%= render "accounts/newsletter_section", user: current_user %>
   </div>
 
-  <%# -- Quests progress -- %>
-  <%= render "quests" %>
+  <%# -- Quests progress -- The CHROME lives here because each call site owns its
+      own; the profile row gets its card and heading from the engine's wrapper. %>
+  <div class="card shadow p-6 mb-6">
+    <h2 class="text-lg font-bold text-heading mb-4">Quests</h2>
+    <%= render "quests" %>
+  </div>
 
   <%# -- Log out + Buy Entry Tokens (side by side) -- %>
   <div class="grid grid-cols-2 gap-4 mb-6">

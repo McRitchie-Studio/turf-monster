@@ -29,6 +29,30 @@ class NewsletterSectionRenderTest < ActionView::TestCase
     refute_match(/<h2/, html, "the call site owns the heading — /profile gets it from the row's title:")
   end
 
+  # NO ERB COMMENT MAY LEAK INTO THE PAGE, and this is not hypothetical — it
+  # SHIPPED here. Extracting this partial stripped only the FIRST line of the
+  # original `<%# … %>` block, leaving three lines of prose orphaned and
+  # terminated by the original `%>`. The page rendered "Each x-show state carries
+  # a matching min-height…" as body copy, ending in a literal `%>`, directly under
+  # the Newsletter heading. The operator saw it before any test did.
+  #
+  # It is worse than ugly. An ERB comment ends at its FIRST `%>` whatever it sits
+  # inside, so a leak turns prose into markup — and prose containing a literal
+  # script tag opens a PHANTOM element that swallows the real script whole. That
+  # is the propagate-at-format-gem defect, and it is why this asserts on RENDERED
+  # OUTPUT rather than on the template's shape.
+  test "no ERB comment prose reaches the page" do
+    %i[true false].each do |state|
+      html = render_card(subscribed: state.to_s == "true")
+
+      refute_includes html, "%>",
+        "a literal %> in the output means a comment terminated early and its prose is now page copy"
+      refute_includes html, "x-show state carries",
+        "the partial's own explanatory prose is rendering as body copy"
+      refute_match(/<%/, html, "an unclosed ERB tag reached the browser")
+    end
+  end
+
   test "an unsubscribed account is offered this app's subscribe modal" do
     html = render_card(subscribed: false)
 
