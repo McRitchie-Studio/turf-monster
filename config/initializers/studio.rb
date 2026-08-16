@@ -94,7 +94,27 @@ Studio.configure do |config|
   # Composed against Studio.default_profile_sections rather than a literal list,
   # so a row the engine adds later arrives here automatically.
   config.profile_sections = lambda do |_view|
-    Studio.default_profile_sections + [
+    # THIS APP REPLACES THE ENGINE'S NEWSLETTER ROW WITH ITS OWN. The engine's is
+    # a plain form plus a confirm dialog — right for an app with no rewards, wrong
+    # for this one, where joining is worth 25 seeds and leaving costs them. This
+    # app already walks people through that with a five-modal flow (subscribe →
+    # success, unsubscribe-confirm → goodbye, plus the web3 email capture), all
+    # registered on the shared $store.modals host in layouts/application.html.erb
+    # and therefore already mounted on /profile.
+    #
+    # Replaced by KEY rather than rejected-and-appended, so it keeps the engine's
+    # POSITION in the list instead of being shuffled to the end.
+    ours = { key: :newsletter, title: "Newsletter", page: :show,
+             partial: "accounts/newsletter_section" }
+
+    rows = Studio.default_profile_sections.map do |section|
+      section[:key] == :newsletter ? ours : section
+    end
+
+    rows + [
+      # QUESTS ARE THIS APP'S OWN and the engine has no concept of them by design —
+      # they are seeds-shaped, and seeds do not belong in a gem four other apps
+      # install.
       { key: :quests, title: "Quests", page: :show, partial: "accounts/quests" }
     ]
   end
@@ -105,11 +125,20 @@ Studio.configure do |config|
   # `first_join` is computed by the engine BEFORE it writes the column — asked
   # afterwards it would always be false and this bonus could never be paid.
   #
-  # NO DOUBLE GRANT: /account subscribes through this app's own
-  # NewsletterController and never reaches here; this fires only for the engine's
-  # /profile row. Both call the same NewsletterSeedGrant, and the on-chain
-  # SeedGrant[newsletter] PDA refuses a second grant regardless — so the worst
-  # case of any mistake here is a no-op, never a double payout.
+  # A SAFETY NET, NOT THE MECHANISM — and worth knowing which. Both cards on both
+  # pages open this app's modals, which POST to newsletter_subscribe_path and are
+  # granted seeds by NewsletterController directly. Nothing in the UI reaches the
+  # engine's POST /profile/newsletter, so this callback does not fire today.
+  #
+  # It is wired anyway because the engine's route is public and may grow its own
+  # UI, and a subscribe arriving there WITHOUT this would set joined_email_list_at,
+  # grant nothing, and burn first_newsletter_join? forever — the exact bug the row
+  # was held off /profile for.
+  #
+  # NO DOUBLE GRANT either way: the two paths are disjoint, both call the same
+  # NewsletterSeedGrant, and the on-chain SeedGrant[newsletter] PDA refuses a
+  # second grant regardless — so the worst case of any mistake here is a no-op,
+  # never a double payout.
   config.after_newsletter_change = lambda do |user, subscribed:, first_join:|
     NewsletterSeedGrant.call(user) if subscribed && first_join
   end
