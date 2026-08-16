@@ -30,8 +30,9 @@
     fizz               - Render the fizz particle layer (default: true). Pass
                          false for a flat button. Preview: /admin/hold_button.
     fizz_level         - :calm (default) or :lively. Lively rests where calm
-                         hovers and doubles the rate on hover — for a button
-                         carrying a page on its own.
+                         hovers, and hovering DOUBLES THE BUBBLE COUNT (a second
+                         layer fades in over the gaps) at the same speed — for a
+                         button carrying a page on its own.
     fizz_colors        - Up to 12 CSS colors the bubbles wear, as a static
                          array (default: none = the built-in candy palette).
     fizz_bind          - Alpine expression bound to the stack's :style, for a
@@ -75,7 +76,13 @@
       pointer-events:none; the table behind it is seeded per hold_id (see
       ApplicationHelper#hold_button_fizz_bits). %>
   <% if fizz %>
-    <span class="hold-fizz" aria-hidden="true"><% hold_button_fizz_bits(hold_id).each do |bit| %><i class="fizz-bit" style="left:<%= bit[:x] %>%;top:<%= bit[:y] %>%;--fs:<%= bit[:size] %>px;--fx:<%= bit[:dx] %>px;--fy:<%= bit[:dy] %>px;--fd:<%= bit[:delay] %>s;--ft:<%= bit[:duration] %>s;--fc:<%= hold_button_fizz_color(bit) %>"></i><% end %></span>
+    <%= render "shared/hold_fizz_layer", seed: hold_id %>
+    <%# Lively's hover doubles the COUNT, not the speed: a second scatter that
+        rests invisible, fades in over the gaps in the first, and fades back
+        out when the pointer leaves. %>
+    <% if fizz_level.to_s == "lively" %>
+      <%= render "shared/hold_fizz_layer", seed: "#{hold_id}~extra", extra: true %>
+    <% end %>
   <% end %>
 <button class="hold-btn"
         data-hold-id="<%= hold_id %>"

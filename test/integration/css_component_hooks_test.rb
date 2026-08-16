@@ -90,18 +90,33 @@ class CssComponentHooksTest < ActionDispatch::IntegrationTest
     assert_match(/@utility hold-stack \{.*:has\(> \.hold-btn\.process\)/m, CSS,
       "hold state lives on the button, so the stack reads it with :has()")
 
-    # The lively variant is a stack modifier: rest at the calm hover, double on
-    # hover. Rendered as a class, so a call site can't typo it into a state.
+    # The lively variant is a stack modifier: rest at the calm hover, and hover
+    # doubles the COUNT — a second scatter, seeded apart so it lands in the
+    # first one's gaps, fading in over it. Speed must NOT change.
     lively = Nokogiri::HTML::DocumentFragment.parse(
       ApplicationController.render(partial: "shared/hold_button",
                                    locals: { hold_id: "lively", fizz_level: :lively })
     )
     assert lively.at_css(".hold-stack.fizz-lively"), "fizz_level: :lively marks the stack"
     assert_nil doc.at_css(".fizz-lively"), "calm is the default"
+    assert_equal 2, lively.css(".hold-stack > .hold-fizz").size, "lively renders both layers"
+    assert lively.at_css(".hold-stack > .hold-fizz-extra"), "the hover layer must be marked"
+    assert_equal 52, lively.css(".fizz-bit").size, "hover doubles 26 bubbles to 52"
+    assert_nil doc.at_css(".hold-fizz-extra"), "calm pays for no second layer"
+    # Seeded apart, or the second layer would sit exactly on top of the first.
+    first_layer_positions = lively.css(".hold-fizz:not(.hold-fizz-extra) > .fizz-bit").map { |b| b["style"] }
+    extra_positions = lively.css(".hold-fizz-extra > .fizz-bit").map { |b| b["style"] }
+    assert_not_equal first_layer_positions, extra_positions,
+      "the extra scatter must fill gaps, not shadow the base one"
+
     assert_match(/@utility hold-stack \{.*&\.fizz-lively \.fizz-bit/m, CSS,
       "the lively rest rule must exist")
-    assert_match(/@utility hold-stack \{.*&\.fizz-lively:has\(> \.hold-btn:hover/m, CSS,
-      "the lively hover rule must exist")
+    assert_match(/@utility hold-stack \{.*&:not\(\.fizz-lively\):has\(> \.hold-btn:hover/m, CSS,
+      "calm's speed-up hover must not reach a lively button")
+    assert_match(/&\.fizz-lively:has\(> \.hold-btn:hover[^)]*\)[^{]*> \.hold-fizz-extra \{\s*opacity: 1/m, CSS,
+      "lively's hover reveals the extra layer")
+    assert_match(/& > \.hold-fizz-extra \{\s*opacity: 0;\s*transition: opacity/m, CSS,
+      "and it fades, rather than snapping, on the way in and out")
     %w[fizz-simmer fizz-boil fizz-burst].each do |frames|
       assert_match(/@keyframes #{frames}\s*\{/, CSS, "@keyframes #{frames} must exist")
     end

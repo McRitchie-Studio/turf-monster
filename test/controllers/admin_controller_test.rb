@@ -79,9 +79,12 @@ class AdminControllerTest < ActionDispatch::IntegrationTest
        fizz-calm fizz-lively fizz-green-brand fizz-green-deep fizz-green-mint].each do |id|
       assert_select ".hold-btn[data-hold-id=?]", id
     end
-    # The lively variant is the stack's modifier, not a button state.
+    # The lively variant is the stack's modifier, not a button state, and it is
+    # the one that carries the hover-only second bubble layer.
     assert_select ".hold-stack.fizz-lively:has(.hold-btn[data-hold-id=?])", "fizz-lively"
     assert_select ".hold-stack.fizz-lively:has(.hold-btn[data-hold-id=?])", "fizz-calm", count: 0
+    assert_select ".hold-stack:has(.hold-btn[data-hold-id=?]) > .hold-fizz-extra", "fizz-lively"
+    assert_select ".hold-stack:has(.hold-btn[data-hold-id=?]) > .hold-fizz-extra", "fizz-calm", count: 0
     # The team demo wears brand colors in the twelve slots.
     assert_select ".hold-stack[style*=?]", "--fizz-c-1:"
   end

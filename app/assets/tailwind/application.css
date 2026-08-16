@@ -542,19 +542,35 @@
     will-change: transform, opacity;
     animation: fizz-simmer var(--ft, 1.8s) linear var(--fd, 0s) infinite;
   }
-  /* Hover and the nudge shake both mean "look at me" — boil for the moment. */
-  &:has(> .hold-btn:hover:not(.process):not(.success):not(.error)) .fizz-bit {
+  /* Hover and the nudge shake both mean "look at me" — boil for the moment.
+     Calm only: lively rests at this boil already and answers hover its own way,
+     below, so it must not pick this rule up (it outranks lively's rest rule). */
+  &:not(.fizz-lively):has(> .hold-btn:hover:not(.process):not(.loading):not(.success):not(.error)) .fizz-bit {
     animation: fizz-boil calc(var(--ft, 1.8s) * 0.62) linear calc(var(--fd, 0s) * 0.35) infinite;
   }
+
   /* The LIVELY variant (fizz_level: :lively) — for a button that has to carry a
-     page on its own. It rests where the calm one hovers, and hovering doubles
-     the rate from there. Held/confirmed/blocked are unchanged: those states say
-     something specific, and both variants should say it the same way. */
+     page on its own. It rests where the calm one hovers, and hover doubles the
+     bubble COUNT rather than the speed: a second scatter (.hold-fizz-extra,
+     seeded apart so it lands in the first one's gaps) fades in over the same
+     rails at the same rate, and fades back out when the pointer leaves.
+     Held/confirmed/blocked are unchanged — those states say something specific,
+     and both variants should say it the same way. */
   &.fizz-lively .fizz-bit {
     animation: fizz-boil calc(var(--ft, 1.8s) * 0.62) linear calc(var(--fd, 0s) * 0.35) infinite;
   }
-  &.fizz-lively:has(> .hold-btn:hover:not(.process):not(.success):not(.error)) .fizz-bit {
-    animation: fizz-boil calc(var(--ft, 1.8s) * 0.31) linear calc(var(--fd, 0s) * 0.18) infinite;
+  /* The extra layer keeps running while hidden. It has to: killing the
+     animation would snap the bubbles to their base opacity: 0 and there would
+     be nothing left to fade. Only a lively button renders one. */
+  & > .hold-fizz-extra {
+    opacity: 0;
+    transition: opacity 0.45s ease;
+  }
+  /* The guard list is the point of this selector as much as the hover is: a
+     held, submitting, confirmed or blocked button speaks for itself, so the
+     hover crowd fades away and leaves the ring and the burst to read cleanly. */
+  &.fizz-lively:has(> .hold-btn:hover:not(.process):not(.loading):not(.success):not(.error)) > .hold-fizz-extra {
+    opacity: 1;
   }
   &:has(> .hold-btn.nudge) .fizz-bit,
   &:has(> .hold-btn.nudge-soft) .fizz-bit {
