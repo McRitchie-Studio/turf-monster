@@ -407,6 +407,11 @@
             // buy anyone past it), and cleared client-side by the onboarding
             // modal the moment the name saves, so the resumed hold passes.
             firstNameRequired: false,
+            // Any wallet at all (managed OR Phantom) — User#solana_connected?,
+            // the same predicate the entry-token rails guard on. The
+            // wallet-setup modal's card-payment link reads it; do NOT substitute
+            // `mode`, which reads 'web2' for a wallet-less account.
+            walletConnected: false,
             get isGuest() { return this.mode === 'guest'; },
             get isWeb2() { return this.mode === 'web2'; },
             get isWeb3() { return this.mode === 'web3'; },
@@ -428,6 +433,7 @@
               if (ctx.ageVerified     !== undefined) this.ageVerified     = !!ctx.ageVerified;
               if (ctx.walletSetupRequired !== undefined) this.walletSetupRequired = !!ctx.walletSetupRequired;
               if (ctx.firstNameRequired   !== undefined) this.firstNameRequired   = !!ctx.firstNameRequired;
+              if (ctx.walletConnected     !== undefined) this.walletConnected     = !!ctx.walletConnected;
             }
           });
           (function() {

@@ -418,7 +418,17 @@ class ApplicationController < ActionController::Base
       # not buy anyone past a validation. The two questions differ on purpose —
       # "should we ASK again on this page view" (the chain) vs. "is it there"
       # (here) — so this asks the column and nothing else.
-      firstNameRequired: current_user.present? && current_user.first_name.blank?
+      firstNameRequired: current_user.present? && current_user.first_name.blank?,
+      # Does this account have ANY wallet — managed or Phantom? The wallet-setup
+      # modal's card-payment link reads it to decide whether that link can work
+      # at all: every entry-token rail refuses a wallet-less buyer, because a
+      # token has to be minted somewhere (TokensController#stripe_checkout and
+      # #coinflow_order both guard on solana_connected?).
+      #
+      # THE SAME PREDICATE the rails enforce, not a proxy for it. `mode` looks
+      # like it would do — but a wallet-less account reads mode "web2", so
+      # branching on that would show the link to exactly the people it refuses.
+      walletConnected: current_user&.solana_connected? || false
     )
   end
 

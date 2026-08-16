@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { reseed } = require("./helpers");
+const { reseed, grantManagedWallet } = require("./helpers");
 
 // The post-auth onboarding chain (operator spec 2026-08-15):
 //   first name → age gate → wallet setup
@@ -123,21 +123,59 @@ test("skipping the first name still reaches the age and wallet steps @smoke", as
   await expect(page.getByRole("heading", { name: "Set up your wallet" })).toBeVisible({ timeout: 20000 });
 });
 
-test("the wallet step offers the way back to Buy an Entry Token @smoke", async ({ page }) => {
-  // The operator's escape hatch. It is a SWAP, so the assertion is not just that
-  // the token modal appears — the wallet card must be GONE, or the user is
-  // looking at two stacked modals.
+// Walk a fresh signup to the wallet-setup card.
+async function reachWalletStep(page) {
   await signUpFresh(page, { contest: "world-cup-2026" });
   await page.getByRole("button", { name: "Skip for now" }).click();
   await expect(page.getByRole("heading", { name: /Verify your age/i })).toBeVisible({ timeout: 15000 });
   await fillDob(page);
   await page.getByRole("button", { name: /Confirm & Continue/i }).click();
   await expect(page.getByRole("heading", { name: "Set up your wallet" })).toBeVisible({ timeout: 20000 });
+}
 
+test("a wallet-less player is told why the card rail cannot work yet @smoke", async ({ page }) => {
+  // THE BLOCKER (2026-08-15): this card's card-payment link used to be a plain
+  // button for everyone, and every entry-token rail refuses a wallet-less
+  // buyer — so it dead-ended for exactly the audience web3-only onboarding
+  // created. Visible and explained, never a dead button (operator's call).
+  await reachWalletStep(page);
+
+  await expect(page.getByText(/Link a wallet first/i)).toBeVisible();
+  await expect(page.getByRole("button", { name: /Buy an entry token/i })).toBeHidden();
+});
+
+test("with a wallet the link opens the token modal AND its rail works @smoke", async ({ page }) => {
+  // The grandfathered managed-wallet player the link genuinely serves. This is
+  // the coverage the blocker asked for: CI stayed green on the dead-end because
+  // this spec only ever asserted that the swap landed — it never clicked a rail,
+  // so the refusal behind it was never executed.
+  await reachWalletStep(page);
+  await grantManagedWallet(page);
+  await page.reload();                       // walletConnected is server-rendered
+  await page.waitForLoadState("networkidle");
+  await page.evaluate(() => Alpine.store("modals").open("wallet-setup", {}));
+  await expect(page.getByRole("heading", { name: "Set up your wallet" })).toBeVisible();
+
+  // A SWAP, so the assertion is not just that the token modal appears — the
+  // wallet card must be GONE, or the user is looking at two stacked modals.
   await page.getByRole("button", { name: /Buy an entry token/i }).click();
   await expect(page.getByRole("heading", { name: "Buy an Entry Token" })).toBeVisible({ timeout: 15000 });
   await expect(page.getByRole("heading", { name: "Set up your wallet" })).toBeHidden();
   expect(await currentModal(page)).toMatchObject({ id: "buy-entry-token" });
+
+  // CLICK THROUGH the rail. Coinflow is the one that reaches the server
+  // (tmCoinflowBuyOne POSTs /tokens/coinflow_order); the Stripe card is a
+  // client-side swap into the picker and would prove nothing here. Assert on the
+  // RESPONSE rather than the absence of an alert: Coinflow may be unconfigured
+  // on this lane and fail for its own reasons, and what must never come back is
+  // the wallet refusal.
+  page.on("dialog", (d) => d.dismiss());     // keep an alert from blocking the run
+  const [orderResp] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes("/tokens/coinflow_order"), { timeout: 20000 }),
+    page.locator('[data-buy-rail="coinflow"]').click(),
+  ]);
+  const body = await orderResp.json().catch(() => ({}));
+  expect(body.error || "", "the rail must not refuse a buyer who HAS a wallet").not.toMatch(/connect a wallet/i);
 });
 
 test("the first name is the FIRST validation of the hold @smoke", async ({ page }) => {

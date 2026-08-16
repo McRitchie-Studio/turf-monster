@@ -12,10 +12,13 @@ create-or-login doors and one shared account spine.
   links or creates anything.
 - **Wallet sign-in proves key ownership without Solana RPC.** SIWS signature
   verification is local Ed25519 math; chain writes happen later.
-- **Every non-admin account gets a server-managed wallet** — unless
-  `ENABLE_WEB3_ONLY_ONBOARDING` is on, which mints none and routes the user to
-  the wallet-setup modal to link Phantom (see
-  [Web3-only onboarding](AUTH.md#web3-only-onboarding)). Phantom users also keep
+- **A new account gets NO wallet until it links Phantom.** Web3-only onboarding
+  is the default since 2026-08-15 (`AppFlags.web3_only_onboarding?`, off only on
+  an explicit `ENABLE_WEB3_ONLY_ONBOARDING=false`), so signup mints no managed
+  wallet and auth success routes the user to the wallet-setup modal (see
+  [Web3-only onboarding](AUTH.md#web3-only-onboarding)). With the switch off, the
+  old rule returns: every non-admin account gets a server-managed wallet on
+  create. Phantom users also keep
   their own `web3_solana_address`; managed wallet funds still live in the user's
   own token accounts, not a pooled DB balance.
 
@@ -56,10 +59,11 @@ Once any controller has a `User` row, account initialization is the same:
 2. `before_create :set_initial_session_token` writes `users.session_token`.
 3. `after_create :generate_managed_wallet!` creates a server-managed Ed25519
    wallet for non-admin users and encrypts the secret with
-   `MANAGED_WALLET_ENCRYPTION_KEY`. **Skipped entirely under
-   `ENABLE_WEB3_ONLY_ONBOARDING`** — the account is created and signed in
-   exactly as before, with `wallet_kind == :none` until the user links Phantom
-   through the wallet-setup modal.
+   `MANAGED_WALLET_ENCRYPTION_KEY`. **Skipped by default** — web3-only
+   onboarding is a default-on kill-switch since 2026-08-15, so the account is
+   created and signed in exactly as before but with `wallet_kind == :none` until
+   the user links Phantom through the wallet-setup modal. Setting
+   `ENABLE_WEB3_ONLY_ONBOARDING=false` restores the mint.
 4. `after_commit :enqueue_onchain_account_setup, on: :create` schedules
    `CreateOnchainUserAccountJob`.
 5. `set_app_session(user)` writes the Rails cookie session and clears stale
