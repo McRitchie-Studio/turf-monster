@@ -111,7 +111,31 @@ Studio.configure do |config|
       section[:key] == :newsletter ? ours : section
     end
 
+    # THE WEB3 ROWS, and the direction they represent. /profile is this app's new
+    # account page and /account is being emptied onto it a card at a time
+    # (operator's call) — these two are that migration, not a duplication: both
+    # pages render the SAME partial, so there is one implementation to keep right
+    # while the two pages coexist.
+    #
+    # NONE OF IT BELONGS IN THE ENGINE. Wallets, entry tokens and seeds are this
+    # app's, the same ruling that kept quests out — a gem four other apps install
+    # has no business knowing what a seed is.
     rows + [
+      # THE WALLET KEEPS ITS TITLE, so the row supplies an h2 and the partial
+      # stays chrome-free. It self-gates on solana_connected? and offers the
+      # CONNECT button when there is no wallet, which is why there is no `if:`
+      # here: a row-level gate would drop the card entirely and leave an account
+      # with no wallet no way to link one from this page.
+      { key: :solana_wallet, title: "Solana Wallet", page: :show,
+        partial: "accounts/solana_wallet_section" },
+
+      # THE REFERRAL ROW HAS NO TITLE, deliberately. Its heading carries an info
+      # toggle and three share targets, which a section title cannot express — so
+      # the partial keeps its own header and the row renders the card around it.
+      # `title:` omitted rather than blank: the engine's row only emits an h2
+      # `if section[:title].present?`.
+      { key: :referral, page: :show, partial: "accounts/referral_section" },
+
       # QUESTS ARE THIS APP'S OWN and the engine has no concept of them by design —
       # they are seeds-shaped, and seeds do not belong in a gem four other apps
       # install.

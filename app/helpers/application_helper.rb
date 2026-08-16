@@ -1,4 +1,29 @@
 module ApplicationHelper
+  # The contest a shared referral link should land on, resolved ONCE per request.
+  #
+  # WHY THIS EXISTS AS A HELPER rather than being called inline. The referral card
+  # is rendered by two pages now, and only one of them has a controller that can
+  # preload anything: /account set @referral_share_contest, and the engine's
+  # ProfilesController — which renders the same card on /profile — cannot be made
+  # to. So the partial resolves its own default, which moved the call from a
+  # controller into a VIEW RENDER.
+  #
+  # THAT MOVE IS WHAT NEEDS CONTAINING. SeasonConfig.main_contest reaches
+  # SeasonConfig.current, which is a `find_or_create_by` — normally a SELECT, but
+  # a code path that can INSERT, and a view render is the wrong place to have one
+  # at all. Memoising here keeps it to a single resolution per request whatever
+  # renders the card, and gives the call one named home instead of being loose in
+  # a template.
+  #
+  # `defined?` rather than `||=`, so a legitimately nil result (no open contest —
+  # the off-season) is cached instead of re-queried on every call. Same idiom as
+  # ApplicationController#display_seeds_data.
+  def referral_share_contest
+    return @_referral_share_contest if defined?(@_referral_share_contest)
+
+    @_referral_share_contest = SeasonConfig.main_contest
+  end
+
   # The current user's referral/invite URL landing on `target` (a same-origin
   # path, e.g. a contest). One stable Studio::Link per (user, target); the
   # tokenized /i/<token> replaces the old /contests/<slug>?ref=<slug> share link.
