@@ -27,6 +27,12 @@ class HoldButtonFizzPaletteTest < ActionDispatch::IntegrationTest
 
     assert_equal 2, response.body.scan(':style="fizzPalette"').size,
       "the desktop + mobile hold buttons both wear the picked teams"
+    # Lively is the board's level, so each button carries the hover layer that
+    # brings in the teams' light colors on top of the resting darks.
+    assert_equal 2, response.body.scan("hold-stack fizz-lively").size,
+      "both board buttons are lively"
+    assert_equal 2, response.body.scan("hold-fizz hold-fizz-extra").size,
+      "and each renders its hover layer"
     assert_includes response.body, "get fizzPalette()", "the board must map picks onto the slots"
     assert_includes response.body, "'--fizz-c-' + (i * 2 + 1)",
       "slot order is team 1 light, team 1 dark, team 2 light, …"

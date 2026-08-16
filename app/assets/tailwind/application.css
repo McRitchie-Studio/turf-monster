@@ -205,12 +205,14 @@
   --bg-mid: var(--hold-bg-mid, rgb(var(--color-primary-rgb)));
   --bg-to: var(--hold-bg-to, rgb(var(--color-primary-700-rgb)));
   --bg-image: linear-gradient(160deg, var(--bg-from) 0%, var(--bg-mid) 45%, var(--bg-to) 100%);
-  /* Success keeps the SAME green family as the resting face, lit brighter —
-     the old mint/teal was a different hue entirely, so confirming read as a
-     jump to some other button. Overridable per instance (see /admin/hold_button). */
-  --success-from: var(--hold-success-from, rgb(var(--color-primary-300-rgb)));
-  --success-to: var(--hold-success-to, rgb(var(--color-primary-700-rgb)));
-  --success-glow-rgb: var(--hold-success-glow-rgb, var(--color-primary-rgb));
+  /* Success keeps the SAME green family as the resting face — the old mint/teal
+     was a different hue entirely, so confirming read as a jump to some other
+     button. "Deep forest" (operator's pick from /admin/hold_button): brand green
+     dropping into the near-black green, which settles rather than shouts, and
+     throws the white check into relief. Overridable per instance. */
+  --success-from: var(--hold-success-from, rgb(var(--color-primary-rgb)));
+  --success-to: var(--hold-success-to, rgb(var(--color-primary-900-rgb)));
+  --success-glow-rgb: var(--hold-success-glow-rgb, var(--color-primary-800-rgb));
   --shadow: rgba(0, 61, 9, 0.2);
   --shadow-active: rgba(0, 61, 9, 0.32);
   --progress-border: var(--color-inset, #3a3359);

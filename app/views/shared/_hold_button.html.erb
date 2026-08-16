@@ -29,10 +29,11 @@
                          resolved by the time the hold completes ~2s later).
     fizz               - Render the fizz particle layer (default: true). Pass
                          false for a flat button. Preview: /admin/hold_button.
-    fizz_level         - :calm (default) or :lively. Lively rests where calm
-                         hovers, and hovering DOUBLES THE BUBBLE COUNT (a second
-                         layer fades in over the gaps) at the same speed — for a
-                         button carrying a page on its own.
+    fizz_level         - :lively (default) or :calm. Lively rests at a full
+                         boil, and hovering DOUBLES THE BUBBLE COUNT (a second
+                         layer fades in over the gaps) at the same speed. Calm
+                         simmers at rest and boils on hover instead — one
+                         layer, for a button that should not compete.
     fizz_colors        - Up to 12 CSS colors the bubbles wear, as a static
                          array (default: none = the built-in candy palette).
     fizz_bind          - Alpine expression bound to the stack's :style, for a
@@ -59,7 +60,7 @@
 <% fizz = local_assigns.key?(:fizz) ? local_assigns[:fizz] : true %>
 <% fizz_colors ||= nil %>
 <% fizz_bind ||= nil %>
-<% fizz_level ||= :calm %>
+<% fizz_level ||= :lively %>
 <%# Static palette (gallery, or any call site with fixed colors). A runtime
     palette rides fizz_bind instead. %>
 <% fizz_style = Array(fizz_colors).first(ApplicationHelper::FIZZ_SLOTS)

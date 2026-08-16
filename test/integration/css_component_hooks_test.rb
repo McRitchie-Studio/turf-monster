@@ -45,8 +45,8 @@ class CssComponentHooksTest < ActionDispatch::IntegrationTest
     assert_nil doc.at_css(".hold-btn .fizz-bit"), "no bubble may live inside the button"
     assert_equal "true", layer["aria-hidden"], "decoration must be hidden from assistive tech"
 
-    bits = doc.css(".hold-stack > .hold-fizz > .fizz-bit")
-    assert_equal 26, bits.size, "the fizz layer needs its full bubble table"
+    bits = doc.css(".hold-stack > .hold-fizz:not(.hold-fizz-extra) > .fizz-bit")
+    assert_equal 26, bits.size, "the resting layer needs its full bubble table"
 
     # Each bubble carries its own placement + animation table inline; the
     # keyframes read them back as vars, so a dropped property = a dead bubble.
@@ -90,24 +90,32 @@ class CssComponentHooksTest < ActionDispatch::IntegrationTest
     assert_match(/@utility hold-stack \{.*:has\(> \.hold-btn\.process\)/m, CSS,
       "hold state lives on the button, so the stack reads it with :has()")
 
-    # The lively variant is a stack modifier: rest at the calm hover, and hover
-    # doubles the COUNT — a second scatter, seeded apart so it lands in the
-    # first one's gaps, fading in over it. Speed must NOT change.
-    lively = Nokogiri::HTML::DocumentFragment.parse(
-      ApplicationController.render(partial: "shared/hold_button",
-                                   locals: { hold_id: "lively", fizz_level: :lively })
-    )
-    assert lively.at_css(".hold-stack.fizz-lively"), "fizz_level: :lively marks the stack"
-    assert_nil doc.at_css(".fizz-lively"), "calm is the default"
-    assert_equal 2, lively.css(".hold-stack > .hold-fizz").size, "lively renders both layers"
-    assert lively.at_css(".hold-stack > .hold-fizz-extra"), "the hover layer must be marked"
-    assert_equal 52, lively.css(".fizz-bit").size, "hover doubles 26 bubbles to 52"
-    assert_nil doc.at_css(".hold-fizz-extra"), "calm pays for no second layer"
+    # Lively is the DEFAULT: rest at a full boil, and hover doubles the COUNT —
+    # a second scatter, seeded apart so it lands in the first one's gaps, fading
+    # in over it. Speed must NOT change.
+    assert doc.at_css(".hold-stack.fizz-lively"), "lively is the default level"
+    assert_equal 2, doc.css(".hold-stack > .hold-fizz").size, "lively renders both layers"
+    assert doc.at_css(".hold-stack > .hold-fizz-extra"), "the hover layer must be marked"
+    assert_equal 52, doc.css(".fizz-bit").size, "hover doubles 26 bubbles to 52"
     # Seeded apart, or the second layer would sit exactly on top of the first.
-    first_layer_positions = lively.css(".hold-fizz:not(.hold-fizz-extra) > .fizz-bit").map { |b| b["style"] }
-    extra_positions = lively.css(".hold-fizz-extra > .fizz-bit").map { |b| b["style"] }
-    assert_not_equal first_layer_positions, extra_positions,
-      "the extra scatter must fill gaps, not shadow the base one"
+    assert_not_equal doc.css(".hold-fizz:not(.hold-fizz-extra) > .fizz-bit").map { |b| b["style"] },
+                     doc.css(".hold-fizz-extra > .fizz-bit").map { |b| b["style"] },
+                     "the extra scatter must fill gaps, not shadow the base one"
+    # The layers split the palette: lights rest, darks arrive on hover.
+    slot_of = ->(bit) { bit["style"][/--fizz-c-(\d+)/, 1].to_i }
+    assert doc.css(".hold-fizz:not(.hold-fizz-extra) > .fizz-bit").map(&slot_of).all?(&:odd?),
+      "the resting layer wears the teams' light colors"
+    assert doc.css(".hold-fizz-extra > .fizz-bit").map(&slot_of).all?(&:even?),
+      "the hover layer wears their dark colors"
+
+    # Calm is the quiet alternative — one layer, and it must be asked for.
+    calm = Nokogiri::HTML::DocumentFragment.parse(
+      ApplicationController.render(partial: "shared/hold_button",
+                                   locals: { hold_id: "calm", fizz_level: :calm })
+    )
+    assert_nil calm.at_css(".fizz-lively"), "fizz_level: :calm drops the modifier"
+    assert_nil calm.at_css(".hold-fizz-extra"), "calm pays for no second layer"
+    assert_equal 26, calm.css(".fizz-bit").size
 
     assert_match(/@utility hold-stack \{.*&\.fizz-lively \.fizz-bit/m, CSS,
       "the lively rest rule must exist")
@@ -133,8 +141,10 @@ class CssComponentHooksTest < ActionDispatch::IntegrationTest
 
     assert_match(/--bg-image: linear-gradient\(/, face, "the resting face is a gradient")
     assert_match(/--progress-success: #f6f8ff/, face, "the check is white on the green face")
-    assert_match(/--success-from: var\(--hold-success-from,/, face,
-      "success colors read a --hold-* input so an ancestor can retheme them")
+    assert_match(/--success-from: var\(--hold-success-from, rgb\(var\(--color-primary-rgb\)\)\)/, face,
+      "confirmed starts at the brand green (Deep forest)")
+    assert_match(/--success-to: var\(--hold-success-to, rgb\(var\(--color-primary-900-rgb\)\)\)/, face,
+      "and drops into the near-black green")
     assert_match(/&\.process \{[^}]*--bg-image: none/m, face, "the hold face stays flat")
     assert_match(/&\.error \{[^}]*--bg-image: none/m, face, "the blocked face stays flat")
     refute_match(/#06d6a0/, face, "the confirmed face must not go back to mint")

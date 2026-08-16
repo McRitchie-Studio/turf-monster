@@ -48,19 +48,27 @@ class ApplicationHelperTest < ActionView::TestCase
     end
   end
 
-  test "fizz bits cover every color slot so a full pick set shows all twelve colors" do
-    bits = hold_button_fizz_bits("desktop")
-    slots = bits.map { |b| b[:slot] }
+  test "the two fizz layers split the palette light-at-rest, dark-on-hover" do
+    # Slots alternate light, dark, light, dark by team (the board's fizzPalette
+    # getter fills them in pick order), so the split is on parity: the resting
+    # layer wears the six lights, the layer that fades in on hover the six darks.
+    base = hold_button_fizz_bits("desktop", layer: :base).map { |b| b[:slot] }
+    hover = hold_button_fizz_bits("desktop~extra", layer: :hover).map { |b| b[:slot] }
 
-    assert_equal (1..ApplicationHelper::FIZZ_SLOTS).to_a, slots.uniq.sort,
-      "every one of the twelve slots must be worn by at least one bubble"
-    assert_equal 26, slots.size
-    # Round-robin, so no slot hogs the button.
-    assert_operator slots.tally.values.max - slots.tally.values.min, :<=, 1
+    assert_equal [ 1, 3, 5, 7, 9, 11 ], base.uniq.sort, "the resting layer is the teams' light colors"
+    assert_equal [ 2, 4, 6, 8, 10, 12 ], hover.uniq.sort, "the hover layer is their dark colors"
+    assert_empty base & hover, "a color belongs to one layer or the other, never both"
+    assert_equal (1..ApplicationHelper::FIZZ_SLOTS).to_a, (base + hover).uniq.sort,
+      "between them the layers wear all twelve"
+    # Round-robin within a layer, so no slot hogs it.
+    [ base, hover ].each do |slots|
+      assert_equal 26, slots.size
+      assert_operator slots.tally.values.max - slots.tally.values.min, :<=, 1
+    end
   end
 
   test "a fizz bit reads its slot's color and falls back to its own hue" do
-    bit = hold_button_fizz_bits("desktop").first
+    bit = hold_button_fizz_bits("desktop", layer: :base).first
     color = hold_button_fizz_color(bit)
 
     assert_equal "var(--fizz-c-#{bit[:slot]}, hsl(#{bit[:hue]} 92% 70%))", color,

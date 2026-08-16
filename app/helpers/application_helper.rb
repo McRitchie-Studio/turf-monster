@@ -99,14 +99,26 @@ module ApplicationHelper
   # success burst — so one table drives every phase.
   #
   # `slot` is the bubble's COLOR SLOT, 1..FIZZ_SLOTS, assigned round-robin so
-  # every slot shows up on every button. A caller that dresses the button in a
-  # palette (the board sends the six picked teams' light + dark colors) sets
-  # --fizz-c-1..12 on the stack; the bubble reads its slot's var and falls back
-  # to its own FIZZ_HUES candy color when nothing is bound.
+  # every slot in the layer's set shows up on every button. A caller that
+  # dresses the button in a palette (the board sends the six picked teams'
+  # light + dark colors) sets --fizz-c-1..12 on the stack; the bubble reads its
+  # slot's var and falls back to its own FIZZ_HUES candy color when nothing is
+  # bound.
+  #
+  # The slots alternate light, dark, light, dark … by team (see the board's
+  # fizzPalette getter), and the two fizz layers split them on that seam: the
+  # resting layer wears the six LIGHT colors, and the layer that fades in on
+  # hover wears the six DARK ones — the bright set carries the button at rest,
+  # and hover fills the gaps with the teams' deep colors.
   FIZZ_SLOTS = 12
+  FIZZ_LAYER_SLOTS = {
+    base: (1..FIZZ_SLOTS).select(&:odd?).freeze,   # team light colors
+    hover: (1..FIZZ_SLOTS).select(&:even?).freeze  # team dark colors
+  }.freeze
 
-  def hold_button_fizz_bits(hold_id, count: 26)
-    prng = Random.new(hold_id.to_s.each_byte.sum * 7919 + count)
+  def hold_button_fizz_bits(seed, layer: :base, count: 26)
+    slots = FIZZ_LAYER_SLOTS.fetch(layer)
+    prng = Random.new(seed.to_s.each_byte.sum * 7919 + count)
 
     Array.new(count) do |i|
       # 4-in-10 along the bottom edge, 4-in-10 along the top, 1 off each end.
@@ -116,7 +128,7 @@ module ApplicationHelper
       when 8          then side_fizz_bit(prng, :left)
       else                 side_fizz_bit(prng, :right)
       end
-      bit.merge(slot: (i % FIZZ_SLOTS) + 1)
+      bit.merge(slot: slots[i % slots.size])
     end
   end
 

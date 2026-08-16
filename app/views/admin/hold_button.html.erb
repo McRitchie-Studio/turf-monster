@@ -40,20 +40,22 @@
   <section class="space-y-3">
     <h2 class="text-heading text-lg font-bold">Calm and lively</h2>
     <p class="text-muted text-xs">
-      Two intensities. <code>fizz_level: :calm</code> (the default) simmers at rest and boils on hover.
-      <code>fizz_level: :lively</code> rests <em>at</em> that boil, and hovering doubles the bubble
-      <em>count</em> at the same speed — a second scatter fades in over the gaps in the first, and
-      fades back out when you leave. Held, submitting, confirmed and blocked look the same in both.
+      Two intensities. <code>fizz_level: :lively</code> is the DEFAULT — it rests at a full boil, and
+      hovering doubles the bubble <em>count</em> at the same speed: a second scatter fades in over the
+      gaps in the first, and fades back out when you leave. The resting layer wears the six teams'
+      <em>light</em> colors and the hover layer their <em>dark</em> ones, so the bright set carries the
+      button and hover fills the gaps with the deep colors. <code>fizz_level: :calm</code> is the quiet alternative — one
+      layer, simmering at rest, boiling on hover. Held, submitting, confirmed and blocked are identical.
     </p>
     <div class="card p-6 grid md:grid-cols-2 gap-8">
       <div class="space-y-2">
-        <p class="text-heading font-semibold text-sm">Calm (default)</p>
+        <p class="text-heading font-semibold text-sm">Calm</p>
         <div style="max-width:18rem">
-          <%= render "shared/hold_button", hold_id: "fizz-calm" %>
+          <%= render "shared/hold_button", hold_id: "fizz-calm", fizz_level: :calm %>
         </div>
       </div>
       <div class="space-y-2">
-        <p class="text-heading font-semibold text-sm">Lively</p>
+        <p class="text-heading font-semibold text-sm">Lively (default)</p>
         <div style="max-width:18rem">
           <%= render "shared/hold_button", hold_id: "fizz-lively", fizz_level: :lively %>
         </div>
@@ -94,17 +96,17 @@
     <h2 class="text-heading text-lg font-bold">Confirmed — which green?</h2>
     <p class="text-muted text-xs">
       The confirmed face used to jump to mint/teal, a different hue from the button you pressed,
-      with a mint check on top of it that barely showed. The default is now the same brand green,
-      lit brighter, with a white check. Say the word and any of these becomes the default —
+      with a mint check on top of it that barely showed. The default is now Deep forest — the same
+      brand green dropping into near-black, with a white check. Any of these can become the default —
       each is three variables (<code>--hold-success-from</code>, <code>--hold-success-to</code>, <code>--hold-success-glow-rgb</code>), settable on any ancestor.
     </p>
     <div class="card p-6 grid md:grid-cols-3 gap-8">
       <% [
-           { id: "fizz-green-brand", label: "Brand lit (default)", style: "",
-             note: "primary-300 → primary-700. Same family as the resting button." },
-           { id: "fizz-green-deep", label: "Deep forest",
-             style: "--hold-success-from:#4BAF50;--hold-success-to:#1E4620;--hold-success-glow-rgb:41 96 44",
-             note: "Brand green → near-black green. Heavier, less shout." },
+           { id: "fizz-green-deep", label: "Deep forest (default)", style: "",
+             note: "primary-500 → primary-900. Settles instead of shouting; the white check reads hard against it." },
+           { id: "fizz-green-brand", label: "Brand lit",
+             style: "--hold-success-from:#A5D7A8;--hold-success-to:#357A38;--hold-success-glow-rgb:75 175 80",
+             note: "primary-300 → primary-700. Lighter, louder." },
            { id: "fizz-green-mint", label: "Emerald (the old one)",
              style: "--hold-success-from:#06d6a0;--hold-success-to:#025e40;--hold-success-glow-rgb:6 214 160",
              note: "What it looked like before — teal, off the brand." }
@@ -127,8 +129,10 @@
     <h2 class="text-heading text-lg font-bold">Dressed in team colors</h2>
     <p class="text-muted text-xs">
       What the board's button wears once six picks are in: each team's light and dark brand color,
-      twelve slots in pick order. On the board these ride <code>:style="fizzPalette"</code> and
-      re-dress themselves as picks change; unfilled slots keep the candy color.
+      twelve slots in pick order. The resting layer takes the six <em>light</em> colors, the hover layer
+      the six <em>dark</em> ones — hover this one and watch the deep colors fill in. On the board these ride
+      <code>:style="fizzPalette"</code> and re-dress themselves as picks change; unfilled slots keep
+      the candy color.
     </p>
     <div class="card p-6 space-y-4">
       <div style="max-width:18rem">
