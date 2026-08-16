@@ -411,47 +411,20 @@
     <% end %>
   </div>
 
-  <%# -- Newsletter (placed below Bring Friends per the funnel order) --
-      Each x-show state carries a matching min-height so toggling subscribed
-      <-> not-subscribed doesn't change the card height (no jump). subscribed
-      is server-seeded + kept in sync by the newsletter-state-changed event. %>
-  <div x-data="{ subscribed: <%= current_user.subscribed_to_newsletter? %> }"
-       @newsletter-state-changed.window="subscribed = !!$event.detail.subscribed"
-       class="card shadow p-6 mb-6">
+  <%# The newsletter card, shared with /profile — see the partial for why. The
+      CHROME stays here because each call site owns its own: the profile row gets
+      its card and heading from the engine's section wrapper. %>
+  <div class="card shadow p-6 mb-6">
     <h2 class="text-lg font-bold text-heading mb-4">Newsletter</h2>
-
-    <%# Subscribed state %>
-    <div x-show="subscribed" x-cloak class="flex items-center justify-between gap-3 flex-wrap" style="min-height: 3rem;">
-      <div class="flex items-center gap-2 min-w-0">
-        <svg class="w-5 h-5 text-primary flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-        </svg>
-        <span class="text-body">Subscribed</span>
-      </div>
-      <button type="button" @click="$store.modals.open('unsubscribe-confirm')"
-              class="text-sm text-secondary hover:text-heading transition underline-offset-2 hover:underline">
-        Unsubscribe
-      </button>
-    </div>
-
-    <%# Not-subscribed state %>
-    <div x-show="!subscribed" x-cloak class="flex items-center justify-between gap-3 flex-wrap" style="min-height: 3rem;">
-      <p class="text-secondary text-sm min-w-0">
-        <% if current_user.first_newsletter_join? %>
-          Join the newsletter for <span class="text-primary font-semibold">25 seeds</span> — sports news and contest updates.
-        <% else %>
-          Join the newsletter — sports news and contest updates.
-        <% end %>
-      </p>
-      <button type="button" @click="$store.modals.open('newsletter-subscribe')"
-              class="btn btn-primary btn-sm flex-shrink-0">
-        Subscribe
-      </button>
-    </div>
+    <%= render "accounts/newsletter_section", user: current_user %>
   </div>
 
-  <%# -- Quests progress -- %>
-  <%= render "quests" %>
+  <%# -- Quests progress -- The CHROME lives here because each call site owns its
+      own; the profile row gets its card and heading from the engine's wrapper. %>
+  <div class="card shadow p-6 mb-6">
+    <h2 class="text-lg font-bold text-heading mb-4">Quests</h2>
+    <%= render "quests" %>
+  </div>
 
   <%# -- Log out + Buy Entry Tokens (side by side) -- %>
   <div class="grid grid-cols-2 gap-4 mb-6">

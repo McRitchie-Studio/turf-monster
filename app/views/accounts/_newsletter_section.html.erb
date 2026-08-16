@@ -1,0 +1,65 @@
+<%# The newsletter card's BODY — the two states and the buttons that open this
+    app's own modal flow.
+
+    Locals: user (required).
+
+    A LOCAL RATHER THAN current_user, and the engine chose this for us: it passes
+    `user:` to every row partial already. Reading current_user here would have been
+    a hidden dependency on the view context that only shows up when something
+    renders the partial outside a request — which is exactly what a component test
+    does, and exactly how this was caught.
+
+    EXTRACTED so /account and /profile render ONE implementation. /account has
+    had this card since the quest system shipped; /profile now declares its own
+    newsletter row (config/initializers/studio.rb) pointing here, REPLACING the
+    engine's default row. The engine's row is a plain form and a confirm dialog —
+    correct for an app with no rewards, wrong for this one, where joining is worth
+    25 seeds and leaving costs them.
+
+    THE MODALS ARE THE APP'S, not the engine's. newsletter-subscribe,
+    newsletter-email, newsletter-success, unsubscribe-confirm and
+    unsubscribe-goodbye are registered in layouts/application.html.erb on the
+    shared `$store.modals` host, inside the logged_in? block — so they are already
+    mounted on every authenticated page, /profile included. Nothing extra needs
+    registering there.
+
+    Each x-show state carries a matching min-height so toggling subscribed <->
+    not-subscribed does not change the card height (no jump). `subscribed` is
+    server-seeded and kept in sync by the newsletter-state-changed event, which
+    the modals dispatch. %>
+<%# BODY ONLY — no card, no heading. Each call site owns its own chrome:
+    /account wraps this in its `card shadow p-6 mb-6` with an <h2>, and the
+    /profile row gets both from the engine's section wrapper and its `title:`.
+    Carrying a card in here would nest one inside the other on /profile. %>
+<div x-data="{ subscribed: <%= user.subscribed_to_newsletter? %> }"
+     @newsletter-state-changed.window="subscribed = !!$event.detail.subscribed">
+
+  <%# Subscribed state %>
+  <div x-show="subscribed" x-cloak class="flex items-center justify-between gap-3 flex-wrap" style="min-height: 3rem;">
+    <div class="flex items-center gap-2 min-w-0">
+      <svg class="w-5 h-5 text-primary flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+      </svg>
+      <span class="text-body">Subscribed</span>
+    </div>
+    <button type="button" @click="$store.modals.open('unsubscribe-confirm')"
+            class="text-sm text-secondary hover:text-heading transition underline-offset-2 hover:underline">
+      Unsubscribe
+    </button>
+  </div>
+
+  <%# Not-subscribed state %>
+  <div x-show="!subscribed" x-cloak class="flex items-center justify-between gap-3 flex-wrap" style="min-height: 3rem;">
+    <p class="text-secondary text-sm min-w-0">
+      <% if user.first_newsletter_join? %>
+        Join the newsletter for <span class="text-primary font-semibold">25 seeds</span> — sports news and contest updates.
+      <% else %>
+        Join the newsletter — sports news and contest updates.
+      <% end %>
+    </p>
+    <button type="button" @click="$store.modals.open('newsletter-subscribe')"
+            class="btn btn-primary btn-sm flex-shrink-0">
+      Subscribe
+    </button>
+  </div>
+</div>

@@ -66,19 +66,24 @@ class EngineProfilePageTest < ActionDispatch::IntegrationTest
     assert_includes response.body, 'name="profile[first_name]"'
   end
 
-  # THE HOLD-BACK, asserted rather than trusted to a comment. The engine ships a
-  # newsletter row that writes joined_email_list_at directly; this app's 25-seed
-  # welcome bonus is gated on that column being nil, so the row appearing here
-  # would silently make the bonus unclaimable. config/initializers/studio.rb
-  # rejects it — and this is what notices if that line is ever dropped.
-  test "the newsletter row is held back from the profile page" do
+  # THE HOLD-BACK IS GONE, and that is the point rather than an omission. This
+  # test used to assert the newsletter row was ABSENT: the engine's row writes
+  # joined_email_list_at directly, this app's 25-seed bonus is gated on that
+  # column being nil, so subscribing here would have made the bonus unclaimable
+  # forever.
+  #
+  # Studio.after_newsletter_change (engine 0.53.0) closed that — the grant now
+  # runs from the callback in config/initializers/studio.rb — so the row belongs
+  # here. What the row does WITH the seeds is asserted in
+  # test/integration/profile_newsletter_quests_test.rb; this only pins that it
+  # renders, so a future hold-back cannot creep back in unnoticed.
+  test "the newsletter row renders on the profile page" do
     sign_in_as(@user)
     get "/profile"
 
     assert_response :success
-    refute_includes response.body, 'data-profile-section="newsletter"',
-      "the engine's newsletter row reached /profile — subscribing there sets " \
-      "joined_email_list_at without granting seeds, which burns first_newsletter_join? forever"
+    assert_includes response.body, 'data-profile-section="newsletter"',
+      "the row was held back only while a subscribe here burned the seeds bonus; the callback closed that"
   end
 
   # The hold-back must remove ONE row, not freeze the page. Composed against
@@ -88,14 +93,18 @@ class EngineProfilePageTest < ActionDispatch::IntegrationTest
   # the honest test of what this app declares. (Building a view_context by hand
   # here raises: this app's current_user reads session, and a bare controller has
   # no request.) The RENDERED consequence is the test above.
-  def test_holding_one_row_back_does_not_freeze_the_rest_of_the_page
+  #
+  # It once asserted a row REMOVED; it now asserts one ADDED. What has not changed
+  # is the property worth keeping: this app composes against the engine's
+  # defaults rather than listing rows, so a row the engine adds later arrives here
+  # automatically instead of being silently dropped.
+  def test_the_app_adds_its_own_row_without_freezing_the_engines
     declared = Studio.profile_sections.call(nil).map { |section| section[:key].to_sym }
+    defaults = Studio.default_profile_sections.map { |section| section[:key].to_sym }
 
-    refute_includes declared, :newsletter
-    assert_equal Studio.default_profile_sections.length - 1, declared.length,
-                 "the hold-back must remove exactly ONE row — this app composes against the " \
-                 "engine's defaults so a row added later still arrives here automatically"
-    assert_includes declared, :name, "the rest of the page must be untouched"
+    assert_equal defaults + [:quests], declared,
+                 "expected the engine's defaults IN ORDER plus this app's quests row — a literal " \
+                 "list here would silently drop whatever the engine adds next"
   end
 
   # /account is UNTOUCHED by this bump. The migration plan is to stand /profile up
