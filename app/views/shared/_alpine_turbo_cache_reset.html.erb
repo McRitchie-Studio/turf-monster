@@ -1,0 +1,64 @@
+<%# Stop Alpine's generated DOM from being cached by Turbo and then rendered a
+    SECOND time on the way back.
+
+    The bug, as the operator hit it: make 6 of 6 picks, follow the wallet
+    modal's "Read the setup guide" link, press Back — and "Your Picks" shows
+    TWELVE rows, the six real picks plus six blanks.
+
+    The mechanism is a seam between two libraries that are each behaving
+    correctly. Turbo snapshots the LIVE DOM, which by then contains the elements
+    Alpine's `x-for` GENERATED, and a restoration visit puts that snapshot back
+    verbatim. Alpine then initialises the restored tree from scratch: its
+    `x-for` keeps its bookkeeping (`_x_lookup`) on the template element as a JS
+    property, and JS properties do not survive the snapshot — so the fresh
+    `x-for` has no idea the snapshot already carries a full set of rows, and
+    renders another one beside it. The cached rows are left with no Alpine
+    scope, which is why they render blank rather than as doubled picks.
+
+    Measured on /contests/<slug> before this partial existed: after one Back the
+    page carried 12 cart slots instead of 6, and the seeds bar's `x-for i in 5`
+    went to 10. So this is not a cart bug — it is every `x-for` and `x-if` on
+    any cached page, and the fix belongs here rather than in one partial.
+
+    The cure is to hand Turbo a snapshot that contains only the TEMPLATES, never
+    their output. On `turbo:before-cache` we drop the generated nodes and clear
+    the bookkeeping that points at them; the restored page then renders exactly
+    one set. This mutates the live DOM, which is the same bargain the gear
+    sidebar and the engine's modal host already strike on this event — Turbo
+    fires it once the visit is committed and the body is about to be replaced.
+
+    x-for is swept BEFORE x-if on purpose: an x-for row can contain x-if
+    templates, and removing the row takes its nested templates with it.
+
+    NOT the engine's copy of this problem. studio-engine ships Alpine and every
+    app on it has the same seam; this fixes turf-monster, where it was reported.
+%>
+<script>
+  (function () {
+    if (window.__turfAlpineTurboCacheReset) return;
+    window.__turfAlpineTurboCacheReset = true;
+
+    function resetGeneratedAlpineDom() {
+      // x-for: `_x_lookup` is a Map of key -> generated element.
+      document.querySelectorAll('template[x-for]').forEach(function (tpl) {
+        var lookup = tpl._x_lookup;
+        if (lookup && typeof lookup.forEach === 'function') {
+          lookup.forEach(function (node) {
+            if (node && typeof node.remove === 'function') node.remove();
+          });
+          if (typeof lookup.clear === 'function') lookup.clear();
+        }
+        delete tpl._x_lastRenderedEl;
+      });
+
+      // x-if: `_x_currentIfEl` is the single element the template inserted.
+      document.querySelectorAll('template[x-if]').forEach(function (tpl) {
+        var clone = tpl._x_currentIfEl;
+        if (clone && typeof clone.remove === 'function') clone.remove();
+        delete tpl._x_currentIfEl;
+      });
+    }
+
+    document.addEventListener('turbo:before-cache', resetGeneratedAlpineDom);
+  })();
+</script>
