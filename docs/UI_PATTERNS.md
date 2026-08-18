@@ -538,8 +538,8 @@ ThemeSetting (engine)            # 7 role colors persisted per-app
         │                         # --color-cta, --color-cta-hover, --color-page, …
         ├──> Tailwind config     # primary palette = rgb(var(--color-primary-rgb) / <alpha>)
         │                         #  → utility classes: bg-primary, text-primary, border-primary, ring-primary
-        └──> Hand-rolled CSS    # rgb(var(--color-primary-rgb)) directly in .matchup-selected, .seeds-bar, etc.
-        │                         #  (and in the ENGINE's own layer — .hold-btn themes off the same token from studio-engine)
+        └──> Hand-rolled CSS    # rgb(var(--color-primary-rgb)) directly in .matchup-selected, .pick-pulse, etc.
+                                  #  (and in the ENGINE's own layer — .hold-btn themes off the same token from studio-engine)
 ```
 
 Practical implications:
