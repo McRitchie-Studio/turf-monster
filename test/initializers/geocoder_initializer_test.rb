@@ -60,4 +60,39 @@ class GeocoderInitializerTest < ActiveSupport::TestCase
     ENV["IPINFO_API_TOKEN"] = previous unless previous.nil?
     load Rails.root.join("config/initializers/geocoder.rb").to_s
   end
+
+  # ── lookup caching (rate-limit armor) ──────────────────────────────────────
+  # The anonymous ipinfo tier rate-limits by requesting IP, and Heroku dynos
+  # share egress IPs — so uncached lookups 429 under load, geo_state goes
+  # blank, and the fail-closed gates block real users. The cache collapses
+  # repeat-IP lookups (returning visitors, per-minute uptime monitors) to one
+  # ipinfo call per TTL.
+
+  test "geocoder is configured to cache lookups in Rails.cache" do
+    assert_instance_of GeocoderRailsCache, Geocoder.config.cache,
+                       "lookups must be cached — uncached ipinfo calls 429 on the shared anonymous tier"
+    assert_equal "geocoder:", Geocoder.config.cache_options[:prefix]
+  end
+
+  test "the cache wrapper writes through Rails.cache with a bounded TTL" do
+    store = ActiveSupport::Cache::MemoryStore.new
+    Rails.stub :cache, store do
+      cache = GeocoderRailsCache.new
+      cache["geocoder:https://example.test/1.2.3.4/geo"] = "{\"region\":\"Colorado\"}"
+
+      assert_equal "{\"region\":\"Colorado\"}", cache["geocoder:https://example.test/1.2.3.4/geo"],
+                   "a cached body must read back"
+
+      travel GeocoderRailsCache::EXPIRES_IN + 1.minute do
+        assert_nil cache["geocoder:https://example.test/1.2.3.4/geo"],
+                   "an IP's geolocation drifts — the cache must expire, not pin it forever"
+      end
+    end
+  end
+
+  test "a cache miss reads as nil so geocoder falls through to the live lookup" do
+    Rails.stub :cache, ActiveSupport::Cache::MemoryStore.new do
+      assert_nil GeocoderRailsCache.new["geocoder:https://example.test/miss/geo"]
+    end
+  end
 end
