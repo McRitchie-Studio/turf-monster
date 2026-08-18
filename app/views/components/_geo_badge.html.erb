@@ -1,18 +1,22 @@
-<% if logged_in? %>
-  <% state = geo_state %>
-  <span class="inline-flex items-center gap-1.5 text-xs font-mono px-2 py-0.5 rounded-lg whitespace-nowrap
-    <%= if geo_override_active?
-          'bg-red-500/10 text-red-400 border border-red-500/30'
-        elsif geo_blocked?
-          'bg-red-500/10 text-red-400 border border-red-500/30'
-        elsif state.present?
-          'bg-surface-alt text-secondary border border-subtle'
-        else
-          'bg-surface-alt text-muted border border-subtle'
-        end %>">
-    <% if state.present? && (flag = state_flag_path(state)) %>
-      <img src="<%= flag %>" alt="<%= state %>" class="rounded-sm" style="height: 12px; width: 16px; object-fit: cover; flex-shrink: 0;">
-    <% end %>
-    <%= state || "??" %>
-  </span>
-<% end %>
+<%# The visitor's detected state — public, no sign-in required. Detection is
+    IP-based (detect_geo_state runs for every request), so the badge can always
+    say where the browser appears to be: a flag + code when the state resolves,
+    a red "??" when it cannot (fail-closed: an undetectable US location is
+    treated as blocked), red when the state is on the legal blocklist or a geo
+    override is active. %>
+<% state = geo_state %>
+<span class="geo-badge inline-flex items-center gap-1.5 text-xs font-mono px-2 py-0.5 rounded-lg whitespace-nowrap
+  <%= if geo_override_active?
+        'bg-red-500/10 text-red-400 border border-red-500/30'
+      elsif geo_blocked?
+        'bg-red-500/10 text-red-400 border border-red-500/30'
+      elsif state.present?
+        'bg-surface-alt text-secondary border border-subtle'
+      else
+        'bg-surface-alt text-muted border border-subtle'
+      end %>">
+  <% if state.present? && (flag = state_flag_path(state)) %>
+    <img src="<%= flag %>" alt="<%= state %>" class="rounded-sm" style="height: 12px; width: 16px; object-fit: cover; flex-shrink: 0;">
+  <% end %>
+  <%= state || "??" %>
+</span>

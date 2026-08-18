@@ -54,7 +54,15 @@ class EnginePinContractTest < ActiveSupport::TestCase
   #          not exist, so the age-gate modal raises on render rather than
   #          degrading. It also carries /profile/edit's birthday row off the
   #          retired calendar popover onto the same three selects.
-  MINIMUM = Gem::Version.new("0.54.0")
+  #   0.56 — studio/_hold_button + studio/_fizz_layer + Studio::FizzHelper, and
+  #          the ACTION family (.hold-btn / .hold-stack / .fizz-bit) in
+  #          engine-motion.css. This app DELETED its local copy of all four —
+  #          the two partials, the helper, and ~500 lines of duplicated CSS — so
+  #          below 0.56 the contest board's confirm button raises on render, and
+  #          the entry-token modals with it. Same shape as the 0.54 floor: it
+  #          fails loudly rather than degrading, which is the kind of floor
+  #          worth having.
+  MINIMUM = Gem::Version.new("0.56.0")
 
   test "the resolved studio-engine is at or above the floor this app depends on" do
     resolved = Gem::Version.new(Studio::VERSION)
@@ -77,9 +85,30 @@ class EnginePinContractTest < ActiveSupport::TestCase
   # `~>` on two segments allows anything below the next MAJOR, so the pin can
   # never be a ceiling here — only its lower bound is meaningful, and that lower
   # bound is what must match.
+  # A SOURCE OVERRIDE IS NOT DRIFT. studio-engine's consumer-CI lane rewrites this
+  # app's Gemfile to build against the engine commit under test —
+  # `sed 's|^gem "studio-engine".*|gem "studio-engine", path: "../studio"|'` in
+  # .github/workflows/consumer-ci.yml. In that mode there is no version pin BY
+  # DESIGN, so there is no lower bound and the pin-vs-MINIMUM relationship this
+  # test guards is not expressible. Asserting it anyway failed EVERY engine PR
+  # from the day this test landed (2026-08-16, aabfb8b) — a CSS-only engine change
+  # went red here while the engine suite, both browser lanes and the sibling
+  # consumer lane were green. The guard was right; it just never met the rewrite.
+  #
+  # So: skip when the gem is sourced by path/git, and keep biting whenever a real
+  # version pin is present. The skip is NARROW — a MISSING studio-engine line, or
+  # one pinned some other way, still fails.
   test "the Gemfile pin's lower bound is the floor this file declares" do
     gemfile = Rails.root.join("Gemfile").read
-    pin = gemfile[/^\s*gem\s+["']studio-engine["'],\s*["']~>\s*([\d.]+)["']/, 1]
+    declaration = gemfile[/^\s*gem\s+["']studio-engine["'].*$/]
+
+    assert declaration, "no `gem \"studio-engine\"` line found in the Gemfile at all"
+
+    if declaration.match?(/\b(?:path|git|github|branch):/)
+      skip "studio-engine is sourced by override (#{declaration.strip}) — no version pin to compare"
+    end
+
+    pin = declaration[/["']~>\s*([\d.]+)["']/, 1]
 
     assert pin, "no `gem \"studio-engine\", \"~> x.y\"` line found in the Gemfile"
     assert_equal Gem::Version.new(pin).segments.first(2), MINIMUM.segments.first(2),

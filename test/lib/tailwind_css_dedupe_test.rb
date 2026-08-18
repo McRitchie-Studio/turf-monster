@@ -22,10 +22,15 @@ class TailwindCssDedupeTest < ActiveSupport::TestCase
   end
 
   test "hold-button state classes are not bare utilities" do
-    # process/success/error/loading/nudge/nudge-soft are JS-applied state
-    # hooks styled via compound selectors INSIDE @utility hold-btn. Bare
-    # utilities with these common names get emitted whenever the token
+    # process/success/error/loading/nudge/nudge-soft are JS-applied state hooks.
+    # Bare utilities with these common names get emitted whenever the token
     # appears anywhere Tailwind scans (flash[:success], prose, JS strings).
+    #
+    # The hold button itself moved to studio-engine 0.56, so this guard now has a
+    # SECOND job: the engine ships these rules UNLAYERED, and an @utility here
+    # would compile into @layer utilities and silently lose to them. Re-declaring
+    # any of these locally is therefore worse than duplication — it is dead CSS
+    # that reads as live.
     %w[process success error loading nudge nudge-soft hold-icon hold-text fizz hold-fizz fizz-bit].each do |name|
       refute_match(/^@utility\s+#{Regexp.escape(name)}\s*\{/, css,
         "@utility #{name} reintroduced — hold-button states belong inside @utility hold-btn")
