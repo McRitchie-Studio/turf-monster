@@ -12,8 +12,6 @@
     <%= render "hub_tile", name: "Navbar",        url: admin_navbar_path %>
     <%= render "hub_tile", name: "Modals",        url: admin_modals_path %>
     <%= render "hub_tile", name: "Level Badges",  url: admin_level_badges_path %>
-    <%= render "hub_tile", name: "Hold Button",   url: admin_hold_button_path,
-          note: "Fizz lab — idle, hover, hold, success burst" %>
     <% unless Rails.env.production? %>
       <%= render "hub_tile", name: "Toast Test", url: toast_test_path %>
     <% end %>
