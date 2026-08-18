@@ -75,36 +75,58 @@ Uses `outline` (not border) for selection highlight — avoids layout shift. Dyn
 
 ## Long-Press Button
 
-`_hold_button.html.erb` — reusable partial with four states:
-- **idle** (brand-green gradient, `--bg-image`: primary-400 → primary-500 → primary-700) → **holding** (`.process`, flat dark face, green glow builds) → **success** (`.success`, "Deep forest": primary-500 → primary-900 + white checkmark) or **error** (`.error`, flat red)
-- **Face colors are re-themable per instance.** Each reads a `--hold-*` input before its default, so an ancestor can dress one button (or a page of them) without touching the stylesheet: `--hold-bg-from` / `--hold-bg-mid` / `--hold-bg-to` for the resting face, `--hold-success-from` / `--hold-success-to` / `--hold-success-glow-rgb` for the confirmed one. Candidates side by side at `/admin/hold_button`.
-- After hold completes, stays in `.process` for 500ms while resolving before transitioning to success or error
-- Params: `default_text`, `hold_text`, `success_text`, `error_text`, `duration`, `hold_id`, `guard`, `on_success`, `validate`, `validate_at`, `fizz`, `fizz_level`, `fizz_colors`, `fizz_bind`
-- The `on_success` callback sets the final state via `setHoldSuccess()` or `setHoldError()`
-- Renders in both desktop + mobile cart (2 DOM elements, differentiated by `hold_id`)
-- **CSS**: All hold button styles (`.hold-btn`, state classes, keyframes) live in `app/assets/tailwind/application.css` using CSS variables (`--color-cta`, `--color-danger`, `--color-page`). Duration passed via inline `style="--duration: Xms"`.
-- **JS**: Inline in the partial (uses ERB interpolation for callbacks). Not extracted to importmap.
+**Owned by studio-engine since 0.56** (`studio/_hold_button` + `studio/_fizz_layer`,
+`Studio::FizzHelper`, and the ACTION family in `engine-motion.css`). This app used to
+carry its own copy of all four; `adopt-engine-hold-button` deleted them. Render it:
+
+```erb
+<%= render "studio/hold_button", hold_id: "desktop", duration: 2000, ... %>
+```
+
+- **Where it renders here**: the contest board's desktop + mobile cart (two DOM
+  elements, differentiated by `hold_id`) and the entry-token modals
+  (`modals/auth/_tokens`, `_paypal_tokens`).
+- **Params, states, fizz levels, zones, the `--hold-*` theming inputs**: documented
+  in the engine's CHANGELOG (0.56) and staged live on `/admin/style` → Tricks →
+  "Hold to confirm". Do not re-document them here — a second copy of a spec drifts
+  the same way a second copy of the CSS did.
+- **The floor is real**: `Gemfile` pins `~> 0.56` and
+  `test/lib/engine_pin_contract_test.rb` asserts it. Below 0.56 the partial does not
+  exist and the board's confirm button raises on render rather than degrading.
+- **Do not re-declare its classes locally.** Since **0.56.1** the engine ships
+  `.hold-btn`, `.hold-stack`, `.fizz-bit` and `.nudge-debug` inside
+  `@layer components`, and anything this app writes as `@utility` compiles into
+  `@layer utilities` — a LATER layer in Tailwind v4's `theme, base, components,
+  utilities` order, so the local copy WINS regardless of specificity. A local
+  re-declaration is therefore not inert: it silently SHADOWS the engine primitive,
+  and this button drifts from the `/admin/style` specimens with nothing in the
+  engine having changed. (Before 0.56.1 the engine sheet was unlayered and the
+  override lost instead. The hazard inverted; it did not go away — which is why
+  the rule is "do not re-declare", not "re-declaring is harmless either way".)
+  `test/lib/tailwind_css_dedupe_test.rb` guards the state names (`process`,
+  `success`, `error`, `loading`, `nudge`, `nudge-soft`, `hold-icon`, `hold-text`,
+  `fizz`, `hold-fizz`, `fizz-bit`); `.hold-btn`, `.hold-stack` and `.nudge-debug`
+  are on you.
+
+### What this app still owns
+- **The palette.** `TeamColorsHelper#team_card_palette` yields `fizz_light` /
+  `fizz_dark` / `fizz_alt` per team (the alt is the flourish where a team curates
+  one — the Ravens' red, the Buccaneers' orange — else its dark). The board carries
+  them into `matchupData` as `colorLight` / `colorDark` / `colorAlt`, and its
+  `fizzPalette` getter maps the six picked teams onto the engine's eighteen
+  `--fizz-c-*` slots, three per pick in pick order, bound with
+  `fizz_bind: "fizzPalette"`. Each pick owns one zone, so the fizz re-dresses itself
+  as picks change. Pinned by `test/integration/hold_button_fizz_palette_test.rb`
+  (server half) and `e2e/board_fizz_palette.spec.js` (the colours actually painting).
+- **The callbacks.** `guard`, `validate` / `validate_at`, `early_action`,
+  `on_hold_start` and `on_success` are this app's expressions, evaluated against the
+  board's Alpine scope.
 
 ### Hold Validation
 Optional mid-hold validation via `validate`/`validate_at` params. `validate` is a JS expression returning `Promise<boolean>`, called at `validate_at` ms (default 1000). If false, hold aborts. Both buttons use `validate: "d.runHoldValidations()"` which checks geo-blocking (fresh `GET /geo/check`) then login status.
 
 ### Nudge Animation
-JS-driven, big nudge at 3s then soft nudge every 10s. Resets on hold, soft-only after release.
-
-### Fizz Layer
-Carbonation bubbles that make the CTA catch the eye. Default on; pass `fizz: false` for the flat button.
-- **Markup**: `<span class="hold-stack">` wraps `<span class="hold-fizz">` (26 `<i class="fizz-bit">`, `aria-hidden`, `pointer-events:none`) **and then** the button. The bubbles are the button's SIBLING, not its child: the button's `transform` makes it a stacking context, so a negative z-index inside would still paint above its own background. As a sibling the button paints over them and they only show where they escape its edges. `isolation: isolate` on the stack keeps the button's `z-index: 1` from competing with the page.
-- **Table**: `ApplicationHelper#hold_button_fizz_bits(seed, layer:)` — placement, drift, size, delay, duration, hue, ZONE and color slot per bubble, emitted as inline custom properties. Seeded from `hold_id`, so a button scatters the same way on every render (Turbo restores a cached page unchanged) and the desktop/mobile pair do not fizz in lockstep.
-- **Zones**: the button is cut into a 3×2 grid (`FIZZ_ZONE_COLUMNS` × `FIZZ_ZONE_ROWS`) — three zones along the top edge, three along the bottom, numbered left to right, top row first — one per pick, five bubbles each per layer. Top-row bubbles rise off the top edge, bottom-row ones fall off the bottom, and the outer columns also own the side spray within their own half. A bubble only ever wears the colors of the team whose zone it sits in, so the fizz reads as six teams standing around the button rather than one shaken bag of confetti.
-- **Phases** (each is a multiplier on the bubble's own drift): rest simmers at ~40%, hover / `.nudge` / `.process` / `.loading` boil at 100% on a shorter cycle, `.success` bursts one-shot at 260%, `.error` cuts them dead. State lives on the button, so the stack reads it with `:has()`.
-- **Levels**: `fizz_level: :lively` is the DEFAULT — `.fizz-lively` on the stack, resting at a full boil, and hovering doubles the bubble COUNT at the same speed. `fizz_level: :calm` is the quiet alternative: one layer, simmering at rest, boiling on hover. Held/submitting/confirmed/blocked are identical in both.
-  - Lively renders a SECOND layer (`shared/_hold_fizz_layer` again, marked `.hold-fizz-extra`, seeded `"<hold_id>~extra"` so it lands in the first scatter's gaps). It rests at `opacity: 0` and transitions to 1 on hover, so it fades in and back out. Its bubbles keep animating while hidden on purpose: cutting the animation would snap them to their base `opacity: 0` and leave nothing to fade. Calm renders one layer and pays for none of it.
-  - **The layers split each zone's three colors** (`ApplicationHelper::FIZZ_LAYER_OFFSETS`). The resting layer wears the team's LIGHT color; the hover layer alternates its DARK and its ALT. The bright set carries the button at rest; hover fills the gaps with the deep colors.
-- **Colors**: three per team (`FIZZ_COLORS_PER_TEAM`) — light, dark, alt — so eighteen slots in all (`FIZZ_SLOTS`). Zone N owns slots 3N-2, 3N-1, 3N, and each bubble paints `var(--fizz-c-<slot>, <its candy hue>)`. Unbound slots keep the built-in candy palette (`ApplicationHelper::FIZZ_HUES`), so the button is never colorless. The **alt** is the flourish: `team_card_palette[:fizz_alt]` uses the team's curated `color_alt` (the Ravens' red, the Buccaneers' orange) and otherwise falls back to its dark, so a team without one simply shows two colors.
-  - `fizz_colors: [...]` — a static palette, written to the stack's `style` (used by the gallery).
-  - `fizz_bind: "fizzPalette"` — an Alpine expression bound to the stack's `:style`. The board's `fizzPalette` getter maps the six picked teams' `fizz_light` / `fizz_dark` / `fizz_alt` (from `team_card_palette`) onto slots 1–18, three per pick in pick order, so the carbonation re-dresses itself as picks change and each pick owns one zone.
-- **CSS**: `@utility hold-stack` ("Hold Button Fizz") plus `@keyframes fizz-simmer|fizz-boil|fizz-burst`. Transform + opacity only, so the bubbles stay on the compositor; `prefers-reduced-motion: reduce` switches them off entirely.
-- **Preview**: `/admin/hold_button` — every phase pinned side by side, a team-colored button, and a live one.
+JS-driven, big nudge at 3s then soft nudge every 10s. Resets on hold, soft-only after release. Engine-owned since 0.56.
 
 ## Pick Slot Animations
 - `pick-pulse` (gentle glow, picks 3-4)
@@ -516,7 +538,8 @@ ThemeSetting (engine)            # 7 role colors persisted per-app
         │                         # --color-cta, --color-cta-hover, --color-page, …
         ├──> Tailwind config     # primary palette = rgb(var(--color-primary-rgb) / <alpha>)
         │                         #  → utility classes: bg-primary, text-primary, border-primary, ring-primary
-        └──> Hand-rolled CSS    # rgb(var(--color-primary-rgb)) directly in .matchup-selected, .hold-btn, etc.
+        └──> Hand-rolled CSS    # rgb(var(--color-primary-rgb)) directly in .matchup-selected, .pick-pulse, etc.
+                                  #  (and in the ENGINE's own layer — .hold-btn themes off the same token from studio-engine)
 ```
 
 Practical implications:
