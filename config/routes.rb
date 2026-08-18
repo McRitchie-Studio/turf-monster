@@ -497,9 +497,6 @@ Rails.application.routes.draw do
   # Admin: Level badges preview gallery (1–10)
   get "admin/level_badges", to: "admin#level_badges", as: :admin_level_badges
 
-  # Admin: Hold button fizz lab — every state of shared/_hold_button
-  get "admin/hold_button", to: "admin#hold_button", as: :admin_hold_button
-
   # Admin: Modal gallery — grid of every modal partial / state variant
   # rendered in isolated iframes (see AdminController::MODAL_VARIANTS).
   get "admin/modals", to: "admin#modals", as: :admin_modals

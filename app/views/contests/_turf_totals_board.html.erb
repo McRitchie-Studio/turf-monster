@@ -1949,7 +1949,7 @@ window.selectionBoard = function() {
         </button>
       <% else %>
         <div x-show="selectionCount === <%= @contest.picks_required %>" x-transition>
-        <%= render 'shared/hold_button',
+        <%= render 'studio/hold_button',
           default_text: "Hold to Confirm",
           hold_text: "Almost there...",
           success_text: "Confirmed!",
@@ -2020,7 +2020,7 @@ window.selectionBoard = function() {
       </div>
     <% else %>
     <div x-show="selectionCount === <%= @contest.picks_required %>" class="mb-5">
-      <%= render 'shared/hold_button',
+      <%= render 'studio/hold_button',
         default_text: "Hold to Confirm",
         hold_text: "Almost there...",
         success_text: "Confirmed!",

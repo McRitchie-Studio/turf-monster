@@ -54,7 +54,15 @@ class EnginePinContractTest < ActiveSupport::TestCase
   #          not exist, so the age-gate modal raises on render rather than
   #          degrading. It also carries /profile/edit's birthday row off the
   #          retired calendar popover onto the same three selects.
-  MINIMUM = Gem::Version.new("0.54.0")
+  #   0.56 — studio/_hold_button + studio/_fizz_layer + Studio::FizzHelper, and
+  #          the ACTION family (.hold-btn / .hold-stack / .fizz-bit) in
+  #          engine-motion.css. This app DELETED its local copy of all four —
+  #          the two partials, the helper, and ~500 lines of duplicated CSS — so
+  #          below 0.56 the contest board's confirm button raises on render, and
+  #          the entry-token modals with it. Same shape as the 0.54 floor: it
+  #          fails loudly rather than degrading, which is the kind of floor
+  #          worth having.
+  MINIMUM = Gem::Version.new("0.56.0")
 
   test "the resolved studio-engine is at or above the floor this app depends on" do
     resolved = Gem::Version.new(Studio::VERSION)
