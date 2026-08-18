@@ -169,7 +169,7 @@ The partial decides for itself whether to appear, what to say, and whether the l
 The DEV MODE toggle drives `$store.devMode` (see Dev Mode section).
 
 ### Geo badge
-Extracted to `_geo_badge.html.erb` partial — shared by desktop nav and mobile sub-navbar. State flag image uses inline styles for reliable sizing (`height: 12px; width: 16px; object-fit: cover`). Badge shape is `rounded-lg`.
+Extracted to `_geo_badge.html.erb` partial — shared by desktop nav and mobile sub-navbar. **Public: renders for every visitor, signed in or not** — detection is IP-based (`detect_geo_state` runs on every request), and lookups are cached in `Rails.cache` for 24h keyed by IP (`config/initializers/geocoder.rb`) so the anonymous ipinfo tier's shared rate limit doesn't blank the state into a red `??`. Shows flag + state code when resolved; red `??` when undetectable (fail-closed); red when blocked or a geo override is active. Stable selector: `.geo-badge`. State flag image uses inline styles for reliable sizing (`height: 12px; width: 16px; object-fit: cover`). Badge shape is `rounded-lg`.
 
 ### Right side — logged in: two-row block + avatar
 - **Row 1 (Div 1)**: balance, gear + theme toggle morph (left of username, `hidden md:flex`), username. On mobile, gear + morph shown in sub-navbar instead. `padding-right: 6px` via inline style.

@@ -128,4 +128,27 @@ class GeoDetectionTest < ActionDispatch::IntegrationTest
       "after the short retry window a recovered lookup must clear the gate " \
       "(no 24h stale-blank lock-out)"
   end
+
+  # ── the public navbar badge ─────────────────────────────────────────────────
+
+  test "the navbar geo badge renders for an anonymous visitor" do
+    # No log_in_as: the badge is public. Detection is IP-based, so a signed-out
+    # visitor sees where the browser appears to be — the signal a potential
+    # sign-up needs BEFORE creating an account.
+    result = GeoResult.new(country_code: "US", state_code: "", region_code: nil, region: "Colorado")
+    Geocoder.stub :search, [result] do
+      get contests_path
+    end
+    assert_response :success
+    assert_select "span.geo-badge", minimum: 1, text: /CO/
+    assert_select "span.geo-badge img[src=?]", "/state-flags/co.svg"
+  end
+
+  test "an anonymous visitor with an undetectable location sees the red ??" do
+    Geocoder.stub :search, [] do
+      get contests_path
+    end
+    assert_response :success
+    assert_select "span.geo-badge", minimum: 1, text: /\?\?/
+  end
 end

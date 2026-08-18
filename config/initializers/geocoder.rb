@@ -1,3 +1,35 @@
+# Cross-session, cross-dyno cache for IP lookups, keyed by the full lookup URL
+# (which embeds the IP). The session already remembers a resolved state for
+# 24h, but a visitor with NO session — every uptime-monitor hit, every first
+# page load — pays a fresh ipinfo call. On the anonymous tier those calls
+# share one rate limit with every other tenant on the dyno's shared egress IP,
+# so lookups 429 and geo_state goes blank: the navbar badge reads "??" and the
+# fail-closed gates (CDP ramp, state blocklist) treat the visitor as blocked.
+# Caching by IP collapses repeat visitors and the per-minute monitor to one
+# lookup per TTL. Geocoder writes the cache only for VALID responses
+# (Geocoder::Lookup::Base#fetch_raw_data), so a 429/timeout is never cached
+# and simply retries on the next request.
+#
+# Guarded because test/initializers/geocoder_initializer_test.rb re-`load`s
+# this file, which would otherwise redefine the class and warn.
+unless defined?(GeocoderRailsCache)
+  # Adapts Rails.cache to the []/[]= duck geocoder's Generic cache store
+  # prefers, adding the TTL Rails.cache.write supports but geocoder never
+  # passes. Unknown store classes fall back to Geocoder::CacheStore::Generic,
+  # which is exactly the branch this duck satisfies.
+  class GeocoderRailsCache
+    EXPIRES_IN = 24.hours
+
+    def [](url)
+      Rails.cache.read(url)
+    end
+
+    def []=(url, value)
+      Rails.cache.write(url, value, expires_in: EXPIRES_IN)
+    end
+  end
+end
+
 Geocoder.configure(
   ip_lookup: :ipinfo_io,
   # Authenticated ipinfo lifts the anonymous-tier rate limit. Under load the
@@ -14,5 +46,7 @@ Geocoder.configure(
   # user and the GeoSetting state blocklist stops enforcing. Force HTTPS.
   use_https: true,
   timeout: 3,
-  units: :mi
+  units: :mi,
+  cache: GeocoderRailsCache.new,
+  cache_options: { prefix: "geocoder:" }
 )
