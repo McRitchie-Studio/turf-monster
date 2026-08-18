@@ -18,13 +18,15 @@ class GeoBadgeRenderTest < ActionView::TestCase
     def geo_state = @geo_state
     def geo_blocked? = @geo_blocked
     def geo_override_active? = @geo_override
+    def geo_country = @geo_country
   end
   helper GeoStubs
 
-  def render_badge(state:, blocked: false, override: false)
+  def render_badge(state:, blocked: false, override: false, country: "US")
     @geo_state = state
     @geo_blocked = blocked
     @geo_override = override
+    @geo_country = country
     render partial: "components/geo_badge"
   end
 
@@ -51,5 +53,63 @@ class GeoBadgeRenderTest < ActionView::TestCase
 
     assert_includes html, "text-red-400"
     assert_includes html, 'src="/state-flags/wa.svg"'
+  end
+
+  # --- non-US visitors (operator-reported: bare text, no flag) ---------------
+  #
+  # public/state-flags/ holds US states ONLY, so every foreign visitor fell
+  # through the lookup to no flag at all. Operator screenshots: a Canadian IP
+  # rendered as bare "Alberta", a UK IP as "England".
+
+  test "a non-US visitor gets their country flag beside the region" do
+    html = render_badge(state: "Alberta", country: "CA")
+
+    assert_includes html, "\u{1F1E8}\u{1F1E6}", "a Canadian visitor sees the Canadian flag"
+    assert_includes html, "Alberta", "the region text is kept"
+    refute_includes html, "state-flags/", "a foreign visitor must never be given a US state flag"
+  end
+
+  # THE TRAP, and the reason this is a guard rather than a cosmetic fix.
+  # state_flag_path matches on a bare two-letter code, so a FOREIGN region whose
+  # code collides with a US state — "CA" in Italy, Canada, or Egypt — would be
+  # shown the CALIFORNIA flag. Wrong, and wrong in the way that looks right.
+  test "a foreign region code colliding with a US state never shows the state flag" do
+    html = render_badge(state: "CA", country: "IT")
+
+    refute_includes html, "state-flags/ca.svg",
+                    "an Italian region 'CA' must NOT render the California flag"
+    refute_includes html, "state-flags/",
+                    "no US state asset may be reached while the visitor is foreign"
+    assert_includes html, "\u{1F1EE}\u{1F1F9}", "it shows the Italian flag instead"
+  end
+
+  test "a US visitor still gets the state flag, not a country flag" do
+    html = render_badge(state: "CO", country: "US")
+
+    assert_includes html, 'src="/state-flags/co.svg"', "US visitors keep the state flag"
+    refute_includes html, "\u{1F1FA}\u{1F1F8}", "and are not given a redundant US flag"
+  end
+
+  test "an unknown country code degrades to text rather than garbage" do
+    html = render_badge(state: "Somewhere", country: "XX!")
+
+    assert_includes html, "Somewhere", "the region text still renders"
+    refute_includes html, "state-flags/", "still no US state flag for a foreign visitor"
+  end
+
+  # THE HOLE A MUTATION FOUND. The two cases above pass even WITHOUT the
+  # `!foreign` guard on the state-flag branch, because a rendered country flag
+  # takes the `if` and the `elsif` is never reached — so they cannot see the
+  # guard at all. The guard only bites where the country flag is ABSENT and the
+  # region code still collides: an unparseable country plus a state-shaped
+  # region. Without it, that visitor is served the California flag.
+  test "a foreign visitor with an unrenderable country code still never gets a state flag" do
+    html = render_badge(state: "CA", country: "XX!")
+
+    refute_includes html, "state-flags/ca.svg",
+                    "no country flag is possible here, and that must mean NO flag — not California's"
+    refute_includes html, "state-flags/",
+                    "the state-flag lookup must not be reachable for a foreign visitor at all"
+    assert_includes html, "CA", "the region text still renders"
   end
 end
