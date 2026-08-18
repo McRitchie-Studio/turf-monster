@@ -104,6 +104,16 @@ class EnginePinContractTest < ActiveSupport::TestCase
 
     assert declaration, "no `gem \"studio-engine\"` line found in the Gemfile at all"
 
+    # STRIP THE COMMENT BEFORE READING THE LINE. This declaration carries a
+    # multi-thousand-character hand-written comment that GROWS on every floor
+    # bump — it documents every historical floor back to 0.31. Scanning the raw
+    # line let that prose vote twice: a comment mentioning a `path:` override
+    # would trip the skip below and silently pass genuine drift, and the pin
+    # regex could read a version out of the history instead of the pin. Neither
+    # is reachable with today's comment text, but the comment is DESIGNED to
+    # accumulate, so the exposure grows every time someone documents a bump.
+    declaration = declaration.sub(/#.*/, "")
+
     if declaration.match?(/\b(?:path|git|github|branch):/)
       skip "studio-engine is sourced by override (#{declaration.strip}) — no version pin to compare"
     end
