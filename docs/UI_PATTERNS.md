@@ -75,8 +75,8 @@ Uses `outline` (not border) for selection highlight — avoids layout shift. Dyn
 
 ## Long-Press Button
 
-**Owned by studio-engine since 0.56** (`studio/_hold_button` + `studio/_fizz_layer`
-+ `Studio::FizzHelper` + the ACTION family in `engine-motion.css`). This app used to
+**Owned by studio-engine since 0.56** (`studio/_hold_button` + `studio/_fizz_layer`,
+`Studio::FizzHelper`, and the ACTION family in `engine-motion.css`). This app used to
 carry its own copy of all four; `adopt-engine-hold-button` deleted them. Render it:
 
 ```erb
@@ -93,11 +93,20 @@ carry its own copy of all four; `adopt-engine-hold-button` deleted them. Render 
 - **The floor is real**: `Gemfile` pins `~> 0.56` and
   `test/lib/engine_pin_contract_test.rb` asserts it. Below 0.56 the partial does not
   exist and the board's confirm button raises on render rather than degrading.
-- **Never re-declare its classes locally.** The engine ships `.hold-btn`,
-  `.hold-stack`, `.fizz-bit` and `.nudge-debug` UNLAYERED, and anything this app
-  writes as `@utility` compiles into `@layer utilities` — which loses to unlayered
-  CSS regardless of source order. A local override would be dead CSS that reads as
-  live. `test/lib/tailwind_css_dedupe_test.rb` guards those names.
+- **Do not re-declare its classes locally.** Since **0.56.1** the engine ships
+  `.hold-btn`, `.hold-stack`, `.fizz-bit` and `.nudge-debug` inside
+  `@layer components`, and anything this app writes as `@utility` compiles into
+  `@layer utilities` — a LATER layer in Tailwind v4's `theme, base, components,
+  utilities` order, so the local copy WINS regardless of specificity. A local
+  re-declaration is therefore not inert: it silently SHADOWS the engine primitive,
+  and this button drifts from the `/admin/style` specimens with nothing in the
+  engine having changed. (Before 0.56.1 the engine sheet was unlayered and the
+  override lost instead. The hazard inverted; it did not go away — which is why
+  the rule is "do not re-declare", not "re-declaring is harmless either way".)
+  `test/lib/tailwind_css_dedupe_test.rb` guards the state names (`process`,
+  `success`, `error`, `loading`, `nudge`, `nudge-soft`, `hold-icon`, `hold-text`,
+  `fizz`, `hold-fizz`, `fizz-bit`); `.hold-btn`, `.hold-stack` and `.nudge-debug`
+  are on you.
 
 ### What this app still owns
 - **The palette.** `TeamColorsHelper#team_card_palette` yields `fizz_light` /
