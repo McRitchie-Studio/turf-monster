@@ -581,6 +581,41 @@ window.selectionBoard = function() {
       return vars;
     },
 
+    // Write the live cart back into #board-config so a Turbo restoration visit
+    // re-inits from the picks the user ACTUALLY HAS.
+    //
+    // The seam: cartSelections is rendered into that blob server-side, from the
+    // persisted cart entry, and this factory re-reads it on every init. Client
+    // picks mutate this.selections and never touch the blob — so Back replayed
+    // the cart as of the last SERVER RENDER and silently dropped everything
+    // picked since. Measured: pick 6, navigate, Back -> "Pick 1".."Pick 6",
+    // empty. Reload after picking (so the server re-renders the blob) and the
+    // same Back restored 6/6, which is what pinned the boundary: only picks
+    // made since the last server render were being lost.
+    //
+    // Fixed HERE rather than by dropping the page from Turbo's cache, because
+    // guests never reach the server at all — toggleSelection() returns early on
+    // `!this.loggedIn`, so their cart lives only in this component. A no-cache
+    // meta would refetch a page the server has no cart for and lose a guest's
+    // picks outright, while also trading the instant Back for a round trip.
+    // Carrying the state in the snapshot fixes both audiences and keeps Back
+    // instant.
+    //
+    // Runs on turbo:before-cache — the one moment the value has to be right,
+    // rather than on every toggle. Failure here must be silent: a cart that
+    // cannot be serialised is not a reason to break the navigation.
+    persistCartToConfig() {
+      var el = document.getElementById('board-config');
+      if (!el) return;
+
+      try {
+        var cfg = JSON.parse(el.textContent);
+        cfg.cartSelections = this.selections;
+        cfg.cartSelectionOrder = this.selectionOrder;
+        el.textContent = JSON.stringify(cfg);
+      } catch (_) { /* leave the blob as-is; a stale cart beats a broken page */ }
+    },
+
     toggleSelection(matchupId) {
       if (matchupData[matchupId]?.locked) return;
 
@@ -1778,7 +1813,12 @@ window.selectionBoard = function() {
 <div x-data="selectionBoard()" x-cloak
      @auth-magic-link-submit.window="requestMagicLink($event.detail.email, $event.detail.ageAttested); if ($event.detail) $event.detail.handled = true"
      @auth-wallet-hub-open.window="openWalletConnect($event.detail && $event.detail.ageAttested); if ($event.detail) $event.detail.handled = true"
-     @auth-google-click.window="loginWithGoogle($event.detail && $event.detail.ageAttested); if ($event.detail) $event.detail.handled = true">
+     @auth-google-click.window="loginWithGoogle($event.detail && $event.detail.ageAttested); if ($event.detail) $event.detail.handled = true"
+     <%# Hand the CURRENT cart to the snapshot Turbo is about to take. This
+         component re-inits from #board-config on a restoration visit, and that
+         blob is frozen at server-render time, so without this every pick made
+         since the page loaded is lost on Back. See persistCartToConfig(). %>
+     @turbo:before-cache.window="persistCartToConfig()">
 
   <!-- Blur overlay (click to dismiss) -->
   <div x-show="selectionCount === <%= @contest.picks_required %> && !blurDismissed"
