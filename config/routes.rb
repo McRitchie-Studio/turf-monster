@@ -47,6 +47,13 @@ Rails.application.routes.draw do
   mount Sidekiq::Web => "/admin/jobs"
 
   get "up" => "rails/health#show", as: :rails_health_check
+
+  # The hidden frame the wallet-setup modal loads while it waits for Phantom.
+  # A browser extension is injected into documents loaded AFTER it is installed,
+  # so a fresh load of THIS page is how an already-open tab finds a Phantom that
+  # was not there when the tab opened — without reloading what the user is
+  # looking at. See WalletProbeController for the full why.
+  get "wallet_probe" => "wallet_probe#show", as: :wallet_probe
   root "contests#world_cup"
 
   # Prelaunch audit M14 (2026-05-24): dev-only tools — not drawn in production

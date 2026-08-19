@@ -962,12 +962,16 @@
         else document.addEventListener('DOMContentLoaded', startChain);
       })();
 
-      // Post-install REOPEN only. The wallet modal reloads the page itself when
-      // the user comes back from installing Phantom (Chrome only injects a new
-      // extension into pages loaded after the install, so the open tab can never
-      // see it) — and that reload lands with the chain prompt already spent, so
-      // without this the user would arrive on a bare page mid-flow. The chain
-      // driver above owns the FIRST open; this owns only the return trip.
+      // CONNECT-HANDOFF REOPEN only. The wallet modal reloads the page once, and
+      // only when the user clicks Connect on a Phantom this document cannot
+      // reach: Chrome injects a new extension into documents created AFTER the
+      // install, so a tab that was open at install time can SEE Phantom (via the
+      // modal's hidden /wallet_probe frame) but cannot ask it to sign. The
+      // reload gets a document Phantom is in. It lands with the chain prompt
+      // already spent, so without this the user would arrive on a bare page
+      // mid-flow. The chain driver above owns the FIRST open; this owns only the
+      // return trip, and the modal's own walletSetupAutoConnect key carries the
+      // click that started it.
       (function() {
         var fired = false;
         function openWalletSetup() {

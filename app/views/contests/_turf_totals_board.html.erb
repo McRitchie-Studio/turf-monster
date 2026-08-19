@@ -792,9 +792,14 @@ window.selectionBoard = function() {
       // the user picks up mid-flow (a fresh wallet with no USDC then lands on
       // the top-up wall, which is the honest next step, not a dead end).
       this.saveCartForRedirect(true);
+      // NO enterAnim (operator call, 2026-08-18). This used to shake the card in
+      // — the Discord-style 'not quite yet' nope the other gates use. It reads
+      // wrong here: those gates refuse something the user got wrong, and this
+      // one is a setup step they have not been offered yet. Shaking a card that
+      // is only saying 'here is the next thing' scolds the user for arriving.
+      // Default pop-in instead.
       Alpine.store('modals').open('wallet-setup', {
-        returnUrl: window.location.href,
-        enterAnim: 'shake'
+        returnUrl: window.location.href
       });
     },
 
