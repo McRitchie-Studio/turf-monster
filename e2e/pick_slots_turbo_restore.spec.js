@@ -65,14 +65,13 @@ test("the picks sidebar keeps exactly six slots after a Turbo back-navigation", 
   await loginAdmin(page);
   await makeSixPicks(page);
 
-  // Reload so the SERVER-RENDERED page carries the picks. This is what the
-  // operator's session had (they signed in through a magic link after picking,
-  // which re-rendered the board from the persisted cart), and it is what makes
-  // the snapshot Turbo caches a full one. Without it the cached HTML predates
-  // the picks, the restored board comes back empty, and the duplicate rows are
-  // blank-on-blank — the bug still reproduces, but not as it was reported.
-  await page.reload();
-  await page.waitForLoadState("networkidle");
+  // This used to need a page.reload() here, so the SERVER-RENDERED page carried
+  // the picks and the snapshot Turbo cached was a full one. That reload was an
+  // accommodation for a second bug, not part of the journey: #board-config was
+  // frozen at server-render time, so a restore replayed the cart as of the last
+  // render and dropped everything picked since (task fix-stale-cart-rehydrate).
+  // persistCartToConfig() now hands the live cart to the snapshot, so the plain
+  // journey works and this spec tests the real one.
   await expect(page.locator("body")).toContainText("6 / 6");
 
   await expect(page.locator(SLOTS)).toHaveCount(6);
