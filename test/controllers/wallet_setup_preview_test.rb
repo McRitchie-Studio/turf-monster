@@ -43,19 +43,26 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
 
     assert_includes response.body, "Set up your wallet"
     # Installed → Connect; not installed → the install page. Both branches ship
-    # in the markup; Alpine picks between them at mount on hasPhantom.
-    assert_includes response.body, "@click=\"connect()\""
+    # in the markup; Alpine picks between them on phantomPresent — which is
+    # broader than hasPhantom, because a Phantom the probe frame found counts as
+    # installed to the user even though this document cannot reach it.
+    assert_includes response.body, "@click=\"activate()\""
     assert_includes response.body, "https://phantom.com/download"
     assert_includes response.body, "#se-wallet-phantom"
   end
 
-  test "wallet-setup preview ships the self-updating install row" do
+  test "the install row watches for Phantom without moving the page" do
     # The install row has to carry the user to a wallet with no instruction to
     # follow: a spinner while it waits, then it flips itself to the Installed
-    # badge. Two mechanisms behind that, because neither is sufficient alone —
-    # the ping catches every case where the provider CAN appear without a reload,
-    # and the automatic reload covers the case where it cannot (Chrome does not
-    # inject a newly-installed extension into an already-open tab).
+    # badge — and, since 2026-08-18, WITHOUT reloading the page underneath them.
+    #
+    # That takes two mechanisms, because neither is sufficient alone. The 1s
+    # ping catches a provider that can still appear in THIS document (late
+    # Wallet Standard registration, an extension waking up). It cannot catch the
+    # ordinary case at all: Chrome injects an extension only into documents
+    # created AFTER the install, so a tab that was open when the user installed
+    # Phantom will never have one. The probe frame is that half — a fresh
+    # same-origin document, loaded hidden, where the extension DOES appear.
     log_in_as users(:alex)
     get admin_modal_preview_path(modal_id: "wallet-setup")
     assert_response :success
@@ -64,30 +71,99 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "installClicked = true"
     assert_includes response.body, "installClicked ? 'Waiting…' : 'Install'"
     assert_includes response.body, "cta-spinner"
-    assert_includes response.body, "updates on its own"
+    assert_includes response.body, "Finish downloading the Phantom wallet extension."
     # The ping.
     assert_includes response.body, "self._stopPoll()"
-    # The automatic reload, and its guards: only after they left to install, and
-    # at most once (or a focus loop reloads the page forever).
-    assert_includes response.body, "walletSetupAutoReloaded"
-    assert_includes response.body, "walletSetupReopen"
-    assert_includes response.body, "visibilitychange"
-    # Listeners torn down, so reopening the modal can't stack them.
+    # The probe frame, and the two things that make it work: a NEW document
+    # every attempt (a cached one predates the install), and reading the
+    # provider back across the same-origin boundary.
+    assert_includes response.body, "'/wallet_probe?t='"
+    assert_includes response.body, "f.contentWindow"
+    assert_includes response.body, "_readFrame()"
+    # Bounded — a modal left open all afternoon must not load a document every
+    # 2 seconds forever.
+    assert_includes response.body, "this.probeTries >= 150"
+    # Listeners and the frame torn down, so reopening the modal can't stack them.
     assert_includes response.body, "removeEventListener"
+    assert_includes response.body, "_dropFrame()"
     # Detected state uses the same green badge as the wallet-connect picker.
     assert_includes response.body, "badge border-primary text-primary"
     # What Connect actually does, for someone who just met Phantom.
     assert_includes response.body, "sign a message proving the"
-    # The instruction the operator rejected must be gone.
+    # The instructions the operator rejected must be gone. All three pointed the
+    # user back at THIS page — reload it, confirm to it, press something on it —
+    # when the only thing left to do is over in the browser's own install flow.
     assert_not_includes response.body, "Reload page"
     assert_not_includes response.body, "Installed it?"
+    assert_not_includes response.body, "updates on its own"
   end
 
-  test "the post-reload reopen path is wired in the layout" do
-    # The modal reloads the page itself when the user returns from installing
-    # Phantom; the server-side prompt is one-shot and already spent, so the
-    # reload must carry the modal with it or the user lands on a bare page
-    # mid-flow.
+  test "detecting Phantom never reloads the page the user is reading" do
+    # THE OPERATOR'S CALL (2026-08-18), and the regression this file exists to
+    # hold. The modal used to reload the whole page when the user came back from
+    # installing — the page jumped, and the only thing that needed to change was
+    # one row. Detection is now the probe frame's job, and it moves nothing.
+    #
+    # Asserted against the SOURCE rather than the response because what matters
+    # is that no automatic reload path exists to be taken.
+    modal = Rails.root.join("app/views/modals/_wallet_setup.html.erb").read
+
+    assert_not_includes modal, "walletSetupAutoReloaded",
+                        "the once-only guard for the automatic reload — its " \
+                        "presence means the automatic reload is back"
+
+    # The ONE surviving reload is a different thing: it belongs to resumeConnect,
+    # it happens on a Connect CLICK, and it exists because a page Phantom is not
+    # in cannot ask Phantom for a signature.
+    reload_lines = modal.lines.each_with_index.select { |line, _| line.include?("location.reload()") }
+    assert_equal 1, reload_lines.size,
+                 "exactly one reload should remain in this modal, the one Connect owns"
+
+    idx = reload_lines.first.last
+    window = modal.lines[(idx - 20)..idx].join
+    assert_includes window, "resumeConnect()",
+                     "the surviving reload must be the Connect handoff, not a " \
+                     "detection reload wearing a new name"
+  end
+
+  test "a Connect click on a Phantom this page cannot reach is handed across the load" do
+    # The one unavoidable page load in the flow, spent where a load reads as
+    # progress rather than as a glitch. Both keys travel together — reopen
+    # carries the modal, autoConnect carries the intent — and the modal spends
+    # them on the other side so the user gets the signature prompt they clicked
+    # for, not the same row again.
+    log_in_as users(:alex)
+    get admin_modal_preview_path(modal_id: "wallet-setup")
+    assert_response :success
+
+    assert_includes response.body, "walletSetupReopen"
+    assert_includes response.body, "walletSetupAutoConnect"
+    # Read once and cleared immediately, or an unrelated later reload replays a
+    # signature prompt at the user out of nowhere.
+    assert_includes response.body, "sessionStorage.removeItem('walletSetupAutoConnect')"
+    # And the resume is bounded: if Phantom never shows up the user gets an
+    # ordinary modal back, not a spinner that never resolves.
+    assert_includes response.body, "this._resumeTicks > 10"
+  end
+
+  test "the row's click picks the path that can actually succeed" do
+    # hasPhantom (reachable in THIS document) and probeFound (installed, but in
+    # a document this page is not) look identical to the user and must not be
+    # to the code: signing needs the former. One button, resolved at click time.
+    log_in_as users(:alex)
+    get admin_modal_preview_path(modal_id: "wallet-setup")
+    assert_response :success
+
+    assert_includes response.body, "@click=\"activate()\""
+    assert_includes response.body, "if (this.hasPhantom) return this.connect();"
+    assert_includes response.body, "if (this.probeFound) return this.resumeConnect();"
+  end
+
+  test "the reopen path is wired in the layout" do
+    # The modal reloads the page once, on a Connect click, when Phantom is
+    # installed but not present in this document; the server-side prompt is
+    # one-shot and already spent, so the reload must carry the modal with it or
+    # the user lands on a bare page mid-flow.
     #
     # Assert the CONTRACT (a sessionStorage key drives the reopen), not the shape
     # of the code around it: this test used to pin `if (el) el.remove()`, and it
@@ -97,32 +173,171 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
     # owns the first open.
     layout = Rails.root.join("app/views/layouts/application.html.erb").read
     assert_includes layout, "walletSetupReopen",
-                    "the layout must reopen the modal after the modal's own reload"
+                    "the layout must reopen the modal after the Connect handoff reload"
     assert_includes layout, "onboarding-chain-data",
                     "the chain driver owns the first open; this path is the return trip only"
   end
 
-  test "wallet-setup preview renders the teaching block with both screenshots" do
+  test "the teaching block is a video that plays inside the modal" do
+    # "New to Solana Wallets?" was two still screenshots until 2026-08-18.
+    # It is a video now, and the point is that it plays HERE — a half-finished
+    # signup should not have to leave the page to learn what a wallet is.
     log_in_as users(:alex)
     get admin_modal_preview_path(modal_id: "wallet-setup")
     assert_response :success
 
-    assert_includes response.body, "New to Solana Wallets?"
-    assert_includes response.body, "/phantom-step-download.png"
-    assert_includes response.body, "/phantom-step-create-wallet.png"
-    # Side by side, per the operator's spec — a 2-column grid, not stacked.
-    assert_includes response.body, "grid grid-cols-2"
-    assert_includes response.body, "Read the setup guide"
+    assert_includes response.body, "New to Solana &#129300;</h4>"
+    assert_not_includes response.body, "New to Solana Wallets?"
+    # The paragraph that explained what a wallet IS became one line, with the
+    # number carrying the promise.
+    assert_includes response.body, "Set up your wallet in <strong"
+    assert_includes response.body, ">90 seconds</strong>"
+    assert_not_includes response.body, "a bank card for the internet"
+    # The guide CTA is a full-size button now (operator call, 2026-08-18), not
+    # the small bordered strip it was — but NEUTRAL, because the Phantom row
+    # above it is what this modal is actually asking for.
+    assert_includes response.body, "Detailed Guide"
+    assert_includes response.body, "btn btn-neutral w-full",
+                    "a full-size button, and the quiet one"
+    assert_not_includes response.body, "btn btn-neutral btn-sm"
+    assert_not_includes response.body, "btn btn-primary w-full",
+                        "a filled CTA here would out-shout Connect"
+
+    # The embed, on the privacy host the CSP allows.
+    assert_includes response.body, "https://www.youtube-nocookie.com/embed/OH7-AIjZlp4"
+    assert_includes response.body, "allowfullscreen"
+    assert_includes response.body, "allow=\"autoplay;",
+                    "the parent has to permit autoplay too, not just the URL"
+
+    # The poster paints BEHIND the player, so the block is never a black
+    # rectangle while the iframe boots.
+    assert_includes response.body, WalletSetupHelper::PHANTOM_INTRO_VIDEO_POSTER
+
+    # The read-it-instead escape hatch, for a browser that will not play the embed.
+    assert_includes response.body, "Watch on YouTube"
+
+    # The stills it replaced are gone, files and all.
+    assert_not_includes response.body, "/phantom-step-download.png"
+    assert_not_includes response.body, "/phantom-step-create-wallet.png"
   end
 
-  test "both onboarding screenshots are actually served" do
-    # The modal hard-links these public/ paths; a missing file is a broken
-    # teaching block that no markup assertion above would catch.
-    ["phantom-step-download.png", "phantom-step-create-wallet.png"].each do |file|
-      path = Rails.public_path.join(file)
-      assert path.exist?, "public/#{file} is missing — the wallet-setup modal links it"
-      assert path.size.positive?, "public/#{file} is empty"
+  test "the video starts itself muted, and one click buys sound" do
+    # OPERATOR CALL, 2026-08-18: start it playing, click to unmute. Muted is not
+    # a preference here — it is the only autoplay a browser allows on a modal
+    # that opened without a click, so the two ship as one thing.
+    log_in_as users(:alex)
+    get admin_modal_preview_path(modal_id: "wallet-setup")
+    assert_response :success
+
+    assert_includes response.body, "autoplay=1"
+    assert_includes response.body, "mute=1"
+    assert_includes response.body, "enablejsapi=1",
+                    "without it the player ignores the unmute command, silently"
+
+    # The affordance, and the reason it covers the whole player: while the video
+    # is silent every click must mean the same thing, and a click landing on the
+    # player itself would PAUSE it — the opposite of reaching for the sound.
+    assert_includes response.body, %(x-show="videoMuted")
+    assert_includes response.body, %(@click="unmuteVideo()")
+    assert_includes response.body, "Tap for sound"
+    assert_includes response.body, "absolute inset-0 w-full h-full flex items-center"
+
+    # And it leaves on that click, handing the player's own controls back.
+    assert_includes response.body, "this.videoMuted = false;"
+  end
+
+  test "the video poster is actually served" do
+    # The modal hard-links this public/ path as the block's background, and it
+    # is what covers the iframe's boot; a missing file is a black rectangle in
+    # the middle of a signup, and no markup assertion above would catch it.
+    poster = WalletSetupHelper::PHANTOM_INTRO_VIDEO_POSTER.delete_prefix("/")
+    path = Rails.public_path.join(poster)
+    assert path.exist?, "public/#{poster} is missing — the wallet-setup modal links it"
+    assert path.size.positive?, "public/#{poster} is empty"
+
+    # And the stills it replaced are gone, so nothing keeps linking them.
+    ["phantom-step-download.png", "phantom-step-create-wallet.png"].each do |old|
+      assert_not Rails.public_path.join(old).exist?,
+                 "public/#{old} is orphaned — the modal stopped using it"
     end
+  end
+
+  test "the two row states wear the effects the operator asked for" do
+    # Swapped to this pairing on 2026-08-18. A ring travelling the card's edge
+    # reads as a TARGET, so it belongs on the row you are meant to click; a
+    # pulse reads as a heartbeat, so it belongs on the row telling you the thing
+    # you already went and did worked.
+    log_in_as users(:alex)
+    get admin_modal_preview_path(modal_id: "wallet-setup")
+    assert_response :success
+
+    assert_includes response.body, "studio-team-glow"
+    assert_includes response.body, "--studio-team-glow-color: #AB9FF2",
+                    "Phantom purple on the install row — go and get this thing"
+    assert_includes response.body, "pulse-cta"
+    assert_includes response.body, "--pulse-cta-color: rgb(var(--color-primary-rgb))",
+                    "the pulse is keyed to the same role colour as the Installed badge"
+
+    # Each effect belongs to ONE branch, and to the RIGHT one. Both on a single
+    # row, or the pair swapped back, is the bug this pins.
+    installed_branch = response.body[/<template x-if="phantomPresent">.*?<\/template>/m]
+    install_branch   = response.body[/<template x-if="!phantomPresent">.*?<\/template>/m]
+    assert installed_branch.present? && install_branch.present?,
+           "both row branches must ship in the markup; Alpine picks between them"
+
+    assert_includes install_branch, "studio-team-glow"
+    assert_not_includes install_branch, "pulse-cta"
+    assert_includes installed_branch, "pulse-cta"
+    assert_not_includes installed_branch, "studio-team-glow"
+  end
+
+  test "the wallet card is one size wider, and nothing else moved" do
+    # OPERATOR CALL, 2026-08-18: this card a step bigger, mainly to give the
+    # explainer video room — at max-w-sm the player is small enough that the
+    # thing it is teaching cannot be read.
+    #
+    # The width is registered by modal ID rather than passed as a prop because
+    # wallet-setup is opened from THREE places (the board's entry gate, the
+    # onboarding chain driver, the post-Connect reopen). A prop would have to be
+    # remembered at each, and one miss means the same card is two different
+    # widths depending on how the user got there.
+    host = Rails.root.join("app/views/studio/modals/_host.html.erb").read
+
+    assert_includes host, "CARD_WIDTHS = { 'wallet-setup': 'max-w-md' }"
+    assert_includes host, "DEFAULT_CARD_WIDTH = 'max-w-sm'",
+                    "every other modal must keep the width it had"
+
+    # And exactly ONE max-w-* ever lands on the card. A static class plus a
+    # bound one would leave the winner to stylesheet source order, which is not
+    # something this file gets to decide.
+    card = host[/<div class="bg-surface rounded-xl[^"]*"/]
+    assert card.present?, "could not locate the modal card element — did it move?"
+    assert_not_includes card, "max-w-",
+                        "the width belongs to cardClasses(), not to a static class"
+  end
+
+  test "arriving at the wallet step does not shake the card" do
+    # OPERATOR CALL, 2026-08-18. enterAnim: 'shake' is the house "not quite yet"
+    # nope — right for a gate REFUSING something the user got wrong, wrong for a
+    # setup step they have not been offered yet. Shaking a card that is only
+    # saying "here is the next thing" scolds someone for arriving.
+    #
+    # Asserted at the CALL SITE, because the modal itself never knew: the enter
+    # animation is chosen by whoever opens it.
+    board = Rails.root.join("app/views/contests/_turf_totals_board.html.erb").read
+    opener = board[/showWalletSetupModal\(\) \{.*?\n    \},/m]
+    assert opener.present?, "could not locate showWalletSetupModal — did it move?"
+    assert_includes opener, "open('wallet-setup'"
+
+    # Comments stripped first: the line explaining WHY there is no enterAnim
+    # names it, and matching prose instead of code is how a test starts lying.
+    code = opener.gsub(%r{//[^\n]*}, "")
+    assert_not_includes code, "enterAnim",
+                         "the wallet step must arrive on the default pop, not a shake"
+
+    # The gates that DO refuse something keep theirs. This is a targeted
+    # removal, not a house-wide de-animation.
+    assert_includes board, "open('age-verify', { enterAnim: 'shake' })"
   end
 
   test "wallet-setup carries the small link back to Buy an Entry Token" do
