@@ -51,6 +51,31 @@ class AlpineTurboCacheResetTest < ActionView::TestCase
     assert_includes html, "_x_currentIfEl", "x-if tracks its single clone here"
   end
 
+  # Detaching a node without destroying its Alpine tree works today only because
+  # Alpine's MutationObserver cleans up afterwards — an internal, not a
+  # contract, and this sweep runs on every page in the app.
+  test "it destroys the Alpine tree before detaching a node" do
+    html = partial
+
+    destroy_at = html.index("Alpine.destroyTree")
+    remove_at = html.index("node.remove()")
+
+    assert destroy_at, "teardown must be explicit, not left to Alpine's observer"
+    assert remove_at, "the node is still detached"
+    assert destroy_at < remove_at,
+           "destroyTree has to run while the node is still attached"
+  end
+
+  test "the teardown is guarded against Alpine not being defined yet" do
+    html = partial
+
+    assert_includes html, "typeof Alpine !== 'undefined'",
+                    "this script runs at body parse and Alpine is deferred, so a " \
+                    "cold load can reach the sweep before Alpine exists"
+    assert_includes html, "Alpine.destroyTree === 'function'",
+                    "and an Alpine without destroyTree must not throw either"
+  end
+
   test "it registers once, however many times Turbo re-runs the body" do
     html = partial
 
