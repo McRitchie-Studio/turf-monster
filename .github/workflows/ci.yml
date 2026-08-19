@@ -6,7 +6,29 @@ on:
     # `release` too — the sweep's merge commit (what QA deploys and ship
     # fast-forwards to main) must earn its own CI verdict, not just the local
     # G3 gate. Guarded by test/lib/ci_workflow_triggers_test.rb.
-    branches: [ main, release ]
+    #
+    # `accepted` IS THE SAME ARGUMENT ONE RUNG EARLIER, and it was the hole here
+    # until 2026-08-18. Review merges several approved PRs onto `accepted`,
+    # producing a combination that is individually green and has never been
+    # executed together; nothing built it, so nothing could fail.
+    #
+    # THIS WAS NOT MERELY A MISSING VERDICT — IT SILENTLY DISARMED A GUARD.
+    # `bin/release prepare` refuses to promote a RED `accepted`
+    # (refuse_red_accepted!), and it read this repo's verdict as :none — which by
+    # design does NOT block, because refusing on an absent verdict would wedge the
+    # release lane on every race. So the guard passed over turf-monster in every
+    # release without ever having been CAPABLE of failing, while its success line
+    # named this repo as checked. Certified fleet-wide by
+    # Release::AcceptedCertification in mcritchie-studio, which refuses a promote
+    # naming any repo whose suite workflow cannot build this branch.
+    branches: [ main, release, accepted ]
+
+# NO `concurrency:` BLOCK — deliberately, and mcritchie-studio's ci.yml carries the
+# full argument. In short: a cancelled run's conclusion is `cancelled`, CiStatus folds
+# that as RED, and every reader here is SHA-addressed — so a run superseded by the next
+# merge is indistinguishable from a genuine failure, and the sweep's own `accepted`
+# guard would refuse to promote a perfectly healthy branch. Back-to-back pushes to
+# `accepted` are NORMAL. Cheaper CI is not worth a gate that cries wolf.
 
 jobs:
   scan_ruby:
