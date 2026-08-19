@@ -38,12 +38,75 @@
   code comment included) closes it early and the whole modal mounts as a silent
   no-op that still renders markup. Keep every string SINGLE-quoted.
 %>
-<div x-data="{
+<div data-placeholder-names='<%= first_name_placeholder_names.to_json %>'
+     x-data="{
        get props() { var c = $store.modals.current(); return (c && c.props) || {}; },
        get required() { return !!this.props.required; },
        firstName: '',
        submitting: false,
        error: '',
+       // --- the typed placeholder ------------------------------------------
+       // Types one sampled name into the field's PLACEHOLDER, character by
+       // character, so the card demonstrates what to do instead of describing
+       // it. The field stays genuinely empty — nothing is ever submitted that
+       // the user did not type.
+       placeholderText: '',
+       _phPhrase: '',
+       _phTimer: null,
+       _phDelay: null,
+       _phBlurred: false,
+       // NO fake caret. A blinking block after the text is the obvious way to
+       // sell a typewriter, and it is wrong HERE: this input is autofocused on
+       // mount, so the browser is already drawing a real caret at position 0.
+       // A second one two characters away reads as a rendering bug.
+       startPlaceholder(names) {
+         var pool = (names && names.length) ? names : ['Alex'];
+         this._phPhrase = pool[Math.floor(Math.random() * pool.length)];
+         // Reduced motion: show the whole example, statically, no timer. The
+         // hint is the point; the animation is decoration.
+         if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+           this.placeholderText = this._phPhrase;
+           return;
+         }
+         var self = this, i = 0;
+         this.placeholderText = '';
+         // WAIT FOR THE CARD TO LAND. The modal mounts with a 320ms spring
+         // (.modal-card-mount / @keyframes modal-card-in), and x-init fires at
+         // the START of it — so typing that begins immediately runs entirely
+         // underneath the entrance. A short name is the common case and the
+         // worst one: 'Bo' finished in 170ms, before the card had finished
+         // appearing, so the field simply arrived with a name already in it and
+         // the effect was invisible. Start after the card settles.
+         this._phDelay = setTimeout(function () {
+           self._phDelay = null;
+           self._phTimer = setInterval(function () {
+             i += 1;
+             self.placeholderText = self._phPhrase.slice(0, i);
+             if (i >= self._phPhrase.length) self.stopPlaceholder();
+           }, 110);
+         }, 420);
+       },
+       // Stop the timer, leaving whatever is on screen. Called when the phrase
+       // finishes on its own.
+       stopPlaceholder() {
+         if (this._phTimer) { clearInterval(this._phTimer); this._phTimer = null; }
+         // The pre-roll too, or dismissing during the delay lets the animation
+         // start AFTER the user has already begun typing.
+         if (this._phDelay) { clearTimeout(this._phDelay); this._phDelay = null; }
+       },
+       // The user is writing their own name — get out of the way. Clearing
+       // rather than completing is deliberate: a half-typed 'Patric' frozen
+       // under their cursor looks broken.
+       dismissPlaceholder() {
+         this.stopPlaceholder();
+         this.placeholderText = '';
+       },
+       // The initial autofocus is NOT engagement. This card focuses the field
+       // the moment it mounts, so treating any focus as 'the user chose this
+       // field' would kill the animation before it drew a character. Only a
+       // focus that FOLLOWS a blur is the user deliberately coming back.
+       markPlaceholderBlurred() { this._phBlurred = true; },
+       refocusPlaceholder() { if (this._phBlurred) this.dismissPlaceholder(); },
        async save() {
          if (this.submitting) return;
          var value = (this.firstName || '').trim();
@@ -89,10 +152,12 @@
        // Closing here (rather than letting the driver swap) keeps this modal
        // ignorant of what comes next — the driver owns the order.
        finish(next) {
+         this.stopPlaceholder();
          window.dispatchEvent(new CustomEvent('onboarding-step-done', { detail: { next: next } }));
          $store.modals.close();
        }
      }"
+     x-init="startPlaceholder(JSON.parse($el.dataset.placeholderNames || '[]'))"
      class="relative">
 
   <%# === FIRST NAME ========================================================= %>
@@ -110,10 +175,15 @@
             class="absolute top-0 right-0 -mr-2 text-secondary hover:text-heading text-xl leading-none"
             :aria-label="required ? 'Close' : 'Skip'">&times;</button>
   </div>
-  <%# Same 2-of-3 as the wallet step: the app's pill frame is
-      sign in (auth modal, 1) → set up (this whole chain, 2) → play (3), so
-      every setup step reads 2, not its own index within the chain. %>
-  <%= render "studio/modals/blocks/progress_pill", current: 2, total: 3 %>
+  <%# Position in the ONBOARDING CHAIN: first name (1) -> age (2) -> wallet (3),
+      per the operator's call on 2026-08-19.
+
+      This replaces an app-level reading in which every setup card showed 2 of 3
+      — sign in (1), set up (2), play (3). That frame is still what the AUTH
+      wizard uses (modals/_auth's Sign in step is 1, its funding steps are 2), so
+      the two now measure different things: the auth pill measures the whole
+      journey, these three measure the chain. Change one and change all three. %>
+  <%= render "studio/modals/blocks/progress_pill", current: 1, total: 3 %>
   <%# Two readings of the same ask. From the chain it is an invitation; from the
       entry gate it is the last thing between the user and their picks, and
       saying so is what makes the missing Skip link read as intent. %>
@@ -135,9 +205,18 @@
           long after that — so it needs Alpine. $nextTick waits for the step's
           DOM to exist before focusing; preventScroll keeps the mount
           animation from being yanked by the browser scrolling to the field. %>
+      <%# The placeholder is BOUND, not static: startPlaceholder types a sampled
+          quarterback's first name into it one character at a time. The three
+          handlers are the difference between a hint and a nuisance — real
+          typing dismisses it, a blur is recorded, and a focus after that blur
+          (the user deliberately returning) dismisses it too. A bare focus does
+          not, because the x-init below fires one immediately. %>
       <input id="onboarding-first-name" type="text" x-model="firstName"
              maxlength="40" autocomplete="given-name" enterkeyhint="done"
-             placeholder="Alex"
+             :placeholder="placeholderText"
+             @input="dismissPlaceholder()"
+             @blur="markPlaceholderBlurred()"
+             @focus="refocusPlaceholder()"
              :disabled="submitting"
              x-init="$nextTick(() => $el.focus({ preventScroll: true }))"
              class="input-field">

@@ -185,7 +185,15 @@
             class="absolute top-0 right-0 -mr-2 text-secondary hover:text-heading text-xl leading-none"
             aria-label="Close">&times;</button>
   </div>
-  <%= render "studio/modals/blocks/progress_pill", current: 2, total: 3 %>
+  <%# Position in the ONBOARDING CHAIN: first name (1) -> age (2) -> wallet (3),
+      per the operator's call on 2026-08-19.
+
+      This replaces an app-level reading in which every setup card showed 2 of 3
+      — sign in (1), set up (2), play (3). That frame is still what the AUTH
+      wizard uses (modals/_auth's Sign in step is 1, its funding steps are 2), so
+      the two now measure different things: the auth pill measures the whole
+      journey, these three measure the chain. Change one and change all three. %>
+  <%= render "studio/modals/blocks/progress_pill", current: 3, total: 3 %>
   <p class="text-xs text-body mb-4 text-center">
     You're signed in. Turf Monster runs on Solana, so you need a wallet to enter
     contests and collect winnings.
