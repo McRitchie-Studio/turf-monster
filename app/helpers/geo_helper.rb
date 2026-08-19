@@ -23,6 +23,35 @@ module GeoHelper
     US_STATES[raw] || raw
   end
 
+  # The visitor's country flag, as a regional-indicator emoji pair.
+  #
+  # Why an emoji rather than an asset: public/state-flags/ holds US states only,
+  # so every non-US visitor fell through it to NO flag — an operator screenshot
+  # showed a Canadian IP rendering as bare "Alberta" and a UK IP as "England".
+  # Shipping ~250 country SVGs to fix that is a lot of bytes for a 16px badge,
+  # and every platform already ships the glyphs.
+  #
+  # Returns nil for anything that is not exactly two ASCII letters, so a blank,
+  # a malformed code, or a full country name renders text-only rather than
+  # emitting garbage codepoints.
+  def country_flag_emoji(alpha2)
+    return nil if alpha2.blank?
+
+    code = alpha2.to_s.strip.upcase
+    return nil unless code.match?(/\A[A-Z]{2}\z/)
+
+    # Regional Indicator Symbol A is U+1F1E6; the pair renders as one flag.
+    code.chars.map { |c| c.ord - "A".ord + 0x1F1E6 }.pack("U*")
+  end
+
+  # True when the visitor is outside the US, and therefore must NOT be given a
+  # US state flag. This is the load-bearing half: `state_flag_path` matches on a
+  # bare two-letter code, so an Italian region normalising to "CA" would
+  # otherwise be shown the CALIFORNIA flag — a wrong answer that looks right.
+  def foreign_geo?(country)
+    country.present? && country.to_s.strip.upcase != "US"
+  end
+
   def state_flag_path(code)
     return nil if code.blank?
 
