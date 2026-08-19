@@ -31,9 +31,9 @@ test.describe("Geo Settings", () => {
     await expect(page.locator("body")).toContainText("Configuration");
     // The manager is the engine's now (studio-engine >= 0.57), and it edits
     // COUNTRIES and REGIONS rather than "states" — the list is stored as region
-    // tokens because "CA" is California AND Canada.
-    await expect(page.locator("body")).toContainText("Blocked countries");
-    await expect(page.locator("body")).toContainText("Blocked regions in US");
+    // tokens because "CA" is California AND Canada. Each is its own tab.
+    await expect(page.locator('label[for="geo_tab_states"]')).toContainText("Regions in US");
+    await expect(page.locator('label[for="geo_tab_countries"]')).toContainText("Countries");
   });
 
   // THE CLICK MUST SHOW. The squares paint from their checkbox
@@ -46,7 +46,7 @@ test.describe("Geo Settings", () => {
     await loginAdmin(page);
     await page.goto("/admin/geo");
 
-    const square = page.locator('.geo-grid label:has(input[value="NY"])');
+    const square = page.locator('.geo-grid-states label:has(input[value="NY"])');
     await expect(square).toHaveCount(1);
 
     // Assert the PAINT, not the DOM. A measured mutation proved why: with the
@@ -65,6 +65,96 @@ test.describe("Geo Settings", () => {
     // And back, so this spec leaves the policy exactly as it found it.
     await square.click();
     await expect.poll(background).toBe(before);
+  });
+
+  // THE SUMMARY CARD follows the editor, so "what does this app block?" is
+  // answered at the top of the page rather than by reading a 52-square grid —
+  // and it answers for the policy you are ABOUT to save.
+  test("the configuration summary follows the editor", async ({ page }) => {
+    await loginAdmin(page);
+    await page.goto("/admin/geo");
+
+    const chips = page.locator('[data-geo-summary="states"] .geo-chip');
+    const before = await chips.count();
+
+    await page.locator('.geo-grid-states label:has(input[value="NY"])').click();
+
+    await expect(chips).toHaveCount(before + 1);
+    await expect(chips.filter({ hasText: "NY" })).toHaveCount(1);
+    // The heading count and the tab count are the same number, always.
+    for (const label of await page.locator('[data-geo-summary-count="states"]').all()) {
+      await expect(label).toHaveText(String(before + 1));
+    }
+
+    // Countries have their own row, fed by their own grid.
+    await page.locator('label[for="geo_tab_countries"]').click();
+    await page.locator('.geo-grid-countries label:has(input[value="CU"])').click();
+    await expect(page.locator('[data-geo-summary="countries"] .geo-chip')).toHaveCount(1);
+  });
+
+  // Countries are a grid of their own, behind a tab — the same click that blocks
+  // a state blocks a country.
+  test("the countries tab opens the country editor", async ({ page }) => {
+    await loginAdmin(page);
+    await page.goto("/admin/geo");
+
+    const states = page.locator(".geo-grid-states");
+    const countries = page.locator(".geo-grid-countries");
+
+    await expect(states).toBeVisible();
+    await expect(countries).toBeHidden();
+
+    await page.locator('label[for="geo_tab_countries"]').click();
+
+    await expect(countries).toBeVisible();
+    await expect(states).toBeHidden();
+    // Cuba, with its flag, is one click away.
+    await expect(countries.locator('label:has(input[value="CU"])')).toContainText("🇨🇺");
+  });
+
+  // THE LIVE PREVIEW the operator asked for: tick your OWN region and the navbar
+  // badge answers immediately, before saving, so a rule can be seen before it is
+  // committed.
+  //
+  // Two things this spec had to learn. (1) Playwright talks to the server on
+  // loopback, which no geocoder can place, so it pins a location the way an
+  // operator does — the simulator — rather than skipping, and a skipped test
+  // proves nothing. (2) It asserts the badge's painted COLOUR, not its DOM: the
+  // first draft read `label:has(input:checked)` and passed with the repaint
+  // deleted. Both mistakes were measured, not guessed.
+  test("ticking your own state previews the badge in real time", async ({ page }) => {
+    await loginAdmin(page);
+    await page.goto("/admin/geo");
+
+    // Stand in WA, then re-render so the page knows where "here" is.
+    await waitForGeoWrite(page, () => page.locator("button.btn:has-text('Simulate WA')").click());
+    await page.goto("/admin/geo");
+    await expect(page.locator("[data-geo-page]")).toHaveAttribute("data-geo-subdivision", "WA");
+
+    // The preview reads the LIVE controls, so the gate can be switched on here
+    // without saving anything.
+    const enabled = page.getByRole("checkbox", { name: "Enable geo-blocking" });
+    if (!(await enabled.isChecked())) await enabled.check();
+
+    const badge = page.locator("nav .geo-badge").first();
+    const color = () => badge.evaluate((el) => getComputedStyle(el).color);
+    const square = page.locator('.geo-grid-states label:has(input[value="WA"])');
+    const blockedRed = /rgba?\(\s*248,\s*113,\s*113/;
+
+    // WA ships blocked in the seed, so untick first: the badge must go quiet.
+    await square.click();
+    await expect.poll(color).not.toMatch(blockedRed);
+    await expect(page.locator("[data-geo-verdict]")).toContainText("NO");
+
+    // And back on — this is the beat the operator asked for.
+    await square.click();
+    await expect.poll(color).toMatch(blockedRed);
+    await expect(page.locator("[data-geo-verdict]")).toContainText("YES");
+
+    // Nothing was saved; drop the simulation so later specs stand where they did.
+    await page.goto("/admin/geo");
+    await waitForGeoWrite(page, () => page.getByRole("button", { name: "Clear simulation" }).click());
+    await expect(page.getByText("Geo simulation cleared.")).toBeVisible({ timeout: 15_000 });
   });
 
   test("admin can toggle geo override on", async ({ page }) => {

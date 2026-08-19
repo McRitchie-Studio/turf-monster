@@ -76,7 +76,10 @@ test.describe("Geo badge", () => {
     // fingerprint, or this pins the build rather than the badge.
     await expect(badge.locator('img[src*="state-flags/wa"]')).toHaveCount(1);
     // WA is on the published exclusion list AND the override is active, so the
-    // badge must read as blocked rather than as an ordinary location.
-    await expect(badge).toHaveClass(/text-red-400/);
+    // badge must read as blocked rather than as an ordinary location. The blocked
+    // look is an attribute plus one CSS rule now (so /admin/geo can repaint it
+    // live), so assert what the eye reads: the colour.
+    await expect(badge).toHaveAttribute("data-blocked", "true");
+    await expect(badge).toHaveCSS("color", "rgb(248, 113, 113)");
   });
 });
