@@ -61,7 +61,7 @@ async function enableGeoBlockingAndOverride(page) {
     await simBtn.click();
     await page.waitForTimeout(2000);
   }
-  // If "Clear GEO Override" is visible instead, override is already active
+  // If "Clear simulation" is visible instead, the simulation is already active
 }
 
 // ---------------------------------------------------------------------------

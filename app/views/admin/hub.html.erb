@@ -91,7 +91,7 @@
       <button type="button"
               @click="$dispatch('navbar-replay-level')"
               class="btn btn-outline btn-sm">Replay Level</button>
-      <%= button_to(geo_override_active? ? "Clear GEO Override" : "Simulate WA",
+      <%= button_to(geo_override_active? ? "Clear simulation" : "Simulate WA",
             admin_geo_toggle_path, method: :post,
             class: "btn btn-sm #{geo_override_active? ? 'btn-danger' : 'btn-outline'}") %>
       <% if @latest_contest %>

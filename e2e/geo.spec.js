@@ -29,7 +29,11 @@ test.describe("Geo Settings", () => {
     await expect(page.getByRole("heading", { name: "Geo Settings" })).toBeVisible();
     await expect(page.locator("body")).toContainText("Current Detection");
     await expect(page.locator("body")).toContainText("Configuration");
-    await expect(page.locator("body")).toContainText("Banned States");
+    // The manager is the engine's now (studio-engine >= 0.57), and it edits
+    // COUNTRIES and REGIONS rather than "states" — the list is stored as region
+    // tokens because "CA" is California AND Canada.
+    await expect(page.locator("body")).toContainText("Blocked countries");
+    await expect(page.locator("body")).toContainText("Blocked regions in US");
   });
 
   test("admin can toggle geo override on", async ({ page }) => {
@@ -53,11 +57,11 @@ test.describe("Geo Settings", () => {
     // After toggle ON, the page should show "Simulating WA" notice
     await expect(page.locator("body")).toContainText("Simulating WA", { timeout: 15_000 });
 
-    // Now the override is active — find the "Clear GEO Override" button (has btn-danger class)
-    await waitForGeoWrite(page, () => page.getByRole("button", { name: "Clear GEO Override" }).click());
+    // Now the simulation is active — the button flips to the danger variant.
+    await waitForGeoWrite(page, () => page.getByRole("button", { name: "Clear simulation" }).click());
 
     // Verify cleared
-    await expect(page.getByText("GEO override cleared.")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("Geo simulation cleared.")).toBeVisible({ timeout: 15_000 });
   });
 
   test("geo badge shows in navbar when logged in", async ({ page }) => {
@@ -93,11 +97,11 @@ test.describe("Geo Settings", () => {
     // The geo block is enforced on toggle_selection/enter — verified by hold validation in other test
 
     // Clean up: clear geo override — assert the flash so the cleared state lands
-    // before teardown (GeoSetting is global; reseed does not reset it, so an
+    // before teardown (the geo row is global; reseed does not reset it, so an
     // un-awaited write here leaks geo-blocking into later specs).
     await page.goto("/admin/geo");
-    await waitForGeoWrite(page, () => page.getByRole("button", { name: "Clear GEO Override" }).click());
-    await expect(page.getByText("GEO override cleared.")).toBeVisible({ timeout: 15_000 });
+    await waitForGeoWrite(page, () => page.getByRole("button", { name: "Clear simulation" }).click());
+    await expect(page.getByText("Geo simulation cleared.")).toBeVisible({ timeout: 15_000 });
 
     // Disable geoblocking — assert the flash so the DB write completes deterministically.
     await page.goto("/admin/geo");
