@@ -38,10 +38,12 @@ async function enableGeoBlockingAndOverride(page) {
     await enabledCheckbox.check({ force: true });
   }
 
-  // WA state checkbox (hidden input — force-check via JS)
+  // WA state checkbox (hidden input — force-check via JS). The field is
+  // banned_subdivisions since the geo manager became the engine's: the list
+  // stores region tokens (US-WA), and the grid still posts the bare code.
   await page.evaluate(() => {
     const waInput = document.querySelector(
-      'input[value="WA"][name="geo_setting[banned_states][]"]'
+      'input[value="WA"][name="geo_setting[banned_subdivisions][]"]'
     );
     if (waInput && !waInput.checked) waInput.checked = true;
   });

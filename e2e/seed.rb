@@ -11,7 +11,7 @@
 #      with bracket placeholders, and the "NFL 2026 Week N" slates.
 #      Re-running is safe.
 #   2. Wipe test-volatile rows (Entry, Selection, Contest, SurvivorRound,
-#      TransactionLog, GeoSetting, etc.) and User. Leaves Team / Slate /
+#      TransactionLog, Studio::GeoSetting, etc.) and User. Leaves Team / Slate /
 #      SlateMatchup / Game intact — those belong to db/seeds.rb.
 #   3. ALTER SEQUENCE users_id_seq → 1, then re-seed core users so the
 #      inviter slugs referrals.spec.js hardcodes (mason-3, mack-4, turf-5)
@@ -54,7 +54,7 @@ Game.update_all(survivor_round_id: nil)
 SurvivorRound.delete_all
 Contest.delete_all
 TransactionLog.delete_all
-GeoSetting.delete_all
+Studio::GeoSetting.delete_all
 StripePurchase.delete_all      if defined?(StripePurchase)
 PendingTransaction.delete_all  if defined?(PendingTransaction)
 OutboundRequest.delete_all     if defined?(OutboundRequest)
@@ -221,11 +221,11 @@ TransactionLog.create!(
   status: "completed"
 )
 
-# GeoSetting (disabled by default; geo specs flip it via /admin/geo).
-GeoSetting.create!(
+# Studio::GeoSetting (disabled by default; geo specs flip it via /admin/geo).
+Studio::GeoSetting.create!(
   app_name: Studio.app_name,
   enabled: false,
-  banned_states: GeoSetting::DEFAULT_BANNED_STATES
+  banned_subdivisions: Studio.geo_default_banned_subdivisions
 )
 
 # ── Multi-week span slate (NFL Weeks 1-3) ────────────────────────────
@@ -241,4 +241,4 @@ end
 
 puts "Seeded: #{User.count} users, #{Team.count} teams, #{Slate.count} slates, " \
      "#{Contest.count} contests, #{SlateMatchup.count} matchups, " \
-     "#{SurvivorRound.count} survivor rounds, #{GeoSetting.count} geo_settings"
+     "#{SurvivorRound.count} survivor rounds, #{Studio::GeoSetting.count} geo_settings"
