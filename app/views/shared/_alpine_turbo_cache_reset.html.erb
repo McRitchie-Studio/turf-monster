@@ -38,14 +38,34 @@
     if (window.__turfAlpineTurboCacheReset) return;
     window.__turfAlpineTurboCacheReset = true;
 
+    // Tear a node's Alpine state down before detaching it, the way Alpine's own
+    // cleanup does. Detaching alone LOOKS fine — Alpine's MutationObserver
+    // notices and cleans up after the fact — but that is a property of Alpine's
+    // internals, not a contract, and this sweep now runs on every page in the
+    // app. "Correct because of how Alpine happens to clean up" is the shape
+    // that becomes a long hunt at the next Alpine bump, and Alpine is vendored
+    // and pinned in studio-engine, so that bump is a deliberate act someone
+    // will make on a day nobody remembers this file.
+    //
+    // Guarded on Alpine itself: this script runs at body parse and Alpine is
+    // deferred, so on a cold load it may not be defined yet. destroyTree is
+    // idempotent, which matters below — x-for rows are swept first and can
+    // contain x-if templates, so the second loop may reach a node whose tree
+    // was already destroyed with its row.
+    function destroyAndRemove(node) {
+      if (!node || typeof node.remove !== 'function') return;
+      if (typeof Alpine !== 'undefined' && typeof Alpine.destroyTree === 'function') {
+        try { Alpine.destroyTree(node); } catch (_) { /* never block the navigation */ }
+      }
+      node.remove();
+    }
+
     function resetGeneratedAlpineDom() {
       // x-for: `_x_lookup` is a Map of key -> generated element.
       document.querySelectorAll('template[x-for]').forEach(function (tpl) {
         var lookup = tpl._x_lookup;
         if (lookup && typeof lookup.forEach === 'function') {
-          lookup.forEach(function (node) {
-            if (node && typeof node.remove === 'function') node.remove();
-          });
+          lookup.forEach(destroyAndRemove);
           if (typeof lookup.clear === 'function') lookup.clear();
         }
         delete tpl._x_lastRenderedEl;
@@ -53,8 +73,7 @@
 
       // x-if: `_x_currentIfEl` is the single element the template inserted.
       document.querySelectorAll('template[x-if]').forEach(function (tpl) {
-        var clone = tpl._x_currentIfEl;
-        if (clone && typeof clone.remove === 'function') clone.remove();
+        destroyAndRemove(tpl._x_currentIfEl);
         delete tpl._x_currentIfEl;
       });
     }

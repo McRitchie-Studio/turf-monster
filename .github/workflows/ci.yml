@@ -11,6 +11,7 @@ on:
 jobs:
   scan_ruby:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
       - name: Checkout code
@@ -31,6 +32,7 @@ jobs:
 
   scan_js:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
       - name: Checkout code
@@ -51,6 +53,7 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -70,6 +73,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     # MANAGED_WALLET_ENCRYPTION_KEY: throwaway value so the v2 managed-wallet
     #   encryptor has a non-empty key (KeyGenerator). NOT the OPSEC-015 prod key.
@@ -128,6 +132,7 @@ jobs:
 
   playwright:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     # Shard the single-worker E2E suite across N isolated jobs. In-process
     # Playwright workers are UNSAFE here: POST /test/reseed (TestController) is
     # a stop-the-world reset of the shared DB + Redis (wipes users id>5, resets
