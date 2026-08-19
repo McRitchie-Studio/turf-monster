@@ -15,6 +15,7 @@ on:
 jobs:
   devnet:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     # Skip if the bot key isn't configured (e.g. forks or fresh repo setup)
     if: ${{ vars.DEVNET_NIGHTLY_ENABLED == 'true' }}
 
