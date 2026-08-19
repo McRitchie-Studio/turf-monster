@@ -36,6 +36,37 @@ test.describe("Geo Settings", () => {
     await expect(page.locator("body")).toContainText("Blocked regions in US");
   });
 
+  // THE CLICK MUST SHOW. The squares paint from their checkbox
+  // (`.geo-grid label:has(input:checked)`), so toggling one repaints it
+  // immediately — before any save. The page's first version painted from a
+  // server-rendered class instead, so a click changed nothing on screen and the
+  // grid read as dead while it was in fact recording every click. Operator
+  // report, 2026-08-19: "the state buttons don't seem to be working".
+  test("clicking a state square shows immediately, before saving", async ({ page }) => {
+    await loginAdmin(page);
+    await page.goto("/admin/geo");
+
+    const square = page.locator('.geo-grid label:has(input[value="NY"])');
+    await expect(square).toHaveCount(1);
+
+    // Assert the PAINT, not the DOM. A measured mutation proved why: with the
+    // CSS rule deleted, clicking still flips the hidden checkbox, so a
+    // `label:has(input:checked)` count assertion passed while the square looked
+    // exactly as dead as the operator reported. The background colour is what
+    // the eye reads.
+    const background = () => square.evaluate((el) => getComputedStyle(el).backgroundColor);
+
+    const before = await background();
+    await square.click();
+    await expect.poll(background).not.toBe(before);
+    // The blocked wash: rgb(239 68 68 / 0.1), whatever the browser serialises it as.
+    expect(await background()).toMatch(/rgba?\(\s*239,\s*68,\s*68/);
+
+    // And back, so this spec leaves the policy exactly as it found it.
+    await square.click();
+    await expect.poll(background).toBe(before);
+  });
+
   test("admin can toggle geo override on", async ({ page }) => {
     await loginAdmin(page);
     await page.goto("/admin/geo");
