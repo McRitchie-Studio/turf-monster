@@ -791,6 +791,9 @@
         modules load AFTER Alpine processes x-data. See the partial's
         header for the full diagnostic. %>
     <%= render "shared/alpine_factories" %>
+    <%# Keeps Alpine's GENERATED nodes out of Turbo's page cache, so a Back
+        navigation renders one set of them instead of two. See the partial. %>
+    <%= render "shared/alpine_turbo_cache_reset" %>
     <%# studio-engine leveling-activity factory (window.levelingActionModal). Homed
         here at parse time — like shared/alpine_factories — because the leveling modals
         (change-username, quests) mount inside the modal host's single-root template,
