@@ -77,8 +77,8 @@ Rails.application.routes.draw do
   get "contact", to: "pages#contact", as: :contact
 
   # Underwriting compliance pages (2026-06): responsible-gaming resources +
-  # the published state-eligibility list (rendered live from GeoSetting so it
-  # can never drift from the IP-geolocation enforcement). Linked from the
+  # the published state-eligibility list (rendered live from Studio::GeoSetting
+  # so it can never drift from the IP-geolocation enforcement). Linked from the
   # global footer next to the legal links.
   get "responsible-gaming", to: "pages#responsible_gaming", as: :responsible_gaming
   get "state-eligibility",  to: "pages#state_eligibility",  as: :state_eligibility
@@ -523,13 +523,13 @@ Rails.application.routes.draw do
   post "admin/transactions/:slug/deny", to: "transaction_logs#deny", as: :admin_transaction_deny
   post "admin/transactions/:slug/complete", to: "transaction_logs#complete", as: :admin_transaction_complete
 
-  # Geo check (public — used by hold-to-confirm validation)
-  get "geo/check", to: "geo_settings#check", as: :geo_check
-
-  # Admin: Geo Settings
-  get "admin/geo", to: "geo_settings#edit", as: :admin_geo
-  patch "admin/geo", to: "geo_settings#update", as: :admin_geo_update
-  post "admin/geo/toggle", to: "geo_settings#toggle_override", as: :admin_geo_toggle
+  # Geo — /geo/check (public, used by hold-to-confirm validation) and the
+  # /admin/geo manager are drawn by Studio.routes now, behind
+  # config.draw_geo_routes in config/initializers/studio.rb. The helper names are
+  # unchanged (geo_check_path, admin_geo_path, admin_geo_update_path,
+  # admin_geo_toggle_path), which is exactly why the engine's flag is opt-in:
+  # this app held all four, and drawing them alongside these would have raised
+  # `Invalid route name, already in use` at route-load.
 
   # Test-only endpoints — exercised by Playwright e2e specs to seed
   # OAuth mock payloads and force referral cache values without staging

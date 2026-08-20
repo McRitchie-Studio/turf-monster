@@ -213,4 +213,44 @@ Studio.configure do |config|
   }
 
   config.s3_bucket_prefix = "turf-monster"
+
+  # ---- Geo (studio-engine >= 0.57 — see the gem's docs/GEO.md) -------------
+  #
+  # This app used to carry the whole stack: GeoSetting, GeoHelper,
+  # GeoSettingsController, the badge, the geocoder initializer and the detection
+  # methods on ApplicationController. All of it is the engine's now; what stays
+  # here is the POLICY, and in the controllers, the DECISION of what to lock.
+
+  config.geo_home_country = "US"
+
+  # The legal exclusion list this app enforces before an operator has saved one
+  # at /admin/geo. CA was added 2026-06 (underwriting compliance): the 2025
+  # California AG opinion treats paid fantasy contests as unlawful, so it sits
+  # alongside the legacy DFS-prohibited states.
+  #
+  # NOTE, unchanged by this move: seeds use find_or_create_by!, so an EXISTING
+  # row (production) does NOT pick up an addition here — the operator must add it
+  # at /admin/geo before relying on it.
+  config.geo_default_banned_subdivisions = %w[WA ID MT LA AZ HI NV CA]
+
+  # Loopback never geocodes, so without this every geo-gated feature (the CDP
+  # ramp catalog, the entry gate) fails closed on a developer's own machine.
+  config.geo_development_region = ENV.fetch("DEV_GEO_STATE", "CO")
+
+  # /admin/geo's simulator pins a session to a blocked state so the blocked
+  # experience can be walked without a VPN. WA, because that is the state the
+  # e2e specs drive.
+  config.geo_simulated_region = "US-WA"
+
+  # The copy a blocked visitor reads. "state" rather than the engine default's
+  # "area": this app's rules are US state rules, and that is the word the Terms
+  # and /state-eligibility use.
+  config.geo_blocked_message = lambda { |subdivision, _country|
+    place = subdivision.present? ? " (#{subdivision})" : ""
+    "This feature is not available in your state#{place}."
+  }
+
+  # Draw /admin/geo + /geo/check from the engine. Opt-in there because THIS app
+  # owned all four helper names until the routes above were deleted.
+  config.draw_geo_routes = true
 end

@@ -28,12 +28,20 @@
 # purpose, in front of a reviewer.
 ---
 # Every `test(...)` committed under e2e/. DERIVED WITH THE RUNNER, never counted by hand:
-#   npx playwright test --list  ->  145 tests in 39 files
+#   npx playwright test --list  ->  149 tests in 39 files
 #
 # Deriving it mattered immediately: a grep for "@devnet" suggested 18 excluded specs and
 # the lister says 17. The lister is the model Playwright itself uses; a grep is a guess
 # about text.
-total_specs: 145
+#
+# 145 -> 149 (adopt-engine-geo-primitives): four specs in e2e/geo.spec.js for the geo
+# manager this app now RENDERS from studio-engine instead of owning — the countries tab,
+# the live badge preview on the visitor's own region, the summary that follows the editor,
+# and a square repainting the moment it is ticked. None of them is observable in the
+# response bytes: the page renders the same markup whether a click changes anything, which
+# is how it once shipped with a grid that recorded every click and moved nothing on screen.
+# This gate found the four immediately — 126 executed against a 122 contract.
+total_specs: 149
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -66,9 +74,11 @@ flag_gated: 6
 
 # total_specs - excluded - flag_gated. What the lane MUST execute, asserted against the
 # runner's own report, so no source-level spelling on any axis can move it without moving
-# this line. Derived: 145 committed - 17 @devnet - 6 flag-gated = 122, and MEASURED at
-# exactly 122 on run 32343994804.
-executed: 122
+# this line. Derived: 149 committed - 17 @devnet - 6 flag-gated = 126, and MEASURED at
+# exactly 126 on the adopt-engine-geo-primitives run that raised it (the gate reported
+# "126 executed · contract: 122", which is the four new geo specs and nothing else).
+# It was 122 against 145 committed before those four.
+executed: 126
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to

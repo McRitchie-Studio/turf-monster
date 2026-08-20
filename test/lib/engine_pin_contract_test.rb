@@ -62,7 +62,17 @@ class EnginePinContractTest < ActiveSupport::TestCase
   #          the entry-token modals with it. Same shape as the 0.54 floor: it
   #          fails loudly rather than degrading, which is the kind of floor
   #          worth having.
-  MINIMUM = Gem::Version.new("0.56.0")
+  #   0.57 — the geo primitive this app now RENDERS instead of carrying:
+  #          Studio::GeoDetection (detection, the geo_* helpers,
+  #          require_geo_allowed), Studio::GeoSetting + the studio_geo_settings
+  #          table, the /admin/geo manager and the public /geo/check probe drawn
+  #          by config.draw_geo_routes, components/_geo_badge, and the 52 US
+  #          state flags as gem assets. This app DELETED its local model, helper,
+  #          controller, view, badge partial, geocoder initializer, routes and
+  #          public/state-flags, so below 0.57 ApplicationController raises at
+  #          `include Studio::GeoDetection` and the app does not boot at all —
+  #          the loudest floor in this list, which is the kind worth having.
+  MINIMUM = Gem::Version.new("0.57.0")
 
   test "the resolved studio-engine is at or above the floor this app depends on" do
     resolved = Gem::Version.new(Studio::VERSION)
@@ -164,7 +174,13 @@ class EnginePinContractTest < ActiveSupport::TestCase
     # `studio_engine:install:migrations` boots fine and then 500s on the page
     # that touches them. This app was missing all three at 0.39 — the adoption
     # installed them, and this keeps a future host-schema reset honest.
-    %w[studio_links studio_email_settings studio_email_deliveries studio_enumerals].each do |table|
+    # studio_geo_settings joins the list because the geo gate READS it on every
+    # request: Studio::GeoSetting.blocked? decides whether a visitor may enter a
+    # contest or move funds. A missing table is nil-safe by design (the gate then
+    # blocks nobody), which is exactly why its absence has to fail HERE rather
+    # than silently un-enforce the legal exclusion list in production.
+    %w[studio_links studio_email_settings studio_email_deliveries studio_enumerals
+       studio_geo_settings].each do |table|
       assert ActiveRecord::Base.connection.table_exists?(table),
              "#{table} is missing — run bin/rails studio_engine:install:migrations && db:migrate"
     end

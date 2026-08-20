@@ -116,7 +116,7 @@ Troubleshooting guide for autonomous agents. Format: problem, diagnosis, fix.
 
 **GeoIP lookup returns nil**
 - Diagnosis: `geocoder` gem cannot resolve the IP. Localhost (`127.0.0.1`) always returns nil.
-- Fix: GeoIP only works with real public IPs. In development, test with `Geocoder.search("<real_ip>")`. Check `GeoSetting` records at `/admin/geo`. Blocked states are stored as a list of state codes.
+- Fix: GeoIP only works with real public IPs. In development, test with `Geocoder.search("<real_ip>")`, or set `DEV_GEO_STATE` to stand somewhere real on loopback. Check `Studio::GeoSetting` at `/admin/geo` (the engine's manager since studio-engine 0.57). Blocked regions are stored as tokens — `US-WA`, not `WA`, because "CA" is California and Canada; the page still shows the bare code. Full guide: the gem's `docs/GEO.md`.
 
 ## Tailwind Classes Not Compiling
 

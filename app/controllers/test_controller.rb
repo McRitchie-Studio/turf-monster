@@ -88,8 +88,8 @@ class TestController < ApplicationController
       Rails.logger.warn "[reseed] entry cleanup failed: #{e.class}: #{e.message[0,160]}"
     end
 
-    # Reset the GeoSetting row to its seeded default (geo-blocking OFF,
-    # DEFAULT_BANNED_STATES). `enabled` is a DB column (NOT session-scoped),
+    # Reset the geo row to its seeded default (geo-blocking OFF, the configured
+    # default blocklist). `enabled` is a DB column (NOT session-scoped),
     # so a prior spec that flips geo-blocking on — geo.spec.js "blocked state",
     # geo_hold_validation.spec.js, or a retry that fails before its cleanup —
     # leaves blocking ENABLED for every later spec. With blocking on, the
@@ -97,9 +97,9 @@ class TestController < ApplicationController
     # differently and times out (the documented geo.spec.js full-suite flake).
     # Specs that need blocking re-enable it themselves after reseed.
     begin
-      geo = GeoSetting.current
+      geo = Studio::GeoSetting.current
       geo.enabled = false
-      geo.banned_states = GeoSetting::DEFAULT_BANNED_STATES
+      geo.banned_subdivisions = Studio.geo_default_banned_subdivisions
       geo.save!
       cleared << "geo_setting"
     rescue => e

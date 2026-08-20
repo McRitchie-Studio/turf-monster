@@ -25,12 +25,13 @@ const { loginAdmin, reseed } = require("./helpers");
 // of hoping the network answers, and asserts the branch it pins.
 //
 // STILL NOT COVERED HERE, deliberately: the non-US country-flag branch. The
-// override forces country "US" by design (ApplicationController#geo_country),
+// override forces country "US" by design (Studio::GeoDetection#geo_country),
 // and the only other way to reach a foreign IP is a real ipinfo lookup over the
 // network — a flake, not a test. That branch belongs to
 // test/views/geo_badge_render_test.rb, which covers it properly and is
 // mutation-verified, including the trap where a foreign region code colliding
-// with a US state must NOT render the US state flag.
+// with a US state must NOT render the US state flag. (The engine carries the
+// same coverage against its own partial, which this app now renders.)
 test.describe("Geo badge", () => {
   test.beforeEach(async ({ request }) => await reseed(request));
 
@@ -70,9 +71,15 @@ test.describe("Geo badge", () => {
     const badge = page.locator("nav .geo-badge").first();
     await expect(badge).toContainText("WA");
     // The flag is the half the old contract could never see.
-    await expect(badge.locator('img[src="/state-flags/wa.svg"]')).toHaveCount(1);
+    // The flag ships in the gem now, so it is served as an ASSET — a digested
+    // path under /assets in production-like builds. Match the file, not the
+    // fingerprint, or this pins the build rather than the badge.
+    await expect(badge.locator('img[src*="state-flags/wa"]')).toHaveCount(1);
     // WA is on the published exclusion list AND the override is active, so the
-    // badge must read as blocked rather than as an ordinary location.
-    await expect(badge).toHaveClass(/text-red-400/);
+    // badge must read as blocked rather than as an ordinary location. The blocked
+    // look is an attribute plus one CSS rule now (so /admin/geo can repaint it
+    // live), so assert what the eye reads: the colour.
+    await expect(badge).toHaveAttribute("data-blocked", "true");
+    await expect(badge).toHaveCSS("color", "rgb(248, 113, 113)");
   });
 });

@@ -655,11 +655,11 @@ Slate.find_or_create_by!(name: "Default")
 puts "  Created Default slate for formula defaults"
 
 # ─── Geo Settings ──────────────────────────────────────────
-GeoSetting.find_or_create_by!(app_name: "Turf Monster") do |gs|
+Studio::GeoSetting.find_or_create_by!(app_name: "Turf Monster") do |gs|
   gs.enabled = false
-  gs.banned_states = GeoSetting::DEFAULT_BANNED_STATES
+  gs.banned_subdivisions = Studio.geo_default_banned_subdivisions
 end
-puts "  Created GeoSetting (enabled: #{GeoSetting.current.enabled?})"
+puts "  Created Studio::GeoSetting (enabled: #{Studio::GeoSetting.current.enabled?})"
 
 # ─── Season (on-chain seed schedule, turf-vault v0.11.0+) ────
 # DB pointer is always set (cheap). On-chain Season creation is best-effort —

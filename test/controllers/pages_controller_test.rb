@@ -82,19 +82,19 @@ class PagesControllerTest < ActionDispatch::IntegrationTest
     assert_select "a[href=?]", responsible_gaming_path
   end
 
-  test "state eligibility page renders the enforced GeoSetting list" do
+  test "state eligibility page renders the enforced Studio::GeoSetting list" do
     get state_eligibility_path
     assert_response :success
     assert_select "h1", /State Eligibility/
-    # No GeoSetting row in fixtures → the page falls back to the defaults.
-    GeoSetting::DEFAULT_BANNED_STATES.each do |code|
+    # No Studio::GeoSetting row in fixtures → the page falls back to the defaults.
+    Studio.geo_default_banned_subdivisions.each do |code|
       assert_match(">#{code}<", response.body, "expected default-excluded state #{code}")
     end
   end
 
-  test "state eligibility page renders from the LIVE GeoSetting row (no drift)" do
-    GeoSetting.create!(app_name: Studio.app_name, enabled: true,
-                       banned_states: %w[NY CA])
+  test "state eligibility page renders from the LIVE Studio::GeoSetting row (no drift)" do
+    Studio::GeoSetting.create!(app_name: Studio.app_name, enabled: true,
+                       banned_subdivisions: %w[NY CA])
     get state_eligibility_path
     assert_response :success
     # The page must reflect the row enforcement reads — not a hardcoded list.
@@ -104,13 +104,13 @@ class PagesControllerTest < ActionDispatch::IntegrationTest
                     "a state absent from the live row must not be published")
   end
 
-  test "terms page renders the anchored state-eligibility section from GeoSetting" do
+  test "terms page renders the anchored state-eligibility section from Studio::GeoSetting" do
     get terms_path
     assert_response :success
     assert_select "section#state-eligibility" do
       assert_select "h2", /State eligibility/
     end
-    GeoSetting::DEFAULT_BANNED_STATES.each do |code|
+    Studio.geo_default_banned_subdivisions.each do |code|
       assert_match(">#{code}<", response.body, "terms should list excluded state #{code}")
     end
   end

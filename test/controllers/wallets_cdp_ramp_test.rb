@@ -95,7 +95,7 @@ class WalletsCdpRampTest < ActionDispatch::IntegrationTest
     with_cdp_ramp do
       give_managed_wallet
       log_in_as @user
-      GeoSetting.stub :blocked?, true do
+      Studio::GeoSetting.stub :blocked?, true do
         get_wallet
       end
       assert_response :success
