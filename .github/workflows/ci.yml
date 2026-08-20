@@ -334,12 +334,28 @@ jobs:
           RAILS_ENV: test
           DATABASE_URL: postgres://postgres:postgres@localhost:5432
           REDIS_URL: redis://localhost:6379/0
+          # THE RECEIPT this shard will be judged on. `list` keeps the human-readable log;
+          # `json` emits the machine-readable record of what ACTUALLY EXECUTED, which is
+          # the only thing that can tell three green shards over the whole lane from three
+          # green shards over nothing.
+          PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ github.workspace }}/e2e-report-shard-${{ matrix.shard }}.json
         # `strategy.job-total` is the matrix size, so the shard denominator
         # tracks the matrix automatically. Playwright shards by test; safe
         # because every spec is reseed-independent (no beforeAll state in the
         # chromium project — that lives only in the @devnet specs, which are
         # excluded here and run by devnet-nightly.yml).
-        run: npm test -- --grep-invert "@devnet" --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+        run: npm test -- --grep-invert "@devnet" --shard=${{ matrix.shard }}/${{ strategy.job-total }} --reporter=list,json
+
+      # ALWAYS, not `if: failure()`. A FAILING spec still RAN — the executed-set gate must
+      # see its receipt to count it. Uploading only on failure would mean the gate could
+      # audit only the runs that were already red.
+      - name: Upload this shard's executed-set receipt
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-report-shard-${{ matrix.shard }}
+          path: ${{ github.workspace }}/e2e-report-shard-${{ matrix.shard }}.json
+          if-no-files-found: error
       - name: Upload Playwright report on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -366,3 +382,48 @@ jobs:
           name: screenshots-shard-${{ matrix.shard }}
           path: ${{ github.workspace }}/tmp/screenshots
           if-no-files-found: ignore
+
+  # THE EXECUTED-SET GATE. The `playwright` job above can prove its specs PASSED; it cannot
+  # prove it RAN THEM ALL — no test lane can answer that about itself, and sharding sharpens
+  # the question rather than softening it: three buckets can each go quietly empty, and
+  # sharding SUPPRESSES Playwright's own "No tests found" guard, so an empty shard exits 0.
+  #
+  # This is ported from mcritchie-studio, which closed the identical hole after three rounds
+  # of review each found a new spelling of "a spec left the executed set" — `.only`,
+  # `.skip`/`.fixme`, `testInfo.skip()` on an unwatched receiver, and a widened
+  # `--grep-invert` that no guard pinned. Source-reading catches the spellings someone
+  # thought to refuse; the receipt catches all of them as one line of arithmetic.
+  #
+  # `if: always()` is LOAD-BEARING and is the ONLY condition this job may ever carry.
+  # Without it a red `playwright` shard SKIPS this job — and a skipped required check does
+  # not report failure, so the one gate that would say "the lane ran fewer specs than it
+  # claims" goes quiet in precisely the runs where it matters.
+  #
+  # No bundler cache: the gate is stdlib-only (json + yaml). It audits the suite, so it must
+  # not be breakable by a dependency problem in the thing it audits.
+  e2e_executed_set:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: playwright
+    if: always()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: .ruby-version
+          rubygems: 3.5.11
+          bundler-cache: false
+
+      - name: Download every shard's receipt
+        uses: actions/download-artifact@v4
+        with:
+          pattern: e2e-report-shard-*
+          path: e2e-reports
+          merge-multiple: true
+
+      - name: Assert the lane executed exactly the specs it claims to
+        run: bin/e2e-executed-set-check e2e-reports
