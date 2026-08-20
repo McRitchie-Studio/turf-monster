@@ -107,6 +107,10 @@ jobs:
         options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install packages
       # NO google-chrome-stable. This job used to install a full browser and then run
       # `test:system` against a `test/system` directory holding exactly one file: `.keep`.
       # It certified nothing and charged every turf PR for the privilege. The emptiness is
@@ -118,11 +122,27 @@ jobs:
       # WHEN A SYSTEM TEST LANDS, PUT THE LANE BACK. Both guards go red the moment
       # test/system stops being empty, which is the whole reason removing this is safe
       # rather than merely cheaper.
-      - name: Install packages
-        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y curl libjemalloc2 libvips postgresql-client
-
-      - name: Checkout code
-        uses: actions/checkout@v7
+        #
+        # The fetch is BOUNDED and RETRIED — see .github/scripts/apt-retry for the
+        # incident, the measured budgets, and why the loop lives in a script rather
+        # than inline here. Ported from mcritchie-studio, where the Ubuntu mirror
+        # stalled SIX times across five PRs on 2026-08-19, each one burning the full
+        # 45-minute job bound on a branch with nothing wrong in it.
+        #
+        # CHECKOUT MOVED ABOVE THIS STEP, and that is part of the change rather than
+        # tidying. This step used to run FIRST, before the repo existed, which an
+        # inline `run:` block can do and a script invocation cannot. The hub shipped
+        # exactly that ordering bug and killed four jobs in ~30 seconds on "No such
+        # file or directory"; test/lib/ci_apt_step_timeout_test.rb now pins the order
+        # so it cannot come back. Nothing here needs the packages, so hoisting the
+        # checkout is safe: it only needs git, which the runner image already has.
+        #
+        # This bound is the backstop, not the mechanism: the script's escalating
+        # budgets total ~22 minutes, and 25 sits above that and well below the
+        # 45-minute job bound, so a step that blows through its retries still fails
+        # long before it can take the whole job down with it.
+        timeout-minutes: 25
+        run: .github/scripts/apt-retry curl libjemalloc2 libvips postgresql-client
 
       - name: Await RubyGems propagation for locked gems
         run: .github/scripts/await-gem-propagation.sh
