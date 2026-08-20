@@ -424,9 +424,10 @@ GEM
     stripe (19.0.0)
       bigdecimal
       logger
-    studio-engine (0.56.4)
+    studio-engine (0.57.0)
       aws-sdk-s3 (~> 1.218)
       faker (>= 2.0, < 4.0)
+      geocoder (>= 1.8, < 2.0)
       mini_magick (~> 5.0)
       rails (>= 7.2, < 8.2)
       redis (>= 4.0.1)

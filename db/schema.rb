@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_18_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_20_124220) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -646,6 +646,18 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_18_120000) do
     t.index ["category", "key"], name: "index_studio_enumerals_on_category_and_key", unique: true
     t.index ["category", "position"], name: "index_studio_enumerals_on_category_and_position"
     t.index ["category", "rank"], name: "index_studio_enumerals_on_category_and_rank"
+  end
+
+  create_table "studio_geo_settings", force: :cascade do |t|
+    t.string "app_name", null: false
+    t.jsonb "banned_countries", default: []
+    t.jsonb "banned_subdivisions", default: []
+    t.datetime "created_at", null: false
+    t.boolean "enabled", default: false, null: false
+    t.string "slug"
+    t.datetime "updated_at", null: false
+    t.index ["app_name"], name: "index_studio_geo_settings_on_app_name", unique: true
+    t.index ["slug"], name: "index_studio_geo_settings_on_slug", unique: true
   end
 
   create_table "studio_links", force: :cascade do |t|
