@@ -102,7 +102,20 @@ test.describe("Coinflow entry-token buy", () => {
       });
     });
     // Catch the redirect so the browser never leaves the box.
-    await page.route("**/purchase-v2/**", async (route) => {
+    //
+    // CONTEXT-level, not page-level, and that is the whole reason this spec failed the
+    // first time it was ever allowed to run. tokens/_coinflow_script.html.erb opens the
+    // hosted checkout in a POPUP —
+    //   var checkoutTab = window.open('', '_blank');
+    //   if (checkoutTab) { checkoutTab.location = d.link; ... }
+    //   else { window.location = d.link; }   // same-tab only when the popup is blocked
+    // — so the navigation happens on a DIFFERENT Page object. `page.route` sees only the
+    // original page and would never fire, while the order POST above (same page) passes:
+    // exactly the shape observed — orderPosted true, redirectHit false.
+    //
+    // Routing on the context covers both the popup and the same-tab fallback, so this
+    // asserts what the app actually does rather than what it used to.
+    await page.context().route("**/purchase-v2/**", async (route) => {
       redirectHit = true;
       await route.fulfill({ status: 200, contentType: "text/html", body: "<html><body>coinflow stub</body></html>" });
     });

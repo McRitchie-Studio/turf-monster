@@ -1,5 +1,27 @@
 const { defineConfig } = require("@playwright/test");
 
+// THE ONRAMP RAILS ARE ON FOR THE E2E STACK.
+//
+// e2e/financial.spec.js gates its Coinflow and Aeropay describes on these, and the specs'
+// own comment invites exactly this: "enable the flag on the e2e stack to exercise it."
+// Until now nothing did, so four specs skipped on every run — silently, until the
+// executed-set gate started counting them (config/e2e_lane.yml `flag_gated`).
+//
+// SET FOR THE PLAYWRIGHT PROCESS ONLY, NOT THE webServer env, and the distinction is the
+// whole safety of this change:
+//
+//   · The APP does not need them. app/helpers/onramp_helper.rb#onramp_rail_visible? is
+//     `return true unless Rails.env.production?` — every rail already renders in test, which
+//     is why e2e/onboarding_chain.spec.js has been clicking [data-buy-rail="coinflow"]
+//     successfully all along. Only the SPECS' own `process.env` check was stopping them.
+//   · The webServer env is shared with `db:test:prepare` and `e2e/seed.rb` (see the CAUTION
+//     on that block), so a flag added there can change SEEDED DATA, not just app behaviour.
+//     Nothing here needs that risk.
+//
+// `||=` so a caller can still turn them off for a one-off run without editing this file.
+process.env.ENABLE_COINFLOW ||= "true";
+process.env.ENABLE_AEROPAY ||= "true";
+
 module.exports = defineConfig({
   testDir: "./e2e",
   timeout: 30_000,

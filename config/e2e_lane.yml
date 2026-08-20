@@ -70,7 +70,7 @@ excluded: 17
 #
 # So it is DECLARED. One more runtime skip than this is RED. Raising it is an edit to this
 # line, in front of a reviewer, with a reason — which is the whole point.
-flag_gated: 6
+flag_gated: 4
 
 # total_specs - excluded - flag_gated. What the lane MUST execute, asserted against the
 # runner's own report, so no source-level spelling on any axis can move it without moving
@@ -78,7 +78,7 @@ flag_gated: 6
 # exactly 126 on the adopt-engine-geo-primitives run that raised it (the gate reported
 # "126 executed · contract: 122", which is the four new geo specs and nothing else).
 # It was 122 against 145 committed before those four.
-executed: 126
+executed: 128
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
