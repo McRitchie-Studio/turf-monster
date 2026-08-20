@@ -185,7 +185,14 @@ class CiAptStepTimeoutTest < Minitest::Test
   end
 
   def test_the_script_delegates_its_bound_to_timeout
-    body = File.read(SCRIPT)
+    # COMMENTS STRIPPED FIRST, and that is not fussiness. This script DOCUMENTS its
+    # own shape — one comment line explains the defect by quoting `if sudo timeout
+    # -k 10 "$budget" ...` as prose. Matching the raw file therefore matched the
+    # COMMENT: in mcritchie-industries, which ports these drift guards without the
+    # behavioural ones below, a mutation deleting the real `timeout` wrapper from the
+    # code left this assertion GREEN. Measured, not theorised. Assert against what
+    # the shell will execute, never against what the file says about itself.
+    body = File.read(SCRIPT).lines.reject { |l| l.strip.start_with?("#") }.join
 
     assert_match(/timeout\s+-k\s+\d+\s+"\$budget"/, body,
                  "`timeout-minutes` alone only kills the STEP — it cannot retry. Without `timeout -k " \
