@@ -653,6 +653,56 @@
   /* Theme CSS custom properties are now engine-generated via studio_theme_css_tag */
 }
 
+/* Environment-banner tooltip containment — the 4px horizontal document scroll
+   that studio-engine 0.56.3 exposed. Deliberately UNLAYERED: engine CSS is
+   unlayered too, and this must not lose a layer fight it never needs to have.
+
+   WHAT IS BROKEN. The engine's banner chips carry a hover tooltip
+   (studio/banners/_button.html.erb, [data-studio-banner-tooltip]) sized
+   `width: max-content; max-width: 260px`. That pair only behaves if the text
+   WRAPS at the cap, and it does not: the tooltip is a child of the chip, the
+   chip is nowrap, and white-space INHERITS. So the cap clamps the BOX to 260px
+   while the single unbreakable line keeps its full intrinsic width, and the
+   difference becomes layout overflow. The tooltip is anchored `right: 0` on a
+   chip that sits ~16px from the viewport edge, so the spill runs straight off
+   the right of the page and propagates up through the header into
+   document.scrollWidth. Measured here: 263px of line in a 260px box even in
+   Montserrat, i.e. this was always 3px from being visible.
+
+   WHY 0.56.3 SURFACED IT, AND WHY THE FIX IS NOT ABOUT FONTS. 0.56.3 stopped
+   loading Montserrat from fonts.googleapis.com and self-hosts it at
+   `font-display: optional`. optional has NO swap period: a face not ready
+   inside the ~100ms block period is abandoned for that whole navigation and the
+   page paints in the fallback stack. That is the engine's stated, deliberate
+   cost, not a defect — measured by delaying the woff2 900ms, after which a
+   12px/700 sample of "Connector: Unknown" rendered at 126.81px, identical to
+   system-ui, against Montserrat's 133.47px, with document.fonts.check() still
+   true. The vendored files themselves resolve in THIS app: both woff2 answer
+   200 same-origin from turf's own pipeline at the byte counts the gem ships.
+
+   So "paints in the fallback face" is now a SUPPORTED state, and every
+   navigation that lands in it measures a different set of text widths.
+   Montserrat is narrower than the Linux CI fallback, which is the entire
+   regression: the tooltip's 3px of latent overflow becomes 4px PAST the
+   viewport and e2e/navbar_layout.spec.js's documentOverflow <= 1 fails.
+   Reproduced locally by forcing a wider face: overflow 0 to 3 at both 1024 and
+   820, that tooltip's text the only unclipped box past the edge.
+
+   THE RULE restores the wrapping the engine's own sizing assumes, so the
+   tooltip fits its cap in ANY face. Nothing declares white-space ON the tooltip
+   (the nowrap arrives by inheritance), so one direct declaration wins outright
+   with no !important.
+
+   THIS IS A HOST PATCH ON ENGINE MARKUP, scoped to the engine's own stable hook
+   so it deletes in one line. The defect lives in the engine and every consumer
+   carries it; turf is only the app whose e2e measures document overflow. When
+   the engine ships the same white-space fix, delete this block —
+   test/views/banner_tooltip_containment_test.rb watches that seam and fails
+   when it lands. */
+[data-studio-banner-tooltip] {
+  white-space: normal;
+}
+
 @layer components {
     @keyframes cta-spin {
     to { transform: rotate(360deg); }

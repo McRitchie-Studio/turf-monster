@@ -16,7 +16,7 @@
 - **Primary for selection UI**: Selection count badges, cart slot borders, matchup selection rings/tints, turf score values, links, sort toggle active state, and FAB buttons all use `primary` (green), not mint or violet.
 - **Warning**: `#FF7C47` Orange — warning states, `.btn-warning`
 - **Negative**: Red (Tailwind default) — losses
-- **Font**: Montserrat (all weights 400-900)
+- **Font**: Montserrat (all weights 400-900), stack `Montserrat, system-ui, sans-serif`. Since studio-engine 0.56.3 the face is VENDORED — self-hosted woff2 through the asset pipeline, no Google Fonts — and declared `font-display: optional`. **Design for the fallback face.** `optional` has no swap period: a face not ready inside the browser's block period is abandoned for that whole navigation, so any visitor on a cold cache reads the page in `system-ui`, which is narrower than Montserrat on macOS and wider on Linux. A layout that only fits in Montserrat's metrics is broken for real users, not just for CI. `e2e/vendored_font_fallback.spec.js` holds that line for the header: it asserts the vendored woff2 really resolve same-origin here, then re-measures containment with the face forced to the fallback and to a proven-wider one.
 - **Logo**: Two files exist — `/public/logo.png` (1.3MB, used in layout navbar) and `/public/logo.jpeg` (272KB, used in auth pages). Both are the green monster mascot. Should be consolidated to one file.
 
 ### Semantic Tokens (required)
