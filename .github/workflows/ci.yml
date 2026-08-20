@@ -107,8 +107,19 @@ jobs:
         options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
 
     steps:
+      # NO google-chrome-stable. This job used to install a full browser and then run
+      # `test:system` against a `test/system` directory holding exactly one file: `.keep`.
+      # It certified nothing and charged every turf PR for the privilege. The emptiness is
+      # a CHECKED fact, not an assumption — see the guard in
+      # test/lib/ci_workflow_triggers_test.rb below, and the hub's own
+      # test/models/release/repos_test.rb, which asserts the same thing from the release
+      # registry's side ("turf-monster grew system tests — its gate must now cover them").
+      #
+      # WHEN A SYSTEM TEST LANDS, PUT THE LANE BACK. Both guards go red the moment
+      # test/system stops being empty, which is the whole reason removing this is safe
+      # rather than merely cheaper.
       - name: Install packages
-        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y google-chrome-stable curl libjemalloc2 libvips postgresql-client
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y curl libjemalloc2 libvips postgresql-client
 
       - name: Checkout code
         uses: actions/checkout@v7
@@ -123,12 +134,18 @@ jobs:
           rubygems: 3.5.11
           bundler-cache: true
 
+      # `db:test:prepare test` — the SYSTEM tier is gone with the browser above. Keep
+      # db:test:prepare FIRST: `test` is a real rails COMMAND, so a rails-command first arg
+      # would parse the rest of the line as paths; a leading non-command routes the whole
+      # thing through RAKE, where each token is a task. It is also what fires Rails' own
+      # `test:prepare` hook (the one tailwindcss-rails enhances), and the hook is skipped
+      # the moment any argument looks like a path.
       - name: Run tests
         env:
           RAILS_ENV: test
           DATABASE_URL: postgres://postgres:postgres@localhost:5432
           REDIS_URL: redis://localhost:6379/0
-        run: bin/rails db:test:prepare test test:system
+        run: bin/rails db:test:prepare test
 
   playwright:
     runs-on: ubuntu-latest
@@ -254,6 +271,23 @@ jobs:
         with: { ruby-version: .ruby-version, rubygems: 3.5.11, bundler-cache: true }
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
+      # CACHE THE BROWSER, keyed on the resolved Playwright version. Measured on run
+      # 32329065176, this step cost ~21s per shard — three shards, every run, re-downloading
+      # a Chromium that has not changed. The key comes from package-lock.json so a Playwright
+      # bump invalidates it automatically; there is nothing to remember to bump by hand.
+      #
+      # `--with-deps` still runs on a cache HIT, and that is deliberate: the cache holds the
+      # browser, not the apt libraries headless Chromium needs to launch, and a restored
+      # browser that cannot start reads as a mysterious lane failure rather than a missing
+      # package. It is a few seconds; the download is the part worth saving.
+      - name: Cache the Playwright browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
       - name: Install Playwright + browsers
         run: |
           npm ci

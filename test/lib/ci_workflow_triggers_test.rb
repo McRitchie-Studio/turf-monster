@@ -174,7 +174,7 @@ class CiWorkflowTriggersTest < Minitest::Test
   #      lane sails through (Avi's catch).
   #   3. `^\s*…\s*$` — anchored BOTH ends, so the pinned command must be the ENTIRE line.
   #      This also closes two vectors the trailing anchor alone did NOT: a COMMENTED-OUT
-  #      suite line (`# bin/rails db:test:prepare test test:system` — matched, ran
+  #      suite line (`# #{SUITE_SCRIPT}` — matched, ran
   #      nothing), and a SHORT-CIRCUIT prefix (`true || bin/rails …` — matched, never
   #      executed). Both were live under rung 2.
   # Each rung is pinned by a refutation fixture below (`…prepare_only…`,
@@ -233,7 +233,12 @@ class CiWorkflowTriggersTest < Minitest::Test
   # The right instinct on reading this list is NOT "the class is closed." It is "here is
   # where I would look next."
   # THE EXACT SCRIPT the suite lane must run. Not a pattern to match — the whole body.
-  SUITE_SCRIPT = "bin/rails db:test:prepare test test:system"
+  # CHANGED 2026-08-20 (/tasks/drop-turf-empty-system-lane): the SYSTEM tier left this
+  # command. `test/system` in this repo holds exactly one file — `.keep` — so the tier
+  # certified nothing while charging every PR for a google-chrome-stable install. That
+  # emptiness is asserted below rather than assumed, and the assertion is what makes the
+  # removal safe: add a system test and this file goes red telling you to restore the lane.
+  SUITE_SCRIPT = "bin/rails db:test:prepare test"
 
   # Used only to FIND the lane. Whether that lane is CORRECT is decided by the positive
   # invariant below (suite_lanes_with_a_foreign_script), which compares the run body to
@@ -362,7 +367,7 @@ class CiWorkflowTriggersTest < Minitest::Test
   #     - name: Cache warm
   #       run: echo "DEFAULT_TEST_EXCLUDE=test/**/*_test.rb" >> "$GITHUB_ENV"
   #     - name: Run tests
-  #       run: bin/rails db:test:prepare test test:system   # byte-identical, unconditional
+  #       run: #{SUITE_SCRIPT}   # byte-identical, unconditional
   #
   # The suite step is untouched — same command, no `if:`, no env: block — and it runs ZERO
   # tests and exits 0. Only the steps ORDERED BEFORE it in the same job can reach it, so
@@ -599,7 +604,7 @@ class CiWorkflowTriggersTest < Minitest::Test
           steps:
             - name: Run tests
               continue-on-error: true
-              run: bin/rails db:test:prepare test test:system
+              run: #{SUITE_SCRIPT}
         lint:
           continue-on-error: true
           runs-on: ubuntu-latest
@@ -686,7 +691,7 @@ class CiWorkflowTriggersTest < Minitest::Test
           runs-on: ubuntu-latest
           steps:
             - name: Run tests
-              run: bin/rails db:test:prepare test test:system -n /nothing_matches_this/
+              run: #{SUITE_SCRIPT} -n /nothing_matches_this/
     YML
     assert_empty suite_command_lanes(yaml),
                  "a narrowed suite command runs ~zero tests — it must never count as the suite lane"
@@ -705,7 +710,7 @@ class CiWorkflowTriggersTest < Minitest::Test
           steps:
             - name: Run tests
               run: |
-                # bin/rails db:test:prepare test test:system
+                # #{SUITE_SCRIPT}
                 echo "suite temporarily disabled"
     YML
     assert_empty suite_command_lanes(yaml),
@@ -725,7 +730,7 @@ class CiWorkflowTriggersTest < Minitest::Test
           steps:
             - name: Run tests
               run: |
-                true || bin/rails db:test:prepare test test:system
+                true || #{SUITE_SCRIPT}
     YML
     assert_empty suite_command_lanes(yaml),
                  "a short-circuited suite command never executes — it must never count as the suite lane"
@@ -746,7 +751,7 @@ class CiWorkflowTriggersTest < Minitest::Test
             - name: Run tests
               env:
                 TESTOPTS: "-n /nothing_matches_this/"
-              run: bin/rails db:test:prepare test test:system
+              run: #{SUITE_SCRIPT}
     YML
     refute_empty suite_command_lanes(yaml), "the command itself still reads as the suite lane"
     assert_equal ["job `test` → step `Run tests` (TESTOPTS)"], narrowing_env_lanes(yaml)
@@ -764,7 +769,7 @@ class CiWorkflowTriggersTest < Minitest::Test
             - name: Run tests
               env:
                 RAILS_ENV: test
-              run: bin/rails db:test:prepare test test:system
+              run: #{SUITE_SCRIPT}
     YML
     assert_empty narrowing_env_lanes(yaml), "an ordinary RAILS_ENV must not be flagged as narrowing"
   end
@@ -785,7 +790,7 @@ class CiWorkflowTriggersTest < Minitest::Test
           runs-on: ubuntu-latest
           steps:
             - name: Run tests
-              run: bin/rails db:test:prepare test test:system
+              run: #{SUITE_SCRIPT}
     YML
     assert_equal [ "workflow `env:` (TESTOPTS)" ], narrowing_env_lanes(yaml)
   end
@@ -807,7 +812,7 @@ class CiWorkflowTriggersTest < Minitest::Test
             - name: Run tests
               env:
                 TEST: test/models/one_trivial_test.rb
-              run: bin/rails db:test:prepare test test:system
+              run: #{SUITE_SCRIPT}
     YML
     assert_equal [ "job `test` → step `Run tests` (TEST)" ], narrowing_env_lanes(yaml)
   end
@@ -827,7 +832,7 @@ class CiWorkflowTriggersTest < Minitest::Test
             - name: Run tests
               env:
                 DEFAULT_TEST_EXCLUDE: "test/**/*_test.rb"
-              run: bin/rails db:test:prepare test test:system
+              run: #{SUITE_SCRIPT}
     YML
     assert_equal [ "job `test` → step `Run tests` (DEFAULT_TEST_EXCLUDE)" ], narrowing_env_lanes(yaml)
   end
@@ -854,7 +859,7 @@ class CiWorkflowTriggersTest < Minitest::Test
             - name: Run tests
               run: |
                 export DEFAULT_TEST_EXCLUDE='test/**/*_test.rb'
-                bin/rails db:test:prepare test test:system
+                #{SUITE_SCRIPT}
     YML
     refute_empty suite_command_lanes(yaml), "the lane is still FOUND — the command line is intact"
     assert_empty narrowing_env_lanes(yaml), "and the env walk sees nothing: it is not an env: key"
@@ -875,7 +880,7 @@ class CiWorkflowTriggersTest < Minitest::Test
           runs-on: ubuntu-latest
           steps:
             - name: Run tests
-              run: DEFAULT_TEST_EXCLUDE='test/**/*_test.rb' bin/rails db:test:prepare test test:system
+              run: DEFAULT_TEST_EXCLUDE='test/**/*_test.rb' #{SUITE_SCRIPT}
     YML
     assert_empty suite_command_lanes(yaml),
                  "an inline VAR=x prefix leaves NO lane running the pinned script — the primary " \
@@ -901,7 +906,7 @@ class CiWorkflowTriggersTest < Minitest::Test
                 test/**/*_test.rb
                 HEREDOC
                 EOF
-                bin/rails db:test:prepare test test:system
+                #{SUITE_SCRIPT}
     YML
     refute_empty suite_lanes_with_a_foreign_script(yaml),
                  "the heredoc form must not walk past the guard the way it walks past a `KEY=` regex"
@@ -920,7 +925,7 @@ class CiWorkflowTriggersTest < Minitest::Test
           steps:
             - name: Run tests
               run: |
-                true || bin/rails db:test:prepare test test:system
+                true || #{SUITE_SCRIPT}
     YML
     assert_empty suite_command_lanes(short_circuit), "not even found as a lane — refute_empty fails first"
   end
@@ -942,7 +947,7 @@ class CiWorkflowTriggersTest < Minitest::Test
               run: |
                 # The whole suite, unconditionally. See test/lib/ci_workflow_triggers_test.rb.
 
-                bin/rails db:test:prepare test test:system
+                #{SUITE_SCRIPT}
     YML
     assert_empty suite_lanes_with_a_foreign_script(yaml)
     refute_empty suite_command_lanes(yaml)
@@ -965,7 +970,7 @@ class CiWorkflowTriggersTest < Minitest::Test
             - name: Cache warm
               run: echo "DEFAULT_TEST_EXCLUDE=test/**/*_test.rb" >> "$GITHUB_ENV"
             - name: Run tests
-              run: bin/rails db:test:prepare test test:system
+              run: #{SUITE_SCRIPT}
     YML
     assert_equal [ "job `test` → an earlier step's $GITHUB_ENV write (DEFAULT_TEST_EXCLUDE)" ],
                  narrowing_env_lanes(yaml)
@@ -984,7 +989,7 @@ class CiWorkflowTriggersTest < Minitest::Test
           runs-on: ubuntu-latest
           steps:
             - name: Run tests
-              run: bin/rails db:test:prepare test test:system
+              run: #{SUITE_SCRIPT}
             - name: Hand off to the next job
               run: echo "DEFAULT_TEST_EXCLUDE=test/**/*_test.rb" >> "$GITHUB_ENV"
     YML
@@ -1007,7 +1012,7 @@ class CiWorkflowTriggersTest < Minitest::Test
             - name: Run tests
               env:
                 DEFAULT_TEST_EXCLUDE: ""
-              run: bin/rails db:test:prepare test test:system
+              run: #{SUITE_SCRIPT}
     YML
     assert_empty narrowing_env_lanes(yaml)
   end
@@ -1025,7 +1030,7 @@ class CiWorkflowTriggersTest < Minitest::Test
             - name: Record the SHA
               run: echo "BUILD_SHA=$GITHUB_SHA" >> "$GITHUB_ENV"
             - name: Run tests
-              run: bin/rails db:test:prepare test test:system
+              run: #{SUITE_SCRIPT}
     YML
     assert_empty narrowing_env_lanes(yaml)
   end
@@ -1047,39 +1052,71 @@ class CiWorkflowTriggersTest < Minitest::Test
             - name: Run tests
               env:
                 TESTOPTS: ""
-              run: bin/rails db:test:prepare test test:system
+              run: #{SUITE_SCRIPT}
     YML
     assert_empty narrowing_env_lanes(yaml)
   end
 
-  def test_unit_recognizes_the_real_suite_command_as_a_test_lane
-    # The other half of vector 7: TEST_COMMAND must actually MATCH the live command, or
-    # the positive guard asserts a lane that never existed and passes vacuously — the
-    # same failure mode as the `on:`-boolean trap at the top of this file.
-    yaml = <<~YML
-      on:
-        push:
-          branches: [ main, release ]
-      jobs:
-        test:
-          runs-on: ubuntu-latest
-          steps:
-            - name: Run tests
-              run: bin/rails db:test:prepare test test:system
-    YML
-    lanes = suite_command_lanes(yaml)
+  def test_integration_the_pinned_suite_script_MATCHES_THE_LIVE_WORKFLOW
+    # THE VACUITY CHECK, and it has to read the REAL ci.yml — not a fixture.
+    #
+    # This was a synthetic workflow containing a hand-copied duplicate of the suite
+    # command, asserting TEST_COMMAND matched the copy. When the fixtures in this file were
+    # re-pointed at the SUITE_SCRIPT constant (so they can never drift from it again) that
+    # became a tautology: a fixture interpolating the constant matches a pattern built from
+    # the same constant, always, whatever either says about ci.yml.
+    #
+    # So it asks the live file. If SUITE_SCRIPT stops being a verbatim `run:` body in
+    # ci.yml, every positive guard here starts asserting things about an empty set.
+    yaml_text = File.read(CI_YML)
+    lanes = suite_command_lanes(yaml_text)
 
-    assert_equal 1, lanes.size
-    assert_equal "test", lanes.first[0]
+    refute_empty lanes,
+                 "no step in the LIVE ci.yml has #{SUITE_SCRIPT.inspect} as its whole `run:` body. " \
+                 "TEST_COMMAND now matches nothing, so every positive guard in this file passes " \
+                 "vacuously. If the suite command legitimately changed, change SUITE_SCRIPT " \
+                 "deliberately — do not relax the pin."
   end
 
-  # --- [integration] the real committed workflow ----------------------------------
+  # ==== WHAT LICENSES DROPPING THE SYSTEM TIER ========================================
+  #
+  # `bin/rails db:test:prepare test` runs no system tests, and that is only honest while
+  # there are none to run. This repo's `test/system` holds exactly one file — `.keep` —
+  # so the tier the CI command used to carry certified nothing, while the `test` job paid
+  # for a full google-chrome-stable install on every PR to keep it company.
+  #
+  # THE REMOVAL IS SAFE BECAUSE THIS IS A CHECK, NOT AN ASSUMPTION. Add one system test
+  # and this goes red, naming the file and telling you to restore both the browser and the
+  # tier. The hub asserts the same fact from the release registry's side
+  # (mcritchie-studio's test/models/release/repos_test.rb, "turf-monster grew system tests
+  # — its gate must now cover them"), so the two ends of the pipeline agree about it.
+  def test_integration_the_system_tier_is_empty_so_the_suite_command_may_omit_it
+    system_tests = Dir[File.expand_path("../../test/system/**/*_test.rb", __dir__)]
 
-  # ==== THE PRIMARY GUARD =============================================================
-  # Positive, not a blacklist. Every other integration assertion in this file enumerates
-  # a way the suite might NOT run; this one asserts that it DOES. On the lane that IS the
-  # verdict, ANY condition fails — not merely the three `github.*` spellings a reviewer
-  # happened to show me. That is the difference between a guard and a scoreboard.
+    assert_empty system_tests,
+                 "#{system_tests.length} system test(s) exist now, and ci.yml's suite command " \
+                 "(#{SUITE_SCRIPT.inspect}) does not run them — nothing in CI does. Restore the " \
+                 "`test:system` task AND the google-chrome-stable install in the `test` job, then " \
+                 "re-point SUITE_SCRIPT. Files: #{system_tests.inspect}"
+  end
+
+  def test_integration_the_test_job_installs_no_browser_it_does_not_use
+    # The other half: a browser install that outlives the tier it served is pure cost, and
+    # it is the shape this change removed. If a system test lands, the guard above fires
+    # first and tells you to bring BOTH back — this one keeps them from drifting apart in
+    # the other direction.
+    jobs = jobs_of(File.read(CI_YML))
+    steps = Array(jobs.dig("test", "steps"))
+    browser_steps = steps.select do |step|
+      step.is_a?(Hash) && "#{step['run']}#{step['uses']}".match?(/google-chrome|setup-chrome|chromedriver/)
+    end
+
+    assert_empty browser_steps.map { |s| s["name"] || s["uses"] },
+                 "the `test` job installs a browser but its suite command " \
+                 "(#{SUITE_SCRIPT.inspect}) runs no system tests. Either the tier came back and " \
+                 "SUITE_SCRIPT needs updating, or this install is paying for nothing."
+  end
+
   def test_integration_the_suite_runs_UNCONDITIONALLY_on_a_release_push
     lanes = suite_command_lanes(File.read(CI_YML))
 
