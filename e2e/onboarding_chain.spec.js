@@ -216,6 +216,76 @@ test("the first name is the FIRST validation of the hold @smoke", async ({ page 
   expect(next.reason).toBe("age_required");
 });
 
+test("the first-name placeholder types itself, then yields to the user @smoke", async ({ page }) => {
+  // Only a browser can prove an animation animates. A markup tier can assert
+  // every handler is wired and still miss a timer that never ticks.
+  await signUpFresh(page, { contest: "world-cup-2026" });
+  const field = page.locator("#onboarding-first-name");
+  await expect(field).toBeVisible();
+
+  // 1. It settles on a WHOLE name from the pool the server rendered. Read the
+  //    pool off the DOM rather than hard-coding it here, so editing the QB list
+  //    never breaks this spec.
+  const pool = await page.evaluate(() =>
+    JSON.parse(document.querySelector("[data-placeholder-names]").dataset.placeholderNames)
+  );
+  await page.waitForFunction(
+    (names) => names.includes(document.querySelector("#onboarding-first-name").placeholder),
+    pool,
+    { timeout: 5000 }
+  );
+
+  // 2. It GREW there rather than being assigned. Re-run the animation with a
+  //    known long phrase so this is deterministic — sampling the natural mount
+  //    races a two-character name like "Bo", which finishes in ~170ms.
+  const frames = await page.evaluate(async () => {
+    const el = document.querySelector("#onboarding-first-name");
+    Alpine.$data(el).startPlaceholder(["Quarterback"]);
+    // startPlaceholder resets the state synchronously, but :placeholder is an
+    // Alpine binding and flushes on a MICROTASK — so for an instant the element
+    // still shows the name the natural mount typed. Sampling through that window
+    // captures a leftover ("Josh") that is not a prefix of this phrase. Wait for
+    // the reset to reach the DOM first.
+    const resetBy = Date.now() + 1000;
+    while (el.placeholder !== "" && Date.now() < resetBy) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    // Sample until it FINISHES rather than for a fixed number of ticks. A count
+    // encodes an assumption about the typing speed: 30 x 30ms stopped one tick
+    // short of an 11-character phrase at 85ms/char and failed on "Quarterbac".
+    const seen = [];
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      seen.push(el.placeholder);
+      if (el.placeholder === "Quarterback") break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    return seen;
+  });
+  const distinct = [...new Set(frames)];
+  expect(distinct.length, "the placeholder must pass through many states, not one").toBeGreaterThan(3);
+
+  // THE PRE-ROLL. Typing must not begin until the modal's 320ms entrance has
+  // landed. Without this the effect is invisible for exactly the common case —
+  // a short name finishes underneath the card animation and the field simply
+  // appears with a name already in it, which is what the operator saw. Counting
+  // leading empty frames rather than asserting a stopwatch keeps it honest
+  // without being flaky: at 25ms per sample a 420ms delay is ~16 of them.
+  const leadingEmpty = frames.findIndex((f) => f !== "");
+  expect(leadingEmpty, "typing must wait for the card to settle").toBeGreaterThan(3);
+  expect(frames[frames.length - 1]).toBe("Quarterback");
+  // Every frame is a prefix of the finished phrase, in non-decreasing length —
+  // i.e. it TYPED, never jumped or rewound.
+  frames.forEach((f) => expect("Quarterback".startsWith(f)).toBe(true));
+  for (let i = 1; i < frames.length; i++) {
+    expect(frames[i].length).toBeGreaterThanOrEqual(frames[i - 1].length);
+  }
+
+  // 3. The user's own typing clears it, so the hint never sits under their text.
+  await field.type("Al");
+  await expect.poll(async () => await field.getAttribute("placeholder")).toBe("");
+});
+
 test("the chain does not re-open on later navigation", async ({ page }) => {
   await signUpFresh(page, { contest: "world-cup-2026" });
   await expect(page.getByRole("heading", { name: /What should we call you/i })).toBeVisible();

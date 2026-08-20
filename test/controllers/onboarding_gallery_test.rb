@@ -11,7 +11,15 @@ class OnboardingGalleryTest < ActionDispatch::IntegrationTest
   # new step-machine modal gets this guard.
   test "the onboarding x-data attribute contains no double quotes" do
     source = Rails.root.join("app/views/modals/_onboarding.html.erb").read
-    x_data = source[/<div x-data="(.*?)"\s*\n\s*class=/m, 1]
+    # Anchored on the attribute's own SHAPE — it opens `{` and closes `}"` at
+    # end of line — rather than on whichever attribute happens to follow it.
+    # The old locator required `class=` to come next, and went red the moment
+    # a data- attribute and an x-init joined the root element: a passing
+    # invariant reported as a failure. The `}"` anchor cannot be satisfied by an
+    # inner brace (those are followed by a comma or a newline, never a quote),
+    # so this still captures the WHOLE attribute, which is what makes the
+    # assertion below meaningful.
+    x_data = source[/x-data="(\{.*?\})"\s*\n/m, 1]
     assert x_data.present?, "could not locate the x-data attribute — did the root element change?"
     assert_not_includes x_data, '"',
                         "a double quote inside the double-quoted x-data closes it early and " \
@@ -56,6 +64,107 @@ class OnboardingGalleryTest < ActionDispatch::IntegrationTest
     assert_includes response.body, %(:aria-label="required ? 'Close' : 'Skip'")
     assert_includes response.body, %(@click="required ? $store.modals.close() : skip()")
     assert_includes response.body, "/onboarding/skip_first_name"
+  end
+
+  # --- the typed placeholder --------------------------------------------------
+
+  test "the card ships the sampled name list and types it into the placeholder" do
+    log_in_as users(:alex)
+    get admin_modal_preview_path(modal_id: "onboarding", props: {}.to_json)
+    assert_response :success
+
+    # The list rides a data- attribute rather than the x-data expression, and
+    # that is not decoration: x-data is a DOUBLE-QUOTED attribute, so a JSON
+    # array — which is all double quotes — cannot live inside it without closing
+    # it early and killing the modal. Parse what actually rendered, so an
+    # escaping change surfaces here rather than as a silent no-op in a browser.
+    raw = response.body[/data-placeholder-names='([^']*)'/m, 1]
+    assert raw.present?, "the name pool must render onto the root element"
+    names = JSON.parse(CGI.unescapeHTML(raw))
+    assert_equal OnboardingHelper::QB_FIRST_NAMES, names
+
+    assert_includes response.body, "startPlaceholder(JSON.parse($el.dataset.placeholderNames"
+    assert_includes response.body, ':placeholder="placeholderText"',
+                    "the placeholder must be BOUND — a static one cannot animate"
+  end
+
+  test "the placeholder yields to the user, and knows autofocus is not engagement" do
+    log_in_as users(:alex)
+    get admin_modal_preview_path(modal_id: "onboarding", props: {}.to_json)
+    assert_response :success
+
+    # Real typing dismisses it; a blur is recorded; a focus AFTER that blur
+    # dismisses it too. A bare focus must not, because this field is autofocused
+    # on mount — treating that as engagement would kill the animation before it
+    # drew a character.
+    assert_includes response.body, '@input="dismissPlaceholder()"'
+    assert_includes response.body, '@blur="markPlaceholderBlurred()"'
+    assert_includes response.body, '@focus="refocusPlaceholder()"'
+    assert_includes response.body, "refocusPlaceholder() { if (this._phBlurred) this.dismissPlaceholder(); }"
+
+    # Reduced motion gets the hint without the animation.
+    assert_includes response.body, "prefers-reduced-motion: reduce"
+  end
+
+  # --- the chain's progress pill ----------------------------------------------
+
+  # Filled segments in ONE modal's rendered pill.
+  #
+  # Scoped to that modal's <template> on purpose: the preview layout registers
+  # EVERY modal in the page, so counting across the whole body counts every
+  # pill in the app at once (it returned 7 the first time). The class string is
+  # the engine partial's own (studio/modals/blocks/_progress_pill), so this
+  # counts what a user actually sees rather than trusting the `current:`
+  # argument we passed.
+  def filled_pill_segments(body, modal_id)
+    node = Nokogiri::HTML(body).css("template").find { |t|
+      t["x-if"].to_s.include?("=== '#{modal_id}'")
+    }
+    assert node, "no <template> registration found for #{modal_id.inspect}"
+    node.to_html.scan(%r{h-1\.5 flex-1 rounded-full bg-primary}).length
+  end
+
+  test "the chain's three cards read 1, 2 and 3 of 3 in order" do
+    # Operator's call, 2026-08-19. Asserted TOGETHER in one test because the
+    # numbers only mean anything as a sequence — renumbering one card in
+    # isolation is exactly the change that would leave the chain reading 1, 2, 2.
+    log_in_as users(:alex)
+
+    get admin_modal_preview_path(modal_id: "onboarding", props: {}.to_json)
+    assert_response :success
+    assert_equal 1, filled_pill_segments(response.body, "onboarding"), "first name is step 1 of 3"
+
+    get admin_modal_preview_path(modal_id: "age-verify", props: {}.to_json)
+    assert_response :success
+    assert_equal 2, filled_pill_segments(response.body, "age-verify"), "the age gate is step 2 of 3"
+
+    get admin_modal_preview_path(modal_id: "wallet-setup", props: {}.to_json)
+    assert_response :success
+    assert_equal 3, filled_pill_segments(response.body, "wallet-setup"), "wallet setup is step 3 of 3"
+  end
+
+  test "the chain's three modals are registered in the PREVIEW layout too" do
+    # The root cause of the empty age-verify card: the app layout and the
+    # preview layout each keep their OWN registration list, so a modal added to
+    # one renders blank in the other — and blank is indistinguishable from a
+    # modal that simply has little in it. The gallery happily listed and opened
+    # a card the preview layout could not draw.
+    #
+    # SCOPED TO THE CHAIN on purpose. The same audit found SEVEN more gallery
+    # modals unregistered in the preview layout (cosign-rejected, quest-success,
+    # free-entry-earned, newsletter-subscribe, newsletter-success,
+    # unsubscribe-confirm, unsubscribe-goodbye) and one — cosign-rejected —
+    # missing from BOTH layouts, i.e. unreachable anywhere. Registering seven
+    # unrelated modals is its own change with its own blast radius (some need
+    # factories or stores the preview layout does not load, the way `username`
+    # does), so it is a follow-up, not a passenger on this one. Widen this test
+    # to the full manifest when that task lands.
+    preview = Rails.root.join("app/views/layouts/modal_preview.html.erb").read
+    %w[onboarding age-verify wallet-setup].each do |id|
+      assert_includes preview, "$store.modals.current().id === '#{id}'",
+                      "modal #{id.inspect} is in the gallery but not registered in modal_preview.html.erb, " \
+                      "so its preview renders an empty card"
+    end
   end
 
   test "the modal hands the remaining steps to the chain driver" do

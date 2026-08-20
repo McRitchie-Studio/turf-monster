@@ -32,16 +32,42 @@
        connecting: false,
        error: '',
        installUrl: 'https://phantom.com/download',
+       // The player starts muted (the only autoplay a browser allows on a modal
+       // nobody clicked to open). One click buys sound.
+       videoMuted: true,
        // Set when the user leaves for the install page. It puts the row into its
-       // waiting state (spinner) and is the precondition for the one automatic
-       // reload on return — see init() for why a reload is unavoidable.
+       // waiting state (spinner) and turns the probe below from a single poke
+       // into a steady watch.
        installClicked: false,
+       // Phantom exists in the BROWSER but not in THIS document — what the probe
+       // frame finds. See _probe() for why the two are different things.
+       probeFound: false,
+       probeTries: 0,
+       // Mid-handoff: the page just reloaded to pick up a Phantom it could not
+       // reach, and owes the user the signature prompt they asked for.
+       resuming: false,
+       _resumeTicks: 0,
+       _frame: null,
        _onWake: null,
        _onRegister: null,
        _poll: null,
+       _probeTimer: null,
+       _firstProbe: null,
        init() {
          var self = this;
          this.refresh();
+
+         // Pick up an interrupted connect. resumeConnect() reloads the page to
+         // get a document Phantom is actually IN, and the user clicked Connect
+         // before that — so finish what they started rather than making them
+         // click the same row twice. Read once and clear immediately: a later
+         // reload for any other reason must not replay a signature prompt.
+         try {
+           if (sessionStorage.getItem('walletSetupAutoConnect') === '1') {
+             sessionStorage.removeItem('walletSetupAutoConnect');
+             this.resuming = true;
+           }
+         } catch (e) {}
 
          // WHY THIS POLLS. walletProvider.available() carries an explicit
          // warning in wallet_provider.js -- CALL AT CLICK TIME, because the list
@@ -68,40 +94,43 @@
 
          // The ping. Free (available() is an array copy), so it runs for as long
          // as the row has no wallet to show and stops the moment it does. It
-         // covers every case where the provider CAN appear without a reload:
-         // registration landing late, a locked extension waking up, a wallet
-         // installed in a tab opened after this one.
+         // covers every case where the provider CAN appear in THIS document:
+         // registration landing late, a locked extension waking up.
          this._poll = setInterval(function() {
            if (self.connecting) return;
            self.refresh();
+           self._tickResume();
            if (self.wallets.length > 0) self._stopPoll();
          }, 1000);
 
-         // ...and the half the ping CANNOT do. Chrome injects an extension's
-         // content script only into pages loaded AFTER the install, and Phantom
-         // registers from that script. So in THIS tab — open since before the
-         // install — there is nothing for any amount of polling to find. That is
-         // why every wallet doc says refresh after installing.
+         // ...and the half the ping CANNOT do, at all, ever. Chrome injects an
+         // extension into documents created AFTER the install and nowhere else,
+         // and Phantom ships its provider as a document_start content script
+         // with no install-time sweep over open tabs. So in THIS tab — open
+         // since before the install — there is nothing for any amount of polling
+         // to find, and there never will be. That is why every wallet doc says
+         // refresh after installing, and why this modal used to reload the page
+         // out from under the user.
          //
-         // Rather than tell the user to reload, do it FOR them, at the one moment
-         // it is invisible: they clicked Install, left for another tab, and have
-         // just come back. Guarded so it happens at most once (no focus loop),
-         // only after they actually left to install, and only while the row still
-         // has nothing — if the ping already found the wallet, no reload happens.
+         // It does not any more (operator call, 2026-08-18: the page stays put,
+         // the row changes). Phantom's manifest also declares all_frames, so a
+         // FRESHLY LOADED same-origin iframe does get the provider even inside
+         // an old tab — and /wallet_probe is an empty page that exists only to
+         // be that frame. Detection now costs one hidden 1px document instead of
+         // the whole page.
          //
-         // What survives it: the session (a cookie), a staged lineup (saved to
-         // localStorage before this modal opens), and the modal itself, which
-         // re-opens via the sessionStorage key the layout reads on load.
+         // First poke is deferred a beat so the ordinary case never pays for it:
+         // if the provider is simply registering late, the ping above wins and
+         // no frame is ever created.
+         this._firstProbe = setTimeout(function() { self._probe(); }, 1200);
+
+         // Coming back to the tab is the moment worth re-checking: they left to
+         // install, and they are back. Cheap now — it pokes the frame, it does
+         // not touch the page.
          this._onWake = function() {
            if (document.hidden || self.connecting) return;
            self.refresh();
-           if (self.wallets.length > 0 || !self.installClicked) return;
-           try {
-             if (sessionStorage.getItem('walletSetupAutoReloaded') === '1') return;
-             sessionStorage.setItem('walletSetupAutoReloaded', '1');
-             sessionStorage.setItem('walletSetupReopen', '1');
-           } catch (e) { return; } // storage blocked — leave the user in place
-           window.location.reload();
+           self._probe();
          };
          document.addEventListener('visibilitychange', this._onWake);
          window.addEventListener('focus', this._onWake);
@@ -111,8 +140,20 @@
          clearInterval(this._poll);
          this._poll = null;
        },
+       _stopProbe() {
+         if (this._probeTimer) { clearInterval(this._probeTimer); this._probeTimer = null; }
+         if (this._firstProbe) { clearTimeout(this._firstProbe); this._firstProbe = null; }
+       },
+       _dropFrame() {
+         if (!this._frame) return;
+         this._frame.onload = null;
+         if (this._frame.parentNode) this._frame.parentNode.removeChild(this._frame);
+         this._frame = null;
+       },
        destroy() {
          this._stopPoll();
+         this._stopProbe();
+         this._dropFrame();
          if (this._onRegister) {
            window.removeEventListener('wallet-standard:register-wallet', this._onRegister);
            this._onRegister = null;
@@ -123,17 +164,116 @@
            this._onWake = null;
          }
        },
+       // Load a brand-new same-origin document in a hidden frame and look for
+       // Phantom inside it. A new document is the ONLY thing that makes a
+       // just-installed extension appear, and a frame is the only new document
+       // we can create without moving the page the user is reading.
+       _probe() {
+         if (this.probeFound || this.hasPhantom || this.connecting) return;
+         // ~5 minutes of watching, then stop. A modal left open all afternoon
+         // must not load a document every 2 seconds forever.
+         if (this.probeTries >= 150) { this._stopProbe(); return; }
+         this.probeTries++;
+         var self = this;
+         if (!this._frame) {
+           var f = document.createElement('iframe');
+           f.title = 'Phantom detection';
+           f.setAttribute('aria-hidden', 'true');
+           f.setAttribute('tabindex', '-1');
+           // 1px and transparent rather than display:none — it has to actually
+           // LOAD, and staying in the layout tree is the version of that no
+           // browser is entitled to optimise away.
+           f.style.cssText = 'position:absolute;top:0;left:0;width:1px;height:1px;opacity:0;border:0;pointer-events:none';
+           f.onload = function() { self._readFrame(); };
+           this._frame = f;
+           this.$el.appendChild(f);
+         }
+         // Cache-busted: a document served from cache was created BEFORE the
+         // install, so it carries no provider and would answer every probe with
+         // the same stale no.
+         this._frame.src = '/wallet_probe?t=' + this.probeTries;
+       },
+       _readFrame() {
+         var f = this._frame;
+         if (!f) return;
+         var found = false;
+         try {
+           var w = f.contentWindow;
+           var p = w && (w.phantom || w.solana);
+           found = !!(p && (p.solana ? p.solana.isPhantom : p.isPhantom));
+         } catch (e) {
+           // Cross-origin means the frame is not our probe page any more (a
+           // redirect); we simply cannot see, so treat it as not found.
+           found = false;
+         }
+         if (!found) {
+           // Nothing yet. Settle into a steady watch, but only once they have
+           // actually gone off to install — before that the single poke above
+           // is the whole of it.
+           if (this.installClicked && !this._probeTimer) {
+             var self = this;
+             this._probeTimer = setInterval(function() { self._probe(); }, 2000);
+           }
+           return;
+         }
+         this.probeFound = true;
+         this._stopProbe();
+         this._dropFrame();
+       },
        refresh() {
          this.wallets = (window.walletProvider && window.walletProvider.available && window.walletProvider.available()) || [];
        },
+       // Finish an interrupted connect once the reloaded page has the provider.
+       // Bounded: if Phantom does not show up within ~10 ticks the user is left
+       // with an ordinary modal rather than a spinner that never resolves.
+       _tickResume() {
+         if (!this.resuming) return;
+         this._resumeTicks++;
+         if (this.hasPhantom) { this.resuming = false; this.connect(); return; }
+         if (this._resumeTicks > 10) this.resuming = false;
+       },
+       // Phantom is in THIS document and can be called right now.
        get hasPhantom() {
          return (this.wallets || []).some(function(w) { return w.name && w.name.toLowerCase() === 'phantom'; });
+       },
+       // Phantom is INSTALLED — reachable here, or seen through the probe frame,
+       // or being waited on mid-reload. This is what the row paints, because
+       // from the user's side those are one fact: they have a wallet.
+       get phantomPresent() {
+         return this.hasPhantom || this.probeFound || this.resuming;
        },
        get phantomIcon() {
          var found = (this.wallets || []).find(function(w) { return w.name && w.name.toLowerCase() === 'phantom'; });
          return (found && found.icon) || null;
        },
        get isMobile() { return !!(window.walletProvider && window.walletProvider.isMobile && window.walletProvider.isMobile()); },
+       // The row's click. Two ways to finish, one button: if the provider is
+       // reachable here, sign now; if it only exists in the browser, this page
+       // has to be replaced by one Phantom is in first — so hand the click
+       // across that load instead of spending it.
+       activate() {
+         if (this.connecting || this.resuming) return;
+         if (this.hasPhantom) return this.connect();
+         if (this.probeFound) return this.resumeConnect();
+       },
+       // The one page load left in this flow, and it happens where a load is
+       // legible: the user pressed Connect, so something is supposed to happen.
+       // Both keys are set together — reopen carries the modal across, connect
+       // carries the intent — and init() spends them on the other side.
+       resumeConnect() {
+         this.error = '';
+         try {
+           sessionStorage.setItem('walletSetupReopen', '1');
+           sessionStorage.setItem('walletSetupAutoConnect', '1');
+         } catch (e) {
+           // Storage blocked: the modal cannot survive the load, so do not start
+           // one. Say the one thing that still works.
+           this.error = 'Refresh the page to finish connecting Phantom.';
+           return;
+         }
+         this.resuming = true;
+         window.location.reload();
+       },
        // Link Phantom to the account that just signed in. linkMode routes to
        // /account/link_solana (OPSEC-005 binds the signature to the user id);
        // a guest — this modal should never be open for one, but be safe —
@@ -163,6 +303,31 @@
            this.error = msg; this.connecting = false;
          }
        },
+       // Ask the player for sound. Spoken over postMessage rather than through
+       // the YouTube iframe API script, so this costs no third-party JS on the
+       // page: enablejsapi=1 in the src is the whole contract, and the player
+       // answers to the same commands either way.
+       //
+       // Sent twice on purpose. A player that has not finished booting silently
+       // drops commands, and this click is the user's only one — the overlay is
+       // gone after it, so a dropped unMute would leave them holding a video
+       // that stayed silent with nothing left to press.
+       unmuteVideo() {
+         this.videoMuted = false;
+         var self = this;
+         var send = function() {
+           var frame = self.$refs.videoFrame;
+           if (!frame || !frame.contentWindow) return;
+           ['unMute', 'playVideo'].forEach(function(fn) {
+             frame.contentWindow.postMessage(
+               JSON.stringify({ event: 'command', func: fn, args: [] }),
+               'https://www.youtube-nocookie.com'
+             );
+           });
+         };
+         send();
+         setTimeout(send, 400);
+       },
        deepLink() {
          var sess = Alpine.store('session');
          var linkMode = !!(sess && sess.loggedIn);
@@ -185,32 +350,49 @@
             class="absolute top-0 right-0 -mr-2 text-secondary hover:text-heading text-xl leading-none"
             aria-label="Close">&times;</button>
   </div>
-  <%= render "studio/modals/blocks/progress_pill", current: 2, total: 3 %>
+  <%# Position in the ONBOARDING CHAIN: first name (1) -> age (2) -> wallet (3),
+      per the operator's call on 2026-08-19.
+
+      This replaces an app-level reading in which every setup card showed 2 of 3
+      — sign in (1), set up (2), play (3). That frame is still what the AUTH
+      wizard uses (modals/_auth's Sign in step is 1, its funding steps are 2), so
+      the two now measure different things: the auth pill measures the whole
+      journey, these three measure the chain. Change one and change all three. %>
+  <%= render "studio/modals/blocks/progress_pill", current: 3, total: 3 %>
   <p class="text-xs text-body mb-4 text-center">
-    You're signed in. Turf Monster runs on Solana, so you need a wallet to enter
-    contests and collect winnings.
+    Turf Monster runs on the Solana public blockchain; you will need a wallet
+    to enter contests and collect winnings.
   </p>
 
   <%# === THE PHANTOM ROW ====================================================
       Installed → Connect (links the wallet to this account). Not installed →
       the install page, same row shape as the wallet-connect picker.
 
-      The CONNECT branch carries one line on what that DOES: a first-time user is
-      about to get a signature prompt from a wallet they installed five minutes
-      ago, and "sign to prove you own it, no funds move" is the difference
-      between clicking and bailing. %>
-  <template x-if="hasPhantom">
+      The two branches carry the two effects the operator specified (swapped to
+      this pairing on 2026-08-18), and they say the same thing the badge says,
+      louder. The install row wears the rotating studio-team-glow ring in Phantom
+      purple: a ring travelling the card's edge reads as a target, and this row
+      is the one target on the screen. The installed row PULSES green instead —
+      a heartbeat, not a target, because by then the user is not looking for
+      what to click, they are being told the thing they went and did WORKED.
+
+      The CONNECT branch also carries one line on what pressing it DOES: a
+      first-time user is about to get a signature prompt from a wallet they
+      installed five minutes ago, and "sign to prove you own it, no funds move"
+      is the difference between clicking and bailing. %>
+  <template x-if="phantomPresent">
     <div>
-      <button type="button" @click="connect()" :disabled="connecting"
-              class="w-full flex items-center gap-3 p-3 rounded-xl bg-surface-alt border border-strong hover:bg-surface transition text-left disabled:opacity-60 disabled:cursor-wait">
+      <button type="button" @click="activate()" :disabled="connecting || resuming"
+              style="--pulse-cta-color: rgb(var(--color-primary-rgb)); --pulse-cta-strength: 0.4; --pulse-cta-scale: 1.02"
+              class="pulse-cta w-full flex items-center gap-3 p-3 rounded-xl bg-surface-alt border border-strong hover:bg-surface transition text-left disabled:opacity-60 disabled:cursor-wait">
         <img :src="phantomIcon || '/phantom-purple.png'" alt="" class="w-9 h-9 rounded-lg">
         <span class="font-semibold text-heading">Phantom</span>
         <span class="ml-auto flex items-center gap-2">
-          <span x-show="connecting" class="inline-flex items-center gap-1.5 text-xs text-secondary"><span class="cta-spinner" aria-hidden="true"></span>Connecting…</span>
+          <span x-show="connecting || resuming" class="inline-flex items-center gap-1.5 text-xs text-secondary"><span class="cta-spinner" aria-hidden="true"></span>Connecting…</span>
           <%# Detected: the same green Installed badge the wallet-connect picker
               uses, so a detected wallet reads identically in both places. The
               row is the button — chevron + hover carry the click affordance. %>
-          <span x-show="!connecting" class="badge border-primary text-primary">Installed</span>
+          <span x-show="!connecting && !resuming" class="badge border-primary text-primary">Installed</span>
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-muted">
             <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
           </svg>
@@ -222,16 +404,21 @@
       </p>
     </div>
   </template>
-  <template x-if="!hasPhantom">
+  <template x-if="!phantomPresent">
     <div>
-      <%# Not installed. Once the user leaves for the install page, a spinner
-          appears LEFT of the label: the row is now actively watching for Phantom
-          (the 1s ping) and will flip itself to the green Installed badge the
-          moment it appears — no instruction to follow, no button to press. The
-          row stays a link so a user who closed the install tab can re-open it. %>
+      <%# Not installed. The row wears the glow ring because it is the one
+          target on this card. Once the user leaves for the install page a
+          spinner appears LEFT of the label: the row is now watching for Phantom — the
+          1s ping for this document, the probe frame for the browser — and it
+          flips itself to the green Installed badge the moment either finds it,
+          WITHOUT reloading the page. The line that appears alongside points at
+          the ONLY thing left for the user to do, which is over in Chrome, not
+          here — nothing on this card needs pressing again. The row stays a link
+          so a user who closed the install tab can re-open it. %>
       <a :href="installUrl" target="_blank" rel="noopener noreferrer"
-         @click="installClicked = true"
-         class="w-full flex items-center gap-3 p-3 rounded-xl bg-surface-alt border border-strong hover:bg-surface transition no-underline">
+         @click="installClicked = true; _probe()"
+         style="--studio-team-glow-color: #AB9FF2; --studio-team-glow-thickness: 3px; --studio-team-glow-bloom: 8px"
+         class="studio-team-glow w-full flex items-center gap-3 p-3 rounded-xl bg-surface-alt border border-strong hover:bg-surface transition no-underline">
         <svg class="w-9 h-9" aria-hidden="true"><use href="#se-wallet-phantom"></use></svg>
         <span class="font-semibold text-heading">Phantom</span>
         <span class="ml-auto flex items-center gap-2">
@@ -244,7 +431,7 @@
         </span>
       </a>
       <p x-show="installClicked" x-cloak class="text-[11px] text-muted mt-1.5 px-1">
-        Waiting for Phantom — this updates on its own once it's installed.
+        Finish downloading the Phantom wallet extension.
       </p>
     </div>
   </template>
@@ -263,44 +450,80 @@
     <p class="text-red-400 text-sm mt-3 text-center" x-text="error"></p>
   </template>
 
-  <%# === NEW TO SOLANA WALLETS? ============================================
-      The teaching half: what Phantom is, the two screens they will actually
-      see, and a link to the house guide that walks the whole thing. %>
+  <%# === NEW TO SOLANA ======================================================
+      The teaching half: someone walking the whole install on screen. This was
+      two still screenshots and a paragraph explaining what Phantom is until
+      2026-08-18; it is a video and one line now, and it plays HERE — a
+      half-finished signup should not have to leave the page to find out what a
+      wallet is, and should not have to read a paragraph to be told so either.
+
+      IT STARTS ITSELF, SILENTLY (operator call). That is the only autoplay a
+      browser permits on a modal that opened without a click, and the trade is
+      deliberate: motion earns a glance that a still poster does not, and the
+      cost of the glance is nothing, because there is no sound to interrupt what
+      the user is doing. The overlay in front of it turns that glance into a
+      choice — one click for sound, and the player's own controls after.
+
+      youtube-nocookie, so a video nobody asked for sets no tracking cookie. %>
   <div class="mt-5 pt-4 border-t border-strong">
-    <h4 class="text-heading font-semibold text-sm mb-1.5">New to Solana Wallets?</h4>
-    <p class="text-xs text-body mb-3">
-      Phantom is a free browser extension that holds your USDC and signs your
-      entries — a bank card for the internet, where only you hold the keys.
+    <h4 class="text-heading font-semibold text-sm mb-1.5">New to Solana &#129300;</h4>
+    <p class="text-xs text-body mb-3">Set up your wallet in <strong class="font-semibold text-heading">90 seconds</strong>.</p>
+
+    <%# The poster sits BEHIND the player as a background rather than in front
+        of it, so the block shows the video's own first frame while the iframe
+        boots instead of a black rectangle mid-signup. %>
+    <div class="relative w-full aspect-video rounded-lg overflow-hidden border border-strong bg-black bg-cover bg-center"
+         style="background-image: url('<%= WalletSetupHelper::PHANTOM_INTRO_VIDEO_POSTER %>')">
+      <iframe src="<%= phantom_intro_video_embed_url %>"
+              x-ref="videoFrame"
+              title="How to download and set up Phantom"
+              class="absolute inset-0 w-full h-full"
+              allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+              referrerpolicy="strict-origin-when-cross-origin"
+              allowfullscreen></iframe>
+
+      <%# The unmute affordance, covering the whole player on purpose: while the
+          video is silent EVERY click should mean the same thing, and a click
+          that lands on the player instead would pause the video — the opposite
+          of what someone reaching for the sound wants. It leaves for good on
+          that click, handing the player's own controls straight back. %>
+      <button type="button" x-show="videoMuted" @click="unmuteVideo()"
+              class="group absolute inset-0 w-full h-full flex items-center justify-center bg-black/20 hover:bg-black/10 transition border-0 cursor-pointer"
+              aria-label="Unmute the video">
+        <%# CENTRED, over a light scrim. The obvious spot for this chip is the
+            bottom corner, and it is the wrong one: YouTube parks its own
+            control bar, title and branding along that edge, so the chip lands
+            on top of them the moment the player's chrome is showing. The middle
+            is the only region of the frame the player leaves empty while
+            playing, and the scrim keeps the chip legible over a bright frame. %>
+        <span class="flex items-center gap-1.5 rounded-full bg-black/75 px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg transition group-hover:bg-black/90">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5">
+            <path d="M13 4.2a.8.8 0 0 0-1.32-.6L7.4 7.3H4.6A1.6 1.6 0 0 0 3 8.9v6.2a1.6 1.6 0 0 0 1.6 1.6h2.8l4.28 3.7a.8.8 0 0 0 1.32-.6V4.2Z" />
+            <path d="M16.4 8.6a.9.9 0 0 1 1.27 0L19.5 10.4l1.83-1.83a.9.9 0 1 1 1.27 1.27L20.77 11.7l1.83 1.83a.9.9 0 1 1-1.27 1.27L19.5 13l-1.83 1.83a.9.9 0 0 1-1.27-1.27l1.83-1.83-1.83-1.83a.9.9 0 0 1 0-1.27Z" />
+          </svg>
+          Tap for sound
+        </span>
+      </button>
+    </div>
+
+    <%# The escape hatch for anyone who would rather read than watch, and for a
+        browser that will not play the embed at all. %>
+    <p class="text-[11px] text-muted mt-1.5 text-center">
+      <a href="<%= phantom_intro_video_watch_url %>" target="_blank" rel="noopener noreferrer"
+         class="underline hover:text-secondary">Watch on YouTube</a>
     </p>
 
-    <%# The two onboarding screens, side by side. grid (not flex) so both cells
-        stay equal width as the modal narrows; each image keeps its own aspect
-        ratio and the pair links to the guide. %>
+    <%# The read-it-instead route — the house /getting-started page once that
+        task lands, Phantom's own guide until then (wallet_setup_guide_url).
+        Full-size button, neutral tone: it is a real control rather than a link,
+        and it must not out-shout the Phantom row above it, which is the one
+        thing this modal is actually asking for. %>
     <% guide_url = wallet_setup_guide_url %>
     <% guide_target = wallet_setup_guide_external? ? "_blank" : nil %>
     <% guide_rel = wallet_setup_guide_external? ? "noopener noreferrer" : nil %>
-    <div class="grid grid-cols-2 gap-2">
-      <a href="<%= guide_url %>" target="<%= guide_target %>" rel="<%= guide_rel %>" class="block no-underline group">
-        <img src="/phantom-step-download.png"
-             alt="The Phantom download page with the Chrome option highlighted"
-             class="w-full h-auto rounded-lg border border-strong group-hover:border-primary transition"
-             loading="lazy">
-        <span class="block text-center text-[11px] text-muted mt-1 leading-tight">1. Download for your browser</span>
-      </a>
-      <a href="<%= guide_url %>" target="<%= guide_target %>" rel="<%= guide_rel %>" class="block no-underline group">
-        <img src="/phantom-step-create-wallet.png"
-             alt="The Phantom welcome screen with Create a New Wallet highlighted"
-             class="w-full h-auto rounded-lg border border-strong group-hover:border-primary transition"
-             loading="lazy">
-        <span class="block text-center text-[11px] text-muted mt-1 leading-tight">2. Create a new wallet</span>
-      </a>
-    </div>
-
-    <%# CTA to the install guide — the house /getting-started page once that
-        task lands, Phantom's own guide until then (wallet_setup_guide_url). %>
     <a href="<%= guide_url %>" target="<%= guide_target %>" rel="<%= guide_rel %>"
-       class="btn btn-neutral btn-sm w-full mt-3 gap-2 no-underline">
-      Read the setup guide
+       class="btn btn-neutral w-full mt-3 gap-2 no-underline">
+      Detailed Guide
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
         <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
       </svg>

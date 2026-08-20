@@ -13,6 +13,13 @@
 <% min_age = AgePolicy.minimum_age(geo_state) %>
 <div x-data="ageVerifyModal({ minAge: <%= min_age %>, state: '<%= j geo_state.to_s %>', url: '<%= age_verify_path %>' })">
   <%= render layout: "studio/modals/blocks/shell", locals: { title: "Verify your age" } do %>
+    <%# Step 2 of the onboarding chain — see the note in modals/_onboarding.
+        SHOWN UNCONDITIONALLY, including when the entry gate opens this card on
+        its own for a user who never walked the chain. That is the operator's
+        call and the simpler rule; if a standalone DOB prompt claiming "2 of 3"
+        ever reads wrong, gate it on a prop the chain driver passes rather than
+        guessing from session state. %>
+    <%= render "studio/modals/blocks/progress_pill", current: 2, total: 3 %>
     <p class="text-sm text-muted mb-4">
       You must be <span class="text-heading font-semibold"><%= min_age %>+</span>
       to enter skill-based contests<%= geo_state.present? ? " in #{geo_state}" : "" %>.

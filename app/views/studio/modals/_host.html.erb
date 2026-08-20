@@ -40,6 +40,21 @@
       };
     };
 
+    // === Modal card width registry =====================================
+    //
+    // The card is max-w-sm by default, which is right for a question and two
+    // buttons. A modal carrying something with an INTRINSIC aspect ratio needs
+    // more: wallet-setup shows a 16:9 explainer video, and at max-w-sm the
+    // player is small enough that the thing it is teaching cannot be read.
+    //
+    // Keyed by modal id, NOT passed as a prop, on purpose. wallet-setup is
+    // opened from three places (the board's entry gate, the onboarding chain
+    // driver, and the post-Connect reopen) and a prop would have to be
+    // remembered at each — one miss and the same card is two different widths
+    // depending on how the user arrived.
+    window.StudioModals.CARD_WIDTHS = { 'wallet-setup': 'max-w-md' };
+    window.StudioModals.DEFAULT_CARD_WIDTH = 'max-w-sm';
+
     // === Modal animation registry ======================================
     //
     // The single place to define + tune named entrance / exit animations
@@ -278,6 +293,11 @@
           var c = this.current();
           if (!c) return {};
           var o = {};
+          // Width comes from here rather than a static class on the element:
+          // two competing max-w-* utilities would be resolved by stylesheet
+          // source order, which is not something this file gets to decide.
+          o[window.StudioModals.CARD_WIDTHS[c.id] ||
+            window.StudioModals.DEFAULT_CARD_WIDTH] = true;
           if (!c._settled && !c._swappingIn && !c._swappingOut && !c._closing) {
             o[modalAnim('enter', c.props && c.props.enterAnim).cls] = true;
           }
@@ -348,7 +368,9 @@
         a flash mid-transition. _settled also stays true for the rest
         of the entry's lifetime so a stale Alpine re-evaluation can't
         retrigger the bounce. %>
-    <div class="bg-surface rounded-xl border border-subtle shadow-2xl p-6 max-w-sm w-full"
+    <%# No max-w-* here — cardClasses() supplies exactly one, per modal id.
+        See the card width registry above. %>
+    <div class="bg-surface rounded-xl border border-subtle shadow-2xl p-6 w-full"
          :class="$store.modals.cardClasses()">
       <%= yield if block_given? %>
       <%# Audit C1 — cosign-rejected (tx mismatch) modal. Registered here in
