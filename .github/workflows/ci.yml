@@ -384,7 +384,7 @@ jobs:
   # running. The lane itself is devnet-nightly.yml; this job only reads its
   # history and reports.
   #
-  # WHY IT LIVES IN PR CI. On 2026-08-20 the 18 @devnet specs were found to be
+  # WHY IT LIVES IN PR CI. On 2026-08-20 the 17 @devnet specs were found to be
   # running nowhere, and had been for at least twelve days. Nothing had failed —
   # devnet-nightly.yml completed `skipped` every night, which is grey, and grey
   # in the Actions tab is a signal only to whoever thinks to go look. Nobody

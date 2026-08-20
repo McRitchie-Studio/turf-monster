@@ -7,6 +7,9 @@
 # for at least twelve consecutive days:
 #
 #   · ci.yml's playwright job excludes them (--grep-invert "@devnet").
+#     (SEVENTEEN, not the eighteen this gap was first reported as: `grep -c`
+#     over the spec file counts a comment on line 95 as well as the 17 tests.
+#     `npx playwright test --project=devnet --list` is the honest count.)
 #   · devnet-nightly.yml — the only lane that would run them — gated the whole
 #     JOB on `if: vars.DEVNET_NIGHTLY_ENABLED == 'true'`, so every scheduled
 #     run completed `skipped` (runs 31248719068 … 32233040903, 2026-08-08
@@ -100,7 +103,7 @@ if [ -z "$run_json" ]; then
   note "### :x: The @devnet lane has never completed a run"
   note ""
   note "No **successful** \`Devnet Nightly\` run exists in the last 50 runs of ${WORKFLOW_FILE}."
-  note "turf-monster's 18 on-chain E2E specs (\`e2e/devnet-smoke.spec.js\`) are covered NOWHERE."
+  note "turf-monster's 17 on-chain E2E specs (\`e2e/devnet-smoke.spec.js\`) are covered NOWHERE."
   note ""
   note "Unblock it: set \`DEVNET_NIGHTLY_ENABLED=true\`, \`SOLANA_BOT_KEY\` (a funded devnet"
   note "keypair) and \`SOLANA_RPC_URL\` at ${SETTINGS_URL}, then run the lane: ${ACTIONS_URL}"

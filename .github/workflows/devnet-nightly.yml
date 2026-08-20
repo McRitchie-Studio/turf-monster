@@ -1,5 +1,5 @@
 # Nightly devnet integration — runs the Playwright specs tagged @devnet against
-# the deployed turf_vault devnet program. These 18 specs
+# the deployed turf_vault devnet program. These 17 specs
 # (e2e/devnet-smoke.spec.js) are turf-monster's ONLY server-side on-chain E2E
 # coverage: ci.yml's playwright job excludes them by design (it pins
 # SOLANA_RPC_URL to a black hole so the PR lane stays hermetic), so if this
@@ -97,7 +97,7 @@ jobs:
               echo
               echo "$missing"
               echo
-              echo "turf-monster's 18 on-chain E2E specs are the only server-side on-chain"
+              echo "turf-monster's 17 on-chain E2E specs are the only server-side on-chain"
               echo "coverage in the repo, and they run in this workflow alone. While this is"
               echo "red, that coverage does not exist."
               echo
@@ -128,7 +128,7 @@ jobs:
         run: bin/rails db:test:prepare && bin/rails runner -e test e2e/seed.rb
 
       # `--project=devnet` selects the specs POSITIVELY. The old `--grep
-      # "@devnet"` reached the same 18 tests only by double negation — it relied
+      # "@devnet"` reached the same 17 tests only by double negation — it relied
       # on the `chromium` project's `grepInvert: /@devnet/` to suppress a second,
       # duplicate pass. Delete that grepInvert while tuning the PR lane and this
       # nightly would silently run every on-chain spec TWICE, at real devnet cost.

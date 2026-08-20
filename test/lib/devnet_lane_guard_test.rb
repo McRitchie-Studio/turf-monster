@@ -7,7 +7,7 @@ require "open3"
 # Guard: turf-monster's on-chain E2E lane may not go quiet without going RED.
 #
 # WHAT HAPPENED, because the shape of it is the whole reason this file exists.
-# The 18 @devnet specs in e2e/devnet-smoke.spec.js are the repo's only
+# The 17 @devnet specs in e2e/devnet-smoke.spec.js are the repo's only
 # server-side on-chain coverage — ci.yml's playwright job excludes them on
 # purpose to stay hermetic, so devnet-nightly.yml is the sole lane that runs
 # them. That workflow gated its entire JOB on
@@ -113,6 +113,25 @@ class DevnetLaneGuardTest < ActiveSupport::TestCase
     refute_includes step.fetch("env").keys, "DEVNET_LANE_MAX_AGE_DAYS",
                     "ci.yml overrides the staleness window. The dial exists for hand-running " \
                     "the script; CI turning it up is how a guard gets quietly defused."
+  end
+
+  # This gap was reported for three weeks as "the 18 @devnet specs" — by the task,
+  # by the ci.yml comment, by everyone who repeated it. There are SEVENTEEN. The
+  # eighteenth is the word "@devnet" inside a comment on line 95 of the spec file,
+  # counted by a `grep -c` that nobody re-ran. Harmless here, but it is the same
+  # habit that lets a green lane get described as covering things it never ran, so
+  # the number in the prose is pinned to the number in the file.
+  test "the spec count the workflow claims is the spec count that exists" do
+    actual = File.read(File.join(ROOT, "e2e/devnet-smoke.spec.js")).scan(/^test\("@devnet /).size
+    assert_operator actual, :>, 0, "no @devnet tests found — this guard is reading the wrong file"
+
+    claimed = File.read(NIGHTLY_YML)[/These (\d+) specs/, 1]
+    assert claimed, "devnet-nightly.yml no longer states how many specs the lane runs"
+    assert_equal actual, claimed.to_i,
+                 "devnet-nightly.yml says the lane runs #{claimed} specs; e2e/devnet-smoke.spec.js " \
+                 "declares #{actual}. Count with `npx playwright test --project=devnet --list`, " \
+                 "not `grep -c \"@devnet\"` — the grep counts comments too, which is exactly how " \
+                 "the wrong number got into circulation in the first place."
   end
 
   # ---------------------------------------------------------------------------
