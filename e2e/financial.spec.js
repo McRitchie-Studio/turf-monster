@@ -178,21 +178,58 @@ test.describe("Aeropay entry-token buy", () => {
     await loginAdmin(page);
 
     let orderPosted = false;
+    // Stub the order endpoint (the Aeropay network boundary from the client's view).
+    //
+    // transaction_id IS LOAD-BEARING — without it this spec passes over the app's ERROR
+    // branch, which is the exact "green that did not test what you think" this lane exists
+    // to catch. The real endpoint renders { transaction_id:, reference:, status: }
+    // (tokens_controller.rb:341-344 — deposit["id"], the purchase reference, deposit
+    // status), and tokens/_aeropay_script.html.erb:55 is
+    //   if (!resp.ok || !d.transaction_id) { window.alert('Could not start...'); return; }
+    // so a stub missing the key alerts and returns. `orderPosted` would still be true —
+    // it is set in THIS handler, before the app has even read the body — so the old
+    // assertion held either way and the spec bit only as far as "a POST left the browser".
+    // The Coinflow stub 60 lines up already matched its contract ({link} vs !d.link); the
+    // asymmetry was accidental.
     await page.route("**/tokens/aeropay_order", async (route) => {
       orderPosted = true;
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ status: "pending", reference: "aeropay_e2e_fake" }),
+        body: JSON.stringify({
+          transaction_id: "aeropay_e2e_fake_txn",
+          reference: "aeropay_e2e_fake",
+          status: "pending",
+        }),
       });
     });
 
+    // The success/failure branches differ ONLY in which alert fires (_aeropay_script:56
+    // vs :60), so capturing the dialog is what makes the stub above load-bearing: drop
+    // transaction_id and this assertion goes red instead of staying green. Playwright
+    // auto-dismisses dialogs when nothing is listening, which is why the error branch
+    // was invisible.
+    const dialogs = [];
+    page.on("dialog", async (dialog) => {
+      dialogs.push(dialog.message());
+      await dialog.accept();
+    });
+
     await page.goto("/tokens/buy");
-    const buyButton = page.locator('[data-aeropay-buy] button').first();
+    // Pin the buy button by its own click target. [data-aeropay-buy] (buy.html.erb:41)
+    // also contains "Simulate settlement (dev)" (:49) outside production, so `.first()`
+    // asserted position rather than identity — same trap the Coinflow spec documents.
+    const buyButton = page.locator(
+      '[data-aeropay-buy] button[onclick*="tmAeropayBuyOne(\'single\')"]',
+    );
     await expect(buyButton).toBeVisible();
     await buyButton.click();
 
     await expect.poll(() => orderPosted).toBe(true);
+    // The app took the SUCCESS branch, not the alert-and-return one.
+    await expect
+      .poll(() => dialogs)
+      .toEqual(["Your bank deposit is processing. Your entry token mints once it clears."]);
   });
 
   test("transaction_completed webhook authenticates with the HMAC signature", async ({ request }) => {
