@@ -52,7 +52,7 @@ class E2eExecutedSetTest < Minitest::Test
     E2eExecutedSet::Report.new(source: source, doc: doc)
   end
 
-  def gate(reports) = E2eExecutedSet.new(contract: CONTRACT, reports: reports)
+  def gate(reports, contract: CONTRACT) = E2eExecutedSet.new(contract: contract, reports: reports)
 
   def healthy_reports
     [
@@ -103,6 +103,47 @@ class E2eExecutedSetTest < Minitest::Test
     assert_match(/landing page loads/, failures.join)
     # And the arithmetic fires independently — 2 executed, contract says 3.
     assert_match(/EXECUTED 2 spec/, failures.join)
+  end
+
+  # ---- the DECLARED feature-flag allowance ---------------------------------------
+  #
+  # turf gates the Coinflow and Aeropay payment rails on ENABLE_COINFLOW / ENABLE_AEROPAY,
+  # off in the default CI run, so 6 specs skip. Deliberate and documented in
+  # e2e/financial.spec.js — and INVISIBLE until this gate's first real run found them:
+  # 122 executed against a claimed 128, on a lane whose three shards ALL reported PASS.
+  #
+  # The allowance is therefore DECLARED in config/e2e_lane.yml, and one more than declared
+  # is red. These two cases are the whole contract: at the allowance, green; over it, named
+  # and red. Both were confirmed against REAL CI receipts before being written down —
+  # green on run 32343994804's three shards, red when one passing spec in them is flipped.
+  FLAG_GATED_CONTRACT = CONTRACT.merge("flag_gated" => 1, "executed" => 2).freeze
+
+  def test_unit_a_runtime_skip_within_the_declared_allowance_is_green
+    reports = [
+      report(source: "shard-1.json", shard: 1, total: 2,
+             specs: [["Coinflow settled webhook acks", "skipped"], ["tasks page loads", "expected"]]),
+      report(source: "shard-2.json", shard: 2, total: 2, specs: [["agents page loads", "expected"]])
+    ]
+
+    assert_empty gate(reports, contract: FLAG_GATED_CONTRACT).failures,
+                 "one skip against an allowance of one must be GREEN — a stated, reviewed hole, " \
+                 "not a silent one"
+  end
+
+  def test_unit_one_more_runtime_skip_than_declared_is_RED
+    reports = [
+      report(source: "shard-1.json", shard: 1, total: 2,
+             specs: [["Coinflow settled webhook acks", "skipped"], ["tasks page loads", "skipped"]]),
+      report(source: "shard-2.json", shard: 2, total: 2, specs: [["agents page loads", "expected"]])
+    ]
+
+    failures = gate(reports, contract: FLAG_GATED_CONTRACT).failures
+
+    refute_empty failures, "two skips against an allowance of one must be RED"
+    assert_match(/allows 1/, failures.join)
+    assert_match(/tasks page loads/, failures.join,
+                 "the gate must NAME the skipped specs — a count alone does not say which " \
+                 "coverage was lost")
   end
 
   # --- THE FILTER AXIS ---------------------------------------------------------------

@@ -141,9 +141,10 @@ class E2eExecutedSet
   def ok? = failures.empty?
 
   def summary
-    "#{executed_tests.size} executed · #{skipped_tests.size} skipped · " \
+    "#{executed_tests.size} executed · #{skipped_tests.size} skipped (#{flag_gated} allowed) · " \
       "#{reports.size} shard report(s) · contract: #{expected_executed} executed " \
-      "(#{contract.fetch("total_specs")} committed − #{contract.fetch("excluded")} excluded)"
+      "(#{contract.fetch("total_specs")} committed − #{contract.fetch("excluded")} excluded − " \
+      "#{flag_gated} flag-gated)"
   end
 
   private
@@ -205,18 +206,34 @@ class E2eExecutedSet
      "remaining job stays green over a smaller suite."]
   end
 
+  # The ONE sanctioned runtime skip: specs behind a FEATURE FLAG that is off by default.
+  #
+  # Turf's e2e suite gates the Coinflow and Aeropay payment rails on ENABLE_COINFLOW /
+  # ENABLE_AEROPAY, off in the default CI run, so their specs skip. That is deliberate and
+  # documented in e2e/financial.spec.js — but it was INVISIBLE: nothing declared how many
+  # specs it costs, and nothing would have noticed the number growing. This gate's first
+  # real run found 6, on a lane whose three shards all reported PASS.
+  #
+  # So the allowance is DECLARED, not inferred: `flag_gated` in config/e2e_lane.yml. One
+  # more skip than that is RED. The number is not a comfort — it is the thing a reviewer
+  # sees change.
+  def flag_gated = contract.fetch("flag_gated", 0)
+
   def skipped_failures
-    return [] if skipped_tests.empty?
+    return [] if skipped_tests.size <= flag_gated
 
     titles = skipped_tests.map { |test| "  · #{test["title"]}" }.join("\n")
-    ["#{skipped_tests.size} spec(s) were SKIPPED AT RUNTIME:\n#{titles}\n" \
+    ["#{skipped_tests.size} spec(s) were SKIPPED AT RUNTIME, and config/e2e_lane.yml allows " \
+     "#{flag_gated}:\n#{titles}\n" \
      "A skipped spec exits 0 and reports green. This is the axis that no source-level guard " \
      "can close: `testInfo.skip()`, `test.info().skip()`, a destructured `const { skip } = " \
      "testInfo`, or a helper in another file that calls it for you — all identical here, all " \
      "invisible to a grep. If a spec is rotted there are two honest moves and no third: FIX " \
      "it, or move it into the excluded file (which makes you account for it in " \
      "config/e2e_lane.yml) and " \
-     "BLOCK on /tasks/repair-rotted-e2e-specs."]
+     "BLOCK on a repair ticket. If the extra skip is a NEW feature-flag gate, raise " \
+     "`flag_gated` in config/e2e_lane.yml deliberately — that edit is a reviewable line " \
+     "with a reason attached, which is exactly the point."]
   end
 
   # The exclusion did what it says on the tin, and ONLY that. A excluded spec must not run

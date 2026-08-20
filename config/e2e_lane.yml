@@ -46,10 +46,29 @@ total_specs: 145
 # exclusion later is a red build rather than a quiet loss of coverage.
 excluded: 17
 
-# total_specs - excluded. What the lane MUST execute, asserted against the runner's own
-# report, so no source-level spelling on any axis can move it without moving this line:
-#   npx playwright test --list --grep-invert "@devnet"  ->  128 tests in 38 files
-executed: 128
+# THE SPECS BEHIND A FEATURE FLAG THAT IS OFF IN THE DEFAULT CI RUN.
+#
+# e2e/financial.spec.js gates the Coinflow and Aeropay payment rails on ENABLE_COINFLOW /
+# ENABLE_AEROPAY and skips when they are unset, which they are in CI. That is deliberate
+# and the file says so ("Gated on ENABLE_COINFLOW so the default CI run (flag off) skips
+# it"), and the money path is covered authoritatively by the Rails tests
+# (webhooks/aeropay_controller_test.rb + token_purchase_job_test.rb).
+#
+# IT WAS ALSO INVISIBLE, and that is why this line exists. THIS GATE'S FIRST REAL RUN found
+# them: 122 executed against a claimed 128, on a lane whose three shards ALL reported PASS.
+# Nothing in the repo declared how many specs the flags cost, and nothing would have
+# noticed the number growing. A runtime skip exits 0 and reports green; it is the one axis
+# no source-level guard can close.
+#
+# So it is DECLARED. One more runtime skip than this is RED. Raising it is an edit to this
+# line, in front of a reviewer, with a reason — which is the whole point.
+flag_gated: 6
+
+# total_specs - excluded - flag_gated. What the lane MUST execute, asserted against the
+# runner's own report, so no source-level spelling on any axis can move it without moving
+# this line. Derived: 145 committed - 17 @devnet - 6 flag-gated = 122, and MEASURED at
+# exactly 122 on run 32343994804.
+executed: 122
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
