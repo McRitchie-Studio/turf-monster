@@ -54,6 +54,45 @@ class AppFlagsTest < ActiveSupport::TestCase
     with_env("", var: "QA_ENV")       { assert_not AppFlags.qa_environment? }
   end
 
+  # live_production? = Rails.env.production? AND NOT a QA app.
+  #
+  # The bug it fixes: a QA Heroku app sets no RAILS_ENV, so it boots as Rails
+  # production, and the OPSEC-020 kill-switches asking Rails.env.production?
+  # directly disarmed every dev-funding tool on QA — the faucet answered
+  # "Faucet is production-disabled" to a devnet review app. QA_ENV is what
+  # separates the two.
+  def with_rails_env(name)
+    Rails.stub(:env, ActiveSupport::StringInquirer.new(name)) { yield }
+  end
+
+  test "live_production? is false in the test environment regardless of QA_ENV" do
+    with_env(nil, var: "QA_ENV")    { assert_not AppFlags.live_production? }
+    with_env("true", var: "QA_ENV") { assert_not AppFlags.live_production? }
+  end
+
+  test "live_production? is TRUE on real production (QA_ENV unset)" do
+    with_rails_env("production") do
+      with_env(nil, var: "QA_ENV")     { assert AppFlags.live_production? }
+      with_env("false", var: "QA_ENV") { assert AppFlags.live_production? }
+      with_env("", var: "QA_ENV")      { assert AppFlags.live_production? }
+    end
+  end
+
+  test "live_production? is FALSE on a QA app even though Rails.env is production" do
+    with_rails_env("production") do
+      with_env("true", var: "QA_ENV")   { assert_not AppFlags.live_production? }
+      with_env("TRUE", var: "QA_ENV")   { assert_not AppFlags.live_production? }
+      with_env(" true ", var: "QA_ENV") { assert_not AppFlags.live_production? }
+    end
+  end
+
+  test "live_production? is false in development whatever QA_ENV says" do
+    with_rails_env("development") do
+      with_env(nil, var: "QA_ENV")    { assert_not AppFlags.live_production? }
+      with_env("true", var: "QA_ENV") { assert_not AppFlags.live_production? }
+    end
+  end
+
   # ENABLE_WEB2_USDC_ENTRY is a KILL-SWITCH: ON unless explicitly "false".
   # Opposite default of the opt-in flags above.
   test "web2_usdc_entry? defaults ON when unset (kill-switch)" do

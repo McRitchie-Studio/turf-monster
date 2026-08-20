@@ -415,7 +415,7 @@ class AdminController < ApplicationController
 
   def mint_usdc
     rescue_and_log(target: current_user) do
-      raise "Admin mint is production-disabled" if Rails.env.production?  # OPSEC-020
+      raise "Admin mint is production-disabled" if AppFlags.live_production?  # OPSEC-020
       raise "Mint only available on Devnet" unless Solana::Config.devnet?
 
       vault = Solana::Vault.new

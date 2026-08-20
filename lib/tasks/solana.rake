@@ -187,7 +187,9 @@ namespace :solana do
     # OPSEC-020 / OPSEC-013: hard-disable on production. This task uses
     # mint authority that only the operator holds on devnet test mints —
     # on real mainnet USDC the call would fail, but defense-in-depth.
-    abort "solana:mint_usdc is devnet-only (see OPSEC-020)" if Rails.env.production?
+    # AppFlags.live_production? (not Rails.env.production?) so a QA app — which
+    # boots as Rails production but is a devnet review target — can still mint.
+    abort "solana:mint_usdc is devnet-only (see OPSEC-020)" if AppFlags.live_production?
 
     amount_dollars = (ENV["AMOUNT"] || "100").to_f
     amount_lamports = Solana::Config.dollars_to_lamports(amount_dollars)

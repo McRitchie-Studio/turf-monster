@@ -53,6 +53,25 @@ module AppFlags
     ENV["QA_ENV"].to_s.strip.downcase == "true"
   end
 
+  # True only on a REAL production deployment: Rails.env is production AND
+  # this is not a QA app.
+  #
+  # The OPSEC-020 kill-switches (faucet, airdrop, add_funds, admin mint) used
+  # to ask `Rails.env.production?` directly. A QA Heroku app sets no RAILS_ENV,
+  # so the buildpack boots it as production — and there is no
+  # config/environments/qa.rb (nor a `qa:` key in database.yml) to switch it
+  # to. `Rails.env.production?` therefore read TRUE on QA and disarmed every
+  # dev-funding tool there, leaving a devnet QA app with no way to fund a test
+  # wallet. QA_ENV is the flag this codebase already uses to tell the two
+  # apart (see qa_environment? and the layout's data-app-environment).
+  #
+  # Guards asking this stay closed on mainnet production, where QA_ENV is
+  # never set — and each of them keeps its independent
+  # `Solana::Config.devnet?` raise, so production is refused twice over.
+  def self.live_production?
+    Rails.env.production? && !qa_environment?
+  end
+
   # True when the legal-age attestation checkbox gates account creation
   # (signin page, auth modal, wallet-connect modal — shared/_age_attestation).
   # Parked OFF for the first contest (operator call, 2026-06-10); set
