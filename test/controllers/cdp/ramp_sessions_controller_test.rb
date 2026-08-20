@@ -200,7 +200,7 @@ class Cdp::RampSessionsControllerTest < ActionDispatch::IntegrationTest
       give_managed_wallet
       log_in_as @user
       service = FakeTokenService.new
-      GeoSetting.stub :blocked?, true do
+      Studio::GeoSetting.stub :blocked?, true do
         post_session(:onramp, service: service)
       end
       assert_response :forbidden

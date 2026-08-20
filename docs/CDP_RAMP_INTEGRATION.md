@@ -142,7 +142,7 @@ Event types: `onramp.transaction.{created,updated,success,failed}` and `offramp.
 
 - `GET /onramp/v1/buy/config` (no params) → `countries[] { id, subdivisions[] (US states only), payment_methods[] }`; `GET /onramp/v1/sell/config` — same shape for offramp [^15]. Docs: "call this API periodically and cache the response" [^15].
 - `GET /onramp/v1/buy/options?country=US&subdivision=XX&networks=solana` — **subdivision is REQUIRED for country=US** ("certain states (e.g., NY) have state specific asset restrictions"); confirm USDC appears in `purchase_currencies` with a Solana network entry + read min/max per payment method. `GET /onramp/v1/sell/options?country=US&subdivision=XX&networks=solana` → `cashout_currencies[].limits` + `sell_currencies` for the sell side [^16].
-- Implementation: `Rails.cache.fetch(..., expires_in: 12.hours)` **plus per-request `@ivar ||=` memoization** (dev null_store no-ops Rails.cache — existing house pattern). Gate the Buy/Cash-out buttons with the existing Geocoder geo session in `ApplicationController` (country + subdivision); disable with an explainer when unsupported.
+- Implementation: `Rails.cache.fetch(..., expires_in: 12.hours)` **plus per-request `@ivar ||=` memoization** (dev null_store no-ops Rails.cache — existing house pattern). Gate the Buy/Cash-out buttons with the geo session `Studio::GeoDetection` resolves (country + subdivision); disable with an explainer when unsupported.
 - At integration time, verify the network slug Solana reports in options/config responses (`"solana"` vs `"solana-mainnet"`-style strings appear in different doc examples) and whether buy-config nests under a `data` key [^15].
 
 ## 14. Frontend

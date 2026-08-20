@@ -1,6 +1,10 @@
 class ApplicationController < ActionController::Base
   include Studio::ErrorHandling
-  include GeoHelper
+  # Detection, the geo_* helpers, and require_geo_allowed all come from the
+  # engine now (studio-engine >= 0.57, docs/GEO.md). This app keeps only the
+  # DECISION of what to lock — see the before_actions on ContestsController,
+  # EntriesController, WalletsController and Cdp::RampSessionsController.
+  include Studio::GeoDetection
 
   # Guard the JS-heavy *interactive* app against ancient browsers — but NOT the
   # public, shareable, crawlable pages. `allow_browser` 406s any UA it deems
@@ -17,10 +21,9 @@ class ApplicationController < ActionController::Base
   # an after_action is skipped when those before_actions halt the chain, so a
   # genuinely-active but redirected user would never get stamped.
   before_action :touch_last_seen
-  before_action :detect_geo_state
   before_action :require_profile_completion
   before_action :preload_navbar_solana_data
-  helper_method :geo_state, :geo_country, :geo_blocked?, :geo_override_active?, :display_balance, :display_seeds_data, :display_entry_token_count, :onchain_session?, :wallet_context, :client_session_payload, :true_user, :impersonating?
+  helper_method :display_balance, :display_seeds_data, :display_entry_token_count, :onchain_session?, :wallet_context, :client_session_payload, :true_user, :impersonating?
 
   # OPSEC-045: extend the engine's set_app_session to also bind a per-user
   # session_token in the cookie. The verify_session_token before_action
@@ -453,94 +456,6 @@ class ApplicationController < ActionController::Base
     (cached.to_f * 100).round
   end
 
-  # Freshness windows for the session-cached IP -> state lookup.
-  GEO_TTL = 24.hours          # a *resolved* state is trusted for a day
-  GEO_RETRY_TTL = 5.minutes   # a *blank* result is re-attempted within minutes
-
-  # Should detect_geo_state re-run the ipinfo lookup? A resolved state is trusted
-  # for GEO_TTL; a BLANK result (an ipinfo timeout / rate-limit / outage, or an
-  # IP ipinfo can't place) is only trusted for GEO_RETRY_TTL so a transient
-  # failure self-heals on the next request instead of caching "no state" for a
-  # full day. The old 24h-for-everything rule let one bad lookup fail the CDP
-  # ramp closed — locking an allowed-state user out of the only funding rail
-  # (Stripe is disabled) until the IP changed or 24h elapsed. Pure + injectable
-  # `now` so the TTL policy is unit-testable. Compared as strings to match the
-  # session-stored Time#to_s timestamps (UTC, lexicographically chronological).
-  def self.geo_stale?(detected_at:, state_present:, now: Time.current)
-    return true if detected_at.blank?
-
-    ttl = state_present ? GEO_TTL : GEO_RETRY_TTL
-    detected_at < (now - ttl).to_s
-  end
-
-  def detect_geo_state
-    return if session[:geo_override].present?
-
-    ip_changed = session[:geo_ip] != request.remote_ip
-    stale = self.class.geo_stale?(
-      detected_at: session[:geo_detected_at],
-      state_present: session[:geo_state].present?
-    )
-
-    if ip_changed || stale
-      result = Geocoder.search(request.remote_ip).first
-      raw = result&.try(:state_code).presence || result&.try(:region_code) || result&.try(:region)
-      session[:geo_state] = normalize_state_code(raw)
-      # ISO country code from the same lookup — feeds the CDP ramp catalog
-      # gate (country + subdivision). nil when the lookup has no country.
-      session[:geo_country] = result&.try(:country_code).presence&.upcase
-      # Loopback IPs never geocode, so dev sessions have no state/country and
-      # every geo-gated feature (CDP catalog, entry gate) fails closed locally.
-      if Rails.env.development? && session[:geo_state].blank? && request.local?
-        session[:geo_state] = normalize_state_code(ENV.fetch("DEV_GEO_STATE", "CO"))
-        session[:geo_country] = "US"
-      end
-      session[:geo_ip] = request.remote_ip
-      session[:geo_detected_at] = Time.current.to_s
-    end
-  rescue => e
-    Rails.logger.warn "Geo detection failed: #{e.message}"
-    session[:geo_detected_at] = Time.current.to_s
-  end
-
-  def geo_state
-    normalize_state_code(session[:geo_override] || session[:geo_state])
-  end
-
-  # ISO country code from the same Geocoder session as geo_state. Defaults to
-  # "US" when undetected — the product + geo blocklist are US-centric, and the
-  # CDP catalog still fails closed for US without a detected subdivision. The
-  # admin geo_override simulates US states, so it forces "US" too.
-  def geo_country
-    return "US" if session[:geo_override].present?
-    session[:geo_country].presence || "US"
-  end
-
-  # Legal-state gate. Two ways to be blocked:
-  #   1. the resolved state is on the published exclusion list, OR
-  #   2. FAIL CLOSED — the gate is live but this is a US visitor whose
-  #      subdivision is undetectable (a VPN/proxy to an unknown IP, an ipinfo
-  #      outage, or the 3s lookup timeout). geo_country defaults to "US" (the
-  #      product is US-centric), so a blank state under US could be a banned
-  #      state masked by a failed lookup — we must not wave it through. Mirrors
-  #      Cdp::Catalog#available?'s US+nil-subdivision fail-closed on the
-  #      payments path.
-  #
-  # The fail-closed branch is gated on GeoSetting.enforcing? so a disabled gate
-  # still blocks nothing (the operator kill-switch). A *resolved* non-US country
-  # with a blank state stays allowed — only the US+blank ambiguity flips closed.
-  # The blocklist delegation is left intact (GeoSetting.blocked?) so existing
-  # callers/stubs of that API are unchanged.
-  def geo_blocked?
-    return true if GeoSetting.enforcing? && geo_country == "US" && geo_state.blank?
-
-    GeoSetting.blocked?(geo_state)
-  end
-
-  def geo_override_active?
-    session[:geo_override].present?
-  end
-
   # Navbar balance — on-chain USDC + USDT COMBINED for connected wallets
   # (operator request 2026-06-10: the pill shows total spendable dollars; the
   # /account tiles stay per-currency).
@@ -817,19 +732,6 @@ class ApplicationController < ActionController::Base
 
     session[:return_to] = request.fullpath
     redirect_to complete_profile_account_path
-  end
-
-  def require_geo_allowed
-    return unless geo_blocked?
-
-    # geo_state is blank on the fail-closed (undetectable US) path — omit the
-    # empty "( )" so the copy reads cleanly in both the resolved-state and
-    # undetectable cases.
-    state_note = geo_state.present? ? " (#{geo_state})" : ""
-    respond_to do |format|
-      format.html { redirect_to root_path, alert: "This feature is not available in your state#{state_note}." }
-      format.json { render json: { error: "Restricted#{state_note}" }, status: :forbidden }
-    end
   end
 
   # B4 / OPSEC-048: block money-moving actions when the account is frozen

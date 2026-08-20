@@ -7,7 +7,7 @@ class PagesController < ApplicationController
   def terms
     # The Terms' state-eligibility section renders the LIVE enforcement list
     # (same source as /state-eligibility) so policy can't drift from the gate.
-    @excluded_states = GeoSetting.effective_banned_states
+    @excluded_states = Studio::GeoSetting.banned_subdivision_codes
   end
 
   def privacy
@@ -20,9 +20,9 @@ class PagesController < ApplicationController
   end
 
   # Underwriting compliance: published state-eligibility policy, rendered
-  # from GeoSetting (the IP-geolocation enforcement source of truth).
+  # from Studio::GeoSetting (the IP-geolocation enforcement source of truth).
   def state_eligibility
-    @excluded_states = GeoSetting.effective_banned_states
+    @excluded_states = Studio::GeoSetting.banned_subdivision_codes
   end
 
   # Underwriting compliance: responsible-gaming / play-responsibly resources
