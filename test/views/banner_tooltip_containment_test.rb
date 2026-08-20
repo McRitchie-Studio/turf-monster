@@ -41,7 +41,7 @@ class BannerTooltipContainmentTest < ActiveSupport::TestCase
 
   test "the rule is unlayered so it never loses a cascade fight it need not have" do
     css = APP_CSS.read
-    rule_at = css.index("[#{TOOLTIP_HOOK}]")
+    rule_at = css.index(/^\[#{Regexp.escape(TOOLTIP_HOOK)}\]\s*\{/)
 
     assert rule_at, "the tooltip rule must exist"
 
@@ -71,20 +71,37 @@ class BannerTooltipContainmentTest < ActiveSupport::TestCase
                     "the nowrap the tooltip inherits lives on the trigger chip"
   end
 
-  test "the engine still declares no white-space on the tooltip itself" do
+  test "the tooltip's wrap is guaranteed by the engine or by this host block" do
     button = ENGINE_BUTTON.read
     tooltip_markup = button[/<span\s+#{Regexp.escape(TOOLTIP_HOOK)}.*?>/m]
 
     assert tooltip_markup, "expected the tooltip span to be findable in the engine partial"
 
-    # THIS IS THE ONE THAT RETIRES THE PATCH. The host rule wins today only
-    # because nothing declares white-space on the tooltip and an inherited value
-    # loses to any direct declaration. The day the engine declares its own, this
-    # fails — and the correct response is to delete the host block in
-    # app/assets/tailwind/application.css, not to loosen this assertion.
-    assert_not_includes tooltip_markup, "white-space",
-                        "studio-engine now sets white-space on its own tooltip — delete the host " \
-                        "[#{TOOLTIP_HOOK}] block in app/assets/tailwind/application.css"
+    engine_declares = tooltip_markup.include?("white-space")
+    host_declares = APP_CSS.read.match?(/^\[#{Regexp.escape(TOOLTIP_HOOK)}\]\s*\{/)
+
+    assert engine_declares || host_declares,
+           "nothing declares white-space on the tooltip — the chip's whitespace-nowrap " \
+           "INHERITS and the unbreakable line overflows the 260px cap again"
+
+    # RETIREMENT SIGNAL, deliberately non-failing during the changeover.
+    #
+    # This assertion used to be `assert_not_includes tooltip_markup, "white-space"`,
+    # so that the day the engine fixed its own tooltip it failed and told the reader
+    # to delete the host block. That day arrived mid-release, and a hard failure here
+    # cannot express it: turf's `accepted` resolves the engine WITHOUT the fix (where
+    # deleting the host block reddens the containment e2e) while turf's `release`
+    # resolves the engine WITH it. One branch, both versions, opposite verdicts.
+    #
+    # So the guarantee above is version-agnostic, and the retirement instruction is
+    # printed rather than thrown. Once every consumer resolves an engine that declares
+    # its own white-space, delete the host block in app/assets/tailwind/application.css
+    # together with this test's tolerance and go back to pinning one owner.
+    if engine_declares && host_declares
+      puts "[retire] studio-engine now sets white-space on its own tooltip — the host " \
+           "[#{TOOLTIP_HOOK}] block in app/assets/tailwind/application.css is redundant " \
+           "and should be deleted once every consumer is on that engine version."
+    end
   end
 
   test "turf still renders the banner whose tooltip this guards" do
