@@ -149,7 +149,8 @@ branch on `mode`: a wallet-less account reads `"web2"`.
 | Who gets prompted | `WalletSetupPolicy` — one rule, both auth paths + the entry gate |
 | Recorded at sign-in | `record_wallet_setup_state!` → `session[:wallet_setup]` (state) + `session[:wallet_setup_prompt]` (one-shot auto-open) |
 | Read on render | `wallet_setup_required?` — RPC-free; feeds `walletSetupRequired` in the client session payload |
-| The modal | `app/views/modals/_wallet_setup.html.erb` (Phantom row + install guide) |
+| The modal | `app/views/modals/_wallet_setup.html.erb` (Phantom row + explainer video + Detailed Guide) |
+| Detecting a just-installed Phantom | `GET /wallet_probe` → `WalletProbeController`, framed hidden by the modal |
 | Entry gate | `eligibilityBlocker` → `wallet_setup_required`; server-side refusal in `ContestsController#enter` |
 
 Rules worth knowing:
@@ -165,6 +166,34 @@ Rules worth knowing:
   in front of the web2 funding rails that fix a low balance.
 - Existing managed wallets are untouched either way: the flag gates **minting**,
   never the rails that serve wallets already out there.
+- **A tab that was open when the user installed Phantom can never see it.**
+  Chrome injects an extension only into documents created AFTER the install, and
+  Phantom ships its provider as a `document_start` content script with no
+  install-time sweep over open tabs. No amount of polling finds one, and there is
+  no event to subscribe to — which is why every wallet doc says "refresh after
+  installing". The modal used to do exactly that, and the reload threw away the
+  user's scroll, card, and place in the signup.
+- **`/wallet_probe` is how it detects one without reloading.** Phantom's manifest
+  declares `all_frames`, so a *freshly loaded* same-origin iframe does get the
+  provider. `WalletProbeController` serves an empty page that exists only to be
+  that frame; the modal loads it hidden (cache-busted per attempt — a cached
+  document predates the install) and reads `frame.contentWindow.phantom` across
+  the same-origin boundary. Two things there are load-bearing and easy to undo
+  by accident:
+  - **It relaxes `frame-ancestors` from `'none'` to `'self'`**, per-controller,
+    for that one page. The app-wide policy stays `'none'`
+    (`test/controllers/wallet_probe_test.rb` asserts both halves). Remove the
+    exemption and the browser silently refuses the frame: detection never fires,
+    the row waits forever, and **nothing logs an error**.
+  - **It inherits `ActionController::Base`, not `ApplicationController`**, so no
+    filter (geo state, profile completion, session token, `allow_browser`) can
+    redirect the frame onto a page whose CSP forbids framing — the same silent
+    blindness by another route.
+- **Detection is not capability.** The probe proves Phantom exists; this document
+  still cannot call it. So Connect reloads once — carrying `walletSetupReopen` +
+  `walletSetupAutoConnect` in `sessionStorage` and resuming straight into the
+  signature prompt — because that is a moment where a page load reads as
+  progress rather than as a glitch.
 
 ## The post-auth onboarding chain
 

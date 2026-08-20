@@ -12,7 +12,30 @@ module Solana
       ENV.fetch("SOLANA_PROGRAM_ID", "EQGFJAcABtDb6VXtiijTjZ6cE2UqdvhnqJvoharJbpMJ")
     end
     RPC_URL = ENV.fetch("SOLANA_RPC_URL", "https://api.devnet.solana.com")
-    NETWORK = ENV.fetch("SOLANA_NETWORK", "devnet")
+
+    # OPSEC-012's sibling: `SOLANA_NETWORK` required in production.
+    #
+    # This used to be `ENV.fetch("SOLANA_NETWORK", "devnet")`, which FAILED OPEN
+    # on absence. A garbage value fails closed (it is not "mainnet-beta", so the
+    # devnet-only guards below and in the controllers all refuse) — but an UNSET
+    # var silently resolved to "devnet" on a mainnet app, and that is the door
+    # into the §8 footgun the mint block below says the mainnet launch surfaced:
+    # USDC_MINT / USDT_MINT key their DEFAULTS on NETWORK, so a mainnet app that
+    # forgot this var would read balances against the DEVNET mints ($0.00
+    # everywhere) and derive op-rev PDAs against a mint that does not exist on
+    # mainnet. Network-keyed defaults cannot protect you when the key they are
+    # keyed on is itself defaulted.
+    #
+    # It also made the OPSEC-020 fund guards' first check load-bearing alone:
+    # `Solana::Config.devnet?` reads this, so an unset var re-armed every faucet
+    # and mint path in production.
+    #
+    # Dev/test keep the devnet default byte-identical, so nothing local changes.
+    NETWORK = if Rails.env.production?
+      ENV.fetch("SOLANA_NETWORK") { raise "SOLANA_NETWORK required in production (see OPSEC-012)" }
+    else
+      ENV.fetch("SOLANA_NETWORK", "devnet")
+    end
 
     # USDC / USDT mints.
     #
