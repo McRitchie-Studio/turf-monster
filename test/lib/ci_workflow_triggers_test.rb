@@ -1241,6 +1241,29 @@ class CiWorkflowTriggersTest < Minitest::Test
                  "report that it found nothing."
   end
 
+  # THE SANCTIONED EXCLUSION, PINNED TO ITS EXACT VALUE — read off the contract, so the
+  # filter in ci.yml and the price in config/e2e_lane.yml cannot drift apart. Widening
+  # `@devnet` to `@devnet|wallet` is one edit that drops specs with every source-level
+  # guard green; the executed-set gate catches that by arithmetic on the next run, and this
+  # catches it at lint time and NAMES it. Scans the whole `--grep` family: a second,
+  # NARROWING `--grep "@smoke"` is the same event wearing the opposite flag.
+  E2E_LANE_YML = File.expand_path("../../config/e2e_lane.yml", __dir__)
+  GREP_FLAGS = /--grep(?:-invert)?[= ]"[^"]*"/
+
+  def test_integration_the_e2e_exclusion_is_pinned_to_its_exact_value
+    tag = YAML.safe_load_file(E2E_LANE_YML).fetch("excluded_tag")
+    lanes = command_lanes(File.read(CI_YML), E2E_COMMAND)
+    refute_empty lanes, "no e2e lane — see the primary guard"
+
+    lanes.each do |job_name, _job, step|
+      assert_equal [%(--grep-invert "#{tag}")], step["run"].to_s.scan(GREP_FLAGS),
+                   "#{lane_label(job_name)} must filter by EXACTLY --grep-invert " \
+                   "\"#{tag}\" — the one exclusion config/e2e_lane.yml declares and prices. " \
+                   "Changing it changes what the green check covers, so change that file " \
+                   "in the same commit."
+    end
+  end
+
   def test_integration_the_e2e_lane_runs_UNCONDITIONALLY_on_a_release_push
     lanes = command_lanes(File.read(CI_YML), E2E_COMMAND)
 
