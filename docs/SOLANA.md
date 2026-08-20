@@ -187,7 +187,7 @@ The per-season schedule above is authoritative for Turf Monster; update this doc
 - `solana:verify_idl` — run `verify_idl!` against the committed IDL.
 - `solana:airdrop` — airdrop SOL to admin.
 - `solana:check_balance` / `solana:check_admin_balance` — read on-chain SOL/USDC balances.
-- `solana:mint_usdc` — mint test USDC to the admin ATA (`AMOUNT=<dollars>`, default 100). **Devnet only — hard-aborts in production (OPSEC-020).**
+- `solana:mint_usdc` — mint test USDC to the admin ATA (`AMOUNT=<dollars>`, default 100). **Devnet only — hard-aborts on live production (OPSEC-020).** QA apps are exempt: they boot as Rails production but set `QA_ENV=true`, so `AppFlags.live_production?` reads false there and the devnet tooling stays usable.
 - `solana:fund_wallets` — fund a set of wallets (dev bring-up).
 - `solana:generate_keypair` / `solana:test_encryption` / `solana:reencrypt_managed_wallets` — managed-wallet key tooling (the last rotates ciphertext to the current `MANAGED_WALLET_ENCRYPTION_KEY`).
 - `solana:reconcile` — run `Solana::Reconciler` over all users (on-chain account-presence / state checks; no pooled balance reconciliation).
