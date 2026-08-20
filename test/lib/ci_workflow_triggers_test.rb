@@ -1184,6 +1184,86 @@ class CiWorkflowTriggersTest < Minitest::Test
   # gut-the-command class for the e2e lane too.)
   E2E_COMMAND = /\bnpm test\b/
 
+  # THE EXECUTED-SET GATE — added 2026-08-20 with the receipt it reads.
+  #
+  # The lane above can prove its specs PASSED; it cannot prove it RAN THEM ALL, and this
+  # repo shards it three ways, where an empty shard exits 0 SILENTLY (sharding suppresses
+  # Playwright's own "No tests found" guard). So the gate is a verdict lane in its own
+  # right — arguably THE verdict lane, since it is the only thing here that can tell three
+  # green shards over the whole suite from three green shards over nothing.
+  #
+  # ENROLLED ON THE DAY IT WAS WIRED, which is the discipline mcritchie-studio's ci.yml
+  # states after learning it the hard way: "a lane that CONSTITUTES a verdict must be
+  # enrolled here on the day it is wired, or the next lane repeats the bug one file over."
+  # It did repeat, one REPO over — this repo sharded its e2e lane with no receipt at all.
+  EXECUTED_SET_COMMAND = %r{bin/e2e-executed-set-check\b}
+
+  def test_integration_the_executed_set_gate_runs_UNCONDITIONALLY
+    lanes = command_lanes(File.read(CI_YML), EXECUTED_SET_COMMAND)
+
+    refute_empty lanes,
+                 "NO step in ci.yml runs bin/e2e-executed-set-check. The sharded e2e lane's " \
+                 "green checks mean nothing without it: three shards can each execute ZERO " \
+                 "specs and exit 0, because sharding suppresses Playwright's own no-tests " \
+                 "guard. If the gate legitimately moved, re-point EXECUTED_SET_COMMAND — do " \
+                 "not delete this."
+
+    lanes.each do |job_name, job, step|
+      # `always()` is the ONE condition this job may carry, and it is REQUIRED rather than
+      # merely tolerated: the gate `needs:` the playwright job, and a needs-dependency whose
+      # upstream FAILED is skipped by default — so without it, the gate goes quiet in exactly
+      # the runs where a shrunken lane would show up. always() can only FORCE a job to run;
+      # it cannot exclude one.
+      assert_equal "always()", job["if"].to_s.strip,
+                   "#{lane_label(job_name)} must carry `if: always()`. Without it a red shard " \
+                   "SKIPS this gate, and a skipped required check does not report failure."
+      assert_nil step["if"],
+                 "#{lane_label(job_name)}'s gate step carries `if: #{step["if"]}` — the gate " \
+                 "must not opt itself out."
+      assert_equal "playwright", job["needs"].to_s,
+                   "the gate must `needs: playwright`, or it can run before the receipts exist"
+    end
+  end
+
+  def test_integration_the_e2e_lane_emits_the_receipt_it_is_judged_on
+    # The gate fails closed if the receipt vanishes (no artifact -> zero reports -> RED), so
+    # this is not a hole. It is a DIAGNOSIS: pinned here, a dropped `json` reporter says "you
+    # broke the receipt" instead of "the gate found no reports", which is the difference
+    # between a five-second fix and an afternoon.
+    lanes = command_lanes(File.read(CI_YML), E2E_COMMAND)
+    refute_empty lanes, "no e2e lane — see the primary guard"
+
+    missing = lanes.reject { |_n, _j, step| step["run"].to_s.include?("--reporter=list,json") }
+
+    assert_empty missing.map { |n, _j, _s| n },
+                 "the e2e lane no longer emits its JSON receipt (--reporter=list,json). The " \
+                 "executed-set gate is judged on that file; without it the gate can only " \
+                 "report that it found nothing."
+  end
+
+  # THE SANCTIONED EXCLUSION, PINNED TO ITS EXACT VALUE — read off the contract, so the
+  # filter in ci.yml and the price in config/e2e_lane.yml cannot drift apart. Widening
+  # `@devnet` to `@devnet|wallet` is one edit that drops specs with every source-level
+  # guard green; the executed-set gate catches that by arithmetic on the next run, and this
+  # catches it at lint time and NAMES it. Scans the whole `--grep` family: a second,
+  # NARROWING `--grep "@smoke"` is the same event wearing the opposite flag.
+  E2E_LANE_YML = File.expand_path("../../config/e2e_lane.yml", __dir__)
+  GREP_FLAGS = /--grep(?:-invert)?[= ]"[^"]*"/
+
+  def test_integration_the_e2e_exclusion_is_pinned_to_its_exact_value
+    tag = YAML.safe_load_file(E2E_LANE_YML).fetch("excluded_tag")
+    lanes = command_lanes(File.read(CI_YML), E2E_COMMAND)
+    refute_empty lanes, "no e2e lane — see the primary guard"
+
+    lanes.each do |job_name, _job, step|
+      assert_equal [%(--grep-invert "#{tag}")], step["run"].to_s.scan(GREP_FLAGS),
+                   "#{lane_label(job_name)} must filter by EXACTLY --grep-invert " \
+                   "\"#{tag}\" — the one exclusion config/e2e_lane.yml declares and prices. " \
+                   "Changing it changes what the green check covers, so change that file " \
+                   "in the same commit."
+    end
+  end
+
   def test_integration_the_e2e_lane_runs_UNCONDITIONALLY_on_a_release_push
     lanes = command_lanes(File.read(CI_YML), E2E_COMMAND)
 
