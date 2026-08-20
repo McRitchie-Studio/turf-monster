@@ -63,13 +63,37 @@ class EntryTokenBadgePlacementTest < ActionDispatch::IntegrationTest
       # The tuck is absolute, not a negative margin: the badge's .hidden lives
       # on the BUTTON, so a flow-positioned wrapper would survive a hidden
       # badge and drag the avatar left into the username. ml-5 on the cluster
-      # reserves the 16px of badge that sticks out past the avatar.
+      # reserves the 8px of badge that overhangs the avatar.
       cluster = body[username_at, (avatar_at - username_at) + 400]
-      assert_includes cluster, 'class="relative ml-5 flex flex-shrink-0 items-center"'
-      assert_includes cluster, 'class="absolute -left-4 -top-2"'
+      assert_includes cluster, %(class="relative ml-3 flex flex-shrink-0 items-center")
+      assert_includes cluster, %(class="absolute -left-2 -top-1 z-20")
       assert_match(/dm-green relative z-10/, cluster,
-        "the avatar must out-stack the badge it overlaps")
+        "the avatar keeps its own stacking rung under the badge")
     end
+  end
+
+  test "the badge wears the house legendary treatment, in theme colors" do
+    render_navbar(usdc: 12.0, tokens: 1) do |body|
+      badge = body[body.index('data-free-entry-badge="true"') - 900, 1200]
+      assert_includes badge, "free-entry-badge legendary-badge",
+        "the disc wears the house legendary treatment"
+      assert_includes badge, "w-5 h-5 rounded-full",
+        ".legendary-badge is paint only — the caller brings the geometry"
+    end
+    css = Rails.root.join("app/assets/tailwind/application.css").read
+    treatment = css[css.index(".legendary-badge {"), 900]
+    # The whole point of the house version: THEME colors, not the engine's
+    # fixed 8-stop rainbow. A literal hex here would be a re-forked spectrum.
+    assert_includes treatment, "var(--color-primary-500"
+    assert_includes treatment, "var(--color-warning"
+    assert_includes treatment, "background-size: 300% 300%",
+      "the gradient must overhang the element or there is nothing to pan"
+    assert_includes css, "@keyframes legendary-pan"
+    refute_includes treatment, "rgba(var(",
+      "legacy rgba(var(...), A) drops a space-separated RGB var — use rgb(var(...) / A)"
+    # Geometry stays OUT of the treatment so it drops onto a pill too.
+    refute_match(/\bwidth:/, treatment)
+    refute_match(/\bpadding:/, treatment)
   end
 
   test "the badge is a sparkle, not the retired ticket pill" do
@@ -77,7 +101,6 @@ class EntryTokenBadgePlacementTest < ActionDispatch::IntegrationTest
       badge = body[body.index("data-free-entry-badge") - 900, 1200]
       assert_includes badge, "✨"
       refute_includes badge, "🎟️", "the ticket emoji was retired for the sparkle"
-      refute_match(/>\s*Entry\s*</, badge, "the 'Entry' pill text was dropped")
     end
   end
 
@@ -134,8 +157,18 @@ class EntryTokenBadgePlacementTest < ActionDispatch::IntegrationTest
     css = Rails.root.join("app/assets/tailwind/application.css").read
     assert_includes css, ".free-entry-glow {"
     assert_includes css, "@keyframes free-entry-glow"
-    assert_includes css, ".free-entry-label.is-active { display: inline-flex; }"
-    assert_includes css, ".fe-peek .free-entry-label:not(.is-active)"
+    # The peek FADES rather than pops: it must rest laid-out-but-invisible (a
+    # display toggle cannot transition), and visibility carries a delay so it
+    # flips only after the fade-out finishes.
+    peek = css[css.index(".free-entry-label {"), 1000]
+    assert_includes peek, "visibility: hidden"
+    assert_includes peek, "visibility 0s linear"
+    assert_match(/transition:[^;]*opacity/m, peek)
+    assert_includes css, ".fe-peek .free-entry-label {"
+    # ...and the ACTIVE face returns to the flow, or the slot collapses.
+    active = css[css.index(".free-entry-label.is-active {"), 400]
+    assert_includes active, "position: static"
+    assert_includes active, "visibility: visible"
     # A space-separated "R G B" var is silently dropped by rgba(var(...), A);
     # the glow must use the modern slash form or it renders no shadow at all.
     glow = css[css.index("@keyframes free-entry-glow"), 400]

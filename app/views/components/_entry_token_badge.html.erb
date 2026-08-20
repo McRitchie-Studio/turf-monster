@@ -1,12 +1,19 @@
 <%# Navbar ✨ Entry token badge.
 
-    Sits immediately left of the profile avatar (components/_user_nav "Div 3"),
-    NOT next to the wallet balance — the balance slot instead swaps its amount
+    Sits ON the profile avatar's upper-left corner (components/_user_nav
+    "Div 3"), NOT next to the wallet balance — the balance slot instead swaps its amount
     for the full "✨ Free Entry" label (see layouts/_navbar.html.erb). Visible
     when current_user has any unconsumed entry tokens (web2 token economy — see
     docs/UI_PATTERNS.md "Entry Tokens (Web2 flow)").
 
-    Three affordances, all on the one 28px circle:
+    It wears .legendary-badge — the house legendary treatment (a panned gradient,
+    white rim, warm bloom), built like the engine's .level-badge-10 but in the
+    app's own primary + warning instead of a fixed 8-stop rainbow — so a free
+    entry reads as the prize it is. That class is PAINT ONLY; the w-5/h-5/
+    rounded-full below are the geometry. Both live in
+    app/assets/tailwind/application.css.
+
+    Three affordances, all on the one 20px disc:
       hover/focus — reveals "✨ Free Entry" OVER the wallet balance, so a user
                     who doesn't recognise the sparkle gets the answer where
                     they were already looking. Driven by `freeEntryHover` in
@@ -53,10 +60,10 @@
           @blur="freeEntryHover = false"
           title="<%= free_entries %> unconsumed entry token<%= plural_suffix %> — free entry"
           aria-label="Free entry token<%= plural_suffix %>"
-          class="free-entry-badge inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary/25 border border-primary/50 text-primary leading-none hover:bg-primary/40 transition cursor-pointer <%= 'hidden' unless free_entries.positive? %>"
+          class="free-entry-badge legendary-badge inline-flex items-center justify-center w-5 h-5 rounded-full cursor-pointer <%= 'hidden' unless free_entries.positive? %>"
           data-free-entry-badge="true"
           data-token-count="<%= free_entries %>">
-    <span aria-hidden="true" style="font-size: 16px; line-height: 1;">✨</span>
+    <span aria-hidden="true" style="font-size: 12px; line-height: 1;">✨</span>
   </button>
   <%# Count popover — anchored to the RIGHT edge: the badge now lives at the
       end of the navbar, so a centered popover would hang off the viewport. %>
