@@ -44,19 +44,24 @@ class GeoBadgeRenderTest < ActionView::TestCase
     assert_includes html, "text-secondary", "an allowed state wears the neutral style"
   end
 
+  # THE BLOCKED LOOK IS AN ATTRIBUTE, not a class list — the engine moved it there
+  # (studio-engine >= 0.57) so /admin/geo can repaint the badge live while an
+  # operator ticks regions, before anything is saved. One rule paints it, and that
+  # rule ships with the partial, so a host that renders the badge gets both.
   test "an unresolved state renders the fail-closed red ??" do
     html = render_badge(state: nil, blocked: true)
 
     assert_match(/class="geo-badge/, html)
     assert_includes html, "??", "an undetectable location must say so, not vanish"
-    assert_includes html, "text-red-400", "fail-closed reads as blocked, in red"
+    assert_includes html, %(data-blocked="true"), "fail-closed reads as blocked"
+    assert_match(/\.geo-badge\[data-blocked="true"\]/, html, "and the rule that paints it ships too")
     refute_includes html, "<img", "no state, no flag"
   end
 
   test "a blocked state renders red" do
     html = render_badge(state: "WA", blocked: true)
 
-    assert_includes html, "text-red-400"
+    assert_includes html, %(data-blocked="true")
     assert_match(%r{src="[^"]*state-flags/wa[^"]*\.svg"}, html)
   end
 

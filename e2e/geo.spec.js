@@ -58,9 +58,12 @@ test.describe("Geo Settings", () => {
 
     const before = await background();
     await square.click();
-    await expect.poll(background).not.toBe(before);
-    // The blocked wash: rgb(239 68 68 / 0.1), whatever the browser serialises it as.
-    expect(await background()).toMatch(/rgba?\(\s*239,\s*68,\s*68/);
+
+    // POLL to the FINAL colour — the square carries `transition`, so a bare read
+    // right after the click catches the animation mid-flight and returns a blend
+    // (measured: rgba(166, 51, 61, 0.145) on its way to the wash). Asserting a
+    // value that a running transition owns is a coin flip on a loaded runner.
+    await expect.poll(background).toMatch(/rgba?\(\s*239,\s*68,\s*68/);
 
     // And back, so this spec leaves the policy exactly as it found it.
     await square.click();
