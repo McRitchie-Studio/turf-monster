@@ -39,31 +39,21 @@ const VIEWPORTS = [
 // read off the compiled `font-family: Montserrat, system-ui, sans-serif`.
 const FALLBACK_STACK = "system-ui, sans-serif";
 
-// A deliberately WIDER face, standing in for the wide fallback a Linux runner
-// picks. Verdana on macOS, DejaVu Sans on the CI image, and plain `sans-serif`
-// wherever neither is installed — every one of them is wider than Montserrat.
-// The spec MEASURES that rather than assuming it (see assertWiderThanMontserrat),
-// so a runner with none of these faces fails loudly instead of passing vacuously
-// on a stress that never stressed anything.
-const WIDE_STACK = "Verdana, 'DejaVu Sans', Geneva, sans-serif";
-
-// Width of one fixed string in a named family, at the size and weight the
-// environment banner's tooltip actually uses. Measured off-screen so it costs
-// no layout in the page under test.
-async function sampleWidth(page, family) {
-  return await page.evaluate((family) => {
-    const probe = document.createElement("span");
-    probe.textContent = "Connector: Unknown";
-    probe.style.cssText =
-      "position:absolute;left:-9999px;top:0;font-size:12px;font-weight:700;white-space:nowrap;";
-    probe.style.fontFamily = family;
-    document.body.appendChild(probe);
-    const width = probe.getBoundingClientRect().width;
-    probe.remove();
-    return width;
-  }, family);
-}
-
+// TWO ASSERTIONS, AND THE SECOND IS THE ONE THAT TRAVELS. documentOverflow is
+// the symptom the release actually tripped over, but it can only fire where the
+// fallback face is WIDER than Montserrat — true on the Linux runner, false on
+// macOS, which is the whole reason this shipped. So the spec also asserts the
+// MECHANISM: that no banner tooltip's content is wider than its own box. That
+// one is font-independent and platform-independent — pre-fix the tooltip
+// measured 263px of unbreakable line inside a 260px cap in Montserrat itself —
+// so it bites on any machine, and it names the defect rather than its side
+// effect. Two earlier attempts to make the symptom portable are recorded here so
+// nobody spends the afternoon again: forcing a named wide face (`Verdana,
+// 'DejaVu Sans', sans-serif`) reds on CI for reasons about the runner's font
+// inventory rather than the app, and widening every string with letter-spacing
+// is either too small to clear macOS's narrow fallback (0.25px per character
+// left the line at ~259px against a 260px cap) or large enough to red chrome
+// that is not broken.
 async function applyFace(page, family) {
   await page.addStyleTag({
     content: `*, *::before, *::after { font-family: ${family} !important; }`,
@@ -116,10 +106,23 @@ async function documentMetrics(page) {
         }
       }
     }
+    // The mechanism, measured directly: a tooltip whose line cannot fit its own
+    // cap. This is what the host's white-space rule repairs, and unlike the
+    // document overflow it does not depend on which face the runner painted.
+    const tooltips = [...document.querySelectorAll("[data-studio-banner-tooltip]")].map(
+      (tip) => ({
+        text: (tip.textContent || "").trim().slice(0, 40),
+        clientWidth: tip.clientWidth,
+        scrollWidth: tip.scrollWidth,
+        overflow: tip.scrollWidth - tip.clientWidth,
+      })
+    );
+
     return {
       viewportWidth,
       documentOverflow: documentWidth - viewportWidth,
       spilling: spilling.slice(0, 5),
+      tooltips,
     };
   });
 }
@@ -179,36 +182,37 @@ test("the logged-in header stays contained when the page paints in a fallback fa
   await login(page, "alex@mcritchie.studio", "password");
 
   for (const viewport of VIEWPORTS) {
-    for (const face of [FALLBACK_STACK, WIDE_STACK]) {
-      await page.setViewportSize(viewport);
-      await page.goto("/contests");
-      await expect(page.locator("[data-username-display]").first()).toBeVisible();
+    await page.setViewportSize(viewport);
+    await page.goto("/contests");
+    await expect(page.locator("[data-username-display]").first()).toBeVisible();
+    await exposeStressControls(page);
 
-      if (face === WIDE_STACK) {
-        // Prove the stress is a stress. If this runner resolves WIDE_STACK to
-        // something no wider than Montserrat, the containment assertion below
-        // would pass without having tested anything, and the next regression
-        // ships green.
-        const [montserrat, wide] = [
-          await sampleWidth(page, "Montserrat"),
-          await sampleWidth(page, WIDE_STACK),
-        ];
-        expect(
-          wide,
-          `WIDE_STACK resolved to a face no wider than Montserrat (${wide}px vs ${montserrat}px) — this runner cannot stress the layout`
-        ).toBeGreaterThan(montserrat);
-      }
-
-      await applyFace(page, face);
-      await exposeStressControls(page);
+    // BOTH faces get measured, and the pair is the point. "as rendered" is
+    // whatever this runner painted — Montserrat on a warm cache, where the
+    // tooltip's line measured 263px against its 260px cap before the fix, so the
+    // mechanism assertion bites even on a machine whose fallback is too narrow
+    // to move the document. "fallback" is the state `font-display: optional`
+    // actually produces on a cold cache, forced rather than waited for, which is
+    // where the wide Linux face turns those 3px into a scrollbar.
+    for (const face of ["as rendered", "fallback"]) {
+      if (face === "fallback") await applyFace(page, FALLBACK_STACK);
 
       const metrics = await documentMetrics(page);
-      const message = `${viewport.width}px in ${face}: ${JSON.stringify(metrics, null, 2)}`;
+      const message = `${viewport.width}px, ${face}: ${JSON.stringify(metrics, null, 2)}`;
 
-      // The property, stated plainly: no face the browser may legitimately
-      // paint in is allowed to give this page a horizontal scrollbar.
+      // The symptom: no face the browser may legitimately paint in is allowed to
+      // give this page a horizontal scrollbar.
       expect(metrics.documentOverflow, message).toBeLessThanOrEqual(1);
       expect(metrics.spilling, message).toEqual([]);
+
+      // The mechanism: every banner tooltip fits the cap it declares.
+      expect(
+        metrics.tooltips.length,
+        `${message}\nno banner tooltip rendered — nothing was measured`
+      ).toBeGreaterThan(0);
+      for (const tip of metrics.tooltips) {
+        expect(tip.overflow, message).toBeLessThanOrEqual(1);
+      }
     }
   }
 });
