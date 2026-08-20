@@ -1061,6 +1061,36 @@ body.modal-open { overflow: hidden; }
 }
 .chat-live-ping { animation: chat-live-ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite; }
 
+/* Quest 2 nudge — while the "Send Your First Message" mission is live the
+   composer breathes a soft primary halo, so the eye that followed the quest
+   card's southwest arrow lands on the exact control it means. Applied by
+   contestChat's questGlow (contests/_chat_panel) and dropped the moment the
+   first message earns its seeds.
+
+   A <textarea> carries no ::before/::after, so this is a border + box-shadow
+   pulse on the control ITSELF rather than the .studio-border-glow primitive,
+   which needs pseudo-elements to draw its ring. Unlayered, so it outranks the
+   composer's focus:border-primary utility while the glow is on. */
+@keyframes chat-input-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgb(var(--color-primary-rgb) / 0.28), 0 0 10px 0 rgb(var(--color-primary-rgb) / 0.22);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgb(var(--color-primary-rgb) / 0.14), 0 0 24px 3px rgb(var(--color-primary-rgb) / 0.55);
+  }
+}
+.chat-input-glow {
+  border-color: rgb(var(--color-primary-rgb) / 0.75);
+  animation: chat-input-glow 2s ease-in-out infinite;
+}
+/* Reduced motion keeps the halo (it is the wayfinding) and drops the breath. */
+@media (prefers-reduced-motion: reduce) {
+  .chat-input-glow {
+    animation: none;
+    box-shadow: 0 0 12px 1px rgb(var(--color-primary-rgb) / 0.35);
+  }
+}
+
 /* Soften the bottom edge of the message list — content fades out. */
 .chat-scroll-fade {
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5rem), transparent);

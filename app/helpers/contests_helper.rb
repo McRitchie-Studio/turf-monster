@@ -55,4 +55,70 @@ module ContestsHelper
       end
     end
   end
+
+  # ── Contest-chat composer prompts ─────────────────────────────────────
+  # The sample messages the composer TYPES into its placeholder while the "Send
+  # Your First Message" quest is live (contests/_chat_panel, driven by the quest
+  # card's quest-chat-active event).
+  #
+  # SEMI-STATIC by design: two fixed openers, then one line built from this
+  # viewer's own entry. The composer types the three in order and RESTS on the
+  # last one, so the line left sitting in the placeholder is the personal one —
+  # the reader's own longshot, named. Three is therefore the whole deck, not a
+  # truncation: every line here is one the viewer actually sees.
+  CHAT_PROMPT_LIMIT = 3
+
+  CHAT_PROMPT_OPENERS = ["Hey everyone 👋", "Good luck, everyone ⚔️"].freeze
+
+  # Where the personal line goes when no team can be resolved (a contest with no
+  # slate — World Cup Survivor — or a slate with no priced matchups). Keeps the
+  # deck three lines long and still ends on an invitation to type.
+  CHAT_PROMPT_NO_TEAM = "Who's everyone riding?".freeze
+
+  # `entries` is passed in where the page already loaded them with selections
+  # preloaded (@my_active_entries on contests#show). Nil falls back to one
+  # scoped query — contests#live has no such ivar, and the caller only asks
+  # when the viewer can actually post.
+  def chat_prompt_samples(contest, user, entries: nil)
+    return [] if contest.blank? || user.blank?
+
+    CHAT_PROMPT_OPENERS + [chat_prompt_longshot(contest, user, entries)]
+  end
+
+  private
+
+  # "Chargers are about to light it up ⚡" — the viewer's LONGEST-PRICED pick.
+  #
+  # turf_score is the frozen per-team multiplier, and the curve pins rank 1 at
+  # x1.0 and climbs from there (SlateMatchup.turf_score_for), so the highest one
+  # is the viewer's biggest swing — the pick worth talking about. A viewer with
+  # no picks yet gets the contest's own longest price instead, which is still a
+  # real, checkable claim about this contest.
+  def chat_prompt_longshot(contest, user, entries)
+    matchup = chat_prompt_priciest(chat_prompt_matchups(contest, user, entries))
+    matchup ||= chat_prompt_priciest(contest.slate ? contest.pickable_matchups : [])
+    team = matchup&.team
+    return CHAT_PROMPT_NO_TEAM if team.blank? || team.mascot.blank?
+
+    emoji = team.emoji.presence || contest.slate&.sport_emoji || contest.sport_emoji
+    "#{team.mascot} are about to light it up #{emoji}"
+  end
+
+  # This viewer's picked matchups. Reads the preloaded entries when the caller
+  # has them; otherwise one query with the same includes contests#show uses, so
+  # this can never N+1 per selection.
+  def chat_prompt_matchups(contest, user, entries)
+    entries ||= user.entries
+                    .where(contest: contest, status: [:active, :complete])
+                    .includes(selections: { slate_matchup: :team })
+                    .to_a
+
+    entries.flat_map { |entry| entry.selections.map(&:slate_matchup) }.compact
+  end
+
+  # Highest multiplier wins; an unpriced matchup (turf_score still nil, before
+  # the slate is ranked) can never win, so `to_f`'s zero is the right floor.
+  def chat_prompt_priciest(matchups)
+    matchups.select { |m| m.turf_score.present? }.max_by { |m| m.turf_score.to_f }
+  end
 end

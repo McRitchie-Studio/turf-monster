@@ -85,4 +85,76 @@ class ContestsHelperTest < ActionView::TestCase
   def logged_in?
     @_current_user.present?
   end
+
+  # --- chat_prompt_samples (Quest 2 typewriter deck) ---
+  #
+  # The deck is what the composer TYPES into its placeholder while the "Send
+  # Your First Message" mission is live: two fixed openers, then ONE personal
+  # line. The composer rests on the last line, so line three is the one that
+  # stays on screen — which is why it has to name a real team and never a blank.
+
+  def pick_teams(entry, *matchups)
+    matchups.each { |m| entry.selections.create!(slate_matchup: m) }
+    entry
+  end
+
+  test "the deck is two fixed openers and one personal line" do
+    pick_teams(@entry, slate_matchups(:m1))
+
+    deck = chat_prompt_samples(@contest, @owner)
+
+    assert_equal ContestsHelper::CHAT_PROMPT_LIMIT, deck.length
+    assert_equal ["Hey everyone 👋", "Good luck, everyone ⚔️"], deck.first(2)
+    assert_equal "A are about to light it up 🏳️", deck.last
+  end
+
+  # m1 (rank 1) prices x1.0 and m5 (rank 5) prices x1.6 — the curve pins rank 1
+  # at the bottom, so the biggest number is the viewer's biggest swing. Picking
+  # the FIRST selection instead of the priciest would name Team A here.
+  test "the personal line names the viewer's longest-priced pick" do
+    pick_teams(@entry, slate_matchups(:m1), slate_matchups(:m5))
+
+    assert_equal "E are about to light it up 🏳️", chat_prompt_samples(@contest, @owner).last
+  end
+
+  test "a player with no picks gets the contest's own longest price" do
+    deck = chat_prompt_samples(@contest, @owner)
+
+    assert_equal ContestsHelper::CHAT_PROMPT_LIMIT, deck.length
+    # Still a real claim about this contest, not a blank or a dropped line.
+    assert_match(/\A\S+ are about to light it up \S+\z/, deck.last)
+  end
+
+  test "an unpriced slate falls back to an opener rather than a blank" do
+    @contest.slate.slate_matchups.update_all(turf_score: nil)
+
+    deck = chat_prompt_samples(@contest.reload, @owner)
+
+    assert_equal ContestsHelper::CHAT_PROMPT_LIMIT, deck.length
+    assert_equal ContestsHelper::CHAT_PROMPT_NO_TEAM, deck.last
+  end
+
+  test "no line ever carries a blank" do
+    pick_teams(@entry, slate_matchups(:m3))
+
+    chat_prompt_samples(@contest, @owner).each do |line|
+      assert line.present?, "blank line in the deck"
+      # An interpolated nil reads as a double space or a stranded punctuation
+      # mark — the tell that a line rendered without its data.
+      refute_match(/\s{2}|\s[.…]/, line, "#{line.inspect} looks like it interpolated a nil")
+    end
+  end
+
+  test "preloaded entries produce the same deck as a cold read" do
+    pick_teams(@entry, slate_matchups(:m5))
+    preloaded = [@contest.entries.includes(selections: { slate_matchup: :team }).find(@entry.id)]
+
+    assert_equal chat_prompt_samples(@contest, @owner),
+                 chat_prompt_samples(@contest, @owner, entries: preloaded)
+  end
+
+  test "no viewer and no contest means no deck" do
+    assert_empty chat_prompt_samples(@contest, nil)
+    assert_empty chat_prompt_samples(nil, @owner)
+  end
 end
