@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+#
+# Install apt packages with a BOUNDED, RETRYING fetch.
+#
+#   .github/scripts/apt-retry curl libjemalloc2 libvips postgresql-client
+#
+# WHY THIS EXISTS. On 2026-08-19 the Ubuntu mirror stalled four times across five
+# PRs, every occurrence on the same line:
+#
+#   Get:5 https://archive.ubuntu.com/ubuntu noble-security InRelease [126 kB]
+#   ...42 minutes of total silence...
+#   ##[error]The operation was canceled.
+#
+# Every job carries `timeout-minutes: 45` (test/lib/ci_job_timeout_test.rb), which
+# is why those died at 45 minutes rather than GitHub's six-hour default. But a JOB
+# bound only turns "hangs forever" into "fails". Bounding the FETCH turns it into
+# "retries" — the failure becomes fast and recoverable, so a transient mirror stall
+# stops costing a red PR and a human diagnosis.
+#
+# WHY THE BUDGETS ESCALATE — 90s, 300s, 900s — rather than one flat number.
+# Measured over 40 samples of this step from recent SUCCESSFUL runs: the healthy
+# case is 10-16 SECONDS, but the tail of the successes runs 318s, 560s, 812s, 857s.
+# The mirror degrades on a continuum; it does not simply fail. A flat 120s bound
+# would therefore have killed 11 of 40 steps that PASSED, manufacturing exactly the
+# false red this script removes. So the first attempt is short enough to catch a
+# stall while it is still cheap, and the last is above the worst SUCCESS ever
+# measured here. Vindicated on its first live run: PR #939's island_animator was
+# killed at 90s and succeeded on attempt 2 at 277s — a flat 90s would have gone
+# red, a flat 300s would have burned 300s before retrying.
+#
+# WHY A SCRIPT, AND NOT AN INLINE `run:` BLOCK. It was inline first, and that broke
+# bin/lib/ci_test_command.rb — the cert that reads ci.yml to prove it can SEE every
+# unit CI runs. `if sudo timeout -k 10 "$budget" ...` hands an interpolated token to
+# a command position, so the parser correctly REFUSED to claim it knew what the step
+# ran, and test/lib/ci_test_command_test.rb went red. The parser is right and its
+# exception list is keyed on executables PROVEN to exec nothing — `timeout` is not
+# one, it execs an argument by definition. So the loop moved here, leaving a literal,
+# readable invocation in the workflow. Do not inline it again.
+set -uo pipefail
+
+# Overridable ONLY so the test can exercise the real file quickly instead of a
+# rewritten copy of it; nothing in CI sets it. test/lib/ci_apt_step_timeout_test.rb
+# asserts the default below, so shrinking it here fails there.
+: "${APT_RETRY_BUDGETS:=90 300 900}"
+
+if [ "$#" -eq 0 ]; then
+  echo "::error::apt-retry needs at least one package name"
+  exit 2
+fi
+
+attempt=0
+for budget in $APT_RETRY_BUDGETS; do
+  attempt=$((attempt + 1))
+
+  # `-k 10` matters: timeout sends SIGTERM first, and a wedged apt need not honour
+  # it — an attempt that ignores its own bound defeats the whole point. Note also
+  # that timeout runs the command in its OWN PROCESS GROUP and signals the group,
+  # so a surviving grandchild cannot hold /var/lib/dpkg/lock against the next
+  # attempt. Never pass --foreground here; that is what turns the group off.
+  if sudo timeout -k 10 "$budget" bash -c \
+       'apt-get update && apt-get install --no-install-recommends -y "$@"' apt-retry "$@"; then
+    [ "$attempt" -eq 1 ] || echo "::notice::apt succeeded on attempt $attempt"
+    exit 0
+  fi
+
+  echo "::warning::apt stalled or failed inside ${budget}s (attempt $attempt)"
+
+  # An attempt killed mid-unpack leaves dpkg half-configured, which would fail the
+  # NEXT attempt for a reason that has nothing to do with the network.
+  sudo dpkg --configure -a || true
+done
+
+echo "::error::apt-get failed every attempt (${APT_RETRY_BUDGETS}s). The Ubuntu mirror is stalling — re-run this job."
+exit 1
