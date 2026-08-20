@@ -31,7 +31,28 @@ on:
 # `accepted` are NORMAL. Cheaper CI is not worth a gate that cries wolf.
 
 jobs:
-  scan_ruby:
+  # THE STATIC LANE — brakeman, importmap audit and rubocop in ONE job.
+  #
+  # These were three jobs doing identical setup (checkout, await-gem-propagation, ruby) and
+  # then running one command each. Merged, the setup is paid once instead of three times.
+  # Ported from mcritchie-studio, where it was measured: 37s, 22s and 52s of actual work
+  # behind ~20s of setup APIECE.
+  #
+  # WHAT IT BUYS IS SLOTS, NOT SECONDS. The merged lane is LONGER than the slowest of the
+  # three was alone, and that is fine — it is nowhere near the critical path, which is the
+  # `playwright` shard. What it frees is two concurrency slots on a repo that runs eight
+  # jobs (scan×2, lint, test, playwright×3, e2e_executed_set) against a ~20-job account
+  # ceiling that two PRs in flight already approach.
+  #
+  # `if: always()` ON THE SECOND AND THIRD CHECKS is load-bearing. As separate jobs all
+  # three ran regardless of each other's verdict. In one job a failing step stops the rest
+  # by default — so a brakeman finding would hide every rubocop offence in the same run, and
+  # you would fix, push, and wait a full lane to meet the next one. With always() all three
+  # run and the job still reports RED if any failed, so a single run tells you everything
+  # that is wrong. It is not an opt-out: always() can only FORCE a step, never exclude one,
+  # which is why test/lib/ci_workflow_triggers_test.rb permits it and refuses every
+  # event-context condition.
+  static:
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -52,45 +73,12 @@ jobs:
       - name: Scan for common Rails security vulnerabilities using static analysis
         run: bin/brakeman --no-pager
 
-  scan_js:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      - name: Await RubyGems propagation for locked gems
-        run: .github/scripts/await-gem-propagation.sh
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: .ruby-version
-          rubygems: 3.5.11
-          bundler-cache: true
-
       - name: Scan for security vulnerabilities in JavaScript dependencies
+        if: always()
         run: bin/importmap audit
 
-  lint:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      - name: Await RubyGems propagation for locked gems
-        run: .github/scripts/await-gem-propagation.sh
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: .ruby-version
-          rubygems: 3.5.11
-          bundler-cache: true
-
       - name: Lint code for consistent style
+        if: always()
         run: bin/rubocop -f github
 
   test:
