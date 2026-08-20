@@ -21,7 +21,11 @@
 # WHY 45 MINUTES, AND WHY UNIFORM. Sized from measured successful durations over
 # the last ~12 runs per lane, not guessed:
 #
-#   scan_ruby / scan_js / lint / e2e_executed_set   0-1 min
+#   e2e_executed_set                                 0-1 min
+#   static (brakeman + importmap + rubocop)          1-2 min  (was scan_ruby /
+#                                                    scan_js / lint, three jobs
+#                                                    at 0-1 min each until they
+#                                                    merged to free two slots)
 #   island_animator                                  0-2 min
 #   playwright shards                                2-5 min  (worst success 17)
 #   test                                             3-10 min
