@@ -54,12 +54,25 @@
               shimmer_interval: 9 %>
       </div>
     </div>
-    <%# Div 3 (Avatar): spans both rows — the ✨ free-entry badge rides just to
-        its left, a small clean marker instead of a pill in the balance row. %>
-    <div class="flex flex-shrink-0 items-center gap-1.5">
-      <%= render "components/entry_token_badge" %>
+    <%# Div 3 (Avatar): spans both rows — the ✨ free-entry badge TUCKS into its
+        upper-left corner, overlapped by the avatar, the way a notification dot
+        rides a profile picture.
+        Absolutely positioned on purpose: the badge then costs the row NO width
+        whether or not the user holds a token. A flow-based tuck (negative
+        margin) can't do that — the badge's `.hidden` lives on the BUTTON so
+        updateNavTokens can surface it without a reload, and the wrapper it
+        leaves behind would still eat the negative margin and drag the avatar
+        left into the username.
+        No z-index on the badge wrapper: z-0 there would open a stacking context
+        and trap the count popover (z-50) UNDER the avatar's z-10. Leaving it
+        auto lets the badge paint below the avatar and the popover above it. %>
+    <%# ml-5 reserves the 16px of badge that sticks out past the avatar. The
+        badge is out of flow, so without it the username (which grows to fill
+        Div 1) runs right up under the sparkle. %>
+    <div class="relative ml-5 flex flex-shrink-0 items-center">
+      <div class="absolute -left-4 -top-2"><%= render "components/entry_token_badge" %></div>
       <button type="button"
-              class="dm-green hover:opacity-80 transition flex-shrink-0 flex items-center bg-transparent border-0 p-0"
+              class="dm-green relative z-10 hover:opacity-80 transition flex-shrink-0 flex items-center bg-transparent border-0 p-0"
               @click.stop="<%= gear_toggle_action %>"
               aria-label="<%= gear_toggle_label %>"
               aria-controls="gear-sidebar gear-sidebar-mobile"

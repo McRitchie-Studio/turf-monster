@@ -42,7 +42,7 @@ class EntryTokenBadgePlacementTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "the ✨ badge sits between the username and the avatar, not in the balance row" do
+  test "the ✨ badge tucks into the avatar corner, out of the row's flow" do
     render_navbar(usdc: 12.0, tokens: 1) do |body|
       # Match the ATTRIBUTE form: the layout's gear-sidebar delegation script
       # names these same hooks as CSS selectors earlier in the document, and a
@@ -59,6 +59,16 @@ class EntryTokenBadgePlacementTest < ActionDispatch::IntegrationTest
         "the badge must render immediately BEFORE the avatar toggle"
       assert balance_at < username_at,
         "sanity: the balance still leads the row"
+
+      # The tuck is absolute, not a negative margin: the badge's .hidden lives
+      # on the BUTTON, so a flow-positioned wrapper would survive a hidden
+      # badge and drag the avatar left into the username. ml-5 on the cluster
+      # reserves the 16px of badge that sticks out past the avatar.
+      cluster = body[username_at, (avatar_at - username_at) + 400]
+      assert_includes cluster, 'class="relative ml-5 flex flex-shrink-0 items-center"'
+      assert_includes cluster, 'class="absolute -left-4 -top-2"'
+      assert_match(/dm-green relative z-10/, cluster,
+        "the avatar must out-stack the badge it overlaps")
     end
   end
 

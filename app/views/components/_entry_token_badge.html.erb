@@ -53,10 +53,10 @@
           @blur="freeEntryHover = false"
           title="<%= free_entries %> unconsumed entry token<%= plural_suffix %> — free entry"
           aria-label="Free entry token<%= plural_suffix %>"
-          class="free-entry-badge inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary/15 border border-primary/40 text-primary leading-none hover:bg-primary/25 transition cursor-pointer <%= 'hidden' unless free_entries.positive? %>"
+          class="free-entry-badge inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary/25 border border-primary/50 text-primary leading-none hover:bg-primary/40 transition cursor-pointer <%= 'hidden' unless free_entries.positive? %>"
           data-free-entry-badge="true"
           data-token-count="<%= free_entries %>">
-    <span aria-hidden="true" style="font-size: 15px; line-height: 1;">✨</span>
+    <span aria-hidden="true" style="font-size: 16px; line-height: 1;">✨</span>
   </button>
   <%# Count popover — anchored to the RIGHT edge: the badge now lives at the
       end of the navbar, so a centered popover would hang off the viewport. %>
