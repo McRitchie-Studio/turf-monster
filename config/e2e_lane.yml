@@ -1,0 +1,64 @@
+# THE E2E LANE'S CONTRACT — what turf's green `playwright` checks actually cover.
+#
+# PORTED FROM mcritchie-studio 2026-08-20, because turf had the hole the hub had already
+# closed: a 3-WAY SHARDED playwright lane with no receipt, no contract and no gate. Three
+# shards could each execute nothing and report GREEN, and nothing in this repo would
+# notice. The hub's own ci.yml states the lesson that predicted this — "a lane that
+# CONSTITUTES a verdict must be enrolled on the day it is wired, or the next lane repeats
+# the bug one file over" — and it repeated one repo over.
+#
+# It is not hypothetical. During the hub's sharding work a shard executed 1,517 tests and
+# emitted a receipt claiming ONE file, while reporting green. Only the gate saw it.
+#
+# ONE file, read by the runtime gate:
+#   · bin/e2e-executed-set-check   reads Playwright's OWN report after the lane runs and
+#                                  asserts the set it EXECUTED matches this contract.
+#
+# WHY RUNTIME AND NOT SOURCE-COUNTING. Static counting answers "how many specs are
+# DECLARED". It cannot answer "how many RAN", and every escape hatch lives in that gap: a
+# `testInfo.skip()` is invisible to a source reader, so is a widened `--grep-invert`, so is
+# `--only-changed`, so is a spec whose file never got collected. Each is a different
+# SPELLING of the same event — a spec left the executed set — and enumerating spellings is
+# how the hub's guard was defeated three times before it started reading the receipt.
+#
+#     executed == total_specs - excluded
+#
+# TO CHANGE THESE NUMBERS you must edit this file, which is a visible, reviewable diff line
+# with a comment attached. That is the point: the hole cannot grow silently, only on
+# purpose, in front of a reviewer.
+---
+# Every `test(...)` committed under e2e/. DERIVED WITH THE RUNNER, never counted by hand:
+#   npx playwright test --list  ->  145 tests in 39 files
+#
+# Deriving it mattered immediately: a grep for "@devnet" suggested 18 excluded specs and
+# the lister says 17. The lister is the model Playwright itself uses; a grep is a guess
+# about text.
+total_specs: 145
+
+# The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
+# `--grep-invert "@devnet"` because they need a funded devnet wallet.
+#
+# ⚠️ THESE ARE COVERED NOWHERE TODAY. devnet-nightly.yml is the only workflow that would run
+# them and it is gated on `vars.DEVNET_NIGHTLY_ENABLED == 'true'`, which has completed
+# `skipped` on every scheduled run it has ever had (verified 8 consecutive days,
+# 2026-08-12..19). That is /tasks/turn-on-devnet-nightly, NOT this file's job. What this
+# file does is make the hole VISIBLE and pinned to its exact size, so widening the
+# exclusion later is a red build rather than a quiet loss of coverage.
+excluded: 17
+
+# total_specs - excluded. What the lane MUST execute, asserted against the runner's own
+# report, so no source-level spelling on any axis can move it without moving this line:
+#   npx playwright test --list --grep-invert "@devnet"  ->  128 tests in 38 files
+executed: 128
+
+# The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
+# title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
+# this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
+# quiet drop.
+excluded_tag: "@devnet"
+
+# The shard matrix in .github/workflows/ci.yml. The shards UNION to the whole lane, so this
+# is not a narrowing — but a shard that goes EMPTY exits 0 SILENTLY (sharding suppresses
+# Playwright's own "No tests found" guard), so the floor `executed >= shards` is
+# load-bearing and the gate refuses a run missing any shard's report.
+shards: 3
