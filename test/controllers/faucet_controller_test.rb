@@ -104,4 +104,70 @@ class FaucetControllerTest < ActionDispatch::IntegrationTest
     json = JSON.parse(response.body)
     assert_match /between \$1 and \$500/, json["error"]
   end
+
+  # --- OPSEC-020 production guard ---
+  #
+  # Regression: QA Heroku apps set no RAILS_ENV, so they boot as Rails
+  # production. The guard used to ask Rails.env.production? directly, which
+  # answered TRUE on QA and refused every claim there — observed live on
+  # qa.turfmonster.media as POST /faucet -> 422 "Faucet is production-disabled",
+  # with zero faucet TransactionLog rows in the app's whole history. The guard
+  # now asks AppFlags.live_production?, which QA_ENV=true excludes.
+  #
+  # The whole point of this pair is that Rails.env is production in BOTH cases
+  # and only QA_ENV differs — a test that just ran in the test env would pass
+  # against the old code too.
+
+  def with_production_env
+    Rails.stub(:env, ActiveSupport::StringInquirer.new("production")) { yield }
+  end
+
+  def with_qa_env(value)
+    original = ENV["QA_ENV"]
+    value.nil? ? ENV.delete("QA_ENV") : ENV["QA_ENV"] = value
+    yield
+  ensure
+    original.nil? ? ENV.delete("QA_ENV") : ENV["QA_ENV"] = original
+  end
+
+  test "claim is refused on live production (Rails production, QA_ENV unset)" do
+    log_in_as(@user)
+
+    with_production_env do
+      with_qa_env(nil) do
+        assert_no_difference "TransactionLog.count" do
+          post faucet_path, params: { amount: 50 }, as: :json
+        end
+      end
+    end
+
+    assert_response :unprocessable_entity
+    json = JSON.parse(response.body)
+    assert_equal false, json["success"]
+    assert_equal "Faucet is production-disabled", json["error"]
+  end
+
+  test "claim mints on a QA app (Rails production, QA_ENV=true)" do
+    log_in_as(@user)
+
+    mock_vault = Minitest::Mock.new
+    mock_vault.expect :ensure_ata, { ata: "fake_ata", created: false, signature: nil }, [String], mint: String
+    mock_vault.expect :mint_spl, { signature: "qa_tx_sig" }, [Integer], mint: String, to: String
+
+    with_production_env do
+      with_qa_env("true") do
+        Solana::Vault.stub :new, mock_vault do
+          assert_difference "TransactionLog.count", 1 do
+            post faucet_path, params: { amount: 50 }, as: :json
+          end
+        end
+      end
+    end
+
+    assert_response :success
+    json = JSON.parse(response.body)
+    assert_equal true, json["success"]
+    assert_equal "qa_tx_sig", json["tx"]
+    assert_equal "faucet", TransactionLog.last.transaction_type
+  end
 end

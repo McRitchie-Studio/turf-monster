@@ -119,7 +119,7 @@ class WalletsController < ApplicationController
 
   def faucet
     rescue_and_log(target: current_user) do
-      raise "Faucet is production-disabled" if Rails.env.production?  # OPSEC-020
+      raise "Faucet is production-disabled" if AppFlags.live_production?  # OPSEC-020
       raise "Faucet only available on Devnet" unless Solana::Config.devnet?
       raise "No wallet connected" unless current_user.solana_connected?
 
@@ -138,7 +138,7 @@ class WalletsController < ApplicationController
 
   def airdrop
     rescue_and_log(target: current_user) do
-      raise "Airdrop is production-disabled" if Rails.env.production?  # OPSEC-020
+      raise "Airdrop is production-disabled" if AppFlags.live_production?  # OPSEC-020
       raise "Airdrop only available on Devnet" unless Solana::Config.devnet?
       raise "No Solana wallet connected" unless current_user.solana_connected?
 
