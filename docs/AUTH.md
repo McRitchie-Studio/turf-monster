@@ -149,7 +149,7 @@ branch on `mode`: a wallet-less account reads `"web2"`.
 | Who gets prompted | `WalletSetupPolicy` — one rule, both auth paths + the entry gate |
 | Recorded at sign-in | `record_wallet_setup_state!` → `session[:wallet_setup]` (state) + `session[:wallet_setup_prompt]` (one-shot auto-open) |
 | Read on render | `wallet_setup_required?` — RPC-free; feeds `walletSetupRequired` in the client session payload |
-| The modal | `app/views/modals/_wallet_setup.html.erb` (Phantom row + explainer video) |
+| The modal | `app/views/modals/_wallet_setup.html.erb` (Phantom row + explainer video + Detailed Guide) |
 | Detecting a just-installed Phantom | `GET /wallet_probe` → `WalletProbeController`, framed hidden by the modal |
 | Entry gate | `eligibilityBlocker` → `wallet_setup_required`; server-side refusal in `ContestsController#enter` |
 
