@@ -1020,6 +1020,9 @@ body.modal-open { overflow: hidden; }
 }
 
 /* === Entry-token badge (components/_entry_token_badge.html.erb) ========
+   The ✨ badge beside the profile avatar, its level-up glow, and the
+   "✨ Free Entry" label that shares the navbar's balance slot.
+
    Punch animation fired by window.animateFreeEntryBadge() after a
    token-funded entry confirms. We intentionally do NOT set `display:` on
    .free-entry-badge so Tailwind's `hidden` class wins when the user has
@@ -1032,6 +1035,51 @@ body.modal-open { overflow: hidden; }
   40%  { transform: scale(1.2)  rotate(12deg); }
   60%  { transform: scale(1.3)  rotate(-6deg); }
   100% { transform: scale(1)    rotate(0deg); }
+}
+
+/* Level-up glow — window.armFreeEntryGlow() pulses the badge three times when
+   a SEEDS_PER_LEVEL crossing mints a free entry, so the celebration points at
+   WHERE the token landed. The navbar sits at z-[130], above the modal
+   backdrop, so this reads through the free-entry-earned modal on purpose.
+   ALWAYS the modern slash form rgb(var(...) / A) — a space-separated
+   "R G B" var is silently dropped by the legacy rgba(var(...), A) form. */
+.free-entry-glow { animation: free-entry-glow 1.4s ease-out 3; }
+@keyframes free-entry-glow {
+  0%   { box-shadow: 0 0 0 0    rgb(var(--color-primary-500-rgb) / 0.9); }
+  25%  { box-shadow: 0 0 22px 8px rgb(var(--color-primary-500-rgb) / 0.75); }
+  50%  { box-shadow: 0 0 14px 5px rgb(var(--color-primary-500-rgb) / 0.40); }
+  100% { box-shadow: 0 0 0 0    rgb(var(--color-primary-500-rgb) / 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .free-entry-glow { animation: none; box-shadow: 0 0 14px 5px rgb(var(--color-primary-500-rgb) / 0.45); }
+}
+
+/* === "✨ Free Entry" label (layouts/_navbar.html.erb balance slot) ======
+   The second face of the navbar balance slot. Two ways it shows:
+     .is-active            — it REPLACES the amount ($0 balance + a held
+                             token). In flow, sized like the amount.
+     .fe-peek (on the slot) — the ✨ badge beside the avatar is hovered, so
+                             the label PEEKS over the amount as a pill. Out of
+                             flow, so the navbar never reflows on hover.
+   .is-active wins: when the label is already the visible face there is
+   nothing to peek over, and re-positioning it would collapse the slot. */
+.free-entry-label { display: none; }
+.free-entry-label.is-active { display: inline-flex; }
+.fe-peek [data-balance-display]:not(.hidden) { opacity: 0; }
+.fe-peek .free-entry-label:not(.is-active) {
+  display: inline-flex;
+  position: absolute;
+  /* Anchored to the slot's RIGHT edge so the pill grows LEFT, into the navbar's
+     empty middle, instead of right across the gear/theme icons and username. */
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 20;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  background: var(--color-surface);
+  border: 1px solid rgb(var(--color-primary-500-rgb) / 0.45);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.22);
 }
 
 /* === Contest chat panel (contests/_chat_panel.html.erb) ================ */

@@ -13,7 +13,11 @@
 <% gear_expanded_attr = "$store.sidebars && $store.sidebars.gearOpen ? 'true' : 'false'" %>
 <% gear_toggle_label = current_user&.admin? ? "Toggle admin menu" : "Toggle settings menu" %>
 
-<div class="flex gap-2 min-w-0">
+<%# freeEntryHover is the ✨ badge → balance-slot hover channel: the badge
+    (rendered beside the avatar, Div 3) flips it and the balance slot inside
+    balance_html reads it to peek "✨ Free Entry" over the amount. Alpine scope
+    is DOM-based, so both live under this one wrapper. %>
+<div class="flex gap-2 min-w-0" x-data="{ freeEntryHover: false }">
   <% if logged_in? %>
     <%# Left column: Div 1 + Div 2 stacked %>
     <div class="flex-1 min-w-0">
@@ -22,7 +26,6 @@
         <% if balance_html.present? %>
           <%= raw balance_html %>
         <% end %>
-        <%= render "components/entry_token_badge" %>
         <span class="hidden md:flex flex-shrink-0 items-center gap-2 ml-auto">
           <span class="hidden md:block"><%= render "components/gear_sidebar_trigger" %></span>
           <%= render "components/theme_toggle_morph" %>
@@ -51,17 +54,21 @@
               shimmer_interval: 9 %>
       </div>
     </div>
-    <%# Div 3 (Avatar): spans both rows %>
-    <button type="button"
-            class="dm-green hover:opacity-80 transition flex-shrink-0 flex items-center bg-transparent border-0 p-0"
-            @click.stop="<%= gear_toggle_action %>"
-            aria-label="<%= gear_toggle_label %>"
-            aria-controls="gear-sidebar gear-sidebar-mobile"
-            aria-haspopup="dialog"
-            :aria-expanded="<%= gear_expanded_attr %>"
-            data-profile-image-toggle="true">
-      <%= render "components/avatar", user: current_user, size: "nav" %>
-    </button>
+    <%# Div 3 (Avatar): spans both rows — the ✨ free-entry badge rides just to
+        its left, a small clean marker instead of a pill in the balance row. %>
+    <div class="flex flex-shrink-0 items-center gap-1.5">
+      <%= render "components/entry_token_badge" %>
+      <button type="button"
+              class="dm-green hover:opacity-80 transition flex-shrink-0 flex items-center bg-transparent border-0 p-0"
+              @click.stop="<%= gear_toggle_action %>"
+              aria-label="<%= gear_toggle_label %>"
+              aria-controls="gear-sidebar gear-sidebar-mobile"
+              aria-haspopup="dialog"
+              :aria-expanded="<%= gear_expanded_attr %>"
+              data-profile-image-toggle="true">
+        <%= render "components/avatar", user: current_user, size: "nav" %>
+      </button>
+    </div>
   <% else %>
     <span class="hidden md:block"><%= render "components/gear_sidebar_trigger" %></span>
     <span class="hidden md:flex"><%= render "components/theme_toggle" %></span>

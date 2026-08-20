@@ -469,6 +469,15 @@
                 console.warn('[free-entry] modal open failed', err);
               }
             }, 900);
+            // ...and glow the ✨ badge beside the avatar on the same beat, so
+            // the celebration points at WHERE the earned token landed. Armed
+            // rather than fired-and-forgotten: on a user's FIRST token the
+            // badge is still hidden here, and updateNavTokens replays the glow
+            // when the count hydrate unhides it (solana_utils.js).
+            setTimeout(function() {
+              try { window.armFreeEntryGlow && window.armFreeEntryGlow(); }
+              catch (err) { console.warn('[free-entry] glow failed', err); }
+            }, 900);
           });
 
           // solanaModal is a STATELESS proxy over Alpine.store('modals').

@@ -1,4 +1,4 @@
-// Entry-token badge — navbar 🎟️ pill + click-to-show popover.
+// Entry-token badge — navbar ✨ badge + click-to-show count popover.
 // Used by components/_entry_token_badge.html.erb. Replaces the inline
 // x-data that read dataset.tokenCount on every toggle (passive sync from
 // updateNavTokens in solana_utils.js); this factory subscribes to a
