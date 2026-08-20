@@ -203,12 +203,25 @@ jobs:
     #   app takes its designed nil-safe fallbacks.
     #
     #   COVERAGE, STATED HONESTLY: server-side on-chain paths are NOT
-    #   exercised by any e2e that currently runs. This job excludes the
-    #   @devnet specs (--grep-invert), and devnet-nightly.yml — the workflow
-    #   that would run them — is DISABLED: it gates on
-    #   `vars.DEVNET_NIGHTLY_ENABLED == 'true'`, and every scheduled run has
-    #   completed `skipped`. It has never run. Do not read this pin as
-    #   "covered elsewhere" — it is covered nowhere today.
+    #   exercised by THIS job — it excludes the @devnet specs
+    #   (--grep-invert). They are exercised by devnet-nightly.yml, nightly at
+    #   08:00 UTC, against real devnet.
+    #
+    #   That sentence was false until 2026-08-20, and the shape of its falsity
+    #   is worth keeping. devnet-nightly.yml gated its whole JOB on
+    #   `vars.DEVNET_NIGHTLY_ENABLED == 'true'`, so with the variable unset
+    #   every scheduled run completed `skipped` — grey, one second, twelve
+    #   consecutive days of it (31248719068 … 32233040903). The lane was not
+    #   broken; it was absent, and nothing anywhere went red to say so. So do
+    #   NOT downgrade this back to a bare "covered by the nightly" and move on:
+    #   the pin below is only licensed while that nightly is genuinely running,
+    #   which is a claim with an expiry date on it.
+    #
+    #   What keeps the claim honest is the `devnet_lane_guard` job in this same
+    #   workflow: it fails THIS PR when the nightly has had no successful run
+    #   in 3 days, so the next lapse arrives as a red build on someone's own
+    #   work instead of as a discovery. If you are reading this because that
+    #   guard is red, the coverage described above is not currently happening.
     #
     #   WHAT LICENSES THE PIN: no e2e asserts the observables these RPCs
     #   feed. That is a MEASUREMENT, not an argument — the full chromium
@@ -366,3 +379,37 @@ jobs:
           name: screenshots-shard-${{ matrix.shard }}
           path: ${{ github.workspace }}/tmp/screenshots
           if-no-files-found: ignore
+
+  # Reddens THIS pull request when turf-monster's on-chain E2E lane has stopped
+  # running. The lane itself is devnet-nightly.yml; this job only reads its
+  # history and reports.
+  #
+  # WHY IT LIVES IN PR CI. On 2026-08-20 the 18 @devnet specs were found to be
+  # running nowhere, and had been for at least twelve days. Nothing had failed —
+  # devnet-nightly.yml completed `skipped` every night, which is grey, and grey
+  # in the Actions tab is a signal only to whoever thinks to go look. Nobody
+  # subscribes to the absence of an event. A pull request is the one surface a
+  # person here reliably reads, so that is where the lapse has to surface.
+  #
+  # IT WILL BLOCK UNRELATED WORK, and that is the trade being made deliberately:
+  # while this is red, every PR is merging on-chain code whose only coverage is
+  # not running. The 3-day window (see the script) is what keeps a single flaky
+  # devnet night from doing it — one bad run costs nobody a merge; three days of
+  # silence costs everybody one, which is roughly the right price for the thing
+  # this PR was opened to fix.
+  #
+  # Sub-minute and network-only, so it consolidates nothing and blocks nothing
+  # else; it just has to be visible.
+  devnet_lane_guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: The @devnet lane must have run recently
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: .github/scripts/devnet-lane-guard.sh

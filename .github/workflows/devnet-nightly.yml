@@ -1,9 +1,42 @@
-# Nightly devnet integration — runs Playwright tests tagged @devnet against
-# the deployed turf_vault devnet program. Requires a funded SOLANA_BOT_KEY
-# secret (operator: GitHub Settings → Secrets and variables → Actions).
+# Nightly devnet integration — runs the Playwright specs tagged @devnet against
+# the deployed turf_vault devnet program. These 18 specs
+# (e2e/devnet-smoke.spec.js) are turf-monster's ONLY server-side on-chain E2E
+# coverage: ci.yml's playwright job excludes them by design (it pins
+# SOLANA_RPC_URL to a black hole so the PR lane stays hermetic), so if this
+# workflow does not run, that coverage does not exist.
 #
-# If SOLANA_BOT_KEY is unset, the job skips silently. This prevents
-# fork-PR runs from spamming the bot wallet.
+# THE JOB HAS NO `if:`, AND THAT IS THE POINT. It used to carry
+# `if: vars.DEVNET_NIGHTLY_ENABLED == 'true'` at the job level, which meant an
+# unset variable produced a run that completed **skipped** — grey, one second,
+# indistinguishable at a glance from a run that passed. It stayed that way for
+# at least twelve consecutive days (runs 31248719068 … 32233040903, 2026-08-08
+# through 2026-08-19, every one `skipped`), and it was found by a human reading
+# this file rather than by any build going red. `config/feature_shapes.yml` had
+# meanwhile dropped the e2e_onchain tier BECAUSE no lane ran it, so the DevOps
+# cycle had stopped asking for the evidence too.
+#
+# A switch whose "off" is silent is not a switch, it is a leak. So the gate moved
+# from the job's `if:` into the preflight STEP below: DEVNET_NIGHTLY_ENABLED
+# still turns the lane off, but turning it off now costs a RED run that names
+# itself, every night, until someone turns it back on. The variable kept its
+# meaning; only its failure mode changed.
+#
+# Fork safety, which the old `if:` was also credited with: this workflow has no
+# `pull_request` trigger, so a fork PR cannot run it and cannot reach the bot
+# wallet. A fork that deliberately dispatches it with no secrets gets a red
+# preflight — a true statement about that fork — and no wallet is touched.
+#
+# WHO FINDS OUT WHEN THIS GOES RED, in order of reliability:
+#   1. ci.yml's `devnet_lane_guard` job — reddens every PR once the lane has had
+#      no successful run in 3 days. This is the channel that reaches a person,
+#      because it lands on work they are already watching.
+#   2. GitHub's own scheduled-workflow failure notification.
+#   3. The optional RECONCILER_ALERT_WEBHOOK below.
+#
+# Operator switches (Settings → Secrets and variables → Actions):
+#   variable DEVNET_NIGHTLY_ENABLED = true
+#   secret   SOLANA_BOT_KEY         = base58 private key of a FUNDED devnet wallet
+#   secret   SOLANA_RPC_URL         = the devnet RPC endpoint to test against
 
 name: Devnet Nightly
 
@@ -16,8 +49,14 @@ jobs:
   devnet:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    # Skip if the bot key isn't configured (e.g. forks or fresh repo setup)
-    if: ${{ vars.DEVNET_NIGHTLY_ENABLED == 'true' }}
+
+    env:
+      # Job-level, NOT step-level, on purpose. A step's own `env:` block is not
+      # reliably readable from that same step's `if:` expression, and the notify
+      # step below is conditioned on this value — as a step-level env it was a
+      # condition that could never be true, i.e. a failure alert that never
+      # fired. Hoisting it here removes the ambiguity instead of betting on it.
+      RECONCILER_ALERT_WEBHOOK: ${{ secrets.RECONCILER_ALERT_WEBHOOK }}
 
     services:
       postgres:
@@ -33,6 +72,41 @@ jobs:
         options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
 
     steps:
+      # FIRST, and fails the run rather than skipping it. Reports EVERY missing
+      # switch in one pass — a preflight that stops at the first one turns a
+      # single fix into three round trips of a nightly. Presence only: the two
+      # secrets are never echoed, compared, or interpolated into a message.
+      - name: Preflight — the lane's own switches
+        env:
+          DEVNET_NIGHTLY_ENABLED: ${{ vars.DEVNET_NIGHTLY_ENABLED }}
+          SOLANA_BOT_KEY: ${{ secrets.SOLANA_BOT_KEY }}
+          SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
+        run: |
+          set -euo pipefail
+          missing=""
+          [ "${DEVNET_NIGHTLY_ENABLED:-}" = "true" ] || missing="${missing}
+          - variable \`DEVNET_NIGHTLY_ENABLED\` is not \`true\` (the lane is switched OFF)"
+          [ -n "${SOLANA_BOT_KEY:-}" ] || missing="${missing}
+          - secret \`SOLANA_BOT_KEY\` is unset (needs a FUNDED devnet keypair)"
+          [ -n "${SOLANA_RPC_URL:-}" ] || missing="${missing}
+          - secret \`SOLANA_RPC_URL\` is unset"
+
+          if [ -n "$missing" ]; then
+            {
+              echo "### :x: The @devnet lane is not configured"
+              echo
+              echo "$missing"
+              echo
+              echo "turf-monster's 18 on-chain E2E specs are the only server-side on-chain"
+              echo "coverage in the repo, and they run in this workflow alone. While this is"
+              echo "red, that coverage does not exist."
+              echo
+              echo "Fix at https://github.com/${GITHUB_REPOSITORY}/settings/variables/actions"
+            } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            exit 1
+          fi
+          echo "All three switches are live; running the @devnet suite."
+
       - uses: actions/checkout@v7
       - name: Await RubyGems propagation for locked gems
         run: .github/scripts/await-gem-propagation.sh
@@ -53,19 +127,39 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
         run: bin/rails db:test:prepare && bin/rails runner -e test e2e/seed.rb
 
-      - name: Run @devnet Playwright suite
+      # `--project=devnet` selects the specs POSITIVELY. The old `--grep
+      # "@devnet"` reached the same 18 tests only by double negation — it relied
+      # on the `chromium` project's `grepInvert: /@devnet/` to suppress a second,
+      # duplicate pass. Delete that grepInvert while tuning the PR lane and this
+      # nightly would silently run every on-chain spec TWICE, at real devnet cost.
+      # The `devnet` project also carries the 180s per-test timeout these specs
+      # need (playwright.config.js).
+      #
+      # This step's NAME is load-bearing: .github/scripts/devnet-lane-guard.sh
+      # reads it back through the API to prove a green run actually ran the
+      # suite. test/lib/devnet_lane_guard_test.rb pins the two together.
+      - name: Run the @devnet Playwright suite
         env:
           RAILS_ENV: test
           DATABASE_URL: postgres://postgres:postgres@localhost:5432
           REDIS_URL: redis://localhost:6379/0
           SOLANA_BOT_KEY: ${{ secrets.SOLANA_BOT_KEY }}
           SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
-        run: npm test -- --grep "@devnet"
+        run: npm test -- --project=devnet
+
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: devnet-playwright-results
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 14
+          if-no-files-found: ignore
 
       - name: Notify on failure
         if: failure() && env.RECONCILER_ALERT_WEBHOOK != ''
-        env:
-          RECONCILER_ALERT_WEBHOOK: ${{ secrets.RECONCILER_ALERT_WEBHOOK }}
         run: |
           curl -X POST -H 'Content-Type: application/json' \
             -d "{\"text\":\":x: Nightly @devnet failed on $(date -u +%Y-%m-%d). Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
