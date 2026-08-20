@@ -116,23 +116,48 @@ test("the wallet step renders the Phantom row and the teaching block @smoke", as
   // Not waiting yet — the spinner only appears once they leave to install.
   await expect(phantomRow.locator(".cta-spinner")).toBeHidden();
 
-  // The teaching block: heading, both screenshots side by side, and the CTA.
-  await expect(page.getByText("New to Solana Wallets?")).toBeVisible();
-  await expect(page.locator('img[src="/phantom-step-download.png"]')).toBeVisible();
-  await expect(page.locator('img[src="/phantom-step-create-wallet.png"]')).toBeVisible();
-  await expect(page.getByRole("link", { name: /Read the setup guide/i })).toBeVisible();
+  // The teaching block: heading, the player (already running, muted), the
+  // unmute affordance, and the CTA.
+  await expect(page.getByRole("heading", { name: /New to Solana/ })).toBeVisible();
+  await expect(page.locator('iframe[src*="youtube-nocookie.com/embed"]')).toHaveCount(1);
+  await expect(page.getByRole("button", { name: /Unmute the video/i })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Detailed Guide/i })).toBeVisible();
 });
 
-test("both onboarding screenshots load (not broken images) @smoke", async ({ page }) => {
+test("the video starts itself, muted, and one click buys sound @smoke", async ({ page }) => {
   await signUpFreshEmail(page);
   await expect(page.getByRole("heading", { name: "Set up your wallet" })).toBeVisible();
 
-  // naturalWidth is 0 for an image the browser failed to fetch — a visibility
-  // assertion alone passes on a broken <img>.
-  for (const src of ["/phantom-step-download.png", "/phantom-step-create-wallet.png"]) {
-    const width = await page.locator(`img[src="${src}"]`).evaluate((img) => img.naturalWidth);
-    expect(width, `${src} should decode`).toBeGreaterThan(0);
-  }
+  // It is already playing when the card lands — no poster, no play button.
+  // Muted is not a preference: it is the only autoplay a browser permits on a
+  // modal that opened without a click, so the two ship as one thing.
+  const player = page.locator('iframe[src*="youtube-nocookie.com/embed"]');
+  await expect(player).toHaveCount(1);
+  const src = await player.getAttribute("src");
+  expect(src, "autoplay alone is blocked outright").toContain("autoplay=1");
+  expect(src, "...so mute travels with it").toContain("mute=1");
+  expect(src, "the unmute click reaches the player over the JS API").toContain("enablejsapi=1");
+
+  // The affordance covers the whole player on purpose: while the video is
+  // silent, a click landing on the player itself would PAUSE it.
+  const unmute = page.getByRole("button", { name: /Unmute the video/i });
+  await expect(unmute).toBeVisible();
+  await expect(page.getByText("Tap for sound")).toBeVisible();
+  // A ratio, not exact pixels: the container's 1px border and sub-pixel layout
+  // leave the overlay a couple of tenths narrower than the iframe, and the
+  // claim under test is not "identical box" — it is "covers the player rather
+  // than sitting in a corner", which a corner chip would fail at ~0.3.
+  const box = await unmute.boundingBox();
+  const frameBox = await player.boundingBox();
+  expect(box.width / frameBox.width, "the overlay must cover the player").toBeGreaterThan(0.98);
+  expect(box.height / frameBox.height, "the overlay must cover the player").toBeGreaterThan(0.98);
+
+  // One click, and it hands the player's own controls back for good.
+  await unmute.click();
+  await expect(unmute).toBeHidden();
+
+  // The modal is still open around it — the whole point is not leaving.
+  await expect(page.getByRole("heading", { name: "Set up your wallet" })).toBeVisible();
 });
 
 test("the modal is dismissible and does not re-open on navigation @smoke", async ({ page }) => {
@@ -208,14 +233,22 @@ test("with Phantom present the row shows Installed and says what signing does", 
   await expect(page.locator('a[href="https://phantom.com/download"]')).toBeHidden();
 });
 
-test("leaving to install puts the row in a waiting state that resolves itself", async ({ page }) => {
+test("leaving to install puts the row in a waiting state that watches, not reloads", async ({ page }) => {
   // The operator's design: no instruction to follow. Clicking Install arms a
   // spinner, and the row updates on its own — via the 1s ping when the provider
-  // can appear without a reload, and via ONE automatic reload when it cannot
-  // (Chrome does not inject a new extension into an already-open tab).
+  // can appear in THIS document, and via a hidden probe frame when it cannot
+  // (Chrome injects a new extension only into documents created after the
+  // install, so this tab will never have one).
+  //
+  // What this test pins is the half the operator asked for on 2026-08-18: the
+  // page they are reading does not move.
   await signUpFreshEmail(page);
   const row = page.locator('a[href="https://phantom.com/download"]');
   await expect(row).toBeVisible();
+
+  // A witness that lives ONLY in this document. It survives anything except a
+  // navigation, which makes it the cheapest possible proof that none happened.
+  await page.evaluate(() => { window.__walletProbeWitness = "alive"; });
 
   const [installTab] = await Promise.all([
     page.context().waitForEvent("page").catch(() => null),
@@ -226,23 +259,102 @@ test("leaving to install puts the row in a waiting state that resolves itself", 
   // Waiting state: spinner + Waiting…, and NO instruction to press anything.
   await expect(row.locator(".cta-spinner")).toBeVisible();
   await expect(row).toContainText(/waiting/i);
-  await expect(page.getByText(/updates on its own/i)).toBeVisible();
+  await expect(page.getByText(/Finish downloading the Phantom wallet extension/i)).toBeVisible();
   await expect(page.getByText("Reload page")).toBeHidden();
 
-  // Coming back to the tab triggers the single automatic reload, and the modal
-  // has to survive it — the server-side prompt was spent on the first render, so
-  // the reopen rides sessionStorage.
+  // The probe frame really loads OUR probe page. This is the assertion that
+  // covers the CSP exemption end to end: the app forbids being framed
+  // (frame-ancestors 'none') and WalletProbeController relaxes that to 'self'
+  // for this one page. Get that wrong and the frame is silently refused, the
+  // row waits forever, and nothing anywhere reports an error.
+  await expect
+    .poll(
+      async () =>
+        await page.evaluate(() => {
+          const f = document.querySelector('iframe[title="Phantom detection"]');
+          if (!f) return "no-frame";
+          try {
+            return (f.contentDocument && f.contentDocument.title) || "unreadable";
+          } catch (e) {
+            return "blocked";
+          }
+        }),
+      { timeout: 15000, message: "the probe frame must load the same-origin probe page" }
+    )
+    .toBe("wallet probe");
+
+  // Coming back to the tab re-pokes the probe — and moves nothing else. The
+  // modal is still up because it was never torn down, not because it was
+  // rebuilt after a reload.
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await page.waitForTimeout(2500);
+  await expect(page.getByRole("heading", { name: "Set up your wallet" })).toBeVisible();
+
+  expect(
+    await page.evaluate(() => window.__walletProbeWitness),
+    "the page must not have reloaded"
+  ).toBe("alive");
+  // The retired mechanism must not come back under any name.
+  expect(await page.evaluate(() => sessionStorage.getItem("walletSetupAutoReloaded"))).toBeNull();
+});
+
+test("a Phantom installed after this tab opened flips the row in place", async ({ page }) => {
+  // THE CASE THE WHOLE PROBE EXISTS FOR, and the one no amount of polling can
+  // reach: the tab was open before the install, so this document has no
+  // provider and never will. A document created AFTER the install does.
+  //
+  // Simulated exactly that way — the page keeps no Phantom, and only NEW
+  // /wallet_probe documents have one. Fulfilling the route is the one honest
+  // way to draw that line in a browser we cannot install an extension into.
+  await signUpFreshEmail(page);
+  const row = page.locator('a[href="https://phantom.com/download"]');
+  await expect(row).toBeVisible();
+
+  await page.evaluate(() => { window.__walletProbeWitness = "alive"; });
+
+  await page.route("**/wallet_probe*", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      body:
+        "<!DOCTYPE html><html><head><title>wallet probe</title>" +
+        "<script>window.phantom = { solana: { isPhantom: true } };</script>" +
+        "</head><body></body></html>",
+    })
+  );
+
+  const [installTab] = await Promise.all([
+    page.context().waitForEvent("page").catch(() => null),
+    row.click(),
+  ]);
+  if (installTab) await installTab.close().catch(() => {});
+
+  // The row flips itself. No reload, no click, no instruction.
+  await expect(page.getByText("Installed", { exact: true })).toBeVisible({ timeout: 20000 });
+  await expect(row).toBeHidden();
+
+  // ...and the page underneath is the same page it always was.
+  expect(
+    await page.evaluate(() => window.__walletProbeWitness),
+    "detecting Phantom must not reload the page"
+  ).toBe("alive");
+
+  // The effects swap with the state: the glow ring was the install row's TARGET
+  // marker and leaves with it; the connect row pulses instead.
+  const connectRow = page.locator("button.pulse-cta");
+  await expect(connectRow).toBeVisible();
+  await expect(page.locator("a.studio-team-glow")).toHaveCount(0);
+
+  // Clicking it hands the intent across the one reload that IS needed — this
+  // document still cannot reach Phantom, so it cannot sign here.
+  await connectRow.click();
   await page.waitForLoadState("load");
   await expect(page.getByRole("heading", { name: "Set up your wallet" })).toBeVisible({
     timeout: 15000,
   });
-
-  // And it reloads AT MOST once — a focus loop must not reload forever.
-  const reloadedFlag = await page.evaluate(() => sessionStorage.getItem("walletSetupAutoReloaded"));
-  expect(reloadedFlag).toBe("1");
-  const reopenFlag = await page.evaluate(() => sessionStorage.getItem("walletSetupReopen"));
-  expect(reopenFlag).toBeNull(); // consumed by the layout on load
+  // Both keys are spent on arrival, so nothing replays later.
+  expect(await page.evaluate(() => sessionStorage.getItem("walletSetupAutoConnect"))).toBeNull();
+  expect(await page.evaluate(() => sessionStorage.getItem("walletSetupReopen"))).toBeNull();
 });
 
 test("a wallet that registers AFTER the modal opens still flips to Connect", async ({ page }) => {

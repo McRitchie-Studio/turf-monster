@@ -160,6 +160,15 @@
       <template x-if="$store.modals.current().id === 'wallet-setup'">
         <%= render "modals/wallet_setup" %>
       </template>
+      <%# age-verify was MISSING here until 2026-08-19 — the exact gap the note
+          above warns about. The gallery listed the variant and /admin/modals
+          opened it, but this layout had no registration for the id, so the card
+          rendered empty: the preview looked like a working modal with nothing in
+          it. Found while adding the chain's 2-of-3 pill to it, which nobody
+          could have reviewed. %>
+      <template x-if="$store.modals.current().id === 'age-verify'">
+        <%= render "modals/age_verify" %>
+      </template>
       <template x-if="$store.modals.current().id === 'buy-entry-token'">
         <%= render "modals/buy_entry_token" %>
       </template>
