@@ -68,7 +68,9 @@ test("the card leads with the wallet the account actually used", async ({ page }
   await expect.poll(async () => (await currentModal(page))?.id, { timeout: 15_000 }).toBe("web3-step-up");
 
   // The whole point of remembering the brand: one button, named.
-  await expect(dialog(page).getByRole("button", { name: /Continue with Solflare/i })).toBeVisible();
+  // The STANDARD web3 auth row: the wallet's own name, not a "Continue with …"
+  // sentence. Same shape the connect picker and the wallet-setup step use.
+  await expect(dialog(page).getByRole("button", { name: /Solflare/i })).toBeVisible();
   // ...and the address, so signing with a different wallet is a visible choice.
   const hint = `${staged.address.slice(0, 4)}\u2026${staged.address.slice(-4)}`;
   await expect(dialog(page).getByText(hint)).toBeVisible();
@@ -80,7 +82,7 @@ test("an account with no remembered brand gets the picker, not a dead end", asyn
   await expect.poll(async () => (await currentModal(page))?.id, { timeout: 15_000 }).toBe("web3-step-up");
 
   await expect(dialog(page).getByRole("button", { name: /Connect your wallet/i })).toBeVisible();
-  await expect(dialog(page).getByRole("button", { name: /Continue with/i })).toHaveCount(0);
+  await expect(dialog(page).getByRole("button", { name: /Phantom|Solflare|Backpack/i })).toHaveCount(0);
 });
 
 test("Use a different wallet reaches the picker and comes back", async ({ page }) => {

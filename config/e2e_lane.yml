@@ -121,7 +121,28 @@
 # tree is what caught it, exactly as the note left by the previous round instructed.
 # Do that, every time, on the merged tree. Do not take either side, and do not do the
 # arithmetic — run the lister.
-total_specs: 159
+#
+# 159 -> 166 (web3-step-up-auth): seven specs in e2e/web3_step_up.spec.js for the WEB3
+# STEP-UP card — the modal a self-custody account meets when it signs in with a web2
+# credential. Every one of them asserts something the response bytes cannot show, which is
+# why they are here and not in the markup tier:
+#   · that the card OPENS at all. The server arms a one-shot session prompt and the
+#     layout's chain driver decides whether to act on it; a markup tier reads the payload
+#     in the DOM and learns nothing about whether a modal was ever pushed onto the host.
+#   · that dismissing HANDS OFF to the onboarding chain. The step-up HOLDS that chain
+#     rather than racing it, so a hand-off that silently failed would not merely skip a
+#     card — it would make every step the user still owed unreachable for the whole
+#     session. Caught live while writing these: the card correctly released into the age
+#     gate, which is the behaviour the spec now pins.
+#   · that the picker round-trips. `Use a different wallet` swaps to the connect picker
+#     and Back must return HERE carrying the props it left with; before the picker learned
+#     this backTo target it CLOSED instead, dropping the user out of the flow with nothing
+#     on screen.
+#   · that a wallet with no remembered brand gets the picker rather than a dead end, and
+#     that the card is a one-shot that does not nag on the next page.
+# Re-derived with the lister after adding them, never hand-incremented:
+# `npx playwright test --list` -> 166 tests in 42 files.
+total_specs: 166
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -172,15 +193,17 @@ allowed_skips: 4
 # this line. Derived: 159 committed - 17 @devnet - 4 allowed = 138.
 #
 # Every number here was re-derived with the runner, not adjusted by arithmetic on the last
-# one. On this MERGED tree: `npx playwright test --list` reports 159 tests in 41 files,
-# `--grep "@devnet"` 17, and `--grep-invert "@devnet" --project=chromium` 142 collected for
-# the PR lane — 142 - 4 runtime skips = 138.
+# one. On THIS tree: `npx playwright test --list` reports 166 tests in 42 files,
+# `--grep "@devnet"` 17, and `--grep-invert "@devnet" --project=chromium` 149 collected for
+# the PR lane — 149 - 4 runtime skips = 145. The seven added specs carry no runtime skip,
+# so `allowed_skips` is untouched at 4; the whole delta lands on `executed`.
 #
 # ⚠️ RE-DERIVE THIS ON EVERY MERGE, and do not take either side. See the worked example
 # on total_specs above: this merge joined two branches that had each written 136 for a
 # DIFFERENT pair of specs, and the number came through the merge unconflicted.
 #
-# History: 136 on each of the two branches this merge joins — fade-mask-follows-face-swap
+# History: 138 before web3-step-up-auth added its seven step-up specs;
+# 136 on each of the two branches the merge before that joins — fade-mask-follows-face-swap
 # and hide-badge-for-zero-tokens BOTH declared 136 for different pairs of specs, the trap
 # firing for the THIRD time; 134 on each of the two branches the merge before that joined
 # (redact-helius-key-from-browser and fade-mask-follows-face-swap), the second firing;
@@ -189,7 +212,7 @@ allowed_skips: 4
 # 128 (149 - 17 - 4) before either of them; 126 before that (the two payment specs still
 # skipping); and 122 against 145 committed before adopt-engine-geo-primitives added its
 # four geo specs.
-executed: 138
+executed: 145
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to

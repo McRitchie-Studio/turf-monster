@@ -14,6 +14,19 @@ class Web3StepUpGalleryTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
+  # THIS card's markup only. The preview layout registers EVERY modal in the
+  # page, so an assertion against the whole body reads every other card's markup
+  # too — which is how a NEGATIVE assertion here ("no filled CTA") failed against
+  # a filled CTA belonging to an unrelated modal. The onboarding gallery test
+  # carries the same note for the same reason.
+  def card
+    node = Nokogiri::HTML(response.body).css("template").find { |t|
+      t["x-if"].to_s.include?("=== 'web3-step-up'")
+    }
+    assert node, "no <template> registration found for web3-step-up"
+    node.to_html
+  end
+
   # Same failure mode the onboarding and wallet-setup modals each carry a guard
   # for: a double quote inside the double-quoted x-data closes the attribute
   # early and Alpine mounts the component as a SILENT no-op — the markup still
@@ -33,13 +46,48 @@ class Web3StepUpGalleryTest < ActionDispatch::IntegrationTest
 
   # --- the remembered-wallet card (the common case) ---------------------------
 
-  test "a remembered wallet gets ONE button naming that wallet" do
+  test "a remembered wallet gets ONE row naming that wallet" do
     preview(REMEMBERED)
-    # The point of the whole provider column: the CTA says the brand rather than
-    # sending a returning Phantom user back through a three-way picker.
-    assert_includes response.body, "'Continue with ' + providerLabel"
+    # The point of the whole provider column: the card offers the brand rather
+    # than sending a returning Phantom user back through a three-way picker.
+    assert_includes response.body, 'x-text="providerLabel"'
     assert_includes response.body, "'#se-wallet-' + provider",
-                    "the CTA must paint the brand's own sprite icon"
+                    "the row must paint the brand's own sprite icon"
+  end
+
+  # The STANDARD web3 auth button (operator call, 2026-08-21) — a wallet row, not
+  # a filled CTA, so a wallet reads identically in this card, the connect picker
+  # and the wallet-setup step. Asserted as the exact class string those three
+  # share: a row that drifts off it is the drift this test exists to catch.
+  ROW_CLASSES = "w-full flex items-center gap-3 p-3 rounded-xl bg-surface-alt border border-strong".freeze
+
+  test "the wallet button is the standard wallet ROW, not a filled CTA" do
+    preview(REMEMBERED)
+    assert_includes card, ROW_CLASSES
+    assert_not_includes card, "btn btn-primary btn-lg",
+                        "the filled CTA was replaced by the standard wallet row"
+    # The row's own furniture: the Installed badge and the chevron, the same two
+    # the picker and the setup row carry.
+    assert_includes card, 'x-show="!connecting &amp;&amp; detected"'
+    assert_includes card, "Installed"
+  end
+
+  test "the wallet row glows, because it is the one thing to press" do
+    preview(REMEMBERED)
+    # pulse-cta is the engine's attention beat (engine-motion.css). Tuned to the
+    # same values the wallet-setup connect row uses so the two beat alike.
+    assert_includes card, "pulse-cta"
+    assert_includes card, "--pulse-cta-color: rgb(var(--color-primary-rgb))"
+  end
+
+  test "presence is polled, never read once at mount" do
+    preview(REMEMBERED)
+    # wallet_provider.js warns that available() fills in asynchronously as
+    # wallets register, and this card auto-opens on the render right after auth —
+    # the worst possible moment. A single early read would badge an installed
+    # wallet as missing, with no way for the user to correct it.
+    assert_includes card, "wallet-standard:register-wallet"
+    assert_includes card, "setInterval"
   end
 
   test "the card shows which wallet it is asking for" do
@@ -59,7 +107,9 @@ class Web3StepUpGalleryTest < ActionDispatch::IntegrationTest
 
   test "with no remembered wallet the primary action is the picker" do
     preview({})
-    assert_includes response.body, "Connect your wallet"
+    assert_includes card, "Connect your wallet"
+    # Same row shape as the remembered half, so the two look like one card.
+    assert_includes card, ROW_CLASSES
     # canOneClick is what switches the two halves; assert the rule itself, since
     # both branches render into the same document as <template>s.
     assert_includes response.body, "get canOneClick() { return !!this.provider && !this.providerMissing; }"
