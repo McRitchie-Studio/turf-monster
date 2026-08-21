@@ -1162,6 +1162,37 @@ body.modal-open { overflow: hidden; }
   transition: none;
 }
 
+/* THE SQUEEZE BAND — md up to just under xl. Two things happen at exactly
+   768px and they compound: .user-nav-col STOPS GROWING (its clamp floor of
+   16rem holds until 24vw passes it at ~1067px) and the gear + theme toggle
+   JOIN the row (they are `hidden md:flex`, and below md they live in the
+   mobile sub-navbar instead). So the column takes on ~44px of new controls
+   against 16px of new width, and the username pays the difference — it is the
+   row's only shrinkable item, sitting next to a flex-shrink-0 balance slot.
+
+   MEASURED, the Free Entry face at 768/820/900/1024 with the name
+   "mcritchie": 15.6px wide, 0 of 9 characters readable — a single fade-masked
+   sliver. The amount face at those same widths gets 60px and 6 characters, and
+   767px, one pixel below the cliff, gets 59.6px and 5.
+
+   So trim the FACE, not the name. The decorative sparkle steps out (it is
+   aria-hidden, and the real one is the ✨ badge on the avatar two controls
+   over) and the type steps down one notch. Slot 104.4px → 75.9px, username
+   15.6px → 44.1px, 4 of 9 characters — with the left column's own overflow and
+   the document overflow both measured UNCHANGED, which is why this is the fix
+   and widening .user-nav-col is not: 18rem buys 7 characters but pushes the
+   left nav's overflow at 768px from 26px to 56px.
+
+   Declared AFTER the base .is-active rule on purpose: same specificity (0,2,0),
+   so source order is what makes the override win.
+
+   The PEEK face keeps its sparkle. There the sparkle IS the answer to "what is
+   this thing?", which is the entire reason the peek exists. */
+@media (min-width: 768px) and (max-width: 1279px) {
+  .free-entry-label.is-active { font-size: 0.875rem; }
+  .free-entry-label.is-active .fe-spark { display: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .free-entry-label,
   .fe-peek .free-entry-label { transition: opacity 0s, transform 0s, visibility 0s; }

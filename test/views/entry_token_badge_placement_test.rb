@@ -62,7 +62,7 @@ class EntryTokenBadgePlacementTest < ActionDispatch::IntegrationTest
 
       # The tuck is absolute, not a negative margin: the badge's .hidden lives
       # on the BUTTON, so a flow-positioned wrapper would survive a hidden
-      # badge and drag the avatar left into the username. ml-5 on the cluster
+      # badge and drag the avatar left into the username. ml-3 on the cluster
       # reserves the 8px of badge that overhangs the avatar.
       cluster = body[username_at, (avatar_at - username_at) + 400]
       assert_includes cluster, %(class="relative ml-3 flex flex-shrink-0 items-center")

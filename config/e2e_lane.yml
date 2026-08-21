@@ -41,7 +41,21 @@
 # response bytes: the page renders the same markup whether a click changes anything, which
 # is how it once shipped with a grid that recorded every click and moved nothing on screen.
 # This gate found the four immediately — 126 executed against a 122 contract.
-total_specs: 149
+#
+# 149 -> 151 (polish-free-entry-badge): two specs in e2e/navbar_layout.spec.js, both for
+# things the navbar guard could not see before.
+#   · the Free Entry FACE of the balance slot. The one overflow guard stood that face DOWN
+#     (`feLabel.classList.remove("is-active")`) and measured only the amount, so the wider
+#     face was never asserted at any width — which is how it shipped starving the username
+#     to 15.6px, zero readable characters, from 768px through 1024px, with
+#     documentOverflow at 0 and nothing offscreen the whole time. Containment alone called
+#     that a pass; this spec also measures how much of the name a reader actually gets.
+#   · the level-up glow REPLAYED inside its own strip window, asserted on the painted
+#     pixels around the badge. The leftover timer from the first play used to cut the
+#     replay to 1340ms of a 4200ms animation.
+# Re-derived with the lister after adding them (`npx playwright test --list` -> 151 tests
+# in 39 files), never hand-incremented.
+total_specs: 151
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -89,12 +103,16 @@ allowed_skips: 4
 
 # total_specs - excluded - allowed_skips. What the lane MUST execute, asserted against the
 # runner's own report, so no source-level spelling on any axis can move it without moving
-# this line. Derived: 149 committed - 17 @devnet - 4 allowed = 128, and MEASURED at 128
-# across the three shard receipts ("128 executed · 4 skipped (4 allowed)").
+# this line. Derived: 151 committed - 17 @devnet - 4 allowed = 130.
 #
-# History: 126 before this PR (149 - 17 - 6, the two payment specs still skipping), and
-# 122 against 145 committed before adopt-engine-geo-primitives added its four geo specs.
-executed: 128
+# Every number here was re-derived with the runner, not adjusted by arithmetic on the last
+# one: `npx playwright test --list` reports 151 tests in 39 files, `--grep "@devnet"` 17,
+# and `--grep-invert "@devnet"` 134 collected for the PR lane — 134 - 4 runtime skips = 130.
+#
+# History: 128 (149 - 17 - 4) before polish-free-entry-badge added its two navbar specs;
+# 126 before that (the two payment specs still skipping); and 122 against 145 committed
+# before adopt-engine-geo-primitives added its four geo specs.
+executed: 130
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
