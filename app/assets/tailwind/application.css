@@ -1225,6 +1225,60 @@ body.modal-open { overflow: hidden; }
 }
 .chat-live-ping { animation: chat-live-ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite; }
 
+/* The composer's PLACEHOLDER never wraps — it clips to one line.
+   The Quest 2 typewriter drives this placeholder, and a placeholder longer than
+   the box does not ellipsise on its own: Chrome WRAPS it into a 22px text box
+   built for a 20px line, so the second line is sliced through the middle of its
+   glyphs. Measured: "Bosnia and Herzegovina light it up ✈️" gave scrollHeight 76
+   against clientHeight 38.
+
+   Scoped to ::placeholder deliberately. The same rule on the element would make
+   TYPED text stop wrapping too, which is a real regression for a 500-character
+   composer. Verified side by side: with this rule the placeholder reports
+   38 == 38 while a typed long message still wraps at 96 > 38.
+
+   This is the INVARIANT behind the rest line fitting. contests_helper's
+   CHAT_PROMPT_NAME_BUDGET keeps names short enough to read in full, but a
+   character count is only a proxy for width and it travels badly between
+   platforms — the content box is 206px in Chrome on macOS and 183px on the
+   Linux CI runner, whose scrollbar takes real width. This rule is what makes
+   an over-long line degrade to a clean clip instead of a sliced one. */
+.chat-composer::placeholder {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Quest 2 nudge — while the "Send Your First Message" mission is live the
+   composer breathes a soft primary halo, so the eye that followed the quest
+   card's southwest arrow lands on the exact control it means. Applied by
+   contestChat's questGlow (contests/_chat_panel) and dropped the moment the
+   first message earns its seeds.
+
+   A <textarea> carries no ::before/::after, so this is a border + box-shadow
+   pulse on the control ITSELF rather than the .studio-border-glow primitive,
+   which needs pseudo-elements to draw its ring. Unlayered, so it outranks the
+   composer's focus:border-primary utility while the glow is on. */
+@keyframes chat-input-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgb(var(--color-primary-rgb) / 0.28), 0 0 10px 0 rgb(var(--color-primary-rgb) / 0.22);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgb(var(--color-primary-rgb) / 0.14), 0 0 24px 3px rgb(var(--color-primary-rgb) / 0.55);
+  }
+}
+.chat-input-glow {
+  border-color: rgb(var(--color-primary-rgb) / 0.75);
+  animation: chat-input-glow 2s ease-in-out infinite;
+}
+/* Reduced motion keeps the halo (it is the wayfinding) and drops the breath. */
+@media (prefers-reduced-motion: reduce) {
+  .chat-input-glow {
+    animation: none;
+    box-shadow: 0 0 12px 1px rgb(var(--color-primary-rgb) / 0.35);
+  }
+}
+
 /* Soften the bottom edge of the message list — content fades out. */
 .chat-scroll-fade {
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5rem), transparent);
