@@ -83,7 +83,7 @@ module Solana
     # CHAT_MESSAGE = 3 added in v0.23 (send first contest-chat message quest).
     SEED_GRANT_KIND = { username: 0, newsletter: 1, invite: 2, chat: 3 }.freeze
 
-    def initialize(client: Solana::Client.new)
+    def initialize(client: Config.client)
       @client = client
       @program_id = Keypair.decode_base58(Config::PROGRAM_ID)
     end

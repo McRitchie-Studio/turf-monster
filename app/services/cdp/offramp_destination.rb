@@ -27,10 +27,10 @@ module Cdp
     Result = Struct.new(:token_account, :kind, keyword_init: true)
 
     def self.resolve(to_address, client: nil)
-      new(client: client || Solana::Client.new).resolve(to_address)
+      new(client: client || Solana::Config.client).resolve(to_address)
     end
 
-    def initialize(client: Solana::Client.new)
+    def initialize(client: Solana::Config.client)
       @client = client
     end
 

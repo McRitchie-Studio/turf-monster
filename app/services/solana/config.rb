@@ -340,6 +340,42 @@ module Solana
     end
     private_class_method :opaque_token?
 
+    # ------------------------------------------------------------------
+    # THE ONLY SANCTIONED WAY TO BUILD A SERVER-SIDE Solana::Client.
+    # ------------------------------------------------------------------
+    #
+    # THE BUG THIS CLOSES (route-solana-clients-through-config). Six call
+    # sites wrote `Solana::Client.new` with no argument. The gem's own
+    # initializer then resolves the endpoint itself:
+    #
+    #   @rpc_url = rpc_url || ENV.fetch("SOLANA_RPC_URL", DEFAULT_RPC_URL)
+    #
+    # — and `DEFAULT_RPC_URL` is the PUBLIC DEVNET endpoint. So every guard
+    # this module owns was skipped on those paths:
+    #
+    #   * OPSEC-012's production-required raise. `RPC_URL` above refuses to
+    #     resolve at all when SOLANA_RPC_URL is unset in production; the gem
+    #     FAILS OPEN to devnet instead. The two disagree in the exact
+    #     direction that hurts — a mainnet app whose RPC var went missing
+    #     keeps serving, silently reading and writing against devnet, with
+    #     mainnet PROGRAM_ID and mainnet mints.
+    #   * The public/credentialed split and `redact_rpc_url` (PR 390). A
+    #     client the module never handed out is outside the decision about
+    #     which endpoint is safe and how it is rendered in logs.
+    #
+    # Passing `rpc_url:` explicitly is still legitimate — the network-alignment
+    # initializer and the health rake both do it — but the value has to come
+    # from THIS module. `test/services/solana/client_routed_through_config_test.rb`
+    # enforces both halves of that rule against the source tree, because the
+    # `.erb` / `app/javascript` ban PR 390 added does not reach Ruby.
+    #
+    # NOT a memoized singleton: `Solana::Client` holds a parsed URI and a
+    # request counter, is used from Sidekiq workers and web threads alike, and
+    # is cheap to build. Per-call construction keeps the previous lifetime.
+    def self.client(rpc_url: RPC_URL)
+      Solana::Client.new(rpc_url: rpc_url)
+    end
+
     def self.devnet?
       NETWORK == "devnet"
     end
