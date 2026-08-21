@@ -6,13 +6,25 @@ require "test_helper"
 # `ENV.fetch("SOLANA_NETWORK", "devnet")`, which fails OPEN on absence. A garbage
 # value fails CLOSED — it is not "mainnet-beta", so every devnet-only guard
 # refuses — but an UNSET var silently resolved to "devnet" on a mainnet app.
-# That is the door into the §8 silent-default footgun documented above the mint
-# constants: USDC_MINT / USDT_MINT key their DEFAULTS on NETWORK, so a mainnet
-# app missing this var reads balances against the DEVNET mints and derives
-# op-rev PDAs against a mint that does not exist on mainnet. Network-keyed
-# defaults cannot protect anyone when the key they are keyed on is itself
-# defaulted. It also left the OPSEC-020 fund guards resting on one check, since
-# `Solana::Config.devnet?` reads this same constant.
+#
+# WHAT THAT ACTUALLY REACHED — corrected 2026-08-20. This header used to claim
+# the unset var would have silently selected the DEVNET MINTS on a mainnet app,
+# citing the §8 footgun above the mint constants. The MECHANISM is real —
+# USDC_MINT / USDT_MINT key their DEFAULTS on NETWORK — but that outcome was NOT
+# REACHABLE: `turf-monster-mainnet` sets SOLANA_USDC_MINT and SOLANA_USDT_MINT
+# explicitly, and the env override always wins, so it needed THREE unset vars,
+# not one. The claim was asserted without reading the live config that disproves
+# it, and is corrected rather than dropped so nobody cites it as history.
+#
+# The honest case is IDL_PATH and LEGIBILITY. NETWORK also keys IDL_PATH, so an
+# unset var on the mainnet app selects the DEVNET IDL, whose SHA256 is not in
+# that app's EXPECTED_IDL_HASH. The boot is refused either way — by the OPSEC-014
+# guard as an opaque hash diff, or by the OPSEC-039 alignment guard as a genesis
+# diff whose remediation line names the WRONG variable. Both are
+# `after_initialize`; this raise fires during EAGER LOAD, ahead of both, and
+# names the variable. Behind them, `Solana::Config.devnet?` reads this same
+# constant, so the OPSEC-020 fund guards are what an unset var re-arms once the
+# IDL guard is bypassed.
 #
 # NETWORK is resolved at LOAD time, so these re-evaluate the real assignment out
 # of the real source file in a sandbox rather than asserting the already-loaded
@@ -57,11 +69,29 @@ class Solana::ConfigNetworkRequiredTest < ActiveSupport::TestCase
     assert_equal "devnet", resolve_network("test", nil)
   end
 
-  test "the mint defaults are keyed on NETWORK, which is why the fail-open mattered" do
+  # The REACHABLE consequence. IDL_PATH has no env override, so NETWORK alone
+  # decides which IDL a mainnet app verifies against — this is the coupling that
+  # made the fail-open matter, not the mint defaults.
+  test "IDL_PATH is keyed on NETWORK with no env override, which is why the fail-open mattered" do
     source = CONFIG_RB.read
 
-    assert_match(/USDC_MINT = ENV\.fetch\("SOLANA_USDC_MINT"\)/, source)
+    assert_match(/IDL_PATH = if NETWORK == "mainnet-beta"/, source,
+                 "if IDL_PATH stops keying on NETWORK, re-read this guard's premise")
+    assert_no_match(/IDL_PATH = ENV\.fetch/, source,
+                    "an env override on IDL_PATH would give operators a way around this coupling")
+  end
+
+  # The mint defaults key on NETWORK too, but the env override always wins and
+  # the mainnet app sets both explicitly (turf-monster-qa leaves them unset and
+  # is devnet, which is what the default gives it) — so this is a LATENT
+  # coupling, not the reachable one. Kept as a guard on the corrected claim: if a mint
+  # default ever stops being overridable, the §8 story changes.
+  test "the mint defaults key on NETWORK, but an explicit mint always wins" do
+    source = CONFIG_RB.read
+
+    assert_match(/USDC_MINT = ENV\.fetch\("SOLANA_USDC_MINT"\) do/, source,
+                 "the env override is what made the devnet-mints outcome unreachable in practice")
     assert_match(/NETWORK == "mainnet-beta" \? MAINNET_USDC_MINT : DEVNET_USDC_MINT/, source,
-                 "if the mint default stops keying on NETWORK, re-read this guard's premise")
+                 "the DEFAULT is network-keyed; the override is checked first")
   end
 end
