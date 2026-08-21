@@ -50,6 +50,147 @@ module Solana
       ENV.fetch("SOLANA_RPC_URL", "https://api.devnet.solana.com")
     end
 
+    # ------------------------------------------------------------------
+    # The BROWSER-facing RPC endpoint. Never `RPC_URL`.
+    # ------------------------------------------------------------------
+    #
+    # THE BUG THIS CLOSES (redact-helius-key-from-browser). Six surfaces
+    # emitted `RPC_URL` verbatim into the response body — `body[data-solana-
+    # rpc-url]` in both layouts, `#cosign-config[data-rpc-url]` on the three
+    # admin cosign pages, and `@page_config[:rpc_url]` on the PUBLIC
+    # proof-of-reserves page, which additionally renders it as visible text.
+    # On `turf-monster-mainnet` that constant is a Helius endpoint carrying an
+    # `api-key` query param, so every page load shipped a paid-provider
+    # credential to every browser, logged in or not.
+    #
+    # The codebase already knew the constant was secret-bearing: the
+    # `solana:health` / `solana:preflight` rakes redact it before printing to a
+    # TERMINAL (they now share `redact_rpc_url` below). The DOM was the one
+    # place that did not.
+    #
+    # WHY A SEPARATE ENDPOINT RATHER THAN A PROXY. The client signs and submits
+    # its own transactions (Phantom -> `sendRawTransaction`) and polls
+    # `getSignatureStatuses` directly (see app/javascript/solana_utils.js);
+    # proxying all of that through Rails would put an availability-critical
+    # JSON-RPC relay in the request path for a problem an env var solves. So
+    # the server keeps its keyed endpoint and the browser gets its own.
+
+    # Canonical public endpoints, per cluster. Rate-limited and credential-free
+    # — safe to hand to a browser, and the last resort of `public_rpc_url`.
+    PUBLIC_CLUSTER_RPC_URLS = {
+      "mainnet-beta" => "https://api.mainnet-beta.solana.com",
+      "testnet"      => "https://api.testnet.solana.com",
+      "devnet"       => "https://api.devnet.solana.com"
+    }.freeze
+
+    # Used when NETWORK names a cluster with no canonical endpoint (localnet,
+    # or a typo). Devnet is the safe landing: it is the same value dev/test
+    # already default `RPC_URL` to.
+    DEFAULT_PUBLIC_RPC_URL = PUBLIC_CLUSTER_RPC_URLS.fetch("devnet")
+
+    # A path segment this long and this opaque is a provider key, not a route.
+    # Alchemy's is 32 chars, QuickNode's 32+; the longest real RPC path segment
+    # in play is "v2" (2).
+    OPAQUE_TOKEN_MIN_LENGTH = 20
+
+    # True when `url` carries anything that could be a credential.
+    #
+    # Deliberately BROAD and fail-closed. A false positive costs a slower
+    # public endpoint and is fixed by setting SOLANA_PUBLIC_RPC_URL; a false
+    # negative ships a paid-provider key to every browser. The three shapes:
+    #   - query string — Helius (`?api-key=…`), Ankr, Triton
+    #   - userinfo     — `https://user:pass@rpc.example.com`
+    #   - path token   — Alchemy (`/v2/<key>`), QuickNode (`/<hash>/`)
+    # An unparseable URL is treated as credentialed: we do not guess about a
+    # string we are about to put in front of the public.
+    def self.credentialed_rpc_url?(url)
+      return false if url.blank?
+
+      uri = URI.parse(url.to_s)
+      # Not http(s)-with-a-host = unusable: web3.js throws "Endpoint URL must
+      # start with `http:` or `https:`" and every client TX flow dies. Fail
+      # closed so a schemeless paste falls back to the public endpoint rather
+      # than being served. Solana::Client::InsecureRpcUrlError is the server's
+      # copy of this guard; the browser path had none.
+      return true unless uri.is_a?(URI::HTTP) && uri.host.present?
+      return true if uri.userinfo.present?
+      return true if uri.query.present?
+
+      uri.path.to_s.split("/").any? { |segment| opaque_token?(segment) }
+    rescue URI::Error
+      true
+    end
+
+    # Log/terminal-safe rendering: drops userinfo, blanks every query VALUE
+    # (keys stay, so the operator can still see WHICH param it was), and masks
+    # opaque path tokens. Shared by `solana:health`, `solana:preflight`, and
+    # the dropped-credential warning below — each of which used to carry its
+    # own `api-key=` regex that a `token=`-style provider would walk straight
+    # through.
+    def self.redact_rpc_url(url)
+      return "" if url.blank?
+
+      uri = URI.parse(url.to_s)
+      # `userinfo = nil` is a NO-OP in URI::Generic (it returns early), so the
+      # credential would survive. Overwrite it instead.
+      uri.userinfo = "redacted:redacted" if uri.userinfo.present?
+      if uri.query.present?
+        uri.query = uri.query.split("&").map { |pair| "#{pair.split("=", 2).first}=***" }.join("&")
+      end
+      segments = uri.path.to_s.split("/")
+      if segments.any? { |segment| opaque_token?(segment) }
+        uri.path = segments.map { |segment| opaque_token?(segment) ? "***" : segment }.join("/")
+      end
+      uri.to_s
+    rescue URI::Error
+      "***"
+    end
+
+    # The RPC endpoint handed to the BROWSER.
+    #
+    # Resolution order — every step passes through `credentialed_rpc_url?`:
+    #   1. `SOLANA_PUBLIC_RPC_URL`, an endpoint provisioned FOR the browser (a
+    #      domain-restricted provider key, or a paid public tier).
+    #   2. `RPC_URL`, when it carries no credential. This is what keeps dev,
+    #      test and QA byte-identical: their RPC_URL is the public devnet
+    #      endpoint, so the browser receives exactly what it received before.
+    #   3. The cluster's canonical public endpoint.
+    #
+    # Step 1 is CHECKED, not trusted. A credential pasted into
+    # SOLANA_PUBLIC_RPC_URL by mistake is DROPPED (and logged, redacted)
+    # instead of served — the guard has to bite at the emission, not rely on
+    # the operator having remembered. That is the difference between this and
+    # simply renaming the variable.
+    #
+    # NOT CHECKED: that the public endpoint names the same CLUSTER as
+    # SOLANA_RPC_URL. Verifying that means a genesis-hash RPC round trip, which
+    # is the OPSEC-039 initializer's job (config/initializers/
+    # solana_network_alignment.rb) and does not belong on a render path. The
+    # defaults are network-keyed so omission cannot cross clusters; an explicit
+    # SOLANA_PUBLIC_RPC_URL can, so set it per app, not per fleet.
+    #
+    # Computed per call rather than pinned to a load-time constant like
+    # RPC_URL: it is one URI parse per render, and a method keeps the
+    # resolution unit-testable without constant surgery — the `rpc_url` and
+    # `network` arguments exist for the tests, and nothing in app code passes
+    # them.
+    def self.public_rpc_url(rpc_url = RPC_URL, network = NETWORK)
+      candidate = ENV["SOLANA_PUBLIC_RPC_URL"].presence
+      if candidate
+        return candidate unless credentialed_rpc_url?(candidate)
+
+        Rails.logger.warn(
+          "[opsec] SOLANA_PUBLIC_RPC_URL carries a credential " \
+          "(#{redact_rpc_url(candidate)}) and was DROPPED — that value is " \
+          "served to browsers. Falling back to the public #{network} endpoint."
+        )
+      end
+
+      return rpc_url unless credentialed_rpc_url?(rpc_url)
+
+      PUBLIC_CLUSTER_RPC_URLS.fetch(network, DEFAULT_PUBLIC_RPC_URL)
+    end
+
     # OPSEC-012's sibling: `SOLANA_NETWORK` required in production.
     #
     # This used to be `ENV.fetch("SOLANA_NETWORK", "devnet")`, which FAILED OPEN
@@ -179,6 +320,13 @@ module Solana
     # is just a one-element set. Empty string = unset (dev default; required in
     # production). Parse via expected_idl_hashes / idl_hash_acceptable?.
     EXPECTED_IDL_HASH = ENV.fetch("EXPECTED_IDL_HASH", "")
+
+    # Shared by credentialed_rpc_url? and redact_rpc_url so the two agree on
+    # what "looks like a key" means.
+    def self.opaque_token?(segment)
+      segment.to_s.length >= OPAQUE_TOKEN_MIN_LENGTH && segment.match?(/\A[A-Za-z0-9_-]+\z/)
+    end
+    private_class_method :opaque_token?
 
     def self.devnet?
       NETWORK == "devnet"

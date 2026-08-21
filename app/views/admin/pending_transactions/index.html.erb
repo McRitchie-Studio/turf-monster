@@ -99,4 +99,6 @@
   </div>
 </div>
 
-<div id="cosign-config" data-rpc-url="<%= Solana::Config::RPC_URL %>" style="display:none;"></div>
+<%# BROWSER-facing, so public_rpc_url — never the server RPC constant, which
+    carries the provider api-key on mainnet. See Solana::Config. %>
+<div id="cosign-config" data-rpc-url="<%= Solana::Config.public_rpc_url %>" style="display:none;"></div>

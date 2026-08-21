@@ -148,7 +148,7 @@ shasum -a 256 config/turf_vault.idl.json
 
 ## 6. Set Heroku env vars (mainnet config)
 
-**Critical**: set ALL of these BEFORE the first deploy (`bin/deploy turf-monster-mainnet`). The boot initializers will refuse to start otherwise (OPSEC-014, OPSEC-039).
+**Critical**: set ALL of these BEFORE the first deploy (`bin/deploy turf-monster-mainnet`). The boot guards refuse to start without them: OPSEC-012 names each missing var during eager load, and OPSEC-014 refuses on the IDL pin. OPSEC-039, the genesis-hash alignment check, is the one guard that does NOT refuse on a bad `SOLANA_RPC_URL` — it fails closed only on a genesis hash that came back and DISAGREED. An endpoint it cannot reach or authenticate against is logged and boot continues, on purpose (see `config/initializers/solana_network_alignment.rb`).
 
 ```bash
 heroku config:set --app turf-monster-mainnet \

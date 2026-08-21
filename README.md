@@ -46,7 +46,7 @@ bin/tm up
 
 Seeds create 5 users, 48 World Cup teams plus 31 knockout-slot placeholders, 32 NFL teams, 38 NFL schedule venues, 104 World Cup matches (72 group-stage, 32 knockout), 256 NFL regular season games across 17 slates, and 85 players.
 
-**Required `.env` keys**: `RAILS_MASTER_KEY` (not optional — seed encrypts managed wallets via `secret_key_base`), `GOOGLE_CLIENT_ID`/`SECRET`, `AWS_ACCESS_KEY_ID`/`SECRET`, `SOLANA_ADMIN_KEY`, `SOLANA_RPC_URL`, `MANAGED_WALLET_ENCRYPTION_KEY`, and mail transport credentials for local email delivery. Current 1Password item names live in McRitchie Studio's credential docs.
+**Required `.env` keys**: `RAILS_MASTER_KEY` (not optional — seed encrypts managed wallets via `secret_key_base`), `GOOGLE_CLIENT_ID`/`SECRET`, `AWS_ACCESS_KEY_ID`/`SECRET`, `SOLANA_ADMIN_KEY`, `SOLANA_RPC_URL` (server-side; `SOLANA_PUBLIC_RPC_URL` is the optional browser-facing sibling), `MANAGED_WALLET_ENCRYPTION_KEY`, and mail transport credentials for local email delivery. Current 1Password item names live in McRitchie Studio's credential docs.
 
 ## Prerequisites (single-app path)
 
@@ -102,7 +102,7 @@ bin/deploy   # single mainnet target → turf-monster-mainnet (real funds, confi
 ```
 
 Migrations run in Heroku's release phase (Procfile `release:`), not the deploy
-script. `MAINNET_LAUNCH.md` is historical first-launch context; current deploys use `bin/deploy`. Platform: Heroku (heroku-24 stack) with buildpacks ordered `heroku/nodejs` then `heroku/ruby` so `package.json` pins Node 22 for asset builds. Required env vars include `RAILS_MASTER_KEY`, `RAILS_SERVE_STATIC_FILES=true`, `SOLANA_ADMIN_KEY`, `SOLANA_RPC_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and the active mail transport settings.
+script. `MAINNET_LAUNCH.md` is historical first-launch context; current deploys use `bin/deploy`. Platform: Heroku (heroku-24 stack) with buildpacks ordered `heroku/nodejs` then `heroku/ruby` so `package.json` pins Node 22 for asset builds. Required env vars include `RAILS_MASTER_KEY`, `RAILS_SERVE_STATIC_FILES=true`, `SOLANA_ADMIN_KEY`, `SOLANA_RPC_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and the active mail transport settings. Any app whose `SOLANA_RPC_URL` carries a provider api-key should also set `SOLANA_PUBLIC_RPC_URL` — see "RPC endpoints — server vs browser" in `docs/SOLANA.md`.
 
 After every deploy, run the smoke checklist in [`RUNBOOK.md`](RUNBOOK.md):
 release output, `/up`, the live contest URL, payment-provider gates, and a real

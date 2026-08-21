@@ -17,7 +17,7 @@ The two are **decoupled**: entry fees are operator revenue and do **not** count 
 ## Services (`app/services/solana/`)
 
 Local (turf-monster) classes:
-- `Solana::Config` — program ID, RPC URL, mints, network, signer set, IDL pinning (`verify_idl!`).
+- `Solana::Config` — program ID, RPC URLs (server **and** browser — see below), mints, network, signer set, IDL pinning (`verify_idl!`), plus `redact_rpc_url` (the shared log/terminal redactor for endpoints that carry a provider key).
 - `Solana::Keypair` — Ed25519 keygen, sign, base58, and encrypt/decrypt of managed-wallet secrets via a 256-bit key derived from the **`MANAGED_WALLET_ENCRYPTION_KEY`** env var (OPSEC-015; `secret_key_base[0,32]` is a legacy fallback only). `#inspect`/`#to_s` are redacted (OPSEC-021).
 - `Solana::Vault` — high-level builders + senders for the current TurfVault instruction surface (see table below). Managed-wallet paths sign server-side; Phantom paths build partial transactions for browser/user signatures plus server cosign where required. `sync_balance` surfaces the user's USDC ATA balance (back-compat `:balance` key) + decodes `seeds` from the `UserAccount` PDA; `fetch_wallet_balances` reads USDC/USDT ATAs; `ensure_program_id_live!` guards stale env.
 - `Solana::TxVerifier` — fetches a confirmed TX and asserts it touches `PROGRAM_ID` with the expected Anchor discriminator + signer + writable PDA (OPSEC-010). Defeats "submit any successful signature."
@@ -196,6 +196,103 @@ The per-season schedule above is authoritative for Turf Monster; update this doc
 ## Public faucet endpoint
 
 `/faucet` is a public route — GET renders a marketing page; POST mints test USDC to the requester's wallet via `Vault#mint_spl(amount_lamports, mint: Solana::Config::USDC_MINT, to: wallet)`. Used by the "Mint $500 Test USDC" recovery button in the insufficient-USDC modal during Phantom-driven contest creation. `FaucetController#claim` mints via `Vault#mint_spl` directly (not the `solana:mint_usdc` rake task) and guards itself: it raises "Faucet is production-disabled" when `Rails.env.production?` and requires `Config.devnet?`.
+
+## RPC endpoints — server vs browser
+
+There are **two** RPC endpoints, and mixing them up publishes a paid-provider
+credential.
+
+| | Constant / method | Env var | Who holds it |
+|---|---|---|---|
+| Server | `Solana::Config::RPC_URL` | `SOLANA_RPC_URL` | Rails, Sidekiq, rake. May carry an api-key. |
+| Browser | `Solana::Config.public_rpc_url` | `SOLANA_PUBLIC_RPC_URL` | Every visitor, logged in or not. Must never carry a credential. |
+
+**The bug this split closes.** Six surfaces used to emit `RPC_URL` verbatim into
+the response body — `body[data-solana-rpc-url]` in `layouts/application` and
+`layouts/modal_preview`, `#cosign-config[data-rpc-url]` on the three admin
+cosign pages, and `@page_config[:rpc_url]` on `/proof-of-reserves`, which is
+UNAUTHENTICATED and additionally renders the value as visible page text. On
+`turf-monster-mainnet` that constant is a Helius endpoint carrying an `api-key`
+query param, so every page load shipped the credential to every browser. The
+`solana:health` / `solana:preflight` rakes had redacted the same constant before
+printing it to a terminal since launch; the DOM was the one place that did not.
+
+**Resolution order** (`Solana::Config.public_rpc_url`), each step checked
+against `credentialed_rpc_url?`:
+
+1. `SOLANA_PUBLIC_RPC_URL` — an endpoint provisioned *for* the browser.
+2. `SOLANA_RPC_URL`, when it carries no credential. This is what keeps dev,
+   test and QA byte-identical: their RPC_URL is the public devnet endpoint, so
+   the browser receives exactly what it received before the split.
+3. The cluster's canonical public endpoint (`PUBLIC_CLUSTER_RPC_URLS`).
+
+Step 1 is **checked, not trusted**: a credential pasted into
+`SOLANA_PUBLIC_RPC_URL` is dropped and logged (redacted), not served. The guard
+bites at the emission, which is why this is a predicate and not just a renamed
+variable.
+
+`credentialed_rpc_url?` is deliberately broad and fails closed — any query
+string (Helius `?api-key=`), any userinfo (`https://user:pass@…`), any opaque
+path segment ≥20 chars (Alchemy `/v2/<key>`, QuickNode `/<hash>/`), or an
+unparseable URL. A false positive costs a slower public endpoint and is fixed by
+setting `SOLANA_PUBLIC_RPC_URL`; a false negative publishes a key.
+
+**Operational note.** On mainnet, leaving `SOLANA_PUBLIC_RPC_URL` unset is
+*safe* but *slow*: the browser drops to `https://api.mainnet-beta.solana.com`,
+which rate-limits aggressively and is on the path for Phantom transaction
+submission, `getSignatureStatuses` polling, and the proof-of-reserves balance
+reads. Set it to a provider key that is safe to publish — a domain-restricted
+key or a public-tier key — and treat it as public from the moment it is set.
+
+**Not checked:** that the browser endpoint names the same *cluster* as
+`SOLANA_RPC_URL`. Verifying that needs a genesis-hash round trip, which belongs
+to the OPSEC-039 initializer (`config/initializers/solana_network_alignment.rb`)
+and not to a render path. The defaults are network-keyed so omission cannot
+cross clusters; an explicit `SOLANA_PUBLIC_RPC_URL` can, so set it per app.
+
+Guards: `test/services/solana/public_rpc_url_test.rb` (the primitive) and
+`test/integration/rpc_credential_not_in_browser_test.rb` (every browser surface,
+plus a standing ban on any `.erb` or `app/javascript` file naming the server
+constant at all).
+
+## Boot alignment guard (OPSEC-039) and rotating the server RPC key
+
+`SOLANA_RPC_URL` carries a provider key on mainnet, so it will need rotating.
+That used to be unsafe. The alignment guard
+(`config/initializers/solana_network_alignment.rb`) rescued exactly one class,
+`Solana::Client::RpcError` — but an unauthorized provider answers with a body
+that is not JSON at all, and solana-studio's `Solana::Client#call` runs
+`JSON.parse(response.body)` with no rescue of its own. The resulting raw
+`JSON::ParserError` walked past the rescue and **aborted boot**, including at
+slug compile — so revoking the old key took the app down AND blocked the deploy
+that would have fixed it. Enumerating the exception classes a hostile upstream
+can produce was the mistake; there is no complete list.
+
+The guard now separates two outcomes, and only one of them is fatal:
+
+| Outcome | What it proves | Behaviour |
+|---|---|---|
+| Genesis hash came back and **disagrees** | the RPC really is a different cluster | **refuses to boot** (unchanged) |
+| Unreachable, unauthorized, non-JSON, or no hash | nothing about alignment | logs at ERROR with the endpoint **redacted**, continues boot |
+
+Refusing to boot on the absence of evidence turns a third-party outage into a
+self-inflicted one, and this hook runs during slug compile, so it would take the
+remediation path down with it. The degraded log line says the guard did not run;
+the transaction paths surface the underlying error at the point of use.
+
+**Rotation order.** Set the new `SOLANA_RPC_URL`, deploy, confirm
+`bin/rails solana:health` is green, then revoke the old key. Revoking first is
+now survivable — the app boots and logs `alignment check INCONCLUSIVE` — but
+on-chain reads degrade until the new key is live.
+
+`solana:health` carries the same widening, so on a rejected key it reports
+`getGenesisHash failed: JSON::ParserError` and still reaches its verdict instead
+of aborting at step 2 with a stack trace.
+
+Guards: `test/initializers/solana_network_alignment_test.rb` (drives the real
+initializer against real non-JSON bodies over a real socket, and asserts BOTH
+halves — the indeterminate cases boot, a real mismatch still refuses) and
+`test/tasks/solana_health_unauthorized_rpc_test.rb`.
 
 ## Solana Auth Security
 

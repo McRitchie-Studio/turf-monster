@@ -77,6 +77,7 @@ Troubleshooting guide for autonomous agents. Format: problem, diagnosis, fix.
 **Rate limit (HTTP 429)**
 - Diagnosis: `Solana::Client` retries automatically but exhausts retries. Logs show `429 Too Many Requests`.
 - Fix: Check `SOLANA_RPC_URL`. Public RPC rate-limits aggressively. Switch to a provider RPC (QuickNode, Helius). Set via `heroku config:set SOLANA_RPC_URL=<provider_url> --app turf-monster-mainnet`.
+- If the 429s are CLIENT-side (browser console, Phantom flows, proof-of-reserves), the variable to change is `SOLANA_PUBLIC_RPC_URL`, not `SOLANA_RPC_URL`. The browser is deliberately never given the keyed server endpoint, so on mainnet it falls back to `https://api.mainnet-beta.solana.com` unless `SOLANA_PUBLIC_RPC_URL` is set. Point it at a provider key that is safe to publish — a domain-restricted or public-tier key. `Solana::Config.public_rpc_url` refuses to emit a credentialed value from either variable, so pasting the server key in does nothing but log a warning and fall back.
 
 **Timeout on RPC calls**
 - Diagnosis: `Net::OpenTimeout` or `Net::ReadTimeout`. RPC node is slow or down.
