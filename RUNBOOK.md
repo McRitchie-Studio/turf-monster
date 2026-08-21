@@ -95,7 +95,7 @@ Troubleshooting guide for autonomous agents. Format: problem, diagnosis, fix.
 
 **Balance shows $0 despite onchain funds**
 - Diagnosis: `display_balance` calls `fetch_user_usdc` which reads the user's Phantom wallet ATA balance. Returns 0 if ATA does not exist or RPC fails.
-- Fix: Check the user has a `solana_address` and `wallet_type: "phantom"`. Verify their ATA exists: `bin/rails runner "puts Solana::Client.new.get_token_account_balance('<user_ata>')"`. If ATA missing, user needs to receive USDC first (use `/faucet`).
+- Fix: Check the user has a `solana_address` and `wallet_type: "phantom"`. Verify their ATA exists: `bin/rails runner "puts Solana::Config.client.get_token_account_balance('<user_ata>')"`. If ATA missing, user needs to receive USDC first (use `/faucet`).
 
 ## Contest Lifecycle Bugs
 

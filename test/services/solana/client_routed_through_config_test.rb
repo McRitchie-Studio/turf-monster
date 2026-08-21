@@ -36,7 +36,7 @@ require "test_helper"
 class ClientRoutedThroughConfigTest < ActiveSupport::TestCase
   # Ruby the app actually loads. `test/` is excluded on purpose: fakes and
   # fixtures build clients against local stub endpoints by design.
-  SCANNED_GLOBS = %w[app/**/*.rb lib/**/*.rb config/**/*.rb].freeze
+  SCANNED_GLOBS = %w[app/**/*.rb lib/**/*.rb lib/**/*.rake config/**/*.rb].freeze
 
   # `Solana::Client.new` is the fully-qualified form used everywhere. A bare
   # `Client.new` also resolves to it inside the Solana namespace, so those
