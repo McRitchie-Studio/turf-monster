@@ -105,8 +105,11 @@ export async function authedFetch(url, opts) {
 // Replaces web3.js connection.confirmTransaction, which opens a WebSocket
 // signature subscription (auto-derived ws:// at port+1) and surfaces a
 // misleading 30s "unknown" timeout. turf-monster has NO RPC proxy — the
-// client already holds the api-keyed Helius URL (data-solana-rpc-url), so we
-// POST JSON-RPC straight to it. ~1.5s interval, ~60s ceiling.
+// client holds its OWN endpoint (data-solana-rpc-url, from
+// Solana::Config.public_rpc_url), so we POST JSON-RPC straight to it. That
+// attribute is deliberately NOT the server's keyed endpoint: it is a
+// credential-free public/browser URL, so anything the client posts must be
+// safe to send over a rate-limited endpoint. ~1.5s interval, ~60s ceiling.
 //   confirmed/finalized → resolves with the status object
 //   st.err              → throws (tx failed on-chain)
 //   timeout             → throws (tx may still land — check explorer)
