@@ -129,7 +129,7 @@ test("selection persists after page reload", async ({ page }) => {
 // Six selections shows confirm button
 // ---------------------------------------------------------------------------
 
-test("selecting 6 matchups shows Hold to Confirm button", async ({ page }) => {
+test("selecting 6 matchups reveals the hold-to-confirm CTA", async ({ page }) => {
   await login(page, "alex@mcritchie.studio", "password");
 
   // Clear stale selections from prior tests
@@ -174,8 +174,12 @@ test("selecting 6 matchups shows Hold to Confirm button", async ({ page }) => {
   await cards.nth(5).click();
   await expect(page.locator("body")).toContainText("6 / 6");
 
-  // Hold to Confirm button should be visible (desktop + mobile = 2 elements, use first)
-  await expect(page.getByText("Hold to Confirm").first()).toBeVisible();
+  // The CTA is revealed (desktop + mobile = 2 elements, use first). Assert the
+  // BUTTON, not its copy: since hold-for-free-entry the idle label names the
+  // funding — a wallet holding an entry token reads "Hold for Free Entry" — and
+  // this test signs in as a real account whose token balance is environment
+  // data. What it owns is that the 6th pick reveals the CTA at all.
+  await expect(page.locator(".hold-btn").first()).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------

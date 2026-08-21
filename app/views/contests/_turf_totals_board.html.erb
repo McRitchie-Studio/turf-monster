@@ -2,6 +2,26 @@
   cart_selections = {}
   cart_selection_order = []
   edit_entry = local_assigns[:edit_entry]
+
+  # The hold CTA names the funding the entry will actually use. A wallet holding
+  # an unconsumed entry token spends that token instead of its balance, so the
+  # button says so — the confidence the operator asked for lands BEFORE the hold,
+  # not in the receipt after it.
+  #
+  # BOUND, NOT BAKED. $store.session.tokensAvailable is re-read by
+  # refreshSession() after every on-chain success, so the label falls back to
+  # "Hold to Confirm" the instant the token is spent; a server-rendered label
+  # would keep promising a free entry for the SECOND entry of the same page view.
+  # It NAMES the funding, it does not choose it — ContestsController#enter stays
+  # authoritative (token first, then balance).
+  #
+  # WEB3 TODAY: only the managed (web2) path consumes a token
+  # (ContestsController#resolve_web2_entry_funding!) — a Phantom entry still
+  # transfers USDC even when that wallet holds a token, because
+  # Solana::Vault#build_enter_contest_with_token has no caller yet. The label
+  # follows the WALLET'S TOKEN for both modes by operator call (2026-08-20), and
+  # becomes true for web3 the day that instruction is wired.
+  hold_cta_label = tag.span("x-text": "$store.session.tokensAvailable >= 1 ? 'Hold for Free Entry' : 'Hold to Confirm'")
   source_entry = edit_entry || @cart_entry
 
   if source_entry
@@ -1995,7 +2015,7 @@ window.selectionBoard = function() {
       <% else %>
         <div x-show="selectionCount === <%= @contest.picks_required %>" x-transition>
         <%= render 'studio/hold_button',
-          default_text: "Hold to Confirm",
+          default_text: hold_cta_label,
           hold_text: "Almost there...",
           success_text: "Confirmed!",
           duration: 2000,
@@ -2066,7 +2086,7 @@ window.selectionBoard = function() {
     <% else %>
     <div x-show="selectionCount === <%= @contest.picks_required %>" class="mb-5">
       <%= render 'studio/hold_button',
-        default_text: "Hold to Confirm",
+        default_text: hold_cta_label,
         hold_text: "Almost there...",
         success_text: "Confirmed!",
         duration: 2000,
