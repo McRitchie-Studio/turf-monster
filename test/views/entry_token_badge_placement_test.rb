@@ -188,6 +188,7 @@ class EntryTokenBadgePlacementTest < ActionDispatch::IntegrationTest
     render_navbar(usdc: 12.0, tokens: 1) do |body|
       at = body.index('data-free-entry-badge="true"')
       klass = body[at - 900, 1200][/class="(free-entry-badge[^"]*)"/, 1]
+      assert klass, "could not find the badge button's class list"
       refute_includes klass.split, "hidden",
         "a token holder must see the badge"
     end
@@ -202,8 +203,23 @@ class EntryTokenBadgePlacementTest < ActionDispatch::IntegrationTest
   #   1. COMPOUND — `.free-entry-badge.hidden` is (0,2,0) against the
   #      utilities' (0,1,0), so it wins no matter which order Tailwind emits.
   #   2. UNLAYERED — it sits outside `@layer`, and an unlayered rule beats
-  #      every layered one regardless of specificity. Belt and braces, because
-  #      each alone is enough and the two fail differently.
+  #      every layered one regardless of specificity.
+  #
+  # Belt and braces, but NOT two independent guarantees — they are checked
+  # together because each covers the other's blind spot. Unlayered alone wins
+  # at any specificity. Compound alone wins only against rules in the SAME
+  # layer: move this rule into `@layer components` and its (0,2,0) LOSES to
+  # the utilities' (0,1,0), because layer order outranks specificity. That is
+  # why assertion 2 is not decoration.
+  #
+  # WHAT THIS TEST DOES NOT PROVE. It proves the override out-ranks the two
+  # utilities NAMED above; it does not prove nothing out-ranks the OVERRIDE.
+  # Another unlayered rule at (0,2,0) or higher that sets `display` and is
+  # emitted later — `.free-entry-badge.legendary-badge { display: inline-flex }`,
+  # say — reopens the bug with this test still green. The `refute_match` below
+  # only guards `.free-entry-badge` itself. The net for that case is the e2e
+  # paint spec, which measures pixels and cannot be fooled by a cascade the
+  # source-level checks did not anticipate.
   #
   # A future edit that drops the override, or moves it inside a @layer, or
   # weakens it to a bare `.hidden`, reddens here.
@@ -218,7 +234,17 @@ class EntryTokenBadgePlacementTest < ActionDispatch::IntegrationTest
 
     # UNLAYERED: no `@layer` block encloses it. Counted rather than grepped —
     # `@layer` appears in this file for other reasons.
-    before = css[0...css.index(rule)]
+    #
+    # COMMENTS ARE STRIPPED BEFORE COUNTING, and that is not cosmetic. This
+    # file's prose is full of braces — `{_blobs,_circles,_gradient}`,
+    # `:class="{ 'email-reject': _rejecting }"`, `.dm-{color}`, `{ direction:
+    # 'back' }` — and today they happen to balance at 9 open against 9 close,
+    # so the naive count landed on the right answer by luck. One unmatched
+    # brace in a future comment (this file's style already DISCUSSES `@layer`
+    # in prose) flips this to a verdict about punctuation wearing the words
+    # "nested N levels deep", which is the same species of lie the whole PR
+    # exists to correct.
+    before = css[0...css.index(rule)].gsub(%r{/\*.*?\*/}m, "")
     depth  = before.count("{") - before.count("}")
     assert_equal 0, depth,
       "the override must sit OUTSIDE any @layer block (found it nested #{depth} " \

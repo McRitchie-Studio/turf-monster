@@ -113,7 +113,7 @@
 #     path (updateNavTokens(2)) still works.
 #
 # ⚠️ THE TRAP IN THIS FILE FIRED A THIRD TIME, AND THIS RESOLUTION IS WHAT CAUGHT IT.
-# Both branches wrote the identical line `total_specs: 159` for DIFFERENT pairs of specs.
+# Both branches wrote the identical line `total_specs: 157` for DIFFERENT pairs of specs.
 # Git conflicted only on the PROSE around it — the numeric lines sat OUTSIDE the markers
 # and were taken silently — so a resolution that fixed the comments and trusted the number
 # would have declared 157 against a real 159, and `bin/e2e-executed-set-check` would have
