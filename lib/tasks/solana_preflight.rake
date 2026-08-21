@@ -118,9 +118,15 @@ namespace :solana do
         info.("vault paused = #{vault[:paused]}")
       end
     rescue Solana::Client::RpcError => e
-      fail.("VaultState read failed (RPC): #{e.message[0, 160]}")
+      # redact_message, not a bare truncation: this rescue also catches the
+      # client CONSTRUCTOR's Solana::Client::InsecureRpcUrlError (and
+      # URI::InvalidURIError), both of which interpolate the whole credentialed
+      # endpoint into their own message. Truncating at 160 chars is not
+      # redaction — the key sits at the front of the string. Same defect, same
+      # rotation path, as the one fixed in solana:health.
+      fail.("VaultState read failed (RPC): #{Solana::Config.redact_message(e.message).truncate(160)}")
     rescue StandardError => e
-      fail.("VaultState read failed: #{e.class}: #{e.message[0, 160]}")
+      fail.("VaultState read failed: #{e.class}: #{Solana::Config.redact_message(e.message).truncate(160)}")
     end
 
     puts
