@@ -35,10 +35,18 @@ namespace :solana do
     puts
 
     # --- 1. Required env vars present ---------------------------------------
-    # On a fresh mainnet app these MUST be set explicitly. The defaults are
-    # network-keyed now (so omission no longer silently picks devnet mints),
-    # but for a prod cluster we still require the operator to have set every
-    # value deliberately rather than leaning on a default.
+    # On a fresh mainnet app these MUST be set explicitly.
+    #
+    # The mint defaults are network-keyed, but do NOT read that as "omission is
+    # safe" — this comment used to, and it was wrong. A network-keyed default is
+    # only as trustworthy as the key it is keyed on, and SOLANA_NETWORK was
+    # itself a defaulting env var: unset on a mainnet app it resolved to
+    # "devnet", and the whole scheme resolved with it. That is why
+    # SOLANA_NETWORK, SOLANA_RPC_URL and SOLANA_PROGRAM_ID now RAISE in
+    # production instead of defaulting (OPSEC-012 and siblings).
+    #
+    # This check stays regardless: on a prod cluster every value should be set
+    # deliberately rather than leaning on a default.
     puts "1. Required env vars"
     required = %w[
       SOLANA_NETWORK
