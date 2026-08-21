@@ -70,9 +70,16 @@ unless skip
         begin
           Solana::Client.new(rpc_url: Solana::Config::RPC_URL).get_genesis_hash
         rescue StandardError => e
-          # Upstream text is untrusted and can be an entire HTML page: collapse
-          # whitespace so it cannot forge log lines, and cap its length.
-          failure = "#{e.class}: #{e.message.to_s.gsub(/\s+/, " ").truncate(200)}"
+          # Upstream text is untrusted and can be an entire HTML page: scrub
+          # invalid bytes, collapse whitespace so it cannot forge log lines, and
+          # cap its length. scrub FIRST and never drop it: the JSON parser
+          # quotes the offending token back in its message, so a body whose
+          # first bytes are not UTF-8 (a latin-1 error page, a proxy's gzip
+          # served without Content-Encoding) puts an invalid byte INSIDE
+          # e.message — and gsub on that raises ArgumentError from inside this
+          # rescue clause, where it is NOT caught. That aborts boot, which is
+          # the exact bug this file exists to prevent.
+          failure = "#{e.class}: #{e.message.to_s.scrub("?").gsub(/\s+/, " ").truncate(200)}"
           nil
         end
 

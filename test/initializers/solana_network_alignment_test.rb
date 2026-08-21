@@ -52,6 +52,18 @@ class SolanaNetworkAlignmentTest < ActiveSupport::TestCase
       body: "<html><body><h1>504 Gateway Time-out</h1><hr>nginx</body></html>",
       content_type: "text/html"
     },
+    # Bodies that are not UTF-8 AT ALL. These are separate from the four above:
+    # the parser quotes the offending token into its message, so an invalid byte
+    # in the FIRST token lands inside e.message and the rescue body's own gsub
+    # raises ArgumentError — uncaught, because it is raised from inside the
+    # rescue clause. A high byte MID-body does not reproduce it (the parser
+    # quotes only the ASCII first token), so these bodies start with one.
+    "a latin-1 error page (invalid UTF-8)" => {
+      status: "401 Unauthorized", body: "\xE9chec d'authentification".b, content_type: "text/plain"
+    },
+    "a gzipped body served without Content-Encoding" => {
+      status: "502 Bad Gateway", body: "\x1F\x8B\x08\x00\x00\x00\x00\x00\x00\x03".b, content_type: "text/plain"
+    },
     "an empty body" => {
       status: "200 OK", body: "", content_type: "text/plain"
     }
