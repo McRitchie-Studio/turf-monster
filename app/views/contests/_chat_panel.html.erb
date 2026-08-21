@@ -6,10 +6,14 @@
     viewer, so visibility is driven by this container class. %>
 <% messages = Message.recent_for(contest) %>
 <% can_post = logged_in? && contest.chat_enabled? && contest.chat_participant?(current_user) %>
-<%# Quest 2 typewriter deck — only entrants see the composer, so only they
-    need it (contests_helper#chat_prompt_samples). @my_active_entries is set on
-    contests#show and absent on contests#live; the helper queries when it's nil. %>
-<% chat_prompts = can_post ? chat_prompt_samples(contest, current_user, entries: @my_active_entries) : [] %>
+<%# Quest 2 typewriter deck (contests_helper#chat_prompt_samples). Gated on
+    @quest_step, which contests#show sets only for an entrant — because the ONLY
+    thing that dispatches quest-chat-active is the quest card, and contests#live
+    renders no quest card. Without the gate, #live paid for the helper's fallback
+    query on every render to build a deck nothing could ever play.
+    @my_active_entries (also #show-only) preloads selections -> matchup -> team,
+    so the helper's own query never runs on the page that has one. %>
+<% chat_prompts = can_post && @quest_step.present? ? chat_prompt_samples(contest, current_user, entries: @my_active_entries) : [] %>
 
 <%# .chat-admin*, .chat-message-in, .chat-kbd, .chat-live-ping, .chat-scroll-fade
     + their @keyframes live in app/assets/tailwind/application.css (migrated 2026-05-24). %>
@@ -63,10 +67,11 @@
         <%# Quest 2: .chat-input-glow while the "Send Your First Message" mission
             is live, and the placeholder types itself through chat_prompts. Both
             are bound (not static) so they retire the moment the quest completes
-            — see questChatActive()/typePrompts() below. %>
+            — see questChatActive()/startPrompts() below. %>
         <textarea x-model="body" x-ref="input" id="contest-chat-input" rows="1" maxlength="<%= Message::BODY_MAX_LENGTH %>"
                   :placeholder="typing ? typed : 'Message the contest…'"
                   placeholder="Message the contest…"
+                  aria-label="Message the contest"
                   :class="{ 'chat-input-glow': questGlow }"
                   @keydown.enter="if ($event.metaKey || $event.ctrlKey) { $event.preventDefault(); send(); }"
                   class="flex-1 h-10 resize-none rounded-lg bg-surface-alt border border-subtle px-3 py-2 text-sm text-body placeholder:text-muted focus:outline-none focus:border-primary"></textarea>
@@ -137,6 +142,18 @@
       _promptPhase: 'type',
       _promptTimer: null,
       _promptsOff: false,
+      // Rest is TERMINAL, and it needs its own flag. The guard used to key off
+      // _promptTimer, which _promptStep() nulls when it rests — so a rested
+      // component read as idle and any second quest-chat-active re-entered the
+      // machine at phase 'hold', erased the rested line, walked _promptIdx past
+      // the end of the deck and rested on undefined. That left typed = '' with
+      // typing = true: a permanently EMPTY placeholder. Reachable by an ordinary
+      // click, since contests/_quest_chat puts @click="focusChat()" on the whole
+      // card and focusChat() dispatches quest-chat-active.
+      _promptsRested: false,
+      // The mission is over (first message sent). Latches so a stray ping can
+      // never re-arm the glow on a finished quest.
+      _questOver: false,
       // ⌘+Enter on Mac, Ctrl+Enter elsewhere — drives the Send-button hint.
       isMac: /Mac/i.test(navigator.platform || navigator.userAgent || ''),
       init() {
@@ -218,12 +235,17 @@
           var data = await resp.json().catch(() => ({}));
           if (resp.ok && data.ok) {
             this.body = '';
+            // The message landed, so the nudge has done its job — retire BOTH
+            // cues here rather than inside the seeds branch below. A first
+            // message that earns no bonus is still a first message, and leaving
+            // the glow pulsing at someone who just posted is the edge that
+            // acceptance criterion 5 ("stop after first message sends") means.
+            this.questDone();
             // First-message quest bonus: MessagesController#create returns the
             // seeds payload only on the user's first-ever contest-chat message.
             // Flip the quest arrow to a checkmark, fire the seeds tick-up, and
             // advance the contest quest card from chat -> newsletter.
             if (data.seeds_earned) {
-              this.questDone(); // mission over: drop the glow, retire the prompts
               try { window.dispatchEvent(new CustomEvent('quest-chat-success')); } catch (e) {} // arrow -> checkmark
               try { window.completeQuest(data, { to: 'newsletter' }); } catch (e) {} // unified celebration
             } else {
@@ -244,6 +266,7 @@
       // drives all three nudges: the panel pop, the composer's glow, and the
       // typed sample messages.
       questChatActive() {
+        if (this._questOver) return; // finished mission — never re-arm the cues
         this.pulse();
         this.questGlow = true;
         this.startPrompts();
@@ -252,12 +275,13 @@
       // First message landed and earned its seeds — the composer goes back to
       // being an ordinary composer.
       questDone() {
+        this._questOver = true;
         this.questGlow = false;
         this.stopPrompts();
       },
 
       startPrompts() {
-        if (this._promptsOff || this._promptTimer || !this._prompts.length) return;
+        if (this._promptsOff || this._promptsRested || this._promptTimer || !this._prompts.length) return;
         // Reduced motion keeps the plain placeholder. Nothing MOVES here, but a
         // string rewriting itself character by character is animation all the
         // same, and it sits under a caret the reader is trying to type into.
@@ -292,6 +316,7 @@
             rest = this._promptIdx >= this._prompts.length - 1;
             this._promptPhase = 'hold';
             delay = 1800;
+            if (rest) { this._promptsRested = true; }
           } else {
             delay = 55;
           }
@@ -302,7 +327,9 @@
           this._promptN--;
           if (this._promptN <= 0) {
             this._promptN = 0;
-            this._promptIdx++;
+            // Never step past the last line — rest is the only way out of the
+            // deck, and indexing past it is what produced the empty placeholder.
+            this._promptIdx = Math.min(this._promptIdx + 1, this._prompts.length - 1);
             this._promptPhase = 'type';
             delay = 420;
           } else {

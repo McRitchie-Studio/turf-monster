@@ -70,6 +70,23 @@ module ContestsHelper
 
   CHAT_PROMPT_OPENERS = ["Hey everyone 👋", "Good luck, everyone ⚔️"].freeze
 
+  # The personal line RESTS in the placeholder, so it is the one line that must
+  # never render broken — and the composer is narrow. Measured in Chrome at the
+  # 375px breakpoint (the mobile chat tab), the textarea's content box is 206px
+  # against a 20px line-height in a 22px box: a longer line WRAPS and gets sliced
+  # mid-glyph rather than ellipsised. It also overflows the md two-column box
+  # (223px) and only clears at 1024px+.
+  #
+  # So the name carries a budget. 14 characters is where the real corpus splits:
+  # the longest genuine team name is "United States" (13), while everything above
+  # is a World Cup bracket placeholder ("Winner Match 102", "Runner-up Match 101")
+  # or "Bosnia and Herzegovina" (22) — all of which read badly in this sentence
+  # anyway. Over budget falls back to the team's short_name ("BIH"), then to the
+  # generic line. Pinned by a MEASURED check at 375px in
+  # e2e/quest_chat_prompts.spec.js — the character count is a proxy, the pixel
+  # measurement is the fact.
+  CHAT_PROMPT_NAME_BUDGET = 14
+
   # Where the personal line goes when no team can be resolved (a contest with no
   # slate — World Cup Survivor — or a slate with no priced matchups). Keeps the
   # deck three lines long and still ends on an invitation to type.
@@ -87,7 +104,7 @@ module ContestsHelper
 
   private
 
-  # "Chargers are about to light it up ⚡" — the viewer's LONGEST-PRICED pick.
+  # "Chargers light it up ⚡" — the viewer's LONGEST-PRICED pick.
   #
   # turf_score is the frozen per-team multiplier, and the curve pins rank 1 at
   # x1.0 and climbs from there (SlateMatchup.turf_score_for), so the highest one
@@ -98,10 +115,22 @@ module ContestsHelper
     matchup = chat_prompt_priciest(chat_prompt_matchups(contest, user, entries))
     matchup ||= chat_prompt_priciest(contest.slate ? contest.pickable_matchups : [])
     team = matchup&.team
-    return CHAT_PROMPT_NO_TEAM if team.blank? || team.mascot.blank?
+    name = chat_prompt_name_for(team)
+    return CHAT_PROMPT_NO_TEAM if name.blank?
 
     emoji = team.emoji.presence || contest.slate&.sport_emoji || contest.sport_emoji
-    "#{team.mascot} are about to light it up #{emoji}"
+    "#{name} light it up #{emoji}"
+  end
+
+  # The name this line can afford: the mascot when it fits the budget, else the
+  # team's short_name, else nothing (the caller falls back to the generic line).
+  # short_name is an abbreviation — "BIH", "USA" — so it is always well inside.
+  def chat_prompt_name_for(team)
+    return nil if team.blank?
+
+    [team.mascot, team.short_name]
+      .compact_blank
+      .find { |name| name.length <= CHAT_PROMPT_NAME_BUDGET }
   end
 
   # This viewer's picked matchups. Reads the preloaded entries when the caller

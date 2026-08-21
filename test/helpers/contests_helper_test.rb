@@ -105,7 +105,7 @@ class ContestsHelperTest < ActionView::TestCase
 
     assert_equal ContestsHelper::CHAT_PROMPT_LIMIT, deck.length
     assert_equal ["Hey everyone 👋", "Good luck, everyone ⚔️"], deck.first(2)
-    assert_equal "A are about to light it up 🏳️", deck.last
+    assert_equal "A light it up 🏳️", deck.last
   end
 
   # m1 (rank 1) prices x1.0 and m5 (rank 5) prices x1.6 — the curve pins rank 1
@@ -114,7 +114,7 @@ class ContestsHelperTest < ActionView::TestCase
   test "the personal line names the viewer's longest-priced pick" do
     pick_teams(@entry, slate_matchups(:m1), slate_matchups(:m5))
 
-    assert_equal "E are about to light it up 🏳️", chat_prompt_samples(@contest, @owner).last
+    assert_equal "E light it up 🏳️", chat_prompt_samples(@contest, @owner).last
   end
 
   test "a player with no picks gets the contest's own longest price" do
@@ -122,7 +122,34 @@ class ContestsHelperTest < ActionView::TestCase
 
     assert_equal ContestsHelper::CHAT_PROMPT_LIMIT, deck.length
     # Still a real claim about this contest, not a blank or a dropped line.
-    assert_match(/\A\S+ are about to light it up \S+\z/, deck.last)
+    assert_match(/\A\S+ light it up \S+\z/, deck.last)
+  end
+
+  # A name longer than the budget would wrap and slice in the 206px mobile
+  # composer, and this is the RESTING line, so it is the one that stays broken
+  # on screen. Over budget drops to the team's short_name.
+  test "a long team name falls back to its short name" do
+    team = slate_matchups(:m1).team
+    team.update!(mascot: "Bosnia and Herzegovina", short_name: "BIH")
+    pick_teams(@entry, slate_matchups(:m1))
+
+    assert_equal "BIH light it up 🏳️", chat_prompt_samples(@contest, @owner).last
+  end
+
+  test "a long team name with no short name falls back to the opener" do
+    team = slate_matchups(:m1).team
+    team.update!(mascot: "Bosnia and Herzegovina", short_name: nil)
+    pick_teams(@entry, slate_matchups(:m1))
+
+    assert_equal ContestsHelper::CHAT_PROMPT_NO_TEAM, chat_prompt_samples(@contest, @owner).last
+  end
+
+  # The budget is a character proxy for a pixel constraint, so pin the number
+  # itself: 14 keeps every real team name (longest: "United States", 13) and
+  # drops the World Cup bracket placeholders ("Runner-up Match 101", 19).
+  test "the name budget admits real team names and drops bracket placeholders" do
+    assert_operator "United States".length, :<=, ContestsHelper::CHAT_PROMPT_NAME_BUDGET
+    assert_operator "Runner-up Match 101".length, :>, ContestsHelper::CHAT_PROMPT_NAME_BUDGET
   end
 
   test "an unpriced slate falls back to an opener rather than a blank" do

@@ -20,9 +20,13 @@ class ChatQuestPromptTest < ActionView::TestCase
     entry.selections.create!(slate_matchup: slate_matchups(:m1))
   end
 
-  def render_panel(user)
+  # @quest_step is what contests#show sets for an entrant; the panel gates the
+  # deck on it because the quest card is the only thing that can ever dispatch
+  # quest-chat-active. Pass nil to render the panel as contests#live does.
+  def render_panel(user, quest_step: :chat)
     view.define_singleton_method(:current_user) { user }
     view.define_singleton_method(:logged_in?) { user.present? }
+    @quest_step = quest_step
     render partial: "contests/chat_panel", locals: { contest: @contest }
   end
 
@@ -61,22 +65,25 @@ class ChatQuestPromptTest < ActionView::TestCase
     assert_equal ["Hey everyone 👋", "Good luck, everyone ⚔️"], deck.first(2)
     # The line the composer RESTS on is the personal one, so it is the line that
     # actually has to survive the round trip through the data attribute.
-    assert_equal "A are about to light it up 🏳️", deck.last
+    assert_equal "A light it up 🏳️", deck.last
   end
 
-  # The typewriter stops after the last line and leaves it in the placeholder.
-  # The deck IS the pass count, so the rest condition has to key off the deck's
-  # own length — a hard-coded 3 here would drift the moment the deck resizes.
-  test "the typewriter rests on the last line rather than looping" do
-    html = render_panel(@entrant)
+  # NO source-grep test for the REST behaviour lives here any more. The one that
+  # did (assert_match on the literal state-machine lines) ran green against both
+  # the broken and the fixed component — grepping a rendered <script> proves the
+  # text is present, never that it runs, and it pinned an implementation line so
+  # a correct fix would have failed it for the wrong reason. Resting is now
+  # covered where it can actually be observed: e2e/quest_chat_prompts.spec.js.
 
-    assert_match(/rest = this\._promptIdx >= this\._prompts\.length - 1;/, html)
-    assert_match(/if \(rest\) \{ this\._promptTimer = null; return; \}/, html)
-    # Resting must NOT run through stopPrompts — that clears `typing`, which
-    # would swap the finished line back to the static placeholder.
-    refute_match(/if \(rest\) \{ this\.stopPrompts/, html)
-    # And nothing may wrap the index back to zero, or it would loop forever.
-    refute_match(/_promptIdx = \(this\._promptIdx \+ 1\) % /, html)
+  # contests#live renders the chat panel but NO quest card, so nothing there can
+  # dispatch quest-chat-active. Building the deck anyway cost a fallback query
+  # per render for a deck that could never play.
+  test "no quest card on the page means no deck is built" do
+    html = render_panel(@entrant, quest_step: nil)
+
+    assert_empty rendered_deck(html)
+    # The composer itself still renders — only the nudge is absent.
+    assert_match(/id="contest-chat-input"/, html)
   end
 
   test "a viewer who cannot post gets no composer and an empty deck" do
@@ -93,12 +100,13 @@ class ChatQuestPromptTest < ActionView::TestCase
     refute_match(/:class="\{ 'chat-input-glow'/, html)
   end
 
-  test "the glow is retired the moment the first message earns its seeds" do
+  # The composer must carry a STABLE accessible name. The placeholder is the only
+  # name a bare textarea has, and this feature rewrites it character by character
+  # — so a screen reader would otherwise read a name that changes every 55ms, and
+  # read nothing at all in the moment between two lines.
+  test "the composer has an accessible name independent of the placeholder" do
     html = render_panel(@entrant)
 
-    # send() flips both cues off on the seeds-earning response — without this
-    # the composer keeps glowing at a player whose mission is already done.
-    assert_match(/if \(data\.seeds_earned\) \{\s*\n\s*this\.questDone\(\);/, html)
-    assert_match(/questDone\(\) \{\s*\n\s*this\.questGlow = false;\s*\n\s*this\.stopPrompts\(\);/, html)
+    assert_match(/aria-label="Message the contest"/, html)
   end
 end
