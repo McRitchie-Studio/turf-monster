@@ -110,6 +110,14 @@ class Web3StepUpGalleryTest < ActionDispatch::IntegrationTest
     assert_includes card, "Connect your wallet"
     # Same row shape as the remembered half, so the two look like one card.
     assert_includes card, ROW_CLASSES
+    # ...and its mark is a DRAWN wallet, not an emoji. The first pass used
+    # U+1F45B PURSE, which renders as a pink handbag inches from Phantom's real
+    # brand mark — the one thing on the card belonging to no design system.
+    # Pinned by codepoint because the next well-meaning emoji looks fine in a
+    # commit diff and wrong on screen.
+    assert_not_includes card, "\u{1F45B}"
+    assert_not_includes card, "&#128091;"
+    assert_includes card, "<svg", "the fallback tile draws its own wallet mark"
     # canOneClick is what switches the two halves; assert the rule itself, since
     # both branches render into the same document as <template>s.
     assert_includes response.body, "get canOneClick() { return !!this.provider && !this.providerMissing; }"

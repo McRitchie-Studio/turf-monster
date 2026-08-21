@@ -222,7 +222,21 @@
     <button type="button" @click="openPicker()" :disabled="connecting"
             style="--pulse-cta-color: rgb(var(--color-primary-rgb)); --pulse-cta-strength: 0.4; --pulse-cta-scale: 1.02"
             class="pulse-cta w-full flex items-center gap-3 p-3 rounded-xl bg-surface-alt border border-strong hover:bg-surface transition text-left disabled:opacity-60">
-      <span class="w-9 h-9 rounded-lg bg-inset flex items-center justify-center shrink-0 text-lg" aria-hidden="true">&#128091;</span>
+      <%# A neutral wallet mark, NOT an emoji. This tile sits inches from a real
+          brand mark, so a platform emoji (the first pass used U+1F45B PURSE)
+          reads as a pink handbag next to Phantom and is the one thing on the
+          card that belongs to no design system. Stroked in the same idiom as
+          the chevron beside it, on theme tokens.
+
+          A billfold: body plus clasp, and NO band across the top. The first
+          drawing had one and it read as a credit-card magstripe at 20px — the
+          wrong object on a card whose whole subject is a wallet. %>
+      <span class="w-9 h-9 rounded-lg bg-inset flex items-center justify-center shrink-0" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" class="w-5 h-5 text-secondary">
+          <rect x="3" y="6.5" width="18" height="11" rx="2.5" />
+          <circle cx="16.6" cy="12" r="1.3" fill="currentColor" stroke="none" />
+        </svg>
+      </span>
       <span class="font-semibold text-heading">Connect your wallet</span>
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="ml-auto w-4 h-4 text-muted">
         <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
