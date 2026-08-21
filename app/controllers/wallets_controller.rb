@@ -142,7 +142,7 @@ class WalletsController < ApplicationController
       raise "Airdrop only available on Devnet" unless Solana::Config.devnet?
       raise "No Solana wallet connected" unless current_user.solana_connected?
 
-      client = Solana::Client.new
+      client = Solana::Config.client
       signature = client.request_airdrop(current_user.solana_address, 1_000_000_000) # 1 SOL
       redirect_to wallet_path, notice: "Airdropped 1 SOL! TX: #{signature}"
     end
