@@ -386,14 +386,19 @@ test("a zero-token user's ✨ badge paints nothing at all", async ({ page }) => 
   await expect(badge, "the badge must stay in the DOM at zero tokens so a mint " +
     "can surface it without a reload").toBeAttached();
 
-  // THE SERVER-RENDERED HALF, on arrival: the seeded e2e user holds zero entry
-  // tokens, so this is the page a real zero-token user actually lands on — no
-  // JS has touched the badge yet. toBeHidden() is Playwright's own bounding-box
-  // measurement, and it FAILED here before the fix. The updateNavTokens(0)
-  // state sampled below is this same state re-created, which is why one clip
-  // can stand for both halves.
-  await expect(badge, "a zero-token user must not see the badge on arrival, " +
-    "before any JS runs").toBeHidden();
+  // ON ARRIVAL: the seeded e2e user holds zero entry tokens, so this is the
+  // page a real zero-token user actually lands on — server-rendered `.hidden`,
+  // and then the hydrate above re-applying it through updateNavTokens(0).
+  // (An earlier draft of this comment claimed "no JS has touched the badge
+  // yet". It had the 4000ms quiesce directly above it, whose whole job is to
+  // let refreshBalance/refreshSession LAND — the very calls that touch the
+  // badge. The assertion was right and the reason was wrong, which is the
+  // exact failure mode this PR exists to correct.)
+  // toBeHidden() is Playwright's own bounding-box measurement, and it FAILED
+  // here before the fix. The updateNavTokens(0) state sampled below is this
+  // same state re-driven, which is why one clip can stand for both halves.
+  await expect(badge, "a zero-token user must not see the badge on arrival")
+    .toBeHidden();
 
   // Surface it through the APP'S OWN function, then take the clip from the box
   // it actually occupies. +6px catches the .legendary-badge bloom without
@@ -444,6 +449,15 @@ test("a zero-token ✨ badge holds no box and reports display:none", async ({ pa
   await login(page, "alex@mcritchie.studio", "password");
   await page.goto("/contests");
   await expect(page.locator("[data-username-display]").first()).toBeVisible();
+
+  // QUIESCE, for the SAME reason as the paint spec above and the glow spec
+  // before it — and here it is the updateNavTokens(2) half that needs it.
+  // refreshSession() lands on its own schedule and calls updateNavTokens with
+  // the SERVER's count, which is zero for this user. Land after we drive the
+  // badge to two and it re-applies `.hidden` underneath the assertions, which
+  // go red for a reason that has nothing to do with the cascade. workers:1 +
+  // retries:2 would most likely bury that on a retry — the bad kind of green.
+  await page.waitForTimeout(4000);
 
   const measure = () => page.evaluate(() => {
     const b = document.querySelector("[data-free-entry-badge]");

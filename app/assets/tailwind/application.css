@@ -1048,6 +1048,15 @@ body.modal-open { overflow: hidden; }
    right reason; its old claim that omitting display is what lets `hidden`
    win was simply untrue.)
 
+   THE PRICE, AND IT CUTS THE OTHER WAY: this rule out-ranks a RESPONSIVE
+   display utility on this element too. `hidden md:inline-flex` on the badge
+   computes `display:none` at every width — measured — because `.hidden`
+   here is no longer the utility being beaten, it is a compound unlayered rule
+   the breakpoint utility cannot reach. Tailwind's canonical `hidden md:block`
+   reveal DOES NOT WORK on .free-entry-badge. Surface it the way the app does,
+   through updateNavTokens(); if this element ever needs a breakpoint reveal,
+   widen THIS rule rather than adding a utility that will lose to it.
+
    Guarded at two tiers: test/views/entry_token_badge_placement_test.rb pins
    the cascade properties, and e2e/navbar_layout.spec.js "a zero-token user's
    badge paints nothing at all" measures the PAINT — a class list was true
