@@ -1024,10 +1024,36 @@ body.modal-open { overflow: hidden; }
    "✨ Free Entry" label that shares the navbar's balance slot.
 
    Punch animation fired by window.animateFreeEntryBadge() after a
-   token-funded entry confirms. We intentionally do NOT set `display:` on
-   .free-entry-badge so Tailwind's `hidden` class wins when the user has
-   no tokens. */
+   token-funded entry confirms.
+
+   HIDING IT TAKES AN EXPLICIT RULE — Tailwind's `hidden` cannot do it alone.
+   The button wears `hidden` and `inline-flex` TOGETHER: `hidden` rides the
+   BUTTON (not the wrapper) so updateNavTokens can surface the badge after a
+   mint without a reload, and `inline-flex` centres the sparkle in the disc.
+   Both are single-class utilities inside `@layer utilities`, so they TIE on
+   specificity and SOURCE ORDER decides — and Tailwind emits `.hidden` FIRST.
+   The later `.inline-flex` therefore won and `hidden` hid nothing. Measured:
+   computed display `inline-flex`, a live 20x20 box, and a user holding zero
+   entry tokens staring at a sparkle that promised a free entry they did not
+   have. updateNavTokens(0), whose whole job is to hide it, was inert.
+
+   The override below wins TWICE OVER, because each half fails differently:
+   it is COMPOUND — (0,2,0) against the utilities' (0,1,0), so it beats them
+   in any emission order — and it is UNLAYERED, which outranks every layered
+   rule whatever its specificity.
+
+   .free-entry-badge must keep NOT declaring `display`: unlayered, a display
+   there would outrank `.hidden` and pin the badge visible instead — the same
+   bug from the other side. (That was the ORIGINAL note here, kept for the
+   right reason; its old claim that omitting display is what lets `hidden`
+   win was simply untrue.)
+
+   Guarded at two tiers: test/views/entry_token_badge_placement_test.rb pins
+   the cascade properties, and e2e/navbar_layout.spec.js "a zero-token user's
+   badge paints nothing at all" measures the PAINT — a class list was true
+   the whole time this shipped, so it is not evidence. */
 .free-entry-badge { transform-origin: center; }
+.free-entry-badge.hidden { display: none; }
 
 /* === .legendary-badge — the house legendary treatment ===================
    Built the same way as the engine's .level-badge-10 (a gradient far wider than

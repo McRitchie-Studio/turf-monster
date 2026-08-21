@@ -402,10 +402,12 @@ export function updateNavTokens(balance) {
 // open, and updateNavTokens replays it if the badge was still hidden and only
 // now became visible. Without the window a level-up on a user's FIRST token
 // glows a badge the count hydrate has not surfaced yet.
-// (The `hidden` class this turns on is, today, a no-op on that button — it
-// loses the cascade to the inline-flex beside it. See the JS-contract note in
-// views/components/_entry_token_badge.html.erb; it does not change the ordering
-// problem this window exists to solve.)
+// (The `hidden` class this turns on used to be a no-op on that button — it lost
+// the cascade to the inline-flex beside it, so the "still hidden" state this
+// window is written around was never actually hidden on screen. An explicit
+// unlayered override in app/assets/tailwind/application.css settles that now;
+// either way it does not change the ORDERING problem this window exists to
+// solve, which is about when the count lands, not about what is painted.)
 var GLOW_MS = 4400;
 var _glowArmedUntil = 0;
 // Handle for the in-flight strip-the-class timer. HELD, because a replay is the
@@ -462,6 +464,12 @@ export function animateFreeEntryBadge() {
 // the badge the user just earned / consumed. Falls back to the top-
 // right of the viewport when the badge isn't on screen (e.g. after a
 // consume that dropped the count to 0 and hid the badge).
+//
+// THAT FALLBACK ONLY BECAME REACHABLE with the entry-badge cascade fix. While
+// `.hidden` lost to the inline-flex beside it the badge always reported a live
+// 20x20 rect, so `hidden` here was permanently false and a consume-to-zero
+// burst fired from a disc that was about to stop being painted. It now takes
+// the corner branch, which is what the sentence above always claimed.
 export function fireConfettiFromBadge() {
   if (typeof confetti === 'undefined') return;
   var badge  = document.querySelector('[data-free-entry-badge]');
