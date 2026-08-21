@@ -121,7 +121,14 @@
 # tree is what caught it, exactly as the note left by the previous round instructed.
 # Do that, every time, on the merged tree. Do not take either side, and do not do the
 # arithmetic — run the lister.
-total_specs: 159
+#
+# 159 -> 161 (hold-for-free-entry): two specs in e2e/free_entry_web3.spec.js for the board's
+# funding-aware hold CTA — that Alpine swaps the copy on BOTH buttons as the token count
+# moves, and that the shipped eligibilityBlocker stops blocking a Phantom wallet that holds
+# a token but no USDC. Neither is observable from Ruby: the first is an Alpine binding and
+# the second is a browser-side function. DERIVED WITH THE LISTER on this merge (161 tests
+# in 42 files), not by adding 2 to the number that was here.
+total_specs: 161
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -180,7 +187,10 @@ allowed_skips: 4
 # on total_specs above: this merge joined two branches that had each written 136 for a
 # DIFFERENT pair of specs, and the number came through the merge unconflicted.
 #
-# History: 136 on each of the two branches this merge joins — fade-mask-follows-face-swap
+# History: 138 (159 - 17 - 4) before hold-for-free-entry added its two web3 free-entry
+# specs — that merge is also the one whose CI caught this file, red at 138-against-136,
+# because `accepted` had moved twice underneath the branch while its PR sat in review;
+# 136 on each of the two branches the merge before that joins — fade-mask-follows-face-swap
 # and hide-badge-for-zero-tokens BOTH declared 136 for different pairs of specs, the trap
 # firing for the THIRD time; 134 on each of the two branches the merge before that joined
 # (redact-helius-key-from-browser and fade-mask-follows-face-swap), the second firing;
@@ -189,7 +199,7 @@ allowed_skips: 4
 # 128 (149 - 17 - 4) before either of them; 126 before that (the two payment specs still
 # skipping); and 122 against 145 committed before adopt-engine-geo-primitives added its
 # four geo specs.
-executed: 138
+executed: 140
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
