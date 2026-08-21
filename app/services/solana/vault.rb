@@ -105,14 +105,40 @@ module Solana
     # env / config takes effect on the next retry.
     PROGRAM_ID_LIVE_CACHE_KEY = "solana/program_id_live/v1".freeze
 
-    def self.ensure_program_id_live!(client: nil)
+    # RETURN VALUE IS A TRI-STATE, and the two non-raising outcomes are NOT the
+    # same fact:
+    #
+    #   :live       — a getAccountInfo call answered, and PROGRAM_ID is there.
+    #   :cached     — a call answered within the last 5 minutes and said :live.
+    #   :unverified — the check DID NOT RUN. The RPC errored and we swallowed it.
+    #
+    # The fail-open on :unverified is deliberate and load-bearing: TokenPurchaseJob
+    # calls this as a defensive pre-flight, and a transient 429 must not fail a
+    # purchase the mint itself would have surfaced properly. So this method still
+    # does not raise on transport errors, and the job still ignores the return
+    # value — nothing about its control flow changes.
+    #
+    # What changed is that the outcome is now REPORTABLE. `solana:health` used to
+    # infer "it didn't raise, so it passed" and print a green tick for a check
+    # that never executed — against a fully-rejecting endpoint it printed
+    # "✓ PROGRAM_ID exists on RPC" directly below "getGenesisHash failed". That is
+    # the worst possible lie to tell an operator mid key-rotation. A caller that
+    # needs to know the difference now can, without this becoming a raise.
+    #
+    # `force: true` skips the cache READ (never the write). `solana:health` uses
+    # it: the health check exists to prove the CURRENT endpoint answers, and a
+    # cache hit proves only that some endpoint answered up to five minutes ago.
+    # It replaces a `Rails.cache.delete_matched(...) rescue nil` in the rake —
+    # `delete_matched` raises on stores that do not support it (and the bare
+    # `rescue nil` ate that), leaving the stale entry in place and the tick green.
+    def self.ensure_program_id_live!(client: nil, force: false)
       # Digest, not a prefix: the raw endpoint carries the provider api-key on
       # mainnet, and a 64-char prefix of it was long enough to include part of
       # that key in every Redis key and slow-log line. The digest still changes
       # when the endpoint does, which is all the cache key needs.
       rpc_fingerprint = Digest::SHA256.hexdigest(Config::RPC_URL.to_s)[0, 16]
       cache_key = "#{PROGRAM_ID_LIVE_CACHE_KEY}/#{Config::PROGRAM_ID}/#{rpc_fingerprint}"
-      return if Rails.cache.read(cache_key)
+      return :cached if !force && Rails.cache.read(cache_key)
 
       client ||= Solana::Client.new
       info = client.get_account_info(Config::PROGRAM_ID)
@@ -125,13 +151,20 @@ module Solana
               "restart it. (Set SKIP_PROGRAM_ID_LIVE_CHECK=true to bypass.)"
       end
       Rails.cache.write(cache_key, true, expires_in: 5.minutes)
+      :live
     rescue StaleEnvError
       raise
     rescue => e
       # Transient RPC errors (429, network blip) shouldn't fail the job —
       # let the actual mint surface its own error. We only raise on the
       # definitive "account doesn't exist" response.
-      Rails.logger.warn "[solana] ensure_program_id_live! RPC error (skipping check): #{e.class}: #{e.message[0,120]}"
+      #
+      # `redact_message`, not raw `e.message`: InsecureRpcUrlError and
+      # URI::InvalidURIError both embed the full credentialed endpoint in their
+      # message, and truncating at 120 chars is not redaction.
+      Rails.logger.warn "[solana] ensure_program_id_live! RPC error (check did NOT run): " \
+                        "#{e.class}: #{Config.redact_message(e.message).truncate(160)}"
+      :unverified
     end
 
     # --- PDA helpers ---

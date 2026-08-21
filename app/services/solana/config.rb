@@ -158,6 +158,74 @@ module Solana
       "***"
     end
 
+    # Log/terminal-safe rendering of an EXCEPTION MESSAGE — a sentence that may
+    # have a URL buried in it, which is a different problem from a bare URL.
+    #
+    # `redact_rpc_url` cannot do this job: fed a sentence, `URI.parse` raises and
+    # it returns "***", destroying the diagnostic. That mattered because two
+    # exception classes on the credential-rotation path embed the WHOLE endpoint
+    # in their message:
+    #
+    #   Solana::Client::InsecureRpcUrlError — the gem interpolates
+    #     `#{@rpc_url.inspect}` (a fat-fingered `http://` scheme is the most
+    #     likely operator error during a rotation, and it prints the key).
+    #   URI::InvalidURIError — quotes the offending URI back at you.
+    #
+    # Both were interpolated raw into the boot guard's ERROR line and into
+    # `solana:health` output, beside a second half that redacted correctly.
+    #
+    # Two passes, because neither alone is sufficient:
+    #   1. Every http(s)-ish substring goes through `redact_rpc_url`, so a URL
+    #      from ANY source (an upstream's error body, a redirect target) is
+    #      masked by the same rules the rest of the app uses.
+    #   2. The credential-bearing parts of the CONFIGURED endpoint are masked
+    #      literally. Pass 1 only fires on something that parses as a URL; a
+    #      mangled endpoint ("https:// host/?api-key=…", a stray newline) can
+    #      strand the key outside any parseable URL, and that is exactly the
+    #      malformed input this path exists to diagnose.
+    #
+    # `scrub` FIRST, for the same reason the boot guard does (see
+    # config/initializers/solana_network_alignment.rb): `gsub` on a string with
+    # invalid UTF-8 raises ArgumentError from inside the rescue clause that
+    # called it.
+    def self.redact_message(text, url: RPC_URL)
+      out = text.to_s.scrub("?")
+      out = out.gsub(%r{[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s"'<>\\]*}) { |match| redact_rpc_url(match) }
+      credential_fragments(url).each { |fragment| out = out.gsub(fragment, "***") }
+      out.gsub(/\s+/, " ").strip
+    end
+
+    # The secret-bearing substrings of a configured endpoint: userinfo, opaque
+    # path segments, and query VALUES. Only tokens long enough to be a
+    # credential (`opaque_token?`) — masking a short one would blank harmless
+    # words like "v2" everywhere they appear in a message.
+    def self.credential_fragments(url)
+      # RAW SCAN FIRST, and it is not a fallback — it is the load-bearing pass.
+      # The endpoint we are asked to redact is frequently the very thing that is
+      # MALFORMED (that is why an exception is being formatted at all), and
+      # `URI.parse` on a mangled endpoint raises, which would leave us with no
+      # fragments and the credential printed in full. Splitting on non-token
+      # characters finds the key whether or not the URL parses. Short segments
+      # ("https", "rpc", "v2") fail `opaque_token?` and stay legible.
+      fragments = url.to_s.split(/[^A-Za-z0-9_-]+/).select { |token| opaque_token?(token) }
+
+      uri = URI.parse(url.to_s)
+      # Split on ":" — "user:secret" as a whole never matches `opaque_token?`,
+      # so the password half would survive the filter below.
+      fragments.concat(uri.userinfo.split(":")) if uri.userinfo.present?
+      fragments.concat(uri.path.to_s.split("/").select { |segment| opaque_token?(segment) })
+      if uri.query.present?
+        fragments.concat(
+          uri.query.split("&").filter_map { |pair| pair.split("=", 2)[1].presence }
+        )
+      end
+      fragments.select { |fragment| opaque_token?(fragment) }.uniq
+    rescue URI::Error
+      # A malformed endpoint — exactly the case above. The raw scan already ran.
+      fragments.select { |fragment| opaque_token?(fragment) }.uniq
+    end
+    private_class_method :credential_fragments
+
     # The RPC endpoint handed to the BROWSER.
     #
     # Resolution order — every step passes through `credentialed_rpc_url?`:
