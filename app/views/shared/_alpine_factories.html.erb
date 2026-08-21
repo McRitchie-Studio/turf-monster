@@ -303,6 +303,56 @@
     };
   };
 
+  // === navUsernameFade — the navbar username's overflow fade mask =====
+  //
+  // The username button is overflow-hidden + whitespace-nowrap, so a name wider
+  // than its box gets CUT mid-glyph. This decides whether to taper that cut,
+  // from the one fact it depends on: scrollWidth > clientWidth.
+  //
+  // IT HAS TO BE MEASURED AGAIN EVERY TIME THAT BOX MOVES. It used to be an
+  // inline one-shot in init(), and init() runs at the worst possible moment —
+  // the balance slot beside it is still on its cold-cache "loading" render, so
+  // the username has the whole column and fits. MEASURED at 900px: clientWidth
+  // 89 with scrollWidth 89 at init (no overflow, no mask), then the balance
+  // hydrate lands at ~2s, paints "$40", and squeezes the button to 84 against
+  // an unchanged scrollWidth of 89. Overflowing, and nothing recomputed. Same
+  // again when applyBalanceSlotRule() swaps the slot to its wider "Free Entry"
+  // face on a first mint (84 -> 44), and again on any viewport resize across
+  // the 768/1280 squeeze band.
+  //
+  // WHY ResizeObserver AND NOT THE 'entry-tokens-updated' EVENT. That event is
+  // one CAUSE of a resize; the observer watches the EFFECT. It therefore also
+  // catches the balance hydrate (which calls applyBalanceSlotRule directly and
+  // dispatches nothing), the viewport resize, and the navbar's scrolled
+  // text-lg/text-base step — none of which announce themselves. Watching the
+  // box means a future caller cannot forget to tell us.
+  //
+  // It also keeps this OFF the window: an observer belongs to the component
+  // instance and dies with it in destroy(), so a Turbo navigation that re-runs
+  // init() on a fresh navbar cannot leave a second listener bound behind it.
+  //
+  // Reading layout in the callback is safe here: the only thing that changes is
+  // mask-image, which paints and never reflows, so there is no observer loop.
+  window.navUsernameFade = function () {
+    return {
+      overflows: false,
+      _ro: null,
+      init() {
+        this.measure();
+        if (!window.ResizeObserver) return;
+        var self = this;
+        this._ro = new ResizeObserver(function () { self.measure(); });
+        this._ro.observe(this.$el);
+      },
+      destroy() {
+        if (this._ro) { this._ro.disconnect(); this._ro = null; }
+      },
+      measure() {
+        this.overflows = this.$el.scrollWidth > this.$el.clientWidth;
+      }
+    };
+  };
+
   // === ageVerifyModal — entry-time date-of-birth age gate (ENABLE_AGE_GATE) ==
   //   Mounted by the modal host as id 'age-verify' (modals/_age_verify).
   //   Month/Day/Year selects → POST /age/verify. On success: flip

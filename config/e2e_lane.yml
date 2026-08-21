@@ -71,7 +71,21 @@
 # the lister on the MERGED tree — never take either side, and never trust a clean merge of
 # these lines.
 # Re-derived here on the merged tree: `npx playwright test --list` -> 153 tests in 40 files.
-total_specs: 153
+#
+# 153 -> 155 (fade-mask-follows-face-swap): two specs in e2e/navbar_layout.spec.js for the
+# username's overflow fade mask, which was decided ONCE in an Alpine init() and therefore
+# never followed the box. Both assert on PAINTED PIXELS, not computed style, because the
+# two are different claims — the broken build resolved no mask at all, and a build that
+# resolved one over the wrong box would read identically in getComputedStyle.
+#   · a live applyBalanceSlotRule() face swap, at 768/900/1024/1280. MEASURED broken: the
+#     final column of the clipped edge carried 234/255 of ink at every width, byte-identical
+#     to the mask forced OFF.
+#   · a viewport resize across the band with NO navigation, plus the negative control that
+#     stops "mask everything" passing — the 34px username `turf`, which fits on both faces
+#     at every width and must be painted unmasked.
+# Re-derived with the lister after adding them: `npx playwright test --list` -> 155 tests in
+# 40 files.
+total_specs: 155
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -119,18 +133,19 @@ allowed_skips: 4
 
 # total_specs - excluded - allowed_skips. What the lane MUST execute, asserted against the
 # runner's own report, so no source-level spelling on any axis can move it without moving
-# this line. Derived: 153 committed - 17 @devnet - 4 allowed = 132.
+# this line. Derived: 155 committed - 17 @devnet - 4 allowed = 134.
 #
 # Every number here was re-derived with the runner, not adjusted by arithmetic on the last
-# one. On this merged tree: `npx playwright test --list` reports 153 tests in 40 files,
-# `--grep "@devnet"` 17, and `--grep-invert "@devnet"` 136 collected for the PR lane —
-# 136 - 4 runtime skips = 132.
+# one. On this tree: `npx playwright test --list` reports 155 tests in 40 files,
+# `--project=devnet --grep "@devnet"` 17, and `--project=chromium --grep-invert "@devnet"`
+# 138 collected for the PR lane — 138 - 4 runtime skips = 134.
 #
-# History: 130 (151 - 17 - 4) on each of the two branches this merge joins, which is the
+# History: 132 (153 - 17 - 4) before fade-mask-follows-face-swap added its two navbar paint
+# specs; 130 (151 - 17 - 4) on each of the two branches that merge joined, which is the
 # trap above — both said 130 for DIFFERENT pairs of specs; 128 (149 - 17 - 4) before either
 # of them; 126 before that (the two payment specs still skipping); and 122 against 145
 # committed before adopt-engine-geo-primitives added its four geo specs.
-executed: 132
+executed: 134
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
