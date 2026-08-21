@@ -255,6 +255,45 @@ Guards: `test/services/solana/public_rpc_url_test.rb` (the primitive) and
 plus a standing ban on any `.erb` or `app/javascript` file naming the server
 constant at all).
 
+## Boot alignment guard (OPSEC-039) and rotating the server RPC key
+
+`SOLANA_RPC_URL` carries a provider key on mainnet, so it will need rotating.
+That used to be unsafe. The alignment guard
+(`config/initializers/solana_network_alignment.rb`) rescued exactly one class,
+`Solana::Client::RpcError` — but an unauthorized provider answers with a body
+that is not JSON at all, and solana-studio's `Solana::Client#call` runs
+`JSON.parse(response.body)` with no rescue of its own. The resulting raw
+`JSON::ParserError` walked past the rescue and **aborted boot**, including at
+slug compile — so revoking the old key took the app down AND blocked the deploy
+that would have fixed it. Enumerating the exception classes a hostile upstream
+can produce was the mistake; there is no complete list.
+
+The guard now separates two outcomes, and only one of them is fatal:
+
+| Outcome | What it proves | Behaviour |
+|---|---|---|
+| Genesis hash came back and **disagrees** | the RPC really is a different cluster | **refuses to boot** (unchanged) |
+| Unreachable, unauthorized, non-JSON, or no hash | nothing about alignment | logs at ERROR with the endpoint **redacted**, continues boot |
+
+Refusing to boot on the absence of evidence turns a third-party outage into a
+self-inflicted one, and this hook runs during slug compile, so it would take the
+remediation path down with it. The degraded log line says the guard did not run;
+the transaction paths surface the underlying error at the point of use.
+
+**Rotation order.** Set the new `SOLANA_RPC_URL`, deploy, confirm
+`bin/rails solana:health` is green, then revoke the old key. Revoking first is
+now survivable — the app boots and logs `alignment check INCONCLUSIVE` — but
+on-chain reads degrade until the new key is live.
+
+`solana:health` carries the same widening, so on a rejected key it reports
+`getGenesisHash failed: JSON::ParserError` and still reaches its verdict instead
+of aborting at step 2 with a stack trace.
+
+Guards: `test/initializers/solana_network_alignment_test.rb` (drives the real
+initializer against real non-JSON bodies over a real socket, and asserts BOTH
+halves — the indeterminate cases boot, a real mismatch still refuses) and
+`test/tasks/solana_health_unauthorized_rpc_test.rb`.
+
 ## Solana Auth Security
 
 - **SIWS / nonce replay prevention**: Solana sign-in nonces include a timestamp with an enforced 5-minute expiry; the nonce is deleted from the session before verification (delete-before-verify) to prevent replay. Signature verification is host-bound (`Solana::AuthVerifier`, OPSEC-018).
