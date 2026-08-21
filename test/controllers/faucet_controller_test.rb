@@ -118,19 +118,66 @@ class FaucetControllerTest < ActionDispatch::IntegrationTest
   # and only QA_ENV differs — a test that just ran in the test env would pass
   # against the old code too.
 
+  # Every var Solana::Config REQUIRES in production is set alongside the
+  # Rails.env stub, because a production app cannot BOOT without them: the
+  # constants raise on absence (OPSEC-012 and siblings — SOLANA_PROGRAM_ID,
+  # SOLANA_NETWORK, and now SOLANA_RPC_URL). Config resolves them at LOAD time,
+  # so a request that loads it lazily inside this block would raise; without
+  # these the simulation models a production app that cannot exist.
+  #
+  # This is the trap that hides in CI: config/environments/test.rb sets
+  # `eager_load = ENV["CI"].present?`, so in CI everything is already loaded at
+  # boot and a missing var here is INVISIBLE, while locally (lazy autoload) it
+  # raises. The test below asserts this list against config.rb's own source, so
+  # a fourth required var cannot land without this helper learning about it.
+  #
+  # Values reproduce the live QA app (SOLANA_NETWORK=devnet), except the RPC,
+  # which is the hermetic black hole CI pins for e2e — nothing here should reach
+  # a network, and only the var's PRESENCE is load-bearing.
+  PRODUCTION_ENV_STUB = {
+    "SOLANA_NETWORK"    => "devnet",
+    "SOLANA_RPC_URL"    => "http://127.0.0.1:9",
+    "SOLANA_PROGRAM_ID" => "EQGFJAcABtDb6VXtiijTjZ6cE2UqdvhnqJvoharJbpMJ"
+  }.freeze
+
   def with_production_env
-    # SOLANA_NETWORK is set alongside the Rails.env stub because a production app
-    # can no longer BOOT without it: Solana::Config raises when it is unset in
-    # production (OPSEC-012's sibling — an unset var used to resolve to "devnet"
-    # and silently select the devnet mints on a mainnet app). Config is reloaded
-    # during the request, so without this the simulation would model a production
-    # app that cannot exist — every real one sets it, and the live QA app is
-    # SOLANA_NETWORK=devnet, which is what this reproduces.
-    original = ENV["SOLANA_NETWORK"]
-    ENV["SOLANA_NETWORK"] = "devnet"
+    originals = PRODUCTION_ENV_STUB.keys.to_h { |var| [var, ENV[var]] }
+    PRODUCTION_ENV_STUB.each { |var, value| ENV[var] = value }
     Rails.stub(:env, ActiveSupport::StringInquirer.new("production")) { yield }
   ensure
-    original.nil? ? ENV.delete("SOLANA_NETWORK") : ENV["SOLANA_NETWORK"] = original
+    originals&.each { |var, value| value.nil? ? ENV.delete(var) : ENV[var] = value }
+  end
+
+  test "with_production_env sets every var Solana::Config requires in production" do
+    source   = Rails.root.join("app/services/solana/config.rb").read
+    required = source.scan(/ENV\.fetch\("(\w+)"\) \{ raise/).flatten
+
+    assert_operator required.size, :>=, 3,
+                    "expected the production-required env vars to still be declared as raising ENV.fetch calls in config.rb"
+
+    # The ambient env must be CLEARED first, or this measures the shell instead
+    # of the helper. Measured: dotenv loads .env in dev/test and it sets
+    # SOLANA_RPC_URL and SOLANA_PROGRAM_ID, so deleting a var from
+    # PRODUCTION_ENV_STUB left this test GREEN locally until the delete below was
+    # added. CI's unit job (.github/workflows/ci.yml) exports only
+    # SOLANA_ADMIN_KEY, so the two environments disagree about what is ambient —
+    # which is exactly why this test controls it rather than trusting it.
+    before = required.to_h { |var| [var, ENV.delete(var)] }
+
+    with_production_env do
+      required.each do |var|
+        assert ENV[var].present?,
+               "#{var} raises when unset in production but with_production_env does not set it — " \
+               "this simulation models a production app that cannot boot (add it to PRODUCTION_ENV_STUB)"
+      end
+    end
+
+    required.each do |var|
+      assert_nil ENV[var],
+                 "with_production_env must restore #{var} to what it found — a leak would silently re-point the rest of the suite"
+    end
+  ensure
+    before&.each { |var, value| value.nil? ? ENV.delete(var) : ENV[var] = value }
   end
 
   def with_qa_env(value)

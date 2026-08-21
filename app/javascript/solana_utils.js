@@ -398,17 +398,40 @@ export function updateNavTokens(balance) {
 // not simultaneous: armFreeEntryGlow() plays it now AND leaves a short window
 // open, and updateNavTokens replays it if the badge was still hidden and only
 // now became visible. Without the window a level-up on a user's FIRST token
-// glows an element that is still display:none.
+// glows a badge the count hydrate has not surfaced yet.
+// (The `hidden` class this turns on is, today, a no-op on that button — it
+// loses the cascade to the inline-flex beside it. See the JS-contract note in
+// views/components/_entry_token_badge.html.erb; it does not change the ordering
+// problem this window exists to solve.)
 var GLOW_MS = 4400;
 var _glowArmedUntil = 0;
+// Handle for the in-flight strip-the-class timer. HELD, because a replay is the
+// NORMAL path here, not the rare one: armFreeEntryGlow() fires at +900ms, before
+// a first-token badge has been surfaced, and updateNavTokens() replays the glow
+// the moment the count hydrate surfaces it. Both land inside GLOW_MS, so an
+// unheld timer from play #1 strips play #2 partway through — and the flagship
+// first-token celebration is exactly the one that got clipped.
+//
+// MEASURED, driving two plays 3.0s apart and sampling the painted box-shadow:
+// the replay used to run 1340ms; it now runs 4188ms, against 4201ms for a glow
+// that plays alone. (Sampled OUTSIDE the disc — .legendary-badge pans a gradient
+// across it forever, so a probe that includes the disc can never tell the glow
+// from the passage of time.)
+var _glowTimer = null;
 
 export function glowFreeEntryBadge() {
   var badge = document.querySelector('[data-free-entry-badge]');
   if (!badge) return;
+  // Cancel the previous play's strip BEFORE starting this one, or it fires
+  // mid-replay and truncates the animation this call just restarted.
+  if (_glowTimer) { clearTimeout(_glowTimer); _glowTimer = null; }
   badge.classList.remove('free-entry-glow'); // reset so a 2nd level-up re-fires
   void badge.offsetWidth;                    // force reflow
   badge.classList.add('free-entry-glow');
-  setTimeout(function() { badge.classList.remove('free-entry-glow'); }, GLOW_MS);
+  _glowTimer = setTimeout(function() {
+    badge.classList.remove('free-entry-glow');
+    _glowTimer = null;
+  }, GLOW_MS);
 }
 
 // Arm + play. windowMs is how long a later token-count hydrate may still

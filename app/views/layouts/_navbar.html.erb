@@ -97,7 +97,7 @@
         <%# No size binding here: the two faces want DIFFERENT sizes (the peek is
             a compact pill, the stand-in matches the amount it replaces), so
             .free-entry-label / .is-active own font-size in application.css. %>
-        <%= link_to wallet_path, class: "free-entry-label dm-blue gap-1 font-bold text-primary hover:text-primary-600 leading-none whitespace-nowrap #{'is-active' if free_entry}", data: { free_entry_label: true } do %><span aria-hidden="true">✨</span><span>Free Entry</span><% end %>
+        <%= link_to wallet_path, class: "free-entry-label dm-blue gap-1 font-bold text-primary hover:text-primary-600 leading-none whitespace-nowrap #{'is-active' if free_entry}", data: { free_entry_label: true } do %><span class="fe-spark" aria-hidden="true">✨</span><span>Free Entry</span><% end %>
       </div>
     <% end if show_user %>
     <div class="user-nav-col dm-purple flex-shrink-0 min-w-0 pl-0 pr-4 md:px-4">

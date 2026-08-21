@@ -11,24 +11,77 @@ module Solana
     else
       ENV.fetch("SOLANA_PROGRAM_ID", "EQGFJAcABtDb6VXtiijTjZ6cE2UqdvhnqJvoharJbpMJ")
     end
-    RPC_URL = ENV.fetch("SOLANA_RPC_URL", "https://api.devnet.solana.com")
+
+    # OPSEC-012's sibling, part two: `SOLANA_RPC_URL` required in production.
+    #
+    # This was the last fail-open Solana var — `ENV.fetch("SOLANA_RPC_URL",
+    # "https://api.devnet.solana.com")`. The bad combination is
+    # NETWORK=mainnet-beta with the RPC unset: PROGRAM_ID and the mints resolve
+    # to MAINNET values and are then pointed at a DEVNET endpoint. Balances read
+    # $0.00 against ATAs that exist on the other cluster, and anything submitted
+    # lands on devnet against a program ID that does not exist there.
+    #
+    # IS THIS REDUNDANT WITH OPSEC-039? No — it is additive, on three counts.
+    # config/initializers/solana_network_alignment.rb does compare genesis
+    # hashes and does catch that exact pair, but only when it runs and only when
+    # the RPC answers:
+    #   1. It `rescue Solana::Client::RpcError` -> warn -> CONTINUES BOOT. The
+    #      client wraps Net::OpenTimeout / Net::ReadTimeout / ECONNRESET into
+    #      RpcError after its retries, and rate limits arrive the same way, so
+    #      an unreachable or throttled endpoint (which the public devnet URL
+    #      becomes under load) silences the one check meant to catch this.
+    #   2. An unknown NETWORK has no canonical genesis, so the guard logs
+    #      "skipping alignment check" and boots.
+    #   3. `SOLANA_SKIP_NETWORK_CHECK=true` disables it wholesale — set during
+    #      incident response and forgotten, it leaves nothing behind it.
+    # And when it does fire it fires from `after_initialize`, AFTER eager load,
+    # as a genesis-hash diff whose remediation line guesses at the variable.
+    # This raise fires during eager load and names it.
+    #
+    # Dev/test keep the devnet default byte-identical, so nothing local changes.
+    # Both deployed apps already set it (turf-monster-mainnet -> a Helius
+    # mainnet endpoint, turf-monster-qa -> api.devnet.solana.com), so this
+    # closes a hole rather than changing behaviour — including at slug-compile
+    # time, where the production eager load evaluates these constants (see
+    # config/initializers/solana_idl_verification.rb).
+    RPC_URL = if Rails.env.production?
+      ENV.fetch("SOLANA_RPC_URL") { raise "SOLANA_RPC_URL required in production (see OPSEC-012)" }
+    else
+      ENV.fetch("SOLANA_RPC_URL", "https://api.devnet.solana.com")
+    end
 
     # OPSEC-012's sibling: `SOLANA_NETWORK` required in production.
     #
     # This used to be `ENV.fetch("SOLANA_NETWORK", "devnet")`, which FAILED OPEN
     # on absence. A garbage value fails closed (it is not "mainnet-beta", so the
-    # devnet-only guards below and in the controllers all refuse) — but an UNSET
-    # var silently resolved to "devnet" on a mainnet app, and that is the door
-    # into the §8 footgun the mint block below says the mainnet launch surfaced:
-    # USDC_MINT / USDT_MINT key their DEFAULTS on NETWORK, so a mainnet app that
-    # forgot this var would read balances against the DEVNET mints ($0.00
-    # everywhere) and derive op-rev PDAs against a mint that does not exist on
-    # mainnet. Network-keyed defaults cannot protect you when the key they are
-    # keyed on is itself defaulted.
+    # devnet-only guards below and in the controllers all refuse), but an UNSET
+    # var silently resolved to "devnet" on a mainnet app.
     #
-    # It also made the OPSEC-020 fund guards' first check load-bearing alone:
-    # `Solana::Config.devnet?` reads this, so an unset var re-armed every faucet
-    # and mint path in production.
+    # WHAT THAT ACTUALLY REACHED — corrected 2026-08-20. The first version of
+    # this comment claimed an unset var would have silently selected the DEVNET
+    # MINTS on a mainnet app, citing the §8 footgun documented below. The
+    # MECHANISM is real (USDC_MINT / USDT_MINT key their DEFAULTS on NETWORK)
+    # but that outcome was NOT REACHABLE: `turf-monster-mainnet` sets
+    # SOLANA_USDC_MINT and SOLANA_USDT_MINT explicitly, and the env override
+    # always wins, so it needed THREE unset vars, not one. The claim was written
+    # without reading the live config that disproves it. It is corrected here
+    # rather than quietly dropped, because a comment left standing gets cited as
+    # established history.
+    #
+    # The honest case is IDL_PATH and LEGIBILITY. NETWORK also keys IDL_PATH
+    # (below), so an unset var on the mainnet app selects the DEVNET IDL, whose
+    # SHA256 is not in that app's EXPECTED_IDL_HASH. The boot is then refused —
+    # by the OPSEC-014 guard as an opaque hash diff, or by the OPSEC-039
+    # alignment guard as a genesis diff whose remediation line names the WRONG
+    # variable ("likely SOLANA_RPC_URL"). Both are `after_initialize`; this
+    # raise fires during EAGER LOAD, before either of them, so the operator
+    # reads the name of the variable instead of two hashes.
+    #
+    # Next in line behind that: `Solana::Config.devnet?` reads this constant, so
+    # an unset var re-arms the OPSEC-020 fund guards — reachable only once the
+    # IDL guard ahead of it is bypassed (BYPASS_IDL_CHECK, a documented escape
+    # hatch), which is exactly the situation in which nobody wants a second
+    # silent default.
     #
     # Dev/test keep the devnet default byte-identical, so nothing local changes.
     NETWORK = if Rails.env.production?
