@@ -1,5 +1,44 @@
 const { defineConfig } = require("@playwright/test");
 
+// THE ONRAMP RAILS ARE ON FOR THE E2E STACK — AND THE FLAG HAS TO BE SET IN TWO PLACES.
+//
+// e2e/financial.spec.js gates its Coinflow and Aeropay describes on these, and the specs'
+// own comment invites exactly this: "enable the flag on the e2e stack to exercise it."
+// Until now nothing did, so BOTH describes skipped whole — all four of their specs, on
+// every run, silently — until the executed-set gate started counting them. Two now run;
+// the other two still skip for want of a webhook signing key, and config/e2e_lane.yml
+// `allowed_skips` itemises which is which.
+//
+// TWO PROCESSES READ THIS FLAG FOR TWO DIFFERENT REASONS, and a run needs BOTH:
+//
+//   1. THE PLAYWRIGHT PROCESS — the `process.env` lines below. financial.spec.js:83,:173
+//      are `test.skip(process.env.ENABLE_COINFLOW !== "true", ...)`. This DISARMS THE SKIP.
+//   2. THE RAILS SERVER — `webServer.env` below, plus the matching exports in
+//      bin/e2e-parallel. app/views/tokens/buy.html.erb:12,:40 wrap the rails in
+//      `<% if AppFlags.coinflow? %>` / `AppFlags.aeropay?`, which read the SERVER's ENV
+//      (app/services/app_flags.rb:34,:47). This RENDERS THE BUTTONS the specs click.
+//
+// Set only #1 and the specs run a page with no rail on it: `expect(buyButton).toBeVisible()`
+// fails with "element(s) not found". That is not hypothetical — it is what the first cut of
+// this change did to `npm run test:parallel` while CI stayed GREEN. Playwright builds the
+// webServer's env as {...DEFAULT, ...process.env, ...options.env}
+// (node_modules/playwright/lib/plugins/webServerPlugin.js:88-92), so the CI lane inherited
+// #1 by accident and could not see the break; bin/e2e-parallel sets PW_BASE_URL, takes the
+// `undefined` webServer branch below, and launches its own servers (:152-156, :180-182),
+// inheriting nothing. webServer.env now STATES that inheritance instead of relying on it,
+// and test/lib/e2e_onramp_flag_parity_test.rb goes red if the two lanes drift apart again.
+//
+// SEED DATA — VERIFIED UNAFFECTED, not assumed. The webServer env is shared with
+// db:test:prepare and e2e/seed.rb (see the CAUTION on that block), so a flag added there
+// CAN change seeded rows. These two do not: grepped repo-wide, ENABLE_COINFLOW and
+// ENABLE_AEROPAY are read ONLY by AppFlags.coinflow?/aeropay? (consumed by buy.html.erb,
+// _buy_entry_token.html.erb and onramp_helper.rb) and by tests that stub ENV directly.
+// e2e/seed.rb contains no reference to either. Re-run that grep before adding a third flag.
+//
+// `||=` so a caller can still turn them off for a one-off run without editing this file.
+process.env.ENABLE_COINFLOW ||= "true";
+process.env.ENABLE_AEROPAY ||= "true";
+
 module.exports = defineConfig({
   testDir: "./e2e",
   timeout: 30_000,
@@ -96,7 +135,14 @@ module.exports = defineConfig({
           RAILS_ENV: "test",
           PLAYWRIGHT_SEED: "true",
           ENABLE_WEB3_ONLY_ONBOARDING: "true",
-          ENABLE_AGE_GATE: "true"
+          ENABLE_AGE_GATE: "true",
+          // The onramp rails, restated for the SERVER (see the block at the top of this
+          // file). Both already arrived here via the ...process.env spread; naming them
+          // makes this lane and bin/e2e-parallel's servers say the same thing out loud,
+          // which is what test/lib/e2e_onramp_flag_parity_test.rb checks. Verified
+          // seed-inert — e2e/seed.rb reads neither.
+          ENABLE_COINFLOW: "true",
+          ENABLE_AEROPAY: "true"
         },
       },
 });

@@ -1020,11 +1020,50 @@ body.modal-open { overflow: hidden; }
 }
 
 /* === Entry-token badge (components/_entry_token_badge.html.erb) ========
+   The ✨ badge beside the profile avatar, its level-up glow, and the
+   "✨ Free Entry" label that shares the navbar's balance slot.
+
    Punch animation fired by window.animateFreeEntryBadge() after a
    token-funded entry confirms. We intentionally do NOT set `display:` on
    .free-entry-badge so Tailwind's `hidden` class wins when the user has
    no tokens. */
 .free-entry-badge { transform-origin: center; }
+
+/* === .legendary-badge — the house legendary treatment ===================
+   Built the same way as the engine's .level-badge-10 (a gradient far wider than
+   the element, panned under it, plus a white rim and a warm bloom) but in TWO
+   THEME colors instead of an 8-stop rainbow: primary and warning. The rainbow
+   is a fixed decorative spectrum that ignores the app's palette; this reads as
+   the same "legendary" idea in the app's own voice, and a retheme carries it.
+
+   PAINT ONLY — no width, padding, radius or font-size, so it drops onto a disc
+   or a pill alike; the caller brings the geometry. --lb-a / --lb-b are knobs
+   with sensible defaults, so a consumer can retune the arc without forking.
+
+   ALWAYS the slash form rgb(var(...) / A) for the RGB-triple vars: the legacy
+   rgba(var(...), A) form is silently dropped for a space-separated var. */
+.legendary-badge {
+  --lb-a: var(--color-primary-500, #4baf50);
+  --lb-b: var(--color-warning, #ff7c47);
+  background: linear-gradient(135deg, var(--lb-a), var(--lb-b), var(--lb-a), var(--lb-b), var(--lb-a));
+  background-size: 300% 300%;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow:
+    0 0 7px rgba(255, 255, 255, 0.35),
+    0 0 14px rgb(var(--color-primary-500-rgb) / 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  animation: legendary-pan 5s ease infinite;
+}
+.legendary-badge:hover { filter: brightness(1.12); }
+@keyframes legendary-pan {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .legendary-badge { animation: none; }
+}
 .free-entry-punch { animation: free-entry-punch 0.65s cubic-bezier(.36,.07,.19,.97) both; }
 @keyframes free-entry-punch {
   0%   { transform: scale(1)    rotate(0deg); }
@@ -1032,6 +1071,100 @@ body.modal-open { overflow: hidden; }
   40%  { transform: scale(1.2)  rotate(12deg); }
   60%  { transform: scale(1.3)  rotate(-6deg); }
   100% { transform: scale(1)    rotate(0deg); }
+}
+
+/* Level-up glow — window.armFreeEntryGlow() pulses the badge three times when
+   a SEEDS_PER_LEVEL crossing mints a free entry, so the celebration points at
+   WHERE the token landed. The navbar sits at z-[130], above the modal
+   backdrop, so this reads through the free-entry-earned modal on purpose.
+   ALWAYS the modern slash form rgb(var(...) / A) — a space-separated
+   "R G B" var is silently dropped by the legacy rgba(var(...), A) form. */
+.free-entry-glow { animation: free-entry-glow 1.4s ease-out 3; }
+@keyframes free-entry-glow {
+  0%   { box-shadow: 0 0 0 0    rgb(var(--color-primary-500-rgb) / 0.9); }
+  25%  { box-shadow: 0 0 22px 8px rgb(var(--color-primary-500-rgb) / 0.75); }
+  50%  { box-shadow: 0 0 14px 5px rgb(var(--color-primary-500-rgb) / 0.40); }
+  100% { box-shadow: 0 0 0 0    rgb(var(--color-primary-500-rgb) / 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .free-entry-glow { animation: none; box-shadow: 0 0 14px 5px rgb(var(--color-primary-500-rgb) / 0.45); }
+}
+
+/* === "✨ Free Entry" label (layouts/_navbar.html.erb balance slot) ======
+   The second face of the navbar balance slot. Two ways it shows:
+     .fe-peek (on the slot) — the ✨ badge on the avatar is hovered, so the
+                             label PEEKS over the amount as a pill. Out of
+                             flow, so the navbar never reflows on hover.
+     .is-active            — it REPLACES the amount ($0 balance + a held
+                             token). Back in flow, sized like the amount.
+   .is-active wins: when the label is already the visible face there is
+   nothing to peek over, and re-positioning it would collapse the slot. */
+/* The PEEK face. Kept in the DOM and permanently out of flow, resting at
+   opacity 0 — that is what lets it FADE rather than pop. `display` cannot be
+   transitioned; opacity and transform can, and `visibility` (transitioned with
+   a delay so it flips only after the fade-out finishes) keeps the resting pill
+   out of hit-testing and the accessibility tree.
+   LEFT-anchored, so the peek starts exactly where the "$1284" starts and reads
+   as a swap of the amount rather than a tooltip floating near it. */
+.free-entry-label {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.75rem;
+  /* 1px vertical, not 2: the pill then stands exactly as tall as the gear icon
+     beside it, so it can sit dead-centre on the amount AND still clear the
+     seeds bar below. A taller pill forced a lift, and a lifted pill reads as
+     misaligned against every other control in the row. */
+  padding: 1px 8px;
+  border-radius: 9999px;
+  background: var(--color-surface);
+  border: 1px solid rgb(var(--color-primary-500-rgb) / 0.45);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.22);
+  opacity: 0;
+  visibility: hidden;
+  /* Centred on the amount it replaces — the extra 4px is the fade-in rise,
+     which lands back at nothing. */
+  transform: translateY(-50%) translateY(4px) scale(0.94);
+  transition:
+    opacity    260ms ease,
+    transform  260ms cubic-bezier(0.16, 1, 0.3, 1),
+    visibility 0s linear 260ms;
+}
+.fe-peek .free-entry-label {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(-50%) scale(1);
+  transition:
+    opacity    180ms ease,
+    transform  180ms cubic-bezier(0.16, 1, 0.3, 1),
+    visibility 0s;
+}
+.fe-peek [data-balance-display]:not(.hidden) { opacity: 0; }
+
+/* The ACTIVE face — a $0 balance held with a token. Here the label IS the
+   slot's content, not an overlay: back into the flow, tooltip chrome off, peek
+   ignored. Declared last so it wins the ties with .fe-peek .free-entry-label
+   (both 0,2,0). */
+.free-entry-label.is-active {
+  position: static;
+  display: inline-flex;
+  font-size: 0.9375rem;
+  padding: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .free-entry-label,
+  .fe-peek .free-entry-label { transition: opacity 0s, transform 0s, visibility 0s; }
 }
 
 /* === Contest chat panel (contests/_chat_panel.html.erb) ================ */
