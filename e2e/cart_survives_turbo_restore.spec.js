@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { loginAdmin, reseed } = require("./helpers");
+const { loginAdmin, reseed, allowMotion } = require("./helpers");
 
 // The cart must come BACK with the picks you actually made.
 //
@@ -99,6 +99,26 @@ test("the restored cart carries the picks themselves, not just the count", async
 // reaches the server and a refetched page would have nothing to restore from.
 // Carrying the state in the snapshot is what covers them, so it gets a test.
 test("a signed-out visitor's picks survive the same journey", async ({ page }) => {
+  // MOTION ON, AND NOT BECAUSE THIS SPEC IS ABOUT ANIMATION — it is a PARKED
+  // FINDING, recorded here rather than buried.
+  //
+  // /tasks/make-reduced-motion-reach-specs made playwright.config.js's
+  // reducedMotion setting actually reach the lane after months of being inert.
+  // Under it, this spec FAILS reproducibly: after page.goBack() the URL is
+  // /contests but document.body still holds the Rules page copy, and it is still
+  // there after toContainText's full 5s retry window — so the DOM never swapped.
+  // Not a paint artifact, not a race. Revert the config to the inert spelling and
+  // it passes; the signed-in twin above passes either way.
+  //
+  // If that is real app behavior, every reduced-motion user gets a stuck Turbo
+  // back-navigation on this journey — a bug no lane could see while the setting
+  // did nothing. Suspect (hypothesis, not measurement): studio-engine 0.58.0
+  // keeps document.startViewTransition active under the query and only strips the
+  // choreography (engine.css:279).
+  //
+  // Owned by /tasks/turbo-restore-under-reduced-motion, whose acceptance INCLUDES
+  // deleting this opt-out. Do not quietly promote it to "this spec needs motion".
+  await allowMotion(page);
   await pickSix(page);
 
   await leaveAndComeBack(page);

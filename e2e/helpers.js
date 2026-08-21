@@ -217,6 +217,28 @@ async function stubQuestEndpoints(page, opts = {}) {
   });
 }
 
+
+/**
+ * OPT OUT OF THE LANE'S REDUCED MOTION, for a spec that tests animation.
+ *
+ * playwright.config.js sets `contextOptions.reducedMotion: "reduce"`, and since
+ * /tasks/make-reduced-motion-reach-specs that setting actually REACHES the page.
+ * The app honors it: `.free-entry-glow`, `.legendary-badge`, the modal mount /
+ * unmount curves, `.holo-card` and six more selectors all collapse to
+ * `animation: none` under the query.
+ *
+ * So a spec that asserts a RUNNING timeline — getAnimations(), a mid-flight
+ * currentTime, a frame-to-frame paint diff — must turn motion back on first, and
+ * must do it out loud rather than inherit it by luck:
+ *
+ *     await allowMotion(page);
+ *
+ * Call it BEFORE the navigation whose paint you intend to measure.
+ */
+async function allowMotion(page) {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+}
+
 module.exports = {
   login,
   loginAdmin,
@@ -231,4 +253,5 @@ module.exports = {
   setupOnchainMocks,
   computeMockTransaction,
   attestAge,
+  allowMotion,
 };
