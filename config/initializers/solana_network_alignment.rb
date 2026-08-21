@@ -33,7 +33,7 @@ unless skip
             Solana network mis-alignment — refusing to boot (OPSEC-039).
 
               SOLANA_NETWORK    = #{Solana::Config::NETWORK}
-              SOLANA_RPC_URL    = #{Solana::Config::RPC_URL}
+              SOLANA_RPC_URL    = #{Solana::Config.redact_rpc_url(Solana::Config::RPC_URL)}
               SOLANA_PROGRAM_ID = #{Solana::Config::PROGRAM_ID}
 
               Expected genesis: #{expected}

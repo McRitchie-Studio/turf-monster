@@ -17,7 +17,9 @@ module Admin
     # Treasury cosign default (Solana::Config::MULTISIG_COSIGNER = Alex).
     def show
       @vault          = Solana::Vault.new.read_vault_state
-      @rpc_url        = Solana::Config::RPC_URL
+      # BROWSER-facing (rendered into #cosign-config for web3.js), so the
+      # public endpoint — RPC_URL carries the provider api-key on mainnet.
+      @rpc_url        = Solana::Config.public_rpc_url
       @network        = Solana::Config::NETWORK
       @default_cosigner = Solana::Config::MULTISIG_COSIGNER
       @multisig_signers = Solana::Config::MULTISIG_SIGNERS

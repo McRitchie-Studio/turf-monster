@@ -383,7 +383,7 @@ namespace :solana do
 
     puts "=== Solana health check ==="
     puts "  NETWORK    = #{Solana::Config::NETWORK}"
-    puts "  RPC_URL    = #{Solana::Config::RPC_URL.to_s.sub(/api-key=[^&]+/, 'api-key=***')}"
+    puts "  RPC_URL    = #{Solana::Config.redact_rpc_url(Solana::Config::RPC_URL)}"
     puts "  PROGRAM_ID = #{Solana::Config::PROGRAM_ID}"
     puts
 
