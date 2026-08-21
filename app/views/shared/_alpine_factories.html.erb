@@ -253,7 +253,7 @@
   //     refresh() runs window.refreshSession(), which pulls every on-chain
   //     value (USDC/USDT/SOL/tokens/seeds) from /account/session_refresh in
   //     one call and fans it out to ALL subscribed UI: the data-wallet-tile
-  //     spans, the navbar balance pill + 🎟️ badge, $store.session cents, and
+  //     spans, the navbar balance slot + ✨ badge, $store.session cents, and
   //     the seeds bar/tile (navbar-seeds-update). No on-load hydrate here —
   //     the layout's hydrateNavbar already fires refreshSession() on every
   //     page load, and that same call fills the tiles. By click time the
@@ -271,7 +271,7 @@
     };
   };
 
-  // === entryTokenBadge — navbar 🎟️ pill + popover ==================
+  // === entryTokenBadge — navbar ✨ badge + count popover ==============
   window.entryTokenBadge = function (opts) {
     opts = opts || {};
     return {

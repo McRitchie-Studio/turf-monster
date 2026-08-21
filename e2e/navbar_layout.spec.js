@@ -20,6 +20,11 @@ async function exposeStressControls(page) {
       balance.classList.remove("hidden");
       balance.textContent = "$1504";
     }
+    // The balance slot's other face: a seeded $0-with-token user renders the
+    // "✨ Free Entry" label ACTIVE instead of the amount. Stand it down so the
+    // stress state is exactly one face — the widest amount — not both at once.
+    const feLabel = document.querySelector("[data-free-entry-label]");
+    if (feLabel) feLabel.classList.remove("is-active");
   });
 }
 
