@@ -119,7 +119,18 @@ class FaucetControllerTest < ActionDispatch::IntegrationTest
   # against the old code too.
 
   def with_production_env
+    # SOLANA_NETWORK is set alongside the Rails.env stub because a production app
+    # can no longer BOOT without it: Solana::Config raises when it is unset in
+    # production (OPSEC-012's sibling — an unset var used to resolve to "devnet"
+    # and silently select the devnet mints on a mainnet app). Config is reloaded
+    # during the request, so without this the simulation would model a production
+    # app that cannot exist — every real one sets it, and the live QA app is
+    # SOLANA_NETWORK=devnet, which is what this reproduces.
+    original = ENV["SOLANA_NETWORK"]
+    ENV["SOLANA_NETWORK"] = "devnet"
     Rails.stub(:env, ActiveSupport::StringInquirer.new("production")) { yield }
+  ensure
+    original.nil? ? ENV.delete("SOLANA_NETWORK") : ENV["SOLANA_NETWORK"] = original
   end
 
   def with_qa_env(value)

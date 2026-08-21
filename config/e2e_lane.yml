@@ -54,31 +54,47 @@ total_specs: 151
 # exclusion later is a red build rather than a quiet loss of coverage.
 excluded: 17
 
-# THE SPECS BEHIND A FEATURE FLAG THAT IS OFF IN THE DEFAULT CI RUN.
+# THE RUNTIME SKIPS THIS LANE TOLERATES — four, each with a NAMED reason.
 #
-# e2e/financial.spec.js gates the Coinflow and Aeropay payment rails on ENABLE_COINFLOW /
-# ENABLE_AEROPAY and skips when they are unset, which they are in CI. That is deliberate
-# and the file says so ("Gated on ENABLE_COINFLOW so the default CI run (flag off) skips
-# it"), and the money path is covered authoritatively by the Rails tests
-# (webhooks/aeropay_controller_test.rb + token_purchase_job_test.rb).
+# A runtime skip exits 0 and reports green; it is the one axis no source-level guard can
+# close. So the count is DECLARED. One more than this is RED and the gate names the
+# offending titles. Raising it is an edit to this line, in front of a reviewer, with a
+# reason — which is the whole point.
 #
-# IT WAS ALSO INVISIBLE, and that is why this line exists. THIS GATE'S FIRST REAL RUN found
-# them: 122 executed against a claimed 128, on a lane whose three shards ALL reported PASS.
-# Nothing in the repo declared how many specs the flags cost, and nothing would have
-# noticed the number growing. A runtime skip exits 0 and reports green; it is the one axis
-# no source-level guard can close.
+# THIS GATE'S FIRST REAL RUN found them: 122 executed against a claimed 128, on a lane
+# whose three shards ALL reported PASS. Nothing in the repo declared what the skips cost.
 #
-# So it is DECLARED. One more runtime skip than this is RED. Raising it is an edit to this
-# line, in front of a reviewer, with a reason — which is the whole point.
-flag_gated: 6
+# The four:
+#
+#   MISSING SECRET (2) — the webhook-signature specs, which need a real key to sign with.
+#     · e2e/financial.spec.js:140  COINFLOW_WEBHOOK_VALIDATION_KEY not set on the e2e stack
+#     · e2e/financial.spec.js:237  AEROPAY_WEBHOOK_SIGNING_KEY not set on the e2e stack
+#     Covered authoritatively by the Rails tests (webhooks/aeropay_controller_test.rb +
+#     token_purchase_job_test.rb), which sign with a fixture key.
+#
+#   QUARANTINED (2) — `test.fixme`, COVERED NOWHERE. Not a considered exclusion, an
+#   admission; re-homing these is backlog, not a config edit.
+#     · e2e/onchain.spec.js:121  onchain entry via Phantom with mocked devnet
+#     · e2e/onchain.spec.js:211  admin creates onchain contest
+#
+# WAS 6, AND WAS CALLED `flag_gated`. The other two were the ENABLE_COINFLOW /
+# ENABLE_AEROPAY buy-1 specs, which had never run in ANY lane. They now execute in both
+# (playwright.config.js sets the flags for the Playwright process AND for the server;
+# bin/e2e-parallel exports them at each launch subshell), so they left this allowance for
+# `executed`. NOTHING COUNTED HERE IS FLAG-GATED ANY MORE — the old name went on
+# describing the two specs that had LEFT, which is the same misleading label this lane
+# exists to catch. The key is the honest one now: an allowance for runtime skips,
+# whatever their reason.
+allowed_skips: 4
 
-# total_specs - excluded - flag_gated. What the lane MUST execute, asserted against the
+# total_specs - excluded - allowed_skips. What the lane MUST execute, asserted against the
 # runner's own report, so no source-level spelling on any axis can move it without moving
-# this line. Derived: 149 committed - 17 @devnet - 6 flag-gated = 126, and MEASURED at
-# exactly 126 on the adopt-engine-geo-primitives run that raised it (the gate reported
-# "126 executed · contract: 122", which is the four new geo specs and nothing else).
-# It was 122 against 145 committed before those four.
-executed: 128
+# this line. Derived: 149 committed - 17 @devnet - 4 allowed = 128, and MEASURED at 128
+# across the three shard receipts ("128 executed · 4 skipped (4 allowed)").
+#
+# History: 126 before this PR (149 - 17 - 6, the two payment specs still skipping), and
+# 122 against 145 committed before adopt-engine-geo-primitives added its four geo specs.
+executed: 130
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to

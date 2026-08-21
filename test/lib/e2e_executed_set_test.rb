@@ -116,7 +116,7 @@ class E2eExecutedSetTest < Minitest::Test
   # is red. These two cases are the whole contract: at the allowance, green; over it, named
   # and red. Both were confirmed against REAL CI receipts before being written down —
   # green on run 32343994804's three shards, red when one passing spec in them is flipped.
-  FLAG_GATED_CONTRACT = CONTRACT.merge("flag_gated" => 1, "executed" => 2).freeze
+  ALLOWED_SKIPS_CONTRACT = CONTRACT.merge("allowed_skips" => 1, "executed" => 2).freeze
 
   def test_unit_a_runtime_skip_within_the_declared_allowance_is_green
     reports = [
@@ -125,7 +125,7 @@ class E2eExecutedSetTest < Minitest::Test
       report(source: "shard-2.json", shard: 2, total: 2, specs: [["agents page loads", "expected"]])
     ]
 
-    assert_empty gate(reports, contract: FLAG_GATED_CONTRACT).failures,
+    assert_empty gate(reports, contract: ALLOWED_SKIPS_CONTRACT).failures,
                  "one skip against an allowance of one must be GREEN — a stated, reviewed hole, " \
                  "not a silent one"
   end
@@ -137,7 +137,7 @@ class E2eExecutedSetTest < Minitest::Test
       report(source: "shard-2.json", shard: 2, total: 2, specs: [["agents page loads", "expected"]])
     ]
 
-    failures = gate(reports, contract: FLAG_GATED_CONTRACT).failures
+    failures = gate(reports, contract: ALLOWED_SKIPS_CONTRACT).failures
 
     refute_empty failures, "two skips against an allowance of one must be RED"
     assert_match(/allows 1/, failures.join)

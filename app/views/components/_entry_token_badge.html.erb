@@ -1,17 +1,37 @@
-<%# Navbar 🎟️ Entry token badge.
+<%# Navbar ✨ Entry token badge.
 
-    Visible when current_user has any unconsumed entry tokens (web2 token
-    economy — see docs/UI_PATTERNS.md "Entry Tokens (Web2 flow)"). Clicking opens a
-    short-lived popover with the live count; the badge itself doesn't
-    navigate.
+    Sits ON the profile avatar's upper-left corner (components/_user_nav
+    "Div 3"), NOT next to the wallet balance — the balance slot instead swaps its amount
+    for the full "✨ Free Entry" label (see layouts/_navbar.html.erb). Visible
+    when current_user has any unconsumed entry tokens (web2 token economy — see
+    docs/UI_PATTERNS.md "Entry Tokens (Web2 flow)").
+
+    It wears .legendary-badge — the house legendary treatment (a panned gradient,
+    white rim, warm bloom), built like the engine's .level-badge-10 but in the
+    app's own primary + warning instead of a fixed 8-stop rainbow — so a free
+    entry reads as the prize it is. That class is PAINT ONLY; the w-5/h-5/
+    rounded-full below are the geometry. Both live in
+    app/assets/tailwind/application.css.
+
+    Three affordances, all on the one 20px disc:
+      hover/focus — reveals "✨ Free Entry" OVER the wallet balance, so a user
+                    who doesn't recognise the sparkle gets the answer where
+                    they were already looking. Driven by `freeEntryHover` in
+                    the _user_nav Alpine scope (Alpine scope is DOM-based, so
+                    the balance slot rendered into that same wrapper reads it).
+      click       — short-lived popover with the live token count.
+      level-up    — .free-entry-glow pulses the badge (armFreeEntryGlow in
+                    solana_utils.js, fired from the layout's level-up listener).
 
     JS contract:
       [data-free-entry-badge]   — selector used by solana_utils.js for
                                   updateNavTokens / refreshBalance /
-                                  animateFreeEntryBadge / fireConfettiFromBadge.
+                                  animateFreeEntryBadge / glowFreeEntryBadge /
+                                  fireConfettiFromBadge.
       .free-entry-badge         — CSS class for the .free-entry-punch
                                   animation triggered after a token-funded
                                   entry confirms.
+      .free-entry-glow          — level-up glow pulse (3 beats, ~4.2s).
       data-token-count          — live token count; updateNavTokens()
                                   writes here so the popover reads the
                                   current value on each open instead of
@@ -28,20 +48,25 @@
 <% free_entries = display_entry_token_count.to_i %>
 <% plural_suffix = free_entries == 1 ? "" : "s" %>
 
-<%# .free-entry-badge / .free-entry-punch / @keyframes free-entry-punch
-    live in app/assets/tailwind/application.css (migrated 2026-05-24).
+<%# .free-entry-badge / .free-entry-punch / .free-entry-glow / .free-entry-label
+    live in app/assets/tailwind/application.css.
     entryTokenBadge() Alpine factory is in app/javascript/entry_token_badge.js. %>
 <div class="relative flex-shrink-0 leading-none" x-data="entryTokenBadge({ initialCount: <%= free_entries %> })">
   <button type="button"
           @click="toggle()"
-          title="<%= free_entries %> unconsumed entry token<%= plural_suffix %>"
-          class="free-entry-badge inline-flex items-center justify-center gap-1 px-2.5 py-1 rounded-full bg-primary/15 border border-primary/40 text-primary font-bold leading-none whitespace-nowrap hover:bg-primary/25 transition cursor-pointer <%= 'hidden' unless free_entries.positive? %>"
-          style="font-size: 13px; line-height: 1;"
+          @mouseenter="freeEntryHover = true"
+          @mouseleave="freeEntryHover = false"
+          @focus="freeEntryHover = true"
+          @blur="freeEntryHover = false"
+          title="<%= free_entries %> unconsumed entry token<%= plural_suffix %> — free entry"
+          aria-label="Free entry token<%= plural_suffix %>"
+          class="free-entry-badge legendary-badge inline-flex items-center justify-center w-5 h-5 rounded-full cursor-pointer <%= 'hidden' unless free_entries.positive? %>"
           data-free-entry-badge="true"
           data-token-count="<%= free_entries %>">
-    <span style="font-size: 16px; line-height: 1;">🎟️</span>
-    <span class="hidden min-[1120px]:inline">Entry</span>
+    <span aria-hidden="true" style="font-size: 12px; line-height: 1;">✨</span>
   </button>
+  <%# Count popover — anchored to the RIGHT edge: the badge now lives at the
+      end of the navbar, so a centered popover would hang off the viewport. %>
   <div x-show="open"
        @click.outside="close()"
        x-transition:enter="transition ease-out duration-150"
@@ -50,10 +75,10 @@
        x-transition:leave="transition ease-in duration-500"
        x-transition:leave-start="opacity-100 scale-100"
        x-transition:leave-end="opacity-0 scale-95"
-       class="absolute left-1/2 -translate-x-1/2 mt-2 px-3 py-2 bg-surface border border-primary/40 rounded-lg shadow-lg z-50 whitespace-nowrap"
+       class="absolute right-0 mt-2 px-3 py-2 bg-surface border border-primary/40 rounded-lg shadow-lg z-50 whitespace-nowrap"
        style="display: none;">
     <div class="flex items-center gap-1.5 text-primary font-bold text-sm leading-none">
-      <span style="font-size: 16px;">🎟️</span>
+      <span style="font-size: 16px;">✨</span>
       <span><span x-text="count"></span> Entry Token<span x-show="count !== 1">s</span></span>
     </div>
   </div>
