@@ -246,16 +246,31 @@ test("a level-up glow replayed inside the window still plays its full length", a
   await page.setViewportSize({ width: 1366, height: 800 });
   await login(page, "alex@mcritchie.studio", "password");
   await page.goto("/contests");
-  await expect(page.locator("[data-free-entry-badge]").first()).toBeVisible();
+  // ATTACHED, NOT VISIBLE. The seeded e2e user holds ZERO entry tokens, so the
+  // server renders this badge with `.hidden` on it and it must not be on screen
+  // yet — surfacing it is the next step's job.
+  //
+  // This line used to assert toBeVisible() HERE, and it passed — because
+  // `.hidden` did not hide anything (it tied `.inline-flex` in the same layer
+  // and lost on source order). So this spec was quietly a passenger of
+  // /tasks/hide-badge-for-zero-tokens: it asserted the badge was on screen for
+  // a user who should never have seen it, and the assertion held only while
+  // the bug did.
+  await expect(page.locator("[data-free-entry-badge]").first()).toBeAttached();
   // QUIESCE. refreshBalance/refreshSession land on their own schedule and
   // rewrite the balance slot, which reflows the username right beside the badge
   // — inside the probe strip. Settle first or the strip moves for reasons that
   // have nothing to do with the glow.
   await page.waitForTimeout(4000);
 
+  // Surface it the way the app does, then confirm it really is on screen: the
+  // glow is a box-shadow on this disc, and a disc that is not painted cannot
+  // witness anything below.
+  await page.evaluate(() => window.updateNavTokens(1));
+  await expect(page.locator("[data-free-entry-badge]").first()).toBeVisible();
+
   const box = await page.evaluate(() => {
     const b = document.querySelector("[data-free-entry-badge]");
-    b.classList.remove("hidden");
     const r = b.getBoundingClientRect();
     return { x: r.x, y: r.y, w: r.width, h: r.height };
   });
@@ -328,6 +343,150 @@ test("a level-up glow replayed inside the window still plays its full length", a
   expect(settled.shot, `the badge must be back at rest by t+${Date.now() - t0}ms`).toBe(resting.shot);
 });
 
+// A ZERO-TOKEN USER MUST NOT SEE THE ✨ BADGE — MEASURED AS PAINT.
+//
+// The badge's `.hidden` lives on the BUTTON so updateNavTokens() can surface it
+// after a mint without a reload. It could not HIDE it: `.hidden{display:none}`
+// and `.inline-flex{display:inline-flex}` are both plain class selectors in
+// Tailwind's `@layer utilities`, so they tie on specificity and SOURCE ORDER
+// decides — and Tailwind emits `.hidden` FIRST. The later `.inline-flex` won,
+// the disc kept a live 20x20 box, and a user holding zero entry tokens sat
+// there looking at a sparkle promising a free entry they did not have.
+// updateNavTokens(0) — the one call whose whole job is to hide it — was inert.
+//
+// WHY THIS SPEC MEASURES PIXELS AND NOT A CLASS OR A COMPUTED STYLE.
+// `classList.contains("hidden")` was TRUE the entire time the bug shipped: the
+// obvious guard passes against the defect. `getComputedStyle().display` is
+// closer but still a report about the box model, not about what reached the
+// screen. So the load-bearing assertion here is a screenshot of the badge's own
+// slot, compared against the same slot with the badge REMOVED FROM THE DOM: if
+// hiding the badge and deleting it produce the same pixels, nothing of it is
+// being painted. The class and the computed display follow as corroboration.
+//
+// The comparison is fenced by two checks that make it falsifiable:
+//   · a NEGATIVE CONTROL — the surfaced badge must NOT match the absent one, or
+//     the clip cannot see the badge and every equality below is vacuous.
+//   · a STABILITY check — two hidden frames 700ms apart must be identical.
+//     .legendary-badge pans a gradient across the disc forever and this lane
+//     does NOT get reduced motion (playwright.config.js sets it; it does not
+//     reach the page — measured). So a disc still painting here reads as a
+//     MOVING clip, and this check catches it independently of the diff.
+test("a zero-token user's ✨ badge paints nothing at all", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: 1366, height: 800 });
+  await login(page, "alex@mcritchie.studio", "password");
+  await page.goto("/contests");
+  await expect(page.locator("[data-username-display]").first()).toBeVisible();
+
+  // QUIESCE — refreshBalance/refreshSession land on their own schedule and
+  // reflow the row the badge sits in. Settle before sampling anything.
+  await page.waitForTimeout(4000);
+
+  const badge = page.locator("[data-free-entry-badge]").first();
+  await expect(badge, "the badge must stay in the DOM at zero tokens so a mint " +
+    "can surface it without a reload").toBeAttached();
+
+  // ON ARRIVAL: the seeded e2e user holds zero entry tokens, so this is the
+  // page a real zero-token user actually lands on — server-rendered `.hidden`,
+  // and then the hydrate above re-applying it through updateNavTokens(0).
+  // (An earlier draft of this comment claimed "no JS has touched the badge
+  // yet". It had the 4000ms quiesce directly above it, whose whole job is to
+  // let refreshBalance/refreshSession LAND — the very calls that touch the
+  // badge. The assertion was right and the reason was wrong, which is the
+  // exact failure mode this PR exists to correct.)
+  // toBeHidden() is Playwright's own bounding-box measurement, and it FAILED
+  // here before the fix. The updateNavTokens(0) state sampled below is this
+  // same state re-driven, which is why one clip can stand for both halves.
+  await expect(badge, "a zero-token user must not see the badge on arrival")
+    .toBeHidden();
+
+  // Surface it through the APP'S OWN function, then take the clip from the box
+  // it actually occupies. +6px catches the .legendary-badge bloom without
+  // reaching the username, which reflows for reasons unrelated to the badge.
+  await page.evaluate(() => window.updateNavTokens(1));
+  const box = await badge.boundingBox();
+  expect(box, "the surfaced badge must have a real box to sample").not.toBe(null);
+  expect(Math.round(box.width), "the surfaced disc is 20px").toBeGreaterThan(0);
+  const clip = {
+    x: Math.max(0, Math.round(box.x - 6)),
+    y: Math.max(0, Math.round(box.y - 6)),
+    width: Math.round(box.width + 12),
+    height: Math.round(box.height + 12),
+  };
+  const shoot = async () => (await page.screenshot({ clip })).toString("base64");
+
+  const painted = await shoot();
+
+  // THE ZERO-TOKEN STATE, driven by the call that exists to produce it.
+  await page.evaluate(() => window.updateNavTokens(0));
+  const hidden = await shoot();
+  await page.waitForTimeout(700);
+  const hiddenAgain = await shoot();
+  expect(hiddenAgain,
+    "the badge's slot must be AT REST once hidden — a clip that keeps changing " +
+    "is a disc still panning its gradient, i.e. still being painted").toBe(hidden);
+
+  // THE REFERENCE: the same slot with no badge in the document at all.
+  await page.evaluate(() => document.querySelector("[data-free-entry-badge]").remove());
+  const absent = await shoot();
+
+  // NEGATIVE CONTROL — without this the equality below could pass on a clip
+  // that never contained the badge in the first place.
+  expect(painted,
+    "the clip must be able to SEE the badge, or this spec proves nothing")
+    .not.toBe(absent);
+
+  // THE ASSERTION. Hidden and deleted must be pixel-identical.
+  expect(hidden,
+    "a zero-token user still has the ✨ badge painted: hiding it does not match " +
+    "removing it from the page").toBe(absent);
+});
+
+// The same fact stated in the box model, kept SEPARATE from the paint spec so a
+// failure says which layer broke. Corroboration, not the primary witness.
+test("a zero-token ✨ badge holds no box and reports display:none", async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 800 });
+  await login(page, "alex@mcritchie.studio", "password");
+  await page.goto("/contests");
+  await expect(page.locator("[data-username-display]").first()).toBeVisible();
+
+  // QUIESCE, for the SAME reason as the paint spec above and the glow spec
+  // before it — and here it is the updateNavTokens(2) half that needs it.
+  // refreshSession() lands on its own schedule and calls updateNavTokens with
+  // the SERVER's count, which is zero for this user. Land after we drive the
+  // badge to two and it re-applies `.hidden` underneath the assertions, which
+  // go red for a reason that has nothing to do with the cascade. workers:1 +
+  // retries:2 would most likely bury that on a retry — the bad kind of green.
+  await page.waitForTimeout(4000);
+
+  const measure = () => page.evaluate(() => {
+    const b = document.querySelector("[data-free-entry-badge]");
+    const r = b.getBoundingClientRect();
+    return {
+      display: window.getComputedStyle(b).display,
+      width: r.width,
+      height: r.height,
+      hasClass: b.classList.contains("hidden"),
+    };
+  });
+
+  await page.evaluate(() => window.updateNavTokens(0));
+  const zero = await measure();
+  // The class was ALWAYS right — it is the paint that was wrong. Asserted here
+  // only to pin that this spec is looking at the same element the old, useless
+  // guard looked at.
+  expect(zero.hasClass, "updateNavTokens(0) must still apply .hidden").toBe(true);
+  expect(zero.display, `zero-token badge computed display: ${JSON.stringify(zero)}`).toBe("none");
+  expect(zero.width, `zero-token badge box: ${JSON.stringify(zero)}`).toBe(0);
+  expect(zero.height, `zero-token badge box: ${JSON.stringify(zero)}`).toBe(0);
+
+  // ...and the surface path still works, or the fix traded one bug for another.
+  await page.evaluate(() => window.updateNavTokens(2));
+  const two = await measure();
+  expect(two.hasClass, "updateNavTokens(2) must strip .hidden").toBe(false);
+  expect(two.display, `two-token badge: ${JSON.stringify(two)}`).toBe("inline-flex");
+  expect(two.width, `two-token badge: ${JSON.stringify(two)}`).toBeGreaterThan(0);
+});
 
 // ===========================================================================
 // THE USERNAME'S OVERFLOW FADE MASK — ASSERTED ON THE PAINTED PIXELS.

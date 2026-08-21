@@ -39,18 +39,21 @@
       .hidden                   — lives on the button (not the wrapper)
                                   so the JS selectors above can surface
                                   the badge after a mint without a reload.
-                                  ⚠️ It SURFACES but does not HIDE. On this
-                                  element .hidden loses the cascade to the
-                                  inline-flex beside it — equal specificity,
-                                  and Tailwind emits .hidden BEFORE
-                                  .inline-flex, so the later rule wins.
-                                  Measured: with .hidden applied, computed
-                                  display is inline-flex and the disc keeps a
-                                  20x20 box. Removing it is what actually
-                                  works. Not this task's to fix (it changes
-                                  what a 0-token user sees); recorded so the
-                                  next reader does not trust the class to
-                                  hide anything.
+                                  It HIDES as well now, which took an
+                                  explicit rule rather than the bare class.
+                                  .hidden and the inline-flex beside it are
+                                  both single-class utilities in the same
+                                  layer, so they tie and source order decides
+                                  — Tailwind emits .hidden first, inline-flex
+                                  won, and a zero-token user kept a live
+                                  20x20 sparkle while updateNavTokens(0) sat
+                                  inert. The compound, unlayered override
+                                  that settles it lives beside .free-entry-
+                                  badge in app/assets/tailwind/application.css,
+                                  and the PAINT is measured in
+                                  e2e/navbar_layout.spec.js. The bare class
+                                  still settles nothing on its own, so do not
+                                  carry this assumption to another element.
 %>
 <%# Cache-first count (display_entry_token_count): a warm cache renders the
     real count immediately; a COLD cache renders nil → the badge starts hidden
