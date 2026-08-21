@@ -195,6 +195,75 @@ Rules worth knowing:
   signature prompt — because that is a moment where a page load reads as
   progress rather than as a glitch.
 
+## Web3 step-up (web2 auth by a wallet account)
+
+The intersection this names: an account that holds a **self-custody wallet**
+signs in with a **web2 credential** — a magic link, email, or Google. Both facts
+are ordinary alone; together they mean the person is signed in but cannot sign
+anything on-chain.
+
+`SessionContext` has modelled that intersection since it was lifted into
+studio-engine — `web2?` (the session) AND `phantom_linked?` (the account) — but
+nothing acted on it until 2026-08-21, so a wallet owner arriving by magic link
+was logged straight in with no web3 beat at all. Google's path did notice, and
+said so as a red sentence under the button that named the account's email
+address. One standard now covers both.
+
+| Piece | Where |
+|-------|-------|
+| The verdict | `Web3StepUpPolicy` — `required_for?(user, session_mode:)`, RPC-free |
+| Wallet brand registry | `Solana::WalletProvider` (`phantom` / `solflare` / `backpack`) |
+| Armed at sign-in | `record_web3_step_up_state!` → `session[:web3_step_up_prompt]` (one-shot) |
+| Armed at the Google collision | `arm_web3_step_up_for(user)` — popup branch only |
+| Read on render | `web3_step_up_required?` — helper, RPC-free, true for the whole session |
+| The modal | `app/views/modals/_web3_step_up.html.erb`, id `web3-step-up` |
+| Brand memory | `users.web3_wallet_provider` + `web3_authenticated_at`, stamped by `User#record_web3_authentication!` |
+| Showroom | `/admin/modals` → **Web3 step-up**, both variants |
+
+Rules worth knowing:
+
+- **It is ADVISORY, not an enforcement boundary** (operator call, 2026-08-21).
+  A `true` opens a DISMISSIBLE card; it does not suspend the session. The teeth
+  stay exactly where they were — `ContestsController#enter` still refuses an
+  unsigned session and every on-chain path still demands a live signature — so
+  this moves the PROMPT to sign-in without moving any gate, the same shape as the
+  age gate's prompt moving to onboarding while its enforcement stayed at entry.
+  Getting it backwards would lock a legitimate owner out of their own account
+  over a wallet they merely cannot reach right now, which is why the card also
+  carries a support link.
+- **It is disjoint from `WalletSetupPolicy`.** That policy asks "should this
+  account GET a wallet"; this one asks "should this SESSION prove the wallet it
+  already has" — opposite populations, since a `phantom_wallet?` account exits
+  `WalletSetupPolicy` at its own step 1. A unit test pins the disjointness,
+  because an overlap would stack two modals on one render.
+- **It is NOT a chain step, deliberately.** `OnboardingFlow` answers "what is
+  this ACCOUNT still missing" and its cards carry a 1-of-3 progress pill; a
+  step-up asks what the SESSION owes, of a user whose account is already
+  complete. Folding it in would put a returning wallet owner at "step 1 of 3" of
+  an onboarding they finished months ago.
+- **It HOLDS the chain rather than racing it.** Both are armed on the same
+  render. The driver will not start the chain until the card dispatches
+  `web3-step-up-dismissed`, and the chain payload stays in the DOM until then —
+  so nothing is lost when the user dismisses. A successful signature never
+  reaches that path: it reloads, and the server has already dropped both prompts
+  (`clear_wallet_setup_state!`).
+- **The brand memory is what makes it one click.** Without it the card can only
+  offer the generic three-brand picker, so a returning Phantom user re-chooses
+  Phantom every time. The browser sends the name it read off the Wallet Standard
+  registration on every signature path (connect, re-auth, the Phantom mobile deep
+  link, and `/account/link_solana`); `Solana::WalletProvider.normalize` is the
+  only way it becomes a stored value, and an unknown brand stores nothing.
+- **A null provider is a first-class state, not a bug.** Every wallet linked
+  before the column existed has one, and there is no backfill — the brand is not
+  recoverable from an address. Those users get the same card with the picker as
+  its primary action.
+- **Signing runs the wallet LOGIN, not the link path.** `linkMode` posts to
+  `/account/link_solana`, which binds to the current user but never grants
+  `session[:onchain]` — the thing the card exists to obtain. One inherited
+  consequence: signing with a DIFFERENT wallet signs you into that wallet's
+  account, exactly as the standalone Solana button already does. The card shows
+  the truncated address so that is a visible choice rather than a surprise.
+
 ## The post-auth onboarding chain
 
 One deliberate sequence after a successful auth, instead of modals firing

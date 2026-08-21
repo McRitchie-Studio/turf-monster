@@ -268,6 +268,39 @@ class TestController < ApplicationController
   # email — an account-takeover primitive if exposed. The route guard only
   # blocks production, so we additionally hard-gate to test/development here:
   # never let a staging / review-app dyno (RAILS_ENV != production) serve it.
+  # Stage a WEB3 account for the step-up specs: an email-addressable user that
+  # holds a self-custody wallet and a remembered brand.
+  #
+  # There is no way to reach this state through the UI in a headless browser —
+  # a real self-custody link needs an extension to sign — and it is the exact
+  # precondition the step-up card exists for (a wallet account arriving by magic
+  # link). So the backdoor stages the ACCOUNT, and the spec still walks the real
+  # magic-link round trip into it, which is where the behaviour under test lives.
+  #
+  # web3_solana_address is a synthetic base58 keypair, not a real wallet: the
+  # specs assert the CARD, never a signature, so the address only has to be
+  # well-formed and unique.
+  def grant_web3_wallet
+    email = params[:email].to_s.strip.downcase
+    return render json: { error: "email required" }, status: :unprocessable_entity if email.blank?
+
+    user = User.find_or_initialize_by(email: email)
+    user.name ||= "Wallet Tester"
+    user.save! if user.new_record?
+
+    user.update_columns(
+      web3_solana_address: Solana::Keypair.generate.to_base58,
+      # Straight through the normalizer so a spec cannot stage a brand the app
+      # itself would refuse to store.
+      web3_wallet_provider: Solana::WalletProvider.normalize(params[:provider]),
+      web3_authenticated_at: Time.current,
+      email_verified_at: Time.current
+    )
+
+    render json: { ok: true, slug: user.slug, address: user.web3_solana_address,
+                   provider: user.web3_wallet_provider, wallet_kind: user.wallet_kind }
+  end
+
   def magic_link_token
     return head :forbidden unless Rails.env.test? || Rails.env.development?
 

@@ -26,6 +26,15 @@ class AdminController < ApplicationController
       steps: [
         { key: "onboarding-first-name", note: "Marketing capture — SKIPPABLE, never blocks the wallet" }
       ] },
+    { key: "web3-step-up",
+      label: "Web3 step-up (web2 auth by a wallet account)",
+      summary: "A self-custody account signed in with email, a magic link or Google, so the session cannot sign " \
+               "on-chain. Opens BEFORE the onboarding chain and hands off to it when dismissed. Two states, and " \
+               "which one a user meets depends on whether we remember the wallet brand they last signed with.",
+      steps: [
+        { key: "web3-step-up-remembered", note: "The common case — one click, no picker" },
+        { key: "web3-step-up-unknown",    note: "Wallet linked before we recorded brands — falls back to the picker" }
+      ] },
     { key: "wallet-setup",
       label: "Wallet setup",
       summary: "Runs straight after onboarding, and again from the entry gate if dismissed. " \
@@ -103,6 +112,20 @@ class AdminController < ApplicationController
     # "Set up your wallet" step. In the gallery the Phantom row renders in its
     # INSTALL state unless the previewing browser actually has Phantom, which is
     # the state a brand-new player sees.
+    # === Web3 step-up ========================================================
+    # Web3StepUpPolicy's card: the account holds a self-custody wallet, the
+    # SESSION was established by a web2 credential. The two variants are the two
+    # halves of that policy's provider memory — remembered (one click) and not
+    # (the picker). Both are worth eyeballing because the second is what every
+    # account linked before the web3_wallet_provider column existed will see.
+    { group: "Web3",
+      label: "Step-up (remembered wallet — one click)", key: "web3-step-up-remembered",
+      modal_id: "web3-step-up", file: "app/views/modals/_web3_step_up.html.erb",
+      props: { provider: "phantom", providerLabel: "Phantom", walletHint: "7xKp…JZ2Q" } },
+    { group: "Web3",
+      label: "Step-up (no remembered wallet — picker)", key: "web3-step-up-unknown",
+      modal_id: "web3-step-up", file: "app/views/modals/_web3_step_up.html.erb",
+      props: {} },
     { group: "Web3",
       label: "Set up your wallet (post-auth)", key: "wallet-setup",
       modal_id: "wallet-setup", file: "app/views/modals/_wallet_setup.html.erb",

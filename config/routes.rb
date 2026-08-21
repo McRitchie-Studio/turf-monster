@@ -545,6 +545,7 @@ Rails.application.routes.draw do
     post "test/create_active_entry",      to: "test#create_active_entry"
     post "test/grant_managed_wallet",     to: "test#grant_managed_wallet"
     post "test/set_quest_state",          to: "test#set_quest_state"
+    post "test/grant_web3_wallet",        to: "test#grant_web3_wallet"
     post "test/magic_link_token",         to: "test#magic_link_token"
     get  "test/user_info/:slug",          to: "test#user_info"
   end

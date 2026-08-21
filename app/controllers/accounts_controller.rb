@@ -258,6 +258,9 @@ class AccountsController < ApplicationController
       existing = User.from_solana_wallet(pubkey_b58)
       if existing && existing.id != current_user.id
         merge_users!(survivor: current_user, absorbed: existing)
+        # The survivor now holds the wallet this request just proved, so it earns
+        # the same brand stamp as the non-merge branch below.
+        current_user.record_web3_authentication!(provider: params[:wallet_provider])
         # The account now holds a web3 wallet — the wallet-setup nudge is
         # satisfied, so drop it in the same breath as the link.
         clear_wallet_setup_state!
@@ -265,6 +268,10 @@ class AccountsController < ApplicationController
       end
 
       current_user.update!(web3_solana_address: pubkey_b58)
+      # Same stamp as the wallet LOGIN path — linking is a signature too, and a
+      # user who links from /account and later signs in by email deserves the
+      # same one-click step-up as one who logged in with the wallet directly.
+      current_user.record_web3_authentication!(provider: params[:wallet_provider])
       clear_wallet_setup_state!
       render json: { success: true, redirect: account_path }
     end

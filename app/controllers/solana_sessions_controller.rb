@@ -55,6 +55,11 @@ class SolanaSessionsController < ApplicationController
       cookies.delete(:reference) if is_new
       set_app_session(user)
       session[:onchain] = true
+      # Remember WHICH wallet just signed, so a later web2 login by this same
+      # account can be met with one "Continue with Phantom" button instead of
+      # the generic picker. Untrusted client string — the model normalises it
+      # through Solana::WalletProvider and ignores anything unknown.
+      user.record_web3_authentication!(provider: params[:wallet_provider])
       # A wallet login IS the wallet setup — drop any nudge a prior email login
       # left in this browser's session.
       clear_wallet_setup_state!
