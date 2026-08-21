@@ -88,39 +88,40 @@
 #     span's inner text is "" on the wire and "https://api.devnet.solana.com" in the
 #     browser. This is the surface that leaked the key to UNAUTHENTICATED visitors, and no
 #     assert_select can ever see what it actually shows them.
-# Re-derived with the lister, never hand-incremented: `npx playwright test --list` -> 155
+# Re-derived with the lister, never hand-incremented: `npx playwright test --list` -> 159
 # tests in 41 files.
 #
-# 155 -> 157 (hide-badge-for-zero-tokens): two specs in e2e/navbar_layout.spec.js for the
-# zero-token state of the navbar's sparkle badge. `.hidden` rides that button and DID NOT
-# HIDE IT — it ties `.inline-flex` on specificity inside `@layer utilities` and Tailwind
-# emits `.hidden` first, so the later rule won and a user holding zero entry tokens kept a
-# live 20x20 sparkle promising a free entry they did not have.
-#   · the PAINT one diffs a screenshot of the badge's own slot, hidden, against the same
-#     slot with the badge DELETED from the DOM, fenced by a negative control (the surfaced
-#     badge must NOT match the absent one) and a stability check. It is a spec and not a
-#     computed-style read on purpose: `classList.contains("hidden")` was TRUE for the whole
-#     life of the bug, so the obvious guard passes against the defect.
-#   · the BOX one states the same fact in the box model — display, width, height — and
-#     checks the surface path (updateNavTokens(2)) still works, so the fix cannot trade one
-#     bug for the other.
-# Re-derived with the lister on the REBASED tree, never hand-incremented:
-# `npx playwright test --list` -> 157 tests in 41 files.
+# 155 -> 157 -> 159, TWO BRANCHES AT ONCE. This merge joins two in-flight branches that
+# each added two specs to e2e/navbar_layout.spec.js off the same base of 155:
 #
-# ⚠️ THIS FILE'S TRAP FIRED AGAIN ON THIS VERY REBASE, and is worth reading as a worked
-# example. redact-helius-key-from-browser and hide-badge-for-zero-tokens each added TWO
-# specs off a base of 153, so both branches wrote the identical line `total_specs: 155`
-# for DIFFERENT pairs of specs. Git conflicted only on the PROSE around it — the numeric
-# lines sat OUTSIDE the markers and were taken silently — so a resolution that fixed the
-# comments and trusted the number would have declared 155 against a real 157, and
-# `bin/e2e-executed-set-check` would have gone red on `accepted` at 136-against-134.
-# Re-deriving with the lister is what caught it. Do that, every time, on the merged tree.
+#   · fade-mask-follows-face-swap (PR 391) — the username's overflow fade mask, which was
+#     decided ONCE in an Alpine init() and therefore never followed the box. Both specs
+#     assert on PAINTED PIXELS, not computed style, because the two are different claims:
+#     the broken build resolved no mask at all, and a build that resolved one over the
+#     WRONG BOX would read identically in getComputedStyle. Measured broken: the final
+#     column of the clipped edge carried 234/255 of ink at every width, byte-identical to
+#     the mask forced OFF.
+#   · hide-badge-for-zero-tokens (PR 393) — the zero-token state of the navbar's sparkle
+#     badge. `.hidden` rides that button and DID NOT HIDE IT: it ties `.inline-flex` on
+#     specificity inside `@layer utilities` and Tailwind emits `.hidden` first, so the
+#     later rule won and a user holding zero entry tokens kept a live 20x20 sparkle
+#     promising a free entry they did not have. The PAINT spec diffs a screenshot of the
+#     badge's own slot, hidden, against the same slot with the badge DELETED from the DOM,
+#     fenced by a negative control and a stability check — a spec and not a computed-style
+#     read on purpose, because `classList.contains("hidden")` was TRUE for the whole life
+#     of the bug. The BOX spec states the same fact in the box model and checks the surface
+#     path (updateNavTokens(2)) still works.
 #
-# ⚠️ AND IT IS STILL LOADED: fade-mask-follows-face-swap (PR 391) is in flight with two
-# more specs in e2e/navbar_layout.spec.js, measured against ITS post-merge tree at the
-# same 157/41. Whichever of us merges second inherits a file that says 157 and a tree
-# that holds 159. RE-DERIVE; do not take either side, and do not do the arithmetic.
-total_specs: 157
+# ⚠️ THE TRAP IN THIS FILE FIRED A THIRD TIME, AND THIS RESOLUTION IS WHAT CAUGHT IT.
+# Both branches wrote the identical line `total_specs: 159` for DIFFERENT pairs of specs.
+# Git conflicted only on the PROSE around it — the numeric lines sat OUTSIDE the markers
+# and were taken silently — so a resolution that fixed the comments and trusted the number
+# would have declared 157 against a real 159, and `bin/e2e-executed-set-check` would have
+# gone red on `accepted` at 138-against-136. Re-deriving with the lister on the MERGED
+# tree is what caught it, exactly as the note left by the previous round instructed.
+# Do that, every time, on the merged tree. Do not take either side, and do not do the
+# arithmetic — run the lister.
+total_specs: 159
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -168,24 +169,27 @@ allowed_skips: 4
 
 # total_specs - excluded - allowed_skips. What the lane MUST execute, asserted against the
 # runner's own report, so no source-level spelling on any axis can move it without moving
-# this line. Derived: 155 committed - 17 @devnet - 4 allowed = 134.
+# this line. Derived: 159 committed - 17 @devnet - 4 allowed = 138.
 #
 # Every number here was re-derived with the runner, not adjusted by arithmetic on the last
-# one. On this REBASED tree: `npx playwright test --list` reports 157 tests in 41 files,
-# `--grep "@devnet"` 17, and `--grep-invert "@devnet" --project=chromium` 140 collected for
-# the PR lane — 140 - 4 runtime skips = 136.
+# one. On this MERGED tree: `npx playwright test --list` reports 159 tests in 41 files,
+# `--grep "@devnet"` 17, and `--grep-invert "@devnet" --project=chromium` 142 collected for
+# the PR lane — 142 - 4 runtime skips = 138.
 #
-# ⚠️ RE-DERIVE THIS ON EVERY MERGE, and do not take either side. See the worked example on
-# total_specs above: this rebase joined two branches that had each written 155 for a
+# ⚠️ RE-DERIVE THIS ON EVERY MERGE, and do not take either side. See the worked example
+# on total_specs above: this merge joined two branches that had each written 136 for a
 # DIFFERENT pair of specs, and the number came through the merge unconflicted.
 #
-# History: 134 (155 - 17 - 4) on each of the two branches this rebase joins — both said 134
-# for DIFFERENT pairs of specs, which is the trap; 132 (153 - 17 - 4) after
-# glow-typed-chat-prompts merged with polish-free-entry-badge; 130 (151 - 17 - 4) on each of
-# THOSE two branches, the same trap one round earlier; 128 (149 - 17 - 4) before either of
-# them; 126 before that (the two payment specs still skipping); and 122 against 145
-# committed before adopt-engine-geo-primitives added its four geo specs.
-executed: 136
+# History: 136 on each of the two branches this merge joins — fade-mask-follows-face-swap
+# and hide-badge-for-zero-tokens BOTH declared 136 for different pairs of specs, the trap
+# firing for the THIRD time; 134 on each of the two branches the merge before that joined
+# (redact-helius-key-from-browser and fade-mask-follows-face-swap), the second firing;
+# 132 (153 - 17 - 4) after glow-typed-chat-prompts merged with polish-free-entry-badge;
+# 130 (151 - 17 - 4) on each of THOSE two branches, the same trap one round earlier;
+# 128 (149 - 17 - 4) before either of them; 126 before that (the two payment specs still
+# skipping); and 122 against 145 committed before adopt-engine-geo-primitives added its
+# four geo specs.
+executed: 138
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to

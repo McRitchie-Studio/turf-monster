@@ -12,13 +12,16 @@ require "test_helper"
 #
 # WHY IT IS NOT REDUNDANT with config/initializers/solana_network_alignment.rb,
 # which compares genesis hashes at boot and would catch that exact pair: the
-# alignment check is fail-OPEN. It rescues Solana::Client::RpcError and
-# CONTINUES BOOT, and the client funnels timeouts, resets and rate limits into
-# that one class — so the endpoint misbehaving is precisely what silences the
-# check. It also skips entirely on an unknown NETWORK, and wholesale under
-# SOLANA_SKIP_NETWORK_CHECK=true. Those three holes are asserted below, because
-# they are this guard's premise: if the alignment check ever becomes fail-closed,
-# re-read whether this raise still earns its place.
+# alignment check is fail-OPEN — and since survive-unauthorized-rpc-boot it is
+# DELIBERATELY MORE so. Its probe now rescues StandardError and CONTINUES BOOT,
+# because an endpoint that is unreachable, unauthorized, or not speaking JSON
+# proves nothing about alignment. So the endpoint misbehaving is still precisely
+# what silences the check. It also skips entirely on an unknown NETWORK, and
+# wholesale under SOLANA_SKIP_NETWORK_CHECK=true. Those three holes are asserted
+# below, because they are this guard's premise: the alignment check fails CLOSED
+# only on a genesis hash that came back and DISAGREED, which an unset
+# SOLANA_RPC_URL never produces. If that ever changes, re-read whether this
+# raise still earns its place.
 #
 # RPC_URL is resolved at LOAD time, so these re-evaluate the real assignment out
 # of the real source file in a sandbox rather than asserting the already-loaded
@@ -75,8 +78,11 @@ class Solana::ConfigRpcRequiredTest < ActiveSupport::TestCase
   test "the alignment guard is fail-OPEN on an unreachable RPC, which is why this raise is additive" do
     source = ALIGNMENT_RB.read
 
-    assert_match(/rescue Solana::Client::RpcError/, source,
+    assert_match(/rescue StandardError/, source,
                  "if the alignment check stopped swallowing RPC errors it would fail closed — re-read this guard's premise")
+    refute_match(/rescue Solana::Client::RpcError/, source,
+                 "narrowing the probe back to one exception class is the survive-unauthorized-rpc-boot " \
+                 "bug: a non-JSON body escapes as JSON::ParserError and aborts boot")
     assert_match(/continuing boot/, source,
                  "the rescue must still be the one that CONTINUES boot; a raise there would change this argument")
     assert_match(/skipping alignment check/, source,
