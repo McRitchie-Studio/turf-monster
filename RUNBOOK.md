@@ -48,8 +48,13 @@ Troubleshooting guide for autonomous agents. Format: problem, diagnosis, fix.
   `.env.example`, then use the owning docs for provider-specific values:
   `docs/email-delivery.md` for mail, `docs/SOLANA.md` for Solana, and
   `docs/CDP_RAMP_INTEGRATION.md` for Coinbase CDP. Boot fails closed without
-  `MANAGED_WALLET_ENCRYPTION_KEY` (OPSEC-015), `SOLANA_PROGRAM_ID`
-  (OPSEC-012), or `EXPECTED_IDL_HASH` (OPSEC-014). Set missing values with
+  `MANAGED_WALLET_ENCRYPTION_KEY` (OPSEC-015), `EXPECTED_IDL_HASH`
+  (OPSEC-014), or any of the three Solana cluster vars —
+  `SOLANA_PROGRAM_ID`, `SOLANA_NETWORK`, `SOLANA_RPC_URL` (OPSEC-012 and
+  siblings). The Solana three raise during eager load, so the refusal names
+  the variable and arrives before the boot-time IDL and network-alignment
+  checks; it also fires during slug compile, where the same production eager
+  load runs. Set missing values with
   `heroku config:set KEY=value --app turf-monster-mainnet`.
 
 **Magic-link request succeeds but email never arrives**
