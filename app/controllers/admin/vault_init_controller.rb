@@ -29,7 +29,9 @@ module Admin
       @default_signers = DEFAULT_SIGNERS
       @default_threshold = DEFAULT_THRESHOLD
       @default_treasury_authority = DEFAULT_TREASURY_AUTHORITY
-      @rpc_url = Solana::Config::RPC_URL
+      # BROWSER-facing (rendered into #cosign-config for web3.js), so the
+      # public endpoint — RPC_URL carries the provider api-key on mainnet.
+      @rpc_url = Solana::Config.public_rpc_url
       @network = Solana::Config::NETWORK
     end
 

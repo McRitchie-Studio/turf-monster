@@ -105,8 +105,11 @@ export async function authedFetch(url, opts) {
 // Replaces web3.js connection.confirmTransaction, which opens a WebSocket
 // signature subscription (auto-derived ws:// at port+1) and surfaces a
 // misleading 30s "unknown" timeout. turf-monster has NO RPC proxy — the
-// client already holds the api-keyed Helius URL (data-solana-rpc-url), so we
-// POST JSON-RPC straight to it. ~1.5s interval, ~60s ceiling.
+// client holds its OWN endpoint (data-solana-rpc-url, from
+// Solana::Config.public_rpc_url), so we POST JSON-RPC straight to it. That
+// attribute is deliberately NOT the server's keyed endpoint: it is a
+// credential-free public/browser URL, so anything the client posts must be
+// safe to send over a rate-limited endpoint. ~1.5s interval, ~60s ceiling.
 //   confirmed/finalized → resolves with the status object
 //   st.err              → throws (tx failed on-chain)
 //   timeout             → throws (tx may still land — check explorer)
@@ -169,17 +172,12 @@ export function refreshBalance() {
       // leave the placeholder for the next poll.
       if (data.balance != null) {
         var formatted = '$' + Math.floor(parseFloat(data.balance));
-        var isZero = formatted === '$0';
-        var badge = document.querySelector('[data-free-entry-badge]');
-        var badgeVisible = badge && !badge.classList.contains('hidden');
         document.querySelectorAll('[data-balance-display]').forEach(function(el) {
           el.textContent = formatted;
-          // Same rule as server-side render: hide $0 when the user has
-          // at least one free-entry token. _user_nav's 🎟️ badge already
-          // signals their next-step affordance.
-          if (isZero && badgeVisible) el.classList.add('hidden');
-          else                        el.classList.remove('hidden');
         });
+        // Which face the slot shows ($ amount vs "✨ Free Entry") is one rule,
+        // shared with updateNavTokens and the server render.
+        applyBalanceSlotRule();
       }
 
       // (b) Seeds bar — dispatch the same event the entry-confirm flow uses
@@ -282,7 +280,7 @@ export function refreshSession() {
         }
       } catch (_) {}
 
-      // 🎟️ token badge — reuse updateNavTokens for the visibility
+      // ✨ token badge — reuse updateNavTokens for the visibility
       // toggle + data-token-count + 'entry-tokens-updated' broadcast.
       try { updateNavTokens(data.tokens); } catch (_) {}
 
@@ -337,14 +335,46 @@ function updateWalletTiles(data) {
   } catch (_) {}
 }
 
-// Toggle the navbar's 🎟️ free-entry badge based on the new token count.
+// Which face the navbar's balance slot shows. The slot holds two mutually
+// exclusive children — the "$1284" amount ([data-balance-display]) and the
+// "✨ Free Entry" label ([data-free-entry-label]) — and exactly one rule picks
+// between them: a $0 balance held by a user WITH an entry token reads
+// "✨ Free Entry", because the amount they can enter for really is zero
+// dollars. Everything else shows the amount.
+//
+// This is the CLIENT half of the rule _navbar.html.erb renders server-side;
+// both refreshBalance() and updateNavTokens() call it so the two halves can't
+// drift. hasTokens defaults to "is the ✨ badge visible", which is the same
+// signal the badge itself is toggled on.
+//
+// The empty-text case is the cold-cache "loading" render (the server emits no
+// "$" at all): keep the slot blank rather than unhiding a lone empty link.
+export function applyBalanceSlotRule(hasTokens) {
+  var badge = document.querySelector('[data-free-entry-badge]');
+  var tokens = (hasTokens === undefined)
+    ? !!(badge && !badge.classList.contains('hidden'))
+    : (parseInt(hasTokens, 10) || 0) > 0;
+
+  document.querySelectorAll('[data-balance-display]').forEach(function(el) {
+    var text = (el.textContent || '').trim();
+    var loading = text === '';
+    var free = tokens && text === '$0';
+    el.classList.toggle('hidden', loading || free);
+
+    var slot = el.closest('[data-balance-slot]');
+    var label = slot && slot.querySelector('[data-free-entry-label]');
+    if (label) label.classList.toggle('is-active', free);
+  });
+}
+
+// Toggle the navbar's ✨ free-entry badge based on the new token count.
 // Called after a mint (count increases) or a token-funded entry submit
-// (count decrements). Also re-applies the "hide $0 balance when the
-// user has any free-entry tokens" rule so the live state matches the
-// server-side render.
+// (count decrements). Also re-applies the balance-slot rule so the live
+// state matches the server-side render.
 export function updateNavTokens(balance) {
   var n = parseInt(balance, 10) || 0;
   var badge = document.querySelector('[data-free-entry-badge]');
+  var wasHidden = !!(badge && badge.classList.contains('hidden'));
   if (badge) {
     if (n > 0) badge.classList.remove('hidden');
     else       badge.classList.add('hidden');
@@ -357,15 +387,66 @@ export function updateNavTokens(balance) {
   try {
     window.dispatchEvent(new CustomEvent('entry-tokens-updated', { detail: { count: n } }));
   } catch (_) {}
-  // Balance link visibility — match the server-side rule.
-  document.querySelectorAll('[data-balance-display]').forEach(function(el) {
-    var isZero = (el.textContent || '').trim() === '$0';
-    if (isZero && n > 0) el.classList.add('hidden');
-    else                 el.classList.remove('hidden');
-  });
+  applyBalanceSlotRule(n);
+  // A level-up mints the token that UNHIDES this badge, and the count hydrate
+  // usually lands after the glow was armed — so replay the glow the moment the
+  // badge actually becomes visible, or the celebration plays to an empty slot.
+  if (wasHidden && n > 0 && Date.now() < _glowArmedUntil) glowFreeEntryBadge();
 }
 
-// Fires the .free-entry-punch CSS animation on the 🎟️ badge — wired
+// Level-up glow on the ✨ badge — three ~1.4s pulses (.free-entry-glow).
+//
+// A level-up is what MINTS a free entry, so the glow's job is to point at
+// where the token landed. Two-step because the mint and the count hydrate are
+// not simultaneous: armFreeEntryGlow() plays it now AND leaves a short window
+// open, and updateNavTokens replays it if the badge was still hidden and only
+// now became visible. Without the window a level-up on a user's FIRST token
+// glows a badge the count hydrate has not surfaced yet.
+// (The `hidden` class this turns on used to be a no-op on that button — it lost
+// the cascade to the inline-flex beside it, so the "still hidden" state this
+// window is written around was never actually hidden on screen. An explicit
+// unlayered override in app/assets/tailwind/application.css settles that now;
+// either way it does not change the ORDERING problem this window exists to
+// solve, which is about when the count lands, not about what is painted.)
+var GLOW_MS = 4400;
+var _glowArmedUntil = 0;
+// Handle for the in-flight strip-the-class timer. HELD, because a replay is the
+// NORMAL path here, not the rare one: armFreeEntryGlow() fires at +900ms, before
+// a first-token badge has been surfaced, and updateNavTokens() replays the glow
+// the moment the count hydrate surfaces it. Both land inside GLOW_MS, so an
+// unheld timer from play #1 strips play #2 partway through — and the flagship
+// first-token celebration is exactly the one that got clipped.
+//
+// MEASURED, driving two plays 3.0s apart and sampling the painted box-shadow:
+// the replay used to run 1340ms; it now runs 4188ms, against 4201ms for a glow
+// that plays alone. (Sampled OUTSIDE the disc — .legendary-badge pans a gradient
+// across it forever, so a probe that includes the disc can never tell the glow
+// from the passage of time.)
+var _glowTimer = null;
+
+export function glowFreeEntryBadge() {
+  var badge = document.querySelector('[data-free-entry-badge]');
+  if (!badge) return;
+  // Cancel the previous play's strip BEFORE starting this one, or it fires
+  // mid-replay and truncates the animation this call just restarted.
+  if (_glowTimer) { clearTimeout(_glowTimer); _glowTimer = null; }
+  badge.classList.remove('free-entry-glow'); // reset so a 2nd level-up re-fires
+  void badge.offsetWidth;                    // force reflow
+  badge.classList.add('free-entry-glow');
+  _glowTimer = setTimeout(function() {
+    badge.classList.remove('free-entry-glow');
+    _glowTimer = null;
+  }, GLOW_MS);
+}
+
+// Arm + play. windowMs is how long a later token-count hydrate may still
+// replay the glow (see updateNavTokens).
+export function armFreeEntryGlow(windowMs) {
+  _glowArmedUntil = Date.now() + (windowMs || 20000);
+  glowFreeEntryBadge();
+}
+
+// Fires the .free-entry-punch CSS animation on the ✨ badge — wired
 // from confirmEntry's success path when the server reports the entry
 // was funded by a consumed token (data.token_consumed === true).
 export function animateFreeEntryBadge() {
@@ -377,12 +458,18 @@ export function animateFreeEntryBadge() {
   setTimeout(function() { badge.classList.remove('free-entry-punch'); }, 700);
 }
 
-// Confetti burst that originates from the 🎟️ Entry badge in the navbar.
+// Confetti burst that originates from the ✨ Entry badge in the navbar.
 // Used instead of the centered fireSuccessConfetti for token-flow
 // celebrations (mint + entry confirmed) so the streamers shoot out of
 // the badge the user just earned / consumed. Falls back to the top-
 // right of the viewport when the badge isn't on screen (e.g. after a
 // consume that dropped the count to 0 and hid the badge).
+//
+// THAT FALLBACK ONLY BECAME REACHABLE with the entry-badge cascade fix. While
+// `.hidden` lost to the inline-flex beside it the badge always reported a live
+// 20x20 rect, so `hidden` here was permanently false and a consume-to-zero
+// burst fired from a disc that was about to stop being painted. It now takes
+// the corner branch, which is what the sentence above always claimed.
 export function fireConfettiFromBadge() {
   if (typeof confetti === 'undefined') return;
   var badge  = document.querySelector('[data-free-entry-badge]');
@@ -524,6 +611,9 @@ export function eligibilityBlocker(session, neededCents, opts) {
 window.eligibilityBlocker = eligibilityBlocker;
 
 window.updateNavTokens = updateNavTokens;
+window.applyBalanceSlotRule = applyBalanceSlotRule;
 window.animateFreeEntryBadge = animateFreeEntryBadge;
+window.glowFreeEntryBadge = glowFreeEntryBadge;
+window.armFreeEntryGlow = armFreeEntryGlow;
 window.fireConfettiFromBadge = fireConfettiFromBadge;
 window.CONFETTI_COLORS = CONFETTI_COLORS;

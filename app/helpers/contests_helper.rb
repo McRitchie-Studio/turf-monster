@@ -55,4 +55,108 @@ module ContestsHelper
       end
     end
   end
+
+  # ── Contest-chat composer prompts ─────────────────────────────────────
+  # The sample messages the composer TYPES into its placeholder while the "Send
+  # Your First Message" quest is live (contests/_chat_panel, driven by the quest
+  # card's quest-chat-active event).
+  #
+  # SEMI-STATIC by design: two fixed openers, then one line built from this
+  # viewer's own entry. The composer types the three in order and RESTS on the
+  # last one, so the line left sitting in the placeholder is the personal one —
+  # the reader's own longshot, named. Three is therefore the whole deck, not a
+  # truncation: every line here is one the viewer actually sees.
+  CHAT_PROMPT_LIMIT = 3
+
+  CHAT_PROMPT_OPENERS = ["Hey everyone 👋", "Good luck, everyone ⚔️"].freeze
+
+  # The personal line RESTS in the placeholder, so it is the one line that must
+  # never render broken — and the composer is narrow. Measured in Chrome at the
+  # 375px breakpoint (the mobile chat tab), the textarea's content box is 206px
+  # against a 20px line-height in a 22px box: a longer line WRAPS and gets sliced
+  # mid-glyph rather than ellipsised. It also overflows the md two-column box
+  # (223px) and only clears at 1024px+.
+  #
+  # So the name carries a budget — and 10, not the 14 a single measurement first
+  # suggested. THE CONTENT BOX IS NOT THE SAME WIDTH EVERYWHERE: 206px measured
+  # in Chrome on macOS, but 183px on the Linux CI runner, whose classic scrollbar
+  # takes real width where macOS overlay scrollbars take none. A budget tuned to
+  # the roomier box shipped a line that overflowed on the narrower one — CI caught
+  # "United States light it up ✈️" at 187.0px in a 183.0px box. 10 is the widest
+  # REAL name that clears the narrow box with margin ("Commanders", "Buccaneers",
+  # "Uzbekistan"); the 11-13 character names are all countries with clean
+  # three-letter short_names ("United States" -> "USA"), which read well here.
+  # Above that lies "Bosnia and Herzegovina" (22) and the World Cup bracket
+  # placeholders ("Runner-up Match 101"), which read badly in this sentence
+  # anyway. Over budget falls back to short_name, then to the generic line.
+  #
+  # The character count is only a PROXY. The fact is the pixel measurement in
+  # e2e/quest_chat_prompts.spec.js, which measures wherever it runs — that is
+  # what found the environment difference, and it is what must stay authoritative
+  # if this number is ever raised again.
+  CHAT_PROMPT_NAME_BUDGET = 10
+
+  # Where the personal line goes when no team can be resolved (a contest with no
+  # slate — World Cup Survivor — or a slate with no priced matchups). Keeps the
+  # deck three lines long and still ends on an invitation to type.
+  CHAT_PROMPT_NO_TEAM = "Who's everyone riding?".freeze
+
+  # `entries` is passed in where the page already loaded them with selections
+  # preloaded (@my_active_entries on contests#show). Nil falls back to one
+  # scoped query — contests#live has no such ivar, and the caller only asks
+  # when the viewer can actually post.
+  def chat_prompt_samples(contest, user, entries: nil)
+    return [] if contest.blank? || user.blank?
+
+    CHAT_PROMPT_OPENERS + [chat_prompt_longshot(contest, user, entries)]
+  end
+
+  private
+
+  # "Chargers light it up ⚡" — the viewer's LONGEST-PRICED pick.
+  #
+  # turf_score is the frozen per-team multiplier, and the curve pins rank 1 at
+  # x1.0 and climbs from there (SlateMatchup.turf_score_for), so the highest one
+  # is the viewer's biggest swing — the pick worth talking about. A viewer with
+  # no picks yet gets the contest's own longest price instead, which is still a
+  # real, checkable claim about this contest.
+  def chat_prompt_longshot(contest, user, entries)
+    matchup = chat_prompt_priciest(chat_prompt_matchups(contest, user, entries))
+    matchup ||= chat_prompt_priciest(contest.slate ? contest.pickable_matchups : [])
+    team = matchup&.team
+    name = chat_prompt_name_for(team)
+    return CHAT_PROMPT_NO_TEAM if name.blank?
+
+    emoji = team.emoji.presence || contest.slate&.sport_emoji || contest.sport_emoji
+    "#{name} light it up #{emoji}"
+  end
+
+  # The name this line can afford: the mascot when it fits the budget, else the
+  # team's short_name, else nothing (the caller falls back to the generic line).
+  # short_name is an abbreviation — "BIH", "USA" — so it is always well inside.
+  def chat_prompt_name_for(team)
+    return nil if team.blank?
+
+    [team.mascot, team.short_name]
+      .compact_blank
+      .find { |name| name.length <= CHAT_PROMPT_NAME_BUDGET }
+  end
+
+  # This viewer's picked matchups. Reads the preloaded entries when the caller
+  # has them; otherwise one query with the same includes contests#show uses, so
+  # this can never N+1 per selection.
+  def chat_prompt_matchups(contest, user, entries)
+    entries ||= user.entries
+                    .where(contest: contest, status: [:active, :complete])
+                    .includes(selections: { slate_matchup: :team })
+                    .to_a
+
+    entries.flat_map { |entry| entry.selections.map(&:slate_matchup) }.compact
+  end
+
+  # Highest multiplier wins; an unpriced matchup (turf_score still nil, before
+  # the slate is ranked) can never win, so `to_f`'s zero is the right floor.
+  def chat_prompt_priciest(matchups)
+    matchups.select { |m| m.turf_score.present? }.max_by { |m| m.turf_score.to_f }
+  end
 end

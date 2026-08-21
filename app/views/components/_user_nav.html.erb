@@ -13,7 +13,11 @@
 <% gear_expanded_attr = "$store.sidebars && $store.sidebars.gearOpen ? 'true' : 'false'" %>
 <% gear_toggle_label = current_user&.admin? ? "Toggle admin menu" : "Toggle settings menu" %>
 
-<div class="flex gap-2 min-w-0">
+<%# freeEntryHover is the ✨ badge → balance-slot hover channel: the badge
+    (rendered beside the avatar, Div 3) flips it and the balance slot inside
+    balance_html reads it to peek "✨ Free Entry" over the amount. Alpine scope
+    is DOM-based, so both live under this one wrapper. %>
+<div class="flex gap-2 min-w-0" x-data="{ freeEntryHover: false }">
   <% if logged_in? %>
     <%# Left column: Div 1 + Div 2 stacked %>
     <div class="flex-1 min-w-0">
@@ -22,7 +26,6 @@
         <% if balance_html.present? %>
           <%= raw balance_html %>
         <% end %>
-        <%= render "components/entry_token_badge" %>
         <span class="hidden md:flex flex-shrink-0 items-center gap-2 ml-auto">
           <span class="hidden md:block"><%= render "components/gear_sidebar_trigger" %></span>
           <%= render "components/theme_toggle_morph" %>
@@ -36,7 +39,11 @@
                 :aria-expanded="<%= gear_expanded_attr %>"
                 data-username-display="true"
                 x-bind:class="scrolled ? 'text-base' : 'text-lg'"
-                x-data="{ overflows: false, init() { this.overflows = this.$el.scrollWidth > this.$el.clientWidth } }"
+                <%# navUsernameFade (shared/_alpine_factories) re-measures on every
+                    box change via ResizeObserver. It used to be an inline one-shot
+                    here and the mask never followed the balance hydrate, the Free
+                    Entry face swap, or a resize across the squeeze band. %>
+                x-data="navUsernameFade()"
                 x-bind:style="overflows ? '-webkit-mask-image: linear-gradient(to right, black 50%, transparent); mask-image: linear-gradient(to right, black 50%, transparent);' : ''">
           <%= current_user.display_name %>
         </button>
@@ -51,17 +58,35 @@
               shimmer_interval: 9 %>
       </div>
     </div>
-    <%# Div 3 (Avatar): spans both rows %>
-    <button type="button"
-            class="dm-green hover:opacity-80 transition flex-shrink-0 flex items-center bg-transparent border-0 p-0"
-            @click.stop="<%= gear_toggle_action %>"
-            aria-label="<%= gear_toggle_label %>"
-            aria-controls="gear-sidebar gear-sidebar-mobile"
-            aria-haspopup="dialog"
-            :aria-expanded="<%= gear_expanded_attr %>"
-            data-profile-image-toggle="true">
-      <%= render "components/avatar", user: current_user, size: "nav" %>
-    </button>
+    <%# Div 3 (Avatar): spans both rows — the ✨ free-entry badge SITS ON the
+        avatar's upper-left corner, the way a notification dot rides a profile
+        picture.
+        Absolutely positioned on purpose: the badge then costs the row NO width
+        whether or not the user holds a token. A flow-based tuck (negative
+        margin) can't do that — the badge's `.hidden` lives on the BUTTON so
+        updateNavTokens can surface it without a reload, and the wrapper it
+        leaves behind would still eat the negative margin and drag the avatar
+        left into the username.
+        z-20 > the avatar's z-10 puts the badge ON TOP. It opens a stacking
+        context, which is fine at 20: the count popover (z-50) is trapped inside
+        it but the whole context still outranks the avatar, so the popover
+        clears it. z-0 here would invert that and bury the popover.
+        ml-3 reserves the 8px of badge that overhangs the avatar — the badge is
+        out of flow, so without it the username (which grows to fill Div 1) runs
+        right up under the sparkle. %>
+    <div class="relative ml-3 flex flex-shrink-0 items-center">
+      <div class="absolute -left-2 -top-1 z-20"><%= render "components/entry_token_badge" %></div>
+      <button type="button"
+              class="dm-green relative z-10 hover:opacity-80 transition flex-shrink-0 flex items-center bg-transparent border-0 p-0"
+              @click.stop="<%= gear_toggle_action %>"
+              aria-label="<%= gear_toggle_label %>"
+              aria-controls="gear-sidebar gear-sidebar-mobile"
+              aria-haspopup="dialog"
+              :aria-expanded="<%= gear_expanded_attr %>"
+              data-profile-image-toggle="true">
+        <%= render "components/avatar", user: current_user, size: "nav" %>
+      </button>
+    </div>
   <% else %>
     <span class="hidden md:block"><%= render "components/gear_sidebar_trigger" %></span>
     <span class="hidden md:flex"><%= render "components/theme_toggle" %></span>

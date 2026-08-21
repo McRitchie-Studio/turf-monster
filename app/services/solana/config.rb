@@ -11,24 +11,218 @@ module Solana
     else
       ENV.fetch("SOLANA_PROGRAM_ID", "EQGFJAcABtDb6VXtiijTjZ6cE2UqdvhnqJvoharJbpMJ")
     end
-    RPC_URL = ENV.fetch("SOLANA_RPC_URL", "https://api.devnet.solana.com")
+
+    # OPSEC-012's sibling, part two: `SOLANA_RPC_URL` required in production.
+    #
+    # This was the last fail-open Solana var — `ENV.fetch("SOLANA_RPC_URL",
+    # "https://api.devnet.solana.com")`. The bad combination is
+    # NETWORK=mainnet-beta with the RPC unset: PROGRAM_ID and the mints resolve
+    # to MAINNET values and are then pointed at a DEVNET endpoint. Balances read
+    # $0.00 against ATAs that exist on the other cluster, and anything submitted
+    # lands on devnet against a program ID that does not exist there.
+    #
+    # IS THIS REDUNDANT WITH OPSEC-039? No — it is additive, on three counts.
+    # config/initializers/solana_network_alignment.rb does compare genesis
+    # hashes and does catch that exact pair, but only when it runs and only when
+    # the RPC answers:
+    #   1. It `rescue Solana::Client::RpcError` -> warn -> CONTINUES BOOT. The
+    #      client wraps Net::OpenTimeout / Net::ReadTimeout / ECONNRESET into
+    #      RpcError after its retries, and rate limits arrive the same way, so
+    #      an unreachable or throttled endpoint (which the public devnet URL
+    #      becomes under load) silences the one check meant to catch this.
+    #   2. An unknown NETWORK has no canonical genesis, so the guard logs
+    #      "skipping alignment check" and boots.
+    #   3. `SOLANA_SKIP_NETWORK_CHECK=true` disables it wholesale — set during
+    #      incident response and forgotten, it leaves nothing behind it.
+    # And when it does fire it fires from `after_initialize`, AFTER eager load,
+    # as a genesis-hash diff whose remediation line guesses at the variable.
+    # This raise fires during eager load and names it.
+    #
+    # Dev/test keep the devnet default byte-identical, so nothing local changes.
+    # Both deployed apps already set it (turf-monster-mainnet -> a Helius
+    # mainnet endpoint, turf-monster-qa -> api.devnet.solana.com), so this
+    # closes a hole rather than changing behaviour — including at slug-compile
+    # time, where the production eager load evaluates these constants (see
+    # config/initializers/solana_idl_verification.rb).
+    RPC_URL = if Rails.env.production?
+      ENV.fetch("SOLANA_RPC_URL") { raise "SOLANA_RPC_URL required in production (see OPSEC-012)" }
+    else
+      ENV.fetch("SOLANA_RPC_URL", "https://api.devnet.solana.com")
+    end
+
+    # ------------------------------------------------------------------
+    # The BROWSER-facing RPC endpoint. Never `RPC_URL`.
+    # ------------------------------------------------------------------
+    #
+    # THE BUG THIS CLOSES (redact-helius-key-from-browser). Six surfaces
+    # emitted `RPC_URL` verbatim into the response body — `body[data-solana-
+    # rpc-url]` in both layouts, `#cosign-config[data-rpc-url]` on the three
+    # admin cosign pages, and `@page_config[:rpc_url]` on the PUBLIC
+    # proof-of-reserves page, which additionally renders it as visible text.
+    # On `turf-monster-mainnet` that constant is a Helius endpoint carrying an
+    # `api-key` query param, so every page load shipped a paid-provider
+    # credential to every browser, logged in or not.
+    #
+    # The codebase already knew the constant was secret-bearing: the
+    # `solana:health` / `solana:preflight` rakes redact it before printing to a
+    # TERMINAL (they now share `redact_rpc_url` below). The DOM was the one
+    # place that did not.
+    #
+    # WHY A SEPARATE ENDPOINT RATHER THAN A PROXY. The client signs and submits
+    # its own transactions (Phantom -> `sendRawTransaction`) and polls
+    # `getSignatureStatuses` directly (see app/javascript/solana_utils.js);
+    # proxying all of that through Rails would put an availability-critical
+    # JSON-RPC relay in the request path for a problem an env var solves. So
+    # the server keeps its keyed endpoint and the browser gets its own.
+
+    # Canonical public endpoints, per cluster. Rate-limited and credential-free
+    # — safe to hand to a browser, and the last resort of `public_rpc_url`.
+    PUBLIC_CLUSTER_RPC_URLS = {
+      "mainnet-beta" => "https://api.mainnet-beta.solana.com",
+      "testnet"      => "https://api.testnet.solana.com",
+      "devnet"       => "https://api.devnet.solana.com"
+    }.freeze
+
+    # Used when NETWORK names a cluster with no canonical endpoint (localnet,
+    # or a typo). Devnet is the safe landing: it is the same value dev/test
+    # already default `RPC_URL` to.
+    DEFAULT_PUBLIC_RPC_URL = PUBLIC_CLUSTER_RPC_URLS.fetch("devnet")
+
+    # A path segment this long and this opaque is a provider key, not a route.
+    # Alchemy's is 32 chars, QuickNode's 32+; the longest real RPC path segment
+    # in play is "v2" (2).
+    OPAQUE_TOKEN_MIN_LENGTH = 20
+
+    # True when `url` carries anything that could be a credential.
+    #
+    # Deliberately BROAD and fail-closed. A false positive costs a slower
+    # public endpoint and is fixed by setting SOLANA_PUBLIC_RPC_URL; a false
+    # negative ships a paid-provider key to every browser. The three shapes:
+    #   - query string — Helius (`?api-key=…`), Ankr, Triton
+    #   - userinfo     — `https://user:pass@rpc.example.com`
+    #   - path token   — Alchemy (`/v2/<key>`), QuickNode (`/<hash>/`)
+    # An unparseable URL is treated as credentialed: we do not guess about a
+    # string we are about to put in front of the public.
+    def self.credentialed_rpc_url?(url)
+      return false if url.blank?
+
+      uri = URI.parse(url.to_s)
+      # Not http(s)-with-a-host = unusable: web3.js throws "Endpoint URL must
+      # start with `http:` or `https:`" and every client TX flow dies. Fail
+      # closed so a schemeless paste falls back to the public endpoint rather
+      # than being served. Solana::Client::InsecureRpcUrlError is the server's
+      # copy of this guard; the browser path had none.
+      return true unless uri.is_a?(URI::HTTP) && uri.host.present?
+      return true if uri.userinfo.present?
+      return true if uri.query.present?
+
+      uri.path.to_s.split("/").any? { |segment| opaque_token?(segment) }
+    rescue URI::Error
+      true
+    end
+
+    # Log/terminal-safe rendering: drops userinfo, blanks every query VALUE
+    # (keys stay, so the operator can still see WHICH param it was), and masks
+    # opaque path tokens. Shared by `solana:health`, `solana:preflight`, and
+    # the dropped-credential warning below — each of which used to carry its
+    # own `api-key=` regex that a `token=`-style provider would walk straight
+    # through.
+    def self.redact_rpc_url(url)
+      return "" if url.blank?
+
+      uri = URI.parse(url.to_s)
+      # `userinfo = nil` is a NO-OP in URI::Generic (it returns early), so the
+      # credential would survive. Overwrite it instead.
+      uri.userinfo = "redacted:redacted" if uri.userinfo.present?
+      if uri.query.present?
+        uri.query = uri.query.split("&").map { |pair| "#{pair.split("=", 2).first}=***" }.join("&")
+      end
+      segments = uri.path.to_s.split("/")
+      if segments.any? { |segment| opaque_token?(segment) }
+        uri.path = segments.map { |segment| opaque_token?(segment) ? "***" : segment }.join("/")
+      end
+      uri.to_s
+    rescue URI::Error
+      "***"
+    end
+
+    # The RPC endpoint handed to the BROWSER.
+    #
+    # Resolution order — every step passes through `credentialed_rpc_url?`:
+    #   1. `SOLANA_PUBLIC_RPC_URL`, an endpoint provisioned FOR the browser (a
+    #      domain-restricted provider key, or a paid public tier).
+    #   2. `RPC_URL`, when it carries no credential. This is what keeps dev,
+    #      test and QA byte-identical: their RPC_URL is the public devnet
+    #      endpoint, so the browser receives exactly what it received before.
+    #   3. The cluster's canonical public endpoint.
+    #
+    # Step 1 is CHECKED, not trusted. A credential pasted into
+    # SOLANA_PUBLIC_RPC_URL by mistake is DROPPED (and logged, redacted)
+    # instead of served — the guard has to bite at the emission, not rely on
+    # the operator having remembered. That is the difference between this and
+    # simply renaming the variable.
+    #
+    # NOT CHECKED: that the public endpoint names the same CLUSTER as
+    # SOLANA_RPC_URL. Verifying that means a genesis-hash RPC round trip, which
+    # is the OPSEC-039 initializer's job (config/initializers/
+    # solana_network_alignment.rb) and does not belong on a render path. The
+    # defaults are network-keyed so omission cannot cross clusters; an explicit
+    # SOLANA_PUBLIC_RPC_URL can, so set it per app, not per fleet.
+    #
+    # Computed per call rather than pinned to a load-time constant like
+    # RPC_URL: it is one URI parse per render, and a method keeps the
+    # resolution unit-testable without constant surgery — the `rpc_url` and
+    # `network` arguments exist for the tests, and nothing in app code passes
+    # them.
+    def self.public_rpc_url(rpc_url = RPC_URL, network = NETWORK)
+      candidate = ENV["SOLANA_PUBLIC_RPC_URL"].presence
+      if candidate
+        return candidate unless credentialed_rpc_url?(candidate)
+
+        Rails.logger.warn(
+          "[opsec] SOLANA_PUBLIC_RPC_URL carries a credential " \
+          "(#{redact_rpc_url(candidate)}) and was DROPPED — that value is " \
+          "served to browsers. Falling back to the public #{network} endpoint."
+        )
+      end
+
+      return rpc_url unless credentialed_rpc_url?(rpc_url)
+
+      PUBLIC_CLUSTER_RPC_URLS.fetch(network, DEFAULT_PUBLIC_RPC_URL)
+    end
 
     # OPSEC-012's sibling: `SOLANA_NETWORK` required in production.
     #
     # This used to be `ENV.fetch("SOLANA_NETWORK", "devnet")`, which FAILED OPEN
     # on absence. A garbage value fails closed (it is not "mainnet-beta", so the
-    # devnet-only guards below and in the controllers all refuse) — but an UNSET
-    # var silently resolved to "devnet" on a mainnet app, and that is the door
-    # into the §8 footgun the mint block below says the mainnet launch surfaced:
-    # USDC_MINT / USDT_MINT key their DEFAULTS on NETWORK, so a mainnet app that
-    # forgot this var would read balances against the DEVNET mints ($0.00
-    # everywhere) and derive op-rev PDAs against a mint that does not exist on
-    # mainnet. Network-keyed defaults cannot protect you when the key they are
-    # keyed on is itself defaulted.
+    # devnet-only guards below and in the controllers all refuse), but an UNSET
+    # var silently resolved to "devnet" on a mainnet app.
     #
-    # It also made the OPSEC-020 fund guards' first check load-bearing alone:
-    # `Solana::Config.devnet?` reads this, so an unset var re-armed every faucet
-    # and mint path in production.
+    # WHAT THAT ACTUALLY REACHED — corrected 2026-08-20. The first version of
+    # this comment claimed an unset var would have silently selected the DEVNET
+    # MINTS on a mainnet app, citing the §8 footgun documented below. The
+    # MECHANISM is real (USDC_MINT / USDT_MINT key their DEFAULTS on NETWORK)
+    # but that outcome was NOT REACHABLE: `turf-monster-mainnet` sets
+    # SOLANA_USDC_MINT and SOLANA_USDT_MINT explicitly, and the env override
+    # always wins, so it needed THREE unset vars, not one. The claim was written
+    # without reading the live config that disproves it. It is corrected here
+    # rather than quietly dropped, because a comment left standing gets cited as
+    # established history.
+    #
+    # The honest case is IDL_PATH and LEGIBILITY. NETWORK also keys IDL_PATH
+    # (below), so an unset var on the mainnet app selects the DEVNET IDL, whose
+    # SHA256 is not in that app's EXPECTED_IDL_HASH. The boot is then refused —
+    # by the OPSEC-014 guard as an opaque hash diff, or by the OPSEC-039
+    # alignment guard as a genesis diff whose remediation line names the WRONG
+    # variable ("likely SOLANA_RPC_URL"). Both are `after_initialize`; this
+    # raise fires during EAGER LOAD, before either of them, so the operator
+    # reads the name of the variable instead of two hashes.
+    #
+    # Next in line behind that: `Solana::Config.devnet?` reads this constant, so
+    # an unset var re-arms the OPSEC-020 fund guards — reachable only once the
+    # IDL guard ahead of it is bypassed (BYPASS_IDL_CHECK, a documented escape
+    # hatch), which is exactly the situation in which nobody wants a second
+    # silent default.
     #
     # Dev/test keep the devnet default byte-identical, so nothing local changes.
     NETWORK = if Rails.env.production?
@@ -126,6 +320,13 @@ module Solana
     # is just a one-element set. Empty string = unset (dev default; required in
     # production). Parse via expected_idl_hashes / idl_hash_acceptable?.
     EXPECTED_IDL_HASH = ENV.fetch("EXPECTED_IDL_HASH", "")
+
+    # Shared by credentialed_rpc_url? and redact_rpc_url so the two agree on
+    # what "looks like a key" means.
+    def self.opaque_token?(segment)
+      segment.to_s.length >= OPAQUE_TOKEN_MIN_LENGTH && segment.match?(/\A[A-Za-z0-9_-]+\z/)
+    end
+    private_class_method :opaque_token?
 
     def self.devnet?
       NETWORK == "devnet"

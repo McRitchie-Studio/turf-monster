@@ -59,9 +59,15 @@
       <script src="https://cdn.logr-in.com/LogRocket.min.js" crossorigin="anonymous"></script>
       <script>
         // LogRocket records DOM + network in prod. Sanitize before anything leaves the
-        // browser (audit LR-1): never ship the CSRF token, the api-keyed Helius RPC URL,
-        // or auth/account/wallet request+response bodies (SIWS sigs, emails, tokens) to
-        // the third-party recorder. Defensive (try/catch) so a field-shape change can
+        // browser (audit LR-1): never ship the CSRF token, an api-keyed RPC URL, or
+        // auth/account/wallet request+response bodies (SIWS sigs, emails, tokens) to the
+        // third-party recorder.
+        //
+        // The api-key rule is now DEFENCE IN DEPTH rather than the primary guard: since
+        // redact-helius-key-from-browser the client is handed a credential-free endpoint
+        // (Solana::Config.public_rpc_url), so no keyed URL should reach a client request
+        // at all. Keep the rule — it costs nothing and covers any future rail that
+        // reintroduces one. Defensive (try/catch) so a field-shape change can
         // only under-record, never throw or break init.
         window.LogRocket && window.LogRocket.init('jodsqq/mcritchie-studio', {
           dom: { inputSanitizer: true },
@@ -469,6 +475,15 @@
                 console.warn('[free-entry] modal open failed', err);
               }
             }, 900);
+            // ...and glow the ✨ badge beside the avatar on the same beat, so
+            // the celebration points at WHERE the earned token landed. Armed
+            // rather than fired-and-forgotten: on a user's FIRST token the
+            // badge is still hidden here, and updateNavTokens replays the glow
+            // when the count hydrate unhides it (solana_utils.js).
+            setTimeout(function() {
+              try { window.armFreeEntryGlow && window.armFreeEntryGlow(); }
+              catch (err) { console.warn('[free-entry] glow failed', err); }
+            }, 900);
           });
 
           // solanaModal is a STATELESS proxy over Alpine.store('modals').
@@ -777,7 +792,14 @@
                                must use QA_ENV instead of Rails.env directly.
         - data-solana-cluster: a build-time constant, used as a small inline
                                default by the solanaModal store init
-        - data-solana-rpc-url: env-driven (SOLANA_RPC_URL via Solana::Config).
+        - data-solana-rpc-url: the BROWSER's RPC endpoint —
+                               Solana::Config.public_rpc_url, NOT the server's
+                               SOLANA_RPC_URL. On mainnet the server endpoint
+                               carries a provider api-key, and this attribute
+                               is read by every visitor; public_rpc_url resolves
+                               SOLANA_PUBLIC_RPC_URL -> a credential-free
+                               SOLANA_RPC_URL -> the cluster's public endpoint,
+                               and refuses to emit anything credentialed.
                                Read by inline TX flows that need a Connection;
                                replaces the previous solanaWeb3.clusterApiUrl('devnet')
                                hardcode that would silently broadcast to the
@@ -785,7 +807,7 @@
         loggedIn is NO LONGER on the body — the one reader (invite-link
         handler above) now consumes #session-context JSON directly. %>
   <% client_app_environment = AppFlags.qa_environment? ? "qa" : Rails.env.to_s %>
-  <body x-data class="bg-page text-body min-h-screen" :class="{ 'dev-mode': $store.devMode }" data-user-id="<%= current_user&.id %>" data-wallet-address="<%= current_user&.solana_address %>" data-app-environment="<%= client_app_environment %>" data-solana-cluster="<%= Solana::Config.devnet? ? 'devnet' : 'mainnet-beta' %>" data-solana-rpc-url="<%= Solana::Config::RPC_URL %>">
+  <body x-data class="bg-page text-body min-h-screen" :class="{ 'dev-mode': $store.devMode }" data-user-id="<%= current_user&.id %>" data-wallet-address="<%= current_user&.solana_address %>" data-app-environment="<%= client_app_environment %>" data-solana-cluster="<%= Solana::Config.devnet? ? 'devnet' : 'mainnet-beta' %>" data-solana-rpc-url="<%= Solana::Config.public_rpc_url %>">
     <%# Single source of truth for Alpine x-data factory functions.
         Inlined here (synchronous parse-time script) because importmap
         modules load AFTER Alpine processes x-data. See the partial's

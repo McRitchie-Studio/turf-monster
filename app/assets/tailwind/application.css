@@ -1020,11 +1020,85 @@ body.modal-open { overflow: hidden; }
 }
 
 /* === Entry-token badge (components/_entry_token_badge.html.erb) ========
+   The ✨ badge beside the profile avatar, its level-up glow, and the
+   "✨ Free Entry" label that shares the navbar's balance slot.
+
    Punch animation fired by window.animateFreeEntryBadge() after a
-   token-funded entry confirms. We intentionally do NOT set `display:` on
-   .free-entry-badge so Tailwind's `hidden` class wins when the user has
-   no tokens. */
+   token-funded entry confirms.
+
+   HIDING IT TAKES AN EXPLICIT RULE — Tailwind's `hidden` cannot do it alone.
+   The button wears `hidden` and `inline-flex` TOGETHER: `hidden` rides the
+   BUTTON (not the wrapper) so updateNavTokens can surface the badge after a
+   mint without a reload, and `inline-flex` centres the sparkle in the disc.
+   Both are single-class utilities inside `@layer utilities`, so they TIE on
+   specificity and SOURCE ORDER decides — and Tailwind emits `.hidden` FIRST.
+   The later `.inline-flex` therefore won and `hidden` hid nothing. Measured:
+   computed display `inline-flex`, a live 20x20 box, and a user holding zero
+   entry tokens staring at a sparkle that promised a free entry they did not
+   have. updateNavTokens(0), whose whole job is to hide it, was inert.
+
+   The override below wins TWICE OVER, because each half fails differently:
+   it is COMPOUND — (0,2,0) against the utilities' (0,1,0), so it beats them
+   in any emission order — and it is UNLAYERED, which outranks every layered
+   rule whatever its specificity.
+
+   .free-entry-badge must keep NOT declaring `display`: unlayered, a display
+   there would outrank `.hidden` and pin the badge visible instead — the same
+   bug from the other side. (That was the ORIGINAL note here, kept for the
+   right reason; its old claim that omitting display is what lets `hidden`
+   win was simply untrue.)
+
+   THE PRICE, AND IT CUTS THE OTHER WAY: this rule out-ranks a RESPONSIVE
+   display utility on this element too. `hidden md:inline-flex` on the badge
+   computes `display:none` at every width — measured — because `.hidden`
+   here is no longer the utility being beaten, it is a compound unlayered rule
+   the breakpoint utility cannot reach. Tailwind's canonical `hidden md:block`
+   reveal DOES NOT WORK on .free-entry-badge. Surface it the way the app does,
+   through updateNavTokens(); if this element ever needs a breakpoint reveal,
+   widen THIS rule rather than adding a utility that will lose to it.
+
+   Guarded at two tiers: test/views/entry_token_badge_placement_test.rb pins
+   the cascade properties, and e2e/navbar_layout.spec.js "a zero-token user's
+   badge paints nothing at all" measures the PAINT — a class list was true
+   the whole time this shipped, so it is not evidence. */
 .free-entry-badge { transform-origin: center; }
+.free-entry-badge.hidden { display: none; }
+
+/* === .legendary-badge — the house legendary treatment ===================
+   Built the same way as the engine's .level-badge-10 (a gradient far wider than
+   the element, panned under it, plus a white rim and a warm bloom) but in TWO
+   THEME colors instead of an 8-stop rainbow: primary and warning. The rainbow
+   is a fixed decorative spectrum that ignores the app's palette; this reads as
+   the same "legendary" idea in the app's own voice, and a retheme carries it.
+
+   PAINT ONLY — no width, padding, radius or font-size, so it drops onto a disc
+   or a pill alike; the caller brings the geometry. --lb-a / --lb-b are knobs
+   with sensible defaults, so a consumer can retune the arc without forking.
+
+   ALWAYS the slash form rgb(var(...) / A) for the RGB-triple vars: the legacy
+   rgba(var(...), A) form is silently dropped for a space-separated var. */
+.legendary-badge {
+  --lb-a: var(--color-primary-500, #4baf50);
+  --lb-b: var(--color-warning, #ff7c47);
+  background: linear-gradient(135deg, var(--lb-a), var(--lb-b), var(--lb-a), var(--lb-b), var(--lb-a));
+  background-size: 300% 300%;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow:
+    0 0 7px rgba(255, 255, 255, 0.35),
+    0 0 14px rgb(var(--color-primary-500-rgb) / 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  animation: legendary-pan 5s ease infinite;
+}
+.legendary-badge:hover { filter: brightness(1.12); }
+@keyframes legendary-pan {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .legendary-badge { animation: none; }
+}
 .free-entry-punch { animation: free-entry-punch 0.65s cubic-bezier(.36,.07,.19,.97) both; }
 @keyframes free-entry-punch {
   0%   { transform: scale(1)    rotate(0deg); }
@@ -1032,6 +1106,141 @@ body.modal-open { overflow: hidden; }
   40%  { transform: scale(1.2)  rotate(12deg); }
   60%  { transform: scale(1.3)  rotate(-6deg); }
   100% { transform: scale(1)    rotate(0deg); }
+}
+
+/* Level-up glow — window.armFreeEntryGlow() pulses the badge three times when
+   a SEEDS_PER_LEVEL crossing mints a free entry, so the celebration points at
+   WHERE the token landed. The navbar sits at z-[130], above the modal
+   backdrop, so this reads through the free-entry-earned modal on purpose.
+   ALWAYS the modern slash form rgb(var(...) / A) — a space-separated
+   "R G B" var is silently dropped by the legacy rgba(var(...), A) form. */
+.free-entry-glow { animation: free-entry-glow 1.4s ease-out 3; }
+@keyframes free-entry-glow {
+  0%   { box-shadow: 0 0 0 0    rgb(var(--color-primary-500-rgb) / 0.9); }
+  25%  { box-shadow: 0 0 22px 8px rgb(var(--color-primary-500-rgb) / 0.75); }
+  50%  { box-shadow: 0 0 14px 5px rgb(var(--color-primary-500-rgb) / 0.40); }
+  100% { box-shadow: 0 0 0 0    rgb(var(--color-primary-500-rgb) / 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .free-entry-glow { animation: none; box-shadow: 0 0 14px 5px rgb(var(--color-primary-500-rgb) / 0.45); }
+}
+
+/* === "✨ Free Entry" label (layouts/_navbar.html.erb balance slot) ======
+   The second face of the navbar balance slot. Two ways it shows:
+     .fe-peek (on the slot) — the ✨ badge on the avatar is hovered, so the
+                             label PEEKS over the amount as a pill. Out of
+                             flow, so the navbar never reflows on hover.
+     .is-active            — it REPLACES the amount ($0 balance + a held
+                             token). Back in flow, sized like the amount.
+   .is-active wins: when the label is already the visible face there is
+   nothing to peek over, and re-positioning it would collapse the slot. */
+/* The PEEK face. Kept in the DOM and permanently out of flow, resting at
+   opacity 0 — that is what lets it FADE rather than pop. `display` cannot be
+   transitioned; opacity and transform can, and `visibility` (transitioned with
+   a delay so it flips only after the fade-out finishes) keeps the resting pill
+   out of hit-testing and the accessibility tree.
+   LEFT-anchored, so the peek starts exactly where the "$1284" starts and reads
+   as a swap of the amount rather than a tooltip floating near it. */
+.free-entry-label {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.75rem;
+  /* 1px vertical, not 2: the pill then stands exactly as tall as the gear icon
+     beside it, so it can sit dead-centre on the amount AND still clear the
+     seeds bar below. A taller pill forced a lift, and a lifted pill reads as
+     misaligned against every other control in the row. */
+  padding: 1px 8px;
+  border-radius: 9999px;
+  background: var(--color-surface);
+  border: 1px solid rgb(var(--color-primary-500-rgb) / 0.45);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.22);
+  opacity: 0;
+  visibility: hidden;
+  /* Centred on the amount it replaces — the extra 4px is the fade-in rise,
+     which lands back at nothing. */
+  transform: translateY(-50%) translateY(4px) scale(0.94);
+  transition:
+    opacity    260ms ease,
+    transform  260ms cubic-bezier(0.16, 1, 0.3, 1),
+    visibility 0s linear 260ms;
+}
+.fe-peek .free-entry-label {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(-50%) scale(1);
+  transition:
+    opacity    180ms ease,
+    transform  180ms cubic-bezier(0.16, 1, 0.3, 1),
+    visibility 0s;
+}
+.fe-peek [data-balance-display]:not(.hidden) { opacity: 0; }
+
+/* The ACTIVE face — a $0 balance held with a token. Here the label IS the
+   slot's content, not an overlay: back into the flow, tooltip chrome off, peek
+   ignored. Declared last so it wins the ties with .fe-peek .free-entry-label
+   (both 0,2,0). */
+.free-entry-label.is-active {
+  position: static;
+  display: inline-flex;
+  font-size: 0.9375rem;
+  padding: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition: none;
+}
+
+/* THE SQUEEZE BAND — md up to just under xl. Two things happen at exactly
+   768px and they compound: .user-nav-col STOPS GROWING (its clamp floor of
+   16rem holds until 24vw passes it at ~1067px) and the gear + theme toggle
+   JOIN the row (they are `hidden md:flex`, and below md they live in the
+   mobile sub-navbar instead). So the column takes on ~44px of new controls
+   against 16px of new width, and the username pays the difference — it is the
+   row's only shrinkable item, sitting next to a flex-shrink-0 balance slot.
+
+   MEASURED, the Free Entry face at 768/820/900/1024 with the name
+   "mcritchie": 15.6px wide, 0 of 9 characters readable — a sliver. The amount
+   face at those same widths gets 60px and 6 characters, and 767px, one pixel
+   below the cliff, gets 59.6px and 5.
+
+   That sliver was described here as "fade-masked", and on the LIVE page it was
+   not. _user_nav.html.erb measured the mask once in Alpine init(), before the
+   balance hydrate had squeezed the button, so the cut arrived after the only
+   measurement anyone took: MEASURED at 768/900/1024/1100/1280/1366 after
+   applyBalanceSlotRule() swapped the face, the painted right edge was
+   byte-identical to having no mask at all — a hard cut through the middle of a
+   glyph. Fixed by navUsernameFade (task: fade-mask-follows-face-swap), which
+   re-measures on every box change; e2e/navbar_layout.spec.js asserts the taper
+   in painted pixels rather than in computed style.
+
+   So trim the FACE, not the name. The decorative sparkle steps out (it is
+   aria-hidden, and the real one is the ✨ badge on the avatar two controls
+   over) and the type steps down one notch. Slot 104.4px → 75.9px, username
+   15.6px → 44.1px, 4 of 9 characters — with the left column's own overflow and
+   the document overflow both measured UNCHANGED, which is why this is the fix
+   and widening .user-nav-col is not: 18rem buys 7 characters but pushes the
+   left nav's overflow at 768px from 26px to 56px.
+
+   Declared AFTER the base .is-active rule on purpose: same specificity (0,2,0),
+   so source order is what makes the override win.
+
+   The PEEK face keeps its sparkle. There the sparkle IS the answer to "what is
+   this thing?", which is the entire reason the peek exists. */
+@media (min-width: 768px) and (max-width: 1279px) {
+  .free-entry-label.is-active { font-size: 0.875rem; }
+  .free-entry-label.is-active .fe-spark { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .free-entry-label,
+  .fe-peek .free-entry-label { transition: opacity 0s, transform 0s, visibility 0s; }
 }
 
 /* === Contest chat panel (contests/_chat_panel.html.erb) ================ */
@@ -1060,6 +1269,60 @@ body.modal-open { overflow: hidden; }
   70%, 100% { transform: scale(2.6); opacity: 0; }
 }
 .chat-live-ping { animation: chat-live-ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite; }
+
+/* The composer's PLACEHOLDER never wraps — it clips to one line.
+   The Quest 2 typewriter drives this placeholder, and a placeholder longer than
+   the box does not ellipsise on its own: Chrome WRAPS it into a 22px text box
+   built for a 20px line, so the second line is sliced through the middle of its
+   glyphs. Measured: "Bosnia and Herzegovina light it up ✈️" gave scrollHeight 76
+   against clientHeight 38.
+
+   Scoped to ::placeholder deliberately. The same rule on the element would make
+   TYPED text stop wrapping too, which is a real regression for a 500-character
+   composer. Verified side by side: with this rule the placeholder reports
+   38 == 38 while a typed long message still wraps at 96 > 38.
+
+   This is the INVARIANT behind the rest line fitting. contests_helper's
+   CHAT_PROMPT_NAME_BUDGET keeps names short enough to read in full, but a
+   character count is only a proxy for width and it travels badly between
+   platforms — the content box is 206px in Chrome on macOS and 183px on the
+   Linux CI runner, whose scrollbar takes real width. This rule is what makes
+   an over-long line degrade to a clean clip instead of a sliced one. */
+.chat-composer::placeholder {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Quest 2 nudge — while the "Send Your First Message" mission is live the
+   composer breathes a soft primary halo, so the eye that followed the quest
+   card's southwest arrow lands on the exact control it means. Applied by
+   contestChat's questGlow (contests/_chat_panel) and dropped the moment the
+   first message earns its seeds.
+
+   A <textarea> carries no ::before/::after, so this is a border + box-shadow
+   pulse on the control ITSELF rather than the .studio-border-glow primitive,
+   which needs pseudo-elements to draw its ring. Unlayered, so it outranks the
+   composer's focus:border-primary utility while the glow is on. */
+@keyframes chat-input-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgb(var(--color-primary-rgb) / 0.28), 0 0 10px 0 rgb(var(--color-primary-rgb) / 0.22);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgb(var(--color-primary-rgb) / 0.14), 0 0 24px 3px rgb(var(--color-primary-rgb) / 0.55);
+  }
+}
+.chat-input-glow {
+  border-color: rgb(var(--color-primary-rgb) / 0.75);
+  animation: chat-input-glow 2s ease-in-out infinite;
+}
+/* Reduced motion keeps the halo (it is the wayfinding) and drops the breath. */
+@media (prefers-reduced-motion: reduce) {
+  .chat-input-glow {
+    animation: none;
+    box-shadow: 0 0 12px 1px rgb(var(--color-primary-rgb) / 0.35);
+  }
+}
 
 /* Soften the bottom edge of the message list — content fades out. */
 .chat-scroll-fade {

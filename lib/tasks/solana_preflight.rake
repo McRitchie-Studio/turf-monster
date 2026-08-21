@@ -24,21 +24,27 @@ namespace :solana do
     fail = ->(msg) { puts "  ✗ #{msg}"; exit_code = 1 }
     info = ->(msg) { puts "  · #{msg}" }
 
-    redact = ->(v) { v.to_s.sub(/api-key=[^&]+/, "api-key=***") }
-
     puts "=== Solana preflight (config consistency) ==="
     puts "  NETWORK    = #{Solana::Config::NETWORK}"
-    puts "  RPC_URL    = #{redact.(Solana::Config::RPC_URL)}"
+    puts "  RPC_URL    = #{Solana::Config.redact_rpc_url(Solana::Config::RPC_URL)}"
     puts "  PROGRAM_ID = #{Solana::Config::PROGRAM_ID}"
     puts "  USDC_MINT  = #{Solana::Config::USDC_MINT}"
     puts "  USDT_MINT  = #{Solana::Config::USDT_MINT}"
     puts
 
     # --- 1. Required env vars present ---------------------------------------
-    # On a fresh mainnet app these MUST be set explicitly. The defaults are
-    # network-keyed now (so omission no longer silently picks devnet mints),
-    # but for a prod cluster we still require the operator to have set every
-    # value deliberately rather than leaning on a default.
+    # On a fresh mainnet app these MUST be set explicitly.
+    #
+    # The mint defaults are network-keyed, but do NOT read that as "omission is
+    # safe" — this comment used to, and it was wrong. A network-keyed default is
+    # only as trustworthy as the key it is keyed on, and SOLANA_NETWORK was
+    # itself a defaulting env var: unset on a mainnet app it resolved to
+    # "devnet", and the whole scheme resolved with it. That is why
+    # SOLANA_NETWORK, SOLANA_RPC_URL and SOLANA_PROGRAM_ID now RAISE in
+    # production instead of defaulting (OPSEC-012 and siblings).
+    #
+    # This check stays regardless: on a prod cluster every value should be set
+    # deliberately rather than leaning on a default.
     puts "1. Required env vars"
     required = %w[
       SOLANA_NETWORK
@@ -53,8 +59,14 @@ namespace :solana do
       if ENV[var].to_s.strip.empty?
         fail.("#{var} is unset")
       else
-        # Don't echo secrets; just confirm presence (+ redact RPC).
-        shown = var == "SOLANA_ADMIN_KEY" ? "(set)" : redact.(ENV[var])
+        # Don't echo secrets; just confirm presence. Only the RPC URL goes
+        # through redact_rpc_url — it is a URL redactor, and a bare base58
+        # program ID / mint would come back as "***".
+        shown = case var
+        when "SOLANA_ADMIN_KEY" then "(set)"
+        when "SOLANA_RPC_URL"   then Solana::Config.redact_rpc_url(ENV[var])
+        else ENV[var]
+        end
         pass.("#{var} present — #{shown}")
       end
     end

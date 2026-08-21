@@ -106,7 +106,12 @@ module Solana
     PROGRAM_ID_LIVE_CACHE_KEY = "solana/program_id_live/v1".freeze
 
     def self.ensure_program_id_live!(client: nil)
-      cache_key = "#{PROGRAM_ID_LIVE_CACHE_KEY}/#{Config::PROGRAM_ID}/#{Config::RPC_URL[0, 64]}"
+      # Digest, not a prefix: the raw endpoint carries the provider api-key on
+      # mainnet, and a 64-char prefix of it was long enough to include part of
+      # that key in every Redis key and slow-log line. The digest still changes
+      # when the endpoint does, which is all the cache key needs.
+      rpc_fingerprint = Digest::SHA256.hexdigest(Config::RPC_URL.to_s)[0, 16]
+      cache_key = "#{PROGRAM_ID_LIVE_CACHE_KEY}/#{Config::PROGRAM_ID}/#{rpc_fingerprint}"
       return if Rails.cache.read(cache_key)
 
       client ||= Solana::Client.new
@@ -115,7 +120,7 @@ module Solana
       if live.nil?
         raise StaleEnvError,
               "Solana PROGRAM_ID=#{Config::PROGRAM_ID} does not exist on RPC " \
-              "#{Config::RPC_URL.to_s[0, 60]}#{'…' if Config::RPC_URL.to_s.length > 60}. " \
+              "#{Config.redact_rpc_url(Config::RPC_URL)}. " \
               "Sidekiq may have a stale env from before a devnet redeploy — " \
               "restart it. (Set SKIP_PROGRAM_ID_LIVE_CHECK=true to bypass.)"
       end

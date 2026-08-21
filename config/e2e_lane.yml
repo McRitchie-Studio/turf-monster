@@ -41,7 +41,87 @@
 # response bytes: the page renders the same markup whether a click changes anything, which
 # is how it once shipped with a grid that recorded every click and moved nothing on screen.
 # This gate found the four immediately — 126 executed against a 122 contract.
-total_specs: 149
+#
+# 149 -> 151 (polish-free-entry-badge): two specs in e2e/navbar_layout.spec.js, both for
+# things the navbar guard could not see before.
+#   · the Free Entry FACE of the balance slot. The one overflow guard stood that face DOWN
+#     (`feLabel.classList.remove("is-active")`) and measured only the amount, so the wider
+#     face was never asserted at any width — which is how it shipped starving the username
+#     to 15.6px, zero readable characters, from 768px through 1024px, with
+#     documentOverflow at 0 and nothing offscreen the whole time. Containment alone called
+#     that a pass; this spec also measures how much of the name a reader actually gets.
+#   · the level-up glow REPLAYED inside its own strip window, asserted on the painted
+#     pixels around the badge. The leftover timer from the first play used to cut the
+#     replay to 1340ms of a 4200ms animation.
+# Re-derived with the lister after adding them (`npx playwright test --list` -> 151 tests
+# in 39 files), never hand-incremented.
+#
+# 151 -> 153 (glow-typed-chat-prompts): two specs in e2e/quest_chat_prompts.spec.js for the
+# Quest 2 composer nudge — the typed placeholder deck surviving a second quest-chat-active
+# ping, and the rested line not wrapping the 375px composer. Both replace a source-grep
+# test that ran green against the broken AND the fixed component.
+#
+# ⚠️ THIS NUMBER IS WHY THE FILE CONFLICTS ON EVERY PARALLEL BRANCH, AND THE CONFLICT IS THE
+# FEATURE. glow-typed-chat-prompts and polish-free-entry-badge each added two specs off the
+# same base and each wrote `total_specs: 151` — the same TEXT for different SPECS. Git took
+# that agreed value silently (it sat OUTSIDE the conflict markers; only the prose around it
+# clashed), so the merge of two correct branches produced a ledger short by exactly the two
+# specs the other one added, and `bin/e2e-executed-set-check` would have gone red on
+# `accepted` measuring 132 against a declared 130. When you merge this file, RE-DERIVE with
+# the lister on the MERGED tree — never take either side, and never trust a clean merge of
+# these lines.
+# Re-derived here on the merged tree: `npx playwright test --list` -> 153 tests in 40 files.
+#
+# 153 -> 155 (redact-helius-key-from-browser): two specs in e2e/rpc_url_public.spec.js for
+# the browser-facing RPC endpoint, which that change moved off Solana::Config::RPC_URL (the
+# SERVER endpoint, carrying a provider api-key on mainnet) and onto
+# Solana::Config.public_rpc_url. Neither is observable in the response bytes:
+#   · the layout's data-solana-rpc-url handed to the REAL web3.js the page loaded. The
+#     attribute is present in the markup whatever its value, so `assert_match
+#     "data-solana-rpc-url"` passes on an EMPTY one — while web3.js throws "Endpoint URL
+#     must start with `http:` or `https:`" and every Phantom flow on the site (entry,
+#     contest create, cosign, off-ramp) is dead. Measured, not supposed: that is the exact
+#     error this spec produced when public_rpc_url was mutated to return "".
+#   · /proof-of-reserves printing its endpoint to the visitor as page text. The server
+#     ships that <span x-text="cfg.rpc_url"> EMPTY and Alpine fills it after mount, so the
+#     rendered value exists NOWHERE in the response — verified by reading the raw HTML: the
+#     span's inner text is "" on the wire and "https://api.devnet.solana.com" in the
+#     browser. This is the surface that leaked the key to UNAUTHENTICATED visitors, and no
+#     assert_select can ever see what it actually shows them.
+# Re-derived with the lister, never hand-incremented: `npx playwright test --list` -> 159
+# tests in 41 files.
+#
+# 155 -> 157 -> 159, TWO BRANCHES AT ONCE. This merge joins two in-flight branches that
+# each added two specs to e2e/navbar_layout.spec.js off the same base of 155:
+#
+#   · fade-mask-follows-face-swap (PR 391) — the username's overflow fade mask, which was
+#     decided ONCE in an Alpine init() and therefore never followed the box. Both specs
+#     assert on PAINTED PIXELS, not computed style, because the two are different claims:
+#     the broken build resolved no mask at all, and a build that resolved one over the
+#     WRONG BOX would read identically in getComputedStyle. Measured broken: the final
+#     column of the clipped edge carried 234/255 of ink at every width, byte-identical to
+#     the mask forced OFF.
+#   · hide-badge-for-zero-tokens (PR 393) — the zero-token state of the navbar's sparkle
+#     badge. `.hidden` rides that button and DID NOT HIDE IT: it ties `.inline-flex` on
+#     specificity inside `@layer utilities` and Tailwind emits `.hidden` first, so the
+#     later rule won and a user holding zero entry tokens kept a live 20x20 sparkle
+#     promising a free entry they did not have. The PAINT spec diffs a screenshot of the
+#     badge's own slot, hidden, against the same slot with the badge DELETED from the DOM,
+#     fenced by a negative control and a stability check — a spec and not a computed-style
+#     read on purpose, because `classList.contains("hidden")` was TRUE for the whole life
+#     of the bug. The BOX spec states the same fact in the box model and checks the surface
+#     path (updateNavTokens(2)) still works.
+#
+# ⚠️ THE TRAP IN THIS FILE FIRED A THIRD TIME, AND THIS RESOLUTION IS WHAT CAUGHT IT.
+# Both branches wrote the identical line `total_specs: 157` for DIFFERENT pairs of specs.
+# Git conflicted only on the PROSE around it — the numeric lines sat OUTSIDE the markers
+# and were taken silently — so a resolution that fixed the comments and trusted the number
+# would have declared 157 against a real 159, and `bin/e2e-executed-set-check` would have
+# gone red on `accepted` at 138-against-136. Re-deriving with the lister on the MERGED
+# tree is what caught it, exactly as the note left by the previous round instructed.
+# Do that, every time, on the merged tree. Do not take either side, and do not do the
+# arithmetic — run the lister.
+total_specs: 159
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -54,31 +134,62 @@ total_specs: 149
 # exclusion later is a red build rather than a quiet loss of coverage.
 excluded: 17
 
-# THE SPECS BEHIND A FEATURE FLAG THAT IS OFF IN THE DEFAULT CI RUN.
+# THE RUNTIME SKIPS THIS LANE TOLERATES — four, each with a NAMED reason.
 #
-# e2e/financial.spec.js gates the Coinflow and Aeropay payment rails on ENABLE_COINFLOW /
-# ENABLE_AEROPAY and skips when they are unset, which they are in CI. That is deliberate
-# and the file says so ("Gated on ENABLE_COINFLOW so the default CI run (flag off) skips
-# it"), and the money path is covered authoritatively by the Rails tests
-# (webhooks/aeropay_controller_test.rb + token_purchase_job_test.rb).
+# A runtime skip exits 0 and reports green; it is the one axis no source-level guard can
+# close. So the count is DECLARED. One more than this is RED and the gate names the
+# offending titles. Raising it is an edit to this line, in front of a reviewer, with a
+# reason — which is the whole point.
 #
-# IT WAS ALSO INVISIBLE, and that is why this line exists. THIS GATE'S FIRST REAL RUN found
-# them: 122 executed against a claimed 128, on a lane whose three shards ALL reported PASS.
-# Nothing in the repo declared how many specs the flags cost, and nothing would have
-# noticed the number growing. A runtime skip exits 0 and reports green; it is the one axis
-# no source-level guard can close.
+# THIS GATE'S FIRST REAL RUN found them: 122 executed against a claimed 128, on a lane
+# whose three shards ALL reported PASS. Nothing in the repo declared what the skips cost.
 #
-# So it is DECLARED. One more runtime skip than this is RED. Raising it is an edit to this
-# line, in front of a reviewer, with a reason — which is the whole point.
-flag_gated: 6
+# The four:
+#
+#   MISSING SECRET (2) — the webhook-signature specs, which need a real key to sign with.
+#     · e2e/financial.spec.js:140  COINFLOW_WEBHOOK_VALIDATION_KEY not set on the e2e stack
+#     · e2e/financial.spec.js:237  AEROPAY_WEBHOOK_SIGNING_KEY not set on the e2e stack
+#     Covered authoritatively by the Rails tests (webhooks/aeropay_controller_test.rb +
+#     token_purchase_job_test.rb), which sign with a fixture key.
+#
+#   QUARANTINED (2) — `test.fixme`, COVERED NOWHERE. Not a considered exclusion, an
+#   admission; re-homing these is backlog, not a config edit.
+#     · e2e/onchain.spec.js:121  onchain entry via Phantom with mocked devnet
+#     · e2e/onchain.spec.js:211  admin creates onchain contest
+#
+# WAS 6, AND WAS CALLED `flag_gated`. The other two were the ENABLE_COINFLOW /
+# ENABLE_AEROPAY buy-1 specs, which had never run in ANY lane. They now execute in both
+# (playwright.config.js sets the flags for the Playwright process AND for the server;
+# bin/e2e-parallel exports them at each launch subshell), so they left this allowance for
+# `executed`. NOTHING COUNTED HERE IS FLAG-GATED ANY MORE — the old name went on
+# describing the two specs that had LEFT, which is the same misleading label this lane
+# exists to catch. The key is the honest one now: an allowance for runtime skips,
+# whatever their reason.
+allowed_skips: 4
 
-# total_specs - excluded - flag_gated. What the lane MUST execute, asserted against the
+# total_specs - excluded - allowed_skips. What the lane MUST execute, asserted against the
 # runner's own report, so no source-level spelling on any axis can move it without moving
-# this line. Derived: 149 committed - 17 @devnet - 6 flag-gated = 126, and MEASURED at
-# exactly 126 on the adopt-engine-geo-primitives run that raised it (the gate reported
-# "126 executed · contract: 122", which is the four new geo specs and nothing else).
-# It was 122 against 145 committed before those four.
-executed: 126
+# this line. Derived: 159 committed - 17 @devnet - 4 allowed = 138.
+#
+# Every number here was re-derived with the runner, not adjusted by arithmetic on the last
+# one. On this MERGED tree: `npx playwright test --list` reports 159 tests in 41 files,
+# `--grep "@devnet"` 17, and `--grep-invert "@devnet" --project=chromium` 142 collected for
+# the PR lane — 142 - 4 runtime skips = 138.
+#
+# ⚠️ RE-DERIVE THIS ON EVERY MERGE, and do not take either side. See the worked example
+# on total_specs above: this merge joined two branches that had each written 136 for a
+# DIFFERENT pair of specs, and the number came through the merge unconflicted.
+#
+# History: 136 on each of the two branches this merge joins — fade-mask-follows-face-swap
+# and hide-badge-for-zero-tokens BOTH declared 136 for different pairs of specs, the trap
+# firing for the THIRD time; 134 on each of the two branches the merge before that joined
+# (redact-helius-key-from-browser and fade-mask-follows-face-swap), the second firing;
+# 132 (153 - 17 - 4) after glow-typed-chat-prompts merged with polish-free-entry-badge;
+# 130 (151 - 17 - 4) on each of THOSE two branches, the same trap one round earlier;
+# 128 (149 - 17 - 4) before either of them; 126 before that (the two payment specs still
+# skipping); and 122 against 145 committed before adopt-engine-geo-primitives added its
+# four geo specs.
+executed: 138
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to

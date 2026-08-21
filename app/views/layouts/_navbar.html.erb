@@ -7,8 +7,9 @@
 <% is_preview = local_assigns.fetch(:preview, false) %>
 
 <%# z-[130] sits ABOVE the modal host's z-[120] backdrop so the navbar
-    (and especially the 🎟️ Entry badge) stays bright during a token-
-    mint celebration instead of being dimmed by the modal overlay.
+    (and especially the ✨ entry badge beside the avatar) stays bright
+    during a token-mint celebration instead of being dimmed by the modal
+    overlay — that badge is where the level-up glow lands.
     The modal's escape key + X button still close it; clicking the
     navbar no longer counts as "click outside" — acceptable trade. %>
 
@@ -63,29 +64,41 @@
     </div>
     <%# Right side: user nav (matches sidebar width) %>
     <% balance_html = capture do %>
-      <%# Hide the $X balance link when it's $0 AND the user already has
-          a free-entry token to show — the 🎟️ badge in _user_nav is
-          enough; a redundant "$0" just clutters the navbar. The
-          equivalent rule re-applies live via updateNavTokens /
-          refreshBalance after mints + consumes. %>
+      <%# The balance SLOT holds two mutually exclusive faces:
+            [data-balance-display]     the "$1284" wallet link
+            [data-free-entry-label]    the "✨ Free Entry" stand-in
+          A $0 balance held by a user WITH an entry token reads "✨ Free Entry"
+          instead of a redundant "$0" — the amount they can enter for is zero
+          dollars, which is the point, not an empty wallet. The same rule
+          re-applies live through applyBalanceSlotRule() in solana_utils.js
+          after mints + consumes, so server render and client never drift.
+          The label ALSO peeks over the amount while the ✨ badge beside the
+          avatar is hovered (.fe-peek, driven by freeEntryHover in _user_nav) —
+          that is the answer to "what is this sparkle?". %>
       <%# display_balance is nil while the navbar cache is cold ("loading") —
           the server no longer blocks the render on the balance RPC. HIDE the
           whole balance link (incl. the "$") while loading so there's no lone
           "$" placeholder; client-side refreshBalance() then sets
           [data-balance-display] AND removes .hidden (its else-branch), so the
-          full "$112" appears all at once. The $0-with-token rule also hides it. %>
+          full "$112" appears all at once. %>
       <% balance_loading = display_balance.nil? %>
       <% balance_dollars = display_balance.to_f %>
       <% balance_zero    = !balance_loading && balance_dollars.zero? %>
       <%# Cache-first (display_entry_token_count) — nil while cold counts as
-          "no tokens" so we don't hide a real $0 balance during loading;
-          updateNavTokens re-applies the hide-$0-with-token rule after hydrate. %>
+          "no tokens" so we don't swap a real $0 balance during loading;
+          applyBalanceSlotRule re-applies the swap after hydrate. %>
       <% has_tokens      = display_entry_token_count.to_i.positive? %>
-      <% hide_balance    = balance_loading || (balance_zero && has_tokens) %>
-      <%# Balance link — USDC + USDT combined (display_balance). Free-entry
-          tokens are surfaced by the 🎟️ badge in _user_nav (next to the
-          balance), not by a second balance-style link here. %>
-      <%= link_to wallet_path, class: "dm-blue flex-shrink-0 font-mono text-primary hover:text-primary-600 transition-all duration-300 font-bold leading-none mr-1 #{'hidden' if hide_balance}", "x-bind:class": "scrolled ? 'text-lg' : 'text-xl'", data: { balance_display: true } do %><% unless balance_loading %>$<%= balance_dollars.to_i %><% end %><% end %>
+      <% free_entry      = balance_zero && has_tokens %>
+      <% hide_balance    = balance_loading || free_entry %>
+      <div class="relative flex-shrink-0 leading-none mr-1"
+           data-balance-slot="true"
+           x-bind:class="freeEntryHover ? 'fe-peek' : ''">
+        <%= link_to wallet_path, class: "dm-blue block font-mono text-primary hover:text-primary-600 transition-all duration-300 font-bold leading-none #{'hidden' if hide_balance}", "x-bind:class": "scrolled ? 'text-lg' : 'text-xl'", data: { balance_display: true } do %><% unless balance_loading %>$<%= balance_dollars.to_i %><% end %><% end %>
+        <%# No size binding here: the two faces want DIFFERENT sizes (the peek is
+            a compact pill, the stand-in matches the amount it replaces), so
+            .free-entry-label / .is-active own font-size in application.css. %>
+        <%= link_to wallet_path, class: "free-entry-label dm-blue gap-1 font-bold text-primary hover:text-primary-600 leading-none whitespace-nowrap #{'is-active' if free_entry}", data: { free_entry_label: true } do %><span class="fe-spark" aria-hidden="true">✨</span><span>Free Entry</span><% end %>
+      </div>
     <% end if show_user %>
     <div class="user-nav-col dm-purple flex-shrink-0 min-w-0 pl-0 pr-4 md:px-4">
       <% if show_user %>

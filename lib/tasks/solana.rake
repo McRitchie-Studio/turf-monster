@@ -383,7 +383,7 @@ namespace :solana do
 
     puts "=== Solana health check ==="
     puts "  NETWORK    = #{Solana::Config::NETWORK}"
-    puts "  RPC_URL    = #{Solana::Config::RPC_URL.to_s.sub(/api-key=[^&]+/, 'api-key=***')}"
+    puts "  RPC_URL    = #{Solana::Config.redact_rpc_url(Solana::Config::RPC_URL)}"
     puts "  PROGRAM_ID = #{Solana::Config::PROGRAM_ID}"
     puts
 
@@ -397,11 +397,10 @@ namespace :solana do
 
     # 2. Genesis-hash alignment (the same check solana_network_alignment.rb
     # runs at boot, but on-demand for pre-flight + post-flip validation).
-    expected = {
-      "mainnet-beta" => "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d",
-      "devnet"       => "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
-      "testnet"      => "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY"
-    }[Solana::Config::NETWORK]
+    # Table sourced from solana-studio's Solana::Network instead of a private
+    # copy; looked up STRICTLY, matching the initializer (see it for why
+    # Solana::Network.canonical's aliasing is deliberately not used here).
+    expected = Solana::Network::GENESIS_HASHES[Solana::Config::NETWORK]
 
     client = Solana::Client.new(rpc_url: Solana::Config::RPC_URL)
     begin
@@ -411,8 +410,14 @@ namespace :solana do
       elsif expected
         fail.("RPC genesis mismatch: expected #{expected}, got #{actual}")
       end
-    rescue Solana::Client::RpcError => e
-      fail.("getGenesisHash failed: #{e.message[0,120]}")
+    rescue StandardError => e
+      # Same widening as the boot guard (survive-unauthorized-rpc-boot). An
+      # unauthorized provider answers with non-JSON, which the gem surfaces as a
+      # raw JSON::ParserError, not an RpcError. Rescuing only RpcError aborted
+      # the ENTIRE health check with a stack trace at step 2 — and this task is
+      # the operator's diagnostic on the credential-rotation path, where the
+      # remaining checks are exactly what they ran it for. Report and continue.
+      fail.("getGenesisHash failed: #{e.class}: #{e.message.to_s.gsub(/\s+/, " ")[0, 120]}")
     end
 
     # 3. PROGRAM_ID exists at this RPC. Reuses the same guard

@@ -144,4 +144,9 @@ At minimum, `.env` needs:
 - `SOLANA_RPC_URL`
 - `MANAGED_WALLET_ENCRYPTION_KEY`
 
+`SOLANA_PUBLIC_RPC_URL` is optional and normally unset locally — it is the
+BROWSER-facing endpoint, and locally `SOLANA_RPC_URL` carries no credential, so
+the browser is handed the same URL. See "RPC endpoints — server vs browser" in
+`docs/SOLANA.md`.
+
 Use McRitchie Studio's agent credential docs for current 1Password item names. Do not print secret values in terminal output or handoff notes.
