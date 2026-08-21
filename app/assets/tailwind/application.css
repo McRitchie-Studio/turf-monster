@@ -1171,9 +1171,19 @@ body.modal-open { overflow: hidden; }
    row's only shrinkable item, sitting next to a flex-shrink-0 balance slot.
 
    MEASURED, the Free Entry face at 768/820/900/1024 with the name
-   "mcritchie": 15.6px wide, 0 of 9 characters readable — a single fade-masked
-   sliver. The amount face at those same widths gets 60px and 6 characters, and
-   767px, one pixel below the cliff, gets 59.6px and 5.
+   "mcritchie": 15.6px wide, 0 of 9 characters readable — a sliver. The amount
+   face at those same widths gets 60px and 6 characters, and 767px, one pixel
+   below the cliff, gets 59.6px and 5.
+
+   That sliver was described here as "fade-masked", and on the LIVE page it was
+   not. _user_nav.html.erb measured the mask once in Alpine init(), before the
+   balance hydrate had squeezed the button, so the cut arrived after the only
+   measurement anyone took: MEASURED at 768/900/1024/1100/1280/1366 after
+   applyBalanceSlotRule() swapped the face, the painted right edge was
+   byte-identical to having no mask at all — a hard cut through the middle of a
+   glyph. Fixed by navUsernameFade (task: fade-mask-follows-face-swap), which
+   re-measures on every box change; e2e/navbar_layout.spec.js asserts the taper
+   in painted pixels rather than in computed style.
 
    So trim the FACE, not the name. The decorative sparkle steps out (it is
    aria-hidden, and the real one is the ✨ badge on the avatar two controls

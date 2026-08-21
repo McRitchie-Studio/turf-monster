@@ -39,7 +39,11 @@
                 :aria-expanded="<%= gear_expanded_attr %>"
                 data-username-display="true"
                 x-bind:class="scrolled ? 'text-base' : 'text-lg'"
-                x-data="{ overflows: false, init() { this.overflows = this.$el.scrollWidth > this.$el.clientWidth } }"
+                <%# navUsernameFade (shared/_alpine_factories) re-measures on every
+                    box change via ResizeObserver. It used to be an inline one-shot
+                    here and the mask never followed the balance hydrate, the Free
+                    Entry face swap, or a resize across the squeeze band. %>
+                x-data="navUsernameFade()"
                 x-bind:style="overflows ? '-webkit-mask-image: linear-gradient(to right, black 50%, transparent); mask-image: linear-gradient(to right, black 50%, transparent);' : ''">
           <%= current_user.display_name %>
         </button>
