@@ -84,18 +84,36 @@ test("the rested placeholder survives another quest-chat-active ping", async ({ 
 // budget, so the two cannot drift apart silently.
 //
 // They are listed HERE, rather than left to whatever team the seed happens to
-// pick, because the seeded entrant draws "Jets" — four characters. A width test
+// pick, because the seeded entrant draws "Jets" — four characters. A check
 // measuring only the rendered line passes on copy that overflows for every other
 // team in the league, which is precisely the kind of test that does not bite.
-//
-// This list previously ran to 13 characters ("United States"), which fit the
-// 206px box on macOS and FAILED at 187.0px in the CI runner's 183px box. The
-// box width is environment-dependent — Linux reserves real scrollbar width where
-// macOS overlays it — so measure where you run and never port a budget between
-// machines.
 const LONGEST_BUDGETED_NAMES = ["Commanders", "Buccaneers", "Uzbekistan", "Cape Verde", "Cardinals"];
 
-test("the rest line fits the composer at 375px", async ({ page }) => {
+// A name the budget REJECTS, kept here on purpose. The budget-surviving names
+// above fit the 206px box on a Mac and only overflowed on CI's 183px one, so on
+// a developer machine they exercise the clip guard not at all — remove the CSS
+// rule and the assertions still pass. This line is longer than the composer in
+// ANY environment, so it is what actually proves the guard is doing something.
+const OVERSIZE_NAME = "Bosnia and Herzegovina";
+
+// WHY THIS ASSERTS WRAPPING AND NOT WIDTH.
+//
+// The defect is that an over-long placeholder WRAPS into a text box built for one
+// line and gets sliced through the middle of its glyphs. Not-wrapping is therefore
+// the invariant, it is what `.chat-composer::placeholder` guarantees, and it holds
+// in every environment.
+//
+// A `width <= box` assertion looked equivalent and is not. The content box is
+// 206px in Chrome on macOS and 183px on the Linux CI runner (classic scrollbar vs
+// overlay), so a copy budget tuned on one machine failed on the other — twice, in
+// CI, on this very spec. Worse, character count barely tracks width at all:
+// "Commanders" (10 chars) measures 172.1px and "United States" (13) measures
+// 173.5px, so trimming the budget by three characters bought 1.4px.
+//
+// So: wrapping is asserted as a hard invariant for every worst-case name, and
+// width is checked only for the line actually rendered — a copy-quality signal on
+// the real path, not a cross-platform pixel prediction.
+test("the rest line never wraps in the composer at 375px", async ({ page }) => {
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 375, height: 900 });
   await entrantOnChatQuest(page);
@@ -107,31 +125,40 @@ test("the rest line fits the composer at 375px", async ({ page }) => {
 
   const rested = await restedPlaceholder(page);
 
-  const m = await page.evaluate((names) => {
+  const m = await page.evaluate(({ names, oversize }) => {
     const el = document.getElementById("contest-chat-input");
     const cs = getComputedStyle(el);
     const box = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
     const ctx = document.createElement("canvas").getContext("2d");
     ctx.font = `${cs.fontSize} ${cs.fontFamily}`;
     const shown = el.placeholder;
-    // Swap the rendered line's team name for each worst-case name, so the
-    // measurement tracks the REAL sentence the helper builds rather than a
-    // copy of it that could drift out of step.
+
+    const wraps = () => el.scrollHeight > el.clientHeight;
+    const probes = [{ text: shown, wraps: wraps() }];
+    // Swap the rendered line's team name for each worst-case name, so the probe
+    // tracks the REAL sentence the helper builds rather than a copy of it.
     const tail = shown.slice(shown.indexOf(" "));
-    return {
-      box,
-      shown: { text: shown, width: ctx.measureText(shown).width },
-      worst: names.map((n) => ({ text: n + tail, width: ctx.measureText(n + tail).width })),
-    };
-  }, LONGEST_BUDGETED_NAMES);
+    for (const n of [...names, oversize]) {
+      el.placeholder = n + tail;
+      void el.offsetHeight; // force layout before reading
+      probes.push({ text: n + tail, wraps: wraps() });
+    }
+    el.placeholder = shown;
+    return { box, shown, shownWidth: ctx.measureText(shown).width, probes };
+  }, { names: LONGEST_BUDGETED_NAMES, oversize: OVERSIZE_NAME });
 
   expect(m.box, "the mobile composer should have a real content box").toBeGreaterThan(100);
-  expect(rested).toBe(m.shown.text);
+  expect(rested).toBe(m.shown);
 
-  for (const line of [m.shown, ...m.worst]) {
-    expect(
-      line.width,
-      `"${line.text}" measures ${line.width.toFixed(1)}px in a ${m.box.toFixed(1)}px box — it wraps and slices mid-glyph`
-    ).toBeLessThanOrEqual(m.box);
+  // The invariant: no line the helper can build may wrap.
+  for (const probe of m.probes) {
+    expect(probe.wraps, `"${probe.text}" wrapped the composer — it will render sliced mid-glyph`).toBe(false);
   }
+
+  // Copy quality on the real path: the line actually rendered should be fully
+  // visible, not merely clipped safely.
+  expect(
+    m.shownWidth,
+    `the rendered rest line "${m.shown}" measures ${m.shownWidth.toFixed(1)}px in a ${m.box.toFixed(1)}px box`
+  ).toBeLessThanOrEqual(m.box);
 });

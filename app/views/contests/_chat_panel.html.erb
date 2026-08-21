@@ -74,7 +74,7 @@
                   aria-label="Message the contest"
                   :class="{ 'chat-input-glow': questGlow }"
                   @keydown.enter="if ($event.metaKey || $event.ctrlKey) { $event.preventDefault(); send(); }"
-                  class="flex-1 h-10 resize-none rounded-lg bg-surface-alt border border-subtle px-3 py-2 text-sm text-body placeholder:text-muted focus:outline-none focus:border-primary"></textarea>
+                  class="chat-composer flex-1 h-10 resize-none rounded-lg bg-surface-alt border border-subtle px-3 py-2 text-sm text-body placeholder:text-muted focus:outline-none focus:border-primary"></textarea>
         <button type="submit" :disabled="sending || !body.trim()"
                 :class="{ 'opacity-50 cursor-not-allowed': sending || !body.trim() }"
                 class="btn btn-primary btn-sm flex-shrink-0 inline-flex items-center gap-2 h-10">
