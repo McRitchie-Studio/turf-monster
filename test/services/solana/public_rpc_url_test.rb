@@ -29,6 +29,15 @@ class Solana::PublicRpcUrlTest < ActiveSupport::TestCase
     "bare host"      => "https://rpc.example.com"
   }.freeze
 
+  # Not credentialed, but unusable: web3.js refuses anything that is not
+  # http(s), so serving one kills every client TX flow with a green boot.
+  UNUSABLE = {
+    "schemeless host" => "api.mainnet-beta.solana.com",
+    "websocket"       => "wss://api.mainnet-beta.solana.com",
+    "wrong scheme"    => "ftp://rpc.example.com",
+    "host and port"   => "localhost:8899"
+  }.freeze
+
   def with_public_rpc_env(value)
     previous = ENV["SOLANA_PUBLIC_RPC_URL"]
     if value.nil?
@@ -120,6 +129,16 @@ class Solana::PublicRpcUrlTest < ActiveSupport::TestCase
         refute Solana::Config.credentialed_rpc_url?(resolved),
                "#{shape} in SOLANA_PUBLIC_RPC_URL was served to the browser"
         assert_equal "https://api.mainnet-beta.solana.com", resolved
+      end
+    end
+  end
+
+  test "an UNUSABLE SOLANA_PUBLIC_RPC_URL is dropped, not served" do
+    UNUSABLE.each do |shape, url|
+      with_public_rpc_env(url) do
+        assert_equal "https://api.mainnet-beta.solana.com",
+                     Solana::Config.public_rpc_url("https://api.mainnet-beta.solana.com", "mainnet-beta"),
+                     "#{shape} was served; web3.js cannot build a Connection from it"
       end
     end
   end

@@ -107,6 +107,12 @@ module Solana
       return false if url.blank?
 
       uri = URI.parse(url.to_s)
+      # Not http(s)-with-a-host = unusable: web3.js throws "Endpoint URL must
+      # start with `http:` or `https:`" and every client TX flow dies. Fail
+      # closed so a schemeless paste falls back to the public endpoint rather
+      # than being served. Solana::Client::InsecureRpcUrlError is the server's
+      # copy of this guard; the browser path had none.
+      return true unless uri.is_a?(URI::HTTP) && uri.host.present?
       return true if uri.userinfo.present?
       return true if uri.query.present?
 
