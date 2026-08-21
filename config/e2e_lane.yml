@@ -41,7 +41,7 @@
 # response bytes: the page renders the same markup whether a click changes anything, which
 # is how it once shipped with a grid that recorded every click and moved nothing on screen.
 # This gate found the four immediately — 126 executed against a 122 contract.
-total_specs: 149
+total_specs: 151
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -78,7 +78,7 @@ flag_gated: 6
 # exactly 126 on the adopt-engine-geo-primitives run that raised it (the gate reported
 # "126 executed · contract: 122", which is the four new geo specs and nothing else).
 # It was 122 against 145 committed before those four.
-executed: 126
+executed: 128
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
