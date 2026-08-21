@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { reseed, grantManagedWallet } = require("./helpers");
+const { reseed, grantManagedWallet, allowMotion } = require("./helpers");
 
 // The post-auth onboarding chain (operator spec 2026-08-15):
 //   first name → age gate → wallet setup
@@ -217,6 +217,13 @@ test("the first name is the FIRST validation of the hold @smoke", async ({ page 
 });
 
 test("the first-name placeholder types itself, then yields to the user @smoke", async ({ page }) => {
+  // MOTION ON, ON PURPOSE. The lane runs prefers-reduced-motion by default since
+  // /tasks/make-reduced-motion-reach-specs, and the modal honors it:
+  // `startPlaceholder()` assigns the whole name and RETURNS
+  // (modals/_onboarding.html.erb:67), because the hint is the point and the
+  // typing is decoration. This spec asserts the typing ANIMATES — "the
+  // placeholder must pass through many states, not one" — so it opts out.
+  await allowMotion(page);
   // Only a browser can prove an animation animates. A markup tier can assert
   // every handler is wired and still miss a timer that never ticks.
   await signUpFresh(page, { contest: "world-cup-2026" });

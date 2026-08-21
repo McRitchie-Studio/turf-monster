@@ -121,7 +121,13 @@
 # tree is what caught it, exactly as the note left by the previous round instructed.
 # Do that, every time, on the merged tree. Do not take either side, and do not do the
 # arithmetic — run the lister.
-total_specs: 159
+# 159 -> 161 (make-reduced-motion-reach-specs): the two specs in
+# e2e/reduced_motion.spec.js. They are the lane's own self-check — the config had
+# declared `reducedMotion: "reduce"` for months while matchMedia in every spec said
+# FALSE, so they assert the setting REACHES a real page (JS flag + the CSS cascade)
+# rather than that the config file contains the line. Re-derived with the lister on
+# this tree: `npx playwright test --list` -> 161 tests in 42 files.
+total_specs: 161
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -169,12 +175,19 @@ allowed_skips: 4
 
 # total_specs - excluded - allowed_skips. What the lane MUST execute, asserted against the
 # runner's own report, so no source-level spelling on any axis can move it without moving
-# this line. Derived: 159 committed - 17 @devnet - 4 allowed = 138.
+# this line. Derived: 161 committed - 17 @devnet - 4 allowed = 140.
 #
 # Every number here was re-derived with the runner, not adjusted by arithmetic on the last
-# one. On this MERGED tree: `npx playwright test --list` reports 159 tests in 41 files,
-# `--grep "@devnet"` 17, and `--grep-invert "@devnet" --project=chromium` 142 collected for
-# the PR lane — 142 - 4 runtime skips = 138.
+# one. On this tree: `npx playwright test --list` reports 161 tests in 42 files,
+# `--grep "@devnet"` 17 in 1 file, and `--grep-invert "@devnet" --project=chromium` 144
+# collected for the PR lane — 144 - 4 runtime skips = 140.
+#
+# allowed_skips STAYS AT 4. make-reduced-motion-reach-specs added no skip and removed
+# none: reduced motion is now the lane's real default and the two specs that need a
+# running timeline opt out with `allowMotion(page)` (e2e/helpers.js), which changes what
+# a spec MEASURES, never whether it RUNS. A change that flips the lane's motion
+# environment is exactly the kind that gets "absorbed" by widening this allowance
+# instead — it must not be.
 #
 # ⚠️ RE-DERIVE THIS ON EVERY MERGE, and do not take either side. See the worked example
 # on total_specs above: this merge joined two branches that had each written 136 for a
@@ -189,7 +202,9 @@ allowed_skips: 4
 # 128 (149 - 17 - 4) before either of them; 126 before that (the two payment specs still
 # skipping); and 122 against 145 committed before adopt-engine-geo-primitives added its
 # four geo specs.
-executed: 138
+# 138 -> 140 (make-reduced-motion-reach-specs): +2, the reduced_motion.spec.js pair,
+# both in the chromium lane.
+executed: 140
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
