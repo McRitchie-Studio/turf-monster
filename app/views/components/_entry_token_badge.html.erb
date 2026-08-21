@@ -39,6 +39,18 @@
       .hidden                   — lives on the button (not the wrapper)
                                   so the JS selectors above can surface
                                   the badge after a mint without a reload.
+                                  ⚠️ It SURFACES but does not HIDE. On this
+                                  element .hidden loses the cascade to the
+                                  inline-flex beside it — equal specificity,
+                                  and Tailwind emits .hidden BEFORE
+                                  .inline-flex, so the later rule wins.
+                                  Measured: with .hidden applied, computed
+                                  display is inline-flex and the disc keeps a
+                                  20x20 box. Removing it is what actually
+                                  works. Not this task's to fix (it changes
+                                  what a 0-token user sees); recorded so the
+                                  next reader does not trust the class to
+                                  hide anything.
 %>
 <%# Cache-first count (display_entry_token_count): a warm cache renders the
     real count immediately; a COLD cache renders nil → the badge starts hidden

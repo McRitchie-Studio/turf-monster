@@ -63,9 +63,24 @@ module.exports = defineConfig({
     // process at its own isolated stack's port. Defaults to the canonical :3100.
     baseURL: process.env.PW_BASE_URL || "http://127.0.0.1:3100",
     headless: true,
-    // Smooth-load (engine 0.24) enables same-origin view transitions; under
-    // prefers-reduced-motion Turbo never starts the view transition at all,
-    // so e2e gets instant swaps.
+    // Intended: smooth-load (engine 0.24) enables same-origin view transitions,
+    // and under prefers-reduced-motion Turbo never starts one, so e2e would get
+    // instant swaps.
+    //
+    // ⚠️ IT DOES NOT REACH THE PAGE. Measured from a spec running under this very
+    // config: `matchMedia("(prefers-reduced-motion: reduce)").matches` is FALSE,
+    // and calling `page.emulateMedia({ reducedMotion: "reduce" })` in the same
+    // test flips it to true — so the setting is inert here, not merely subtle.
+    // CSS animations therefore RUN in this lane: .legendary-badge pans its
+    // gradient forever, which is enough to make a naive screenshot diff of the
+    // ✨ badge differ on every frame and an assertion built on one unfalsifiable
+    // (see the probe notes in e2e/navbar_layout.spec.js).
+    //
+    // Left in place rather than removed: it states the motion environment these
+    // specs are MEANT to run in, and any spec that truly needs reduced motion can
+    // call page.emulateMedia itself today. Making the line effective would change
+    // the motion environment of every existing spec at once, so it is its own
+    // task, not a drive-by.
     reducedMotion: "reduce",
     // Capture a Playwright trace + screenshot when a test retries/fails so
     // CI-only failures (which don't reproduce locally — e.g. geo.spec.js:54)
