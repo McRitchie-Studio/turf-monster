@@ -1064,6 +1064,8 @@ body.modal-open { overflow: hidden; }
 .free-entry-badge { transform-origin: center; }
 .free-entry-badge.hidden { display: none; }
 
+
+
 /* === .legendary-badge — the house legendary treatment ===================
    Built the same way as the engine's .level-badge-10 (a gradient far wider than
    the element, panned under it, plus a white rim and a warm bloom) but in TWO
@@ -1084,7 +1086,13 @@ body.modal-open { overflow: hidden; }
   background-size: 300% 300%;
   color: #fff;
   border: 1px solid rgba(255, 255, 255, 0.5);
+  /* --lb-contact is the CONTACT shadow: off by default, because a badge
+     floating on a page casts onto nothing. A caller that OVERLAPS something
+     sets it, and the direction is the caller's to choose — it has to fall
+     toward whatever the badge is sitting on. */
+  --lb-contact: 0 0 0 0 rgba(0, 0, 0, 0);
   box-shadow:
+    var(--lb-contact),
     0 0 7px rgba(255, 255, 255, 0.35),
     0 0 14px rgb(var(--color-primary-500-rgb) / 0.35),
     inset 0 1px 0 rgba(255, 255, 255, 0.5);
@@ -1092,6 +1100,21 @@ body.modal-open { overflow: hidden; }
   animation: legendary-pan 5s ease infinite;
 }
 .legendary-badge:hover { filter: brightness(1.12); }
+
+/* This disc overlaps the avatar's upper-left, so it casts onto it: a dark
+   contact shadow down-and-right, the direction the avatar actually lies. It
+   sets the knob rather than redeclaring box-shadow, which would drop the
+   treatment's own rim and bloom on the floor.
+
+   COMPOUND (0,2,0), not the bare `.free-entry-badge` — and this is not
+   defensive style, it was measured. The bare selector ties with
+   `.legendary-badge` (both one class, both unlayered) and SOURCE ORDER decides;
+   `.free-entry-badge` is declared further up this file, so the treatment's own
+   `--lb-contact: 0 0 0 0 transparent` default won and the shadow computed to
+   nothing. The class list said otherwise the whole time — the live computed
+   value is what caught it, and e2e/navbar_layout.spec.js is what keeps it
+   caught. Same tie, same fix, same file as `.free-entry-badge.hidden` above. */
+.free-entry-badge.legendary-badge { --lb-contact: 2px 3px 5px rgba(0, 0, 0, 0.55); }
 @keyframes legendary-pan {
   0%, 100% { background-position: 0% 50%; }
   50%      { background-position: 100% 50%; }

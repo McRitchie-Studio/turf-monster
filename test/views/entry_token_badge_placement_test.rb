@@ -96,6 +96,97 @@ class EntryTokenBadgePlacementTest < ActionDispatch::IntegrationTest
     refute_match(/\bpadding:/, treatment)
   end
 
+  test "the badge casts a contact shadow onto the avatar it overlaps" do
+    css = Rails.root.join("app/assets/tailwind/application.css").read
+    treatment = css[css.index(".legendary-badge {"), 1100]
+    # The knob has to be CONSUMED by the treatment's own box-shadow, not just
+    # declared: a --lb-contact nothing reads is a no-op that still reads as a
+    # fix. And it must lead the list — a contact shadow behind the outer bloom
+    # is washed out by it.
+    assert_includes treatment, "--lb-contact:"
+    shadow = treatment[treatment.index("box-shadow:"), 260]
+    assert_includes shadow, "var(--lb-contact)"
+    assert shadow.index("var(--lb-contact)") < shadow.index("rgba(255, 255, 255"),
+      "the contact shadow must sit UNDER the white bloom in the stack, not over it"
+
+    # The caller supplies the direction, because only the caller knows which way
+    # the thing it sits on lies. Here: down and right, onto the avatar.
+    #
+    # COMPOUND, and that is the assertion that matters. The bare
+    # `.free-entry-badge { --lb-contact: … }` this test first accepted TIES with
+    # .legendary-badge (one class each, both unlayered) and loses on source
+    # order, so the knob computed to the treatment's transparent default while
+    # the stylesheet still read correct. A live computed-value read caught it;
+    # this line is what stops it coming back.
+    assert_match(/\.free-entry-badge\.legendary-badge \{ --lb-contact: \d+px \d+px/, css)
+    knob = css[css.index(".free-entry-badge.legendary-badge { --lb-contact:"), 110]
+    assert_includes knob, "rgba(0, 0, 0,", "a contact shadow is DARK — that is the whole job"
+    # Redeclaring box-shadow on .free-entry-badge instead would silently drop
+    # the treatment's rim and bloom, which is exactly the trap the knob avoids.
+    refute_match(/\.free-entry-badge \{[^}]*box-shadow/m, css)
+  end
+
+  test "clicking the badge opens the settings sidebar, not a popover of its own" do
+    render_navbar(usdc: 12.0, tokens: 2) do |body|
+      badge = body[body.index('data-free-entry-badge="true"') - 1200, 1600]
+
+      assert_includes badge, '@click.stop="$store.sidebars.gearOpen = !$store.sidebars.gearOpen"',
+        "the badge joins the avatar and username in toggling one sidebar"
+      # .stop is not decoration: the panel closes on @click.outside, and the
+      # badge IS outside it, so an unstopped click opens and shuts in one go.
+      assert_includes badge, "@click.stop=", "an unstopped click would reach the panel's @click.outside"
+      assert_includes badge, 'aria-controls="gear-sidebar gear-sidebar-mobile"'
+      assert_includes badge, 'aria-haspopup="dialog"'
+      assert_includes badge, ":aria-expanded="
+
+      # The popover is gone — markup, factory mount, and all.
+      refute_includes badge, 'x-show="open"'
+      refute_includes badge, "toggle()"
+      refute_includes badge, "Entry Token<span"
+      refute_includes badge, "x-data=\"entryTokenBadge",
+        "the badge stopped needing a scope when the popover left"
+    end
+  end
+
+  test "hover still peeks the label after the click became a sidebar toggle" do
+    render_navbar(usdc: 12.0, tokens: 1) do |body|
+      badge = body[body.index('data-free-entry-badge="true"') - 1200, 1600]
+      assert_includes badge, '@mouseenter="freeEntryHover = true"'
+      assert_includes badge, '@focus="freeEntryHover = true"'
+    end
+  end
+
+  test "the sidebar carries a live free-entry chip in the same treatment" do
+    render_navbar(usdc: 12.0, tokens: 2) do |body|
+      assert_includes body, 'data-free-entry-chip="true"'
+      chip = body[body.index('data-free-entry-chip="true"') - 300, 900]
+
+      assert_includes chip, "legendary-badge", "chip and disc read as one prize"
+      assert_includes chip, 'x-data="entryTokenBadge({ initialCount: 2 })"'
+      assert_includes chip, 'x-show="count > 0"'
+      # Server-rendered text under the x-text bindings, so the chip is right
+      # before Alpine boots and right without JS at all.
+      assert_includes chip, "Free Entries"
+      assert_includes chip, "count === 1 ? 'Free Entry' : 'Free Entries'",
+        "'2 Free Entrys' is what a bare plural suffix would have produced"
+
+      # body_html is rendered into BOTH panels, so the chip mounts twice — two
+      # Alpine scopes both subscribed to the same event. That is the reason the
+      # count is not synced by querySelector: it would update only one.
+      assert_equal 2, body.scan('data-free-entry-chip="true"').length,
+        "desktop and mobile panels each get their own chip"
+    end
+  end
+
+  test "the sidebar chip is pre-hidden for a zero-token user" do
+    render_navbar(usdc: 12.0, tokens: 0) do |body|
+      chip = body[body.index('data-free-entry-chip="true"') - 300, 500]
+      assert_includes chip, "style=\"display: none;\"",
+        "without the server pre-set there is a pre-Alpine flash of a chip promising nothing"
+      assert_includes chip, 'x-show="count > 0"'
+    end
+  end
+
   test "the badge is a sparkle, not the retired ticket pill" do
     render_navbar(usdc: 12.0, tokens: 2) do |body|
       badge = body[body.index("data-free-entry-badge") - 900, 1200]

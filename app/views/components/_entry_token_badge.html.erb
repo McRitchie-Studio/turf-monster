@@ -19,7 +19,14 @@
                     they were already looking. Driven by `freeEntryHover` in
                     the _user_nav Alpine scope (Alpine scope is DOM-based, so
                     the balance slot rendered into that same wrapper reads it).
-      click       — short-lived popover with the live token count.
+      click       — opens the settings sidebar, exactly as the avatar and the
+                    username beside it do. It used to pop its own 2-second
+                    count popover; that made the badge the ONE control in this
+                    cluster that went somewhere else, and the count now lives
+                    in the sidebar the click opens (components/_gear_sidebar).
+                    @click.stop is load-bearing — without it the same click
+                    reaches the panel's @click.outside and shuts what it just
+                    opened.
       level-up    — .free-entry-glow pulses the badge (armFreeEntryGlow in
                     solana_utils.js, fired from the layout's level-up listener).
 
@@ -64,37 +71,24 @@
 <% plural_suffix = free_entries == 1 ? "" : "s" %>
 
 <%# .free-entry-badge / .free-entry-punch / .free-entry-glow / .free-entry-label
-    live in app/assets/tailwind/application.css.
-    entryTokenBadge() Alpine factory is in app/javascript/entry_token_badge.js. %>
-<div class="relative flex-shrink-0 leading-none" x-data="entryTokenBadge({ initialCount: <%= free_entries %> })">
+    live in app/assets/tailwind/application.css. No x-data here any more — the
+    popover took the count with it into the sidebar, and the hover writes to
+    `freeEntryHover` in the _user_nav scope above, not to a scope of its own. %>
+<div class="relative flex-shrink-0 leading-none">
   <button type="button"
-          @click="toggle()"
+          @click.stop="$store.sidebars.gearOpen = !$store.sidebars.gearOpen"
           @mouseenter="freeEntryHover = true"
           @mouseleave="freeEntryHover = false"
           @focus="freeEntryHover = true"
           @blur="freeEntryHover = false"
           title="<%= free_entries %> unconsumed entry token<%= plural_suffix %> — free entry"
-          aria-label="Free entry token<%= plural_suffix %>"
+          aria-label="<%= free_entries %> free entry token<%= plural_suffix %> — open settings"
+          aria-controls="gear-sidebar gear-sidebar-mobile"
+          aria-haspopup="dialog"
+          :aria-expanded="$store.sidebars && $store.sidebars.gearOpen ? 'true' : 'false'"
           class="free-entry-badge legendary-badge inline-flex items-center justify-center w-5 h-5 rounded-full cursor-pointer <%= 'hidden' unless free_entries.positive? %>"
           data-free-entry-badge="true"
           data-token-count="<%= free_entries %>">
     <span aria-hidden="true" style="font-size: 12px; line-height: 1;">✨</span>
   </button>
-  <%# Count popover — anchored to the RIGHT edge: the badge now lives at the
-      end of the navbar, so a centered popover would hang off the viewport. %>
-  <div x-show="open"
-       @click.outside="close()"
-       x-transition:enter="transition ease-out duration-150"
-       x-transition:enter-start="opacity-0 scale-95"
-       x-transition:enter-end="opacity-100 scale-100"
-       x-transition:leave="transition ease-in duration-500"
-       x-transition:leave-start="opacity-100 scale-100"
-       x-transition:leave-end="opacity-0 scale-95"
-       class="absolute right-0 mt-2 px-3 py-2 bg-surface border border-primary/40 rounded-lg shadow-lg z-50 whitespace-nowrap"
-       style="display: none;">
-    <div class="flex items-center gap-1.5 text-primary font-bold text-sm leading-none">
-      <span style="font-size: 16px;">✨</span>
-      <span><span x-text="count"></span> Entry Token<span x-show="count !== 1">s</span></span>
-    </div>
-  </div>
 </div>
