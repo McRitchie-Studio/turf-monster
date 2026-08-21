@@ -921,11 +921,21 @@ class ContestsController < ApplicationController
     # ANY finalized signature. confirm_onchain! re-checks open/lock/limit/sybil
     # and the unique-signature index blocks replaying one tx across two rows.
     # (OPSEC-010 / Lazarus audit #1.)
+    prepared_token_pda = prepared_entry_token_pda(ptx)
+
     begin
       verify_and_confirm_onchain_entry!(entry, ptx.tx_signature,
-                                        entry_token_pda: prepared_entry_token_pda(ptx),
+                                        entry_token_pda: prepared_token_pda,
                                         vault: vault)
       ptx.update!(status: "confirmed")
+
+      # Same consume, same stale cache: this path credits an entry whose token
+      # was burned on-chain just as surely as the live path does, and it used to
+      # bust nothing at all — so a user who crashed mid-entry came back to a
+      # navbar badge and a "Hold for Free Entry" button still counting the token
+      # they had already spent.
+      current_user.bust_entry_tokens_cache! if prepared_token_pda
+
       render json: {
         status: "confirmed",
         redirect: contest_path(@contest),
@@ -1034,10 +1044,11 @@ class ContestsController < ApplicationController
       ptx&.update!(status: "confirmed")
 
       # The on-chain EntryTokenAccount.consumed flag just flipped. Drop the 60s
-      # entry-tokens cache so the navbar badge, the next hold-to-confirm label and
-      # a follow-up entry all read the spent token as spent — the web2 path gets
-      # this from Vault#enter_contest_with_token, which the Phantom path never
-      # reaches (the consume rides the client's broadcast, not ours).
+      # entry-tokens cache — BOTH layers, which is what #bust_entry_tokens_cache!
+      # now does — so the navbar badge, the next hold-to-confirm label and a
+      # follow-up entry all read the spent token as spent. The web2 path gets this
+      # from Vault#enter_contest_with_token, which the Phantom path never reaches
+      # (the consume rides the client's broadcast, not ours).
       current_user.bust_entry_tokens_cache! if prepared_token_pda
 
       # Confirmed (Phantom path, token or currency) — announce the join in chat once.

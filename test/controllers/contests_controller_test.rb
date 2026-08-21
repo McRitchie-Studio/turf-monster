@@ -1436,6 +1436,117 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "enter_contest", verified.first[:instruction_name]
   end
 
+  # --- the token cache must not outlive the token it describes ----------------
+  #
+  # These assert on the REAL cache key the navbar badge and the "Hold for Free
+  # Entry" CTA read (Solana::Vault.entry_tokens_cache_key), not on a mock call
+  # count — the previous bust DID get called, it just deleted a different key,
+  # so only observing the reader's key can tell the two apart. The test env runs
+  # :null_store, hence the injected MemoryStore.
+  def with_memory_cache(&block)
+    Rails.stub(:cache, ActiveSupport::Cache::MemoryStore.new, &block)
+  end
+
+  test "confirm_onchain_entry busts the entry-token cache the badge actually reads" do
+    entry, expected_pda = setup_web3_confirm_entry(
+      address_prefix: "Web3ConfBust",
+      metadata: { funding: "token", entry_token_pda: "tpda_bust_1" }
+    )
+    cache_key = Solana::Vault.entry_tokens_cache_key(@user.web3_solana_address)
+
+    with_memory_cache do
+      Rails.cache.write(cache_key, [{ pda: "tpda_bust_1", consumed: false }])
+
+      vault = FakeVault.new
+      Solana::Vault.stub :new, vault do
+        Solana::Keypair.stub :encode_base58, ->(v) { v.is_a?(String) ? v : v.to_s } do
+          Solana::TxVerifier.stub :verify!, true do
+            post confirm_onchain_entry_contest_path(@contest),
+              params: { signed_tx: "PHANTOM_SIGNED_TOKEN_WIRE", entry_id: entry.id, entry_pda: expected_pda },
+              as: :json
+          end
+        end
+      end
+
+      assert_response :success
+      assert_nil Rails.cache.read(cache_key),
+                 "the spent token must not survive in the layer the badge and the CTA read"
+    end
+  end
+
+  test "recover_pending_entry busts the entry-token cache after a token-funded recovery" do
+    @user.update!(web3_solana_address: "WalletRTok#{SecureRandom.hex(4)}")
+    log_in_as @user
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
+    ptx = PendingTransaction.create!(
+      tx_type: "enter_contest", serialized_tx: "stx",
+      status: "submitted", tx_signature: "sig-recover-token-1",
+      target: entry, initiator_address: @user.web3_solana_address,
+      metadata: { entry_pda: "epda-r1", funding: "token", entry_token_pda: "tpda_recover_1" }.to_json
+    )
+    cache_key = Solana::Vault.entry_tokens_cache_key(@user.web3_solana_address)
+
+    with_memory_cache do
+      Rails.cache.write(cache_key, [{ pda: "tpda_recover_1", consumed: false }])
+
+      vault = FakeVault.new(signature_statuses: {
+        "sig-recover-token-1" => { "err" => nil, "confirmationStatus" => "confirmed" }
+      })
+      Solana::Vault.stub :new, vault do
+        Solana::Keypair.stub :encode_base58, ->(s) { s.is_a?(String) ? s : s.to_s } do
+          Solana::TxVerifier.stub :verify!, true do
+            post recover_pending_entry_contest_path(@contest),
+              params: { ptx_slug: ptx.slug }, as: :json
+          end
+        end
+      end
+
+      assert_equal "confirmed", JSON.parse(response.body)["status"]
+      assert entry.reload.active?
+      assert_nil Rails.cache.read(cache_key),
+                 "crash recovery credits an entry whose token was burned on-chain — it owes " \
+                 "the same cache bust as the live confirm path"
+    end
+  end
+
+  # CONTROL: the bust is conditional on the SERVER having prepared a token, and
+  # the harness can see a cache entry survive. Without this a bust-everything
+  # implementation would pass the two tests above for the wrong reason.
+  test "recover_pending_entry leaves the entry-token cache alone for a USDC recovery" do
+    @user.update!(web3_solana_address: "WalletRUsdc#{SecureRandom.hex(4)}")
+    log_in_as @user
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
+    ptx = PendingTransaction.create!(
+      tx_type: "enter_contest", serialized_tx: "stx",
+      status: "submitted", tx_signature: "sig-recover-usdc-1",
+      target: entry, initiator_address: @user.web3_solana_address,
+      metadata: { entry_pda: "epda-r2" }.to_json
+    )
+    cache_key = Solana::Vault.entry_tokens_cache_key(@user.web3_solana_address)
+
+    with_memory_cache do
+      Rails.cache.write(cache_key, [{ pda: "tpda_untouched_1", consumed: false }])
+
+      vault = FakeVault.new(signature_statuses: {
+        "sig-recover-usdc-1" => { "err" => nil, "confirmationStatus" => "confirmed" }
+      })
+      Solana::Vault.stub :new, vault do
+        Solana::Keypair.stub :encode_base58, ->(s) { s.is_a?(String) ? s : s.to_s } do
+          Solana::TxVerifier.stub :verify!, true do
+            post recover_pending_entry_contest_path(@contest),
+              params: { ptx_slug: ptx.slug }, as: :json
+          end
+        end
+      end
+
+      assert_equal "confirmed", JSON.parse(response.body)["status"]
+      assert_equal [{ pda: "tpda_untouched_1", consumed: false }], Rails.cache.read(cache_key),
+                   "no token was spent, so nothing about the wallet's tokens changed"
+    end
+  end
+
   test "confirm_onchain_entry rejects a mismatched client-supplied entry_pda" do
     @user.update!(web3_solana_address: "Web3Mismatch#{SecureRandom.hex(4)}")
     @contest.update!(onchain_contest_id: "onchain_m", season_id: 1)

@@ -68,6 +68,25 @@ class HoldFreeEntryLabelTest < ActionDispatch::IntegrationTest
                         "a baked idle label means one board button never swaps to the free-entry copy"
   end
 
+  # The promise has to survive the NEXT screen too. The wallet-signing modal used
+  # to name a currency transfer unconditionally, so a user who held "Hold for Free
+  # Entry" was immediately asked to "Approve the USDC transfer" for a transaction
+  # that transfers no USDC (it is enter_contest_with_token). The copy now follows
+  # prepare_entry's `token_funded` — the SERVER's own funding decision, which had
+  # no consumer until this.
+  test "the signing modal names a free entry when the server funded it with a token" do
+    get contest_path(contests(:one))
+    assert_response :success
+
+    assert_includes response.body, "prepareData.token_funded",
+                    "the signing-modal copy must branch on the server's funding decision, " \
+                    "not on the currency the user happened to pick"
+    assert_includes response.body, "Approve your free entry in your wallet",
+                    "a token-funded entry must be named as free at the moment of signing"
+    assert_includes response.body, "transfer in your wallet",
+                    "the currency-funded entry keeps its own copy"
+  end
+
   # The in-modal buttons render only inside the auth wizard (behind
   # entry_funding_mode), so a contest page-render can't see them — but the
   # exclusion is deliberate and worth a guard, so pin it where the defect would

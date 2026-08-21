@@ -1372,8 +1372,22 @@ module Solana
       { signature: signature, entry_pda: Keypair.encode_base58(e_pda) }
     end
 
-    # Build a partially-signed enter_contest_with_token TX (Phantom wallet).
-    # Admin signs as payer, Phantom signs as user.
+    # Build an enter_contest_with_token TX for Phantom co-sign — the token-funded
+    # twin of #build_enter_contest, and it follows that method's PHANTOM-FIRST
+    # contract exactly: returns a FULLY-UNSIGNED tx with BOTH the admin (payer)
+    # and user slots empty. Phantom signs FIRST, then the server fills the admin
+    # slot via #cosign_and_broadcast_entry and broadcasts.
+    #
+    # It used to go out through #build_partial_signed, which signs as the admin
+    # at BUILD time. That made every Phantom token entry die at confirm:
+    # Transaction.cosign_wire refuses to clobber a filled slot ("slot 0 … already
+    # holds a signature"), so the wire was never cosigned and never broadcast —
+    # money-safe, but a regression, since the same wallet could enter by paying
+    # USDC. #build_enter_contest was migrated off this shape on 2026-06-05 for
+    # precisely that reason; this builder is now on the same rail.
+    #
+    # additional_signers MUST be ordered admin FIRST (the gem's keyless build
+    # takes additional_signers.first as the fee payer), then the user wallet.
     def build_enter_contest_with_token(wallet_address, contest_slug, entry_num, entry_token_pda_b58,
                                        season_id: nil)
       wallet_bytes = Keypair.decode_base58(wallet_address)
@@ -1388,7 +1402,7 @@ module Solana
       data = Transaction.anchor_discriminator("enter_contest_with_token") +
              Borsh.encode_u32(entry_num)
 
-      serialized = build_partial_signed(
+      serialized = build_partial_unsigned(
         accounts: [
           { pubkey: Keypair.admin.public_key_bytes, is_signer: true,  is_writable: true  },
           { pubkey: wallet_bytes,                   is_signer: true,  is_writable: true  },
@@ -1401,7 +1415,7 @@ module Solana
           { pubkey: Transaction::SYSTEM_PROGRAM_ID, is_signer: false, is_writable: false }
         ],
         data: data,
-        additional_signers: [wallet_bytes]
+        additional_signers: [Keypair.admin.public_key_bytes, wallet_bytes]
       )
       { serialized_tx: serialized, entry_pda: Keypair.encode_base58(e_pda) }
     end
@@ -1791,10 +1805,17 @@ module Solana
       # expiry by this window while it regenerates, so the others serve the
       # still-warm list instead of all firing the getProgramAccounts scan. It
       # affects only PASSIVE 60s expiry — the write-time invalidation on
-      # mint/consume (invalidate_entry_tokens_cache) DELETEs the key, which
-      # race_condition_ttl does not touch, so a consumed token is never served
-      # stale past a write. The cached list is display-only anyway: entry
-      # funding re-derives tokens live and fails safe on-chain.
+      # mint/consume (invalidate_entry_tokens_cache, and User#bust_entry_tokens_cache!
+      # which now deletes this key too) DELETEs the key, which race_condition_ttl
+      # does not touch, so a consumed token is never served stale past a write.
+      #
+      # This list is NOT display-only, and a comment here once claimed it was.
+      # Entry funding reads it: User#next_unconsumed_entry_token_for resolves
+      # through #cached_entry_tokens (which wraps this fetch) or through this
+      # fetch directly for a scoped address. A stale entry therefore does not just
+      # mis-paint a badge — it re-picks a SPENT token and builds a doomed
+      # enter_contest_with_token (0x177f) instead of falling back to USDC. Every
+      # writer must invalidate, and must invalidate THIS key.
       Rails.cache.fetch(entry_tokens_cache_key(wallet_address), expires_in: 60.seconds, race_condition_ttl: 5.seconds) do
         owner_b58 = wallet_address
         program_id_b58 = Keypair.encode_base58(@program_id)

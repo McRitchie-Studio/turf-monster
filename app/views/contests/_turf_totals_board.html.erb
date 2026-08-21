@@ -1545,9 +1545,15 @@ window.selectionBoard = function() {
             throw new Error(prepareData.error || 'Failed to prepare entry');
           }
 
-          // Surface WHICH currency this entry spends (small label — the modal
-          // copy is the natural spot; no redesign).
-          Alpine.store('solanaModal').show('Sign Transaction', 'Approve the ' + entryCurrency.toUpperCase() + ' transfer in your wallet...');
+          // Surface WHAT this entry spends (small label — the modal copy is the
+          // natural spot; no redesign). A token-funded entry spends no currency
+          // at all: the server built enter_contest_with_token, and naming a USDC
+          // transfer here would contradict the "Hold for Free Entry" button the
+          // user just held. token_funded is the SERVER's own decision, echoed
+          // back by prepare_entry for exactly this copy.
+          Alpine.store('solanaModal').show('Sign Transaction', prepareData.token_funded
+            ? 'Approve your free entry in your wallet...'
+            : 'Approve the ' + entryCurrency.toUpperCase() + ' transfer in your wallet...');
           var txBytes = Uint8Array.from(atob(prepareData.serialized_tx), function(c) { return c.charCodeAt(0); });
           var tx = solanaWeb3.Transaction.from(txBytes);
           try {

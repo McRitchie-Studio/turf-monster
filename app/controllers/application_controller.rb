@@ -389,8 +389,11 @@ class ApplicationController < ActionController::Base
   # "unknown" state): the client's eligibility check recognises null and fails
   # OPEN (let the server-side enter enforce) instead of zero-blocking a user
   # who actually has funds/tokens. The store initializer coerces a null
-  # tokensAvailable to 0, and entry funding re-derives tokens live server-side,
-  # so a cold/null token hint can never mis-fund.
+  # tokensAvailable to 0, and entry funding is decided SERVER-SIDE (both paths go
+  # through User#next_unconsumed_entry_token_for, scoped to the address that will
+  # actually SIGN the consume), so a cold/null token hint can never mis-fund — it
+  # can only mis-LABEL, which is the known combo-account gap noted on
+  # #display_entry_token_count.
   def client_session_payload
     wallet_context.to_h.merge(
       usdcCents:       wallet_field_cents(:usdc),
@@ -634,10 +637,20 @@ class ApplicationController < ActionController::Base
   #   - 0 for guests / non-wallet users (definitive)
   #
   # Reads the SAME key Solana::Vault#list_entry_tokens writes and mint/consume
-  # invalidate (entry_tokens:<address>), so no third cache key is introduced
-  # and the badge stays correct post-action. The count is DISPLAY-ONLY — entry
-  # funding re-derives tokens live (User#next_unconsumed_entry_token_for), so a
-  # stale/nil navbar count can never mis-fund.
+  # invalidate (entry_tokens:<address>) — including User#bust_entry_tokens_cache!,
+  # which used to clear only its own outer key and left this one serving a spent
+  # token for 60s. The count is DISPLAY-ONLY: entry funding is decided
+  # server-side (User#next_unconsumed_entry_token_for), so a stale/nil navbar
+  # count can never mis-fund.
+  #
+  # KNOWN GAP (pre-dates the free-entry CTA, widened by nothing here): the count
+  # is scoped to #solana_address, which prefers the WEB3 wallet on a combo
+  # (managed + Phantom) account. A combo user in a WEB2 session therefore sees a
+  # count of web3-owned tokens, while #resolve_web2_entry_funding! correctly
+  # scopes the actual funding to #web2_solana_address — so that user can read
+  # "Hold for Free Entry" and still be charged USDC. Mis-LABEL only, never
+  # mis-fund. Fixing it means making this count session-mode-aware (the badge,
+  # the payload and eligibilityBlocker all read it), which is its own task.
   #
   # Per-request memoized: the navbar + entry-token badge partials both ask for
   # this in the same render.

@@ -176,15 +176,23 @@ allowed_skips: 4
 
 # total_specs - excluded - allowed_skips. What the lane MUST execute, asserted against the
 # runner's own report, so no source-level spelling on any axis can move it without moving
-# this line. Derived: 159 committed - 17 @devnet - 4 allowed = 138.
+# this line. Derived: 161 committed - 17 @devnet - 4 allowed = 140.
 #
 # Every number here was re-derived with the runner, not adjusted by arithmetic on the last
-# one. On this MERGED tree: `npx playwright test --list` reports 159 tests in 41 files,
-# `--grep "@devnet"` 17, and `--grep-invert "@devnet" --project=chromium` 142 collected for
-# the PR lane — 142 - 4 runtime skips = 138.
+# one. On this MERGED tree: `npx playwright test --list` reports 161 tests in 42 files,
+# `--grep "@devnet"` 17, and `--grep-invert "@devnet" --project=chromium` 144 collected for
+# the PR lane — 144 - 4 runtime skips = 140. Both routes to the number agree, which is the
+# only reason to trust either.
+#
+# ⚠️ THE PROSE IS PART OF THE LEDGER. This paragraph spent a review round deriving 138 from
+# 159 and citing "142 collected" while the VALUE below already read 140 — correct number,
+# wrong working. A stale derivation is worse than no derivation: the next merge resolves
+# this file by reading the sentence, and the sentence said the wrong tree. When you re-run
+# the lister, rewrite these numbers with it, in the same edit. `allowed_skips` did NOT rise
+# in that round; it held at 4.
 #
 # ⚠️ RE-DERIVE THIS ON EVERY MERGE, and do not take either side. See the worked example
-# on total_specs above: this merge joined two branches that had each written 136 for a
+# on total_specs above: an earlier merge joined two branches that had each written 136 for a
 # DIFFERENT pair of specs, and the number came through the merge unconflicted.
 #
 # History: 138 (159 - 17 - 4) before hold-for-free-entry added its two web3 free-entry
