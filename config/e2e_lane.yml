@@ -121,7 +121,18 @@
 # tree is what caught it, exactly as the note left by the previous round instructed.
 # Do that, every time, on the merged tree. Do not take either side, and do not do the
 # arithmetic — run the lister.
-total_specs: 159
+# 159 -> 162 (entry-badge-opens-sidebar): three specs in
+# e2e/entry_badge_sidebar.spec.js, for three things the `ui-only` tiers cannot
+# reach. The badge's CONTACT SHADOW — whose stylesheet read correct while it
+# painted nothing, because the knob carrying it tied .legendary-badge and lost
+# on source order; the spec neutralises the knob and asserts the pixels move.
+# The badge's CLICK, which opens the settings sidebar: without @click.stop the
+# same click reaches the panel's @click.outside and shuts what it opened, and
+# both spellings render identical markup. And the sidebar CHIP, which mounts
+# twice (the body renders into the desktop and mobile panels) and tracks the
+# count through a window event — the spec reads every mount, because a sync
+# that updates one and strands the other is green to anything reading the first.
+total_specs: 162
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -180,7 +191,7 @@ allowed_skips: 4
 # on total_specs above: this merge joined two branches that had each written 136 for a
 # DIFFERENT pair of specs, and the number came through the merge unconflicted.
 #
-# History: 136 on each of the two branches this merge joins — fade-mask-follows-face-swap
+# History: 138 before entry-badge-opens-sidebar; 136 on each of the two branches the merge before that joins — fade-mask-follows-face-swap
 # and hide-badge-for-zero-tokens BOTH declared 136 for different pairs of specs, the trap
 # firing for the THIRD time; 134 on each of the two branches the merge before that joined
 # (redact-helius-key-from-browser and fade-mask-follows-face-swap), the second firing;
@@ -189,7 +200,11 @@ allowed_skips: 4
 # 128 (149 - 17 - 4) before either of them; 126 before that (the two payment specs still
 # skipping); and 122 against 145 committed before adopt-engine-geo-primitives added its
 # four geo specs.
-executed: 138
+# Re-derived with the runner on THIS tree, not by arithmetic on the last number:
+# `npx playwright test --list` reports 162 tests in 42 files, `--grep "@devnet"`
+# 17, and `--grep-invert "@devnet" --project=chromium` 145 collected for the PR
+# lane — 145 - 4 allowed skips = 141.
+executed: 141
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to

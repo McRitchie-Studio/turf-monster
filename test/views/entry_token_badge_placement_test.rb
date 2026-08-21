@@ -112,14 +112,20 @@ class EntryTokenBadgePlacementTest < ActionDispatch::IntegrationTest
     # The caller supplies the direction, because only the caller knows which way
     # the thing it sits on lies. Here: down and right, onto the avatar.
     #
-    # COMPOUND, and that is the assertion that matters. The bare
-    # `.free-entry-badge { --lb-contact: … }` this test first accepted TIES with
-    # .legendary-badge (one class each, both unlayered) and loses on source
-    # order, so the knob computed to the treatment's transparent default while
-    # the stylesheet still read correct. A live computed-value read caught it;
-    # this line is what stops it coming back.
+    # COMPOUND — but not for the reason this comment first gave. The knob's
+    # original home was ABOVE the treatment, where a bare one-class selector
+    # ties .legendary-badge and loses on source order; the shadow computed to
+    # the transparent default while the stylesheet read correct. Moving it
+    # BELOW the treatment is what fixes that (mutation-tested: the bare form
+    # there still paints). The compound is what keeps it fixed through a
+    # reorder. Both halves are asserted because either one alone is a
+    # one-edit-from-broken arrangement, and the paint proof lives in
+    # e2e/entry_badge_sidebar.spec.js where a browser can see it.
     assert_match(/\.free-entry-badge\.legendary-badge \{ --lb-contact: \d+px \d+px/, css)
-    knob = css[css.index(".free-entry-badge.legendary-badge { --lb-contact:"), 110]
+    knob_at = css.index(".free-entry-badge.legendary-badge { --lb-contact:")
+    assert knob_at > css.index(".legendary-badge {"),
+      "the knob must sit BELOW the treatment it overrides — above it, source order eats the value"
+    knob = css[knob_at, 110]
     assert_includes knob, "rgba(0, 0, 0,", "a contact shadow is DARK — that is the whole job"
     # Redeclaring box-shadow on .free-entry-badge instead would silently drop
     # the treatment's rim and bloom, which is exactly the trap the knob avoids.

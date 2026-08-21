@@ -1106,14 +1106,25 @@ body.modal-open { overflow: hidden; }
    sets the knob rather than redeclaring box-shadow, which would drop the
    treatment's own rim and bloom on the floor.
 
-   COMPOUND (0,2,0), not the bare `.free-entry-badge` — and this is not
-   defensive style, it was measured. The bare selector ties with
-   `.legendary-badge` (both one class, both unlayered) and SOURCE ORDER decides;
-   `.free-entry-badge` is declared further up this file, so the treatment's own
-   `--lb-contact: 0 0 0 0 transparent` default won and the shadow computed to
-   nothing. The class list said otherwise the whole time — the live computed
-   value is what caught it, and e2e/navbar_layout.spec.js is what keeps it
-   caught. Same tie, same fix, same file as `.free-entry-badge.hidden` above. */
+   TWO things put the knob here, and it is worth separating them, because a
+   mutation test proved they are not the same thing. The knob first sat with
+   `.free-entry-badge` further UP this file, ABOVE the treatment — a bare
+   one-class selector, tying `.legendary-badge` on specificity and losing on
+   SOURCE ORDER, so the treatment's own transparent default won and the shadow
+   computed to nothing while the stylesheet still read correct.
+
+   POSITION is what fixes that: below the treatment, even the bare selector
+   wins (measured — restoring the bare form here leaves the shadow painting).
+   The COMPOUND (0,2,0) is what keeps it fixed if these two blocks are ever
+   reordered or one of them moves to another file. Do not read it as the fix;
+   read it as the thing that makes the fix survive an edit that has nothing to
+   do with it. Same tie as `.free-entry-badge.hidden` above, different half of
+   the cascade doing the work.
+
+   The class list said the right thing the whole time it painted nothing. The
+   live computed value is what caught it, and e2e/entry_badge_sidebar.spec.js
+   — which neutralises the knob and asserts the PIXELS move — is what keeps it
+   caught. */
 .free-entry-badge.legendary-badge { --lb-contact: 2px 3px 5px rgba(0, 0, 0, 0.55); }
 @keyframes legendary-pan {
   0%, 100% { background-position: 0% 50%; }
