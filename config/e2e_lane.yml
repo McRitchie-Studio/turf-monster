@@ -121,18 +121,30 @@
 # tree is what caught it, exactly as the note left by the previous round instructed.
 # Do that, every time, on the merged tree. Do not take either side, and do not do the
 # arithmetic — run the lister.
-# 159 -> 162 (entry-badge-opens-sidebar): three specs in
-# e2e/entry_badge_sidebar.spec.js, for three things the `ui-only` tiers cannot
-# reach. The badge's CONTACT SHADOW — whose stylesheet read correct while it
-# painted nothing, because the knob carrying it tied .legendary-badge and lost
-# on source order; the spec neutralises the knob and asserts the pixels move.
-# The badge's CLICK, which opens the settings sidebar: without @click.stop the
-# same click reaches the panel's @click.outside and shuts what it opened, and
-# both spellings render identical markup. And the sidebar CHIP, which mounts
-# twice (the body renders into the desktop and mobile panels) and tracks the
-# count through a window event — the spec reads every mount, because a sync
-# that updates one and strands the other is green to anything reading the first.
-total_specs: 162
+# 159 -> 164 on this MERGED tree. TWO branches added specs and NEITHER branch's
+# own number is right here. make-reduced-motion-reach-specs added the two in
+# e2e/reduced_motion.spec.js — the lane's own self-check: the config had declared
+# `reducedMotion: "reduce"` for months while matchMedia in every spec said FALSE,
+# so they assert the setting REACHES a real page (JS flag + the CSS cascade)
+# rather than that the config file contains the line — and declared 161.
+# entry-badge-opens-sidebar added the three in e2e/entry_badge_sidebar.spec.js,
+# for three things the `ui-only` tiers cannot reach: the badge's CONTACT SHADOW,
+# whose stylesheet read correct while it painted nothing because the knob
+# carrying it tied .legendary-badge and lost on SOURCE ORDER (the spec
+# neutralises the knob and asserts the PIXELS move); the badge's CLICK, which
+# opens the settings sidebar and must STILL be open a beat later, where both
+# spellings render identical markup; and the sidebar CHIP, which mounts TWICE
+# (the body renders into the desktop and mobile panels) and tracks the count
+# through a window event, so the spec reads every mount — and declared 162.
+#
+# 161 and 162 are BOTH WRONG on the merge, and the trap fired for the FIFTH time
+# with a new shape worth naming: the two numeric lines DID conflict, but the
+# derivation prose under `executed` did NOT, so auto-merge silently took
+# accepted's "161 ... 144 collected ... = 140" whole while the markers drew the
+# reviewer's eye elsewhere. Resolving the markers alone would have left the file
+# self-contradictory and green. Re-derived with the lister on THIS merged tree:
+# `npx playwright test --list` -> 164 tests in 43 files.
+total_specs: 164
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -180,18 +192,28 @@ allowed_skips: 4
 
 # total_specs - excluded - allowed_skips. What the lane MUST execute, asserted against the
 # runner's own report, so no source-level spelling on any axis can move it without moving
-# this line. Derived: 159 committed - 17 @devnet - 4 allowed = 138.
+# this line. Derived: 164 committed - 17 @devnet - 4 allowed = 143.
 #
 # Every number here was re-derived with the runner, not adjusted by arithmetic on the last
-# one. On this MERGED tree: `npx playwright test --list` reports 159 tests in 41 files,
-# `--grep "@devnet"` 17, and `--grep-invert "@devnet" --project=chromium` 142 collected for
-# the PR lane — 142 - 4 runtime skips = 138.
+# one. On this MERGED tree: `npx playwright test --list` reports 164 tests in 43 files,
+# `--grep "@devnet"` 17 in 1 file, and `--grep-invert "@devnet" --project=chromium` 147
+# collected for the PR lane — 147 - 4 runtime skips = 143.
+#
+# allowed_skips STAYS AT 4. make-reduced-motion-reach-specs added no skip and removed
+# none: reduced motion is now the lane's real default and the two specs that need a
+# running timeline opt out with `allowMotion(page)` (e2e/helpers.js), which changes what
+# a spec MEASURES, never whether it RUNS. A change that flips the lane's motion
+# environment is exactly the kind that gets "absorbed" by widening this allowance
+# instead — it must not be.
 #
 # ⚠️ RE-DERIVE THIS ON EVERY MERGE, and do not take either side. See the worked example
 # on total_specs above: this merge joined two branches that had each written 136 for a
 # DIFFERENT pair of specs, and the number came through the merge unconflicted.
 #
-# History: 138 before entry-badge-opens-sidebar; 136 on each of the two branches the merge before that joins — fade-mask-follows-face-swap
+# History: 140 and 141 on the two branches THIS merge joins — make-reduced-motion-reach-specs
+# and entry-badge-opens-sidebar, the trap firing for the FIFTH time and the first time
+# through the un-conflicted derivation PROSE rather than the number; 138 before them;
+# 136 on each of the two branches the merge before that joins — fade-mask-follows-face-swap
 # and hide-badge-for-zero-tokens BOTH declared 136 for different pairs of specs, the trap
 # firing for the THIRD time; 134 on each of the two branches the merge before that joined
 # (redact-helius-key-from-browser and fade-mask-follows-face-swap), the second firing;
@@ -200,11 +222,15 @@ allowed_skips: 4
 # 128 (149 - 17 - 4) before either of them; 126 before that (the two payment specs still
 # skipping); and 122 against 145 committed before adopt-engine-geo-primitives added its
 # four geo specs.
-# Re-derived with the runner on THIS tree, not by arithmetic on the last number:
-# `npx playwright test --list` reports 162 tests in 42 files, `--grep "@devnet"`
-# 17, and `--grep-invert "@devnet" --project=chromium` 145 collected for the PR
-# lane — 145 - 4 allowed skips = 141.
-executed: 141
+# 138 -> 143 on this MERGED tree: +2 from make-reduced-motion-reach-specs (the
+# reduced_motion.spec.js pair) and +3 from entry-badge-opens-sidebar (the
+# entry_badge_sidebar.spec.js trio), all five in the chromium lane. Neither
+# branch's own figure — 140 and 141 — survives the merge.
+# Re-derived with the runner on THIS merged tree, not by arithmetic on either:
+# `npx playwright test --list` reports 164 tests in 43 files, `--grep "@devnet"`
+# 17 in 1 file, and `--grep-invert "@devnet" --project=chromium` 147 collected
+# for the PR lane — 147 - 4 allowed skips = 143.
+executed: 143
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to

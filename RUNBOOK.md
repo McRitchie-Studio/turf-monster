@@ -81,7 +81,7 @@ Troubleshooting guide for autonomous agents. Format: problem, diagnosis, fix.
 
 **Timeout on RPC calls**
 - Diagnosis: `Net::OpenTimeout` or `Net::ReadTimeout`. RPC node is slow or down.
-- Fix: Try a different RPC endpoint. Check Solana network status at status.solana.com. The gem defaults to devnet public RPC if `SOLANA_RPC_URL` is unset.
+- Fix: Try a different RPC endpoint. Check Solana network status at status.solana.com. The `solana_studio` gem falls back to the devnet public RPC when no URL is passed, but production never reaches that fallback: `Solana::Config` raises during eager load when `SOLANA_RPC_URL` is unset (OPSEC-012).
 
 **Wrong network (mainnet vs devnet)**
 - Diagnosis: Transactions fail with "account not found" or wrong program ID.
@@ -95,7 +95,7 @@ Troubleshooting guide for autonomous agents. Format: problem, diagnosis, fix.
 
 **Balance shows $0 despite onchain funds**
 - Diagnosis: `display_balance` calls `fetch_user_usdc` which reads the user's Phantom wallet ATA balance. Returns 0 if ATA does not exist or RPC fails.
-- Fix: Check the user has a `solana_address` and `wallet_type: "phantom"`. Verify their ATA exists: `bin/rails runner "puts Solana::Client.new.get_token_account_balance('<user_ata>')"`. If ATA missing, user needs to receive USDC first (use `/faucet`).
+- Fix: Check the user has a `solana_address` and `wallet_type: "phantom"`. Verify their ATA exists: `bin/rails runner "puts Solana::Config.client.get_token_account_balance('<user_ata>')"`. If ATA missing, user needs to receive USDC first (use `/faucet`).
 
 ## Contest Lifecycle Bugs
 

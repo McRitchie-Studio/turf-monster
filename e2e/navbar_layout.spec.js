@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { login } = require("./helpers");
+const { login, allowMotion } = require("./helpers");
 
 const VIEWPORTS = [
   { width: 1366, height: 800 },
@@ -222,16 +222,15 @@ test("logged-in navbar keeps the Free Entry face contained and the username read
 // TWO INDEPENDENT WITNESSES, because each covers the other's blind spot:
 //
 //   PAINT — a screenshot of a strip just OUTSIDE the badge's left edge. It has
-//     to be outside: .legendary-badge pans a gradient across the disc forever,
-//     so any crop containing the disc differs from any other frame no matter
-//     what the glow is doing, and an assertion built on one can never fail.
-//     (Do NOT assume prefers-reduced-motion saves you here. This project sets
-//     `use: { reducedMotion: "reduce" }` in playwright.config.js and it does NOT
-//     reach the page — measured, `matchMedia("(prefers-reduced-motion: reduce)")
-//     .matches` is false and legendary-pan reports playState "running". An
-//     earlier cut of this spec trusted that setting, cropped the disc, and
-//     passed against the unfixed code.) The glow is a box-shadow, so it paints
-//     into the strip while the pan cannot reach it.
+//     to be outside: .legendary-badge pans a gradient across the disc, so a crop
+//     containing the disc can differ frame to frame for reasons that have nothing
+//     to do with the glow, and an assertion built on one can never fail. (An
+//     earlier cut of this spec cropped the disc and passed against the unfixed
+//     code. It trusted playwright.config.js's reducedMotion to have stopped the
+//     pan; that setting was INERT then — /tasks/make-reduced-motion-reach-specs
+//     fixed it, and this spec now turns motion back ON deliberately, so the pan
+//     runs by choice and the strip still has to stay clear of it.) The glow is a
+//     box-shadow, so it paints into the strip while the pan cannot reach it.
 //
 //   TIMELINE — the badge's own running animations via Element.getAnimations().
 //     That is the object actually driving the paint, so it says whether the
@@ -243,6 +242,14 @@ const REPLAY_AFTER_MS = 2000;
 
 test("a level-up glow replayed inside the window still plays its full length", async ({ page }) => {
   test.setTimeout(60_000); // ~14s of deliberate waiting, plus login and nav.
+  // MOTION ON, ON PURPOSE. The lane runs prefers-reduced-motion by default now,
+  // and under it `.free-entry-glow { animation: none }`
+  // (app/assets/tailwind/application.css:1124) — the glow becomes a static
+  // box-shadow with no timeline, so getAnimations() finds nothing and this
+  // spec's entire subject stops existing. It asserts a glow PLAYS ITS FULL
+  // LENGTH, which is a claim about the motion build, so it opts out loudly
+  // rather than inheriting whatever the lane happens to be set to.
+  await allowMotion(page);
   await page.setViewportSize({ width: 1366, height: 800 });
   await login(page, "alex@mcritchie.studio", "password");
   await page.goto("/contests");

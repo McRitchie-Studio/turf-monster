@@ -381,6 +381,17 @@ namespace :solana do
     pass = ->(msg) { puts "  ✓ #{msg}" }
     fail = ->(msg) { puts "  ✗ #{msg}"; exit_code = 1 }
 
+    # The ONLY way an exception reaches this terminal. Two classes on the
+    # rotation path embed the whole credentialed endpoint in their message —
+    # Solana::Client::InsecureRpcUrlError interpolates `@rpc_url.inspect`, and
+    # URI::InvalidURIError quotes the bad URI back — so `e.message` was printing
+    # the key this task exists to help rotate. `redact_message` also scrubs
+    # invalid UTF-8 BEFORE the whitespace gsub: an upstream error body that is
+    # not UTF-8 (a latin-1 error page, mis-served gzip) puts an invalid byte
+    # inside `e.message`, and gsub on that raises ArgumentError from inside the
+    # rescue clause — the same fix PR 392 landed in the boot guard.
+    safe_error = ->(e) { "#{e.class}: #{Solana::Config.redact_message(e.message).truncate(200)}" }
+
     puts "=== Solana health check ==="
     puts "  NETWORK    = #{Solana::Config::NETWORK}"
     puts "  RPC_URL    = #{Solana::Config.redact_rpc_url(Solana::Config::RPC_URL)}"
@@ -402,32 +413,69 @@ namespace :solana do
     # Solana::Network.canonical's aliasing is deliberately not used here).
     expected = Solana::Network::GENESIS_HASHES[Solana::Config::NETWORK]
 
-    client = Solana::Client.new(rpc_url: Solana::Config::RPC_URL)
-    begin
-      actual = client.get_genesis_hash
-      if expected && actual == expected
-        pass.("RPC genesis matches #{Solana::Config::NETWORK}")
-      elsif expected
-        fail.("RPC genesis mismatch: expected #{expected}, got #{actual}")
+    # CONSTRUCTED INSIDE A RESCUE. Solana::Client.new parses the URL and rejects
+    # a non-https scheme in its constructor, so a fat-fingered endpoint —
+    # "http://", a stray space, a pasted newline — raised BEFORE the begin below
+    # and killed the task with a stack trace. A mistyped endpoint is the single
+    # most likely operator error on the rotation path this task exists to serve,
+    # and it was the one input the task could not diagnose.
+    client =
+      begin
+        Solana::Client.new(rpc_url: Solana::Config::RPC_URL)
+      rescue StandardError => e
+        # safe_error, not e.message: InsecureRpcUrlError interpolates
+        # `@rpc_url.inspect` — the whole credentialed URL — into its message.
+        fail.("RPC endpoint unusable: #{safe_error.(e)}")
+        nil
       end
-    rescue StandardError => e
-      # Same widening as the boot guard (survive-unauthorized-rpc-boot). An
-      # unauthorized provider answers with non-JSON, which the gem surfaces as a
-      # raw JSON::ParserError, not an RpcError. Rescuing only RpcError aborted
-      # the ENTIRE health check with a stack trace at step 2 — and this task is
-      # the operator's diagnostic on the credential-rotation path, where the
-      # remaining checks are exactly what they ran it for. Report and continue.
-      fail.("getGenesisHash failed: #{e.class}: #{e.message.to_s.gsub(/\s+/, " ")[0, 120]}")
+
+    if client.nil?
+      fail.("genesis check did NOT run — no usable RPC client (see above)")
+    else
+      begin
+        actual = client.get_genesis_hash
+        if expected && actual == expected
+          pass.("RPC genesis matches #{Solana::Config::NETWORK}")
+        elsif expected
+          fail.("RPC genesis mismatch: expected #{expected}, got #{actual}")
+        end
+      rescue StandardError => e
+        # Same widening as the boot guard (survive-unauthorized-rpc-boot). An
+        # unauthorized provider answers with non-JSON, which the gem surfaces as a
+        # raw JSON::ParserError, not an RpcError. Rescuing only RpcError aborted
+        # the ENTIRE health check with a stack trace at step 2 — and this task is
+        # the operator's diagnostic on the credential-rotation path, where the
+        # remaining checks are exactly what they ran it for. Report and continue.
+        fail.("getGenesisHash failed: #{safe_error.(e)}")
+      end
     end
 
     # 3. PROGRAM_ID exists at this RPC. Reuses the same guard
     # TokenPurchaseJob runs at job start (Solana::Vault.ensure_program_id_live!).
-    Rails.cache.delete_matched("solana/program_id_live/v1/*") rescue nil
-    begin
-      Solana::Vault.ensure_program_id_live!(client: client)
-      pass.("PROGRAM_ID exists on RPC")
-    rescue Solana::Vault::StaleEnvError => e
-      fail.(e.message)
+    #
+    # THE TICK IS DRIVEN BY THE RETURN VALUE, NOT BY THE ABSENCE OF A RAISE.
+    # The guard fails OPEN by design (TokenPurchaseJob depends on that), so
+    # "it didn't raise" was never evidence the check ran — against a fully
+    # rejecting endpoint this printed "✓ PROGRAM_ID exists on RPC" one line
+    # below "getGenesisHash failed". `force: true` also stops a ≤5-minute-old
+    # cache entry from answering for the CURRENT endpoint; it replaces a
+    # `Rails.cache.delete_matched(...) rescue nil` whose bare rescue silently
+    # ate the NotImplementedError that stores like :null_store raise, leaving
+    # the stale entry — and the false tick — in place.
+    if client.nil?
+      fail.("PROGRAM_ID check did NOT run — no usable RPC client (see above)")
+    else
+      begin
+        case Solana::Vault.ensure_program_id_live!(client: client, force: true)
+        when :live
+          pass.("PROGRAM_ID exists on RPC")
+        else
+          fail.("PROGRAM_ID check did NOT run (unverified) — the RPC did not answer. " \
+                "This is NOT a pass; see the logged reason.")
+        end
+      rescue Solana::Vault::StaleEnvError => e
+        fail.(safe_error.(e))
+      end
     end
 
     # 4. EXPECTED_IDL_HASH alignment (production-only gate; surfaced in all envs

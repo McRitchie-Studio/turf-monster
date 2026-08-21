@@ -30,7 +30,7 @@ module Solana
     def self.verify!(signature:, instruction_name:, signer_pubkey: nil, writable_pubkey: nil, client: nil)
       raise VerificationError, "Transaction signature required" if signature.blank?
 
-      client ||= Solana::Client.new
+      client ||= Solana::Config.client
       tx_info = client.get_transaction(signature)
       raise VerificationError, "Transaction not found on-chain" unless tx_info
 

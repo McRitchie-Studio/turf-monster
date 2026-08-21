@@ -43,12 +43,17 @@ test("the badge casts a dark contact shadow onto the avatar", async ({ page }) =
   test.setTimeout(60_000);
   await signInWithBadge(page);
 
-  // FREEZE THE PAN FIRST. `reducedMotion: "reduce"` in playwright.config.js does
-  // NOT reach the page (see the note there), so .legendary-badge animates its
-  // gradient forever and a naive pixel diff of this disc differs every frame —
-  // which would make the comparison below pass no matter what the CSS does.
-  // emulateMedia genuinely flips the query, and the treatment's own
-  // prefers-reduced-motion rule stops the animation.
+  // FREEZE THE PAN FIRST. .legendary-badge animates its gradient forever, so a
+  // naive pixel diff of this disc differs every frame — which would make the
+  // comparison below pass no matter what the CSS does.
+  //
+  // This spec was written when `reducedMotion: "reduce"` in playwright.config.js
+  // did NOT reach the page. make-reduced-motion-reach-specs has since fixed that
+  // at the source (the bare `use.reducedMotion` key was inert; it is set through
+  // contextOptions now), so the page already loads with the pan stopped and the
+  // call below is belt-and-braces. It STAYS: this spec's entire result rests on
+  // the disc being still, and a precondition that load-bearing is worth stating
+  // where it is relied on rather than inherited from a config three files away.
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.waitForTimeout(500);
 

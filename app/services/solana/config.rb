@@ -18,20 +18,32 @@ module Solana
     # "https://api.devnet.solana.com")`. The bad combination is
     # NETWORK=mainnet-beta with the RPC unset: PROGRAM_ID and the mints resolve
     # to MAINNET values and are then pointed at a DEVNET endpoint. Balances read
-    # $0.00 against ATAs that exist on the other cluster, and anything submitted
-    # lands on devnet against a program ID that does not exist there.
+    # $0.00 against ATAs that live on the other cluster, and anything submitted
+    # lands on devnet against a program ID that does not exist there. That is the
+    # SHAPE of the harm the default allows — not what an unset var produces on
+    # this app today, because OPSEC-039 does catch that exact pair whenever the
+    # RPC answers (see below). What this raise buys is an UNCONDITIONAL refusal,
+    # earlier, naming the variable — not the only refusal.
     #
     # IS THIS REDUNDANT WITH OPSEC-039? No — it is additive, on three counts.
     # config/initializers/solana_network_alignment.rb does compare genesis
     # hashes and does catch that exact pair, but only when it runs and only when
     # the RPC answers:
-    #   1. It `rescue Solana::Client::RpcError` -> warn -> CONTINUES BOOT. The
-    #      client wraps Net::OpenTimeout / Net::ReadTimeout / ECONNRESET into
-    #      RpcError after its retries, and rate limits arrive the same way, so
-    #      an unreachable or throttled endpoint (which the public devnet URL
-    #      becomes under load) silences the one check meant to catch this.
+    #   1. Its probe `rescue StandardError` -> logs ERROR "alignment check
+    #      INCONCLUSIVE … continuing boot" -> CONTINUES BOOT, deliberately (see
+    #      survive-unauthorized-rpc-boot in that file). Only a DETERMINATE
+    #      mismatch is fatal, so every indeterminate outcome — timeout, refused
+    #      connection, DNS failure, 401/403, a rate limit (which the public
+    #      devnet URL earns under load), a non-JSON error page — silences the one
+    #      check meant to catch this. That rescue named `Solana::Client::RpcError`
+    #      when this paragraph was written; widening it made the fail-open window
+    #      WIDER, not narrower.
     #   2. An unknown NETWORK has no canonical genesis, so the guard logs
-    #      "skipping alignment check" and boots.
+    #      "skipping alignment check" and boots. On `turf-monster-mainnet` that
+    #      outcome is not reachable on its own: NETWORK also keys IDL_PATH, so an
+    #      unrecognized value selects the DEVNET IDL and the OPSEC-014 hash guard
+    #      — an earlier `after_initialize` — refuses boot first, as an opaque
+    #      hash diff rather than a named variable.
     #   3. `SOLANA_SKIP_NETWORK_CHECK=true` disables it wholesale — set during
     #      incident response and forgotten, it leaves nothing behind it.
     # And when it does fire it fires from `after_initialize`, AFTER eager load,
@@ -145,6 +157,74 @@ module Solana
     rescue URI::Error
       "***"
     end
+
+    # Log/terminal-safe rendering of an EXCEPTION MESSAGE — a sentence that may
+    # have a URL buried in it, which is a different problem from a bare URL.
+    #
+    # `redact_rpc_url` cannot do this job: fed a sentence, `URI.parse` raises and
+    # it returns "***", destroying the diagnostic. That mattered because two
+    # exception classes on the credential-rotation path embed the WHOLE endpoint
+    # in their message:
+    #
+    #   Solana::Client::InsecureRpcUrlError — the gem interpolates
+    #     `#{@rpc_url.inspect}` (a fat-fingered `http://` scheme is the most
+    #     likely operator error during a rotation, and it prints the key).
+    #   URI::InvalidURIError — quotes the offending URI back at you.
+    #
+    # Both were interpolated raw into the boot guard's ERROR line and into
+    # `solana:health` output, beside a second half that redacted correctly.
+    #
+    # Two passes, because neither alone is sufficient:
+    #   1. Every http(s)-ish substring goes through `redact_rpc_url`, so a URL
+    #      from ANY source (an upstream's error body, a redirect target) is
+    #      masked by the same rules the rest of the app uses.
+    #   2. The credential-bearing parts of the CONFIGURED endpoint are masked
+    #      literally. Pass 1 only fires on something that parses as a URL; a
+    #      mangled endpoint ("https:// host/?api-key=…", a stray newline) can
+    #      strand the key outside any parseable URL, and that is exactly the
+    #      malformed input this path exists to diagnose.
+    #
+    # `scrub` FIRST, for the same reason the boot guard does (see
+    # config/initializers/solana_network_alignment.rb): `gsub` on a string with
+    # invalid UTF-8 raises ArgumentError from inside the rescue clause that
+    # called it.
+    def self.redact_message(text, url: RPC_URL)
+      out = text.to_s.scrub("?")
+      out = out.gsub(%r{[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s"'<>\\]*}) { |match| redact_rpc_url(match) }
+      credential_fragments(url).each { |fragment| out = out.gsub(fragment, "***") }
+      out.gsub(/\s+/, " ").strip
+    end
+
+    # The secret-bearing substrings of a configured endpoint: userinfo, opaque
+    # path segments, and query VALUES. Only tokens long enough to be a
+    # credential (`opaque_token?`) — masking a short one would blank harmless
+    # words like "v2" everywhere they appear in a message.
+    def self.credential_fragments(url)
+      # RAW SCAN FIRST, and it is not a fallback — it is the load-bearing pass.
+      # The endpoint we are asked to redact is frequently the very thing that is
+      # MALFORMED (that is why an exception is being formatted at all), and
+      # `URI.parse` on a mangled endpoint raises, which would leave us with no
+      # fragments and the credential printed in full. Splitting on non-token
+      # characters finds the key whether or not the URL parses. Short segments
+      # ("https", "rpc", "v2") fail `opaque_token?` and stay legible.
+      fragments = url.to_s.split(/[^A-Za-z0-9_-]+/).select { |token| opaque_token?(token) }
+
+      uri = URI.parse(url.to_s)
+      # Split on ":" — "user:secret" as a whole never matches `opaque_token?`,
+      # so the password half would survive the filter below.
+      fragments.concat(uri.userinfo.split(":")) if uri.userinfo.present?
+      fragments.concat(uri.path.to_s.split("/").select { |segment| opaque_token?(segment) })
+      if uri.query.present?
+        fragments.concat(
+          uri.query.split("&").filter_map { |pair| pair.split("=", 2)[1].presence }
+        )
+      end
+      fragments.select { |fragment| opaque_token?(fragment) }.uniq
+    rescue URI::Error
+      # A malformed endpoint — exactly the case above. The raw scan already ran.
+      fragments.select { |fragment| opaque_token?(fragment) }.uniq
+    end
+    private_class_method :credential_fragments
 
     # The RPC endpoint handed to the BROWSER.
     #
@@ -327,6 +407,42 @@ module Solana
       segment.to_s.length >= OPAQUE_TOKEN_MIN_LENGTH && segment.match?(/\A[A-Za-z0-9_-]+\z/)
     end
     private_class_method :opaque_token?
+
+    # ------------------------------------------------------------------
+    # THE ONLY SANCTIONED WAY TO BUILD A SERVER-SIDE Solana::Client.
+    # ------------------------------------------------------------------
+    #
+    # THE BUG THIS CLOSES (route-solana-clients-through-config). Six call
+    # sites wrote `Solana::Client.new` with no argument. The gem's own
+    # initializer then resolves the endpoint itself:
+    #
+    #   @rpc_url = rpc_url || ENV.fetch("SOLANA_RPC_URL", DEFAULT_RPC_URL)
+    #
+    # — and `DEFAULT_RPC_URL` is the PUBLIC DEVNET endpoint. So every guard
+    # this module owns was skipped on those paths:
+    #
+    #   * OPSEC-012's production-required raise. `RPC_URL` above refuses to
+    #     resolve at all when SOLANA_RPC_URL is unset in production; the gem
+    #     FAILS OPEN to devnet instead. The two disagree in the exact
+    #     direction that hurts — a mainnet app whose RPC var went missing
+    #     keeps serving, silently reading and writing against devnet, with
+    #     mainnet PROGRAM_ID and mainnet mints.
+    #   * The public/credentialed split and `redact_rpc_url` (PR 390). A
+    #     client the module never handed out is outside the decision about
+    #     which endpoint is safe and how it is rendered in logs.
+    #
+    # Passing `rpc_url:` explicitly is still legitimate — the network-alignment
+    # initializer and the health rake both do it — but the value has to come
+    # from THIS module. `test/services/solana/client_routed_through_config_test.rb`
+    # enforces both halves of that rule against the source tree, because the
+    # `.erb` / `app/javascript` ban PR 390 added does not reach Ruby.
+    #
+    # NOT a memoized singleton: `Solana::Client` holds a parsed URI and a
+    # request counter, is used from Sidekiq workers and web threads alike, and
+    # is cheap to build. Per-call construction keeps the previous lifetime.
+    def self.client(rpc_url: RPC_URL)
+      Solana::Client.new(rpc_url: rpc_url)
+    end
 
     def self.devnet?
       NETWORK == "devnet"
