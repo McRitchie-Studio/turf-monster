@@ -495,6 +495,16 @@ export function eligibilityBlocker(session, neededCents, opts) {
     return { reason: 'no_funding', mode: 'web2', data: {} };
   }
   if (session.mode === 'web3') {
+    // ENTRY TOKEN first — the same priority the web2 branch above applies, and
+    // the same order the server now follows for Phantom (ContestsController#
+    // prepare_entry builds enter_contest_with_token when this wallet holds an
+    // unconsumed token, else the currency transfer). Before that wiring existed
+    // this check could NOT live here: a token-holding wallet with no USDC would
+    // have been waved past the blocker into an entry that charged USDC it did
+    // not have. Now the token IS the funding, so a balance of zero is no reason
+    // to block.
+    if ((session.tokensAvailable | 0) >= 1) return null;
+
     // Fail open when balances are unknown — the server-side enter is the
     // authoritative gate. preload_navbar_solana_data's balances_thread
     // returns nil on RPC flake, which client_session_payload now emits

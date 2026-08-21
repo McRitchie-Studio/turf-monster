@@ -1086,6 +1086,75 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_equal @user.web3_solana_address, ptx.initiator_address
   end
 
+  # --- prepare_entry funding priority (Phantom spends a token, 2026-08-21) -----
+  #
+  # Until this task the Phantom path went straight to the currency transfer, so a
+  # wallet holding an entry token was charged USDC anyway and the token sat
+  # unspent — while the board's CTA told that user the entry was free. These pin
+  # the priority the web2 path has always had: token first, transfer otherwise.
+
+  test "prepare_entry spends an entry token the Phantom wallet holds" do
+    @user.update!(web3_solana_address: "Web3TokenPrep#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_token_prep", season_id: 1)
+    SeasonConfig.set_current!(1)
+
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
+
+    vault = FakeVault.new(tokens: [{ pda: "tpda_web3_1", consumed: false }])
+    Solana::Vault.stub :new, vault do
+      post prepare_entry_contest_path(@contest), as: :json
+    end
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert body["token_funded"], "the response must tell the client this entry is token-funded"
+
+    built = vault.enter_calls.last
+    assert_equal :build_enter_contest_with_token, built[:method],
+                 "a token-holding wallet must build the token instruction, not the transfer"
+    assert_equal "tpda_web3_1", built[:entry_token_pda]
+
+    # No ATA is created for a token entry — there is no transfer to fund.
+    assert_empty vault.ensure_ata_calls,
+                 "the token path moves no SPL, so it must not create a currency ATA"
+
+    # The server's own record of what it prepared. The cosign guard and the
+    # broadcast verification both read this back instead of trusting the client.
+    ptx  = PendingTransaction.find_by(slug: body["ptx_slug"])
+    meta = JSON.parse(ptx.metadata)
+    assert_equal "token", meta["funding"]
+    assert_equal "tpda_web3_1", meta["entry_token_pda"]
+  end
+
+  test "prepare_entry falls back to the currency transfer when the wallet holds no token" do
+    @user.update!(web3_solana_address: "Web3NoTokenPrep#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_notoken_prep", season_id: 1)
+    SeasonConfig.set_current!(1)
+
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
+
+    vault = FakeVault.new(tokens: [{ pda: "tpda_spent", consumed: true }])
+    Solana::Vault.stub :new, vault do
+      post prepare_entry_contest_path(@contest), as: :json
+    end
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_not body["token_funded"], "a CONSUMED token must not read as funding"
+
+    built = vault.enter_calls.last
+    assert_equal :build_enter_contest, built[:method]
+
+    ptx  = PendingTransaction.find_by(slug: body["ptx_slug"])
+    meta = JSON.parse(ptx.metadata)
+    assert_equal "transfer", meta["funding"]
+    assert_nil meta["entry_token_pda"]
+  end
+
   test "prepare_entry rejects an on-chain contest pinned to an unavailable season before signing" do
     @user.update!(web3_solana_address: "Web3PrepBadSeason#{SecureRandom.hex(4)}")
     @contest.update!(onchain_contest_id: "onchain_bad_season", season_id: 7)
@@ -1284,6 +1353,87 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     ptx.reload
     assert_equal "confirmed", ptx.status
     assert_equal "fake-cosign-broadcast-sig", ptx.tx_signature
+  end
+
+  # --- confirm_onchain_entry funding expectations (2026-08-21) -----------------
+  #
+  # The funding is decided at prepare time and recorded on the PendingTransaction.
+  # Confirm must read its OWN note back — never the request — because that single
+  # fact drives two locks: which instruction the admin will cosign, and which
+  # instruction the broadcast has to prove. Verifying the wrong name would accept
+  # a signature that never moved the funding this entry was priced with.
+
+  def setup_web3_confirm_entry(address_prefix:, metadata:)
+    @user.update!(web3_solana_address: "#{address_prefix}#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_conf_funding", season_id: 1)
+    SeasonConfig.set_current!(1)
+
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: @user, status: :cart, entry_number: 0)
+    [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
+
+    expected_pda = "epda-#{@contest.slug}-#{@user.web3_solana_address[0, 4]}-0"
+    PendingTransaction.create!(
+      tx_type: "enter_contest", serialized_tx: "stx", status: "pending",
+      target: entry, initiator_address: @user.web3_solana_address,
+      metadata: { entry_pda: expected_pda }.merge(metadata).to_json
+    )
+    [entry, expected_pda]
+  end
+
+  test "confirm_onchain_entry cosigns and verifies the TOKEN instruction it prepared" do
+    entry, expected_pda = setup_web3_confirm_entry(
+      address_prefix: "Web3ConfToken",
+      metadata: { funding: "token", entry_token_pda: "tpda_web3_1" }
+    )
+
+    vault    = FakeVault.new
+    verified = []
+    Solana::Vault.stub :new, vault do
+      Solana::Keypair.stub :encode_base58, ->(v) { v.is_a?(String) ? v : v.to_s } do
+        Solana::TxVerifier.stub :verify!, ->(**kw) { verified << kw; true } do
+          post confirm_onchain_entry_contest_path(@contest),
+            params: { signed_tx: "PHANTOM_SIGNED_TOKEN_WIRE", entry_id: entry.id, entry_pda: expected_pda },
+            as: :json
+        end
+      end
+    end
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert body["success"]
+    assert body["token_consumed"], "a token-funded entry must report the consume (navbar badge punch)"
+
+    # The guard was handed the SERVER's decision, not a client value.
+    assert_equal "tpda_web3_1", vault.cosign_safe_calls.first[:entry_token_pda]
+    assert_equal "enter_contest_with_token", verified.first[:instruction_name]
+    assert entry.reload.active?
+  end
+
+  test "confirm_onchain_entry expects the TRANSFER instruction when no token was prepared" do
+    entry, expected_pda = setup_web3_confirm_entry(
+      address_prefix: "Web3ConfTransfer",
+      metadata: {}   # a row from before this task carries no funding key at all
+    )
+
+    vault    = FakeVault.new
+    verified = []
+    Solana::Vault.stub :new, vault do
+      Solana::Keypair.stub :encode_base58, ->(v) { v.is_a?(String) ? v : v.to_s } do
+        Solana::TxVerifier.stub :verify!, ->(**kw) { verified << kw; true } do
+          post confirm_onchain_entry_contest_path(@contest),
+            params: { signed_tx: "PHANTOM_SIGNED_USDC_WIRE", entry_id: entry.id, entry_pda: expected_pda },
+            as: :json
+        end
+      end
+    end
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_not body["token_consumed"]
+    assert_nil vault.cosign_safe_calls.first[:entry_token_pda],
+               "with no prepared token the guard must admit ONLY enter_contest"
+    assert_equal "enter_contest", verified.first[:instruction_name]
   end
 
   test "confirm_onchain_entry rejects a mismatched client-supplied entry_pda" do

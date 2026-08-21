@@ -15,12 +15,14 @@
   # It NAMES the funding, it does not choose it — ContestsController#enter stays
   # authoritative (token first, then balance).
   #
-  # WEB3 TODAY: only the managed (web2) path consumes a token
-  # (ContestsController#resolve_web2_entry_funding!) — a Phantom entry still
-  # transfers USDC even when that wallet holds a token, because
-  # Solana::Vault#build_enter_contest_with_token has no caller yet. The label
-  # follows the WALLET'S TOKEN for both modes by operator call (2026-08-20), and
-  # becomes true for web3 the day that instruction is wired.
+  # BOTH MODES, AND TRUE IN BOTH. The label follows the wallet's token with no
+  # mode test because BOTH entry paths now spend one: the managed path through
+  # ContestsController#resolve_web2_entry_funding!, and the Phantom path through
+  # #prepare_entry, which builds enter_contest_with_token when the signing wallet
+  # holds an unconsumed token. It shipped mode-blind one review earlier while the
+  # Phantom path still charged USDC, and Carl blocked it for exactly that — the
+  # copy claimed a price the code did not honour. The fix was to make the code
+  # true rather than the copy narrower (operator call, 2026-08-21).
   hold_cta_label = tag.span("x-text": "$store.session.tokensAvailable >= 1 ? 'Hold for Free Entry' : 'Hold to Confirm'")
   source_entry = edit_entry || @cart_entry
 

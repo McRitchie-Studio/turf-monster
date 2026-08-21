@@ -13,22 +13,51 @@ require "test_helper"
 # entry of the same page view.
 #
 # Alpine evaluates the binding in the browser, so what this tier owns is that the
-# binding SHIPS on BOTH buttons and that no baked label ships beside it. The live
-# swap is a tracked Playwright gap — the same precedent as the hold-window funding
-# pre-check assertions in wallet_topup_test.rb.
+# binding SHIPS on BOTH buttons, reads the token count, and carries no mode gate.
+# The live swap between the two copies is asserted in a real browser by
+# e2e/free_entry_web3.spec.js.
+#
+# ASSERTED SEMANTICALLY, NOT VERBATIM. An earlier version of this file pinned the
+# whole expression as one string, which quietly made the test a mirror of
+# whatever guard shipped — it agreed with the code by construction and could not
+# have caught the guard being wrong (Carl, PR #386). Each clause is asserted for
+# what it MEANS instead.
 class HoldFreeEntryLabelTest < ActionDispatch::IntegrationTest
-  # The attribute as it lands in the response: Rails escapes the expression into
-  # the double-quoted attribute, and the browser hands Alpine back the original.
-  BOUND_LABEL = "x-text=\"$store.session.tokensAvailable &gt;= 1 ? " \
-                "&#39;Hold for Free Entry&#39; : &#39;Hold to Confirm&#39;\"".freeze
+  # The first <li> of each .hold-btn is the idle label — the engine's hold_button
+  # renders default_text there (studio/_hold_button).
+  BINDINGS = /<li><span x-text="([^"]*)"><\/span><\/li>/
 
-  test "both board hold buttons bind their label to the entry-token count" do
+  def board_label_bindings
     get contest_path(contests(:one))
     assert_response :success
+    response.body.scan(BINDINGS).flatten
+  end
 
-    assert_equal 2, response.body.scan(BOUND_LABEL).size,
+  test "both board hold buttons bind their label to the entry-token count" do
+    bindings = board_label_bindings
+
+    assert_equal 2, bindings.size,
                  "the desktop + mobile board hold buttons must BOTH bind the CTA label — " \
                  "one bound and one baked is the regression a single assert_includes misses"
+    bindings.each_with_index do |b, i|
+      assert_includes b, "$store.session.tokensAvailable",
+                      "button ##{i + 1} must read the live token count"
+      assert_includes b, "Hold for Free Entry", "button ##{i + 1} must offer the free-entry copy"
+      assert_includes b, "Hold to Confirm",     "button ##{i + 1} must fall back to the default copy"
+    end
+  end
+
+  # Acceptance criterion 2 — "shown whenever the wallet holds an unconsumed entry
+  # token". WHENEVER is the whole claim: no mode test. Both entry paths spend a
+  # token now (managed via #resolve_web2_entry_funding!, Phantom via
+  # #prepare_entry), so narrowing this back to one mode would make the CTA lie to
+  # the other — which is exactly the direction this task was blocked over. If that
+  # narrowing is ever deliberate, the criterion moves first and this test with it.
+  test "the label is not gated on the session mode" do
+    board_label_bindings.each_with_index do |b, i|
+      assert_no_match(/isWeb2|isWeb3|\.mode\b/, b,
+                      "button ##{i + 1} must show the free-entry copy for ANY wallet holding a token")
+    end
   end
 
   test "the board ships no baked Hold to Confirm label beside the binding" do

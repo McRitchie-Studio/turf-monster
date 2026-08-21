@@ -2016,6 +2016,15 @@ module Solana
     # 2 user_account, 3 vault_state, 4 contest, 5 contest_entry.
     ENTER_CONTEST_ENTRY_PDA_POSITION = 5
 
+    # Position of the entry_token (EntryTokenAccount PDA) inside the
+    # enter_contest_with_token instruction — see #build_enter_contest_with_token:
+    # 0 payer, 1 user, 2 user_account, 3 vault_state, 4 contest, 5 contest_entry,
+    # 6 entry_token. contest_entry sits at 5 in BOTH entry instructions, which is
+    # why ENTER_CONTEST_ENTRY_PDA_POSITION serves both; the guard's own tests pin
+    # that, so an account-order change fails loudly rather than validating the
+    # wrong slot.
+    ENTER_CONTEST_WITH_TOKEN_TOKEN_PDA_POSITION = 6
+
     # SystemInstruction::AdvanceNonceAccount discriminant (u32 LE 4). The ONLY
     # System instruction permitted in a cosignable entry — see SystemProgram
     # .advance_nonce_account in solana-studio.
@@ -2049,7 +2058,14 @@ module Solana
     #
     # Raises UnsafeCosignError (logged server-side via #cosign_reject!) on the
     # first failure. Returns true when the wire is safe to cosign + broadcast.
-    def assert_entry_cosign_safe!(signed_wire_base64, entry:, wallet_address:)
+    # `entry_token_pda:` — the EntryTokenAccount this entry was PREPARED against
+    # (base58), or nil for the USDC/USDT entry. It is what the SERVER chose in
+    # #prepare_entry, never anything the wire claims, and it selects which single
+    # instruction may be cosigned: with a token PDA only enter_contest_with_token
+    # bound to THAT account, without one only enter_contest. Each expectation
+    # admits exactly one discriminator, so a client cannot swap a paid entry for
+    # a token consume — or spend a token the server never picked — after the fact.
+    def assert_entry_cosign_safe!(signed_wire_base64, entry:, wallet_address:, entry_token_pda: nil)
       cosign_reject!(entry, wallet_address, "empty_wire: no signed_tx bytes") if signed_wire_base64.blank?
 
       msg =
@@ -2078,7 +2094,10 @@ module Solana
       end
       expected_entry_pda = entry_pda(entry.contest.slug, wallet_address, entry_num).first.b
 
-      enter_disc       = Transaction.anchor_discriminator("enter_contest").b
+      token_funded       = entry_token_pda.present?
+      expected_ix_name   = token_funded ? "enter_contest_with_token" : "enter_contest"
+      enter_disc         = Transaction.anchor_discriminator(expected_ix_name).b
+      expected_token_pda = token_funded ? Keypair.decode_base58(entry_token_pda).b : nil
       turf_vault       = @program_id.b
       system_program   = Transaction::SYSTEM_PROGRAM_ID.b   # 32 zero bytes
       compute_budget   = COMPUTE_BUDGET_PROGRAM_ID.b
@@ -2095,10 +2114,10 @@ module Solana
 
         case program_id
         when turf_vault
-          # (2) Only enter_contest, bound to THIS entry's PDA.
+          # (2) Only the PREPARED entry instruction, bound to THIS entry's PDA.
           unless ix[:data].byteslice(0, 8) == enter_disc
             cosign_reject!(entry, wallet_address,
-              "wrong_turf_vault_ix: ix #{i} disc=#{ix[:data].byteslice(0, 8).to_s.unpack1('H*')} != enter_contest")
+              "wrong_turf_vault_ix: ix #{i} disc=#{ix[:data].byteslice(0, 8).to_s.unpack1('H*')} != #{expected_ix_name}")
           end
           enter_count += 1
           slot = ix[:account_indices][ENTER_CONTEST_ENTRY_PDA_POSITION]
@@ -2106,6 +2125,19 @@ module Solana
           if ix_entry_pda != expected_entry_pda
             cosign_reject!(entry, wallet_address,
               "entry_pda_mismatch: ix #{i} entry account=#{b58(ix_entry_pda)} expected=#{b58(expected_entry_pda)}")
+          end
+          # (2b) Token-funded entry: the consume must hit the EXACT EntryTokenAccount
+          # the server picked. The program already refuses a token whose owner is not
+          # the signer, so this is the second lock rather than the only one — it stops
+          # a wire that swaps in a DIFFERENT token this same wallet owns (spending a
+          # voucher the server never selected, and never accounted for).
+          if token_funded
+            token_slot   = ix[:account_indices][ENTER_CONTEST_WITH_TOKEN_TOKEN_PDA_POSITION]
+            ix_token_pda = token_slot && account_keys[token_slot]
+            if ix_token_pda != expected_token_pda
+              cosign_reject!(entry, wallet_address,
+                "entry_token_pda_mismatch: ix #{i} token account=#{b58(ix_token_pda)} expected=#{b58(expected_token_pda)}")
+            end
           end
         when system_program
           # (3) Only the durable-nonce advance, targeting the configured nonce.
@@ -2136,7 +2168,7 @@ module Solana
       end
 
       unless enter_count == 1
-        cosign_reject!(entry, wallet_address, "enter_contest_count: found #{enter_count} enter_contest ixs, require exactly 1")
+        cosign_reject!(entry, wallet_address, "enter_contest_count: found #{enter_count} #{expected_ix_name} ixs, require exactly 1")
       end
 
       true

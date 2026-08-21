@@ -300,9 +300,13 @@ after_update_commit :broadcast_removal, if: :saved_change_to_hidden_at?
 
 **Scroll fade**: Message list container uses `-webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5rem), transparent)` to soften the bottom edge.
 
-## Entry Tokens (Web2 flow)
+## Entry Tokens
 
-Entry tokens are on-chain `EntryTokenAccount` PDAs minted via Stripe Checkout. The Web2 path lets users with no USDC enter contests by buying tokens with a card.
+Entry tokens are on-chain `EntryTokenAccount` PDAs minted via Stripe Checkout. Buying tokens with a card lets a user with no USDC enter contests.
+
+**Both wallet modes spend them** (2026-08-21). The BUY flow below is the managed/web2 one, and so is `ContestsController#enter` → `Vault#enter_contest_with_token`. The Phantom path reaches the same instruction from the other side: `#prepare_entry` builds `enter_contest_with_token` when the signing wallet holds an unconsumed token — the wallet itself signs the consume — and `#confirm_onchain_entry` cosigns and verifies against the token PDA the server recorded on the `PendingTransaction`. Before that wiring a Phantom wallet holding a token was still charged USDC, which is what made the board's "Hold for Free Entry" copy false for web3 (PR #386).
+
+**The board CTA reads this rail.** `contests/_turf_totals_board` binds the hold button's idle label to `$store.session.tokensAvailable`: a wallet holding a token reads "Hold for Free Entry", any other state reads "Hold to Confirm". It NAMES the funding; the server chooses it.
 
 **Full flow**:
 
