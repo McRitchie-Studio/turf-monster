@@ -77,15 +77,24 @@ module ContestsHelper
   # mid-glyph rather than ellipsised. It also overflows the md two-column box
   # (223px) and only clears at 1024px+.
   #
-  # So the name carries a budget. 14 characters is where the real corpus splits:
-  # the longest genuine team name is "United States" (13), while everything above
-  # is a World Cup bracket placeholder ("Winner Match 102", "Runner-up Match 101")
-  # or "Bosnia and Herzegovina" (22) — all of which read badly in this sentence
-  # anyway. Over budget falls back to the team's short_name ("BIH"), then to the
-  # generic line. Pinned by a MEASURED check at 375px in
-  # e2e/quest_chat_prompts.spec.js — the character count is a proxy, the pixel
-  # measurement is the fact.
-  CHAT_PROMPT_NAME_BUDGET = 14
+  # So the name carries a budget — and 10, not the 14 a single measurement first
+  # suggested. THE CONTENT BOX IS NOT THE SAME WIDTH EVERYWHERE: 206px measured
+  # in Chrome on macOS, but 183px on the Linux CI runner, whose classic scrollbar
+  # takes real width where macOS overlay scrollbars take none. A budget tuned to
+  # the roomier box shipped a line that overflowed on the narrower one — CI caught
+  # "United States light it up ✈️" at 187.0px in a 183.0px box. 10 is the widest
+  # REAL name that clears the narrow box with margin ("Commanders", "Buccaneers",
+  # "Uzbekistan"); the 11-13 character names are all countries with clean
+  # three-letter short_names ("United States" -> "USA"), which read well here.
+  # Above that lies "Bosnia and Herzegovina" (22) and the World Cup bracket
+  # placeholders ("Runner-up Match 101"), which read badly in this sentence
+  # anyway. Over budget falls back to short_name, then to the generic line.
+  #
+  # The character count is only a PROXY. The fact is the pixel measurement in
+  # e2e/quest_chat_prompts.spec.js, which measures wherever it runs — that is
+  # what found the environment difference, and it is what must stay authoritative
+  # if this number is ever raised again.
+  CHAT_PROMPT_NAME_BUDGET = 10
 
   # Where the personal line goes when no team can be resolved (a contest with no
   # slate — World Cup Survivor — or a slate with no priced matchups). Keeps the

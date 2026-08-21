@@ -144,11 +144,28 @@ class ContestsHelperTest < ActionView::TestCase
     assert_equal ContestsHelper::CHAT_PROMPT_NO_TEAM, chat_prompt_samples(@contest, @owner).last
   end
 
-  # The budget is a character proxy for a pixel constraint, so pin the number
-  # itself: 14 keeps every real team name (longest: "United States", 13) and
-  # drops the World Cup bracket placeholders ("Runner-up Match 101", 19).
-  test "the name budget admits real team names and drops bracket placeholders" do
-    assert_operator "United States".length, :<=, ContestsHelper::CHAT_PROMPT_NAME_BUDGET
+  # The budget is a character PROXY for a pixel constraint whose true value is
+  # measured in e2e/quest_chat_prompts.spec.js. This pins the two together: the
+  # worst-case names that spec measures must actually be names the budget admits,
+  # or the spec is measuring lines the helper would never build.
+  #
+  # It also records what the number costs. At 10, the 11-13 character names are
+  # all countries carrying clean three-letter short_names, and the bracket
+  # placeholders are excluded outright.
+  LONGEST_BUDGETED_NAMES = ["Commanders", "Buccaneers", "Uzbekistan", "Cape Verde", "Cardinals"].freeze
+
+  test "the e2e width spec measures names the budget actually admits" do
+    LONGEST_BUDGETED_NAMES.each do |name|
+      assert_operator name.length, :<=, ContestsHelper::CHAT_PROMPT_NAME_BUDGET,
+                      "#{name} is in the e2e spec's worst-case list but the budget would replace it"
+    end
+    # And the spec's list must stay at the TOP of the budget, or it stops being a
+    # worst case and the measurement goes slack.
+    assert_equal ContestsHelper::CHAT_PROMPT_NAME_BUDGET, LONGEST_BUDGETED_NAMES.map(&:length).max
+  end
+
+  test "the name budget drops long country names and bracket placeholders" do
+    assert_operator "United States".length, :>, ContestsHelper::CHAT_PROMPT_NAME_BUDGET
     assert_operator "Runner-up Match 101".length, :>, ContestsHelper::CHAT_PROMPT_NAME_BUDGET
   end
 

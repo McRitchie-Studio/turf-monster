@@ -77,16 +77,23 @@ test("the rested placeholder survives another quest-chat-active ping", async ({ 
   expect(after).not.toBe("");
 });
 
-// The longest REAL team names that survive the helper's 14-character budget
-// (contests_helper#CHAT_PROMPT_NAME_BUDGET). Anything longer — "Bosnia and
-// Herzegovina", the World Cup bracket placeholders — is replaced by short_name
-// before it reaches the composer, so these are the genuine worst case.
+// The longest REAL team names that survive the helper's name budget
+// (contests_helper#CHAT_PROMPT_NAME_BUDGET, 10). Anything longer is replaced by
+// short_name before it reaches the composer, so these are the genuine worst case.
+// test/helpers/contests_helper_test.rb asserts this exact list stays within the
+// budget, so the two cannot drift apart silently.
 //
 // They are listed HERE, rather than left to whatever team the seed happens to
 // pick, because the seeded entrant draws "Jets" — four characters. A width test
 // measuring only the rendered line passes on copy that overflows for every other
 // team in the league, which is precisely the kind of test that does not bite.
-const LONGEST_BUDGETED_NAMES = ["United States", "South Africa", "Saudi Arabia", "Commanders", "Buccaneers"];
+//
+// This list previously ran to 13 characters ("United States"), which fit the
+// 206px box on macOS and FAILED at 187.0px in the CI runner's 183px box. The
+// box width is environment-dependent — Linux reserves real scrollbar width where
+// macOS overlays it — so measure where you run and never port a budget between
+// machines.
+const LONGEST_BUDGETED_NAMES = ["Commanders", "Buccaneers", "Uzbekistan", "Cape Verde", "Cardinals"];
 
 test("the rest line fits the composer at 375px", async ({ page }) => {
   test.setTimeout(90_000);
