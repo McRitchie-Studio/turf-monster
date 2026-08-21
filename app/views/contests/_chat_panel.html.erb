@@ -6,6 +6,14 @@
     viewer, so visibility is driven by this container class. %>
 <% messages = Message.recent_for(contest) %>
 <% can_post = logged_in? && contest.chat_enabled? && contest.chat_participant?(current_user) %>
+<%# Quest 2 typewriter deck (contests_helper#chat_prompt_samples). Gated on
+    @quest_step, which contests#show sets only for an entrant — because the ONLY
+    thing that dispatches quest-chat-active is the quest card, and contests#live
+    renders no quest card. Without the gate, #live paid for the helper's fallback
+    query on every render to build a deck nothing could ever play.
+    @my_active_entries (also #show-only) preloads selections -> matchup -> team,
+    so the helper's own query never runs on the page that has one. %>
+<% chat_prompts = can_post && @quest_step.present? ? chat_prompt_samples(contest, current_user, entries: @my_active_entries) : [] %>
 
 <%# .chat-admin*, .chat-message-in, .chat-kbd, .chat-live-ping, .chat-scroll-fade
     + their @keyframes live in app/assets/tailwind/application.css (migrated 2026-05-24). %>
@@ -26,8 +34,9 @@
 <div class="flex flex-col <%= 'chat-admin' if current_user&.admin? %> <%= 'chat-can-react' if can_post %>"
      style="height: 32rem;"
      x-data="contestChat(<%= messages.empty? %>)"
-     @quest-chat-active.window="pulse()"
+     @quest-chat-active.window="questChatActive()"
      data-post-url="<%= contest_messages_path(contest) %>"
+     data-chat-prompts="<%= chat_prompts.to_json %>"
      data-can-react="<%= can_post %>">
   <%= turbo_stream_from contest, :messages %>
 
@@ -55,10 +64,17 @@
       <p class="text-sm text-muted text-center py-1">Enter the contest to join the chat.</p>
     <% else %>
       <form class="flex items-center gap-2" @submit.prevent="send()">
+        <%# Quest 2: .chat-input-glow while the "Send Your First Message" mission
+            is live, and the placeholder types itself through chat_prompts. Both
+            are bound (not static) so they retire the moment the quest completes
+            — see questChatActive()/startPrompts() below. %>
         <textarea x-model="body" x-ref="input" id="contest-chat-input" rows="1" maxlength="<%= Message::BODY_MAX_LENGTH %>"
+                  :placeholder="typing ? typed : 'Message the contest…'"
                   placeholder="Message the contest…"
+                  aria-label="Message the contest"
+                  :class="{ 'chat-input-glow': questGlow }"
                   @keydown.enter="if ($event.metaKey || $event.ctrlKey) { $event.preventDefault(); send(); }"
-                  class="flex-1 h-10 resize-none rounded-lg bg-surface-alt border border-subtle px-3 py-2 text-sm text-body placeholder:text-muted focus:outline-none focus:border-primary"></textarea>
+                  class="chat-composer flex-1 h-10 resize-none rounded-lg bg-surface-alt border border-subtle px-3 py-2 text-sm text-body placeholder:text-muted focus:outline-none focus:border-primary"></textarea>
         <button type="submit" :disabled="sending || !body.trim()"
                 :class="{ 'opacity-50 cursor-not-allowed': sending || !body.trim() }"
                 class="btn btn-primary btn-sm flex-shrink-0 inline-flex items-center gap-2 h-10">
@@ -110,6 +126,34 @@
       body: '',
       sending: false,
       empty: isEmpty,
+      // Quest 2 ("Send Your First Message") nudge state. questGlow drives the
+      // .chat-input-glow halo on the composer; `typed` is the placeholder the
+      // typewriter is part-way through and falls back to the static prompt
+      // whenever it is empty. Both live only while the mission is unfinished.
+      questGlow: false,
+      typed: '',
+      // `typing` gates the placeholder, not `typed` — between two lines the
+      // typed text is legitimately empty, and falling back on emptiness flashed
+      // "Message the contest…" for 400ms every cycle.
+      typing: false,
+      _prompts: [],
+      _promptIdx: 0,
+      _promptN: 0,
+      _promptPhase: 'type',
+      _promptTimer: null,
+      _promptsOff: false,
+      // Rest is TERMINAL, and it needs its own flag. The guard used to key off
+      // _promptTimer, which _promptStep() nulls when it rests — so a rested
+      // component read as idle and any second quest-chat-active re-entered the
+      // machine at phase 'hold', erased the rested line, walked _promptIdx past
+      // the end of the deck and rested on undefined. That left typed = '' with
+      // typing = true: a permanently EMPTY placeholder. Reachable by an ordinary
+      // click, since contests/_quest_chat puts @click="focusChat()" on the whole
+      // card and focusChat() dispatches quest-chat-active.
+      _promptsRested: false,
+      // The mission is over (first message sent). Latches so a stray ping can
+      // never re-arm the glow on a finished quest.
+      _questOver: false,
       // ⌘+Enter on Mac, Ctrl+Enter elsewhere — drives the Send-button hint.
       isMac: /Mac/i.test(navigator.platform || navigator.userAgent || ''),
       init() {
@@ -117,6 +161,13 @@
         // preventScroll keeps the page from jumping down to the chat; on
         // mobile the panel sits in a hidden tab, so focus() no-ops there.
         this.$nextTick(() => { this.$refs.input?.focus({ preventScroll: true }); });
+
+        // The typewriter deck, rendered per-viewer by chat_prompt_samples.
+        try { this._prompts = JSON.parse(this.$root.dataset.chatPrompts || '[]'); } catch (e) { this._prompts = []; }
+
+        // Typing anything at all retires the demo prompts for good — they have
+        // done their job, and a line cycling behind real text is just noise.
+        this.$watch('body', (v) => { if (v) { this.stopPrompts(); } });
 
         // Who am I + can I react — read once for the client-side "reacted"
         // highlight and the participant gate (the server is the real gate).
@@ -184,6 +235,12 @@
           var data = await resp.json().catch(() => ({}));
           if (resp.ok && data.ok) {
             this.body = '';
+            // The message landed, so the nudge has done its job — retire BOTH
+            // cues here rather than inside the seeds branch below. A first
+            // message that earns no bonus is still a first message, and leaving
+            // the glow pulsing at someone who just posted is the edge that
+            // acceptance criterion 5 ("stop after first message sends") means.
+            this.questDone();
             // First-message quest bonus: MessagesController#create returns the
             // seeds payload only on the user's first-ever contest-chat message.
             // Flip the quest arrow to a checkmark, fire the seeds tick-up, and
@@ -205,6 +262,93 @@
           this.sending = false;
         }
       },
+      // The quest card landed on (or advanced to) the chat mission. One event
+      // drives all three nudges: the panel pop, the composer's glow, and the
+      // typed sample messages.
+      questChatActive() {
+        if (this._questOver) return; // finished mission — never re-arm the cues
+        this.pulse();
+        this.questGlow = true;
+        this.startPrompts();
+      },
+
+      // First message landed and earned its seeds — the composer goes back to
+      // being an ordinary composer.
+      questDone() {
+        this._questOver = true;
+        this.questGlow = false;
+        this.stopPrompts();
+      },
+
+      startPrompts() {
+        if (this._promptsOff || this._promptsRested || this._promptTimer || !this._prompts.length) return;
+        // Reduced motion keeps the plain placeholder. Nothing MOVES here, but a
+        // string rewriting itself character by character is animation all the
+        // same, and it sits under a caret the reader is trying to type into.
+        if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        this.typing = true;
+        this._promptStep();
+      },
+
+      stopPrompts() {
+        this._promptsOff = true;
+        this.typing = false;
+        clearTimeout(this._promptTimer);
+        this._promptTimer = null;
+        this.typed = '';
+      },
+
+      // One frame of the typewriter: type out -> hold -> erase -> next line,
+      // and REST on the last line of the deck instead of looping. The deck is
+      // sized to the number of passes worth showing (chat_prompt_samples), so
+      // the final line simply stays put as the placeholder from then on.
+      //
+      // Steps over CODE POINTS (Array.from), never string indexes — slicing
+      // mid-emoji leaves a lone surrogate, which paints as a replacement box
+      // for a frame on every ✅ / 🔥 / 👋 in the deck.
+      _promptStep() {
+        var chars = Array.from(this._prompts[this._promptIdx] || '');
+        var rest = false;
+        var delay;
+        if (this._promptPhase === 'type') {
+          this._promptN++;
+          if (this._promptN >= chars.length) {
+            rest = this._promptIdx >= this._prompts.length - 1;
+            this._promptPhase = 'hold';
+            delay = 1800;
+            if (rest) { this._promptsRested = true; }
+          } else {
+            delay = 55;
+          }
+        } else if (this._promptPhase === 'hold') {
+          this._promptPhase = 'erase';
+          delay = 30;
+        } else {
+          this._promptN--;
+          if (this._promptN <= 0) {
+            this._promptN = 0;
+            // Never step past the last line — rest is the only way out of the
+            // deck, and indexing past it is what produced the empty placeholder.
+            this._promptIdx = Math.min(this._promptIdx + 1, this._prompts.length - 1);
+            this._promptPhase = 'type';
+            delay = 420;
+          } else {
+            delay = 22;
+          }
+        }
+        this.typed = chars.slice(0, this._promptN).join('');
+        // Resting leaves `typing` true, so the finished line stays in the
+        // placeholder — dropping it here would fall back to the static prompt
+        // and undo the whole point of stopping on a good line.
+        if (rest) { this._promptTimer = null; return; }
+        var self = this;
+        this._promptTimer = setTimeout(function () { self._promptStep(); }, delay);
+      },
+
+      // Turbo caches the page on navigation; without this the typewriter keeps
+      // firing against a detached component.
+      destroy() { clearTimeout(this._promptTimer); },
+
       // One-shot attention pop — fired by the quest card's quest-chat-active event
       // when its chat mission shows. Restart trick (remove → reflow → add) so a
       // re-trigger replays the keyframe.
