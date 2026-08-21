@@ -16,9 +16,17 @@ class AdminController < ApplicationController
   # test/controllers/onboarding_flow_gallery_test.rb pins them to each other so
   # a step added to the chain cannot go unshown here.
   #
-  # Eventually these move to the engine's living style guide at
-  # /admin/style#modals (operator direction) — which needs a studio-engine
-  # release plus turf bumping its engine pin, so they live here first.
+  # DEPRECATED AS A DESTINATION (operator direction, 2026-08-21). Modal PRIMITIVE
+  # work goes to the engine's living style guide at /admin/style#modals from now
+  # on; a modal built there is inherited by every Studio app, one built here is
+  # turf's alone. This registry is not deleted yet for a measured reason rather
+  # than an unmade decision: 8 of the modal ids below have no card in the engine
+  # guide (wallet-setup, cdp-ramp, buy-entry-token, cosign-rejected,
+  # quest-success, unsubscribe-confirm, unsubscribe-goodbye, web3-step-up), so
+  # deleting this page today would drop their only review surface instead of
+  # tidying a duplicate. Port first, delete second. The page itself carries the
+  # same notice at the top, where someone about to build here will actually see
+  # it — see app/views/admin/modals.html.erb.
   MODAL_FLOWS = [
     { key: "onboarding",
       label: "Onboarding (after first auth)",

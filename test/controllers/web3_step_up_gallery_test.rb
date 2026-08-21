@@ -165,6 +165,20 @@ class Web3StepUpGalleryTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # The go-forward rule has to be VISIBLE where it applies, or it deprecates
+  # nothing: an agent reading this page decides where to build before it reads
+  # any doc. Pinned because a banner is the first thing a redesign drops.
+  test "the gallery signposts the engine style guide as the go-forward home" do
+    log_in_as users(:alex)
+    get admin_modals_path
+    assert_response :success
+    assert_includes response.body, "/admin/style#modals"
+    assert_includes response.body, "Deprecated"
+    # And it must say WHY the page still stands, naming a modal that has no
+    # engine card — otherwise the notice reads as an unmade decision.
+    assert_includes response.body, "wallet-setup"
+  end
+
   test "the gallery lists the step-up flow with both of its states" do
     log_in_as users(:alex)
     get admin_modals_path

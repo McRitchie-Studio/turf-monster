@@ -218,7 +218,7 @@ address. One standard now covers both.
 | Read on render | `web3_step_up_required?` — helper, RPC-free, true for the whole session |
 | The modal | `app/views/modals/_web3_step_up.html.erb`, id `web3-step-up` |
 | Brand memory | `users.web3_wallet_provider` + `web3_authenticated_at`, stamped by `User#record_web3_authentication!` |
-| Showroom | `/admin/modals` → **Web3 step-up**, both variants |
+| Showroom | `/admin/modals` → **Web3 step-up**, both variants (deprecated page — see below) |
 
 Rules worth knowing:
 
@@ -257,6 +257,23 @@ Rules worth knowing:
   before the column existed has one, and there is no backfill — the brand is not
   recoverable from an address. Those users get the same card with the picker as
   its primary action.
+- **The showroom is moving.** `/admin/modals` is DEPRECATED as a destination
+  (operator direction, 2026-08-21): modal primitive work goes to the engine's
+  living style guide at `/admin/style#modals`, where a modal is inherited by
+  every Studio app instead of being turf's alone. The page still stands because
+  8 modal ids have no card in the engine guide yet (`wallet-setup`, `cdp-ramp`,
+  `buy-entry-token`, `cosign-rejected`, `quest-success`, `unsubscribe-confirm`,
+  `unsubscribe-goodbye`, `web3-step-up`) — port first, delete second, so no
+  state loses its review surface on the way out. This card's own port into
+  `studio/modals/` as a shared engine partial is the next step for it.
+- **The CTA is the STANDARD wallet row**, not a filled button — brand mark, the
+  wallet's own name, `Installed` badge, chevron — the same shape the connect
+  picker and the wallet-setup step use, so a wallet reads identically everywhere
+  it is offered. It carries `pulse-cta` (engine-motion) because it is the one
+  target on the card. Presence is POLLED rather than read once at mount:
+  `walletProvider.available()` fills in asynchronously as wallets register and
+  this card auto-opens right after auth, so a single early read would badge an
+  installed wallet as missing.
 - **Signing runs the wallet LOGIN, not the link path.** `linkMode` posts to
   `/account/link_solana`, which binds to the current user but never grants
   `session[:onchain]` — the thing the card exists to obtain. One inherited

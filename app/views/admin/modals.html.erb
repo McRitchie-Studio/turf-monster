@@ -18,6 +18,47 @@
     </p>
   </div>
 
+  <%# === DEPRECATION SIGNPOST ==============================================
+      Operator direction, 2026-08-21: modal PRIMITIVE work goes to the engine's
+      living style guide from now on. This page is not deleted yet, and the
+      banner says exactly why rather than implying the decision is unmade — 8
+      modals below have no card in the engine guide, so deleting this today
+      would drop their only review surface, not tidy a duplicate.
+
+      The banner is deliberately loud and at the TOP: a deprecation nobody sees
+      until they have already built here has deprecated nothing. %>
+  <div class="card border-2 p-4" style="border-color: var(--color-warning)">
+    <div class="flex items-start gap-3">
+      <span class="text-2xl leading-none" aria-hidden="true">&#9888;&#65039;</span>
+      <div class="space-y-2 min-w-0">
+        <div class="text-heading font-bold">
+          Deprecated &mdash; build modal primitives on the style guide instead
+        </div>
+        <p class="text-sm text-body">
+          New modal primitive work belongs on
+          <%= link_to "/admin/style#modals", "/admin/style#modals", class: "underline text-primary hover:text-heading" %>,
+          the engine&rsquo;s living style guide. A modal built there is inherited
+          by every Studio app; one built here is turf&rsquo;s alone.
+        </p>
+        <p class="text-sm text-muted">
+          This page still exists because it is the ONLY showroom for the modals
+          below that the engine guide does not cover yet &mdash;
+          <code class="text-xs bg-inset px-1 rounded">wallet-setup</code>,
+          <code class="text-xs bg-inset px-1 rounded">cdp-ramp</code>,
+          <code class="text-xs bg-inset px-1 rounded">buy-entry-token</code>,
+          <code class="text-xs bg-inset px-1 rounded">cosign-rejected</code>,
+          <code class="text-xs bg-inset px-1 rounded">quest-success</code>,
+          <code class="text-xs bg-inset px-1 rounded">unsubscribe-confirm</code>,
+          <code class="text-xs bg-inset px-1 rounded">unsubscribe-goodbye</code> and
+          <code class="text-xs bg-inset px-1 rounded">web3-step-up</code>.
+          It is deleted once each of those has a card in the engine guide &mdash;
+          port first, delete second, so no state loses its review surface on the
+          way out.
+        </p>
+      </div>
+    </div>
+  </div>
+
   <%# === FLOWS ==============================================================
       Ordered sequences a real user walks, above the flat catalogue. The
       catalogue answers "what states exist"; a flow answers "in what order, and
