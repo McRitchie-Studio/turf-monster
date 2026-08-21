@@ -110,7 +110,7 @@ gem "studio-engine", "~> 0.57" # 0.57 is the real floor, and the pin SAYS so. 0.
 # Solana primitives (Client, Keypair, Borsh, Transaction, AuthVerifier)
 # 0.4.7 adds Solana::Transaction.cosign_wire + Client#simulate_transaction for the
 # Phantom-first signing-order flow (published to RubyGems).
-gem "solana-studio", "~> 0.4.7"
+gem "solana-studio", "~> 0.5"
 
 # IP geolocation for state-level geo-blocking
 gem "geocoder"
