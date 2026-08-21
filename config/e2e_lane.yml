@@ -71,7 +71,26 @@
 # the lister on the MERGED tree — never take either side, and never trust a clean merge of
 # these lines.
 # Re-derived here on the merged tree: `npx playwright test --list` -> 153 tests in 40 files.
-total_specs: 153
+#
+# 153 -> 155 (redact-helius-key-from-browser): two specs in e2e/rpc_url_public.spec.js for
+# the browser-facing RPC endpoint, which that change moved off Solana::Config::RPC_URL (the
+# SERVER endpoint, carrying a provider api-key on mainnet) and onto
+# Solana::Config.public_rpc_url. Neither is observable in the response bytes:
+#   · the layout's data-solana-rpc-url handed to the REAL web3.js the page loaded. The
+#     attribute is present in the markup whatever its value, so `assert_match
+#     "data-solana-rpc-url"` passes on an EMPTY one — while web3.js throws "Endpoint URL
+#     must start with `http:` or `https:`" and every Phantom flow on the site (entry,
+#     contest create, cosign, off-ramp) is dead. Measured, not supposed: that is the exact
+#     error this spec produced when public_rpc_url was mutated to return "".
+#   · /proof-of-reserves printing its endpoint to the visitor as page text. The server
+#     ships that <span x-text="cfg.rpc_url"> EMPTY and Alpine fills it after mount, so the
+#     rendered value exists NOWHERE in the response — verified by reading the raw HTML: the
+#     span's inner text is "" on the wire and "https://api.devnet.solana.com" in the
+#     browser. This is the surface that leaked the key to UNAUTHENTICATED visitors, and no
+#     assert_select can ever see what it actually shows them.
+# Re-derived with the lister, never hand-incremented: `npx playwright test --list` -> 155
+# tests in 41 files.
+total_specs: 155
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -119,18 +138,19 @@ allowed_skips: 4
 
 # total_specs - excluded - allowed_skips. What the lane MUST execute, asserted against the
 # runner's own report, so no source-level spelling on any axis can move it without moving
-# this line. Derived: 153 committed - 17 @devnet - 4 allowed = 132.
+# this line. Derived: 155 committed - 17 @devnet - 4 allowed = 134.
 #
 # Every number here was re-derived with the runner, not adjusted by arithmetic on the last
-# one. On this merged tree: `npx playwright test --list` reports 153 tests in 40 files,
-# `--grep "@devnet"` 17, and `--grep-invert "@devnet"` 136 collected for the PR lane —
-# 136 - 4 runtime skips = 132.
+# one. On this tree: `npx playwright test --list` reports 155 tests in 41 files,
+# `--grep "@devnet"` 17, and `--grep-invert "@devnet" --project=chromium` 138 collected for
+# the PR lane — 138 - 4 runtime skips = 134.
 #
-# History: 130 (151 - 17 - 4) on each of the two branches this merge joins, which is the
-# trap above — both said 130 for DIFFERENT pairs of specs; 128 (149 - 17 - 4) before either
-# of them; 126 before that (the two payment specs still skipping); and 122 against 145
-# committed before adopt-engine-geo-primitives added its four geo specs.
-executed: 132
+# History: 132 (153 - 17 - 4) before redact-helius-key-from-browser added its two browser
+# specs; 130 (151 - 17 - 4) on each of the two branches the merge above joins, which is the
+# trap in the total_specs note — both said 130 for DIFFERENT pairs of specs; 128 (149 - 17 -
+# 4) before either of them; 126 before that (the two payment specs still skipping); and 122
+# against 145 committed before adopt-engine-geo-primitives added its four geo specs.
+executed: 134
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
