@@ -40,9 +40,12 @@
                                   entry confirms.
       .free-entry-glow          — level-up glow pulse (3 beats, ~4.2s).
       data-token-count          — live token count; updateNavTokens()
-                                  writes here so the popover reads the
-                                  current value on each open instead of
-                                  the server-rendered snapshot.
+                                  writes here so JS consumers read the
+                                  current value instead of the
+                                  server-rendered snapshot. It writes ONLY
+                                  class + dataset — never aria-label or
+                                  title — which is why the label must not
+                                  bake in a count that would then go stale.
       .hidden                   — lives on the button (not the wrapper)
                                   so the JS selectors above can surface
                                   the badge after a mint without a reload.
@@ -82,7 +85,7 @@
           @focus="freeEntryHover = true"
           @blur="freeEntryHover = false"
           title="<%= free_entries %> unconsumed entry token<%= plural_suffix %> — free entry"
-          aria-label="<%= free_entries %> free entry token<%= plural_suffix %> — open settings"
+          aria-label="Free entry tokens — open settings"
           aria-controls="gear-sidebar gear-sidebar-mobile"
           aria-haspopup="dialog"
           :aria-expanded="$store.sidebars && $store.sidebars.gearOpen ? 'true' : 'false'"

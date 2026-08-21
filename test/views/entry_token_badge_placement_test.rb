@@ -142,6 +142,14 @@ class EntryTokenBadgePlacementTest < ActionDispatch::IntegrationTest
       # badge IS outside it, so an unstopped click opens and shuts in one go.
       assert_includes badge, "@click.stop=", "an unstopped click would reach the panel's @click.outside"
       assert_includes badge, 'aria-controls="gear-sidebar gear-sidebar-mobile"'
+      # The label must carry NO server-rendered count. updateNavTokens writes
+      # classList + dataset.tokenCount and nothing else, so a number baked in
+      # here goes stale the moment the count moves — and because the badge is
+      # HIDDEN at zero, a stale label is announced ONLY when it is wrong. The
+      # accurate count lives in the sidebar chip this button opens.
+      assert_includes badge, 'aria-label="Free entry tokens — open settings"'
+      refute_match(/aria-label="[^"]*\d/, badge,
+        "a count in the label is unreachable by updateNavTokens and goes stale")
       assert_includes badge, 'aria-haspopup="dialog"'
       assert_includes badge, ":aria-expanded="
 
