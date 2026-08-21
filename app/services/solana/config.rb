@@ -18,20 +18,32 @@ module Solana
     # "https://api.devnet.solana.com")`. The bad combination is
     # NETWORK=mainnet-beta with the RPC unset: PROGRAM_ID and the mints resolve
     # to MAINNET values and are then pointed at a DEVNET endpoint. Balances read
-    # $0.00 against ATAs that exist on the other cluster, and anything submitted
-    # lands on devnet against a program ID that does not exist there.
+    # $0.00 against ATAs that live on the other cluster, and anything submitted
+    # lands on devnet against a program ID that does not exist there. That is the
+    # SHAPE of the harm the default allows — not what an unset var produces on
+    # this app today, because OPSEC-039 does catch that exact pair whenever the
+    # RPC answers (see below). What this raise buys is an UNCONDITIONAL refusal,
+    # earlier, naming the variable — not the only refusal.
     #
     # IS THIS REDUNDANT WITH OPSEC-039? No — it is additive, on three counts.
     # config/initializers/solana_network_alignment.rb does compare genesis
     # hashes and does catch that exact pair, but only when it runs and only when
     # the RPC answers:
-    #   1. It `rescue Solana::Client::RpcError` -> warn -> CONTINUES BOOT. The
-    #      client wraps Net::OpenTimeout / Net::ReadTimeout / ECONNRESET into
-    #      RpcError after its retries, and rate limits arrive the same way, so
-    #      an unreachable or throttled endpoint (which the public devnet URL
-    #      becomes under load) silences the one check meant to catch this.
+    #   1. Its probe `rescue StandardError` -> logs ERROR "alignment check
+    #      INCONCLUSIVE … continuing boot" -> CONTINUES BOOT, deliberately (see
+    #      survive-unauthorized-rpc-boot in that file). Only a DETERMINATE
+    #      mismatch is fatal, so every indeterminate outcome — timeout, refused
+    #      connection, DNS failure, 401/403, a rate limit (which the public
+    #      devnet URL earns under load), a non-JSON error page — silences the one
+    #      check meant to catch this. That rescue named `Solana::Client::RpcError`
+    #      when this paragraph was written; widening it made the fail-open window
+    #      WIDER, not narrower.
     #   2. An unknown NETWORK has no canonical genesis, so the guard logs
-    #      "skipping alignment check" and boots.
+    #      "skipping alignment check" and boots. On `turf-monster-mainnet` that
+    #      outcome is not reachable on its own: NETWORK also keys IDL_PATH, so an
+    #      unrecognized value selects the DEVNET IDL and the OPSEC-014 hash guard
+    #      — an earlier `after_initialize` — refuses boot first, as an opaque
+    #      hash diff rather than a named variable.
     #   3. `SOLANA_SKIP_NETWORK_CHECK=true` disables it wholesale — set during
     #      incident response and forgotten, it leaves nothing behind it.
     # And when it does fire it fires from `after_initialize`, AFTER eager load,

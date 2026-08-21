@@ -81,7 +81,7 @@ Troubleshooting guide for autonomous agents. Format: problem, diagnosis, fix.
 
 **Timeout on RPC calls**
 - Diagnosis: `Net::OpenTimeout` or `Net::ReadTimeout`. RPC node is slow or down.
-- Fix: Try a different RPC endpoint. Check Solana network status at status.solana.com. The gem defaults to devnet public RPC if `SOLANA_RPC_URL` is unset.
+- Fix: Try a different RPC endpoint. Check Solana network status at status.solana.com. The `solana_studio` gem falls back to the devnet public RPC when no URL is passed, but production never reaches that fallback: `Solana::Config` raises during eager load when `SOLANA_RPC_URL` is unset (OPSEC-012).
 
 **Wrong network (mainnet vs devnet)**
 - Diagnosis: Transactions fail with "account not found" or wrong program ID.
