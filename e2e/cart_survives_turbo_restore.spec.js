@@ -159,7 +159,12 @@ test("the restored cart carries the picks themselves, not just the count", async
 // The forward-then-back leg at the bottom covers a SECOND, separate failure --
 // Turbo filing the outgoing DOM under the wrong URL when a history traversal
 // lands inside a render. Holding the render does not fix that one and is what
-// exposes it; the re-stamp handler in turbo_snapshot_cache.js is its fix.
+// exposes it. NOTHING here fixes it: both candidate fixes were built, measured
+// and REJECTED (the write-up is in app/javascript/turbo_snapshot_cache.js -- a
+// re-stamp corrects the cache key but leaves the renders landing out of order,
+// and no-cache strands the guest this file exists to protect), so it is filed as
+// /tasks/turbo-concurrent-visit-rendering. That is why the leg settles between
+// its two traversals rather than asserting the hazard away.
 test("a signed-out visitor's picks survive the same journey", async ({ page }) => {
   await pickSix(page);
 
