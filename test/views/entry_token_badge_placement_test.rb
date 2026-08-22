@@ -29,7 +29,10 @@ class EntryTokenBadgePlacementTest < ActionDispatch::IntegrationTest
   def render_navbar(usdc:, tokens:)
     store = ActiveSupport::Cache::MemoryStore.new
     Rails.stub :cache, store do
-      log_in_as(@user)
+      # These specimens warm the fixture's Phantom token cache, so establish the
+      # matching signer session. A web2 session must now read its managed wallet
+      # instead, which is covered by display_entry_token_count_test.
+      log_in_as_onchain(@user)
       store.write("usdc_balance:#{@user.id}", usdc)
       store.write("usdt_balance:#{@user.id}", 0.0)
       store.write(
