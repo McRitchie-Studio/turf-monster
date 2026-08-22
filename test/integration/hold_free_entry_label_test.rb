@@ -7,10 +7,10 @@ require "test_helper"
 # that token rather than their balance — not discover it in the receipt afterward.
 #
 # The label is BOUND to $store.session.tokensAvailable rather than server-rendered,
-# and that is the part worth pinning: the count is re-read by refreshSession() after
-# every on-chain success, so the label falls back to "Hold to Confirm" the instant
-# the token is spent. A baked label would keep promising a free entry for the SECOND
-# entry of the same page view.
+# and that is the part worth pinning: both entry-success branches lower the count
+# through mirrorTokenSpend(), so the label falls back to "Hold to Confirm" the
+# instant the token is spent. A baked label would keep promising a free entry for
+# the SECOND entry of the same page view.
 #
 # Alpine evaluates the binding in the browser, so what this tier owns is that the
 # binding SHIPS on BOTH buttons, reads the token count, and carries no mode gate.

@@ -90,6 +90,7 @@ class EntryTokensCacheBustTest < ActiveSupport::TestCase
       controller = ApplicationController.new
       user = @user
       controller.define_singleton_method(:current_user) { user }
+      controller.define_singleton_method(:onchain_session?) { true }
 
       assert_equal 1, controller.send(:display_entry_token_count),
                    "precondition: the badge sees the unspent token"
@@ -100,6 +101,7 @@ class EntryTokensCacheBustTest < ActiveSupport::TestCase
       # the NEXT request — a fresh controller instance, as production gets.
       fresh = ApplicationController.new
       fresh.define_singleton_method(:current_user) { user }
+      fresh.define_singleton_method(:onchain_session?) { true }
       assert_nil fresh.send(:display_entry_token_count),
                  "a spent token must leave the badge in the cold-cache 'loading' state, " \
                  "never showing a stale count the wallet can no longer honour"

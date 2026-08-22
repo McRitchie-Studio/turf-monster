@@ -468,8 +468,8 @@ class ApplicationController < ActionController::Base
   # tokensAvailable to 0, and entry funding is decided SERVER-SIDE (both paths go
   # through User#next_unconsumed_entry_token_for, scoped to the address that will
   # actually SIGN the consume), so a cold/null token hint can never mis-fund — it
-  # can only mis-LABEL, which is the known combo-account gap noted on
-  # #display_entry_token_count.
+  # can only mis-label. #display_entry_token_count scopes the hint to the wallet
+  # that can sign in this session, matching the authoritative entry path.
   def client_session_payload
     wallet_context.to_h.merge(
       usdcCents:       wallet_field_cents(:usdc),
@@ -592,6 +592,7 @@ class ApplicationController < ActionController::Base
   # nil for balances / 0 for seeds, never raises).
   def fetch_navbar_hydrate(user)
     address = user.solana_address
+    token_address = entry_token_wallet_address(user)
 
     balances_thread = Thread.new do
       Rails.application.executor.wrap do
@@ -618,7 +619,8 @@ class ApplicationController < ActionController::Base
     # badge value instead of zeroing it.
     tokens_thread = Thread.new do
       Rails.application.executor.wrap do
-        Solana::Vault.new.list_entry_tokens(address).count { |t| !t[:consumed] }
+        token_address.present? ?
+          Solana::Vault.new.list_entry_tokens(token_address).count { |t| !t[:consumed] } : 0
       rescue => e
         Rails.logger.warn("[hydrate] list_entry_tokens failed: #{e.message}")
         nil
@@ -719,28 +721,37 @@ class ApplicationController < ActionController::Base
   # server-side (User#next_unconsumed_entry_token_for), so a stale/nil navbar
   # count can never mis-fund.
   #
-  # KNOWN GAP (pre-dates the free-entry CTA, widened by nothing here): the count
-  # is scoped to #solana_address, which prefers the WEB3 wallet on a combo
-  # (managed + Phantom) account. A combo user in a WEB2 session therefore sees a
-  # count of web3-owned tokens, while #resolve_web2_entry_funding! correctly
-  # scopes the actual funding to #web2_solana_address — so that user can read
-  # "Hold for Free Entry" and still be charged USDC. Mis-LABEL only, never
-  # mis-fund. Fixing it means making this count session-mode-aware (the badge,
-  # the payload and eligibilityBlocker all read it), which is its own task.
+  # The address follows the SESSION signer, not User#solana_address's account-
+  # level web3 preference. A combo account in a web2 session can consume only a
+  # token owned by its managed wallet; a web3 session can consume only a token
+  # owned by its Phantom wallet. Keeping the badge, client payload and hydrate on
+  # that same address prevents the CTA from promising a token the entry path
+  # cannot spend.
   #
   # Per-request memoized: the navbar + entry-token badge partials both ask for
   # this in the same render.
   def display_entry_token_count
     return @display_entry_token_count if defined?(@display_entry_token_count)
 
+    address = entry_token_wallet_address
     @display_entry_token_count =
-      if current_user&.solana_connected?
+      if address.present?
         # Cache-only read: warm → count, cold → nil ("loading"). No RPC.
-        tokens = Rails.cache.read(Solana::Vault.entry_tokens_cache_key(current_user.solana_address))
+        tokens = Rails.cache.read(Solana::Vault.entry_tokens_cache_key(address))
         tokens.nil? ? nil : tokens.count { |t| !t[:consumed] }
       else
         0
       end
+  end
+
+  # Wallet whose key can authorize an entry-token consume in this session.
+  # This is deliberately narrower than User#solana_address, which describes the
+  # account and prefers web3 even when the current session authenticated by
+  # email/Google and therefore must use the managed signer.
+  def entry_token_wallet_address(user = current_user)
+    return nil unless user
+
+    onchain_session? ? user.web3_solana_address : user.web2_solana_address
   end
 
   # Warms the navbar's on-chain values cache-first so the view phase has zero
@@ -773,6 +784,7 @@ class ApplicationController < ActionController::Base
 
     t_total        = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     wallet_address = current_user.solana_address
+    token_address  = entry_token_wallet_address
     is_admin       = current_user.admin?
 
     # NOTE (async-navbar-balance): NONE of the navbar's on-chain reads issue an
@@ -793,7 +805,8 @@ class ApplicationController < ActionController::Base
     # here ONLY when the list cache is already warm, so User#entry_token_balance
     # (/account, /wallet) stays RPC-free too, and leave it UNSET on a cold cache
     # so nothing lazily re-fetches on the render path.
-    if (cached_tokens = Rails.cache.read(Solana::Vault.entry_tokens_cache_key(wallet_address)))
+    if token_address.present? &&
+       (cached_tokens = Rails.cache.read(Solana::Vault.entry_tokens_cache_key(token_address)))
       current_user.instance_variable_set(:@entry_token_balance, cached_tokens.count { |tk| !tk[:consumed] })
     end
 

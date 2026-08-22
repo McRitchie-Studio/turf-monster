@@ -1854,6 +1854,34 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "confirmed", ptx.reload.status
   end
 
+  test "recover_pending_entry busts a spent token cache for an already-active entry" do
+    @user.update!(web3_solana_address: "WalletRActiveToken#{SecureRandom.hex(4)}")
+    log_in_as @user
+    entry = @contest.entries.create!(user: @user, status: :active, onchain_tx_signature: "sig-token-active")
+    ptx = PendingTransaction.create!(
+      tx_type: "enter_contest",
+      serialized_tx: "fake-stx",
+      status: "submitted",
+      tx_signature: "sig-token-active",
+      target: entry,
+      initiator_address: @user.web3_solana_address,
+      metadata: { funding: "token", entry_token_pda: "tpda_active_recovery" }.to_json
+    )
+    cache_key = Solana::Vault.entry_tokens_cache_key(@user.web3_solana_address)
+
+    with_memory_cache do
+      Rails.cache.write(cache_key, [{ pda: "tpda_active_recovery", consumed: false }])
+
+      post recover_pending_entry_contest_path(@contest),
+        params: { ptx_slug: ptx.slug }, as: :json
+
+      assert_response :success
+      assert_equal "confirmed", JSON.parse(response.body)["status"]
+      assert_nil Rails.cache.read(cache_key),
+                 "activation can land before the live-path bust; recovery still owes the invalidation"
+    end
+  end
+
   test "recover_pending_entry marks PT failed when there is no tx_signature stamped" do
     @user.update!(web3_solana_address: "WalletR2#{SecureRandom.hex(4)}")
     log_in_as @user

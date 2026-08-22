@@ -868,10 +868,15 @@ class ContestsController < ApplicationController
     # asserting entry ownership explicitly keeps that invariant from becoming
     # silently load-bearing if another PT-creation path is ever added.
     return render json: { error: "Not authorized" }, status: :forbidden unless entry.user_id == current_user&.id
+    prepared_token_pda = prepared_entry_token_pda(ptx)
 
-    # Already-active entry → close the loop on the PT and short-circuit.
+    # Already-active entry → close the loop on the PT and short-circuit. The
+    # activation can commit before the live path reaches its token-cache bust;
+    # recovery therefore owes that invalidation too when the server record says
+    # this attempt consumed a token. The bust is idempotent.
     if entry.active?
       ptx.update!(status: "confirmed")
+      current_user.bust_entry_tokens_cache! if prepared_token_pda
       return render json: {
         status: "confirmed",
         redirect: contest_path(@contest),
@@ -921,8 +926,6 @@ class ContestsController < ApplicationController
     # ANY finalized signature. confirm_onchain! re-checks open/lock/limit/sybil
     # and the unique-signature index blocks replaying one tx across two rows.
     # (OPSEC-010 / Lazarus audit #1.)
-    prepared_token_pda = prepared_entry_token_pda(ptx)
-
     begin
       verify_and_confirm_onchain_entry!(entry, ptx.tx_signature,
                                         entry_token_pda: prepared_token_pda,
