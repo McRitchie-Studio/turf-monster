@@ -190,6 +190,22 @@ class FakeVault
   # as the real Solana::Vault#build_enter_contest_direct: serialized_tx plus
   # the predicted entry PDA the user's TX will create.
   # v0.16: renamed from build_enter_contest_direct; now takes currency_idx (0=USDC).
+  # Token-funded Phantom entry (ContestsController#prepare_entry). Same return
+  # shape as #build_enter_contest — the caller only ever forwards serialized_tx
+  # and entry_pda — with the token PDA recorded so a test can assert WHICH token
+  # the server picked.
+  def build_enter_contest_with_token(wallet_address, contest_slug, entry_num, entry_token_pda_b58, season_id: nil)
+    @enter_calls << {
+      method: :build_enter_contest_with_token,
+      wallet: wallet_address, slug: contest_slug,
+      entry_number: entry_num, entry_token_pda: entry_token_pda_b58, season_id: season_id
+    }
+    {
+      serialized_tx: "FAKE_TOKEN_TX_#{contest_slug}_#{entry_num}",
+      entry_pda: "epda-#{contest_slug}-#{wallet_address[0, 4]}-#{entry_num}"
+    }
+  end
+
   def build_enter_contest(wallet_address, contest_slug, entry_num, currency_idx: 0, season_id: nil)
     @enter_calls << {
       method: :build_enter_contest,
@@ -259,9 +275,14 @@ class FakeVault
   # tx_rejected (422) rescue path without broadcasting.
   attr_writer :cosign_safe_raises
 
-  def assert_entry_cosign_safe!(signed_wire_base64, entry:, wallet_address:)
+  # `entry_token_pda:` mirrors the real guard: the EntryTokenAccount the server
+  # prepared this entry against (nil = the currency transfer). Recorded so a test
+  # can assert the controller handed the guard its OWN decision rather than
+  # anything the client sent.
+  def assert_entry_cosign_safe!(signed_wire_base64, entry:, wallet_address:, entry_token_pda: nil)
     @cosign_safe_calls ||= []
-    @cosign_safe_calls << { wire: signed_wire_base64, entry: entry, wallet_address: wallet_address }
+    @cosign_safe_calls << { wire: signed_wire_base64, entry: entry, wallet_address: wallet_address,
+                            entry_token_pda: entry_token_pda }
     raise Solana::Vault::UnsafeCosignError, @cosign_safe_raises if @cosign_safe_raises
     true
   end
