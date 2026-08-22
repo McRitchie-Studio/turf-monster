@@ -102,6 +102,16 @@ class OnboardingFlowTest < ActiveSupport::TestCase
                  "a settled account must see no chain at all"
   end
 
+  # The wallet-signup shape, which is what a Phantom registration resolves to:
+  # the wallet step is satisfied by the wallet they signed in with, and the two
+  # questions ahead of it are not.
+  test "a fresh WALLET account is asked its first name, then its age" do
+    user = fresh_user
+    user.update_columns(web3_solana_address: "PhantomFresh#{user.id}")
+    assert_equal [:first_name, :age], OnboardingFlow.steps_for(user, age_gate_enabled: true),
+                 "a linked Phantom drops the wallet step, never the ones before it"
+  end
+
   test "no user means no chain" do
     assert_empty OnboardingFlow.steps_for(nil, age_gate_enabled: true)
   end

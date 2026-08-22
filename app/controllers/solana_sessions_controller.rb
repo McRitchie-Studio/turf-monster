@@ -42,8 +42,15 @@ class SolanaSessionsController < ApplicationController
       return render json: { error: AGE_ATTESTATION_ERROR }, status: :unprocessable_entity
     end
 
+    # NO PLACEHOLDER NAME. This used to seed `name: "anon"`, and User#set_name_parts
+    # copies `name` into `first_name` — so every wallet account was born already
+    # "holding" a first name, and the onboarding chain's first-name card could
+    # never fire for it (Studio.first_name_outstanding? reads exactly that
+    # column). Leaving both blank is what lets the chain ask. Nothing downstream
+    # wants the placeholder back: display_name falls through username → wallet →
+    # "anon" on its own, and #assign_parked_identity already treats a blank name
+    # the same as the old "anon".
     user ||= User.new(
-      name: "anon",
       web3_solana_address: pubkey_b58,
       age_attested_at: (Time.current if age_attestation_required?),
       reference: cookies[:reference].presence&.first(64) # first-touch funnel attribution
@@ -64,6 +71,18 @@ class SolanaSessionsController < ApplicationController
       # left in this browser's session.
       clear_wallet_setup_state!
       linked = apply_pending_google_link!(user)
+      # Arm the post-auth chain here too — a wallet login is an auth success like
+      # any other, and until this call it was the ONE that armed nothing. The cost
+      # of that omission was not a missing card but a WRONG ORDER: a brand-new
+      # wallet account was asked for its birthday by the contest entry gate
+      # whenever it first tried to enter, and was never asked its first name at
+      # all. OnboardingFlow resolves what is actually outstanding, so a user who
+      # just proved wallet ownership walks first name → age and never the wallet
+      # step (WalletSetupPolicy: a linked Phantom has nothing to set up).
+      #
+      # AFTER clear_wallet_setup_state! above, which deletes the very session key
+      # this writes — arming first would hand the user an empty chain.
+      record_onboarding_state!(user)
       # New signups land on the entry-tokens page (post-signup upsell);
       # a completed Google link goes to /account; everyone else to the root.
       redirect = linked ? account_path : (is_new ? tokens_buy_path : "/")
