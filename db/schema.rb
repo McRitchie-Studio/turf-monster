@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_21_190000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_22_050000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -785,6 +785,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_21_190000) do
     t.string "email"
     t.datetime "email_verified_at"
     t.text "encrypted_web2_solana_private_key"
+    t.integer "entry_tokens_granted_level", default: 1, null: false
     t.datetime "export_initiated_at"
     t.datetime "first_chat_message_at"
     t.string "first_name"
@@ -827,6 +828,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_21_190000) do
     t.index ["joined_email_list_at"], name: "index_users_on_joined_email_list_at"
     t.index ["last_seen_at"], name: "index_users_on_last_seen_at"
     t.index ["left_email_list_at"], name: "index_users_on_left_email_list_at"
+    t.index ["level", "entry_tokens_granted_level"], name: "index_users_on_pending_level_up_grants", where: "(level > entry_tokens_granted_level)"
     t.index ["provider", "uid"], name: "index_users_on_provider_and_uid", unique: true, where: "(provider IS NOT NULL)"
     t.index ["reference"], name: "index_users_on_reference"
     t.index ["seeds"], name: "index_users_on_seeds"
