@@ -323,6 +323,38 @@ class User < ApplicationRecord
     :none
   end
 
+  # --- Web3 authentication memory ---
+
+  # Stamp that this account just proved its self-custody wallet by signature,
+  # and (when the client told us) WHICH wallet brand did the proving.
+  #
+  # Why remember the brand at all: Web3StepUpPolicy exists to tell a wallet
+  # account that its email/Google session cannot sign on-chain. Without this,
+  # the only thing that modal can offer is the generic three-brand picker — so a
+  # returning Phantom user is made to re-choose Phantom from a list, every time.
+  # With it, the modal leads with one button that says Continue with Phantom.
+  #
+  # `provider` arrives from the browser (it reads the name off the Wallet
+  # Standard registration), so it is UNTRUSTED and goes through
+  # Solana::WalletProvider.normalize — an unknown or absent brand leaves the
+  # column alone rather than storing junk that can never match again. The
+  # timestamp is stamped either way: knowing WHEN the wallet last signed is
+  # useful even when we never learned its name.
+  #
+  # update_columns, matching the funnel-attribution and age-attestation stamps
+  # above it: this runs inside an auth path on a row that may be years old, and a
+  # validation added since that row was written must not turn a successful
+  # signature into a failed login.
+  def record_web3_authentication!(provider: nil)
+    return false unless persisted?
+
+    attrs = { web3_authenticated_at: Time.current }
+    normalized = Solana::WalletProvider.normalize(provider)
+    attrs[:web3_wallet_provider] = normalized if normalized
+    update_columns(attrs)
+    true
+  end
+
   # --- Newsletter / quest ---
 
   # Subscribed = joined at least once and not since unsubscribed. Mirrors the
