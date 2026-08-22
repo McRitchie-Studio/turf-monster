@@ -311,6 +311,22 @@ Rules worth knowing:
   `magic-link-welcome` modal had already been RETIRED for a related reason: the
   chain greets every signup itself, which made that modal's only writer
   unreachable, and a modal nothing can open reads as a live alternative.
+- **A WALLET signup walks the chain too, and used to walk nothing.**
+  `SolanaSessionsController#verify` is create-or-login, and until 2026-08-21 it
+  was the one auth-success path that never called `record_onboarding_state!`. A
+  new Phantom account therefore met no chain at all: the first card it ever saw
+  was whatever the contest entry gate raised — a birthday prompt, then a
+  top-up — and it was never asked its first name. It now arms the chain like
+  every other path, AFTER `clear_wallet_setup_state!` (which deletes the very
+  session key the arming writes). A wallet signup resolves to first name → age;
+  the wallet step drops out because the wallet they signed in with IS the setup.
+- **No path may seed a placeholder name.** The same wallet signup used to build
+  the account with `name: "anon"`, and `User#set_name_parts` copies `name` into
+  `first_name` — so the account was born already holding a first name and step 1
+  could never fire for it (`Studio.first_name_outstanding?` reads that column).
+  Nothing needs the placeholder: `display_name` falls through
+  username → name → email prefix → wallet → `"anon"` on its own. Accounts created
+  before the fix still carry the literal `"anon"` and are never asked.
 - **The first name is skippable IN THE CHAIN** (link *and* the ×), recorded in
   the session only — so a later visit may ask again while the field is blank. It
   never blocks the wallet step. It IS enforced at contest entry, though:

@@ -172,4 +172,73 @@ class OnboardingChainTest < ActionDispatch::IntegrationTest
     assert_equal %w[first_name age], rendered_steps,
                  "a managed-wallet signup is still asked, minus the wallet step"
   end
+
+  # --- The wallet-auth boundary ---------------------------------------------
+  #
+  # A Phantom signup is a REGISTRATION, and it used to be the one auth-success
+  # path that armed nothing: the account walked no chain, so the first card it
+  # ever saw was whatever the contest entry gate raised (a birthday prompt, then
+  # a top-up) — and it was never asked its first name at all, because the signup
+  # seeded `name: "anon"` and User#set_name_parts copied that into first_name.
+  # Both halves are pinned here.
+
+  # Mint a fresh keypair, sign the SIWS message, and POST the verify that CREATES
+  # the account. Returns the base58 pubkey (the new user's web3 address).
+  def wallet_signup!
+    key = Ed25519::SigningKey.generate
+    pubkey_b58 = Solana::Keypair.encode_base58(key.verify_key.to_bytes)
+
+    get "/auth/solana/nonce"
+    nonce = JSON.parse(response.body)["nonce"]
+
+    message = "www.example.com wants you to sign in with your Solana account:\n#{pubkey_b58}\n\nNonce: #{nonce}"
+    post "/auth/solana/verify",
+         params: { message: message, signature: Solana::Keypair.encode_base58(key.sign(message)),
+                   pubkey: pubkey_b58 },
+         as: :json
+    assert_response :success, "wallet signup failed: #{response.body}"
+    pubkey_b58
+  end
+
+  # #verify answers JSON and the CLIENT does the navigating, so the render that
+  # carries the chain payload is one explicit GET away.
+  def follow_wallet_redirect!
+    get JSON.parse(response.body)["redirect"]
+    follow_redirects!
+  end
+
+  test "a brand-new WALLET signup is armed with the chain, first name first" do
+    assert_difference "User.count", 1 do
+      wallet_signup!
+    end
+    follow_wallet_redirect!
+    assert_response :success
+    assert_includes response.body, CHAIN_MARKER
+    assert_equal %w[first_name age], rendered_steps,
+                 "first name -> age; the wallet step is already satisfied by the wallet they signed with"
+  end
+
+  test "a wallet signup stamps no placeholder name, so the first-name card can fire" do
+    pubkey = wallet_signup!
+    user = User.find_by(web3_solana_address: pubkey)
+
+    assert_nil user.name, %q(the old "anon" placeholder is what made this unreachable)
+    assert_nil user.first_name
+    assert OnboardingFlow.steps_for(user, age_gate_enabled: true).include?(:first_name),
+           "a fresh wallet account must still owe its first name"
+    assert_equal user.username, user.display_name,
+                 "display falls through to the generated username, so nothing needs the placeholder"
+  end
+
+  test "a returning wallet login owes nothing once it has answered" do
+    pubkey = wallet_signup!
+    user = User.find_by(web3_solana_address: pubkey)
+    user.update_columns(first_name: "Alex", age_attested_at: Time.current)
+
+    reset!
+    log_in_as_onchain(user)
+    follow_wallet_redirect!
+    assert_not_includes response.body, CHAIN_MARKER,
+                        "a settled wallet account must not be re-asked on every login"
+  end
 end
