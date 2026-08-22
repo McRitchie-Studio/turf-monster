@@ -157,7 +157,13 @@ class WalletSetupGateTest < ActionDispatch::IntegrationTest
 
     # log_in_as_onchain links a real Phantom address through the verify path.
     log_in_as_onchain(users(:jordan))
-    assert_nil session[:wallet_setup], "a wallet login satisfies the nudge"
+    # FALSE, not absent. #verify deletes the key (clear_wallet_setup_state!) and
+    # then re-records the verdict, because it now arms the onboarding chain like
+    # every other auth-success path — and that arming recomputes the wallet state
+    # on its way past. Same meaning to every reader: the gate asks
+    # `session[:wallet_setup] == true`, and an explicit "not required" is the
+    # value the rest of this file already asserts for a satisfied nudge.
+    assert_equal false, session[:wallet_setup], "a wallet login satisfies the nudge"
   end
 
   # The two tests below turn the flag OFF with an explicit "false". It became a
