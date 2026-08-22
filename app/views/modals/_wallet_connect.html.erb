@@ -111,6 +111,11 @@
            Alpine.store('modals').swap('auth',
              { step: 'credentials', submitting: null, formError: '', phantomError: '', googleError: '' },
              { direction: 'back' });
+         } else if (this.props.backTo === 'web3-step-up') {
+           // Reached from the step-up card's Use a different wallet. Swap back
+           // with the props it was opened with, so the card it returns to is the
+           // one the user left rather than a generic no-memory version of it.
+           Alpine.store('modals').swap('web3-step-up', this.props.stepUpProps || {}, { direction: 'back' });
          } else {
            Alpine.store('modals').close();
          }

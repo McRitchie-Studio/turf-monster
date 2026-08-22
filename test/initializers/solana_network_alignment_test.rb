@@ -158,6 +158,39 @@ class SolanaNetworkAlignmentTest < ActiveSupport::TestCase
     assert_match(/continuing boot/, log)
   end
 
+  # The test above passes for a reason that does NOT generalise: on the 401 path
+  # the exception is a JSON::ParserError whose message quotes the BODY, so it
+  # CANNOT contain the endpoint. The redaction it proves is the second half of
+  # the log line — `redact_rpc_url(RPC_URL)` — while `failure` (the interpolated
+  # e.message) went in raw. These two cases are the ones where that mattered:
+  # both classes embed the WHOLE credentialed URL in their own message.
+  test "the INCONCLUSIVE log redacts a credential carried inside e.message" do
+    # Solana::Client::InsecureRpcUrlError — the gem interpolates
+    # `@rpc_url.inspect`. A pasted http:// endpoint is the most likely operator
+    # error during a key rotation.
+    log = capture_rails_log do
+      run_initializer(rpc_url: "http://rpc.example.test/?api-key=#{SENTINEL_KEY}")
+    end
+
+    refute_includes log, SENTINEL_KEY,
+                     "the exception message carried the credential straight into the log"
+    assert_match(/InsecureRpcUrlError/, log, "the operator still needs the failure named")
+    assert_match(/continuing boot/, log, "an indeterminate result must still boot")
+  end
+
+  test "the INCONCLUSIVE log redacts a credential inside an UNPARSEABLE endpoint" do
+    # URI::InvalidURIError quotes the offending URI back. The credential is not
+    # inside anything that parses as a URL, which is what makes this case
+    # different from the one above.
+    log = capture_rails_log do
+      run_initializer(rpc_url: "https:// rpc.example.test/?api-key=#{SENTINEL_KEY}")
+    end
+
+    refute_includes log, SENTINEL_KEY,
+                     "a malformed endpoint published its credential into the log"
+    assert_match(/continuing boot/, log)
+  end
+
   private
 
   # Run the REAL initializer against an endpoint serving `body`, returning the

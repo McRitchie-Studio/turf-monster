@@ -271,13 +271,16 @@
     };
   };
 
-  // === entryTokenBadge — navbar ✨ badge + count popover ==============
+  // === entryTokenBadge — the live free-entry COUNT ====================
+  //   Mounted on the gear sidebar's free-entry chip (components/_gear_sidebar).
+  //   It used to drive the navbar badge's own count popover; that popover is
+  //   gone (the badge opens this sidebar now), so open/toggle/close went with
+  //   it. What survives is the only part anything still needs: a `count` that
+  //   tracks the 'entry-tokens-updated' event updateNavTokens dispatches.
   window.entryTokenBadge = function (opts) {
     opts = opts || {};
     return {
-      open: false,
       count: parseInt(opts.initialCount, 10) || 0,
-      _timer: null,
       _onTokensUpdated: null,
       init() {
         var self = this;
@@ -289,17 +292,7 @@
       },
       destroy() {
         window.removeEventListener("entry-tokens-updated", this._onTokensUpdated);
-        clearTimeout(this._timer);
-      },
-      toggle() {
-        this.open = !this.open;
-        clearTimeout(this._timer);
-        if (this.open) {
-          var self = this;
-          this._timer = setTimeout(function () { self.open = false; }, 2000);
-        }
-      },
-      close() { this.open = false; clearTimeout(this._timer); }
+      }
     };
   };
 

@@ -63,25 +63,39 @@ module.exports = defineConfig({
     // process at its own isolated stack's port. Defaults to the canonical :3100.
     baseURL: process.env.PW_BASE_URL || "http://127.0.0.1:3100",
     headless: true,
-    // Intended: smooth-load (engine 0.24) enables same-origin view transitions,
-    // and under prefers-reduced-motion Turbo never starts one, so e2e would get
-    // instant swaps.
+    // REDUCED MOTION — SET WHERE IT ACTUALLY TAKES EFFECT.
     //
-    // ⚠️ IT DOES NOT REACH THE PAGE. Measured from a spec running under this very
-    // config: `matchMedia("(prefers-reduced-motion: reduce)").matches` is FALSE,
-    // and calling `page.emulateMedia({ reducedMotion: "reduce" })` in the same
-    // test flips it to true — so the setting is inert here, not merely subtle.
-    // CSS animations therefore RUN in this lane: .legendary-badge pans its
-    // gradient forever, which is enough to make a naive screenshot diff of the
-    // ✨ badge differ on every frame and an assertion built on one unfalsifiable
-    // (see the probe notes in e2e/navbar_layout.spec.js).
+    // Intended all along: smooth-load (engine 0.24) enables same-origin view
+    // transitions, and under prefers-reduced-motion Turbo never starts one, so
+    // e2e gets instant swaps instead of racing a crossfade. The app also honors
+    // the query in nine of its own CSS blocks (app/assets/tailwind/application.css)
+    // and in three inline scripts.
     //
-    // Left in place rather than removed: it states the motion environment these
-    // specs are MEANT to run in, and any spec that truly needs reduced motion can
-    // call page.emulateMedia itself today. Making the line effective would change
-    // the motion environment of every existing spec at once, so it is its own
-    // task, not a drive-by.
-    reducedMotion: "reduce",
+    // FOR MONTHS IT DID NOT REACH THE PAGE. Written as a bare `use.reducedMotion`
+    // it is INERT in this Playwright (1.58.2) — measured three ways in one run:
+    //
+    //     use: { reducedMotion: "reduce" }                      -> matches FALSE
+    //     projects[].use: { reducedMotion: "reduce" }           -> matches FALSE
+    //     use: { contextOptions: { reducedMotion: "reduce" } }  -> matches TRUE
+    //
+    // (browser.newContext({ reducedMotion }) and page.emulateMedia both apply it
+    // too, so the CAPABILITY was never in doubt — only this spelling of it.)
+    // So every spec ran at the browser default while the config said otherwise,
+    // and any spec written believing motion was off was measuring something else.
+    // The classic casualty: .legendary-badge pans its gradient forever, so a
+    // screenshot crop containing the disc differs on EVERY frame and an assertion
+    // built on one can never fail.
+    //
+    // DO NOT "simplify" this back to a bare `reducedMotion:` key. It reads as the
+    // same setting and silently stops working. e2e/reduced_motion.spec.js asserts
+    // matchMedia inside a real page, so that edit goes RED rather than quiet, and
+    // test/lib/playwright_config_contract_test.rb pins the spelling here.
+    //
+    // SPECS THAT TEST ANIMATION MUST OPT OUT, LOUDLY: `await allowMotion(page)`
+    // (e2e/helpers.js). Reduced motion is now the lane's real default, so a spec
+    // that needs a running timeline has to say so — see the glow spec in
+    // e2e/navbar_layout.spec.js.
+    contextOptions: { reducedMotion: "reduce" },
     // Capture a Playwright trace + screenshot when a test retries/fails so
     // CI-only failures (which don't reproduce locally — e.g. geo.spec.js:54)
     // are diagnosable from the uploaded test-results/ artifact. on-first-retry
