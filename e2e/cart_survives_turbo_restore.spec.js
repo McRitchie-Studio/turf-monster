@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { loginAdmin, reseed, allowMotion } = require("./helpers");
+const { loginAdmin, reseed } = require("./helpers");
 
 // The cart must come BACK with the picks you actually made.
 //
@@ -98,6 +98,20 @@ test("the restored cart carries the picks themselves, not just the count", async
 // stranded: toggleSelection() returns early on !loggedIn, so their cart never
 // reaches the server and a refetched page would have nothing to restore from.
 // Carrying the state in the snapshot is what covers them, so it gets a test.
+//
+// AND IT RUNS UNDER THE LANE'S REAL REDUCED-MOTION DEFAULT. It used to call
+// allowMotion(page) to park a finding from /tasks/make-reduced-motion-reach-specs;
+// that opt-out is gone, because the bug it parked is fixed in
+// app/javascript/turbo_snapshot_cache.js. Turbo files its snapshot one macrotask
+// after turbo:before-cache and swaps the body on an unordered animation frame, so
+// on a page this size the swap won and the snapshot was still unfiled when Back
+// was pressed -- Turbo then went to the network and served the guest a fresh page
+// with an empty cart. Turbo disables view transitions under reduced motion
+// (turbo.js `prefersViewTransitions`), and it was their ~30ms of setup that had
+// been hiding the race; the engine's ::view-transition-* rule never enters into it.
+//
+// DO NOT reintroduce allowMotion(page) here. Motion-on is the configuration in
+// which this bug is invisible, so a green run under it proves nothing.
 test("a signed-out visitor's picks survive the same journey", async ({ page }) => {
   // MOTION ON, AND NOT BECAUSE THIS SPEC IS ABOUT ANIMATION — it is a PARKED
   // FINDING, recorded here rather than buried.
@@ -118,11 +132,25 @@ test("a signed-out visitor's picks survive the same journey", async ({ page }) =
   //
   // Owned by /tasks/turbo-restore-under-reduced-motion, whose acceptance INCLUDES
   // deleting this opt-out. Do not quietly promote it to "this spec needs motion".
-  await allowMotion(page);
   await pickSix(page);
 
   await leaveAndComeBack(page);
 
   await expect(page.locator("body")).toContainText("6 / 6");
   await expect(page.locator(SLOTS)).toHaveCount(6);
+
+  // FORWARD, then BACK again. The snapshot has to survive being RE-cached, not just
+  // written once: going forward caches the contest page a second time, this time
+  // from a DOM Alpine rebuilt out of the restored snapshot, and that second copy is
+  // what this Back reads. An ordering fix that only covers the first cache write
+  // passes everything above and fails here.
+  //
+  // The count carries the claim on this leg, and only on this leg: the assertions
+  // above already proved on THIS page that six counted slots are six FILLED slots,
+  // so what is left to establish is that the same cart came back a second time.
+  await page.goForward();
+  await page.waitForURL((u) => !u.pathname.startsWith("/contests"));
+  await page.goBack();
+  await page.waitForURL((u) => u.pathname.startsWith("/contests"));
+  await expect(page.locator("body")).toContainText("6 / 6");
 });
