@@ -24,9 +24,50 @@
 // NETWORK (the 57ms gap above is that round trip) and rendered a fresh server page.
 // The correct snapshot lands in the cache moments later, too late to be used.
 //
-// The same unordered tick has a second failure mode: when the clone runs after the
-// swap it clones the INCOMING page and files it under the OUTGOING page's URL, and
-// Back then renders the page you just left. One fix covers both.
+// THERE IS A SECOND FAILURE MODE, AND THE HOLD BELOW DOES NOT COVER IT. An earlier
+// version of this comment claimed "one fix covers both". That was wrong, and the
+// measurement is written out here so the next reader does not have to rediscover it.
+//
+// The outgoing DOM can be filed under the WRONG URL, clobbering a good snapshot.
+// The cause is not the unordered tick above -- it is where Turbo reads the key from
+// (turbo.js 2.0.23):
+//
+//   viewRenderedSnapshot(_snapshot, _isPreview, renderMethod) {
+//     this.view.lastRenderedLocation = this.history.location;   // :4427
+//     ...
+//   async cacheSnapshot(snapshot = this.snapshot) {             // :4089
+//     const { lastRenderedLocation: location } = this           // :4090  <- the KEY
+//
+// lastRenderedLocation is stamped from history.location read at render COMPLETION,
+// not from the visit that authorized the render. So a history traversal that lands
+// INSIDE a render retargets the stamp, and the next cacheSnapshot() files the
+// outgoing DOM under that wrong key. MEASURED, Forward-then-Back (ms from load):
+//
+//   1728 before-render -> /turf-totals-v1   (body still the contest page)
+//   1730 cache.put     -> key=/contests     GOOD: the cart snapshot is filed
+//   1732 goBack        -> history.location becomes /contests, MID-RENDER
+//   1737 render done   -> stamped /contests, though it rendered the RULES page
+//   1752 cache.put     -> key=/contests     the cart snapshot is CLOBBERED
+//
+// Back then served the Rules page under the contest URL for seconds.
+//
+// WHY IT IS NOT FIXED HERE. It needs a second visit to start while the first is
+// still rendering, which the hold below lengthens the window for. Both candidate
+// fixes were built and measured and both were REJECTED:
+//
+//   1. Re-stamping view.lastRenderedLocation after a held render. It does correct
+//      the filing (verified: the Rules dom goes back to the Rules key, and Forward
+//      becomes a cache HIT instead of a network refetch). But with two visits in
+//      flight the RENDERS still land out of order, so the page settles on the wrong
+//      one about half the time. Ordering the held renders too did not close it.
+//   2. turbo-cache-control: no-cache on the suspect write -- see the note at the
+//      bottom of this comment for why that answer strands the guest.
+//
+// So this is a Turbo visit-lifecycle hazard, not something a page-level module can
+// close honestly, and shipping half of a concurrency fix is worse than shipping
+// none. It is filed rather than fixed. What it needs from a caller is ordinary:
+// let a navigation FINISH before starting the next one. e2e/cart_survives_turbo_restore.spec.js
+// does exactly that (it waits for turbo:load, not merely the URL flip) and says so.
 //
 // WHY IT WAS INVISIBLE UNTIL NOW: Turbo turns view transitions OFF under reduced
 // motion -- `get prefersViewTransitions()` ends in
