@@ -299,7 +299,7 @@ jobs:
 
       - uses: ruby/setup-ruby@v1
         with: { ruby-version: .ruby-version, rubygems: 3.5.11, bundler-cache: true }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: 22 }
       # CACHE THE BROWSER, keyed on the resolved Playwright version. Measured on run
       # 32329065176, this step cost ~21s per shard — three shards, every run, re-downloading
