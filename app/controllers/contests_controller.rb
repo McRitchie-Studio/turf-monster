@@ -744,22 +744,49 @@ class ContestsController < ApplicationController
       # v0.16: username is required at PDA creation (validate_username on chain
       # enforces >= 3 chars). Pass current_user.username through.
       vault.ensure_user_account(current_user.web3_solana_address, username: current_user.username)
-      # v0.16: the user's ATA for the SELECTED currency must exist before they
-      # can transfer from it. init_if_needed isn't used in the instruction so
-      # we create it here (USDC for currency_idx 0, USDT for 1).
-      vault.ensure_ata(current_user.web3_solana_address, mint: entry_mint)
 
-      # v0.16 collapsed `enter_contest` + `enter_contest_direct` into a
-      # single unified `enter_contest` instruction. currency_idx selects the
-      # vault's accepted_currencies slot (0 = USDC, 1 = USDT) — validated
-      # against @contest.accepts_usdt above.
-      result = vault.build_enter_contest(
-        current_user.web3_solana_address,
-        @contest.slug,
-        entry.entry_number,
-        currency_idx: currency_idx,
-        season_id: @contest.season_id
-      )
+      # FUNDING PRIORITY — entry token first, then the currency transfer. Same
+      # order the web2 path has used since the unified-funding spec (see
+      # #resolve_web2_entry_funding!); until this task the Phantom path skipped
+      # straight to the transfer, so a Phantom wallet holding a token was charged
+      # USDC anyway and the token sat unspent.
+      #
+      # Scoped to the SIGNER address, not #solana_address, for the reason the web2
+      # path scopes to its own: the wallet that signs the consume must OWN the
+      # token or the program refuses it (owner != signer). Here they coincide —
+      # Phantom signs and #web3_solana_address is what it signs as — and saying so
+      # explicitly keeps that from becoming a silent coincidence.
+      entry_token = current_user.next_unconsumed_entry_token_for(current_user.web3_solana_address)
+
+      result =
+        if entry_token
+          # The token IS the payment: no SPL transfer, so no ATA is needed and
+          # currency_idx carries no meaning on this wire.
+          vault.build_enter_contest_with_token(
+            current_user.web3_solana_address,
+            @contest.slug,
+            entry.entry_number,
+            entry_token[:pda],
+            season_id: @contest.season_id
+          )
+        else
+          # v0.16: the user's ATA for the SELECTED currency must exist before they
+          # can transfer from it. init_if_needed isn't used in the instruction so
+          # we create it here (USDC for currency_idx 0, USDT for 1).
+          vault.ensure_ata(current_user.web3_solana_address, mint: entry_mint)
+
+          # v0.16 collapsed `enter_contest` + `enter_contest_direct` into a
+          # single unified `enter_contest` instruction. currency_idx selects the
+          # vault's accepted_currencies slot (0 = USDC, 1 = USDT) — validated
+          # against @contest.accepts_usdt above.
+          vault.build_enter_contest(
+            current_user.web3_solana_address,
+            @contest.slug,
+            entry.entry_number,
+            currency_idx: currency_idx,
+            season_id: @contest.season_id
+          )
+        end
 
       # Persist a PendingTransaction so a refresh mid-flight (between Phantom's
       # sign and confirm_onchain_entry) leaves a server-side trail. In the
@@ -773,7 +800,13 @@ class ContestsController < ApplicationController
         status: "pending",
         target: entry,
         initiator_address: current_user.web3_solana_address,
-        metadata: { entry_pda: result[:entry_pda], contest_slug: @contest.slug, currency_idx: currency_idx }.to_json
+        # entry_token_pda is the SERVER's record of what it prepared: the cosign
+        # guard and the broadcast verification both read it back rather than
+        # trusting the wire, so a client cannot present a token consume against
+        # an entry we priced in USDC (or the reverse).
+        metadata: { entry_pda: result[:entry_pda], contest_slug: @contest.slug, currency_idx: currency_idx,
+                    funding: (entry_token ? "token" : "transfer"),
+                    entry_token_pda: entry_token && entry_token[:pda] }.to_json
       )
 
       render json: {
@@ -781,7 +814,10 @@ class ContestsController < ApplicationController
         serialized_tx: result[:serialized_tx],
         entry_id: entry.id,
         entry_pda: result[:entry_pda],
-        ptx_slug: ptx.slug
+        ptx_slug: ptx.slug,
+        # Advisory for the client's copy only — the server decides the funding and
+        # re-reads its own decision at confirm time.
+        token_funded: entry_token.present?
       }
     end
   rescue StandardError => e
@@ -832,10 +868,15 @@ class ContestsController < ApplicationController
     # asserting entry ownership explicitly keeps that invariant from becoming
     # silently load-bearing if another PT-creation path is ever added.
     return render json: { error: "Not authorized" }, status: :forbidden unless entry.user_id == current_user&.id
+    prepared_token_pda = prepared_entry_token_pda(ptx)
 
-    # Already-active entry → close the loop on the PT and short-circuit.
+    # Already-active entry → close the loop on the PT and short-circuit. The
+    # activation can commit before the live path reaches its token-cache bust;
+    # recovery therefore owes that invalidation too when the server record says
+    # this attempt consumed a token. The bust is idempotent.
     if entry.active?
       ptx.update!(status: "confirmed")
+      current_user.bust_entry_tokens_cache! if prepared_token_pda
       return render json: {
         status: "confirmed",
         redirect: contest_path(@contest),
@@ -886,8 +927,18 @@ class ContestsController < ApplicationController
     # and the unique-signature index blocks replaying one tx across two rows.
     # (OPSEC-010 / Lazarus audit #1.)
     begin
-      verify_and_confirm_onchain_entry!(entry, ptx.tx_signature, vault: vault)
+      verify_and_confirm_onchain_entry!(entry, ptx.tx_signature,
+                                        entry_token_pda: prepared_token_pda,
+                                        vault: vault)
       ptx.update!(status: "confirmed")
+
+      # Same consume, same stale cache: this path credits an entry whose token
+      # was burned on-chain just as surely as the live path does, and it used to
+      # bust nothing at all — so a user who crashed mid-entry came back to a
+      # navbar badge and a "Hold for Free Entry" button still counting the token
+      # they had already spent.
+      current_user.bust_entry_tokens_cache! if prepared_token_pda
+
       render json: {
         status: "confirmed",
         redirect: contest_path(@contest),
@@ -942,17 +993,29 @@ class ContestsController < ApplicationController
 
       vault = Solana::Vault.new
 
+      # What did the SERVER prepare — a token consume or a currency transfer?
+      # Read it off the PendingTransaction #prepare_entry wrote, before anything
+      # is cosigned. The lookup is hoisted above the cosign (it used to sit after
+      # the broadcast, purely to stamp the signature) because the answer now gates
+      # the cosign itself; the same row is stamped below, unchanged.
+      ptx = PendingTransaction.where(target: entry, status: %w[pending submitted],
+                                     initiator_address: current_user.web3_solana_address)
+                              .order(:created_at).last
+      prepared_token_pda = prepared_entry_token_pda(ptx)
+
       # Audit C1 (admin blind-cosign): SEMANTICALLY validate the Phantom-signed
       # wire BEFORE the admin signs anything. Decodes the client's tx and asserts
-      # it is exactly the enter_contest we prepared — admin fee-payer, a single
-      # enter_contest IX bound to THIS entry's PDA, and only the durable-nonce
-      # advance / ComputeBudget hints alongside. Raises Solana::Vault::
+      # it is exactly the entry instruction we prepared — admin fee-payer, a single
+      # enter_contest (or enter_contest_with_token, when that is what we built)
+      # IX bound to THIS entry's PDA and to the token we chose, and only the
+      # durable-nonce advance / ComputeBudget hints alongside. Raises Solana::Vault::
       # UnsafeCosignError (rescued below) on anything else, so a crafted
       # SystemProgram.transfer{from: admin} / mint_entry_token / grant_seeds never
       # reaches the cosign. Validate-then-cosign: NO cosign, NO broadcast on reject.
       vault.assert_entry_cosign_safe!(params[:signed_tx],
                                       entry: entry,
-                                      wallet_address: current_user.web3_solana_address)
+                                      wallet_address: current_user.web3_solana_address,
+                                      entry_token_pda: prepared_token_pda)
 
       # Server-side: admin cosign (fills the empty admin slot in the
       # Phantom-signed wire tx) → simulateTransaction pre-flight → broadcast →
@@ -967,11 +1030,9 @@ class ContestsController < ApplicationController
       # that CARRIES the signature so recover_pending_entry credits the already-
       # paid entry. A blank PT here would read as "never broadcast" and let the
       # user re-enter and pay twice (assign_onchain_entry_number! probes the chain
-      # and would skip the already-paid PDA). Look up by target+initiator
-      # (prepare_entry created the row pre-broadcast, before any signature).
-      ptx = PendingTransaction.where(target: entry, status: %w[pending submitted],
-                                     initiator_address: current_user.web3_solana_address)
-                              .order(:created_at).last
+      # and would skip the already-paid PDA). The row was looked up above by
+      # target+initiator (prepare_entry creates it pre-broadcast, before any
+      # signature) because the cosign now reads the funding off it too.
       ptx&.update!(tx_signature: tx_signature, status: "submitted")
 
       # OPSEC-010 / Lazarus audit #1: server-derive the entry PDA, cross-check
@@ -980,20 +1041,33 @@ class ContestsController < ApplicationController
       # activate. Shared with the crash-recovery path so neither can drift.
       verify_and_confirm_onchain_entry!(entry, tx_signature,
                                         expected_entry_pda: params[:entry_pda],
+                                        entry_token_pda: prepared_token_pda,
                                         vault: vault)
 
       ptx&.update!(status: "confirmed")
 
-      # Confirmed (Phantom direct-USDC path) — announce the join in chat once.
+      # The on-chain EntryTokenAccount.consumed flag just flipped. Drop the 60s
+      # entry-tokens cache — BOTH layers, which is what #bust_entry_tokens_cache!
+      # now does — so the navbar badge, the next hold-to-confirm label and a
+      # follow-up entry all read the spent token as spent. The web2 path gets this
+      # from Vault#enter_contest_with_token, which the Phantom path never reaches
+      # (the consume rides the client's broadcast, not ours).
+      current_user.bust_entry_tokens_cache! if prepared_token_pda
+
+      # Confirmed (Phantom path, token or currency) — announce the join in chat once.
       announce_contest_join(entry)
 
       seeds = post_entry_seeds_payload(entry,
                                       path: "phantom-direct",
-                                      tx_signature: tx_signature)
+                                      tx_signature: tx_signature,
+                                      token_consumed: prepared_token_pda.present?)
       render json: {
         success: true,
         redirect: contest_path(@contest),
         tx_signature: tx_signature,
+        # Same flag the managed path returns: drives the navbar token punch
+        # (animateFreeEntryBadge) when the entry was paid for with a token.
+        token_consumed: prepared_token_pda.present?,
         **seeds
       }
     end
@@ -1985,8 +2059,38 @@ class ContestsController < ApplicationController
   #   has no trustworthy client PDA — re-deriving is the whole point. A real
   #   PDA is always a non-empty base58 string, so `false` is an unambiguous
   #   "not provided" sentinel.
+  # `entry_token_pda:` — the EntryTokenAccount #prepare_entry chose for this
+  #   entry, read back from the PendingTransaction (never the client). Present
+  #   means the broadcast must prove an `enter_contest_with_token`; absent, the
+  #   `enter_contest` transfer. Verifying the WRONG instruction name would accept
+  #   a signature that never moved the funding this entry was priced with.
   # `vault:` — lets a caller reuse an already-instantiated Solana::Vault.
-  def verify_and_confirm_onchain_entry!(entry, tx_signature, expected_entry_pda: false, vault: Solana::Vault.new)
+  # The EntryTokenAccount #prepare_entry recorded for this attempt, or nil when it
+  # prepared a currency transfer. The PendingTransaction is the server's own note
+  # to itself, so this is the one trustworthy answer to "what funding did we
+  # price this entry with" at cosign / verify / recover time. A row from before
+  # this task carries no `funding` key at all, and reads nil — the USDC path,
+  # which is exactly what those attempts were.
+  # SHAPE NOTE: `metadata` is a jsonb column that every writer here fills with
+  # `.to_json`, so Postgres holds a JSON *string* scalar and reads come back as a
+  # String, not a Hash (this is why PendingTransaction#parsed_metadata parses at
+  # all). Accept both rather than betting on one — a row written as a real object
+  # would otherwise raise TypeError inside the entry's confirm path.
+  def prepared_entry_token_pda(ptx)
+    return nil if ptx.nil? || ptx.metadata.blank?
+
+    meta = ptx.metadata
+    meta = JSON.parse(meta) if meta.is_a?(String)
+    return nil unless meta.is_a?(Hash)
+
+    meta["entry_token_pda"].presence
+  rescue JSON::ParserError => e
+    Rails.logger.warn("[entry] unparseable PendingTransaction metadata ptx=#{ptx&.id}: #{e.message}")
+    nil
+  end
+
+  def verify_and_confirm_onchain_entry!(entry, tx_signature, expected_entry_pda: false,
+                                        entry_token_pda: nil, vault: Solana::Vault.new)
     derived_entry_pda = Solana::Keypair.encode_base58(
       vault.entry_pda(@contest.slug, current_user.web3_solana_address, entry.entry_number).first
     )
@@ -1994,7 +2098,7 @@ class ContestsController < ApplicationController
 
     verify_solana_transaction!(
       tx_signature,
-      instruction: "enter_contest",
+      instruction: entry_token_pda.present? ? "enter_contest_with_token" : "enter_contest",
       signer: current_user.web3_solana_address,
       writable: derived_entry_pda
     )

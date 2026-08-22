@@ -155,7 +155,27 @@
 # self-contradictory and still green. Round six is this one. Re-derived with the
 # lister on THIS merged tree, never by arithmetic and never by taking a side:
 # `npx playwright test --list` -> 171 tests in 44 files.
-total_specs: 171
+#
+# ROUND SEVEN is this one, and it carries +4 that none of the branches above
+# counted — 171 -> 175.
+#
+# +2 e2e/free_entry_web3.spec.js (hold-for-free-entry, carried on the branch):
+# the board's funding-aware hold CTA — Alpine swaps the copy on BOTH buttons as
+# the token count moves, and the shipped eligibilityBlocker stops blocking a
+# Phantom wallet that holds a token but no USDC. Neither is observable from
+# Ruby: the first is an Alpine binding, the second a browser-side function.
+#
+# +2 e2e/free_entry_spend_mirror.spec.js (added this round). The CTA specs
+# above assert the BINDING by setting tokensAvailable BY HAND, which is why
+# they could not catch
+# the label going stale after the token was spent — nothing in production ever
+# produced the 0. These two never assign it: they hydrate through
+# refreshSession() and let confirmEntry()'s own success branches compute the
+# drop, one per branch (`/enter` and phantom-direct).
+#
+# RE-DERIVED WITH THE LISTER ON THIS MERGED TREE, never by adding to either
+# side: `npx playwright test --list` -> 175 tests in 46 files.
+total_specs: 175
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -203,24 +223,30 @@ allowed_skips: 4
 
 # total_specs - excluded - allowed_skips. What the lane MUST execute, asserted against the
 # runner's own report, so no source-level spelling on any axis can move it without moving
-# this line. Derived: 171 committed - 17 @devnet - 4 allowed = 150.
+# this line. Derived: 175 committed - 17 @devnet - 4 allowed = 154.
 #
 # Every number here was re-derived with the runner, not adjusted by arithmetic on the last
-# one. On this MERGED tree: `npx playwright test --list` reports 171 tests in 44 files,
-# `--grep "@devnet"` 17 in 1 file, and `--grep-invert "@devnet" --project=chromium` 154
-# collected for the PR lane — 154 - 4 runtime skips = 150.
+# one. On this MERGED tree: `npx playwright test --list` reports 175 tests in 46 files,
+# `--grep "@devnet"` 17 in 1 file, and `--grep-invert "@devnet" --project=chromium` 158
+# collected for the PR lane — 158 - 4 runtime skips = 154.
 #
-# allowed_skips STAYS AT 4, and all three merged branches were checked against it
+# allowed_skips STAYS AT 4, and every branch folded into this ledger was checked against it
 # separately. The seven step-up specs carry no runtime skip, and neither do the three
-# entry-badge specs (154 collected - 150 executed = the same 4). make-reduced-motion-reach-specs added no
+# entry-badge specs, the two free-entry CTA specs, or the two spend-mirror specs
+# (158 collected - 154 executed = the same 4). make-reduced-motion-reach-specs added no
 # skip and removed none: reduced motion is now the lane's real default and the two specs
 # that need a running timeline opt out with `allowMotion(page)` (e2e/helpers.js), which
 # changes what a spec MEASURES, never whether it RUNS. A change that flips the lane's
 # motion environment is exactly the kind that gets "absorbed" by widening this allowance
 # instead — it must not be. The whole delta lands on `executed`.
 #
+# ⚠️ THE PROSE IS PART OF THE LEDGER. A round once derived 138 from 159 while the VALUE
+# below already read 140 — correct number, wrong working. A stale derivation is worse than
+# none: the next merge resolves this file by READING the sentence. When you re-run the
+# lister, rewrite these numbers with it, in the same edit.
+#
 # ⚠️ RE-DERIVE THIS ON EVERY MERGE, and do not take either side. See the worked example
-# on total_specs above: this merge joined two branches that had each written 136 for a
+# on total_specs above: an earlier merge joined two branches that had each written 136 for a
 # DIFFERENT pair of specs, and the number came through the merge unconflicted.
 #
 # History: 143 and 147 on the two sides THIS merge joins — entry-badge-opens-sidebar
@@ -245,7 +271,18 @@ allowed_skips: 4
 # `npx playwright test --list` reports 171 tests in 44 files, `--grep "@devnet"`
 # 17 in 1 file, and `--grep-invert "@devnet" --project=chromium` 154 collected
 # for the PR lane — 154 - 4 allowed skips = 150.
-executed: 150
+#
+# 150 -> 154 on THIS merge (round seven). Two sources, and neither side's figure
+# is right: `accepted` moved to 171/150 while this branch sat at 161/140, and
+# this round then added 2 specs of its own on top of the branch's 2. Both are in
+# the chromium lane and neither carries a runtime skip, so allowed_skips HOLDS
+# AT 4 and the whole delta lands here. Re-derived with the runner on the merged
+# tree, not by arithmetic on either side: `npx playwright test --list` -> 175
+# tests in 46 files, `--grep "@devnet"` -> 17 in 1 file, and
+# `--grep-invert "@devnet" --project=chromium` -> 158 collected for the PR lane.
+# 175 - 17 - 4 = 154, and 158 collected - 4 runtime skips = 154. Both routes to
+# the number agree, which is the only reason to trust either.
+executed: 154
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
