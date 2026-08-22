@@ -15,7 +15,33 @@
      end
    } %>
 
+<%# Free-entry chip — the count the navbar's ✨ badge used to pop in its own
+    popover. The badge now OPENS this sidebar instead, so the number had to land
+    somewhere the click arrives at. Same .legendary-badge treatment as the disc
+    (paint only; the pill geometry is here), so the two read as one prize.
+
+    Live via the entryTokenBadge factory, which subscribes to the window
+    'entry-tokens-updated' event updateNavTokens dispatches — NOT a page reload.
+    body_html renders TWICE (desktop + mobile panel below), so this mounts twice
+    as two independent Alpine scopes; both subscribe, both stay correct. That is
+    also why the count is not synced by querySelector in JS: a single-element
+    lookup would leave the other panel stale.
+
+    x-show hides it at zero, and the server pre-sets display:none in that case so
+    there is no pre-Alpine flash of a chip promising an entry the user lacks. %>
+<% free_entries = display_entry_token_count.to_i %>
 <% body_html = capture do %>
+  <div class="px-4 pt-4 pb-3 border-b border-subtle"
+       x-data="entryTokenBadge({ initialCount: <%= free_entries %> })"
+       x-show="count > 0"
+       <%= 'style="display: none;"'.html_safe unless free_entries.positive? %>
+       data-free-entry-chip="true">
+    <span class="legendary-badge inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-bold leading-none whitespace-nowrap">
+      <span aria-hidden="true" style="font-size: 14px; line-height: 1;">✨</span>
+      <span><span x-text="count"><%= free_entries %></span>
+        <span x-text="count === 1 ? 'Free Entry' : 'Free Entries'"><%= free_entries == 1 ? "Free Entry" : "Free Entries" %></span></span>
+    </span>
+  </div>
   <nav class="flex-1 min-h-0 overflow-y-auto py-2" aria-label="Settings links">
     <%= link_to account_path, class: link_class do %><%= emoji_swap.("🙂", "✏️") %><span>My Profile</span><% end %>
     <%= link_to my_contests_path, class: link_class do %><%= emoji_swap.("🏆", "⚔️") %><span>My Contests</span><% end %>
