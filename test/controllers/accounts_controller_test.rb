@@ -71,7 +71,7 @@ class AccountsControllerTest < ActionDispatch::IntegrationTest
     ctl = ApplicationController.new
     ctl.instance_variable_set(:@wallet_balances, { usdc: 12.34, usdt: 0.5, sol: 1.0 })
     ctl.define_singleton_method(:current_user)     { user }
-    ctl.define_singleton_method(:onchain_session?) { false }
+    ctl.define_singleton_method(:onchain_session?) { true }
 
     payload = Rails.stub(:cache, ActiveSupport::Cache::MemoryStore.new) do
       Rails.cache.write(Solana::Vault.entry_tokens_cache_key(user.solana_address),
