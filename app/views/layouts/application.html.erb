@@ -234,10 +234,17 @@
           // Legal-age attestation (signup compliance): undefined keys are
           // dropped by JSON.stringify, so login/link calls stay unchanged.
           var ageAttestation = (!opts.linkMode && opts.ageAttested) ? '1' : undefined;
+          // Which wallet brand actually signed. Read off the PROVIDER rather
+          // than the walletName argument, because the standalone Solana button
+          // passes nothing and lets detect() choose — in that case the argument
+          // is undefined and the provider still knows its own name. The server
+          // normalises it (Solana::WalletProvider) and ignores anything off the
+          // registry, so the test-only 'keypair' provider stamps nothing.
+          var walletProviderName = (provider && provider.name) || walletName || undefined;
           return await (await fetch(verifyUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.content || '' },
-            body: JSON.stringify({ message: message, signature: signatureB58, pubkey: pubkeyB58, age_attestation: ageAttestation })
+            body: JSON.stringify({ message: message, signature: signatureB58, pubkey: pubkeyB58, age_attestation: ageAttestation, wallet_provider: walletProviderName })
           })).json();
         };
 
@@ -876,6 +883,18 @@
         the known cosmetic stack the driver note below describes. What still
         reads it is the board's saved-cart auto-enter, which re-saves the lineup
         instead of replaying an entry that cannot clear the wallet gate. %>
+    <%# The WEB3 STEP-UP one-shot. Emitted BEFORE the chain data because it
+        opens before the chain: a self-custody account that just authenticated
+        with a web2 credential is asked to sign first, and the chain (if it owes
+        anything at all) follows on dismissal. Rides the session for the same
+        reason the chain does — the Google popup reloads its opener rather than
+        redirecting, so a flash would be consumed by whichever render won. %>
+    <% web3_step_up = consume_web3_step_up_prompt %>
+    <% if web3_step_up.present? %>
+      <script type="application/json" id="web3-step-up-data">
+        <%= raw(web3_step_up.to_json) %>
+      </script>
+    <% end %>
     <% onboarding_steps = consume_onboarding_prompt %>
     <% if onboarding_steps.present? %>
       <%# STEPS ONLY. The username used to ride along for the retired welcome
@@ -966,8 +985,39 @@
           }
         });
 
+        // ── Web3 step-up, which runs BEFORE the chain ──────────────────────
+        // Held rather than raced. Both cards auto-open on the same render, and
+        // the driver's own note above records what happens when two things open
+        // a modal in the same window: one closes the other and a card is lost.
+        // So the chain does not merely open second — it does not START until
+        // this card reports done, and the payload it needs stays in the DOM
+        // until then.
+        var stepUpPending = !!document.getElementById('web3-step-up-data');
+
+        function startStepUp() {
+          var el = document.getElementById('web3-step-up-data');
+          if (!el) return;
+          var props;
+          try { props = JSON.parse(el.textContent); } catch (e) { props = {}; }
+          el.remove(); // one-shot: a later turbo:load must not replay it
+          open('web3-step-up', props || {});
+        }
+
+        // Dismissal (the x, Not now, or the picker handing back a no) releases
+        // the chain. A SUCCESSFUL signature never reaches here — that path
+        // reloads the page, and the server has already dropped both prompts.
+        window.addEventListener('web3-step-up-dismissed', function () {
+          if (!stepUpPending) return;
+          stepUpPending = false;
+          setTimeout(startChain, HANDOFF_MS);
+        });
+
         function startChain() {
           if (started) return;
+          // Do NOT consume the chain data while the step-up still owns the
+          // screen — returning before el.remove() is what lets this same
+          // function run again, for real, once the card is dismissed.
+          if (stepUpPending) return;
           var el = document.getElementById('onboarding-chain-data');
           if (!el) return;
           var data;
@@ -979,9 +1029,10 @@
           openStep(data.steps || []);
         }
 
-        document.addEventListener('turbo:load', startChain);
-        if (document.readyState !== 'loading') startChain();
-        else document.addEventListener('DOMContentLoaded', startChain);
+        function start() { startStepUp(); startChain(); }
+        document.addEventListener('turbo:load', start);
+        if (document.readyState !== 'loading') start();
+        else document.addEventListener('DOMContentLoaded', start);
       })();
 
       // CONNECT-HANDOFF REOPEN only. The wallet modal reloads the page once, and
@@ -1112,6 +1163,13 @@
       </template>
       <template x-if="$store.modals.current().id === 'wallet-setup'">
         <%= render "modals/wallet_setup" %>
+      </template>
+      <%# Web3 step-up — a self-custody account signed in with a web2 credential
+          (magic link / email / Google), so the session cannot sign on-chain.
+          Auto-opens BEFORE the onboarding chain from the one-shot session
+          prompt below, and hands off to that chain when dismissed. %>
+      <template x-if="$store.modals.current().id === 'web3-step-up'">
+        <%= render "modals/web3_step_up" %>
       </template>
       <template x-if="$store.modals.current().id === 'wallet-changed'">
         <%= render "modals/wallet_changed" %>

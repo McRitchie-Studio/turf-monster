@@ -121,13 +121,39 @@
 # tree is what caught it, exactly as the note left by the previous round instructed.
 # Do that, every time, on the merged tree. Do not take either side, and do not do the
 # arithmetic — run the lister.
+#
+# 159 -> 166 (web3-step-up-auth): seven specs in e2e/web3_step_up.spec.js for the WEB3
+# STEP-UP card — the modal a self-custody account meets when it signs in with a web2
+# credential. Every one of them asserts something the response bytes cannot show, which is
+# why they are here and not in the markup tier:
+#   · that the card OPENS at all. The server arms a one-shot session prompt and the
+#     layout's chain driver decides whether to act on it; a markup tier reads the payload
+#     in the DOM and learns nothing about whether a modal was ever pushed onto the host.
+#   · that dismissing HANDS OFF to the onboarding chain. The step-up HOLDS that chain
+#     rather than racing it, so a hand-off that silently failed would not merely skip a
+#     card — it would make every step the user still owed unreachable for the whole
+#     session. Caught live while writing these: the card correctly released into the age
+#     gate, which is the behaviour the spec now pins.
+#   · that the picker round-trips. `Use a different wallet` swaps to the connect picker
+#     and Back must return HERE carrying the props it left with; before the picker learned
+#     this backTo target it CLOSED instead, dropping the user out of the flow with nothing
+#     on screen.
+#   · that a wallet with no remembered brand gets the picker rather than a dead end, and
+#     that the card is a one-shot that does not nag on the next page.
+#
 # 159 -> 161 (make-reduced-motion-reach-specs): the two specs in
 # e2e/reduced_motion.spec.js. They are the lane's own self-check — the config had
 # declared `reducedMotion: "reduce"` for months while matchMedia in every spec said
 # FALSE, so they assert the setting REACHES a real page (JS flag + the CSS cascade)
-# rather than that the config file contains the line. Re-derived with the lister on
-# this tree: `npx playwright test --list` -> 161 tests in 42 files.
-total_specs: 161
+# rather than that the config file contains the line.
+#
+# 159 -> 168, TWO BRANCHES AT ONCE — the trap fires for the FOURTH time. This merge joins
+# web3-step-up-auth (+7, measured 166 alone) with make-reduced-motion-reach-specs (+2,
+# measured 161 alone) off a shared base of 159. NEITHER branch's number is right on the
+# merged tree, and neither is the base's: the conflict markers only ever framed the two
+# WRONG answers. Re-derived with the lister on the MERGED tree, never by arithmetic and
+# never by taking a side: `npx playwright test --list` -> 168 tests in 43 files.
+total_specs: 168
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -175,25 +201,27 @@ allowed_skips: 4
 
 # total_specs - excluded - allowed_skips. What the lane MUST execute, asserted against the
 # runner's own report, so no source-level spelling on any axis can move it without moving
-# this line. Derived: 161 committed - 17 @devnet - 4 allowed = 140.
+# this line. Derived: 168 committed - 17 @devnet - 4 allowed = 147.
 #
 # Every number here was re-derived with the runner, not adjusted by arithmetic on the last
-# one. On this tree: `npx playwright test --list` reports 161 tests in 42 files,
-# `--grep "@devnet"` 17 in 1 file, and `--grep-invert "@devnet" --project=chromium` 144
-# collected for the PR lane — 144 - 4 runtime skips = 140.
+# one. On the MERGED tree: `npx playwright test --list` reports 168 tests in 43 files,
+# `--grep "@devnet"` 17 in 1 file, and `--grep-invert "@devnet" --project=chromium` 151
+# collected for the PR lane — 151 - 4 runtime skips = 147.
 #
-# allowed_skips STAYS AT 4. make-reduced-motion-reach-specs added no skip and removed
-# none: reduced motion is now the lane's real default and the two specs that need a
-# running timeline opt out with `allowMotion(page)` (e2e/helpers.js), which changes what
-# a spec MEASURES, never whether it RUNS. A change that flips the lane's motion
-# environment is exactly the kind that gets "absorbed" by widening this allowance
-# instead — it must not be.
+# allowed_skips STAYS AT 4, and both merged branches were checked against it separately.
+# The seven step-up specs carry no runtime skip. make-reduced-motion-reach-specs added no
+# skip and removed none: reduced motion is now the lane's real default and the two specs
+# that need a running timeline opt out with `allowMotion(page)` (e2e/helpers.js), which
+# changes what a spec MEASURES, never whether it RUNS. A change that flips the lane's
+# motion environment is exactly the kind that gets "absorbed" by widening this allowance
+# instead — it must not be. The whole delta lands on `executed`.
 #
 # ⚠️ RE-DERIVE THIS ON EVERY MERGE, and do not take either side. See the worked example
 # on total_specs above: this merge joined two branches that had each written 136 for a
 # DIFFERENT pair of specs, and the number came through the merge unconflicted.
 #
-# History: 136 on each of the two branches this merge joins — fade-mask-follows-face-swap
+# History: 138 before web3-step-up-auth added its seven step-up specs;
+# 136 on each of the two branches the merge before that joins — fade-mask-follows-face-swap
 # and hide-badge-for-zero-tokens BOTH declared 136 for different pairs of specs, the trap
 # firing for the THIRD time; 134 on each of the two branches the merge before that joined
 # (redact-helius-key-from-browser and fade-mask-follows-face-swap), the second firing;
@@ -202,9 +230,10 @@ allowed_skips: 4
 # 128 (149 - 17 - 4) before either of them; 126 before that (the two payment specs still
 # skipping); and 122 against 145 committed before adopt-engine-geo-primitives added its
 # four geo specs.
-# 138 -> 140 (make-reduced-motion-reach-specs): +2, the reduced_motion.spec.js pair,
-# both in the chromium lane.
-executed: 140
+# 138 -> 147 (this merge): +7 web3_step_up.spec.js, +2 reduced_motion.spec.js, all nine in
+# the chromium lane, none carrying a runtime skip. The two branches declared 145 and 140
+# alone; the merged tree is neither.
+executed: 147
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to

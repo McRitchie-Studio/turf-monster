@@ -273,7 +273,12 @@
         pubkey: walletPubkey,
         // Legal-age attestation, stashed by the Connect Wallet picker before
         // the deep-link round trip (undefined is dropped by JSON.stringify).
-        age_attestation: (!linkMode && localStorage.getItem('phantom_dl_age_attested') === '1') ? '1' : undefined
+        age_attestation: (!linkMode && localStorage.getItem('phantom_dl_age_attested') === '1') ? '1' : undefined,
+        // Hardcoded, and correctly so: this whole page exists to service the
+        // PHANTOM mobile deep link (phantom_dl_*), so the brand is a property of
+        // the route rather than something to detect. A user arriving here signed
+        // in the Phantom app.
+        wallet_provider: 'phantom'
       })
     })
     .then(function(r) {
