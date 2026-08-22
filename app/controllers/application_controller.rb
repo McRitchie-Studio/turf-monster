@@ -140,6 +140,11 @@ class ApplicationController < ActionController::Base
     session.delete(:wallet_setup)
     session.delete(:wallet_setup_prompt)
     session.delete(:onboarding_prompt)
+    # A wallet signature IS the step-up. Dropping the armed prompt here (rather
+    # than letting the layout consume it) is what stops the modal flashing on the
+    # page a successful wallet login lands on — the prompt was armed by the
+    # earlier web2 auth in this same browser session.
+    session.delete(:web3_step_up_prompt)
   end
 
   # ── The post-auth onboarding chain (2026-08) ───────────────────────────────
@@ -158,6 +163,7 @@ class ApplicationController < ActionController::Base
   # about to be shown instead of re-deriving it from a boolean.
   def record_onboarding_state!(user)
     record_wallet_setup_state!(user, prompt: false)
+    record_web3_step_up_state!(user)
     steps = onboarding_steps_for(user)
     # One-shot, and it carries the STEPS rather than a bare boolean so the
     # client walks exactly what the server resolved. Rides the session (not the
@@ -166,6 +172,76 @@ class ApplicationController < ActionController::Base
     session[:onboarding_prompt] = steps.map(&:to_s) if steps.any?
     steps
   end
+
+  # ── The web3 step-up prompt (2026-08) ──────────────────────────────────────
+  #
+  # Armed at the same auth-success seam as the onboarding chain, and for the
+  # same reason it rides the SESSION rather than the flash: the Google popup
+  # never redirects — its OPENER reloads — so a flash would be consumed by
+  # whichever render landed first.
+  #
+  # This is NOT a chain step, and keeping it out of OnboardingFlow is deliberate.
+  # That service answers "what is this ACCOUNT still missing" and its cards carry
+  # a 1-of-3 progress pill; a step-up asks "what does this SESSION still owe",
+  # of a user whose account is already complete. Folding it in would put a
+  # returning wallet owner at "step 1 of 3" of an onboarding they finished
+  # months ago. It opens FIRST and hands off to the chain on dismissal — see the
+  # driver in layouts/application.html.erb.
+  #
+  # A fresh SessionContext, not the memoized #wallet_context: this runs
+  # immediately after set_app_session swapped the session's identity, and the
+  # memo may already hold the PREVIOUS viewer from earlier in the request.
+  def record_web3_step_up_state!(user)
+    session.delete(:web3_step_up_prompt)
+    mode   = SessionContext.new(user: user, onchain_session: onchain_session?).mode
+    policy = Web3StepUpPolicy.new(user, session_mode: mode)
+    return false unless policy.required?
+
+    # Carries the remembered wallet with it so the render does not have to
+    # re-derive it — the same shape the modal reads as props.
+    session[:web3_step_up_prompt] = policy.to_h.transform_keys(&:to_s)
+    true
+  end
+
+  # Arm the step-up card for a user who is NOT (yet) signed in.
+  #
+  # The Google-collision case: a self-custody account presented a Google identity
+  # at the front door. There is no session to inspect — the request is
+  # unauthenticated by definition — so the session-mode question
+  # record_web3_step_up_state! asks does not apply, and the answer it would
+  # return (:guest, therefore "required") would be right for the wrong reason.
+  # State the fact directly instead: this account is self-custodied and a web2
+  # credential just tried to speak for it.
+  #
+  # Returns false and arms nothing for an account with no wallet, so a caller
+  # cannot accidentally show the card to a user it makes no sense to.
+  def arm_web3_step_up_for(user)
+    return false unless user.respond_to?(:phantom_wallet?) && user&.phantom_wallet?
+
+    policy = Web3StepUpPolicy.new(user, session_mode: :web2)
+    session[:web3_step_up_prompt] = policy.to_h.transform_keys(&:to_s)
+    true
+  end
+
+  # One-shot read: the step-up payload for the render right after a web2 auth
+  # success, else nil. Deleting on read is what stops the modal re-opening on
+  # every later page view of a session that chose to dismiss it.
+  def consume_web3_step_up_prompt
+    payload = session.delete(:web3_step_up_prompt)
+    return nil if payload.blank?
+
+    payload.symbolize_keys.slice(:provider, :providerLabel, :walletHint)
+  end
+  helper_method :consume_web3_step_up_prompt
+
+  # Render-path predicate for the ADVISORY banner/CTA case: this session is web2
+  # but the account is self-custodied. RPC-free (see Web3StepUpPolicy), so it is
+  # safe to ask on any render — unlike the one-shot above, this stays true for
+  # the whole session and is what a "Sign with your wallet" affordance keys on.
+  def web3_step_up_required?
+    Web3StepUpPolicy.required_for?(current_user, session_mode: wallet_context.mode)
+  end
+  helper_method :web3_step_up_required?
 
   def onboarding_steps_for(user)
     OnboardingFlow.steps_for(

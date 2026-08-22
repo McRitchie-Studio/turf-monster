@@ -160,6 +160,12 @@
       <template x-if="$store.modals.current().id === 'wallet-setup'">
         <%= render "modals/wallet_setup" %>
       </template>
+      <%# web3-step-up — registered here AND in the app layout, per the note
+          above: this preview layout keeps its own list, and a modal in only one
+          of them renders as a blank card in the other. %>
+      <template x-if="$store.modals.current().id === 'web3-step-up'">
+        <%= render "modals/web3_step_up" %>
+      </template>
       <%# age-verify was MISSING here until 2026-08-19 — the exact gap the note
           above warns about. The gallery listed the variant and /admin/modals
           opened it, but this layout had no registration for the id, so the card

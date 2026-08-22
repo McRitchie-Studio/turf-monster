@@ -106,9 +106,26 @@ class OmniauthCallbacksController < ApplicationController
             "email"    => auth.info.email,
             "at"       => Time.current.to_i
           }
+          # SAME STANDARD, BOTH SHAPES (2026-08-21). This is the web3 step-up
+          # situation arriving from the front door instead of from behind a
+          # session: a self-custody account presenting a web2 credential. It used
+          # to be told so as a red sentence under the Google button — which named
+          # the account's email address in the failure text of an unauthenticated
+          # request, and gave the one person who could act on it nothing to click.
+          # Arm the standard card instead. The identity is already
+          # GoogleOauthValidator-checked and stashed above, so the wallet
+          # signature that clears the card also completes the link
+          # (apply_pending_google_link!).
           if @oauth_popup
+            # POPUP ONLY, deliberately. The popup has no page of its own to land
+            # on — it closes and the OPENER reloads — so the armed prompt is the
+            # only way to say anything actionable, and that reload renders the
+            # card. The non-popup branch below already has a whole page for this
+            # (/login/wallet), and opening the modal on top of it would be two
+            # explanations of one situation talking over each other.
+            arm_web3_step_up_for(existing)
             return finish_oauth(signin_path, success: false,
-                                alert: "#{auth.info.email} is a wallet account — log in with your Solana wallet to link Google.")
+                                alert: "Sign in with your Solana wallet to continue.")
           end
           return redirect_to link_wallet_path
         end

@@ -126,7 +126,9 @@ function registerWalletStore() {
             return fetch('/auth/solana/verify', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
-              body: JSON.stringify({ message: message, signature: signatureB58, pubkey: pubkeyB58 })
+              // Re-auth re-proves the same wallet, so it refreshes the brand
+              // stamp (and web3_authenticated_at) exactly like a fresh login.
+              body: JSON.stringify({ message: message, signature: signatureB58, pubkey: pubkeyB58, wallet_provider: (provider && provider.name) || undefined })
             });
           });
         })

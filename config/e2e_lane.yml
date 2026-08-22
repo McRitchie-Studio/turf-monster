@@ -121,14 +121,61 @@
 # tree is what caught it, exactly as the note left by the previous round instructed.
 # Do that, every time, on the merged tree. Do not take either side, and do not do the
 # arithmetic — run the lister.
+# 161 -> 171 on this MERGED tree. THREE branches added specs since the shared
+# base of 159, and no branch's own figure is right here.
+#   · web3-step-up-auth       +7  e2e/web3_step_up.spec.js  (measured 166 alone)
+#   · make-reduced-motion...  +2  e2e/reduced_motion.spec.js (measured 161 alone)
+#   · entry-badge-opens-...   +3  e2e/entry_badge_sidebar.spec.js (measured 162 alone)
+# The first two merged onto `accepted` together and landed 168; this branch was
+# built on 161 and landed 164. 164 and 168 are BOTH WRONG on the merge.
 #
-# 159 -> 161 (hold-for-free-entry): two specs in e2e/free_entry_web3.spec.js for the board's
-# funding-aware hold CTA — that Alpine swaps the copy on BOTH buttons as the token count
-# moves, and that the shipped eligibilityBlocker stops blocking a Phantom wallet that holds
-# a token but no USDC. Neither is observable from Ruby: the first is an Alpine binding and
-# the second is a browser-side function. DERIVED WITH THE LISTER on this merge (161 tests
-# in 42 files), not by adding 2 to the number that was here.
-total_specs: 161
+# What the three sets cover, kept because each says why a browser tier was owed:
+# the step-up seven pin the card a self-custody account meets when it signs in
+# with a web2 credential — that it OPENS, that dismissing HANDS OFF to the
+# onboarding chain rather than stranding every step the user still owed, that
+# the wallet picker ROUND-TRIPS back carrying its props, and that the card is a
+# one-shot. The reduced-motion two are the lane's own self-check: the config had
+# declared `reducedMotion: "reduce"` for months while matchMedia in every spec
+# said FALSE, so they assert the setting REACHES a real page rather than that
+# the config file contains the line. The entry-badge three cover what the
+# `ui-only` tiers cannot: the badge's CONTACT SHADOW, whose stylesheet read
+# correct while it painted nothing because the knob carrying it tied
+# .legendary-badge and lost on SOURCE ORDER (the spec neutralises the knob and
+# asserts the PIXELS move); the badge's CLICK, which opens the settings sidebar
+# and must STILL be open a beat later, where both spellings render identical
+# markup; and the sidebar CHIP, which mounts TWICE (the body renders into the
+# desktop and mobile panels) and tracks the count through a window event, so the
+# spec reads every mount.
+#
+# THE TRAP FIRED TWICE MORE TODAY, and the second shape is the one to remember.
+# Round five: the numeric lines DID conflict, but the derivation prose under
+# `executed` did NOT, so auto-merge silently took the other side's
+# "161 ... 144 collected ... = 140" whole while the markers drew the eye
+# elsewhere — resolving only what was marked would have left the file
+# self-contradictory and still green. Round six is this one. Re-derived with the
+# lister on THIS merged tree, never by arithmetic and never by taking a side:
+# `npx playwright test --list` -> 171 tests in 44 files.
+#
+# ROUND SEVEN is this one, and it carries +4 that none of the branches above
+# counted — 171 -> 175.
+#
+# +2 e2e/free_entry_web3.spec.js (hold-for-free-entry, carried on the branch):
+# the board's funding-aware hold CTA — Alpine swaps the copy on BOTH buttons as
+# the token count moves, and the shipped eligibilityBlocker stops blocking a
+# Phantom wallet that holds a token but no USDC. Neither is observable from
+# Ruby: the first is an Alpine binding, the second a browser-side function.
+#
+# +2 e2e/free_entry_spend_mirror.spec.js (added this round). The CTA specs
+# above assert the BINDING by setting tokensAvailable BY HAND, which is why
+# they could not catch
+# the label going stale after the token was spent — nothing in production ever
+# produced the 0. These two never assign it: they hydrate through
+# refreshSession() and let confirmEntry()'s own success branches compute the
+# drop, one per branch (`/enter` and phantom-direct).
+#
+# RE-DERIVED WITH THE LISTER ON THIS MERGED TREE, never by adding to either
+# side: `npx playwright test --list` -> 175 tests in 46 files.
+total_specs: 175
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -176,28 +223,37 @@ allowed_skips: 4
 
 # total_specs - excluded - allowed_skips. What the lane MUST execute, asserted against the
 # runner's own report, so no source-level spelling on any axis can move it without moving
-# this line. Derived: 161 committed - 17 @devnet - 4 allowed = 140.
+# this line. Derived: 175 committed - 17 @devnet - 4 allowed = 154.
 #
 # Every number here was re-derived with the runner, not adjusted by arithmetic on the last
-# one. On this MERGED tree: `npx playwright test --list` reports 161 tests in 42 files,
-# `--grep "@devnet"` 17, and `--grep-invert "@devnet" --project=chromium` 144 collected for
-# the PR lane — 144 - 4 runtime skips = 140. Both routes to the number agree, which is the
-# only reason to trust either.
+# one. On this MERGED tree: `npx playwright test --list` reports 175 tests in 46 files,
+# `--grep "@devnet"` 17 in 1 file, and `--grep-invert "@devnet" --project=chromium` 158
+# collected for the PR lane — 158 - 4 runtime skips = 154.
 #
-# ⚠️ THE PROSE IS PART OF THE LEDGER. This paragraph spent a review round deriving 138 from
-# 159 and citing "142 collected" while the VALUE below already read 140 — correct number,
-# wrong working. A stale derivation is worse than no derivation: the next merge resolves
-# this file by reading the sentence, and the sentence said the wrong tree. When you re-run
-# the lister, rewrite these numbers with it, in the same edit. `allowed_skips` did NOT rise
-# in that round; it held at 4.
+# allowed_skips STAYS AT 4, and every branch folded into this ledger was checked against it
+# separately. The seven step-up specs carry no runtime skip, and neither do the three
+# entry-badge specs, the two free-entry CTA specs, or the two spend-mirror specs
+# (158 collected - 154 executed = the same 4). make-reduced-motion-reach-specs added no
+# skip and removed none: reduced motion is now the lane's real default and the two specs
+# that need a running timeline opt out with `allowMotion(page)` (e2e/helpers.js), which
+# changes what a spec MEASURES, never whether it RUNS. A change that flips the lane's
+# motion environment is exactly the kind that gets "absorbed" by widening this allowance
+# instead — it must not be. The whole delta lands on `executed`.
+#
+# ⚠️ THE PROSE IS PART OF THE LEDGER. A round once derived 138 from 159 while the VALUE
+# below already read 140 — correct number, wrong working. A stale derivation is worse than
+# none: the next merge resolves this file by READING the sentence. When you re-run the
+# lister, rewrite these numbers with it, in the same edit.
 #
 # ⚠️ RE-DERIVE THIS ON EVERY MERGE, and do not take either side. See the worked example
 # on total_specs above: an earlier merge joined two branches that had each written 136 for a
 # DIFFERENT pair of specs, and the number came through the merge unconflicted.
 #
-# History: 138 (159 - 17 - 4) before hold-for-free-entry added its two web3 free-entry
-# specs — that merge is also the one whose CI caught this file, red at 138-against-136,
-# because `accepted` had moved twice underneath the branch while its PR sat in review;
+# History: 143 and 147 on the two sides THIS merge joins — entry-badge-opens-sidebar
+# (which had itself already resolved 140-vs-141) against an `accepted` carrying
+# web3-step-up-auth + make-reduced-motion-reach-specs; the trap firing for the SIXTH
+# time. Round five was the first to come through the un-conflicted derivation PROSE
+# rather than the number; 138 before any of them;
 # 136 on each of the two branches the merge before that joins — fade-mask-follows-face-swap
 # and hide-badge-for-zero-tokens BOTH declared 136 for different pairs of specs, the trap
 # firing for the THIRD time; 134 on each of the two branches the merge before that joined
@@ -207,7 +263,26 @@ allowed_skips: 4
 # 128 (149 - 17 - 4) before either of them; 126 before that (the two payment specs still
 # skipping); and 122 against 145 committed before adopt-engine-geo-primitives added its
 # four geo specs.
-executed: 140
+# 138 -> 150 across the three branches this ledger now carries: +7
+# web3_step_up.spec.js, +2 reduced_motion.spec.js, +3 entry_badge_sidebar.spec.js,
+# all twelve in the chromium lane and none carrying a runtime skip. The sides
+# declared 147 and 143; the merged tree is neither.
+# Re-derived with the runner on THIS merged tree, not by arithmetic on either:
+# `npx playwright test --list` reports 171 tests in 44 files, `--grep "@devnet"`
+# 17 in 1 file, and `--grep-invert "@devnet" --project=chromium` 154 collected
+# for the PR lane — 154 - 4 allowed skips = 150.
+#
+# 150 -> 154 on THIS merge (round seven). Two sources, and neither side's figure
+# is right: `accepted` moved to 171/150 while this branch sat at 161/140, and
+# this round then added 2 specs of its own on top of the branch's 2. Both are in
+# the chromium lane and neither carries a runtime skip, so allowed_skips HOLDS
+# AT 4 and the whole delta lands here. Re-derived with the runner on the merged
+# tree, not by arithmetic on either side: `npx playwright test --list` -> 175
+# tests in 46 files, `--grep "@devnet"` -> 17 in 1 file, and
+# `--grep-invert "@devnet" --project=chromium` -> 158 collected for the PR lane.
+# 175 - 17 - 4 = 154, and 158 collected - 4 runtime skips = 154. Both routes to
+# the number agree, which is the only reason to trust either.
+executed: 154
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to

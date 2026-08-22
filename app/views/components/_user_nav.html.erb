@@ -68,9 +68,10 @@
         leaves behind would still eat the negative margin and drag the avatar
         left into the username.
         z-20 > the avatar's z-10 puts the badge ON TOP. It opens a stacking
-        context, which is fine at 20: the count popover (z-50) is trapped inside
-        it but the whole context still outranks the avatar, so the popover
-        clears it. z-0 here would invert that and bury the popover.
+        context, which is fine at 20: nothing inside the badge has to escape it
+        now that the count popover is gone (the badge opens the gear sidebar,
+        which renders at the layout root), and the whole context still outranks
+        the avatar. z-0 here would invert that and bury the badge.
         ml-3 reserves the 8px of badge that overhangs the avatar — the badge is
         out of flow, so without it the username (which grows to fill Div 1) runs
         right up under the sparkle. %>
