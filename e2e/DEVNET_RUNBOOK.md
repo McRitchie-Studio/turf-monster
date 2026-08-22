@@ -11,6 +11,41 @@ End-to-end tests that exercise Turf Monster against real Solana devnet. These te
 - Alex Bot wallet funded with ~0.2 SOL + ~$20 USDC on devnet
 - Mack wallet funded with ~1 SOL on devnet (USDC seeded by faucet in Test 6)
 
+## Running In CI — the nightly lane
+
+These 17 specs do not run in pull-request CI. `ci.yml`'s playwright job excludes
+them (`--grep-invert "@devnet"`) and pins `SOLANA_RPC_URL` to a black hole so the
+PR lane stays hermetic. The only lane that runs them is
+`.github/workflows/devnet-nightly.yml`, at 08:00 UTC daily, plus `gh workflow run
+devnet-nightly.yml`.
+
+**Three operator switches** (Settings → Secrets and variables → Actions). Only
+Mr. McRitchie can set these; an agent App token gets 403 on both endpoints:
+
+| Setting | Kind | Value |
+|---|---|---|
+| `DEVNET_NIGHTLY_ENABLED` | variable | `true` |
+| `SOLANA_BOT_KEY` | secret | base58 private key of a FUNDED devnet wallet |
+| `SOLANA_RPC_URL` | secret | the devnet RPC endpoint to test against |
+
+**Turning the lane off costs a red run, on purpose.** The switches are checked in
+the workflow's first step, which exits 1 and names each missing one. This replaced
+a job-level `if:` that made "off" complete `skipped` — grey and one second, which
+is how the lane sat dead for fourteen consecutive nights (2026-08-08 to 08-21)
+without anything going red. If you genuinely want the lane off, disable the
+workflow in the Actions UI, which is a visible act; do not expect a quiet variable.
+
+**A dead lane eventually reddens every PR.** `ci.yml`'s `devnet_lane_guard` job
+fails a pull request once the nightly has had no *successful* run in 3 days. One
+bad devnet night costs nobody a merge; three days of silence costs everybody one.
+If it is red, this lane is not running and the coverage below does not exist.
+
+**Budget the wallet for a NIGHTLY cadence.** The per-run figures below are per
+run, and a nightly is ~30 of them a month: roughly **0.3 SOL and $570 devnet USDC
+per month**. Both are mintable on devnet, but neither tops itself up — a wallet
+that drains turns the lane red for a reason that has nothing to do with the code.
+Check the balances below when the nightly starts failing at the faucet tests.
+
 ## Pre-Flight Balance Check
 
 The tests automatically check balances and fail fast if insufficient. You can also check manually:
