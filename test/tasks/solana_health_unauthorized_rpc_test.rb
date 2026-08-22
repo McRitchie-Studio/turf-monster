@@ -53,6 +53,71 @@ class SolanaHealthUnauthorizedRpcTest < ActiveSupport::TestCase
                  "the operator still needs to see WHICH parameter was rejected")
   end
 
+  # ---------------------------------------------------------------------------
+  # THE FALSE GREEN (harden-solana-health-reporting)
+  # ---------------------------------------------------------------------------
+  test "does NOT tick PROGRAM_ID when the check could not run" do
+    output = nil
+
+    NonJsonRpcEndpoint.serving(
+      status: "401 Unauthorized", body: "Unauthorized", query: "api-key=#{SENTINEL_KEY}"
+    ) do |endpoint|
+      output = run_health_task(rpc_url: endpoint.url)
+    end
+
+    # THE BUG, stated as an assertion: against an endpoint that rejects
+    # everything, the task printed "✓ PROGRAM_ID exists on RPC" directly below
+    # "getGenesisHash failed". Solana::Vault.ensure_program_id_live! fails OPEN
+    # by design (TokenPurchaseJob depends on it), so the rake was reading "it
+    # did not raise" as "it passed" for a check that never executed.
+    refute_match(/✓ PROGRAM_ID exists on RPC/, output,
+                 "solana:health printed a GREEN TICK for a check that never ran — the worst " \
+                 "possible lie to tell an operator mid credential-rotation")
+    assert_match(/✗ PROGRAM_ID check did NOT run \(unverified\)/, output,
+                 "an unverified check must be reported as unverified, not silently omitted")
+
+    # And it still reaches its verdict rather than raising.
+    assert_match(/FAIL — fix the above before flipping traffic\./, output)
+    refute_includes output, SENTINEL_KEY
+  end
+
+  # ---------------------------------------------------------------------------
+  # THE MALFORMED ENDPOINT (harden-solana-health-reporting)
+  # ---------------------------------------------------------------------------
+  test "diagnoses a fat-fingered http:// endpoint instead of crashing" do
+    # Solana::Client.new validates the scheme in its CONSTRUCTOR, and the rake
+    # built the client OUTSIDE its begin — so the single most likely operator
+    # error on the rotation path (a pasted http:// endpoint) killed the task
+    # with a stack trace before any check could report it.
+    output = run_health_task(rpc_url: "http://rpc.example.test/?api-key=#{SENTINEL_KEY}")
+
+    assert_match(/RPC endpoint unusable/, output, "the task must NAME the bad endpoint as the problem")
+    assert_match(/InsecureRpcUrlError/, output, "the operator needs the actual failure class")
+    assert_match(/FAIL — fix the above before flipping traffic\./, output,
+                 "the task crashed instead of reaching its verdict")
+
+    # The message from that exception embeds the WHOLE credentialed URL
+    # (`#{@rpc_url.inspect}` inside the gem). Printing it raw would publish the
+    # very key the operator is rotating.
+    refute_includes output, SENTINEL_KEY,
+                     "solana:health printed the RPC credential while diagnosing a bad URL"
+  end
+
+  test "diagnoses an unparseable endpoint instead of crashing" do
+    # URI::InvalidURIError quotes the offending URI back in its message — the
+    # second credentialed-message class on this path.
+    output = run_health_task(rpc_url: "https:// rpc.example.test/?api-key=#{SENTINEL_KEY}")
+
+    assert_match(/RPC endpoint unusable/, output)
+    assert_match(/FAIL — fix the above before flipping traffic\./, output)
+    refute_includes output, SENTINEL_KEY,
+                     "solana:health printed the RPC credential while diagnosing a bad URL"
+
+    # Every downstream check must say it did not run, rather than tick.
+    refute_match(/✓ RPC genesis/, output)
+    refute_match(/✓ PROGRAM_ID exists on RPC/, output)
+  end
+
   private
 
   # Invoke the real task with RPC_URL pointed at `rpc_url`. The task ends in

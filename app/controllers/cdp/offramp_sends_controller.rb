@@ -156,7 +156,7 @@ module Cdp
     # ramp's wallet in a SIGNER slot — an arbitrary successful signature
     # someone else produced can't be pinned to this cash-out.
     def verify_reported_signature!(signature)
-      tx_info = Solana::Client.new.get_transaction(signature)
+      tx_info = Solana::Config.client.get_transaction(signature)
       raise SendVerificationError, "Transaction not found on-chain yet — wait for confirmation and retry." unless tx_info
 
       err = tx_info.dig("meta", "err")

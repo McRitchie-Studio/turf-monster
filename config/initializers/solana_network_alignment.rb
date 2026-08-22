@@ -79,7 +79,14 @@ unless skip
           # e.message — and gsub on that raises ArgumentError from inside this
           # rescue clause, where it is NOT caught. That aborts boot, which is
           # the exact bug this file exists to prevent.
-          failure = "#{e.class}: #{e.message.to_s.scrub("?").gsub(/\s+/, " ").truncate(200)}"
+          # redact_message, not a raw interpolation: two classes reachable here
+          # embed the WHOLE credentialed endpoint in their message —
+          # Solana::Client::InsecureRpcUrlError interpolates `@rpc_url.inspect`,
+          # URI::InvalidURIError quotes the bad URI back — and `failure` is
+          # printed below beside a second half that redacts correctly, which made
+          # the line LOOK safe. It scrubs first for the reason described above,
+          # then masks the credential.
+          failure = "#{e.class}: #{Solana::Config.redact_message(e.message).truncate(200)}"
           nil
         end
 

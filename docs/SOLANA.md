@@ -18,6 +18,7 @@ The two are **decoupled**: entry fees are operator revenue and do **not** count 
 
 Local (turf-monster) classes:
 - `Solana::Config` — program ID, RPC URLs (server **and** browser — see below), mints, network, signer set, IDL pinning (`verify_idl!`), plus `redact_rpc_url` (the shared log/terminal redactor for endpoints that carry a provider key).
+  - **`Solana::Config.client` is the only sanctioned way to build a server-side RPC client.** A bare `Solana::Client.new` lets the *gem* pick the endpoint — it falls back to `ENV.fetch("SOLANA_RPC_URL", <public devnet>)`, which **fails open** where `Solana::Config::RPC_URL` fails closed (OPSEC-012), and it sits outside the public/credentialed split and `redact_rpc_url`. A caller that genuinely needs its own endpoint passes `rpc_url:` sourced from `Solana::Config`. Enforced against the source tree by `test/services/solana/client_routed_through_config_test.rb` (the sibling of PR 390's `.erb` / `app/javascript` ban, which is blind to Ruby).
 - `Solana::Keypair` — Ed25519 keygen, sign, base58, and encrypt/decrypt of managed-wallet secrets via a 256-bit key derived from the **`MANAGED_WALLET_ENCRYPTION_KEY`** env var (OPSEC-015; `secret_key_base[0,32]` is a legacy fallback only). `#inspect`/`#to_s` are redacted (OPSEC-021).
 - `Solana::Vault` — high-level builders + senders for the current TurfVault instruction surface (see table below). Managed-wallet paths sign server-side; Phantom paths build partial transactions for browser/user signatures plus server cosign where required. `sync_balance` surfaces the user's USDC ATA balance (back-compat `:balance` key) + decodes `seeds` from the `UserAccount` PDA; `fetch_wallet_balances` reads USDC/USDT ATAs; `ensure_program_id_live!` guards stale env.
 - `Solana::TxVerifier` — fetches a confirmed TX and asserts it touches `PROGRAM_ID` with the expected Anchor discriminator + signer + writable PDA (OPSEC-010). Defeats "submit any successful signature."
@@ -182,7 +183,7 @@ The per-season schedule above is authoritative for Turf Monster; update this doc
 ## Rake Tasks (`lib/tasks/solana.rake`)
 
 - `solana:init_vault` — initialize the vault on devnet. Args `INIT=true SIGNERS=addr1,addr2,addr3 THRESHOLD=2` (optional `TREASURY=<squads_vault_pda>`, defaults to `SOLANA_SQUADS_VAULT_PDA` then the hardcoded Squads vault). OPSEC-013-gated in production. There is no `force_close` arg — the `force_close_vault` instruction was removed in v0.16; teardown = redeploy the program.
-- `solana:health` — pre-flight before any cluster flip: genesis-hash match + program-exists-on-RPC + IDL-hash match. Exits non-zero on mismatch.
+- `solana:health` — pre-flight before any cluster flip: genesis-hash match + program-exists-on-RPC + IDL-hash match. Exits non-zero on mismatch. **A check that could not RUN is reported as such, never as a tick** — the program-exists step reads `Solana::Vault.ensure_program_id_live!`'s tri-state return (`:live` / `:cached` / `:unverified`) rather than inferring a pass from the absence of a raise. That guard fails OPEN on purpose (`TokenPurchaseJob` depends on it), so against a rejecting endpoint the task used to print `✓ PROGRAM_ID exists on RPC` one line below `getGenesisHash failed`. It also passes `force: true`, so a ≤5-minute cache entry cannot answer for the CURRENT endpoint, and it builds its `Solana::Client` inside a rescue so a fat-fingered endpoint is diagnosed instead of raising past every check.
 - `solana:idl_hash` — print the committed IDL's SHA256 (the value for `EXPECTED_IDL_HASH`).
 - `solana:verify_idl` — run `verify_idl!` against the committed IDL.
 - `solana:airdrop` — airdrop SOL to admin.
@@ -216,6 +217,17 @@ UNAUTHENTICATED and additionally renders the value as visible page text. On
 query param, so every page load shipped the credential to every browser. The
 `solana:health` / `solana:preflight` rakes had redacted the same constant before
 printing it to a terminal since launch; the DOM was the one place that did not.
+
+Redacting the CONSTANT is not the whole job. `Solana::Client::InsecureRpcUrlError`
+and `URI::InvalidURIError` both embed the entire credentialed endpoint in their own
+`.message` (the gem interpolates `@rpc_url.inspect`), so an exception printed or
+logged raw republishes the key beside a correctly-redacted constant. Use
+`Solana::Config.redact_message(e.message)` for any exception on this path —
+`redact_rpc_url` returns `***` for a whole sentence, destroying the diagnostic.
+`Solana::ClientLogger` applies the same redaction to `outbound_requests.endpoint`
+and `.error_message`: failed RPCs always log, and a key rotation drives a burst of
+failures, so that table was re-recording the OLD key at the moment of rotation.
+(Rows written before that fix still carry it — purging them is an ops task.)
 
 **Resolution order** (`Solana::Config.public_rpc_url`), each step checked
 against `credentialed_rpc_url?`:
