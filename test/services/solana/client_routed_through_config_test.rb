@@ -69,6 +69,12 @@ class ClientRoutedThroughConfigTest < ActiveSupport::TestCase
       loose = BARE_NS_DIRS.any? { |dir| rel.start_with?(dir) }
 
       File.readlines(path).each_with_index.filter_map do |line, index|
+        # A COMMENT NAMING THE CONSTRUCTOR IS NOT A CONSTRUCTION. Widening the scan to
+        # .rake made this reachable: solana.rake documents its own escape hatch in prose
+        # that spells `Solana::Client.new`, and the scanner read the sentence as the deed.
+        # A guard that its own documentation can trip teaches people to stop writing the
+        # documentation.
+        next if line.lstrip.start_with?("#")
         next unless line.match?(QUALIFIED) || (loose && line.match?(BARE_NS))
         # (b) the explicit-endpoint escape hatch, sourced from Config.
         next if line.include?("rpc_url:") && line.include?("Config")
