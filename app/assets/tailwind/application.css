@@ -88,7 +88,7 @@
 .tm-gear-sidebar-layer { z-index: 10000; }
 
 /* Toast z-index defaults from studio-engine (60/55) sit below our
-   sticky navbar (z-[125] from layouts/_navbar.html.erb) and the modal
+   sticky navbar (z-[110] from layouts/_navbar.html.erb) and the modal
    backdrop (z-[120]). Override via the engine's CSS custom properties
    so toasts (200/199) surface above everything — including any open
    modal — no !important needed since studio-engine 0.4.10. */
@@ -1144,8 +1144,8 @@ body.modal-open { overflow: hidden; }
 
 /* Level-up glow — window.armFreeEntryGlow() pulses the badge three times when
    a SEEDS_PER_LEVEL crossing mints a free entry, so the celebration points at
-   WHERE the token landed. The navbar sits at z-[130], above the modal
-   backdrop, so this reads through the free-entry-earned modal on purpose.
+   WHERE the token landed. The navbar sits at z-[110], below the modal
+   backdrop; toast feedback remains the only layer above an open modal.
    ALWAYS the modern slash form rgb(var(...) / A) — a space-separated
    "R G B" var is silently dropped by the legacy rgba(var(...), A) form. */
 .free-entry-glow { animation: free-entry-glow 1.4s ease-out 3; }
