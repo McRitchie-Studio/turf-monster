@@ -2,6 +2,37 @@
   cart_selections = {}
   cart_selection_order = []
   edit_entry = local_assigns[:edit_entry]
+
+  # The hold CTA names the funding the entry will actually use. A wallet holding
+  # an unconsumed entry token spends that token instead of its balance, so the
+  # button says so — the confidence the operator asked for lands BEFORE the hold,
+  # not in the receipt after it.
+  #
+  # BOUND, NOT BAKED. The label reads $store.session.tokensAvailable live, so it
+  # falls back to "Hold to Confirm" the instant the token is spent; a
+  # server-rendered label would keep promising a free entry for the SECOND entry
+  # of the same page view.
+  #
+  # WHAT LOWERS THE COUNT — read this before trusting the sentence above. This
+  # board does NOT call refreshSession(); an earlier version of this comment
+  # claimed it did, and that claim was the whole bug. refreshSession() lives in
+  # solana_utils.js and is fired by the layout's hydrateNavbar and the gear
+  # sidebar, never by an entry. The board's own success handlers lower the count
+  # themselves, through mirrorTokenSpend() — the single downward writer, called
+  # from BOTH the phantom-direct and managed-wallet success branches. Every
+  # other write to tokensAvailable in this app is an acquisition.
+  # It NAMES the funding, it does not choose it — ContestsController#enter stays
+  # authoritative (token first, then balance).
+  #
+  # BOTH MODES, AND TRUE IN BOTH. The label follows the wallet's token with no
+  # mode test because BOTH entry paths now spend one: the managed path through
+  # ContestsController#resolve_web2_entry_funding!, and the Phantom path through
+  # #prepare_entry, which builds enter_contest_with_token when the signing wallet
+  # holds an unconsumed token. It shipped mode-blind one review earlier while the
+  # Phantom path still charged USDC, and Carl blocked it for exactly that — the
+  # copy claimed a price the code did not honour. The fix was to make the code
+  # true rather than the copy narrower (operator call, 2026-08-21).
+  hold_cta_label = tag.span("x-text": "$store.session.tokensAvailable >= 1 ? 'Hold for Free Entry' : 'Hold to Confirm'")
   source_entry = edit_entry || @cart_entry
 
   if source_entry
@@ -1283,6 +1314,38 @@ window.selectionBoard = function() {
       });
     },
 
+    // THE SPEND MIRROR — this board's only writer of
+    // $store.session.tokensAvailable in the DOWNWARD direction.
+    //
+    // The hold CTA is BOUND to $store.session.tokensAvailable (see the header
+    // comment). Every other write to that key in this app is an ACQUISITION:
+    // the mint poll in pollTokenStatus above, tokens/_paypal_sdk.html.erb, and
+    // solana_utils.js's session hydrate. refreshBalanceDelayed() ->
+    // refreshBalance() writes usdcCents/usdtCents and NOTHING else. So before
+    // this method the count only ever went UP, and a wallet that had just
+    // entered free kept reading "Hold for Free Entry" — then eligibilityBlocker
+    // (solana_utils.js) waved the stale count through at hold-time while the
+    // server correctly built a USDC transfer. The user was charged after
+    // holding a button that promised a free entry.
+    //
+    // Called from BOTH success branches — phantom-direct and managed-wallet —
+    // and keyed off the SERVER's `token_consumed`, never a local guess, because
+    // ContestsController#enter / #confirm_onchain_entry own the funding choice.
+    //
+    // A null (cold-cache "unknown") count coerces to 0 here rather than staying
+    // unknown. That is the safe direction: 0 renders the neutral "Hold to
+    // Confirm", and the server stays authoritative either way.
+    mirrorTokenSpend(payload) {
+      if (!payload || !payload.token_consumed) return;
+      try {
+        var sess = window.Alpine && Alpine.store && Alpine.store('session');
+        if (!sess) return;
+        var next = Math.max(0, (sess.tokensAvailable | 0) - 1);
+        sess.tokensAvailable = next;
+        if (window.updateNavTokens) window.updateNavTokens(next);
+      } catch (_) {}
+    },
+
     setHoldSuccess() {
       document.querySelectorAll('.hold-btn').forEach(function(el) {
         el.classList.remove('error', 'process', 'loading');
@@ -1523,9 +1586,15 @@ window.selectionBoard = function() {
             throw new Error(prepareData.error || 'Failed to prepare entry');
           }
 
-          // Surface WHICH currency this entry spends (small label — the modal
-          // copy is the natural spot; no redesign).
-          Alpine.store('solanaModal').show('Sign Transaction', 'Approve the ' + entryCurrency.toUpperCase() + ' transfer in your wallet...');
+          // Surface WHAT this entry spends (small label — the modal copy is the
+          // natural spot; no redesign). A token-funded entry spends no currency
+          // at all: the server built enter_contest_with_token, and naming a USDC
+          // transfer here would contradict the "Hold for Free Entry" button the
+          // user just held. token_funded is the SERVER's own decision, echoed
+          // back by prepare_entry for exactly this copy.
+          Alpine.store('solanaModal').show('Sign Transaction', prepareData.token_funded
+            ? 'Approve your free entry in your wallet...'
+            : 'Approve the ' + entryCurrency.toUpperCase() + ' transfer in your wallet...');
           var txBytes = Uint8Array.from(atob(prepareData.serialized_tx), function(c) { return c.charCodeAt(0); });
           var tx = solanaWeb3.Transaction.from(txBytes);
           try {
@@ -1577,6 +1646,9 @@ window.selectionBoard = function() {
           var txSig = confirmData.tx_signature;
           console.log('[contest-entry] server cosigned + confirmed on-chain:', txSig);
           this.setHoldSuccess();
+          // Spend mirror — the token this entry consumed is GONE. See
+          // mirrorTokenSpend(); nothing else on this path lowers the count.
+          this.mirrorTokenSpend(confirmData);
 
           if (confirmData.seeds_earned) {
             var m = Alpine.store('solanaModal');
@@ -1627,6 +1699,11 @@ window.selectionBoard = function() {
 
           if (data.success) {
             this.setHoldSuccess();
+            // Spend mirror. The managed path never mirrored at ALL before this
+            // — it punched the badge below and left the store untouched, so the
+            // second entry of the same page view still read "Hold for Free
+            // Entry" over a wallet with nothing left to spend.
+            this.mirrorTokenSpend(data);
             // 🎟️ navbar punch — fires when the server reports the entry
             // was paid for by a token consume. Hooked here so both the
             // tokens-modal and the non-modal hold-to-confirm paths get
@@ -1995,7 +2072,7 @@ window.selectionBoard = function() {
       <% else %>
         <div x-show="selectionCount === <%= @contest.picks_required %>" x-transition>
         <%= render 'studio/hold_button',
-          default_text: "Hold to Confirm",
+          default_text: hold_cta_label,
           hold_text: "Almost there...",
           success_text: "Confirmed!",
           duration: 2000,
@@ -2066,7 +2143,7 @@ window.selectionBoard = function() {
     <% else %>
     <div x-show="selectionCount === <%= @contest.picks_required %>" class="mb-5">
       <%= render 'studio/hold_button',
-        default_text: "Hold to Confirm",
+        default_text: hold_cta_label,
         hold_text: "Almost there...",
         success_text: "Confirmed!",
         duration: 2000,

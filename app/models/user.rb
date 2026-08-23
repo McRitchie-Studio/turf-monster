@@ -587,7 +587,15 @@ class User < ApplicationRecord
   # request it in the same pageview. Cache key includes the deployed
   # program ID so a program-redeploy implicitly invalidates. Writers
   # (TokenPurchaseJob mint, enter_contest_with_token consume) should call
-  # `User#bust_entry_tokens_cache!` after the chain TX confirms.
+  # `User#bust_entry_tokens_cache!` after the chain TX confirms — that ONE call
+  # clears both layers (see the method), which is what makes it a safe
+  # instruction to give writers.
+  #
+  # THERE ARE TWO LAYERS, and this one wraps the other:
+  #   #cached_entry_tokens      → "entry_tokens/v1/<prog8>/<addr>"  (here)
+  #     └── Vault#list_entry_tokens → "entry_tokens:<addr>"         (the RPC layer)
+  # The inner key is also what the navbar badge and the hold-for-free-entry CTA
+  # read directly (ApplicationController#display_entry_token_count).
 
   def entry_tokens_cache_key
     "entry_tokens/v1/#{Solana::Config::PROGRAM_ID[0, 8]}/#{solana_address}"
@@ -612,8 +620,25 @@ class User < ApplicationRecord
     @cached_entry_tokens = []
   end
 
+  # Clears BOTH entry-token cache layers plus the per-request memos.
+  #
+  # It used to delete only the outer (User) key. The next read then re-entered
+  # Vault#list_entry_tokens, hit its STILL-WARM "entry_tokens:<addr>" key, and
+  # re-served the just-spent token as unconsumed for up to 60s — so the navbar
+  # badge and the "Hold for Free Entry" CTA (which read that inner key directly)
+  # kept promising a free entry the wallet could no longer honour, and a second
+  # #prepare_entry re-picked the CONSUMED token and built a doomed
+  # enter_contest_with_token (0x177f) instead of falling back to USDC.
+  #
+  # Both wallet addresses are cleared, not just #solana_address: a combo account
+  # (managed + Phantom) can hold tokens under either, and #solana_address returns
+  # only the Phantom one. Deleting a cold key is free, so the wide bust costs
+  # nothing and removes a whole class of "busted the wrong address" bug.
   def bust_entry_tokens_cache!
     Rails.cache.delete(entry_tokens_cache_key)
+    [web3_solana_address, web2_solana_address].compact_blank.uniq.each do |address|
+      Rails.cache.delete(Solana::Vault.entry_tokens_cache_key(address))
+    end
     remove_instance_variable(:@cached_entry_tokens) if defined?(@cached_entry_tokens)
     remove_instance_variable(:@entry_token_balance) if defined?(@entry_token_balance)
   end
