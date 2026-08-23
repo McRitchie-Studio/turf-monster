@@ -1326,6 +1326,7 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     )
 
     vault = FakeVault.new
+    vault.sync_balance_seeds = 100
     expected_pda = "epda-#{@contest.slug}-#{@user.web3_solana_address[0, 4]}-0"
 
     # encode_base58 here would normally turn pda bytes into a base58 string;
@@ -1335,9 +1336,11 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     Solana::Vault.stub :new, vault do
       Solana::Keypair.stub :encode_base58, ->(s) { s.is_a?(String) ? s : s.to_s } do
         Solana::TxVerifier.stub :verify!, true do
-          post confirm_onchain_entry_contest_path(@contest),
-            params: { signed_tx: "PHANTOM_SIGNED_WIRE_B64", entry_id: entry.id, entry_pda: expected_pda },
-            as: :json
+          assert_enqueued_with(job: LevelUpTokenMintJob, args: [{ user_id: @user.id }]) do
+            post confirm_onchain_entry_contest_path(@contest),
+              params: { signed_tx: "PHANTOM_SIGNED_WIRE_B64", entry_id: entry.id, entry_pda: expected_pda },
+              as: :json
+          end
         end
       end
     end

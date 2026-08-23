@@ -1,11 +1,9 @@
 # Pays out the free-entry token every level milestone promises.
 #
-# The level-up modal tells the user their token "will arrive in 48 hours". Until
-# this job existed, that sentence was underwritten by nothing: no scheduled work
-# minted level-up tokens, and the only thing that ever did was an operator
-# opening /admin/free_entries and clicking Mint. This job is what makes those 48
-# hours a deadline the system meets by itself. It runs every 15 minutes
-# (config/schedule.yml, sidekiq-cron), so the real latency is a quarter hour.
+# A trusted, fresh seed snapshot nudges this job immediately so the token can
+# land while the level-up celebration is still on screen. The 15-minute cron
+# (config/schedule.yml, sidekiq-cron) remains the recovery path for a missed
+# enqueue, an RPC outage, or seeds earned outside a request Turf Monster sees.
 #
 # CHEAP WHEN THERE IS NOTHING TO DO — which is almost always. The candidate
 # query is pure SQL against the denormalized mirror and the partial index
@@ -51,12 +49,48 @@ class LevelUpTokenMintJob < ApplicationJob
   # even at devnet's ~1/sec, and only levelled-up users are ever counted.
   BATCH_SIZE = 25
 
-  def perform(batch_size: BATCH_SIZE)
+  # Coalesce repeated hydrates for the same outstanding milestone while the
+  # targeted job is queued/running. The deterministic on-chain PDA remains the
+  # hard double-grant guard; this short lease only avoids needless overlapping
+  # RPCs and expected init collisions. A cache outage fails open because the
+  # payout is more important than this optimization.
+  NUDGE_LEASE = 2.minutes
+
+  def self.nudge(user, seeds_total:)
+    return false unless user&.solana_connected?
+
+    seeds_total = Integer(seeds_total)
+    level = User.level_for(seeds_total)
+    user.update_level_from_seeds!(seeds_total)
+    return false unless level > user.entry_tokens_granted_level
+
+    key = nudge_cache_key(user.id, level)
+    claimed = Rails.cache.write(key, true, expires_in: NUDGE_LEASE, unless_exist: true)
+    return false if claimed == false
+
+    perform_later(user_id: user.id)
+    true
+  rescue ArgumentError, TypeError
+    false
+  rescue => e
+    Rails.cache.delete(key) if defined?(key) && key
+    Rails.logger.warn "[level-up-grant] nudge_failed user=#{user&.id} " \
+                      "(#{e.class}: #{e.message.to_s[0, 140]})"
+    false
+  end
+
+  def self.nudge_cache_key(user_id, level)
+    "level-up-token-nudge/v1/#{user_id}/#{level}"
+  end
+
+  def perform(batch_size: BATCH_SIZE, user_id: nil)
     # Catches a stale Sidekiq env pointing at a dead PROGRAM_ID — the
     # mint-to-wrong-program bug that has bitten twice on devnet redeploys.
     # Raises only on a definitive "that program does not exist"; transient RPC
     # trouble falls through and lets the mint surface its own error.
     Solana::Vault.ensure_program_id_live! unless ENV["SKIP_PROGRAM_ID_LIVE_CHECK"] == "true"
+
+    return perform_target(user_id) if user_id
 
     candidates = self.class.candidates.limit(batch_size).to_a
     return if candidates.empty?
@@ -71,28 +105,15 @@ class LevelUpTokenMintJob < ApplicationJob
     failed      = 0
 
     candidates.each do |user|
-      result = Tokens::LevelUpGrant.call(user, vault: vault)
+      result = grant_user(user, vault: vault)
 
-      if result.evaluated?
+      if result.nil?
+        failed += 1
+      elsif result.evaluated?
         minted += result.minted_count
       else
         unevaluable += 1
-        report_unevaluable(user, result)
       end
-    rescue => e
-      # One user's failure never ends the sweep — the rest of the queue is
-      # owed their tokens just as much. But it is RECORDED, not shrugged off:
-      # a wallet that faults on every run is a user who never gets paid.
-      failed += 1
-      Rails.logger.warn "[level-up-grant] user=#{user.id} sweep failed " \
-                        "(#{e.class}: #{e.message.to_s[0, 140]})"
-      capture_error(e, user)
-    ensure
-      # ROTATION, in `ensure` so it runs on every outcome INCLUDING a raise —
-      # a wallet whose read raises every time is exactly the row that would
-      # otherwise pin itself to the front of the batch forever. Never a claim
-      # that anything was paid; see the migration's comment.
-      stamp_swept(user)
     end
 
     Rails.logger.info "[level-up-grant] sweep.done users=#{candidates.length} " \
@@ -103,10 +124,9 @@ class LevelUpTokenMintJob < ApplicationJob
   # least-recently-swept first.
   #
   # The mirror can only LAG the chain (seeds are monotonic and it is only ever
-  # written from a chain read), so this misses nobody permanently: a user whose
-  # seeds moved without a page load — an inviter credited by a referral, say —
-  # is picked up on the sweep after their next hydrate, and the token is not
-  # something they could see or spend before then anyway.
+  # written from a chain read), so this misses nobody permanently. A hydrate
+  # with a fresh snapshot uses `nudge` instead; the sweep catches missed
+  # request paths and transient enqueue failures.
   #
   # The ORDER BY is load-bearing, not cosmetic: it is what guarantees every
   # candidate gets a turn regardless of how many rows ahead of it are stuck.
@@ -122,6 +142,45 @@ class LevelUpTokenMintJob < ApplicationJob
   end
 
   private
+
+  # Bypasses the SQL candidate mirror. The fresh request-path seed snapshot is
+  # only the trigger; Tokens::LevelUpGrant still re-reads chain truth before it
+  # mints, so a stale or malformed snapshot can never award a token by itself.
+  def perform_target(user_id)
+    user = User.find_by(id: user_id)
+    return unless user
+
+    nudged_level = user.level
+    Rails.logger.info "[level-up-grant] target.start user=#{user.id} level=#{nudged_level}"
+    result = grant_user(user, vault: Solana::Vault.new)
+    Rails.logger.info "[level-up-grant] target.done user=#{user.id} " \
+                      "minted=#{result&.minted_count || 0} evaluated=#{result&.evaluated? || false}"
+    result
+  ensure
+    if defined?(user) && user && defined?(nudged_level) && nudged_level
+      Rails.cache.delete(self.class.nudge_cache_key(user.id, nudged_level))
+    end
+  end
+
+  # One user's failure never ends the sweep — the rest of the queue is owed
+  # their tokens too. Targeted runs share the same reporting and rotation
+  # semantics, while the scheduled caller decides how to count the result.
+  def grant_user(user, vault:)
+    result = Tokens::LevelUpGrant.call(user, vault: vault)
+    report_unevaluable(user, result) unless result.evaluated?
+    result
+  rescue => e
+    Rails.logger.warn "[level-up-grant] user=#{user.id} grant failed " \
+                      "(#{e.class}: #{e.message.to_s[0, 140]})"
+    capture_error(e, user)
+    nil
+  ensure
+    # ROTATION, in `ensure` so it runs on every outcome INCLUDING a raise — a
+    # wallet whose read raises every time is exactly the row that would
+    # otherwise pin itself to the front of the batch forever. Never a claim
+    # that anything was paid; see the migration's comment.
+    stamp_swept(user)
+  end
 
   # A user the sweep could not reach a verdict on. Named in the log AND paged
   # via ErrorLog: they are owed a token the system currently cannot deliver, and

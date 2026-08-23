@@ -3,12 +3,11 @@ module Tokens
   #
   # THE GAP THIS CLOSES. Levelling up was celebration-only. `User#update_level_
   # from_seeds!` returns the new level so the client can fire confetti and the
-  # "you earned a Free Entry Token, it will arrive in 48 hours" modal — and then
-  # nothing minted it. The only mint paths were `TokenPurchaseJob` (paid) and an
-  # operator clicking Mint on /admin/free_entries, and no scheduled job ever
-  # pressed that button. On QA a user reached level 2 with `owed: 1, minted: 0`
-  # and stayed there. Those 48 hours are now a real deadline this job meets, not
-  # a hope that someone visits the admin page.
+  # "you earned a Free Entry Token" modal — and then nothing minted it. The only
+  # mint paths were `TokenPurchaseJob` (paid) and an operator clicking Mint on
+  # /admin/free_entries. On QA a user reached level 2 with `owed: 1, minted: 0`
+  # and stayed there. A fresh seed snapshot now enqueues this grant immediately;
+  # the scheduled sweep remains its recovery path.
   #
   # IDEMPOTENCY IS THE WHOLE DESIGN. The EntryTokenAccount PDA is seeded on
   # sha256(source_ref), and the program `init`s it — so re-minting the same ref
@@ -47,8 +46,7 @@ module Tokens
 
     # Per-user ceiling for a single run. A wallet that somehow shows 40 owed
     # levels should not spend 40 admin-SOL rent payments (and 40 devnet RPC
-    # slots) inside one sweep; the remainder is picked up next run, which is
-    # still hours inside the 48-hour promise.
+    # slots) inside one run; the recovery sweep picks up the remainder.
     MAX_GRANTS_PER_RUN = 5
 
     # Rails-side name for the on-chain source byte. `:operator` (0) is the same

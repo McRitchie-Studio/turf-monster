@@ -1,7 +1,7 @@
 require "test_helper"
 
 # Unit — Tokens::LevelUpGrant is the payout behind the level-up modal's
-# "your Free Entry Token will arrive in 48 hours". What it must get right:
+# "your Free Entry Token is minting now". What it must get right:
 #   - one token per level milestone, lowest level first
 #   - a DETERMINISTIC source_ref, because that is the ONLY thing standing
 #     between a Sidekiq retry and a double-grant

@@ -1666,6 +1666,7 @@ class ContestsController < ApplicationController
     seeds_earned = 0
     seeds_total  = 0
     seeds_level  = 0
+    verified_seeds_total = nil
 
     if entry.onchain_tx_signature.present? && entry.entry_number.present?
       begin
@@ -1676,12 +1677,14 @@ class ContestsController < ApplicationController
       if current_user.solana_connected?
         begin
           onchain = Solana::Vault.new.sync_balance(current_user.solana_address)
-          seeds_total = onchain&.dig(:seeds) || 0
+          verified_seeds_total = onchain&.dig(:seeds)
+          seeds_total = verified_seeds_total || 0
         rescue => e
           Rails.logger.warn "Failed to read seeds after entry: #{e.message}"
         end
       end
       seeds_level = User.level_for(seeds_total)
+      LevelUpTokenMintJob.nudge(current_user, seeds_total: verified_seeds_total) if verified_seeds_total
     end
 
     tx_prefix = tx_signature.to_s.first(8)

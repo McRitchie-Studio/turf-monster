@@ -16,18 +16,21 @@
 outbound_request_sweeper:
   cron: "17 4 * * *"     # daily at 04:17 UTC (off-peak)
   class: OutboundRequestSweeperJob
+  active_job: true
   description: Trim outbound_requests audit table. Successful rows kept 90 days, failed rows 180 days.
   queue: default
 
 pending_transaction_sweeper:
   cron: "23 4 * * *"     # daily at 04:23 UTC (off-peak, offset from outbound_request_sweeper)
   class: PendingTransactionSweeperJob
+  active_job: true
   description: Flip stale entry-flow PendingTransactions (pending/submitted older than 1h) to failed so admin reports surface real backlogs only.
   queue: default
 
 pending_deposit_reconciler:
   cron: "*/15 * * * *"   # every 15 minutes
   class: PendingDepositReconcilerJob
+  active_job: true
   description: >-
     Reconcile stranded pending TransactionLog DEPOSIT rows (die-after-claim in
     StripeDepositJob). READ-ONLY on-chain confirm of the recorded signature:
@@ -38,10 +41,11 @@ pending_deposit_reconciler:
 level_up_token_mint:
   cron: "*/15 * * * *"   # every 15 minutes
   class: LevelUpTokenMintJob
+  active_job: true
   description: >-
-    Mint the free-entry token each level milestone promises ("arrives in 48
-    hours"). Candidate query is pure SQL against the denormalized mirror, so a
-    sweep with no fresh level-ups costs ZERO Solana RPCs. Deterministic
+    Recovery sweep for free-entry tokens that fresh seed snapshots normally
+    enqueue immediately. Candidate query is pure SQL against the denormalized
+    mirror, so a sweep with no fresh level-ups costs ZERO Solana RPCs. Deterministic
     source_ref (levelup:<user_id>:<level>) makes the on-chain init constraint the
     double-grant guard, so retries and overlapping runs are safe. Clamped to the
     admin page's own `owed` figure so it never pays over a manual /admin/free_entries mint.

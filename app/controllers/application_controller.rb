@@ -639,7 +639,7 @@ class ApplicationController < ActionController::Base
       Rails.cache.write(seeds_cache_key(user), seeds_payload(seeds), expires_in: 60.seconds)
       # Sync the denormalized seeds/level cache on the users row (admin list
       # display + sort) from this fresh on-chain read — write-on-change only.
-      user.update_level_from_seeds!(seeds)
+      LevelUpTokenMintJob.nudge(user, seeds_total: seeds)
     end
 
     {

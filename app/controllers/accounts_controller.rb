@@ -75,7 +75,9 @@ class AccountsController < ApplicationController
       seeds:       seeds,
       level:       User.level_for(seeds),
       toward_next: User.seeds_toward_next_level(seeds),
-      progress:    User.seeds_progress_percent(seeds)
+      progress:    User.seeds_progress_percent(seeds),
+      level_up_token_pending: current_user.present? &&
+        current_user.level > current_user.entry_tokens_granted_level
     }
   end
 

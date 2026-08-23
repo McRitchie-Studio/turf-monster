@@ -3,10 +3,10 @@ require "test_helper"
 # Integration — LevelUpTokenMintJob across its real I/O boundary: the SQL
 # candidate query, the Solana RPC seam (FakeVault), and the DB waterline write.
 #
-# The job is the thing that makes the level-up modal's "arrives in 48 hours"
-# true, so the properties under test are the ones an operator would be paged
-# about: does it find the right users, does it cost nothing when idle, does it
-# survive one bad wallet, and can it ever pay twice.
+# The job powers both the immediate post-level-up nudge and the recovery sweep,
+# so the properties under test are the ones an operator would be paged about:
+# does it pay promptly, find the right users, cost nothing when idle, survive
+# one bad wallet, and avoid paying twice.
 class LevelUpTokenMintJobTest < ActiveJob::TestCase
   setup do
     @user = users(:sam) # web3_solana_address fixture
@@ -37,7 +37,75 @@ class LevelUpTokenMintJobTest < ActiveJob::TestCase
     end
   end
 
+  # --- immediate level-up nudge ---
+
+  test "a fresh milestone snapshot updates the mirror and enqueues a targeted run" do
+    store = ActiveSupport::Cache::MemoryStore.new
+
+    Rails.stub(:cache, store) do
+      assert_enqueued_with(job: LevelUpTokenMintJob, args: [{ user_id: @user.id }]) do
+        assert LevelUpTokenMintJob.nudge(@user, seeds_total: 100)
+      end
+    end
+
+    assert_equal 2, @user.reload.level
+  end
+
+  test "repeated milestone snapshots coalesce while the targeted run is outstanding" do
+    store = ActiveSupport::Cache::MemoryStore.new
+
+    Rails.stub(:cache, store) do
+      assert_enqueued_jobs 1 do
+        assert LevelUpTokenMintJob.nudge(@user, seeds_total: 100)
+        assert_not LevelUpTokenMintJob.nudge(@user, seeds_total: 100)
+      end
+    end
+  end
+
+  test "a cache outage fails open and still enqueues the payout" do
+    unavailable_cache = Object.new
+    unavailable_cache.define_singleton_method(:write) { |*, **| nil }
+
+    Rails.stub(:cache, unavailable_cache) do
+      assert_enqueued_with(job: LevelUpTokenMintJob, args: [{ user_id: @user.id }]) do
+        assert LevelUpTokenMintJob.nudge(@user, seeds_total: 100)
+      end
+    end
+  end
+
+  test "a settled milestone does not enqueue another targeted run" do
+    @user.update_columns(seeds: 100, level: 2, entry_tokens_granted_level: 2)
+
+    assert_no_enqueued_jobs do
+      assert_not LevelUpTokenMintJob.nudge(@user, seeds_total: 100)
+    end
+  end
+
+  test "a targeted run verifies live seeds and mints without waiting for the sweep mirror" do
+    # The entry response sees the fresh on-chain total before the denormalized
+    # users.level mirror has necessarily caught up. The immediate path must be
+    # able to name the user directly and let LevelUpGrant re-read chain truth;
+    # otherwise this reward waits for a later hydrate + 15-minute sweep.
+    vault = vault_for(seeds: 100)
+
+    run_sweep(vault, user_id: @user.id)
+
+    assert_equal ["levelup:#{@user.id}:2"], vault.mint_calls
+    assert_equal 2, @user.reload.entry_tokens_granted_level
+  end
+
   # --- the candidate query ---
+
+  test "the recovery schedule identifies every Rails worker as Active Job" do
+    schedule = YAML.safe_load_file(Rails.root.join("config/schedule.yml"))
+
+    schedule.each do |name, config|
+      next unless config.fetch("class").constantize < ActiveJob::Base
+
+      assert_equal true, config.fetch("active_job"),
+        "#{name}: sidekiq-cron otherwise calls perform_async on ActiveJob::ConfiguredJob"
+    end
+  end
 
   test "sweeps a user whose level has outrun their granted level" do
     @user.update_columns(seeds: 100, level: 2)
