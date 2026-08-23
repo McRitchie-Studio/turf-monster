@@ -143,7 +143,7 @@ When hold-to-confirm hits a blocker (geo-blocked, not logged in, insufficient fu
 
 ## Navbar
 
-Extracted to `layouts/_navbar.html.erb` partial. Sticky, scroll-responsive. The non-preview header is `vt-pinned-header sticky top-0 z-[130] bg-page transition-shadow duration-300` (`_navbar.html.erb:27`) — `z-[130]` deliberately sits above the modal host backdrop, see the Toast manager section. Alpine `scrolled` state uses hysteresis: past 60px to compact, back below 5px to expand (`_navbar.html.erb:26`) — prevents jittery toggling. On scroll: header adds `is-scrolled` class + `shadow-lg border-b border-subtle`, logo shrinks `w-12→w-8` (mobile: `w-10`), title `text-3xl→text-xl`, padding `py-6→py-2`. All transitions 300ms via `transition-all duration-300`.
+Extracted to `layouts/_navbar.html.erb` partial. Sticky, scroll-responsive. The non-preview header is `vt-pinned-header sticky top-0 z-[110] bg-page transition-shadow duration-300` (`_navbar.html.erb:25`) — `z-[110]` deliberately sits below the shared modal host backdrop at `z-[120]`, so every modal covers persistent navigation chrome. Alpine `scrolled` state uses hysteresis: past 60px to compact, back below 5px to expand (`_navbar.html.erb:25`) — prevents jittery toggling. On scroll: header adds `is-scrolled` class + `shadow-lg border-b border-subtle`, logo shrinks `w-12→w-8` (mobile: `w-10`), title `text-3xl→text-xl`, padding `py-6→py-2`. All transitions 300ms via `transition-all duration-300`.
 
 ### Partial locals
 - `show_logged_in` — override `logged_in?` (default: real session). Used by admin preview to force logged-in/out views.
@@ -565,7 +565,7 @@ Practical implications:
 
 ## Toast manager z-index override
 
-The studio-engine `_flash.html.erb` partial ships toasts at `z-index: 60` (above most content but below sticky-fixed-tops). Turf Monster overrides this with the engine's CSS custom properties — `--studio-toast-z: 200` and `--studio-toast-blur-z: 199`, set on `:root` in `app/assets/tailwind/application.css:95-98` and read by studio-engine 0.4.10+ — so toasts render **above** both the sticky navbar AND any open modal. Without this, the sticky navbar (`z-[130]`, `_navbar.html.erb:27`) and the modal host backdrop (`z-[120]`) eclipse the toast. If you change the modal z-index, update the toast override too — the rule is "toast always wins".
+The studio-engine `_flash.html.erb` partial ships toasts at `z-index: 60` (above most content but below sticky-fixed-tops). Turf Monster overrides this with the engine's CSS custom properties — `--studio-toast-z: 200` and `--studio-toast-blur-z: 199`, set on `:root` in `app/assets/tailwind/application.css:95-98` and read by studio-engine 0.4.10+ — so toasts render **above** both the sticky navbar AND any open modal. The ordered contract is navbar `110` → modal `120` → toast blur `199` → toast `200`. If any layer changes, preserve that order.
 
 The override used to live in an inline `<style>` block in `_navbar.html.erb` and needed `!important` to beat the engine's old inline `style="z-index:60"`. The engine no longer renders that inline style, so the variable-based override now wins by normal cascade. Only the explanatory comment remains in the navbar, at `_navbar.html.erb:15-20`.
 

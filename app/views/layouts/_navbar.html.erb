@@ -6,12 +6,10 @@
 <% show_user = local_assigns.fetch(:show_logged_in, logged_in?) %>
 <% is_preview = local_assigns.fetch(:preview, false) %>
 
-<%# z-[130] sits ABOVE the modal host's z-[120] backdrop so the navbar
-    (and especially the ✨ entry badge beside the avatar) stays bright
-    during a token-mint celebration instead of being dimmed by the modal
-    overlay — that badge is where the level-up glow lands.
-    The modal's escape key + X button still close it; clicking the
-    navbar no longer counts as "click outside" — acceptable trade. %>
+<%# z-[110] sits BELOW the modal host's z-[120] backdrop. A modal is the
+    active task, so its backdrop and card cover all persistent navigation
+    chrome instead of appearing cut off beneath the navbar. Toasts remain
+    above both layers through the app-level 200/199 overrides below. %>
 
 <%# Toast z-index override now lives in app/assets/tailwind/application.css as CSS
     custom properties (--studio-toast-z / --studio-toast-blur-z), read
@@ -25,7 +23,7 @@
     this partial inside the body, and a duplicate view-transition-name silently
     disables ALL view transitions on the page. Exactly one pinned header per page. %>
 <header data-navbar-root x-data="{ scrolled: false }" <%= '@scroll.window="scrolled = scrolled ? (window.scrollY > 5) : (window.scrollY > 60)"'.html_safe unless is_preview %>
-        class="<%= is_preview ? 'bg-page' : 'vt-pinned-header sticky top-0 z-[130] bg-page transition-shadow duration-300' %>"
+        class="<%= is_preview ? 'bg-page' : 'vt-pinned-header sticky top-0 z-[110] bg-page transition-shadow duration-300' %>"
         :class="scrolled && 'shadow-lg border-b border-subtle is-scrolled'">
   <%# Self-gating (studio-engine >= 0.30). The engine partial was built by
       lifting THIS app's behavior — the QA message composition, the DEVNET chip

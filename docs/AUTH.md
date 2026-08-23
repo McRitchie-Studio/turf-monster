@@ -166,6 +166,13 @@ Rules worth knowing:
   in front of the web2 funding rails that fix a low balance.
 - Existing managed wallets are untouched either way: the flag gates **minting**,
   never the rails that serve wallets already out there.
+- **Desktop extension installation has no callback Turf can register.** Chrome
+  leaves the Web Store tab open after installation, and Phantom's
+  `redirect_link` belongs to mobile deep links (the Browser SDK's redirect URL
+  similarly serves OAuth providers, not an injected-extension install). The
+  install row therefore opens Phantom in a new tab and preserves the originating
+  Turf page. Its waiting message tells the player to finish setup there and
+  return; the original tab keeps the exact contest and modal state.
 - **A tab that was open when the user installed Phantom can never see it.**
   Chrome injects an extension only into documents created AFTER the install, and
   Phantom ships its provider as a `document_start` content script with no

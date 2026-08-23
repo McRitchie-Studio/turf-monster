@@ -107,6 +107,21 @@ test("the wallet step renders the Phantom row and the teaching block @smoke", as
   // The helper walks the chain and already asserts the card is up.
   await signUpFreshEmail(page);
 
+  // A modal is the active task. All persistent page chrome must sit behind it,
+  // while transient toasts remain free to report above it.
+  const layers = await page.evaluate(() => {
+    const navbar = document.querySelector("[data-navbar-root]");
+    const modal = document.querySelector("[role='dialog'].modal-backdrop-mount");
+    const root = getComputedStyle(document.documentElement);
+    return {
+      navbar: Number(getComputedStyle(navbar).zIndex),
+      modal: Number(getComputedStyle(modal).zIndex),
+      toast: Number(root.getPropertyValue("--studio-toast-z")),
+    };
+  });
+  expect(layers.modal, "the modal must cover the sticky navbar").toBeGreaterThan(layers.navbar);
+  expect(layers.toast, "toasts must still report above the modal").toBeGreaterThan(layers.modal);
+
   // The Phantom row. On a headless browser no wallet is injected, so this is
   // the INSTALL branch — the state a brand-new player sees.
   const phantomRow = page.locator('a[href="https://phantom.com/download"]');
@@ -234,11 +249,11 @@ test("with Phantom present the row shows Installed and says what signing does", 
 });
 
 test("leaving to install puts the row in a waiting state that watches, not reloads", async ({ page }) => {
-  // The operator's design: no instruction to follow. Clicking Install arms a
-  // spinner, and the row updates on its own — via the 1s ping when the provider
-  // can appear in THIS document, and via a hidden probe frame when it cannot
-  // (Chrome injects a new extension only into documents created after the
-  // install, so this tab will never have one).
+  // Clicking Install arms a spinner and a return cue. The row updates on its
+  // own — via the 1s ping when the provider can appear in THIS document, and
+  // via a hidden probe frame when it cannot (Chrome injects a new extension
+  // only into documents created after the install, so this tab will never have
+  // one).
   //
   // What this test pins is the half the operator asked for on 2026-08-18: the
   // page they are reading does not move.
@@ -256,10 +271,13 @@ test("leaving to install puts the row in a waiting state that watches, not reloa
   ]);
   if (installTab) await installTab.close().catch(() => {});
 
-  // Waiting state: spinner + Waiting…, and NO instruction to press anything.
+  // Waiting state: spinner + Waiting…, then one explicit direction to finish
+  // setup in Phantom's tab and come back to this preserved contest.
   await expect(row.locator(".cta-spinner")).toBeVisible();
   await expect(row).toContainText(/waiting/i);
-  await expect(page.getByText(/Finish downloading the Phantom wallet extension/i)).toBeVisible();
+  const returnCue = page.getByRole("status");
+  await expect(returnCue).toContainText(/Finish setting up Phantom in the new tab, then return here/i);
+  await expect(returnCue).toContainText(/detect it automatically/i);
   await expect(page.getByText("Reload page")).toBeHidden();
 
   // The probe frame really loads OUR probe page. This is the assertion that
