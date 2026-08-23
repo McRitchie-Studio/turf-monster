@@ -786,6 +786,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_22_050000) do
     t.datetime "email_verified_at"
     t.text "encrypted_web2_solana_private_key"
     t.integer "entry_tokens_granted_level", default: 1, null: false
+    t.datetime "entry_tokens_swept_at", default: "1970-01-01 00:00:00", null: false
     t.datetime "export_initiated_at"
     t.datetime "first_chat_message_at"
     t.string "first_name"
@@ -822,13 +823,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_22_050000) do
     t.index "lower((username)::text)", name: "index_users_on_lower_username", unique: true, where: "(username IS NOT NULL)"
     t.index ["contest_entered"], name: "index_users_on_contest_entered_true", where: "(contest_entered = true)"
     t.index ["email"], name: "index_users_on_email", unique: true, where: "(email IS NOT NULL)"
+    t.index ["entry_tokens_swept_at", "id"], name: "index_users_on_pending_level_up_grants", where: "(level > entry_tokens_granted_level)"
     t.index ["frozen_at"], name: "index_users_on_frozen_at", where: "(frozen_at IS NOT NULL)"
     t.index ["invited_by_id"], name: "index_users_on_invited_by_id"
     t.index ["ips"], name: "index_users_on_ips", using: :gin
     t.index ["joined_email_list_at"], name: "index_users_on_joined_email_list_at"
     t.index ["last_seen_at"], name: "index_users_on_last_seen_at"
     t.index ["left_email_list_at"], name: "index_users_on_left_email_list_at"
-    t.index ["level", "entry_tokens_granted_level"], name: "index_users_on_pending_level_up_grants", where: "(level > entry_tokens_granted_level)"
     t.index ["provider", "uid"], name: "index_users_on_provider_and_uid", unique: true, where: "(provider IS NOT NULL)"
     t.index ["reference"], name: "index_users_on_reference"
     t.index ["seeds"], name: "index_users_on_seeds"

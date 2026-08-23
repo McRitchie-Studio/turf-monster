@@ -17,7 +17,7 @@
 #   tokens:            array    → seeds list_entry_tokens (drives has-tokens branches)
 class FakeVault
   attr_reader :mint_calls, :transfer_calls, :enter_calls, :ensure_account_calls,
-              :fund_calls, :deposit_calls
+              :fund_calls, :deposit_calls, :sync_balance_calls, :entry_token_list_calls
 
   def initialize(fail_after: nil, starting_sequence: 0, tokens: [], signature_statuses: {},
                  usdc_balance: nil, usdc_balance_raises: false, account_infos: {}, signatures: {},
@@ -40,6 +40,8 @@ class FakeVault
     @ensure_account_calls = []
     @fund_calls = []
     @deposit_calls = []
+    @sync_balance_calls = []
+    @entry_token_list_calls = []
   end
 
   # --- Solana RPC client stub (recovery flow) ---
@@ -136,6 +138,7 @@ class FakeVault
   # wallets hold different tokens — e.g. a web3-owned token the web2 server-sign
   # path must NOT pick. An address missing from the Hash returns [].
   def list_entry_tokens(wallet, **_opts)
+    @entry_token_list_calls << wallet
     return (@tokens[wallet] || []).dup if @tokens.is_a?(Hash)
     @tokens.dup
   end
@@ -379,7 +382,8 @@ class FakeVault
 
   attr_writer :sync_balance_seeds
 
-  def sync_balance(_wallet)
+  def sync_balance(wallet)
+    @sync_balance_calls << wallet
     seeds = (@sync_balance_seeds || 0).to_i
     { balance_dollars: 0.0, seeds: seeds, level: User.level_for(seeds) }
   end

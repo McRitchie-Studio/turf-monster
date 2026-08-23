@@ -154,21 +154,27 @@ class Tokens::LevelUpGrantTest < ActiveSupport::TestCase
 
   # --- refuse to act on incomplete information ---
 
-  test "returns nil and mints nothing when the on-chain seed read is cold" do
+  test "returns an explicit unevaluable result when the on-chain account is missing" do
     vault = FakeVault.new
     def vault.sync_balance(_wallet) = nil
 
-    assert_nil Tokens::LevelUpGrant.call(@user, vault: vault),
-      "a cold read is 'ask again', never 'nothing was owed'"
+    result = Tokens::LevelUpGrant.call(@user, vault: vault)
+
+    refute result.evaluated?, "missing chain state is not the same as nothing owed"
+    assert_equal :user_account_missing, result.unevaluable_reason
+    assert_match(/no UserAccount PDA/, result.unevaluable_message)
     assert_empty vault.mint_calls
     assert_equal 1, @user.reload.entry_tokens_granted_level,
       "the waterline must NOT advance on a read we could not make"
   end
 
-  test "returns nil for a user with no wallet — nowhere to mint to" do
+  test "returns an explicit unevaluable result for a user with no wallet" do
     vault = vault_for(seeds: 500)
 
-    assert_nil Tokens::LevelUpGrant.call(users(:jordan), vault: vault)
+    result = Tokens::LevelUpGrant.call(users(:jordan), vault: vault)
+
+    refute result.evaluated?
+    assert_equal :no_wallet, result.unevaluable_reason
     assert_empty vault.mint_calls
   end
 

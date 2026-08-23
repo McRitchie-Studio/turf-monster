@@ -33,6 +33,13 @@ module Tokens
   # `owed` figure the admin page computes. The admin page stays the manual
   # backstop, its arithmetic untouched; the two simply cannot pay for the same
   # level twice.
+  #
+  # "COULD NOT EVALUATE" IS A THIRD ANSWER, NOT A QUIET ZERO. A user whose
+  # on-chain read comes back cold is neither paid nor owed-nothing — the service
+  # simply does not know. That state is returned EXPLICITLY (`evaluated?` is
+  # false, `unevaluable_reason` names why) so the caller is forced to handle it.
+  # It used to be returned as `nil`, and the sweep's `if result` skipped it
+  # without a word, forever. Money that cannot be verified must be loud.
   class LevelUpGrant
     # Level 1 is the floor everyone starts at — the first grant is for level 2
     # (100 seeds). Level N is worth exactly one token.
@@ -50,9 +57,35 @@ module Tokens
     # turf-vault release, not a Rails change).
     SOURCE = :operator
 
-    LevelUpGrantResult = Struct.new(:minted_levels, :granted_through, :skipped, keyword_init: true) do
+    # Why a pass could not reach a verdict. Both are DURABLE conditions, not
+    # blips: `sync_balance` returns nil only when the RPC answered and there is
+    # no UserAccount at that PDA (a transport fault raises instead), so
+    # :user_account_missing means "this wallet has no on-chain account" and will
+    # keep meaning that until someone creates one.
+    UNEVALUABLE_REASONS = {
+      no_wallet:             "user has no Solana address to mint to",
+      user_account_missing:  "no UserAccount PDA at the user's Solana address — " \
+                             "on-chain seeds cannot be read, so nothing can be verified or paid"
+    }.freeze
+
+    LevelUpGrantResult = Struct.new(
+      :minted_levels, :granted_through, :skipped, :unevaluable_reason, keyword_init: true
+    ) do
       def minted_count = minted_levels.length
       def minted? = minted_levels.any?
+
+      # False means the pass reached NO verdict — not "nothing was owed".
+      # Callers must branch on this; treating it as a zero is how an unpayable
+      # user goes invisible.
+      def evaluated? = unevaluable_reason.nil?
+
+      def unevaluable_message = UNEVALUABLE_REASONS[unevaluable_reason]
+    end
+
+    def self.unevaluable(reason)
+      LevelUpGrantResult.new(
+        minted_levels: [], granted_through: nil, skipped: 0, unevaluable_reason: reason
+      )
     end
 
     # `levelup:<user_id>:<level>` — 64-byte budget is not a concern (a 9-digit
@@ -90,19 +123,21 @@ module Tokens
       @vault = vault
     end
 
-    # Returns a LevelUpGrantResult, or nil when the user could not be evaluated
-    # (no wallet, or a cold on-chain read). Nil is "ask again next run", never
-    # "nothing was owed" — the two must not be confused, because the second
+    # Always returns a LevelUpGrantResult. When `evaluated?` is false the pass
+    # reached no verdict, NOTHING was minted, and the waterline was NOT touched
+    # — the two must not be confused, because treating it as "nothing owed"
     # would advance the waterline past a level nobody was paid for.
     def call
       address = @user.solana_address
-      return nil if address.blank?
+      return self.class.unevaluable(:no_wallet) if address.blank?
 
       # LIVE read, not the `users.seeds` mirror. The mirror is what SELECTED
       # this user (it can only ever lag, since seeds are monotonic), but a
-      # reward is minted against what the chain actually says.
+      # reward is minted against what the chain actually says. A transport
+      # failure RAISES out of here on purpose; only a definitive "there is no
+      # account at that PDA" comes back as nil.
       seeds = vault.sync_balance(address)&.dig(:seeds)
-      return nil if seeds.nil?
+      return self.class.unevaluable(:user_account_missing) if seeds.nil?
 
       # Free side-effect: we hold a fresh read, so keep the denormalized
       # seeds/level mirror honest for the admin table and the next sweep's
@@ -158,6 +193,10 @@ module Tokens
     # Only when the debt SURVIVES the pass (a mint raised, or the per-run cap
     # deferred some) does the waterline fall back to the contiguous granted run,
     # which deliberately stops below any gap so the next sweep retries it.
+    #
+    # Reached only on an EVALUATED pass. An unevaluable user never gets here, so
+    # their waterline cannot move on a read that was never made; rotation out of
+    # the batch is the sweep cursor's job, not this one's.
     def waterline_after(earned_levels:, token_count:, granted:)
       return earned_levels + 1 if earned_levels - token_count <= 0
 
@@ -179,11 +218,34 @@ module Tokens
         # collision lands here too and is the SAFE outcome by construction — the
         # token exists, so the next run reads it off the chain and moves the
         # waterline without minting again.
+        #
+        # SAFE, but not therefore SILENT. A wallet that collides or faults on
+        # every run is owed a token it will never receive, and a Rails.logger
+        # line summons nobody — the same argument
+        # deposits/onchain_reconciler.rb makes on the sibling 15-minute cron.
+        # Capture is per LEVEL, and a level leaves the queue as soon as it lands,
+        # so a healthy wallet produces no rows at all.
         Rails.logger.warn(
           "[level-up-grant] deferred user=#{@user.id} level=#{level} " \
           "(#{e.class}: #{e.message.to_s[0, 140]})"
         )
+        capture_error(e, level: level)
       end
+    end
+
+    # Operator-visible record of an owed token that did not land. Telemetry must
+    # never change control flow, so a failure to record is itself logged and
+    # swallowed (the Coinflow::Fulfillment#record_anomaly! pattern) — it must
+    # not convert this level's deferral into an abort of the levels after it.
+    def capture_error(exception, level:)
+      log = ErrorLog.capture!(exception)
+      log.target = @user
+      log.target_name = @user.try(:slug)
+      log.save!
+    rescue StandardError => e
+      Rails.logger.error(
+        "[level-up-grant] error_log_failed user=#{@user.id} level=#{level} #{e.class}: #{e.message}"
+      )
     end
 
     # `update_column` for the same reason `update_level_from_seeds!` uses it:

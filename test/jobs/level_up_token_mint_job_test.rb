@@ -10,8 +10,13 @@ require "test_helper"
 class LevelUpTokenMintJobTest < ActiveJob::TestCase
   setup do
     @user = users(:sam) # web3_solana_address fixture
-    @user.update_columns(seeds: 0, level: 1, entry_tokens_granted_level: 1)
-    User.where.not(id: @user.id).update_all(level: 1, entry_tokens_granted_level: 1)
+    epoch = Time.utc(1970, 1, 1)
+    @user.update_columns(
+      seeds: 0, level: 1, entry_tokens_granted_level: 1, entry_tokens_swept_at: epoch
+    )
+    User.where.not(id: @user.id).update_all(
+      level: 1, entry_tokens_granted_level: 1, entry_tokens_swept_at: epoch
+    )
   end
 
   def token(source_ref)
@@ -52,6 +57,8 @@ class LevelUpTokenMintJobTest < ActiveJob::TestCase
 
     run_sweep(vault)
 
+    assert_empty vault.sync_balance_calls, "the candidate query must not touch chain balances"
+    assert_empty vault.entry_token_list_calls, "the candidate query must not scan entry tokens"
     assert_empty vault.mint_calls, "no candidate must mean no chain traffic at all"
   end
 
@@ -98,7 +105,9 @@ class LevelUpTokenMintJobTest < ActiveJob::TestCase
     # and finish cleanly rather than propagating the first error.
     vault = vault_for(seeds: 100, fail_after: 0)
 
-    assert_nothing_raised { run_sweep(vault) }
+    assert_difference "ErrorLog.count", 2 do
+      assert_nothing_raised { run_sweep(vault) }
+    end
 
     assert_equal 2, vault.mint_calls.length, "both candidates must be attempted"
     assert_equal 1, @user.reload.entry_tokens_granted_level,
@@ -134,17 +143,57 @@ class LevelUpTokenMintJobTest < ActiveJob::TestCase
     assert_empty second.mint_calls, "the sweep must be idempotent across runs"
   end
 
-  test "busts the entry-token cache so the navbar badge repaints" do
+  test "busts both real cache layers so the navbar badge repaints" do
     @user.update_columns(seeds: 100, level: 2)
-    cache_key = Solana::Vault.entry_tokens_cache_key(@user.solana_address)
-    Rails.cache.write(cache_key, [], expires_in: 60.seconds)
+    store = ActiveSupport::Cache::MemoryStore.new
+    user_key = @user.entry_tokens_cache_key
+    vault_key = Solana::Vault.entry_tokens_cache_key(@user.solana_address)
 
-    run_sweep(vault_for(seeds: 100))
+    Rails.stub(:cache, store) do
+      Rails.cache.write(user_key, [{ consumed: false }])
+      Rails.cache.write(vault_key, [{ consumed: false }])
 
-    assert_nil Rails.cache.read(cache_key),
-      "a stale cached token list would hide the token the user was just granted"
-  ensure
-    Rails.cache.delete(cache_key)
+      run_sweep(vault_for(seeds: 100))
+
+      assert_nil Rails.cache.read(user_key), "the User wrapper cache must be cold"
+      assert_nil Rails.cache.read(vault_key),
+        "the navbar reads the Vault cache directly; leaving it warm hides the new token"
+    end
+  end
+
+  test "an unevaluable oldest user is alerted and rotates behind the next candidate" do
+    @user.update_columns(seeds: 100, level: 2)
+    later = User.create!(
+      email: "later-level-up@example.com",
+      web3_solana_address: Solana::Keypair.generate.address,
+      seeds: 100,
+      level: 2,
+      entry_tokens_granted_level: 1,
+      entry_tokens_swept_at: Time.utc(1970, 1, 1)
+    )
+    missing_address = @user.solana_address
+    vault = vault_for(seeds: 100)
+    original_sync = vault.method(:sync_balance)
+    vault.define_singleton_method(:sync_balance) do |address|
+      address == missing_address ? nil : original_sync.call(address)
+    end
+
+    assert_difference "ErrorLog.count", 1 do
+      run_sweep(vault, batch_size: 1)
+    end
+
+    alert = ErrorLog.order(:id).last
+    assert_equal @user, alert.target
+    assert_match(/unevaluable user=#{@user.id}/, alert.message)
+    assert_operator @user.reload.entry_tokens_swept_at, :>, Time.utc(1970, 1, 1)
+    assert_empty vault.mint_calls, "the first pass reached no payout verdict"
+
+    run_sweep(vault, batch_size: 1)
+
+    assert_equal ["levelup:#{later.id}:2"], vault.mint_calls,
+      "the stuck low-id row must not occupy the bounded batch again"
+    assert_equal 1, @user.reload.entry_tokens_granted_level,
+      "rotation must never pretend the unevaluable user was paid"
   end
 
   # --- the sweep must drain, not loop ---

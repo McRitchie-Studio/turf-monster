@@ -131,6 +131,28 @@ class AccountsControllerTest < ActionDispatch::IntegrationTest
     assert_equal user.reload.web3_solana_address, body["address"]
   end
 
+  test "linking Phantom enqueues creation of its on-chain UserAccount" do
+    address = Solana::Keypair.generate.address
+    log_in_as @alex
+    clear_enqueued_jobs
+
+    assert_enqueued_with(job: CreateOnchainUserAccountJob, args: [@alex.id]) do
+      Solana::AuthVerifier.stub(:verify!, address) do
+        post link_solana_account_path,
+             params: {
+               message: "Link wallet\nUser-ID: #{@alex.id}",
+               signature: "stub-signature",
+               pubkey: address,
+               wallet_provider: "Phantom"
+             },
+             as: :json
+      end
+    end
+
+    assert_response :success
+    assert_equal address, @alex.reload.web3_solana_address
+  end
+
   test "session_state skips require_profile_completion gate" do
     user = User.create!(email: "incomplete@mcritchie.studio")
     # User with no username would normally hit require_profile_completion and

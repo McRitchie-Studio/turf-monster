@@ -45,4 +45,7 @@ level_up_token_mint:
     source_ref (levelup:<user_id>:<level>) makes the on-chain init constraint the
     double-grant guard, so retries and overlapping runs are safe. Clamped to the
     admin page's own `owed` figure so it never pays over a manual /admin/free_entries mint.
+    Batch rotates least-recently-swept first, so a permanently stuck row cannot
+    starve the queue, and a user the sweep cannot evaluate raises an ErrorLog
+    rather than being skipped silently.
   queue: default

@@ -264,6 +264,7 @@ class AccountsController < ApplicationController
         # The account now holds a web3 wallet — the wallet-setup nudge is
         # satisfied, so drop it in the same breath as the link.
         clear_wallet_setup_state!
+        CreateOnchainUserAccountJob.perform_later(current_user.id)
         return render json: { success: true, redirect: account_path, notice: "Accounts merged." }
       end
 
@@ -273,6 +274,15 @@ class AccountsController < ApplicationController
       # same one-click step-up as one who logged in with the wallet directly.
       current_user.record_web3_authentication!(provider: params[:wallet_provider])
       clear_wallet_setup_state!
+      # The SIGNUP path gets this from User's `after_commit :on => :create` hook;
+      # the LINK path had nothing equivalent, so an account that gained its web3
+      # wallet here had no on-chain UserAccount PDA at that address — and
+      # `User#solana_address` prefers web3. Every subsequent on-chain read came
+      # back cold: no seeds, no username registered on-chain, and
+      # LevelUpTokenMintJob could not evaluate the user at all. Idempotent
+      # (`ensure_user_account` no-ops when the PDA exists), enqueued rather than
+      # inline so a devnet blip cannot fail the link the user just signed for.
+      CreateOnchainUserAccountJob.perform_later(current_user.id)
       render json: { success: true, redirect: account_path }
     end
   rescue Solana::AuthVerifier::VerificationError => e
