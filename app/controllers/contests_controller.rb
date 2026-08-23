@@ -7,7 +7,7 @@ class ContestsController < ApplicationController
   # DB wall time on the two hot paths — "/" (world_cup redirect) and the contest
   # show page — to connect vs execute. No-op-safe; DB_SPAN_TRACE=0 disables.
   around_action :trace_db_span, only: [:world_cup, :show]
-  before_action :set_contest, only: [:show, :admin, :edit, :update, :update_banner, :toggle_selection, :enter, :check_funding, :clear_picks, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_entry, :stamp_entry_signature, :recover_pending_entry, :confirm_onchain_entry, :prepare_onchain_contest, :confirm_onchain_contest, :leaderboard_poll, :live, :pick, :grade_round]
+  before_action :set_contest, only: [:show, :admin, :edit, :update, :update_banner, :toggle_selection, :enter, :check_funding, :clear_picks, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_entry, :discard_prepared_entry, :stamp_entry_signature, :recover_pending_entry, :confirm_onchain_entry, :prepare_onchain_contest, :confirm_onchain_contest, :leaderboard_poll, :live, :pick, :grade_round]
   before_action :require_admin, only: [:new, :create, :rebuild_create_tx, :finalize, :admin, :edit, :update, :update_banner, :generator, :generate_bundle, :finalize_bundle, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_onchain_contest, :confirm_onchain_contest, :grade_round]
   before_action :require_geo_allowed, only: [:toggle_selection, :enter, :prepare_entry]
   # B4 / OPSEC-048: frozen accounts can browse but cannot spend or enter.
@@ -822,6 +822,37 @@ class ContestsController < ApplicationController
     end
   rescue StandardError => e
     render_entry_error(e)
+  end
+
+  # Retire an entry transaction that never received the user's wallet
+  # signature. Phantom can dismiss or invalidate a pending request while the
+  # page remains open; expiring that unsigned server record lets the client
+  # prepare a fresh blockhash and retry in place. A row with a signature is
+  # deliberately immutable here because it may already have been broadcast
+  # and must go through recover_pending_entry instead.
+  def discard_prepared_entry
+    return render json: { error: "Missing ptx_slug" }, status: :unprocessable_entity if params[:ptx_slug].blank?
+
+    ptx = PendingTransaction.find_by(slug: params[:ptx_slug], tx_type: "enter_contest", target_type: "Entry")
+    return render json: { error: "Pending transaction not found" }, status: :not_found unless ptx
+
+    entry = ptx.target
+    authorized = current_user&.web3_solana_address.present? &&
+      ptx.initiator_address.present? &&
+      entry.is_a?(Entry) &&
+      entry.contest_id == @contest.id &&
+      entry.user_id == current_user&.id &&
+      ptx.initiator_address == current_user&.web3_solana_address
+    return render json: { error: "Not authorized" }, status: :forbidden unless authorized
+
+    retired = ptx.tx_signature.blank? &&
+      %w[pending submitted].include?(ptx.status) &&
+      ptx.update(status: "expired")
+
+    render json: { retired: retired }
+  rescue StandardError => e
+    capture_unlogged(e, parent: @contest)
+    render json: { retired: false, error: e.message }, status: :unprocessable_entity
   end
 
   # Stamp the on-chain signature onto the PendingTransaction created by

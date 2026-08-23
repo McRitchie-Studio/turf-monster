@@ -1155,6 +1155,64 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_nil meta["entry_token_pda"]
   end
 
+  test "discard_prepared_entry expires an unsigned wallet request so retry can rebuild it" do
+    @user.update!(web3_solana_address: "Web3Discard#{SecureRandom.hex(4)}")
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    ptx = PendingTransaction.create!(
+      tx_type: "enter_contest", serialized_tx: "unsigned-wire",
+      status: "pending", target: entry,
+      initiator_address: @user.web3_solana_address,
+      metadata: { funding: "token", entry_token_pda: "token-pda" }.to_json
+    )
+
+    post discard_prepared_entry_contest_path(@contest),
+      params: { ptx_slug: ptx.slug }, as: :json
+
+    assert_response :success
+    assert_equal({ "retired" => true }, JSON.parse(response.body))
+    assert_equal "expired", ptx.reload.status
+    assert entry.reload.cart?, "discarding an unsigned request must not consume the cart entry"
+  end
+
+  test "discard_prepared_entry never expires a transaction that may have been broadcast" do
+    @user.update!(web3_solana_address: "Web3KeepSigned#{SecureRandom.hex(4)}")
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    ptx = PendingTransaction.create!(
+      tx_type: "enter_contest", serialized_tx: "signed-wire",
+      status: "submitted", tx_signature: "chain-signature",
+      target: entry, initiator_address: @user.web3_solana_address,
+      metadata: { funding: "token", entry_token_pda: "token-pda" }.to_json
+    )
+
+    post discard_prepared_entry_contest_path(@contest),
+      params: { ptx_slug: ptx.slug }, as: :json
+
+    assert_response :success
+    assert_equal({ "retired" => false }, JSON.parse(response.body))
+    assert_equal "submitted", ptx.reload.status
+    assert_equal "chain-signature", ptx.tx_signature
+  end
+
+  test "discard_prepared_entry refuses another user's unsigned request" do
+    other = users(:jordan)
+    other.update!(web3_solana_address: "Web3DiscardOther#{SecureRandom.hex(4)}")
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: other, status: :cart)
+    ptx = PendingTransaction.create!(
+      tx_type: "enter_contest", serialized_tx: "unsigned-wire",
+      status: "pending", target: entry,
+      initiator_address: other.web3_solana_address
+    )
+
+    post discard_prepared_entry_contest_path(@contest),
+      params: { ptx_slug: ptx.slug }, as: :json
+
+    assert_response :forbidden
+    assert_equal "pending", ptx.reload.status
+  end
+
   test "prepare_entry rejects an on-chain contest pinned to an unavailable season before signing" do
     @user.update!(web3_solana_address: "Web3PrepBadSeason#{SecureRandom.hex(4)}")
     @contest.update!(onchain_contest_id: "onchain_bad_season", season_id: 7)

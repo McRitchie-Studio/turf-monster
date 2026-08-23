@@ -95,7 +95,11 @@ prepare_entry
 
 ### 3b. Phantom signs (client)
 
-- User can dismiss (4001) → flow simply stops; PT stays signatureless (§5.1).
+- User can dismiss or Phantom can invalidate the request → the client POSTs
+  `discard_prepared_entry`, which expires only this user's signatureless PT.
+  The error card offers **Try Again**; that user click refreshes the session
+  snapshot and returns to §3a for new wire bytes and a fresh blockhash without
+  reloading the page. Signed PTs cannot be discarded through this endpoint.
 - **Phantom may inject Lighthouse guard instructions at arbitrary positions**
   (mainnet only). Allowed by design — see §6.
 
@@ -128,7 +132,7 @@ confirm_onchain_entry
 
 | # | Scenario | Funds state | Breadcrumb | Recovery |
 |---|----------|-------------|------------|----------|
-| 1 | Web3: any failure BEFORE broadcast (guard, simulation, Phantom dismissal) | **Nothing moved** | signatureless pending PT | None needed — "if it fails, it fails" (operator policy 2026-06-11): no modal, stale PTs auto-expired on page load, user just retries |
+| 1 | Web3: any failure BEFORE broadcast (guard, simulation, Phantom dismissal) | **Nothing moved** | signatureless pending PT | A signing failure gets an in-place **Try Again** action that expires the unsigned PT and prepares fresh wire bytes. Other stale PTs auto-expire on page load. |
 | 2 | Web3: broadcast OK, verification/DB error after | USDC/USDT **paid**, entry on-chain, app shows `cart` | PT `submitted` + tx_signature | Auto: next contest-page visit triggers the recovery modal → §5.1 promotes to `active` without re-charging |
 | 3 | Web3: broadcast OK, even the PT stamp failed (DB death in the ~ms between broadcast and the stamp) | Paid on-chain, **no app breadcrumb** | on-chain Entry PDA only | Manual (operator): explorer + `/admin/transactions` + OutboundRequest audit. Window is deliberately tiny; residual risk accepted |
 | 4 | Web2 token: consume OK, `confirm!` transient failure | Token **burned**, entry on-chain, app `cart` | entry row carries `onchain_tx_signature` (durable capture) | Auto: `Entries::OnchainReconcileJob` enqueued inline; also healed by the no-arg sweep |
