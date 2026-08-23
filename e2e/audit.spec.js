@@ -25,7 +25,7 @@ test.describe("Audit consolidation (2026-05-23)", () => {
       return el ? getComputedStyle(el).zIndex : null;
     });
     expect(z).not.toBeNull();
-    // turf-monster's :root sets --studio-toast-z: 200 (above navbar z-[125]
+    // turf-monster's :root sets --studio-toast-z: 200 (above navbar z-[110]
     // and modal backdrop z-[120]); engine 0.4.10 reads via var().
     expect(parseInt(z, 10)).toBe(200);
 
