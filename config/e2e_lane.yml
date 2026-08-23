@@ -175,7 +175,14 @@
 #
 # RE-DERIVED WITH THE LISTER ON THIS MERGED TREE, never by adding to either
 # side: `npx playwright test --list` -> 175 tests in 46 files.
-total_specs: 175
+#
+# ROUND EIGHT: 175 -> 176 (auto-mint-level-up-tokens). One live-browser spec in
+# e2e/entry_badge_sidebar.spec.js dispatches the production level-up event,
+# serves a pending then settled session hydrate, and proves the bounded refresh
+# loop paints the newly minted token into both Alpine state and the real badge.
+# It has no runtime skip and is not @devnet. Re-derived on THIS tree:
+# `npx playwright test --list` -> 176 tests in 46 files.
+total_specs: 176
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -282,7 +289,12 @@ allowed_skips: 4
 # `--grep-invert "@devnet" --project=chromium` -> 158 collected for the PR lane.
 # 175 - 17 - 4 = 154, and 158 collected - 4 runtime skips = 154. Both routes to
 # the number agree, which is the only reason to trust either.
-executed: 154
+#
+# 154 -> 155 (round eight). The level-up token refresh spec is collected in the
+# chromium PR lane, carries no runtime skip, and is not @devnet. Re-derived on
+# THIS tree: 176 total, 17 excluded, 4 allowed skips -> 155 executed; the PR
+# lister independently reports 159 collected, and 159 - 4 = 155.
+executed: 155
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
