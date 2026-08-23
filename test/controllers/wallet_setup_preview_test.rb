@@ -36,6 +36,27 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "modals/_wallet_setup.html.erb"
   end
 
+  test "the shared modal layer covers the Turf navbar and stays below toasts" do
+    host = Rails.root.join("app/views/studio/modals/_host.html.erb").read
+    navbar = Rails.root.join("app/views/layouts/_navbar.html.erb").read
+    css = Rails.root.join("app/assets/tailwind/application.css").read
+
+    host_code = host.gsub(/<%#.*?%>/m, "")
+    navbar_code = navbar.gsub(/<%#.*?%>/m, "")
+    modal_z = host_code[/<div class="fixed inset-0 z-\[(\d+)\][^"]*modal-backdrop-mount"/, 1]
+    navbar_z = navbar_code[/vt-pinned-header sticky top-0 z-\[(\d+)\]/, 1]
+    toast_z = css[/--studio-toast-z:\s*(\d+)/, 1]
+
+    assert modal_z.present?, "could not locate the shared modal backdrop layer"
+    assert navbar_z.present?, "could not locate the live sticky navbar layer"
+    assert toast_z.present?, "could not locate the Turf toast layer override"
+
+    assert_operator modal_z.to_i, :>, navbar_z.to_i,
+                    "the shared modal host must cover every sticky Turf navbar"
+    assert_operator toast_z.to_i, :>, modal_z.to_i,
+                    "toasts must remain visible above every open modal"
+  end
+
   test "wallet-setup preview renders the Phantom row in both states" do
     log_in_as users(:alex)
     get admin_modal_preview_path(modal_id: "wallet-setup")
@@ -71,7 +92,8 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "installClicked = true"
     assert_includes response.body, "installClicked ? 'Waiting…' : 'Install'"
     assert_includes response.body, "cta-spinner"
-    assert_includes response.body, "Finish downloading the Phantom wallet extension."
+    assert_includes response.body,
+                    "Finish setting up Phantom in the new tab, then return here. We’ll detect it automatically."
     # The ping.
     assert_includes response.body, "self._stopPoll()"
     # The probe frame, and the two things that make it work: a NEW document
