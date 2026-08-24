@@ -48,12 +48,19 @@
           <code class="text-xs bg-inset px-1 rounded">buy-entry-token</code>,
           <code class="text-xs bg-inset px-1 rounded">cosign-rejected</code>,
           <code class="text-xs bg-inset px-1 rounded">quest-success</code>,
-          <code class="text-xs bg-inset px-1 rounded">unsubscribe-confirm</code>,
-          <code class="text-xs bg-inset px-1 rounded">unsubscribe-goodbye</code> and
-          <code class="text-xs bg-inset px-1 rounded">web3-step-up</code>.
+          <code class="text-xs bg-inset px-1 rounded">unsubscribe-confirm</code> and
+          <code class="text-xs bg-inset px-1 rounded">unsubscribe-goodbye</code>.
           It is deleted once each of those has a card in the engine guide &mdash;
           port first, delete second, so no state loses its review surface on the
           way out.
+        </p>
+        <%# The list shortens as the port lands. Each name that leaves is a modal
+            the engine now owns AND shows, so its card here became the duplicate.
+            2026-08-24: web3-step-up (8 &rarr; 7). %>
+        <p class="text-sm text-muted">
+          Ported so far &mdash;
+          <code class="text-xs bg-inset px-1 rounded">web3-step-up</code>,
+          now shown on the style guide against the same partial this app renders.
         </p>
       </div>
     </div>
