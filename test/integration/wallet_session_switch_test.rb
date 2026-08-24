@@ -24,10 +24,27 @@ class WalletSessionSwitchTest < ActionDispatch::IntegrationTest
     assert card, "wallet-changed modal is not registered in the application layout"
 
     html = card.to_html
-    assert_includes html, "It looks like you changed your wallet."
     assert_includes html, "Start New Session"
     assert_includes html, "continueSwitch()"
     assert_not_includes html, "Not now"
+
+    # THE TWO ADDRESSES ARE THE MESSAGE, and they must be READABLE as a pair —
+    # labelled rows, not a base58 string buried mid-sentence. Assert the labels
+    # and both bindings, because a card that renders one address twice looks
+    # entirely correct until you are the user staring at it.
+    assert_includes html, ">Session<"
+    assert_includes html, ">Wallet<"
+    assert_includes html, "short(props.oldAddress)"
+    assert_includes html, "short(props.newAddress)"
+
+    # The subtitle restated the title; keeping both pushed the addresses down.
+    assert_not_includes html, "It looks like you changed your wallet."
+
+    # The escape hatch is the only way out of a card that cannot be dismissed,
+    # so it belongs UNDER the action it is the alternative to. Position is the
+    # claim here — "somewhere on the card" was already true before.
+    assert_operator html.index("Start New Session"), :<, html.index("To keep this session"),
+                    "the way out must sit below the primary action, not above the addresses"
   end
 
   test "a selected wallet signature replaces the authenticated user session" do
