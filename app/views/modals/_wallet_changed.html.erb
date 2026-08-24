@@ -22,33 +22,41 @@
      }">
   <%= render 'studio/modals/blocks/card_header',
         icon: :external_tab,
-        title: 'Wallet Changed' do %>
-    Your active wallet changed from
-    <span class="text-heading font-mono" x-text="short(props.oldAddress)"></span>
-    to
-    <span class="text-heading font-mono" x-text="short(props.newAddress)"></span>.
+        title: 'Wallet changed' do %>
+    It looks like you changed your wallet.
   <% end %>
 
-  <div class="rounded-lg border border-subtle bg-surface-alt p-3 text-xs text-secondary mb-4">
-    Continue to check whether this wallet already has a Turf Monster account.
-    If it is new, you will create it with a wallet signature.
+  <div class="rounded-lg border border-subtle bg-surface-alt p-4 text-sm text-secondary mb-4 space-y-3">
+    <p>
+      Your current Turf Monster session belongs to
+      <span class="text-heading font-mono" x-text="short(props.oldAddress)"></span>.
+      Start a new session to continue with
+      <span class="text-heading font-mono" x-text="short(props.newAddress)"></span>.
+    </p>
+    <p>
+      <span x-text="props.providerLabel || 'Your wallet'"></span> will ask you to sign a message.
+      This proves the wallet is yours and does not move funds.
+    </p>
   </div>
+
+  <p class="text-xs text-muted mb-4">
+    Want to keep this session? Switch your wallet back to
+    <span class="font-mono" x-text="short(props.oldAddress)"></span>.
+  </p>
 
   <template x-if="error">
     <p class="text-sm text-red-300 mb-3" x-text="error"></p>
   </template>
 
-  <div class="grid grid-cols-2 gap-3">
-    <button type="button" class="btn btn-secondary btn-lg"
+  <div>
+    <button type="button" class="btn btn-primary btn-lg w-full"
             :disabled="busy"
-            @click="$store.modals.close()">Not now</button>
-    <button type="button" class="btn btn-primary btn-lg"
-            :disabled="busy"
+            :aria-busy="busy"
             @click="continueSwitch()">
-      <span x-show="!busy">Continue</span>
+      <span x-show="!busy">Start New Session</span>
       <span x-show="busy" class="inline-flex items-center gap-2">
         <span class="cta-spinner" aria-hidden="true"></span>
-        Signing
+        Waiting for <span x-text="props.providerLabel || 'wallet'"></span>&hellip;
       </span>
     </button>
   </div>
