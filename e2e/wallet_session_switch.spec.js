@@ -17,7 +17,11 @@ test("changing Phantom accounts starts a deliberate signed session handoff", asy
   );
 
   const dialog = page.getByRole("dialog");
-  await expect(dialog).toContainText("It looks like you changed your wallet.");
+  // The card names the handoff as a labelled from -> to pair now; the old
+  // "It looks like you changed your wallet" subtitle restated the title.
+  await expect(dialog).toContainText("Wallet changed");
+  await expect(dialog).toContainText("Session");
+  await expect(dialog).toContainText("Wallet");
   await expect(page).not.toHaveURL(/\/signin/);
 
   await page.keyboard.press("Escape");
@@ -30,7 +34,20 @@ test("changing Phantom accounts starts a deliberate signed session handoff", asy
   await expect.poll(async () => page.locator("body").getAttribute("data-user-id"))
     .not.toBe(originalUserId);
   await expect(page).not.toHaveURL(/\/signin/);
-  await expect(page.getByText("It looks like you changed your wallet.")).toHaveCount(0);
+  // The HANDOFF card is gone — asserted on the modal stack rather than on "no
+  // dialog at all", because the reload after a successful switch can legitimately
+  // open a different card (the onboarding chain) for the wallet now signed in.
+  await expect
+    .poll(async () =>
+      page.evaluate(() => {
+        try {
+          return Alpine.store("modals").isOpen("wallet-changed");
+        } catch (e) {
+          return false;
+        }
+      })
+    )
+    .toBe(false);
 });
 
 test("refocusing recovers when Phantom misses its account-change event", async ({ page }) => {
@@ -43,7 +60,7 @@ test("refocusing recovers when Phantom misses its account-change event", async (
   });
 
   const dialog = page.getByRole("dialog");
-  await expect(dialog).toContainText("It looks like you changed your wallet.");
+  await expect(dialog).toContainText("Wallet changed");
   await expect(dialog.getByRole("button", { name: "Start New Session" })).toBeVisible();
   await expect(page).not.toHaveURL(/\/signin/);
 });

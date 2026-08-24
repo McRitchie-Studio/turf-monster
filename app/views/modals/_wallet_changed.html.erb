@@ -22,10 +22,23 @@
      }">
   <%# No subtitle: it restated the title ("Wallet changed" / "It looks like you
       changed your wallet") and pushed the two addresses — the only facts the
-      reader actually needs — further down the card. %>
+      reader actually needs — further down the card.
+      
+      subtitle: "" IS LOAD-BEARING, and dropping it is not a tidy-up. The partial
+      ends with `elsif block_given?` -> `<%%= yield %%>`, and a Rails partial's
+      block_given? reads TRUE off the LAYOUT's yield even when no block was
+      passed (the partial's own header says so). With no block AND no subtitle
+      local, that `yield` emitted THE ENTIRE PAGE into this card's subtitle
+      paragraph: measured 2026-08-24, opening this modal on a contest page put a
+      second copy of the whole contest — board, sidebar, chat, leaderboard, 8
+      duplicated ids — INSIDE the dialog, which reads on screen as the page
+      nested in a frame and made the card's own button unclickable.
+      An explicit local short-circuits ahead of block_given?; "" is truthy in
+      Ruby, so it takes that branch and renders an empty subtitle. %>
   <%= render 'studio/modals/blocks/card_header',
         icon: :external_tab,
-        title: 'Wallet changed' %>
+        title: 'Wallet changed',
+        subtitle: '' %>
 
   <%# THE TWO ADDRESSES ARE THE MESSAGE: which session you hold, and which
       wallet Phantom is now offering. They used to sit inside a sentence, which

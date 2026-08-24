@@ -191,7 +191,20 @@
 #     to any server-side assertion because nothing about it reaches the server.
 # Re-derived with the lister on this tree, never hand-incremented:
 # `npx playwright test --list` -> 177 tests in 47 files.
-total_specs: 177
+#
+# ROUND NINE, 177 -> 178 (same task, one round later): a single spec in the new
+# e2e/wallet_changed_card_scope.spec.js asserting the wallet-changed card
+# CONTAINS ONLY ITSELF. It earns an e2e slot because the bug it covers is
+# invisible anywhere else: removing the card's subtitle block without a
+# `subtitle:` local made studio/modals/blocks/_card_header fall through to
+# `elsif block_given?` -> `<%%= yield %%>`, and a Rails partial's block_given?
+# reads TRUE off the LAYOUT's yield — so the entire page rendered INSIDE the
+# dialog (8 duplicated ids, the second copy under div[role=dialog]). The
+# injected content comes from the layout, so a partial rendered in isolation
+# cannot show it: every render/integration tier stayed green while a contest
+# page sat nested inside a modal on screen. Mutation-proven — drop the local and
+# the spec reddens with ten duplicate ids.
+total_specs: 178
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -310,7 +323,14 @@ allowed_skips: 4
 # files, `--grep "@devnet"` -> 17 in 1 file, and `--grep-invert "@devnet"
 # --project=chromium` -> 160 collected for the PR lane. 177 - 17 - 4 = 156, and
 # 160 collected - 4 runtime skips = 156.
-executed: 156
+#
+# 156 -> 157 on round nine. The one new wallet_changed_card_scope spec runs in
+# the chromium lane and carries no runtime skip, so allowed_skips HOLDS AT 4 and
+# the whole delta lands here. Re-derived on this tree, not by arithmetic:
+# `npx playwright test --list` -> 178 tests in 48 files, `--grep "@devnet"` -> 17
+# in 1 file, `--grep-invert "@devnet" --project=chromium` -> 161 collected.
+# 178 - 17 - 4 = 157, and 161 collected - 4 runtime skips = 157. Both routes agree.
+executed: 157
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
