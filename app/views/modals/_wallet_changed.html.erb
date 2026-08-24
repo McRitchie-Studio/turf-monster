@@ -23,18 +23,26 @@
   <%# No subtitle: it restated the title ("Wallet changed" / "It looks like you
       changed your wallet") and pushed the two addresses — the only facts the
       reader actually needs — further down the card.
-      
-      subtitle: "" IS LOAD-BEARING, and dropping it is not a tidy-up. The partial
-      ends with `elsif block_given?` -> `<%%= yield %%>`, and a Rails partial's
-      block_given? reads TRUE off the LAYOUT's yield even when no block was
-      passed (the partial's own header says so). With no block AND no subtitle
-      local, that `yield` emitted THE ENTIRE PAGE into this card's subtitle
-      paragraph: measured 2026-08-24, opening this modal on a contest page put a
-      second copy of the whole contest — board, sidebar, chat, leaderboard, 8
-      duplicated ids — INSIDE the dialog, which reads on screen as the page
-      nested in a frame and made the card's own button unclickable.
-      An explicit local short-circuits ahead of block_given?; "" is truthy in
-      Ruby, so it takes that branch and renders an empty subtitle. %>
+
+      subtitle: '' IS LOAD-BEARING, and dropping it is not a tidy-up. The
+      card_header partial's last branch is an `elsif block_given?` that yields
+      into the subtitle paragraph, and a Rails partial's block_given? reads TRUE
+      off the LAYOUT's yield even when no block was passed (the partial's own
+      header says so). With no block AND no subtitle local, that yield emitted
+      THE ENTIRE PAGE into this card's subtitle: measured 2026-08-24, opening
+      this modal on a contest page put a second copy of the whole contest —
+      board, sidebar, chat, leaderboard, 8 duplicated ids — INSIDE the dialog.
+      It read on screen as the page nested in a frame, and it made the card's
+      own button unclickable. An explicit local short-circuits ahead of
+      block_given?, and an empty string is truthy in Ruby, so it takes that
+      branch and renders an empty subtitle.
+
+      NOTE FOR THE NEXT EDITOR: this comment carries no percent character on
+      purpose. An ERB comment ends at the FIRST close-tag sequence anywhere in
+      its body, so quoting the partial's ERB verbatim here TERMINATED THE
+      COMMENT and rendered the rest of this prose into the card as visible text
+      — shipped and screenshotted the same day. See docs/UI_PATTERNS.md,
+      "Alpine + ERB Constraints", rule 3. %>
   <%= render 'studio/modals/blocks/card_header',
         icon: :external_tab,
         title: 'Wallet changed',

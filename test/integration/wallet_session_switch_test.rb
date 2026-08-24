@@ -40,6 +40,14 @@ class WalletSessionSwitchTest < ActionDispatch::IntegrationTest
     # The subtitle restated the title; keeping both pushed the addresses down.
     assert_not_includes html, "It looks like you changed your wallet."
 
+    # The card renders the CARD, not the source notes ABOUT the card. An ERB
+    # comment that quotes ERB terminates on it and leaks the remaining prose into
+    # the page as visible text — shipped and screenshotted 2026-08-24. The source
+    # rule is guarded in test/lib/erb_comment_percent_test.rb; this is the same
+    # claim asserted on what the user actually sees.
+    assert_not_includes html, "block_given"
+    assert_not_includes html, "LOAD-BEARING"
+
     # The escape hatch is the only way out of a card that cannot be dismissed,
     # so it belongs UNDER the action it is the alternative to. Position is the
     # claim here — "somewhere on the card" was already true before.
