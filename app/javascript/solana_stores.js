@@ -8,6 +8,34 @@ function registerWalletStore() {
   if (typeof Alpine === 'undefined') return false;
   if (Alpine.store('wallet')) return true;
 
+  // THE WATCHED PROVIDER LIVES HERE, IN THE CLOSURE — NOT ON THE STORE.
+  //
+  // `Alpine.store(name, obj)` wraps obj in a reactive Proxy, and reading an
+  // object-valued property back returns a PROXY OF the value, not the value.
+  // So `this._provider = provider` stores the raw provider and `this._provider`
+  // hands back a proxy — `proxy === raw` is false, forever. Every identity
+  // check against a provider captured in a listener closure therefore FAILED,
+  // ALWAYS: the live `accountChanged` listener discarded every event it ever
+  // received, and the only thing that opened the handoff was the focus
+  // reconcile, which calls _handleAccountChanged directly.
+  //
+  // MEASURED IN CHROME, 2026-08-24: a real Phantom account switch fired
+  // `accountChanged` at 11:08:01 and the modal did not appear until the user
+  // clicked the page at 11:08:13. Twelve seconds, and unbounded in principle —
+  // a user who switches accounts in Phantom's side panel and keeps reading sees
+  // nothing at all.
+  //
+  // A closure variable is not proxied, so identity here means what it says.
+  // `_provider` stays on the store as a debugging mirror (it is what a console
+  // probe reads); NOTHING may compare against it.
+  var watched = null;
+
+  // Providers already bound, so a listener is attached ONCE per object. While
+  // the identity check could never pass, the "same provider" early return could
+  // never be taken either — so every focus and every one of the 40 discovery
+  // ticks re-entered the bind branch and stacked another dead listener.
+  var bound = (typeof WeakSet === 'function') ? new WeakSet() : null;
+
   // --- Wallet Watcher Store ---
   // Detects wallet switches and hands the user into an explicit re-auth flow.
   Alpine.store('wallet', {
@@ -74,18 +102,23 @@ function registerWalletStore() {
       var provider = this._preferredProvider();
       if (!provider) return false;
 
-      if (this._provider === provider) {
+      // `watched`, never `this._provider` — see the note above the store.
+      if (watched === provider) {
         if (reconcileExisting) this._reconcileProvider(provider, true);
         return true;
       }
 
-      this._provider = provider;
+      watched = provider;
+      this._provider = provider; // debugging mirror only; never compared
       var self = this;
-      if (provider.on) {
+      if (provider.on && !(bound && bound.has(provider))) {
+        if (bound) bound.add(provider);
         provider.on('accountChanged', function(publicKey) {
           // A late Wallet Standard registration can replace a legacy Phantom
-          // interface. Ignore events from the superseded interface.
-          if (self._provider === provider) self._handleAccountChanged(publicKey);
+          // interface. Ignore events from the superseded interface — and note
+          // this compares the CLOSURE, so a superseded provider stays ignored
+          // and the current one is actually heard.
+          if (watched === provider) self._handleAccountChanged(publicKey);
         });
       }
       this._reconcileProvider(provider, true);
@@ -166,7 +199,7 @@ function registerWalletStore() {
 
     _providerLabel: function() {
       try {
-        var provider = this._provider || this._preferredProvider();
+        var provider = watched || this._preferredProvider();
         var name = provider && provider.name;
         if (!name) return 'Wallet';
         return name.charAt(0).toUpperCase() + name.slice(1);
