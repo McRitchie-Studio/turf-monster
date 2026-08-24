@@ -175,7 +175,23 @@
 #
 # RE-DERIVED WITH THE LISTER ON THIS MERGED TREE, never by adding to either
 # side: `npx playwright test --list` -> 175 tests in 46 files.
-total_specs: 175
+#
+# ROUND EIGHT, 175 -> 177 (graceful-wallet-session-switch): two specs in the new
+# e2e/wallet_session_switch.spec.js for what a Phantom ACCOUNT SWITCH does to an
+# authenticated session. Neither is reachable from Ruby, and neither is a
+# rephrasing of the wallet_setup specs this branch trimmed:
+#   · the switch raises the blocking wallet-change modal BEFORE any signature is
+#     requested, and the session it interrupts is still the one signed in. The
+#     bug was a silent session DROP on `accountChanged`, and a dropped session
+#     renders the same logged-out markup as a deliberate sign-out — the claim is
+#     about the ORDER of two browser events, which only a browser can witness.
+#   · a late Wallet Standard registration still binds the authenticated adapter,
+#     so the handoff survives a provider that announces itself after boot. This
+#     is the timing case the mock now reproduces (e2e/phantom-mock.js), invisible
+#     to any server-side assertion because nothing about it reaches the server.
+# Re-derived with the lister on this tree, never hand-incremented:
+# `npx playwright test --list` -> 177 tests in 47 files.
+total_specs: 177
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -282,7 +298,19 @@ allowed_skips: 4
 # `--grep-invert "@devnet" --project=chromium` -> 158 collected for the PR lane.
 # 175 - 17 - 4 = 154, and 158 collected - 4 runtime skips = 154. Both routes to
 # the number agree, which is the only reason to trust either.
-executed: 154
+#
+# 154 -> 156 on round eight (graceful-wallet-session-switch). The two new
+# wallet_session_switch specs both run in the chromium lane and neither carries a
+# runtime skip, so allowed_skips HOLDS AT 4 and the whole delta lands here.
+# THE RUNTIME RECEIPT AGREES, which is the part worth recording: this branch's
+# first CI run went red at "156 executed against a contract of 154" — the gate
+# measuring the same 156 the lister derives below, from the runner's own report,
+# by a route that shares no code with the lister. Re-derived on this tree, not by
+# arithmetic on the line above: `npx playwright test --list` -> 177 tests in 47
+# files, `--grep "@devnet"` -> 17 in 1 file, and `--grep-invert "@devnet"
+# --project=chromium` -> 160 collected for the PR lane. 177 - 17 - 4 = 156, and
+# 160 collected - 4 runtime skips = 156.
+executed: 156
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
