@@ -1167,9 +1167,17 @@
       <%# Web3 step-up — a self-custody account signed in with a web2 credential
           (magic link / email / Google), so the session cannot sign on-chain.
           Auto-opens BEFORE the onboarding chain from the one-shot session
-          prompt below, and hands off to that chain when dismissed. %>
+          prompt below, and hands off to that chain when dismissed.
+
+          THE ENGINE OWNS THIS CARD. It was lifted out of this app on 2026-08-21
+          (studio/modals/_web3_step_up) and this app kept rendering its own copy
+          for months afterwards — two files, one card, free to drift. This is the
+          switch-over. What stays HERE is what the engine deliberately does not
+          take: Web3StepUpPolicy decides WHO sees it, and Web3StepUpHelper keeps
+          this app's own words and its own help route. Those locals live in the
+          helper, not inline, because modal_preview registers this card too. %>
       <template x-if="$store.modals.current().id === 'web3-step-up'">
-        <%= render "modals/web3_step_up" %>
+        <%= render "studio/modals/web3_step_up", **web3_step_up_locals %>
       </template>
       <template x-if="$store.modals.current().id === 'wallet-changed'">
         <%= render "modals/wallet_changed" %>

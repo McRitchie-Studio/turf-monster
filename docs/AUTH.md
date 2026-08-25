@@ -223,9 +223,9 @@ address. One standard now covers both.
 | Armed at sign-in | `record_web3_step_up_state!` → `session[:web3_step_up_prompt]` (one-shot) |
 | Armed at the Google collision | `arm_web3_step_up_for(user)` — popup branch only |
 | Read on render | `web3_step_up_required?` — helper, RPC-free, true for the whole session |
-| The modal | `app/views/modals/_web3_step_up.html.erb`, id `web3-step-up` |
+| The modal | `studio/modals/_web3_step_up` — studio-engine owns the card; this app passes its own subtext + help route via `Web3StepUpHelper#web3_step_up_locals` |
 | Brand memory | `users.web3_wallet_provider` + `web3_authenticated_at`, stamped by `User#record_web3_authentication!` |
-| Showroom | `/admin/modals` → **Web3 step-up**, both variants (deprecated page — see below) |
+| Showroom | `/admin/style#modals` — both states, against the real partial. This app's own wording renders at `/admin/modals/preview/web3-step-up` |
 
 Rules worth knowing:
 
