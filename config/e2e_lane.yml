@@ -204,16 +204,71 @@
 # cannot show it: every render/integration tier stayed green while a contest
 # page sat nested inside a modal on screen. Mutation-proven — drop the local and
 # the spec reddens with ten duplicate ids.
+# ROUND TEN, 178 -> 181 (consolidate-wallet-sign-in): three specs in the new
+# e2e/wallet_sign_in.spec.js for the one-approval sign-in path, which adopts the
+# Wallet Standard `solana:signIn` feature so connect + signMessage collapse into
+# a single wallet prompt.
 #
-# 178 -> 179 on round ten: e2e/phantom_debug_retry.spec.js. It exists because the
-# dor-check gate refused a String-only cert on a browser-served script, and the
-# three tries it took to make it BITE are the point. Versions one and two passed
-# against the KNOWN-BROKEN guard: v1 injected its own registry `get` immediately,
-# and v2 planted one via addInitScript, which the layout then clobbered by
-# ASSIGNING window.walletProvider wholesale. Both were green, both were worthless.
-# Only the mutation check told them apart. If you touch that spec, re-run it
-# against the broken guard before trusting the green.
-total_specs: 179
+# WHY A BROWSER TIER IS OWED, and it is the sharpest case in this file: BOTH
+# BRANCHES POST THE IDENTICAL FIVE PARAMS TO THE IDENTICAL ENDPOINT. The server
+# cannot tell a signIn from a connect+signMessage — same `message`, `signature`,
+# `pubkey`, same `/auth/solana/verify`. So no request test, no integration tier,
+# and no amount of response-byte reading can answer "which path ran", which is
+# the only question this change is about. Only a browser can witness it.
+#   · the provider CONTRACT — supportsSignIn() advertises, and signIn() returns
+#     an address, the exact bytes signed, and a 64-byte signature. These are
+#     browser-side functions on a provider that exists only in a page; there is
+#     no Ruby seam that can call them at all.
+#   · the CONSOLIDATED path establishing a real session, asserted through
+#     /account/session_state rather than the POST's 200 — a 200 is what the old
+#     path returns too.
+#   · the FALLBACK, driven by switching supportsSignIn() off at the provider
+#     exactly as a wallet that never implemented the feature would present. This
+#     one exists because the fallback is the branch that protects every wallet
+#     without signIn, and a green suite that only ever ran the new path would
+#     say nothing about it.
+#
+# NOTE ON THE TEST PROVIDER. The KeypairProvider in app/javascript/wallet_provider.js
+# now implements signIn deliberately. Without it every test provider would take
+# the fallback branch and the new code would NEVER EXECUTE IN CI — a feature
+# shipped with zero browser coverage while all three shards reported green, which
+# is the precise failure this whole ledger exists to make impossible.
+# (An earlier draft of this note credited e2e/keypair-provider.js. Wrong file:
+# that one is the devnet-nightly SOLANA_BOT_KEY harness and this change does not
+# touch it. Corrected in review — a ledger whose prose points at the wrong file
+# is the same class of stale-derivation problem the warnings above describe.)
+#
+# ROUND TEN, PART TWO, 181 -> 183 (same task, after a review bounce). Two more
+# specs in e2e/wallet_sign_in.spec.js pinning the try -> catch -> fallback
+# transition, which round ten's three specs did NOT reach: the fallback spec
+# there sets supportsSignIn = () => false up front and so never enters the try
+# block at all. The bug that exposed the hole: the catch was a catch-ALL, so a
+# user DECLINING the one-tap prompt (Phantom rejects with code 4001) was read as
+# "this wallet cannot signIn" and dropped into connect() + signMessage() — three
+# prompts for a decline, in the change whose purpose is one. It also silently
+# broke working decline handling in both callers, which render "Signature
+# rejected" off that rejection and can only do so if it propagates.
+#   · a rejected signIn PROPAGATES and connect() is never called (written first,
+#     confirmed failing against the broken build — rejected:false, connectCalls:1)
+#   · a signIn resolving a nonce-less message still FALLS BACK and signs in,
+#     which is the side the fix must not break by re-throwing everything
+# Both are e2e for the reason the round-ten note gives: the two branches post
+# identical params to an identical endpoint, so which one ran is invisible to
+# every server-side tier.
+#
+# Re-derived with the lister on this tree, never hand-incremented:
+# `npx playwright test --list` -> 183 tests in 49 files (same file count — the
+# two specs were appended to the existing wallet_sign_in.spec.js).
+#
+# 183 -> 184: e2e/phantom_debug_retry.spec.js. It exists because dor-check refused
+# a String-only cert on a browser-served script, and the three tries it took to
+# make it BITE are the point. Versions one and two passed against the KNOWN-BROKEN
+# guard: v1 injected its own registry `get` immediately, and v2 planted one via
+# addInitScript, which the layout then clobbers by ASSIGNING window.walletProvider
+# wholesale. Both were green and both were worthless; only the mutation check told
+# them apart. If you touch that spec, run it against the broken guard before
+# trusting the green.
+total_specs: 184
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -340,13 +395,37 @@ allowed_skips: 4
 # in 1 file, `--grep-invert "@devnet" --project=chromium` -> 161 collected.
 # 178 - 17 - 4 = 157, and 161 collected - 4 runtime skips = 157. Both routes agree.
 #
-# 157 -> 158 on round ten. phantom_debug_retry runs in the chromium lane and
-# carries no runtime skip, so allowed_skips HOLDS AT 4 and the delta lands here.
-# Re-derived on this tree, never by arithmetic:
-# `npx playwright test --list` -> 179 tests in 49 files, `--grep "@devnet"` -> 17
-# in 1 file, `--grep-invert "@devnet" --project=chromium` -> 162 collected.
-# 179 - 17 - 4 = 158, and 162 collected - 4 runtime skips = 158. Both routes agree.
-executed: 158
+# 157 -> 160 on round ten (consolidate-wallet-sign-in). All three new
+# wallet_sign_in specs run in the chromium lane and none carries a runtime skip,
+# so allowed_skips HOLDS AT 4 and the whole delta lands here. The change adds no
+# skip and removes none: the fallback spec disables the feature at the PROVIDER
+# (`supportsSignIn = () => false`), which changes which branch a spec MEASURES,
+# never whether it RUNS — the same distinction make-reduced-motion-reach-specs
+# recorded above, and the same reason this allowance must not absorb it.
+# Re-derived on this tree, not by arithmetic on the line above:
+# `npx playwright test --list` -> 181 tests in 49 files, `--grep "@devnet"` -> 17
+# in 1 file, `--grep-invert "@devnet" --project=chromium` -> 164 collected.
+# 181 - 17 - 4 = 160, and 164 collected - 4 runtime skips = 160. Both routes
+# agree, which is the only reason to trust either.
+#
+# 160 -> 162 on round ten part two (the review bounce). Both new decline/fallback
+# specs run in the chromium lane and neither carries a runtime skip, so
+# allowed_skips HOLDS AT 4 and the whole delta lands here. Neither spec skips
+# anything: they override the provider's signIn to reject or to return a
+# non-conforming message, which changes what a spec MEASURES, never whether it
+# RUNS — the same distinction recorded for the round-ten fallback spec above.
+# Re-derived on this tree, not by arithmetic on the line above:
+# `npx playwright test --list` -> 183 tests in 49 files, `--grep "@devnet"` -> 17
+# in 1 file, `--grep-invert "@devnet" --project=chromium` -> 166 collected.
+# 183 - 17 - 4 = 162, and 166 collected - 4 runtime skips = 162. Both routes agree.
+# 162 -> 163. phantom_debug_retry runs in the chromium lane and carries no runtime
+# skip, so allowed_skips HOLDS AT 4 and the delta lands here. Re-derived on the
+# MERGED tree after this branch collided with the counter on `accepted` — never by
+# arithmetic, which is exactly what the collision would have corrupted:
+# `npx playwright test --list` -> 184 tests in 50 files, `--grep "@devnet"` -> 17
+# in 1 file, `--grep-invert "@devnet" --project=chromium` -> 167 collected.
+# 184 - 17 - 4 = 163, and 167 collected - 4 runtime skips = 163. Both routes agree.
+executed: 163
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
