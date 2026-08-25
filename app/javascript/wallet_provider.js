@@ -19,8 +19,13 @@
 
 // Minimal SIWS message, used by providers that compose the message themselves
 // (the keypair test provider) rather than delegating to a real wallet. Matches
-// the shape a Wallet Standard wallet emits for the same input, and is
-// byte-identical to the hand-rolled fallback message in solanaConnectAndVerify.
+// the shape a Wallet Standard wallet emits for the same input.
+//
+// Byte-identical to the hand-rolled fallback message in solanaConnectAndVerify
+// IN LOGIN MODE ONLY. Link mode diverges on purpose: the fallback writes
+// "User-ID: <id>" as its own paragraph, while the SIWS statement inlines it as
+// "(User-ID: <id>)" because the spec's grammar puts `statement` on one line.
+// Both satisfy the server's `message.include?("User-ID: <id>")`.
 function buildSiwsMessage(input, address) {
   return (input.domain || '') + ' wants you to sign in with your Solana account:\n' +
          address + '\n\n' +

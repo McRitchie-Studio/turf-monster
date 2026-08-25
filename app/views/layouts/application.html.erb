@@ -226,6 +226,13 @@
           // depend on the wallet, but used to be awaited AFTER connect() — so its
           // round trip sat behind a human-gated wallet prompt for no reason. Kicked
           // off here it resolves during that prompt, on both paths below.
+          //
+          // SIDE EFFECT, deliberate and recorded: this also starts the server's
+          // NONCE_MAX_AGE (300s) clock BEFORE the wallet sheet opens rather than
+          // after connect() resolved, so those five minutes now cover human
+          // think-time at the prompt. It fails CLOSED — a user who dwells past
+          // five minutes gets a clean "Nonce expired" and retries — which is why
+          // the trade is worth a saved round trip on every sign-in.
           var noncePromise = fetch('/auth/solana/nonce').then(function(r) { return r.json(); });
 
           var domain = window.location.host;
@@ -260,6 +267,16 @@
               // rejected server-side as a bad signature, which reads to the user as
               // "sign-in is broken" rather than "this wallet composes messages its
               // own way". Catch it here and spend a second prompt instead of failing.
+              // The DOMAIN is the third thing the server asserts and the one most
+              // easily lost: AuthVerifier requires the message to OPEN with
+              // `request.host_with_port + " "` (OPSEC-018). A wallet that rewrites
+              // or port-strips the domain token produces a hard 401 with no
+              // fallback — and spends the nonce on the way. Production is safe (no
+              // port in the host); a dev/QA stack on localhost:31xx is where it
+              // bites, which is exactly where this gets exercised.
+              if (message.indexOf(domain + ' ') !== 0) {
+                throw new Error('wallet rewrote the domain');
+              }
               if (message.indexOf('Nonce: ' + nonceData.nonce) === -1) {
                 throw new Error('wallet omitted the nonce');
               }
@@ -267,7 +284,24 @@
                 throw new Error('wallet omitted the User-ID binding');
               }
             } catch (e) {
-              console.warn('[siws] signIn unusable, falling back to connect + signMessage:', e && e.message);
+              // A DECLINE IS NOT AN INCAPABILITY. The fallback exists for wallets
+              // that CANNOT do signIn, never for a human who WILL NOT — swallowing
+              // the rejection here drops into connect() + signMessage() below and
+              // asks a user who just said no twice more, in the change whose whole
+              // purpose is to ask once. It also silently breaks working decline
+              // handling: modals/_wallet_connect and modals/_wallet_setup both
+              // render "Signature rejected" off this rejection, and can only do so
+              // if it propagates.
+              //
+              // Matched the way app/javascript/cosign.js does it — reject TEXT or
+              // .code, never .code alone, because Wallet Standard wallets do not
+              // reliably set it. The three guard throws above carry neither, so a
+              // genuinely non-conforming wallet still falls through to the fallback.
+              var rejMsg = (e && e.message) ? e.message : String(e);
+              if (/user rejected/i.test(rejMsg) || /user declined/i.test(rejMsg) || (e && e.code === 4001)) {
+                throw e;
+              }
+              console.warn('[siws] signIn unusable, falling back to connect + signMessage:', rejMsg);
               useSignIn = false;
             }
           }

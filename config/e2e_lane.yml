@@ -228,15 +228,38 @@
 #     without signIn, and a green suite that only ever ran the new path would
 #     say nothing about it.
 #
-# NOTE ON THE TEST PROVIDER. e2e/keypair-provider.js's KeypairProvider now
-# implements signIn deliberately. Without it every test provider would take the
-# fallback branch and the new code would NEVER EXECUTE IN CI — a feature shipped
-# with zero browser coverage while all three shards reported green, which is the
-# precise failure this whole ledger exists to make impossible.
+# NOTE ON THE TEST PROVIDER. The KeypairProvider in app/javascript/wallet_provider.js
+# now implements signIn deliberately. Without it every test provider would take
+# the fallback branch and the new code would NEVER EXECUTE IN CI — a feature
+# shipped with zero browser coverage while all three shards reported green, which
+# is the precise failure this whole ledger exists to make impossible.
+# (An earlier draft of this note credited e2e/keypair-provider.js. Wrong file:
+# that one is the devnet-nightly SOLANA_BOT_KEY harness and this change does not
+# touch it. Corrected in review — a ledger whose prose points at the wrong file
+# is the same class of stale-derivation problem the warnings above describe.)
+#
+# ROUND TEN, PART TWO, 181 -> 183 (same task, after a review bounce). Two more
+# specs in e2e/wallet_sign_in.spec.js pinning the try -> catch -> fallback
+# transition, which round ten's three specs did NOT reach: the fallback spec
+# there sets supportsSignIn = () => false up front and so never enters the try
+# block at all. The bug that exposed the hole: the catch was a catch-ALL, so a
+# user DECLINING the one-tap prompt (Phantom rejects with code 4001) was read as
+# "this wallet cannot signIn" and dropped into connect() + signMessage() — three
+# prompts for a decline, in the change whose purpose is one. It also silently
+# broke working decline handling in both callers, which render "Signature
+# rejected" off that rejection and can only do so if it propagates.
+#   · a rejected signIn PROPAGATES and connect() is never called (written first,
+#     confirmed failing against the broken build — rejected:false, connectCalls:1)
+#   · a signIn resolving a nonce-less message still FALLS BACK and signs in,
+#     which is the side the fix must not break by re-throwing everything
+# Both are e2e for the reason the round-ten note gives: the two branches post
+# identical params to an identical endpoint, so which one ran is invisible to
+# every server-side tier.
 #
 # Re-derived with the lister on this tree, never hand-incremented:
-# `npx playwright test --list` -> 181 tests in 49 files.
-total_specs: 181
+# `npx playwright test --list` -> 183 tests in 49 files (same file count — the
+# two specs were appended to the existing wallet_sign_in.spec.js).
+total_specs: 183
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -375,7 +398,18 @@ allowed_skips: 4
 # in 1 file, `--grep-invert "@devnet" --project=chromium` -> 164 collected.
 # 181 - 17 - 4 = 160, and 164 collected - 4 runtime skips = 160. Both routes
 # agree, which is the only reason to trust either.
-executed: 160
+#
+# 160 -> 162 on round ten part two (the review bounce). Both new decline/fallback
+# specs run in the chromium lane and neither carries a runtime skip, so
+# allowed_skips HOLDS AT 4 and the whole delta lands here. Neither spec skips
+# anything: they override the provider's signIn to reject or to return a
+# non-conforming message, which changes what a spec MEASURES, never whether it
+# RUNS — the same distinction recorded for the round-ten fallback spec above.
+# Re-derived on this tree, not by arithmetic on the line above:
+# `npx playwright test --list` -> 183 tests in 49 files, `--grep "@devnet"` -> 17
+# in 1 file, `--grep-invert "@devnet" --project=chromium` -> 166 collected.
+# 183 - 17 - 4 = 162, and 166 collected - 4 runtime skips = 162. Both routes agree.
+executed: 162
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
