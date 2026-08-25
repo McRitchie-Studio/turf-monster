@@ -204,7 +204,39 @@
 # cannot show it: every render/integration tier stayed green while a contest
 # page sat nested inside a modal on screen. Mutation-proven — drop the local and
 # the spec reddens with ten duplicate ids.
-total_specs: 178
+# ROUND TEN, 178 -> 181 (consolidate-wallet-sign-in): three specs in the new
+# e2e/wallet_sign_in.spec.js for the one-approval sign-in path, which adopts the
+# Wallet Standard `solana:signIn` feature so connect + signMessage collapse into
+# a single wallet prompt.
+#
+# WHY A BROWSER TIER IS OWED, and it is the sharpest case in this file: BOTH
+# BRANCHES POST THE IDENTICAL FIVE PARAMS TO THE IDENTICAL ENDPOINT. The server
+# cannot tell a signIn from a connect+signMessage — same `message`, `signature`,
+# `pubkey`, same `/auth/solana/verify`. So no request test, no integration tier,
+# and no amount of response-byte reading can answer "which path ran", which is
+# the only question this change is about. Only a browser can witness it.
+#   · the provider CONTRACT — supportsSignIn() advertises, and signIn() returns
+#     an address, the exact bytes signed, and a 64-byte signature. These are
+#     browser-side functions on a provider that exists only in a page; there is
+#     no Ruby seam that can call them at all.
+#   · the CONSOLIDATED path establishing a real session, asserted through
+#     /account/session_state rather than the POST's 200 — a 200 is what the old
+#     path returns too.
+#   · the FALLBACK, driven by switching supportsSignIn() off at the provider
+#     exactly as a wallet that never implemented the feature would present. This
+#     one exists because the fallback is the branch that protects every wallet
+#     without signIn, and a green suite that only ever ran the new path would
+#     say nothing about it.
+#
+# NOTE ON THE TEST PROVIDER. e2e/keypair-provider.js's KeypairProvider now
+# implements signIn deliberately. Without it every test provider would take the
+# fallback branch and the new code would NEVER EXECUTE IN CI — a feature shipped
+# with zero browser coverage while all three shards reported green, which is the
+# precise failure this whole ledger exists to make impossible.
+#
+# Re-derived with the lister on this tree, never hand-incremented:
+# `npx playwright test --list` -> 181 tests in 49 files.
+total_specs: 181
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -330,7 +362,20 @@ allowed_skips: 4
 # `npx playwright test --list` -> 178 tests in 48 files, `--grep "@devnet"` -> 17
 # in 1 file, `--grep-invert "@devnet" --project=chromium` -> 161 collected.
 # 178 - 17 - 4 = 157, and 161 collected - 4 runtime skips = 157. Both routes agree.
-executed: 157
+#
+# 157 -> 160 on round ten (consolidate-wallet-sign-in). All three new
+# wallet_sign_in specs run in the chromium lane and none carries a runtime skip,
+# so allowed_skips HOLDS AT 4 and the whole delta lands here. The change adds no
+# skip and removes none: the fallback spec disables the feature at the PROVIDER
+# (`supportsSignIn = () => false`), which changes which branch a spec MEASURES,
+# never whether it RUNS — the same distinction make-reduced-motion-reach-specs
+# recorded above, and the same reason this allowance must not absorb it.
+# Re-derived on this tree, not by arithmetic on the line above:
+# `npx playwright test --list` -> 181 tests in 49 files, `--grep "@devnet"` -> 17
+# in 1 file, `--grep-invert "@devnet" --project=chromium` -> 164 collected.
+# 181 - 17 - 4 = 160, and 164 collected - 4 runtime skips = 160. Both routes
+# agree, which is the only reason to trust either.
+executed: 160
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
