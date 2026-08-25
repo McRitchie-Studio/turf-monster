@@ -20,36 +20,86 @@
          }
        }
      }">
+  <%# No subtitle: it restated the title ("Wallet changed" / "It looks like you
+      changed your wallet") and pushed the two addresses — the only facts the
+      reader actually needs — further down the card.
+
+      subtitle: '' IS LOAD-BEARING, and dropping it is not a tidy-up. The
+      card_header partial's last branch is an `elsif block_given?` that yields
+      into the subtitle paragraph, and a Rails partial's block_given? reads TRUE
+      off the LAYOUT's yield even when no block was passed (the partial's own
+      header says so). With no block AND no subtitle local, that yield emitted
+      THE ENTIRE PAGE into this card's subtitle: measured 2026-08-24, opening
+      this modal on a contest page put a second copy of the whole contest —
+      board, sidebar, chat, leaderboard, 8 duplicated ids — INSIDE the dialog.
+      It read on screen as the page nested in a frame, and it made the card's
+      own button unclickable. An explicit local short-circuits ahead of
+      block_given?, and an empty string is truthy in Ruby, so it takes that
+      branch and renders an empty subtitle.
+
+      NOTE FOR THE NEXT EDITOR: this comment carries no percent character on
+      purpose. An ERB comment ends at the FIRST close-tag sequence anywhere in
+      its body, so quoting the partial's ERB verbatim here TERMINATED THE
+      COMMENT and rendered the rest of this prose into the card as visible text
+      — shipped and screenshotted the same day. See docs/UI_PATTERNS.md,
+      "Alpine + ERB Constraints", rule 3. %>
   <%= render 'studio/modals/blocks/card_header',
         icon: :external_tab,
-        title: 'Wallet Changed' do %>
-    Your active wallet changed from
-    <span class="text-heading font-mono" x-text="short(props.oldAddress)"></span>
-    to
-    <span class="text-heading font-mono" x-text="short(props.newAddress)"></span>.
-  <% end %>
+        title: 'Wallet changed',
+        subtitle: '' %>
 
-  <div class="rounded-lg border border-subtle bg-surface-alt p-3 text-xs text-secondary mb-4">
-    Continue to check whether this wallet already has a Turf Monster account.
-    If it is new, you will create it with a wallet signature.
+  <%# THE TWO ADDRESSES ARE THE MESSAGE: which session you hold, and which
+      wallet Phantom is now offering. They used to sit inside a sentence, which
+      is the one place a base58 address cannot be read at a glance — the eye has
+      to parse prose to find the part that matters. Labelled rows instead, with
+      the direction of the handoff drawn between them, so the card answers
+      "from what, to what" before it is read. %>
+  <div class="rounded-lg border border-subtle bg-surface-alt p-4 mb-4">
+    <div class="flex items-baseline justify-between gap-3">
+      <span class="text-xs uppercase tracking-wide text-muted">Session</span>
+      <span class="text-sm text-heading font-mono" x-text="short(props.oldAddress)"></span>
+    </div>
+    <%# Decorative: the labels already carry the direction for a screen reader. %>
+    <div class="flex justify-center py-1.5" aria-hidden="true">
+      <svg class="w-4 h-4 text-muted" fill="none" viewBox="0 0 24 24"
+           stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+      </svg>
+    </div>
+    <div class="flex items-baseline justify-between gap-3">
+      <span class="text-xs uppercase tracking-wide text-muted">Wallet</span>
+      <span class="text-sm text-heading font-mono" x-text="short(props.newAddress)"></span>
+    </div>
   </div>
+
+  <p class="text-sm text-secondary mb-4">
+    <span x-text="props.providerLabel || 'Your wallet'"></span> will ask you to sign.
+    This proves the wallet is yours &mdash; it does not move funds.
+  </p>
 
   <template x-if="error">
     <p class="text-sm text-red-300 mb-3" x-text="error"></p>
   </template>
 
-  <div class="grid grid-cols-2 gap-3">
-    <button type="button" class="btn btn-secondary btn-lg"
+  <div>
+    <button type="button" class="btn btn-primary btn-lg w-full"
             :disabled="busy"
-            @click="$store.modals.close()">Not now</button>
-    <button type="button" class="btn btn-primary btn-lg"
-            :disabled="busy"
+            :aria-busy="busy"
             @click="continueSwitch()">
-      <span x-show="!busy">Continue</span>
+      <span x-show="!busy">Start New Session</span>
       <span x-show="busy" class="inline-flex items-center gap-2">
         <span class="cta-spinner" aria-hidden="true"></span>
-        Signing
+        Waiting for <span x-text="props.providerLabel || 'wallet'"></span>&hellip;
       </span>
     </button>
+
+    <%# The way OUT of a card that cannot be dismissed. It sits under the action
+        it is the alternative to, rather than above it where it read as a
+        caption on the addresses. %>
+    <p class="text-xs text-muted mt-3 text-center">
+      To keep this session, switch
+      <span x-text="props.providerLabel || 'your wallet'"></span> back to
+      <span class="font-mono" x-text="short(props.oldAddress)"></span>.
+    </p>
   </div>
 </div>

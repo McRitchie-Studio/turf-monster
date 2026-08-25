@@ -20,13 +20,13 @@ class AdminController < ApplicationController
   # work goes to the engine's living style guide at /admin/style#modals from now
   # on; a modal built there is inherited by every Studio app, one built here is
   # turf's alone. This registry is not deleted yet for a measured reason rather
-  # than an unmade decision: 7 of the modal ids below have no card in the engine
-  # guide (wallet-setup, cdp-ramp, buy-entry-token, cosign-rejected,
-  # quest-success, unsubscribe-confirm, unsubscribe-goodbye), so deleting this
-  # page today would drop their only review surface instead of tidying a
-  # duplicate. Port first, delete second. web3-step-up came off that list on
-  # 2026-08-24: the engine owns the partial AND shows both of its states, so
-  # its cards here were the duplicate, not the review surface. The page itself carries the
+  # than an unmade decision: 8 of the modal ids below have no card in the engine
+  # guide (wallet-setup, wallet-changed, cdp-ramp, buy-entry-token,
+  # cosign-rejected, quest-success, unsubscribe-confirm, unsubscribe-goodbye), so
+  # deleting this page today would drop their only review surface instead of
+  # tidying a duplicate. Port first, delete second. web3-step-up came off that
+  # list on 2026-08-24: the engine owns the partial AND shows both of its states,
+  # so its cards here were the duplicate, not the review surface. The page itself carries the
   # same notice at the top, where someone about to build here will actually see
   # it — see app/views/admin/modals.html.erb.
   MODAL_FLOWS = [
@@ -109,6 +109,12 @@ class AdminController < ApplicationController
       label: "Connect Wallet (picker)", key: "wallet-connect",
       modal_id: "wallet-connect", file: "app/views/modals/_wallet_connect.html.erb",
       props: {} },
+    { group: "Web3",
+      label: "Wallet changed (session handoff)", key: "wallet-changed",
+      modal_id: "wallet-changed", file: "app/views/modals/_wallet_changed.html.erb",
+      props: { oldAddress: "7xKpWm2DbYp9ExampleOldAddressJZ2Q",
+               newAddress: "4nQvR8Lt5ExampleNewAddress9AaF",
+               providerLabel: "Phantom", dismissible: false } },
     # Web3-only onboarding (AppFlags.web3_only_onboarding?) — the post-auth
     # "Set up your wallet" step. In the gallery the Phantom row renders in its
     # INSTALL state unless the previewing browser actually has Phantom, which is

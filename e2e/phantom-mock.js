@@ -9,6 +9,7 @@
  *   const { setupPhantomMock, MOCK_PUBKEY_B58 } = require('./phantom-mock');
  *   await setupPhantomMock(page);              // seed byte 1 = alex
  *   await setupPhantomMock(page, { seedByte: 2 }); // different wallet
+ *   await setupPhantomMock(page, { walletStandard: true }); // late WS adapter
  */
 
 // Pre-computed from deterministic seed (last byte = 1)
@@ -18,11 +19,9 @@ const MOCK_PUBKEY_B58 = "6ASf5EcmmEHTgDJ4X4ZT5vT6iHVJBXPg5AN5YoTCpGWt";
  * Inject Phantom mock into the page via addInitScript.
  * Runs before any page scripts — Alpine's walletAvailable check passes immediately.
  */
-async function setupPhantomMock(page, { seedByte = 1 } = {}) {
-  await page.addInitScript((seedByte) => {
-    // --- Deterministic seed ---
-    const seed = new Uint8Array(32);
-    seed[31] = seedByte;
+async function setupPhantomMock(page, { seedByte = 1, walletStandard = false } = {}) {
+  await page.addInitScript(({ initialSeedByte, useWalletStandard }) => {
+    let currentSeedByte = Number(localStorage.getItem("phantomMockSeedByte")) || initialSeedByte;
 
     // --- Base58 encoder (Bitcoin alphabet) ---
     const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -66,6 +65,8 @@ async function setupPhantomMock(page, { seedByte = 1 } = {}) {
     async function getKeypair() {
       if (_keypair) return _keypair;
       await loadTweetnacl();
+      const seed = new Uint8Array(32);
+      seed[31] = currentSeedByte;
       _keypair = nacl.sign.keyPair.fromSeed(seed);
       return _keypair;
     }
@@ -80,6 +81,22 @@ async function setupPhantomMock(page, { seedByte = 1 } = {}) {
     }
 
     // --- Phantom provider mock ---
+    const listeners = {};
+    const standardChangeListeners = [];
+    let standardAccount = null;
+    function emit(event, value) {
+      (listeners[event] || []).forEach((callback) => callback(value));
+    }
+
+    function makeStandardAccount(bytes) {
+      return {
+        address: encodeBase58(bytes),
+        publicKey: bytes,
+        chains: ["solana:devnet", "solana:mainnet"],
+        features: ["solana:signMessage"],
+      };
+    }
+
     const solana = {
       isPhantom: true,
       isConnected: false,
@@ -111,11 +128,87 @@ async function setupPhantomMock(page, { seedByte = 1 } = {}) {
         return tx;
       },
 
-      on() {},
-      off() {},
+      on(event, callback) {
+        listeners[event] ||= [];
+        listeners[event].push(callback);
+      },
+
+      off(event, callback) {
+        listeners[event] = (listeners[event] || []).filter((item) => item !== callback);
+      },
+
+      async __switchAccount(nextSeedByte, { transientNull = false, emitEvent = true } = {}) {
+        if (transientNull && emitEvent) {
+          if (useWalletStandard) {
+            standardChangeListeners.forEach((callback) => callback({ accounts: [] }));
+          } else {
+            emit("accountChanged", null);
+          }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        currentSeedByte = nextSeedByte;
+        localStorage.setItem("phantomMockSeedByte", String(nextSeedByte));
+        _keypair = null;
+        const kp = await getKeypair();
+        this.isConnected = true;
+        this.publicKey = makePublicKey(kp.publicKey);
+        standardAccount = makeStandardAccount(kp.publicKey);
+        if (emitEvent) {
+          if (useWalletStandard) {
+            standardChangeListeners.forEach((callback) => callback({ accounts: [standardAccount] }));
+          } else {
+            emit("accountChanged", this.publicKey);
+          }
+        }
+      },
     };
 
     window.phantom = { solana };
+
+    if (useWalletStandard) {
+      const wallet = {
+        name: "Phantom",
+        chains: ["solana:devnet", "solana:mainnet"],
+        get accounts() { return standardAccount ? [standardAccount] : []; },
+        features: {
+          "standard:connect": {
+            version: "1.0.0",
+            connect: async () => {
+              const kp = await getKeypair();
+              standardAccount = makeStandardAccount(kp.publicKey);
+              return { accounts: [standardAccount] };
+            },
+          },
+          "standard:disconnect": {
+            version: "1.0.0",
+            disconnect: async () => { standardAccount = null; },
+          },
+          "standard:events": {
+            version: "1.0.0",
+            on: (event, callback) => {
+              if (event === "change") standardChangeListeners.push(callback);
+              return () => {
+                const index = standardChangeListeners.indexOf(callback);
+                if (index >= 0) standardChangeListeners.splice(index, 1);
+              };
+            },
+          },
+          "solana:signMessage": {
+            version: "1.0.0",
+            signMessage: async ({ message }) => {
+              const kp = await getKeypair();
+              return [{ signature: nacl.sign.detached(message, kp.secretKey) }];
+            },
+          },
+        },
+      };
+
+      // Model Phantom's real lifecycle: its legacy injected provider exists
+      // first, then Wallet Standard registers the adapter that the hub uses.
+      window.addEventListener("wallet-standard:app-ready", (event) => {
+        setTimeout(() => event.detail.register(wallet), 150);
+      });
+    }
 
     // --- Inject dummy CSRF meta tag ---
     // Test env has allow_forgery_protection=false so Rails skips csrf_meta_tags.
@@ -128,7 +221,7 @@ async function setupPhantomMock(page, { seedByte = 1 } = {}) {
         document.head.appendChild(meta);
       }
     }, { once: true });
-  }, seedByte);
+  }, { initialSeedByte: seedByte, useWalletStandard: walletStandard });
 }
 
 module.exports = { MOCK_PUBKEY_B58, setupPhantomMock };

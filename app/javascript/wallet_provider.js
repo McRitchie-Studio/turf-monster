@@ -236,7 +236,13 @@ function _wsRegister(wallet) {
   // Require the features the SIWS sign-in flow needs.
   if (!wallet.features['standard:connect'] || !wallet.features['solana:signMessage']) return;
   if (_wsWallets.some(function(a) { return a._raw === wallet; })) return; // de-dupe
-  _wsWallets.push(_makeWsAdapter(wallet));
+  var adapter = _makeWsAdapter(wallet);
+  _wsWallets.push(adapter);
+  try {
+    window.dispatchEvent(new CustomEvent('wallet-provider:registered', {
+      detail: { name: adapter.name }
+    }));
+  } catch (e) { /* registration still succeeds in non-browser test contexts */ }
 }
 
 // The app's side of the handshake. `register` is what wallets call (directly
@@ -288,7 +294,7 @@ var walletProvider = {
     for (var i = 0; i < _wsWallets.length; i++) {
       if (_wsWallets[i].name && _wsWallets[i].name.toLowerCase() === lower) return _wsWallets[i];
     }
-    if (lower === 'phantom') return PhantomProvider; // legacy fallback
+    if (lower === 'phantom' && PhantomProvider.isAvailable()) return PhantomProvider; // legacy fallback
     return null;
   },
 
