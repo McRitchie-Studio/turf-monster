@@ -22,9 +22,23 @@ require "test_helper"
 # reddened on seven harmless prose percentages ("50% wide") that leak nothing.
 # It caught the innocent and missed the guilty.
 #
-# The real precondition is an ERB OPEN inside the body: to terminate a comment by
-# accident you must have written one. That is what this asserts, and the view
-# tree carries zero of them today, so it needs no allowlist to stay honest.
+# The precondition this DOES catch is an ERB OPEN inside the body: quoting a tag
+# is the common way to terminate a comment by accident. That is what this
+# asserts, and the view tree carries zero of them today, so it needs no allowlist.
+#
+# WHAT IT DOES NOT CATCH, stated because a guard that overstates its reach is
+# worse than a narrow one. A reviewer proved the gap on 2026-08-25: a comment
+# reading "...ends at the first close sequence, which is <the close sequence> and
+# everything after..." carries NO ERB open, so this test stays GREEN while Rails
+# renders the leaked prose into the page. That sentence is exactly what someone
+# writes while DOCUMENTING this rule, which makes it a likely leak, not an exotic
+# one.
+#
+# The obvious widening — flag prose following a comment's close — was measured
+# against the view tree and produced three false positives on legitimate inline
+# script and attribute text, so it would need an allowlist to ship. An allowlisted
+# guard is how a rule stops guarding. Left narrow and honest instead; the widening
+# is filed as /tasks/catch-the-erb-comment-leak-in-prose.
 class ErbCommentPercentTest < ActiveSupport::TestCase
   COMMENT = /<%#(.*?)%>/m
   ERB_OPEN = "<%"

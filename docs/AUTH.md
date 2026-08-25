@@ -256,9 +256,9 @@ address. One standard now covers both.
 | Armed at sign-in | `record_web3_step_up_state!` → `session[:web3_step_up_prompt]` (one-shot) |
 | Armed at the Google collision | `arm_web3_step_up_for(user)` — popup branch only |
 | Read on render | `web3_step_up_required?` — helper, RPC-free, true for the whole session |
-| The modal | `app/views/modals/_web3_step_up.html.erb`, id `web3-step-up` |
+| The modal | `studio/modals/_web3_step_up` — studio-engine owns the card; this app passes its own subtext + help route via `Web3StepUpHelper#web3_step_up_locals` |
 | Brand memory | `users.web3_wallet_provider` + `web3_authenticated_at`, stamped by `User#record_web3_authentication!` |
-| Showroom | `/admin/modals` → **Web3 step-up**, both variants (deprecated page — see below) |
+| Showroom | `/admin/style#modals` — both states, against the real partial. This app's own wording renders at `/admin/modals/preview/web3-step-up` |
 
 Rules worth knowing:
 
@@ -301,11 +301,13 @@ Rules worth knowing:
   (operator direction, 2026-08-21): modal primitive work goes to the engine's
   living style guide at `/admin/style#modals`, where a modal is inherited by
   every Studio app instead of being turf's alone. The page still stands because
-  9 modal ids have no card in the engine guide yet (`wallet-setup`,
+  8 modal ids have no card in the engine guide yet (`wallet-setup`,
   `wallet-changed`, `cdp-ramp`, `buy-entry-token`, `cosign-rejected`,
-  `quest-success`, `unsubscribe-confirm`, `unsubscribe-goodbye`,
-  `web3-step-up`) — port first, delete second, so no
-  state loses its review surface on the way out. This card's own port into
+  `quest-success`, `unsubscribe-confirm`, `unsubscribe-goodbye`) — port first,
+  delete second, so no state loses its review surface on the way out.
+  `web3-step-up` came off this list on 2026-08-24: the engine owns the partial
+  AND shows both of its states, so its cards here were the duplicate rather than
+  the review surface. This card's own port into
   `studio/modals/` as a shared engine partial is the next step for it.
 - **The CTA is the STANDARD wallet row**, not a filled button — brand mark, the
   wallet's own name, `Installed` badge, chevron — the same shape the connect
