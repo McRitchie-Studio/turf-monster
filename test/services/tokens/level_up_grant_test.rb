@@ -15,6 +15,14 @@ class Tokens::LevelUpGrantTest < ActiveSupport::TestCase
 
   # Builds the token shape decode_entry_token returns — only :source_ref and
   # :consumed matter to the grant.
+  # The ref the grant will build for THIS user's earning wallet on THIS
+  # deployment. Tests assert through the helper rather than hard-coding the
+  # shape, so the scheme can change in one place — which is exactly what
+  # happened when the ref moved off users.id.
+  def ref_for(level, user: @user)
+    Tokens::LevelUpGrant.source_ref(user.solana_address, level)
+  end
+
   def token(source_ref)
     { pda: "pda-#{source_ref}", source_ref: source_ref, source: 0, consumed: false }
   end
@@ -31,7 +39,7 @@ class Tokens::LevelUpGrantTest < ActiveSupport::TestCase
     result = Tokens::LevelUpGrant.call(@user, vault: vault)
 
     assert_equal [2], result.minted_levels, "100 seeds is level 2 — exactly one token owed"
-    assert_equal ["levelup:#{@user.id}:2"], vault.mint_calls
+    assert_equal [ref_for(2)], vault.mint_calls
     assert_equal 2, @user.reload.entry_tokens_granted_level
   end
 
@@ -51,18 +59,18 @@ class Tokens::LevelUpGrantTest < ActiveSupport::TestCase
     result = Tokens::LevelUpGrant.call(@user, vault: vault)
 
     assert_equal [2, 3, 4], result.minted_levels, "300 seeds owes three tokens"
-    assert_equal ["levelup:#{@user.id}:2", "levelup:#{@user.id}:3", "levelup:#{@user.id}:4"],
+    assert_equal [ref_for(2), ref_for(3), ref_for(4)],
       vault.mint_calls, "must mint in ascending level order"
     assert_equal 4, @user.reload.entry_tokens_granted_level
   end
 
   test "grants only the levels not already on-chain" do
-    vault = vault_for(seeds: 300, tokens: [token("levelup:#{@user.id}:2")])
+    vault = vault_for(seeds: 300, tokens: [token(ref_for(2))])
 
     result = Tokens::LevelUpGrant.call(@user, vault: vault)
 
     assert_equal [3, 4], result.minted_levels, "level 2 is already paid — skip it"
-    assert_equal ["levelup:#{@user.id}:3", "levelup:#{@user.id}:4"], vault.mint_calls
+    assert_equal [ref_for(3), ref_for(4)], vault.mint_calls
   end
 
   # --- idempotency: the property the whole design rests on ---
@@ -84,9 +92,9 @@ class Tokens::LevelUpGrantTest < ActiveSupport::TestCase
     # This is the retry-safety contract in one line. If this ever returns a
     # random component (as Solana::Vault.operator_source_ref does), a lost mint
     # response becomes a duplicate token instead of a harmless init collision.
-    assert_equal "levelup:#{@user.id}:2", Tokens::LevelUpGrant.source_ref(@user.id, 2)
-    assert_equal Tokens::LevelUpGrant.source_ref(@user.id, 2),
-      Tokens::LevelUpGrant.source_ref(@user.id, 2)
+    wallet = @user.solana_address
+    assert_equal Tokens::LevelUpGrant.source_ref(wallet, 2),
+                 Tokens::LevelUpGrant.source_ref(wallet, 2)
   end
 
   test "the source_ref fits the on-chain [u8;64] field at implausible ids and levels" do
@@ -192,12 +200,94 @@ class Tokens::LevelUpGrantTest < ActiveSupport::TestCase
 
   test "granted_levels ignores other users' refs and other rails' tokens" do
     tokens = [
-      token("levelup:#{@user.id}:2"),
-      token("levelup:#{@user.id + 1}:5"), # another user's grant
+      token(ref_for(2)),
+      token(ref_for(5, user: users(:alex))), # another WALLET's grant
+      token("levelup:qa:#{Tokens::LevelUpGrant.wallet_key(@user.solana_address)}:7"), # same wallet, ANOTHER DEPLOYMENT
       token("stripe:42:0"),
       token("operator:#{@user.id}:deadbeef")
     ]
 
-    assert_equal Set[2], Tokens::LevelUpGrant.granted_levels(@user.id, tokens)
+    assert_equal Set[2], Tokens::LevelUpGrant.granted_levels(@user.solana_address, tokens),
+      "only THIS wallet's refs on THIS deployment count — another wallet's grant, the " \
+      "same wallet's grant on another deployment, and other rails all match nothing"
+  end
+
+  # ── THE COLLISION THE REF SCHEME EXISTS TO CLOSE ──────────────────────────
+  #
+  # Solana::Vault#entry_token_pda derives the account from sha256(source_ref)
+  # under the program id ALONE — there is no wallet in the seeds, and
+  # mint_entry_token's own contract says the ref must be globally unique ACROSS
+  # WALLETS. The first version of this service keyed it on users.id, and
+  # SOLANA_PROGRAM_ID defaults to the SAME devnet program for development, test
+  # and QA. So QA user 7 at level 2 and a local dev user 7 at level 2 derived ONE
+  # account: the loser's mint raises 0x0 forever and pages an ErrorLog every 15
+  # minutes with no path to payment. The PDAs outlive the database, so a QA reset
+  # reproduces it wholesale.
+
+  test "two different WALLETS never share a ref at the same level" do
+    a = Tokens::LevelUpGrant.source_ref("4MCkYMrLCVXap9jW1pL8kDyNNtgWF19WGp6B5m1TVsCr", 2)
+    b = Tokens::LevelUpGrant.source_ref("14Gn2cCA69PwKU7t8x1fS6WQwBPnwXkSA4KRM8ibmBP4", 2)
+
+    assert_not_equal a, b,
+      "same level, different wallets — an equal ref here is one on-chain account for two " \
+      "users, and the second mint can never succeed"
+  end
+
+  test "two DEPLOYMENTS never share a ref for the same wallet and level" do
+    wallet = @user.solana_address
+    qa  = Tokens::LevelUpGrant.source_ref(wallet, 2, namespace: "qa")
+    dev = Tokens::LevelUpGrant.source_ref(wallet, 2, namespace: "development")
+
+    assert_not_equal qa, dev,
+      "dev, test and QA share ONE devnet program by design, so the deployment must be in " \
+      "the ref or one environment's mint permanently blocks another's"
+  end
+
+  # The property the namespace must NOT cost us: determinism is what makes a
+  # Sidekiq retry a harmless init collision instead of a second token.
+  test "the ref is still deterministic for one wallet, level and deployment" do
+    wallet = @user.solana_address
+    assert_equal Tokens::LevelUpGrant.source_ref(wallet, 3, namespace: "qa"),
+                 Tokens::LevelUpGrant.source_ref(wallet, 3, namespace: "qa")
+  end
+
+  test "the ref fits the on-chain 64-byte field at the LONGEST deployment name" do
+    # padded_source_ref RAISES past 64 rather than truncating, so an overflow is
+    # a hard failure at mint time. A base58 address is up to 44 chars, which is
+    # why the wallet is hashed rather than inlined.
+    ref = Tokens::LevelUpGrant.source_ref("4MCkYMrLCVXap9jW1pL8kDyNNtgWF19WGp6B5m1TVsCr",
+                                          9999, namespace: "development")
+
+    assert_operator ref.bytesize, :<=, 64, "ref would overflow the [u8;64] field: #{ref}"
+  end
+
+  # ── THE COMBO ACCOUNT ─────────────────────────────────────────────────────
+  #
+  # A managed account that later links Phantom has TWO addresses. The ref must
+  # follow the wallet actually being minted to — the one #call read the balance
+  # from and lists tokens on — not a re-read of User#solana_address, which
+  # prefers web3 and would key the ref to a different wallet than the payout.
+
+  test "the ref follows the EARNING wallet, not a re-read of the user record" do
+    wallet = @user.solana_address
+    vault  = vault_for(seeds: 100)
+
+    Tokens::LevelUpGrant.call(@user, vault: vault)
+
+    assert_equal [Tokens::LevelUpGrant.source_ref(wallet, 2)], vault.mint_calls,
+      "the minted ref must be derived from the wallet the token was minted TO"
+    assert_equal [wallet], vault.mint_wallets.uniq,
+      "and it must be the same wallet the balance was read from"
+  end
+
+  test "a wallet with a grant on another deployment is still owed one here" do
+    wallet = @user.solana_address
+    elsewhere = token(Tokens::LevelUpGrant.source_ref(wallet, 2, namespace: "qa"))
+    vault = vault_for(seeds: 200, tokens: [elsewhere])
+
+    result = Tokens::LevelUpGrant.new(@user, vault: vault).call
+
+    assert_includes result.minted_levels, 2,
+      "a QA grant must not satisfy a development payout — different program state entirely"
   end
 end

@@ -16,7 +16,11 @@
 #   starting_sequence: integer  → first mint's sequence (for resume tests)
 #   tokens:            array    → seeds list_entry_tokens (drives has-tokens branches)
 class FakeVault
-  attr_reader :mint_calls, :transfer_calls, :enter_calls, :ensure_account_calls,
+  # mint_wallets pairs with mint_calls: WHICH address each ref was minted to.
+  # Recording the ref alone let a test assert the payout happened without
+  # asserting it went to the right wallet — the gap that hid a ref keyed to a
+  # different address than the mint.
+  attr_reader :mint_calls, :mint_wallets, :transfer_calls, :enter_calls, :ensure_account_calls,
               :fund_calls, :deposit_calls, :sync_balance_calls, :entry_token_list_calls
 
   def initialize(fail_after: nil, starting_sequence: 0, tokens: [], signature_statuses: {},
@@ -35,6 +39,7 @@ class FakeVault
     @season_raises = season_raises
     @seasons = seasons || Array(season)
     @mint_calls = []
+    @mint_wallets = []
     @transfer_calls = []
     @enter_calls = []
     @ensure_account_calls = []
@@ -128,6 +133,7 @@ class FakeVault
 
   def mint_entry_token(wallet_address:, source:, source_ref:, **_opts)
     @mint_calls << source_ref
+    @mint_wallets << wallet_address
     raise StandardError, "simulated chain failure" if @fail_after && @mint_calls.length > @fail_after
     seq = @starting_sequence + @mint_calls.length - 1
     { signature: "sig_#{seq}_#{SecureRandom.hex(2)}", pda: "pda-seq-#{seq}", sequence: seq }

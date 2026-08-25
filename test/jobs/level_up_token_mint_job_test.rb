@@ -27,6 +27,13 @@ class LevelUpTokenMintJobTest < ActiveJob::TestCase
     FakeVault.new(tokens: tokens, fail_after: fail_after).tap { |v| v.sync_balance_seeds = seeds }
   end
 
+  # The ref the grant builds for a user's earning wallet on THIS deployment.
+  # Derived, never hard-coded: the scheme moved off users.id to close a PDA
+  # collision, and a literal here would have to be edited in four places.
+  def ref_for(user, level)
+    Tokens::LevelUpGrant.source_ref(user.solana_address, level)
+  end
+
   # Runs the job with both Solana seams closed: the instance the sweep builds
   # AND the class-level stale-env guard, which is a real network call.
   def run_sweep(vault, **kwargs)
@@ -90,7 +97,7 @@ class LevelUpTokenMintJobTest < ActiveJob::TestCase
 
     run_sweep(vault, user_id: @user.id)
 
-    assert_equal ["levelup:#{@user.id}:2"], vault.mint_calls
+    assert_equal [ref_for(@user, 2)], vault.mint_calls
     assert_equal 2, @user.reload.entry_tokens_granted_level
   end
 
@@ -113,7 +120,7 @@ class LevelUpTokenMintJobTest < ActiveJob::TestCase
 
     run_sweep(vault)
 
-    assert_equal ["levelup:#{@user.id}:2"], vault.mint_calls
+    assert_equal [ref_for(@user, 2)], vault.mint_calls
     assert_equal 2, @user.reload.entry_tokens_granted_level
   end
 
@@ -191,7 +198,7 @@ class LevelUpTokenMintJobTest < ActiveJob::TestCase
     second = vault_for(seeds: 100)
     run_sweep(second)
 
-    assert_equal ["levelup:#{@user.id}:2"], second.mint_calls, "the retry must land the grant"
+    assert_equal [ref_for(@user, 2)], second.mint_calls, "the retry must land the grant"
     assert_equal 2, @user.reload.entry_tokens_granted_level
   end
 
@@ -258,7 +265,7 @@ class LevelUpTokenMintJobTest < ActiveJob::TestCase
 
     run_sweep(vault, batch_size: 1)
 
-    assert_equal ["levelup:#{later.id}:2"], vault.mint_calls,
+    assert_equal [ref_for(later, 2)], vault.mint_calls,
       "the stuck low-id row must not occupy the bounded batch again"
     assert_equal 1, @user.reload.entry_tokens_granted_level,
       "rotation must never pretend the unevaluable user was paid"
@@ -326,5 +333,45 @@ class LevelUpTokenMintJobTest < ActiveJob::TestCase
     end
 
     assert_empty vault.mint_calls
+  end
+
+  # THE "ZERO RPCs WHEN IDLE" CLAIM, ASSERTED RATHER THAN ADVERTISED.
+  #
+  # The header of the job, config/schedule.yml and docs/SOLANA.md all state that a
+  # sweep with no fresh level-ups issues no Solana RPCs. It was false: the
+  # live-program guard ran BEFORE the empty-candidate return, so every idle run
+  # paid one getAccountInfo — a 5-minute cache against a */15 cron, so never a hit.
+  # The existing run_sweep helper STUBS that very call, which is why the suite
+  # stayed green over a claim that was wrong in three documents.
+  #
+  # This asserts the claim without the stub: no candidates, so nothing may touch
+  # the chain at all.
+  test "an idle sweep issues ZERO Solana RPCs" do
+    User.update_all("entry_tokens_granted_level = level")
+    assert_equal 0, LevelUpTokenMintJob.candidates.count, "the fixture must be genuinely idle"
+
+    called = false
+    Solana::Vault.stub(:ensure_program_id_live!, -> { called = true; true }) do
+      LevelUpTokenMintJob.new.perform
+    end
+
+    assert_not called,
+      "an idle sweep must not reach the chain — the live-program guard belongs BELOW the " \
+      "empty-candidate return, or the zero-RPC claim in three documents is false"
+  end
+
+  test "a sweep WITH candidates still guards the program id before minting" do
+    user = users(:sam)
+    user.update_columns(seeds: 100, level: 2, entry_tokens_granted_level: 1)
+    assert_operator LevelUpTokenMintJob.candidates.count, :>, 0
+
+    called = false
+    Solana::Vault.stub(:ensure_program_id_live!, -> { called = true; true }) do
+      LevelUpTokenMintJob.new.perform
+    rescue StandardError
+      nil # the mint itself is not what this asserts
+    end
+
+    assert called, "the guard exists to stop a mint against a dead program — it must still run"
   end
 end

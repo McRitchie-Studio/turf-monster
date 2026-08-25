@@ -84,16 +84,25 @@ class LevelUpTokenMintJob < ApplicationJob
   end
 
   def perform(batch_size: BATCH_SIZE, user_id: nil)
-    # Catches a stale Sidekiq env pointing at a dead PROGRAM_ID — the
-    # mint-to-wrong-program bug that has bitten twice on devnet redeploys.
-    # Raises only on a definitive "that program does not exist"; transient RPC
-    # trouble falls through and lets the mint surface its own error.
-    Solana::Vault.ensure_program_id_live! unless ENV["SKIP_PROGRAM_ID_LIVE_CHECK"] == "true"
-
-    return perform_target(user_id) if user_id
+    if user_id
+      ensure_program_id_live!
+      return perform_target(user_id)
+    end
 
     candidates = self.class.candidates.limit(batch_size).to_a
     return if candidates.empty?
+
+    # AFTER the empty-candidate return, deliberately. This guard used to run
+    # first, which made the header's "issues ZERO Solana RPCs" claim FALSE: the
+    # live-program check is a getAccountInfo, its cache is 5 minutes, and the cron
+    # is every 15 — so every idle sweep paid one RPC while three places (this
+    # file's header, config/schedule.yml, and docs/SOLANA.md) advertised none.
+    #
+    # Moving it here makes the claim true rather than rewriting three documents to
+    # admit it was not, and costs nothing that matters: the guard exists to stop a
+    # MINT against a dead program, and no mint can happen below an empty candidate
+    # list. The targeted path above keeps its own check for the same reason.
+    ensure_program_id_live!
 
     Rails.logger.info "[level-up-grant] sweep.start candidates=#{candidates.length}"
 
@@ -142,6 +151,17 @@ class LevelUpTokenMintJob < ApplicationJob
   end
 
   private
+
+  # Catches a stale Sidekiq env pointing at a dead PROGRAM_ID — the
+  # mint-to-wrong-program bug that has bitten twice on devnet redeploys. Raises
+  # only on a definitive "that program does not exist"; transient RPC trouble
+  # falls through and lets the mint surface its own error.
+  def ensure_program_id_live!
+    return if ENV["SKIP_PROGRAM_ID_LIVE_CHECK"] == "true"
+
+    Solana::Vault.ensure_program_id_live!
+  end
+
 
   # Bypasses the SQL candidate mirror. The fresh request-path seed snapshot is
   # only the trigger; Tokens::LevelUpGrant still re-reads chain truth before it

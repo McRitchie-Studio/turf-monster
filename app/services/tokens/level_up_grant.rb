@@ -86,19 +86,64 @@ module Tokens
       )
     end
 
-    # `levelup:<user_id>:<level>` — 64-byte budget is not a concern (a 9-digit
-    # id at level 9999 is 27 bytes), but `padded_source_ref` raises past 64 so
-    # the ceiling is enforced for us rather than silently truncating.
-    def self.source_ref(user_id, level)
-      "levelup:#{user_id}:#{level}"
+    # THE REF MUST BE UNIQUE ACROSS WALLETS *AND* ACROSS DEPLOYMENTS, because the
+    # PDA is derived from the ref ALONE.
+    #
+    #   Solana::Vault#entry_token_pda(source_ref) =
+    #     find_pda([b("entry_token"), sha256(padded_source_ref)], @program_id)
+    #
+    # There is NO wallet in those seeds — mint_entry_token's own contract comment
+    # says source_ref must be globally unique across wallets, and the first
+    # version of this file keyed it on `users.id`, a PER-DATABASE integer.
+    #
+    # WHY THAT COLLIDES FOR REAL, not in theory: SOLANA_PROGRAM_ID defaults to the
+    # SAME devnet program for development, test and QA — Solana::Config says so
+    # outright, because keeping them byte-identical is deliberate. So QA user 7 at
+    # level 2 and a local dev user 7 at level 2 derive ONE account address. The
+    # loser's mint raises 0x0 forever, is rescued below, and pages an ErrorLog
+    # every 15 minutes with no path to payment. A QA database reset reproduces it
+    # wholesale, because the PDAs outlive the database. Production is protected
+    # only by having a separate mainnet program — and QA is the gate this work has
+    # to pass.
+    #
+    # So the ref carries BOTH:
+    #   * the DEPLOYMENT, so one program serving dev/test/QA cannot cross them;
+    #   * the EARNING WALLET, so two users on one deployment cannot cross either.
+    #
+    # THE WALLET IS HASHED, NOT INLINED, for the 64-byte ceiling
+    # (`padded_source_ref` raises past it rather than silently truncating). A
+    # base58 address runs to 44 chars: "levelup:" + "development" + a 44-char
+    # address + a level is 69 bytes, over the limit for the longest environment
+    # name. Sixteen hex characters of sha256 is 41 bytes worst case, and collision
+    # across one deployment's users is not a practical concern at 64 bits.
+    #
+    # DETERMINISM IS PRESERVED, which is the property the whole design rests on:
+    # the same wallet at the same level on the same deployment always produces the
+    # same ref, so a Sidekiq retry after a lost response still cannot double-grant.
+    def self.deployment_namespace
+      AppFlags.qa_environment? ? "qa" : Rails.env.to_s
+    end
+
+    def self.wallet_key(wallet_address)
+      Digest::SHA256.hexdigest(wallet_address.to_s)[0, 16]
+    end
+
+    def self.source_ref(wallet_address, level, namespace: deployment_namespace)
+      "levelup:#{namespace}:#{wallet_key(wallet_address)}:#{level}"
     end
 
     # Parses OUR refs back out of an arbitrary token list. Returns the set of
-    # levels this user has already been granted. Anything else on the wallet —
-    # Stripe/PayPal purchases, an operator's random-ref manual mint — matches
-    # nothing here and is counted only in the `owed` clamp.
-    def self.granted_levels(user_id, tokens)
-      pattern = /\Alevelup:#{user_id}:(\d+)\z/
+    # levels this WALLET has already been granted ON THIS DEPLOYMENT. Anything
+    # else — Stripe/PayPal purchases, an operator's random-ref manual mint, or a
+    # levelup ref from another deployment — matches nothing here and is counted
+    # only in the `owed` clamp.
+    #
+    # Deliberately NO legacy `levelup:<user_id>:<level>` fallback: this feature
+    # has never merged, so no ref of that shape has ever been minted. Adding one
+    # would re-admit the cross-deployment ambiguity the namespace exists to close.
+    def self.granted_levels(wallet_address, tokens, namespace: deployment_namespace)
+      prefix  = "levelup:#{namespace}:#{wallet_key(wallet_address)}:"
+      pattern = /\A#{Regexp.escape(prefix)}(\d+)\z/
       tokens.filter_map { |t| t[:source_ref].to_s[pattern, 1]&.to_i }.to_set
     end
 
@@ -144,7 +189,7 @@ module Tokens
 
       earned_levels = seeds / User::SEEDS_PER_LEVEL      # 100 seeds → 1 token owed
       tokens        = vault.list_entry_tokens(address)
-      granted       = self.class.granted_levels(@user.id, tokens)
+      granted       = self.class.granted_levels(address, tokens)
 
       missing = ((FIRST_REWARDED_LEVEL)..(earned_levels + FIRST_REWARDED_LEVEL - 1)).reject { |l| granted.include?(l) }
 
@@ -203,7 +248,10 @@ module Tokens
 
     def mint_levels(address, levels)
       levels.each_with_object([]) do |level, minted|
-        ref = self.class.source_ref(@user.id, level)
+        # The EARNING wallet, threaded from #call — not a re-read of
+        # User#solana_address, which prefers the web3 address and would key the
+        # ref to a different wallet than the one being minted to.
+        ref = self.class.source_ref(address, level)
         result = vault.mint_entry_token(wallet_address: address, source: SOURCE, source_ref: ref)
         minted << level
         Rails.logger.info(
