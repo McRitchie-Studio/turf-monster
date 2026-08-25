@@ -505,6 +505,16 @@ class User < ApplicationRecord
     web3_solana_address || web2_solana_address
   end
 
+  # TRUE when the account holds BOTH a managed web2 wallet and a linked web3
+  # one. `solana_address` above resolves that pair by always preferring web3,
+  # which is fine for "where do we send things" and NOT fine for "where are this
+  # user's seeds" — the seeds may sit on whichever wallet earned them. Callers
+  # that read balances use this to tell a trustworthy zero from an ambiguous one
+  # (Tokens::LevelUpGrant#call).
+  def combo_wallets?
+    web2_solana_address.present? && web3_solana_address.present?
+  end
+
   def solana_keypair
     return nil unless encrypted_web2_solana_private_key.present?
     Solana::Keypair.from_encrypted(encrypted_web2_solana_private_key)

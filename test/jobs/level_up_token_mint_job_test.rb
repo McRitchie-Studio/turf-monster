@@ -103,14 +103,35 @@ class LevelUpTokenMintJobTest < ActiveJob::TestCase
 
   # --- the candidate query ---
 
-  test "the recovery schedule identifies every Rails worker as Active Job" do
+  # This test used to assert that every ActiveJob cron carried `active_job: true`,
+  # on the stated grounds that sidekiq-cron would otherwise call perform_async on
+  # an ActiveJob::ConfiguredJob. That is NOT what the gem does. Sidekiq::Cron::Job
+  # #enqueue resolves the class and asks `is_active_job?`, which is
+  # `@active_job || klass < ActiveJob::Base` — so any ApplicationJob is detected
+  # WITHOUT the flag and routed to `set(queue:).perform_later`. The perform_async
+  # path (`enqueue_sidekiq_worker`) is only reachable for a class that is not an
+  # ActiveJob at all. The flag was redundant, and the three unrelated crons this
+  # PR had added it to were reverted.
+  #
+  # What IS worth pinning is the failure the same method has no defence against:
+  # a `class:` that does not resolve. `constantize` rescues NameError to nil, and
+  # the run then falls through to a raw Sidekiq::Client.push that enqueues a job
+  # nothing will ever perform — a typo'd cron that fails silently, forever.
+  test "every scheduled cron names a class that actually exists" do
     schedule = YAML.safe_load_file(Rails.root.join("config/schedule.yml"))
 
     schedule.each do |name, config|
-      next unless config.fetch("class").constantize < ActiveJob::Base
+      klass = config.fetch("class")
 
-      assert_equal true, config.fetch("active_job"),
-        "#{name}: sidekiq-cron otherwise calls perform_async on ActiveJob::ConfiguredJob"
+      resolved = begin
+        klass.constantize
+      rescue NameError
+        nil
+      end
+
+      assert resolved, "#{name}: schedule.yml names #{klass}, which does not resolve — " \
+                       "sidekiq-cron rescues that to nil and silently enqueues a job " \
+                       "no worker can perform"
     end
   end
 

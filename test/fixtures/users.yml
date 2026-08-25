@@ -25,3 +25,17 @@ sam:
   email: sam@mcritchie.studio
   web3_solana_address: foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds
   session_token: <%= SecureRandom.hex(32) %>
+
+# A COMBO account: a managed web2 wallet AND a linked Phantom, on two DIFFERENT
+# addresses. It existed nowhere in this suite, which is how a whole class of
+# wallet-selection bug stayed invisible — `User#solana_address` prefers web3
+# unconditionally, and with only web3-only fixtures every "which wallet?" test
+# was true by construction. Tokens::LevelUpGrant reads balances off ONE of these
+# two and must never write a zero from the wrong one.
+casey:
+  name: Casey
+  username: casey_test
+  email: casey@mcritchie.studio
+  web2_solana_address: 9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin
+  web3_solana_address: 7bQmGnT4kFvVJfZ8dLpR2sYcXwNhE5aKtM3uD6gWqPzR
+  session_token: <%= SecureRandom.hex(32) %>

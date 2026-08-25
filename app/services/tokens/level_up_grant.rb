@@ -12,12 +12,22 @@ module Tokens
   # IDEMPOTENCY IS THE WHOLE DESIGN. The EntryTokenAccount PDA is seeded on
   # sha256(source_ref), and the program `init`s it — so re-minting the same ref
   # collides on-chain and CANNOT double-grant. That is why this uses a
-  # DETERMINISTIC ref (`levelup:<user_id>:<level>`) and deliberately NOT
+  # DETERMINISTIC ref (`levelup:<deployment>:<wallet-hash>:<level>`) and NOT
   # `Solana::Vault.operator_source_ref`, which appends `SecureRandom.hex(16)`:
   # a random ref is unique per CALL, so a Sidekiq retry after a mint that landed
   # but whose response was lost would mint a SECOND token. With the level in the
   # ref, the chain itself is the ledger of which levels have been paid, the retry
   # is free, and no DB bookkeeping can drift away from the truth.
+  #
+  # THE REF IS NOT THE ONLY GUARD, and saying so would overstate it. The
+  # deterministic ref makes a REPEAT of the same ref collide on-chain, which
+  # covers the retry and the concurrent worker. It cannot cover a change to the
+  # ref SCHEME, which orphans every ref ever written and makes granted_levels
+  # return [] for users who were in fact paid. The `owed` clamp below is what
+  # holds in that case — it counts tokens REF-AGNOSTICALLY, so a user with a
+  # token already on chain is owed nothing no matter how it was keyed. Both were
+  # exercised, not reasoned about: with the namespace flipped so granted_levels
+  # returned [], a second pass still minted 0.
   #
   # It also means the grant is READ BACK, not remembered: `decode_entry_token`
   # returns `source_ref` as a decoded string, so the already-granted levels fall
@@ -63,7 +73,10 @@ module Tokens
     UNEVALUABLE_REASONS = {
       no_wallet:             "user has no Solana address to mint to",
       user_account_missing:  "no UserAccount PDA at the user's Solana address — " \
-                             "on-chain seeds cannot be read, so nothing can be verified or paid"
+                             "on-chain seeds cannot be read, so nothing can be verified or paid",
+      ambiguous_wallet:      "user holds TWO Solana addresses and the one this service reads " \
+                             "returned zero seeds — indistinguishable from the seeds living on " \
+                             "the other wallet, so the read is not trustworthy enough to write"
     }.freeze
 
     LevelUpGrantResult = Struct.new(
@@ -78,6 +91,15 @@ module Tokens
       def evaluated? = unevaluable_reason.nil?
 
       def unevaluable_message = UNEVALUABLE_REASONS[unevaluable_reason]
+    end
+
+    # A repeat mint of a deterministic ref collides on `init` at the SAME PDA.
+    # Anchor surfaces that as "already in use"; the raw program error is 0x0,
+    # matched only with a boundary so it cannot swallow an unrelated 0x0abc.
+    ALREADY_GRANTED = /already in use|\balready initialized\b|custom program error:\s*0x0\b/i
+
+    def self.already_granted?(exception)
+      ALREADY_GRANTED.match?(exception.message.to_s)
     end
 
     def self.unevaluable(reason)
@@ -182,6 +204,26 @@ module Tokens
       seeds = vault.sync_balance(address)&.dig(:seeds)
       return self.class.unevaluable(:user_account_missing) if seeds.nil?
 
+      # A COMBO ACCOUNT'S ZERO IS NOT A ZERO. A user can hold both a managed
+      # web2 wallet and a linked Phantom, and `User#solana_address` picks web3
+      # unconditionally — while the seeds may well sit on the web2 account that
+      # earned them. Once ANY path creates the web3 UserAccount lazily (contest
+      # entry does, at entry.rb:302), this read starts answering 0 instead of
+      # nil, and the :user_account_missing escape above stops firing.
+      #
+      # Writing that 0 is destructive, not merely wrong: `update_level_from_
+      # seeds!` wipes the users.seeds mirror (100 -> 0, level 2 -> 1), the
+      # waterline parks at the floor, the candidate query never selects the user
+      # again, and /admin/free_entries — the operator's manual backstop — now
+      # computes owed 0. The user loses the token AND the evidence, silently,
+      # which is the exact opposite of this file's own rule that money that
+      # cannot be verified must be loud.
+      #
+      # So a combo user reading zero is UNEVALUABLE. Which of two wallets is
+      # authoritative for seeds is a real design question and a separate task;
+      # this guard only refuses to answer it destructively in the meantime.
+      return self.class.unevaluable(:ambiguous_wallet) if seeds.zero? && @user.combo_wallets?
+
       # Free side-effect: we hold a fresh read, so keep the denormalized
       # seeds/level mirror honest for the admin table and the next sweep's
       # candidate query. Write-on-change only.
@@ -248,15 +290,34 @@ module Tokens
 
     def mint_levels(address, levels)
       levels.each_with_object([]) do |level, minted|
-        # The EARNING wallet, threaded from #call — not a re-read of
-        # User#solana_address, which prefers the web3 address and would key the
-        # ref to a different wallet than the one being minted to.
+        # ONE wallet flows read -> ref -> mint. `address` is the same value the
+        # balance was read from in #call, and the ref, the mint target and that
+        # read must never come apart: a ref keyed to a wallet other than the one
+        # receiving the token derives a PDA for an address the seeds never
+        # touched.
+        #
+        # An earlier version of this comment claimed the threading itself was
+        # load-bearing — that re-reading `User#solana_address` here "would key
+        # the ref to a different wallet". It would not, and no fixture can make
+        # it: #call assigns `address = @user.solana_address`, so the two
+        # expressions are equal for EVERY user, combo accounts included. That was
+        # checked, not reasoned about — the substitution passes the whole suite.
+        # What IS falsifiable is reaching for the other wallet (`web2_solana_
+        # address`), and level_up_grant_test.rb pins exactly that.
         ref = self.class.source_ref(address, level)
         result = vault.mint_entry_token(wallet_address: address, source: SOURCE, source_ref: ref)
         minted << level
         Rails.logger.info(
+          # FULL signature, not a 16-char prefix: a truncated signature resolves
+          # on no explorer, so the one line an operator has to work from led
+          # nowhere. Deliberately NOT persisted, unlike the paid path's
+          # purchase.mint_tx_signatures (token_purchase_job.rb:133) — that path
+          # has a purchase row that OWNS the mint, whereas this file's whole
+          # design is that the CHAIN is the ledger of which levels were paid
+          # (see IDEMPOTENCY above). A Rails-side copy would be a second record
+          # of the same fact, free to drift from it.
           "[level-up-grant] minted user=#{@user.id} level=#{level} ref=#{ref} " \
-          "sig=#{result[:signature].to_s[0, 16]}..."
+          "sig=#{result[:signature]}"
         )
       rescue => e
         # Per-level rescue: one wallet's flake must not abandon the levels after
@@ -275,7 +336,13 @@ module Tokens
           "[level-up-grant] deferred user=#{@user.id} level=#{level} " \
           "(#{e.class}: #{e.message.to_s[0, 140]})"
         )
-        capture_error(e, level: level)
+        # An already-initialised PDA is the idempotency guard WORKING, not an
+        # anomaly: the token exists, the user has been paid, and the next run
+        # reads it off the chain. Capturing it would file a healthy just-paid
+        # user into the unpayable channel — the one place an operator looks to
+        # find users owed money — and the noise is worst exactly when the design
+        # is working best. Logged above either way; only the ErrorLog is skipped.
+        capture_error(e, level: level) unless self.class.already_granted?(e)
       end
     end
 

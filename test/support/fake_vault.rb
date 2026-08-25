@@ -131,9 +131,17 @@ class FakeVault
 
   # --- Token minting (TokenPurchaseJob, dev_mint) ---
 
+  # Set to an exception to make every mint raise it. Distinct from `fail_after`,
+  # which simulates a mid-batch flake: this one lets a test choose the MESSAGE,
+  # because the grant service now branches on it — a benign already-in-use
+  # collision must not reach the operator's anomaly channel while a real fault
+  # must.
+  attr_accessor :raise_on_mint
+
   def mint_entry_token(wallet_address:, source:, source_ref:, **_opts)
     @mint_calls << source_ref
     @mint_wallets << wallet_address
+    raise @raise_on_mint if @raise_on_mint
     raise StandardError, "simulated chain failure" if @fail_after && @mint_calls.length > @fail_after
     seq = @starting_sequence + @mint_calls.length - 1
     { signature: "sig_#{seq}_#{SecureRandom.hex(2)}", pda: "pda-seq-#{seq}", sequence: seq }

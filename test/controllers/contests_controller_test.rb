@@ -1195,6 +1195,48 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "chain-signature", ptx.tx_signature
   end
 
+  # The retire guard moved from Ruby into the WHERE clause to close a race (a
+  # signature landing between the read and the write would otherwise expire a
+  # transaction that SUCCEEDED). `blank?` covered nil AND "", and SQL does not
+  # — so an empty-string signature is the case a naive `tx_signature: nil`
+  # predicate silently starts retiring.
+  test "an EMPTY-STRING signature is not retired either — blank? parity in SQL" do
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    ptx = PendingTransaction.create!(
+      tx_type: "enter_contest", serialized_tx: "signed-wire",
+      status: "submitted", tx_signature: "",
+      target: entry, initiator_address: @user.web3_solana_address,
+      metadata: { funding: "token", entry_token_pda: "token-pda" }.to_json
+    )
+
+    post discard_prepared_entry_contest_path(@contest),
+      params: { ptx_slug: ptx.slug }, as: :json
+
+    assert_response :success
+    assert_equal({ "retired" => true }, JSON.parse(response.body))
+    assert_equal "expired", ptx.reload.status
+  end
+
+  # The affected-row COUNT is the verdict, so a row someone else already moved
+  # reports false rather than claiming a retire that did not happen.
+  test "a PT already expired reports retired=false, not a second retire" do
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    ptx = PendingTransaction.create!(
+      tx_type: "enter_contest", serialized_tx: "signed-wire",
+      status: "expired",
+      target: entry, initiator_address: @user.web3_solana_address,
+      metadata: { funding: "token", entry_token_pda: "token-pda" }.to_json
+    )
+
+    post discard_prepared_entry_contest_path(@contest),
+      params: { ptx_slug: ptx.slug }, as: :json
+
+    assert_response :success
+    assert_equal({ "retired" => false }, JSON.parse(response.body))
+  end
+
   test "discard_prepared_entry refuses another user's unsigned request" do
     other = users(:jordan)
     other.update!(web3_solana_address: "Web3DiscardOther#{SecureRandom.hex(4)}")

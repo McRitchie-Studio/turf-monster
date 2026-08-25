@@ -845,9 +845,20 @@ class ContestsController < ApplicationController
       ptx.initiator_address == current_user&.web3_solana_address
     return render json: { error: "Not authorized" }, status: :forbidden unless authorized
 
-    retired = ptx.tx_signature.blank? &&
-      %w[pending submitted].include?(ptx.status) &&
-      ptx.update(status: "expired")
+    # The guard belongs in the WHERE, not in Ruby. Reading tx_signature here and
+    # writing on the next line leaves a window: the signature broadcast can land
+    # and stamp the row in between, and this would then expire a transaction that
+    # actually SUCCEEDED — stranding a paid-for entry with no way back. Letting
+    # the database re-check the same condition it is updating under closes it,
+    # and the affected-row count IS the verdict: 1 means this request retired it,
+    # 0 means someone else got there first, which is not an error.
+    #
+    # update_all skips validations and Sluggable's before_save by design — the
+    # row already has its slug, and "expired" is a member of the status
+    # inclusion list this bypasses.
+    retired = PendingTransaction
+      .where(id: ptx.id, status: %w[pending submitted], tx_signature: [nil, ""])
+      .update_all(status: "expired", updated_at: Time.current) == 1
 
     render json: { retired: retired }
   rescue StandardError => e

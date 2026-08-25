@@ -280,6 +280,77 @@ class Tokens::LevelUpGrantTest < ActiveSupport::TestCase
       "and it must be the same wallet the balance was read from"
   end
 
+  # --- the unpayable channel must stay signal ---
+
+  test "an already-granted collision is logged but NOT filed as an operator anomaly" do
+    @user.update_columns(seeds: 100, level: 2)
+    vault = vault_for(seeds: 100)
+    vault.raise_on_mint = StandardError.new("custom program error: 0x0")
+
+    assert_no_difference -> { ErrorLog.count } do
+      Tokens::LevelUpGrant.call(@user, vault: vault)
+    end
+  end
+
+  test "a REAL mint fault is still filed — the collision match must not swallow everything" do
+    @user.update_columns(seeds: 100, level: 2)
+    vault = vault_for(seeds: 100)
+    vault.raise_on_mint = StandardError.new("blockhash not found")
+
+    assert_difference -> { ErrorLog.count }, 1 do
+      Tokens::LevelUpGrant.call(@user, vault: vault)
+    end
+  end
+
+  # --- combo accounts: two wallets, one of them wrong ---
+
+  test "a combo user's grant is keyed and minted to the SAME wallet the balance was read from" do
+    combo = users(:casey)
+    combo.update_columns(seeds: 0, level: 1, entry_tokens_granted_level: 1)
+    read_from = combo.solana_address
+    other     = combo.web2_solana_address
+    refute_equal read_from, other, "the fixture must hold two DIFFERENT addresses or this proves nothing"
+
+    vault = vault_for(seeds: 100)
+    Tokens::LevelUpGrant.call(combo, vault: vault)
+
+    assert_equal [Tokens::LevelUpGrant.source_ref(read_from, 2)], vault.mint_calls,
+      "the ref must be keyed to the wallet the seeds were read from"
+    assert_equal [read_from], vault.mint_wallets.uniq,
+      "and the token must be minted TO that same wallet"
+    refute_includes vault.mint_wallets, other,
+      "minting to the other wallet sends the token to an address the user's seeds never touched"
+  end
+
+  test "a combo user reading ZERO seeds is unevaluable, not a zero to be written" do
+    combo = users(:casey)
+    combo.update_columns(seeds: 100, level: 2, entry_tokens_granted_level: 1)
+    vault = vault_for(seeds: 0)
+
+    result = Tokens::LevelUpGrant.call(combo, vault: vault)
+
+    refute result.evaluated?, "a zero from one of two wallets cannot be told apart from " \
+                              "'the seeds are on the other one'"
+    assert_equal :ambiguous_wallet, result.unevaluable_reason
+    assert_empty vault.mint_calls, "nothing may be minted on a read we do not trust"
+
+    combo.reload
+    assert_equal 100, combo.seeds, "the mirror must survive — wiping it is what erases the evidence"
+    assert_equal 2, combo.level
+    assert_equal 1, combo.entry_tokens_granted_level,
+      "the waterline must NOT advance, or the sweep never looks at this user again"
+  end
+
+  test "a SINGLE-wallet user reading zero is still evaluated — the chain is authoritative there" do
+    vault = vault_for(seeds: 0)
+
+    result = Tokens::LevelUpGrant.call(@user, vault: vault)
+
+    assert result.evaluated?, "with one wallet a zero is a fact, not an ambiguity — " \
+                              "the combo guard must not swallow the ordinary case"
+    assert_empty vault.mint_calls
+  end
+
   test "a wallet with a grant on another deployment is still owed one here" do
     wallet = @user.solana_address
     elsewhere = token(Tokens::LevelUpGrant.source_ref(wallet, 2, namespace: "qa"))

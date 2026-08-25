@@ -131,12 +131,20 @@ class AccountsControllerTest < ActionDispatch::IntegrationTest
     assert_equal user.reload.web3_solana_address, body["address"]
   end
 
-  test "linking Phantom enqueues creation of its on-chain UserAccount" do
+  # OPSEC-044, on the signature path. Creating an on-chain UserAccount costs
+  # ~0.00182 SOL of ADMIN rent and is PERMANENT — nothing in turf-vault closes a
+  # UserAccount. This endpoint verifies a signature over a keypair the CALLER
+  # generates, and keypairs are free, so an eager create here bills admin SOL per
+  # REQUEST rather than per user: roughly 13 SOL/day against the 5/min/IP
+  # rack_attack throttle, which is a brute-force limit and not a spend meter.
+  # The account is created lazily instead, by the paths that actually need it
+  # (entry.rb:302, stripe_deposit_job.rb:51, contests_controller.rb:746/:1550).
+  test "linking Phantom does NOT spend admin SOL creating an on-chain account" do
     address = Solana::Keypair.generate.address
     log_in_as @alex
     clear_enqueued_jobs
 
-    assert_enqueued_with(job: CreateOnchainUserAccountJob, args: [@alex.id]) do
+    assert_no_enqueued_jobs(only: CreateOnchainUserAccountJob) do
       Solana::AuthVerifier.stub(:verify!, address) do
         post link_solana_account_path,
              params: {
@@ -150,7 +158,8 @@ class AccountsControllerTest < ActionDispatch::IntegrationTest
     end
 
     assert_response :success
-    assert_equal address, @alex.reload.web3_solana_address
+    assert_equal address, @alex.reload.web3_solana_address,
+      "the link itself must still work — only the eager on-chain spend is gone"
   end
 
   test "session_state skips require_profile_completion gate" do
