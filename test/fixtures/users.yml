@@ -34,6 +34,12 @@ sam:
 # two and must never write a zero from the wrong one.
 casey:
   name: Casey
+  # Fixtures bypass Sluggable's before_save, so a fixture with no slug: is a user
+  # no route can address — and /admin/users and /admin/free_entries both build an
+  # impersonate path from u.slug UNGUARDED, so one blank slug raises for the whole
+  # page. Real users always carry a slug; declaring it here keeps this fixture
+  # honest instead of making every listing test backfill it.
+  slug: casey-test
   username: casey_test
   email: casey@mcritchie.studio
   web2_solana_address: 9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin
