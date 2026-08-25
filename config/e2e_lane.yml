@@ -259,7 +259,16 @@
 # Re-derived with the lister on this tree, never hand-incremented:
 # `npx playwright test --list` -> 183 tests in 49 files (same file count — the
 # two specs were appended to the existing wallet_sign_in.spec.js).
-total_specs: 183
+#
+# 183 -> 184: e2e/phantom_debug_retry.spec.js. It exists because dor-check refused
+# a String-only cert on a browser-served script, and the three tries it took to
+# make it BITE are the point. Versions one and two passed against the KNOWN-BROKEN
+# guard: v1 injected its own registry `get` immediately, and v2 planted one via
+# addInitScript, which the layout then clobbers by ASSIGNING window.walletProvider
+# wholesale. Both were green and both were worthless; only the mutation check told
+# them apart. If you touch that spec, run it against the broken guard before
+# trusting the green.
+total_specs: 184
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -409,7 +418,14 @@ allowed_skips: 4
 # `npx playwright test --list` -> 183 tests in 49 files, `--grep "@devnet"` -> 17
 # in 1 file, `--grep-invert "@devnet" --project=chromium` -> 166 collected.
 # 183 - 17 - 4 = 162, and 166 collected - 4 runtime skips = 162. Both routes agree.
-executed: 162
+# 162 -> 163. phantom_debug_retry runs in the chromium lane and carries no runtime
+# skip, so allowed_skips HOLDS AT 4 and the delta lands here. Re-derived on the
+# MERGED tree after this branch collided with the counter on `accepted` — never by
+# arithmetic, which is exactly what the collision would have corrupted:
+# `npx playwright test --list` -> 184 tests in 50 files, `--grep "@devnet"` -> 17
+# in 1 file, `--grep-invert "@devnet" --project=chromium` -> 167 collected.
+# 184 - 17 - 4 = 163, and 167 collected - 4 runtime skips = 163. Both routes agree.
+executed: 163
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
