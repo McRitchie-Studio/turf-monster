@@ -106,7 +106,21 @@ function _summarizePhantomResult(method, res) {
   function attach() {
     if (!window.walletProvider || !window.walletProvider.get) return false;
     var p = window.walletProvider.get('phantom');
-    if (!p || p.__debugPatched) return true;
+    // TWO DIFFERENT ANSWERS, and collapsing them killed the retry. attach()'s
+    // return value means "stop trying", and the driver above does
+    // `if (attach()) return;` BEFORE it ever starts the interval — so a single
+    // truthy answer here means the loop never runs at all.
+    //
+    // Phantom injects ASYNCHRONOUSLY. `get('phantom')` returning null is the
+    // ordinary state during the injection window, which is the exact window this
+    // retry exists to wait out. Reporting it as "done" meant the instrumentation
+    // silently never attached — and this is the tooling you reach for to debug
+    // that flow, so it went missing precisely when it was wanted.
+    //
+    // The sibling patcher below (solanaWeb3) already separates them correctly:
+    // absence returns false and keeps trying; already-patched returns true.
+    if (!p) return false;
+    if (p.__debugPatched) return true;
     p.__debugPatched = true;
 
     ['connect', 'signMessage', 'signTransaction'].forEach(function(m) {
