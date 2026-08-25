@@ -204,7 +204,16 @@
 # cannot show it: every render/integration tier stayed green while a contest
 # page sat nested inside a modal on screen. Mutation-proven — drop the local and
 # the spec reddens with ten duplicate ids.
-total_specs: 178
+#
+# 178 -> 179 on round ten: e2e/phantom_debug_retry.spec.js. It exists because the
+# dor-check gate refused a String-only cert on a browser-served script, and the
+# three tries it took to make it BITE are the point. Versions one and two passed
+# against the KNOWN-BROKEN guard: v1 injected its own registry `get` immediately,
+# and v2 planted one via addInitScript, which the layout then clobbered by
+# ASSIGNING window.walletProvider wholesale. Both were green, both were worthless.
+# Only the mutation check told them apart. If you touch that spec, re-run it
+# against the broken guard before trusting the green.
+total_specs: 179
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -330,7 +339,14 @@ allowed_skips: 4
 # `npx playwright test --list` -> 178 tests in 48 files, `--grep "@devnet"` -> 17
 # in 1 file, `--grep-invert "@devnet" --project=chromium` -> 161 collected.
 # 178 - 17 - 4 = 157, and 161 collected - 4 runtime skips = 157. Both routes agree.
-executed: 157
+#
+# 157 -> 158 on round ten. phantom_debug_retry runs in the chromium lane and
+# carries no runtime skip, so allowed_skips HOLDS AT 4 and the delta lands here.
+# Re-derived on this tree, never by arithmetic:
+# `npx playwright test --list` -> 179 tests in 49 files, `--grep "@devnet"` -> 17
+# in 1 file, `--grep-invert "@devnet" --project=chromium` -> 162 collected.
+# 179 - 17 - 4 = 158, and 162 collected - 4 runtime skips = 158. Both routes agree.
+executed: 158
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
