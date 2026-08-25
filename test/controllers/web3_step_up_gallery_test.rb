@@ -27,6 +27,15 @@ class Web3StepUpGalleryTest < ActionDispatch::IntegrationTest
     node.to_html
   end
 
+  # THE PARTIAL LIVES IN THE ENGINE NOW (2026-08-24). studio-engine lifted this
+  # card out on 2026-08-21 and this app kept rendering a second copy until the
+  # switch-over; the copy is gone and `studio/modals/_web3_step_up` is the one
+  # file. The path below therefore resolves through Studio::Engine, not
+  # Rails.root — and this app keeps the guard rather than handing it entirely to
+  # the engine because THIS app is what renders the card to a real player.
+  ENGINE_PARTIAL =
+    Studio::Engine.root.join("app/views/studio/modals/_web3_step_up.html.erb").freeze
+
   # Same failure mode the onboarding and wallet-setup modals each carry a guard
   # for: a double quote inside the double-quoted x-data closes the attribute
   # early and Alpine mounts the component as a SILENT no-op — the markup still
@@ -34,7 +43,7 @@ class Web3StepUpGalleryTest < ActionDispatch::IntegrationTest
   # in a browser. It has bitten this codebase twice, so every new step-machine
   # modal gets this test.
   test "the x-data attribute contains no double quotes" do
-    source = Rails.root.join("app/views/modals/_web3_step_up.html.erb").read
+    source = ENGINE_PARTIAL.read
     x_data = source[/x-data="(\{.*?\})"\s*\n/m, 1]
     assert x_data.present?, "could not locate the x-data attribute — did the root element change?"
     assert_not_includes x_data, '"',
@@ -42,6 +51,41 @@ class Web3StepUpGalleryTest < ActionDispatch::IntegrationTest
                         "silently kills the modal in the browser (markup assertions won't catch it)"
     assert_not_includes x_data, "`",
                         "a backtick in an ERB-rendered attribute is the other way this dies"
+  end
+
+  # --- the switch-over itself -------------------------------------------------
+
+  # The duplicate is what this change exists to remove, so its absence is the
+  # assertion. A reintroduced app-local copy would render fine and pass every
+  # markup assertion in this file while quietly restoring the drift.
+  test "this app carries no second copy of the partial" do
+    assert_not Rails.root.join("app/views/modals/_web3_step_up.html.erb").exist?,
+               "app/views/modals/_web3_step_up.html.erb is back — the engine owns this card " \
+               "(studio/modals/_web3_step_up); two files for one modal is the drift this removed"
+  end
+
+  # The layout must render the ENGINE partial. Asserting on the rendered card
+  # rather than on the layout source, because what matters is which template
+  # actually produced the markup a player sees.
+  test "the layout renders the engine partial, with this app's own words" do
+    preview(REMEMBERED)
+    # The engine default names "on-chain actions"; this app names the two things
+    # a player actually loses. If the local passed by the layout ever goes
+    # missing, the copy silently reverts to the engine's — hence this assertion.
+    assert_includes card, "entering contests",
+                    "the app-supplied subtext local is missing — the card fell back to the " \
+                    "engine's generic 'on-chain actions' wording"
+    assert_includes card, "moving funds"
+  end
+
+  # help_url is a String local in the engine but a route helper here. The escape
+  # hatch is not decoration: a self-custody wallet is the one credential this app
+  # cannot reset for a user, so a card without it strands a locked-out owner.
+  test "the help escape hatch survives the switch-over" do
+    preview(REMEMBERED)
+    assert_includes card, help_path,
+                    "the help_url local is missing — the engine renders no help line " \
+                    "unless the host passes one"
   end
 
   # --- the remembered-wallet card (the common case) ---------------------------
@@ -77,7 +121,13 @@ class Web3StepUpGalleryTest < ActionDispatch::IntegrationTest
     # pulse-cta is the engine's attention beat (engine-motion.css). Tuned to the
     # same values the wallet-setup connect row uses so the two beat alike.
     assert_includes card, "pulse-cta"
-    assert_includes card, "--pulse-cta-color: rgb(var(--color-primary-rgb))"
+    # The engine spells this var(--color-primary); this app's own copy of the
+    # card spelled the same colour rgb(var(--color-primary-rgb)). Both resolve —
+    # Studio::ThemeResolver emits BOTH names unconditionally (theme_resolver.rb
+    # :110-111, from one primary), so the switch-over changed the spelling and
+    # not the pixel. Asserted because a glow that silently stops rendering is
+    # exactly the kind of loss a markup test is here to catch.
+    assert_includes card, "--pulse-cta-color: var(--color-primary)"
   end
 
   test "presence is polled, never read once at mount" do
@@ -187,21 +237,37 @@ class Web3StepUpGalleryTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "wallet-setup"
   end
 
-  test "the gallery lists the step-up flow with both of its states" do
+  # The gallery's two cards for this modal moved to the engine style guide, which
+  # shows both states against the same partial this app renders. Their removal is
+  # the "delete second" half of the banner's own port-first rule.
+  test "the gallery no longer catalogues a card the engine style guide shows" do
     log_in_as users(:alex)
     get admin_modals_path
     assert_response :success
-    assert_includes response.body, "Web3 step-up (web2 auth by a wallet account)"
+    assert_empty AdminController::MODAL_VARIANTS.select { |v| v[:modal_id] == "web3-step-up" },
+                 "the engine style guide shows both step-up states against the real partial; " \
+                 "a card here is the duplicate"
+    assert_empty AdminController::MODAL_FLOWS.select { |f| f[:key] == "web3-step-up" },
+                 "the step-up flow's every step was one of those variants"
+  end
+
+  # A flow step whose variant was deleted renders the literal string
+  # "MISSING VARIANT" on the page rather than failing — so a dangling step is
+  # invisible to every other assertion in this file. This is the one that catches
+  # it, and it guards the WHOLE registry, not just this modal's former steps.
+  test "no flow step points at a variant that no longer exists" do
+    log_in_as users(:alex)
+    get admin_modals_path
+    assert_response :success
     assert_not_includes response.body, "MISSING VARIANT"
   end
 
-  test "both variants carry props the policy can actually produce" do
-    # A gallery variant showing a shape the server never emits reviews a fiction.
-    variants = AdminController::MODAL_VARIANTS.select { |v| v[:modal_id] == "web3-step-up" }
-    assert_equal 2, variants.length, "the two halves of the provider memory are both worth reviewing"
-    variants.each do |variant|
-      assert_equal [], variant[:props].keys.map(&:to_sym) - Web3StepUpPolicy.new(nil, session_mode: :web2).to_h.keys,
-                   "variant #{variant[:key]} passes a prop Web3StepUpPolicy#to_h never emits"
-    end
+  # A preview showing a shape the server never emits reviews a fiction. The two
+  # gallery variants used to be what this guarded; now that the catalogue entries
+  # are gone, the props THIS FILE previews are the ones that must stay honest.
+  test "the previewed props are shapes the policy can actually produce" do
+    emitted = Web3StepUpPolicy.new(nil, session_mode: :web2).to_h.keys
+    assert_equal [], REMEMBERED.keys.map(&:to_sym) - emitted,
+                 "the remembered-wallet preview passes a prop Web3StepUpPolicy#to_h never emits"
   end
 end

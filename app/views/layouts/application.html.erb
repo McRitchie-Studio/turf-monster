@@ -799,6 +799,10 @@
                                session store's address would be equivalent
                                (both are request-time snapshots) so the
                                migration would be purely cosmetic
+        - data-wallet-provider: authenticated self-custody wallet brand; lets
+                               the watcher bind the same Wallet Standard
+                               adapter that signed instead of a generic first
+                               detected provider
         - data-app-environment: deploy environment for client-side network-intent copy.
                                QA Heroku runs Rails.env=production, so this
                                must use QA_ENV instead of Rails.env directly.
@@ -819,7 +823,7 @@
         loggedIn is NO LONGER on the body — the one reader (invite-link
         handler above) now consumes #session-context JSON directly. %>
   <% client_app_environment = AppFlags.qa_environment? ? "qa" : Rails.env.to_s %>
-  <body x-data class="bg-page text-body min-h-screen" :class="{ 'dev-mode': $store.devMode }" data-user-id="<%= current_user&.id %>" data-wallet-address="<%= current_user&.solana_address %>" data-app-environment="<%= client_app_environment %>" data-solana-cluster="<%= Solana::Config.devnet? ? 'devnet' : 'mainnet-beta' %>" data-solana-rpc-url="<%= Solana::Config.public_rpc_url %>">
+  <body x-data class="bg-page text-body min-h-screen" :class="{ 'dev-mode': $store.devMode }" data-user-id="<%= current_user&.id %>" data-wallet-address="<%= current_user&.solana_address %>" data-wallet-provider="<%= current_user&.web3_wallet_provider %>" data-app-environment="<%= client_app_environment %>" data-solana-cluster="<%= Solana::Config.devnet? ? 'devnet' : 'mainnet-beta' %>" data-solana-rpc-url="<%= Solana::Config.public_rpc_url %>">
     <%# Single source of truth for Alpine x-data factory functions.
         Inlined here (synchronous parse-time script) because importmap
         modules load AFTER Alpine processes x-data. See the partial's
@@ -1172,9 +1176,17 @@
       <%# Web3 step-up — a self-custody account signed in with a web2 credential
           (magic link / email / Google), so the session cannot sign on-chain.
           Auto-opens BEFORE the onboarding chain from the one-shot session
-          prompt below, and hands off to that chain when dismissed. %>
+          prompt below, and hands off to that chain when dismissed.
+
+          THE ENGINE OWNS THIS CARD. It was lifted out of this app on 2026-08-21
+          (studio/modals/_web3_step_up) and this app kept rendering its own copy
+          for months afterwards — two files, one card, free to drift. This is the
+          switch-over. What stays HERE is what the engine deliberately does not
+          take: Web3StepUpPolicy decides WHO sees it, and Web3StepUpHelper keeps
+          this app's own words and its own help route. Those locals live in the
+          helper, not inline, because modal_preview registers this card too. %>
       <template x-if="$store.modals.current().id === 'web3-step-up'">
-        <%= render "modals/web3_step_up" %>
+        <%= render "studio/modals/web3_step_up", **web3_step_up_locals %>
       </template>
       <template x-if="$store.modals.current().id === 'wallet-changed'">
         <%= render "modals/wallet_changed" %>

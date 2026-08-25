@@ -43,9 +43,87 @@ Dir[File.expand_path("support/**/*.rb", __dir__)].each { |f| require f }
 
 OmniAuth.config.test_mode = true
 
+# --- LOCAL TEST PARALLELISM: single-process here, parallel in CI ---------------------
+#
+# Rails forks a worker per processor once a run crosses its 50-test threshold, and each
+# worker opens its own PG connection in an `after_fork_hook`. ON THIS MACHINE THAT FORK
+# SEGFAULTS, and the way it fails is the problem: the workers die, the parent never
+# learns, and it parks on the DRb channel it hands them work over, waiting for results
+# that can never arrive.
+#
+# MEASURED HERE, 2026-08-22 (/tasks/fix-parallel-test-deadlock). Four pre-existing test
+# files (~73 tests, over the threshold), no diff of any kind:
+#
+#   14 forked workers, ALL of them <defunct> within 15s
+#   pg-1.6.3-arm64-darwin/lib/pg/connection.rb:944 — [BUG] Segmentation fault,
+#     raised from active_record/test_databases.rb:15 (the after_fork_hook), i.e.
+#     BEFORE ANY TEST RAN
+#   parent alive, `sample` shows it blocked in drb.rb:1584 -> rb_f_select
+#   1.26s of CPU across 150s of wall clock — 0% busy, waiting on the dead
+#   the same lane with PARALLEL_WORKERS=1: 102 runs, 420 assertions, 0 failures, 6s
+#
+# Left alone it hangs FOREVER: the original sighting ran 41 minutes before a harness
+# timeout killed it. OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES was tried and does NOT
+# help — the segfault is inside libpq, not the ObjC runtime.
+#
+# THIS IS A MITIGATION, NOT A FIX. The fork-safety bug is upstream (pg + macOS) and is
+# still there; we route around it by not forking locally. Nothing is skipped and no
+# coverage is lost — the same tests run, in one process. CI is Linux, forks fine, and
+# keeps the parallel speedup, so this costs the pipeline nothing.
+#
+# mcritchie-studio's test_helper.rb carries the same guard, measured independently on
+# 2026-08-18 and landing on the SAME pg/connection.rb:944 — deliberately duplicated
+# rather than shared, because a test_helper cannot depend on the gem whose suite it
+# boots. Change one, change the other.
+#
+# PARALLEL_WORKERS_ALLOW_UNSAFE=1 restores the requested count for exactly one purpose:
+# re-running the measurement above after a Ruby, pg, or macOS bump. It is not a
+# performance switch. If it stops crashing, change the DEFAULT on the evidence and
+# delete this guard — do not leave the hatch as the way in.
+module TestParallelism
+  UNSAFE_OVERRIDE = "PARALLEL_WORKERS_ALLOW_UNSAFE"
+
+  def self.worker_count(env = ENV)
+    requested = env["PARALLEL_WORKERS"].to_s
+    return default_for(env) unless requested.match?(/\A\d+\z/)
+
+    count = Integer(requested)
+    return count if count <= 1 || env["CI"].present? || env[UNSAFE_OVERRIDE].to_s == "1"
+
+    warn <<~REASON
+      [test_helper] PARALLEL_WORKERS=#{count} ignored locally — running SINGLE-PROCESS instead.
+        Forking the suite here SEGFAULTS in pg (pg/connection.rb:944, in the after-fork
+        hook, before any test runs). The workers die, the parent keeps waiting on them
+        over DRb, and the run HANGS — 41 minutes, at 0% CPU, in the sighting that put
+        this guard here. This is an ENV limitation, NOT a problem with your diff.
+        Re-measuring after a Ruby/pg/macOS bump? #{UNSAFE_OVERRIDE}=1 restores #{count}.
+    REASON
+    1
+  end
+
+  def self.default_for(env)
+    env["CI"].present? ? :number_of_processors : 1
+  end
+end
+
+# NORMALIZE THE ENV, NOT JUST THE ARGUMENT. Rails' `parallelize` re-reads
+# PARALLEL_WORKERS and THAT READ WINS — ENV is the first branch of its `case`, ahead of
+# the `workers:` argument entirely (active_support/test_case.rb):
+#
+#     case
+#     when ENV["PARALLEL_WORKERS"] then workers = ENV["PARALLEL_WORKERS"].to_i
+#     when workers == :number_of_processors then ...
+#
+# So without this write-back the clamp is decorative: a run with PARALLEL_WORKERS=4
+# prints the warning and then forks four workers anyway. Left alone on the CI path,
+# where the value is `:number_of_processors` and forking is fine.
+TEST_WORKERS = TestParallelism.worker_count
+ENV["PARALLEL_WORKERS"] = TEST_WORKERS.to_s if TEST_WORKERS.is_a?(Integer)
+
 module ActiveSupport
   class TestCase
-    parallelize(workers: :number_of_processors)
+    # Single-process locally (the fork segfaults), parallel in CI — see TestParallelism.
+    parallelize(workers: TEST_WORKERS)
 
     # SimpleCov + Rails parallel testing: each test runs in a forked worker, and
     # unless each worker writes its resultset under a UNIQUE command_name they

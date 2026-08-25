@@ -23,7 +23,7 @@ class ApplicationController < ActionController::Base
   before_action :touch_last_seen
   before_action :require_profile_completion
   before_action :preload_navbar_solana_data
-  helper_method :display_balance, :display_seeds_data, :display_entry_token_count, :onchain_session?, :wallet_context, :client_session_payload, :true_user, :impersonating?
+  helper_method :display_balance, :display_seeds_data, :display_entry_token_count, :onchain_session?, :wallet_context, :client_session_payload, :true_user, :impersonating?, :current_wallet
 
   # OPSEC-045: extend the engine's set_app_session to also bind a per-user
   # session_token in the cookie. The verify_session_token before_action
@@ -45,12 +45,38 @@ class ApplicationController < ActionController::Base
     session.delete(:impersonated_user_id)
     session.delete(:true_admin_id)
     session.delete(:impersonation_started_at)
+    # Same seam and same reasoning as :onchain directly above: the CURRENT wallet
+    # is a fact about a live signature, so a fresh login starts without one and
+    # SolanaSessionsController#verify re-grants it for genuine wallet auth.
+    #
+    # HONESTLY LABELLED: this line is DEFENCE IN DEPTH, not a load-bearing guard,
+    # and no test bites on it today. Three candidate paths were built and all
+    # three proved it redundant — magic-link login calls reset_session (the key
+    # dies with the session); Google reaches here only from a logged-out browser,
+    # where logout has already cleared it; and switching to an unrecognised
+    # brand is handled by CurrentWallet.remember, which deletes the key itself
+    # rather than storing a value that could never match.
+    #
+    # Kept anyway, deliberately: every other piece of per-session state at this
+    # seam is cleared here, and leaving this one key out would make it the single
+    # exception for a reader to trip over — and the first login path added that
+    # neither resets the session nor routes through `remember` would leak. If you
+    # can build the path that makes it bite, promote it to a real test.
+    Solana::CurrentWallet.forget(session)
   end
 
   # Clear the onchain flag on logout too, alongside the engine's session wipe.
   def clear_app_session
     super
     session.delete(:onchain)
+    Solana::CurrentWallet.forget(session)
+  end
+
+  # The wallet this session is signed in with, and what to paint for it — always
+  # a value object, never nil (Solana::CurrentWallet resolves an unknown or
+  # absent brand to the neutral default).
+  def current_wallet
+    @current_wallet ||= Solana::CurrentWallet.from_session(session)
   end
 
   # Format-aware override of Studio::ErrorHandling#require_authentication.

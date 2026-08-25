@@ -71,4 +71,54 @@ class Solana::WalletProviderTest < ActiveSupport::TestCase
                       "no engine sprite symbol for #{key} — its icon would render empty"
     end
   end
+
+  # --- colour + avatar: the "what do I paint?" half of the registry ----------
+
+  test "every brand carries a primary colour, as a CSS hex" do
+    Solana::WalletProvider::REGISTRY.each do |brand|
+      colour = brand[:colour]
+      assert colour, "#{brand[:key]} has no primary colour — its surfaces would have nothing to tint"
+      assert_match(/\A#[0-9A-F]{6}\z/, colour,
+                   "#{brand[:key]}'s colour must be an uppercase 6-digit hex, got #{colour.inspect}")
+    end
+  end
+
+  test "Phantom's colour is the brand purple its own artwork is drawn on" do
+    # Not decoration: this value is SAMPLED from the engine's embedded logo, and
+    # AB9FF2 is the purple Phantom publishes. If this ever drifts, the sampling
+    # was abandoned for something that merely looked nice.
+    assert_equal "#AB9FF2", Solana::WalletProvider.colour("phantom")
+  end
+
+  test "a known brand resolves to its own avatar and colour" do
+    assert_equal "se-wallet-phantom", Solana::WalletProvider.avatar("Phantom")
+    assert_equal "se-wallet-backpack", Solana::WalletProvider.avatar(" backpack ")
+    assert_equal "#E33E3F", Solana::WalletProvider.colour("BACKPACK")
+  end
+
+  test "an unknown or absent brand still resolves to something paintable" do
+    [nil, "", "  ", "metamask", "Ledger"].each do |unknown|
+      assert_equal Solana::WalletProvider::DEFAULT_SPRITE, Solana::WalletProvider.avatar(unknown),
+                   "#{unknown.inspect} must fall back to the neutral mark, not to nothing"
+      assert_equal Solana::WalletProvider::DEFAULT[:colour], Solana::WalletProvider.colour(unknown)
+      assert_equal "Wallet", Solana::WalletProvider.brand(unknown).fetch(:label)
+    end
+  end
+
+  test "the default colour is not one of the brand colours" do
+    # It stands for "brand unknown". Reusing a brand hue would tell the user they
+    # are on a wallet they are not.
+    brand_colours = Solana::WalletProvider::REGISTRY.map { |b| b[:colour] }
+
+    assert_not_includes brand_colours, Solana::WalletProvider::DEFAULT[:colour]
+  end
+
+  # The nil-returning half of the API is a CONTRACT, not an oversight: callers
+  # use the nil to decide whether to remember a wallet at all. Adding the
+  # always-resolving accessors above must not have softened it.
+  test "find still returns nil for an unknown brand" do
+    assert_nil Solana::WalletProvider.find("metamask")
+    assert_nil Solana::WalletProvider.label("metamask")
+    assert_nil Solana::WalletProvider.normalize("metamask")
+  end
 end
