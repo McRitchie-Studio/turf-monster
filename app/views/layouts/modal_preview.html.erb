@@ -148,6 +148,9 @@
       <template x-if="$store.modals.current().id === 'wallet-connect'">
         <%= render "modals/wallet_connect" %>
       </template>
+      <template x-if="$store.modals.current().id === 'wallet-changed'">
+        <%= render "modals/wallet_changed" %>
+      </template>
       <%# wallet-setup — the web3-only onboarding step. Registered here as well
           as in the app layout; this preview layout keeps its OWN registration
           list, so a modal added to only one of them renders blank in the other. %>
@@ -162,9 +165,16 @@
       </template>
       <%# web3-step-up — registered here AND in the app layout, per the note
           above: this preview layout keeps its own list, and a modal in only one
-          of them renders as a blank card in the other. %>
+          of them renders as a blank card in the other. The catalogue entry for
+          this card moved to the engine style guide on 2026-08-24, but the
+          registration STAYS: #modal_preview is addressed by id and does not
+          consult MODAL_VARIANTS, and this app's component test for the card
+          previews it through here.
+
+          Same partial and same locals as the app layout, via the helper — this
+          card is exactly where an inline copy drifted before. %>
       <template x-if="$store.modals.current().id === 'web3-step-up'">
-        <%= render "modals/web3_step_up" %>
+        <%= render "studio/modals/web3_step_up", **web3_step_up_locals %>
       </template>
       <%# age-verify was MISSING here until 2026-08-19 — the exact gap the note
           above warns about. The gallery listed the variant and /admin/modals

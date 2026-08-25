@@ -67,6 +67,12 @@ class SolanaSessionsController < ApplicationController
       # the generic picker. Untrusted client string — the model normalises it
       # through Solana::WalletProvider and ignores anything unknown.
       user.record_web3_authentication!(provider: params[:wallet_provider])
+      # The SET bookend, and the one that also covers a wallet SWITCH — a switch
+      # re-auths through this same endpoint, so remembering the brand here means
+      # the session follows the wallet without a second seam to keep in step.
+      # record_web3_authentication! writes the DURABLE column on the user; this
+      # writes the per-session fact. Both normalise through the same registry.
+      Solana::CurrentWallet.remember(session, params[:wallet_provider])
       # A wallet login IS the wallet setup — drop any nudge a prior email login
       # left in this browser's session.
       clear_wallet_setup_state!

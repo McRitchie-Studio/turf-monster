@@ -120,6 +120,39 @@ Signup itself does not touch Solana RPC. New wallet users get a Rails row and
 managed wallet immediately; on-chain `UserAccount` creation is async and
 idempotent.
 
+### Wallet account changes
+
+A live web3 session watches the authenticated wallet brand's `accountChanged`
+event in `app/javascript/solana_stores.js`. The server renders the normalized
+brand as `data-wallet-provider`, so a Phantom session binds Phantom's Wallet
+Standard adapter even when a generic `detect()` call sees another injected
+interface first. The watcher retries provider discovery briefly and upgrades
+when Wallet Standard registers late.
+
+Changing accounts does not log the player out. Phantom can emit a temporary
+`null` account while it switches, and the watcher deliberately ignores that
+provider transition because it does not invalidate the signed Rails session.
+
+Chrome may mark the page hidden while Phantom's side panel has focus, so a
+concrete account event is queued even in that state. When Turf Monster regains
+focus, the watcher also reads the provider's current public key again; this
+recovers cleanly if the extension missed or delayed its change event.
+
+Once the provider reports a concrete address that differs from the session's
+address, Turf Monster opens the blocking `wallet-changed` modal. Escape,
+backdrop clicks, and a secondary close action cannot dismiss it. The player has
+two safe ways forward:
+
+- **Start New Session** signs the ordinary SIWS message and posts it to
+  `POST /auth/solana/verify`; success replaces the app session with the selected
+  wallet's existing or newly created account.
+- Switching the provider back to the session's original address closes the
+  modal without changing the app session.
+
+The modal stays retryable when the player cancels Phantom's signature request
+or verification fails. It never routes through `/logout` or `/signin` as a
+wallet-change fallback.
+
 ## Web3-only onboarding
 
 `AppFlags.web3_only_onboarding?` is a **kill-switch: ON by default** since
@@ -223,9 +256,9 @@ address. One standard now covers both.
 | Armed at sign-in | `record_web3_step_up_state!` → `session[:web3_step_up_prompt]` (one-shot) |
 | Armed at the Google collision | `arm_web3_step_up_for(user)` — popup branch only |
 | Read on render | `web3_step_up_required?` — helper, RPC-free, true for the whole session |
-| The modal | `app/views/modals/_web3_step_up.html.erb`, id `web3-step-up` |
+| The modal | `studio/modals/_web3_step_up` — studio-engine owns the card; this app passes its own subtext + help route via `Web3StepUpHelper#web3_step_up_locals` |
 | Brand memory | `users.web3_wallet_provider` + `web3_authenticated_at`, stamped by `User#record_web3_authentication!` |
-| Showroom | `/admin/modals` → **Web3 step-up**, both variants (deprecated page — see below) |
+| Showroom | `/admin/style#modals` — both states, against the real partial. This app's own wording renders at `/admin/modals/preview/web3-step-up` |
 
 Rules worth knowing:
 
@@ -268,10 +301,13 @@ Rules worth knowing:
   (operator direction, 2026-08-21): modal primitive work goes to the engine's
   living style guide at `/admin/style#modals`, where a modal is inherited by
   every Studio app instead of being turf's alone. The page still stands because
-  8 modal ids have no card in the engine guide yet (`wallet-setup`, `cdp-ramp`,
-  `buy-entry-token`, `cosign-rejected`, `quest-success`, `unsubscribe-confirm`,
-  `unsubscribe-goodbye`, `web3-step-up`) — port first, delete second, so no
-  state loses its review surface on the way out. This card's own port into
+  8 modal ids have no card in the engine guide yet (`wallet-setup`,
+  `wallet-changed`, `cdp-ramp`, `buy-entry-token`, `cosign-rejected`,
+  `quest-success`, `unsubscribe-confirm`, `unsubscribe-goodbye`) — port first,
+  delete second, so no state loses its review surface on the way out.
+  `web3-step-up` came off this list on 2026-08-24: the engine owns the partial
+  AND shows both of its states, so its cards here were the duplicate rather than
+  the review surface. This card's own port into
   `studio/modals/` as a shared engine partial is the next step for it.
 - **The CTA is the STANDARD wallet row**, not a filled button — brand mark, the
   wallet's own name, `Installed` badge, chevron — the same shape the connect
