@@ -2,6 +2,62 @@
 // Abstracts wallet operations behind a common interface so Phantom, keypair-based
 // bots, and future providers all share the same API surface.
 
+// --- Sign In With Solana (solana:signIn) ---
+//
+// WHY: `connect()` then `signMessage()` costs the user TWO wallet approvals for
+// one intent. The Wallet Standard's `solana:signIn` feature does both in one —
+// the wallet composes the SIWS message itself, connects, and signs, returning
+// the account plus the exact bytes it signed. Every provider below advertises
+// support via `supportsSignIn()` and normalizes its output to ONE shape:
+//
+//   { address: <base58 String>, signedMessage: <Uint8Array>, signature: <Uint8Array> }
+//
+// CRITICAL CONTRACT: callers MUST verify against `signedMessage` — the bytes the
+// wallet actually signed — never a locally rebuilt string. A wallet is free to
+// add URI / Version / Chain ID / Issued At lines, and a rebuilt string would not
+// match the signature. See solanaConnectAndVerify in layouts/application.html.erb.
+
+// Minimal SIWS message, used by providers that compose the message themselves
+// (the keypair test provider) rather than delegating to a real wallet. Matches
+// the shape a Wallet Standard wallet emits for the same input, and is
+// byte-identical to the hand-rolled fallback message in solanaConnectAndVerify.
+function buildSiwsMessage(input, address) {
+  return (input.domain || '') + ' wants you to sign in with your Solana account:\n' +
+         address + '\n\n' +
+         (input.statement || '') + '\n\n' +
+         'Nonce: ' + (input.nonce || '');
+}
+
+// Normalize a signIn output across the Wallet Standard shape
+// ({ account: { address }, ... }) and the legacy injected-provider shape
+// ({ address, ... }, where address may be a PublicKey object). Written
+// defensively on purpose: the injected Phantom provider's exact return shape is
+// version-dependent, and guessing wrong here would break sign-in rather than
+// degrade it. Anything unrecognized throws, which routes the caller to its
+// fallback path instead of posting a malformed payload.
+function normalizeSignInOutput(out) {
+  var o = Array.isArray(out) ? out[0] : out;
+  if (!o) throw new Error('signIn returned no output');
+
+  var address = null;
+  if (o.account && o.account.address) {
+    address = o.account.address;
+  } else if (o.address) {
+    address = (typeof o.address === 'string') ? o.address : o.address.toBase58();
+  }
+  if (!address) throw new Error('signIn output carried no account address');
+  if (!o.signedMessage) throw new Error('signIn output carried no signedMessage');
+  if (!o.signature) throw new Error('signIn output carried no signature');
+
+  return {
+    address: address,
+    signedMessage: new Uint8Array(o.signedMessage),
+    signature: new Uint8Array(o.signature),
+    _account: o.account || null
+  };
+}
+
+
 // --- PhantomProvider ---
 // Wraps window.phantom.solana. Delegates all calls to the browser extension.
 var PhantomProvider = {
@@ -25,6 +81,19 @@ var PhantomProvider = {
     var p = this._provider();
     if (!p) return Promise.reject(new Error('Phantom not available'));
     return p.signMessage(encoded, encoding);
+  },
+
+  supportsSignIn: function() {
+    var p = this._provider();
+    return !!(p && typeof p.signIn === 'function');
+  },
+
+  signIn: function(input) {
+    var p = this._provider();
+    if (!p || typeof p.signIn !== 'function') {
+      return Promise.reject(new Error('Phantom does not support signIn'));
+    }
+    return p.signIn(input).then(normalizeSignInOutput);
   },
 
   signTransaction: function(tx) {
@@ -117,6 +186,26 @@ var KeypairProvider = {
     });
   },
 
+  // Stands in for a real wallet's solana:signIn so the e2e suite exercises the
+  // CONSOLIDATED path, not just the fallback. Without this the new code would
+  // ship with zero browser coverage — every test provider would take the old
+  // two-step branch and the signIn branch would never execute in CI.
+  supportsSignIn: function() { return true; },
+
+  signIn: function(input) {
+    var self = this;
+    return this._ensureKeypair().then(function(kp) {
+      var address = window.encodeBase58(kp.publicKey);
+      var encoded = new TextEncoder().encode(buildSiwsMessage(input, address));
+      return {
+        address: address,
+        signedMessage: encoded,
+        signature: nacl.sign.detached(encoded, kp.secretKey),
+        _account: null
+      };
+    });
+  },
+
   signTransaction: function(tx) {
     return this._ensureKeypair().then(function(kp) {
       // solanaWeb3 must be loaded on the page
@@ -189,6 +278,19 @@ function _makeWsAdapter(wallet) {
           var out = Array.isArray(outputs) ? outputs[0] : outputs;
           return { signature: out.signature };
         });
+    },
+    supportsSignIn: function() { return !!wallet.features['solana:signIn']; },
+    signIn: function(input) {
+      var feat = wallet.features['solana:signIn'];
+      if (!feat) return Promise.reject(new Error('Wallet does not support signIn'));
+      return feat.signIn(input).then(function(outputs) {
+        var norm = normalizeSignInOutput(outputs);
+        // signIn CONNECTS as well as signs, so adopt the account it returned —
+        // otherwise a later signTransaction on this same adapter would reject
+        // with "Wallet not connected" despite the user having just signed in.
+        if (norm._account) account = norm._account;
+        return norm;
+      });
     },
     signTransaction: function(tx) {
       var feat = wallet.features['solana:signTransaction'];

@@ -222,14 +222,65 @@
           opts = opts || {};
           var provider = walletName ? window.walletProvider.get(walletName) : window.walletProvider.detect();
           if (!provider) throw new Error('Wallet not available');
-          var resp = await provider.connect();
-          var pubkeyB58 = resp.publicKey.toBase58();
-          var data = await (await fetch('/auth/solana/nonce')).json();
+          // Fire the nonce fetch IMMEDIATELY. It takes no parameters and does not
+          // depend on the wallet, but used to be awaited AFTER connect() — so its
+          // round trip sat behind a human-gated wallet prompt for no reason. Kicked
+          // off here it resolves during that prompt, on both paths below.
+          var noncePromise = fetch('/auth/solana/nonce').then(function(r) { return r.json(); });
+
           var domain = window.location.host;
           var userIdLine = (opts.linkMode && opts.currentUserId) ? ('User-ID: ' + opts.currentUserId + '\n\n') : '';
-          var message = domain + ' wants you to sign in with your Solana account:\n' + pubkeyB58 + '\n\n' + userIdLine + 'Sign in to Turf Monster\n\nNonce: ' + data.nonce;
-          var signed = await provider.signMessage(new TextEncoder().encode(message), 'utf8');
-          var signatureB58 = encodeBase58(signed.signature);
+          var pubkeyB58, message, signatureB58;
+
+          // ONE approval when the wallet implements solana:signIn — it connects and
+          // signs in a single prompt. Everything else keeps the two-step path.
+          var useSignIn = typeof provider.supportsSignIn === 'function' && provider.supportsSignIn();
+
+          if (useSignIn) {
+            var nonceData = await noncePromise;
+            try {
+              // SIWS `statement` is a SINGLE LINE per the spec's grammar, so the
+              // link-mode binding rides inline here rather than as its own
+              // paragraph the way the fallback message writes it. The server checks
+              // `message.include?("User-ID: <id>")`, which both shapes satisfy.
+              var statement = userIdLine
+                ? 'Sign in to Turf Monster (User-ID: ' + opts.currentUserId + ')'
+                : 'Sign in to Turf Monster';
+
+              var out = await provider.signIn({ domain: domain, statement: statement, nonce: nonceData.nonce });
+              pubkeyB58 = out.address;
+              // The bytes the WALLET signed — never a rebuilt string. A wallet may
+              // add URI / Version / Chain ID / Issued At lines of its own, and a
+              // reconstruction would not match the signature.
+              message = new TextDecoder().decode(out.signedMessage);
+              signatureB58 = encodeBase58(out.signature);
+
+              // Did the wallet honour what we asked for? A message missing our nonce
+              // — or, in link mode, the User-ID binding OPSEC-005 requires — gets
+              // rejected server-side as a bad signature, which reads to the user as
+              // "sign-in is broken" rather than "this wallet composes messages its
+              // own way". Catch it here and spend a second prompt instead of failing.
+              if (message.indexOf('Nonce: ' + nonceData.nonce) === -1) {
+                throw new Error('wallet omitted the nonce');
+              }
+              if (userIdLine && message.indexOf('User-ID: ' + opts.currentUserId) === -1) {
+                throw new Error('wallet omitted the User-ID binding');
+              }
+            } catch (e) {
+              console.warn('[siws] signIn unusable, falling back to connect + signMessage:', e && e.message);
+              useSignIn = false;
+            }
+          }
+
+          if (!useSignIn) {
+            var resp = await provider.connect();
+            pubkeyB58 = resp.publicKey.toBase58();
+            var data = await noncePromise;
+            // Byte-identical to the message this flow has always signed.
+            message = domain + ' wants you to sign in with your Solana account:\n' + pubkeyB58 + '\n\n' + userIdLine + 'Sign in to Turf Monster\n\nNonce: ' + data.nonce;
+            var signed = await provider.signMessage(new TextEncoder().encode(message), 'utf8');
+            signatureB58 = encodeBase58(signed.signature);
+          }
           var verifyUrl = opts.linkMode ? '/account/link_solana' : '/auth/solana/verify';
           // Legal-age attestation (signup compliance): undefined keys are
           // dropped by JSON.stringify, so login/link calls stay unchanged.
