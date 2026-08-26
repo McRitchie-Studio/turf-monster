@@ -48,7 +48,7 @@ class EnginePinContractTest < ActiveSupport::TestCase
   #          Gemfile comment moved to 0.52 when that landed; THIS constant did
   #          not, which is the drift the file exists to catch and did not.
   #   0.54 — studio/fields/_date_of_birth, the engine's one DOB field.
-  #          app/views/modals/_age_verify renders it instead of its old forked
+  #          app/views/modals/_birthday renders it instead of its old forked
   #          copy of the three selects. This is the sharpest floor in the list
   #          because it fails LOUDLY and immediately: below 0.54 the partial does
   #          not exist, so the age-gate modal raises on render rather than
@@ -81,7 +81,7 @@ class EnginePinContractTest < ActiveSupport::TestCase
                     "(the email-free local-review CTA needs >= 0.36; Studio::EmailSetting needs >= 0.42; " \
                     "a host-owned layered banner needs >= 0.43; the adopted first-name onboarding " \
                     "endpoints need >= 0.46; the shared /profile page and its section registry need " \
-                    ">= 0.52; the shared date-of-birth field rendered by modals/_age_verify needs " \
+                    ">= 0.52; the shared date-of-birth field rendered by modals/_birthday needs " \
                     ">= 0.54)"
   end
 

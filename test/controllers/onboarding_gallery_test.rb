@@ -134,9 +134,13 @@ class OnboardingGalleryTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_equal 1, filled_pill_segments(response.body, "onboarding"), "first name is step 1 of 3"
 
-    get admin_modal_preview_path(modal_id: "age-verify", props: {}.to_json)
+    # Renamed to `birthday` on 2026-08-26 when this app adopted the engine's
+    # card. The pill also moved OUT of the card (the engine block has no yield
+    # slot) to card top level, which is where steps 1 and 3 already put theirs —
+    # so this assertion reads the same three segments in the same place.
+    get admin_modal_preview_path(modal_id: "birthday", props: {}.to_json)
     assert_response :success
-    assert_equal 2, filled_pill_segments(response.body, "age-verify"), "the age gate is step 2 of 3"
+    assert_equal 2, filled_pill_segments(response.body, "birthday"), "the age gate is step 2 of 3"
 
     get admin_modal_preview_path(modal_id: "wallet-setup", props: {}.to_json)
     assert_response :success
@@ -160,7 +164,11 @@ class OnboardingGalleryTest < ActionDispatch::IntegrationTest
     # does), so it is a follow-up, not a passenger on this one. Widen this test
     # to the full manifest when that task lands.
     preview = Rails.root.join("app/views/layouts/modal_preview.html.erb").read
-    %w[onboarding age-verify wallet-setup].each do |id|
+    # `birthday` replaced `age-verify` in the adoption; `age-gate` JOINED the
+    # list, because the birthday card swaps to it on the server's underage
+    # verdict — and an unregistered swap target is exactly the empty card this
+    # test was written about, on the one path a person cannot retry out of.
+    %w[onboarding birthday age-gate wallet-setup].each do |id|
       assert_includes preview, "$store.modals.current().id === '#{id}'",
                       "modal #{id.inspect} is in the gallery but not registered in modal_preview.html.erb, " \
                       "so its preview renders an empty card"
@@ -208,7 +216,7 @@ class OnboardingGalleryTest < ActionDispatch::IntegrationTest
     flow_modal_ids = AdminController::MODAL_FLOWS.flat_map { |f|
       f[:steps].map { |s| AdminController::MODAL_VARIANTS.find { |v| v[:key] == s[:key] }[:modal_id] }
     }.uniq
-    expected = { first_name: "onboarding", age: "age-verify", wallet: "wallet-setup" }
+    expected = { first_name: "onboarding", age: "birthday", wallet: "wallet-setup" }
 
     assert_equal OnboardingFlow::STEPS.sort, expected.keys.sort,
                  "OnboardingFlow::STEPS changed — update this map AND the gallery flows"

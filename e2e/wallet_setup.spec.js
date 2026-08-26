@@ -57,7 +57,7 @@ async function signUpFreshEmail(page) {
   if (await appears(skip)) await skip.click();
 
   // Step 2 — the DOB gate (ENABLE_AGE_GATE is on for this lane).
-  const ageHeading = page.getByRole("heading", { name: /Verify your age/i });
+  const ageHeading = page.getByRole("heading", { name: /Your birthday/i });
   if (await appears(ageHeading)) {
     await page.evaluate(() => {
       const els = document.querySelectorAll("[x-data]");
