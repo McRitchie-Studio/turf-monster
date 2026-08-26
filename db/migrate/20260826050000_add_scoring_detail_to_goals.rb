@@ -24,7 +24,11 @@
 #
 # The index is partial (`WHERE external_id IS NOT NULL`) because hand-recorded
 # goals — the admin console, the dev toolbar, the World Cup seed — legitimately
-# have no upstream id. Without the predicate, the second NULL would collide.
+# have no upstream id, and keeping them OUT of the index is what stops it
+# indexing rows it can never usefully constrain. (Not, as an earlier draft of
+# this comment claimed, because NULLs would collide — Postgres treats NULLs as
+# distinct, so many NULL rows coexist under a unique index just fine. The
+# predicate is right; that reason was not.)
 class AddScoringDetailToGoals < ActiveRecord::Migration[8.0]
   def change
     add_column :goals, :points, :integer, default: 1, null: false

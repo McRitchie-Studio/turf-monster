@@ -286,7 +286,7 @@
 # Re-derived with the lister, never hand-incremented:
 # `npx playwright test --list` -> 188 tests in 51 files.
 #
-# 188 -> 193 (live-nfl-score-pipeline): five specs in a NEW file,
+# 188 -> 193 (live-nfl-score-pipeline): specs in a NEW file,
 # e2e/nfl_live_scoreboard.spec.js, for the league-wide /live scoreboard. They
 # cover the one claim no Rails tier can make — that a scoring event recorded on
 # the SERVER reaches an ALREADY-OPEN browser over the websocket with no reload,

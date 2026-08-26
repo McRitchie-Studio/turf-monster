@@ -110,16 +110,69 @@ module Nfl
         game = upsert_game(row)
         return unless game
 
+        # THE FEED HAS TO TELL US THE SCORE BEFORE WE ACT ON IT.
+        # A blank score on a game ESPN says is live or final is a degraded
+        # response, not a 0-0 — and acting on it is what let a wiped board look
+        # like agreement. Reported, then skipped: the game keeps what it has.
+        unless scores_known?(row)
+          @anomalies << Anomaly.new(
+            kind: "degraded_feed",
+            detail: "#{row.external_id}: scoreboard carried no score for a #{row.status} game"
+          )
+          return
+        end
+
         # A summary request is the expensive half of a cycle, so it is spent
         # only when the feed's score disagrees with ours. A live game whose
         # score has not moved needs no play detail.
         sync_scoring_plays(game, row) if score_disagrees?(game, row)
 
-        finalise(game, row) if row.status == "completed" && !was_completed
+        # NEVER SETTLE A GAME WE CANNOT RECONCILE.
+        #
+        # Finalising flips every matchup to completed and re-scores every open
+        # contest — it is the moment a number stops being provisional. Doing
+        # that while our summed events disagree with the feed's total settles a
+        # contest on a score one side of the system does not believe. The
+        # disagreement is reported and the game stays open; the next clean cycle
+        # finalises it.
+        if row.status == "completed" && !was_completed
+          if score_disagrees?(game.reload, row)
+            @anomalies << Anomaly.new(
+              kind: "unsettled_final",
+              detail: "#{game.slug}: feed says FINAL at #{row.away_score}-#{row.home_score} " \
+                      "but our events sum to #{game.away_score}-#{game.home_score} — not settling"
+            )
+            # STATUS AND SETTLEMENT MOVE TOGETHER, or they lie about each other.
+            # `upsert_game` has already written the feed's "completed", so
+            # leaving it there would show FINAL on the board while the matchups
+            # sit open and no contest has scored — a settled-looking game that
+            # is not settled. Held at in_progress instead; the next cycle that
+            # reconciles will complete and settle it in one move.
+            game.update!(status: "in_progress")
+          else
+            finalise(game, row)
+          end
+        end
+
         detect_drift(game, row)
       rescue Espn::Client::Error => e
         # One bad game must not cost us the other fifteen.
         @anomalies << Anomaly.new(kind: "fetch_failed", detail: "#{row.external_id}: #{e.message}")
+      rescue StandardError => e
+        # ANYTHING ELSE IS STILL NOT ALLOWED TO BE SILENT. Only provider errors
+        # were rescued before, so a PG::UniqueViolation mid-reconcile aborted the
+        # cycle with nothing written anywhere a human would look. House
+        # discipline is that every workflow rescues into an ErrorLog.
+        ErrorLog.capture!(e)
+        @anomalies << Anomaly.new(kind: "cycle_error", detail: "#{row.external_id}: #{e.class}: #{e.message}")
+      end
+
+      # A scheduled game legitimately carries no score yet — that is 0-0 and not
+      # worth reporting. A game the feed calls live or final MUST carry one.
+      def scores_known?(row)
+        return true if row.status == "scheduled"
+
+        !row.home_score.nil? && !row.away_score.nil?
       end
 
       # Lookup order matters. `external_id` first, because it is collision-proof.
@@ -143,7 +196,7 @@ module Nfl
           external_id: row.external_id,
           home_team_slug: home.slug, away_team_slug: away.slug,
           season_year: row.season_year, season_type: row.season_type, week: row.week,
-          kickoff_at: row.kickoff_at, status: row.status,
+          kickoff_at: row.kickoff_at, status: status_for(game, row),
           period: row.period, clock: row.clock, status_detail: row.detail
         )
         game.slug = slug_for(row, home, away) if game.slug.blank?
@@ -165,6 +218,24 @@ module Nfl
         Game.find_by(slug: slug_for(row, home, away))
       end
 
+      # GAME STATE ONLY MOVES FORWARD.
+      #
+      # A stale scoreboard row — a cached edge response, a retry that landed on
+      # an older copy — reports an earlier state. Letting it win re-opens a
+      # settled game AND re-arms `finalise`, which re-runs the matchup flip and
+      # re-broadcasts FINAL to everyone watching. Measured: a third cycle
+      # re-emitted a "final" change for a game that had already ended.
+      def status_for(game, row)
+        return row.status unless game.persisted? && game.completed?
+        return row.status if row.status == "completed"
+
+        @anomalies << Anomaly.new(
+          kind: "status_regression",
+          detail: "#{game.slug}: feed says #{row.status} for a game already completed — keeping completed"
+        )
+        game.status
+      end
+
       def slug_for(row, home, away)
         Game.new(
           home_team_slug: home.slug, away_team_slug: away.slug,
@@ -173,7 +244,10 @@ module Nfl
       end
 
       def score_disagrees?(game, row)
-        game.home_score.to_i != row.home_score || game.away_score.to_i != row.away_score
+        return false unless scores_known?(row)
+
+        game.home_score.to_i != row.home_score.to_i ||
+          game.away_score.to_i != row.away_score.to_i
       end
 
       # Reconcile our scoring events against the feed's, in both directions.
@@ -182,12 +256,39 @@ module Nfl
       # outlives its play would leave a contest scored on points nobody scored.
       def sync_scoring_plays(game, row)
         payload = client.summary(event_id: row.external_id)
+
+        # THE FEED DECLINED TO ANSWER. An absent scoringPlays key is not an
+        # empty game — it is a degraded 200 — and reconciling against it deletes
+        # every goal the game holds.
+        unless Espn::ScoringPlays.reported?(payload)
+          @anomalies << Anomaly.new(
+            kind: "degraded_feed",
+            detail: "#{game.slug}: summary carried no scoringPlays list"
+          )
+          return
+        end
+
         plays = Espn::ScoringPlays.rows_from(
           payload, home_abbr: row.home_abbr, away_abbr: row.away_abbr
         )
 
         existing = game.goals.where.not(external_id: nil).index_by(&:external_id)
         seen = plays.map(&:external_id).to_set
+
+        # THE FLOOR: never reconcile DOWNWARD to nothing.
+        #
+        # A feed that reports zero plays for a game we hold scores on is
+        # describing a state that cannot have happened — plays are not un-played
+        # wholesale — so the likeliest explanation is a bad response, and the
+        # cheap mistake is to believe it. Withdrawing plays ONE at a time still
+        # works below; it is only the clean sweep that is refused.
+        if plays.empty? && existing.any?
+          @anomalies << Anomaly.new(
+            kind: "degraded_feed",
+            detail: "#{game.slug}: feed reported 0 plays while we hold #{existing.size} — refusing to wipe"
+          )
+          return
+        end
 
         plays.each do |play|
           next if existing.key?(play.external_id)
@@ -239,6 +340,7 @@ module Nfl
       # skipped — and saying so is far better than serving a confidently wrong
       # scoreboard.
       def detect_drift(game, row)
+        return unless scores_known?(row)
         return unless score_disagrees?(game.reload, row)
 
         @anomalies << Anomaly.new(

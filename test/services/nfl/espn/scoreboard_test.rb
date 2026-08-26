@@ -29,10 +29,27 @@ class Nfl::Espn::ScoreboardTest < ActiveSupport::TestCase
     assert_equal "completed", finished.status
   end
 
-  test "a pre-kickoff game with blank scores reads as zero, not nil" do
+  # A BLANK SCORE READS AS nil, NOT ZERO — and this test changed deliberately.
+  #
+  # It used to assert 0, which is the collapse that let a corrupted board look
+  # healthy: a degraded response wiped a game's goals to 0-0, and because the
+  # blank scoreboard score ALSO parsed to 0, the drift check compared two zeros,
+  # agreed, and emitted no anomaly. "No score yet" and "a score of zero" are
+  # different facts and the parse seam now reports them differently.
+  #
+  # Which one a blank MEANS depends on the game's status, which this seam does
+  # not have — so it reports honestly and PollCycle#scores_known? decides.
+  test "a blank score reads as nil — unknown, not zero" do
     row = Nfl::Espn::Scoreboard.rows_from(payload(state: "pre", completed: false, home: "", away: "")).first
 
     assert_equal "scheduled", row.status
+    assert_nil row.home_score
+    assert_nil row.away_score
+  end
+
+  test "a real zero is still a zero" do
+    row = Nfl::Espn::Scoreboard.rows_from(payload(state: "in", completed: false, home: "0", away: "0")).first
+
     assert_equal 0, row.home_score
     assert_equal 0, row.away_score
   end

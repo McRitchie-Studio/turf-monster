@@ -11,7 +11,5 @@ class LiveController < ApplicationController
   def index
     @slot = Nfl::LiveScores::CurrentSlot.call
     @games = Nfl::LiveScores::CurrentSlot.games_for(@slot)
-    # Only offered to the dev toolbar, which only renders outside production.
-    @dev_teams = Team.nfl.order(:name) if Rails.env.local?
   end
 end

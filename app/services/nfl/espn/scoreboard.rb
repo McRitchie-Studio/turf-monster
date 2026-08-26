@@ -61,13 +61,24 @@ module Nfl
       end
 
       # ESPN sends scores as strings ("20"), and sends "" before kickoff.
+      #
+      # RETURNS nil, NOT 0, when the score is missing — the two mean different
+      # things and collapsing them is what made a corrupted board look healthy.
+      # A blank score before kickoff is genuinely 0-0; a blank score on a game
+      # ESPN says is IN PROGRESS is a degraded response. Reporting both as 0 let
+      # `detect_drift` compare our wiped 0-0 against the feed's blank-parsed 0-0,
+      # agree, and emit no anomaly while the scores were being destroyed.
+      #
+      # Deciding which case this is needs the game's status, which the caller
+      # has and this method does not. So it reports honestly and the caller
+      # decides — see PollCycle#scores_known?.
       def self.score_from(competitor)
         value = competitor["score"]
-        return 0 if value.nil? || value.to_s.strip.empty?
+        return nil if value.nil? || value.to_s.strip.empty?
 
         Integer(value)
       rescue ArgumentError, TypeError
-        0
+        nil
       end
 
       def self.parse_time(value)
