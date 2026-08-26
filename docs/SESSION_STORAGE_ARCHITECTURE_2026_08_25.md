@@ -250,7 +250,7 @@ gets no custodial wallet at all, and links Phantom through the wallet-setup moda
 
 1. `alpine:init` → `#session-context` JSON (`layout:540`)
 2. `turbo:load` → `rehydrateSession()` → `#session-context` (`layout:847`)
-3. `pageshow` (bfcache) → `rehydrateSession()` (`layout:854`)
+3. `pageshow` (bfcache) → `rehydrateSession()` (`layout:855`)
 4. `visibilitychange` >30s → `GET /account/session_state` (`layout:863`)
 5. BroadcastChannel `tm-session` mismatch → `GET /account/session_state` (`layout:823`)
 
@@ -363,7 +363,7 @@ else                     el.classList.remove('hidden');
 That copy omits both other halves of the rule: the `[data-free-entry-label]`
 `is-active` toggle, and the empty-text "loading" case. Today it is *dead weight
 rather than a visible bug* — `updateNavTokens(data.tokens)` runs three statements
-later (`:281`) and re-applies the real rule over the top. It is a second
+later (`:285`) and re-applies the real rule over the top. It is a second
 implementation of a rule the codebase says has exactly one, kept correct only by
 statement ordering inside one function.
 
@@ -503,7 +503,7 @@ timers at `:157` and `:199` — and did not read what the file logs.
 | No environment guard exists | `grep -rn "DEBUG_NET" app/ config/` outside the file itself returns **nothing** |
 | It prints request bodies | `:52` — `console.log('request:', _trunc(reqBody, 1500))` |
 | It prints response bodies | `:53` — `console.log('response:', _trunc(body, 1500))` |
-| The wallet-verify body carries auth material | `layouts/application.html.erb:331` — `JSON.stringify({ message, signature: signatureB58, pubkey, age_attestation, wallet_provider })`. Both the SIWS message and the full base58 signature are well inside the 1,500-char truncation |
+| The wallet-verify body carries auth material | `layouts/application.html.erb:332` — `JSON.stringify({ message, signature: signatureB58, pubkey, age_attestation, wallet_provider })`. Both the SIWS message and the full base58 signature are well inside the 1,500-char truncation |
 | It repeats | On first sign-in, and again on **every** `_reauth` (`solana_stores.js:269`) — which slice 7 makes *more* frequent, since a wallet switch drives a re-auth |
 | Responses leak a live CSRF token | `accounts_controller.rb:90` — `session_state` returns `csrf: form_authenticity_token`, printed by `:53` on every visibility rehydrate |
 
@@ -516,8 +516,8 @@ and CSRF tokens to every production console is wrong, and an audit that silently
 passed over it would be worth less than one that says so.
 
 **This is a code fix and must NOT ride this docs PR.** Filed as its own bug task:
-**https://mcritchie.studio/tasks/guard-debug-net-logging** (`bug` / `ui+db`,
-`designed`). The minimum fix is an environment guard on the default; the fuller fix is
+**https://mcritchie.studio/tasks/guard-debug-net-logging** (`bug` / `ui+db`).
+The minimum fix is an environment guard on the default; the fuller fix is
 redacting `signature`, `message` and `csrf` from the logged bodies, since a
 developer running with `DEBUG_NET=true` locally should not print them either.
 
