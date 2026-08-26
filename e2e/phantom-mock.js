@@ -112,6 +112,18 @@ async function setupPhantomMock(page, { seedByte = 1, walletStandard = false } =
       async disconnect() {
         this.isConnected = false;
         this.publicKey = null;
+        standardAccount = null;
+        // REAL PHANTOM ANNOUNCES A DISCONNECT. This mock used to mutate the two
+        // fields above and emit NOTHING, so a spec asserting the app's reaction
+        // to a disconnect passed whether or not the app had subscribed at all —
+        // and the app had not: `grep -rn "'disconnect'" app/javascript/
+        // app/views/` found zero listeners. A stub that is quieter than the real
+        // thing certifies silence as success.
+        if (useWalletStandard) {
+          standardChangeListeners.forEach((callback) => callback({ accounts: [] }));
+        } else {
+          emit("disconnect", undefined);
+        }
       },
 
       async signMessage(message) {
@@ -160,6 +172,34 @@ async function setupPhantomMock(page, { seedByte = 1, walletStandard = false } =
             emit("accountChanged", this.publicKey);
           }
         }
+      },
+
+      // Switching to an account that has NEVER approved this site is not an
+      // account change — Phantom disconnects the site instead. The observable
+      // sequence is `accountChanged` carrying null, then the connection torn
+      // down, then a `disconnect`. Modelled separately from __switchAccount
+      // because the app must answer them DIFFERENTLY: a concrete switch is a
+      // re-auth handoff, this is a degrade.
+      //
+      // No `nextSeedByte` — the point is that no account becomes current.
+      async __switchToUnapprovedAccount() {
+        if (useWalletStandard) {
+          standardChangeListeners.forEach((callback) => callback({ accounts: [] }));
+        } else {
+          emit("accountChanged", null);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        this.isConnected = false;
+        this.publicKey = null;
+        standardAccount = null;
+        _keypair = null;
+        // NO `disconnect` EMIT HERE, deliberately. Phantom's contract for an
+        // unapproved account is `accountChanged` WITH NO ARGUMENTS — the site is
+        // disconnected, but the null IS the notification. Emitting both would
+        // model Phantom wrongly AND hide a bug: with two events covering one
+        // fact, a spec stays green when the null path is broken because the
+        // disconnect path catches it. Measured — that is exactly what happened
+        // here on 2026-08-26, and the swallowed-null mutation passed.
       },
     };
 
