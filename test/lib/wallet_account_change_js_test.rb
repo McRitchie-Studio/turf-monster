@@ -21,6 +21,8 @@ class WalletAccountChangeJsTest < ActiveSupport::TestCase
       let providerAddress = 'old-wallet';
       let preferredProviderAvailable = false;
       let onCalls = 0;
+      let disconnected;
+      let disconnectCalls = 0;
 
       globalThis.document = {
         get visibilityState() { return visibilityState; },
@@ -82,7 +84,14 @@ class WalletAccountChangeJsTest < ActiveSupport::TestCase
           return Promise.resolve({ publicKey: { toBase58: () => providerAddress } });
         },
         on(event, callback) {
+          // CAPTURE EVERY EVENT, not just the one this file happened to need
+          // first. The old stub dropped anything that was not 'accountChanged'
+          // on the floor, so a `disconnect` subscription was untestable here:
+          // the assertion passed whether or not the module subscribed. Same
+          // failure shape the e2e phantom mock had — a stub quieter than the
+          // real provider certifies silence as success.
           if (event === 'accountChanged') { onCalls += 1; accountChanged = callback; }
+          if (event === 'disconnect') { disconnectCalls += 1; disconnected = callback; }
         }
       };
 

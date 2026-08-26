@@ -32,12 +32,12 @@ class AccountsController < ApplicationController
     # $store.session from chain — and the Refresh Wallet button re-pulls
     # the same endpoint on demand.
     #
-    # Referral widget — share URL points at the canonical main contest
-    # (admin-set via /admin/dashboard). SeasonConfig.main_contest masks
-    # the explicit pick when it's settled/locked and falls back to the
-    # most recent open contest; nil if nothing is open at all (the widget
-    # then degrades to a root-path share URL).
-    @referral_share_contest = SeasonConfig.main_contest
+    # NO REFERRAL IVAR. The share widget resolves its own target through
+    # ApplicationHelper#main_contest_target, because /profile renders the same
+    # card from the engine's ProfilesController, which cannot set a host ivar.
+    # This action assigned @referral_share_contest long after the partial stopped
+    # reading it — a dead assignment that still paid for the SeasonConfig
+    # round-trip it no longer used.
   end
 
   # Fresh on-chain state (USDC, free-entry tokens, seeds + level) in a

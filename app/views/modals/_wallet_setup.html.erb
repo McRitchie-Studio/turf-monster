@@ -558,16 +558,16 @@
           rail is a real option here, one step later, and a control that vanishes
           teaches nothing about why.
 
-      walletConnected is User#solana_connected? — the SAME predicate those rails
+      walletHasAddress is User#solana_connected? — the SAME predicate those rails
       guard on. Not `mode`, which reads 'web2' for a wallet-less account and
       would show the button to precisely the people it refuses. %>
-  <template x-if="$store.session.walletConnected">
+  <template x-if="$store.session.walletHasAddress">
     <button type="button" @click="$store.modals.swap('buy-entry-token', {})" :disabled="connecting"
             class="mt-2 w-full text-center text-xs text-muted hover:text-secondary disabled:opacity-50">
       Rather pay by card? <span class="underline">Buy an entry token</span>
     </button>
   </template>
-  <template x-if="!$store.session.walletConnected">
+  <template x-if="!$store.session.walletHasAddress">
     <p class="mt-2 w-full text-center text-xs text-muted">
       Rather pay by card? Link a wallet first &mdash; an entry token needs
       somewhere to land.
