@@ -44,11 +44,11 @@ module Admin
         # protection against actual double-mint, but the lock prevents the
         # wasted admin SOL rent on a doomed second instruction.
         user.with_lock do
-          owed = compute_owed_for(user)
+          owed, levels = owed_plan_for(user)
           raise "Nothing owed to #{user.display_name}" if owed.zero?
           count = params[:count].present? ? params[:count].to_i : owed
           count = [count, owed].min
-          signatures = mint_n_tokens(user, count)
+          signatures = mint_n_tokens(user, count, levels)
           flash[:notice] = "Minted #{signatures.length} free #{'entry'.pluralize(signatures.length)} for #{user.display_name}"
         end
       end
@@ -60,9 +60,9 @@ module Admin
         users = users_with_wallet
         total = 0
         users.find_each do |user|
-          owed = compute_owed_for(user)
+          owed, levels = owed_plan_for(user)
           next if owed.zero?
-          mint_n_tokens(user, owed)
+          mint_n_tokens(user, owed, levels)
           total += owed
         end
         flash[:notice] = "Minted #{total} free entries across all users"
@@ -173,26 +173,52 @@ module Admin
     end
 
     def compute_owed_for(user)
-      seeds = (vault.sync_balance(user.solana_address) rescue nil)&.dig(:seeds) || 0
-      tokens = (vault.list_entry_tokens(user.solana_address) rescue [])
-      [(seeds / SEEDS_PER_LEVEL) - tokens.length, 0].max
+      owed_plan_for(user).first
     end
 
-    def mint_n_tokens(user, count)
-      signatures = []
-      count.times do
-        # Globally-unique, <=64-byte source_ref per mint (the on-chain PDA is
-        # sha256(source_ref), so a repeat collides on init). Centralized in
-        # Solana::Vault.operator_source_ref — keyed on user.id + a random nonce;
-        # see that method for why NOT the wallet address (it overflowed [u8;64]).
-        result = vault.mint_entry_token(
-          wallet_address: user.solana_address,
-          source: :operator,
-          source_ref: Solana::Vault.operator_source_ref(user)
-        )
-        signatures << result[:signature]
+    # The owed COUNT and the specific LEVELS behind it, from ONE pair of reads.
+    #
+    # The count is unchanged — the same arithmetic this page has always used, and
+    # deliberately still ref-agnostic (`tokens.length`), so a hand-minted token
+    # still suppresses an automatic grant. What is new is the second half: which
+    # levels those are, so the mint below can key each token to its level exactly
+    # as Tokens::LevelUpGrant does.
+    def owed_plan_for(user)
+      address = user.solana_address
+      seeds   = (vault.sync_balance(address) rescue nil)&.dig(:seeds) || 0
+      tokens  = (vault.list_entry_tokens(address) rescue [])
+      owed    = [(seeds / SEEDS_PER_LEVEL) - tokens.length, 0].max
+
+      [owed, Tokens::LevelUpGrant.missing_levels(address, seeds: seeds, tokens: tokens)]
+    end
+
+    # THE OPERATOR AND THE SWEEP MINT UNDER THE SAME REFS.
+    #
+    # A level this page is paying gets Tokens::LevelUpGrant's DETERMINISTIC ref, so
+    # if the sweep is mid-flight for the same user and the same level, the second
+    # instruction collides on `init` at an existing PDA and exactly one token
+    # lands. That is the whole fix for the double-grant race: no lock, no
+    # coordination, just one ref scheme instead of two.
+    #
+    # A mint with NO level behind it — `levels` short of `count`, which happens when
+    # tokens exist that carry no level in their ref (older hand-mints, or refs
+    # orphaned by a scheme change) — keeps the random operator ref. Those are
+    # genuinely un-keyable, and inventing a level for one would key a token to a
+    # milestone nobody reached.
+    def mint_n_tokens(user, count, levels = [])
+      address = user.solana_address
+
+      Array.new(count) do |i|
+        level = levels[i]
+        source_ref = if level
+                       Tokens::LevelUpGrant.source_ref(address, level)
+        else
+                       Solana::Vault.operator_source_ref(user)
+        end
+
+        vault.mint_entry_token(wallet_address: address, source: :operator,
+                               source_ref: source_ref)[:signature]
       end
-      signatures
     end
   end
 end

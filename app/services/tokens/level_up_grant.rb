@@ -102,6 +102,34 @@ module Tokens
       ALREADY_GRANTED.match?(exception.message.to_s)
     end
 
+    # WHICH LEVELS THIS WALLET IS STILL OWED — extracted so the sweep and the
+    # OPERATOR'S admin page can mint under the SAME refs.
+    #
+    # THE RACE THIS CLOSES. /admin/free_entries minted under
+    # Solana::Vault.operator_source_ref — a RANDOM ref — while this service minted
+    # under the deterministic one. Different refs derive different PDAs, so an
+    # operator clicking Mint while a sweep was in flight for the same user hit no
+    # `init` collision at all and BOTH mints landed: one unearned free entry, plus
+    # permanent admin rent for the second PDA. The admin page's own per-user
+    # `with_lock` could not help, because nothing on this side took that lock —
+    # the serialization was one-sided and inert.
+    #
+    # Locking both sides was the obvious repair and the wrong one: it would hold a
+    # Postgres row lock across up to MAX_GRANTS_PER_RUN Solana confirmations inside
+    # a 25-user sweep. Sharing the ref is better because it needs no coordination
+    # at all — the two minters collide ON CHAIN, which is the guard this file's
+    # design already rests on, doing exactly the job it was chosen for.
+    #
+    # `seeds` and `tokens` are passed IN, never re-read: both callers already hold
+    # them, and re-reading would add two RPCs and a fresh chance for the two sides
+    # to disagree about what they saw.
+    def self.missing_levels(address, seeds:, tokens:, namespace: deployment_namespace)
+      earned  = seeds.to_i / User::SEEDS_PER_LEVEL
+      granted = granted_levels(address, tokens, namespace: namespace)
+
+      ((FIRST_REWARDED_LEVEL)..(earned + FIRST_REWARDED_LEVEL - 1)).reject { |l| granted.include?(l) }
+    end
+
     def self.unevaluable(reason)
       LevelUpGrantResult.new(
         minted_levels: [], granted_through: nil, skipped: 0, unevaluable_reason: reason
@@ -233,7 +261,7 @@ module Tokens
       tokens        = vault.list_entry_tokens(address)
       granted       = self.class.granted_levels(address, tokens)
 
-      missing = ((FIRST_REWARDED_LEVEL)..(earned_levels + FIRST_REWARDED_LEVEL - 1)).reject { |l| granted.include?(l) }
+      missing = self.class.missing_levels(address, seeds: seeds, tokens: tokens)
 
       # The admin page's own `owed` arithmetic. Clamps the sweep so a level an
       # operator already paid by hand (random ref, unmatchable above) is not

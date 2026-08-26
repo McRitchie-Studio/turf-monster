@@ -292,6 +292,73 @@ class LevelUpTokenMintJobTest < ActiveJob::TestCase
       "rotation must never pretend the unevaluable user was paid"
   end
 
+  # --- the unpayable channel must not become a firehose --------------------
+  #
+  # This sweep runs every 15 minutes and an unevaluable condition does not heal
+  # itself, so reporting it once per RUN meant ~96 ErrorLog rows and ~96 Sentry
+  # events per stuck user per DAY, forever. That does not page an operator; it
+  # trains them to ignore the channel, and it buries the single-shot failures the
+  # channel exists to surface.
+
+  test "a user stuck on the SAME reason is reported once, not once per sweep" do
+    vault = unevaluable_vault_for(@user)
+
+    assert_difference "ErrorLog.count", 1 do
+      run_sweep(vault, batch_size: 1)
+    end
+
+    assert_no_difference "ErrorLog.count", "a second pass on the same stuck user must not re-page" do
+      3.times { run_sweep(vault, batch_size: 1) }
+    end
+  end
+
+  test "the per-run LOG line still fires every pass — only the ErrorLog is limited" do
+    vault = unevaluable_vault_for(@user)
+    run_sweep(vault, batch_size: 1)
+
+    logged = []
+    Rails.logger.stub :warn, ->(msg) { logged << msg.to_s } do
+      run_sweep(vault, batch_size: 1)
+    end
+
+    assert logged.any? { |m| m.include?("unevaluable user=#{@user.id}") },
+      "the log trail must stay complete per pass — it is free, and it is what a " \
+      "reader following the logs needs"
+  end
+
+  test "a CHANGED reason is new news and reports immediately" do
+    ErrorLog.create!(
+      message: "[level-up-grant] unevaluable user=#{@user.id} reason=user_account_missing (older)",
+      target: @user, target_name: @user.slug
+    )
+
+    # Now the same user answers a DIFFERENT unevaluable reason: two wallets, zero seeds.
+    @user.update_columns(web2_solana_address: Solana::Keypair.generate.address,
+                         seeds: 100, level: 2)
+    vault = vault_for(seeds: 0)
+
+    assert_difference "ErrorLog.count", 1 do
+      run_sweep(vault, batch_size: 1)
+    end
+
+    assert_match(/reason=ambiguous_wallet/, ErrorLog.order(:id).last.message,
+      "a reason CHANGE is a different fact about the user and must not be rate-limited " \
+      "behind the old one")
+  end
+
+  # A vault that answers "no UserAccount at that address" for one user only.
+  def unevaluable_vault_for(user)
+    # A candidate the sweep will actually pick up: levelled past the waterline.
+    user.update_columns(seeds: 100, level: 2)
+    missing = user.solana_address
+    vault   = vault_for(seeds: 100)
+    original = vault.method(:sync_balance)
+    vault.define_singleton_method(:sync_balance) do |address|
+      address == missing ? nil : original.call(address)
+    end
+    vault
+  end
+
   # --- the sweep must drain, not loop ---
 
   test "a user paid by a manual admin mint leaves the sweep for good" do

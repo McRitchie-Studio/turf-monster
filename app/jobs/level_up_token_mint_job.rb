@@ -202,14 +202,55 @@ class LevelUpTokenMintJob < ApplicationJob
     stamp_swept(user)
   end
 
-  # A user the sweep could not reach a verdict on. Named in the log AND paged
-  # via ErrorLog: they are owed a token the system currently cannot deliver, and
-  # the condition (no UserAccount PDA at their address) does not heal itself.
+  # A user the sweep could not reach a verdict on. Named in the log AND paged via
+  # ErrorLog: they are owed a token the system currently cannot deliver.
+  #
+  # ONCE A DAY, NOT ONCE A RUN — and the old comment here contained the reason it
+  # had to change. It said the condition "does not heal itself", which is exactly
+  # why reporting it every pass was unbounded: this sweep runs every 15 minutes, so
+  # ONE permanently stuck user produced ~96 ErrorLog rows and ~96 Sentry events per
+  # day, for as long as they stayed stuck. That does not page an operator, it
+  # trains them to ignore the channel — and it buries the single-shot failures the
+  # channel exists to surface.
+  #
+  # The log line still fires EVERY run: it is free, and it keeps the per-pass trail
+  # complete for anyone reading logs. Only the ErrorLog is rate-limited, and only
+  # per (user, reason) — a user whose reason CHANGES (say :user_account_missing
+  # becoming :ambiguous_wallet after they link a second wallet) is new news and
+  # reports immediately.
+  #
+  # Deliberately the DATABASE and not Rails.cache: the window must survive a
+  # restart and a cache eviction, or the flood comes straight back the first time
+  # Redis is cold. The query only runs for users who are ALREADY unevaluable — a
+  # minority — so it costs nothing on a healthy sweep.
+  UNEVALUABLE_REPORT_WINDOW = 24.hours
+
   def report_unevaluable(user, result)
+    reason  = result.unevaluable_reason
     message = "[level-up-grant] unevaluable user=#{user.id} " \
-              "reason=#{result.unevaluable_reason} (#{result.unevaluable_message})"
+              "reason=#{reason} (#{result.unevaluable_message})"
     Rails.logger.warn message
+
+    return unless unevaluable_report_due?(user, reason)
+
     capture_error(UnevaluableUserError.new(message), user)
+  end
+
+  # TRUE when this user has no ErrorLog for THIS reason inside the window. Matches
+  # on the `reason=<symbol>` fragment the message above always carries, anchored
+  # with a trailing space so `reason=no_wallet` cannot swallow a longer reason that
+  # merely starts with it.
+  def unevaluable_report_due?(user, reason)
+    ErrorLog.where(target: user)
+            .where(created_at: UNEVALUABLE_REPORT_WINDOW.ago..)
+            .where("message LIKE ?", "%reason=#{reason} %")
+            .none?
+  rescue StandardError => e
+    # Telemetry must never change control flow. If the dedupe read fails, report —
+    # a duplicate row is a far smaller problem than a silently dropped one.
+    Rails.logger.error "[level-up-grant] unevaluable_dedupe_failed user=#{user&.id} " \
+                       "#{e.class}: #{e.message}"
+    true
   end
 
   # Telemetry must never change control flow — a failure to record is logged and

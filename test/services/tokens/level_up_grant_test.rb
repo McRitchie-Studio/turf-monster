@@ -280,6 +280,41 @@ class Tokens::LevelUpGrantTest < ActiveSupport::TestCase
       "and it must be the same wallet the balance was read from"
   end
 
+  # --- the operator and the sweep must not both pay for one level ------------
+  #
+  # THE RACE: /admin/free_entries minted under a RANDOM operator ref while this
+  # service minted under the deterministic one. Different refs derive different
+  # PDAs, so an operator clicking Mint during a sweep hit no `init` collision and
+  # BOTH tokens landed — one unearned free entry plus permanent admin rent. The
+  # page's own per-user with_lock could not help: nothing on the sweep side took
+  # that lock, so the serialization was one-sided and inert.
+
+  test "the levels the admin page would pay are the SAME refs the sweep mints" do
+    @user.update_columns(seeds: 250, level: 3)
+    address = @user.solana_address
+
+    admin_levels = Tokens::LevelUpGrant.missing_levels(address, seeds: 250, tokens: [])
+    admin_refs   = admin_levels.map { |l| Tokens::LevelUpGrant.source_ref(address, l) }
+
+    vault = vault_for(seeds: 250)
+    Tokens::LevelUpGrant.call(@user, vault: vault)
+
+    assert_equal [2, 3], admin_levels, "250 seeds owes levels 2 and 3"
+    assert_equal admin_refs, vault.mint_calls,
+      "the two minters must derive IDENTICAL refs, so a concurrent mint collides " \
+      "on init at the same PDA and exactly one token lands"
+  end
+
+  test "a token already on chain removes its level from what the admin page would pay" do
+    address = @user.solana_address
+    existing = token(Tokens::LevelUpGrant.source_ref(address, 2))
+
+    levels = Tokens::LevelUpGrant.missing_levels(address, seeds: 250, tokens: [existing])
+
+    assert_equal [3], levels,
+      "level 2 is already paid — offering it again is the double-grant this closes"
+  end
+
   # --- the unpayable channel must stay signal ---
 
   test "an already-granted collision is logged but NOT filed as an operator anomaly" do
