@@ -291,6 +291,10 @@
 # Re-derived with the lister, never hand-incremented:
 # `npx playwright test --list` -> 188 tests in 51 files.
 #
+# 188 -> 190: e2e/debug_net_default.spec.js. window.DEBUG_NET is RUNTIME state, so
+# only a browser that ran the module can say whether the logger armed itself; the
+# markup is identical either way.
+#
 # BOTH LANDED. Two branches each added a NEW spec file off the same base —
 # wallet_disconnect.spec.js (2) and birthday_age_gate.spec.js (3) — and each
 # wrote its own total for 51 files. Neither number survives the merge; the
@@ -362,7 +366,15 @@
 #
 #   total_specs - excluded - allowed_skips  =  200 - 17 - 4  =  179
 #   collected   - allowed_skips             =  183      - 4  =  179   ✓ agree
-total_specs: 200
+#
+# FOURTH COLLISION ON THIS COUNTER TODAY, and the reason this one is worth
+# reading: the review of PR #425 re-derived it as 192/171 on the tree as it stood
+# THEN, and by the time the merge actually ran `accepted` had moved again. A
+# derived number has a shelf life measured in merges — which is why the rule is
+# derive on the tree in front of you, never copy a number from a review, a
+# sibling branch, or arithmetic.
+# `npx playwright test --list` -> 202 tests in 55 files.
+total_specs: 202
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -538,6 +550,13 @@ allowed_skips: 4
 # `npx playwright test --list` -> 188 tests in 51 files, `--grep "@devnet"` -> 17
 # in 1 file, `--grep-invert "@devnet" --project=chromium` -> 171 collected.
 # 188 - 17 - 4 = 167, and 171 collected - 4 runtime skips = 167. Both routes agree.
+# 167 -> 169. Re-derived on the MERGED tree — THIRD collision on this counter today,
+# which is exactly why it is never incremented: adding deltas would silently
+# re-claim a count another PR already published.
+# `npx playwright test --list` -> 190 tests in 52 files, `--grep "@devnet"` -> 17
+# in 1 file, `--grep-invert "@devnet" --project=chromium` -> 173 collected.
+# 190 - 17 - 4 = 169, and 173 collected - 4 runtime skips = 169. Both routes agree.
+#
 #
 # BOTH LANDED — re-derived after the merge, both routes, see total_specs above.
 # `--grep "@devnet"` -> 17; `--grep-invert "@devnet" --project=chromium` -> 173.
@@ -564,7 +583,14 @@ allowed_skips: 4
 # Re-derived on the merged tree alongside total_specs above: 200 - 17 - 4 = 179,
 # and 183 collected - 4 runtime skips = 179. Both routes agree. Neither branch's
 # figure (175 / 171) was correct after the merge.
-executed: 179
+#
+# Re-derived on THIS merged tree, both identities, after the fourth collision.
+# The review's 192/171 was correct when written and stale by the time it landed.
+# `--grep "@devnet"` -> 17; `--grep-invert "@devnet" --project=chromium` -> 185.
+# 202 - 17 - 4 = 181, and 185 collected - 4 runtime skips = 181. Both routes agree.
+# allowed_skips stays 4: had a new spec added a runtime skip the two identities
+# would disagree, and they agree.
+executed: 181
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
