@@ -45,6 +45,37 @@ function registerWalletStore() {
     _provider: null,
     _discoveryTimer: null,
 
+    // --- THE LIVE-SIGNER FACTS (defect A + B, 2026-08-25) ---
+    // The app knew FOUR answers to "does this person have a wallet right now"
+    // and not one of them was live: User#solana_connected? (a DB row),
+    // SessionContext#mode (a server session flag), $store.session.walletHasAddress (was walletConnected)
+    // (a client mirror of the DB row), and nothing at all for the browser. The
+    // green check rendered the FIRST one, so it stayed lit over a wallet that
+    // could no longer sign — and Phantom only emits accountChanged to sites it
+    // is connected to, so the switch reflex was structurally unable to fire
+    // while the check claimed everything was fine.
+    //
+    // These are that missing answer. Primitives only: they are read through
+    // Alpine's reactive Proxy, and anything object-valued read back off a store
+    // is a proxy OF the value — never compare one (see the note above).
+    signerAvailable: false,   // a provider is present, unlocked, and connected NOW
+    signerAddress: null,      // the pubkey it will actually sign with
+    lastSeenAt: null,         // epoch ms of the last concrete provider event
+
+    // DERIVED, never assigned. Assigning it is how the four answers happened.
+    //   guest      — not logged in
+    //   web2       — logged in, managed/custodial session; never probe Phantom
+    //   live       — web3, signer present, and it matches the linked wallet
+    //   mismatched — web3, signer present, DIFFERENT wallet (blocking handoff)
+    //   degraded   — web3, no signer. READ-ONLY, not broken: balances are read
+    //                server-side by address and need no signature at all.
+    get state() {
+      if (!this._isWeb3Session()) return this._serverAddress() ? 'web2' : 'guest';
+      if (!this.signerAvailable) return 'degraded';
+      if (this.signerAddress && this.signerAddress !== this._serverAddress()) return 'mismatched';
+      return 'live';
+    },
+
     init: function() {
       if (this.watching) return;
 
@@ -88,7 +119,24 @@ function registerWalletStore() {
 
     _serverAddress: function() { return document.body.dataset.walletAddress || ''; },
 
-    _sessionProviderName: function() { return document.body.dataset.walletProvider || ''; },
+    // WHICH BRAND TO RESOLVE AN ADAPTER FOR. Two facts answer this and they
+    // disagree for anyone who owns two wallets:
+    //   session[:wallet_brand]      — what signed into THIS session. Correct now.
+    //   User#web3_wallet_provider   — what this ACCOUNT uses. Durable, and stale
+    //                                 for a session that signed with the other one.
+    // `data-wallet-provider` on <body> is the COLUMN, so it was the stale one and
+    // was the only source this read. Prefer the session fact, keep the column as
+    // the fallback for a render that predates the payload carrying it.
+    _sessionProviderName: function() {
+      try {
+        var el = document.getElementById('session-context');
+        if (el) {
+          var brand = JSON.parse(el.textContent).walletBrand;
+          if (brand) return brand;
+        }
+      } catch (e) { /* fall through to the column */ }
+      return document.body.dataset.walletProvider || '';
+    },
 
     _preferredProvider: function() {
       var registry = window.walletProvider;
@@ -113,6 +161,14 @@ function registerWalletStore() {
       var self = this;
       if (provider.on && !(bound && bound.has(provider))) {
         if (bound) bound.add(provider);
+        // THE DISCONNECT CHANNEL. Until 2026-08-25 nothing in this repo
+        // subscribed to it — `grep -rn "'disconnect'"` over app/javascript and
+        // app/views returned zero listeners — so the one event that says "your
+        // signer is gone" was never asked for. Same closure guard as below: a
+        // superseded interface must stay ignored.
+        provider.on('disconnect', function() {
+          if (watched === provider) self._handleSignerLost();
+        });
         provider.on('accountChanged', function(publicKey) {
           // A late Wallet Standard registration can replace a legacy Phantom
           // interface. Ignore events from the superseded interface — and note
@@ -172,14 +228,43 @@ function registerWalletStore() {
 
     _reauthing: false,
 
+    // The signer went away: extension locked, uninstalled, disconnected, or the
+    // user switched to an account that has never approved this site (Phantom
+    // disconnects the site outright in that case, which arrives here as a null).
+    //
+    // THIS DOES NOT END THE RAILS SESSION, and that restraint was always right —
+    // the server session is signed and still valid, and the user keeps reading.
+    // What was WRONG was going from "don't log out" to doing nothing at all: a
+    // disconnect is precisely when the user most needs a signal, and the green
+    // check had nothing to turn it off. Degrade instead: read-only until a
+    // signer comes back, and the reconnect ask is deferred to the moment a web3
+    // TASK actually needs a signature.
+    _handleSignerLost: function() {
+      this.signerAvailable = false;
+      this.signerAddress = null;
+      this.pendingAddress = null;
+
+      // A lost signer is not a wallet SWITCH. Leaving the blocking handoff up
+      // would ask the user to sign with an account that is not there, and its
+      // only CTA would fail on a provider that cannot answer.
+      try {
+        var modals = window.Alpine && Alpine.store && Alpine.store('modals');
+        if (modals && modals.isOpen && modals.isOpen('wallet-changed')) modals.close();
+      } catch (e) { /* the next concrete event reconciles again */ }
+    },
+
     _handleAccountChanged: function(publicKey) {
       // A null event occurs during some ordinary Phantom account switches and
       // on extension lock/disconnect. Neither invalidates the signed Rails
-      // session, so wait for a concrete account instead of logging out.
-      if (!publicKey) return;
+      // session, so this degrades rather than logging out — but it must not be
+      // SILENT either. See _handleSignerLost above.
+      if (!publicKey) { this._handleSignerLost(); return; }
 
       var newAddr = publicKey.toBase58();
       this.address = newAddr;
+      this.signerAvailable = true;
+      this.signerAddress = newAddr;
+      this.lastSeenAt = Date.now();
 
       // Switching back is the safe escape from the blocking handoff: the
       // browser wallet and the authenticated server session agree again.
