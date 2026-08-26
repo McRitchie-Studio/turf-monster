@@ -81,7 +81,7 @@ test("a new signup walks first name → age → wallet in order @smoke", async (
   await page.getByRole("button", { name: /Save and continue/i }).click();
 
   // 2. Age gate — moved here from contest entry.
-  await expect(page.getByRole("heading", { name: /Verify your age/i })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("heading", { name: /Your birthday/i })).toBeVisible({ timeout: 15000 });
   await fillDob(page);
   await page.getByRole("button", { name: /Confirm & Continue/i }).click();
 
@@ -117,7 +117,7 @@ test("skipping the first name still reaches the age and wallet steps @smoke", as
 
   await page.getByRole("button", { name: "Skip for now" }).click();
 
-  await expect(page.getByRole("heading", { name: /Verify your age/i })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("heading", { name: /Your birthday/i })).toBeVisible({ timeout: 15000 });
   await fillDob(page);
   await page.getByRole("button", { name: /Confirm & Continue/i }).click();
   await expect(page.getByRole("heading", { name: "Set up your wallet" })).toBeVisible({ timeout: 20000 });
@@ -127,7 +127,7 @@ test("skipping the first name still reaches the age and wallet steps @smoke", as
 async function reachWalletStep(page) {
   await signUpFresh(page, { contest: "world-cup-2026" });
   await page.getByRole("button", { name: "Skip for now" }).click();
-  await expect(page.getByRole("heading", { name: /Verify your age/i })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("heading", { name: /Your birthday/i })).toBeVisible({ timeout: 15000 });
   await fillDob(page);
   await page.getByRole("button", { name: /Confirm & Continue/i }).click();
   await expect(page.getByRole("heading", { name: "Set up your wallet" })).toBeVisible({ timeout: 20000 });
@@ -209,7 +209,7 @@ test("the first name is the FIRST validation of the hold @smoke", async ({ page 
   // Saving clears the gate, so the hold's next validation is the age gate.
   await page.fill("#onboarding-first-name", "Alex");
   await page.getByRole("button", { name: /Save and continue/i }).click();
-  await expect(page.getByRole("heading", { name: /Verify your age/i })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("heading", { name: /Your birthday/i })).toBeVisible({ timeout: 15000 });
   const next = await page.evaluate(() =>
     window.eligibilityBlocker(Alpine.store("session"), 1900, { acceptsUsdt: false })
   );
@@ -320,7 +320,7 @@ test("dismissing the chain still leaves the age gate enforced at entry", async (
   await expect(page.getByRole("heading", { name: /What should we call you/i })).toBeVisible();
   await page.fill("#onboarding-first-name", "Alex");
   await page.getByRole("button", { name: /Save and continue/i }).click();
-  await expect(page.getByRole("heading", { name: /Verify your age/i })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("heading", { name: /Your birthday/i })).toBeVisible({ timeout: 15000 });
   await page.keyboard.press("Escape");
 
   const blocker = await page.evaluate(() =>
@@ -336,7 +336,7 @@ test("a returning user who owes nothing sees no chain at all", async ({ page }) 
   await expect(page.getByRole("heading", { name: /What should we call you/i })).toBeVisible();
   await page.fill("#onboarding-first-name", "Alex");
   await page.getByRole("button", { name: /Save and continue/i }).click();
-  await expect(page.getByRole("heading", { name: /Verify your age/i })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("heading", { name: /Your birthday/i })).toBeVisible({ timeout: 15000 });
   await fillDob(page);
   await page.getByRole("button", { name: /Confirm & Continue/i }).click();
   await expect(page.getByRole("heading", { name: "Set up your wallet" })).toBeVisible({ timeout: 20000 });
@@ -350,7 +350,7 @@ test("a returning user who owes nothing sees no chain at all", async ({ page }) 
   await page.waitForTimeout(1500);
 
   await expect(page.getByRole("heading", { name: /What should we call you/i })).toBeHidden();
-  await expect(page.getByRole("heading", { name: /Verify your age/i })).toBeHidden();
+  await expect(page.getByRole("heading", { name: /Your birthday/i })).toBeHidden();
   await expect(page.getByRole("heading", { name: /You're in/i })).toBeHidden();
   // The wallet step is the one thing still outstanding (they clicked Maybe
   // later), so IT may reopen — but nothing already satisfied may.

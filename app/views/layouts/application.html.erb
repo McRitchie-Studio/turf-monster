@@ -973,8 +973,9 @@
     <%# The CHAIN (2026-08): the server resolves which steps are still
         outstanding (OnboardingFlow) and emits them in order; the driver below
         walks them. Steps: first_name is the `onboarding` modal, then age is
-        `age-verify`, then wallet is `wallet-setup`. (A `welcome` step led the
-        chain until 2026-08-15; it is retired, and nothing emits it.)
+        `birthday` (renamed from `age-verify` on 2026-08-26 when this app adopted
+        the engine's card), then wallet is `wallet-setup`. (A `welcome` step led
+        the chain until 2026-08-15; it is retired, and nothing emits it.)
 
         __walletSetupPrompt keeps its old name and its old condition (the chain
         ends in the wallet step) but a NARROWER job. It no longer defers the
