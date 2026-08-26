@@ -277,7 +277,27 @@
 # two specs — the signer-loss degrade (defects A+B) and the never-connected
 # account switch (defect C). DERIVED WITH THE RUNNER, not incremented:
 # `npx playwright test --list` -> 187 tests in 51 files.
-total_specs: 187
+#
+#
+# 185 -> 188 (adopt-birthday-age-gate-flow): three specs in a NEW file,
+# e2e/birthday_age_gate.spec.js (50 -> 51 files), for the birthday -> age-gate
+# refusal handoff. They cover the seam no other tier reaches: the controller test
+# proves /age/verify answers `underage: true` and the component test proves the
+# card mounts with `gateId: 'age-gate'`, but the decision BETWEEN swapping cards
+# and painting a red line lives in the engine's fetch callback, and both tiers
+# stay green if it is wrong. One of the three is a negative: the submit button
+# must be ENABLED for an under-age date, which is what stops the deleted
+# client-side refusal (red card, disabled button, nowhere to go) coming back.
+# Re-derived with the lister, never hand-incremented:
+# `npx playwright test --list` -> 188 tests in 51 files.
+#
+# BOTH LANDED. Two branches each added a NEW spec file off the same base —
+# wallet_disconnect.spec.js (2) and birthday_age_gate.spec.js (3) — and each
+# wrote its own total for 51 files. Neither number survives the merge; the
+# union is 52 files. RE-DERIVED WITH THE LISTER after the merge, which is the
+# whole reason this counter is runtime and not arithmetic.
+# `npx playwright test --list` -> 190 tests in 52 files.
+total_specs: 190
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -446,7 +466,18 @@ allowed_skips: 4
 # `npx playwright test --list` -> 187 in 51 files; `--grep "@devnet"` -> 17;
 # `--grep-invert "@devnet" --project=chromium` -> 170 collected.
 # 187 - 17 - 4 = 166, and 170 collected - 4 runtime skips = 166. Both agree.
-executed: 166
+#
+# 164 -> 167 (adopt-birthday-age-gate-flow): the three new birthday/age-gate
+# specs run in the chromium lane and none carries a runtime skip, so
+# allowed_skips HOLDS AT 4 and the whole delta lands here. Derived, both routes:
+# `npx playwright test --list` -> 188 tests in 51 files, `--grep "@devnet"` -> 17
+# in 1 file, `--grep-invert "@devnet" --project=chromium` -> 171 collected.
+# 188 - 17 - 4 = 167, and 171 collected - 4 runtime skips = 167. Both routes agree.
+#
+# BOTH LANDED — re-derived after the merge, both routes, see total_specs above.
+# `--grep "@devnet"` -> 17; `--grep-invert "@devnet" --project=chromium` -> 173.
+# 190 - 17 - 4 = 169, and 173 collected - 4 runtime skips = 169. Both routes agree.
+executed: 169
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to

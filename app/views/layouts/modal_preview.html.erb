@@ -131,6 +131,7 @@
         mounts after the importmap duplicate loads — cdpRampFlow has no
         module duplicate). %>
     <%= render "shared/alpine_factories" %>
+    <%= render "studio/birthday_assets" %>
     <%= yield %>
     <%= render "studio/modals/host" do %>
       <template x-if="$store.modals.current().id === 'auth'">
@@ -182,8 +183,13 @@
           rendered empty: the preview looked like a working modal with nothing in
           it. Found while adding the chain's 2-of-3 pill to it, which nobody
           could have reviewed. %>
-      <template x-if="$store.modals.current().id === 'age-verify'">
-        <%= render "modals/age_verify" %>
+      <template x-if="$store.modals.current().id === 'birthday'">
+        <%= render "modals/birthday" %>
+      </template>
+      <%# ...and the card it hands a refusal to. Registering one without the
+          other is what produced the empty card described above. %>
+      <template x-if="$store.modals.current().id === 'age-gate'">
+        <%= render "studio/modals/blocks/age_gate", **age_gate_modal_locals %>
       </template>
       <template x-if="$store.modals.current().id === 'buy-entry-token'">
         <%= render "modals/buy_entry_token" %>
