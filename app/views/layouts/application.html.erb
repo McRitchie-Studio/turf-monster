@@ -509,7 +509,12 @@
             // the same predicate the entry-token rails guard on. The
             // wallet-setup modal's card-payment link reads it; do NOT substitute
             // `mode`, which reads 'web2' for a wallet-less account.
-            walletConnected: false,
+            walletHasAddress: false,
+            // The wallet brand that signed into THIS session (session[:wallet_brand]
+            // via Solana::CurrentWallet), not the durable account column. The
+            // watcher resolves its adapter from this so a two-wallet owner gets
+            // the one that can actually sign now.
+            walletBrand: '',
             get isGuest() { return this.mode === 'guest'; },
             get isWeb2() { return this.mode === 'web2'; },
             get isWeb3() { return this.mode === 'web3'; },
@@ -531,7 +536,8 @@
               if (ctx.ageVerified     !== undefined) this.ageVerified     = !!ctx.ageVerified;
               if (ctx.walletSetupRequired !== undefined) this.walletSetupRequired = !!ctx.walletSetupRequired;
               if (ctx.firstNameRequired   !== undefined) this.firstNameRequired   = !!ctx.firstNameRequired;
-              if (ctx.walletConnected     !== undefined) this.walletConnected     = !!ctx.walletConnected;
+              if (ctx.walletHasAddress    !== undefined) this.walletHasAddress    = !!ctx.walletHasAddress;
+              if (ctx.walletBrand         !== undefined) this.walletBrand         = ctx.walletBrand || '';
             }
           });
           (function() {
