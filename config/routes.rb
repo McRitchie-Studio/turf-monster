@@ -56,6 +56,11 @@ Rails.application.routes.draw do
   get "wallet_probe" => "wallet_probe#show", as: :wallet_probe
   root "contests#world_cup"
 
+  # League-wide live NFL scoreboard. Public and read-only — the visual medium
+  # for the semi-live score feed, kept current between page loads by the
+  # "nfl_live" Turbo stream (Nfl::LiveBroadcast).
+  get "live", to: "live#index", as: :live
+
   # Prelaunch audit M14 (2026-05-24): dev-only tools — not drawn in production
   # so they don't leak surface area on the public-mainnet app. Drawn in dev +
   # test (so existing template URL helpers continue resolving in the test env).
@@ -63,6 +68,14 @@ Rails.application.routes.draw do
     get  "toast_test",       to: "toast_test#index"
     post "toast_test/flash", to: "toast_test#trigger_flash"
     get  "seeds_lab",        to: "seeds_lab#index", as: :seeds_lab
+
+    # Live-scoreboard score injectors. These write REAL Goal rows so the whole
+    # pipeline runs (score recompute -> contest re-score -> websocket -> toast);
+    # a broadcast-only fake would prove nothing about the UX it is here to show.
+    # Undrawn in production, and the controller re-checks the environment.
+    post "dev/live_scores/record",     to: "dev/live_scores#record",     as: :dev_live_scores_record
+    post "dev/live_scores/clear_game", to: "dev/live_scores#clear_game", as: :dev_live_scores_clear_game
+    post "dev/live_scores/conclude_game", to: "dev/live_scores#conclude_game", as: :dev_live_scores_conclude_game
   end
 
   get "turf-totals-v1", to: "pages#turf_totals_v1", as: :turf_totals_v1

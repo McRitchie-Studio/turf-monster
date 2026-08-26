@@ -1,0 +1,29 @@
+<%# A data-only node appended to the hidden event feed. The page's
+    MutationObserver reads these data-* attrs, plays the scoring animation, then
+    removes the node. NO <script> here — Turbo does not execute scripts inside
+    broadcast <template>s, which is why every value it needs is an attribute.
+    Locals: event ("score"|"final"), goal (Goal|nil), team (Team|nil), game. %>
+<div data-event="<%= event %>"
+     data-game-slug="<%= game.slug %>"
+     data-team-slug="<%= team&.slug %>"
+     data-team="<%= team ? (team.short_name.presence || team.name) : "" %>"
+     data-team-name="<%= team&.name %>"
+     data-team-emoji="<%= team&.emoji %>"
+     data-team-bg="<%= team&.card_background %>"
+     data-team-fg="<%= team&.card_mascot %>"
+     <%# The two wedge colours for the card's glow ring. `accent` is the mascot
+         colour; `glow` is the team's extra brand colour where it curates one
+         (the Ravens' red, the Buccaneers' orange) and falls back to the light,
+         so a two-colour team lights two wedges and a one-colour team reads as
+         a single hue rather than a mismatch. %>
+     data-glow-a="<%= team ? team_card_palette(team)[:accent] : "" %>"
+     data-glow-b="<%= team ? team_card_palette(team)[:glow] : "" %>"
+     data-label="<%= goal&.scoring_label %>"
+     <%# The RAW type, not the label — the page keys its per-type animations off
+         this, and "2-Point Conversion" is a display string that will change. %>
+     data-scoring-type="<%= goal&.scoring_type %>"
+     data-points="<%= goal&.points %>"
+     data-home-team="<%= game.home_team&.short_name || game.home_team_slug %>"
+     data-away-team="<%= game.away_team&.short_name || game.away_team_slug %>"
+     data-home-score="<%= game.home_score.to_i %>"
+     data-away-score="<%= game.away_score.to_i %>"></div>

@@ -46,6 +46,23 @@ namespace :nfl do
     puts "Best: #{result.best_fit.kind}  (World Cup goals curve: 0.2 + 4.3 * ln(n/rank)/ln(n))"
   end
 
+  desc "Build a preseason TESTING slate + free contest (YEAR=2026 WEEK=4) — a live feed with no money on it"
+  task preseason_slate: :environment do
+    year = Integer(ENV.fetch("YEAR", Date.current.year))
+    week = Integer(ENV.fetch("WEEK", 4))
+
+    result = Nfl::BuildPreseasonSlate.call(year: year, week: week)
+
+    puts "slate:    #{result.slate.name}"
+    puts "games:    #{result.games.length}"
+    puts "matchups: #{result.matchups.length}"
+    puts "contest:  #{result.contest ? "#{result.contest.name} (free, #{result.contest.status})" : "none"}"
+    puts
+    puts "Populate it with real scores:  bin/nfl-live-poll --slot #{year}:1:#{week}"
+  rescue Nfl::BuildPreseasonSlate::Error => e
+    abort "preseason slate: #{e.message}"
+  end
+
   desc "Recolor existing NFL teams from Nfl::TeamPalette (post-deploy: colors only, never games/slates)"
   task recolor: :environment do
     count = Nfl::TeamPalette.apply!
