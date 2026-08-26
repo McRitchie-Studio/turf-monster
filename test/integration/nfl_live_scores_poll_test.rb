@@ -288,6 +288,25 @@ class NflLiveScoresPollTest < ActionDispatch::IntegrationTest
     assert_empty result.anomalies
   end
 
+  # The mirror of the degraded SUMMARY above, and worse: `upsert_game` wrote the
+  # feed's "completed" before the score guard ran, latching `was_completed` so
+  # `finalise` could never fire -- FINAL on the board, matchups open, forever.
+  test "a degraded scoreboard cannot strand a game FINAL and unsettled" do
+    matchup = SlateMatchup.create!(slate: slates(:one), team_slug: @home.slug,
+                                   opponent_team_slug: @away.slug, rank: 1,
+                                   game_slug: "team-a-vs-team-b-pre4", slug: "sm-degraded-pre4")
+    board = scoreboard(home: 10, away: 7, state: "post", completed: true)
+    board["events"][0]["competitions"][0]["competitors"].each { |c| c["score"] = "" }
+    Nfl::LiveScores::PollCycle.call(slot: @slot, client: StubClient.new(scoreboard: board))
+
+    clean = StubClient.new(scoreboard: scoreboard(home: 10, away: 7, state: "post", completed: true),
+                           summaries: { "EV1" => summary })
+    result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: clean)
+
+    assert_includes result.changes.map(&:kind), "final", "the next clean cycle must still settle it"
+    assert_equal "completed", matchup.reload.status
+  end
+
   # ── MONOTONIC STATE ──────────────────────────────────────────────────────
   test "a stale row cannot un-complete a finished game or re-fire FINAL" do
     final = StubClient.new(

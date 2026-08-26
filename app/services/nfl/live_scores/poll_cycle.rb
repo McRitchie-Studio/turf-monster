@@ -226,6 +226,12 @@ module Nfl
       # re-broadcasts FINAL to everyone watching. Measured: a third cycle
       # re-emitted a "final" change for a game that had already ended.
       def status_for(game, row)
+        # A "completed" WE CANNOT RECONCILE IS NOT A STATUS WE CAN ACCEPT.
+        # `process`'s `scores_known?` guard skips a degraded row only AFTER this
+        # write lands, and a stored "completed" latches `was_completed` forever
+        # after, so `finalise` never fires: FINAL on the board, matchups open.
+        return game.status if row.status == "completed" && !scores_known?(row)
+
         return row.status unless game.persisted? && game.completed?
         return row.status if row.status == "completed"
 
