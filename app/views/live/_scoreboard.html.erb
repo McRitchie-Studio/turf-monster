@@ -10,7 +10,11 @@
     <p class="text-xs text-muted mt-1">The score poller fills this in as games are scheduled.</p>
   </div>
 <% else %>
-  <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+  <%# One across on a phone, TWO on a tablet, FOUR on a desktop. The jump to
+      four waits for xl (1280px) rather than lg: at 1024 a four-up row leaves
+      each card about 250px, which starts truncating the longer city names
+      ("San Francisco", "New England"). %>
+  <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
     <% ordered.each do |game| %>
       <%= render "live/game_tile", game: game %>
     <% end %>

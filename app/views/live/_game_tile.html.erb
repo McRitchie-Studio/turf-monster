@@ -101,6 +101,14 @@
   <%# Status strip. `status_detail` is ESPN's own shortDetail ("Final",
       "Q3 8:42", "Halftime"), which says more than our three-state status
       column can — so it leads, and the column is only the fallback. %>
+  <%# The right-hand detail is ESPN's own shortDetail, which usually says MORE
+      than the badge on the left ("Q3 8:42", "Halftime", "Final/OT"). Sometimes
+      it says exactly the same thing, and a concluded game then printed
+      "Final          Final". Suppressed when it merely repeats the badge, kept
+      whenever it adds something — so "Final/OT" still survives. %>
+  <% badge = game.live? ? "Live" : (game.completed? ? "Final" : nil) %>
+  <% detail = game.status_detail.presence %>
+  <% detail = nil if detail && badge && detail.casecmp(badge).zero? %>
   <div class="px-3 py-1.5 bg-subtle/40 flex items-center justify-between gap-2">
     <% if game.live? %>
       <span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-red-400">
@@ -113,6 +121,6 @@
         <%= game.kickoff_at ? game.kickoff_at.strftime("%a %-I:%M %p") : "TBD" %>
       </span>
     <% end %>
-    <span class="text-[11px] text-secondary font-mono truncate"><%= game.status_detail %></span>
+    <span class="text-[11px] text-secondary font-mono truncate"><%= detail %></span>
   </div>
 </div>

@@ -169,6 +169,30 @@ test.describe("Live NFL scoreboard", () => {
     await expect.poll(opacity, { timeout: 10000 }).toBe("0");
   });
 
+  test("concluding a game reveals the final graphic and marks the card FINAL", async ({ page }) => {
+    await allowMotion(page);
+    await page.goto("/live");
+
+    const select = page.locator('[data-test="dev-score-team"]');
+    const target = await select.locator("option").first().getAttribute("value");
+    const [gameSlug] = target.split("|");
+    await select.selectOption(target);
+
+    await page.locator('[data-test="dev-score-conclude"]').click();
+
+    // The FINAL banner is its own branch: neutral slate, chequered flag, no
+    // points and no team name — every other banner carries all three.
+    const banner = page.locator("#nfl-score-banner");
+    await expect(banner).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#nfl-score-label")).toHaveText("Final");
+    await expect(page.locator("#nfl-score-emoji")).toHaveText("🏁");
+    await expect(page.locator("#nfl-score-points")).toHaveText("");
+    await expect(banner).toHaveClass(/nfl-b-final/);
+
+    // And the card itself settles into its final state, no reload.
+    await expect(page.locator(`[data-game-slug="${gameSlug}"]`)).toContainText("Final");
+  });
+
   test("clearing a game takes its score back to zero", async ({ page }) => {
     await page.goto("/live");
 

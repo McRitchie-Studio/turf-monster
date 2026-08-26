@@ -11,7 +11,9 @@
     target and appends to the event feed; nothing on this page polls. %>
 <%= turbo_stream_from "nfl_live" %>
 
-<div class="max-w-6xl mx-auto px-4 py-6">
+<%# max-w-7xl, not 6xl: four cards across need the extra 128px to keep each
+    one wide enough for a mascot, a city and a two-digit score without truncation. %>
+<div class="max-w-7xl mx-auto px-4 py-6">
   <div class="mb-5 flex items-start justify-between gap-3 flex-wrap">
     <div class="min-w-0">
       <p class="text-sm text-secondary font-medium">Live Scoreboard</p>

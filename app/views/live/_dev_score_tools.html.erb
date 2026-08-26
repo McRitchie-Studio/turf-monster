@@ -51,6 +51,11 @@
         </button>
       <% end %>
 
+      <button type="button" @click="concludeGame()" :disabled="busy"
+              data-test="dev-score-conclude"
+              title="Mark the selected game FINAL — reveals the final graphic"
+              class="px-2 py-1 rounded-md text-xs font-medium bg-surface text-secondary border border-subtle hover:text-mint-300 disabled:opacity-40 transition">Conclude</button>
+
       <button type="button" @click="clearGame()" :disabled="busy"
               data-test="dev-score-clear"
               title="Clear every goal on the selected game and reset it to kickoff"
@@ -87,6 +92,10 @@
           clearGame() {
             const { game_slug } = this.split();
             return this.post('/dev/live_scores/clear_game', { game_slug });
+          },
+          concludeGame() {
+            const { game_slug } = this.split();
+            return this.post('/dev/live_scores/conclude_game', { game_slug });
           }
         };
       }

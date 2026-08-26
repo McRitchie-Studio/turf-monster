@@ -81,6 +81,33 @@ class DevLiveScoresTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # Conclude goes through Game#conclude!, the SAME path the poller takes on a
+  # FINAL from the feed — so the button reveals the real final broadcast rather
+  # than a mock of one. All four consequences, because a copy that forgets one
+  # is a game that reads final on one surface and live on another.
+  test "concluding a game marks it final and fans out every consequence" do
+    slate = slates(:one)
+    matchup = SlateMatchup.create!(slate: slate, team_slug: @home.slug,
+                                   opponent_team_slug: @away.slug, game_slug: @game.slug,
+                                   slug: "sm-conclude", rank: 1)
+    @game.goals.create!(team_slug: @home.slug, points: 6, scoring_type: "touchdown")
+
+    post dev_live_scores_conclude_game_path, params: { game_slug: @game.slug }, as: :json
+
+    assert_response :success
+    @game.reload
+    assert_equal "completed", @game.status
+    assert_equal "Final", @game.status_detail
+    assert_equal "completed", matchup.reload.status
+    assert_equal 6, @game.home_score, "concluding must not disturb the score"
+  end
+
+  test "concluding broadcasts the final graphic to the live board" do
+    assert_turbo_stream_broadcasts("nfl_live", count: 2) do
+      post dev_live_scores_conclude_game_path, params: { game_slug: @game.slug }, as: :json
+    end
+  end
+
   test "rejects an unknown scoring type rather than scoring something arbitrary" do
     post dev_live_scores_record_path,
          params: { game_slug: @game.slug, team_slug: @home.slug, scoring_type: "hail_mary" },

@@ -75,6 +75,7 @@ Rails.application.routes.draw do
     # Undrawn in production, and the controller re-checks the environment.
     post "dev/live_scores/record",     to: "dev/live_scores#record",     as: :dev_live_scores_record
     post "dev/live_scores/clear_game", to: "dev/live_scores#clear_game", as: :dev_live_scores_clear_game
+    post "dev/live_scores/conclude_game", to: "dev/live_scores#conclude_game", as: :dev_live_scores_conclude_game
   end
 
   get "turf-totals-v1", to: "pages#turf_totals_v1", as: :turf_totals_v1

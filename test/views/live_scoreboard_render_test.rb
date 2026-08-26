@@ -164,6 +164,40 @@ class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
     assert_select "[data-test=?]", "dev-score-tools"
     assert_select "[data-test=?]", "dev-score-touchdown"
     assert_select "[data-test=?]", "dev-score-clear"
+    assert_select "[data-test=?]", "dev-score-conclude"
+  end
+
+  # One across on a phone, two on a tablet, four on a desktop. Asserted on the
+  # classes because the breakpoints ARE the requirement — a grid that silently
+  # drops back to three columns still renders perfectly and is still wrong.
+  test "lays the board out one-up, two-up on tablet, four-up on desktop" do
+    get live_path
+
+    assert_select "#nfl_live_scoreboard .grid" do |grids|
+      classes = grids.first["class"]
+      assert_includes classes, "md:grid-cols-2"
+      assert_includes classes, "xl:grid-cols-4"
+    end
+  end
+
+  # A concluded game showed "Final" twice — once as the badge, once as ESPN's
+  # shortDetail. The detail is kept only when it adds something.
+  test "does not print Final twice on a concluded game" do
+    @game.update!(status: "completed", status_detail: "Final")
+    get live_path
+
+    assert_select "[data-game-slug=?]", @game.slug do |cards|
+      assert_equal 1, cards.first.to_s.scan(/Final/).length
+    end
+  end
+
+  test "keeps a status detail that says more than the badge" do
+    @game.update!(status: "completed", status_detail: "Final/OT")
+    get live_path
+
+    assert_select "[data-game-slug=?]", @game.slug do
+      assert_select "*", text: "Final/OT"
+    end
   end
 
   test "the dev toolbar is gated on the environment, not on markup alone" do

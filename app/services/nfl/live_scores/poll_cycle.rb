@@ -229,11 +229,7 @@ module Nfl
       # reason: marking a game final bypasses the Goal callbacks, so the
       # matchup flip and the FINAL broadcast have to be triggered explicitly.
       def finalise(game, row)
-        game.update!(status: "completed")
-        SlateMatchup.where(game_slug: game.slug).update_all(status: "completed")
-        game.score_affected_contests!
-        Contest::LiveBroadcast.score_changed(game, event: :game_completed)
-        Nfl::LiveBroadcast.score_changed(game, event: :game_completed)
+        game.conclude!(detail: row.detail)
 
         @changes << change_for(game.reload, "final", detail: row.detail)
       end

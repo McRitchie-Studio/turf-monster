@@ -77,6 +77,28 @@ class Game < ApplicationRecord
     end
   end
 
+  # Mark this game final and fan out every consequence of that.
+  #
+  # Concluding is NOT just a status write, and the list below is exactly why it
+  # lives in one place: marking a game final bypasses the Goal callbacks, so the
+  # matchup flip, the contest re-score and both live broadcasts have to be
+  # triggered explicitly. Three callers need all of it — the ESPN poller when
+  # the feed says FINAL, the admin console, and the dev toolbar — and a copy
+  # that forgets one line is a game that reads final on one surface and live on
+  # another.
+  #
+  # `detail` is the feed's own status text ("Final", "Final/OT"). Falls back to
+  # whatever the game already carried, then to "Final", so a hand-concluded game
+  # still prints something truthful in its status strip.
+  def conclude!(detail: nil)
+    update!(status: "completed", status_detail: detail.presence || status_detail.presence || "Final")
+    SlateMatchup.where(game_slug: slug).update_all(status: "completed")
+    score_affected_contests!
+    Contest::LiveBroadcast.score_changed(self, event: :game_completed)
+    Nfl::LiveBroadcast.score_changed(self, event: :game_completed)
+    self
+  end
+
   # "<home>-vs-<away>", plus a season discriminator for the season types that
   # would otherwise collide with the regular season.
   #

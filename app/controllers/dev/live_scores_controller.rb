@@ -51,6 +51,19 @@ module Dev
       render_error(e.message)
     end
 
+    # POST /dev/live_scores/conclude_game
+    #
+    # Goes through Game#conclude!, the SAME path the ESPN poller takes when the
+    # feed reports FINAL — so what this button reveals is the real final
+    # broadcast, not a mock of one.
+    def conclude_game
+      @game.conclude!
+
+      render json: { success: true, game: game_json(@game.reload) }
+    rescue StandardError => e
+      render_error(e.message)
+    end
+
     # POST /dev/live_scores/clear_game — back to kickoff.
     #
     # delete_all, not destroy_all: clearing ten goals one at a time would fire
