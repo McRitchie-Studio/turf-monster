@@ -59,50 +59,123 @@
   </div>
 </div>
 
+
 <style>
-  /* Banner: overshoots slightly on the way in so it lands with weight. */
-  @keyframes nflScoreIn {
+  /* ── BANNER ENTRANCES — one per scoring type ────────────────────────────
+     Each type gets its own motion because the motion is the point: a glance
+     should tell you WHAT happened before you have read a word of it. They are
+     deliberately different in weight, not just in duration — a touchdown
+     should not feel like an extra point played faster. */
+
+  /* TOUCHDOWN — the heaviest arrival. Slams down, overshoots, settles. */
+  @keyframes nflBannerTd {
+    0%   { transform: translateY(-140%) scale(.92); opacity: 0; }
+    55%  { transform: translateY(8%)    scale(1.05); opacity: 1; }
+    78%  { transform: translateY(-3%)   scale(.99); }
+    100% { transform: translateY(0)     scale(1); opacity: 1; }
+  }
+  /* FIELD GOAL — kicked up and through: rises, tilts, straightens. */
+  @keyframes nflBannerFg {
+    0%   { transform: translateY(-60%) rotate(-4deg); opacity: 0; }
+    55%  { transform: translateY(7%)   rotate(2deg);  opacity: 1; }
+    100% { transform: translateY(0)    rotate(0deg);  opacity: 1; }
+  }
+  /* TWO-POINT — a decisive double beat, because the try was chosen not kicked. */
+  @keyframes nflBannerTwoPt {
     0%   { transform: translateY(-130%); opacity: 0; }
-    65%  { transform: translateY(6%);    opacity: 1; }
-    100% { transform: translateY(0);     opacity: 1; }
+    38%  { transform: translateY(5%);    opacity: 1; }
+    54%  { transform: translateY(-8%); }
+    72%  { transform: translateY(3%); }
+    100% { transform: translateY(0); }
   }
-  @keyframes nflScoreOut {
-    to { transform: translateY(-130%); opacity: 0; }
+  /* EXTRA POINT — understated on purpose. It is one point and it should read
+     as routine; giving it the touchdown's motion would flatten the vocabulary. */
+  @keyframes nflBannerPat {
+    0%   { transform: translateY(-100%) scale(.97); opacity: 0; }
+    100% { transform: translateY(0)     scale(1);   opacity: 1; }
   }
+  /* SAFETY — a jolt. The defense took these two points, and the motion is the
+     only cue that says so before the text does. */
+  @keyframes nflBannerSafety {
+    0%   { transform: translateY(-120%); opacity: 0; }
+    42%  { transform: translateY(0);     opacity: 1; }
+    54%  { transform: translateX(-11px); }
+    66%  { transform: translateX(9px); }
+    78%  { transform: translateX(-6px); }
+    89%  { transform: translateX(4px); }
+    100% { transform: translateX(0); }
+  }
+  @keyframes nflBannerOut { to { transform: translateY(-130%); opacity: 0; } }
+
+  .nfl-b-td     { animation: nflBannerTd     620ms cubic-bezier(.2,.9,.3,1.4) both; }
+  .nfl-b-fg     { animation: nflBannerFg     560ms cubic-bezier(.2,.9,.3,1.2) both; }
+  .nfl-b-2pt    { animation: nflBannerTwoPt  680ms cubic-bezier(.3,.8,.3,1.2) both; }
+  .nfl-b-pat    { animation: nflBannerPat    360ms cubic-bezier(.2,.8,.4,1)   both; }
+  .nfl-b-saf    { animation: nflBannerSafety 760ms cubic-bezier(.3,.7,.3,1)   both; }
+  .nfl-b-final  { animation: nflBannerPat    420ms ease-out both; }
+  .nfl-b-out    { animation: nflBannerOut    340ms ease-in both; }
+
+  /* ── SCORE DIGITS — the same five, echoed on the number itself ──────────
+     The second animation Mr. McRitchie asked for: the banner announces, and
+     the score on the board reacts in the same idiom. */
+  @keyframes nflScoreTd    { 0%{transform:scale(1)} 32%{transform:scale(1.8)} 62%{transform:scale(.93)} 100%{transform:scale(1)} }
+  @keyframes nflScoreFg    { 0%{transform:translateY(0) scale(1)} 40%{transform:translateY(-10px) scale(1.45)} 100%{transform:translateY(0) scale(1)} }
+  @keyframes nflScoreTwoPt { 0%,100%{transform:scale(1)} 22%{transform:scale(1.45)} 48%{transform:scale(1.02)} 72%{transform:scale(1.38)} }
+  @keyframes nflScorePat   { 0%{transform:scale(1)} 45%{transform:scale(1.2)} 100%{transform:scale(1)} }
+  @keyframes nflScoreSaf   { 0%,100%{transform:translateX(0) scale(1)} 18%{transform:translateX(-6px) scale(1.35)} 38%{transform:translateX(6px)} 58%{transform:translateX(-4px)} 78%{transform:translateX(3px)} }
+
+  .nfl-s-td   { animation: nflScoreTd    700ms cubic-bezier(.2,.9,.3,1.4) both; display:inline-block; }
+  .nfl-s-fg   { animation: nflScoreFg    640ms cubic-bezier(.2,.9,.3,1.3) both; display:inline-block; }
+  .nfl-s-2pt  { animation: nflScoreTwoPt 760ms cubic-bezier(.3,.8,.3,1.2) both; display:inline-block; }
+  .nfl-s-pat  { animation: nflScorePat   420ms ease-out both;               display:inline-block; }
+  .nfl-s-saf  { animation: nflScoreSaf   680ms ease-out both;               display:inline-block; }
+
+  /* ── THE SCORING ROW ────────────────────────────────────────────────────
+     Answers "which team scored?" in the TEAM'S colour rather than leaving the
+     number to tick over in grey. --nfl-team is set inline per row by the tile. */
+  @keyframes nflRowWash { 0%{opacity:0} 22%{opacity:.30} 55%{opacity:.14} 100%{opacity:0} }
+  @keyframes nflRailPulse {
+    0%,100% { transform: scaleY(1);   box-shadow: 0 0 0 0 transparent; }
+    35%     { transform: scaleY(1.45); box-shadow: 0 0 14px 2px var(--nfl-team); }
+  }
+  .nfl-wash-run  { animation: nflRowWash 1500ms ease-out both; }
+  .nfl-rail-run  { animation: nflRailPulse 1100ms ease-out both; }
+
+  /* THE HOT SCORE — the score stays bold and in the team's colour after it
+     changes, then fades back. This is what makes a board you glance at
+     answer "what just moved?" without having watched it move. The colour is
+     applied inline by the script (it is per-team); the weight and scale live
+     here. The fade home is a transition, not a keyframe, so cooling off is
+     smooth from wherever it is. */
+  .nfl-score-hot {
+    font-weight: 900;
+    transform: scale(1.06);
+    color: var(--nfl-team-ink);
+    text-shadow: 0 0 14px var(--nfl-team);
+  }
+  /* Fading home is a transition, not a keyframe, so it is smooth from wherever
+     the value happens to be. text-shadow is listed explicitly because Tailwind's
+     transition-colors on the span covers colour but not the glow. */
+  [data-role="score"] { transition: color .7s ease, text-shadow .7s ease, transform .7s ease; }
+
   /* A light sweep across the banner, once, just after it lands. */
-  @keyframes nflShimmer {
-    0%   { transform: translateX(-120%); }
-    100% { transform: translateX(120%); }
-  }
-  /* The tile that scored: a ring in the scoring team's color, twice. */
-  @keyframes nflTileFlash {
-    0%, 100% { box-shadow: 0 0 0 0 var(--nfl-flash, transparent); }
-    25%      { box-shadow: 0 0 0 4px var(--nfl-flash, transparent); }
-    50%      { box-shadow: 0 0 0 0 var(--nfl-flash, transparent); }
-    75%      { box-shadow: 0 0 0 4px var(--nfl-flash, transparent); }
-  }
-  /* The score digits pop as they change. */
-  @keyframes nflScorePop {
-    0%   { transform: scale(1); }
-    45%  { transform: scale(1.5); }
-    100% { transform: scale(1); }
-  }
-  .nfl-score-in  { animation: nflScoreIn 520ms cubic-bezier(.2,.9,.3,1.4) both; }
-  .nfl-score-out { animation: nflScoreOut 340ms ease-in both; }
+  @keyframes nflShimmer { 0% { transform: translateX(-120%); } 100% { transform: translateX(120%); } }
   #nfl-score-shimmer::after {
     content: ""; position: absolute; inset: 0; width: 45%;
     background: linear-gradient(90deg, transparent, rgba(255,255,255,.28), transparent);
   }
   .nfl-shimmer-run::after { animation: nflShimmer 900ms ease-out 260ms both; }
-  .nfl-tile-flash { animation: nflTileFlash 1200ms ease-out both; }
-  .nfl-score-pop  { animation: nflScorePop 620ms cubic-bezier(.2,.9,.3,1.4) both; display: inline-block; }
 
-  /* Respect the system setting. The board still updates — it just stops
-     moving, which is the point of the preference. */
+  /* Respect the system setting. The board still updates and the score still
+     goes bold in the team's colour — it just stops moving, which is the
+     distinction the preference actually asks for. */
   @media (prefers-reduced-motion: reduce) {
-    .nfl-score-in, .nfl-score-out, .nfl-tile-flash, .nfl-score-pop, .nfl-shimmer-run::after {
+    .nfl-b-td, .nfl-b-fg, .nfl-b-2pt, .nfl-b-pat, .nfl-b-saf, .nfl-b-final, .nfl-b-out,
+    .nfl-s-td, .nfl-s-fg, .nfl-s-2pt, .nfl-s-pat, .nfl-s-saf,
+    .nfl-wash-run, .nfl-rail-run, .nfl-shimmer-run::after {
       animation: none !important;
     }
+    .nfl-score-hot { transform: none; }
   }
 </style>
 
@@ -115,25 +188,88 @@
     var overlay = document.getElementById('nfl-score-overlay');
     var banner  = document.getElementById('nfl-score-banner');
     var shimmer = document.getElementById('nfl-score-shimmer');
+    var board   = document.getElementById('nfl_live_scoreboard');
     var hideTimer = null;
 
-    function flashTile(gameSlug, teamSlug, color) {
-      var tile = document.querySelector('[data-game-slug="' + gameSlug + '"]');
-      if (!tile) return;
-      tile.style.setProperty('--nfl-flash', color || 'rgba(148,163,184,.9)');
-      tile.classList.remove('nfl-tile-flash');
-      void tile.offsetWidth;                      // reflow, so a repeat score re-runs it
-      tile.classList.add('nfl-tile-flash');
+    // How long a changed score stays bold and team-coloured before fading back.
+    // ONE constant — change this line to retune it.
+    var HOT_MS = 50000;
 
-      var row = tile.querySelector('[data-team-slug="' + teamSlug + '"] [data-role="score"]');
-      if (row) {
-        row.classList.remove('nfl-score-pop');
-        void row.offsetWidth;
-        row.classList.add('nfl-score-pop');
-      }
+    // scoring_type -> the pair of animations it owns. Unknown types fall back to
+    // the touchdown pair rather than animating nothing: a scoring play we do not
+    // recognise is still a scoring play, and silence would read as a bug.
+    var ANIM = {
+      touchdown:  { banner: 'nfl-b-td',  score: 'nfl-s-td'  },
+      field_goal: { banner: 'nfl-b-fg',  score: 'nfl-s-fg'  },
+      two_point:  { banner: 'nfl-b-2pt', score: 'nfl-s-2pt' },
+      pat:        { banner: 'nfl-b-pat', score: 'nfl-s-pat' },
+      safety:     { banner: 'nfl-b-saf', score: 'nfl-s-saf' }
+    };
+    var FALLBACK = ANIM.touchdown;
+    var BANNER_CLASSES = ['nfl-b-td','nfl-b-fg','nfl-b-2pt','nfl-b-pat','nfl-b-saf','nfl-b-final','nfl-b-out'];
+    var SCORE_CLASSES  = ['nfl-s-td','nfl-s-fg','nfl-s-2pt','nfl-s-pat','nfl-s-saf'];
+
+    // Re-running an animation on an element that already carries its class is a
+    // no-op — the class never changed. Strip, force a reflow, re-add.
+    function restart(el, classes, cls) {
+      if (!el) return;
+      classes.forEach(function (c) { el.classList.remove(c); });
+      void el.offsetWidth;
+      if (cls) el.classList.add(cls);
     }
 
-    function show(d) {
+    function row(gameSlug, teamSlug) {
+      if (!gameSlug || !teamSlug) return null;
+      return document.querySelector(
+        '[data-game-slug="' + gameSlug + '"] [data-team-slug="' + teamSlug + '"]'
+      );
+    }
+
+    // WHICH SCORES ARE STILL HOT. Held in JS and re-applied after every board
+    // replacement, because a broadcast swaps the whole scoreboard partial and
+    // takes any class the script added with it — so state that lives only in the
+    // DOM survives exactly until the next goal anywhere in the league.
+    var hot = {};
+    function key(g, t) { return g + '|' + t; }
+
+    // The class alone is enough: both brand colours are custom properties on the
+    // ROW, so the score inherits the right pair wherever it is re-rendered. That
+    // is also why nothing here writes an inline colour — an inline value would
+    // have to be re-derived every time the board is replaced.
+    function applyHot() {
+      Object.keys(hot).forEach(function (k) {
+        var parts = k.split('|');
+        var el = row(parts[0], parts[1]);
+        var score = el && el.querySelector('[data-role="score"]');
+        if (score) score.classList.add('nfl-score-hot');
+      });
+    }
+
+    function cool(gameSlug, teamSlug) {
+      var k = key(gameSlug, teamSlug);
+      if (!hot[k]) return;
+      delete hot[k];
+      var el = row(gameSlug, teamSlug);
+      var score = el && el.querySelector('[data-role="score"]');
+      if (!score) return;
+      score.classList.remove('nfl-score-hot');   // the transition above fades it home
+    }
+
+    function animateRow(d) {
+      var el = row(d.gameSlug, d.teamSlug);
+      if (!el) return;
+      var anim = ANIM[d.scoringType] || FALLBACK;
+
+      restart(el.querySelector('.nfl-row-wash'), ['nfl-wash-run'], 'nfl-wash-run');
+      restart(el.querySelector('.nfl-rail'),     ['nfl-rail-run'], 'nfl-rail-run');
+      restart(el.querySelector('[data-role="score"]'), SCORE_CLASSES, anim.score);
+
+      hot[key(d.gameSlug, d.teamSlug)] = true;
+      applyHot();
+      setTimeout(function () { cool(d.gameSlug, d.teamSlug); }, HOT_MS);
+    }
+
+    function showBanner(d) {
       var isFinal = d.event === 'final';
       var bg = isFinal ? '#1e293b' : (d.teamBg || '#1e293b');
       var fg = isFinal ? '#e2e8f0' : (d.teamFg || '#e2e8f0');
@@ -148,18 +284,13 @@
         (d.awayTeam || '') + ' ' + (d.awayScore || '0') + '  –  ' + (d.homeScore || '0') + ' ' + (d.homeTeam || '');
 
       overlay.classList.remove('hidden');
-      banner.classList.remove('nfl-score-out');
-      banner.classList.remove('nfl-score-in');
-      void banner.offsetWidth;
-      banner.classList.add('nfl-score-in');
-      shimmer.classList.remove('nfl-shimmer-run');
-      void shimmer.offsetWidth;
-      shimmer.classList.add('nfl-shimmer-run');
+      var cls = isFinal ? 'nfl-b-final' : ((ANIM[d.scoringType] || FALLBACK).banner);
+      restart(banner, BANNER_CLASSES, cls);
+      restart(shimmer, ['nfl-shimmer-run'], 'nfl-shimmer-run');
 
       if (hideTimer) clearTimeout(hideTimer);
       hideTimer = setTimeout(function () {
-        banner.classList.remove('nfl-score-in');
-        banner.classList.add('nfl-score-out');
+        restart(banner, BANNER_CLASSES, 'nfl-b-out');
         setTimeout(function () { overlay.classList.add('hidden'); }, 340);
       }, isFinal ? 3200 : 4000);
     }
@@ -167,8 +298,18 @@
     function fire(node) {
       if (node.nodeType !== 1) return;
       var d = node.dataset;
-      show(d);
-      if (d.event !== 'final') flashTile(d.gameSlug, d.teamSlug, d.teamBg);
+      showBanner(d);
+      // Next frame, not this one. The server sends the board update ahead of the
+      // event (see Nfl::LiveBroadcast.scoring_event), but Turbo applies streams
+      // as they arrive and a SECOND game scoring at the same instant would
+      // replace the board out from under an animation started synchronously
+      // here. Waiting a frame means the row we decorate is the row that stays.
+      if (d.event !== 'final') {
+        var payload = {
+          gameSlug: d.gameSlug, teamSlug: d.teamSlug, scoringType: d.scoringType
+        };
+        requestAnimationFrame(function () { animateRow(payload); });
+      }
       node.remove();
     }
 
@@ -177,5 +318,12 @@
     new MutationObserver(function (muts) {
       muts.forEach(function (m) { Array.prototype.slice.call(m.addedNodes).forEach(fire); });
     }).observe(feed, { childList: true });
+
+    // A broadcast replaces the board wholesale; re-paint the still-hot scores
+    // onto the new nodes so a score that just changed does not go grey again
+    // because a DIFFERENT game scored.
+    if (board) {
+      new MutationObserver(function () { applyHot(); }).observe(board, { childList: true, subtree: true });
+    }
   })();
 </script>

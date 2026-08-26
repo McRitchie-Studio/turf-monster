@@ -6,8 +6,18 @@
     assumption. The leading 3px rail is the strongest brand cue available at
     this size, which is why each row carries one.
 
-    data-game-slug is the hook the page's scoring animation uses to find and
-    flash the tile that just scored. %>
+    THE ROW IS AN ANIMATION TARGET, and that is why it carries more markup than
+    a score line needs:
+      · data-game-slug / data-team-slug   — how the page finds the row that scored
+      · --nfl-team (inline custom property) — the brand color the flash, the rail
+                                              glow and the hot score all read, so
+                                              the animation is the TEAM's color and
+                                              not a generic grey
+      · .nfl-row-wash                      — a pre-positioned overlay the flash
+                                              fades in and out. Painting the row
+                                              background directly would fight the
+                                              text contrast; a separate layer at
+                                              low opacity does not. %>
 <% home = game.home_team %>
 <% away = game.away_team %>
 <div class="card p-0 overflow-hidden transition-shadow duration-300"
@@ -15,15 +25,29 @@
      data-test="live-game-tile">
   <div class="divide-y divide-subtle">
     <% [[away, game.away_score], [home, game.home_score]].each do |team, score| %>
-      <div class="flex items-center gap-3 px-3 py-2.5" data-team-slug="<%= team&.slug %>">
-        <span class="w-1 h-8 rounded-full flex-shrink-0"
-              style="background: <%= team&.card_background || "#64748b" %>"></span>
-        <span class="text-xl leading-none flex-shrink-0"><%= team&.emoji %></span>
-        <span class="min-w-0 flex-1">
+      <% color = team&.card_background || "#64748b" %>
+      <%# The tile carries BOTH of a team's brand colors, because they do
+          different jobs. `card_background` is the team's FIELD — right for a
+          low-opacity wash behind a row. It is wrong for text: Pittsburgh's is
+          #101820, which on this dark board is invisible, and the first cut of
+          the hot score rendered exactly that. `card_mascot` is the ink that
+          pairs with that field by construction (it is what the banner already
+          uses over the same color), so it is what the score turns. %>
+      <% ink = team&.card_mascot || "#e2e8f0" %>
+      <div class="relative flex items-center gap-3 px-3 py-2.5 overflow-hidden"
+           data-team-slug="<%= team&.slug %>"
+           data-role="team-row"
+           style="--nfl-team: <%= color %>; --nfl-team-ink: <%= ink %>">
+        <span class="nfl-row-wash absolute inset-0 pointer-events-none opacity-0"
+              style="background: <%= color %>"></span>
+        <span class="nfl-rail relative w-1 h-8 rounded-full flex-shrink-0"
+              style="background: <%= color %>"></span>
+        <span class="relative text-xl leading-none flex-shrink-0"><%= team&.emoji %></span>
+        <span class="relative min-w-0 flex-1">
           <span class="block text-sm font-bold text-heading truncate"><%= team&.short_name || team&.name %></span>
           <span class="block text-[11px] text-muted truncate"><%= team&.location %></span>
         </span>
-        <span class="text-2xl font-extrabold text-heading tabular-nums"
+        <span class="relative text-2xl font-extrabold text-heading tabular-nums transition-colors duration-700"
               data-role="score"><%= score.to_i %></span>
       </div>
     <% end %>

@@ -12,6 +12,9 @@
      data-team-bg="<%= team&.card_background %>"
      data-team-fg="<%= team&.card_mascot %>"
      data-label="<%= goal&.scoring_label %>"
+     <%# The RAW type, not the label — the page keys its per-type animations off
+         this, and "2-Point Conversion" is a display string that will change. %>
+     data-scoring-type="<%= goal&.scoring_type %>"
      data-points="<%= goal&.points %>"
      data-home-team="<%= game.home_team&.short_name || game.home_team_slug %>"
      data-away-team="<%= game.away_team&.short_name || game.away_team_slug %>"

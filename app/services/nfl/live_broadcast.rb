@@ -29,8 +29,19 @@ module Nfl
         game = goal.game
         return unless game && nfl?(goal.team)
 
-        append_event(goal, game)
+        # BOARD FIRST, THEN THE EVENT — the order is load-bearing.
+        #
+        # `replace_scoreboard` swaps the entire scoreboard partial, so any class
+        # the page has just put on a row is destroyed with the node that carried
+        # it. Appending the event first therefore starts the scoring animation on
+        # markup that is about to be thrown away, and the animation is wiped
+        # milliseconds into playing — reliably, because these two broadcasts ride
+        # one ordered stream.
+        #
+        # Updating the board first and announcing second also reads correctly:
+        # the number is already right when the animation draws attention to it.
         replace_scoreboard(game)
+        append_event(goal, game)
       end
 
       # The score moved without a new scoring event (a play was overturned and

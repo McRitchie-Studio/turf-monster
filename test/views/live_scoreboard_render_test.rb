@@ -46,6 +46,30 @@ class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
     assert_match(/background:\s*#97233F/i, response.body)
   end
 
+  # The row carries BOTH brand colors, because they do different jobs: the field
+  # backs the wash and the rail glow, the ink colors the score. Shipping only the
+  # field is not a cosmetic slip — Pittsburgh's is #101820, so the score that
+  # just changed renders near-black on a dark board and reads as not having
+  # changed at all.
+  test "each row exposes the team's field AND ink colors to the animations" do
+    get live_path
+
+    assert_select "[data-game-slug=?] [data-team-slug=?]", @game.slug, @home.slug do |rows|
+      style = rows.first["style"]
+      assert_match(/--nfl-team:\s*#97233F/i, style)
+      assert_match(/--nfl-team-ink:\s*#FFB612/i, style)
+    end
+  end
+
+  test "each row carries the wash and rail the scoring animation targets" do
+    get live_path
+
+    assert_select "[data-game-slug=?]", @game.slug do
+      assert_select ".nfl-row-wash", count: 2
+      assert_select ".nfl-rail", count: 2
+    end
+  end
+
   test "labels a live game with its clock and a final game as final" do
     get live_path
     assert_select "[data-game-slug=?]", @game.slug do

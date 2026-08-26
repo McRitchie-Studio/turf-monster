@@ -8,22 +8,36 @@
     also chooses the game — the option value carries both, and the operator
     never has to keep a game picker and a team picker agreeing with each other. %>
 <% if Rails.env.local? %>
-  <% options = games.flat_map { |g| [[g, g.away_team], [g, g.home_team]] }
-                    .reject { |_g, t| t.nil? }
-                    .sort_by { |_g, t| t.short_name.to_s } %>
+  <%# Built in the SAME order the <select> renders below (by kickoff, away then
+      home), so the Alpine default lands on the first visible row rather than on
+      whichever team happened to sort first alphabetically. %>
+  <% options = games.sort_by { |g| g.kickoff_at || Time.current }
+                    .flat_map { |g| [[g, g.away_team], [g, g.home_team]] }
+                    .reject { |_g, t| t.nil? } %>
   <% if options.any? %>
     <div x-data="devScoreTools()" data-test="dev-score-tools"
          class="flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50/80 dark:border-amber-700/40 dark:bg-amber-950/30 px-1.5 py-1 flex-wrap">
       <span class="text-[10px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400/90"
             title="Dev/test only — writes real Goal rows so the full pipeline runs">Score</span>
 
+      <%# The option text reads TEAM FIRST, then that team's own matchup context —
+          "ARI — @ GB", "GB — vs ARI". The leading token is always the team the
+          buttons will score for, which is the ambiguity the earlier
+          "ARI @ GB" / "GB vs ARI" listing had: both rows were selectable but
+          neither said which side you were picking. Grouping by game pairs the
+          two rows visually so a team is easy to find next to its opponent. %>
       <select x-model="target" data-test="dev-score-team"
-              class="px-1.5 py-1 rounded-md text-xs font-medium bg-surface text-secondary border border-subtle max-w-[190px]">
-        <% options.each do |game, team| %>
-          <% opponent = team.slug == game.home_team_slug ? game.away_team : game.home_team %>
-          <option value="<%= game.slug %>|<%= team.slug %>">
-            <%= team.short_name %> <%= team.slug == game.home_team_slug ? "vs" : "@" %> <%= opponent&.short_name %>
-          </option>
+              class="px-1.5 py-1 rounded-md text-xs font-medium bg-surface text-secondary border border-subtle max-w-[230px]">
+        <% games.sort_by { |g| g.kickoff_at || Time.current }.each do |game| %>
+          <% next unless game.home_team && game.away_team %>
+          <optgroup label="<%= game.away_team.short_name %> @ <%= game.home_team.short_name %>">
+            <% [game.away_team, game.home_team].each do |team| %>
+              <% opponent = team.slug == game.home_team_slug ? game.away_team : game.home_team %>
+              <option value="<%= game.slug %>|<%= team.slug %>">
+                <%= team.emoji %> <%= team.short_name %> — <%= team.slug == game.home_team_slug ? "vs" : "@" %> <%= opponent.short_name %>
+              </option>
+            <% end %>
+          </optgroup>
         <% end %>
       </select>
 

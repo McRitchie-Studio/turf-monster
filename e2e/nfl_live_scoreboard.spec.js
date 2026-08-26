@@ -61,6 +61,52 @@ test.describe("Live NFL scoreboard", () => {
     const bg = await banner.evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(bg).not.toBe("rgba(0, 0, 0, 0)");
     expect(bg).not.toBe("rgb(30, 41, 59)"); // the neutral used only for FINAL
+
+    // A touchdown gets the TOUCHDOWN entrance, not a shared one. Asserted on the
+    // class rather than on pixels because the whole point of five animations is
+    // that they are five DIFFERENT ones, and a shared fallback would still look
+    // fine in a screenshot.
+    await expect(banner).toHaveClass(/nfl-b-td/);
+  });
+
+  test("the scoring team's row animates in its own colors and stays hot", async ({ page }) => {
+    await allowMotion(page);
+    await page.goto("/live");
+
+    const select = page.locator('[data-test="dev-score-team"]');
+    const target = await select.locator("option").first().getAttribute("value");
+    const [gameSlug, teamSlug] = target.split("|");
+    await select.selectOption(target);
+
+    const row = page.locator(`[data-game-slug="${gameSlug}"] [data-team-slug="${teamSlug}"]`);
+    // Both brand colours must reach the row: the field (washes, rail glow) and
+    // the ink (the score). The ink is the fix for a score that rendered in a
+    // team's near-black brand colour and vanished against the dark board.
+    const field = await row.evaluate((el) => getComputedStyle(el).getPropertyValue("--nfl-team").trim());
+    const ink = await row.evaluate((el) => getComputedStyle(el).getPropertyValue("--nfl-team-ink").trim());
+    expect(field).toMatch(/^#/);
+    expect(ink).toMatch(/^#/);
+    expect(ink).not.toBe(field);
+
+    await page.locator('[data-test="dev-score-field_goal"]').click();
+
+    const score = row.locator('[data-role="score"]');
+    // A field goal gets the FIELD GOAL score motion, and the number goes hot.
+    await expect(score).toHaveClass(/nfl-s-fg/, { timeout: 10000 });
+    await expect(score).toHaveClass(/nfl-score-hot/);
+
+    // Hot means bold and in the team's ink — not the board's default grey. It
+    // must OUTLIVE the banner, which is the whole reason the state is held in JS
+    // and re-applied rather than left on a node the next broadcast replaces.
+    await page.waitForTimeout(5000);
+    const hot = await score.evaluate((el) => ({
+      weight: getComputedStyle(el).fontWeight,
+      color: getComputedStyle(el).color,
+      still: el.classList.contains("nfl-score-hot")
+    }));
+    expect(hot.still).toBe(true);
+    expect(Number(hot.weight)).toBeGreaterThanOrEqual(900);
+    expect(hot.color).not.toBe("rgb(148, 163, 184)");
   });
 
   test("each scoring type is worth its own points", async ({ page }) => {
