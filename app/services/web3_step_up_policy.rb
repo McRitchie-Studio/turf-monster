@@ -26,8 +26,10 @@
 #
 # ADVISORY, NOT AN ENFORCEMENT BOUNDARY (operator call, 2026-08-21). A `true`
 # here opens a DISMISSIBLE modal; it does not suspend the session. The teeth are
-# where they already were — ContestsController#enter still refuses an unsigned
-# session, and every on-chain path still demands a live signature — so this moves
+# where they already were — ContestsController#enter refuses a web3 session
+# OUTRIGHT (routing it to prepare_entry -> confirm_onchain_entry, where the
+# signed transaction is the proof), and every on-chain path still demands a live
+# signature — so this moves
 # the PROMPT to sign-in without moving any gate, exactly the way the age gate's
 # prompt moved to onboarding while its enforcement stayed at entry. Getting this
 # backwards would lock a legitimate owner out of their own account over a

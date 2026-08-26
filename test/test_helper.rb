@@ -269,6 +269,4 @@ class ActionDispatch::IntegrationTest
 
     key
   end
-
-  # Sign a contest entry message with the given key, returning params hash for POST /enter
 end
