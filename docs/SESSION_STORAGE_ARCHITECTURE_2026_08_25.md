@@ -27,7 +27,7 @@ ENGINE=/Users/alex/projects/studio-engine
   | sed "s/.*(//" | tr -d "\"'" | sort -u                                  # → 19
 # session keys — literals, THEN resolve every constant-keyed write by hand
 grep -rhoE "session\[:[a-z_0-9]+\]" app/ lib/ | sed 's/session\[://;s/\]//' | sort -u   # → 15
-grep -rnE "session\[[A-Z]|session\.delete\([A-Z]" app/ lib/                    # → +wallet_brand = 16
+grep -rnE "session\[[A-Z]|session\.delete\([A-Z]" app/ lib/   # → 2 constants: +wallet_brand +turf_user_id = 17
 # writer files — the scope IS the number; state which one you mean
 grep -rl "\(localStorage\|sessionStorage\)\.\(setItem\|removeItem\)" app/            # → 13
 grep -rl "\(localStorage\|sessionStorage\)\.\(setItem\|removeItem\)" app/ e2e/       # → 17
@@ -184,26 +184,33 @@ why an inventory built from literal greps could miss two of them.
 The app writes exactly one non-Rails cookie: `cookies[:reference]` (9 sites,
 referral attribution). The Rails session cookie is the only auth-bearing one.
 
-### 1.4 Server — session keys (16)
+### 1.4 Server — session keys (17)
 
 Written across controllers/services:
 
 `wallet_setup`, `wallet_setup_prompt`, `web3_step_up_prompt`, `onboarding_prompt`,
 `onboarding_skipped_first_name`, `true_admin_id`, `impersonated_user_id`,
 `impersonation_started_at`, `solana_nonce`, `solana_nonce_at`, `session_token`,
-`onchain`, `pending_google_link`, `return_to`, `oauth_popup`, **`wallet_brand`**.
+`onchain`, `pending_google_link`, `return_to`, `oauth_popup`, **`wallet_brand`**,
+**`turf_user_id`**.
 
 | Key | Written | Cleared | Read |
 |---|---|---|---|
 | **`wallet_brand`** | `solana/current_wallet.rb:50` via `CurrentWallet.remember`, called from `solana_sessions_controller.rb:75` on verify | `current_wallet.rb:55` via `CurrentWallet.forget`, called from `application_controller.rb:65` (login) and `:72` (logout) | `current_wallet.rb:41` via `CurrentWallet.from_session`, memoised at `application_controller.rb:79` |
+| **`turf_user_id`** | **studio-engine** `concerns/studio/error_handling.rb:31` (`set_app_session`) | same file `:65` (`clear_app_session`) — the first of §2.6's 3 | `error_handling.rb:26`, `application_controller.rb:362` (`true_user`), `config/routes.rb:14`, `rack_attack.rb:103` |
 
 **`wallet_brand` was missing from revision 1** — the wallet-identity session key,
 absent from a wallet audit. It is defined as
 `SESSION_KEY = :wallet_brand` (`app/services/solana/current_wallet.rb:36`), so a
-`session[:literal]` grep cannot see it. It is the **only** constant-keyed session
-key in this app; the one other constant, `Studio::FIRST_NAME_SKIP_SESSION_KEY`
-(`studio-engine/lib/studio.rb:343`), resolves to `onboarding_skipped_first_name`,
-which was already counted. Both were checked by hand.
+`session[:literal]` grep cannot see it — and it is **one of two** such keys. The
+second matters more: `Studio.session_key`, configured to `:turf_user_id`
+(`config/initializers/studio.rb:44`), is the **primary authentication key**, written
+by the engine and never a literal in `app/`/`lib/` — revision 2 missed it exactly as
+revision 1 missed `wallet_brand`. A third constant,
+`Studio::FIRST_NAME_SKIP_SESSION_KEY` (`studio-engine/lib/studio.rb:343`), resolves
+to `onboarding_skipped_first_name`, already counted. All three resolved by hand.
+Scope: these 17 are reachable from `app/`+`lib/`; the engine writes `sso_*`/`geo_*`
+into the same cookie (§2.6) and slice 10 must decide if its assertion covers them.
 
 Owner: `SessionsController` / `SolanaSessionsController` / `ApplicationController`
 / `Solana::CurrentWallet`. The authoritative web3 flag is `session[:onchain]`,
@@ -730,7 +737,7 @@ Each is independently reviewable and independently shippable.
 | 7 | **`WalletSession` store + the disconnect reflex.** New store per §4.1; subscribe `disconnect`; delete the `if (!publicKey) return` early return (`solana_stores.js:179`) in favour of the reducer. **Defects A and B ship together here** — the green check at `_solana_wallet_section.html.erb:46` re-keys from `user.solana_connected?` to `walletSession.state === 'live'`. Also: serialise `session[:wallet_brand]` into `#session-context` so `providerName` reads the session fact first (§4.1), and **rename `$store.session.walletConnected` → `walletHasAddress`** (`application_controller.rb:539`, `modals/_wallet_setup.html.erb:564`, `:570`) before its name collides with `signerAvailable` (§2.7). **Extend `e2e/phantom-mock.js` first** — see the note below the table. | `ui+db` | `[unit]` reducer truth table, in the memoised-`Proxy` Node harness · `[component]` indicator renders live/degraded/mismatched · `[integration]` re-auth still single-tab-guarded · `[e2e]` new `wallet_disconnect.spec.js` + existing `wallet_session_switch.spec.js` | **CHANGES** — the check now reflects live connectivity |
 | 8 | **Defect C — never-connected account switch.** Write the spec **first**, confirm today's silence, then confirm slice 7 fixed it. **Blocked on the mock change in slice 7.** | `ui+db` | `[e2e]` switch to an unapproved account → `degraded`, indicator greys, no logout · `[unit]` reducer case | **Preserving** (verification of 7) |
 | 9 | **Read-only degradation.** Re-key **four** sites, not two: `layout:105` (hydrate), `layout:1420` (watcher), and the **server-side twins** `accounts_controller.rb:62` and `admin_controller.rb:405`, all from `solana_connected?` to `solana_address.present?`. Miss the server pair and the client asks for a hydrate the server refuses to compute, so degraded mode renders zeros instead of balances. add the `signer_required` gate to `eligibilityBlocker`; add the reconnect card. | `ui+db` | `[unit]` blocker returns `signer_required` only for web3+`!signerAvailable`, and **after** first-name/age/wallet-setup · `[component]` reconnect card · `[integration]` server `enter` still refuses independently · `[e2e]` delete-the-extension → balances still render, entry blocked | **CHANGES** — requirement 5 |
-| 10 | **Definitive logout.** `reset_session` server-side; `wipeClientState()` client-side from one shared helper on both logout links; cross-tab broadcast. | `ui+db` | `[unit]` wipe empties both storages and re-inits every store · `[integration]` no session key survives `destroy` (assert over the full **16**-key set, `wallet_brand` included) · `[unit]` exactly two browser keys survive the wipe (`theme`, `devMode`) · `[e2e]` log out → log in as user B → zero user-A state · `[component]` both logout links use the shared helper | **CHANGES** — requirement 6 |
+| 10 | **Definitive logout.** `reset_session` server-side; `wipeClientState()` client-side from one shared helper on both logout links; cross-tab broadcast. | `ui+db` | `[unit]` wipe empties both storages and re-inits every store · `[integration]` no session key survives `destroy` (assert over the full **17**-key set, `wallet_brand` and `turf_user_id` included) · `[unit]` exactly two browser keys survive the wipe (`theme`, `devMode`) · `[e2e]` log out → log in as user B → zero user-A state · `[component]` both logout links use the shared helper | **CHANGES** — requirement 6 |
 | 11 | **Refresh contract + 60s heartbeat.** `refreshWalletData({reason})`; add `username` + `generation` to the payload; hidden-tab-paused heartbeat. | `ui+db` | `[unit]` generation guard drops a stale response; heartbeat pauses on `hidden`, fires once on visible · `[integration]` payload carries username · `[e2e]` balance updates without navigation within ~60s (RPC mocked) | **CHANGES** — requirement 7b |
 
 **Slices 7 and 8 are blocked on a mock change.** `e2e/phantom-mock.js` cannot
