@@ -42,11 +42,12 @@
         description:      "Your username is stored on-chain. #{wallet_line}" %>
 <% else %>
   <%# Locked state — Success-template spine via card_header :lg + :error
-      icon. CTA targets the admin-set main contest (via SeasonConfig.main_contest,
-      which falls back to most-recent open) so the click lands somewhere
-      actionable; root_path would work too but adds a redirect hop.
+      icon. CTA targets the admin-set main contest (via main_contest_target,
+      the per-request memo over SeasonConfig.main_contest, which falls back to
+      most-recent open) so the click lands somewhere actionable; root_path would
+      work too but adds a redirect hop.
       block_given? trap is dodged by passing subtitle explicitly. %>
-  <% locked_target = SeasonConfig.main_contest %>
+  <% locked_target = main_contest_target %>
   <div x-data="{}">
     <%= render 'studio/modals/blocks/card_header',
           size: :lg,
