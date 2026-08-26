@@ -1,0 +1,181 @@
+<% slot_label = if @slot.nil?
+     "NFL"
+   else
+     type = Game::SEASON_TYPES[@slot[:season_type]]
+     prefix = type == "regular" ? "" : "#{type.to_s.titleize} · "
+     "#{@slot[:season_year]} NFL · #{prefix}Week #{@slot[:week]}"
+   end %>
+<% content_for(:title) { "#{slot_label} — Live Scores" } %>
+
+<%# ONE stream for the whole board. Nfl::LiveBroadcast updates the scoreboard
+    target and appends to the event feed; nothing on this page polls. %>
+<%= turbo_stream_from "nfl_live" %>
+
+<div class="max-w-6xl mx-auto px-4 py-6">
+  <div class="mb-5 flex items-start justify-between gap-3 flex-wrap">
+    <div class="min-w-0">
+      <p class="text-sm text-secondary font-medium">Live Scoreboard</p>
+      <h1 class="text-2xl md:text-3xl font-extrabold text-heading flex items-center gap-2 flex-wrap">
+        <%= slot_label %>
+        <% if @games.any?(&:live?) %>
+          <span class="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-red-400">
+            <span class="h-2 w-2 rounded-full bg-red-500 animate-pulse"></span> Live
+          </span>
+        <% end %>
+      </h1>
+    </div>
+    <%= render "live/dev_score_tools", games: @games, teams: @dev_teams %>
+  </div>
+
+  <div id="nfl_live_scoreboard">
+    <%= render "live/scoreboard", games: @games %>
+  </div>
+
+  <%# Hidden event feed — broadcast_append_to drops data-only nodes here; the
+      observer below turns each into the scoring animation, then removes it. %>
+  <div id="nfl_live_event_feed" class="hidden" aria-hidden="true"></div>
+</div>
+
+<%# The scoring banner. One reused element rather than one per event, so a
+    rapid-fire sequence (a touchdown and its two-point conversion) replaces the
+    banner instead of stacking a pile of them down the screen. %>
+<%# z-[130] clears the whole fixed-chrome stack: the navbar sits at z-[110]
+    and the modal host's backdrop at z-[120] (see layouts/_navbar). A scoring
+    banner that a sticky header can paint over is a scoring banner nobody
+    sees — which is exactly what z-50 bought before this was measured. It is
+    pointer-events-none and self-dismisses, so sitting on top costs nothing. %>
+<div id="nfl-score-overlay" class="fixed inset-x-0 top-0 z-[130] pointer-events-none hidden">
+  <div id="nfl-score-banner" class="mx-auto max-w-lg m-3 rounded-xl shadow-2xl overflow-hidden relative">
+    <div class="px-5 py-4 flex items-center gap-4">
+      <span id="nfl-score-emoji" class="text-4xl leading-none"></span>
+      <div class="min-w-0 flex-1">
+        <div id="nfl-score-label" class="text-xl font-extrabold uppercase tracking-wide leading-tight"></div>
+        <div id="nfl-score-team" class="text-sm font-semibold opacity-90 truncate"></div>
+      </div>
+      <div id="nfl-score-points" class="text-3xl font-black tabular-nums opacity-95"></div>
+    </div>
+    <div id="nfl-score-line" class="px-5 py-2 text-sm font-bold tabular-nums bg-black/25"></div>
+    <span id="nfl-score-shimmer" class="absolute inset-0 pointer-events-none"></span>
+  </div>
+</div>
+
+<style>
+  /* Banner: overshoots slightly on the way in so it lands with weight. */
+  @keyframes nflScoreIn {
+    0%   { transform: translateY(-130%); opacity: 0; }
+    65%  { transform: translateY(6%);    opacity: 1; }
+    100% { transform: translateY(0);     opacity: 1; }
+  }
+  @keyframes nflScoreOut {
+    to { transform: translateY(-130%); opacity: 0; }
+  }
+  /* A light sweep across the banner, once, just after it lands. */
+  @keyframes nflShimmer {
+    0%   { transform: translateX(-120%); }
+    100% { transform: translateX(120%); }
+  }
+  /* The tile that scored: a ring in the scoring team's color, twice. */
+  @keyframes nflTileFlash {
+    0%, 100% { box-shadow: 0 0 0 0 var(--nfl-flash, transparent); }
+    25%      { box-shadow: 0 0 0 4px var(--nfl-flash, transparent); }
+    50%      { box-shadow: 0 0 0 0 var(--nfl-flash, transparent); }
+    75%      { box-shadow: 0 0 0 4px var(--nfl-flash, transparent); }
+  }
+  /* The score digits pop as they change. */
+  @keyframes nflScorePop {
+    0%   { transform: scale(1); }
+    45%  { transform: scale(1.5); }
+    100% { transform: scale(1); }
+  }
+  .nfl-score-in  { animation: nflScoreIn 520ms cubic-bezier(.2,.9,.3,1.4) both; }
+  .nfl-score-out { animation: nflScoreOut 340ms ease-in both; }
+  #nfl-score-shimmer::after {
+    content: ""; position: absolute; inset: 0; width: 45%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.28), transparent);
+  }
+  .nfl-shimmer-run::after { animation: nflShimmer 900ms ease-out 260ms both; }
+  .nfl-tile-flash { animation: nflTileFlash 1200ms ease-out both; }
+  .nfl-score-pop  { animation: nflScorePop 620ms cubic-bezier(.2,.9,.3,1.4) both; display: inline-block; }
+
+  /* Respect the system setting. The board still updates — it just stops
+     moving, which is the point of the preference. */
+  @media (prefers-reduced-motion: reduce) {
+    .nfl-score-in, .nfl-score-out, .nfl-tile-flash, .nfl-score-pop, .nfl-shimmer-run::after {
+      animation: none !important;
+    }
+  }
+</style>
+
+<script>
+  (function () {
+    var feed = document.getElementById('nfl_live_event_feed');
+    if (!feed || feed.dataset.observed) return;  // guard double-attach across Turbo visits
+    feed.dataset.observed = '1';
+
+    var overlay = document.getElementById('nfl-score-overlay');
+    var banner  = document.getElementById('nfl-score-banner');
+    var shimmer = document.getElementById('nfl-score-shimmer');
+    var hideTimer = null;
+
+    function flashTile(gameSlug, teamSlug, color) {
+      var tile = document.querySelector('[data-game-slug="' + gameSlug + '"]');
+      if (!tile) return;
+      tile.style.setProperty('--nfl-flash', color || 'rgba(148,163,184,.9)');
+      tile.classList.remove('nfl-tile-flash');
+      void tile.offsetWidth;                      // reflow, so a repeat score re-runs it
+      tile.classList.add('nfl-tile-flash');
+
+      var row = tile.querySelector('[data-team-slug="' + teamSlug + '"] [data-role="score"]');
+      if (row) {
+        row.classList.remove('nfl-score-pop');
+        void row.offsetWidth;
+        row.classList.add('nfl-score-pop');
+      }
+    }
+
+    function show(d) {
+      var isFinal = d.event === 'final';
+      var bg = isFinal ? '#1e293b' : (d.teamBg || '#1e293b');
+      var fg = isFinal ? '#e2e8f0' : (d.teamFg || '#e2e8f0');
+
+      banner.style.background = bg;
+      banner.style.color = fg;
+      document.getElementById('nfl-score-emoji').textContent  = isFinal ? '🏁' : (d.teamEmoji || '🏈');
+      document.getElementById('nfl-score-label').textContent  = isFinal ? 'Final' : (d.label || 'Score');
+      document.getElementById('nfl-score-team').textContent   = isFinal ? '' : (d.teamName || d.team || '');
+      document.getElementById('nfl-score-points').textContent = (isFinal || !d.points) ? '' : ('+' + d.points);
+      document.getElementById('nfl-score-line').textContent =
+        (d.awayTeam || '') + ' ' + (d.awayScore || '0') + '  –  ' + (d.homeScore || '0') + ' ' + (d.homeTeam || '');
+
+      overlay.classList.remove('hidden');
+      banner.classList.remove('nfl-score-out');
+      banner.classList.remove('nfl-score-in');
+      void banner.offsetWidth;
+      banner.classList.add('nfl-score-in');
+      shimmer.classList.remove('nfl-shimmer-run');
+      void shimmer.offsetWidth;
+      shimmer.classList.add('nfl-shimmer-run');
+
+      if (hideTimer) clearTimeout(hideTimer);
+      hideTimer = setTimeout(function () {
+        banner.classList.remove('nfl-score-in');
+        banner.classList.add('nfl-score-out');
+        setTimeout(function () { overlay.classList.add('hidden'); }, 340);
+      }, isFinal ? 3200 : 4000);
+    }
+
+    function fire(node) {
+      if (node.nodeType !== 1) return;
+      var d = node.dataset;
+      show(d);
+      if (d.event !== 'final') flashTile(d.gameSlug, d.teamSlug, d.teamBg);
+      node.remove();
+    }
+
+    // Drain anything already present (a broadcast can land before attach).
+    Array.prototype.slice.call(feed.children).forEach(fire);
+    new MutationObserver(function (muts) {
+      muts.forEach(function (m) { Array.prototype.slice.call(m.addedNodes).forEach(fire); });
+    }).observe(feed, { childList: true });
+  })();
+</script>

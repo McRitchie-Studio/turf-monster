@@ -1,0 +1,18 @@
+<%# The game grid. Locals: games (enumerable of Game).
+
+    Rendered BOTH on first load and by every Nfl::LiveBroadcast update, from
+    the same partial with the same locals — that identity is what stops a
+    broadcast-replaced board from drifting away from a freshly loaded one. %>
+<% ordered = games.sort_by { |g| [g.live? ? 0 : (g.completed? ? 2 : 1), g.kickoff_at || Time.current] } %>
+<% if ordered.empty? %>
+  <div class="card p-8 text-center">
+    <p class="text-sm text-muted">No games on the board yet.</p>
+    <p class="text-xs text-muted mt-1">The score poller fills this in as games are scheduled.</p>
+  </div>
+<% else %>
+  <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <% ordered.each do |game| %>
+      <%= render "live/game_tile", game: game %>
+    <% end %>
+  </div>
+<% end %>

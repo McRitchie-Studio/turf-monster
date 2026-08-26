@@ -269,11 +269,25 @@
 # them apart. If you touch that spec, run it against the broken guard before
 # trusting the green.
 #
-# 184 -> 185: this PR's second Phantom-signature spec, appended to an EXISTING
-# spec file (50 files, unchanged). Second collision on this counter for this
-# branch — see the executed: note below for why the number is re-derived rather
-# than incremented.
-total_specs: 185
+# 185 -> 190: the live NFL scoreboard's spec file
+# (e2e/nfl_live_scoreboard.spec.js, 5 tests, ONE new file — 50 -> 51 files).
+#
+# RE-DERIVED WITH THE RUNNER, not incremented. Both routes were run and made to
+# agree, which is the check that catches a spec that is declared but never
+# collected:
+#
+#   npx playwright test --list                                    -> 190 tests in 51 files
+#   npx playwright test --list --grep "@devnet"                   ->  17 tests in  1 file
+#   npx playwright test --list --grep-invert "@devnet" --project=chromium
+#                                                                 -> 173 tests in 50 files
+#
+#   total_specs - excluded - allowed_skips  =  190 - 17 - 4  =  169
+#   collected   - allowed_skips             =  173      - 4  =  169   ✓ agree
+#
+# allowed_skips is UNCHANGED at 4: none of the five new specs skips. They are
+# public-page specs against /live with no provider flag and no wallet, so there
+# is no runtime condition under which they exit without executing.
+total_specs: 190
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.

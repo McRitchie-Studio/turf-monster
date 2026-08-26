@@ -1,0 +1,104 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# ONE polling cycle against ESPN, printed as a human-readable delta.
+#
+# This is the seam between the deterministic half of live scoring and the
+# agentic half. Everything that decides anything — what a scoring play is worth,
+# which game it belongs to, whether a contest re-scores — happens inside
+# Nfl::LiveScores::PollCycle, in code, under test. This script runs exactly one
+# cycle and reports what changed. An agent's job is to call it on a cadence and
+# read the output; it is not asked to judge, and cannot.
+#
+# It is safe to call as often as you like: the cycle is idempotent, keyed on
+# ESPN's own play ids under a unique index. Two cycles in a row write nothing
+# the second time, and an interrupted run resumes simply by being run again.
+#
+# Usage:
+#   bin/nfl-live-poll                  # the slot ESPN considers current
+#   bin/nfl-live-poll --slot 2026:1:4  # year:season_type:week (1=pre 2=reg 3=post)
+#   bin/nfl-live-poll --json           # machine-readable, for piping
+#   bin/nfl-live-poll --quiet          # print nothing when nothing changed
+#
+# Exit status: 0 when the cycle completed (whether or not anything changed),
+# 1 only when the cycle itself could not run. Anomalies are REPORTED, not fatal:
+# a feed we do not own will have bad minutes, and a bad minute must not end a
+# twelve-hour watch.
+
+require_relative "../config/environment"
+require "json"
+require "optparse"
+
+options = { json: false, quiet: false, slot: nil }
+
+OptionParser.new do |parser|
+  parser.banner = "Usage: bin/nfl-live-poll [options]"
+  parser.on("--slot YEAR:TYPE:WEEK", "Poll one specific slot (default: ESPN's current)") do |value|
+    year, type, week = value.split(":").map { |part| Integer(part) }
+    options[:slot] = Nfl::LiveScores::PollCycle::Slot.new(year: year, season_type: type, week: week)
+  end
+  parser.on("--json", "Emit the cycle result as JSON") { options[:json] = true }
+  parser.on("--quiet", "Say nothing when nothing changed") { options[:quiet] = true }
+  parser.on("-h", "--help") { puts parser; exit 0 }
+end.parse!
+
+SEASON_TYPES = { 1 => "Preseason", 2 => "Regular", 3 => "Postseason" }.freeze
+
+def slot_label(slot)
+  return "current slot" unless slot
+
+  "#{slot.year} #{SEASON_TYPES.fetch(slot.season_type, "?")} week #{slot.week}"
+end
+
+# One line per change, aligned so a twelve-hour scrollback stays scannable.
+def change_line(change, stamp)
+  case change.kind
+  when "score"
+    points = change.points.to_i
+    sign = points.negative? ? "" : "+"
+    format(
+      "%s  %-4s %-11s %s%-3d  %s %d-%d %s   %s%s",
+      stamp, change.team, change.scoring_type, sign, points,
+      change.away_team, change.away_score, change.home_score, change.home_team,
+      change.detail.to_s,
+      change.contests.to_i.positive? ? "  (#{change.contests} contest#{"s" if change.contests != 1})" : ""
+    )
+  when "reversed"
+    format("%s  %-4s %-11s REVERSED  %s %d-%d %s", stamp, change.team, change.scoring_type,
+           change.away_team, change.away_score, change.home_score, change.home_team)
+  when "final"
+    # No team and no points — a whistle is not a scoring event. The columns are
+    # held open anyway so finals line up with the scores above them.
+    format("%s  %-4s %-11s %-4s  %s %d-%d %s   FINAL", stamp, "", "", "",
+           change.away_team, change.away_score, change.home_score, change.home_team)
+  else
+    "#{stamp}  #{change.to_h.inspect}"
+  end
+end
+
+begin
+  result = Nfl::LiveScores::PollCycle.call(slot: options[:slot])
+rescue Nfl::Espn::Client::Error => e
+  # The one genuinely fatal case: the scoreboard itself did not arrive, so this
+  # cycle observed nothing at all. Exit 1 so a caller can back off.
+  warn "poll failed: #{e.message}"
+  exit 1
+end
+
+if options[:json]
+  puts JSON.generate(result.to_h)
+  exit 0
+end
+
+exit 0 if options[:quiet] && result.quiet?
+
+stamp = Time.current.strftime("%H:%M:%S")
+
+if result.quiet?
+  puts "#{stamp}  no change  (#{result.games_seen} games, #{slot_label(result.slot)})"
+else
+  result.changes.each { |change| puts change_line(change, stamp) }
+  result.anomalies.each { |anomaly| puts "#{stamp}  ⚠ #{anomaly.kind}: #{anomaly.detail}" }
+  puts "#{stamp}  — #{result.changes.length} change(s), #{result.anomalies.length} anomaly(ies), " \
+       "#{result.games_seen} games, #{slot_label(result.slot)}"
+end

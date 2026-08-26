@@ -1,0 +1,49 @@
+<%# One game on the league scoreboard. Locals: game (Game).
+
+    Every color on this tile is the TEAM'S OWN brand color, read through
+    Team#card_background / #card_mascot so a light-field team (gold Saints, red
+    Bucs) gets its palette the right way round rather than a hardcoded dark
+    assumption. The leading 3px rail is the strongest brand cue available at
+    this size, which is why each row carries one.
+
+    data-game-slug is the hook the page's scoring animation uses to find and
+    flash the tile that just scored. %>
+<% home = game.home_team %>
+<% away = game.away_team %>
+<div class="card p-0 overflow-hidden transition-shadow duration-300"
+     data-game-slug="<%= game.slug %>"
+     data-test="live-game-tile">
+  <div class="divide-y divide-subtle">
+    <% [[away, game.away_score], [home, game.home_score]].each do |team, score| %>
+      <div class="flex items-center gap-3 px-3 py-2.5" data-team-slug="<%= team&.slug %>">
+        <span class="w-1 h-8 rounded-full flex-shrink-0"
+              style="background: <%= team&.card_background || "#64748b" %>"></span>
+        <span class="text-xl leading-none flex-shrink-0"><%= team&.emoji %></span>
+        <span class="min-w-0 flex-1">
+          <span class="block text-sm font-bold text-heading truncate"><%= team&.short_name || team&.name %></span>
+          <span class="block text-[11px] text-muted truncate"><%= team&.location %></span>
+        </span>
+        <span class="text-2xl font-extrabold text-heading tabular-nums"
+              data-role="score"><%= score.to_i %></span>
+      </div>
+    <% end %>
+  </div>
+
+  <%# Status strip. `status_detail` is ESPN's own shortDetail ("Final",
+      "Q3 8:42", "Halftime"), which says more than our three-state status
+      column can — so it leads, and the column is only the fallback. %>
+  <div class="px-3 py-1.5 bg-subtle/40 flex items-center justify-between gap-2">
+    <% if game.live? %>
+      <span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-red-400">
+        <span class="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse"></span> Live
+      </span>
+    <% elsif game.completed? %>
+      <span class="text-[10px] font-bold uppercase tracking-wider text-muted">Final</span>
+    <% else %>
+      <span class="text-[10px] font-bold uppercase tracking-wider text-muted">
+        <%= game.kickoff_at ? game.kickoff_at.strftime("%a %-I:%M %p") : "TBD" %>
+      </span>
+    <% end %>
+    <span class="text-[11px] text-secondary font-mono truncate"><%= game.status_detail %></span>
+  </div>
+</div>

@@ -239,6 +239,34 @@ rescue Nfl::BuildSpanSlate::Error => e
   warn "skipping Weeks 1-3 span slate: #{e.message}"
 end
 
+# ---------------------------------------------------------------------------
+# A live-scoreboard slot for /live (e2e/nfl_live_scoreboard.spec.js).
+#
+# The NFL games db/seeds.rb builds are regular-season rows with no season slot,
+# and Nfl::LiveScores::CurrentSlot deliberately ignores those — a null slot
+# cannot be rendered as a week. So the board would come up empty and the spec
+# would have nothing to click.
+#
+# This stamps a preseason week 4 slot onto three real NFL games and puts them in
+# the three states the board renders (live, live, scheduled), which is what the
+# spec asserts against. It creates NO new games: stamping season_type 1 changes
+# Game#name_slug, and Sluggable rewrites the slug on save, so these rows become
+# "...-pre4" and stop colliding with the regular-season schedule they came from.
+live_board_games = Game.nfl.where(season_year: nil).where.not(kickoff_at: nil)
+                       .order(:kickoff_at).limit(3).to_a
+live_board_games.each_with_index do |game, index|
+  game.update!(
+    season_year: 2026, season_type: 1, week: 4,
+    external_id: "e2e-live-#{index + 1}",
+    kickoff_at: index.zero? ? 90.minutes.ago : (index == 1 ? 45.minutes.ago : 3.hours.from_now),
+    status: index < 2 ? "in_progress" : "scheduled",
+    status_detail: index < 2 ? ["Q3 8:42", "Q2 1:15"][index] : nil,
+    period: index < 2 ? [3, 2][index] : nil,
+    clock: index < 2 ? ["8:42", "1:15"][index] : nil
+  )
+end
+puts "Seeded live board: #{live_board_games.map(&:slug).join(", ")}"
+
 puts "Seeded: #{User.count} users, #{Team.count} teams, #{Slate.count} slates, " \
      "#{Contest.count} contests, #{SlateMatchup.count} matchups, " \
      "#{SurvivorRound.count} survivor rounds, #{Studio::GeoSetting.count} geo_settings"

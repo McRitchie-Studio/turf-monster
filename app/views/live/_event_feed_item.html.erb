@@ -1,0 +1,19 @@
+<%# A data-only node appended to the hidden event feed. The page's
+    MutationObserver reads these data-* attrs, plays the scoring animation, then
+    removes the node. NO <script> here — Turbo does not execute scripts inside
+    broadcast <template>s, which is why every value it needs is an attribute.
+    Locals: event ("score"|"final"), goal (Goal|nil), team (Team|nil), game. %>
+<div data-event="<%= event %>"
+     data-game-slug="<%= game.slug %>"
+     data-team-slug="<%= team&.slug %>"
+     data-team="<%= team ? (team.short_name.presence || team.name) : "" %>"
+     data-team-name="<%= team&.name %>"
+     data-team-emoji="<%= team&.emoji %>"
+     data-team-bg="<%= team&.card_background %>"
+     data-team-fg="<%= team&.card_mascot %>"
+     data-label="<%= goal&.scoring_label %>"
+     data-points="<%= goal&.points %>"
+     data-home-team="<%= game.home_team&.short_name || game.home_team_slug %>"
+     data-away-team="<%= game.away_team&.short_name || game.away_team_slug %>"
+     data-home-score="<%= game.home_score.to_i %>"
+     data-away-score="<%= game.away_score.to_i %>"></div>

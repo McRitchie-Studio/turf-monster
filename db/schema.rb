@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_22_050000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_26_050100) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -247,17 +247,26 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_22_050000) do
     t.string "advancing_team_slug"
     t.integer "away_score"
     t.string "away_team_slug", null: false
+    t.string "clock"
     t.datetime "created_at", null: false
+    t.string "external_id"
     t.integer "home_score"
     t.string "home_team_slug", null: false
     t.datetime "kickoff_at"
+    t.integer "period"
+    t.integer "season_type"
+    t.integer "season_year"
     t.string "slug", null: false
     t.string "status", default: "scheduled"
+    t.string "status_detail"
     t.bigint "survivor_round_id"
     t.datetime "updated_at", null: false
     t.string "venue"
+    t.integer "week"
     t.index ["away_team_slug"], name: "index_games_on_away_team_slug"
+    t.index ["external_id"], name: "index_games_on_external_id_when_present", unique: true, where: "(external_id IS NOT NULL)"
     t.index ["home_team_slug"], name: "index_games_on_home_team_slug"
+    t.index ["season_year", "season_type", "week", "kickoff_at"], name: "index_games_on_season_slot"
     t.index ["slug"], name: "index_games_on_slug", unique: true
     t.index ["status"], name: "index_games_on_status"
     t.index ["survivor_round_id"], name: "index_games_on_survivor_round_id"
@@ -265,12 +274,16 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_22_050000) do
 
   create_table "goals", force: :cascade do |t|
     t.datetime "created_at", null: false
+    t.string "external_id"
     t.string "game_slug", null: false
     t.integer "minute"
     t.string "player_slug"
+    t.integer "points", default: 1, null: false
+    t.string "scoring_type"
     t.string "slug", null: false
     t.string "team_slug", null: false
     t.datetime "updated_at", null: false
+    t.index ["external_id"], name: "index_goals_on_external_id_when_present", unique: true, where: "(external_id IS NOT NULL)"
     t.index ["game_slug"], name: "index_goals_on_game_slug"
     t.index ["player_slug"], name: "index_goals_on_player_slug"
     t.index ["slug"], name: "index_goals_on_slug", unique: true
