@@ -131,6 +131,44 @@ test.describe("Live NFL scoreboard", () => {
     await expect(scoreCell).toHaveText(String(before + 6), { timeout: 10000 });
   });
 
+  // The glow's RESET rule, which is the whole reason its window is a stored
+  // timer rather than a fresh setTimeout per score. Run against a shortened
+  // window (window.NFL_GLOW_MS) so this proves the rule in seconds — at the
+  // real 45s the only honest version of this test takes 90 seconds and would
+  // not get written.
+  test("a score rings the card, and a second score restarts the ring's timer", async ({ page }) => {
+    await allowMotion(page);
+    await page.addInitScript(() => { window.NFL_GLOW_MS = 2000; });
+    await page.goto("/live");
+
+    const select = page.locator('[data-test="dev-score-team"]');
+    const target = await select.locator("option").first().getAttribute("value");
+    const [gameSlug] = target.split("|");
+    await select.selectOption(target);
+
+    const opacity = () =>
+      page.locator(`[data-game-slug="${gameSlug}"]`).evaluate((el) =>
+        getComputedStyle(el).getPropertyValue("--studio-team-glow-opacity").trim());
+
+    await page.locator('[data-test="dev-score-touchdown"]').click();
+    await expect.poll(opacity, { timeout: 10000 }).toBe("1");
+
+    // Past the window with no further score: dark again.
+    await expect.poll(opacity, { timeout: 10000 }).toBe("0");
+
+    // Now re-score BEFORE the window closes and step past the FIRST score's
+    // expiry. A timer that stacked instead of resetting goes dark here.
+    await page.locator('[data-test="dev-score-field_goal"]').click();
+    await expect.poll(opacity, { timeout: 10000 }).toBe("1");
+    await page.waitForTimeout(1400);
+    await page.locator('[data-test="dev-score-field_goal"]').click();
+    await page.waitForTimeout(900);
+    expect(await opacity()).toBe("1");
+
+    // And it still expires on the SECOND score's schedule.
+    await expect.poll(opacity, { timeout: 10000 }).toBe("0");
+  });
+
   test("clearing a game takes its score back to zero", async ({ page }) => {
     await page.goto("/live");
 

@@ -215,9 +215,13 @@
     var board   = document.getElementById('nfl_live_scoreboard');
     var hideTimer = null;
 
-    // How long a changed score stays bold and team-coloured before fading back.
-    // ONE constant — change this line to retune it.
-    var HOT_MS = 50000;
+    // The two hold windows. Both are overridable from the page so a test can
+    // prove the RESET rule in seconds instead of waiting out a real 45s ring —
+    // without that seam the only honest test of "a second score restarts the
+    // timer" is a 90-second one, and the rule would go untested instead.
+    // Nothing in production sets these globals.
+    var HOT_MS  = window.NFL_HOT_MS  || 50000;   // score stays bold and lit
+    var GLOW_MS = window.NFL_GLOW_MS || 45000;   // card wears its team ring
 
     // scoring_type -> the pair of animations it owns. Unknown types fall back to
     // the touchdown pair rather than animating nothing: a scoring play we do not
@@ -256,7 +260,15 @@
     // replacement, because a broadcast swaps the whole scoreboard partial and
     // takes any class the script added with it — so state that lives only in the
     // DOM survives exactly until the next goal anywhere in the league.
-    var hot = {};
+    // TWO registries, each holding its own timeout id.
+    //
+    // The timer has to be STORED to be resettable. Firing a fresh setTimeout on
+    // every score without clearing the last one looks correct and is not: the
+    // FIRST timeout still comes due on the original schedule and cools a score
+    // that was re-lit seconds ago. Two touchdowns 40s apart would leave the
+    // second one lit for 5 seconds instead of the full window.
+    var hot  = {};   // "gameSlug|teamSlug" -> timeout id, the bold score
+    var glow = {};   // "gameSlug"          -> timeout id, the card ring
     function key(g, t) { return g + '|' + t; }
 
     // The class alone is enough: both brand colours are custom properties on the
@@ -274,12 +286,50 @@
 
     function cool(gameSlug, teamSlug) {
       var k = key(gameSlug, teamSlug);
-      if (!hot[k]) return;
+      if (!(k in hot)) return;
+      clearTimeout(hot[k]);
       delete hot[k];
       var el = row(gameSlug, teamSlug);
       var score = el && el.querySelector('[data-role="score"]');
       if (!score) return;
       score.classList.remove('nfl-score-hot');   // the transition above fades it home
+    }
+
+    function card(gameSlug) {
+      return gameSlug ? document.querySelector('[data-game-slug="' + gameSlug + '"]') : null;
+    }
+
+    // Re-applied after every board replacement, same as the hot score: a
+    // broadcast swaps the scoreboard partial wholesale, so a ring set on the old
+    // node would go dark the moment ANY game scored.
+    var glowColors = {};
+    function applyGlow() {
+      Object.keys(glowColors).forEach(function (g) {
+        var el = card(g);
+        if (!el) return;
+        el.style.setProperty('--studio-team-glow-color', glowColors[g].a);
+        el.style.setProperty('--studio-team-glow-color-b', glowColors[g].b);
+        el.style.setProperty('--studio-team-glow-opacity', '1');
+      });
+    }
+
+    function unglow(gameSlug) {
+      if (!(gameSlug in glow)) return;
+      clearTimeout(glow[gameSlug]);
+      delete glow[gameSlug];
+      delete glowColors[gameSlug];
+      var el = card(gameSlug);
+      // Back to 0 rather than removing the property: the class's own 0.4s
+      // opacity transition then fades the ring out instead of cutting it.
+      if (el) el.style.setProperty('--studio-team-glow-opacity', '0');
+    }
+
+    function lightCard(gameSlug, a, b) {
+      if (!card(gameSlug)) return;
+      glowColors[gameSlug] = { a: a || 'var(--color-cta)', b: b || a || 'var(--color-cta)' };
+      applyGlow();
+      if (glow[gameSlug]) clearTimeout(glow[gameSlug]);   // RESET, never stack
+      glow[gameSlug] = setTimeout(function () { unglow(gameSlug); }, GLOW_MS);
     }
 
     function animateRow(d) {
@@ -292,9 +342,12 @@
       restart(el.querySelector('.nfl-sweep'), ['nfl-sweep-run'], anim.sweep ? 'nfl-sweep-run' : null);
       restart(el.querySelector('[data-role="score"]'), SCORE_CLASSES, anim.score);
 
-      hot[key(d.gameSlug, d.teamSlug)] = true;
+      var k = key(d.gameSlug, d.teamSlug);
+      if (hot[k]) clearTimeout(hot[k]);                   // RESET, never stack
+      hot[k] = setTimeout(function () { cool(d.gameSlug, d.teamSlug); }, HOT_MS);
       applyHot();
-      setTimeout(function () { cool(d.gameSlug, d.teamSlug); }, HOT_MS);
+
+      lightCard(d.gameSlug, d.glowA, d.glowB);
     }
 
     function showBanner(d) {
@@ -334,7 +387,8 @@
       // here. Waiting a frame means the row we decorate is the row that stays.
       if (d.event !== 'final') {
         var payload = {
-          gameSlug: d.gameSlug, teamSlug: d.teamSlug, scoringType: d.scoringType
+          gameSlug: d.gameSlug, teamSlug: d.teamSlug, scoringType: d.scoringType,
+          glowA: d.glowA, glowB: d.glowB
         };
         requestAnimationFrame(function () { animateRow(payload); });
       }
@@ -351,7 +405,8 @@
     // onto the new nodes so a score that just changed does not go grey again
     // because a DIFFERENT game scored.
     if (board) {
-      new MutationObserver(function () { applyHot(); }).observe(board, { childList: true, subtree: true });
+      new MutationObserver(function () { applyHot(); applyGlow(); })
+        .observe(board, { childList: true, subtree: true });
     }
   })();
 </script>

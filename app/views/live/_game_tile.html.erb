@@ -25,10 +25,25 @@
       · .nfl-sweep                      — the touchdown's left-to-right strip %>
 <% home = game.home_team %>
 <% away = game.away_team %>
-<div class="card p-0 overflow-hidden transition-shadow duration-300"
+<%# THE CARD HOSTS THE GLOW RING, and the clipping moved inside it.
+    `.studio-team-glow` paints ::before/::after at a NEGATIVE inset, so the ring
+    lives OUTSIDE the host's box — and `overflow-hidden` on the host would clip
+    away the entire effect. The rows still need clipping (their gradients have
+    to stop at the rounded corners), so that job moved to an inner box which
+    inherits the card's radius.
+    The engine's own note on this class says it punches the host's box out of
+    the wedge layers precisely so a LIVE BOARD CARD can wear the ring directly,
+    without a wrapper Turbo would orphan on replace. This is that case.
+    Opacity starts at 0 — the ring is dark until a score lights it, and the
+    class's built-in 0.4s opacity transition gives the fade for free. %>
+<div class="card p-0 transition-shadow duration-300 studio-team-glow"
      data-game-slug="<%= game.slug %>"
-     data-test="live-game-tile">
-  <div>
+     data-test="live-game-tile"
+     style="--studio-team-glow-opacity: 0;
+            --studio-team-glow-thickness: 3px;
+            --studio-team-glow-bloom: 12px;
+            --studio-team-glow-speed: 5s">
+  <div style="overflow: hidden; border-radius: inherit">
     <% [[away, game.away_score], [home, game.home_score]].each_with_index do |(team, score), index| %>
       <% palette = team_card_palette(team) %>
       <% field = normalize_hex(team&.card_background) || "#3a3f4b" %>
@@ -58,11 +73,17 @@
               style="background: <%= palette[:accent] %>"></span>
         <span class="relative text-xl leading-none flex-shrink-0"
               style="text-shadow: <%= palette[:mascot_shadow] %>"><%= team&.emoji %></span>
+        <%# Same colour convention as contests/_multi_week_team_card: the MASCOT
+            in the team accent over its legibility halo, the CITY in the light
+            location colour. The halo is what makes the accent readable on the
+            team's own field — it is why Buffalo's red-on-blue (1.88:1 unaided)
+            works here exactly as it does on the contests card. %>
         <span class="relative min-w-0 flex-1">
-          <span class="block text-sm font-bold truncate" style="color: <%= palette[:fg] %>">
+          <span class="block text-sm font-extrabold truncate"
+                style="color: <%= palette[:accent] %>; text-shadow: <%= palette[:mascot_shadow] %>">
             <%= team&.mascot.presence || team&.short_name || team&.name %>
           </span>
-          <span class="block text-[11px] truncate" style="color: <%= palette[:location] %>; opacity: .8">
+          <span class="block text-[11px] font-medium truncate" style="color: <%= palette[:location] %>">
             <%= team&.location %>
           </span>
         </span>

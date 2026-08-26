@@ -300,15 +300,22 @@
 # derivation, it is arithmetic on a value that was never true on this tree. So
 # both routes were RE-RUN on the MERGED tree and made to agree:
 #
-#   npx playwright test --list                                    -> 194 tests in 52 files
+#   npx playwright test --list                                    -> 195 tests in 52 files
 #   npx playwright test --list --grep "@devnet"                   ->  17 tests in  1 file
 #   npx playwright test --list --grep-invert "@devnet" --project=chromium
-#                                                                 -> 177 tests in 51 files
+#                                                                 -> 178 tests in 51 files
 #
-#   total_specs - excluded - allowed_skips  =  194 - 17 - 4  =  173
-#   collected   - allowed_skips             =  177      - 4  =  173   ✓ agree
+#   total_specs - excluded - allowed_skips  =  195 - 17 - 4  =  174
+#   collected   - allowed_skips             =  178      - 4  =  174   ✓ agree
 #
-# SIX specs, not five: the review pass that added per-scoring-type animations
+# SEVEN specs: a later pass added the card's team-glow ring, whose RESET rule
+# (a second score restarts the window rather than stacking a second expiry) is
+# the kind of thing that is only ever wrong in production unless a test holds
+# it. It runs against a shortened window via window.NFL_GLOW_MS so it proves the
+# rule in seconds — at the real 45s the honest test takes 90s and would not have
+# been written at all.
+#
+# SIX before that: the review pass that added per-scoring-type animations
 # added one more, for the scoring team's own row — that a field goal gets the
 # field-goal motion, and that the changed score goes bold in the team's INK
 # colour and STAYS that way after the banner clears. It is its own block rather
@@ -318,7 +325,7 @@
 # allowed_skips is UNCHANGED at 4: none of the six new specs skips. They are
 # public-page specs against /live with no provider flag and no wallet, so there
 # is no runtime condition under which they exit without executing.
-total_specs: 194
+total_specs: 195
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -489,12 +496,12 @@ allowed_skips: 4
 # in 1 file, `--grep-invert "@devnet" --project=chromium` -> 171 collected.
 # 188 - 17 - 4 = 167, and 171 collected - 4 runtime skips = 167. Both routes agree.
 #
-# 167 -> 173 (live-nfl-score-pipeline): the six /live scoreboard specs, all in
+# 167 -> 174 (live-nfl-score-pipeline): the seven /live scoreboard specs, all in
 # the chromium lane, none carrying a runtime skip — so allowed_skips HOLDS AT 4
 # again and the whole delta lands here. Derived on the MERGED tree, both routes:
-# `npx playwright test --list` -> 194 tests in 52 files, `--grep "@devnet"` -> 17
-# in 1 file, `--grep-invert "@devnet" --project=chromium` -> 177 collected.
-# 194 - 17 - 4 = 173, and 177 collected - 4 runtime skips = 173. Both routes agree.
+# `npx playwright test --list` -> 195 tests in 52 files, `--grep "@devnet"` -> 17
+# in 1 file, `--grep-invert "@devnet" --project=chromium` -> 178 collected.
+# 195 - 17 - 4 = 174, and 178 collected - 4 runtime skips = 174. Both routes agree.
 #
 # ⚠️ THIS KEY IS EASY TO MISS AND THE GATE CATCHES IT ANYWAY, WHICH IS THE POINT.
 # The first cut of this change raised `total_specs` to 193 and left `executed` at
@@ -502,7 +509,7 @@ allowed_skips: 4
 # playwright shards ran, and the number only came apart in CI, which measured
 # 172 executed against a contract of 167 and went red in six seconds. Raise BOTH
 # in the same commit — the check's own message says so, and it means it.
-executed: 173
+executed: 174
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to

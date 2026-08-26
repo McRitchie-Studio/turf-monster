@@ -48,6 +48,33 @@ class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
     assert_match(/linear-gradient\([^)]*#97233f/i, response.body)
   end
 
+  # Colour continuity with contests/_multi_week_team_card: the MASCOT wears the
+  # team accent over its legibility halo, the CITY wears the light location
+  # colour. Same helper, same two values, so the two pages cannot drift.
+  test "paints the mascot in the team accent and the city in the location color" do
+    get live_path
+
+    assert_select "[data-game-slug=?] [data-team-slug=?]", @game.slug, @home.slug do |rows|
+      html = rows.first.to_s
+      assert_match(/color:\s*#ffb612[^"]*text-shadow/i, html,
+        "the mascot should carry the accent colour AND its halo")
+    end
+  end
+
+  # The ring lives on the CARD and starts dark. Opacity 0 rather than an absent
+  # class, so the engine's own 0.4s opacity transition can fade it in and out.
+  test "each card hosts a team glow ring, dark until a score lights it" do
+    get live_path
+
+    assert_select "[data-test=?][data-game-slug=?]", "live-game-tile", @game.slug do |cards|
+      style = cards.first["style"]
+      assert_includes cards.first["class"], "studio-team-glow"
+      assert_match(/--studio-team-glow-opacity:\s*0/, style)
+      refute_includes cards.first["class"], "overflow-hidden",
+        "overflow-hidden on the host would clip the ring away entirely"
+    end
+  end
+
   # The name line is the MASCOT, not the ESPN abbreviation: "Giants" over
   # "New York", never "NYG". The abbreviation is a feed detail and the location
   # line already carries the city.
