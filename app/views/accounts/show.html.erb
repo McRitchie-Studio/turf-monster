@@ -192,7 +192,7 @@
 
   <%# -- Log out + Buy Entry Tokens (side by side) -- %>
   <div class="grid grid-cols-2 gap-4 mb-6">
-    <%= link_to "Log out", logout_path, class: "btn btn-outline w-full", onclick: "try{localStorage.removeItem('pendingContestEntry')}catch(e){}" %>
+    <%= link_to "Log out", logout_path, class: "btn btn-outline w-full", data: { turbo: false }, onclick: "window.wipeClientState && window.wipeClientState()" %>
     <%= link_to "Buy Entry Tokens", tokens_buy_path, class: "btn btn-primary w-full" %>
   </div>
 
