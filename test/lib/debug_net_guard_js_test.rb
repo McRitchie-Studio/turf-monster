@@ -65,12 +65,49 @@ class DebugNetGuardJsTest < ActiveSupport::TestCase
     assert_equal "Phantom", parsed["wallet_provider"]
   end
 
-  test "a CSRF token is redacted from a response body" do
-    logged = evaluate("_safeBody(#{{ csrf_token: "LIVE-TOKEN", mode: "web3" }.to_json.inspect})",
-                      environment: "development")
+  # THE SHAPE THIS APP ACTUALLY PUTS ON THE WIRE.
+  #
+  # This test used to assert redaction of `csrf_token` — a key turf-monster never
+  # emits. accounts_controller.rb:90 renders
+  # `client_session_payload.merge(csrf: form_authenticity_token)`, a BARE `csrf`.
+  # So the suite was green while every visibilitychange rehydrate printed a live
+  # token. A redactor proved against a fictional key proves nothing; the payload
+  # in this test is now copied from the controller, not invented.
+  test "the CSRF token this app really renders is redacted" do
+    real_payload = { mode: "web3", loggedIn: true, csrf: "LIVE-TOKEN" }.to_json
+    parsed = JSON.parse(evaluate("_safeBody(#{real_payload.inspect})", environment: "development"))
 
-    assert_equal "[redacted]", JSON.parse(logged)["csrf_token"]
-    assert_equal "web3", JSON.parse(logged)["mode"]
+    assert_equal "[redacted]", parsed["csrf"],
+      "accounts_controller.rb:90 emits `csrf`, not `csrf_token` — this is the key on the wire"
+    assert_equal "web3", parsed["mode"], "non-secret fields must still be readable"
+  end
+
+  test "the auth nonce is redacted — it is the half the signature is over" do
+    body = { nonce: "a1b2c3d4e5f6" }.to_json   # solana_sessions_controller.rb:8
+    parsed = JSON.parse(evaluate("_safeBody(#{body.inspect})", environment: "development"))
+
+    assert_equal "[redacted]", parsed["nonce"],
+      "the nonce is single-use, but printing it beside the message it signs hands " \
+      "over both halves of the challenge in one screen-share"
+  end
+
+  test "a signed transaction is redacted — anyone holding it can submit it" do
+    body = { signed_tx: "AQABBBBASE64SIGNEDTX" }.to_json
+    parsed = JSON.parse(evaluate("_safeBody(#{body.inspect})", environment: "development"))
+
+    assert_equal "[redacted]", parsed["signed_tx"]
+  end
+
+  # THE OTHER HALF OF THE CONTRACT. A logger that hides the transaction id cannot
+  # debug a transaction, so over-redaction is its own failure — asserted, not assumed.
+  test "public on-chain identifiers stay visible" do
+    body = { tx_signature: "5xTXSIG", sent_signature: "5xSENTSIG", tokens: 3 }.to_json
+    parsed = JSON.parse(evaluate("_safeBody(#{body.inspect})", environment: "development"))
+
+    assert_equal "5xTXSIG", parsed["tx_signature"], "a tx signature is a public block-explorer id"
+    assert_equal "5xSENTSIG", parsed["sent_signature"], "so is a sent signature"
+    assert_equal 3, parsed["tokens"],
+      "`tokens` (plural) is the entry-token COUNT, not a credential — only bare `token` is"
   end
 
   test "a nested secret is redacted too" do

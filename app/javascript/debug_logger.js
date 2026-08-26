@@ -39,7 +39,16 @@ function _fmtMs(ms) {
   return (ms / 1000).toFixed(2) + 's';
 }
 
-// SECRETS NEVER REACH THE CONSOLE, even when the logger is deliberately ON.
+// SECRETS ARE REDACTED ON THE FETCH LEG, even when the logger is deliberately ON.
+//
+// SCOPED HONESTLY, because the previous wording ("secrets never reach the
+// console") overclaimed and a future reader would have trusted it. _safeBody is
+// applied to fetch request and response bodies and NOWHERE ELSE:
+//   · _summarizePhantomArgs returns the SIWS message VERBATIM
+//   · _rpcRequest prints sendRawTransaction's serialized SIGNED transaction
+// Both are dev/qa-or-opt-in only, so neither is a production leak — but they are
+// not redacted, and the comment now says so. Extending redaction to the web3
+// legs is the honest follow-up; claiming it is already done is not.
 //
 // Defaulting off protects the user who never opens DevTools; redaction protects the
 // one who does, and the operator debugging QA with it enabled. The two are separate
@@ -50,12 +59,42 @@ function _fmtMs(ms) {
 // regex would have to guess at base58 alphabets and token shapes; the key names are
 // the thing this app actually controls. A body that is not JSON is truncated as
 // before but never parsed, so a form post cannot smuggle a key past the check.
+// RE-DERIVED FROM THIS APP'S ACTUAL WIRE PAYLOADS, 2026-08-26, not guessed.
+// The previous list named `authenticity_token` / `csrf_token` / `csrfToken` —
+// three spellings of a key THIS APP NEVER EMITS. It renders a bare `csrf`
+// (accounts_controller.rb:90, `client_session_payload.merge(csrf:
+// form_authenticity_token)`), so a live CSRF token printed on every
+// visibilitychange rehydrate, and the suite stayed green because it asserted
+// redaction of `csrf_token` — a key that is never on the wire. A redactor tested
+// against a fictional key proves nothing.
+//
+// Re-derive rather than extend, with the payloads themselves:
+//   grep -rhoE "render json: \{[^}]*\}" app/controllers/ | grep -oE "[a-z_]+:" | sort -u
+//   grep -rhoE "JSON\.stringify\(\{[^}]{0,220}" app/views/ app/javascript/ | grep -oE "[a-zA-Z_]+:" | sort -u
 var _SECRET_KEYS = [
+  // --- credentials: a copy of this value can be USED by whoever reads it ---
   'signature',        // the base58 SIWS signature — a live credential
   'message',          // the SIWS message: carries the nonce the signature is over
-  'authenticity_token', 'csrf_token', 'csrfToken', // Rails CSRF, incl. session_state's
+  'signed_tx',        // a SIGNED transaction: submittable by anyone holding it
+  'csrf',             // accounts_controller.rb:90 — THE live token, bare key
+  'authenticity_token', 'csrf_token', 'csrfToken', // other apps' spellings; harmless to keep
+  'nonce',            // solana_sessions_controller.rb:8 — see the note below
+  'token', 'params_token', // magic-link tokens ARE logins. Note the entry-token
+                      // COUNT is `tokens` (plural) and stays visible.
   'secret', 'password', 'private_key', 'encrypted_web2_solana_private_key'
 ];
+
+// `nonce` IS on the list, deliberately. It is single-use and deleted before
+// verify (OPSEC-018), so a captured one is spent — but it is the exact value
+// `message` is redacted FOR, and printing the pair together in a support
+// screen-share hands over both halves of the challenge. Cheap to redact, and
+// nothing debugs better for having it.
+//
+// DELIBERATELY NOT REDACTED, because over-redaction blinds the tool it is
+// protecting: `tx_signature` and `sent_signature` are PUBLIC on-chain
+// identifiers — they are the whole point of a block explorer — and `pubkey` is
+// public too, already rendered on <body data-wallet-address>. A logger that
+// hides the transaction id cannot debug a transaction.
 
 function _redact(value) {
   if (Array.isArray(value)) return value.map(_redact);
@@ -263,4 +302,9 @@ function _summarizePhantomResult(method, res) {
   var iv = setInterval(function() { if (attach() || ++tries > 60) clearInterval(iv); }, 100);
 })();
 
-console.log('%c[debug-net] enabled — toggle with `window.DEBUG_NET = false`', 'color:#888');
+// INSIDE the guard. This line sat outside every one of them, so a production
+// console printed "[debug-net] enabled" while the logger was disabled — the
+// banner asserting the opposite of the fact it exists to report.
+if (_on()) {
+  console.log('%c[debug-net] enabled — toggle with `window.DEBUG_NET = false`', 'color:#888');
+}
