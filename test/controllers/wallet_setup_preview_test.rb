@@ -385,14 +385,14 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
     # audience, so the link dead-ended for exactly the people looking at it.
     #
     # Operator's call was to keep it VISIBLE and explain rather than refuse. Both
-    # branches ship in the markup; Alpine picks between them on walletConnected.
+    # branches ship in the markup; Alpine picks between them on walletHasAddress.
     log_in_as users(:alex)
     get admin_modal_preview_path(modal_id: "wallet-setup")
     assert_response :success
 
-    assert_includes response.body, %(<template x-if="$store.session.walletConnected">),
+    assert_includes response.body, %(<template x-if="$store.session.walletHasAddress">),
                     "the clickable rail must be gated on actually having a wallet"
-    assert_includes response.body, %(<template x-if="!$store.session.walletConnected">)
+    assert_includes response.body, %(<template x-if="!$store.session.walletHasAddress">)
     assert_includes response.body, "Link a wallet first",
                     "a wallet-less player must be told why, not handed a dead button"
   end
@@ -409,14 +409,14 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
     assert_response :success
     payload = JSON.parse(response.body[/id="session-context"[^>]*>(\{.*?\})<\/script>/m, 1])
 
-    assert_equal false, payload["walletConnected"], "no wallet of either kind"
+    assert_equal false, payload["walletHasAddress"], "no wallet of either kind"
     assert_equal "web2", payload["mode"],
                  "and mode says web2 anyway — which is exactly why it cannot be the gate"
 
     user.update_columns(web2_solana_address: "GrandfatheredManaged#{user.id}")
     get contests_path
     payload = JSON.parse(response.body[/id="session-context"[^>]*>(\{.*?\})<\/script>/m, 1])
-    assert_equal true, payload["walletConnected"],
+    assert_equal true, payload["walletHasAddress"],
                  "a grandfathered managed wallet CAN buy a token — the link is for them"
   end
 

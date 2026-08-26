@@ -273,7 +273,11 @@
 # spec file (50 files, unchanged). Second collision on this counter for this
 # branch — see the executed: note below for why the number is re-derived rather
 # than incremented.
-total_specs: 185
+# 185 -> 187: e2e/wallet_disconnect.spec.js, a NEW file (50 -> 51 files) carrying
+# two specs — the signer-loss degrade (defects A+B) and the never-connected
+# account switch (defect C). DERIVED WITH THE RUNNER, not incremented:
+# `npx playwright test --list` -> 187 tests in 51 files.
+total_specs: 187
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -437,7 +441,12 @@ allowed_skips: 4
 # `npx playwright test --list` -> 185 tests in 50 files, `--grep "@devnet"` -> 17
 # in 1 file, `--grep-invert "@devnet" --project=chromium` -> 168 collected.
 # 185 - 17 - 4 = 164, and 168 collected - 4 runtime skips = 164. Both routes agree.
-executed: 164
+# 164 -> 166: the two wallet_disconnect specs. Neither adds a runtime skip, so
+# the declared skip count below is unchanged. RE-DERIVED, both routes:
+# `npx playwright test --list` -> 187 in 51 files; `--grep "@devnet"` -> 17;
+# `--grep-invert "@devnet" --project=chromium` -> 170 collected.
+# 187 - 17 - 4 = 166, and 170 collected - 4 runtime skips = 166. Both agree.
+executed: 166
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
