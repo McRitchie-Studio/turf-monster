@@ -346,92 +346,13 @@
     };
   };
 
-  // === ageVerifyModal — entry-time date-of-birth age gate (ENABLE_AGE_GATE) ==
-  //   Mounted by the modal host as id 'age-verify' (modals/_age_verify).
-  //   Month/Day/Year selects → POST /age/verify. On success: flip
-  //   $store.session.ageVerified, close, dispatch 'age-verified' (the board
-  //   resumes the entry). opts: { minAge, state, url }.
-  window.ageVerifyModal = function (opts) {
-    opts = opts || {};
-    var now = new Date();
-    return {
-      month: "", day: "", year: "",
-      submitting: false,
-      error: "",
-      minAge: parseInt(opts.minAge, 10) || 18,
-      stateCode: opts.state || "",
-      url: opts.url || "/age/verify",
-      months: [
-        { n: 1, label: "January" }, { n: 2, label: "February" }, { n: 3, label: "March" },
-        { n: 4, label: "April" }, { n: 5, label: "May" }, { n: 6, label: "June" },
-        { n: 7, label: "July" }, { n: 8, label: "August" }, { n: 9, label: "September" },
-        { n: 10, label: "October" }, { n: 11, label: "November" }, { n: 12, label: "December" }
-      ],
-      // Year range: 13 years ago (youngest plausible) back 100 years.
-      years: (function () {
-        var ys = [], top = now.getFullYear() - 13, bottom = now.getFullYear() - 100;
-        for (var y = top; y >= bottom; y--) ys.push(y);
-        return ys;
-      })(),
-      // Days available for the chosen month/year (handles 28/29/30/31).
-      get dayOptions() {
-        var m = parseInt(this.month, 10), y = parseInt(this.year, 10);
-        var max = 31;
-        if (m) max = new Date(y || 2000, m, 0).getDate(); // day 0 of next month = last of this
-        var ds = [];
-        for (var d = 1; d <= max; d++) ds.push(d);
-        return ds;
-      },
-      get complete() {
-        return !!(this.month && this.day && this.year);
-      },
-      get computedAge() {
-        if (!this.complete) return null;
-        var dob = new Date(parseInt(this.year, 10), parseInt(this.month, 10) - 1, parseInt(this.day, 10));
-        var age = now.getFullYear() - dob.getFullYear();
-        var hadBirthday = (now.getMonth() > dob.getMonth()) ||
-          (now.getMonth() === dob.getMonth() && now.getDate() >= dob.getDate());
-        if (!hadBirthday) age -= 1;
-        return age;
-      },
-      // Clamp an out-of-range day when the month changes (e.g. Feb after 31).
-      onMonthChange() {
-        if (this.day && parseInt(this.day, 10) > this.dayOptions.length) this.day = "";
-        this.error = "";
-      },
-      submit() {
-        if (!this.complete || this.submitting) return;
-        this.error = "";
-        this.submitting = true;
-        var self = this;
-        var csrf = (document.querySelector('meta[name="csrf-token"]') || {}).content || "";
-        fetch(this.url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf, "Accept": "application/json" },
-          body: JSON.stringify({ year: this.year, month: this.month, day: this.day })
-        })
-          .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
-          .then(function (res) {
-            self.submitting = false;
-            if (res.ok && res.body && res.body.verified) {
-              try {
-                var sess = window.Alpine && Alpine.store && Alpine.store("session");
-                if (sess) sess.ageVerified = true;
-              } catch (e) {}
-              try { Alpine.store("modals").close(); } catch (e) {}
-              window.dispatchEvent(new CustomEvent("age-verified"));
-              return;
-            }
-            self.error = (res.body && res.body.error) ||
-              "We couldn't verify your age. Please check the date and try again.";
-          })
-          .catch(function () {
-            self.submitting = false;
-            self.error = "Network error — please try again.";
-          });
-      }
-    };
-  };
+  // ageVerifyModal was DELETED 2026-08-26 (adopt-birthday-age-gate-flow). The
+  // engine owns the factory now — window.birthdayModal, rendered at layout
+  // level by studio/_birthday_assets. It is not a rename with the same
+  // behaviour: the deleted one refused an under-age date CLIENT-SIDE, turning
+  // the card red and disabling its own submit. The engine's submits every date
+  // and routes on the SERVER's verdict, so a refusal reaches the age-gate card
+  // instead of a dead end. Do not re-add a local copy.
 
   // === contestLockPicker — /contests/new + /contests/edit calendar =
   window.contestLockPicker = function (opts) {

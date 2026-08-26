@@ -837,7 +837,7 @@ window.selectionBoard = function() {
     // user flows straight through to the next gate (tokens/balance) or entry.
     showAgeVerifyModal() {
       this.resetHoldButtons();
-      Alpine.store('modals').open('age-verify', { enterAnim: 'shake' });
+      Alpine.store('modals').open('birthday', { enterAnim: 'shake' });
     },
 
     // Wallet setup gate (web3-only onboarding). Saves the staged lineup first —
