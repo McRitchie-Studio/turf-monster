@@ -57,8 +57,19 @@ function _fmtMs(ms) {
 //
 // Redacted by KEY, on the parsed JSON, rather than by regex over the raw string. A
 // regex would have to guess at base58 alphabets and token shapes; the key names are
-// the thing this app actually controls. A body that is not JSON is truncated as
-// before but never parsed, so a form post cannot smuggle a key past the check.
+// the thing this app actually controls.
+//
+// THE LIMIT OF THAT CHOICE, STATED PLAINLY, because the earlier wording here
+// ("a form post cannot smuggle a key past the check") claimed the opposite of
+// the truth: a body that is not JSON is never PARSED, so it is never REDACTED.
+// A form-encoded STRING body is logged verbatim. Nothing on the wire carries a
+// secret that way today — the app's one urlencoded body is window.postMagicLink
+// (layouts/application.html.erb:344), which sends email/contest/picks, and its
+// CSRF rides the X-CSRF-Token HEADER, which this logger never logs at all. And
+// FormData / URLSearchParams OBJECTS reach _trunc, which JSON.stringify()s them
+// to "{}", so a Turbo form submit prints nothing. But a future form-encoded
+// body with a secret in it WOULD print in clear. Redaction is a JSON-body
+// guarantee; this comment no longer sells it as more.
 // RE-DERIVED FROM THIS APP'S ACTUAL WIRE PAYLOADS, 2026-08-26, not guessed.
 // The previous list named `authenticity_token` / `csrf_token` / `csrfToken` —
 // three spellings of a key THIS APP NEVER EMITS. It renders a bare `csrf`
