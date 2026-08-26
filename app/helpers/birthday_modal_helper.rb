@@ -18,12 +18,24 @@ module BirthdayModalHelper
   # NO legal policy: it takes a RESOLVED number and a PASSIVE label. This app
   # resolves both from AgePolicy against the SERVER-DETECTED state, never a
   # client-supplied one — a spoofable state must not be able to lower the bar.
+  # This app's legal fine print, verbatim from the modals/_age_verify fork this
+  # seam replaced. The engine ships only a neutral, policy-free default and
+  # documents `fine_print` as the local an app passes its real copy through
+  # (studio-engine blocks/_birthday). Threading min_age without it shipped the
+  # policy NUMBER and dropped the policy TEXT: the per-state table vanished from
+  # the one screen that gates on age, and ENABLE_AGE_GATE suppresses
+  # shared/_age_attestation, the only other surface carrying it.
+  AGE_FINE_PRINT = "We use your date of birth only to confirm eligibility. " \
+                   "Skill-based contest age limits: 18+ most states; " \
+                   "19+ AL/NE; 21+ IA/MA/VA.".freeze
+
   def birthday_modal_locals
     state = geo_state.to_s
     {
       min_age:    AgePolicy.minimum_age(state),
       state:      state,
-      submit_url: age_verify_path
+      submit_url: age_verify_path,
+      fine_print: AGE_FINE_PRINT
     }
   end
 
