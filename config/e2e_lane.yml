@@ -297,7 +297,15 @@
 # union is 52 files. RE-DERIVED WITH THE LISTER after the merge, which is the
 # whole reason this counter is runtime and not arithmetic.
 # `npx playwright test --list` -> 190 tests in 52 files.
-total_specs: 190
+#
+# 190 -> 192 (make-logout-definitive): e2e/logout_is_definitive.spec.js, a NEW
+# file (52 -> 53 files) carrying two specs — the whole-browser wipe and the
+# second-user inheritance check. Neither the unit nor the integration tier can
+# make that claim: one stubs the stores, the other never leaves the server.
+# DERIVED WITH THE LISTER after merging accepted (which brought slice 7's two
+# wallet_disconnect specs in), never incremented:
+# `npx playwright test --list` -> 192 tests in 53 files.
+total_specs: 192
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -477,7 +485,11 @@ allowed_skips: 4
 # BOTH LANDED — re-derived after the merge, both routes, see total_specs above.
 # `--grep "@devnet"` -> 17; `--grep-invert "@devnet" --project=chromium` -> 173.
 # 190 - 17 - 4 = 169, and 173 collected - 4 runtime skips = 169. Both routes agree.
-executed: 169
+#
+# 169 -> 171: the two logout specs. Neither adds a runtime skip. Both routes:
+# `--grep "@devnet"` -> 17; `--grep-invert "@devnet" --project=chromium` -> 175.
+# 192 - 17 - 4 = 171, and 175 collected - 4 runtime skips = 171. Both agree.
+executed: 171
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to

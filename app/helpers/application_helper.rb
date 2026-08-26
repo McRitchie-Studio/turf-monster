@@ -1,27 +1,36 @@
 module ApplicationHelper
-  # The contest a shared referral link should land on, resolved ONCE per request.
+  # The app's default contest target, resolved ONCE per request. THE ONE ENTRY
+  # POINT any view may use to reach SeasonConfig.main_contest — the referral
+  # card's share link, the age gate's watch CTA, the locked-username CTA, the
+  # next-quest links. Nothing in a render calls SeasonConfig.main_contest
+  # directly; that is the whole point of this method existing.
   #
-  # WHY THIS EXISTS AS A HELPER rather than being called inline. The referral card
-  # is rendered by two pages now, and only one of them has a controller that can
-  # preload anything: /account set @referral_share_contest, and the engine's
-  # ProfilesController — which renders the same card on /profile — cannot be made
-  # to. So the partial resolves its own default, which moved the call from a
-  # controller into a VIEW RENDER.
+  # WHY THE CALL LIVES IN A RENDER AT ALL. These cards are rendered by
+  # controllers that cannot preload for them. The referral card is on two pages
+  # and only one has a host controller — the engine's ProfilesController renders
+  # it on /profile and cannot be taught to set a host ivar. The modal cards are
+  # worse: layouts/application registers them inside `<template x-if>` blocks,
+  # and ERB inside a `<template>` renders SERVER-SIDE unconditionally, so the
+  # x-if gates the BROWSER and never the server. Those cards resolve on every
+  # authenticated page whether or not their modal is ever opened.
   #
-  # THAT MOVE IS WHAT NEEDS CONTAINING. SeasonConfig.main_contest reaches
+  # THAT IS WHAT NEEDS CONTAINING. SeasonConfig.main_contest reaches
   # SeasonConfig.current, which is a `find_or_create_by` — normally a SELECT, but
   # a code path that can INSERT, and a view render is the wrong place to have one
-  # at all. Memoising here keeps it to a single resolution per request whatever
-  # renders the card, and gives the call one named home instead of being loose in
-  # a template.
+  # at all. It also falls through to a Contest scan when the admin's pick is not
+  # open, so each call is up to three queries. Memoising here keeps the whole
+  # render to one resolution however many cards ask, and gives the call one named
+  # home instead of being loose in five templates. A memo local to any single
+  # caller would not help: most of them ask exactly once per render, so it would
+  # look like a fix while changing nothing.
   #
   # `defined?` rather than `||=`, so a legitimately nil result (no open contest —
   # the off-season) is cached instead of re-queried on every call. Same idiom as
   # ApplicationController#display_seeds_data.
-  def referral_share_contest
-    return @_referral_share_contest if defined?(@_referral_share_contest)
+  def main_contest_target
+    return @_main_contest_target if defined?(@_main_contest_target)
 
-    @_referral_share_contest = SeasonConfig.main_contest
+    @_main_contest_target = SeasonConfig.main_contest
   end
 
   # The current user's referral/invite URL landing on `target` (a same-origin

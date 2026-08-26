@@ -4,7 +4,8 @@ require "test_helper"
 # admin's pointer:
 #
 #   - GET /  (ContestsController#world_cup) — root redirect
-#   - GET /account (AccountsController#show) — @referral_share_contest
+#   - GET /account (AccountsController#show) — the referral card, which resolves
+#     its own target through ApplicationHelper#main_contest_target
 #   - GET /faucet  (FaucetController#show)   — @contest CTA
 class MainContestCallSitesTest < ActionDispatch::IntegrationTest
   setup do

@@ -4,9 +4,10 @@
     Locals:
       user          (required)
       share_contest (optional) — the contest a shared link should land on.
-                    Defaults to the ApplicationHelper#referral_share_contest
+                    Defaults to the ApplicationHelper#main_contest_target
                     helper, which resolves SeasonConfig.main_contest once per
-                    request — exactly what AccountsController assigned to
+                    request and is shared with every other card on the page —
+                    exactly what AccountsController assigned to
                     @referral_share_contest, minus the controller.
 
     IT RESOLVES ITS OWN DEFAULT, and that is the point of the change. It used to
@@ -27,7 +28,7 @@
     component. Only `card shadow p-6 mb-6` came off, because that is chrome and
     the call site owns it.
 %>
-<% share_contest = local_assigns.fetch(:share_contest, referral_share_contest) %>
+<% share_contest = local_assigns.fetch(:share_contest, main_contest_target) %>
   <%
     referral_target_path = share_contest ? contest_path(share_contest) : root_path
     referral_url = referral_link_url(referral_target_path)
