@@ -221,7 +221,7 @@ regardless of their own session.
 | `web2_solana_address` | `:64` | Custodial address (managed keypair) |
 | `web3_solana_address` | `:65` | Self-custody address (Phantom) |
 | `web3_wallet_provider` | `:353` | **The brand that authenticated** — requirement 3 is *already partly implemented* |
-| `solana_address` | `:504` | `web3 || web2` — prefers web3 unconditionally (as the brief said) |
+| `solana_address` | `:504` | `web3 \|\| web2` — prefers web3 unconditionally (as the brief said) |
 | `solana_connected?` | `:303` | `web2.present? \|\| web3.present?` — the DB fact behind defect A |
 | `phantom_wallet?` | `:311` | `web3.present?` |
 | `managed_wallet?` | `:307` | `web2.present?` |
