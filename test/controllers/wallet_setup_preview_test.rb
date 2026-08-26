@@ -359,7 +359,7 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
 
     # The gates that DO refuse something keep theirs. This is a targeted
     # removal, not a house-wide de-animation.
-    assert_includes board, "open('age-verify', { enterAnim: 'shake' })"
+    assert_includes board, "open('birthday', { enterAnim: 'shake' })"
   end
 
   test "wallet-setup carries the small link back to Buy an Entry Token" do

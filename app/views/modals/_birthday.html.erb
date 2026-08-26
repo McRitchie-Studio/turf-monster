@@ -1,0 +1,35 @@
+<%#
+  Birthday modal — the entry-time DOB gate (ENABLE_AGE_GATE). Mounted by the
+  modal host as id 'birthday'; opened from the onboarding chain (step 2) and
+  from the contest hold-to-confirm flow before the Get Entry Tokens modal.
+
+  THE CARD IS THE ENGINE'S (studio/modals/blocks/_birthday, adopted 2026-08-26).
+  This app rendered its own copy — modals/_age_verify — until the engine homed it
+  at 0.60.1. All that is left here is the chain's position pill and the locals
+  BirthdayModalHelper resolves, because the engine hardcodes no legal policy.
+
+  THE REFUSAL IS NO LONGER THIS CARD'S JOB. The deleted fork turned red and
+  disabled its own submit button on an under-age date — the one screen state with
+  nothing to press and nowhere to go. Now the date submits like any other and the
+  SERVER's verdict routes: /age/verify answers `underage: true`, and the engine
+  factory swaps to the 'age-gate' card, which carries the two ways out (watch
+  instead, or fix the date).
+
+  PILL PLACEMENT. The pill sits ABOVE the engine card rather than inside it. The
+  engine block has no yield slot, and this is where the chain's other two steps
+  already put theirs (modals/_onboarding at 1 of 3, modals/_wallet_setup at 3 of
+  3, both at card top level) — so step 2 now matches its siblings instead of
+  being the one that tucked the pill under the title.
+
+  Single root element (template-x-if mount rule).
+%>
+<div>
+  <%# Step 2 of the onboarding chain — see the note in modals/_onboarding.
+      SHOWN UNCONDITIONALLY, including when the entry gate opens this card on its
+      own for a user who never walked the chain. That is the operator's call and
+      the simpler rule; if a standalone DOB prompt claiming "2 of 3" ever reads
+      wrong, gate it on a prop the chain driver passes rather than guessing from
+      session state. %>
+  <%= render "studio/modals/blocks/progress_pill", current: 2, total: 3 %>
+  <%= render "studio/modals/blocks/birthday", **birthday_modal_locals %>
+</div>
