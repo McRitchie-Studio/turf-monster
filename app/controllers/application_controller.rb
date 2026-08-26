@@ -36,7 +36,7 @@ class ApplicationController < ActionController::Base
     # The onchain-session flag is a Phantom-wallet-signature privilege. Reset
     # it on every login so a stale flag from an earlier Phantom session can't
     # leak into a later email/Google login (which would make ContestsController
-    # #enter demand a wallet signature). SolanaSessionsController#verify calls
+    # #enter REFUSE the entry and route it to the on-chain path). SolanaSessionsController#verify calls
     # set_app_session and then re-grants the flag for genuine wallet auth.
     session.delete(:onchain)
     # OPSEC-046: a fresh login must never inherit a prior impersonation — e.g. a
