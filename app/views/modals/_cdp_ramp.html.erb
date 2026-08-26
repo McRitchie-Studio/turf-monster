@@ -41,9 +41,7 @@
 
   <%# Top-right close. The flow is recoverable by design (return page +
       wallet page re-enter it), so closing mid-flight is safe. %>
-  <button @click="$store.modals.close()"
-          class="absolute top-0 right-0 -mt-2 -mr-2 text-secondary hover:text-heading text-xl leading-none z-10"
-          aria-label="Close">&times;</button>
+  <%= render "studio/modals/blocks/close_x" %>
 
   <%# === PREFLIGHT (BUY) ================================================== %>
   <template x-if="props.step === 'preflight' && isBuy">
