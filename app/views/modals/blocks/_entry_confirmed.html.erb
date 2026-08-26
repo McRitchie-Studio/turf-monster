@@ -11,7 +11,9 @@
   .current()). Reconcile both — add a kickoff yield slot + a store-
   agnostic props source to the engine block — in a follow-up before
   adopting. The generic building blocks it composes ARE the engine's:
-  card_header + cta_redirect under studio/modals/blocks/.
+  card_header + cta_redirect + solana_tx_link under studio/modals/blocks/.
+  This card is now the LAST of the three Solana forks; the tx link and the
+  generic success card were adopted on 2026-08-25.
 
   Same visual spine as the engine success template (card_header at :lg
   + primary btn-lg CTA + subtle dismiss link) plus three on-chain
@@ -78,9 +80,15 @@
         title: "Good Luck",
         subtitle: "Entry Confirmed" %>
 
-  <%# Solana tx attestation — branded explorer link (shared with
-      _onchain_success). Mounts only when the signature is set. %>
-  <%= render "modals/blocks/solana_tx_link", tx_signature_key: tx_signature_key %>
+  <%# Solana tx attestation — the ENGINE's branded explorer link
+      (studio/modals/blocks/_solana_tx_link, adopted 2026-08-25; this app's fork
+      was byte-identical in markup). Mounts only when the signature is set.
+      cluster_param is REQUIRED reading here even though the engine defaults it
+      to "": the default is mainnet, so omitting it on a devnet deploy points at
+      an explorer that will not find the transaction. %>
+  <%= render "studio/modals/blocks/solana_tx_link",
+        tx_signature_key: tx_signature_key,
+        cluster_param:    solana_explorer_cluster_param %>
 
   <%# Kickoff countdown — live "Kicks off in" timer to the contest's lock
       time (Contest#starts_at, the moment entries close and play begins).
