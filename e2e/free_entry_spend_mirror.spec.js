@@ -170,7 +170,7 @@ test("the /enter success branch spends the token, and the CTA stops promising a 
   expect(verdict).not.toBeNull();
 });
 
-test("the phantom-direct success branch spends the token, and the CTA stops promising a free one", async ({
+test("a rejected Phantom token signature retries in place, then spends the token", async ({
   page,
 }) => {
   await setupPhantomMock(page);
@@ -207,7 +207,11 @@ test("the phantom-direct success branch spends the token, and the CTA stops prom
     return btoa(bin);
   });
 
-  await page.route("**/contests/*/prepare_entry", (route) =>
+  let prepareCount = 0;
+  let discardCount = 0;
+  let confirmCount = 0;
+  await page.route("**/contests/*/prepare_entry", (route) => {
+    prepareCount += 1;
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -215,13 +219,22 @@ test("the phantom-direct success branch spends the token, and the CTA stops prom
         success: true,
         entry_id: 1,
         entry_pda: "PDA_SENTINEL",
-        ptx_slug: "PTX_SENTINEL",
+        ptx_slug: `PTX_SENTINEL_${prepareCount}`,
         token_funded: true,
         serialized_tx: serializedTx,
       }),
-    })
-  );
-  await page.route("**/contests/*/confirm_onchain_entry", (route) =>
+    });
+  });
+  await page.route("**/contests/*/discard_prepared_entry", (route) => {
+    discardCount += 1;
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ retired: true }),
+    });
+  });
+  await page.route("**/contests/*/confirm_onchain_entry", (route) => {
+    confirmCount += 1;
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -234,8 +247,8 @@ test("the phantom-direct success branch spends the token, and the CTA stops prom
         seeds_total: 0,
         seeds_level: 1,
       }),
-    })
-  );
+    });
+  });
 
   const b = await board(page);
   // useOnchainFlow = sess.isWeb3 && contestOnchain. e2e/seed.rb clears
@@ -244,13 +257,40 @@ test("the phantom-direct success branch spends the token, and the CTA stops prom
   // here. It selects WHICH BRANCH runs; it is not the thing under test, and the
   // 0 asserted below is still computed by the branch, never assigned.
   await b.evaluate((c) => { c.contestOnchain = true; });
-  // The signing leg needs a real wire; when the mock cannot produce one the
-  // method throws and the store is untouched — which would read as a PASS of
-  // the wrong thing. So assert we actually REACHED the success branch.
-  await b.evaluate((c) => c.confirmEntry().catch(() => {}));
+
+  // First Phantom request fails exactly as a dismissed/stale extension request
+  // does. The production recovery CTA must retire that unsigned PT, refresh the
+  // session snapshot, and build a second transaction without navigating.
+  await page.evaluate(() => {
+    const provider = window.walletProvider.detect();
+    const original = provider.signTransaction.bind(provider);
+    let calls = 0;
+    provider.signTransaction = function(tx) {
+      calls += 1;
+      if (calls === 1) {
+        const err = new Error("User rejected the request.");
+        err.code = 4001;
+        return Promise.reject(err);
+      }
+      return original(tx);
+    };
+    window.__entrySignatureCalls = () => calls;
+  });
+
+  await b.evaluate((c) => c.confirmEntry());
+  await expect.poll(() => page.evaluate(() => Alpine.store("solanaModal").state)).toBe("error");
+  await expect(page.getByRole("button", { name: "Try Again" })).toBeVisible();
+  await expect.poll(() => discardCount).toBe(1);
+
+  await page.getByRole("button", { name: "Try Again" }).click();
   await expect
     .poll(() => page.evaluate(() => Alpine.store("solanaModal").txSignature || null))
     .toBe("SIG_SENTINEL_PHANTOM");
+
+  expect(prepareCount).toBe(2);
+  expect(discardCount).toBe(1);
+  expect(confirmCount).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__entrySignatureCalls())).toBe(2);
 
   await expect.poll(() => tokensNow(page)).toBe(0);
   await expectLabels(page, "Hold to Confirm");

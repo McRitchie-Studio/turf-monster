@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_21_190000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_22_050000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -785,6 +785,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_21_190000) do
     t.string "email"
     t.datetime "email_verified_at"
     t.text "encrypted_web2_solana_private_key"
+    t.integer "entry_tokens_granted_level", default: 1, null: false
+    t.datetime "entry_tokens_swept_at", default: "1970-01-01 00:00:00", null: false
     t.datetime "export_initiated_at"
     t.datetime "first_chat_message_at"
     t.string "first_name"
@@ -821,6 +823,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_21_190000) do
     t.index "lower((username)::text)", name: "index_users_on_lower_username", unique: true, where: "(username IS NOT NULL)"
     t.index ["contest_entered"], name: "index_users_on_contest_entered_true", where: "(contest_entered = true)"
     t.index ["email"], name: "index_users_on_email", unique: true, where: "(email IS NOT NULL)"
+    t.index ["entry_tokens_swept_at", "id"], name: "index_users_on_pending_level_up_grants", where: "(level > entry_tokens_granted_level)"
     t.index ["frozen_at"], name: "index_users_on_frozen_at", where: "(frozen_at IS NOT NULL)"
     t.index ["invited_by_id"], name: "index_users_on_invited_by_id"
     t.index ["ips"], name: "index_users_on_ips", using: :gin

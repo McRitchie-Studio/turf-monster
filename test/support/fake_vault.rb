@@ -16,8 +16,12 @@
 #   starting_sequence: integer  → first mint's sequence (for resume tests)
 #   tokens:            array    → seeds list_entry_tokens (drives has-tokens branches)
 class FakeVault
-  attr_reader :mint_calls, :transfer_calls, :enter_calls, :ensure_account_calls,
-              :fund_calls, :deposit_calls
+  # mint_wallets pairs with mint_calls: WHICH address each ref was minted to.
+  # Recording the ref alone let a test assert the payout happened without
+  # asserting it went to the right wallet — the gap that hid a ref keyed to a
+  # different address than the mint.
+  attr_reader :mint_calls, :mint_wallets, :transfer_calls, :enter_calls, :ensure_account_calls,
+              :fund_calls, :deposit_calls, :sync_balance_calls, :entry_token_list_calls
 
   def initialize(fail_after: nil, starting_sequence: 0, tokens: [], signature_statuses: {},
                  usdc_balance: nil, usdc_balance_raises: false, account_infos: {}, signatures: {},
@@ -35,11 +39,14 @@ class FakeVault
     @season_raises = season_raises
     @seasons = seasons || Array(season)
     @mint_calls = []
+    @mint_wallets = []
     @transfer_calls = []
     @enter_calls = []
     @ensure_account_calls = []
     @fund_calls = []
     @deposit_calls = []
+    @sync_balance_calls = []
+    @entry_token_list_calls = []
   end
 
   # --- Solana RPC client stub (recovery flow) ---
@@ -124,8 +131,17 @@ class FakeVault
 
   # --- Token minting (TokenPurchaseJob, dev_mint) ---
 
+  # Set to an exception to make every mint raise it. Distinct from `fail_after`,
+  # which simulates a mid-batch flake: this one lets a test choose the MESSAGE,
+  # because the grant service now branches on it — a benign already-in-use
+  # collision must not reach the operator's anomaly channel while a real fault
+  # must.
+  attr_accessor :raise_on_mint
+
   def mint_entry_token(wallet_address:, source:, source_ref:, **_opts)
     @mint_calls << source_ref
+    @mint_wallets << wallet_address
+    raise @raise_on_mint if @raise_on_mint
     raise StandardError, "simulated chain failure" if @fail_after && @mint_calls.length > @fail_after
     seq = @starting_sequence + @mint_calls.length - 1
     { signature: "sig_#{seq}_#{SecureRandom.hex(2)}", pda: "pda-seq-#{seq}", sequence: seq }
@@ -136,6 +152,7 @@ class FakeVault
   # wallets hold different tokens — e.g. a web3-owned token the web2 server-sign
   # path must NOT pick. An address missing from the Hash returns [].
   def list_entry_tokens(wallet, **_opts)
+    @entry_token_list_calls << wallet
     return (@tokens[wallet] || []).dup if @tokens.is_a?(Hash)
     @tokens.dup
   end
@@ -379,7 +396,8 @@ class FakeVault
 
   attr_writer :sync_balance_seeds
 
-  def sync_balance(_wallet)
+  def sync_balance(wallet)
+    @sync_balance_calls << wallet
     seeds = (@sync_balance_seeds || 0).to_i
     { balance_dollars: 0.0, seeds: seeds, level: User.level_for(seeds) }
   end

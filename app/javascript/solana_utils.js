@@ -308,6 +308,30 @@ export function refreshSession() {
     .catch(function() { return null; });
 }
 
+// A level-up mint runs off-request so the entry response never waits on an
+// admin-signed Solana transaction. Poll the existing canonical hydrate until
+// the server says the milestone is settled; each pass also nudges a missed
+// enqueue from a fresh on-chain seed read. Sequential backoff keeps this to at
+// most four hydrates and stops as soon as the token is visible.
+var _levelUpTokenRefreshGeneration = 0;
+export function refreshLevelUpToken() {
+  var generation = ++_levelUpTokenRefreshGeneration;
+  var delays = [1000, 2500, 5000, 9000];
+
+  function poll(attempt) {
+    if (attempt >= delays.length || generation !== _levelUpTokenRefreshGeneration) return;
+    setTimeout(function() {
+      if (generation !== _levelUpTokenRefreshGeneration) return;
+      refreshSession().then(function(data) {
+        if (data && data.level_up_token_pending === false) return;
+        poll(attempt + 1);
+      });
+    }, delays[attempt]);
+  }
+
+  poll(0);
+}
+
 // Wallet tiles — generic fanout: any page can subscribe a balance readout
 // to the hydrate calls by tagging an element with
 // data-wallet-tile="usdc|usdt|sol|tokens" (/account's Identities row).
@@ -504,6 +528,7 @@ window.confirmSolanaNetworkIntent = confirmSolanaNetworkIntent;
 window.refreshBalance = refreshBalance;
 window.refreshBalanceDelayed = refreshBalanceDelayed;
 window.refreshSession = refreshSession;
+window.refreshLevelUpToken = refreshLevelUpToken;
 // fireConfettiFromModal was removed (it had no call sites). Its exact radial
 // card-burst now lives in studio-engine as window.studioConfetti.burst(el) — a
 // faithful, byte-for-byte port (see studio/studio_confetti.js). Use that.

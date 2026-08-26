@@ -6,9 +6,13 @@ require "test_helper"
 # studio/modals/... partials: card_header, cta_redirect, progress_pill, shell,
 # the five modal templates, the shared email_field (with the live validator),
 # the free_entry_earned celebration block, and the wallet-brand sprite in the
-# Connect-Wallet picker. The Solana success cluster (entry_confirmed /
-# onchain_success / solana_tx_link) and the modal host stay forked in TM
-# (kickoff countdown + $store.solanaModal drive + inline cosign-rejected).
+# Connect-Wallet picker.
+#
+# 2026-08-25 (adopt-engine-solana-blocks): two thirds of the Solana success
+# cluster followed. onchain_success and solana_tx_link were byte-identical to
+# the engine blocks in RENDERED markup, so TM's copies are deleted. Still forked:
+# entry_confirmed (kickoff countdown + $store.solanaModal drive) and the modal
+# host (inline cosign-rejected).
 #
 # These assert the swap at the render boundary — the ENGINE partials render,
 # the removed forks are gone, and the kept Solana forks still resolve their
@@ -59,7 +63,8 @@ class EngineModalDeforkTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "window.fireFreeEntryConfetti || window.fireSuccessConfetti"
     # Turf's reward copy, threaded in as the block's `subtitle` local.
     assert_includes response.body, "Free Entry Token"
-    assert_includes response.body, "will arrive in 48 hours"
+    assert_includes response.body, "It is minting now and should appear shortly"
+    assert_includes response.body, "window.refreshLevelUpToken && window.refreshLevelUpToken()"
   end
 
   test "modal templates render from studio-engine (non-production gallery)" do
@@ -85,9 +90,18 @@ class EngineModalDeforkTest < ActionDispatch::IntegrationTest
     # raise ActionView::MissingTemplate (the card_header fork was deleted).
     assert_includes response.body, "Entry Confirmed"
     assert_includes response.body, "Good Luck"
-    # The Solana tx link stays a TM fork (its Solana::Config.devnet? cluster
-    # logic is a safety feature) — it still renders inside the kept card.
+    # The Solana tx link is now the ENGINE's block, rendered by the kept card.
+    # The cluster query is what the deleted fork used to guarantee: the test env
+    # is devnet, so a link WITHOUT it would point at mainnet and find nothing.
     assert_includes response.body, "explorer.solana.com"
+    # Assert the CONCATENATION TAIL, not the bare query string. Several other
+    # views hardcode "?cluster=devnet" in plain hrefs, so a bare substring match
+    # goes green off one of those with this link on mainnet — proved by mutation
+    # while control-checking this change. Only the engine block's Alpine :href
+    # builds the URL by concatenation, so this shape is unique to it.
+    assert_includes response.body, %q[) + '?cluster=devnet'"],
+      "the adopted engine tx link must carry the devnet cluster the fork used to " \
+      "compute inline — without it the explorer resolves against mainnet"
   end
 
   # --- Static guard: no deleted-fork render paths linger ------------------------
@@ -100,7 +114,12 @@ class EngineModalDeforkTest < ActionDispatch::IntegrationTest
       %r{["']modals/blocks/shell["']},
       %r{["']modals/templates/(?:action|form|status|success|wizard)["']},
       %r{["']modals/free_entry_earned["']},
-      %r{["']shared/email_field["']}
+      %r{["']shared/email_field["']},
+      # Deleted 2026-08-25. The leading quote is what keeps these from matching
+      # the ENGINE paths, which read "studio/modals/blocks/..." — a slash, not a
+      # quote, sits before "modals" there.
+      %r{["']modals/blocks/solana_tx_link["']},
+      %r{["']modals/blocks/onchain_success["']}
     ]
     roots = [Rails.root.join("app/views/**/*.erb"), Rails.root.join("app/controllers/**/*.rb")]
     offenders = []
@@ -114,5 +133,59 @@ class EngineModalDeforkTest < ActionDispatch::IntegrationTest
     end
     assert_empty offenders,
       "Deleted-fork render paths still referenced (re-forked?):\n  " + offenders.join("\n  ")
+  end
+
+  # --- the safety the deleted fork used to provide structurally ----------------
+
+  ENGINE_CLUSTER_BLOCKS = %w[
+    studio/modals/blocks/solana_tx_link
+    studio/modals/blocks/onchain_success
+  ].freeze
+
+  test "every engine solana-block callsite passes the explorer cluster param" do
+    # THIS GUARD IS THE TRADE. The deleted fork computed the cluster inline from
+    # Solana::Config.devnet?, so no callsite COULD forget it. The engine block
+    # takes cluster_param as a local DEFAULTING TO "" — mainnet — so a callsite
+    # that omits it renders a link that resolves, looks correct, and finds
+    # nothing, which reads to a user as "my transaction is missing". The fork's
+    # guarantee was structural and untested; this one is asserted. Without it the
+    # adoption is a net loss of safety.
+    callsites = 0
+    offenders = []
+
+    Dir[Rails.root.join("app/views/**/*.erb")].each do |path|
+      body = File.read(path)
+
+      ENGINE_CLUSTER_BLOCKS.each do |partial|
+        quoted = %r{["']#{Regexp.escape(partial)}["']}
+        mentions = body.scan(quoted).size
+        next if mentions.zero?
+
+        # Count mentions BEFORE matching render calls, and require the two to
+        # agree. A callsite written in a shape this regex cannot parse would
+        # otherwise be skipped silently — the guard would pass while the
+        # callsite it exists to check goes unread.
+        calls = body.scan(%r{render[^%]*?#{quoted.source}(.*?)%>}m)
+        assert_equal mentions, calls.size,
+          "#{path}: #{mentions} quoted mention(s) of #{partial} but #{calls.size} " \
+          "parsable render call(s) — one is in a shape this guard cannot see"
+
+        calls.each do |(args)|
+          callsites += 1
+          next if args.include?("cluster_param:")
+
+          offenders << "#{path.sub(Rails.root.to_s + '/', '')} -> #{partial}"
+        end
+      end
+    end
+
+    # A zero here means the scan matched nothing at all, and every assertion
+    # below it would pass no matter what the app did.
+    assert_operator callsites, :>=, 2,
+      "expected at least the entry-confirmed and onchain-tx callsites, found #{callsites}"
+
+    assert_empty offenders,
+      "these callsites omit cluster_param and so link to MAINNET on a devnet " \
+      "deploy:\n  " + offenders.join("\n  ")
   end
 end

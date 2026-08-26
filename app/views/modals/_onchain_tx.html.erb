@@ -15,10 +15,13 @@
   generic _processing_card and _error_card engine blocks cover the
   non-Solana-specific states; the rich success state stays inline
   here because the Solana mark + lobby drain + seeds animation are
-  turf-specific. studio-engine 0.20 homed generic celebration blocks,
-  but the turf entry cards stay forked (kickoff countdown + the
-  $store.solanaModal drive); reconciling them into the engine is a
-  follow-up (see modals/blocks/_entry_confirmed's KEEP note).
+  turf-specific. studio-engine 0.20 homed generic celebration blocks;
+  the GENERIC success card was adopted on 2026-08-25 (this partial now
+  renders studio/modals/blocks/onchain_success, and the app's byte-
+  identical fork is deleted). Only the ENTRY card stays forked, for the
+  two reasons its KEEP note gives — the kickoff countdown has no slot in
+  the engine block, and this card is driven by $store.solanaModal rather
+  than $store.modals.current().props.
 
   Single root: this partial's content lives inside one <div> so
   Alpine's <template x-if> clones it whole (see
@@ -85,12 +88,13 @@
       title, subtitle, ctaLabel, ctaHref }). No seeds bar, no lobby
       auto-redirect drain. %>
   <template x-if="$store.solanaModal.state === 'success' && $store.solanaModal.successVariant === 'generic'">
-    <%= render 'modals/blocks/onchain_success',
+    <%= render 'studio/modals/blocks/onchain_success',
         tx_signature_key: "$store.solanaModal.txSignature",
         title_key:        "$store.solanaModal.successTitle",
         subtitle_key:     "$store.solanaModal.successSubtitle",
         cta_label_key:    "$store.solanaModal.ctaLabel",
-        cta_href_key:     "$store.solanaModal.ctaHref" %>
+        cta_href_key:     "$store.solanaModal.ctaHref",
+        cluster_param:    solana_explorer_cluster_param %>
   </template>
 
   <%# === ERROR =============================================================
