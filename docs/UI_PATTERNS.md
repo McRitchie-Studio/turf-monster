@@ -250,7 +250,7 @@ The stack is LIFO — multiple modals can be open simultaneously and render as a
 
 Both lists are long; grep either for `store.modals.current` to find where they start. (Deliberately no line numbers or counts here — this section previously pointed at a partial that had not existed for months, and precise-but-rotting coordinates are how that happens.)
 
-A modal registered only in (1) works in the app and is silently missing from the preview gallery, which is where it gets reviewed. **Critical: single root element** — sibling `<style>` / `<script>` / structural tags are silently dropped during parsing (see § Alpine + ERB Constraints below).
+A modal registered only in (1) works in the app and is silently missing from the preview gallery, which is where it gets reviewed. **What the gallery cannot show**: at `/admin/modals/preview/<id>` the host backdrop computes `position: static` with no body scroll lock, while the identical element on a real app page computes `fixed` + `overflow: hidden` (measured back-to-back in one browser context, same CSS digests; cause not isolated). Trust the gallery for content and theme, never for production overlay geometry — clipping bugs are invisible there. **Critical: single root element** — sibling `<style>` / `<script>` / structural tags are silently dropped during parsing (see § Alpine + ERB Constraints below).
 
 **Recovery**: The host auto-clears the stack on browser back navigation (bfcache `pageshow`) and Turbo navigation (`turbo:before-cache`). No app-side recovery code needed.
 
