@@ -11,6 +11,14 @@ require "test_helper"
 # notice, because nothing is broken on screen.
 class BirthdayModalHelperTest < ActionView::TestCase
   include BirthdayModalHelper
+  # age_gate_modal_locals resolves its target through
+  # ApplicationHelper#main_contest_target, the per-request memo every card on a
+  # page shares. A real view context mixes in every app helper (Rails'
+  # include_all_helpers default, which this app does not turn off), so the two
+  # meet on one object there; an ActionView::TestCase includes only what it is
+  # told, so the dependency has to be stated. That one resolution is shared
+  # across helpers is asserted in test/helpers/main_contest_target_test.rb.
+  include ApplicationHelper
 
   # --- watch_url: the admin's contest, or the index -------------------------
 

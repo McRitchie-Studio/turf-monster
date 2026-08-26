@@ -48,7 +48,8 @@
 
     <% nq = current_user.respond_to?(:next_quest) ? current_user.next_quest : nil %>
     <% if nq %>
-      <% quest_contest_path = SeasonConfig.main_contest ? contest_path(SeasonConfig.main_contest) : contests_path %>
+      <% quest_target = main_contest_target %>
+      <% quest_contest_path = quest_target ? contest_path(quest_target) : contests_path %>
       <% case nq
          when :join %>
         <%= link_to quest_contest_path, class: link_class do %><%= emoji_swap.("⚽️", "⚔️") %><span>Join contest</span><% end %>
