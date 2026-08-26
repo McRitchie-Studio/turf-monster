@@ -914,6 +914,12 @@
         modules load AFTER Alpine processes x-data. See the partial's
         header for the full diagnostic. %>
     <%= render "shared/alpine_factories" %>
+    <%# window.birthdayModal — the engine factory backing the birthday + age-gate
+        pair. MUST be at layout level: the factory cannot ship inside the card,
+        because the modal host clones the card through a <template x-if> and a
+        cloned <script> never runs. Replaced this app's own ageVerifyModal, which
+        was deleted with modals/_age_verify on 2026-08-26. %>
+    <%= render "studio/birthday_assets" %>
     <%# Keeps Alpine's GENERATED nodes out of Turbo's page cache, so a Back
         navigation renders one set of them instead of two. See the partial. %>
     <%= render "shared/alpine_turbo_cache_reset" %>
@@ -1049,7 +1055,7 @@
           if (next === 'first_name') {
             open('onboarding', {});
           } else if (next === 'age') {
-            open('age-verify', {});
+            open('birthday', {});
           } else if (next === 'wallet') {
             open('wallet-setup', { returnUrl: window.location.href });
           }
@@ -1234,9 +1240,18 @@
         <%= render "modals/auth" %>
       </template>
       <%# Entry-time age gate (ENABLE_AGE_GATE) — DOB verification, fires in the
-          hold-to-confirm flow before the Get Entry Tokens modal. %>
-      <template x-if="$store.modals.current().id === 'age-verify'">
-        <%= render "modals/age_verify" %>
+          hold-to-confirm flow before the Get Entry Tokens modal.
+
+          REGISTER BOTH OR NEITHER. The birthday card hands a refusal off by
+          swapping to 'age-gate'; an unregistered id renders an EMPTY card, which
+          reads as a styling bug rather than a missing partial — the exact failure
+          this layout already shipped once (see the age-verify note in
+          layouts/modal_preview). %>
+      <template x-if="$store.modals.current().id === 'birthday'">
+        <%= render "modals/birthday" %>
+      </template>
+      <template x-if="$store.modals.current().id === 'age-gate'">
+        <%= render "studio/modals/blocks/age_gate", **age_gate_modal_locals %>
       </template>
       <%# Multi-wallet "Connect Wallet" picker (reown-style). Opened directly
           from the standalone Solana button, or swapped-into from the auth

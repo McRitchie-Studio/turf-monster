@@ -15,9 +15,22 @@ class AgeVerificationsController < ApplicationController
     state    = geo_state
     min_age  = AgePolicy.minimum_age(state)
 
+    # UNDERAGE IS A VERDICT, NOT AN ERROR, and `underage: true` is the whole
+    # difference. The client used to refuse an under-age date itself and never
+    # POST, so this branch only ever had to explain itself in prose. The engine's
+    # birthday card submits every date and routes on THIS response: it opens the
+    # age-gate card (which carries "watch instead" and "fix your birthday") when
+    # it sees `underage: true` or a 403, and otherwise paints a red error line.
+    # Without the flag a refused player gets the red line — the dead end the two
+    # cards were split up to remove.
+    #
+    # The status stays 422. The engine accepts either signal, and other callers
+    # already key on 422 for "this DOB was not accepted"; adding the flag is the
+    # smaller blast radius than moving the status under them.
     unless AgePolicy.old_enough?(dob, state)
       return render json: {
         verified: false,
+        underage: true,
         minimum_age: min_age,
         error: "You must be #{min_age}+ to enter contests#{state.present? ? " in #{state}" : ''}."
       }, status: :unprocessable_entity
