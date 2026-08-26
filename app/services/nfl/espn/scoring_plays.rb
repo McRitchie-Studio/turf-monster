@@ -46,6 +46,20 @@ module Nfl
       # game. They are what lets a play's team decide WHICH running total to
       # difference — the alternative, taking whichever side moved, misreads a
       # safety, where the points go to the team that did not have the ball.
+      # DID THE PAYLOAD REPORT A PLAY LIST AT ALL?
+      #
+      # `(payload["scoringPlays"] || [])` cannot tell "this game has no scoring
+      # plays yet" from "this response does not contain the key" — and a
+      # degraded 200 with valid JSON and no key therefore parsed to zero plays
+      # and drove the caller's reconciliation loop to delete every goal it held.
+      # Measured: goals 3 -> 0, score 10-7 -> 0-0, silently.
+      #
+      # An Array — even an empty one — is a real answer. Anything else is the
+      # feed declining to tell us, and the caller must refuse to act on it.
+      def self.reported?(payload)
+        payload.is_a?(Hash) && payload["scoringPlays"].is_a?(Array)
+      end
+
       def self.rows_from(payload, home_abbr:, away_abbr:)
         previous_home = 0
         previous_away = 0
@@ -67,6 +81,13 @@ module Nfl
           # A play crediting neither competitor, or crediting one with no
           # points, is not something we can score. Skipping beats guessing.
           next if points.nil? || points <= 0
+
+          # AN ID-LESS PLAY CANNOT BE RECONCILED, and storing one is worse than
+          # dropping it: `play["id"].to_s` yields "" rather than NULL, and the
+          # unique index's `WHERE external_id IS NOT NULL` predicate COVERS "".
+          # So the second id-less play anywhere in the league collides with the
+          # first — across games — raising PG::UniqueViolation mid-cycle.
+          next if play["id"].to_s.strip.empty?
 
           Row.new(
             external_id:  play["id"].to_s,

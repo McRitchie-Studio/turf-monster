@@ -81,6 +81,9 @@ class BirthdayModalAdoptionTest < ActionView::TestCase
     assert_includes html, "state: 'IA'"
     assert_includes html, "url: '#{age_verify_path}'"
     assert_includes html, "in IA", "the copy names the state the minimum came from"
+    assert_includes html, "19+ AL/NE; 21+ IA/MA/VA",
+      "the per-state age table is this app's legal copy; the engine ships only a "\
+      "policy-free default, so a dropped fine_print silently removes it"
   end
 
   test "a state with a different bar renders that different bar" do

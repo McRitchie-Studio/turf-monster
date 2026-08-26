@@ -116,9 +116,9 @@ class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
   # The sweep travels by translateX in PERCENT, so its width is not decoration —
   # a width that fails to apply makes the strip travel zero pixels while still
   # fading in and out, which looks like a stationary glow and raises no error.
-  # That is exactly what a purged `w-1/3` utility did, so the width is inline
-  # and this test says so.
-  test "the touchdown sweep carries an explicit width, not a purgeable utility" do
+  # A stale build once removed it; inline keeps a dimension the animation's
+  # arithmetic depends on from going missing because of build ordering.
+  test "the touchdown sweep carries an explicit width, not a build-order casualty" do
     get live_path
 
     assert_select ".nfl-sweep" do |sweeps|

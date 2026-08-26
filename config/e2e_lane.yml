@@ -273,6 +273,11 @@
 # spec file (50 files, unchanged). Second collision on this counter for this
 # branch — see the executed: note below for why the number is re-derived rather
 # than incremented.
+# 185 -> 187: e2e/wallet_disconnect.spec.js, a NEW file (50 -> 51 files) carrying
+# two specs — the signer-loss degrade (defects A+B) and the never-connected
+# account switch (defect C). DERIVED WITH THE RUNNER, not incremented:
+# `npx playwright test --list` -> 187 tests in 51 files.
+#
 #
 # 185 -> 188 (adopt-birthday-age-gate-flow): three specs in a NEW file,
 # e2e/birthday_age_gate.spec.js (50 -> 51 files), for the birthday -> age-gate
@@ -286,7 +291,22 @@
 # Re-derived with the lister, never hand-incremented:
 # `npx playwright test --list` -> 188 tests in 51 files.
 #
-# 188 -> 193 (live-nfl-score-pipeline): five specs in a NEW file,
+# BOTH LANDED. Two branches each added a NEW spec file off the same base —
+# wallet_disconnect.spec.js (2) and birthday_age_gate.spec.js (3) — and each
+# wrote its own total for 51 files. Neither number survives the merge; the
+# union is 52 files. RE-DERIVED WITH THE LISTER after the merge, which is the
+# whole reason this counter is runtime and not arithmetic.
+# `npx playwright test --list` -> 190 tests in 52 files.
+#
+# 190 -> 192 (make-logout-definitive): e2e/logout_is_definitive.spec.js, a NEW
+# file (52 -> 53 files) carrying two specs — the whole-browser wipe and the
+# second-user inheritance check. Neither the unit nor the integration tier can
+# make that claim: one stubs the stores, the other never leaves the server.
+# DERIVED WITH THE LISTER after merging accepted (which brought slice 7's two
+# wallet_disconnect specs in), never incremented:
+# `npx playwright test --list` -> 192 tests in 53 files.
+#
+# 188 -> 193 (live-nfl-score-pipeline): specs in a NEW file,
 # e2e/nfl_live_scoreboard.spec.js, for the league-wide /live scoreboard. They
 # cover the one claim no Rails tier can make — that a scoring event recorded on
 # the SERVER reaches an ALREADY-OPEN browser over the websocket with no reload,
@@ -330,7 +350,19 @@
 # allowed_skips is UNCHANGED at 4: none of the six new specs skips. They are
 # public-page specs against /live with no provider flag and no wallet, so there
 # is no runtime condition under which they exit without executing.
-total_specs: 196
+#
+# ⚠️ FOURTH COLLISION ON THIS COUNTER, and again neither side survived.
+# live-nfl-score-pipeline measured 196; make-logout-definitive measured 192 off
+# a different base. RE-DERIVED on the MERGED tree, both routes made to agree:
+#
+#   npx playwright test --list                                    -> 200 tests in 54 files
+#   npx playwright test --list --grep "@devnet"                   ->  17 tests in  1 file
+#   npx playwright test --list --grep-invert "@devnet" --project=chromium
+#                                                                 -> 183 tests in 53 files
+#
+#   total_specs - excluded - allowed_skips  =  200 - 17 - 4  =  179
+#   collected   - allowed_skips             =  183      - 4  =  179   ✓ agree
+total_specs: 200
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -494,12 +526,26 @@ allowed_skips: 4
 # `npx playwright test --list` -> 185 tests in 50 files, `--grep "@devnet"` -> 17
 # in 1 file, `--grep-invert "@devnet" --project=chromium` -> 168 collected.
 # 185 - 17 - 4 = 164, and 168 collected - 4 runtime skips = 164. Both routes agree.
+# 164 -> 166: the two wallet_disconnect specs. Neither adds a runtime skip, so
+# the declared skip count below is unchanged. RE-DERIVED, both routes:
+# `npx playwright test --list` -> 187 in 51 files; `--grep "@devnet"` -> 17;
+# `--grep-invert "@devnet" --project=chromium` -> 170 collected.
+# 187 - 17 - 4 = 166, and 170 collected - 4 runtime skips = 166. Both agree.
+#
 # 164 -> 167 (adopt-birthday-age-gate-flow): the three new birthday/age-gate
 # specs run in the chromium lane and none carries a runtime skip, so
 # allowed_skips HOLDS AT 4 and the whole delta lands here. Derived, both routes:
 # `npx playwright test --list` -> 188 tests in 51 files, `--grep "@devnet"` -> 17
 # in 1 file, `--grep-invert "@devnet" --project=chromium` -> 171 collected.
 # 188 - 17 - 4 = 167, and 171 collected - 4 runtime skips = 167. Both routes agree.
+#
+# BOTH LANDED — re-derived after the merge, both routes, see total_specs above.
+# `--grep "@devnet"` -> 17; `--grep-invert "@devnet" --project=chromium` -> 173.
+# 190 - 17 - 4 = 169, and 173 collected - 4 runtime skips = 169. Both routes agree.
+#
+# 169 -> 171: the two logout specs. Neither adds a runtime skip. Both routes:
+# `--grep "@devnet"` -> 17; `--grep-invert "@devnet" --project=chromium` -> 175.
+# 192 - 17 - 4 = 171, and 175 collected - 4 runtime skips = 171. Both agree.
 #
 # 167 -> 175 (live-nfl-score-pipeline): the eight /live scoreboard specs, all in
 # the chromium lane, none carrying a runtime skip — so allowed_skips HOLDS AT 4
@@ -514,7 +560,11 @@ allowed_skips: 4
 # playwright shards ran, and the number only came apart in CI, which measured
 # 172 executed against a contract of 167 and went red in six seconds. Raise BOTH
 # in the same commit — the check's own message says so, and it means it.
-executed: 175
+#
+# Re-derived on the merged tree alongside total_specs above: 200 - 17 - 4 = 179,
+# and 183 collected - 4 runtime skips = 179. Both routes agree. Neither branch's
+# figure (175 / 171) was correct after the merge.
+executed: 179
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to

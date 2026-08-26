@@ -26,7 +26,7 @@
         <% end %>
       </h1>
     </div>
-    <%= render "live/dev_score_tools", games: @games, teams: @dev_teams %>
+    <%= render "live/dev_score_tools", games: @games %>
   </div>
 
   <div id="nfl_live_scoreboard">
@@ -34,8 +34,17 @@
   </div>
 
   <%# Hidden event feed — broadcast_append_to drops data-only nodes here; the
-      observer below turns each into the scoring animation, then removes it. %>
+      observer below turns each into the scoring animation, then removes it.
+      aria-hidden because these nodes are DATA, not prose: they carry bare
+      attributes a screen reader would read as noise. The announcement lives in
+      the live region below instead, written as a sentence. %>
   <div id="nfl_live_event_feed" class="hidden" aria-hidden="true"></div>
+
+  <%# THE SCREEN-READER ANNOUNCEMENT. Everything else about a scoring play is
+      visual — a banner, a colour wash, a number that swells — so without this a
+      non-sighted viewer is told nothing at all when the board moves. polite, so
+      it waits for a pause rather than interrupting. %>
+  <div id="nfl_live_announcer" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
 </div>
 
 <%# The scoring banner. One reused element rather than one per event, so a
@@ -202,6 +211,9 @@
       animation: none !important;
     }
     .nfl-score-hot { transform: none; }
+    /* The LIVE dot pulses via a Tailwind utility, so it sat outside every rule
+       above and kept animating for a viewer who asked for stillness. */
+    .animate-pulse { animation: none !important; }
   }
 </style>
 
@@ -418,10 +430,21 @@
       }, isFinal ? 3200 : 4000);
     }
 
+    function announce(d) {
+      var region = document.getElementById('nfl_live_announcer');
+      if (!region) return;
+      var line = d.event === 'final'
+        ? 'Final. ' + (d.awayTeam || '') + ' ' + (d.awayScore || '0') + ', ' + (d.homeTeam || '') + ' ' + (d.homeScore || '0') + '.'
+        : (d.label || 'Score') + ', ' + (d.teamName || d.team || '') + '. ' +
+          (d.awayTeam || '') + ' ' + (d.awayScore || '0') + ', ' + (d.homeTeam || '') + ' ' + (d.homeScore || '0') + '.';
+      region.textContent = line;
+    }
+
     function fire(node) {
       if (node.nodeType !== 1) return;
       var d = node.dataset;
       showBanner(d);
+      announce(d);
       // Next frame, not this one. The server sends the board update ahead of the
       // event (see Nfl::LiveBroadcast.scoring_event), but Turbo applies streams
       // as they arrive and a SECOND game scoring at the same instant would

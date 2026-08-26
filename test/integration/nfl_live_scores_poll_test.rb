@@ -22,6 +22,9 @@ class NflLiveScoresPollTest < ActionDispatch::IntegrationTest
 
     def summary(event_id:)
       @summary_calls << event_id
+      # NOTE the default. It used to be {"scoringPlays" => []}, which is a
+      # *reported* empty list — so no test could reach the DEGRADED path where
+      # the key is absent entirely. That default is why the score-wipe shipped.
       @summaries.fetch(event_id, { "scoringPlays" => [] })
     end
   end
@@ -187,6 +190,172 @@ class NflLiveScoresPollTest < ActionDispatch::IntegrationTest
     assert_includes result.anomalies.map(&:kind), "fetch_failed"
     assert_equal 2, result.games_seen
     assert_not_nil Game.find_by(external_id: "EV2")
+  end
+
+  # ── THE DEGRADED FEED ────────────────────────────────────────────────────
+  # A 200, valid JSON, no scoringPlays key. Reproduced against a game holding
+  # goals it wiped them: 3 -> 0, score 10-7 -> 0-0, with ZERO anomalies, because
+  # a blank scoreboard score also parsed to 0 and drift then agreed with itself.
+
+  test "a summary with no scoringPlays key does NOT wipe the goals we hold" do
+    seed = StubClient.new(scoreboard: scoreboard(home: 10, away: 7), summaries: { "EV1" => summary })
+    Nfl::LiveScores::PollCycle.call(slot: @slot, client: seed)
+    game = Game.find_by(external_id: "EV1")
+    assert_equal 3, game.goals.count
+
+    degraded = StubClient.new(
+      scoreboard: scoreboard(home: 10, away: 7),
+      summaries: { "EV1" => { "header" => {} } }   # valid JSON, key absent
+    )
+    # Force the summary to be fetched at all.
+    game.update!(home_score: 0, away_score: 0)
+    result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: degraded)
+
+    assert_equal 3, game.reload.goals.count, "a degraded response must not delete goals"
+    assert_includes result.anomalies.map(&:kind), "degraded_feed",
+      "and it must SAY so — the wipe was silent, which is what made it dangerous"
+  end
+
+  test "a feed reporting zero plays for a game we hold scores on is refused" do
+    seed = StubClient.new(scoreboard: scoreboard(home: 10, away: 7), summaries: { "EV1" => summary })
+    Nfl::LiveScores::PollCycle.call(slot: @slot, client: seed)
+    game = Game.find_by(external_id: "EV1")
+    game.update!(home_score: 0, away_score: 0)
+
+    empty = StubClient.new(
+      scoreboard: scoreboard(home: 10, away: 7),
+      summaries: { "EV1" => { "scoringPlays" => [] } }
+    )
+    result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: empty)
+
+    assert_equal 3, game.reload.goals.count
+    assert_includes result.anomalies.map(&:kind), "degraded_feed"
+  end
+
+  # The worst shape of all: the same degraded payload with completed:true used to
+  # FINALISE a contest game at 0-0 and flip its matchups, silently.
+  test "a degraded response cannot finalise a game at nothing" do
+    seed = StubClient.new(scoreboard: scoreboard(home: 10, away: 7), summaries: { "EV1" => summary })
+    Nfl::LiveScores::PollCycle.call(slot: @slot, client: seed)
+    game = Game.find_by(external_id: "EV1")
+    game.update!(home_score: 0, away_score: 0)
+
+    degraded = StubClient.new(
+      scoreboard: scoreboard(home: 10, away: 7, state: "post", completed: true),
+      summaries: { "EV1" => { "header" => {} } }
+    )
+    Nfl::LiveScores::PollCycle.call(slot: @slot, client: degraded)
+
+    game.reload
+    assert_equal 3, game.goals.count, "the goals must survive"
+    refute_equal "completed", game.status,
+      "a game whose score we cannot reconcile must not be SETTLED — finalising " \
+      "flips every matchup and re-scores every contest on a number one side " \
+      "of the system does not believe"
+  end
+
+  test "a clean final still settles normally" do
+    client = StubClient.new(
+      scoreboard: scoreboard(home: 10, away: 7, state: "post", completed: true),
+      summaries: { "EV1" => summary }
+    )
+
+    result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: client)
+
+    assert_equal "completed", Game.find_by(external_id: "EV1").status
+    assert_includes result.changes.map(&:kind), "final"
+    assert_empty result.anomalies
+  end
+
+  # A blank score on a game the feed calls LIVE is a degraded response, not 0-0.
+  test "a blank score on a live game is an anomaly, not a zero" do
+    board = scoreboard(home: 10, away: 7)
+    board["events"][0]["competitions"][0]["competitors"].each { |c| c["score"] = "" }
+    client = StubClient.new(scoreboard: board, summaries: { "EV1" => summary })
+
+    result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: client)
+
+    assert_includes result.anomalies.map(&:kind), "degraded_feed"
+    assert_empty client.summary_calls, "a score we cannot read must not drive reconciliation"
+  end
+
+  test "a scheduled game with no score yet is NOT an anomaly" do
+    board = scoreboard(home: 10, away: 7, state: "pre")
+    board["events"][0]["competitions"][0]["competitors"].each { |c| c["score"] = "" }
+
+    result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: StubClient.new(scoreboard: board))
+
+    assert_empty result.anomalies
+  end
+
+  # ── MONOTONIC STATE ──────────────────────────────────────────────────────
+  test "a stale row cannot un-complete a finished game or re-fire FINAL" do
+    final = StubClient.new(
+      scoreboard: scoreboard(home: 10, away: 7, state: "post", completed: true),
+      summaries: { "EV1" => summary }
+    )
+    first = Nfl::LiveScores::PollCycle.call(slot: @slot, client: final)
+    assert_includes first.changes.map(&:kind), "final"
+
+    stale = StubClient.new(scoreboard: scoreboard(home: 10, away: 7), summaries: { "EV1" => summary })
+    result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: stale)
+
+    assert_equal "completed", Game.find_by(external_id: "EV1").status
+    assert_includes result.anomalies.map(&:kind), "status_regression"
+    refute_includes result.changes.map(&:kind), "final", "FINAL must not broadcast twice"
+  end
+
+  # The finalise-once guard had ZERO coverage: mutating it to `false` left the
+  # suite green. This is the test that bites.
+  test "finalise fires exactly once across repeated cycles" do
+    client = StubClient.new(
+      scoreboard: scoreboard(home: 10, away: 7, state: "post", completed: true),
+      summaries: { "EV1" => summary }
+    )
+
+    first = Nfl::LiveScores::PollCycle.call(slot: @slot, client: client)
+    second = Nfl::LiveScores::PollCycle.call(slot: @slot, client: client)
+    third = Nfl::LiveScores::PollCycle.call(slot: @slot, client: client)
+
+    assert_equal 1, first.changes.count { |c| c.kind == "final" }
+    assert_equal 0, second.changes.count { |c| c.kind == "final" }
+    assert_equal 0, third.changes.count { |c| c.kind == "final" }
+  end
+
+  # ── IDEMPOTENCY THAT REACHES THE DEDUPE PATH ─────────────────────────────
+  # The old "second identical cycle writes nothing" test never got here:
+  # score_disagrees? short-circuited before sync_scoring_plays ran, so deleting
+  # the dedupe line left it green. This one forces the summary to be read while
+  # the game already holds two of the three plays.
+  test "a summary repeating plays we already hold writes only the new one" do
+    seed = StubClient.new(
+      scoreboard: scoreboard(home: 7, away: 7),
+      summaries: { "EV1" => { "scoringPlays" => summary["scoringPlays"].first(2) } }
+    )
+    Nfl::LiveScores::PollCycle.call(slot: @slot, client: seed)
+    game = Game.find_by(external_id: "EV1")
+    assert_equal 2, game.goals.count
+
+    full = StubClient.new(scoreboard: scoreboard(home: 10, away: 7), summaries: { "EV1" => summary })
+
+    assert_difference -> { Goal.count }, 1 do
+      Nfl::LiveScores::PollCycle.call(slot: @slot, client: full)
+    end
+    assert_equal %w[P1 P2 P3], game.reload.goals.order(:id).pluck(:external_id)
+  end
+
+  # An id-less play stores "" — which the partial index covers — so the second
+  # one anywhere in the league collides GLOBALLY. Dropped at the parse seam.
+  test "a play with no id is dropped rather than stored as a colliding blank" do
+    plays = summary["scoringPlays"].map(&:dup)
+    plays[0] = plays[0].merge("id" => "")
+    client = StubClient.new(scoreboard: scoreboard(home: 10, away: 7), summaries: { "EV1" => { "scoringPlays" => plays } })
+
+    Nfl::LiveScores::PollCycle.call(slot: @slot, client: client)
+
+    ids = Game.find_by(external_id: "EV1").goals.pluck(:external_id)
+    refute_includes ids, ""
+    assert_equal %w[P2 P3], ids.sort
   end
 
   private

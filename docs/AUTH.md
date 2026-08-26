@@ -172,7 +172,7 @@ Token modal. Flipping the default is what closed that gap.
 `User#solana_connected?` is false and every entry-token rail refuses it
 (`TokensController#stripe_checkout`, `#coinflow_order`) — a token must be minted
 somewhere. Surfaces that offer a purchase to a signed-in user should branch on
-`walletConnected` in the session payload, which IS `solana_connected?`. Do not
+`walletHasAddress` in the session payload, which IS `solana_connected?`. Do not
 branch on `mode`: a wallet-less account reads `"web2"`.
 
 | Piece | Where |
