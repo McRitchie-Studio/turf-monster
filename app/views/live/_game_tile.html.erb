@@ -1,0 +1,129 @@
+<%# One game on the league scoreboard. Locals: game (Game).
+
+    THE ROW IS A TEAM CARD, and it wears the app's EXISTING team-card
+    convention rather than a second one invented here: `team_card_palette`
+    (TeamColorsHelper), the same helper behind contests/_multi_week_team_card,
+    contests/_turf_totals_board and teams/index.
+
+    Using it is not just tidiness. The naive reading of "dark field, light ink"
+    is `card_background` + `card_mascot`, and measured across the league that
+    pair falls below WCAG AA for 14 of 32 teams and below 3:1 for 11 — Buffalo
+    is red-on-blue at 1.88:1, Tampa Bay red-on-grey at 2.03:1. The helper
+    already solves it: the FIELD stays the team's own hue, while `fg` resolves
+    to white on a dark field and near-black on a light one, so every team is
+    legible and no team stops looking like itself. The mascot colour keeps its
+    job as the ACCENT — the rail, the scoring wash, the touchdown sweep.
+
+    The name line is the MASCOT ("Giants", "Ravens"), not the ESPN
+    abbreviation — that is a feed detail, and the location line already says
+    "New York".
+
+    Animation hooks:
+      · data-game-slug / data-team-slug — how the page finds the row that scored
+      · --nfl-team / --nfl-team-ink     — field hue and accent, read by every animation
+      · .nfl-row-wash                   — the flash overlay
+      · .nfl-sweep                      — the touchdown's left-to-right strip %>
+<% home = game.home_team %>
+<% away = game.away_team %>
+<%# THE CARD HOSTS THE GLOW RING, and the clipping moved inside it.
+    `.studio-team-glow` paints ::before/::after at a NEGATIVE inset, so the ring
+    lives OUTSIDE the host's box — and `overflow-hidden` on the host would clip
+    away the entire effect. The rows still need clipping (their gradients have
+    to stop at the rounded corners), so that job moved to an inner box which
+    inherits the card's radius.
+    The engine's own note on this class says it punches the host's box out of
+    the wedge layers precisely so a LIVE BOARD CARD can wear the ring directly,
+    without a wrapper Turbo would orphan on replace. This is that case.
+    Opacity starts at 0 — the ring is dark until a score lights it, and the
+    class's built-in 0.4s opacity transition gives the fade for free. %>
+<div class="card p-0 transition-shadow duration-300 studio-team-glow"
+     data-game-slug="<%= game.slug %>"
+     data-test="live-game-tile"
+     style="--studio-team-glow-opacity: 0;
+            --studio-team-glow-thickness: 3px;
+            --studio-team-glow-bloom: 12px;
+            --studio-team-glow-speed: 5s">
+  <div style="overflow: hidden; border-radius: inherit">
+    <% [[away, game.away_score], [home, game.home_score]].each_with_index do |(team, score), index| %>
+      <% palette = team_card_palette(team) %>
+      <% field = normalize_hex(team&.card_background) || "#3a3f4b" %>
+      <div class="relative flex items-center gap-3 px-3 py-2.5 overflow-hidden"
+           data-team-slug="<%= team&.slug %>"
+           data-role="team-row"
+           style="background: <%= palette[:gradient] %>;
+                  --nfl-team: <%= field %>;
+                  --nfl-team-ink: <%= palette[:accent] %>;
+                  <%= "border-bottom: 1px solid #{palette[:divider]};" if index.zero? %>">
+        <%# Flash overlay and touchdown sweep, both in the ACCENT colour and both
+            parked at opacity 0 until an animation class runs them. %>
+        <span class="nfl-row-wash absolute inset-0 pointer-events-none opacity-0"
+              style="background: <%= palette[:accent] %>"></span>
+        <%# WIDTH IS INLINE, NOT A UTILITY CLASS, and that is load-bearing. The
+            sweep travels by translateX in PERCENT — percentages of its own box —
+            so a width that fails to apply does not make the strip narrow, it
+            makes it travel exactly zero pixels while still fading in and out,
+            which reads as a stationary glow with no error anywhere.
+            It was a STALE BUILD that produced that here — the utility was
+            written after the last tailwind compile, not purged (the class is in
+            the build now and this file is scanned). Inline anyway: a dimension
+            an animation's arithmetic depends on should not be able to go missing
+            because of build ordering. %>
+        <span class="nfl-sweep absolute inset-y-0 left-0 pointer-events-none opacity-0"
+              style="width: 34%;
+                     background: linear-gradient(90deg, transparent, <%= palette[:accent] %>, transparent)"></span>
+
+        <span class="nfl-rail relative w-1 h-8 rounded-full flex-shrink-0"
+              style="background: <%= palette[:accent] %>"></span>
+        <span class="relative text-xl leading-none flex-shrink-0"
+              style="text-shadow: <%= palette[:mascot_shadow] %>"><%= team&.emoji %></span>
+        <%# Same colour convention as contests/_multi_week_team_card: the MASCOT
+            in the team accent over its legibility halo, the CITY in the light
+            location colour. The halo is what makes the accent readable on the
+            team's own field — it is why Buffalo's red-on-blue (1.88:1 unaided)
+            works here exactly as it does on the contests card. %>
+        <span class="relative min-w-0 flex-1">
+          <span class="block text-sm font-extrabold truncate"
+                style="color: <%= palette[:accent] %>; text-shadow: <%= palette[:mascot_shadow] %>">
+            <%= team&.mascot.presence || team&.short_name || team&.name %>
+          </span>
+          <span class="block text-[11px] font-medium truncate" style="color: <%= palette[:location] %>">
+            <%= team&.location %>
+          </span>
+        </span>
+        <%# NO inline colour on the score, unlike the name and location above.
+            An inline style beats a stylesheet rule, so the hot state could never
+            repaint it — the score reads its resting colour from --nfl-team-fg
+            through a rule instead, which the hot rule can then override. %>
+        <span class="relative text-2xl font-extrabold tabular-nums"
+              style="--nfl-team-fg: <%= palette[:fg] %>"
+              data-role="score"><%= score.to_i %></span>
+      </div>
+    <% end %>
+  </div>
+
+  <%# Status strip. `status_detail` is ESPN's own shortDetail ("Final",
+      "Q3 8:42", "Halftime"), which says more than our three-state status
+      column can — so it leads, and the column is only the fallback. %>
+  <%# The right-hand detail is ESPN's own shortDetail, which usually says MORE
+      than the badge on the left ("Q3 8:42", "Halftime", "Final/OT"). Sometimes
+      it says exactly the same thing, and a concluded game then printed
+      "Final          Final". Suppressed when it merely repeats the badge, kept
+      whenever it adds something — so "Final/OT" still survives. %>
+  <% badge = game.live? ? "Live" : (game.completed? ? "Final" : nil) %>
+  <% detail = game.status_detail.presence %>
+  <% detail = nil if detail && badge && detail.casecmp(badge).zero? %>
+  <div class="px-3 py-1.5 bg-surface-alt/60 flex items-center justify-between gap-2">
+    <% if game.live? %>
+      <span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-red-400">
+        <span class="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse"></span> Live
+      </span>
+    <% elsif game.completed? %>
+      <span class="text-[10px] font-bold uppercase tracking-wider text-muted">Final</span>
+    <% else %>
+      <span class="text-[10px] font-bold uppercase tracking-wider text-muted">
+        <%= game.kickoff_at ? game.kickoff_at.strftime("%a %-I:%M %p") : "TBD" %>
+      </span>
+    <% end %>
+    <span class="text-[11px] text-secondary font-mono truncate"><%= detail %></span>
+  </div>
+</div>
