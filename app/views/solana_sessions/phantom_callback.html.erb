@@ -5,17 +5,28 @@
     <p id="phantom-error" class="text-red-400 text-sm mt-2 hidden"></p>
   </div>
 
-  <%# Visual debug log %>
-  <div id="phantom-log" class="mt-6 w-full max-w-lg text-left bg-surface-alt rounded-lg border border-subtle p-3 overflow-y-auto" style="max-height:50vh">
-    <p class="text-xs font-mono text-muted mb-2">Debug Log</p>
-  </div>
+  <%# Visual debug log — NEVER rendered on a real production deploy. This sink printed
+      the dapp x25519 secret key (phantom_dl_secret) to the page and the console on every
+      mobile Phantom sign-in. AppFlags.live_production? is production-AND-not-QA, the same
+      predicate the OPSEC-020 kill-switches use, so QA keeps its debugging. The script below
+      treats an absent sink as "debug off" and must stay null-safe: if this div is gone and
+      dbg() still touched logEl, the callback would throw and break sign-in outright. %>
+  <% unless AppFlags.live_production? %>
+    <div id="phantom-log" class="mt-6 w-full max-w-lg text-left bg-surface-alt rounded-lg border border-subtle p-3 overflow-y-auto" style="max-height:50vh">
+      <p class="text-xs font-mono text-muted mb-2">Debug Log</p>
+    </div>
+  <% end %>
 </div>
 
 <script>
 (function() {
   var logEl = document.getElementById('phantom-log');
+  // The sink is absent on a real production deploy (see the ERB guard above), and that
+  // absence IS the off switch — for the console too, not just the page.
+  var DEBUG_SINK = !!logEl;
 
   function dbg(label, value) {
+    if (!DEBUG_SINK) { return; }
     var line = document.createElement('p');
     line.className = 'text-xs font-mono break-all mb-1';
     if (label === 'ERROR' || label === 'CATCH') {
@@ -94,6 +105,12 @@
     'phantom_dl_step', 'phantom_dl_link_mode', 'phantom_dl_cluster', 'phantom_dl_age_attested'
   ];
 
+  // Keys whose VALUE must never be printed. ALL_KEYS above stays COMPLETE on purpose:
+  // cleanup() iterates it to REMOVE these from localStorage, so pruning the secret from
+  // it would leave the private key sitting on the device forever — a worse bug than the
+  // one this task fixes. Redact at the point of display instead.
+  var SECRET_KEYS = ['phantom_dl_secret'];
+
   function cleanup() {
     ALL_KEYS.forEach(function(k) { localStorage.removeItem(k); });
   }
@@ -103,7 +120,11 @@
   ALL_KEYS.forEach(function(k) {
     var v = localStorage.getItem(k);
     var short = k.replace('phantom_dl_', '');
-    dbg('  ' + short, v ? truncate(v, 40) : '(empty)');
+    if (SECRET_KEYS.indexOf(k) !== -1) {
+      dbg('  ' + short, v ? '(present, ' + v.length + ' chars, redacted)' : '(empty)');
+    } else {
+      dbg('  ' + short, v ? truncate(v, 40) : '(empty)');
+    }
   });
 
   // Parse + dump URL params
