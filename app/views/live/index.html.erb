@@ -312,9 +312,26 @@
           var when = new Date(iso);
           if (isNaN(when.getTime())) return;   // keep the server fallback
           try {
-            el.textContent = when.toLocaleString(undefined, {
+            var next = when.toLocaleString(undefined, {
               weekday: 'short', hour: 'numeric', minute: '2-digit'
             });
+            // WRITE ONLY ON CHANGE — this guard is what stops an infinite loop,
+            // not a micro-optimisation.
+            //
+            // Setting textContent replaces the element's text NODE, which is a
+            // childList mutation. This function is called from the board's
+            // MutationObserver, which watches { childList, subtree } — so an
+            // unconditional write re-fires the observer, which writes again,
+            // forever. It never wedges the main thread (the callbacks are
+            // queued, not spinning), which is exactly why it was easy to miss:
+            // the server answers curl in 170ms while the browser never reaches
+            // its `load` event, and every e2e spec dies on `page.goto` timeout.
+            //
+            // Comparing first makes the second pass a no-op, so the cascade
+            // stops after one round. applyHot/applyGlow never had this problem
+            // because they mutate classes and inline styles — attribute
+            // mutations, which this observer does not watch.
+            if (el.textContent !== next) el.textContent = next;
           } catch (_) { /* keep the server fallback */ }
         }
       );
