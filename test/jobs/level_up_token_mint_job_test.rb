@@ -103,37 +103,19 @@ class LevelUpTokenMintJobTest < ActiveJob::TestCase
 
   # --- the candidate query ---
 
-  # This test used to assert that every ActiveJob cron carried `active_job: true`,
-  # on the stated grounds that sidekiq-cron would otherwise call perform_async on
-  # an ActiveJob::ConfiguredJob. That is NOT what the gem does. Sidekiq::Cron::Job
-  # #enqueue resolves the class and asks `is_active_job?`, which is
-  # `@active_job || klass < ActiveJob::Base` — so any ApplicationJob is detected
-  # WITHOUT the flag and routed to `set(queue:).perform_later`. The perform_async
-  # path (`enqueue_sidekiq_worker`) is only reachable for a class that is not an
-  # ActiveJob at all. The flag was redundant, and the three unrelated crons this
-  # PR had added it to were reverted.
+  # THE SCHEDULE'S OWN GUARDS MOVED to test/initializers/sidekiq_cron_schedule_test.rb,
+  # where they cover every entry rather than riding this one job's file.
   #
-  # What IS worth pinning is the failure the same method has no defence against:
-  # a `class:` that does not resolve. `constantize` rescues NameError to nil, and
-  # the run then falls through to a raw Sidekiq::Client.push that enqueues a job
-  # nothing will ever perform — a typo'd cron that fails silently, forever.
-  test "every scheduled cron names a class that actually exists" do
-    schedule = YAML.safe_load_file(Rails.root.join("config/schedule.yml"))
-
-    schedule.each do |name, config|
-      klass = config.fetch("class")
-
-      resolved = begin
-        klass.constantize
-      rescue NameError
-        nil
-      end
-
-      assert resolved, "#{name}: schedule.yml names #{klass}, which does not resolve — " \
-                       "sidekiq-cron rescues that to nil and silently enqueues a job " \
-                       "no worker can perform"
-    end
-  end
+  # A comment here used to argue the opposite of what that file now proves: that
+  # `active_job: true` was redundant because sidekiq-cron infers ActiveJob from the
+  # class, so the flag was removed from all four crons. The reasoning read the gem
+  # correctly and still reached the wrong answer — on Sidekiq 7 the gem resolves
+  # `ActiveJob::Base` from inside `module Sidekiq::Cron::Job`, finds `Sidekiq::ActiveJob`
+  # (no `Base`), and the inference collapses for every ActiveJob. NO scheduled job in
+  # this app enqueued between 2026-08-22 and 2026-08-26 as a result.
+  #
+  # Left as a marker on purpose: the flags went missing because the executable guard was
+  # replaced by prose, so the replacement guard EXECUTES the enqueue.
 
   test "sweeps a user whose level has outrun their granted level" do
     @user.update_columns(seeds: 100, level: 2)
