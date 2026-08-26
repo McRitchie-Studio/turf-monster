@@ -47,16 +47,20 @@ module BirthdayModalHelper
   # rendering a dead button, so resolving it here is what keeps the refusal from
   # becoming the dead end this card was built to remove.
   #
-  # Target follows modals/_username's precedent verbatim — the admin-set main
-  # contest, falling back to the index when none is set (off-season, or a fresh
-  # deploy with no SeasonConfig row).
+  # Target is ApplicationHelper#main_contest_target — the admin-set main contest,
+  # falling back to the index when none is set (off-season, or a fresh deploy
+  # with no SeasonConfig row). It goes through the memo rather than calling
+  # SeasonConfig.main_contest directly because this helper is called from a
+  # `<template x-if>` in layouts/application, and ERB inside a `<template>`
+  # renders SERVER-SIDE unconditionally — so this resolves on EVERY
+  # authenticated page render, not when the modal opens.
   #
   # min_age and state are deliberately NOT passed. The engine falls back to
   # props.minAge / props.state, which the birthday card's own refusal handoff
   # supplies — so the two cards can never disagree about the bar, which they
   # could if each resolved it independently at render time.
   def age_gate_modal_locals
-    target = SeasonConfig.main_contest
+    target = main_contest_target
     { watch_url: target ? contest_path(target) : contests_path }
   end
 end

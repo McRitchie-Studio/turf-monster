@@ -9,11 +9,13 @@ require "test_helper"
 # grows a query per card without anyone noticing, because nothing fails.
 #
 # THE REFERRAL CARD'S SIDE of that is contained behind
-# ApplicationHelper#referral_share_contest and measured in
-# test/helpers/referral_share_contest_test.rb — a memo is a property of the
+# ApplicationHelper#main_contest_target and measured in
+# test/helpers/main_contest_target_test.rb — a memo is a property of the
 # method, and measuring it through a whole page attributes everyone else's calls
 # to it (Contest and FaucetController reach main_contest too, which is how the
-# first version of that test failed at four).
+# first version of that test failed at four). What ONE PAGE costs in
+# SeasonConfig lookups is measured in
+# test/integration/main_contest_query_budget_test.rb.
 #
 # WHAT IS LEFT HERE is the claim that only a real request can make: what the
 # WALLET card costs, in chain calls, when the engine's controller renders it.

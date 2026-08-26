@@ -1,6 +1,16 @@
 class Game < ApplicationRecord
   include Sluggable
 
+  # ESPN's own season vocabulary, mirrored so the importer never has to
+  # translate and the scoreboard can label a slot without a second lookup.
+  SEASON_TYPES = { 1 => "preseason", 2 => "regular", 3 => "postseason" }.freeze
+
+  # The slug suffix each season type contributes. Regular season contributes
+  # NOTHING — its games keep the bare "<home>-vs-<away>" slug they already have
+  # in production, referenced by live SlateMatchup rows. Only the season types
+  # that can collide with it carry a discriminator.
+  SEASON_TYPE_SLUG_PREFIX = { 1 => "pre", 3 => "post" }.freeze
+
   belongs_to :home_team, class_name: "Team", foreign_key: :home_team_slug, primary_key: :slug
   belongs_to :away_team, class_name: "Team", foreign_key: :away_team_slug, primary_key: :slug
   belongs_to :advancing_team, class_name: "Team", foreign_key: :advancing_team_slug, primary_key: :slug, optional: true
@@ -8,10 +18,26 @@ class Game < ApplicationRecord
   has_many :goals, foreign_key: :game_slug, primary_key: :slug, dependent: :destroy
   has_many :nfl_team_total_projections, foreign_key: :game_slug, primary_key: :slug, dependent: :destroy
 
-  # Recount goals and update home_score / away_score from Goal records
+  # Games are shared across sports — the World Cup contests live in this same
+  # table — so anything that renders an NFL surface has to say so. Scoping on
+  # the HOME team is enough: a game is never played between leagues, and
+  # checking one side keeps this a single subquery.
+  scope :nfl, -> { where(home_team_slug: Team.nfl.select(:slug)) }
+
+  scope :in_season_slot, ->(year:, season_type:, week:) {
+    where(season_year: year, season_type: season_type, week: week).order(:kickoff_at)
+  }
+
+  # Recount goals and update home_score / away_score from Goal records.
+  #
+  # SUM, not COUNT. A count says every scoring event is worth one point, which
+  # is true of a soccer goal and false of a touchdown. `goals.points` defaults
+  # to 1, so every row written before that column existed sums to exactly what
+  # it used to count — this change is a no-op for World Cup scores and the only
+  # reason NFL scores can be represented at all.
   def update_scores_from_goals!
-    self.home_score = goals.where(team_slug: home_team_slug).count
-    self.away_score = goals.where(team_slug: away_team_slug).count
+    self.home_score = goals.where(team_slug: home_team_slug).sum(:points)
+    self.away_score = goals.where(team_slug: away_team_slug).sum(:points)
     save!
     update_slate_matchups!
   end
@@ -51,9 +77,56 @@ class Game < ApplicationRecord
     end
   end
 
-  def name_slug
-    "#{home_team_slug}-vs-#{away_team_slug}"
+  # Mark this game final and fan out every consequence of that.
+  #
+  # Concluding is NOT just a status write, and the list below is exactly why it
+  # lives in one place: marking a game final bypasses the Goal callbacks, so the
+  # matchup flip, the contest re-score and both live broadcasts have to be
+  # triggered explicitly. Three callers need all of it — the ESPN poller when
+  # the feed says FINAL, the admin console, and the dev toolbar — and a copy
+  # that forgets one line is a game that reads final on one surface and live on
+  # another.
+  #
+  # `detail` is the feed's own status text ("Final", "Final/OT"). Falls back to
+  # whatever the game already carried, then to "Final", so a hand-concluded game
+  # still prints something truthful in its status strip.
+  def conclude!(detail: nil)
+    update!(status: "completed", status_detail: detail.presence || status_detail.presence || "Final")
+    SlateMatchup.where(game_slug: slug).update_all(status: "completed")
+    score_affected_contests!
+    Contest::LiveBroadcast.score_changed(self, event: :game_completed)
+    Nfl::LiveBroadcast.score_changed(self, event: :game_completed)
+    self
   end
+
+  # "<home>-vs-<away>", plus a season discriminator for the season types that
+  # would otherwise collide with the regular season.
+  #
+  # This is not a theoretical guard. Two teams genuinely meet twice in one
+  # calendar year — in the real 2026 schedule, LAC hosts SF in preseason week 3
+  # (Aug 21) and again in regular-season week 15 (Dec 18), and SEA hosts DAL in
+  # preseason week 2 and regular-season week 13. Without the suffix, importing
+  # August exhibition scores would overwrite the December games.
+  def name_slug
+    base = "#{home_team_slug}-vs-#{away_team_slug}"
+    prefix = SEASON_TYPE_SLUG_PREFIX[season_type]
+    return base unless prefix
+
+    [base, "#{prefix}#{week}"].join("-")
+  end
+
+  def season_type_name
+    SEASON_TYPES[season_type]
+  end
+
+  def preseason?  = season_type == 1
+  def regular_season? = season_type == 2
+
+  # ESPN's status vocabulary, collapsed to the three states the scoreboard
+  # actually renders. `status` is a free-text column with a "scheduled" default,
+  # so anything unrecognised reads as scheduled rather than raising.
+  def live?      = status == "in_progress"
+  def completed? = status == "completed"
 
   def expected_total_for(team_or_slug)
     team_slug = team_or_slug.respond_to?(:slug) ? team_or_slug.slug : team_or_slug

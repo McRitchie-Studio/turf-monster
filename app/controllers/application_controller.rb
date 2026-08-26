@@ -76,7 +76,12 @@ class ApplicationController < ActionController::Base
   # a value object, never nil (Solana::CurrentWallet resolves an unknown or
   # absent brand to the neutral default).
   def current_wallet
-    @current_wallet ||= Solana::CurrentWallet.from_session(session)
+    # `session` delegates to @_request, which is nil on a bare controller
+    # instance — and #client_session_payload (a request-free method by design,
+    # unit-tested as one) reads this now. Resolve against an empty session
+    # rather than raising: CurrentWallet already treats an absent brand as the
+    # neutral default, so "no request" and "no brand yet" are the same answer.
+    @current_wallet ||= Solana::CurrentWallet.from_session(request ? session : {})
   end
 
   # Format-aware override of Studio::ErrorHandling#require_authentication.
@@ -536,7 +541,17 @@ class ApplicationController < ActionController::Base
       # THE SAME PREDICATE the rails enforce, not a proxy for it. `mode` looks
       # like it would do — but a wallet-less account reads mode "web2", so
       # branching on that would show the link to exactly the people it refuses.
-      walletConnected: current_user&.solana_connected? || false
+      # RENAMED from `walletConnected` (2026-08-25). The old name read like
+      # live browser connectivity and is nothing of the sort — it is
+      # User#solana_connected?, "does this account have an address at all".
+      # It was about to sit beside $store.wallet.signerAvailable, which DOES
+      # mean live, and the two would have been indistinguishable by name.
+      walletHasAddress: current_user&.solana_connected? || false,
+      # WHICH BRAND SIGNED INTO **THIS SESSION** — Solana::CurrentWallet, not
+      # User#web3_wallet_provider. The column is the durable account fact and is
+      # stale for someone who owns two wallets and signed in with the second;
+      # the adapter the watcher must resolve is the one that can sign NOW.
+      walletBrand: current_wallet&.key.to_s
     )
   end
 
