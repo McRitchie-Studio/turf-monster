@@ -7,7 +7,9 @@ class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
     @away = teams(:team_b)
     @away.update!(league: "nfl", sport: "football")
     # Brand colors are the tile's whole visual language, so pin real values.
-    @home.update!(color_dark: "#97233F", color_light: "#FFB612", color_disposition: "dark")
+    # Name/location are Giants-shaped on purpose: the row must show the MASCOT.
+    @home.update!(name: "New York Giants", location: "New York", mascot: nil,
+                  color_dark: "#97233F", color_light: "#FFB612", color_disposition: "dark")
     @game = Game.create!(
       home_team_slug: @home.slug, away_team_slug: @away.slug,
       season_year: 2026, season_type: 1, week: 4,
@@ -37,13 +39,26 @@ class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
     end
   end
 
-  # The tile's brand rail is read from the team's own palette through
-  # Team#card_background, so a light-field team gets its colors the right way
-  # round instead of a hardcoded dark assumption.
-  test "paints each team's rail in that team's brand color" do
+  # The row is a TEAM CARD, painted through the app's existing team_card_palette
+  # rather than a second convention invented for this page — the field is a
+  # gradient in the team's own hue.
+  test "paints each row as a gradient in that team's brand hue" do
     get live_path
 
-    assert_match(/background:\s*#97233F/i, response.body)
+    assert_match(/linear-gradient\([^)]*#97233f/i, response.body)
+  end
+
+  # The name line is the MASCOT, not the ESPN abbreviation: "Giants" over
+  # "New York", never "NYG". The abbreviation is a feed detail and the location
+  # line already carries the city.
+  test "names each team by its mascot, with the city underneath" do
+    get live_path
+
+    assert_select "[data-game-slug=?] [data-team-slug=?]", @game.slug, @home.slug do
+      assert_select "*", text: "Giants"
+      assert_select "*", text: "New York"
+      assert_select "*", text: "NYG", count: 0
+    end
   end
 
   # The row carries BOTH brand colors, because they do different jobs: the field
@@ -61,12 +76,26 @@ class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "each row carries the wash and rail the scoring animation targets" do
+  test "each row carries the wash, rail and sweep the animations target" do
     get live_path
 
     assert_select "[data-game-slug=?]", @game.slug do
       assert_select ".nfl-row-wash", count: 2
       assert_select ".nfl-rail", count: 2
+      assert_select ".nfl-sweep", count: 2
+    end
+  end
+
+  # The sweep travels by translateX in PERCENT, so its width is not decoration —
+  # a width that fails to apply makes the strip travel zero pixels while still
+  # fading in and out, which looks like a stationary glow and raises no error.
+  # That is exactly what a purged `w-1/3` utility did, so the width is inline
+  # and this test says so.
+  test "the touchdown sweep carries an explicit width, not a purgeable utility" do
+    get live_path
+
+    assert_select ".nfl-sweep" do |sweeps|
+      assert_match(/width:\s*\d+%/, sweeps.first["style"])
     end
   end
 
