@@ -159,3 +159,47 @@ test("the sidebar chip tracks the live count in both panels", async ({ page }) =
   await page.waitForTimeout(250);
   for (const chip of await chips()) expect(chip.display).toBe("none");
 });
+
+test("a level-up refreshes until the newly minted token appears", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: 1366, height: 800 });
+
+  let levelUpActive = false;
+  let levelUpHydrates = 0;
+  await page.route("**/account/session_refresh", (route) => {
+    if (levelUpActive) levelUpHydrates += 1;
+    const settled = levelUpActive && levelUpHydrates >= 2;
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        usdc: "0.0",
+        usdt: "0.0",
+        tokens: settled ? 1 : 0,
+        seeds: 100,
+        level: 2,
+        toward_next: 0,
+        progress: 0,
+        level_up_token_pending: levelUpActive && !settled,
+      }),
+    });
+  });
+
+  await login(page, "alex@mcritchie.studio", "password");
+  await page.goto("/contests");
+  await page.waitForFunction(() => typeof window.refreshLevelUpToken === "function");
+  await expect(page.locator(BADGE).first()).toBeAttached();
+  await expect(page.locator(BADGE).first()).toBeHidden();
+
+  levelUpActive = true;
+  await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent("navbar-seeds-update", {
+      detail: { levelUp: true, oldLevel: 1, newLevel: 2, progress: 0 },
+    }));
+  });
+
+  await expect(page.getByText("It is minting now and should appear shortly")).toBeVisible();
+  await expect.poll(() => levelUpHydrates, { timeout: 15_000 }).toBe(2);
+  await expect(page.locator(BADGE).first()).toBeVisible();
+  await expect.poll(() => page.evaluate(() => Alpine.store("session").tokensAvailable)).toBe(1);
+});

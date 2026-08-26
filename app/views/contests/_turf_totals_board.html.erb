@@ -173,6 +173,7 @@ window.selectionBoard = function() {
     get isEditMode() { return this.mode === 'edit'; },
     shakeKey: 0,
     submitting: false,
+    _signatureRetrying: false,
     // First-pick nudge: a random one of the first four matchups border-pulses
     // until the first selection is made, then goes quiet (selectionCount > 0).
     pulseId: (Object.keys(cfg.cartSelections).length === 0 && cfg.firstMatchupIds && cfg.firstMatchupIds.length)
@@ -1529,6 +1530,8 @@ window.selectionBoard = function() {
       // web3 = a Phantom-authenticated session — sign the entry directly.
       // web2 = managed wallet — POST /enter (server consumes an entry token).
       var useOnchainFlow = sess.isWeb3 && this.contestOnchain;
+      var preparedPtxSlug = null;
+      var awaitingWalletSignature = false;
 
       this.setHoldLoading();
       this.submitting = true;
@@ -1585,6 +1588,7 @@ window.selectionBoard = function() {
             if (this._handleBlockerResponse(prepareData)) return;
             throw new Error(prepareData.error || 'Failed to prepare entry');
           }
+          preparedPtxSlug = ptxSlug;
 
           // Surface WHAT this entry spends (small label — the modal copy is the
           // natural spot; no redesign). A token-funded entry spends no currency
@@ -1617,7 +1621,9 @@ window.selectionBoard = function() {
           // still empty) to the server, which cosigns with the admin keypair
           // (Transaction.cosign_wire), runs a simulateTransaction pre-flight,
           // broadcasts, waits for confirmation, then verifies + activates.
+          awaitingWalletSignature = true;
           var signedTx = await provider.signTransaction(tx);
+          awaitingWalletSignature = false;
           // requireAllSignatures:false — the admin slot is intentionally still
           // empty; the server fills it. verifySignatures:false — the tx isn't
           // fully signed yet, so don't let web3.js reject it on serialize.
@@ -1797,9 +1803,61 @@ window.selectionBoard = function() {
         }
       } catch (err) {
         console.error('[contest-entry] FAILED:', err);
-        var msg = parseSolanaError(err.message || 'Failed to sign entry');
+        // A wallet error while signTransaction is awaiting approval is safe to
+        // retry: the server has unsigned bytes, but nothing has been broadcast.
+        // Retire that record before offering a user-initiated retry so the next
+        // attempt gets a fresh blockhash and a fresh Phantom request. Never use
+        // this path after signing; those attempts belong to on-chain recovery.
+        var retryableUnsignedRequest = useOnchainFlow && awaitingWalletSignature && preparedPtxSlug;
+        awaitingWalletSignature = false;
+
+        if (retryableUnsignedRequest) {
+          try {
+            var discardResp = await window.authedFetch('/contests/' + this.contestId + '/discard_prepared_entry', {
+              method: 'POST',
+              headers: { 'X-CSRF-Token': this.csrfToken, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+              body: JSON.stringify({ ptx_slug: preparedPtxSlug })
+            });
+            if (discardResp) {
+              var discardData = await discardResp.json();
+              console.log('[contest-entry] retired unsigned signing request:', { ptx_slug: preparedPtxSlug, retired: discardData.retired });
+            }
+          } catch (discardErr) {
+            // Best effort. The next prepare still builds fresh wire bytes, and
+            // the stranded unsigned row remains safe for normal expiry.
+            console.warn('[contest-entry] failed to retire unsigned signing request:', discardErr);
+          }
+        }
+
+        var msg = retryableUnsignedRequest
+          ? 'The wallet signature was not completed. Your entry token is still available.'
+          : parseSolanaError(err.message || 'Failed to sign entry');
         if (Alpine.store('solanaModal').visible) {
-          Alpine.store('solanaModal').error(msg);
+          var solanaModal = Alpine.store('solanaModal');
+          solanaModal.error(msg, retryableUnsignedRequest ? 'Signature Not Completed' : null);
+          if (retryableUnsignedRequest) {
+            var board = this;
+            solanaModal.setRecovery('Try Again', async function() {
+              if (board._signatureRetrying) return;
+              board._signatureRetrying = true;
+              try {
+                // Pull the latest token/session snapshot, then confirmEntry
+                // prepares new wire bytes and opens a new Phantom request.
+                try {
+                  if (window.refreshSession) await window.refreshSession();
+                } catch (refreshErr) {
+                  // Session refresh improves freshness, but a transient hydrate
+                  // failure must not recreate the hard-refresh requirement.
+                  console.warn('[contest-entry] retry session refresh failed:', refreshErr);
+                }
+                board.submitting = false;
+                board.resetHoldButtons();
+                await board.confirmEntry();
+              } finally {
+                board._signatureRetrying = false;
+              }
+            }, { phantom: true });
+          }
         } else {
           this.showError(msg);
         }

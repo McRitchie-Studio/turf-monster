@@ -75,7 +75,9 @@ class AccountsController < ApplicationController
       seeds:       seeds,
       level:       User.level_for(seeds),
       toward_next: User.seeds_toward_next_level(seeds),
-      progress:    User.seeds_progress_percent(seeds)
+      progress:    User.seeds_progress_percent(seeds),
+      level_up_token_pending: current_user.present? &&
+        current_user.level > current_user.entry_tokens_granted_level
     }
   end
 
@@ -273,6 +275,24 @@ class AccountsController < ApplicationController
       # same one-click step-up as one who logged in with the wallet directly.
       current_user.record_web3_authentication!(provider: params[:wallet_provider])
       clear_wallet_setup_state!
+      # NO on-chain UserAccount is created here, deliberately. Creating one costs
+      # ~0.00182 SOL of ADMIN rent and is PERMANENT — nothing in turf-vault closes
+      # a UserAccount — while this endpoint is reachable by any signed-in user with
+      # a freshly generated keypair. Keypairs are free and the user holds the key,
+      # so `verify_solana_signature!` passes every time: an eager create here bills
+      # admin SOL per REQUEST rather than per user, bounded only by a 5/min/IP
+      # brute-force throttle (rack_attack.rb:48). That is OPSEC-044 exactly — the
+      # proactive EnsureAtaJob was removed from signup for this reason (user.rb:534)
+      # — and it is cheaper to abuse here, needing only a new keypair rather than a
+      # new account.
+      #
+      # The remedy is OPSEC-044's verbatim: create it lazily, from the paths that
+      # actually need it. They already do — entry.rb:302 before a contest entry,
+      # stripe_deposit_job.rb:51 before a deposit, contests_controller.rb:746 and
+      # :1550 in the entry preamble — which is precisely when a user starts earning
+      # seeds. A user who links a wallet and never plays has no seeds to grant, and
+      # Tokens::LevelUpGrant already models that cold read as first-class
+      # (:user_account_missing), loudly.
       render json: { success: true, redirect: account_path }
     end
   rescue Solana::AuthVerifier::VerificationError => e

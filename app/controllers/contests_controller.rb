@@ -7,7 +7,7 @@ class ContestsController < ApplicationController
   # DB wall time on the two hot paths — "/" (world_cup redirect) and the contest
   # show page — to connect vs execute. No-op-safe; DB_SPAN_TRACE=0 disables.
   around_action :trace_db_span, only: [:world_cup, :show]
-  before_action :set_contest, only: [:show, :admin, :edit, :update, :update_banner, :toggle_selection, :enter, :check_funding, :clear_picks, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_entry, :stamp_entry_signature, :recover_pending_entry, :confirm_onchain_entry, :prepare_onchain_contest, :confirm_onchain_contest, :leaderboard_poll, :live, :pick, :grade_round]
+  before_action :set_contest, only: [:show, :admin, :edit, :update, :update_banner, :toggle_selection, :enter, :check_funding, :clear_picks, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_entry, :discard_prepared_entry, :stamp_entry_signature, :recover_pending_entry, :confirm_onchain_entry, :prepare_onchain_contest, :confirm_onchain_contest, :leaderboard_poll, :live, :pick, :grade_round]
   before_action :require_admin, only: [:new, :create, :rebuild_create_tx, :finalize, :admin, :edit, :update, :update_banner, :generator, :generate_bundle, :finalize_bundle, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_onchain_contest, :confirm_onchain_contest, :grade_round]
   before_action :require_geo_allowed, only: [:toggle_selection, :enter, :prepare_entry]
   # B4 / OPSEC-048: frozen accounts can browse but cannot spend or enter.
@@ -822,6 +822,48 @@ class ContestsController < ApplicationController
     end
   rescue StandardError => e
     render_entry_error(e)
+  end
+
+  # Retire an entry transaction that never received the user's wallet
+  # signature. Phantom can dismiss or invalidate a pending request while the
+  # page remains open; expiring that unsigned server record lets the client
+  # prepare a fresh blockhash and retry in place. A row with a signature is
+  # deliberately immutable here because it may already have been broadcast
+  # and must go through recover_pending_entry instead.
+  def discard_prepared_entry
+    return render json: { error: "Missing ptx_slug" }, status: :unprocessable_entity if params[:ptx_slug].blank?
+
+    ptx = PendingTransaction.find_by(slug: params[:ptx_slug], tx_type: "enter_contest", target_type: "Entry")
+    return render json: { error: "Pending transaction not found" }, status: :not_found unless ptx
+
+    entry = ptx.target
+    authorized = current_user&.web3_solana_address.present? &&
+      ptx.initiator_address.present? &&
+      entry.is_a?(Entry) &&
+      entry.contest_id == @contest.id &&
+      entry.user_id == current_user&.id &&
+      ptx.initiator_address == current_user&.web3_solana_address
+    return render json: { error: "Not authorized" }, status: :forbidden unless authorized
+
+    # The guard belongs in the WHERE, not in Ruby. Reading tx_signature here and
+    # writing on the next line leaves a window: the signature broadcast can land
+    # and stamp the row in between, and this would then expire a transaction that
+    # actually SUCCEEDED — stranding a paid-for entry with no way back. Letting
+    # the database re-check the same condition it is updating under closes it,
+    # and the affected-row count IS the verdict: 1 means this request retired it,
+    # 0 means someone else got there first, which is not an error.
+    #
+    # update_all skips validations and Sluggable's before_save by design — the
+    # row already has its slug, and "expired" is a member of the status
+    # inclusion list this bypasses.
+    retired = PendingTransaction
+      .where(id: ptx.id, status: %w[pending submitted], tx_signature: [nil, ""])
+      .update_all(status: "expired", updated_at: Time.current) == 1
+
+    render json: { retired: retired }
+  rescue StandardError => e
+    capture_unlogged(e, parent: @contest)
+    render json: { retired: false, error: e.message }, status: :unprocessable_entity
   end
 
   # Stamp the on-chain signature onto the PendingTransaction created by
@@ -1666,6 +1708,7 @@ class ContestsController < ApplicationController
     seeds_earned = 0
     seeds_total  = 0
     seeds_level  = 0
+    verified_seeds_total = nil
 
     if entry.onchain_tx_signature.present? && entry.entry_number.present?
       begin
@@ -1676,12 +1719,14 @@ class ContestsController < ApplicationController
       if current_user.solana_connected?
         begin
           onchain = Solana::Vault.new.sync_balance(current_user.solana_address)
-          seeds_total = onchain&.dig(:seeds) || 0
+          verified_seeds_total = onchain&.dig(:seeds)
+          seeds_total = verified_seeds_total || 0
         rescue => e
           Rails.logger.warn "Failed to read seeds after entry: #{e.message}"
         end
       end
       seeds_level = User.level_for(seeds_total)
+      LevelUpTokenMintJob.nudge(current_user, seeds_total: verified_seeds_total) if verified_seeds_total
     end
 
     tx_prefix = tx_signature.to_s.first(8)

@@ -550,6 +550,11 @@
           window.addEventListener('navbar-seeds-update', function(e) {
             if (!e || !e.detail || !e.detail.levelUp) return;
             var props = { level: e.detail.newLevel };
+            // The server enqueued the mint from the same fresh seed snapshot.
+            // Rehydrate with bounded backoff so the badge surfaces the token
+            // as soon as the admin-signed transaction lands, without reload.
+            try { window.refreshLevelUpToken && window.refreshLevelUpToken(); }
+            catch (err) { console.warn('[free-entry] token refresh failed', err); }
             setTimeout(function() {
               try {
                 var m = Alpine.store('modals');
@@ -1352,7 +1357,7 @@
               TM supplies only the reward copy. The block reads props.level off
               $store.modals.current().props and fires window.fireFreeEntryConfetti. %>
           <%= render "studio/modals/blocks/free_entry_earned",
-                subtitle: "Well done! You earned a <strong class='text-heading font-semibold'>Free Entry Token &#127915;</strong> that will arrive in 48 hours. Keep earning more free entries with each level.".html_safe %>
+                subtitle: "Well done! You earned a <strong class='text-heading font-semibold'>Free Entry Token &#127915;</strong>. It is minting now and should appear shortly. Keep earning more free entries with each level.".html_safe %>
         </template>
       <% end %>
       <%# crop-photo gets pushed on top of whatever modal owns the avatar

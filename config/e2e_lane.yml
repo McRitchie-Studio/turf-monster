@@ -268,7 +268,12 @@
 # wholesale. Both were green and both were worthless; only the mutation check told
 # them apart. If you touch that spec, run it against the broken guard before
 # trusting the green.
-total_specs: 184
+#
+# 184 -> 185: this PR's second Phantom-signature spec, appended to an EXISTING
+# spec file (50 files, unchanged). Second collision on this counter for this
+# branch — see the executed: note below for why the number is re-derived rather
+# than incremented.
+total_specs: 185
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -425,7 +430,14 @@ allowed_skips: 4
 # `npx playwright test --list` -> 184 tests in 50 files, `--grep "@devnet"` -> 17
 # in 1 file, `--grep-invert "@devnet" --project=chromium` -> 167 collected.
 # 184 - 17 - 4 = 163, and 167 collected - 4 runtime skips = 163. Both routes agree.
-executed: 163
+# 163 -> 164, re-derived on the MERGED tree for the SECOND time on this branch:
+# `accepted` moved under it twice while CI ran. Incrementing the old value would
+# have silently re-claimed a count another PR had already published, which is the
+# precise failure this lane exists to catch:
+# `npx playwright test --list` -> 185 tests in 50 files, `--grep "@devnet"` -> 17
+# in 1 file, `--grep-invert "@devnet" --project=chromium` -> 168 collected.
+# 185 - 17 - 4 = 164, and 168 collected - 4 runtime skips = 164. Both routes agree.
+executed: 164
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to

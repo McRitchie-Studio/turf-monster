@@ -63,7 +63,8 @@ class EngineModalDeforkTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "window.fireFreeEntryConfetti || window.fireSuccessConfetti"
     # Turf's reward copy, threaded in as the block's `subtitle` local.
     assert_includes response.body, "Free Entry Token"
-    assert_includes response.body, "will arrive in 48 hours"
+    assert_includes response.body, "It is minting now and should appear shortly"
+    assert_includes response.body, "window.refreshLevelUpToken && window.refreshLevelUpToken()"
   end
 
   test "modal templates render from studio-engine (non-production gallery)" do
