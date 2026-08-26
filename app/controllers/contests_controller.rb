@@ -1,5 +1,9 @@
 class ContestsController < ApplicationController
-  include Solana::SessionAuth
+  # Solana::SessionAuth is NOT included any more. Its one export is
+  # verify_solana_signature!, and #enter's unreachable signature branch was this
+  # controller's only caller. `onchain_session?` — still used all over this file
+  # — comes from ApplicationController, not the concern, so the two are
+  # unrelated despite reading alike.
   include DbSpanTracing
 
   skip_before_action :require_authentication, only: [:index, :show, :my, :world_cup, :leaderboard_poll, :live]
@@ -526,19 +530,32 @@ class ContestsController < ApplicationController
     # sendTransaction rows back to the specific entry instead of source:nil.
     Current.outbound_source = entry
 
-    # Onchain sessions MUST provide a wallet signature proof
+    # #enter is the WEB2 / managed server-signing path — it funds the entry with
+    # the custodial keypair. A web3 session does not belong here at all: it enters
+    # through prepare_entry -> confirm_onchain_entry, where the on-chain tx the
+    # wallet signs IS the ownership proof (the per-entry SIWS signMessage was
+    # removed 2026-05-24 for exactly that reason).
+    #
+    # This REPLACES a signature-verification branch that no client could reach.
+    # Both boards POST here with headers only and no body, so its
+    # `params[:signature].present?` was never true. It was not merely dead — it
+    # was a fail-CLOSED gate, so deleting it outright would have let a web3
+    # session walk into the server-signing path with no check at all. Today that
+    # still fails, but only incidentally: a phantom-only account has no
+    # web2_solana_address, so resolve_web2_entry_funding! raises "Managed wallet
+    # missing keypair" — an accident of another guard rather than a decision.
+    #
+    # So: refuse explicitly, and name the path the caller should be on. Same
+    # shape as the self_custodied? guard above, which already routes rather than
+    # merely refusing. The dead branch also consumed the SESSION NONCE if it ever
+    # had fired (delete-before-verify), which would have broken a concurrent
+    # login in another tab — one more reason not to leave it lying there.
     if onchain_session?
-      raise "Wallet signature required" unless params[:signature].present?
-
-      verify_solana_signature!(
-        message: params[:message],
-        signature_b58: params[:signature],
-        pubkey_b58: params[:pubkey],
-        session: session,
-        expected_user_id: current_user.id  # OPSEC-005
-      )
-
-      raise "Wallet mismatch" unless params[:pubkey] == current_user.web3_solana_address
+      return render json: {
+        success: false,
+        error: "Wallet sessions enter on-chain — use prepare_entry to build and sign the entry transaction.",
+        self_custodied: true
+      }, status: :unprocessable_entity
     end
 
     # Declared here so the durable-capture write + confirm! + respond_to below
