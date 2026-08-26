@@ -119,10 +119,19 @@
       </span>
     <% elsif game.completed? %>
       <span class="text-[10px] font-bold uppercase tracking-wider text-muted">Final</span>
+    <% elsif game.kickoff_at %>
+      <%# A MACHINE-READABLE timestamp the browser formats in the VIEWER's zone.
+          The app runs on UTC (config.time_zone is commented out), so a
+          server-rendered 7:00 PM Eastern kickoff printed as "Thu 11:00 PM" —
+          wrong for every reader. Picking one zone server-side would only move
+          the error to everyone outside it; the browser already knows the right
+          answer. The text inside is a truthful no-JS fallback, labelled UTC so
+          it is never silently four hours out. %>
+      <time datetime="<%= game.kickoff_at.utc.iso8601 %>"
+            data-role="kickoff"
+            class="text-[10px] font-bold uppercase tracking-wider text-muted"><%= game.kickoff_at.utc.strftime("%a %-I:%M %p") %> UTC</time>
     <% else %>
-      <span class="text-[10px] font-bold uppercase tracking-wider text-muted">
-        <%= game.kickoff_at ? game.kickoff_at.strftime("%a %-I:%M %p") : "TBD" %>
-      </span>
+      <span class="text-[10px] font-bold uppercase tracking-wider text-muted">TBD</span>
     <% end %>
     <span class="text-[11px] text-secondary font-mono truncate"><%= detail %></span>
   </div>

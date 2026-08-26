@@ -309,6 +309,46 @@
       score.classList.remove('nfl-score-hot');   // the transition above fades it home
     }
 
+    // Kickoff times are rendered by the BROWSER, in the viewer's own zone. The
+    // server can only pick one zone and be wrong for everyone else; the reader's
+    // machine already knows. The <time> element's datetime attribute is the
+    // source of truth, so this is idempotent — running it twice on the same node
+    // reformats from the attribute, never from its own previous output.
+    function formatKickoffs(root) {
+      var scope = root || document;
+      Array.prototype.forEach.call(
+        scope.querySelectorAll('time[data-role="kickoff"]'),
+        function (el) {
+          var iso = el.getAttribute('datetime');
+          if (!iso) return;
+          var when = new Date(iso);
+          if (isNaN(when.getTime())) return;   // keep the server fallback
+          try {
+            var next = when.toLocaleString(undefined, {
+              weekday: 'short', hour: 'numeric', minute: '2-digit'
+            });
+            // WRITE ONLY ON CHANGE — this guard is what stops an infinite loop,
+            // not a micro-optimisation.
+            //
+            // Setting textContent replaces the element's text NODE, which is a
+            // childList mutation. This function is called from the board's
+            // MutationObserver, which watches { childList, subtree } — so an
+            // unconditional write re-fires the observer, which writes again,
+            // forever. It never wedges the main thread (the callbacks are
+            // queued, not spinning), which is exactly why it was easy to miss:
+            // the server answers curl in 170ms while the browser never reaches
+            // its `load` event, and every e2e spec dies on `page.goto` timeout.
+            //
+            // Comparing first makes the second pass a no-op, so the cascade
+            // stops after one round. applyHot/applyGlow never had this problem
+            // because they mutate classes and inline styles — attribute
+            // mutations, which this observer does not watch.
+            if (el.textContent !== next) el.textContent = next;
+          } catch (_) { /* keep the server fallback */ }
+        }
+      );
+    }
+
     function card(gameSlug) {
       return gameSlug ? document.querySelector('[data-game-slug="' + gameSlug + '"]') : null;
     }
@@ -430,8 +470,12 @@
     // onto the new nodes so a score that just changed does not go grey again
     // because a DIFFERENT game scored.
     if (board) {
-      new MutationObserver(function () { applyHot(); applyGlow(); })
+      new MutationObserver(function () { applyHot(); applyGlow(); formatKickoffs(board); })
         .observe(board, { childList: true, subtree: true });
     }
+
+    // First paint. Redraws are covered by the observer above rather than a
+    // second one — a broadcast delivers fresh nodes still carrying UTC.
+    formatKickoffs(document);
   })();
 </script>

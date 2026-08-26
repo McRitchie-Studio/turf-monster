@@ -126,6 +126,43 @@ class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # The app runs on UTC (config.time_zone is commented out), so a server-rendered
+  # kickoff is wrong for every reader outside it — a 7:00 PM Eastern game printed
+  # as "Thu 11:00 PM". The tile emits a machine-readable timestamp instead and
+  # the browser formats it in the VIEWER's zone; picking one zone server-side
+  # would only move the error to everyone outside that zone.
+  test "kickoff is emitted as a machine-readable timestamp for the browser" do
+    kickoff = Time.utc(2026, 8, 27, 23, 0, 0)
+    @game.update!(status: "scheduled", status_detail: nil, kickoff_at: kickoff)
+
+    get live_path
+
+    assert_select "[data-game-slug=?] time[data-role=kickoff]", @game.slug do |els|
+      assert_equal kickoff.iso8601, els.first["datetime"]
+    end
+  end
+
+  # Progressive enhancement: a reader with no JavaScript still gets a time, and
+  # it is LABELLED UTC so it is never silently hours out.
+  test "the no-JavaScript fallback is a truthful, labelled time" do
+    @game.update!(status: "scheduled", status_detail: nil, kickoff_at: Time.utc(2026, 8, 27, 23, 0, 0))
+
+    get live_path
+
+    assert_select "[data-game-slug=?] time[data-role=kickoff]", @game.slug, text: /11:00 PM UTC/
+  end
+
+  test "a game with no kickoff still renders, without an empty time element" do
+    @game.update!(status: "scheduled", status_detail: nil, kickoff_at: nil)
+
+    get live_path
+
+    assert_select "[data-game-slug=?]", @game.slug do
+      assert_select "time[data-role=kickoff]", count: 0
+      assert_select "*", text: "TBD"
+    end
+  end
+
   test "labels a live game with its clock and a final game as final" do
     get live_path
     assert_select "[data-game-slug=?]", @game.slug do

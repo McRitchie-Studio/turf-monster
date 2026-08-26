@@ -19,6 +19,21 @@ test.describe("Live NFL scoreboard", () => {
     await expect(page.locator('[data-test="live-game-tile"]').first()).toBeVisible();
     // Public: no redirect to the sign-in screen.
     await expect(page).toHaveURL(/\/live$/);
+
+    // THE KICKOFF FORMATTER MUST SETTLE. It rewrites <time> text from inside the
+    // board's MutationObserver, and an unconditional write re-fires that
+    // observer forever — which never wedges the main thread, so the server
+    // still answers curl in milliseconds while the page never reaches `load`
+    // and every spec here dies on a goto timeout. Counting rewrites over a
+    // second is the cheapest thing that tells those two apart.
+    const rewrites = await page.evaluate(() => new Promise((resolve) => {
+      const el = document.querySelector('time[data-role="kickoff"]');
+      if (!el) return resolve(0);
+      let n = 0;
+      new MutationObserver(() => { n += 1; }).observe(el, { childList: true, characterData: true, subtree: true });
+      setTimeout(() => resolve(n), 1000);
+    }));
+    expect(rewrites).toBeLessThan(5);
   });
 
   test("a recorded score reaches an open page over the websocket", async ({ page }) => {
