@@ -1,10 +1,35 @@
 // Browser-console logger for web2 (fetch) and web3 (Phantom + Solana RPC) traffic.
 // Each request emits a single collapsed group: description, duration, request payload, response.
 //
-// Toggle live in DevTools:  window.DEBUG_NET = false   (or true)
-// Defaults to enabled.
+// Toggle live in DevTools:  window.DEBUG_NET = true    (or false)
+//
+// DEFAULTS OFF OUTSIDE DEVELOPMENT — and it used to default ON everywhere, which
+// shipped a live traffic logger to production. What it printed was not incidental:
+// the /auth/solana/verify request body carries the SIWS message AND the full base58
+// signature, both well inside the 1500-char truncation, and it re-fires on every
+// _reauth; the response side prints session_state's fresh CSRF token. Anyone with
+// the user's console open — a support screen-share, a recorded session, a bystander —
+// read live credentials.
+//
+// The env comes from data-app-environment on <body>, which the layout already
+// renders (AppFlags.qa_environment? ? "qa" : Rails.env). Reading THAT rather than a
+// new flag matters: QA runs on Heroku with Rails.env=production, so anything keyed
+// on Rails.env alone would call QA production and silently disable the tooling
+// exactly where operators use it.
+//
+// An explicit window.DEBUG_NET set before this module loads still wins, in either
+// direction — that is the DevTools escape hatch, and turning it ON in production is
+// a deliberate act by someone who can already read the console.
+function _defaultOn() {
+  try {
+    var env = document.body && document.body.dataset && document.body.dataset.appEnvironment;
+    return env === 'development' || env === 'qa';
+  } catch (_) {
+    return false; // unreadable env is not a licence to log credentials
+  }
+}
 
-if (window.DEBUG_NET === undefined) window.DEBUG_NET = true;
+if (window.DEBUG_NET === undefined) window.DEBUG_NET = _defaultOn();
 
 function _on() { return !!window.DEBUG_NET; }
 
@@ -12,6 +37,45 @@ function _fmtMs(ms) {
   if (ms < 1) return ms.toFixed(2) + 'ms';
   if (ms < 1000) return Math.round(ms) + 'ms';
   return (ms / 1000).toFixed(2) + 's';
+}
+
+// SECRETS NEVER REACH THE CONSOLE, even when the logger is deliberately ON.
+//
+// Defaulting off protects the user who never opens DevTools; redaction protects the
+// one who does, and the operator debugging QA with it enabled. The two are separate
+// guarantees and neither substitutes for the other — a support screen-share with
+// DEBUG_NET on would otherwise still broadcast a live signature.
+//
+// Redacted by KEY, on the parsed JSON, rather than by regex over the raw string. A
+// regex would have to guess at base58 alphabets and token shapes; the key names are
+// the thing this app actually controls. A body that is not JSON is truncated as
+// before but never parsed, so a form post cannot smuggle a key past the check.
+var _SECRET_KEYS = [
+  'signature',        // the base58 SIWS signature — a live credential
+  'message',          // the SIWS message: carries the nonce the signature is over
+  'authenticity_token', 'csrf_token', 'csrfToken', // Rails CSRF, incl. session_state's
+  'secret', 'password', 'private_key', 'encrypted_web2_solana_private_key'
+];
+
+function _redact(value) {
+  if (Array.isArray(value)) return value.map(_redact);
+  if (!value || typeof value !== 'object') return value;
+
+  var out = {};
+  Object.keys(value).forEach(function(k) {
+    out[k] = _SECRET_KEYS.indexOf(k) !== -1 ? '[redacted]' : _redact(value[k]);
+  });
+  return out;
+}
+
+// Returns a log-safe rendering of a request/response body.
+function _safeBody(body) {
+  if (typeof body !== 'string') return body;
+  try {
+    return JSON.stringify(_redact(JSON.parse(body)));
+  } catch (_) {
+    return body; // not JSON — nothing to key off, so leave it to _trunc
+  }
 }
 
 function _trunc(s, max) {
@@ -49,8 +113,8 @@ function _group(label, color, okColor, dur) {
       var dur = performance.now() - t0;
       resp.clone().text().then(function(body) {
         _group(label + ' → ' + resp.status, '#06d6a0', resp.ok ? '#888' : '#ef4444', dur);
-        console.log('request:', _trunc(reqBody, 1500) || '(none)');
-        console.log('response:', _trunc(body, 1500));
+        console.log('request:', _trunc(_safeBody(reqBody), 1500) || '(none)');
+        console.log('response:', _trunc(_safeBody(body), 1500));
         console.log('status:', resp.status, resp.statusText);
         console.groupEnd();
       }).catch(function() {});
@@ -58,7 +122,7 @@ function _group(label, color, okColor, dur) {
     }, function(err) {
       var dur = performance.now() - t0;
       _group(label + ' ✕ ' + (err && err.message), '#06d6a0', '#ef4444', dur);
-      console.log('request:', _trunc(reqBody, 1500) || '(none)');
+      console.log('request:', _trunc(_safeBody(reqBody), 1500) || '(none)');
       console.log('error:', err);
       console.groupEnd();
       throw err;
