@@ -41,7 +41,7 @@ class AdminController < ApplicationController
       summary: "Runs straight after onboarding, and again from the entry gate if dismissed. " \
                "Skipped entirely for a web2 user already holding an entry's worth of USDC.",
       steps: [
-        { key: "age-verify",   note: "Prompted here now; STILL enforced at contest entry" },
+        { key: "birthday",     note: "Prompted here now; STILL enforced at contest entry" },
         { key: "wallet-setup", note: "Install → waiting → Installed → connect" }
       ] }
   ].freeze
@@ -142,9 +142,20 @@ class AdminController < ApplicationController
     # The DOB gate. Prompted as the first step of Wallet setup since 2026-08-12,
     # and STILL the enforcement point at contest entry — same modal, two callers.
     { group: "Onboarding",
-      label: "Age gate (DOB)", key: "age-verify",
-      modal_id: "age-verify", file: "app/views/modals/_age_verify.html.erb",
+      label: "Birthday (DOB)", key: "birthday",
+      modal_id: "birthday", file: "app/views/modals/_birthday.html.erb",
       props: {} },
+    # The REFUSAL half, new 2026-08-26. It is listed separately because it is a
+    # separate card with its own CTAs — the deleted modals/_age_verify carried
+    # the refusal inline as red text on a card whose submit it had just
+    # disabled, so there was nothing to preview. Opened directly here; in the
+    # app the birthday card swaps to it on the server's underage verdict, which
+    # is also what supplies minAge/state, hence the props below.
+    { group: "Onboarding",
+      label: "Age gate (refused)", key: "age-gate",
+      modal_id: "age-gate",
+      file: "studio-engine: app/views/studio/modals/blocks/_age_gate.html.erb",
+      props: { minAge: 21, state: "CA" } },
     { group: "Web3",
       label: "Success (Entry Confirmed)", key: "onchain-success",
       modal_id: "onchain-tx", file: "app/views/modals/blocks/_entry_confirmed.html.erb",

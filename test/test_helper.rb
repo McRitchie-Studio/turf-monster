@@ -271,18 +271,4 @@ class ActionDispatch::IntegrationTest
   end
 
   # Sign a contest entry message with the given key, returning params hash for POST /enter
-  def sign_entry_message(key, user, contest_name)
-    pubkey_b58 = Solana::Keypair.encode_base58(key.verify_key.to_bytes)
-
-    get "/auth/solana/nonce"
-    nonce = JSON.parse(response.body)["nonce"]
-
-    host = "www.example.com"
-    # OPSEC-005: signed message must embed `User-ID: <id>` so the server
-    # binds the signature to the active session's user.
-    message = "#{host} wants you to sign in with your Solana account:\n#{pubkey_b58}\n\nUser-ID: #{user.id}\n\nEnter contest: #{contest_name}\n\nNonce: #{nonce}"
-    sig_b58 = Solana::Keypair.encode_base58(key.sign(message))
-
-    { message: message, signature: sig_b58, pubkey: pubkey_b58 }
-  end
 end

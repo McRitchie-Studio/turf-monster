@@ -271,59 +271,60 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
   end
 
   # --- onchain session entry tests ---
+  #
+  # #enter is the WEB2 / managed server-signing path. A web3 session belongs on
+  # prepare_entry -> confirm_onchain_entry, where the on-chain transaction it
+  # signs IS the wallet-ownership proof.
+  #
+  # THREE TESTS WERE DELETED HERE, DELIBERATELY, and one of them passed:
+  # "enter accepts onchain session with valid signature" asserted that a web3
+  # session COULD enter through this path given a signed message. That behaviour
+  # is what this change removes, so the test had to go with it rather than be
+  # relabelled. The other two ("without signature", "with wrong wallet") asserted
+  # the failure modes of the same branch and are subsumed by the unconditional
+  # refusal below, which is strictly stronger: it does not depend on a client
+  # supplying — or omitting — anything.
+  #
+  # No client could reach the deleted branch: both boards POST /enter with
+  # headers only and no body.
 
-  test "enter rejects onchain session without signature" do
-    key = log_in_as_onchain(@user)
+  test "enter refuses an onchain session and points at prepare_entry" do
+    log_in_as_onchain(@user)
 
     entry = @contest.entries.create!(user: @user, status: :cart)
     [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
 
-    post enter_contest_path(@contest),
-      headers: { "Accept" => "application/json" }
+    post enter_contest_path(@contest), headers: { "Accept" => "application/json" }
 
     assert_response :unprocessable_entity
     json = JSON.parse(response.body)
-    assert_match(/Wallet signature required/, json["error"])
-    assert entry.reload.cart?
+    assert_match(/prepare_entry/, json["error"],
+                 "the refusal must name the path a web3 session should use")
+    assert entry.reload.cart?, "a refused entry must stay in the cart"
   end
 
-  test "enter accepts onchain session with valid signature" do
+  test "enter refuses an onchain session even when it carries a valid signature" do
     key = log_in_as_onchain(@user)
     contest = free_contest
 
     entry = contest.entries.create!(user: @user, status: :cart)
     [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
 
-    signed_params = sign_entry_message(key, @user, contest.name)
-
+    # A correctly signed message must NOT buy a web3 session through this path
+    # any more. This is the case that used to succeed.
+    message = "www.example.com wants you to sign in with your Solana account:\n" \
+              "#{@user.web3_solana_address}\n\nUser-ID: #{@user.id}\n\nEnter #{contest.name}"
     post enter_contest_path(contest),
-      params: signed_params,
-      as: :json
-
-    assert_response :success
-    json = JSON.parse(response.body)
-    assert json["success"]
-    assert entry.reload.active?
-  end
-
-  test "enter rejects onchain session with wrong wallet" do
-    key = log_in_as_onchain(@user)
-
-    entry = @contest.entries.create!(user: @user, status: :cart)
-    [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
-
-    # Sign with correct key but then change the user's wallet to something else
-    signed_params = sign_entry_message(key, @user, @contest.name)
-    @user.update!(web3_solana_address: "DifferentWalletAddress1111111111111111111111111")
-
-    post enter_contest_path(@contest),
-      params: signed_params,
-      as: :json
+         params: {
+           message: message,
+           signature: Solana::Keypair.encode_base58(key.sign(message)),
+           pubkey: @user.web3_solana_address
+         },
+         as: :json
 
     assert_response :unprocessable_entity
-    json = JSON.parse(response.body)
-    assert_match(/Wallet mismatch/, json["error"])
-    assert entry.reload.cart?
+    assert_match(/prepare_entry/, JSON.parse(response.body)["error"])
+    assert entry.reload.cart?, "a signature must not activate an entry on this path"
   end
 
   test "enter works for offchain session" do
