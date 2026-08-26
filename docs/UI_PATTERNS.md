@@ -227,7 +227,7 @@ Public marketing page with hero, "How It Works" cards, and USDC claim form. Mint
 
 ## Modal Host (studio-engine v0.4.5+)
 
-Modal lifecycle is owned by the studio-engine modal host — `Alpine.store('modals')` — a stack-based store registered in the shared `_modal_host.html.erb` partial. Local app code consumes it; do not reimplement.
+Modal lifecycle is owned by the studio-engine modal host — `Alpine.store('modals')` — a stack-based store provided by the engine's `studio/modals/_host.html.erb` partial. (turf-monster ships its OWN fork of that partial at the same path; engine changes to the host do not reach this app until that fork is synced.) Local app code consumes the store; do not reimplement.
 
 **Opening / closing**:
 
@@ -243,7 +243,14 @@ The stack is LIFO — multiple modals can be open simultaneously and render as a
 
 **Dismissibility**: Modals are dismissible by default (Escape + click outside). For on-chain TX flows, set `dismissible: false` on the props so an accidental click can't orphan a signed-but-unconfirmed transaction. Close only via `$store.modals.close()`.
 
-**Defining a new modal partial**: Mount inside `<template x-if="$store.modals.current()?.id === 'your-id'">` in `shared/_modal_host.html.erb`. **Critical: single root element** — sibling `<style>` / `<script>` / structural tags are silently dropped during parsing (see § Alpine + ERB Constraints below).
+**Defining a new modal partial**: mount it inside `<template x-if="$store.modals.current().id === 'your-id'">` — and register it in **BOTH** lists, because there are two and forgetting the second is the usual slip:
+
+1. `app/views/layouts/application.html.erb` — the app.
+2. `app/views/layouts/modal_preview.html.erb` — the `/admin/modals/preview` gallery.
+
+Both lists are long; grep either for `store.modals.current` to find where they start. (Deliberately no line numbers or counts here — this section previously pointed at a partial that had not existed for months, and precise-but-rotting coordinates are how that happens.)
+
+A modal registered only in (1) works in the app and is silently missing from the preview gallery, which is where it gets reviewed. **Critical: single root element** — sibling `<style>` / `<script>` / structural tags are silently dropped during parsing (see § Alpine + ERB Constraints below).
 
 **Recovery**: The host auto-clears the stack on browser back navigation (bfcache `pageshow`) and Turbo navigation (`turbo:before-cache`). No app-side recovery code needed.
 
