@@ -93,13 +93,23 @@ module Nfl
       end
     end
 
-    # Ranks by the team's expected points, then prices with the app's own curve
-    # so an entry scores exactly as it would on a regular-season slate — the
-    # point is to exercise the real formula, not a stand-in.
+    # Ranks by each team's CURRENT score, then prices with the app's own curve so
+    # an entry scores exactly as it would on a regular-season slate — the point
+    # is to exercise the real formula, not a stand-in.
     #
-    # Preseason carries no betting market, so expectation falls back to the
-    # historical fit. `Nfl::PointsDistribution` is the same source the
-    # regular-season ranking uses, so the shape of the board is honest.
+    # Preseason carries no betting market and no projections, so there is nothing
+    # to rank on before kickoff: every matchup ties at zero and rank falls back to
+    # team_slug order. Fine for a rehearsal — turf_score still spans the real
+    # curve — but this is NOT the regular-season ranking, which ranks on expected
+    # points. Nothing here consults `Nfl::PointsDistribution`.
+    #
+    # AND RE-RUNNING MID-SLATE RE-PRICES PICKS THAT ARE ALREADY MADE. By then the
+    # scores have moved, so the sort order moves, and `Selection#compute_points!`
+    # reads the STORED turf_score every time it computes
+    # (app/models/selection.rb:35, :42) — the pick-time-to-settlement drift that
+    # method's own comment was written to prevent. Harmless HERE only because this
+    # contest is free and never goes on-chain. Do not copy this method onto a
+    # slate that settles.
     def price!(slate, matchups)
       n = matchups.length
       return if n.zero?
