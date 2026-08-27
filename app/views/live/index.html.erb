@@ -50,11 +50,16 @@
 <%# The scoring banner. One reused element rather than one per event, so a
     rapid-fire sequence (a touchdown and its two-point conversion) replaces the
     banner instead of stacking a pile of them down the screen. %>
-<%# --z-alert clears the whole fixed-chrome stack — above --z-nav and above
-    --z-modal. A scoring banner that a sticky header can paint over is a scoring
-    banner nobody sees, which is exactly what a bare z-50 bought before this was
-    measured. It is pointer-events-none and self-dismisses, so sitting on top
-    costs nothing; that is the whole case for the alert tier existing. %>
+<%# NOT A RE-TIER — the ordering is PRESERVED, not changed. This overlay was
+    z-[130] against a modal backdrop of z-[120]; it is now --z-alert (300)
+    against --z-modal (200). Above the modal before, above the modal after. The
+    number moved because the whole ladder moved; the relationship did not.
+
+    That relationship is the point: a scoring banner a sticky header can paint
+    over is a scoring banner nobody sees, which is exactly what a bare z-50
+    bought before it was measured. It is pointer-events-none and self-dismisses,
+    so sitting on top costs nothing — which is the whole case for --z-alert
+    existing as a tier above --z-modal. %>
 <div id="nfl-score-overlay" class="fixed inset-x-0 top-0 z-[var(--z-alert)] pointer-events-none hidden">
   <div id="nfl-score-banner" class="mx-auto max-w-lg m-3 rounded-xl shadow-2xl overflow-hidden relative">
     <div class="px-5 py-4 flex items-center gap-4">

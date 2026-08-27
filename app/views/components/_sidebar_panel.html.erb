@@ -46,7 +46,17 @@
   x-transition:leave-start="translate-x-0"
   x-transition:leave-end="translate-x-full"
   class="<%= display_class %> fixed right-0 <%= width_class %> bg-surface border-l border-subtle shadow-2xl <%= z_class %> flex-col <%= panel_class %>"
-  style="top:var(--nav-h, 6rem);height:calc(100% - var(--nav-h, 6rem))"
+  <%# --nav-bottom, NOT --nav-h. The engine publishes both and documents the
+      difference: --nav-h is the header's HEIGHT (use it to SIZE something as
+      tall as the header), --nav-bottom is its BOTTOM EDGE in viewport
+      coordinates (use it to START something underneath it). They are equal only
+      while the header sits at the very top of the viewport. Rendering the
+      environment bars ABOVE the header pushes it down, so --nav-h shrank by the
+      stack height (measured: 96 vs 143 desktop, 131 vs 178 mobile — exactly the
+      47px stack) while the header's on-screen bottom did not move, and a panel
+      positioned at --nav-h landed 47px too high and painted over the navbar's
+      lower strip. The engine already migrated its own copy of this partial. %>
+  style="top:var(--nav-bottom, var(--nav-h, 6rem));height:calc(100% - var(--nav-bottom, var(--nav-h, 6rem)))"
   role="<%= role %>"
   <% if labelledby %>aria-labelledby="<%= labelledby %>"<% elsif aria_label.present? %>aria-label="<%= aria_label %>"<% end %>>
   <div class="flex flex-col h-full">

@@ -49,15 +49,35 @@
 <% unless is_preview %>
   <div class="studio-bar-stack w-full" data-studio-bar-stack>
     <%= render "studio/banners/environment", devnet: Solana::Config.devnet? %>
-    <%= render "shared/impersonation_banner" if impersonating? %>
   </div>
 <% end %>
 <header data-navbar-root <%= 'x-data="navCollapse()"'.html_safe unless is_preview %>
         class="nav-shell <%= is_preview ? 'bg-page' : 'vt-pinned-header sticky top-0 z-[var(--z-nav)] bg-page transition-shadow duration-300' %>"
         <%= ":class=\"scrolled && 'shadow-lg border-b border-subtle is-scrolled'\"".html_safe unless is_preview %>>
-  <%# The environment + impersonation bars moved OUT of this element, to the
-      sibling stack above it — see the note there for why a stacking context made
-      their z-index unreachable. The engine partial is still self-gating
+  <%# THE IMPERSONATION BAR STAYS HERE, INSIDE THE PINNED HEADER, and the
+      environment bar does not. They look alike and are not the same kind of
+      thing:
+
+        · The environment bar is an AMBIENT LABEL. "QA Environment · DEV MODE" is
+          information, and the engine's banners/_stack records scrolling away as
+          a deliberate, accepted trade for it. Moving it to the sibling stack is
+          what buys it the modal-open lift.
+        · The impersonation bar is an OPSEC CONTROL (OPSEC-046). It carries the
+          escape hatch — a deliberately JS-free button_to "Return to <admin>"
+          that works even if Alpine and Turbo never load — and an admin who
+          scrolls must not lose either the warning or the way out. In the header
+          it is pinned by construction, with no second sticky sibling to measure
+          against.
+
+      That is why only ONE of the two moved. The cost, stated rather than
+      hidden: the impersonation bar is inside a header that carries a z-index and
+      is therefore a stacking context, so it does NOT rise over an open modal the
+      way the environment bar now does. Being permanently on screen is the
+      property that matters for an escape hatch; being reachable through a modal
+      is the property that matters for a QA toggle. Each one keeps its own.
+
+      The environment bar moved OUT of this element to the sibling stack above —
+      see the note there for why a stacking context made its z-index unreachable. The engine partial is still self-gating
       (studio-engine >= 0.30) and was built by lifting THIS app's behavior: the QA
       message composition, the DEVNET chip when devnet && !qa, and the
       link-vs-inert-chip email button. `preview:` is no longer forwarded because
@@ -69,6 +89,7 @@
   <%# .user-nav-col / .nav-title / .nav-logo / .nav-logo-link responsive
       rules live in app/assets/tailwind/application.css @layer utilities (migrated
       2026-05-24, dropped the 10 !important workarounds). %>
+  <%= render "shared/impersonation_banner" if !is_preview && impersonating? %>
   <div class="nav-row flex items-center min-w-0">
     <%# Left side: logo + nav %>
     <div class="flex-1 min-w-0 px-4">

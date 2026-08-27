@@ -133,6 +133,21 @@
 
   // Burst canvas-confetti from the currently-visible quest card's "Quest x/4"
   // badge (the completing card is still on-screen — the advance is delayed).
+  // Read a layer tier at runtime. canvas-confetti takes zIndex as a NUMBER, so
+  // these two celebrations were the last bare blocking values in the app —
+  // 9999 and 10000, the same magic numbers the shared scale replaced everywhere
+  // else, sitting in JS where the CSS drift guard could not see them. Both are
+  // transient, pointer-events-none overlays that must not be missed while a
+  // modal is open, which is exactly --z-alert (above --z-modal, below toasts).
+  // Falls back to the tier's own value if the custom property is missing, so a
+  // page that somehow ships without the scale still paints the confetti on top.
+  function zTier(name, fallback) {
+    var v = parseInt(
+      getComputedStyle(document.documentElement).getPropertyValue(name).trim(), 10
+    );
+    return Number.isFinite(v) ? v : fallback;
+  }
+
   window.fireQuestBadgeConfetti = function () {
     if (typeof confetti === "undefined") return;
     var steps = Array.prototype.slice.call(document.querySelectorAll("[data-quest-step]"));
@@ -143,22 +158,23 @@
       ? { x: (rect.left + rect.width / 2) / window.innerWidth, y: (rect.top + rect.height / 2) / window.innerHeight }
       : { x: 0.72, y: 0.4 };
     var colors = window.CONFETTI_COLORS || ["#4BAF50", "#8E82FE", "#06D6A0", "#FF7C47", "#FFD700", "#00BFFF", "#FF6B9D", "#C084FC"];
-    confetti({ particleCount: 90, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: 9999, startVelocity: 24, gravity: 0.6, ticks: 180, scalar: 0.9 });
+    confetti({ particleCount: 90, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: zTier('--z-alert', 300), startVelocity: 24, gravity: 0.6, ticks: 180, scalar: 0.9 });
     setTimeout(function () {
-      confetti({ particleCount: 45, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: 9999, startVelocity: 14, gravity: 0.8, ticks: 140, scalar: 0.7 });
+      confetti({ particleCount: 45, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: zTier('--z-alert', 300), startVelocity: 14, gravity: 0.8, ticks: 140, scalar: 0.7 });
     }, 160);
   };
 
   // Center-burst confetti for a celebration MODAL (free-entry level-up). The
   // quest-badge variant aims at an on-page element; this fires from the upper-
-  // center where the modal card sits. zIndex sits above the modal host.
+  // center where the modal card sits. --z-alert sits above --z-modal, so it
+  // still clears the modal host exactly as the old bare 10000 did.
   window.fireFreeEntryConfetti = function () {
     if (typeof confetti === "undefined") return;
     var colors = window.CONFETTI_COLORS || ["#4BAF50", "#8E82FE", "#06D6A0", "#FF7C47", "#FFD700", "#00BFFF", "#FF6B9D", "#C084FC"];
     var origin = { x: 0.5, y: 0.38 };
-    confetti({ particleCount: 110, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: 10000, startVelocity: 28, gravity: 0.6, ticks: 200, scalar: 1.0 });
+    confetti({ particleCount: 110, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: zTier('--z-alert', 300), startVelocity: 28, gravity: 0.6, ticks: 200, scalar: 1.0 });
     setTimeout(function () {
-      confetti({ particleCount: 50, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: 10000, startVelocity: 16, gravity: 0.8, ticks: 150, scalar: 0.8 });
+      confetti({ particleCount: 50, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: zTier('--z-alert', 300), startVelocity: 16, gravity: 0.8, ticks: 150, scalar: 0.8 });
     }, 160);
   };
 

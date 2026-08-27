@@ -178,7 +178,15 @@
    replaced stopped being readable. The two defects they produced, both visible
    on one QA screenshot: the docked entry slip carried z-index:9999 and painted
    over the sign-in modal at z-[120], and the DEV MODE banner carried no level at
-   all, so the same backdrop dimmed it. */
+   all, so the same backdrop dimmed it.
+
+   ON THE FALLBACKS, which are deliberately asymmetric. Plain CSS reads a tier as
+   `var(--z-docked, 100)` — the fallback costs nothing and keeps the rule sane if
+   the scale ever goes missing. Tailwind call sites read `z-[var(--z-modal)]`
+   with NO fallback, because a comma inside an arbitrary value is a class-name
+   parsing hazard and the trade is not worth it there: those utilities exist only
+   because this file compiled, so the file defining the tiers is present by
+   construction. The asymmetry is the rule, not an oversight. */
 :root {
   --z-behind:       -1;  /* decoration painted behind its own box */
   --z-base:          0;  /* fixed page backgrounds and their scrims */
@@ -197,7 +205,12 @@
   --z-toast-blur:  399;  /* the frosted halo behind the toasts */
   --z-toast:       400;  /* toasts */
   --z-banner:      500;  /* QA / DEV MODE bars — reachable mid-modal */
-  --z-tooltip:     600;  /* tooltips on those bars, so they clear them */
+  --z-tooltip:     600;  /* tooltips on those bars, so they clear them.
+                            UNUSED in this app: the only consumer is the
+                            engine's banners/_button, which reads the tier from
+                            the gem. It is mirrored anyway because this block is
+                            a copy of the engine's scale, not a subset of it —
+                            a partial mirror is how the two drift. */
 
   /* The engine's per-component toast names are still the published override
      seam, so they stay — but they now READ the tier instead of pinning 200/199
@@ -235,10 +248,15 @@
    It only reaches them because layouts/_navbar renders the stack as a SIBLING of
    <header> rather than inside it: the header is sticky WITH a z-index, so it is a
    stacking context, and a descendant's z-index is clamped within it. Ships in the
-   engine at the pin bump — same selector, same tier — so this half of the shim
-   disappears with the rest. */
-body.modal-open .studio-bar-stack,
-body.modal-open .studio-app-banner {
+   engine at the pin bump — so this half of the shim disappears with the rest,
+   and /tasks/own-the-layer-shim-deletion owns that removal.
+
+   ONE SELECTOR, not two. The engine's copy of this rule also matches
+   .studio-app-banner, for a host that renders the environment bar directly
+   rather than through the stack. This app renders the stack, and that class does
+   not exist in studio-engine 0.62.5 anyway, so carrying it here would be a dead
+   selector pretending to be coverage. */
+body.modal-open .studio-bar-stack {
   position: sticky;
   top: 0;
   z-index: var(--z-banner);
