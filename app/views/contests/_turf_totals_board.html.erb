@@ -2186,11 +2186,22 @@ window.selectionBoard = function() {
 
   <%# Mobile spacer so the fixed cart never hides the last board card. It tracks
       the bar's two real heights instead of a flat 10rem: 10rem under-measured
-      the taller Hold-to-Confirm state (the CTA only mounts at a full slate) and
-      over-measured the common one, charging every scroll for space the compact
-      bar no longer uses. %>
+      the taller Hold-to-Confirm state and over-measured the common one,
+      charging every scroll for space the compact bar no longer uses.
+      KEYED ON WHETHER THE CTA IS MOUNTED, NOT ON THE SLATE COUNT. Those are the
+      same question in two of the three branches and a DIFFERENT one in the
+      third: the hold button and the Update button are both x-shown at a full
+      slate, but `🔒 Entries closed` is a server-side branch with NO x-show, so
+      on a locked contest it mounts at EVERY selection count. Keying the spacer
+      off `selectionCount === picks_required` therefore left the bar 45px taller
+      than the space reserved for it at any partial slate — the last pick row
+      sat under the fixed bar. Measured on a locked contest before this fix:
+      1 pick 173.0px vs 128px, 3 picks 173.0 vs 128, 5 picks 175.5 vs 128,
+      6 picks 175.5 vs 208 (the only count that was ever right). %>
+  <% cta_always_mounted = @contest.locked? %>
   <div x-show="selectionCount > 0" class="md:hidden"
-       :style="selectionCount === <%= @contest.picks_required %> ? 'height:13rem' : 'height:8rem'"></div>
+       data-picks-spacer="mobile"
+       :style="<%= cta_always_mounted ? "'height:13rem'" : "selectionCount === #{@contest.picks_required} ? 'height:13rem' : 'height:8rem'" %>"></div>
 
   <!-- Mobile Cart: Fixed bottom bar (hidden until first selection) -->
   <div x-show="selectionCount > 0"
