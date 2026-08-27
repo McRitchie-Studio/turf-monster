@@ -314,9 +314,18 @@ function _makeWsAdapter(wallet) {
         });
     },
     on: function(event, cb) {
-      // Normalize WS 'standard:events' change → the legacy 'accountChanged'
-      // the wallet watcher store listens for.
-      if (event !== 'accountChanged') return;
+      // Normalize WS 'standard:events' change → the legacy events the wallet
+      // watcher store listens for.
+      //
+      // 'disconnect' IS translated here, and that is the point of this branch.
+      // Wallet Standard has no separate disconnect event: an empty accounts
+      // array IS the disconnect. Before this, `on` opened with
+      // `if (event !== 'accountChanged') return;` and dropped every other event
+      // on the floor — so the disconnect subscription in solana_stores.js was a
+      // SILENT NO-OP on this adapter, which is the steady state for a modern
+      // Phantom after the 'wallet-provider:registered' swap. It worked only on
+      // the legacy provider, whose own `on` forwards any event.
+      if (event !== 'accountChanged' && event !== 'disconnect') return;
       var feat = wallet.features['standard:events'];
       if (!feat || !feat.on) return;
       feat.on('change', function(props) {
@@ -324,7 +333,14 @@ function _makeWsAdapter(wallet) {
         // it actually includes accounts (an empty array = disconnect → null).
         if (props && 'accounts' in props) {
           account = (props.accounts && props.accounts[0]) || null;
-          cb(account ? pubObj(account) : null);
+          if (event === 'disconnect') {
+            // Only the transition to NO account is a disconnect. A switch to a
+            // different account is an accountChanged, and firing disconnect for
+            // it would tear down a session the user never left.
+            if (!account) cb();
+          } else {
+            cb(account ? pubObj(account) : null);
+          }
         }
       });
     },

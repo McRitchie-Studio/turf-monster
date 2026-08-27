@@ -166,6 +166,17 @@ function registerWalletStore() {
         // app/views returned zero listeners — so the one event that says "your
         // signer is gone" was never asked for. Same closure guard as below: a
         // superseded interface must stay ignored.
+        //
+        // IT IS NOT THE ONLY CHANNEL, and reading it as one has already been a
+        // trap. On the Wallet Standard adapter there is no native disconnect
+        // event at all: wallet_provider.js translates an empty `accounts` array
+        // on 'standard:events' change into this. On the legacy provider it
+        // arrives directly. A DISCONNECT ALSO REACHES _handleSignerLost through
+        // the accountChanged(null) path below, on both shapes — so do not delete
+        // that null branch believing this subscription covers it. Until
+        // 2026-08-26 this listener bound on the LEGACY provider only, which made
+        // it dead in the common case: after the 'wallet-provider:registered'
+        // swap the watched provider IS the Wallet Standard adapter.
         provider.on('disconnect', function() {
           if (watched === provider) self._handleSignerLost();
         });
