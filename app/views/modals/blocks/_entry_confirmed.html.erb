@@ -25,9 +25,15 @@
                       a devnet deploy points the explorer link at a chain that
                       has never seen the transaction.
 
-    cta_label         The literal emoji, not "&#x2694;&#xFE0F;". _success_card
-                      renders the label ESCAPED (<%%= cta_label %>), so entities
-                      would appear on the button as visible text.
+    cta_label         The literal emoji, not the HTML entities the fork used.
+                      _success_card prints the label through a normal escaping
+                      output tag, so entities would appear on the button as
+                      visible text rather than as a glyph.
+                      (Describing that tag in words on purpose: quoting it here
+                      would end this comment at its close sequence and leak the
+                      rest of the prose into the page — the very defect
+                      test/lib/erb_comment_percent_test.rb guards, which is how
+                      this paragraph got rewritten.)
 
     secondary_*       Keeps this card's "Dismiss" affordance, which the engine
                       card would otherwise not have. The event is caught on
