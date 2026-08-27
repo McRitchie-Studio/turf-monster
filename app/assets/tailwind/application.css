@@ -164,19 +164,74 @@
   .tm-sidebar-pushed .tm-opponent-row span  { font-size: 10px; line-height: inherit; }
 }
 
-/* The mobile entry slip is a fixed bottom bar at z-index:9999 so it can sit
-   above contest cards. The gear menu must cover it while open. */
-.tm-gear-sidebar-layer { z-index: 10000; }
+/* === ADOPTION SHIM — the shared layer scale ==============================
+   studio-engine owns this scale (its engine.css `-- Layer scale` block). The
+   definitions are MIRRORED here only because the pin is still "~> 0.62", and
+   0.62.5 predates them. DELETE this whole block at the pin bump: every call
+   site below and in the views already reads the tiers, so the engine's copy
+   takes over with no other edit.
 
-/* Toast z-index defaults from studio-engine (60/55) sit below our
-   sticky navbar (z-[110] from layouts/_navbar.html.erb) and the modal
-   backdrop (z-[120]). Override via the engine's CSS custom properties
-   so toasts (200/199) surface above everything — including any open
-   modal — no !important needed since studio-engine 0.4.10. */
+   Read the ORDER, not the number. Below 100 the tiers coincide with Tailwind's
+   own z-10..z-50, so `z-20` and var(--z-raised) are the same rung and this app's
+   existing sub-100 classes are already ON the scale. At 100 and up every tier is
+   chrome that can cover other chrome — which is where the bare numbers this
+   replaced stopped being readable. The two defects they produced, both visible
+   on one QA screenshot: the docked entry slip carried z-index:9999 and painted
+   over the sign-in modal at z-[120], and the DEV MODE banner carried no level at
+   all, so the same backdrop dimmed it. */
 :root {
-  --studio-toast-z: 200;
-  --studio-toast-blur-z: 199;
+  --z-behind:       -1;  /* decoration painted behind its own box */
+  --z-base:          0;  /* fixed page backgrounds and their scrims */
+  --z-content:      10;  /* raised content inside a card */
+  --z-raised:       20;  /* hover lifts, in-page click catchers */
+  --z-sticky:       30;  /* in-page sticky headers, bars pinned under the nav */
+  --z-panel:        40;  /* in-page side panels — the desktop Your Picks cart */
+  --z-dropdown:     50;  /* menus and anchored popovers */
+
+  --z-docked:      100;  /* the mobile entry slip — must never cover a modal */
+  --z-nav:         110;  /* the pinned navbar */
+  --z-drawer:      150;  /* the gear sidebar */
+  --z-modal:       200;  /* modal backdrop + card — THE app blocker */
+  --z-lightbox:    210;  /* a lightbox opened from inside a modal */
+  --z-alert:       300;  /* the live scoring overlay */
+  --z-toast-blur:  399;  /* the frosted halo behind the toasts */
+  --z-toast:       400;  /* toasts */
+  --z-banner:      500;  /* QA / DEV MODE bars — reachable mid-modal */
+  --z-tooltip:     600;  /* tooltips on those bars, so they clear them */
+
+  /* The engine's per-component toast names are still the published override
+     seam, so they stay — but they now READ the tier instead of pinning 200/199
+     beside it. On 0.62.5 the engine's own fallback is a bare 60, below this
+     app's navbar, so dropping these before the pin bump would sink every toast
+     under the header. */
+  --studio-toast-z: var(--z-toast);
+  --studio-toast-blur-z: var(--z-toast-blur);
 }
+
+/* The QA / impersonation bars sit in NORMAL FLOW (studio-engine's banners/_stack
+   records why: pinning them needs one sibling to measure the other, and the
+   measured version visibly jumped). Flow costs them a stacking level, so the
+   modal backdrop dimmed DEV MODE and the email chip exactly when a QA session
+   needed them. The lift is scoped to body.modal-open — the one state where it is
+   free, because that same class locks body scroll, so the bars cannot scroll up
+   behind the pinned navbar while they outrank it.
+
+   It only reaches them because layouts/_navbar renders the stack as a SIBLING of
+   <header> rather than inside it: the header is sticky WITH a z-index, so it is a
+   stacking context, and a descendant's z-index is clamped within it. Ships in the
+   engine at the pin bump — same selector, same tier — so this half of the shim
+   disappears with the rest. */
+body.modal-open .studio-bar-stack,
+body.modal-open .studio-app-banner {
+  position: relative;
+  z-index: var(--z-banner);
+}
+/* === end ADOPTION SHIM ================================================== */
+
+/* The gear menu is a full-cover drawer: above the docked entry slip and the
+   navbar, BELOW a modal. It used to be a bare 10000 — which also tied it exactly
+   with the engine's own link sidebar, two unrelated drawers on one number. */
+.tm-gear-sidebar-layer { z-index: var(--z-drawer, 150); }
 
 /* Navbar gear-sidebar emoji hover slide (components/_gear_sidebar via the
    emoji_swap helper). Both emoji are stacked in a fixed gutter; on row hover the
@@ -1322,8 +1377,9 @@ body.modal-open { overflow: hidden; }
 
 /* Level-up glow — window.armFreeEntryGlow() pulses the badge three times when
    a SEEDS_PER_LEVEL crossing mints a free entry, so the celebration points at
-   WHERE the token landed. The navbar sits at z-[110], below the modal
-   backdrop; toast feedback remains the only layer above an open modal.
+   WHERE the token landed. The navbar sits at --z-nav, below --z-modal; toast
+   feedback (--z-toast) and the QA bars (--z-banner) are what surface above an
+   open modal.
    ALWAYS the modern slash form rgb(var(...) / A) — a space-separated
    "R G B" var is silently dropped by the legacy rgba(var(...), A) form. */
 .free-entry-glow { animation: free-entry-glow 1.4s ease-out 3; }
@@ -1622,10 +1678,13 @@ html.dark { --rx-fill: 0 0 0; }
 }
 
 /* Picker — position:fixed (set by openReactionPicker) so the message-list
-   overflow can't clip it; hidden until .is-open. */
+   overflow can't clip it; hidden until .is-open. `fixed` is what escapes the
+   clip, so the tier only has to beat the message list: --z-dropdown, like every
+   other anchored popover. The bare 130 it carried put it over an open modal,
+   tied with two unrelated layers on the same number. */
 .chat-reaction-picker {
   position: fixed;
-  z-index: 130;
+  z-index: var(--z-dropdown, 50);
   display: none;
   flex-wrap: wrap;
   gap: 2px;
