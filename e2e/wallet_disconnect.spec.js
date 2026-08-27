@@ -17,8 +17,17 @@ test.beforeEach(async ({ request }) => await reseed(request));
 // Splitting the fix was never an option — the indicator needs a live signal,
 // and the disconnect IS that signal.
 
+// WALLET STANDARD, deliberately, and it is the half that had NO browser coverage.
+// Both tests in this file used to pin walletStandard: false, so the adapter that a
+// modern Phantom actually installs — the one the app swaps to on
+// 'wallet-provider:registered' — was never exercised here at all. The sibling test
+// below keeps the legacy shape, so the file covers both.
+//
+// Repointed rather than duplicated: adding a case would change total_specs in
+// config/e2e_lane.yml, which turf PR #439 is editing, and two branches writing that
+// counter is the exact collision #439 exists to stop.
 test("losing the signer greys the check and leaves the session intact", async ({ page }) => {
-  await setupPhantomMock(page, { walletStandard: false });
+  await setupPhantomMock(page, { walletStandard: true });
   await loginViaPhantom(page);
 
   await page.goto("/account");
