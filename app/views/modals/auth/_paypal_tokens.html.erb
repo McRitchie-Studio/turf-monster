@@ -45,9 +45,7 @@
     <%= render "tokens/paypal_sdk" %>
 
     <%# Shared close × — top-right, sits above whichever step is active. %>
-    <button @click="$store.modals.close()"
-            class="absolute top-0 right-0 -mt-2 -mr-2 text-secondary hover:text-heading text-xl leading-none z-10"
-            aria-label="Close">&times;</button>
+  <%= render "studio/modals/blocks/close_x" %>
 
     <%# ==================================================================
         STEP 2/3 — Pack picker (wizard template layout) %>

@@ -38,9 +38,7 @@
      class="relative">
 
   <%# Top-right close. Backdrop close still works too. %>
-  <button @click="$store.modals.close()"
-          class="absolute top-0 right-0 -mt-2 -mr-2 text-secondary hover:text-heading text-xl leading-none z-10"
-          aria-label="Close">&times;</button>
+  <%= render "studio/modals/blocks/close_x" %>
 
   <div class="text-center pt-1 mb-2">
     <h3 class="text-heading font-bold text-lg leading-tight">Top Up Wallet</h3>
@@ -65,18 +63,14 @@
         Hidden for the tokenFallback (web2 kill-switch) audience, where USDC
         can not fund the entry. border-primary marks it as the primary action. %>
     <template x-if="!tokenFallback">
-      <button type="button" data-topup-rail="coinbase"
-              @click="$store.modals.swap('cdp-ramp', { flow: 'buy', step: 'preflight' })"
-              class="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-primary bg-inset hover:bg-surface transition text-left">
-        <span class="shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-white font-extrabold text-lg" style="background-color:#0052FF">C</span>
-        <span class="flex-1 min-w-0">
-          <span class="block text-heading font-semibold text-sm">Buy USDC with Coinbase</span>
-          <span class="block text-xs text-secondary">Card or bank &middot; funds your entry</span>
-        </span>
-        <svg class="shrink-0 w-4 h-4 text-primary" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
-        </svg>
-      </button>
+      <%= render "studio/modals/blocks/rail_row",
+            emphasis:   :primary,
+            on_click:   "$store.modals.swap('cdp-ramp', { flow: 'buy', step: 'preflight' })",
+            icon_label: "C",
+            icon_bg:    "#0052FF",
+            title:      "Buy USDC with Coinbase",
+            subtitle:   "Card or bank · funds your entry",
+            data:       { topup_rail: "coinbase" } %>
     </template>
   <% end %>
 
@@ -85,18 +79,21 @@
       token is the funding rail. Opens the existing tokens-picker step of the
       auth wizard with the props showTokensPanel uses. %>
   <template x-if="tokenFallback">
-    <button type="button" data-topup-rail="tokens"
-            @click="$store.modals.swap('auth', { step: 'tokens-picker', mintedCount: 0, mintedBalance: 0, errorText: '', redirectUrl: '', txSignature: '' })"
-            class="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-primary bg-inset hover:bg-surface transition text-left">
-      <span class="shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-xl bg-primary">&#127915;</span>
-      <span class="flex-1 min-w-0">
-        <span class="block text-heading font-semibold text-sm">Buy Entry Tokens</span>
-        <span class="block text-xs text-secondary">1 token = 1 contest entry</span>
-      </span>
-      <svg class="shrink-0 w-4 h-4 text-primary" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
-      </svg>
-    </button>
+    <%# icon_class: "text-xl" — the primitive's default suits LETTERS, and an
+        emoji under text-white font-extrabold renders as a fuzzy white blob.
+        icon_label is U+1F3AB TICKET, the glyph this tile has always drawn (it
+        was &#127915; before the defork). NOT U+1F39F ADMISSION TICKETS, which
+        is a different emoji in a different colour and is what the engine's
+        _ds_wallet_topup specimen passes — copying the specimen's local instead
+        of this app's prior markup is how it got swapped. %>
+    <%= render "studio/modals/blocks/rail_row",
+          emphasis:   :primary,
+          on_click:   "$store.modals.swap('auth', { step: 'tokens-picker', mintedCount: 0, mintedBalance: 0, errorText: '', redirectUrl: '', txSignature: '' })",
+          icon_label: "🎫",
+          icon_class: "text-xl",
+          title:      "Buy Entry Tokens",
+          subtitle:   "1 token = 1 contest entry",
+          data:       { topup_rail: "tokens" } %>
   </template>
 
   <%# Quiet link to the Add Funds hub — the other cash rails (PayPal / Venmo /

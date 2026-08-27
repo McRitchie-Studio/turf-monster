@@ -72,7 +72,7 @@ class EnginePinContractTest < ActiveSupport::TestCase
   #          public/state-flags, so below 0.57 ApplicationController raises at
   #          `include Studio::GeoDetection` and the app does not boot at all —
   #          the loudest floor in this list, which is the kind worth having.
-  MINIMUM = Gem::Version.new("0.57.0")
+  MINIMUM = Gem::Version.new("0.62.2")
 
   test "the resolved studio-engine is at or above the floor this app depends on" do
     resolved = Gem::Version.new(Studio::VERSION)
@@ -82,7 +82,7 @@ class EnginePinContractTest < ActiveSupport::TestCase
                     "a host-owned layered banner needs >= 0.43; the adopted first-name onboarding " \
                     "endpoints need >= 0.46; the shared /profile page and its section registry need " \
                     ">= 0.52; the shared date-of-birth field rendered by modals/_birthday needs " \
-                    ">= 0.54)"
+                    ">= 0.54; the rail-row and close-x chrome primitives this app RENDERS need >= 0.61, and an UNESCAPED rail-row click handler needs >= 0.62.2)"
   end
 
   # THE FLOOR AND THE PIN MUST AGREE. Two places state the same fact — the

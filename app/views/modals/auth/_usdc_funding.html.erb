@@ -15,9 +15,7 @@
 <template x-if="props.step && props.step.indexOf('tokens-') === 0">
   <div>
     <%# Shared close × — top-right, matches the tokens sub-flow. %>
-    <button @click="$store.modals.close()"
-            class="absolute top-0 right-0 -mt-2 -mr-2 text-secondary hover:text-heading text-xl leading-none z-10"
-            aria-label="Close">&times;</button>
+  <%= render "studio/modals/blocks/close_x" %>
 
     <template x-if="props.step === 'tokens-picker'">
       <div>

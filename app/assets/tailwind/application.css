@@ -83,6 +83,87 @@
 @media (min-width: 1614px) { .tm-sidebar-pushed { margin-right:  5rem; } }
 @media (min-width: 1749px) { .tm-sidebar-pushed { margin-right:    0; } }
 
+/* Sidebar-open fallback: the pushed column wears the MOBILE card layout.
+   The contest board's card grids add columns at `md:` — a viewport query, which
+   cannot see the 320px this cascade just took away. So from 768px up to 1120px
+   the grid still laid four cards across a 416-672px column and each card came
+   out 93-162px wide: the city truncated to "Balti...", the mascot to "R...",
+   and the three "Week n" labels overlapped into "WEEKWEEKWEEK".
+   1120px is where four-up stops being NARROWER than the phone: content is
+   min(vw, 1280) - 32 (max-w-7xl px-4) - 320, a four-up card is (content - 48)/4,
+   and it reaches 180px at vw 1120 — just past the 173px the same card gets 2-up
+   on a 390px phone. Below the crossover, two columns beat four, so the
+   board simply shows the phone's layout. Above it, nothing here applies.
+   (Measured, not estimated: a playwright sweep of the live board, 390-1800px,
+   cart open and closed. A 900px break was tried on the way and rejected — at
+   900 a four-up card is 125px and every long mascot still truncates.)
+
+   THAT PARITY IS WIDTH ONLY — IT DOES NOT CLEAR THE LABELS, so do not read the
+   crossover as proof that 1120px and up is clean. 1120 is >= `lg`, so
+   contests/_multi_week_team_card has already stepped its opponent labels UP
+   (week 9px -> 10px, abbreviation 10px -> 14px) while the pushed card has shrunk
+   to 180px. The 390px phone card is 173px — narrower — but carries the SMALL
+   variant, so it fits where 1120 does not: measured cart-open at 1120, all 32
+   abbreviations clip and every "Week n" wraps to two lines. That band (1120px
+   until the pushed card regains ~240px at vw 1344, where the push steps down to
+   15rem) is PRE-EXISTING — this rule caps at 1119.98px and has never applied
+   there — and it is unchanged by this rule, not introduced by it. The real fix
+   is the principle _multi_week_team_card already states: size those labels on
+   the CARD, not the viewport.
+
+   Written as plain CSS beside the cascade it corrects (rather than a Tailwind
+   variant) for two reasons: it is unlayered and class-scoped, so it cannot lose
+   a cascade fight to `md:grid-cols-4`, and it applies ONLY while .tm-sidebar-pushed
+   is on the ancestor — i.e. only while the cart is open. */
+@media (min-width: 768px) and (max-width: 1119.98px) {
+  .tm-sidebar-pushed .tm-team-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tm-sidebar-pushed .tm-pair-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+}
+
+/* Sidebar-open label hold: 1120-1343.98px keeps the SMALL opponent labels.
+
+   This is the second half of the rule above, and the two are complementary by
+   construction — that one caps at 1119.98px, this one opens at 1120px, the exact
+   width where the 2-up fallback ends and four cards go back across the pushed
+   column at ~180px each.
+
+   THE BUG. contests/_multi_week_team_card steps its opponent labels up at `lg`
+   (week 9px -> 10px, abbreviation and emoji 10px -> text-sm/14px, cell padding
+   1px -> 0.25rem, row gap 2px -> 4px) on a premise it states in its own comment:
+   the card "only reaches ~236px at 1024px". That premise is TRUE with the
+   sidebar CLOSED and FALSE with it OPEN. With the sidebar open the labels step
+   up at 1024 while the pushed card is at its NARROWEST, and from 1120 the
+   result is a card that is 180px wide wearing 14px abbreviations: measured
+   cart-open at 1120, ALL 32 opponent abbreviations clipped and every "Week n"
+   label wrapped to two lines. One pixel down, at 1119, the fallback above is
+   still in force and the same board reads "Commanders" and "SEA / PIT / JAX"
+   in full. It is clean again from 1344, where the push cascade steps
+   20rem -> 15rem and the card regains ~240px.
+
+   PRE-EXISTING, not introduced by the fallback rule above: deleting that rule
+   from the CSSOM and re-measuring gives identical numbers at every width from
+   1120 up.
+
+   THE FIX is the principle _multi_week_team_card already states and then
+   contradicts: size those labels on the CARD, not the viewport. There is no
+   card-width media query, so the nearest honest proxy is "is the sidebar
+   pushing this column" — .tm-sidebar-pushed on the ancestor — across the band
+   where the push makes the card too narrow for the large variant. Every
+   declaration here restores the small variant EXACTLY (including line-height:
+   inherit, which undoes text-sm's 1.25rem so the row's own leading-none is felt
+   again); nothing here invents a third size.
+
+   Unlayered and class-scoped for the same reason as the rule above: author CSS
+   outside @layer utilities outranks any layered Tailwind variant regardless of
+   specificity or source order, so `lg:text-sm` cannot win this back, and it
+   applies ONLY while the sidebar is open. */
+@media (min-width: 1120px) and (max-width: 1343.98px) {
+  .tm-sidebar-pushed .tm-opponent-cell      { padding-left: 1px; padding-right: 1px; }
+  .tm-sidebar-pushed .tm-opponent-week      { font-size: 9px; }
+  .tm-sidebar-pushed .tm-opponent-row       { gap: 0.125rem; }
+  .tm-sidebar-pushed .tm-opponent-row span  { font-size: 10px; line-height: inherit; }
+}
+
 /* The mobile entry slip is a fixed bottom bar at z-index:9999 so it can sit
    above contest cards. The gear menu must cover it while open. */
 .tm-gear-sidebar-layer { z-index: 10000; }
@@ -573,6 +654,22 @@
   }
 }
 
+/* --nav-p — the navbar's collapse progress, 0 (expanded) to 1 (collapsed).
+   REGISTERED, not just declared: the typed <number> is what lets every
+   dimension below be a plain calc() off it, gives an untouched page a real 0
+   instead of an invalid-at-computed-value drop, and makes the value
+   interpolable (the /admin/navbar preview transitions it directly).
+
+   navCollapse() (shared/_alpine_factories) writes it on the <header> once per
+   animation frame from window.scrollY. Writing it on the header and NOT on
+   :root is deliberate — it keeps each frame's style recalc inside the navbar
+   subtree instead of dirtying the whole document. */
+@property --nav-p {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
 @layer utilities {
   /* Navbar responsive sizing. Promoted from layouts/_navbar.html.erb's
    inline style block 2026-05-24 — these rules fight Tailwind text,
@@ -591,6 +688,66 @@
     gap: 0.25em;
     align-items: baseline;
   }
+
+  /* === The scroll-linked collapse =====================================
+     Every dimension the collapse moves is a calc() off --nav-p, so the
+     navbar changes ONLY in a frame the finger moved it and stops the
+     instant the finger does. It replaces a 60px step fed into
+     `transition-all duration-300`: measured 2026-08-27 at 390x844, that
+     shipped 39px of document reflow of which 34px landed AFTER the scroll
+     had already stopped, over 232ms, plus a 1px reverse twitch in the
+     frame the class flipped.
+
+     The endpoints below are the OLD ones, unchanged — this is the same
+     navbar, re-plumbed. What changed is the PROFILE.
+
+     Collapsing a sticky, in-flow header pulls the page up, so during the
+     collapse the content under it travels by the scroll AND by the shrink:
+     faster than the finger, always. That is inherent — reclaiming the
+     vertical space is the whole point of the collapse — so the design
+     problem is the shape of that burst, not its existence. --nav-ramp is
+     3x the band's collapse total (mobile: 8px of logo + 32px of padding =
+     39px measured, ramp 120px) and navCollapse() eases it with a
+     smoothstep, whose slope is zero at both ends. Content speed therefore
+     LEAVES 1x, peaks near 1.5x mid-ramp, and returns to 1x, with no
+     velocity step at either end. A linear ramp equal to the collapse would
+     hit 2x and step straight back to 1x — measurably worse, and the reason
+     these numbers are not just "the old 60px threshold".
+
+     Declared on .nav-shell (the header) rather than :root because a
+     custom property's var()s resolve on the element that DECLARES it —
+     these have to live where --nav-p is written. .navbar-preview wins by
+     specificity (see admin/navbar.html.erb) since it cannot use media
+     queries to simulate a breakpoint. */
+  .nav-shell {
+    --nav-ramp: 144px;
+    --nav-pad: calc(1.5rem - 1rem * var(--nav-p));                    /* py-6 -> py-2  */
+    --nav-logo-size: calc(3rem - 1rem * var(--nav-p));                /* 48px  -> 32px */
+    --nav-title-size: calc(1.875rem - 0.625rem * var(--nav-p));       /* 3xl   -> xl   */
+    --nav-title-lead-size: var(--nav-title-size);                     /* one line here */
+    --nav-balance-size: calc(1.25rem - 0.125rem * var(--nav-p));      /* xl    -> lg   */
+    --nav-username-size: calc(1.125rem - 0.125rem * var(--nav-p));    /* lg    -> base */
+  }
+  .nav-row {
+    padding-block: var(--nav-pad);
+  }
+  .nav-shell .nav-logo {
+    width: var(--nav-logo-size);
+    height: var(--nav-logo-size);
+  }
+  .nav-shell .nav-title {
+    font-size: var(--nav-title-size);
+  }
+  .nav-shell .nav-title span:last-child {
+    font-size: var(--nav-title-lead-size);
+  }
+  .nav-shell .nav-balance {
+    font-size: var(--nav-balance-size);
+  }
+  .nav-shell .nav-username {
+    font-size: var(--nav-username-size);
+  }
+
   @media (min-width: 400px) {
     .user-nav-col {
       width: 15rem;
@@ -603,50 +760,30 @@
   }
   @media (max-width: 767px) {
     .nav-title {
-      font-size: 1.25rem;
       flex-direction: column;
       gap: 0;
       line-height: 1.15;
-      transition: font-size 0.3s;
     }
     .nav-title span:first-child {
       margin-bottom: -4px;
     }
-    .nav-title span:last-child {
-      font-size: 1.5rem;
-      transition: font-size 0.3s;
-    }
     .nav-logo-link {
       gap: 0.5rem;
     }
-    .is-scrolled .nav-title {
-      font-size: 1rem;
-    }
-    .is-scrolled .nav-title span:last-child {
-      font-size: 1.15rem;
-    }
-    .is-scrolled .nav-logo {
-      width: 2.5rem;
-      height: 2.5rem;
+    .nav-shell {
+      --nav-ramp: 120px;
+      --nav-logo-size: calc(3rem - 0.5rem * var(--nav-p));            /* 48px -> 40px   */
+      --nav-title-size: calc(1.25rem - 0.25rem * var(--nav-p));       /* 20px -> 16px   */
+      --nav-title-lead-size: calc(1.5rem - 0.35rem * var(--nav-p));   /* 24px -> 18.4px */
     }
   }
   @media (max-width: 399px) {
     .nav-logo-link {
       gap: 0.25rem;
     }
-    .nav-title {
-      font-size: 1.1rem;
-      transition: font-size 0.3s;
-    }
-    .nav-title span:last-child {
-      font-size: 1.3rem;
-      transition: font-size 0.3s;
-    }
-    .is-scrolled .nav-title {
-      font-size: 0.9rem;
-    }
-    .is-scrolled .nav-title span:last-child {
-      font-size: 1rem;
+    .nav-shell {
+      --nav-title-size: calc(1.1rem - 0.2rem * var(--nav-p));         /* 17.6px -> 14.4px */
+      --nav-title-lead-size: calc(1.3rem - 0.3rem * var(--nav-p));    /* 20.8px -> 16px   */
     }
   }
 
@@ -855,6 +992,41 @@
     rgb(var(--color-primary-rgb) / 0.15) 60%,
     transparent 80%
   );
+}
+
+/* Prize-pot shimmer (contests/_contest_header Row 2).
+   A single light sweep across the dollar figure, then a long hold — the whole
+   cycle is 10s and the sweep occupies the first ~1.2s of it, so the number
+   catches the eye periodically instead of animating continuously.
+
+   The sweep has to travel across the GLYPHS, not a box behind them, so the
+   element paints two background layers clipped to the text: a static
+   currentColor fill underneath (this is what keeps the digits their theme
+   green) and the moving highlight on top. `-webkit-text-fill-color:
+   transparent` — not `color: transparent` — is what lets the fill layer's
+   `currentColor` still resolve to the real text color. */
+@keyframes prize-shimmer {
+  0%        { background-position: 170% 0, 0 0; }
+  12%, 100% { background-position: -70% 0, 0 0; }
+}
+.prize-shimmer {
+  background-image:
+    linear-gradient(100deg, transparent 44%, rgb(255 255 255 / 0.9) 50%, transparent 56%),
+    linear-gradient(currentColor, currentColor);
+  background-size: 220% 100%, 100% 100%;
+  background-position: 170% 0, 0 0;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: prize-shimmer 10s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .prize-shimmer {
+    animation: none;
+    background-image: none;
+    -webkit-text-fill-color: currentColor;
+  }
 }
 
 /* === Modal host (studio/modals/_host.html.erb) =========================
