@@ -1,52 +1,45 @@
 <%#
-  Entry-confirmed celebration. The canonical "you're in" modal for
-  BOTH web3 (on-chain Solana entry) and web2 (entry-token-funded)
-  flows so the user sees the same UX regardless of payment method.
+  Entry-confirmed celebration — now a THIN ADAPTER over the ENGINE's card
+  (studio/modals/blocks/_entry_confirmed, studio-engine >= 0.62.2).
 
-  KEPT as a turf fork (studio-engine 0.20 homed its own
-  studio/modals/blocks/_entry_confirmed, but this one stays): the engine
-  block has no slot for the kickoff_at "Kicks off in" contest countdown
-  below, and it roots props off $store.modals.current().props whereas
-  this card is driven by $store.solanaModal (a direct-field store with no
-  .current()). Reconcile both — add a kickoff yield slot + a store-
-  agnostic props source to the engine block — in a follow-up before
-  adopting. The generic building blocks it composes ARE the engine's:
-  card_header + cta_redirect + solana_tx_link under studio/modals/blocks/.
-  This card is now the LAST of the three Solana forks; the tx link and the
-  generic success card were adopted on 2026-08-25.
+  This file was a 219-line FORK. The divergence was always smaller than that
+  number suggested: turf hand-rolled the spine (card_header + solana_tx_link +
+  cta_redirect directly) where the engine composes _success_card, and its
+  animated seeds block was a fork of the engine's blocks/_seeds_bar. The engine
+  now carries every seam this app needed, so what is left here is the mapping.
 
-  Same visual spine as the engine success template (card_header at :lg
-  + primary btn-lg CTA + subtle dismiss link) plus three on-chain
-  enrichments that make this distinct from a generic success modal:
+  WHY EACH LOCAL IS PASSED — none of these is a default:
 
-    - Branded Solana tx link (gradient mark + truncated signature)
-    - Seeds bar with level-up celebration animation
-    - 5-second drain countdown on the primary CTA + auto-redirect
-      (delegated to studio/modals/blocks/_cta_redirect — that partial
-      owns the timer + drain styling; this card only fires confetti)
+    props_expr        $store.solanaModal is a DIRECT-FIELD store with no
+                      .current(). The engine's default reads
+                      $store.<modal_store>.current().props, which on this app
+                      resolves to {} and would render the card complete with
+                      none of its numbers.
 
-  Owns the confetti setTimeout; destroy() clears it so a mid-modal
-  close doesn't fire confetti past unmount.
+    title_key         PINNED to the literal 'Good Luck'. The engine default is
+                      "props.title || 'Good Luck'", and this store DOES carry a
+                      .title — it holds the PROCESSING headline ("Confirming…").
+                      Letting the default run would put that on the success card.
 
-  All data is passed in as Alpine expression strings so the partial
-  works against any backing store/scope. Callers wire:
-    web3: $store.solanaModal.{txSignature,lobbyUrl,seedsEarned,seedsTotal}
-    web2: props.{txSignature,lobbyUrl,seedsEarned,seedsTotal}
+    cluster_param     The engine defaults to "" which is MAINNET. Omitting it on
+                      a devnet deploy points the explorer link at a chain that
+                      has never seen the transaction.
 
-  Locals (all Alpine expressions, all required):
-    tx_signature_key — expression returning the Solana tx hash
-    lobby_url_key    — expression returning the lobby URL (CTA href
-                       + auto-redirect destination)
-    seeds_earned_key — expression returning seeds awarded this entry
-    seeds_total_key  — expression returning user's total seeds
+    cta_label         The literal emoji, not "&#x2694;&#xFE0F;". _success_card
+                      renders the label ESCAPED (<%%= cta_label %>), so entities
+                      would appear on the button as visible text.
 
-  Optional local:
-    kickoff_at       — Time when the contest locks / kicks off (Contest
-                       #starts_at). When present, a live "Kicks off in"
-                       countdown renders below the seeds bar so the user
-                       knows when their contest begins. Server value (the
-                       contest is known at render time on the contest page);
-                       omitted in the /admin/modals gallery preview.
+    secondary_*       Keeps this card's "Dismiss" affordance, which the engine
+                      card would otherwise not have. The event is caught on
+                      _onchain_tx's root; see the listener there.
+
+    above_seeds       The kickoff countdown, which has no engine equivalent and
+                      must render ABOVE the seeds bar. wrapper_class carries the
+                      centring that the fork's surrounding <div> used to provide.
+
+  slot_position is NOT passed: the engine already defaults it to :above_cta for
+  this card, which is the layout Mr. McRitchie confirmed on 2026-08-26 — kickoff
+  and seeds above the button, not below it.
 %>
 <%
   tx_signature_key = local_assigns.fetch(:tx_signature_key)
@@ -54,166 +47,40 @@
   seeds_earned_key = local_assigns.fetch(:seeds_earned_key)
   seeds_total_key  = local_assigns.fetch(:seeds_total_key)
   kickoff_at       = local_assigns[:kickoff_at]
+
+  engine_locals = {
+    props_expr:       "$store.solanaModal",
+    title_key:        "'Good Luck'",
+    subtitle:         "Entry Confirmed",
+    tx_signature_key: tx_signature_key,
+    lobby_url_key:    lobby_url_key,
+    cta_label:        "Contest Lobby ⚔️",
+    seeds_earned_key: seeds_earned_key,
+    seeds_total_key:  seeds_total_key,
+    secondary_label:  "Dismiss",
+    secondary_event:  "tm-entry-dismiss"
+  }
+
+  # Only when a contest is in scope — a real entry on a contest page. The
+  # gallery preview passes no kickoff_at and simply renders without it.
+  if kickoff_at.present?
+    engine_locals[:above_seeds] = "contests/timestamp_countdown"
+    engine_locals[:above_seeds_locals] = {
+      target:        kickoff_at,
+      label:         "Kicks off in",
+      done_label:    "🟢 Contest underway",
+      tone:          "yellow",
+      wrapper_class: "flex justify-center mb-4"
+    }
+  end
 %>
-<div x-data="{
-       _confettiTimer: null,
-       init() {
-         var self = this;
-         self._confettiTimer = setTimeout(function () {
-           self._confettiTimer = null;
-           try { if (window.fireSuccessConfetti) window.fireSuccessConfetti(); } catch (_) {}
-         }, 100);
-       },
-       destroy() {
-         if (this._confettiTimer) { clearTimeout(this._confettiTimer); this._confettiTimer = null; }
-       }
-     }">
-
-  <%# Card header — Success-template spine (size :lg, primary icon
-      circle to match every other success/celebration card across the
-      app; bg-mint/15 isn't in the Tailwind safelist so the previous
-      mint accent rendered the check without its containing pill).
-      "Good Luck" headline + "Entry Confirmed" subtitle. %>
-  <%= render "studio/modals/blocks/card_header",
-        size: :lg,
-        icon_color: 'primary',
-        title: "Good Luck",
-        subtitle: "Entry Confirmed" %>
-
-  <%# Solana tx attestation — the ENGINE's branded explorer link
-      (studio/modals/blocks/_solana_tx_link, adopted 2026-08-25; this app's fork
-      was byte-identical in markup). Mounts only when the signature is set.
-      cluster_param is REQUIRED reading here even though the engine defaults it
-      to "": the default is mainnet, so omitting it on a devnet deploy points at
-      an explorer that will not find the transaction. %>
-  <%= render "studio/modals/blocks/solana_tx_link",
-        tx_signature_key: tx_signature_key,
-        cluster_param:    solana_explorer_cluster_param %>
-
-  <%# Kickoff countdown — live "Kicks off in" timer to the contest's lock
-      time (Contest#starts_at, the moment entries close and play begins).
-      Sits ABOVE the seeds bar so "when does it start" reads before the
-      celebratory seeds animation. Only renders when kickoff_at is passed (a
-      real entry on a contest page); skipped in the gallery preview where no
-      contest is in scope. Reuses contests/_timestamp_countdown in plain mode
-      (uniform digit sizing — no emphasize); no on_done_modal here, the contest
-      page's own countdown owns the "It Begins" hand-off. %>
-  <% if kickoff_at.present? %>
-    <div class="flex justify-center mb-4">
-      <%= render "contests/timestamp_countdown",
-            target:        kickoff_at,
-            label:         "Kicks off in",
-            done_label:    "🟢 Contest underway",
-            tone:          "yellow",
-            wrapper_class: "" %>
-    </div>
-  <% end %>
-
-  <%# Seeds bar + level-up celebration. Mounts only when this entry
-      awarded seeds; otherwise the card falls back to header + tx + CTA.
-      Animation walks the bar from the user's previous toward-next value
-      up to the new one (or through 100→0 with a level-up flourish if
-      they crossed a threshold). Own _timers array so destroy() can
-      clear every scheduled setTimeout on modal close / auto-redirect —
-      we previously leaked a setInterval that ran for 9 minutes per
-      entry session. %>
-  <template x-if="(<%= seeds_earned_key %>) > 0">
-    <div x-data="{
-           displaySeeds: 0,
-           displayLevel: 1,
-           levelingUp: false,
-           showFreeEntryBadge: false,
-           _timers: [],
-           init() {
-             var self = this;
-             var total = (<%= seeds_total_key %>) || 0;
-             var earned = (<%= seeds_earned_key %>) || 0;
-             var seedsPerLevel = 100;
-             var oldSeeds = Math.max(0, total - earned);
-             var oldLevel = Math.floor(oldSeeds / seedsPerLevel) + 1;
-             var newLevel = Math.floor(total / seedsPerLevel) + 1;
-             var oldToward = oldSeeds % seedsPerLevel;
-             var newToward = total % seedsPerLevel;
-             self.displaySeeds = oldToward;
-             self.displayLevel = oldLevel;
-             var schedule = function (fn, ms) { self._timers.push(setTimeout(fn, ms)); };
-             schedule(function () {
-               if (newLevel > oldLevel) {
-                 self.levelingUp = true;
-                 self.displaySeeds = 100;
-                 schedule(function () {
-                   self.displayLevel = newLevel;
-                   self.showFreeEntryBadge = true;
-                 }, 1900);
-                 schedule(function () { self.displaySeeds = 0; }, 3400);
-                 schedule(function () {
-                   self.displaySeeds = newToward;
-                   self.levelingUp = false;
-                 }, 3600);
-               } else {
-                 self.displaySeeds = newToward;
-               }
-             }, 2000);
-           },
-           destroy() {
-             this._timers.forEach(clearTimeout);
-             this._timers = [];
-           }
-         }"
-         class="mx-auto mb-4" style="max-width: 100%;">
-      <template x-if="!showFreeEntryBadge">
-        <div class="relative">
-          <div class="seeds-bar-continuous flex gap-1.5"
-               style="height: 22px; transition: --bar-progress 1.9s cubic-bezier(0.16, 1, 0.3, 1);"
-               :style="{ '--bar-progress': displaySeeds }">
-            <template x-for="i in 5" :key="i">
-              <div class="flex-1 relative overflow-hidden rounded-md"
-                   style="background: rgb(var(--color-primary-500-rgb) / 0.06); border: 1.5px solid rgb(var(--color-primary-500-rgb) / 0.2);">
-                <div class="absolute inset-0 pointer-events-none"
-                     :style="{
-                       backgroundPosition: ((i - 1) * 25) + '% 0',
-                       clipPath: 'inset(0 calc(100% - clamp(0%, calc((var(--bar-progress) - ' + ((i - 1) * 20) + ') * 5%), 100%)) 0 0)'
-                     }"
-                     style="background-image: linear-gradient(90deg, color-mix(in srgb, var(--color-cta) 30%, transparent), color-mix(in srgb, var(--color-cta) 60%, transparent)); background-size: 500% 100%; background-repeat: no-repeat;"></div>
-                <div class="modal-shimmer absolute top-0 bottom-0 pointer-events-none"
-                     :style="{ left: -(i - 1) * 100 + '%', width: '500%' }"
-                     style="background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.55) 50%, transparent 100%); transform: translateX(200%);"></div>
-              </div>
-            </template>
-          </div>
-          <div class="absolute inset-y-0 right-2 flex items-center pointer-events-none">
-            <span class="inline-flex items-baseline gap-1 font-mono font-bold text-sm" style="color: white; text-shadow: 0 1px 2px rgba(0,0,0,0.7);">
-              <%= render "components/digit_reel",
-                    value: "displaySeeds", max: 100, width: "3.2ch", cell_em: 1.25,
-                    transition: "'transform 1.9s cubic-bezier(0.16, 1, 0.3, 1)'" %>
-              <span class="text-[10px] font-normal opacity-90">seeds</span>
-            </span>
-          </div>
-        </div>
-      </template>
-      <%# Level-up reward — a plain text line (no button chrome), sized to the
-          same 22px height as the seeds bar it replaces so the card doesn't
-          shift when the bar swaps to this. %>
-      <template x-if="showFreeEntryBadge">
-        <div class="level-up-pop flex items-center justify-center w-full font-bold text-sm"
-             style="height: 22px; color: var(--color-cta);">
-          <span>Free Entry Earned 🎟️</span>
-        </div>
-      </template>
-    </div>
-  </template>
-
-  <%# Primary CTA — drain-overlay button + 5s auto-redirect, all
-      managed by studio/modals/blocks/_cta_redirect. When lobby_url_key
-      resolves to null (gallery preview), the drain still plays but
-      the timer-end redirect is a no-op so the iframe stays put. %>
-  <%= render "studio/modals/blocks/cta_redirect",
-        href_key:   lobby_url_key,
-        label_html: "Contest Lobby &#x2694;&#xFE0F;" %>
-
-  <%# Subtle dismiss link — Success template's secondary pattern. %>
-  <button @click="$store.modals.close()"
-          class="block mx-auto mt-3 text-sm text-secondary hover:text-heading transition">
-    Dismiss
-  </button>
-</div>
+<%# cluster_param is passed INLINE, not folded into engine_locals above, and that
+    is deliberate. test/integration/engine_modal_defork_test.rb scans every
+    callsite of an engine Solana block and requires cluster_param to be visible
+    in the render call — because the engine defaults it to "" (MAINNET), so a
+    callsite that omits it renders an explorer link that resolves, looks
+    correct, and finds nothing. Hidden inside a locals hash it is unreadable to
+    that guard, and to the next person reading this file. %>
+<%= render "studio/modals/blocks/entry_confirmed",
+      **engine_locals,
+      cluster_param: solana_explorer_cluster_param %>

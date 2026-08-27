@@ -27,7 +27,14 @@
   Alpine's <template x-if> clones it whole (see
   [[feedback_alpine_template_single_root]]).
 %>
-<div x-data="{
+<%# The engine's entry-confirmed card renders its secondary action as a button
+    that DISPATCHES an event, so the app decides what "Dismiss" means. Caught
+    here on the modal's own root rather than on the shared host fork: that file
+    is being synced by /tasks/consumers-fork-modal-host, and a listener added
+    there would collide with it. .window because $dispatch bubbles from inside
+    the <template x-if> clone. %>
+<div x-on:tm-entry-dismiss.window="$store.modals.close()"
+     x-data="{
        init() {
          var self = this;
          // Confetti when the state flips to success — same trigger as

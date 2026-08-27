@@ -85,9 +85,11 @@ class EngineModalDeforkTest < ActionDispatch::IntegrationTest
     follow_redirect! while response.redirect?
     assert_response :success
 
-    # entry_confirmed is a KEPT fork that now renders studio/modals/blocks/
-    # card_header + cta_redirect. If the repoint were missed, this page would
-    # raise ActionView::MissingTemplate (the card_header fork was deleted).
+    # entry_confirmed is NO LONGER A FORK. As of
+    # /tasks/adopt-engine-entry-confirmed it is a 78-line adapter over the
+    # engine's own card (studio-engine >= 0.62.2); the 219-line copy, including
+    # its forked seeds bar, is gone. If the delegation were broken this page
+    # would raise ActionView::MissingTemplate.
     assert_includes response.body, "Entry Confirmed"
     assert_includes response.body, "Good Luck"
     # The Solana tx link is now the ENGINE's block, rendered by the kept card.
@@ -137,9 +139,16 @@ class EngineModalDeforkTest < ActionDispatch::IntegrationTest
 
   # --- the safety the deleted fork used to provide structurally ----------------
 
+  # entry_confirmed joined this list when the entry card was deforked
+  # (/tasks/adopt-engine-entry-confirmed). That defork DELETED this app's direct
+  # solana_tx_link callsite — the engine card renders the link itself now — so
+  # the risk moved rather than went away: entry_confirmed takes cluster_param
+  # with the SAME mainnet default, and is now the callsite that can silently
+  # point a devnet explorer link at the wrong chain.
   ENGINE_CLUSTER_BLOCKS = %w[
     studio/modals/blocks/solana_tx_link
     studio/modals/blocks/onchain_success
+    studio/modals/blocks/entry_confirmed
   ].freeze
 
   test "every engine solana-block callsite passes the explorer cluster param" do
@@ -182,10 +191,63 @@ class EngineModalDeforkTest < ActionDispatch::IntegrationTest
     # A zero here means the scan matched nothing at all, and every assertion
     # below it would pass no matter what the app did.
     assert_operator callsites, :>=, 2,
-      "expected at least the entry-confirmed and onchain-tx callsites, found #{callsites}"
+      "expected at least the entry-confirmed and onchain-tx callsites, found " \
+      "#{callsites} — the scan matched almost nothing, so every assertion below it is vacuous"
 
     assert_empty offenders,
       "these callsites omit cluster_param and so link to MAINNET on a devnet " \
       "deploy:\n  " + offenders.join("\n  ")
+  end
+
+  # ---- the entry-confirmed adoption ---------------------------------------
+  #
+  # The 219-line fork became a 78-line adapter. What must survive the swap is
+  # everything the fork did that the engine's DEFAULTS would not.
+
+  ADAPTER = "app/views/modals/blocks/_entry_confirmed.html.erb"
+
+  test "the entry card delegates to the engine instead of forking it" do
+    body = File.read(Rails.root.join(ADAPTER))
+
+    assert_match(%r{render\s+"studio/modals/blocks/entry_confirmed"}, body,
+                 "the adapter no longer renders the engine card — the app has re-forked")
+    refute_match(/digit_reel|seedsPerLevel/, body,
+                 "the forked seeds bar is back in the app; the engine's blocks/_seeds_bar owns this")
+    assert_operator body.lines.size, :<, 120,
+                    "the adapter has grown back toward a fork (#{body.lines.size} lines)"
+  end
+
+  # THE TITLE PIN. The engine defaults title_key to "props.title || 'Good Luck'",
+  # and this app's store DOES carry a .title — it holds the PROCESSING headline.
+  # Letting the default run would print "Confirming…" on the success card.
+  test "the entry card pins its own title rather than reading the store" do
+    body = File.read(Rails.root.join(ADAPTER))
+
+    assert_match(/title_key:\s*"'Good Luck'"/, body,
+                 "title_key is not pinned, so the engine default would read " \
+                 "$store.solanaModal.title — the PROCESSING headline — onto the success card")
+  end
+
+  # THE DISMISS AFFORDANCE. The engine card renders a secondary that DISPATCHES;
+  # without a listener it is a button that does nothing.
+  test "the dismiss secondary is wired to a listener that closes the modal" do
+    adapter = File.read(Rails.root.join(ADAPTER))
+    host = File.read(Rails.root.join("app/views/modals/_onchain_tx.html.erb"))
+
+    assert_match(/secondary_event:\s*"tm-entry-dismiss"/, adapter)
+    assert_match(/x-on:tm-entry-dismiss\.window="\$store\.modals\.close\(\)"/, host,
+                 "the Dismiss button dispatches an event nobody listens for — it renders and " \
+                 "does nothing, which is worse than not rendering at all")
+  end
+
+  # THE KICKOFF COUNTDOWN has no engine equivalent and must ride the above_seeds
+  # slot, with the centring the fork's surrounding <div> used to provide.
+  test "the kickoff countdown survives the adoption in the above-seeds slot" do
+    body = File.read(Rails.root.join(ADAPTER))
+
+    assert_match(%r{\[:above_seeds\]\s*=\s*"contests/timestamp_countdown"}, body,
+                 "the kickoff countdown was dropped by the adoption")
+    assert_match(/wrapper_class:\s*"flex justify-center mb-4"/, body,
+                 "the countdown lost the centring the fork gave it")
   end
 end
