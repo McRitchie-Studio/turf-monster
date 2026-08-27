@@ -46,9 +46,7 @@
      class="relative">
 
   <%# Top-right close. Backdrop close still works too. %>
-  <button @click="$store.modals.close()"
-          class="absolute top-0 right-0 -mt-2 -mr-2 text-secondary hover:text-heading text-xl leading-none z-10"
-          aria-label="Close">&times;</button>
+  <%= render "studio/modals/blocks/close_x" %>
 
   <div class="text-center pt-1 mb-3">
     <h3 class="text-heading font-bold text-lg leading-tight">Add Funds</h3>
@@ -68,18 +66,12 @@
           so this USDC-buy rail must not be a dead-end for them. See the header
           note. web3 + flag-on web2 always see it. %>
       <template x-if="!tokenFallback">
-        <button type="button" data-onramp-rail="coinbase"
-                @click="$store.modals.swap('cdp-ramp', { flow: 'buy', step: 'preflight' })"
-                class="w-full flex items-center gap-4 p-4 rounded-xl border border-strong hover:border-primary bg-inset transition text-left">
-          <span class="shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-white font-extrabold text-lg" style="background-color:#0052FF">C</span>
-          <span class="flex-1 min-w-0">
-            <span class="block text-heading font-semibold text-sm">Coinbase</span>
-            <span class="block text-xs text-secondary">Buy USDC with a card or bank</span>
-          </span>
-          <svg class="shrink-0 w-4 h-4 text-muted" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
-          </svg>
-        </button>
+        <%= render "studio/modals/blocks/rail_row",
+              on_click:   "$store.modals.swap('cdp-ramp', { flow: 'buy', step: 'preflight' })",
+              icon_label: "C", icon_bg: "#0052FF",
+              title:      "Coinbase",
+              subtitle:   "Buy USDC with a card or bank",
+              data:       { onramp_rail: "coinbase" } %>
       </template>
     <% end %>
 
@@ -90,18 +82,12 @@
           it's useful to the web2 kill-switch audience too (like the Stripe
           token rail). tmCoinflowBuyOne() POSTs /tokens/coinflow_order then
           redirects to Coinflow's hosted checkout. %>
-      <button type="button" data-onramp-rail="coinflow"
-              @click="tmCoinflowBuyOne('single')"
-              class="w-full flex items-center gap-4 p-4 rounded-xl border border-strong hover:border-primary bg-inset transition text-left">
-        <span class="shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-white font-extrabold text-lg" style="background-color:#14B8A6">CF</span>
-        <span class="flex-1 min-w-0">
-          <span class="block text-heading font-semibold text-sm">Coinflow &middot; $19</span>
-          <span class="block text-xs text-secondary">Buy 1 entry token with a card</span>
-        </span>
-        <svg class="shrink-0 w-4 h-4 text-muted" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
-        </svg>
-      </button>
+      <%= render "studio/modals/blocks/rail_row",
+            on_click:   "tmCoinflowBuyOne('single')",
+            icon_label: "CF", icon_bg: "#14B8A6",
+            title:      "Coinflow · $19",
+            subtitle:   "Buy 1 entry token with a card",
+            data:       { onramp_rail: "coinflow" } %>
     <% end %>
 
     <% if onramp_rail_visible?(:aeropay) %>
@@ -111,64 +97,48 @@
           the web2 kill-switch audience too (like the Coinflow / Stripe token
           rails). tmAeropayBuyOne() links a bank (Aerosync widget — stubbed) then
           POSTs /tokens/aeropay_order. %>
-      <button type="button" data-onramp-rail="aeropay"
-              @click="tmAeropayBuyOne('single')"
-              class="w-full flex items-center gap-4 p-4 rounded-xl border border-strong hover:border-primary bg-inset transition text-left">
-        <span class="shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-white font-extrabold text-lg" style="background-color:#6D28D9">A</span>
-        <span class="flex-1 min-w-0">
-          <span class="block text-heading font-semibold text-sm">Aeropay &middot; $19</span>
-          <span class="block text-xs text-secondary">Buy 1 entry token from your bank</span>
-        </span>
-        <svg class="shrink-0 w-4 h-4 text-muted" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
-        </svg>
-      </button>
+      <%= render "studio/modals/blocks/rail_row",
+            on_click:   "tmAeropayBuyOne('single')",
+            icon_label: "A", icon_bg: "#6D28D9",
+            title:      "Aeropay · $19",
+            subtitle:   "Buy 1 entry token from your bank",
+            data:       { onramp_rail: "aeropay" } %>
     <% end %>
 
     <% if onramp_rail_visible?(:paypal) %>
       <%# PayPal — placeholder. Visually complete, non-interactive, tagged
           "Soon". Wire it to the paypal_tokens flow when the rail goes live. %>
-      <div data-onramp-rail="paypal"
-           class="w-full flex items-center gap-4 p-4 rounded-xl border border-subtle bg-inset opacity-60">
-        <span class="shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-white font-extrabold text-lg" style="background-color:#003087">P</span>
-        <span class="flex-1 min-w-0">
-          <span class="block text-heading font-semibold text-sm">PayPal</span>
-          <span class="block text-xs text-secondary">Pay with your PayPal balance</span>
-        </span>
-        <span class="shrink-0 text-[10px] uppercase tracking-widest font-bold text-muted bg-surface border border-subtle rounded-full px-2 py-0.5">Soon</span>
-      </div>
+      <%# state: :soon — a DIV, not a disabled button: no focus stop, and the
+          badge REPLACES the chevron, because a chevron promises somewhere to go. %>
+      <%= render "studio/modals/blocks/rail_row",
+            state:      :soon,
+            icon_label: "P", icon_bg: "#003087",
+            title:      "PayPal",
+            subtitle:   "Pay with your PayPal balance",
+            data:       { onramp_rail: "paypal" } %>
     <% end %>
 
     <% if onramp_rail_visible?(:venmo) %>
       <%# Venmo — placeholder, same treatment as PayPal (shares the PayPal
           backend rail once live). %>
-      <div data-onramp-rail="venmo"
-           class="w-full flex items-center gap-4 p-4 rounded-xl border border-subtle bg-inset opacity-60">
-        <span class="shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-white font-extrabold text-lg" style="background-color:#008CFF">V</span>
-        <span class="flex-1 min-w-0">
-          <span class="block text-heading font-semibold text-sm">Venmo</span>
-          <span class="block text-xs text-secondary">Pay from your Venmo balance</span>
-        </span>
-        <span class="shrink-0 text-[10px] uppercase tracking-widest font-bold text-muted bg-surface border border-subtle rounded-full px-2 py-0.5">Soon</span>
-      </div>
+      <%= render "studio/modals/blocks/rail_row",
+            state:      :soon,
+            icon_label: "V", icon_bg: "#008CFF",
+            title:      "Venmo",
+            subtitle:   "Pay from your Venmo balance",
+            data:       { onramp_rail: "venmo" } %>
     <% end %>
 
     <% if onramp_rail_visible?(:stripe) %>
       <%# Stripe single token — wired back to the Get Entry Tokens picker,
           which IS the Stripe checkout flow. Mirrors the board showTokensPanel
           props so the picker mounts clean. %>
-      <button type="button" data-onramp-rail="stripe"
-              @click="$store.modals.swap('auth', { step: 'tokens-picker', mintedCount: 0, mintedBalance: 0, errorText: '', redirectUrl: '', txSignature: '' })"
-              class="w-full flex items-center gap-4 p-4 rounded-xl border border-strong hover:border-primary bg-inset transition text-left">
-        <span class="shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-white font-extrabold text-lg" style="background-color:#635BFF">S</span>
-        <span class="flex-1 min-w-0">
-          <span class="block text-heading font-semibold text-sm">Card &middot; $19</span>
-          <span class="block text-xs text-secondary">Buy one entry token with a card</span>
-        </span>
-        <svg class="shrink-0 w-4 h-4 text-muted" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
-        </svg>
-      </button>
+      <%= render "studio/modals/blocks/rail_row",
+            on_click:   "$store.modals.swap('auth', { step: 'tokens-picker', mintedCount: 0, mintedBalance: 0, errorText: '', redirectUrl: '', txSignature: '' })",
+            icon_label: "S", icon_bg: "#635BFF",
+            title:      "Card · $19",
+            subtitle:   "Buy one entry token with a card",
+            data:       { onramp_rail: "stripe" } %>
     <% end %>
   </div>
 
