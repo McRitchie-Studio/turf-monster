@@ -30,15 +30,18 @@
           <span class="hidden md:block"><%= render "components/gear_sidebar_trigger" %></span>
           <%= render "components/theme_toggle_morph" %>
         </span>
+        <%# nav-username sizes off --nav-p (lg -> base) — see the navbar's
+            nav-shell comment. transition-colors, not transition-all: the old
+            transition-all also put this button's font-size on a 300ms clock
+            that kept running after the finger stopped. %>
         <button type="button"
-                class="dm-coral min-w-0 max-w-[4.5rem] min-[400px]:max-w-[6rem] md:max-w-[7rem] text-heading font-semibold hover:text-primary transition-all duration-300 leading-none md:ml-0 ml-auto overflow-hidden whitespace-nowrap text-left bg-transparent border-0 p-0"
+                class="nav-username dm-coral min-w-0 max-w-[4.5rem] min-[400px]:max-w-[6rem] md:max-w-[7rem] text-heading font-semibold hover:text-primary transition-colors duration-300 leading-none md:ml-0 ml-auto overflow-hidden whitespace-nowrap text-left bg-transparent border-0 p-0"
                 @click.stop="<%= gear_toggle_action %>"
                 aria-label="<%= gear_toggle_label %>"
                 aria-controls="gear-sidebar gear-sidebar-mobile"
                 aria-haspopup="dialog"
                 :aria-expanded="<%= gear_expanded_attr %>"
                 data-username-display="true"
-                x-bind:class="scrolled ? 'text-base' : 'text-lg'"
                 <%# navUsernameFade (shared/_alpine_factories) re-measures on every
                     box change via ResizeObserver. It used to be an inline one-shot
                     here and the mask never followed the balance hydrate, the Free

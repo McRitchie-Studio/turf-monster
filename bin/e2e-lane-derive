@@ -41,22 +41,61 @@ unless listed
   exit 1
 end
 
+# The excluded tag, from the SAME lister. A failure here is NOT a skip: falling back
+# to the hand-declared number is exactly the blind spot deriving it exists to close,
+# so an unusable lister stops the run rather than quietly half-deriving.
+excluded_out, excluded_status = Open3.capture2e(*E2eLaneDerive::EXCLUDED_LIST_COMMAND, chdir: ROOT)
+unless excluded_status.success?
+  warn "E2E LANE DERIVE: `#{E2eLaneDerive::EXCLUDED_LIST_COMMAND.join(" ")}` failed — cannot derive `excluded`."
+  warn "  Deriving total_specs while TRUSTING a stale `excluded` is how a wrong `executed`"
+  warn "  gets certified green, so this stops instead."
+  warn excluded_out.lines.last(15).join
+  exit 1
+end
+
+listed_excluded = E2eLaneDerive.parse_total(excluded_out)
+unless listed_excluded
+  warn "E2E LANE DERIVE: no `Total: N tests in M files` line in the excluded-lister output."
+  exit 1
+end
+
 contract = YAML.safe_load_file(path)
-derived = E2eLaneDerive.derived_for(contract, listed[:specs])
+derived = E2eLaneDerive.derived_for(contract, listed[:specs], listed_excluded[:specs])
 problems = E2eLaneDerive.disagreements(contract, derived)
 
 if problems.empty?
   puts "E2E LANE DERIVE: GREEN — #{E2eLaneDerive::CONTRACT} matches the tree " \
-       "(#{listed[:specs]} specs in #{listed[:files]} files; executed #{derived[:executed]})."
+       "(#{listed[:specs]} specs in #{listed[:files]} files; #{derived[:excluded]} excluded; " \
+       "executed #{derived[:executed]})."
   exit 0
 end
 
 if WRITE
   File.write(path, E2eLaneDerive.rewrite(File.read(path),
                                          total_specs: derived[:total_specs],
+                                         excluded: derived[:excluded],
                                          executed: derived[:executed]))
+
+  # VERIFY THE WRITE LANDED. rewrite/2 is String#sub, which silently no-ops when the
+  # regex misses — a quoted value (`total_specs: "203"`) matches nothing — and this
+  # script then printed "rewrote …" and exited 0 over a file it had not changed.
+  # Reproduced: with total_specs quoted, --write announced the new numbers and exited
+  # 0 while the file still held the old one, and `executed` HAD been rewritten, so the
+  # file was left MIXED and reported as success. Announcing a write that did not happen
+  # is the exact failure class this whole gate exists to kill, so re-read and re-check.
+  remaining = E2eLaneDerive.disagreements(YAML.safe_load_file(path), derived)
+  unless remaining.empty?
+    warn "E2E LANE DERIVE: the rewrite did NOT land — #{E2eLaneDerive::CONTRACT} still disagrees."
+    remaining.each { |p| warn "  · #{p}" }
+    warn ""
+    warn "  The scalars are rewritten by line-anchored regex, so a reformatted or quoted"
+    warn "  value is invisible to it. Fix the field by hand and re-run."
+    exit 1
+  end
+
   puts "E2E LANE DERIVE: rewrote #{E2eLaneDerive::CONTRACT} — " \
-       "total_specs: #{derived[:total_specs]}, executed: #{derived[:executed]}."
+       "total_specs: #{derived[:total_specs]}, excluded: #{derived[:excluded]}, " \
+       "executed: #{derived[:executed]} (verified by re-read)."
   problems.each { |p| puts "  was #{p}" }
   exit 0
 end

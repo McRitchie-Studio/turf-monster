@@ -83,3 +83,65 @@ test("a second user inherits nothing from the first", async ({ page }) => {
   expect(leaked.pubkey).toBeNull();
   expect(leaked.seeds === null || !leaked.seeds.includes("999")).toBe(true);
 });
+
+// THE RECEIVE HALF, which had no test anywhere until now.
+//
+// session_wipe.js has two halves. The SEND half posts {type:"logout-wipe"} on the
+// "tm-session" BroadcastChannel when this tab logs out — that half is covered, and
+// mutation M9 reddened when the broadcast was removed. The RECEIVE half is the
+// listener that wipes THIS tab when a PEER logs out, and mutation M10 deleted it
+// outright while the ENTIRE SUITE STAYED GREEN at every tier.
+//
+// The reason is structural rather than an oversight: no spec had ever opened a
+// SECOND tab, so nothing could observe a cross-tab message. A BroadcastChannel is
+// scoped to an origin within one browser context, so both pages must live in the
+// SAME context — two `page` fixtures would be two contexts and would never hear
+// each other, which is a way to write this test that passes for the wrong reason.
+//
+// ONE CONTEXT IS ALSO ONE localStorage — it is origin-scoped and SHARED across
+// tabs, so the first tab's own clear() empties the sibling's whether the listener
+// exists or not (MEASURED under M10 in review: every localStorage assertion here
+// passed with the listener DELETED). sessionStorage is per-TAB, so the precondition
+// and the poll below sit on it. Moving them onto localStorage un-tests this spec.
+test("logging out in one tab wipes its sibling", async ({ page, context }) => {
+  await setupPhantomMock(page, { walletStandard: false });
+  await loginViaPhantom(page);
+  await page.goto("/account");
+
+  // The sibling: same context, so it shares the origin, the cookie jar and the
+  // channel. It also needs the mock, because it boots the same app.
+  const sibling = await context.newPage();
+  await setupPhantomMock(sibling, { walletStandard: false });
+  await sibling.goto("/account");
+
+  // State that only a wipe removes. Written in the SIBLING, so what we assert
+  // afterwards is that the sibling reacted — not that the first tab tidied up.
+  await sibling.evaluate(() => {
+    localStorage.setItem("seedsNavbar", JSON.stringify({ seeds_total: 40, level: 1 }));
+    localStorage.setItem("phantom_dl_pubkey", "still-logged-in");
+    sessionStorage.setItem("pendingAuthStep", "buy-tokens");
+  });
+
+  // Precondition, or the assertion below can pass against a tab that never had
+  // anything to lose — on the PER-TAB store, for the reason above.
+  expect(await sibling.evaluate(() => sessionStorage.getItem("pendingAuthStep")))
+    .toBe("buy-tokens");
+
+  await page.locator(`a[href="/logout"]:visible`).first().click();
+  await page.waitForURL(/\/signin/);
+
+  // The sibling is NOT navigated — it must wipe in place, from the message alone.
+  await expect
+    .poll(() => sibling.evaluate(() => sessionStorage.getItem("pendingAuthStep")), {
+      message: "the sibling tab kept its per-tab session state after a peer logged " +
+               "out — the BroadcastChannel listener in session_wipe.js never fired"
+    })
+    .toBeNull();
+
+  const after = await sibling.evaluate(() => ({
+    local: Object.fromEntries(Object.entries(localStorage)),
+    session: Object.fromEntries(Object.entries(sessionStorage))
+  }));
+  expect(after.local).toEqual({});
+  expect(after.session).toEqual({});
+});

@@ -17,8 +17,17 @@ test.beforeEach(async ({ request }) => await reseed(request));
 // Splitting the fix was never an option — the indicator needs a live signal,
 // and the disconnect IS that signal.
 
+// WALLET STANDARD, deliberately, and it is the half that had NO browser coverage.
+// Both tests in this file used to pin walletStandard: false, so the adapter that a
+// modern Phantom actually installs — the one the app swaps to on
+// 'wallet-provider:registered' — was never exercised here at all. The sibling test
+// below keeps the legacy shape, so the file covers both.
+//
+// Repointed rather than duplicated: adding a case would change total_specs in
+// config/e2e_lane.yml, which turf PR #439 is editing, and two branches writing that
+// counter is the exact collision #439 exists to stop.
 test("losing the signer greys the check and leaves the session intact", async ({ page }) => {
-  await setupPhantomMock(page, { walletStandard: false });
+  await setupPhantomMock(page, { walletStandard: true });
   await loginViaPhantom(page);
 
   await page.goto("/account");
@@ -32,6 +41,26 @@ test("losing the signer greys the check and leaves the session intact", async ({
   await expect(check).toHaveClass(/text-green-400/);
 
   const userIdBefore = await page.locator("body").getAttribute("data-user-id");
+
+  // WAIT FOR THE CHANNEL THE DISCONNECT WILL USE. This is the precondition this
+  // test's own header claims — "WALLET STANDARD, deliberately" — and until
+  // 2026-08-27 it was never actually established, only hoped for.
+  //
+  // `state === "live"` above does NOT imply it. Live is reachable on the LEGACY
+  // provider, which is what the store watches until the Wallet Standard adapter
+  // registers and `wallet-provider:registered` swaps it. The mock's disconnect
+  // notifies the Wallet Standard change channel and ONLY that channel, so a
+  // disconnect sent before the swap lands in an empty listener array — not
+  // queued, not retried, gone — and the poll below then spends its full 5s
+  // waiting for an event that will never be sent again.
+  //
+  // That is the whole flake: locally the swap always won, on CI it did not, and
+  // the failure named the assertion instead of the race. Measured 2026-08-27 by
+  // widening the mock's registration delay — the CI failure reproduces on demand,
+  // `Expected: "degraded" / Received: "live"`.
+  await expect
+    .poll(() => page.evaluate(() => window.__phantomMockWsChangeSubscribers?.() ?? 0))
+    .toBeGreaterThan(0);
 
   // The extension is disconnected / locked / uninstalled.
   await page.evaluate(() => window.phantom.solana.disconnect());

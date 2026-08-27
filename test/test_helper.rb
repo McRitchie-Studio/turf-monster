@@ -252,7 +252,13 @@ class ActionDispatch::IntegrationTest
 
   # Log in via Solana wallet auth — sets session[:onchain] = true
   # Returns the Ed25519 signing key for use in subsequent signature proofs
-  def log_in_as_onchain(user)
+  # wallet_provider defaults to nil, which is what every existing caller already
+  # got — Solana::CurrentWallet.remember(session, nil) DELETES the brand key. Pass
+  # one when the test needs the key to EXIST: an assertion that it is cleared is
+  # otherwise asserting the absence of something that was never there, which is
+  # exactly how logout_is_definitive_test's wallet-brand check passed for the
+  # wrong reason until 2026-08-27.
+  def log_in_as_onchain(user, wallet_provider: nil)
     key = Ed25519::SigningKey.generate
     pubkey_b58 = Solana::Keypair.encode_base58(key.verify_key.to_bytes)
     user.update!(web3_solana_address: pubkey_b58)
@@ -264,11 +270,11 @@ class ActionDispatch::IntegrationTest
     message = "#{host} wants you to sign in with your Solana account:\n#{pubkey_b58}\n\nNonce: #{nonce}"
     sig_b58 = Solana::Keypair.encode_base58(key.sign(message))
 
-    post "/auth/solana/verify", params: { message: message, signature: sig_b58, pubkey: pubkey_b58 }, as: :json
+    params = { message: message, signature: sig_b58, pubkey: pubkey_b58 }
+    params[:wallet_provider] = wallet_provider if wallet_provider
+    post "/auth/solana/verify", params: params, as: :json
     assert_response :success, "Onchain login failed: #{response.body}"
 
     key
   end
-
-  # Sign a contest entry message with the given key, returning params hash for POST /enter
 end

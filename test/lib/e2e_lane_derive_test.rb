@@ -87,15 +87,30 @@ class E2eLaneDeriveTest < ActiveSupport::TestCase
   # nothing while reporting green, which is the same class of bug as the one
   # under test.
 
-  def with_fake_lister(total_line)
+  # The script runs the lister TWICE — once bare for the tree total, once with
+  # `--grep @devnet` for the excluded count — so the fake has to tell them apart.
+  # Feeding one number to both is not a harmless simplification: it makes `excluded`
+  # equal `total_specs` and drives `executed` negative, which is how this helper
+  # first reported the derive-excluded change as broken when it was correct.
+  # The default excluded line matches CONTRACT's `excluded: 17`.
+  def with_fake_lister(total_line, excluded_line = "Total: 17 tests in 1 file", contract: CONTRACT)
     Dir.mktmpdir do |root|
       FileUtils.mkdir_p(File.join(root, "config"))
-      File.write(File.join(root, "config/e2e_lane.yml"), CONTRACT)
+      File.write(File.join(root, "config/e2e_lane.yml"), contract)
 
       bin = File.join(root, "fakebin")
       FileUtils.mkdir_p(bin)
       npx = File.join(bin, "npx")
-      File.write(npx, "#!/bin/sh\necho '#{total_line}'\n")
+      File.write(npx, <<~SH)
+        #!/bin/sh
+        for arg in "$@"; do
+          if [ "$arg" = "--grep" ]; then
+            echo '#{excluded_line}'
+            exit 0
+          fi
+        done
+        echo '#{total_line}'
+      SH
       FileUtils.chmod(0o755, npx)
 
       script = File.expand_path("../../bin/e2e-lane-derive", __dir__)
@@ -157,6 +172,66 @@ class E2eLaneDeriveTest < ActiveSupport::TestCase
 
       refute status.success?, "an unrunnable lister must fail the gate"
       assert_includes out, "cannot derive"
+    end
+  end
+
+  # ---- excluded is DERIVED, not trusted -----------------------------------
+  #
+  # THE CASE THIS EXISTS FOR, walked exactly. Someone adds one @devnet spec:
+  # the tree total goes 200 -> 201, TRUE excluded goes 17 -> 18, and TRUE
+  # executed STAYS 179. A deriver that trusts the hand-declared 17 writes
+  # executed 180 — and the new declared-set gate certifies that GREEN. The lane
+  # then executes 179 and e2e_executed_set fails 30-45 minutes later wearing a
+  # "specs LEFT the lane" diagnosis, pointing the next builder at a widened
+  # --grep-invert that never happened.
+  test "adding an excluded spec leaves executed unchanged and is written correctly" do
+    with_fake_lister("Total: 201 tests in 55 files", "Total: 18 tests in 1 file") do |root, run|
+      _out, status = run.call("--write")
+      assert status.success?
+
+      written = File.read(File.join(root, "config/e2e_lane.yml"))
+      assert_includes written, "total_specs: 201"
+      assert_includes written, "excluded: 18", "excluded must be derived from the tagged lister"
+      assert_includes written, "executed: 179",
+                      "executed must be UNCHANGED — the added spec is excluded, so it never " \
+                      "enters the lane. Trusting the stale excluded would write 180 here."
+    end
+  end
+
+  test "a stale excluded is reported on its own, before the arithmetic drifts" do
+    with_fake_lister("Total: 200 tests in 54 files", "Total: 18 tests in 1 file") do |_root, run|
+      out, status = run.call
+      refute status.success?, "a declared excluded that disagrees with the tree must fail"
+      assert_includes out, "excluded: config/e2e_lane.yml says 17"
+      assert_includes out, "the tree has 18 tagged specs"
+    end
+  end
+
+  # ---- --write must never announce a write it did not make ----------------
+  #
+  # rewrite/2 is String#sub, which silently no-ops when the anchor misses. A QUOTED
+  # scalar is exactly such a miss, and the script used to print "rewrote …" and exit
+  # 0 over a file it had not fully changed — leaving it MIXED (executed rewritten,
+  # total_specs not) and reporting success. Announcing a write that did not happen is
+  # the same failure class the whole gate exists to kill.
+  QUOTED_CONTRACT = <<~YML
+    total_specs: "200"
+    excluded: 17
+    allowed_skips: 4
+    executed: 179
+  YML
+
+  test "a rewrite that did not land fails loudly instead of reporting success" do
+    with_fake_lister("Total: 203 tests in 55 files", contract: QUOTED_CONTRACT) do |root, run|
+      out, status = run.call("--write")
+
+      refute status.success?,
+             "the script announced a write it could not make and exited 0: #{out}"
+      assert_includes out, "did NOT land"
+
+      written = File.read(File.join(root, "config/e2e_lane.yml"))
+      assert_includes written, 'total_specs: "200"',
+                      "precondition: the quoted scalar is what the line-anchored sub misses"
     end
   end
 end
