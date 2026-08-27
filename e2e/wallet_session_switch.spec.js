@@ -12,6 +12,23 @@ test("changing Phantom accounts starts a deliberate signed session handoff", asy
   await page.evaluate(() => Alpine.store("modals").open("onboarding", {}));
   await expect(page.getByRole("dialog")).toContainText("What should we call you?");
 
+  // WAIT FOR THE CHANNEL THIS SWITCH WILL USE — the same precondition
+  // e2e/wallet_disconnect.spec.js establishes, for the same reason. Under
+  // walletStandard, __switchAccount notifies standardChangeListeners and ONLY
+  // that channel, so a switch sent before the Wallet Standard adapter registers
+  // lands in an empty array: not queued, not retried, gone.
+  //
+  // The test still PASSED without this, which is why it needs saying. It passed
+  // through the registration/reconcile fallback — at 1500ms the adapter arrives,
+  // solana_stores.js _watchPreferredProvider reconciles, reads the already-
+  // switched account and opens the card. Same assertion, different mechanism,
+  // and the WS change-event path this test exists to cover stopped being
+  // exercised. Measured at review 2026-08-26: 0 subscribers here at 1500ms,
+  // 2 at the old 150ms.
+  await expect
+    .poll(() => page.evaluate(() => window.__phantomMockWsChangeSubscribers?.() ?? 0))
+    .toBeGreaterThan(0);
+
   await page.evaluate(() =>
     window.phantom.solana.__switchAccount(2, { transientNull: true })
   );
