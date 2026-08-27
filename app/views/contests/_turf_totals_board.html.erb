@@ -1991,9 +1991,11 @@ window.selectionBoard = function() {
         <% if multi_week %>
           <%# The multi-week board is one team-card grid ordered by span
               multiplier — there is no game view to sort against, so the toggle
-              is replaced by the span label. %>
+              is replaced by the instruction. The week span used to lead this
+              line; it lives in the contest header's Row 3 meta grid now, so
+              repeating it here only crowded the filter input on mobile. %>
           <span class="text-sm text-muted font-medium">
-            <%= @contest.week_span_label %> &middot; pick <%= @contest.picks_required %> teams
+            Pick <%= @contest.picks_required %> teams
           </span>
         <% else %>
         <span class="text-sm text-muted font-medium">Sort by</span>

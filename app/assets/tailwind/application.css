@@ -950,6 +950,41 @@
   );
 }
 
+/* Prize-pot shimmer (contests/_contest_header Row 2).
+   A single light sweep across the dollar figure, then a long hold — the whole
+   cycle is 10s and the sweep occupies the first ~1.2s of it, so the number
+   catches the eye periodically instead of animating continuously.
+
+   The sweep has to travel across the GLYPHS, not a box behind them, so the
+   element paints two background layers clipped to the text: a static
+   currentColor fill underneath (this is what keeps the digits their theme
+   green) and the moving highlight on top. `-webkit-text-fill-color:
+   transparent` — not `color: transparent` — is what lets the fill layer's
+   `currentColor` still resolve to the real text color. */
+@keyframes prize-shimmer {
+  0%        { background-position: 170% 0, 0 0; }
+  12%, 100% { background-position: -70% 0, 0 0; }
+}
+.prize-shimmer {
+  background-image:
+    linear-gradient(100deg, transparent 44%, rgb(255 255 255 / 0.9) 50%, transparent 56%),
+    linear-gradient(currentColor, currentColor);
+  background-size: 220% 100%, 100% 100%;
+  background-position: 170% 0, 0 0;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: prize-shimmer 10s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .prize-shimmer {
+    animation: none;
+    background-image: none;
+    -webkit-text-fill-color: currentColor;
+  }
+}
+
 /* === Modal host (studio/modals/_host.html.erb) =========================
    Promoted from the local override partial's inline \3c style> block
    2026-05-24 — these rules are page-static and were being emitted on
