@@ -296,6 +296,124 @@
     };
   };
 
+  // === navCollapse — the navbar's scroll-linked collapse ==============
+  //
+  // Publishes ONE number, --nav-p (0 expanded .. 1 collapsed), on the <header>.
+  // application.css derives every collapsing dimension from it with calc().
+  //
+  // It replaces `@scroll.window="scrolled = scrolled ? (scrollY > 5) : (scrollY
+  // > 60)"` plus `transition-all duration-300`. That pair let the FINGER set a
+  // step and an ease curve own everything after it: measured 2026-08-27 at
+  // 390x844, the header ran 178px -> 139px and 34 of those 39px of document
+  // reflow landed AFTER the scroll had stopped, over 232ms, at up to 3px per
+  // frame of content the user never asked to move. Progress is a pure function
+  // of scrollY now, so the navbar cannot move in a frame the finger did not.
+  //
+  // Three details that are load-bearing:
+  //
+  //   passive + rAF — the listener never blocks the compositor and coalesces a
+  //   burst of scroll events (iOS momentum fires far above 60Hz) into one write
+  //   per frame. The write lands on the header, not :root, so the per-frame
+  //   style recalc stays inside the navbar subtree.
+  //
+  //   the short-page guard — collapsing shortens the document by --nav-ramp px.
+  //   On a page with barely more than that to scroll, the collapse deletes the
+  //   very scroll room that triggered it, the browser clamps scrollY back to 0,
+  //   and the navbar flaps open/shut forever. `roomExpanded` adds back the
+  //   shrink already applied, so the measurement does not chase itself.
+  //
+  //   reduced motion — with the collapse scroll-linked there is no clock left to
+  //   slow down, but resizing type under a moving finger is itself the motion
+  //   some readers are asking us to drop. Under the query --nav-p snaps 0/1 on
+  //   the old hysteresis instead of interpolating.
+  window.navCollapse = function () {
+    return {
+      scrolled: false,
+      p: 0,
+      _ramp: 48,
+      _reduce: null,
+      _onScroll: null,
+      _onResize: null,
+      _onReduce: null,
+      init() {
+        var self = this;
+        var el = this.$el;
+        var queued = false;
+
+        this._reduce = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+        function readRamp() {
+          var raw = parseFloat(getComputedStyle(el).getPropertyValue("--nav-ramp"));
+          self._ramp = raw > 0 ? raw : 48;
+        }
+
+        function apply() {
+          queued = false;
+          var ramp = self._ramp;
+          var y = Math.max(0, window.scrollY);
+
+          // Height the document WOULD have with the navbar expanded — add back
+          // the shrink already applied so this measurement cannot chase itself.
+          var roomExpanded = document.documentElement.scrollHeight
+                             - window.innerHeight
+                             + ramp * self.p;
+
+          var p;
+          if (roomExpanded < ramp + 24) {
+            p = 0;
+          } else if (self._reduce.matches) {
+            p = (self.p > 0 ? y > 5 : y > 60) ? 1 : 0;
+          } else {
+            // Smoothstep, not y/ramp. Both are pure functions of scroll
+            // position, so both stop dead with the finger — but a linear ramp
+            // steps content speed to ~2x the moment it starts and back to 1x
+            // the moment it ends. Smoothstep's slope is zero at both ends, so
+            // the burst fades in and out instead: out of 1x, ~1.5x mid-ramp,
+            // back to 1x. --nav-ramp is sized at 3x the collapse to put that
+            // peak there (see application.css).
+            var t = Math.min(1, y / ramp);
+            p = t * t * (3 - 2 * t);
+          }
+
+          if (p !== self.p) {
+            self.p = p;
+            el.style.setProperty("--nav-p", p.toFixed(4));
+          }
+
+          // The shadow is the one thing still on a clock, and it may stay
+          // there: box-shadow paints, it never reflows, so it cannot move
+          // content. Hysteresis keeps it from strobing at the boundary.
+          var lit = self.scrolled ? y > 5 : y > 60;
+          if (lit !== self.scrolled) self.scrolled = lit;
+        }
+
+        this._onScroll = function () {
+          if (queued) return;
+          queued = true;
+          requestAnimationFrame(apply);
+        };
+
+        readRamp();
+        apply();
+
+        this._onResize = function () { readRamp(); self._onScroll(); };
+        window.addEventListener("scroll", this._onScroll, { passive: true });
+        window.addEventListener("resize", this._onResize, { passive: true });
+        if (this._reduce.addEventListener) this._reduce.addEventListener("change", apply);
+        this._onReduce = apply;
+      },
+      destroy() {
+        // A Turbo visit tears the header down and builds a new one; without
+        // this every visit would stack another listener on window.
+        if (this._onScroll) window.removeEventListener("scroll", this._onScroll);
+        if (this._onResize) window.removeEventListener("resize", this._onResize);
+        if (this._reduce && this._reduce.removeEventListener && this._onReduce) {
+          this._reduce.removeEventListener("change", this._onReduce);
+        }
+      }
+    };
+  };
+
   // === navUsernameFade — the navbar username's overflow fade mask =====
   //
   // The username button is overflow-hidden + whitespace-nowrap, so a name wider
