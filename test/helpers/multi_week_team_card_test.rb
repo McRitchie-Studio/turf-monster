@@ -88,4 +88,53 @@ class MultiWeekTeamCardTest < ActionView::TestCase
     assert_includes html, "bye"
     assert_includes html, "Points"
   end
+
+  # --- mobile opponent chips -------------------------------------------------
+  # A mobile card is half a ~390px viewport, so each of the three opponent
+  # columns is only ~45px wide. At text-sm the emoji plus a three-letter
+  # abbreviation overflows that and `truncate` eats the short name down to one
+  # letter ("I…"), which hides the very thing the row exists to show. These
+  # assert the mobile size is smaller AND that md+ still gets the original.
+
+  def fragment(html) = Nokogiri::HTML::DocumentFragment.parse(html)
+
+  def classes_of(node)
+    refute_nil node
+    node["class"].to_s.split
+  end
+
+  def week_label(html, label)
+    fragment(html).css("p").find { |p| p.text.strip == label }
+  end
+
+  def chip_span(html, text)
+    fragment(html).css("span").find { |s| s.text.strip == text }
+  end
+
+  test "week label is a touch smaller on mobile and restores at lg" do
+    classes = classes_of(week_label(render_card(team_double), "Week 1"))
+    assert_includes classes, "text-[9px]", "mobile week label should shrink below 10px"
+    assert_includes classes, "lg:text-[10px]", "the wide (lg) card keeps the original 10px label"
+  end
+
+  test "opponent abbreviation shrinks on mobile so a three-letter short name fits" do
+    classes = classes_of(chip_span(render_card(team_double), "IND"))
+    refute_includes classes, "text-sm",
+                    "an unconditional text-sm truncates IND inside a ~48px mobile column"
+    assert_includes classes, "text-[10px]"
+    assert_includes classes, "lg:text-sm", "the wide (lg) card keeps the original size"
+  end
+
+  test "opponent emoji shrinks with its abbreviation on mobile" do
+    classes = classes_of(chip_span(render_card(team_double), "\u{1F434}"))
+    refute_includes classes, "text-sm"
+    assert_includes classes, "text-[10px]"
+    assert_includes classes, "lg:text-sm"
+  end
+
+  test "bye week keeps the same responsive sizing as a real opponent" do
+    classes = classes_of(chip_span(render_card(team_double), "bye"))
+    assert_includes classes, "text-[10px]"
+    assert_includes classes, "lg:text-sm"
+  end
 end
