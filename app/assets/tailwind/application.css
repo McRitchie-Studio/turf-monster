@@ -721,6 +721,12 @@
      queries to simulate a breakpoint. */
   .nav-shell {
     --nav-ramp: 144px;
+    /* How far the collapse may travel in ONE animation frame, as header
+       height. Position-linked progress alone puts the WHOLE collapse in a
+       single frame on a flick — measured 39px on QA, the full 178 -> 139.
+       navCollapse() converts this to --nav-p units off --nav-ramp's 3x
+       relation to the collapse total, so one number covers every band. */
+    --nav-max-step: 5px;
     --nav-pad: calc(1.5rem - 1rem * var(--nav-p));                    /* py-6 -> py-2  */
     --nav-logo-size: calc(3rem - 1rem * var(--nav-p));                /* 48px  -> 32px */
     --nav-title-size: calc(1.875rem - 0.625rem * var(--nav-p));       /* 3xl   -> xl   */

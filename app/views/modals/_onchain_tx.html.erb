@@ -18,16 +18,25 @@
   turf-specific. studio-engine 0.20 homed generic celebration blocks;
   the GENERIC success card was adopted on 2026-08-25 (this partial now
   renders studio/modals/blocks/onchain_success, and the app's byte-
-  identical fork is deleted). Only the ENTRY card stays forked, for the
-  two reasons its KEEP note gives — the kickoff countdown has no slot in
-  the engine block, and this card is driven by $store.solanaModal rather
-  than $store.modals.current().props.
+  identical fork is deleted). The ENTRY card is now adopted too: the
+  engine grew the two seams that kept it forked — an above_seeds slot for
+  the kickoff countdown, and props_expr so the card can be driven by
+  $store.solanaModal rather than $store.modals.current().props. What is
+  left in modals/blocks/_entry_confirmed is a thin adapter that maps this
+  app's store onto those locals; nothing here is a fork any more.
 
   Single root: this partial's content lives inside one <div> so
   Alpine's <template x-if> clones it whole (see
   [[feedback_alpine_template_single_root]]).
 %>
-<div x-data="{
+<%# The engine's entry-confirmed card renders its secondary action as a button
+    that DISPATCHES an event, so the app decides what "Dismiss" means. Caught
+    here on the modal's own root rather than on the shared host fork: that file
+    is being synced by /tasks/consumers-fork-modal-host, and a listener added
+    there would collide with it. .window because $dispatch bubbles from inside
+    the <template x-if> clone. %>
+<div x-on:tm-entry-dismiss.window="$store.modals.close()"
+     x-data="{
        init() {
          var self = this;
          // Confetti when the state flips to success — same trigger as
@@ -69,10 +78,12 @@
       Gated to variant !== 'generic' so the ~59 existing success()
       callers (which never set a variant) keep the entry card unchanged. %>
   <template x-if="$store.solanaModal.state === 'success' && $store.solanaModal.successVariant !== 'generic'">
-    <%# lobby_url_key passed straight (no || fallback) — cta_redirect
-        treats null as "skip the auto-redirect, keep the drain visual"
-        so a missing lobbyUrl stays visible in the gallery and degrades
-        gracefully in prod instead of bouncing to '#'. %>
+    <%# lobby_url_key passed straight (no || fallback). _cta_redirect is no
+        longer in this render chain — the engine's _success_card owns the CTA
+        now, and it emits an <a :href> whose attribute is simply DROPPED when
+        lobbyUrl is null. So a missing lobbyUrl leaves an inert button rather
+        than one that bounces to '#', which is the same graceful degradation
+        the gallery relied on, reached a different way. %>
     <%= render 'modals/blocks/entry_confirmed',
         tx_signature_key: "$store.solanaModal.txSignature",
         lobby_url_key:    "$store.solanaModal.lobbyUrl",
