@@ -83,6 +83,43 @@
 @media (min-width: 1614px) { .tm-sidebar-pushed { margin-right:  5rem; } }
 @media (min-width: 1749px) { .tm-sidebar-pushed { margin-right:    0; } }
 
+/* Sidebar-open fallback: the pushed column wears the MOBILE card layout.
+   The contest board's card grids add columns at `md:` — a viewport query, which
+   cannot see the 320px this cascade just took away. So from 768px up to 1120px
+   the grid still laid four cards across a 416-672px column and each card came
+   out 93-162px wide: the city truncated to "Balti...", the mascot to "R...",
+   and the three "Week n" labels overlapped into "WEEKWEEKWEEK".
+   1120px is where four-up stops being NARROWER than the phone: content is
+   min(vw, 1280) - 32 (max-w-7xl px-4) - 320, a four-up card is (content - 48)/4,
+   and it reaches 180px at vw 1120 — just past the 173px the same card gets 2-up
+   on a 390px phone. Below the crossover, two columns beat four, so the
+   board simply shows the phone's layout. Above it, nothing here applies.
+   (Measured, not estimated: a playwright sweep of the live board, 390-1800px,
+   cart open and closed. A 900px break was tried on the way and rejected — at
+   900 a four-up card is 125px and every long mascot still truncates.)
+
+   THAT PARITY IS WIDTH ONLY — IT DOES NOT CLEAR THE LABELS, so do not read the
+   crossover as proof that 1120px and up is clean. 1120 is >= `lg`, so
+   contests/_multi_week_team_card has already stepped its opponent labels UP
+   (week 9px -> 10px, abbreviation 10px -> 14px) while the pushed card has shrunk
+   to 180px. The 390px phone card is 173px — narrower — but carries the SMALL
+   variant, so it fits where 1120 does not: measured cart-open at 1120, all 32
+   abbreviations clip and every "Week n" wraps to two lines. That band (1120px
+   until the pushed card regains ~240px at vw 1344, where the push steps down to
+   15rem) is PRE-EXISTING — this rule caps at 1119.98px and has never applied
+   there — and it is unchanged by this rule, not introduced by it. The real fix
+   is the principle _multi_week_team_card already states: size those labels on
+   the CARD, not the viewport.
+
+   Written as plain CSS beside the cascade it corrects (rather than a Tailwind
+   variant) for two reasons: it is unlayered and class-scoped, so it cannot lose
+   a cascade fight to `md:grid-cols-4`, and it applies ONLY while .tm-sidebar-pushed
+   is on the ancestor — i.e. only while the cart is open. */
+@media (min-width: 768px) and (max-width: 1119.98px) {
+  .tm-sidebar-pushed .tm-team-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tm-sidebar-pushed .tm-pair-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+}
+
 /* The mobile entry slip is a fixed bottom bar at z-index:9999 so it can sit
    above contest cards. The gear menu must cover it while open. */
 .tm-gear-sidebar-layer { z-index: 10000; }
