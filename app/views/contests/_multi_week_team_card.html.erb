@@ -73,19 +73,37 @@
   <div class="mt-2 grid" style="grid-template-columns: repeat(<%= [opponents.size, 1].max %>, minmax(0, 1fr))">
     <% opponents.each_with_index do |(week, week_matchup), index| %>
       <% opponent = week_matchup&.opponent_team %>
-      <div class="px-1 text-center"
+      <div class="px-px lg:px-1 text-center"
            style="<%= "border-left: 1px solid #{pal[:divider]};" if index.positive? %>"
            title="Week <%= week || '?' %> &mdash; <%= opponent ? "vs #{opponent.name}" : 'bye week' %>">
-        <p class="text-[10px] uppercase tracking-wide leading-tight" style="color: <%= pal[:grey] %>">Week <%= week || '?' %></p>
+        <p class="text-[9px] lg:text-[10px] uppercase tracking-wide leading-tight" style="color: <%= pal[:grey] %>">Week <%= week || '?' %></p>
         <%# emoji + abbreviation share one centered baseline (items-center,
             leading-none) so the taller emoji stops leaving vertical space above
-            the text; the abbreviation wears the opponent's own color. %>
-        <p class="mt-1 flex items-center justify-center gap-1 leading-none">
+            the text; the abbreviation wears the opponent's own color.
+
+            Sizes are mobile-first and deliberately small. A column here is
+            one third of a card, and the card is one of TWO across a phone
+            (grid-cols-2) — ~48px at a 390px viewport. An unconditional text-sm
+            needed ~46px for emoji + gap + abbreviation and blew that, so
+            `truncate` ate the short name down to a single letter ("I…"),
+            hiding the opponent this row exists to name.
+
+            The step is at `lg`, NOT `md`, because the size that matters is the
+            CARD's, not the viewport's: the grid goes grid-cols-2 → md:grid-cols-4,
+            so a card is ~172px at 768px — the SAME width it has on a phone —
+            and only reaches ~236px at 1024px. Sizing on `md` therefore made the
+            768-1023px band the worst case of all (every abbreviation clipped);
+            `lg` moves the bump to where the card actually grows.
+
+            10px emoji + 10px abbreviation clear the widest short name ("WAS")
+            with room at 375px and up; below that `truncate` still degrades it,
+            as it did before. %>
+        <p class="mt-1 flex items-center justify-center gap-0.5 lg:gap-1 leading-none">
           <% if opponent %>
-            <span class="text-sm"><%= opponent.emoji %></span>
-            <span class="text-sm font-semibold truncate" style="color: <%= opponent_label_color(opponent, team) %>"><%= opponent.short_name %></span>
+            <span class="text-[10px] lg:text-sm"><%= opponent.emoji %></span>
+            <span class="text-[10px] lg:text-sm font-semibold truncate" style="color: <%= opponent_label_color(opponent, team) %>"><%= opponent.short_name %></span>
           <% else %>
-            <span class="text-sm italic" style="color: <%= pal[:fg_soft] %>">bye</span>
+            <span class="text-[10px] lg:text-sm italic" style="color: <%= pal[:fg_soft] %>">bye</span>
           <% end %>
         </p>
       </div>
