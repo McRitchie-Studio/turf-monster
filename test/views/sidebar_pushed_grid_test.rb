@@ -79,9 +79,11 @@ class SidebarPushedGridTest < ActiveSupport::TestCase
 
   test "the 1120px crossover still matches the sidebar it was derived from" do
     # content = min(vw, 1280) - 32 (max-w-7xl px-4) - 320 (the sidebar); a
-    # four-up card is (content - 48)/4 and reaches 187px — the width the same
-    # card gets 2-up on a 390px phone — at vw 1120. Both 320s below are inputs
-    # to that number, so a sidebar that silently got wider moves the crossover.
+    # four-up card is (content - 48)/4 and reaches 180px at vw 1120 — just past
+    # the 173px the same card gets 2-up on a 390px phone. Both 320s below are
+    # inputs to that number, so a sidebar that silently got wider moves the
+    # crossover. Width parity only: see application.css on why 1120px and up
+    # still clips the `lg`-stepped opponent labels.
     assert_match(/\.tm-sidebar-pushed \{ margin-right: 20rem; \}/, APP_CSS.read,
                  "the md push step is the 320px the crossover was solved for")
     assert_match(/width_class\s*=\s*local_assigns\.fetch\(:width_class, "w-80/, PANEL.read,
