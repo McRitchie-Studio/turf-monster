@@ -205,6 +205,18 @@ async function setupPhantomMock(page, { seedByte = 1, walletStandard = false } =
 
     window.phantom = { solana };
 
+    // TEST-VISIBLE PRECONDITION. The Wallet Standard `disconnect` is delivered
+    // by notifying standardChangeListeners — and a notification sent before the
+    // app has subscribed is not queued, retried, or recoverable: it lands in an
+    // empty array and is gone. A spec that disconnects must therefore be able to
+    // ask whether anyone is listening yet.
+    //
+    // Do NOT "fix" that by having disconnect() also emit on the legacy provider.
+    // The Wallet Standard translation being a silent no-op is the exact defect
+    // PR #443 fixed, and it survived for months precisely because the legacy
+    // channel masked it. A louder mock would put the mask back.
+    window.__phantomMockWsChangeSubscribers = () => standardChangeListeners.length;
+
     if (useWalletStandard) {
       const wallet = {
         name: "Phantom",
@@ -245,8 +257,18 @@ async function setupPhantomMock(page, { seedByte = 1, walletStandard = false } =
 
       // Model Phantom's real lifecycle: its legacy injected provider exists
       // first, then Wallet Standard registers the adapter that the hub uses.
+      //
+      // THE DELAY IS A TEST INSTRUMENT, NOT A GUESS. It was 150ms, which on a
+      // warm local machine is always shorter than the time a spec takes to
+      // reach its first assertion — so the swap always won locally, and whether
+      // a spec had waited for it was untestable here. On CI it did not always
+      // win, and e2e/wallet_disconnect.spec.js failed there and only there,
+      // three runs running, blocking every PR. A number large enough to LOSE
+      // the race every time makes the ordering deterministic in both places:
+      // a spec that must wait for the Wallet Standard adapter now fails
+      // everywhere if it stops waiting, instead of failing on CI a week later.
       window.addEventListener("wallet-standard:app-ready", (event) => {
-        setTimeout(() => event.detail.register(wallet), 150);
+        setTimeout(() => event.detail.register(wallet), 1500);
       });
     }
 

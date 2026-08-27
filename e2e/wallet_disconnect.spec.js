@@ -42,6 +42,26 @@ test("losing the signer greys the check and leaves the session intact", async ({
 
   const userIdBefore = await page.locator("body").getAttribute("data-user-id");
 
+  // WAIT FOR THE CHANNEL THE DISCONNECT WILL USE. This is the precondition this
+  // test's own header claims — "WALLET STANDARD, deliberately" — and until
+  // 2026-08-27 it was never actually established, only hoped for.
+  //
+  // `state === "live"` above does NOT imply it. Live is reachable on the LEGACY
+  // provider, which is what the store watches until the Wallet Standard adapter
+  // registers and `wallet-provider:registered` swaps it. The mock's disconnect
+  // notifies the Wallet Standard change channel and ONLY that channel, so a
+  // disconnect sent before the swap lands in an empty listener array — not
+  // queued, not retried, gone — and the poll below then spends its full 5s
+  // waiting for an event that will never be sent again.
+  //
+  // That is the whole flake: locally the swap always won, on CI it did not, and
+  // the failure named the assertion instead of the race. Measured 2026-08-27 by
+  // widening the mock's registration delay — the CI failure reproduces on demand,
+  // `Expected: "degraded" / Received: "live"`.
+  await expect
+    .poll(() => page.evaluate(() => window.__phantomMockWsChangeSubscribers?.() ?? 0))
+    .toBeGreaterThan(0);
+
   // The extension is disconnected / locked / uninstalled.
   await page.evaluate(() => window.phantom.solana.disconnect());
 
