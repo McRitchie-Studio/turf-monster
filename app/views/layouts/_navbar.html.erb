@@ -22,9 +22,18 @@
     NON-PREVIEW ONLY — the admin navbar-review page renders preview copies of
     this partial inside the body, and a duplicate view-transition-name silently
     disables ALL view transitions on the page. Exactly one pinned header per page. %>
-<header data-navbar-root x-data="{ scrolled: false }" <%= '@scroll.window="scrolled = scrolled ? (window.scrollY > 5) : (window.scrollY > 60)"'.html_safe unless is_preview %>
-        class="<%= is_preview ? 'bg-page' : 'vt-pinned-header sticky top-0 z-[110] bg-page transition-shadow duration-300' %>"
-        :class="scrolled && 'shadow-lg border-b border-subtle is-scrolled'">
+<%# nav-shell is the --nav-p scope: navCollapse() writes the collapse progress
+    (0 expanded .. 1 collapsed) on THIS element once per animation frame, and
+    application.css derives the row padding, logo size, title size, balance size
+    and username size from it with calc(). Nothing on the collapse path carries a
+    time-based transition any more — see the factory's comment for the numbers
+    that bought that. transition-shadow stays: box-shadow paints, it never
+    reflows, so it cannot move content under the reader.
+    Preview keeps nav-shell (the vars have to resolve) but no x-data — the
+    /admin/navbar page drives --nav-p from its own Scrolled toggle. %>
+<header data-navbar-root <%= 'x-data="navCollapse()"'.html_safe unless is_preview %>
+        class="nav-shell <%= is_preview ? 'bg-page' : 'vt-pinned-header sticky top-0 z-[110] bg-page transition-shadow duration-300' %>"
+        <%= ":class=\"scrolled && 'shadow-lg border-b border-subtle is-scrolled'\"".html_safe unless is_preview %>>
   <%# Self-gating (studio-engine >= 0.30). The engine partial was built by
       lifting THIS app's behavior — the QA message composition, the DEVNET chip
       when devnet && !qa, and the link-vs-inert-chip email button — so this is a
@@ -40,16 +49,16 @@
   <%# .user-nav-col / .nav-title / .nav-logo / .nav-logo-link responsive
       rules live in app/assets/tailwind/application.css @layer utilities (migrated
       2026-05-24, dropped the 10 !important workarounds). %>
-  <div class="flex items-center min-w-0 <%= is_preview ? 'py-6' : 'transition-all duration-300' %>"
-       <%= ":class=\"scrolled ? 'py-2' : 'py-6'\"".html_safe unless is_preview %>>
+  <div class="nav-row flex items-center min-w-0">
     <%# Left side: logo + nav %>
     <div class="flex-1 min-w-0 px-4">
       <div class="flex items-center gap-6 min-w-0">
         <%= link_to root_path, class: "nav-logo-link inline-flex items-center gap-3 group" do %>
-          <img src="/icon-192.png" alt="Turf Totals" width="48" height="48" class="nav-logo rounded-full shadow-lg <%= is_preview ? 'w-12 h-12' : 'group-hover:scale-105 transition-all duration-300' %>"
-               <%= "x-bind:class=\"scrolled ? 'w-8 h-8' : 'w-12 h-12'\"".html_safe unless is_preview %>>
-          <h1 class="nav-title font-extrabold text-heading tracking-tight <%= is_preview ? 'text-3xl' : 'transition-all duration-300' %>"
-              <%= "x-bind:class=\"scrolled ? 'text-xl' : 'text-3xl'\"".html_safe unless is_preview %>><span class="dm-salmon">Turf</span><span class="dm-yellow text-primary">Totals</span></h1>
+          <%# No w-*/h-* utility here: .nav-shell .nav-logo sizes it off --nav-p.
+              transition-transform, NOT transition-all — the hover lift still
+              eases, while width/height follow the finger with no clock. %>
+          <img src="/icon-192.png" alt="Turf Totals" width="48" height="48" class="nav-logo rounded-full shadow-lg <%= "group-hover:scale-105 transition-transform duration-300" unless is_preview %>">
+          <h1 class="nav-title font-extrabold text-heading tracking-tight"><span class="dm-salmon">Turf</span><span class="dm-yellow text-primary">Totals</span></h1>
         <% end %>
         <nav class="dm-teal hidden md:flex items-center gap-4 min-w-0">
           <%= link_to "Contests", contests_path, class: "text-secondary hover:text-primary text-sm font-medium transition" %>
@@ -91,7 +100,10 @@
       <div class="relative flex-shrink-0 leading-none mr-1"
            data-balance-slot="true"
            x-bind:class="freeEntryHover ? 'fe-peek' : ''">
-        <%= link_to wallet_path, class: "dm-blue block font-mono text-primary hover:text-primary-600 transition-all duration-300 font-bold leading-none #{'hidden' if hide_balance}", "x-bind:class": "scrolled ? 'text-lg' : 'text-xl'", data: { balance_display: true } do %><% unless balance_loading %>$<%= balance_dollars.to_i %><% end %><% end %>
+        <%# nav-balance takes its font-size from --nav-p (xl -> lg) instead of a
+            reactive class swap, which kept the size on Alpine's per-scroll path
+            for a 2px change. transition-colors keeps the hover fade. %>
+        <%= link_to wallet_path, class: "nav-balance dm-blue block font-mono text-primary hover:text-primary-600 transition-colors duration-300 font-bold leading-none #{'hidden' if hide_balance}", data: { balance_display: true } do %><% unless balance_loading %>$<%= balance_dollars.to_i %><% end %><% end %>
         <%# No size binding here: the two faces want DIFFERENT sizes (the peek is
             a compact pill, the stand-in matches the amount it replaces), so
             .free-entry-label / .is-active own font-size in application.css. %>

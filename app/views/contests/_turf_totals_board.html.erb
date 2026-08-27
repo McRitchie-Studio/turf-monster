@@ -1976,6 +1976,15 @@ window.selectionBoard = function() {
     matchups_asc = @matchups.sort_by { |m| m.turf_score || 999 }
     matchups_desc = matchups_asc.reverse
   %>
+  <%# tm-sidebar-pushed reserves room for the fixed 320px picks sidebar while the
+      cart is open (the margin-right cascade lives in app/assets/tailwind/
+      application.css). The card grids below add columns on VIEWPORT width, which
+      does not know about that reservation — so from md up to 1120px a four-up
+      card collapsed to 93-162px and the team name, mascot and week labels all
+      truncated on top of each other. `tm-team-grid` / `tm-pair-grid` are the
+      hooks the same stylesheet uses to drop those grids back to the MOBILE
+      layout for exactly that band. Keep the hook on any grid added here, or it
+      squishes the moment a pick is made. %>
   <section class="mb-8 transition-all" :class="{ 'tm-sidebar-pushed': cartOpen }">
     <div class="flex items-center justify-between gap-2 mb-4">
       <div class="flex items-center gap-2">
@@ -2016,7 +2025,7 @@ window.selectionBoard = function() {
       <%# Multi-week board: ONE card per team, since the pick is a team riding
           every week. A game-paired view has no meaning here — the team plays a
           different opponent each week, so the pairing would be arbitrary. %>
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+      <div class="tm-team-grid grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         <% span_team_cards.each do |matchup| %>
           <% opponents = span_opponents[matchup.team_slug] || [] %>
           <div x-show="matchesFilter('<%= j(matchup.team.name) %>', '<%= j(opponents.filter_map { |_s, wm| wm&.opponent_team&.name }.join(' ')) %>')">
@@ -2028,7 +2037,7 @@ window.selectionBoard = function() {
         <% end %>
       </div>
     <% else %>
-    <div x-show="sortMode === 'game'" class="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+    <div x-show="sortMode === 'game'" class="tm-pair-grid grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
       <% game_pairs.each do |pair| %>
         <% left, right = pair %>
         <div x-show="matchesFilter('<%= j(left.team.name) %>', '<%= j(right.team.name) %>')">
@@ -2038,7 +2047,7 @@ window.selectionBoard = function() {
     </div>
 
     <!-- Multiplier view: flat grid, ascending -->
-    <div x-show="sortMode === 'turfScore' && sortDir === 'asc'" class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+    <div x-show="sortMode === 'turfScore' && sortDir === 'asc'" class="tm-team-grid grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
       <% matchups_asc.each do |matchup| %>
         <div x-show="matchesFilter('<%= j(matchup.team.name) %>', '<%= j(matchup.opponent_team&.name.to_s) %>')">
           <%= render "contests/matchup_card", matchup: matchup %>
@@ -2047,7 +2056,7 @@ window.selectionBoard = function() {
     </div>
 
     <!-- Multiplier view: flat grid, descending -->
-    <div x-show="sortMode === 'turfScore' && sortDir === 'desc'" class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+    <div x-show="sortMode === 'turfScore' && sortDir === 'desc'" class="tm-team-grid grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
       <% matchups_desc.each do |matchup| %>
         <div x-show="matchesFilter('<%= j(matchup.team.name) %>', '<%= j(matchup.opponent_team&.name.to_s) %>')">
           <%= render "contests/matchup_card", matchup: matchup %>
@@ -2175,8 +2184,13 @@ window.selectionBoard = function() {
       through cta_redirect, no dispatch) that the selectionBoard root listens
       for (see x-data attribute above). %>
 
-  <!-- Mobile spacer to prevent fixed cart from covering content -->
-  <div x-show="selectionCount > 0" class="md:hidden" style="height:10rem"></div>
+  <%# Mobile spacer so the fixed cart never hides the last board card. It tracks
+      the bar's two real heights instead of a flat 10rem: 10rem under-measured
+      the taller Hold-to-Confirm state (the CTA only mounts at a full slate) and
+      over-measured the common one, charging every scroll for space the compact
+      bar no longer uses. %>
+  <div x-show="selectionCount > 0" class="md:hidden"
+       :style="selectionCount === <%= @contest.picks_required %> ? 'height:13rem' : 'height:8rem'"></div>
 
   <!-- Mobile Cart: Fixed bottom bar (hidden until first selection) -->
   <div x-show="selectionCount > 0"
@@ -2184,22 +2198,23 @@ window.selectionBoard = function() {
        x-transition:enter-start="translate-y-full" x-transition:enter-end="translate-y-0"
        x-transition:leave="transition ease-in duration-200"
        x-transition:leave-start="translate-y-0" x-transition:leave-end="translate-y-full"
-       class="md:hidden bg-surface border-t-2 border-strong rounded-t-xl px-4 py-3"
+       class="md:hidden bg-surface border-t-2 border-strong rounded-t-xl px-3 pt-2 pb-2.5"
+       data-picks-bar="mobile"
        style="position:fixed;bottom:0;left:0;right:0;z-index:9999;box-shadow:0 -6px 30px rgba(0,0,0,0.4)">
     <% if @contest.locked? %>
-      <div class="w-full px-4 py-3 rounded-xl text-sm font-bold bg-surface-alt text-muted text-center mb-3">
+      <div class="w-full px-4 py-2.5 rounded-xl text-sm font-bold bg-surface-alt text-muted text-center mb-2">
         🔒 Entries closed
       </div>
     <% elsif edit_entry %>
       <%# Edit mode: plain Update button (no hold) + Cancel link. DB-only
           update, no on-chain signature required. %>
-      <div x-show="selectionCount === <%= @contest.picks_required %>" class="mb-3">
+      <div x-show="selectionCount === <%= @contest.picks_required %>" class="mb-2">
         <button type="button" @click="updateEntry()" :disabled="submitting"
                 class="w-full px-4 py-3 rounded-xl text-base font-bold bg-primary hover:bg-primary-700 disabled:bg-surface-alt disabled:text-muted text-white transition"
                 x-text="submitting ? 'Updating…' : 'Update Entry'"></button>
       </div>
     <% else %>
-    <div x-show="selectionCount === <%= @contest.picks_required %>" class="mb-5">
+    <div x-show="selectionCount === <%= @contest.picks_required %>" class="mb-2">
       <%= render 'studio/hold_button',
         default_text: hold_cta_label,
         hold_text: "Almost there...",
@@ -2217,15 +2232,42 @@ window.selectionBoard = function() {
         early_action_guard: "d.contestOnchain && Alpine.store('session') && Alpine.store('session').isWeb3" %>
     </div>
     <% end %>
-    <p x-show="selectionCount < <%= @contest.picks_required %>" class="text-heading font-bold text-sm text-center mb-3">Your Picks</p>
-    <div class="grid grid-cols-3 gap-1.5">
+    <%# Header row: the title and the Clear chip share ONE line. The desktop
+        sidebar already folds Clear into its header (cart_actions_html above);
+        doing the same here buys back a whole row on a 393px phone, where this
+        bar was eating roughly a quarter of the visible viewport. %>
+    <div class="flex items-center justify-between gap-2 mb-1.5">
+      <p class="text-xs font-bold text-heading">Your Picks</p>
+      <% if edit_entry %>
+        <button type="button" @click="cancelEdit()"
+                class="shrink-0 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-surface-alt text-secondary hover:text-heading transition">
+          Cancel
+        </button>
+      <% else %>
+        <button type="button" @click="clearSelections()"
+                class="shrink-0 flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-surface-alt text-secondary hover:text-red-400 transition"
+                aria-label="Clear all picks">
+          Clear <span x-text="selectionCount"></span> / <%= @contest.picks_required %>
+          <span class="text-sm leading-none">&times;</span>
+        </button>
+      <% end %>
+    </div>
+    <div class="grid grid-cols-3 gap-1">
       <template x-for="i in <%= @contest.picks_required %>" :key="i">
         <div>
           <template x-if="selectionSlots[i-1]">
-            <div class="rounded-md px-1.5 py-1 border text-center relative overflow-hidden" style="min-height:2.75rem"
+            <div class="rounded-md px-1.5 py-1 border text-center relative overflow-hidden" style="min-height:2.25rem"
                  :style="{ background: selectionSlots[i-1].gradient, color: selectionSlots[i-1].fg, borderColor: selectionSlots[i-1].fgFaint }">
-              <p class="font-extrabold text-xs truncate" :style="{ color: selectionSlots[i-1].accent, textShadow: selectionSlots[i-1].mascotShadow }" x-text="selectionSlots[i-1].shortName"></p>
-              <p class="text-[10px] truncate" :style="{ color: selectionSlots[i-1].fgSoft }">vs <span x-text="selectionSlots[i-1].opName"></span> <span class="font-mono" :style="{ color: selectionSlots[i-1].fg }" x-text="'x' + selectionSlots[i-1].turfScore"></span></p>
+              <%# Name and multiplier share the top line, the multiplier pinned
+                  right and shrink-proof. On a 393px phone the old second line
+                  ("vs ARI / LV / BUF x1.1") truncated the MULTIPLIER away — the
+                  one number the pick is scored on. Now only the opponent list
+                  can lose characters. %>
+              <div class="flex items-baseline justify-center gap-1">
+                <p class="font-extrabold text-xs truncate min-w-0" :style="{ color: selectionSlots[i-1].accent, textShadow: selectionSlots[i-1].mascotShadow }" x-text="selectionSlots[i-1].shortName"></p>
+                <p class="font-mono text-[10px] shrink-0" :style="{ color: selectionSlots[i-1].fg }" x-text="'x' + selectionSlots[i-1].turfScore"></p>
+              </div>
+              <p class="text-[10px] leading-tight truncate" :style="{ color: selectionSlots[i-1].fgSoft }">vs <span x-text="selectionSlots[i-1].opName"></span></p>
               <button @click="removeSelection(selectionSlots[i-1].matchupId)"
                       class="absolute -top-1 -right-1 w-4 h-4 bg-surface border border-strong rounded-full text-muted hover:text-red-400 text-[10px] leading-none flex items-center justify-center">&times;</button>
             </div>
@@ -2233,22 +2275,13 @@ window.selectionBoard = function() {
           <template x-if="!selectionSlots[i-1]">
             <div class="border border-dashed border-strong rounded-md px-1.5 py-1 text-center flex items-center justify-center"
                  :class="i === selectionCount + 1 ? (i === <%= @contest.picks_required %> ? (pickUrgent ? 'pick-pulse-urgent' : 'pick-pulse-shimmer') : (i === 2 ? 'pick-pulse-shimmer' : 'pick-pulse')) : ''"
-                 style="min-height:2.75rem">
+                 style="min-height:2.25rem">
               <p class="text-[10px]" :class="i === selectionCount + 1 ? 'text-secondary' : 'text-muted'">Pick <span x-text="i"></span></p>
             </div>
           </template>
         </div>
       </template>
     </div>
-    <% if edit_entry %>
-      <button type="button" @click="cancelEdit()" class="w-full text-center text-xs font-semibold text-secondary hover:text-heading transition mt-2">
-        Cancel
-      </button>
-    <% else %>
-      <button @click="clearSelections()" class="w-full text-center text-xs font-semibold text-secondary hover:text-red-400 transition mt-2">
-        Clear <span x-text="selectionCount"></span> / <%= @contest.picks_required %>
-      </button>
-    <% end %>
   </div>
 
   <!-- JSON Debug Block -->

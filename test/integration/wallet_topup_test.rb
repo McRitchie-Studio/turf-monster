@@ -62,7 +62,7 @@ class WalletTopupTest < ActionDispatch::IntegrationTest
                      "$store.modals.swap('cdp-ramp', { flow: 'buy', step: 'preflight' })"
     # The Coinbase pitch is hidden for the web2 kill-switch audience that can't
     # pay with USDC.
-    assert_match(/x-if="!tokenFallback">\s*<button type="button" data-topup-rail="coinbase"/m, body,
+    assert_match(%r{x-if="!tokenFallback">\s*<button\b[^>]*data-topup-rail="coinbase"}m, body,
                  "the Coinbase CTA must be gated behind !tokenFallback")
   end
 
@@ -76,8 +76,23 @@ class WalletTopupTest < ActionDispatch::IntegrationTest
     # flag off); it is NOT the default primary action.
     assert_includes body, %(data-topup-rail="tokens")
     assert_includes body, "Buy Entry Tokens"
-    assert_match(/x-if="tokenFallback">\s*<button type="button" data-topup-rail="tokens"/m, body,
+    assert_match(%r{x-if="tokenFallback">\s*<button\b[^>]*data-topup-rail="tokens"}m, body,
                  "the token rail must be gated behind tokenFallback")
+    # THE TILE GLYPH IS PINNED, because a defork already swapped it once. This
+    # rail's icon tile has always drawn U+1F3AB TICKET (written &#127915; before
+    # the chrome was adopted from studio-engine). The engine's own specimen,
+    # style/modals/_ds_wallet_topup, passes U+1F39F ADMISSION TICKETS — a
+    # different emoji in a different colour — and adopting the primitive by
+    # copying the specimen's locals rather than this app's prior markup put it on
+    # the ONE call-to-action the web2 kill-switch audience is shown. Nothing
+    # raised and no other assertion moved, so only this pins it. Windowed on the
+    # rail itself, NOT the whole page: 🎟️ is legitimately used elsewhere in this
+    # app, so a page-wide refute would fail on unrelated markup.
+    tile = body[body.index(%(data-topup-rail="tokens")), 400]
+    assert_includes tile, "\u{1F3AB}",
+                    "the token rail tile must draw U+1F3AB TICKET"
+    refute_includes tile, "\u{1F39F}",
+                    "U+1F39F ADMISSION TICKETS is the engine specimen's glyph, not this tile's"
     # tokenFallback fires for web2 viewers ONLY when the web2-USDC kill-switch is
     # off — web3 and flag-on web2 always see the Coinbase pitch.
     assert_includes body,

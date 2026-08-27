@@ -143,35 +143,58 @@ When hold-to-confirm hits a blocker (geo-blocked, not logged in, insufficient fu
 
 ## Navbar
 
-Extracted to `layouts/_navbar.html.erb` partial. Sticky, scroll-responsive. The non-preview header is `vt-pinned-header sticky top-0 z-[110] bg-page transition-shadow duration-300` (`_navbar.html.erb:25`) — `z-[110]` deliberately sits below the shared modal host backdrop at `z-[120]`, so every modal covers persistent navigation chrome. Alpine `scrolled` state uses hysteresis: past 60px to compact, back below 5px to expand (`_navbar.html.erb:25`) — prevents jittery toggling. On scroll: header adds `is-scrolled` class + `shadow-lg border-b border-subtle`, logo shrinks `w-12→w-8` (mobile: `w-10`), title `text-3xl→text-xl`, padding `py-6→py-2`. All transitions 300ms via `transition-all duration-300`.
+Extracted to `layouts/_navbar.html.erb` partial. Sticky, scroll-responsive. The non-preview header is `nav-shell vt-pinned-header sticky top-0 z-[110] bg-page transition-shadow duration-300` — `z-[110]` deliberately sits below the shared modal host backdrop at `z-[120]`, so every modal covers persistent navigation chrome.
+
+### The collapse is scroll-LINKED, not a threshold plus a clock
+
+The header carries `x-data="navCollapse()"` (factory in `shared/_alpine_factories.html.erb`). It publishes **one number, `--nav-p`** — collapse progress, `0` expanded to `1` collapsed — on the `<header>` itself, once per animation frame, from `window.scrollY`. `application.css` derives every collapsing dimension from it with `calc()`: row padding, logo size, title size, "Totals" size, balance size, username size. `--nav-p` is registered with `@property` as a `<number>`, which is what makes the `calc()`s legal, gives an untouched page a real `0`, and lets `/admin/navbar` transition it directly.
+
+**Nothing on the collapse path carries a time-based transition.** `transition-shadow` on the header is the exception and may stay: `box-shadow` paints, it never reflows, so it cannot move content.
+
+**What this replaced, and why.** The old build flipped an Alpine `scrolled` boolean at `scrollY > 60` (hysteresis back at `5`) and fed that step into `transition-all duration-300` on five layout properties at once — padding, logo `width`/`height`, and three font sizes. The finger set the step; an ease curve owned everything after it. Measured 2026-08-27 at 390×844:
+
+| | before | after |
+|---|---|---|
+| Header height, expanded → collapsed | 178px → 139px | unchanged (178px → 139px) |
+| Content displacement after the finger STOPS | **34px over 232ms** | **0px** |
+| Peak uncommanded content velocity | ~3px/frame (~180px/s) | 0 |
+| Reverse (wrong-direction) lurch at the threshold | +1px | none |
+| Peak content speed during the collapse | 2× the finger, stepping straight back to 1× | ~1.5×, easing out of and back into 1× |
+
+**Why content speeds up at all.** Collapsing a sticky, *in-flow* header pulls the page up, so during the collapse content moves by the scroll **and** by the shrink — always faster than the finger. That is inherent; reclaiming the vertical space is the point. The design problem is the shape of the burst. `--nav-ramp` is **3× the band's collapse total** (mobile `120px`, desktop `144px`) and `navCollapse()` eases it with a smoothstep, whose slope is zero at both ends — so content speed leaves 1×, peaks near 1.5× mid-ramp, and returns to 1× with no velocity step at either end.
+
+**Three details in `navCollapse()` that are load-bearing:**
+- **passive + rAF** — the listener never blocks the compositor and coalesces a burst of scroll events (iOS momentum fires well above 60Hz) into one write per frame. The write lands on the header, **not `:root`**, so each frame's style recalc stays inside the navbar subtree.
+- **the short-page guard** — collapsing shortens the document by `--nav-ramp`. On a page with barely more than that to scroll, the collapse deletes the very scroll room that triggered it, the browser clamps `scrollY` to 0, and the navbar flaps forever. `roomExpanded` adds back the shrink already applied so the measurement cannot chase itself; under `--nav-ramp + 24` the collapse is disabled outright.
+- **reduced motion** — scroll-linked motion has no clock left to slow down, but resizing type under a moving finger is itself the motion some readers are asking us to drop. Under `prefers-reduced-motion: reduce`, `--nav-p` snaps `0`/`1` on the old `60`/`5` hysteresis instead of interpolating.
+
+`is-scrolled` (+ `shadow-lg border-b border-subtle`) is still class-toggled on the same hysteresis — it is the shadow only, and hysteresis keeps it from strobing at the boundary.
 
 ### Partial locals
 - `show_logged_in` — override `logged_in?` (default: real session). Used by admin preview to force logged-in/out views.
-- `preview` — disables scroll handler and sticky positioning. Uses static Tailwind classes instead of Alpine `x-bind:class` bindings.
+- `preview` — drops `x-data`/`navCollapse()` and sticky positioning. It KEEPS `nav-shell` (the `--nav-p` `calc()`s have to resolve); `/admin/navbar` drives `--nav-p` from its own Scrolled toggle instead.
 
 ### Responsive breakpoints
-Custom `<style>` block in `<header>` with three tiers. Mobile title stacks "Turf"/"Totals" vertically via `flex-direction: column` with `-4px` bottom margin on "Turf" to tighten spacing. "Totals" renders larger than "Turf" on mobile.
+`@layer utilities` in `app/assets/tailwind/application.css` (migrated out of an inline `<style>` block 2026-05-24), three tiers. Mobile title stacks "Turf"/"Totals" vertically via `flex-direction: column` with `-4px` bottom margin on "Turf" to tighten spacing. "Totals" renders larger than "Turf" on mobile.
 
-| Range | `.user-nav-col` | `.nav-title` | `.nav-title span:last-child` | Notes |
-|---|---|---|---|---|
-| **< 400px** | 14rem | 1.1rem | 1.3rem | Gap 0.25rem on logo link |
-| **400–767px** | 15rem | 1.25rem | 1.5rem | Gap 0.5rem on logo link |
-| **768px+** | 20rem | Alpine `text-3xl`/`text-xl` | — | Side-by-side title, no stacking |
+Each band overrides the `--nav-*` custom properties on `.nav-shell`, so a band is *the two endpoints of its collapse*, not two separate rule sets. Endpoints are unchanged from the pre-2026-08-27 build; only the path between them is.
 
-Scrolled state on mobile (via `.is-scrolled` ancestor):
-| Range | `.nav-title` | `span:last-child` | `.nav-logo` |
-|---|---|---|---|
-| **< 400px** | 0.9rem | 1rem | 2.5rem (w-10) |
-| **400–767px** | 1rem | 1.15rem | 2.5rem (w-10) |
+| Range | `--nav-ramp` | `.user-nav-col` | `.nav-logo` | `.nav-title` | `.nav-title span:last-child` |
+|---|---|---|---|---|---|
+| **< 400px** | 120px | 14rem | 3rem → 2.5rem | 1.1rem → 0.9rem | 1.3rem → 1rem |
+| **400–767px** | 120px | 15rem | 3rem → 2.5rem | 1.25rem → 1rem | 1.5rem → 1.15rem |
+| **768px+** | 144px | clamp(16rem, 24vw, 20rem) | 3rem → 2rem | 1.875rem → 1.25rem | — (tracks `.nav-title`) |
+
+Row padding is `1.5rem → 0.5rem` in every band (`--nav-pad`, was `py-6`/`py-2`); balance is `1.25rem → 1.125rem` (`.nav-balance`, was `text-xl`/`text-lg`) and username `1.125rem → 1rem` (`.nav-username`, was `text-lg`/`text-base`). Both left Alpine's per-scroll reactive path when they moved onto `--nav-p`.
 
 ### Left side
-Logo (`.nav-logo`) + "Turf Totals" brand title (`.nav-title` with two `<span>`s), desktop nav links (`hidden md:flex`: Contests, NFL Totals, Rules, Reserves, geo badge — `_navbar.html.erb:55-60`).
+Logo (`.nav-logo`) + "Turf Totals" brand title (`.nav-title` with two `<span>`s), desktop nav links (`hidden md:flex`: Contests, NFL Totals, Rules, Reserves, geo badge — `_navbar.html.erb:63-69`).
 
 ### Mobile sub-navbar
-`flex md:hidden` compact row below main nav with `bg-surface-alt border-t border-subtle`. Contains: Contests, NFL Totals, Rules, Reserves, geo badge (`_navbar.html.erb:108-112`). Gear sidebar trigger + theme toggle morph pushed right via `ml-auto`.
+`flex md:hidden` compact row below main nav with `bg-surface-alt border-t border-subtle`. Contains: Contests, NFL Totals, Rules, Reserves, geo badge (`_navbar.html.erb:130-135`). Gear sidebar trigger + theme toggle morph pushed right via `ml-auto`.
 
 ### Environment banner
-Owned by **studio-engine** (>= 0.30), not by this app: the markup lives in the gem at `app/views/studio/banners/_environment.html.erb`. Turf renders it from `app/views/layouts/_navbar.html.erb:37`, **inside** the sticky `<header>` (opened at `_navbar.html.erb:26`, closed at `:118`) — so it stays pinned with the navbar instead of scrolling away. Turf passes two locals and nothing else:
+Owned by **studio-engine** (>= 0.30), not by this app: the markup lives in the gem at `app/views/studio/banners/_environment.html.erb`. Turf renders it from `app/views/layouts/_navbar.html.erb:45`, **inside** the sticky `<header>` (opened at `_navbar.html.erb:34`, closed at `:141`) — so it stays pinned with the navbar instead of scrolling away. Turf passes two locals and nothing else:
 
 ```erb
 <%= render "studio/banners/environment",
@@ -205,7 +228,7 @@ Rendered from the ENGINE's `components/_geo_badge` (studio-engine >= 0.57 — th
 ### Right side — logged out
 - Theme toggle morph (`hidden md:flex`) + a **"Sign in"** button, right-aligned. Theme toggle morph appears in mobile sub-navbar instead.
 - The button is `class="btn btn-primary"` — the theme's primary color, not a hardcoded green.
-- It is a **modal trigger, not a navigation**: `@click.prevent` opens the in-page auth modal via `$store.modals.open('auth', { step: 'credentials', mode: 'signup', … })`. The `signin_path` href is only the no-JS fallback. Login and signup are one create-or-login flow, so the single CTA reads "Sign in" while opening at `mode: 'signup'` (`_navbar.html.erb:96-101`).
+- It is a **modal trigger, not a navigation**: `@click.prevent` opens the in-page auth modal via `$store.modals.open('auth', { step: 'credentials', mode: 'signup', … })`. The `signin_path` href is only the no-JS fallback. Login and signup are one create-or-login flow, so the single CTA reads "Sign in" while opening at `mode: 'signup'` (`_navbar.html.erb:118-124`).
 
 ## Theme Toggle Morph (Spinner Swap)
 
@@ -513,13 +536,13 @@ Admin page for visually comparing the navbar at all key breakpoints without resi
 - Width slider with range min/max matching the breakpoint range
 - Device marker (vertical line at the device width: iPhone 15 390px, iPhone 16 Pro Max 430px, iPad Pro 13" 1032px)
 - Reset button to snap to device width
-- **Scrolled toggle**: Adds/removes `is-scrolled-preview` class on the wrapper with CSS transitions (0.3s). All scroll effects (padding, logo size, title size, balance size, header shadow) are CSS-only overrides — no DOM swapping. This ensures smooth animated transitions.
+- **Scrolled toggle**: sets `--nav-p: 0|1` inline on the `.navbar-preview` wrapper (plus `is-scrolled-preview` for the shadow, which a preview header cannot get from `.is-scrolled` — it has no `x-data`, so no `scrolled`). Because `--nav-p` is a registered `<number>`, the wrapper simply **transitions it** (`transition: width 0.15s ease, --nav-p 0.3s ease`) — one interpolating property in place of the five per-element `font-size`/`width`/`padding` transitions and the twelve `!important` rules that used to restate every collapsed value. The preview now exercises the shipped `calc()`s instead of a parallel copy of them.
 
 **Username override**: Text input at the top of the page temporarily overrides the displayed username in all previews (not persisted). Uses `data-username-display` attribute on the username link for targeting. On change, recalculates the overflow fade mask (`overflows` flag) so the gradient fade activates/deactivates at the correct `.username-cap` max-width per breakpoint.
 
 **Sections**: Logged-In View + Pre-Login View, each with all three breakpoints. Deduplicated via loop over `[{ title:, show_logged_in: }]`.
 
-**Key pattern**: When simulating responsive behavior in a preview container, use container-scoped CSS class selectors with `!important` rather than media queries. Add `transition` properties to the preview elements so state changes (like scrolled toggle) animate smoothly.
+**Key pattern**: When simulating responsive behavior in a preview container, use container-scoped CSS class selectors rather than media queries — a container cannot fire one. Prefer overriding the component's **custom properties** (`.navbar-preview.bp-tiny .nav-shell { --nav-title-size: … }`) over restating its computed values: the override is unlayered so it beats `@layer utilities` without `!important`, and a state toggle becomes a transition on one registered property instead of one per element. Only reach for `!important` where you are fighting a Tailwind responsive *utility* on the element itself (`display`, `width`).
 
 ## CSS Refactoring Standards
 
@@ -531,20 +554,21 @@ Admin page for visually comparing the navbar at all key breakpoints without resi
 ### Dynamic vs static styles
 - **Static properties**: Use CSS classes or Tailwind utilities
 - **Alpine-controlled state**: Use `:style` bindings, but split from static properties. Don't mix static padding and conditional devMode background in one `:style` — use `style="..."` for static + `:style="..."` for dynamic
-- **Scroll-responsive sizes**: Use Alpine `x-bind:class` with Tailwind size classes (e.g., `scrolled ? 'text-lg' : 'text-xl'`). Pair with `transition-all duration-300` to animate the change.
+- **Scroll-responsive sizes**: derive them from a scroll-linked custom property, never from `x-bind:class` + `transition-all`. See the navbar's `--nav-p`: a threshold plus a clock lets motion outlive the gesture that asked for it (measured 34px of content travel over 232ms *after* the finger stopped), and it puts a size swap on Alpine's per-scroll reactive path for a 2px change.
 
 ### Transitions
-- **Matching durations**: All scroll-responsive elements use `0.3s` / `duration-300` — keep consistent across logo, title, padding, balance, username
-- **`transition` vs `transition-all`**: Tailwind's `transition` only covers color/opacity/shadow/transform — does NOT include `font-size` or `width`. Use `transition-all duration-300` when Alpine toggles size classes, or explicit `transition: font-size 0.3s` in CSS.
-- **Preview transitions**: Define transitions in the admin preview CSS (`.navbar-preview .nav-logo { transition: width 0.3s, height 0.3s; }`) since preview mode skips the Tailwind transition classes
+- **Never put a LAYOUT property on a clock when a gesture is driving it.** `padding`, `width`/`height` and `font-size` all reflow; on a sticky header they reflow the whole document under the reader. A time-based transition keeps doing that after the finger has stopped. Drive it from scroll position instead (`--nav-p`) and the motion ends exactly when the gesture does.
+- **Clocks are still right for paint-only properties** — `box-shadow`, `color`, `opacity`, `transform`. The navbar keeps `transition-shadow duration-300` and `transition-colors duration-300` for exactly that reason.
+- **`transition` vs `transition-all`**: Tailwind's `transition` only covers color/opacity/shadow/transform — does NOT include `font-size` or `width`. That exclusion is a feature: if you find yourself reaching for `transition-all` to animate a size, the size probably wants a scroll- or state-linked custom property, not a clock.
+- **Preview transitions**: transition the custom property on the preview wrapper (`.navbar-preview { transition: --nav-p 0.3s ease; }`), not each element's `width`/`font-size`. Registered `@property` values interpolate, so one declaration covers every dimension derived from it.
 
 ### Admin preview CSS pattern
 When building a component preview that needs to simulate responsive behavior:
 1. Render the real partial with a `preview` flag that disables dynamic behavior (scroll handlers, sticky positioning)
 2. Wrap in a container with breakpoint-simulation classes (e.g., `.is-mobile`, `.bp-tiny`)
-3. Override Tailwind responsive utilities with `!important` on the container-scoped selectors
-4. For state toggles (scrolled, hover), use CSS class toggling with transitions — never swap between two separate DOM renders (kills transitions)
-5. Use higher-specificity selectors for state + breakpoint combinations (e.g., `.bp-tiny.is-scrolled-preview .nav-title` beats `.is-scrolled-preview .nav-title`)
+3. Override the component's **custom properties** on the container-scoped selectors; fall back to `!important` only for Tailwind responsive utilities applied directly to the element (`display`, `width`)
+4. For state toggles (scrolled, hover), set the state's custom property and transition it — never swap between two separate DOM renders (kills transitions), and never restate the component's computed values (they drift)
+5. Use higher-specificity selectors for state + breakpoint combinations (e.g., `.navbar-preview.bp-tiny .nav-shell` beats `.nav-shell`)
 
 ## Theme variable flow (Tailwind ↔ engine)
 
@@ -574,7 +598,7 @@ Practical implications:
 
 The studio-engine `_flash.html.erb` partial ships toasts at `z-index: 60` (above most content but below sticky-fixed-tops). Turf Monster overrides this with the engine's CSS custom properties — `--studio-toast-z: 200` and `--studio-toast-blur-z: 199`, set on `:root` in `app/assets/tailwind/application.css:95-98` and read by studio-engine 0.4.10+ — so toasts render **above** both the sticky navbar AND any open modal. The ordered contract is navbar `110` → modal `120` → toast blur `199` → toast `200`. If any layer changes, preserve that order.
 
-The override used to live in an inline `<style>` block in `_navbar.html.erb` and needed `!important` to beat the engine's old inline `style="z-index:60"`. The engine no longer renders that inline style, so the variable-based override now wins by normal cascade. Only the explanatory comment remains in the navbar, at `_navbar.html.erb:15-20`.
+The override used to live in an inline `<style>` block in `_navbar.html.erb` and needed `!important` to beat the engine's old inline `style="z-index:60"`. The engine no longer renders that inline style, so the variable-based override now wins by normal cascade. Only the explanatory comment remains in the navbar, at `_navbar.html.erb:14-19`.
 
 ## Test scaffolding feature flag (`ENABLE_TEST_SCAFFOLDING`)
 
