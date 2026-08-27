@@ -334,23 +334,37 @@
             if (idx >= 0) {
               self.stack.splice(idx, 1);
               self._sync();
-              // Only when the LAST dialog leaves. A stacked flow unmounts one and
-              // reveals another, and returning focus to the ORIGINAL opener there
-              // would yank the user out of the dialog still on screen.
-              if (!self.stack.length) self.releaseFocus();
             }
+            // Only when the LAST dialog leaves. A stacked flow unmounts one and
+            // reveals another, and returning focus to the ORIGINAL opener there
+            // would yank the user out of the dialog still on screen.
+            //
+            // OUTSIDE the idx guard, matching the engine (_host.html.erb:494). Inside
+            // it, the release is skipped whenever the entry is ALREADY GONE — press
+            // Escape on a dismissible modal, then let clearStaleModals() ->
+            // closeAllDismissible() fire from turbo:before-cache or a bfcache pageshow
+            // inside the 220ms exit window: idx is -1, the block never runs, focus is
+            // stranded on a detached backdrop, and _returnFocusTo / _backdropEl leak
+            // into the next dialog. The stack length is the condition; whether THIS
+            // call did the splicing is not.
+            if (!self.stack.length) self.releaseFocus();
           }, modalAnim('exit', entry.props && entry.props.exitAnim).ms);
         },
         closeAll: function() {
           // No animation — used by Turbo before-cache + bfcache cleanup
           // where the user is navigating away and we just need the DOM
           // clean immediately.
+          // TURBO/BFCACHE TEARDOWN: drop the return target rather than restore into a
+          // document about to be replaced. Aligned with the engine (_host.html.erb:500).
+          //
+          // This fork used to CALL releaseFocus() here and justify it with "no-ops safely
+          // if that node left the document". That misreads the timing:
+          // `turbo:before-cache` fires while the node is STILL in the document, so the
+          // call does not no-op — it moves focus onto a page the browser is one tick from
+          // snapshotting and replacing.
+          _returnFocusTo = null;
           this.stack = [];
           this._sync();
-          // Same contract as close(): the last dialog is gone, so the opener gets
-          // focus back. releaseFocus no-ops safely if that node left the document,
-          // which a Turbo visit can do out from under an open modal.
-          this.releaseFocus();
         },
         // Drops every modal whose props don't explicitly opt out of dismissal
         // (i.e. dismissible: false). Mirrors studio-engine v0.4.11. Used by
@@ -475,7 +489,15 @@
         retrigger the bounce. %>
     <%# No max-w-* here — cardClasses() supplies exactly one, per modal id.
         See the card width registry above. %>
-    <div class="bg-surface rounded-xl border border-subtle shadow-2xl p-6 w-full"
+    <%# max-h-[85dvh] + overflow-y-auto: the fourth engine focus fix, and the one
+        this fork missed. The backdrop centres the card with `flex items-center`, so a
+        card taller than the viewport is clipped past BOTH edges with nothing
+        scrollable — its actions unreachable. On a dismissible: false card, escape and
+        click-outside are deliberately gated off, so there is no way out at all.
+        Trigger: a multi-field card on a landscape phone. It arrived in the engine in
+        the SAME commit as captureFocus (4cb1720), which is why it belongs here rather
+        than in a separate concern. dvh, not vh, so mobile browser chrome counts. %>
+    <div class="bg-surface rounded-xl border border-subtle shadow-2xl p-6 w-full max-h-[85dvh] overflow-y-auto"
          :class="$store.modals.cardClasses()">
       <%= yield if block_given? %>
       <%# Audit C1 — cosign-rejected (tx mismatch) modal. Registered here in

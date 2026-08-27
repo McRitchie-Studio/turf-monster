@@ -227,7 +227,19 @@ Public marketing page with hero, "How It Works" cards, and USDC claim form. Mint
 
 ## Modal Host (studio-engine v0.4.5+)
 
-Modal lifecycle is owned by the studio-engine modal host — `Alpine.store('modals')` — a stack-based store provided by the engine's `studio/modals/_host.html.erb` partial. (turf-monster ships its OWN fork of that partial at the same path; engine changes to the host do not reach this app until that fork is synced.) Local app code consumes the store; do not reimplement.
+Modal lifecycle is owned by the studio-engine modal host — `Alpine.store('modals')` — a stack-based store provided by the engine's `studio/modals/_host.html.erb` partial. Local app code consumes the store; do not reimplement.
+
+This app SHADOWS the engine's partial. studio-engine is **non-isolated**, so an app view
+at the same path wins the lookup — and this app ships its own
+`app/views/studio/modals/_host.html.erb`. **A gem bump therefore delivers no host fix at
+all.** Every focus-trap, accessible-name and scroll change made in the engine's host has to
+be PORTED here by hand, and `test/integration/modal_host_focus_contract_test.rb` is what
+holds the port honest — it parses the RENDERED backdrop with `Nokogiri::HTML5` (libxml2
+silently drops Alpine's `@keydown.*` attributes) and asserts the element's own attributes,
+because a substring assertion against the file is satisfied by the host's own JS comments.
+
+`studio/modals/_scoped_host` is NOT forked anywhere and DOES propagate from the engine.
+That asymmetry is the whole trap: the same fix reaches one host and not the other.
 
 **Opening / closing**:
 
