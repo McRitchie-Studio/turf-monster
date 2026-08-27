@@ -404,7 +404,33 @@
       </p>
     </div>
   </template>
-  <template x-if="!phantomPresent">
+  <%# Not installed, ON A PHONE — one row, and it is the deep link. There is no
+      extension to install here and no probe to run, so the desktop install row
+      below would be a dead end; Phantom's universal link handles both states
+      by itself (app installed opens it, app absent falls through to Phantom's
+      install page). %>
+  <template x-if="!phantomPresent && isMobile">
+    <div>
+      <button type="button" @click="deepLink()"
+              style="--studio-team-glow-color: #AB9FF2; --studio-team-glow-thickness: 3px; --studio-team-glow-bloom: 8px"
+              class="studio-team-glow w-full flex items-center gap-3 p-3 rounded-xl bg-surface-alt border border-strong hover:bg-surface transition text-left">
+        <svg class="w-9 h-9" aria-hidden="true"><use href="#se-wallet-phantom"></use></svg>
+        <span class="font-semibold text-heading">Phantom</span>
+        <span class="ml-auto flex items-center gap-2">
+          <span class="text-xs text-muted uppercase tracking-wide">Open app</span>
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-muted">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+          </svg>
+        </span>
+      </button>
+      <p class="text-[11px] text-muted mt-1.5 px-1">
+        Opens the Phantom app to sign. Don’t have it? Phantom will offer to
+        install it.
+      </p>
+    </div>
+  </template>
+  <%# Not installed, on a desktop browser — the install row with its probe. %>
+  <template x-if="!phantomPresent && !isMobile">
     <div>
       <%# Not installed. The row wears the glow ring because it is the one
           target on this card. Once the user leaves for the install page a
@@ -436,16 +462,6 @@
       </p>
     </div>
   </template>
-
-  <%# Mobile has no extension to install — deep-link into the Phantom app. %>
-  <button x-show="isMobile" x-cloak type="button" @click="deepLink()"
-          class="mt-2 w-full flex items-center gap-3 p-3 rounded-xl bg-surface-alt border border-strong hover:bg-surface transition text-left">
-    <img src="/phantom-white.png" alt="" class="w-9 h-9 rounded-lg bg-violet p-1.5">
-    <span class="font-semibold text-heading">Open in Phantom app</span>
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="ml-auto w-4 h-4 text-muted">
-      <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-    </svg>
-  </button>
 
   <template x-if="error">
     <p class="text-red-400 text-sm mt-3 text-center" x-text="error"></p>

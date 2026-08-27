@@ -302,13 +302,22 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
 
     # Each effect belongs to ONE branch, and to the RIGHT one. Both on a single
     # row, or the pair swapped back, is the bug this pins.
+    #
+    # THREE branches since 2026-08-27: the not-installed case split by platform
+    # so a phone gets the deep-link row instead of a download link it cannot
+    # act on (see test/controllers/wallet_picker_single_phantom_test.rb). Both
+    # not-installed branches are still the one target on the card, so both wear
+    # the travelling ring; only the reachable row pulses.
     installed_branch = response.body[/<template x-if="phantomPresent">.*?<\/template>/m]
-    install_branch   = response.body[/<template x-if="!phantomPresent">.*?<\/template>/m]
-    assert installed_branch.present? && install_branch.present?,
-           "both row branches must ship in the markup; Alpine picks between them"
+    mobile_branch    = response.body[/<template x-if="!phantomPresent && isMobile">.*?<\/template>/m]
+    desktop_branch   = response.body[/<template x-if="!phantomPresent && !isMobile">.*?<\/template>/m]
+    assert installed_branch.present? && mobile_branch.present? && desktop_branch.present?,
+           "all three row branches must ship in the markup; Alpine picks between them"
 
-    assert_includes install_branch, "studio-team-glow"
-    assert_not_includes install_branch, "pulse-cta"
+    [mobile_branch, desktop_branch].each do |install_branch|
+      assert_includes install_branch, "studio-team-glow"
+      assert_not_includes install_branch, "pulse-cta"
+    end
     assert_includes installed_branch, "pulse-cta"
     assert_not_includes installed_branch, "studio-team-glow"
   end
