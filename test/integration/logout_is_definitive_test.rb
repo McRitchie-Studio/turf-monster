@@ -6,11 +6,22 @@ require "test_helper"
 # deletes here), neither of which could see the other, and seven keys walked
 # straight through both.
 #
-# THE POINT OF THIS FILE is that it is written against the WHOLE KEY SET, not
-# against the seven that happened to leak. A deny-list passes a test that names
-# the keys it already knows about; that is exactly how those seven survived. So
-# the assertion below is "the session is EMPTY of anything user-bound", which a
-# future eighth key cannot slip past.
+# THE POINT OF THIS FILE is that it asserts an EMPTY session rather than naming
+# the seven keys that happened to leak. A deny-list passes a test that names the
+# keys it already knows about; that is exactly how those seven survived.
+#
+# WHAT THIS FILE DOES **NOT** DO, corrected 2026-08-27. An earlier version of
+# this comment claimed the test was "written against the WHOLE KEY SET". It is
+# not, and it cannot be from here: under ActionDispatch::IntegrationTest a
+# `session[k] = ...` write made BEFORE a request does not reach that request, so
+# the `USER_BOUND_SESSION_KEYS.each { session[k] ||= "dirty" }` line below is
+# largely INERT. Mutation M1 measured it: with reset_session removed, only 3 of
+# 15 keys actually survived to be caught. The keys that DO get exercised are the
+# ones a real request wrote — which is why the wallet brand is now established by
+# logging in WITH a provider rather than by assigning it here.
+#
+# The empty-session assertion is still the right shape and still catches a future
+# key that a REQUEST writes. It just does not prove what the old comment said.
 class LogoutIsDefinitiveTest < ActionDispatch::IntegrationTest
   # Every session key this app writes, derived 2026-08-26 and pinned here so a
   # NEW one added without a thought for logout shows up as a failure.
@@ -29,13 +40,24 @@ class LogoutIsDefinitiveTest < ActionDispatch::IntegrationTest
 
   test "logout leaves nothing user-bound in the session" do
     user = users(:alex)
-    log_in_as_onchain(user)
+    # WITH a provider, deliberately. The brand key is written by the VERIFY
+    # REQUEST, so it genuinely exists when logout runs. Without it,
+    # Solana::CurrentWallet.remember(session, nil) DELETES the key and the
+    # assert_nil below asserts the absence of something that was never there —
+    # it passed for the wrong reason until 2026-08-27.
+    log_in_as_onchain(user, wallet_provider: "Phantom")
     assert session[:onchain], "precondition: the wallet login set the onchain flag"
+    assert_equal "phantom", session[Solana::CurrentWallet::SESSION_KEY],
+                 "precondition: the wallet brand must EXIST before logout, or the assertion that " \
+                 "logout clears it proves nothing"
 
     # Dirty the session with every key this app is known to write, including the
     # ones the old deny-lists never mentioned.
+    # KEPT, but honestly labelled: most of these writes do NOT reach the request
+    # (see the note at the top of this file). They cost nothing and catch the
+    # cases where they do land; the load-bearing coverage is the brand key above,
+    # which a real request wrote.
     USER_BOUND_SESSION_KEYS.each { |k| session[k] ||= "dirty" }
-    session[Solana::CurrentWallet::SESSION_KEY] = "phantom"
 
     get logout_path
     assert_redirected_to signin_path
