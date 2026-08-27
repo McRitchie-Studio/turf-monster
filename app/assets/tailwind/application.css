@@ -120,6 +120,50 @@
   .tm-sidebar-pushed .tm-pair-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); }
 }
 
+/* Sidebar-open label hold: 1120-1343.98px keeps the SMALL opponent labels.
+
+   This is the second half of the rule above, and the two are complementary by
+   construction — that one caps at 1119.98px, this one opens at 1120px, the exact
+   width where the 2-up fallback ends and four cards go back across the pushed
+   column at ~180px each.
+
+   THE BUG. contests/_multi_week_team_card steps its opponent labels up at `lg`
+   (week 9px -> 10px, abbreviation and emoji 10px -> text-sm/14px, cell padding
+   1px -> 0.25rem, row gap 2px -> 4px) on a premise it states in its own comment:
+   the card "only reaches ~236px at 1024px". That premise is TRUE with the
+   sidebar CLOSED and FALSE with it OPEN. With the sidebar open the labels step
+   up at 1024 while the pushed card is at its NARROWEST, and from 1120 the
+   result is a card that is 180px wide wearing 14px abbreviations: measured
+   cart-open at 1120, ALL 32 opponent abbreviations clipped and every "Week n"
+   label wrapped to two lines. One pixel down, at 1119, the fallback above is
+   still in force and the same board reads "Commanders" and "SEA / PIT / JAX"
+   in full. It is clean again from 1344, where the push cascade steps
+   20rem -> 15rem and the card regains ~240px.
+
+   PRE-EXISTING, not introduced by the fallback rule above: deleting that rule
+   from the CSSOM and re-measuring gives identical numbers at every width from
+   1120 up.
+
+   THE FIX is the principle _multi_week_team_card already states and then
+   contradicts: size those labels on the CARD, not the viewport. There is no
+   card-width media query, so the nearest honest proxy is "is the sidebar
+   pushing this column" — .tm-sidebar-pushed on the ancestor — across the band
+   where the push makes the card too narrow for the large variant. Every
+   declaration here restores the small variant EXACTLY (including line-height:
+   inherit, which undoes text-sm's 1.25rem so the row's own leading-none is felt
+   again); nothing here invents a third size.
+
+   Unlayered and class-scoped for the same reason as the rule above: author CSS
+   outside @layer utilities outranks any layered Tailwind variant regardless of
+   specificity or source order, so `lg:text-sm` cannot win this back, and it
+   applies ONLY while the sidebar is open. */
+@media (min-width: 1120px) and (max-width: 1343.98px) {
+  .tm-sidebar-pushed .tm-opponent-cell      { padding-left: 1px; padding-right: 1px; }
+  .tm-sidebar-pushed .tm-opponent-week      { font-size: 9px; }
+  .tm-sidebar-pushed .tm-opponent-row       { gap: 0.125rem; }
+  .tm-sidebar-pushed .tm-opponent-row span  { font-size: 10px; line-height: inherit; }
+}
+
 /* The mobile entry slip is a fixed bottom bar at z-index:9999 so it can sit
    above contest cards. The gear menu must cover it while open. */
 .tm-gear-sidebar-layer { z-index: 10000; }
