@@ -44,7 +44,12 @@ class OnrampHubTest < ActionDispatch::IntegrationTest
     assert_response :success
     body = response.body
     # The rail button calls the global kickoff for pack "single"…
-    assert_match(/data-onramp-rail="coinflow"[^>]*@click="tmCoinflowBuyOne\('single'\)"/m, body,
+    # PAIRED BUT ORDER-INDEPENDENT. The rail rows are built by the engine's
+    # blocks/_rail_row through content_tag, which emits @click BEFORE data-*,
+    # so the old "data-… then @click" shape can never match again. Lookaheads
+    # keep the property that matters — this rail carries THIS handler, on the
+    # same element — without pinning the order content_tag now owns.
+    assert_match(%r{<button\b(?=[^>]*data-onramp-rail="coinflow")(?=[^>]*@click="tmCoinflowBuyOne\('single'\)")[^>]*>}m, body,
                  "the Coinflow rail must kick off the buy-1 flow")
     # …and the hub defines that global (the shared coinflow_script partial).
     assert_includes body, "window.tmCoinflowBuyOne"
@@ -56,7 +61,12 @@ class OnrampHubTest < ActionDispatch::IntegrationTest
     assert_response :success
     body = response.body
     # The rail button calls the global kickoff for pack "single"…
-    assert_match(/data-onramp-rail="aeropay"[^>]*@click="tmAeropayBuyOne\('single'\)"/m, body,
+    # PAIRED BUT ORDER-INDEPENDENT. The rail rows are built by the engine's
+    # blocks/_rail_row through content_tag, which emits @click BEFORE data-*,
+    # so the old "data-… then @click" shape can never match again. Lookaheads
+    # keep the property that matters — this rail carries THIS handler, on the
+    # same element — without pinning the order content_tag now owns.
+    assert_match(%r{<button\b(?=[^>]*data-onramp-rail="aeropay")(?=[^>]*@click="tmAeropayBuyOne\('single'\)")[^>]*>}m, body,
                  "the Aeropay rail must kick off the buy-1 flow")
     # …and the hub defines that global (the shared aeropay_script partial).
     assert_includes body, "window.tmAeropayBuyOne"
@@ -80,10 +90,10 @@ class OnrampHubTest < ActionDispatch::IntegrationTest
     assert_includes body,
                     "get tokenFallback() { return $store.session.mode === 'web2' && !$store.session.web2UsdcEntry }"
     # The Coinbase rail card is wrapped in the !tokenFallback template gate.
-    assert_match(/x-if="!tokenFallback">\s*<button type="button" data-onramp-rail="coinbase"/m, body,
+    assert_match(%r{x-if="!tokenFallback">\s*<button\b[^>]*data-onramp-rail="coinbase"}m, body,
                  "the hub Coinbase rail must be hidden for the web2 kill-switch audience")
     # The Stripe entry-token rail is NOT gated — it stays for the degraded viewer.
-    refute_match(/x-if="!tokenFallback">\s*<button type="button" data-onramp-rail="stripe"/m, body,
+    refute_match(%r{x-if="!tokenFallback">\s*<button\b[^>]*data-onramp-rail="stripe"}m, body,
                  "the Stripe token rail must remain visible in the kill-switch degrade")
   end
 end

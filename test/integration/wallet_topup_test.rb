@@ -62,7 +62,7 @@ class WalletTopupTest < ActionDispatch::IntegrationTest
                      "$store.modals.swap('cdp-ramp', { flow: 'buy', step: 'preflight' })"
     # The Coinbase pitch is hidden for the web2 kill-switch audience that can't
     # pay with USDC.
-    assert_match(/x-if="!tokenFallback">\s*<button type="button" data-topup-rail="coinbase"/m, body,
+    assert_match(%r{x-if="!tokenFallback">\s*<button\b[^>]*data-topup-rail="coinbase"}m, body,
                  "the Coinbase CTA must be gated behind !tokenFallback")
   end
 
@@ -76,7 +76,7 @@ class WalletTopupTest < ActionDispatch::IntegrationTest
     # flag off); it is NOT the default primary action.
     assert_includes body, %(data-topup-rail="tokens")
     assert_includes body, "Buy Entry Tokens"
-    assert_match(/x-if="tokenFallback">\s*<button type="button" data-topup-rail="tokens"/m, body,
+    assert_match(%r{x-if="tokenFallback">\s*<button\b[^>]*data-topup-rail="tokens"}m, body,
                  "the token rail must be gated behind tokenFallback")
     # tokenFallback fires for web2 viewers ONLY when the web2-USDC kill-switch is
     # off — web3 and flag-on web2 always see the Coinbase pitch.
