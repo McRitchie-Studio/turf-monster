@@ -393,6 +393,44 @@ jobs:
           path: ${{ github.workspace }}/tmp/screenshots
           if-no-files-found: ignore
 
+  # The DECLARED side of the e2e contract, kept honest against the tree.
+  #
+  # `total_specs` is derivable, and was maintained by hand. Two branches that each
+  # add a spec write the SAME new value for DIFFERENT files; identical text merges
+  # with NO conflict, so the counter lands silently under-declared. That is not a
+  # hypothetical — it happened FOUR TIMES in one day, and once the number was
+  # CORRECT when the reviewer derived it and stale by the time the merge ran.
+  #
+  # Separate from e2e_executed_set on purpose. That job asserts what the lane
+  # EXECUTED, needs every shard's receipt, and so must wait for playwright. This
+  # one only reads the tree, needs no browser and no database, and runs in
+  # parallel in about a minute — so a stale counter is reported early instead of
+  # after the full e2e lane.
+  e2e_declared_set:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: .ruby-version
+          rubygems: 3.5.11
+          bundler-cache: false
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+
+      # No `playwright install` — `--list` collects specs and never launches a
+      # browser, so the browser download (and its cache) is pure cost here.
+      - name: Install the Playwright package
+        run: npm ci
+
+      - name: Assert the declared spec counter matches the tree
+        run: bin/e2e-lane-derive
+
   # THE EXECUTED-SET GATE. The `playwright` job above can prove its specs PASSED; it cannot
   # prove it RAN THEM ALL — no test lane can answer that about itself, and sharding sharpens
   # the question rather than softening it: three buckets can each go quietly empty, and
