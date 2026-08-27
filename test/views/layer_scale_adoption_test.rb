@@ -101,6 +101,29 @@ class LayerScaleAdoptionTest < ActionDispatch::IntegrationTest
                  "the navbar no longer EMITS studio-bar-stack, the class the lift selects")
   end
 
+  # A LEVEL ALONE IS NOT THE FIX, and this is the assertion that says so. The
+  # first cut of the lift used `position: relative`, which is enough to escape
+  # `z-index: auto` and enough to pass every other test here — and it left the
+  # bars exactly where they were for the reader who had scrolled. Measured on the
+  # contest board at scrollY 900 with the modal open: relative put the stack at
+  # top -900, off screen. Nobody makes six picks without scrolling, so that is
+  # the ONLY case that matters.
+  #
+  # sticky pins it to top 0 from any scroll offset AND keeps its space reserved
+  # in flow, so applying it on open shifts no page content — `fixed` also pins,
+  # but pulls the stack out of flow and the page jumps up by its height.
+  test "the lift PINS the bars, it does not merely level them" do
+    rule = CSS.read[/body\.modal-open\s+\.studio-bar-stack.*?\{(.*?)\}/m]
+
+    refute_nil rule, "the modal-open lift rule is gone"
+    assert_match(/position:\s*sticky/, rule,
+                 "a scrolled reader never sees a bar that only got a z-index — pin it")
+    assert_match(/top:\s*0/, rule,
+                 "sticky without a top offset never pins")
+    refute_match(/position:\s*fixed/, rule,
+                 "fixed pulls the bars out of flow and the page jumps by their height")
+  end
+
   # ── Defect 1: the docked bar stops outranking the modal ───────────────
 
   test "the mobile entry slip is docked, not on top of everything" do

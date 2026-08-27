@@ -208,13 +208,29 @@
   --studio-toast-blur-z: var(--z-toast-blur);
 }
 
-/* The QA / impersonation bars sit in NORMAL FLOW (studio-engine's banners/_stack
-   records why: pinning them needs one sibling to measure the other, and the
-   measured version visibly jumped). Flow costs them a stacking level, so the
-   modal backdrop dimmed DEV MODE and the email chip exactly when a QA session
-   needed them. The lift is scoped to body.modal-open — the one state where it is
-   free, because that same class locks body scroll, so the bars cannot scroll up
-   behind the pinned navbar while they outrank it.
+/* The QA / impersonation bars sit in NORMAL FLOW at rest (studio-engine's
+   banners/_stack records why: pinning them in the RESTING state needs one pinned
+   sibling to measure the other, and the measured version visibly jumped). Flow
+   costs them a stacking level, so the modal backdrop dimmed DEV MODE and the
+   email chip exactly when a QA session needed them.
+
+   So both the level AND the pin are scoped to body.modal-open — the one state
+   where each is free:
+
+     · the LEVEL is free because that class locks body scroll, so the bars can
+       never scroll up behind the pinned navbar while they outrank it;
+     · the PIN is free because a frozen page cannot jump. The measurement
+       problem is a RESTING-state problem: two pinned siblings of unknown height
+       have to lay out adjacently, and one must measure the other. Here they
+       deliberately OVERLAP — the navbar is dimmed under a backdrop and is not
+       the reader's business — so nothing has to be measured.
+
+   sticky, NOT fixed, and the difference is load-bearing: sticky keeps the bars'
+   space reserved in flow, so applying it on open shifts no page content;
+   `fixed` pulls them out and the whole page jumps up by their height. Measured
+   at scrollY 900 with the modal open: flow left the bars at top -900 (off
+   screen — the defect a scrolled reader actually hits, which is what a
+   relative-only lift did NOT fix), sticky and fixed both put them at top 0.
 
    It only reaches them because layouts/_navbar renders the stack as a SIBLING of
    <header> rather than inside it: the header is sticky WITH a z-index, so it is a
@@ -223,7 +239,8 @@
    disappears with the rest. */
 body.modal-open .studio-bar-stack,
 body.modal-open .studio-app-banner {
-  position: relative;
+  position: sticky;
+  top: 0;
   z-index: var(--z-banner);
 }
 /* === end ADOPTION SHIM ================================================== */

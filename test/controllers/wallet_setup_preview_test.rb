@@ -36,24 +36,33 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "modals/_wallet_setup.html.erb"
   end
 
+  # These three used to be hand-parsed integers — `z-[120]` scraped out of the
+  # modal host, `z-[110]` out of the navbar, `--studio-toast-z: 200` out of the
+  # CSS. They are TIERS now (studio-engine's shared layer scale, mirrored in
+  # application.css until the pin bumps), so the test resolves the same three
+  # layers through the names they read instead of through their values. The
+  # guarantee is unchanged, and it no longer breaks the moment a tier is
+  # renumbered — which is the entire point of naming them.
   test "the shared modal layer covers the Turf navbar and stays below toasts" do
-    host = Rails.root.join("app/views/studio/modals/_host.html.erb").read
-    navbar = Rails.root.join("app/views/layouts/_navbar.html.erb").read
+    host = Rails.root.join("app/views/studio/modals/_host.html.erb").read.gsub(/<%#.*?%>/m, "")
+    navbar = Rails.root.join("app/views/layouts/_navbar.html.erb").read.gsub(/<%#.*?%>/m, "")
     css = Rails.root.join("app/assets/tailwind/application.css").read
 
-    host_code = host.gsub(/<%#.*?%>/m, "")
-    navbar_code = navbar.gsub(/<%#.*?%>/m, "")
-    modal_z = host_code[/<div class="fixed inset-0 z-\[(\d+)\][^"]*modal-backdrop-mount"/, 1]
-    navbar_z = navbar_code[/vt-pinned-header sticky top-0 z-\[(\d+)\]/, 1]
-    toast_z = css[/--studio-toast-z:\s*(\d+)/, 1]
+    modal_tier = host[/<div class="fixed inset-0 z-\[var\((--z-[a-z-]+)\)\][^"]*modal-backdrop-mount"/, 1]
+    navbar_tier = navbar[/vt-pinned-header sticky top-0 z-\[var\((--z-[a-z-]+)\)\]/, 1]
+    toast_tier = css[/--studio-toast-z:\s*var\((--z-[a-z-]+)\)/, 1]
 
-    assert modal_z.present?, "could not locate the shared modal backdrop layer"
-    assert navbar_z.present?, "could not locate the live sticky navbar layer"
-    assert toast_z.present?, "could not locate the Turf toast layer override"
+    assert modal_tier.present?, "could not locate the shared modal backdrop layer"
+    assert navbar_tier.present?, "could not locate the live sticky navbar layer"
+    assert toast_tier.present?, "could not locate the Turf toast layer override"
 
-    assert_operator modal_z.to_i, :>, navbar_z.to_i,
+    tiers = css[/^:root \{(.*?)^\}/m].to_s
+              .scan(/(--z-[a-z-]+):\s*(-?\d+);/)
+              .to_h { |name, value| [ name, value.to_i ] }
+
+    assert_operator tiers.fetch(modal_tier), :>, tiers.fetch(navbar_tier),
                     "the shared modal host must cover every sticky Turf navbar"
-    assert_operator toast_z.to_i, :>, modal_z.to_i,
+    assert_operator tiers.fetch(toast_tier), :>, tiers.fetch(modal_tier),
                     "toasts must remain visible above every open modal"
   end
 
