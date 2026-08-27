@@ -83,6 +83,29 @@
 @media (min-width: 1614px) { .tm-sidebar-pushed { margin-right:  5rem; } }
 @media (min-width: 1749px) { .tm-sidebar-pushed { margin-right:    0; } }
 
+/* Sidebar-open fallback: the pushed column wears the MOBILE card layout.
+   The contest board's card grids add columns at `md:` — a viewport query, which
+   cannot see the 320px this cascade just took away. So from 768px up to 1120px
+   the grid still laid four cards across a 416-672px column and each card came
+   out 93-162px wide: the city truncated to "Balti...", the mascot to "R...",
+   and the three "Week n" labels overlapped into "WEEKWEEKWEEK".
+   1120px is where that stops being a compromise: content is
+   min(vw, 1280) - 32 (max-w-7xl px-4) - 320, a four-up card is (content - 48)/4,
+   and it reaches 187px at vw 1120 — the width the same card already gets 2-up on
+   a 390px phone (180px). Below the crossover, two columns beat four, so the
+   board simply shows the phone's layout. Above it, nothing here applies.
+   (Measured, not estimated: a playwright sweep of the live board, 390-1800px,
+   cart open and closed. A 900px break was tried on the way and rejected — at
+   900 a four-up card is 130px and every long mascot still truncates.)
+   Written as plain CSS beside the cascade it corrects (rather than a Tailwind
+   variant) for two reasons: it is unlayered and class-scoped, so it cannot lose
+   a cascade fight to `md:grid-cols-4`, and it applies ONLY while .tm-sidebar-pushed
+   is on the ancestor — i.e. only while the cart is open. */
+@media (min-width: 768px) and (max-width: 1119.98px) {
+  .tm-sidebar-pushed .tm-team-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tm-sidebar-pushed .tm-pair-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+}
+
 /* The mobile entry slip is a fixed bottom bar at z-index:9999 so it can sit
    above contest cards. The gear menu must cover it while open. */
 .tm-gear-sidebar-layer { z-index: 10000; }

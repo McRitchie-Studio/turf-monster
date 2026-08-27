@@ -1976,6 +1976,15 @@ window.selectionBoard = function() {
     matchups_asc = @matchups.sort_by { |m| m.turf_score || 999 }
     matchups_desc = matchups_asc.reverse
   %>
+  <%# tm-sidebar-pushed reserves room for the fixed 320px picks sidebar while the
+      cart is open (the margin-right cascade lives in app/assets/tailwind/
+      application.css). The card grids below add columns on VIEWPORT width, which
+      does not know about that reservation — so from md up to 1120px a four-up
+      card collapsed to 93-162px and the team name, mascot and week labels all
+      truncated on top of each other. `tm-team-grid` / `tm-pair-grid` are the
+      hooks the same stylesheet uses to drop those grids back to the MOBILE
+      layout for exactly that band. Keep the hook on any grid added here, or it
+      squishes the moment a pick is made. %>
   <section class="mb-8 transition-all" :class="{ 'tm-sidebar-pushed': cartOpen }">
     <div class="flex items-center justify-between gap-2 mb-4">
       <div class="flex items-center gap-2">
@@ -2016,7 +2025,7 @@ window.selectionBoard = function() {
       <%# Multi-week board: ONE card per team, since the pick is a team riding
           every week. A game-paired view has no meaning here — the team plays a
           different opponent each week, so the pairing would be arbitrary. %>
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+      <div class="tm-team-grid grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         <% span_team_cards.each do |matchup| %>
           <% opponents = span_opponents[matchup.team_slug] || [] %>
           <div x-show="matchesFilter('<%= j(matchup.team.name) %>', '<%= j(opponents.filter_map { |_s, wm| wm&.opponent_team&.name }.join(' ')) %>')">
@@ -2028,7 +2037,7 @@ window.selectionBoard = function() {
         <% end %>
       </div>
     <% else %>
-    <div x-show="sortMode === 'game'" class="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+    <div x-show="sortMode === 'game'" class="tm-pair-grid grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
       <% game_pairs.each do |pair| %>
         <% left, right = pair %>
         <div x-show="matchesFilter('<%= j(left.team.name) %>', '<%= j(right.team.name) %>')">
@@ -2038,7 +2047,7 @@ window.selectionBoard = function() {
     </div>
 
     <!-- Multiplier view: flat grid, ascending -->
-    <div x-show="sortMode === 'turfScore' && sortDir === 'asc'" class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+    <div x-show="sortMode === 'turfScore' && sortDir === 'asc'" class="tm-team-grid grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
       <% matchups_asc.each do |matchup| %>
         <div x-show="matchesFilter('<%= j(matchup.team.name) %>', '<%= j(matchup.opponent_team&.name.to_s) %>')">
           <%= render "contests/matchup_card", matchup: matchup %>
@@ -2047,7 +2056,7 @@ window.selectionBoard = function() {
     </div>
 
     <!-- Multiplier view: flat grid, descending -->
-    <div x-show="sortMode === 'turfScore' && sortDir === 'desc'" class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+    <div x-show="sortMode === 'turfScore' && sortDir === 'desc'" class="tm-team-grid grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
       <% matchups_desc.each do |matchup| %>
         <div x-show="matchesFilter('<%= j(matchup.team.name) %>', '<%= j(matchup.opponent_team&.name.to_s) %>')">
           <%= render "contests/matchup_card", matchup: matchup %>
