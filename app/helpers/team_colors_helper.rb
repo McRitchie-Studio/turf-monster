@@ -61,9 +61,6 @@ module TeamColorsHelper
     }
   end
 
-  # A subtle halo that keeps the mascot legible on the team gradient: a light
-  # halo behind an essentially-black mascot, a dark halo behind everything else.
-  # Held at 0.5 alpha so it reads as a soft glow, not a hard sticker outline.
   # THE PICK PILL: the team's own dark, wearing the team's own accent.
   #
   # `glow` is the value, not `light` and not `mascot` — it is "the team's extra
@@ -79,6 +76,7 @@ module TeamColorsHelper
   # mascot on every team card wears its accent over `mascot_shadow`, which is how
   # Buffalo's red-on-blue (1.88:1 unaided) is readable on the contest board. The
   # pill does the same, so it stays legible AND stays the team's.
+  #
   # `shade` is the team's LIGHT lifting the bottom of the pill — an inset glow,
   # not a second background. A flat team-dark rectangle is legible and lifeless;
   # a shade of the team's own light gives it depth without introducing a colour
@@ -93,6 +91,9 @@ module TeamColorsHelper
     { bg: bg, fg: fg, shade: rgba(light, 0.4), shadow: mascot_shadow(fg) }
   end
 
+  # A subtle halo that keeps the mascot legible on the team gradient: a light
+  # halo behind an essentially-black mascot, a dark halo behind everything else.
+  # Held at 0.5 alpha so it reads as a soft glow, not a hard sticker outline.
   def mascot_shadow(mascot)
     hex = normalize_hex(mascot)
     return "none" unless hex
