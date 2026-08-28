@@ -143,7 +143,7 @@ When hold-to-confirm hits a blocker (geo-blocked, not logged in, insufficient fu
 
 ## Navbar
 
-Extracted to `layouts/_navbar.html.erb` partial. Sticky, scroll-responsive. The non-preview header is `nav-shell vt-pinned-header sticky top-0 z-[110] bg-page transition-shadow duration-300` — `z-[110]` deliberately sits below the shared modal host backdrop at `z-[120]`, so every modal covers persistent navigation chrome.
+Extracted to `layouts/_navbar.html.erb` partial. Sticky, scroll-responsive. The non-preview header is `nav-shell vt-pinned-header sticky top-0 z-[var(--z-nav)] bg-page transition-shadow duration-300` — `--z-nav` deliberately sits below the shared modal host backdrop at `--z-modal`, so every modal covers persistent navigation chrome. Both come from the shared layer scale (see **Layer scale** below); the header also carries a z-index, which makes it a stacking context, so the environment bars render as a SIBLING above it rather than inside it.
 
 ### The collapse is scroll-LINKED, not a threshold plus a clock
 
@@ -483,7 +483,7 @@ Do move pure helper logic into modules when it does not participate in early `x-
   - `1120px-1343.98px` — the pushed column holds the SMALL opponent labels (`.tm-opponent-cell` / `.tm-opponent-week` / `.tm-opponent-row` and its spans). `contests/_multi_week_team_card` steps those up at `lg`, which lands exactly where the pushed card is narrowest; 1344px is where the push steps 20rem → 15rem and the card gets its width back.
   - The two bands abut with no gap by construction. Adding a component that steps up at a breakpoint inside either band means adding a hook and a hold, not widening a band. Both are pinned by `test/views/sidebar_pushed_grid_test.rb` and `test/views/sidebar_pushed_label_hold_test.rb`, which read the small variant out of the partial rather than hard-coding it.
 - **Contest picks sidebar** (`contests/_turf_totals_board.html.erb`): renders the desktop "Your Picks" panel through the primitive, keeps cart-specific slots/footer behavior, and still omits a close button so picks stay visible until cleared.
-- **Gear sidebar** (`components/_gear_sidebar.html.erb` + `components/_gear_sidebar_trigger.html.erb`): the gear icon, username, and profile image toggle one page-level menu using the same `md` breakpoint boundary as the contest sidebar (`hidden md:flex` desktop panel, full-width `flex md:hidden` mobile drawer). Links: My Profile, My Contests, next quest when present, How to Play, Proof of Reserves, Refresh Wallet, admin shortlist for admins (Dashboard, Contests, Users, Landing Pages), and Log out. The sidebar uses the same emoji-swap animation as the old dropdown and `.tm-gear-sidebar-layer` (`z-index:10000`) so it overlaps both the desktop contest picks sidebar (`z-40`) and the mobile bottom entry slip (`z-index:9999`) when the menu is open.
+- **Gear sidebar** (`components/_gear_sidebar.html.erb` + `components/_gear_sidebar_trigger.html.erb`): the gear icon, username, and profile image toggle one page-level menu using the same `md` breakpoint boundary as the contest sidebar (`hidden md:flex` desktop panel, full-width `flex md:hidden` mobile drawer). Links: My Profile, My Contests, next quest when present, How to Play, Proof of Reserves, Refresh Wallet, admin shortlist for admins (Dashboard, Contests, Users, Landing Pages), and Log out. The sidebar uses the same emoji-swap animation as the old dropdown and `.tm-gear-sidebar-layer` (`var(--z-drawer)`) so it overlaps both the desktop contest picks sidebar (`z-40`) and the mobile bottom entry slip (`var(--z-docked)`) when the menu is open. The drawer sits BELOW `--z-modal`: a modal opened from the gear menu covers it.
 - **Soccer dropdown** (`components/_soccer_dropdown.html.erb`): Soccer ball emoji trigger, links to Teams and Games pages.
 
 ## Dev Mode
@@ -610,9 +610,17 @@ Practical implications:
 - Always reference brand colors via the CSS var, never via hex literals — switching themes (or running the `/admin/theme` editor) only updates the var, not hardcoded hex.
 - For alpha variants in hand-rolled CSS, use the four-arg form: `rgb(var(--color-primary-rgb) / 0.2)`.
 
+## Layer scale
+
+Every layer that can cover other chrome reads a named `--z-*` tier instead of a bare number. The scale is studio-engine's; it is MIRRORED in the `ADOPTION SHIM` `:root` block of `app/assets/tailwind/application.css` until the engine pin reaches the gem that ships it, and that block is the single source of truth for the values. Read the ORDER, not the number:
+
+`--z-docked` (mobile entry slip) → `--z-nav` (pinned navbar) → `--z-drawer` (gear sidebar) → `--z-modal` (modal backdrop + card, THE app blocker) → `--z-lightbox` → `--z-alert` (live scoring overlay, confetti) → `--z-toast-blur` → `--z-toast` → `--z-banner` (QA / DEV MODE bars, reachable mid-modal) → `--z-tooltip`.
+
+Below 100 the tiers coincide with Tailwind's own `z-10`..`z-50`, so existing sub-100 classes are already on the scale. `test/views/layer_scale_adoption_test.rb` asserts the ordering AND refuses any bare blocking number (>= 100) written into `app/views/**/*.erb`, `app/assets/tailwind/**/*.css`, or `app/javascript/**/*.js`.
+
 ## Toast manager z-index override
 
-The studio-engine `_flash.html.erb` partial ships toasts at `z-index: 60` (above most content but below sticky-fixed-tops). Turf Monster overrides this with the engine's CSS custom properties — `--studio-toast-z: 200` and `--studio-toast-blur-z: 199`, set on `:root` in `app/assets/tailwind/application.css:95-98` and read by studio-engine 0.4.10+ — so toasts render **above** both the sticky navbar AND any open modal. The ordered contract is navbar `110` → modal `120` → toast blur `199` → toast `200`. If any layer changes, preserve that order.
+The studio-engine `_flash.html.erb` partial ships toasts at `z-index: 60` (above most content but below sticky-fixed-tops). Turf Monster overrides this with the engine's CSS custom properties — `--studio-toast-z` and `--studio-toast-blur-z`, set on `:root` in `app/assets/tailwind/application.css` and read by studio-engine 0.4.10+ — so toasts render **above** both the sticky navbar AND any open modal. Those two names are still the engine's published override seam, but they now READ the tiers (`var(--z-toast)` / `var(--z-toast-blur)`) instead of pinning their own numbers beside them. Change a tier in the scale, not here.
 
 The override used to live in an inline `<style>` block in `_navbar.html.erb` and needed `!important` to beat the engine's old inline `style="z-index:60"`. The engine no longer renders that inline style, so the variable-based override now wins by normal cascade. Only the explanatory comment remains in the navbar, at `_navbar.html.erb:14-19`.
 

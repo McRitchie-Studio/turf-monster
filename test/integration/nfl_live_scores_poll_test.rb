@@ -363,6 +363,171 @@ class NflLiveScoresPollTest < ActionDispatch::IntegrationTest
     assert_equal %w[P1 P2 P3], game.reload.goals.order(:id).pluck(:external_id)
   end
 
+  # ── THE TRY, FOLDED INTO THE TOUCHDOWN ───────────────────────────────────
+  # ESPN does not report the extra point as its own play. It folds the try into
+  # the touchdown that earned it and RESTATES that same play id: 6 while the
+  # kick is in the air, 7 once it is good. Reconciliation that only ever
+  # CREATES therefore leaves a touchdown caught mid-try a point light for the
+  # rest of the game — and reports score_drift every cycle from then on.
+  #
+  # Measured on production, 2026-08-27 preseason week 4: four touchdowns across
+  # two live games stored 6 while the feed read 7 (plays 401873299636,
+  # 401873298852, 4018732982406, 4018732982623). The /live board showed CLE 26
+  # against ESPN's 27, and every contest scored off it was a point light.
+
+  test "an extra point amended onto a play we already hold is picked up" do
+    mid_try = StubClient.new(
+      scoreboard: scoreboard(home: 6, away: 0),
+      summaries: { "EV1" => { "scoringPlays" => [play("P1", "TMA", home: 6, away: 0, type: "TD")] } }
+    )
+    Nfl::LiveScores::PollCycle.call(slot: @slot, client: mid_try)
+    game = Game.find_by(external_id: "EV1")
+    assert_equal 6, game.home_score
+
+    kicked = StubClient.new(
+      scoreboard: scoreboard(home: 7, away: 0),
+      summaries: { "EV1" => { "scoringPlays" => [play("P1", "TMA", home: 7, away: 0, type: "TD")] } }
+    )
+    result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: kicked)
+
+    assert_equal 1, game.reload.goals.count, "the try is folded into the play, not a second row"
+    assert_equal 7, game.goals.first.points
+    assert_equal 7, game.home_score
+    assert_empty result.anomalies, "the board must AGREE with the feed, not drift against it"
+  end
+
+  # The amendment is reported as what it was worth — the point, not the seven —
+  # and labelled by the delta. Printing "touchdown +1" would name the wrong half
+  # of the play; the watch is meant to read "the extra point landed".
+  test "the amendment is reported as the point it added, labelled as the try" do
+    seed = StubClient.new(
+      scoreboard: scoreboard(home: 6, away: 0),
+      summaries: { "EV1" => { "scoringPlays" => [play("P1", "TMA", home: 6, away: 0, type: "TD")] } }
+    )
+    Nfl::LiveScores::PollCycle.call(slot: @slot, client: seed)
+
+    kicked = StubClient.new(
+      scoreboard: scoreboard(home: 7, away: 0),
+      summaries: { "EV1" => { "scoringPlays" => [play("P1", "TMA", home: 7, away: 0, type: "TD")] } }
+    )
+    change = Nfl::LiveScores::PollCycle.call(slot: @slot, client: kicked).changes.sole
+
+    assert_equal "score", change.kind
+    assert_equal 1, change.points
+    assert_equal "pat", change.scoring_type
+    assert_equal 7, change.home_score
+  end
+
+  # A two-point conversion is the same amendment two points wide, and it must
+  # not be labelled "safety" just because POINTS_TO_TYPE maps 2 that way — the
+  # points went to the team that scored, which is what a safety never does.
+  test "a two-point conversion amended onto the touchdown is labelled as one" do
+    seed = StubClient.new(
+      scoreboard: scoreboard(home: 6, away: 0),
+      summaries: { "EV1" => { "scoringPlays" => [play("P1", "TMA", home: 6, away: 0, type: "TD")] } }
+    )
+    Nfl::LiveScores::PollCycle.call(slot: @slot, client: seed)
+
+    converted = StubClient.new(
+      scoreboard: scoreboard(home: 8, away: 0),
+      summaries: { "EV1" => { "scoringPlays" => [play("P1", "TMA", home: 8, away: 0, type: "TD")] } }
+    )
+    change = Nfl::LiveScores::PollCycle.call(slot: @slot, client: converted).changes.sole
+
+    assert_equal 2, change.points
+    assert_equal "two_point", change.scoring_type
+    assert_equal 8, Game.find_by(external_id: "EV1").home_score
+  end
+
+  # Amendments run BOTH ways. A try wiped out on review takes its point back,
+  # and the play keeps its own type, because what came off was the try.
+  test "a play restated DOWNWARD takes its points back off the board" do
+    seed = StubClient.new(
+      scoreboard: scoreboard(home: 7, away: 0),
+      summaries: { "EV1" => { "scoringPlays" => [play("P1", "TMA", home: 7, away: 0, type: "TD")] } }
+    )
+    Nfl::LiveScores::PollCycle.call(slot: @slot, client: seed)
+
+    reduced = StubClient.new(
+      scoreboard: scoreboard(home: 6, away: 0),
+      summaries: { "EV1" => { "scoringPlays" => [play("P1", "TMA", home: 6, away: 0, type: "TD")] } }
+    )
+    result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: reduced)
+
+    game = Game.find_by(external_id: "EV1")
+    assert_equal 6, game.home_score
+    assert_equal 6, game.goals.sole.points
+    assert_equal(-1, result.changes.sole.points)
+    assert_empty result.anomalies
+  end
+
+  # The amendment must reach the contests, not stop at the game row — the whole
+  # reason the missing point mattered is that entries were scored off it.
+  test "an amended point propagates onto the slate matchups" do
+    matchup = SlateMatchup.create!(slate: slates(:one), team_slug: @home.slug,
+                                   opponent_team_slug: @away.slug, rank: 1,
+                                   game_slug: "team-a-vs-team-b-pre4", slug: "sm-try-pre4")
+    seed = StubClient.new(
+      scoreboard: scoreboard(home: 6, away: 0),
+      summaries: { "EV1" => { "scoringPlays" => [play("P1", "TMA", home: 6, away: 0, type: "TD")] } }
+    )
+    Nfl::LiveScores::PollCycle.call(slot: @slot, client: seed)
+    assert_equal 6, matchup.reload.goals
+
+    kicked = StubClient.new(
+      scoreboard: scoreboard(home: 7, away: 0),
+      summaries: { "EV1" => { "scoringPlays" => [play("P1", "TMA", home: 7, away: 0, type: "TD")] } }
+    )
+    Nfl::LiveScores::PollCycle.call(slot: @slot, client: kicked)
+
+    assert_equal 7, matchup.reload.goals
+  end
+
+  # A ONE-POINT SAFETY ON A TRY is worth exactly what a kicked extra point is
+  # worth, so the parser's points-based fallback calls it a `pat` until ESPN
+  # supplies the abbreviation. The correction that follows moves no points: it
+  # must land on the row and print NOTHING, because a scoring line worth +0 is
+  # noise in a twelve-hour scrollback.
+  test "a play the feed re-labels is corrected without reporting a score" do
+    untyped = play("P1", "TMA", home: 1, away: 0, type: "TD").except("type")
+    seed = StubClient.new(scoreboard: scoreboard(home: 1, away: 0),
+                          summaries: { "EV1" => { "scoringPlays" => [untyped] } })
+    Nfl::LiveScores::PollCycle.call(slot: @slot, client: seed)
+    game = Game.find_by(external_id: "EV1")
+    assert_equal "pat", game.goals.sole.scoring_type
+
+    # Forces the summary to be read: a game whose total has not moved costs no
+    # summary request, and a re-label does not move a total.
+    game.update!(home_score: 0)
+    labelled = StubClient.new(
+      scoreboard: scoreboard(home: 1, away: 0),
+      summaries: { "EV1" => { "scoringPlays" => [play("P1", "TMA", home: 1, away: 0, type: "SF")] } }
+    )
+    result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: labelled)
+
+    assert_equal "safety", game.goals.sole.scoring_type
+    assert_empty result.changes, "a correction worth no points is not a scoring line"
+  end
+
+  # AMENDING MUST NOT COST IDEMPOTENCY. A play the feed repeats unchanged is
+  # still nothing — no write, no line in a twelve-hour scrollback.
+  test "a play repeated unchanged is not re-reported as an amendment" do
+    seed = StubClient.new(
+      scoreboard: scoreboard(home: 7, away: 7),
+      summaries: { "EV1" => { "scoringPlays" => summary["scoringPlays"].first(2) } }
+    )
+    Nfl::LiveScores::PollCycle.call(slot: @slot, client: seed)
+    game = Game.find_by(external_id: "EV1")
+
+    # Forces the summary to be read while every play in it is already held.
+    game.update!(home_score: 0, away_score: 0)
+    full = StubClient.new(scoreboard: scoreboard(home: 10, away: 7), summaries: { "EV1" => summary })
+    result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: full)
+
+    assert_equal 1, result.changes.length, "only the new play may report"
+    assert_equal "P3", game.reload.goals.order(:id).last.external_id
+  end
+
   # An id-less play stores "" — which the partial index covers — so the second
   # one anywhere in the league collides GLOBALLY. Dropped at the parse seam.
   test "a play with no id is dropped rather than stored as a colliding blank" do

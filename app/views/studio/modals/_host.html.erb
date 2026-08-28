@@ -456,7 +456,7 @@
       _closing → the :class bindings add .modal-*-unmount → the exit
       keyframes play → 220ms later the store splices the entry from
       the stack and the whole thing unmounts (now invisible). %>
-  <div class="fixed inset-0 z-[120] flex items-center justify-center p-4 modal-backdrop-mount"
+  <div class="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center p-4 modal-backdrop-mount"
        :class="$store.modals.current()?._closing && 'modal-backdrop-unmount'"
        style="background:rgba(0,0,0,0.6)"
        role="dialog"

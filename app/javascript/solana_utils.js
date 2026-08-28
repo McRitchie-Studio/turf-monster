@@ -482,6 +482,16 @@ export function animateFreeEntryBadge() {
   setTimeout(function() { badge.classList.remove('free-entry-punch'); }, 700);
 }
 
+// Read a layer tier at runtime. canvas-confetti takes zIndex as a NUMBER, so
+// these two bursts kept a bare 9999 after _alpine_factories converted its
+// identical pair — same magic number, one directory the drift scan did not
+// glob. --z-alert is the tier those two now read: above --z-modal, so a
+// celebration fired from an open modal is not hidden by it.
+function zTier(name, fallback) {
+  var v = parseInt(getComputedStyle(document.documentElement).getPropertyValue(name).trim(), 10);
+  return Number.isFinite(v) ? v : fallback;
+}
+
 // Confetti burst that originates from the ✨ Entry badge in the navbar.
 // Used instead of the centered fireSuccessConfetti for token-flow
 // celebrations (mint + entry confirmed) so the streamers shoot out of
@@ -510,10 +520,10 @@ export function fireConfettiFromBadge() {
   // every direction (up, down, sideways), low startVelocity + low
   // gravity keep them clustered around the badge rather than blasting
   // off-screen. Reads like an "out of the ticket" celebration.
-  confetti({ particleCount: 90, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: 9999, startVelocity: 22, gravity: 0.55, ticks: 180, scalar: 0.9 });
+  confetti({ particleCount: 90, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: zTier('--z-alert', 300), startVelocity: 22, gravity: 0.55, ticks: 180, scalar: 0.9 });
   // Smaller follow-up shell, even tighter, for layered texture.
   setTimeout(function() {
-    confetti({ particleCount: 45, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: 9999, startVelocity: 14, gravity: 0.75, ticks: 140, scalar: 0.7 });
+    confetti({ particleCount: 45, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: zTier('--z-alert', 300), startVelocity: 14, gravity: 0.75, ticks: 140, scalar: 0.7 });
   }, 160);
 }
 

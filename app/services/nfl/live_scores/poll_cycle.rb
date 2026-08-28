@@ -54,6 +54,14 @@ module Nfl
         def quiet? = changes.empty? && anomalies.empty?
       end
 
+      # WHAT AN AMENDMENT WAS WORTH, named by the delta rather than by the play it
+      # rides on. ESPN restates a touchdown when the try lands, so the point that
+      # arrives is the extra point: reporting it as "+1 touchdown" would name the
+      # wrong half of the play. Two is the conversion and never a safety —
+      # whatever a standalone 2 means elsewhere, these points went to the team
+      # that already had the ball. Any other delta keeps the play's own type.
+      AMENDMENT_TYPES = { 1 => "pat", 2 => "two_point" }.freeze
+
       def self.call(...) = new(...).call
 
       def initialize(slot: nil, client: Espn::Client.new)
@@ -297,9 +305,13 @@ module Nfl
         end
 
         plays.each do |play|
-          next if existing.key?(play.external_id)
+          goal = existing[play.external_id]
 
-          record_play(game, row, play)
+          if goal
+            amend_play(game, row, play, goal)
+          else
+            record_play(game, row, play)
+          end
         end
 
         existing.each do |external_id, goal|
@@ -309,6 +321,38 @@ module Nfl
           @changes << change_for(game.reload, "reversed", team: goal.team, points: -goal.points,
                                                           scoring_type: goal.scoring_type)
         end
+      end
+
+      # ESPN AMENDS A PLAY IT HAS ALREADY REPORTED, and the try is why.
+      #
+      # The extra point is not a play of its own — it is folded into the
+      # touchdown that earned it, on the SAME play id, which reads 6 while the
+      # kick is in the air and 7 once it is good. Reconciliation that only ever
+      # CREATED therefore froze a touchdown caught mid-try at 6 for the rest of
+      # the game, and `detect_drift` then reported the disagreement it had just
+      # guaranteed, every cycle, forever.
+      #
+      # Measured on production during the 2026-08-27 preseason watch: four
+      # touchdowns across two live games held 6 against a feed reading 7 — the
+      # board showed CLE 26 to ESPN's 27, and every contest scored off it was a
+      # point light.
+      #
+      # The amendment is reported as the DELTA, not the new total, so the watch
+      # reads "+1 pat" — what actually just happened — rather than restating a
+      # touchdown nobody scored twice.
+      def amend_play(game, row, play, goal)
+        delta = play.points - goal.points
+        return if delta.zero? && goal.scoring_type == play.scoring_type
+
+        goal.update!(points: play.points, scoring_type: play.scoring_type)
+
+        # A play the feed merely RE-LABELS moved no points. Correct the row and
+        # say nothing: a scoring line worth +0 is noise in a twelve-hour watch.
+        return if delta.zero?
+
+        @changes << change_for(game.reload, "score", team: goal.team, points: delta,
+                                                     scoring_type: AMENDMENT_TYPES.fetch(delta, goal.scoring_type),
+                                                     text: play.text, detail: row.detail)
       end
 
       def record_play(game, row, play)
