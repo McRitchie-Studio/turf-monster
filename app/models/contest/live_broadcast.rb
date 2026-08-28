@@ -8,15 +8,29 @@ class Contest
   # request that recorded the goal, nor block the sibling broadcasts — hence each
   # is individually rescued (same posture as Message#broadcast_new_message).
   #
-  # Stream: [contest, :live]. Targets (update = inner HTML so the wrapper div +
-  # its id survive every refresh and stay re-updatable):
+  # Stream: [contest, :live]. FOUR targets (update = inner HTML so the wrapper
+  # div + its id survive every refresh and stay re-updatable):
   #   contest_<id>_leaderboard  (update)  — re-ranked leaderboard
-  #   contest_<id>_games        (update)  — active/upcoming/completed games
+  #   contest_<id>_games        (update)  — the strip: every game as a chip
+  #   contest_<id>_focus        (update)  — the focused game at hero size. Its
+  #                                         OWN target because the strip runs
+  #                                         across the top while the focus panel
+  #                                         sits above chat, and one target
+  #                                         cannot span both.
   #   contest_<id>_goal_feed    (append)  — a data-only node the live page's
-  #                                         MutationObserver turns into a toast
+  #                                         MutationObserver turns into a QUEUED
+  #                                         scoring banner, not a toast: events
+  #                                         chain so a flurry reads in order.
+  #                                         See contests/_live_script.
+  #
+  # THE COUNT IS LOAD-BEARING and Contest::LiveBroadcastTest asserts it. Each
+  # broadcast below is individually rescued, so a partial that raises in
+  # broadcast context never arrives and fails nothing — the count is the only
+  # thing that notices.
   class LiveBroadcast
     class << self
-      # An admin recorded a goal. Toast everyone, then refresh leaderboard + games.
+      # An admin recorded a goal. Announce it, then refresh leaderboard, strip
+      # and focus panel.
       def goal_scored(goal)
         game = goal.game
         return unless game
@@ -30,7 +44,8 @@ class Contest
       end
 
       # Score changed without a new goal (goal removed) or a game was marked
-      # final. Refresh leaderboard + games; on completion, a neutral FINAL toast.
+      # final. Refresh leaderboard, strip and focus; on completion, a neutral
+      # FINAL banner.
       def score_changed(game, event: :goal_removed)
         return unless game
 
