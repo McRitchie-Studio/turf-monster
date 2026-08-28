@@ -109,16 +109,49 @@ test("the wallet step renders the Phantom row and the teaching block @smoke", as
 
   // A modal is the active task. All persistent page chrome must sit behind it,
   // while transient toasts remain free to report above it.
+  //
+  // ALL THREE ARE COMPUTED z-index READS NOW. The toast one used to read the app's
+  // own --studio-toast-z custom property, which measured the FIRST LINK of a chain
+  // rather than its result. The engine declares
+  //   #toast-container { z-index: var(--studio-toast-z, var(--z-toast, 400)); }
+  // a LAYERED fallback, and this app no longer sets that seam — the layer-scale
+  // adoption shim that set it was deleted. An unset custom property reads as "",
+  // and Number("") is 0, so this failed on a value meaning "nobody set this" while
+  // the rendered page was entirely correct: the chain falls through to the engine's
+  // tier. Reading the COMPUTED value resolves the whole chain, is what the player
+  // actually experiences, and survives a rename of the seam.
+  //
+  // COMPARED AGAINST THE MODAL, deliberately, and never against the banner tier.
+  // The invariant here is "a toast fired from an open modal is visible". Where
+  // toasts sit relative to the environment banner is a separate question the engine
+  // owns and is actively re-tiering; pinning it here would red-seal that work.
   const layers = await page.evaluate(() => {
     const navbar = document.querySelector("[data-navbar-root]");
     const modal = document.querySelector("[role='dialog'].modal-backdrop-mount");
-    const root = getComputedStyle(document.documentElement);
+    const toast = document.querySelector("#toast-container");
+    const z = (el) => (el ? Number(getComputedStyle(el).zIndex) : null);
     return {
-      navbar: Number(getComputedStyle(navbar).zIndex),
-      modal: Number(getComputedStyle(modal).zIndex),
-      toast: Number(root.getPropertyValue("--studio-toast-z")),
+      found: { navbar: !!navbar, modal: !!modal, toast: !!toast },
+      navbar: z(navbar),
+      modal: z(modal),
+      toast: z(toast),
     };
   });
+
+  // A COMPUTED READ PASSES VACUOUSLY WHEN THE SELECTOR MISSES, so prove the
+  // elements were found and that each carries a real number before comparing.
+  // `z-index: auto` is the other silent shape: it reads as NaN, every comparison
+  // against NaN is false, and the failure then looks like an ordinary ordering bug
+  // while actually meaning "this layer has no stacking level at all".
+  expect(layers.found, "a layer element was missing, so the comparisons below would be vacuous").toEqual({
+    navbar: true,
+    modal: true,
+    toast: true,
+  });
+  for (const name of ["navbar", "modal", "toast"]) {
+    expect(Number.isFinite(layers[name]), `${name} has no numeric z-index (got ${layers[name]})`).toBe(true);
+  }
+
   expect(layers.modal, "the modal must cover the sticky navbar").toBeGreaterThan(layers.navbar);
   expect(layers.toast, "toasts must still report above the modal").toBeGreaterThan(layers.modal);
 

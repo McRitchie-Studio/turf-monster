@@ -38,26 +38,40 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
 
   # These three used to be hand-parsed integers — `z-[120]` scraped out of the
   # modal host, `z-[110]` out of the navbar, `--studio-toast-z: 200` out of the
-  # CSS. They are TIERS now (studio-engine's shared layer scale, mirrored in
-  # application.css until the pin bumps), so the test resolves the same three
-  # layers through the names they read instead of through their values. The
-  # guarantee is unchanged, and it no longer breaks the moment a tier is
-  # renumbered — which is the entire point of naming them.
+  # CSS. They are TIERS now (studio-engine's shared layer scale), so the test
+  # resolves the same three layers through the names they read instead of through
+  # their values. The guarantee is unchanged, and it no longer breaks the moment a
+  # tier is renumbered — which is the entire point of naming them.
+  #
+  # WHERE EACH NAME IS READ FROM IS THE POINT, and two of the three moved in
+  # delete-turf-layer-shim. The modal and navbar tiers are named in THIS app's
+  # markup, so they are still read here. The toast tier is not: this app used to
+  # name it in an application.css `:root` (`--studio-toast-z: var(--z-toast)`)
+  # inside the layer-scale adoption shim, and that shim is deleted — the ENGINE's
+  # own flash partial now defaults the seam to the tier. Reading a deleted local
+  # override left this test asserting `present?` on nil, which is how a shim
+  # deletion looks like a regression instead of a cleanup.
+  #
+  # The VALUES likewise come from the engine now. application.css defines no
+  # tiers at all, so parsing its first `:root` block for them returned an empty
+  # map and every fetch raised KeyError.
   test "the shared modal layer covers the Turf navbar and stays below toasts" do
     host = Rails.root.join("app/views/studio/modals/_host.html.erb").read.gsub(/<%#.*?%>/m, "")
     navbar = Rails.root.join("app/views/layouts/_navbar.html.erb").read.gsub(/<%#.*?%>/m, "")
-    css = Rails.root.join("app/assets/tailwind/application.css").read
+    engine_css = Studio::Engine.root.join("app/assets/tailwind/studio_engine/engine.css").read
+    flash = Studio::Engine.root.join("app/views/layouts/studio/_flash.html.erb").read
 
     modal_tier = host[/<div class="fixed inset-0 z-\[var\((--z-[a-z-]+)\)\][^"]*modal-backdrop-mount"/, 1]
     navbar_tier = navbar[/vt-pinned-header sticky top-0 z-\[var\((--z-[a-z-]+)\)\]/, 1]
-    toast_tier = css[/--studio-toast-z:\s*var\((--z-[a-z-]+)\)/, 1]
+    toast_tier = flash[/--studio-toast-z,\s*var\((--z-[a-z-]+)/, 1]
 
     assert modal_tier.present?, "could not locate the shared modal backdrop layer"
     assert navbar_tier.present?, "could not locate the live sticky navbar layer"
-    assert toast_tier.present?, "could not locate the Turf toast layer override"
+    assert toast_tier.present?,
+           "the engine's flash partial no longer falls its toast seam back to a shared tier"
 
-    tiers = css[/^:root \{(.*?)^\}/m].to_s
-              .scan(/(--z-[a-z-]+):\s*(-?\d+);/)
+    tiers = engine_css[/^:root \{(.*?)^\}/m].to_s
+              .scan(/(--z-[a-z-]+):\s*(-?\d+)/)
               .to_h { |name, value| [ name, value.to_i ] }
 
     assert_operator tiers.fetch(modal_tier), :>, tiers.fetch(navbar_tier),

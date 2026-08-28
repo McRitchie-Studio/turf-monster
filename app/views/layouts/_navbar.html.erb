@@ -9,17 +9,20 @@
 <%# --z-nav sits BELOW --z-modal. A modal is the active task, so its backdrop and
     card cover all persistent navigation chrome instead of appearing cut off
     beneath the navbar. Both tiers, and everything else that can block, come from
-    the shared layer scale — studio-engine engine.css, mirrored in
-    app/assets/tailwind/application.css until the pin reaches the gem that ships
-    it. Toasts (--z-toast) and the environment bars (--z-banner) are the two
-    layers deliberately above a modal. %>
+    the shared layer scale, which studio-engine owns OUTRIGHT — engine.css
+    defines them and this app reads them through the engine build application.css
+    imports. There is no local copy; the mirror that used to sit in
+    application.css was deleted in delete-turf-layer-shim, because it outranked
+    the gem it was mirroring. Toasts (--z-toast) and the environment bars
+    (--z-banner) are the two layers deliberately above a modal. %>
 
-<%# Toast z-index override now lives in app/assets/tailwind/application.css as CSS
-    custom properties (--studio-toast-z / --studio-toast-blur-z), read
-    by studio-engine 0.4.10+. The previous inline <style> block here
-    needed !important to beat the engine's old inline `style="z-index:60"`;
-    the engine no longer uses inline, so the var-based override wins
-    via normal cascade. %>
+<%# Toasts need nothing declared here or in application.css. The engine's own
+    flash partial defaults its two override seams (--studio-toast-z and
+    --studio-toast-blur-z) to the shared toast tiers, so the stack already
+    clears the navbar and any open modal. This app set both from inside the old
+    adoption shim, back when the engine defaulted them to a bare 60 and a toast
+    fired from an open modal was invisible behind it. To move the toast layer,
+    change the tier in studio-engine. %>
 <%# vt-pinned-header (engine 0.24 smooth-load): names this header as the shared
     view-transition element so it stays pinned while page content cross-fades.
     NON-PREVIEW ONLY — the admin navbar-review page renders preview copies of
