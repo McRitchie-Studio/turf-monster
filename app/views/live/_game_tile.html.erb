@@ -126,7 +126,14 @@
         stop their CONTENT at the 73% mark, which is why the scores land where
         they do with nothing drawn between. %>
     <% if hero %>
-      <div class="absolute inset-y-0 right-0 w-1/3 flex flex-col items-center text-center px-4 pt-7 pb-5 pointer-events-none"
+      <%# SPLIT IN HALF, to the same line the team rows split on.
+          The rail used to be a fixed 4.75rem date box plus whatever height was
+          left for the events, inside asymmetric pt-7/pb-5 padding — so its two
+          halves met wherever that arithmetic landed, which was never where the
+          two team rows meet. The date sat high and the events stopped short of
+          the floor. Two h-1/2 children put the seam exactly on the rows' seam,
+          and each half then centres its own contents. %>
+      <div class="absolute inset-y-0 right-0 w-1/3 flex flex-col items-center text-center px-4 pointer-events-none"
            data-test="live-focus-rail"
            style="background: linear-gradient(90deg,
                   rgba(8, 10, 16, 0) 0%, rgba(8, 10, 16, 0.55) 24%, rgba(8, 10, 16, 0.8) 55%)">
@@ -141,7 +148,12 @@
             the events feed up and down. Reserving the space once means switching
             games changes the CONTENT and nothing else. Its own contents stay
             centred inside it, so a scheduled game does not read as top-heavy. %>
-        <div class="h-[4.75rem] flex-shrink-0 flex flex-col items-center justify-center gap-1">
+        <%# The TOP half, against the top team row. Still a reserved box rather
+            than a self-sizing one — these three lines are optional in different
+            combinations, and letting them size themselves jogged the date and
+            the clock every time you clicked through the strip. Half the tile is
+            simply a better constant than 4.75rem. %>
+        <div class="h-1/2 w-full flex-shrink-0 flex flex-col items-center justify-center gap-1 py-2">
           <% if game.kickoff_at %>
             <time datetime="<%= game.kickoff_at.utc.iso8601 %>" data-role="kickoff-date"
                   class="text-xs font-bold uppercase tracking-wider text-white/60"><%= game.kickoff_at.utc.strftime("%b %-d") %></time>
@@ -176,10 +188,28 @@
               feed's ends: where a play is under one it fades out and says
               "there is more"; where the list is short they cover empty space in
               the colour already there, and are invisible. %>
-          <div class="relative mt-1 flex-1 min-h-0 w-full flex flex-col"
+          <%# THE WHEEL. The events list and the scorer card are two panes on one
+              track, and the track rolls: at rest the list is in the window, and a
+              qualifying score turns the wheel one pane to bring the card up.
+
+              THEY USED TO CROSS-FADE, and that was the bug. The list faded out
+              while the card faded in over the top of it, so for a third of a
+              second both were on screen at once and the scorer's name was
+              readable THROUGH the list of scores behind it. Two panes on a track
+              cannot overlap: the window shows exactly one, because the other is
+              outside it.
+
+              The frame clips (overflow-hidden); the track is twice its height and
+              each pane is exactly one window tall, so translateY(-50%) lands the
+              second pane perfectly. %>
+          <div class="relative h-1/2 min-h-0 w-full overflow-hidden"
                data-role="event-feed-frame" data-fade-top="0" data-fade-bottom="1">
-            <div class="tt-event-feed min-h-0 overflow-y-auto space-y-1 pointer-events-auto"
-                 data-test="live-focus-events">
+            <div class="tt-event-track absolute inset-x-0 top-0 h-[300%] flex flex-col">
+
+              <%# PANE 1 — the running list of scores. %>
+              <div class="relative h-1/3 flex flex-col justify-center py-1.5">
+                <div class="tt-event-feed min-h-0 overflow-y-auto space-y-1 pointer-events-auto"
+                     data-test="live-focus-events">
               <% plays.each do |play| %>
                 <% scoring_team = play.team_slug == game.home_team_slug ? home : away %>
                 <div class="flex items-center justify-center gap-1.5 text-xs leading-tight whitespace-nowrap">
@@ -190,7 +220,8 @@
                   <% end %>
                 </div>
               <% end %>
-            </div>
+                </div>
+
             <%# THE FADES SWELL FROM THE MIDDLE and die at the sides. A linear
                 gradient runs edge to edge, which paints a full-width band with
                 two visible ends — obvious the moment the team behind it is not
@@ -207,6 +238,25 @@
                   style="background: radial-gradient(ellipse at 50% 0%, rgba(8, 10, 16, 0.95) 0%, rgba(8, 10, 16, 0) 72%)"></span>
             <span class="tt-fade tt-fade-bottom pointer-events-none absolute inset-x-0 bottom-0 h-8"
                   style="background: radial-gradient(ellipse at 50% 100%, rgba(8, 10, 16, 0.95) 0%, rgba(8, 10, 16, 0) 72%)"></span>
+              </div>
+
+              <%# PANES 2 AND 3 — TWO scorer cards, alternating.
+                  One card repainted in place made the second event of a chain
+                  JUMP: the content swapped under a pane that never moved, and
+                  the avatar and the three text groups resized against each other
+                  mid-swap. Two panes give the next event somewhere to be built
+                  OFF SCREEN, so the wheel only ever moves — it never redraws
+                  what you are looking at.
+                  The page normalises back onto card A between events (see
+                  settleWheel), so the roll is always downward and B is always
+                  free for whatever comes next. %>
+              <div class="relative h-1/3" data-role="scorer-pane" data-pane="a">
+                <%= render "live/focus_scorer_card" %>
+              </div>
+              <div class="relative h-1/3" data-role="scorer-pane" data-pane="b">
+                <%= render "live/focus_scorer_card" %>
+              </div>
+            </div>
           </div>
         <% end %>
       </div>

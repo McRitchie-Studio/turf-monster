@@ -123,6 +123,13 @@
     <%= link_to "← Contest", contest_path(@contest), class: "btn btn-outline btn-sm flex-shrink-0" %>
   </div>
 
+  <%# The league board's own score injectors, scoped to THIS contest's games.
+      Self-gated on Rails.env.local? inside the partial, so it draws nowhere but
+      a developer's machine. The contest page had none, which meant the only way
+      to exercise a live score here was to open /live in another tab and score a
+      game this contest happens to contain. %>
+  <%= render "live/dev_score_tools", games: @contest.games_by_phase.values.flatten %>
+
   <%# THE CENTREPIECE, first and full width. The game you are watching is the
       reason the page is open, so it gets the whole row and the large type; the
       strip that CHOOSES it sits underneath, and the two columns of standings and

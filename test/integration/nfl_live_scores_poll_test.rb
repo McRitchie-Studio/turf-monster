@@ -583,4 +583,62 @@ class NflLiveScoresPollTest < ActionDispatch::IntegrationTest
       "text" => "#{team} scored"
     }
   end
+
+  # ── THE OTHER HALF OF THE SEAM: Row -> Goal ───────────────────────────────
+  #
+  # rows_from producing a scorer proves nothing about record_play persisting it.
+  # This is the end of the chain the card reads from: ESPN prose in, columns out.
+  test "a recorded play persists the scorer and the play description" do
+    game = Game.create!(
+      home_team_slug: teams(:team_a).slug, away_team_slug: teams(:team_b).slug,
+      season_year: 2026, season_type: 1, week: 4, status: "in_progress"
+    )
+    row = Nfl::Espn::ScoringPlays::Row.new(
+      external_id: "990001", team_abbr: "AAA", scoring_type: "touchdown",
+      points: 6, period: 2, clock: "4:04",
+      text: "Pat Passer 12 Yd pass from Someone Else (A Kicker Kick)",
+      scorer: "Pat Passer", description: "12 yard receiving TD"
+    )
+
+    cycle = Nfl::LiveScores::PollCycle.allocate
+    cycle.instance_variable_set(:@changes, [])
+    cycle.instance_variable_set(:@anomalies, [])
+
+    Nfl::Espn::TeamMap.stub :team_for, teams(:team_a) do
+      cycle.send(:record_play, game, Struct.new(:detail).new(nil), row)
+    end
+
+    goal = game.goals.reload.last
+    assert_equal "Pat Passer", goal.scorer_name
+    assert_equal "12 yard receiving TD", goal.play_description
+    # And the name was RESOLVED to the roster athlete the card draws.
+    assert_equal "pat-passer", goal.scorer_slug
+    assert goal.reveals_scorer?, "a touchdown with a named scorer earns the reveal"
+  end
+
+  test "a play whose scorer we cannot resolve still records the name" do
+    game = Game.create!(
+      home_team_slug: teams(:team_a).slug, away_team_slug: teams(:team_b).slug,
+      season_year: 2026, season_type: 1, week: 5, status: "in_progress"
+    )
+    row = Nfl::Espn::ScoringPlays::Row.new(
+      external_id: "990002", team_abbr: "AAA", scoring_type: "field_goal",
+      points: 3, period: 3, clock: "1:00",
+      text: "Practice Squad 41 Yd Field Goal",
+      scorer: "Practice Squad", description: "41 yard field goal"
+    )
+
+    cycle = Nfl::LiveScores::PollCycle.allocate
+    cycle.instance_variable_set(:@changes, [])
+    cycle.instance_variable_set(:@anomalies, [])
+
+    Nfl::Espn::TeamMap.stub :team_for, teams(:team_a) do
+      cycle.send(:record_play, game, Struct.new(:detail).new(nil), row)
+    end
+
+    goal = game.goals.reload.last
+    assert_equal "Practice Squad", goal.scorer_name
+    assert_nil goal.scorer_slug, "no athlete record — the card draws initials"
+    assert goal.reveals_scorer?, "we still know WHO scored, so it still reveals"
+  end
 end

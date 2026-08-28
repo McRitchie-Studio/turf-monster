@@ -183,4 +183,173 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
     assert_equal 5, @contest.payouts.keys.map(&:to_i).max
     assert_select "[data-test=?]", "leaderboard-money-line", count: 1
   end
+
+
+  # SCORE THE FIXTURE GAME WITHOUT ORPHANING IT.
+  #
+  # Game includes Sluggable, so every save re-stamps the slug from the two team
+  # slugs — and these fixtures carry hand-written slugs ("past-game") that do not
+  # match. Goal's after_create saves the game to recompute its score, which
+  # renames it mid-write and leaves the goal pointing at a slug nothing has. The
+  # slate matchups point at the old slug too.
+  #
+  # So: stamp the slug Sluggable wants FIRST, repoint the matchups at it, and
+  # only then score. The same trap the setup above already documents for teams.
+  def score!(game, **attrs)
+    if game.slug != game.name_slug
+      old = game.slug
+      game.update_column(:slug, game.name_slug)
+      SlateMatchup.where(game_slug: old).update_all(game_slug: game.slug)
+      game.reload
+    end
+    game.goals.create!({ team_slug: teams(:team_a).slug, points: 6,
+                         scoring_type: "touchdown", scorer_name: "Josh Allen" }.merge(attrs))
+  end
+
+  # ── THE SCORER REVEAL ─────────────────────────────────────────────────────
+  #
+  # The card the focus panel swaps its events list for. What this pins is the
+  # STATE the animation reads from — the hooks, and which tiles get one — since
+  # the motion itself is the operator's call at the QA stop.
+
+  test "the hero tile carries a scorer card, hidden at rest" do
+    score!(@played)
+    get_live
+
+    assert_select "[data-role=scorer-card]" do |cards|
+      assert cards.any?, "the focus tile should carry a card"
+      cards.each do |card|
+        assert_equal "true", card["aria-hidden"],
+          "the card must be hidden until a score reveals it"
+      end
+    end
+  end
+
+  # The card is EMPTY on the server. The tile is re-rendered by every broadcast,
+  # so a card holding the last score would flash on screen for one frame each
+  # time some other game scored.
+  test "the card ships empty, not pre-filled with the latest score" do
+    score!(@played)
+    get_live
+
+    assert_select "[data-role=scorer-name]" do |slots|
+      slots.each { |slot| assert_equal "", slot.text.strip, "the card must not name a scorer server-side" }
+    end
+    assert_select "[data-role=scorer-card] img[src]", { count: 0 },
+      "no headshot should be committed to the markup"
+  end
+
+  test "the card lives inside the events frame, so it can take the list's place" do
+    score!(@played)
+    get_live
+
+    assert_select "[data-role=event-feed-frame] [data-role=scorer-card]", { minimum: 1 },
+      "the card must be a child of the frame — that is what lets one class swap both"
+  end
+
+  test "every slot the script writes into is present" do
+    score!(@played)
+    get_live
+
+    # A missing slot would throw inside paintScorerCard and wedge the chain, the
+    # same way a deleted helper once did to flushChain.
+    %w[scorer-headshot scorer-initials scorer-headline scorer-name
+       scorer-detail scorer-location scorer-mascot].each do |role|
+      assert_select "[data-role=scorer-card] [data-role=#{role}]", { minimum: 1 },
+        "paintScorerCard writes into [data-role=#{role}]"
+    end
+  end
+
+  # A game with no scores has no events rail, and the card lives in the rail. The
+  # first touchdown of a game therefore arrives before its own container — the
+  # page re-applies the reveal after the broadcast, which is what makes that
+  # work, and this pins the server half of it.
+  test "a game with no scores yet renders no rail and no card" do
+    assert_empty @upcoming.goals
+    get_live
+
+    assert_select "[data-focus-slug=?] [data-role=scorer-card]", @upcoming.slug, count: 0
+  end
+
+
+  # ── THE WHEEL ─────────────────────────────────────────────────────────────
+
+  # Two card panes, not one. A single card repainted in place made the second
+  # event of a chain jump — the content swapped under a pane that never moved.
+  # Two panes give the next event somewhere to be built off screen.
+  test "the rail carries a track with a list pane and TWO card panes" do
+    score!(@played)
+    get_live
+
+    assert_select "[data-role=event-feed-frame] .tt-event-track", { minimum: 1 },
+      "the panes ride one track — that is what makes the swap a roll"
+    assert_select "[data-role=event-feed-frame] [data-role=scorer-pane]", count: 2
+    assert_select "[data-role=scorer-pane][data-pane=a]", { minimum: 1 }
+    assert_select "[data-role=scorer-pane][data-pane=b]", { minimum: 1 }
+  end
+
+  # The points chip was dropped deliberately: the banner already shouts "+6",
+  # and the card spent width on the one fact a reader can also read off the
+  # score beside it.
+  test "the card carries no points chip" do
+    score!(@played)
+    get_live
+
+    assert_select "[data-role=scorer-card] [data-role=scorer-points]", count: 0
+  end
+
+  # The banner is SHARED with the league board, whose feed carries no scorer. So
+  # it keeps both slots: the avatar the contest page fills, and the points chip
+  # the league board still falls back to. Dropping the chip outright would have
+  # taken two league specs with it.
+  test "the shared banner keeps an avatar slot AND the points fallback" do
+    get_live
+
+    assert_select "#nfl-score-banner #nfl-score-avatar", count: 1
+    assert_select "#nfl-score-banner #nfl-score-points", count: 1
+  end
+
+  # ── THE BANNER'S SHARED SLOTS ─────────────────────────────────────────────
+  #
+  # The scoring banner and the rank summary are the SAME element, repainted.
+  # That sharing is deliberate and free, but it has now produced three bugs from
+  # state surviving a repaint — the latest being the rank summary inheriting the
+  # touchdown scorer's headshot for its full six seconds, because
+  # paintRankBanner repainted four slots and the diff had made it five.
+  #
+  # A render test cannot run the repaint, so it pins the CONTRACT the repaint has
+  # to honour: the script must clear every slot it does not own, and the script
+  # must be the only thing that fills them.
+  test "the banner ships with every slot empty" do
+    get_live
+
+    %w[nfl-score-emoji nfl-score-label nfl-score-team nfl-score-points nfl-score-line].each do |id|
+      assert_select "##{id}" do |els|
+        assert_equal "", els.first.text.strip, "#{id} must ship empty — the script owns it"
+      end
+    end
+    assert_select "#nfl-score-avatar[src]", { count: 0 },
+      "the banner's avatar must ship with no source"
+  end
+
+  # Every slot paintRankBanner has to account for. If a sixth is added to the
+  # banner and not to that function, this list is where the omission shows.
+  test "the banner has exactly the five slots the summary must repaint" do
+    get_live
+
+    %w[nfl-score-emoji nfl-score-label nfl-score-team nfl-score-points nfl-score-avatar].each do |id|
+      assert_select "#nfl-score-banner ##{id}", { count: 1 },
+        "paintRankBanner must account for ##{id}"
+    end
+  end
+
+  # The avatar ships hidden: an <img> with no src that is not hidden renders as a
+  # broken-image glyph in the banner's own layout.
+  test "the banner avatar ships hidden" do
+    get_live
+
+    assert_select "#nfl-score-avatar" do |els|
+      assert_includes els.first["class"].to_s.split, "hidden"
+    end
+  end
 end

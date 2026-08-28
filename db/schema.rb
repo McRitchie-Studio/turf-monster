@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_28_061500) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_28_160000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -314,8 +314,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_28_061500) do
     t.string "external_id"
     t.string "game_slug", null: false
     t.integer "minute"
+    t.string "play_description"
     t.string "player_slug"
     t.integer "points", default: 1, null: false
+    t.string "scorer_name"
+    t.string "scorer_slug"
     t.string "scoring_type"
     t.string "slug", null: false
     t.string "team_slug", null: false
@@ -323,6 +326,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_28_061500) do
     t.index ["external_id"], name: "index_goals_on_external_id_when_present", unique: true, where: "(external_id IS NOT NULL)"
     t.index ["game_slug"], name: "index_goals_on_game_slug"
     t.index ["player_slug"], name: "index_goals_on_player_slug"
+    t.index ["scorer_slug"], name: "index_goals_on_scorer_slug"
     t.index ["slug"], name: "index_goals_on_slug", unique: true
     t.index ["team_slug"], name: "index_goals_on_team_slug"
   end

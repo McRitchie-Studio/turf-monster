@@ -366,9 +366,15 @@ module Nfl
         # propagate to every SlateMatchup, re-score every open contest, and
         # broadcast to both live pages. Nothing in this file has to do any of
         # that by hand — that pipeline already existed.
+        # `scorer_name` is what the feed said; `scorer_slug` is that name
+        # resolved to a roster athlete, and is legitimately nil when we hold no
+        # record for them. Resolved HERE, once, rather than on every render of a
+        # row whose scorer never changes.
         game.goals.create!(
           team_slug: team.slug, points: play.points,
-          scoring_type: play.scoring_type, external_id: play.external_id
+          scoring_type: play.scoring_type, external_id: play.external_id,
+          scorer_name: play.scorer, scorer_slug: Goal.resolve_scorer_slug(play.scorer),
+          play_description: play.description
         )
 
         @changes << change_for(game.reload, "score", team: team, points: play.points,
