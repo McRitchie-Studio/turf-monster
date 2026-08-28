@@ -1,62 +1,79 @@
-<%# ONE GAME, SHRUNK TO A BUTTON. Locals: game (Game), picked_slugs, focus_slug.
+<%# ONE GAME, ON ONE LINE. Locals: game (Game), picked_slugs.
 
-    The strip above the two columns has a different job from the tile below it:
-    the tile is what you WATCH, the strip is how you CHOOSE. So this is not the
-    tile at a smaller font — it drops the city, the kickoff line and the scoring
-    plays, and keeps only what a glance needs to pick a game out of sixteen: the
-    two teams' colours, their abbreviations, the score, and whether it is live.
+    Reads as a scoreboard line — `17 JAX / LAC 28` — with the SCORES on the
+    outside edges and the two teams meeting in the middle. That is the shape a
+    reader already knows from a TV bug or a ticker, so a strip of sixteen of
+    them scans without being studied.
+
+    It replaced a stacked two-row miniature of the tile below. Stacking is right
+    for the tile, which has room for a mascot, a city and a scoring feed; at
+    152px it just made the chip three rows tall for the same two numbers.
+
+    The strip's job is CHOOSING, not watching, so everything the tile says
+    better is gone: no city, no mascot, no scoring plays, and no emoji — the
+    team's own colours carry identity at this size, and the full treatment is
+    one click away in the panel below.
 
     IT WEARS THE SAME ANIMATION HOOKS AS live/_game_tile — data-game-slug,
     data-team-slug, data-role="score", .nfl-row-wash, .nfl-rail, .nfl-sweep — on
     purpose. A score lands once and lights BOTH the chip and the focus tile,
-    because the page's script queries all matching rows rather than the first.
-    If you add a hook there, add it here. %>
+    because the page's script queries every match rather than the first. If you
+    add a hook there, add it here. %>
 <% home = game.home_team %>
 <% away = game.away_team %>
+<% halves = [[away, game.away_score, :away], [home, game.home_score, :home]] %>
 <button type="button"
         data-game-slug="<%= game.slug %>"
         data-test="live-game-chip"
         @click="focus = '<%= game.slug %>'"
         :class="focus === '<%= game.slug %>' ? 'tt-chip-focused' : ''"
-        class="tt-chip card p-0 w-[152px] text-left overflow-hidden transition"
+        class="tt-chip card p-0 w-[168px] text-left overflow-hidden transition"
         :aria-pressed="focus === '<%= game.slug %>' ? 'true' : 'false'"
-        aria-label="Show <%= away&.short_name || game.away_team_slug %> at <%= home&.short_name || game.home_team_slug %>">
-  <% [[away, game.away_score], [home, game.home_score]].each_with_index do |(team, score), index| %>
-    <% palette = team_card_palette(team) %>
-    <% field = normalize_hex(team&.card_background) || "#3a3f4b" %>
-    <% picked = Array(picked_slugs).include?(team&.slug) %>
-    <div class="relative flex items-center gap-1.5 px-2 py-1 overflow-hidden<%= " nfl-row-picked" if picked %>"
-         data-team-slug="<%= team&.slug %>"
-         data-role="team-row"
-         data-picked="<%= picked ? 1 : 0 %>"
-         style="background: <%= palette[:gradient] %>;
-                --nfl-team: <%= field %>;
-                --nfl-team-ink: <%= palette[:accent] %>;
-                <%= "border-bottom: 1px solid #{palette[:divider]};" if index.zero? %>">
-      <span class="nfl-row-wash absolute inset-0 pointer-events-none opacity-0"
-            style="background: <%= palette[:accent] %>"></span>
-      <span class="nfl-sweep absolute inset-y-0 left-0 pointer-events-none opacity-0"
-            style="width: 34%;
-                   background: linear-gradient(90deg, transparent, <%= palette[:accent] %>, transparent)"></span>
-      <span class="nfl-rail relative w-0.5 h-4 rounded-full flex-shrink-0"
-            style="background: <%= palette[:accent] %>"></span>
-      <span class="relative text-xs leading-none flex-shrink-0"><%= team&.emoji %></span>
-      <span class="relative min-w-0 flex-1 text-[11px] font-extrabold truncate"
-            style="color: <%= palette[:accent] %>; text-shadow: <%= palette[:mascot_shadow] %>">
-        <%= team&.short_name || team&.mascot || team&.name %>
-      </span>
-      <%# Same rule as the tile: no inline colour on the score, so the hot state
-          can repaint it through a stylesheet rule. %>
-      <span class="relative text-sm font-extrabold tabular-nums"
-            style="--nfl-team-fg: <%= palette[:fg] %>"
-            data-role="score"><%= score.to_i %></span>
-    </div>
-  <% end %>
-  <%# ONE FACT PER CHIP, not two. The tile below shows the badge AND the feed's
-      own detail because it has the width for both; at 152px a scheduled game
-      printed "FRI 11:00 PM" over "8/28 - 7:00 PM EDT" and wrapped to two lines.
-      So the detail is kept only where it says something the badge cannot — the
-      game clock on a live game — and a scheduled game shows its kickoff alone. %>
+        aria-label="<%= away&.short_name || game.away_team_slug %> <%= game.away_score.to_i %>, <%= home&.short_name || game.home_team_slug %> <%= game.home_score.to_i %>">
+  <div class="flex items-stretch">
+    <% halves.each do |team, score, side| %>
+      <% palette = team_card_palette(team) %>
+      <% field = normalize_hex(team&.card_background) || "#3a3f4b" %>
+      <% picked = Array(picked_slugs).include?(team&.slug) %>
+      <%# The two halves MIRROR each other: the away score sits hard left, the
+          home score hard right, and the abbreviations meet at the slash. %>
+      <div class="relative flex-1 min-w-0 flex items-center gap-1 px-1.5 py-1 overflow-hidden<%= " nfl-row-picked" if picked %><%= " flex-row-reverse" if side == :home %>"
+           data-team-slug="<%= team&.slug %>"
+           data-role="team-row"
+           data-picked="<%= picked ? 1 : 0 %>"
+           style="background: <%= palette[:gradient] %>;
+                  --nfl-team: <%= field %>;
+                  --nfl-team-ink: <%= palette[:accent] %>;">
+        <span class="nfl-row-wash absolute inset-0 pointer-events-none opacity-0"
+              style="background: <%= palette[:accent] %>"></span>
+        <span class="nfl-sweep absolute inset-y-0 left-0 pointer-events-none opacity-0"
+              style="width: 45%;
+                     background: linear-gradient(90deg, transparent, <%= palette[:accent] %>, transparent)"></span>
+        <%# The rail rides the OUTER edge of each half, so the pair frames the
+            line rather than both leaning left. %>
+        <span class="nfl-rail relative w-0.5 h-3.5 rounded-full flex-shrink-0"
+              style="background: <%= palette[:accent] %>"></span>
+        <%# No inline colour on the score — an inline style beats a stylesheet
+            rule, and the hot state could then never repaint it. %>
+        <span class="relative text-sm font-extrabold tabular-nums flex-shrink-0"
+              style="--nfl-team-fg: <%= palette[:fg] %>"
+              data-role="score"><%= score.to_i %></span>
+        <span class="relative min-w-0 flex-1 text-[11px] font-extrabold truncate<%= " text-right" if side == :home %>"
+              style="color: <%= palette[:accent] %>; text-shadow: <%= palette[:mascot_shadow] %>">
+          <%= team&.short_name || team&.mascot || team&.name %>
+        </span>
+      </div>
+      <% if side == :away %>
+        <span class="self-stretch flex items-center px-0.5 text-[10px] font-bold text-muted bg-surface-alt/70">/</span>
+      <% end %>
+    <% end %>
+  </div>
+
+  <%# ONE FACT, not two. The tile below shows the badge AND the feed's own
+      detail because it has the width for both; at this size a scheduled game
+      printed "FRI 11:00 PM" over "8/28 - 7:00 PM EDT" and wrapped. So the
+      detail is kept only where it says something the badge cannot — the game
+      clock on a live game — and a scheduled game shows its kickoff alone. %>
   <div class="px-2 py-0.5 bg-surface-alt/60 flex items-center justify-between gap-1 whitespace-nowrap">
     <% if game.live? %>
       <span class="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-red-400 flex-shrink-0">
