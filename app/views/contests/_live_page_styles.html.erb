@@ -1,0 +1,111 @@
+<%# WHAT THIS PAGE DOES WHEN IT MOVES — the strip, and the ranking.
+
+    Everything here answers one complaint about the page as it was: the board
+    re-ranked correctly and told you nothing about it. Contest::LiveBroadcast
+    replaces the whole list on every score, so rows teleported into their new
+    order between one blink and the next. Correct, and unreadable — you could
+    watch your entry pass three others and never see it happen.
+
+    Live page only. The show page renders the same partial and never loads this,
+    because none of it has anything to say about a board that is not moving. %>
+<style>
+  <%#── THE ROW ────────────────────────────────────────────────────────────
+     The transform is written by the script (a FLIP: put the row back where it
+     used to be, then let it travel to where it now is). All this declares is
+     that the row is a thing that moves, so the browser can promote it. %>
+  .tt-lb-row { will-change: transform; }
+
+  <%#── YOUR ENTRY ─────────────────────────────────────────────────────────
+     Not a colour swap — the row already spends its colours on rank, prize and
+     picks. A left-edge post in the CTA colour, which no other state on this
+     board uses, so "mine" never has to compete with "first" or "paid". %>
+  .tt-lb-mine {
+    box-shadow: inset 3px 0 0 0 var(--color-cta, #22c55e);
+  }
+
+  <%#── MOVEMENT ───────────────────────────────────────────────────────────
+     Written under the rank number, and deliberately absolute: a badge that took
+     part in layout would change every row's height the moment the board moved,
+     which is the one instant the reader is trying to follow a row with their
+     eyes. Empty until the script has TWO renders to compare. %>
+  .tt-rank-move { transition: opacity .4s ease; }
+  .tt-move-up   { color: #4ade80; }
+  .tt-move-down { color: #f87171; }
+
+  <%# THE WASH — which way a row just went, in the one place the reader is
+      already looking: the row itself. The badge under the place says by how
+      much; this says up or down at a glance, across a board of ten, without
+      reading a single number.
+
+      Painted by ::after rather than background-color. The leading row carries an
+      inline `background:` gradient, and an inline shorthand beats a class — so a
+      background-color rule would have washed every row on the board EXCEPT the
+      one in first place, which is the row a lead change most needs to mark.
+
+      Ten seconds, easing out the whole way, so it is unmistakable when it lands
+      and gone before the next score. %>
+  @keyframes ttRowFlash {
+    0%   { opacity: 1; }
+    55%  { opacity: .6; }
+    100% { opacity: 0; }
+  }
+  .tt-lb-row { position: relative; }
+  .tt-lb-row::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    border-radius: inherit; opacity: 0;
+  }
+  .tt-row-up::after,
+  .tt-row-down::after { animation: ttRowFlash 10s ease-out forwards; animation-delay: inherit; }
+  .tt-row-up::after   { background: rgba(74, 222, 128, 0.22); }
+  .tt-row-down::after { background: rgba(248, 113, 113, 0.22); }
+
+  <%#── THE SCORE ──────────────────────────────────────────────────────────
+     Same idea as the league board's hot score, in this board's idiom: the
+     number swells as it changes, then stays lit while the play is still recent
+     so a glance answers "what just moved?" without having watched it move. %>
+  @keyframes ttScorePop {
+    0%   { transform: scale(1); }
+    35%  { transform: scale(1.45); }
+    70%  { transform: scale(.97); }
+    100% { transform: scale(1); }
+  }
+  .tt-score-pop { animation: ttScorePop 620ms cubic-bezier(.2,.9,.3,1.4) both; display: inline-block; }
+  [data-role="entry-score"] { transition: color .7s ease, text-shadow .7s ease; }
+  .tt-score-hot {
+    color: #ffffff;
+    text-shadow: 0 0 16px var(--color-cta, #22c55e), 0 0 5px var(--color-cta, #22c55e);
+  }
+
+  <%#── THE STRIP ──────────────────────────────────────────────────────────
+     Sixteen chips, one of which is the game being watched. The focused chip is
+     marked in ITS OWN TWO TEAM COLOURS, using the engine's .studio-team-glow —
+     the ring the game tiles already wear when they score. A border in the app's
+     green said "selected" in a colour belonging to nobody; the ring says it in
+     the colours of the game you chose.
+
+     Opacity is the only thing set here. The two hues are inline per chip (they
+     differ every chip), and .studio-team-glow carries its own 0.4s opacity
+     transition — so this one declaration lights the new chip AND fades the old
+     one as the focus moves. %>
+  .tt-chip { --studio-team-glow-opacity: 0; }
+  .tt-chip:hover { transform: translateY(-1px); }
+  .tt-chip-focused { --studio-team-glow-opacity: 1; }
+  <%#Keyboard parity: the strip is a row of buttons and it has to be usable from
+     the keyboard, which means the focus ring must be visible against sixteen
+     different team fields. %>
+  .tt-chip:focus-visible {
+    outline: 2px solid var(--color-cta, #22c55e);
+    outline-offset: 2px;
+  }
+
+  <%#The system setting wins. The board still re-ranks, the badge still says
+     which way and by how much, the score still lights — they just stop moving,
+     which is the distinction the preference actually asks for. %>
+  @media (prefers-reduced-motion: reduce) {
+    .tt-lb-row    { transition: none !important; transform: none !important; }
+    .tt-score-pop { animation: none !important; }
+    .tt-chip:hover { transform: none; }
+    <%# The wash still says which way the row went; it simply stops fading. %>
+    .tt-row-up::after, .tt-row-down::after { animation: none !important; opacity: .6; }
+  }
+</style>

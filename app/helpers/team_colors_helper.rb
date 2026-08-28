@@ -61,6 +61,36 @@ module TeamColorsHelper
     }
   end
 
+  # THE PICK PILL: the team's own dark, wearing the team's own accent.
+  #
+  # `glow` is the value, not `light` and not `mascot` — it is "the team's extra
+  # brand colour where it curates one, falling back to the light", which is
+  # exactly the distinction the pill needs. Atlanta curates no alt and falls to
+  # its red; Tampa Bay curates ORANGE, and its red-on-charcoal is the muddy pair
+  # the alt exists to replace. Both come out as the colour a fan would name.
+  #
+  # LEGIBILITY IS THE HALO, NOT A DIFFERENT COLOUR. An earlier cut measured the
+  # contrast and swapped anything under WCAG AA for white, which is a defensible
+  # rule and the wrong one here: it turned six of the pills white and threw away
+  # the one thing the pill is for. This app already solved that problem — the
+  # mascot on every team card wears its accent over `mascot_shadow`, which is how
+  # Buffalo's red-on-blue (1.88:1 unaided) is readable on the contest board. The
+  # pill does the same, so it stays legible AND stays the team's.
+  #
+  # `shade` is the team's LIGHT lifting the bottom of the pill — an inset glow,
+  # not a second background. A flat team-dark rectangle is legible and lifeless;
+  # a shade of the team's own light gives it depth without introducing a colour
+  # from outside the team, and stays under the text rather than competing with
+  # it. Held low (0.4) because this is a 78px pill: any more and the multiplier
+  # starts sitting in fog.
+  def team_pill_palette(team)
+    bg    = normalize_hex(team&.color_dark) || normalize_hex(team&.card_background) || FALLBACK_PRIMARY
+    fg    = team_card_palette(team)[:glow]
+    light = normalize_hex(team&.color_light) || fg
+
+    { bg: bg, fg: fg, shade: rgba(light, 0.4), shadow: mascot_shadow(fg) }
+  end
+
   # A subtle halo that keeps the mascot legible on the team gradient: a light
   # halo behind an essentially-black mascot, a dark halo behind everything else.
   # Held at 0.5 alpha so it reads as a soft glow, not a hard sticker outline.

@@ -8,15 +8,29 @@ class Contest
   # request that recorded the goal, nor block the sibling broadcasts — hence each
   # is individually rescued (same posture as Message#broadcast_new_message).
   #
-  # Stream: [contest, :live]. Targets (update = inner HTML so the wrapper div +
-  # its id survive every refresh and stay re-updatable):
+  # Stream: [contest, :live]. FOUR targets (update = inner HTML so the wrapper
+  # div + its id survive every refresh and stay re-updatable):
   #   contest_<id>_leaderboard  (update)  — re-ranked leaderboard
-  #   contest_<id>_games        (update)  — active/upcoming/completed games
+  #   contest_<id>_games        (update)  — the strip: every game as a chip
+  #   contest_<id>_focus        (update)  — the focused game at hero size. Its
+  #                                         OWN target because the strip runs
+  #                                         across the top while the focus panel
+  #                                         sits above chat, and one target
+  #                                         cannot span both.
   #   contest_<id>_goal_feed    (append)  — a data-only node the live page's
-  #                                         MutationObserver turns into a toast
+  #                                         MutationObserver turns into a QUEUED
+  #                                         scoring banner, not a toast: events
+  #                                         chain so a flurry reads in order.
+  #                                         See contests/_live_script.
+  #
+  # THE COUNT IS LOAD-BEARING and Contest::LiveBroadcastTest asserts it. Each
+  # broadcast below is individually rescued, so a partial that raises in
+  # broadcast context never arrives and fails nothing — the count is the only
+  # thing that notices.
   class LiveBroadcast
     class << self
-      # An admin recorded a goal. Toast everyone, then refresh leaderboard + games.
+      # An admin recorded a goal. Announce it, then refresh leaderboard, strip
+      # and focus panel.
       def goal_scored(goal)
         game = goal.game
         return unless game
@@ -25,11 +39,13 @@ class Contest
           append_goal_feed(contest, goal, game)
           replace_leaderboard(contest)
           replace_games(contest)
+          replace_focus(contest)
         end
       end
 
       # Score changed without a new goal (goal removed) or a game was marked
-      # final. Refresh leaderboard + games; on completion, a neutral FINAL toast.
+      # final. Refresh leaderboard, strip and focus; on completion, a neutral
+      # FINAL banner.
       def score_changed(game, event: :goal_removed)
         return unless game
 
@@ -37,6 +53,7 @@ class Contest
           append_final_feed(contest, game) if event == :game_completed
           replace_leaderboard(contest)
           replace_games(contest)
+          replace_focus(contest)
         end
       end
 
@@ -84,12 +101,33 @@ class Contest
         ErrorLog.capture!(e)
       end
 
+      # THE FOCUS PANEL IS ITS OWN TARGET, because it is not next to the strip in
+      # the layout — the strip runs across the top, the focused game sits in the
+      # left column above chat, and one stream target cannot span both. Same
+      # locals as the strip: which of the sixteen tiles is visible is decided by
+      # Alpine on the client, from state this payload never sees.
+      def replace_focus(contest)
+        Turbo::StreamsChannel.broadcast_update_to(
+          [contest, :live],
+          target:  "contest_#{contest.id}_focus",
+          partial: "contests/live_focus",
+          locals:  contest.games_by_phase.merge(contest: contest)
+        )
+      rescue => e
+        ErrorLog.capture!(e)
+      end
+
       def append_goal_feed(contest, goal, game)
         Turbo::StreamsChannel.broadcast_append_to(
           [contest, :live],
           target:  "contest_#{contest.id}_goal_feed",
           partial: "contests/goal_feed_item",
-          locals:  { event: "goal", team: goal.team, player: goal.player, game: game }
+          # `goal` rides along now, not just its team: the live page animates the
+          # scoring row per scoring TYPE (a touchdown takes the whole card, an
+          # extra point is deliberately understated), and the type lives on the
+          # Goal. Without it every score would fall back to the touchdown motion
+          # and the vocabulary would say nothing.
+          locals:  { event: "goal", goal: goal, team: goal.team, player: goal.player, game: game }
         )
       rescue => e
         ErrorLog.capture!(e)
@@ -100,7 +138,7 @@ class Contest
           [contest, :live],
           target:  "contest_#{contest.id}_goal_feed",
           partial: "contests/goal_feed_item",
-          locals:  { event: "final", team: nil, player: nil, game: game }
+          locals:  { event: "final", goal: nil, team: nil, player: nil, game: game }
         )
       rescue => e
         ErrorLog.capture!(e)

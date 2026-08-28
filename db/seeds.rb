@@ -729,6 +729,9 @@ if Rails.env.development?
   end
 end
 
+# ─── NFL athletes (offline demo set for /nfl-players) ────────
+load Rails.root.join("db/seeds/nfl_athletes_demo.rb")
+
 # ─── Landing pages (marketing funnels) ───────────────────────
 load Rails.root.join("db/seeds/landing_pages.rb")
 

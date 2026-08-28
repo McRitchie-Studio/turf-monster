@@ -18,11 +18,17 @@ class Contest::LiveBroadcastTest < ActiveSupport::TestCase
   test "goal_scored fires leaderboard + games + goal-feed broadcasts on the contest's live stream" do
     goal = Goal.new(game_slug: @game.slug, team_slug: "team-a")
     # Call the broadcaster directly (deterministic — doesn't depend on
-    # after_create_commit firing under transactional fixtures). 3 broadcasts:
-    # goal-feed append + leaderboard update + games update. If any partial fails
-    # to render in broadcast context, that broadcast is rescued away and the
-    # count drops below 3 — so this also guards the ivar→locals refactor.
-    assert_turbo_stream_broadcasts([@contest, :live], count: 3) do
+    # after_create_commit firing under transactional fixtures). 4 broadcasts:
+    # goal-feed append + leaderboard + games strip + focus panel. The focus panel
+    # is its own target because it is not adjacent to the strip in the layout —
+    # the strip runs across the top, the focused game sits above chat in the left
+    # column — and one stream target cannot span both.
+    #
+    # THE COUNT IS THE POINT. Every one of these broadcasts is individually
+    # rescued, so a partial that raises in broadcast context (no controller
+    # ivars, no current_user) does not fail loudly — it just never arrives, and
+    # the number here is the only thing that notices.
+    assert_turbo_stream_broadcasts([@contest, :live], count: 4) do
       Contest::LiveBroadcast.goal_scored(goal)
     end
   end
@@ -33,14 +39,14 @@ class Contest::LiveBroadcastTest < ActiveSupport::TestCase
     assert_not_includes Contest::LiveBroadcast.affected_contests(@game), @contest
   end
 
-  test "score_changed game_completed fires the FINAL feed + leaderboard + games" do
-    assert_turbo_stream_broadcasts([@contest, :live], count: 3) do
+  test "score_changed game_completed fires the FINAL feed + leaderboard + games + focus" do
+    assert_turbo_stream_broadcasts([@contest, :live], count: 4) do
       Contest::LiveBroadcast.score_changed(@game, event: :game_completed)
     end
   end
 
-  test "score_changed goal_removed fires leaderboard + games (no toast feed)" do
-    assert_turbo_stream_broadcasts([@contest, :live], count: 2) do
+  test "score_changed goal_removed fires leaderboard + games + focus (no toast feed)" do
+    assert_turbo_stream_broadcasts([@contest, :live], count: 3) do
       Contest::LiveBroadcast.score_changed(@game, event: :goal_removed)
     end
   end

@@ -1,24 +1,32 @@
-<%# Games for the live contest page. Locals: active / upcoming / completed
-    (Game[]) + contest. ONE single row at the top, ordered active → upcoming →
-    completed; each card self-labels its phase (LIVE / kickoff time / FINAL).
-    gamesCarousel (defined inline in live.html.erb) dwells 10s, smooth-scrolls
-    one full content-width so it lands back on an identical first row, then
-    dwells again — only when the row overflows. Rendered inside
-    #contest_<id>_games (owned by live.html.erb), which the broadcaster
-    updates on every score change, so this is pure content (no outer id). %>
-<% phased = active.map { |g| [g, :active] } +
-            upcoming.map { |g| [g, :upcoming] } +
-            completed.map { |g| [g, :completed] } %>
-<section class="mb-8">
-  <h2 class="text-sm font-semibold text-secondary mb-3">Games</h2>
+<%# THE GAME STRIP — every game in the contest, shrunk to a row of buttons.
+    Locals: active / upcoming / completed (Game[]) + contest.
 
+    Two jobs, and only two. It shows the whole slate at a glance, and it is how
+    the reader CHOOSES which game the panel below shows. Ordered active →
+    upcoming → completed so whatever is being played now is what you land on.
+
+    Rendered inside #contest_<id>_games, which Contest::LiveBroadcast updates on
+    every score, so this is pure content (no outer id). The FOCUS lives in Alpine
+    state declared on a wrapper outside that target — a broadcast replaces these
+    chips, and a selection stored among them would be forgotten every time
+    anyone scored. %>
+<%
+  phased = active + upcoming + completed
+%>
+<section class="mb-5">
   <% if phased.any? %>
-    <div x-data="gamesCarousel()">
-      <div x-ref="viewport" class="overflow-hidden">
-        <div x-ref="track" class="flex gap-3 will-change-transform">
-          <% phased.each do |game, phase| %>
-            <div class="flex-shrink-0 basis-[calc((100%-0.75rem)/2)] sm:basis-[calc((100%-1.5rem)/3)] lg:basis-[calc((100%-2.25rem)/4)]">
-              <%= render "contests/live_game_card", game: game, phase: phase %>
+    <%# Hover pauses the rotation. A strip that both moves and takes clicks is a
+        strip that moves the target out from under the pointer; the carousel
+        stops the moment you reach for it. %>
+    <div x-data="gamesCarousel()" @mouseenter="pause()" @mouseleave="resume()">
+      <%# py-2 is for the RING, not for looks. The selected chip's glow paints
+          outside its own box, and this viewport clips — without the padding the
+          ring is sliced flat along the top and bottom of the strip. %>
+      <div x-ref="viewport" class="overflow-hidden py-2">
+        <div x-ref="track" class="flex gap-2 items-stretch will-change-transform">
+          <% phased.each do |game| %>
+            <div class="flex-shrink-0">
+              <%= render "contests/live_game_chip", game: game %>
             </div>
           <% end %>
         </div>

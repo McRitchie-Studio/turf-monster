@@ -479,6 +479,7 @@ class ContestsController < ApplicationController
 
     load_contest_board_data
     @games = @contest.games_by_phase
+    @focus_slug = default_focus_game_slug(@games)
   end
 
   def enter
@@ -2216,6 +2217,18 @@ class ContestsController < ApplicationController
     end
     @cart_entry = @contest.entries.cart.find_by(user: current_user) if logged_in?
     @pending_recovery_ptx = find_pending_recovery_ptx
+  end
+
+  # Which game the live page opens on: whatever is being played, else whatever
+  # is next, else the last one finished. Same order the strip is laid out in, so
+  # the page opens on the chip at the far left rather than somewhere in the
+  # middle of a row the reader has to go looking through.
+  #
+  # After first paint the choice belongs to the reader (Alpine `focus`, declared
+  # outside every broadcast target so a score cannot reset it). This only picks
+  # the starting one.
+  def default_focus_game_slug(games)
+    (games[:active].first || games[:upcoming].first || games[:completed].first)&.slug
   end
 
   # World Cup Survivor uses rounds + off-chain picks, not slate matchups.

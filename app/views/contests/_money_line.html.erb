@@ -1,0 +1,23 @@
+<%# THE CUT LINE — where the prize money stops. Locals: contest, collapsed.
+
+    Mid-contest a leaderboard is a list of numbers going up, and the one fact it
+    never states is the only one that decides whether a score matters: is this
+    entry still being paid? The per-row prize labels answer it for the rows that
+    ARE paid and say nothing at all about the row directly beneath them, which is
+    the row whose owner most needs to know.
+
+    Drawn once, between the last paying rank and the first that pays nothing, so
+    the two sides of it read as different places to be.
+
+    `collapsed` mirrors the row above it into the collapsed tail: on a format that
+    pays nine (large), the cut falls below the eight-row fold, and a divider that
+    stayed visible while its neighbours were hidden would point at nothing. %>
+<div <% if collapsed %>x-show="expanded" x-cloak <% end %>class="flex items-center gap-3 px-1 py-1"
+     data-test="leaderboard-money-line" role="separator"
+     aria-label="Below this line, entries are out of the money">
+  <span class="h-px flex-1 bg-gradient-to-r from-transparent to-primary/60"></span>
+  <span class="text-[10px] font-bold uppercase tracking-wider text-primary/80 whitespace-nowrap">
+    <%= dollars(contest.payouts.values.sum / 100.0) %> paid above
+  </span>
+  <span class="h-px flex-1 bg-gradient-to-l from-transparent to-primary/60"></span>
+</div>
