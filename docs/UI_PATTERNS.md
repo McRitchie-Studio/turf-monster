@@ -628,8 +628,12 @@ The override used to live in an inline `<style>` block in `_navbar.html.erb` and
 
 When set, the env flag enables two scaffold-only UI elements visible to admins for end-to-end-with-real-money testing without real cost:
 
-- A **`$1 tiny` contest tier** in `Contest::FORMATS` — same payout shape as `tiny`, $1 entry fee. Lets you exercise the full Stripe + entry-token + onchain flow with pocket change.
+- A **`micro` contest tier** in `Contest::FORMATS` — **$1.00 entry, 9 max entries, paying $5 / $2 / $2** ($9.00 guaranteed on $9.00 gross). Surfaces as a card in the Format picker on `/contests/new`, gated by `Contest.selectable_formats` + `AppFlags.test_scaffolding?`. Lets you exercise the full Stripe + entry-token + onchain flow with pocket change.
 - A **`test_trio` token pack** (`StripePurchase::PACKS`) — 3 tokens for $5. Surfaces in the auth modal's `tokens-picker` step as a third option alongside `single` ($19) and `trio` ($49). Gated by `StripePurchase.available_packs` + `AppFlags.test_scaffolding?`.
+
+**The `micro` tier is break-even by design** (operator call, 2026-08-27): a full contest grosses exactly the $9 it guarantees, and a short fill loses money — grading pays only the ranks that exist, so 1 entry pays $5 (-$4), 2 pay $7 (-$5), and 3+ pay the full $9, making three entries the worst case at -$6. It exists to rehearse the money path, not to earn on it. `test/models/contest_test.rb` pins the $0 margin so a later "rounding" edit has to be deliberate.
+
+**Production BOOTS with this flag on** (changed 2026-08-27). `config/initializers/test_scaffolding_guard.rb` used to `raise` on a production boot carrying the flag, which made the `micro` tier unreachable on real production — the one place the operator wanted to rehearse. It now logs at ERROR and reports to Sentry instead, so the state is loud but not fatal. That means production really is selling $1.67-per-token entry tokens while the flag is set: **treat it as a test window and unset it when you are done.**
 
 Unset before public launch — the `$1` tier and `$5/3` pack are not customer-facing offers. Memory ref: `project_turf_test_scaffolding`.
 

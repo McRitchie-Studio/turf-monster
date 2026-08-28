@@ -1,0 +1,32 @@
+# NFL player identities. Loaded by `fixtures :all`, so keep this set small and
+# generic — these hang off the generic team fixtures (team-a / team-b), not off
+# real franchises.
+passer:
+  first_name: Pat
+  last_name: Passer
+  slug: pat-passer
+  athlete: true
+  aliases: []
+
+blocker:
+  first_name: Baker
+  last_name: Blocker
+  slug: baker-blocker
+  athlete: true
+  aliases: []
+
+rusher:
+  first_name: Rhea
+  last_name: Rusher
+  slug: rhea-rusher
+  athlete: true
+  aliases: []
+
+# Carries an alternate spelling so Person.find_by_name's alias strategy has
+# something real to match against.
+suffixed:
+  first_name: Sam
+  last_name: Suffix Jr.
+  slug: sam-suffix-jr
+  athlete: true
+  aliases: ["Sam Suffix"]

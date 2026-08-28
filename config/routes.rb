@@ -326,6 +326,13 @@ Rails.application.routes.draw do
   resources :games, only: [:index]
   get "nfl/team-totals", to: "nfl_team_totals#index", as: :nfl_team_totals
 
+  # NFL player database (Person + Athlete, seeded from nflverse). Distinct from
+  # `players` above, which carries soccer goal-scorer attribution.
+  # The show param is the PERSON slug ("josh-allen"), not the athlete slug
+  # ("josh-allen-athlete"), so the public URL reads as the player's name.
+  get "nfl-players",       to: "nfl_players#index", as: :nfl_players
+  get "nfl-players/:slug", to: "nfl_players#show",  as: :nfl_player
+
   # Entry-time age gate (ENABLE_AGE_GATE) — DOB verification before first entry.
   # ALSO prompted earlier, as a step in the post-auth onboarding chain; this
   # endpoint is unchanged and remains the enforcement point either way.

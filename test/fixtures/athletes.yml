@@ -1,0 +1,53 @@
+# Playing profiles for the people fixtures. Cross-reference IDs are distinct
+# per row: they carry unique indexes, and a shared value would collide on load.
+passer:
+  slug: pat-passer-athlete
+  person_slug: pat-passer
+  sport: football
+  team_slug: team-a
+  position: QB
+  jersey_number: 17
+  height_inches: 77
+  weight_lbs: 237
+  college_name: Test State
+  draft_year: 2018
+  draft_round: 1
+  draft_pick: 7
+  espn_id: "1000001"
+  gsis_id: "00-0000001"
+  espn_headshot_url: https://a.espncdn.com/i/headshots/nfl/players/full/1000001.png
+
+# Same team, later position in ORDERED_POSITIONS — pins roster ordering.
+blocker:
+  slug: baker-blocker-athlete
+  person_slug: baker-blocker
+  sport: football
+  team_slug: team-a
+  position: LT
+  jersey_number: 70
+  height_inches: 78
+  weight_lbs: 315
+  espn_id: "1000002"
+  gsis_id: "00-0000002"
+  espn_headshot_url: https://a.espncdn.com/i/headshots/nfl/players/full/1000002.png
+
+# Different team, so a team filter has something to exclude.
+rusher:
+  slug: rhea-rusher-athlete
+  person_slug: rhea-rusher
+  sport: football
+  team_slug: team-b
+  position: RB
+  jersey_number: 22
+  height_inches: 70
+  weight_lbs: 205
+  espn_id: "1000003"
+  gsis_id: "00-0000003"
+
+# No team and no espn_id — exercises the free-agent path and the initials
+# fallback the card renders when no headshot was ever cached.
+suffixed:
+  slug: sam-suffix-jr-athlete
+  person_slug: sam-suffix-jr
+  sport: football
+  position: WR

@@ -7,6 +7,9 @@
 #
 # Off by default everywhere — including production — unless the operator sets
 # ENABLE_TEST_SCAFFOLDING=true. To disable before launch, unset the env var.
+# Production BOOTS with it on (since 2026-08-27) so the $1 micro tier can be
+# rehearsed on mainnet; the boot logs at ERROR + Sentry rather than raising.
+# See config/initializers/test_scaffolding_guard.rb for what that costs.
 #
 # cdp_ramp? gates the Coinbase CDP Onramp/Offramp integration (buy USDC /
 # cash out via the Coinbase-hosted widget) — routes, controllers, and all UI

@@ -399,7 +399,21 @@
 #     entry it is.
 # Re-derived with bin/e2e-lane-derive --write on the tree AFTER merging accepted
 # (8 commits of it), never hand-incremented.
-total_specs: 205
+#
+# SIXTH COLLISION ON THIS COUNTER. This branch derived 205 from a base of 203;
+# seed-nfl-player-database (PR #481) derived 210 from the SAME base of 203, and
+# the two numbers conflicted here during the review merge. Neither side is right
+# on the merged tree, and NEITHER IS THEIR ARITHMETIC: `210 + 2` and `205 + 7`
+# both look reasonable and both are guesses about a set only the lister can count.
+# Resolved the way the paragraph above prescribes — `bin/e2e-lane-derive --write`
+# run on the MERGED tree, with the number below taken from its output and from
+# neither side of the conflict. Both identities, on the merged tree:
+#   npx playwright test --list                                   -> 212 tests in 56 files
+#   npx playwright test --list --grep "@devnet"                  ->  17 tests in  1 file
+#   npx playwright test --list --grep-invert "@devnet" --project=chromium
+#                                                                -> 195 tests in 55 files
+#   212 - 17 - 4 = 191, and 195 collected - 4 runtime skips = 191   OK agree
+total_specs: 212
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -615,7 +629,13 @@ allowed_skips: 4
 # 203 - 17 - 4 = 182, and 186 collected - 4 runtime skips = 182. Both routes agree.
 # allowed_skips stays 4: had a new spec added a runtime skip the two identities
 # would disagree, and they agree.
-executed: 184
+#
+# Re-derived on THIS merged tree after the sixth collision, alongside total_specs
+# above. Both sides' figures (184 / 189) were correct on their own base and wrong
+# here. allowed_skips stays 4 — it is the one HAND-declared field, and the two
+# identities still agree, which is what proves no new spec brought a runtime skip.
+# 212 - 17 - 4 = 191, and 195 collected - 4 runtime skips = 191. Both routes agree.
+executed: 191
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
