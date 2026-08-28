@@ -176,7 +176,8 @@
               feed's ends: where a play is under one it fades out and says
               "there is more"; where the list is short they cover empty space in
               the colour already there, and are invisible. %>
-          <div class="relative mt-1 flex-1 min-h-0 w-full flex flex-col">
+          <div class="relative mt-1 flex-1 min-h-0 w-full flex flex-col"
+               data-role="event-feed-frame" data-fade-top="0" data-fade-bottom="1">
             <div class="tt-event-feed min-h-0 overflow-y-auto space-y-1 pointer-events-auto"
                  data-test="live-focus-events">
               <% plays.each do |play| %>
@@ -190,10 +191,22 @@
                 </div>
               <% end %>
             </div>
-            <span class="pointer-events-none absolute inset-x-0 top-0 h-5"
-                  style="background: linear-gradient(to bottom, rgba(8, 10, 16, 0.92), rgba(8, 10, 16, 0))"></span>
-            <span class="pointer-events-none absolute inset-x-0 bottom-0 h-7"
-                  style="background: linear-gradient(to top, rgba(8, 10, 16, 0.92), rgba(8, 10, 16, 0))"></span>
+            <%# THE FADES SWELL FROM THE MIDDLE and die at the sides. A linear
+                gradient runs edge to edge, which paints a full-width band with
+                two visible ends — obvious the moment the team behind it is not
+                near-black, which the Dolphins' teal very much is not. A radial
+                ellipse anchored to the edge's centre reaches nothing at the left
+                and right, so what is left reads as the list dissolving rather
+                than as a bar laid over it.
+
+                Each is shown only when there is something in that direction to
+                scroll to; the page's script sets data-fade-top / -bottom on the
+                wrapper. At the top of the list there is no top fade, which is
+                how the list SAYS it is at the top. %>
+            <span class="tt-fade tt-fade-top pointer-events-none absolute inset-x-0 top-0 h-6"
+                  style="background: radial-gradient(ellipse at 50% 0%, rgba(8, 10, 16, 0.95) 0%, rgba(8, 10, 16, 0) 72%)"></span>
+            <span class="tt-fade tt-fade-bottom pointer-events-none absolute inset-x-0 bottom-0 h-8"
+                  style="background: radial-gradient(ellipse at 50% 100%, rgba(8, 10, 16, 0.95) 0%, rgba(8, 10, 16, 0) 72%)"></span>
           </div>
         <% end %>
       </div>

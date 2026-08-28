@@ -164,6 +164,17 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # The banner is the league board's own element, rendered from the same partial.
+  # Its CSS already lived in live/_score_animations, so a page that styled a
+  # banner it had no element for would have looked fine and announced nothing.
+  test "draws the shared scoring banner" do
+    get_live
+
+    assert_select "#nfl-score-overlay #nfl-score-banner", count: 1
+    assert_select "#nfl-score-label", count: 1
+    assert_select "#nfl-score-line", count: 1
+  end
+
   # The cut line sits after the last PAYING rank, not after the last entry —
   # contest :one is a standard format, which pays five.
   test "draws the money line after the last paying rank" do

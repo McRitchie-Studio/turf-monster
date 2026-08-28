@@ -387,5 +387,14 @@ test.describe("Contest live page", () => {
     // script re-applied it: the broadcast sends one payload to every subscriber,
     // so the server's re-render of the leaderboard cannot know whose entry it is.
     await expect(page.locator("[data-role=entry-row].tt-lb-mine")).toHaveCount(1);
+
+    // The banner is raised from the same partial the league board uses, and it
+    // carries the scoring type's own entrance — a touchdown arrives as a
+    // touchdown. Asserted here rather than in a spec of its own so the lane's
+    // executed set is unchanged.
+    const banner = page.locator("#nfl-score-banner");
+    await expect(banner).toBeVisible();
+    await expect(banner).toHaveClass(/nfl-b-td/);
+    await expect(page.locator("#nfl-score-label")).toHaveText(/touchdown/i);
   });
 });

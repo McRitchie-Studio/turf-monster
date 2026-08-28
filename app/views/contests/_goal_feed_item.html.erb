@@ -17,6 +17,11 @@
      data-team-slug="<%= team&.slug %>"
      data-team="<%= team ? (team.short_name.presence || team.name) : "" %>"
      data-team-emoji="<%= team&.emoji %>"
+     data-team-name="<%= team&.name %>"
+     <%# The banner's own field and ink. Same two attributes live/_event_feed_item
+         carries, because the two feeds raise the same banner. %>
+     data-team-bg="<%= team&.card_background %>"
+     data-team-fg="<%= team&.card_mascot %>"
      data-player="<%= player&.name %>"
      <%# The RAW type, not the label — the page keys its per-type animations off
          this, and "2-Point Conversion" is a display string that will change. %>

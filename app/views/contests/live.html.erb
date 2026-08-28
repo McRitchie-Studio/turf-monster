@@ -161,4 +161,8 @@
   <div id="contest_<%= @contest.id %>_announcer" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
 </div>
 
+<%# The same scoring banner the league board raises, from the same partial. It
+    is fixed-position, so it sits outside the page wrapper. %>
+<%= render "live/score_banner" %>
+
 <%= render "contests/live_script", contest: @contest %>

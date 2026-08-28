@@ -32,6 +32,33 @@
   .tt-move-up   { color: #4ade80; }
   .tt-move-down { color: #f87171; }
 
+  <%# THE WASH — which way a row just went, in the one place the reader is
+      already looking: the row itself. The badge under the place says by how
+      much; this says up or down at a glance, across a board of ten, without
+      reading a single number.
+
+      Painted by ::after rather than background-color. The leading row carries an
+      inline `background:` gradient, and an inline shorthand beats a class — so a
+      background-color rule would have washed every row on the board EXCEPT the
+      one in first place, which is the row a lead change most needs to mark.
+
+      Ten seconds, easing out the whole way, so it is unmistakable when it lands
+      and gone before the next score. %>
+  @keyframes ttRowFlash {
+    0%   { opacity: 1; }
+    55%  { opacity: .6; }
+    100% { opacity: 0; }
+  }
+  .tt-lb-row { position: relative; }
+  .tt-lb-row::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    border-radius: inherit; opacity: 0;
+  }
+  .tt-row-up::after,
+  .tt-row-down::after { animation: ttRowFlash 10s ease-out forwards; animation-delay: inherit; }
+  .tt-row-up::after   { background: rgba(74, 222, 128, 0.22); }
+  .tt-row-down::after { background: rgba(248, 113, 113, 0.22); }
+
   <%#── THE SCORE ──────────────────────────────────────────────────────────
      Same idea as the league board's hot score, in this board's idiom: the
      number swells as it changes, then stays lit while the play is still recent
@@ -78,5 +105,7 @@
     .tt-lb-row    { transition: none !important; transform: none !important; }
     .tt-score-pop { animation: none !important; }
     .tt-chip:hover { transform: none; }
+    <%# The wash still says which way the row went; it simply stops fading. %>
+    .tt-row-up::after, .tt-row-down::after { animation: none !important; opacity: .6; }
   }
 </style>

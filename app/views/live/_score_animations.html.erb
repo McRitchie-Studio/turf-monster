@@ -42,6 +42,16 @@
     72%  { transform: translateY(3%); }
     100% { transform: translateY(0); }
   }
+  /* THE STANDING — the contest board's own announcement, in the scoring
+     banner's vocabulary. It arrives differently from every scoring type on
+     purpose: those all drop in from above because a score comes at you, and
+     this one RISES, because it is telling you that you went up. */
+  @keyframes nflBannerRank {
+    0%   { transform: translateY(-120%) scale(.94); opacity: 0; }
+    50%  { transform: translateY(6%)    scale(1.04); opacity: 1; }
+    76%  { transform: translateY(-2%)   scale(.995); }
+    100% { transform: translateY(0)     scale(1); opacity: 1; }
+  }
   /* EXTRA POINT — understated on purpose. It is one point and it should read
      as routine; giving it the touchdown's motion would flatten the vocabulary. */
   @keyframes nflBannerPat {
@@ -67,6 +77,7 @@
   .nfl-b-pat    { animation: nflBannerPat    360ms cubic-bezier(.2,.8,.4,1)   both; }
   .nfl-b-saf    { animation: nflBannerSafety 760ms cubic-bezier(.3,.7,.3,1)   both; }
   .nfl-b-final  { animation: nflBannerPat    420ms ease-out both; }
+  .nfl-b-rank   { animation: nflBannerRank   700ms cubic-bezier(.2,.9,.3,1.35) both; }
   .nfl-b-out    { animation: nflBannerOut    340ms ease-in both; }
 
   /* ── SCORE DIGITS — the same five, echoed on the number itself ──────────
@@ -151,12 +162,15 @@
       they can be the rail's own colour. %>
   .tt-event-feed { scrollbar-width: none; }
   .tt-event-feed::-webkit-scrollbar { display: none; }
+  .tt-fade { opacity: 1; transition: opacity .25s ease; }
+  [data-fade-top="0"]    > .tt-fade-top    { opacity: 0; }
+  [data-fade-bottom="0"] > .tt-fade-bottom { opacity: 0; }
 
   /* Respect the system setting. The board still updates and the score still
      goes bold in the team's colour — it just stops moving, which is the
      distinction the preference actually asks for. */
   @media (prefers-reduced-motion: reduce) {
-    .nfl-b-td, .nfl-b-fg, .nfl-b-2pt, .nfl-b-pat, .nfl-b-saf, .nfl-b-final, .nfl-b-out,
+    .nfl-b-td, .nfl-b-fg, .nfl-b-2pt, .nfl-b-pat, .nfl-b-saf, .nfl-b-final, .nfl-b-rank, .nfl-b-out,
     .nfl-s-td, .nfl-s-fg, .nfl-s-2pt, .nfl-s-pat, .nfl-s-saf,
     .nfl-wash-run, .nfl-rail-run, .nfl-sweep-run, .nfl-shimmer-run::after {
       animation: none !important;
