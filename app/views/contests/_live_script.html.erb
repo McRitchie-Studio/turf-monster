@@ -35,7 +35,6 @@
     var overlay   = document.getElementById('nfl-score-overlay');
     var banner    = document.getElementById('nfl-score-banner');
     var shimmer   = document.getElementById('nfl-score-shimmer');
-    var hideTimer = null;
     if (!feed || feed.dataset.observed) return;   // guard double-attach across Turbo visits
     feed.dataset.observed = '1';
 
