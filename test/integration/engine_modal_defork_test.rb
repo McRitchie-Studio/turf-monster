@@ -11,8 +11,20 @@ require "test_helper"
 # 2026-08-25 (adopt-engine-solana-blocks): two thirds of the Solana success
 # cluster followed. onchain_success and solana_tx_link were byte-identical to
 # the engine blocks in RENDERED markup, so TM's copies are deleted. Still forked:
-# entry_confirmed (kickoff countdown + $store.solanaModal drive) and the modal
-# host (inline cosign-rejected).
+# entry_confirmed (kickoff countdown + $store.solanaModal drive).
+#
+# 2026-08-28 (defork-turf-modal-host): the modal HOST left this list. It was the
+# last structural fork — app/views/studio/modals/_host.html.erb, 518 lines
+# SHADOWING the engine's host, carrying an inline cosign-rejected registration
+# and a per-modal card-width map. Both moved onto studio-engine 0.65.0's seams
+# (window.StudioModals.CARD_WIDTHS via app/views/shared/_modal_card_widths, and
+# app/views/modals/_host_extras) and the fork is deleted.
+#
+# ITS RE-FORK GUARD IS NOT THE `deleted` LIST BELOW. That list matches deleted
+# RENDER CALLS, and `render "studio/modals/host"` is a call this app still makes
+# and must keep making — the engine owns the file now. A re-fork of the host is a
+# FILE reappearing at the shadow path, which nothing on a page can see. It is
+# pinned by resolution in test/views/modal_host_adoption_test.rb instead.
 #
 # These assert the swap at the render boundary — the ENGINE partials render,
 # the removed forks are gone, and the kept Solana forks still resolve their

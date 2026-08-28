@@ -252,17 +252,45 @@ Public marketing page with hero, "How It Works" cards, and USDC claim form. Mint
 
 Modal lifecycle is owned by the studio-engine modal host — `Alpine.store('modals')` — a stack-based store provided by the engine's `studio/modals/_host.html.erb` partial. Local app code consumes the store; do not reimplement.
 
-This app SHADOWS the engine's partial. studio-engine is **non-isolated**, so an app view
-at the same path wins the lookup — and this app ships its own
-`app/views/studio/modals/_host.html.erb`. **A gem bump therefore delivers no host fix at
-all.** Every focus-trap, accessible-name and scroll change made in the engine's host has to
-be PORTED here by hand, and `test/integration/modal_host_focus_contract_test.rb` is what
-holds the port honest — it parses the RENDERED backdrop with `Nokogiri::HTML5` (libxml2
-silently drops Alpine's `@keydown.*` attributes) and asserts the element's own attributes,
-because a substring assertion against the file is satisfied by the host's own JS comments.
+**This app no longer forks the host** (2026-08-28, `defork-turf-modal-host`). It used to:
+studio-engine is **non-isolated**, so an app view at the same path wins the lookup, and this
+app shipped its own `app/views/studio/modals/_host.html.erb` — 518 lines that rendered the
+same markup as the engine's while quietly falling behind its focus and stale-entry guards.
+A gem bump delivered no host fix at all, and nothing on a page could tell the two apart.
+That file is deleted. The engine's host renders, and a gem bump now reaches it.
 
-`studio/modals/_scoped_host` is NOT forked anywhere and DOES propagate from the engine.
-That asymmetry is the whole trap: the same fix reaches one host and not the other.
+**Prove which host renders by RESOLUTION, never by path.** Both files lived at the same
+virtual path, so a `File.read` of a fixed path answers a different question than it appears
+to — which is exactly how the duplication survived. Ask the resolver:
+
+```ruby
+ApplicationController.new.lookup_context.find("host", ["studio/modals"], true).identifier
+```
+
+Assert it does **not** start with `Rails.root.join("app/views")`. Do **not** assert it
+contains `/gems/`: that encodes how the engine happens to be installed here and can never
+pass in studio-engine's own consumer-CI lane, which bundles the engine as a path checkout.
+`test/support/resolved_modal_host.rb` wraps this; `test/views/modal_host_adoption_test.rb`
+pins it, and `test/integration/modal_host_focus_contract_test.rb` reads the RESOLVED host
+so the focus contract stays asserted against whatever a page actually gets — a re-fork or
+an engine downgrade under the `~> 0.63` pin both re-open the gap silently.
+
+**Two consumer seams, so nothing has to fork this file again** (studio-engine 0.65.0):
+
+| Seam | Where it lives here | What it carries |
+|---|---|---|
+| `window.StudioModals.CARD_WIDTHS` | `app/views/shared/_modal_card_widths.html.erb` | per-modal card width by id (`wallet-setup` → `max-w-md`) |
+| `modals/_host_extras` | `app/views/modals/_host_extras.html.erb` | app-wide modal registrations (`cosign-rejected`) |
+
+The width partial **must render ABOVE the host** in every layout that mounts it — the host
+merges the map at the top of its own inline script, so a registration that arrives later is
+read by nobody and every card silently falls back to `max-w-sm`. A layout that mounts the
+host without it fails `modal_host_adoption_test.rb`.
+
+The `ModalAnimations` registry (`pop` / `shake` / `slide`, and the keyframes behind them) is
+engine-owned too, and consumer entries merge OVER the engine defaults the same way. This
+app registers none — its fork's registry was byte-identical to the engine's defaults, which
+is why adopting the host changed no animation.
 
 **Opening / closing**:
 
@@ -278,12 +306,14 @@ The stack is LIFO — multiple modals can be open simultaneously and render as a
 
 **Dismissibility**: Modals are dismissible by default (Escape + click outside). For on-chain TX flows, set `dismissible: false` on the props so an accidental click can't orphan a signed-but-unconfirmed transaction. Close only via `$store.modals.close()`.
 
-**Defining a new modal partial**: mount it inside `<template x-if="$store.modals.current().id === 'your-id'">` — and register it in **BOTH** lists, because there are two and forgetting the second is the usual slip:
+**Defining a new modal partial**: mount it inside `<template x-if="$store.modals.current().id === 'your-id'">`, then pick where it is REGISTERED:
 
-1. `app/views/layouts/application.html.erb` — the app.
-2. `app/views/layouts/modal_preview.html.erb` — the `/admin/modals/preview` gallery.
+- **Belongs to a page or a call site** (needs `logged_in?`, a feature flag, or helper-computed locals) — register it in **BOTH** layout blocks, because there are two and forgetting the second is the usual slip:
+  1. `app/views/layouts/application.html.erb` — the app.
+  2. `app/views/layouts/modal_preview.html.erb` — the `/admin/modals/preview` gallery.
+- **Belongs to the APP** (no locals, no per-layout gating) — put it in `app/views/modals/_host_extras.html.erb` instead. The engine host renders that partial inside the card on every path through it, so one entry covers both layouts and cannot drift. `cosign-rejected` is the current occupant.
 
-Both lists are long; grep either for `store.modals.current` to find where they start. (Deliberately no line numbers or counts here — this section previously pointed at a partial that had not existed for months, and precise-but-rotting coordinates are how that happens.)
+Both layout lists are long; grep either for `store.modals.current` to find where they start. (Deliberately no line numbers or counts here — this section previously pointed at a partial that had not existed for months, and precise-but-rotting coordinates are how that happens.) Note that a test scanning a LAYOUT's source for a registration cannot see a `_host_extras` one — `test/controllers/onboarding_gallery_test.rb` does exactly that, so widen it there if you move one of its ids.
 
 A modal registered only in (1) works in the app and is silently missing from the preview gallery, which is where it gets reviewed. **What the gallery cannot show**: at `/admin/modals/preview/<id>` the host backdrop computes `position: static` with no body scroll lock, while the identical element on a real app page computes `fixed` + `overflow: hidden` (measured back-to-back in one browser context, same CSS digests; cause not isolated). Trust the gallery for content and theme, never for production overlay geometry — clipping bugs are invisible there. **Critical: single root element** — sibling `<style>` / `<script>` / structural tags are silently dropped during parsing (see § Alpine + ERB Constraints below).
 

@@ -413,7 +413,32 @@
 #   npx playwright test --list --grep-invert "@devnet" --project=chromium
 #                                                                -> 195 tests in 55 files
 #   212 - 17 - 4 = 191, and 195 collected - 4 runtime skips = 191   OK agree
-total_specs: 214
+#
+# SEVENTH COLLISION, and the counter caught it again. defork-turf-modal-host added
+# ONE spec by EXTENDING e2e/wallet_setup.spec.js (56 files before and after — no new
+# file to declare), so on its own base of 212 the honest-looking number was 213. It
+# would have been WRONG: accepted had meanwhile landed two specs in
+# e2e/nfl_live_scoreboard.spec.js, and 213 written here would have under-declared the
+# lane by exactly those two — the silent merge this counter exists to make loud.
+# Derived with bin/e2e-lane-derive --write on the tree AFTER merging accepted (5
+# commits of it), from the lister and not from arithmetic on either side. Both
+# identities, on the merged tree:
+#   npx playwright test --list                                   -> 215 tests in 56 files
+#   npx playwright test --list --grep "@devnet"                  ->  17 tests in  1 file
+#   npx playwright test --list --grep-invert "@devnet" --project=chromium
+#                                                                -> 198 tests in 55 files
+#   215 - 17 - 4 = 194, and 198 collected - 4 runtime skips = 194   OK agree
+#
+# WHAT THE NEW SPEC BUYS. The defork moved this app's per-modal card width onto
+# studio-engine's CARD_WIDTHS seam, which is an inline <script>. Every other tier this
+# shape has renders to a String, and a String cannot observe a script RUNNING — the
+# engine host DOCUMENTS the seam with a worked example inside its own inline script,
+# so a markup grep for the registration matches the COMMENT and stays green with the
+# real registration deleted. That was measured on this task, not imagined. The spec
+# compares two browser-RESOLVED widths (the card's computed max-width against the
+# engine default's, applied to a probe on the same page), which is the only form that
+# can tell a working registry from one that silently resolves to the default.
+total_specs: 215
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -635,7 +660,12 @@ allowed_skips: 4
 # here. allowed_skips stays 4 — it is the one HAND-declared field, and the two
 # identities still agree, which is what proves no new spec brought a runtime skip.
 # 212 - 17 - 4 = 191, and 195 collected - 4 runtime skips = 191. Both routes agree.
-executed: 193
+#
+# 191 -> 194 (merge of accepted + defork-turf-modal-host): two specs from
+# focus-game-scorer-card and one from the modal-host defork. allowed_skips stays 4 —
+# the two identities still agree, which is what proves no new spec brought a runtime
+# skip with it.
+executed: 194
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
