@@ -1,19 +1,21 @@
 <%# THE SCORING ANIMATION STYLESHEET, shared by every board that renders a
-    live/_game_tile. Extracted from live/index.html.erb (unchanged, line for
-    line) when the CONTEST live page adopted the same tile: two copies of a
-    145-line keyframe vocabulary is two copies that drift, and the whole point
-    of the vocabulary is that a touchdown looks like a touchdown wherever the
-    board is drawn.
+    live/_game_tile. Extracted from live/index.html.erb when the CONTEST live
+    page adopted the same tile: two copies of a keyframe vocabulary is two
+    copies that drift, and the whole point of the vocabulary is that a
+    touchdown looks like a touchdown wherever the board is drawn.
 
     Rendered by:
-      live/index          — the league board (also uses the banner rules below)
-      contests/live       — one contest's games row
+      live/index          — the league board
+      contests/live       — the contest's strip, focus panel and leaderboard
 
-    The BANNER rules (.nfl-b-*, #nfl-score-shimmer) belong to the league page's
-    full-width scoring banner, which the contest page does not draw — it toasts
-    instead. They ride along rather than being split into a third partial: the
-    cost is a few unused selectors, and the alternative is a seam that has to be
-    kept in sync by hand every time a scoring type is added. %>
+    BOTH pages draw the banner, so NONE of these rules is dead weight. The
+    contest page renders live/_score_banner too (contests/live.html.erb) and
+    drives it from contests/_live_script, where scoring events QUEUE into a
+    chain rather than firing a toast per score. That is why this file also
+    carries the rank-summary entrance (.nfl-b-rank / nflBannerRank) and the
+    event-feed fades (.tt-event-feed, .tt-fade): the summary is the chain's
+    capstone and wears the same banner element, so its motion belongs to the
+    same vocabulary as the scoring types it follows. %>
 <style>
   /* ── BANNER ENTRANCES — one per scoring type ────────────────────────────
      Each type gets its own motion because the motion is the point: a glance
