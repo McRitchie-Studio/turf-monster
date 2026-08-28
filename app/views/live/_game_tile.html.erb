@@ -62,7 +62,7 @@
     <% [[away, game.away_score], [home, game.home_score]].each_with_index do |(team, score), index| %>
       <% palette = team_card_palette(team) %>
       <% field = normalize_hex(team&.card_background) || "#3a3f4b" %>
-      <div class="relative flex items-center overflow-hidden <%= hero ? "flex-1 gap-4 pl-5 pr-[52%] py-4" : "gap-3 px-3 py-2.5" %>"
+      <div class="relative flex items-center overflow-hidden <%= hero ? "flex-1 gap-4 pl-5 pr-[35%] py-4" : "gap-3 px-3 py-2.5" %>"
            data-team-slug="<%= team&.slug %>"
            data-role="team-row"
            style="background: <%= palette[:gradient] %>;
@@ -126,31 +126,41 @@
         stop their CONTENT at the 73% mark, which is why the scores land where
         they do with nothing drawn between. %>
     <% if hero %>
-      <div class="absolute inset-y-0 right-0 w-1/2 flex flex-col justify-center items-center text-center gap-1 px-4 py-3.5 pointer-events-none"
+      <div class="absolute inset-y-0 right-0 w-1/3 flex flex-col items-center text-center px-4 pt-7 pb-5 pointer-events-none"
            data-test="live-focus-rail"
            style="background: linear-gradient(90deg,
                   rgba(8, 10, 16, 0) 0%, rgba(8, 10, 16, 0.55) 24%, rgba(8, 10, 16, 0.8) 55%)">
         <%# Date and kickoff are BOTH written by the browser in the reader's own
             zone — the app runs on UTC, so a server-rendered date is a day out
             for anyone west of it. The text inside each is a truthful fallback. %>
-        <% if game.kickoff_at %>
-          <time datetime="<%= game.kickoff_at.utc.iso8601 %>" data-role="kickoff-date"
-                class="text-xs font-bold uppercase tracking-wider text-white/60"><%= game.kickoff_at.utc.strftime("%b %-d") %></time>
-          <time datetime="<%= game.kickoff_at.utc.iso8601 %>" data-role="kickoff"
-                class="text-lg font-bold text-white/90 leading-none"><%= game.kickoff_at.utc.strftime("%a %-I:%M %p") %></time>
-        <% end %>
+        <%# A FIXED BOX, and the height is the whole point. These three lines are
+            optional in different combinations — a scheduled game has no quarter,
+            a game with no kickoff has neither date nor time — so left to size
+            themselves they made the block a different height per game, and
+            clicking through the strip jogged the date, the clock and the top of
+            the events feed up and down. Reserving the space once means switching
+            games changes the CONTENT and nothing else. Its own contents stay
+            centred inside it, so a scheduled game does not read as top-heavy. %>
+        <div class="h-[4.75rem] flex-shrink-0 flex flex-col items-center justify-center gap-1">
+          <% if game.kickoff_at %>
+            <time datetime="<%= game.kickoff_at.utc.iso8601 %>" data-role="kickoff-date"
+                  class="text-xs font-bold uppercase tracking-wider text-white/60"><%= game.kickoff_at.utc.strftime("%b %-d") %></time>
+            <time datetime="<%= game.kickoff_at.utc.iso8601 %>" data-role="kickoff"
+                  class="text-lg font-bold text-white/90 leading-none"><%= game.kickoff_at.utc.strftime("%a %-I:%M %p") %></time>
+          <% end %>
 
-        <div class="flex items-center justify-center gap-2 mt-0.5">
-          <% if game.live? %>
-            <span class="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-red-400">
-              <span class="h-2 w-2 rounded-full bg-red-500 animate-pulse"></span> Live
-            </span>
-          <% elsif game.completed? %>
-            <span class="text-xs font-bold uppercase tracking-wider text-white/70">Final</span>
-          <% end %>
-          <% if game.status_detail.present? && !game.status_detail.casecmp("final").zero? %>
-            <span class="text-sm font-mono text-white/80 truncate"><%= game.status_detail %></span>
-          <% end %>
+          <div class="flex items-center justify-center gap-2">
+            <% if game.live? %>
+              <span class="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-red-400">
+                <span class="h-2 w-2 rounded-full bg-red-500 animate-pulse"></span> Live
+              </span>
+            <% elsif game.completed? %>
+              <span class="text-xs font-bold uppercase tracking-wider text-white/70">Final</span>
+            <% end %>
+            <% if game.status_detail.present? && !game.status_detail.casecmp("final").zero? %>
+              <span class="text-sm font-mono text-white/80 truncate"><%= game.status_detail %></span>
+            <% end %>
+          </div>
         </div>
 
         <%# THE EVENTS, newest first. A feed that grows downward pushes the play
@@ -158,18 +168,32 @@
             score where the eye already is, and the rest scroll. %>
         <% plays = game.goals.sort_by { |goal| [goal.minute || 0, goal.id] }.reverse %>
         <% if plays.any? %>
-          <div class="mt-1 min-h-0 max-h-full overflow-y-auto space-y-1 pointer-events-auto"
-               data-test="live-focus-events">
-            <% plays.each do |play| %>
-              <% scoring_team = play.team_slug == game.home_team_slug ? home : away %>
-              <div class="flex items-center justify-center gap-1.5 text-xs leading-tight whitespace-nowrap">
-                <span class="text-sm"><%= scoring_team&.emoji %></span>
-                <span class="text-white/85 font-medium truncate"><%= play.scoring_label.presence || "Score" %></span>
-                <% if play.points %>
-                  <span class="font-mono font-bold text-white/60">+<%= play.points %></span>
-                <% end %>
-              </div>
-            <% end %>
+          <%# THE FADE IS AN OVERLAY, NOT A MASK ON THE SCROLLER, and that choice
+              is what keeps a two-play game honest. A mask fades the container's
+              last 24px whether or not anything is under them, so a short list
+              would sit there half-dissolved, promising a scroll it does not
+              have. These two gradients paint the rail's OWN colour over the
+              feed's ends: where a play is under one it fades out and says
+              "there is more"; where the list is short they cover empty space in
+              the colour already there, and are invisible. %>
+          <div class="relative mt-1 flex-1 min-h-0 w-full flex flex-col">
+            <div class="tt-event-feed min-h-0 overflow-y-auto space-y-1 pointer-events-auto"
+                 data-test="live-focus-events">
+              <% plays.each do |play| %>
+                <% scoring_team = play.team_slug == game.home_team_slug ? home : away %>
+                <div class="flex items-center justify-center gap-1.5 text-xs leading-tight whitespace-nowrap">
+                  <span class="text-sm"><%= scoring_team&.emoji %></span>
+                  <span class="text-white/85 font-medium truncate"><%= play.scoring_label.presence || "Score" %></span>
+                  <% if play.points %>
+                    <span class="font-mono font-bold text-white/60">+<%= play.points %></span>
+                  <% end %>
+                </div>
+              <% end %>
+            </div>
+            <span class="pointer-events-none absolute inset-x-0 top-0 h-5"
+                  style="background: linear-gradient(to bottom, rgba(8, 10, 16, 0.92), rgba(8, 10, 16, 0))"></span>
+            <span class="pointer-events-none absolute inset-x-0 bottom-0 h-7"
+                  style="background: linear-gradient(to top, rgba(8, 10, 16, 0.92), rgba(8, 10, 16, 0))"></span>
           </div>
         <% end %>
       </div>

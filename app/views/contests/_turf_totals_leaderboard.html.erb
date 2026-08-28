@@ -284,6 +284,7 @@
                 c1 = pill[:bg]
                 c2 = pill[:fg]
                 c3 = pill[:shadow]
+                c4 = pill[:shade]
                 # Multi-week: a pick is "live" as soon as ANY week of its span has
                 # scored — the anchor week's game status alone would keep the pill
                 # showing a multiplier for the whole rest of the contest.
@@ -310,7 +311,7 @@
                        span_or_week = multi_week ? span_scores[sel.slate_matchup.team_slug] : sel.slate_matchup.turf_score
                        span_or_week ? "x#{span_or_week}" : "x?"
                      end
-                { team: t, c1: c1, c2: c2, c3: c3, ip: ip, dp: dp, tv: tv }
+                { team: t, c1: c1, c2: c2, c3: c3, c4: c4, ip: ip, dp: dp, tv: tv }
               end
             %>
             <%# picksOpen is now only the MANUAL override for the narrow fan; the
@@ -324,7 +325,8 @@
                   <% pills.each_with_index do |p, si| %>
                     <span class="inline-flex items-center py-1 rounded-lg text-xs font-semibold border border-white/10"
                           :class="{ 'px-2': picksOpen || mid, 'px-1': !picksOpen && !mid, 'justify-between': <%= si == pills.size - 1 ? '(picksOpen || wide)' : 'true' %>, 'justify-center': <%= si == pills.size - 1 ? '!(picksOpen || wide)' : 'false' %> }"
-                          style="background: <%= p[:c1] %>; color: <%= p[:c2] %>; text-shadow: <%= p[:c3] %>"
+                          style="background: <%= p[:c1] %>; color: <%= p[:c2] %>; text-shadow: <%= p[:c3] %>;
+                               box-shadow: inset 0 -11px 16px -11px <%= p[:c4] %>"
                           :style="(picksOpen || wide) ? {} : { width: wide ? '7rem' : (mid ? 'calc((100% - <%= (pills.size - 1) * 0.3 %>rem) / <%= pills.size %>)' : '5rem'), <% if si > 0 %>marginLeft: wide ? 'calc((100% - <%= pills.size * 7 %>rem) / <%= pills.size - 1 %>)' : (mid ? '0.3rem' : 'calc((100% - <%= pills.size * 5 %>rem) / <%= pills.size - 1 %>)'), <% end %>position: 'relative', zIndex: <%= si + 1 %> }"
                           title="<%= p[:team].name %> — <%= p[:tv] %>">
                       <span class="truncate"><%= p[:team].short_name %></span>
@@ -337,7 +339,8 @@
               <div x-show="dkFull" x-cloak class="grid grid-cols-6 gap-1.5">
                 <% pills.each do |p| %>
                   <span class="flex items-center justify-between min-w-0 px-1.5 py-1 rounded-lg text-xs font-semibold border border-white/10"
-                        style="background: <%= p[:c1] %>; color: <%= p[:c2] %>; text-shadow: <%= p[:c3] %>"
+                        style="background: <%= p[:c1] %>; color: <%= p[:c2] %>; text-shadow: <%= p[:c3] %>;
+                               box-shadow: inset 0 -11px 16px -11px <%= p[:c4] %>"
                         title="<%= p[:team].name %> — <%= p[:tv] %>">
                     <span class="truncate"><%= p[:team].short_name %></span>
                     <span class="font-mono ml-0.5 flex-shrink-0"><%= p[:ip] %><%= p[:dp] %></span>

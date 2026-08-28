@@ -144,6 +144,14 @@
   }
   .nfl-shimmer-run::after { animation: nflShimmer 900ms ease-out 260ms both; }
 
+  <%# THE EVENTS FEED scrolls, and a scrollbar is the wrong way to say so on a
+      card this size — it is chrome, it changes width between platforms, and it
+      appears only once the pointer is already there. The fade at each end says
+      it instead. The bar is hidden here; the fades live in the markup, where
+      they can be the rail's own colour. %>
+  .tt-event-feed { scrollbar-width: none; }
+  .tt-event-feed::-webkit-scrollbar { display: none; }
+
   /* Respect the system setting. The board still updates and the score still
      goes bold in the team's colour — it just stops moving, which is the
      distinction the preference actually asks for. */

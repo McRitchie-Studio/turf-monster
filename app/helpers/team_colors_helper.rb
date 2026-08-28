@@ -79,11 +79,18 @@ module TeamColorsHelper
   # mascot on every team card wears its accent over `mascot_shadow`, which is how
   # Buffalo's red-on-blue (1.88:1 unaided) is readable on the contest board. The
   # pill does the same, so it stays legible AND stays the team's.
+  # `shade` is the team's LIGHT lifting the bottom of the pill — an inset glow,
+  # not a second background. A flat team-dark rectangle is legible and lifeless;
+  # a shade of the team's own light gives it depth without introducing a colour
+  # from outside the team, and stays under the text rather than competing with
+  # it. Held low (0.4) because this is a 78px pill: any more and the multiplier
+  # starts sitting in fog.
   def team_pill_palette(team)
-    bg = normalize_hex(team&.color_dark) || normalize_hex(team&.card_background) || FALLBACK_PRIMARY
-    fg = team_card_palette(team)[:glow]
+    bg    = normalize_hex(team&.color_dark) || normalize_hex(team&.card_background) || FALLBACK_PRIMARY
+    fg    = team_card_palette(team)[:glow]
+    light = normalize_hex(team&.color_light) || fg
 
-    { bg: bg, fg: fg, shadow: mascot_shadow(fg) }
+    { bg: bg, fg: fg, shade: rgba(light, 0.4), shadow: mascot_shadow(fg) }
   end
 
   def mascot_shadow(mascot)
