@@ -72,7 +72,20 @@ class EnginePinContractTest < ActiveSupport::TestCase
   #          public/state-flags, so below 0.57 ApplicationController raises at
   #          `include Studio::GeoDetection` and the app does not boot at all —
   #          the loudest floor in this list, which is the kind worth having.
-  MINIMUM = Gem::Version.new("0.62.2")
+  #   0.63 — the shared LAYER SCALE, and the QUIETEST floor in this list. The
+  #          0.54 and 0.57 floors above fail loudly — a missing partial raises
+  #          on render, a missing concern raises at boot. This one raises
+  #          nothing at all, which is why it is asserted rather than trusted.
+  #          0.63.0 first defines the --z-* tiers in engine.css's :root, ships the
+  #          body.modal-open lift for the bar stack AND the app banner, and
+  #          defaults the toast seams to the tiers in layouts/studio/_flash. This
+  #          app MIRRORED all three in an application.css adoption shim until
+  #          delete-turf-layer-shim removed the mirror — it sat after the engine
+  #          import, so it OUTRANKED the gem it was copying. With no local copy
+  #          left, below 0.63.0 every var(--z-*) here resolves to nothing and the
+  #          modal backdrop, navbar, drawer, docked slip and toasts all fall to
+  #          z-index:auto — the page silently loses its stacking order entirely.
+  MINIMUM = Gem::Version.new("0.63.0")
 
   test "the resolved studio-engine is at or above the floor this app depends on" do
     resolved = Gem::Version.new(Studio::VERSION)
@@ -82,7 +95,124 @@ class EnginePinContractTest < ActiveSupport::TestCase
                     "a host-owned layered banner needs >= 0.43; the adopted first-name onboarding " \
                     "endpoints need >= 0.46; the shared /profile page and its section registry need " \
                     ">= 0.52; the shared date-of-birth field rendered by modals/_birthday needs " \
-                    ">= 0.54; the rail-row and close-x chrome primitives this app RENDERS need >= 0.61, and an UNESCAPED rail-row click handler needs >= 0.62.2)"
+                    ">= 0.54; the rail-row and close-x chrome primitives this app RENDERS need >= 0.61, and an UNESCAPED rail-row click handler needs >= 0.62.2; and the shared layer scale this app no longer mirrors locally needs >= 0.63)"
+  end
+
+  # SELF-FIRING, and that is the whole design.
+  #
+  # The layer-scale ADOPTION SHIM — a local :root in application.css mirroring
+  # the engine's --z-* tiers — was CORRECT while the pin predated the gem that
+  # ships them, and became a liability the instant it did not. application.css
+  # imports the engine build at the top and the shim's :root came after it, so on
+  # equal specificity and later source order THE SHIM WON. This app kept a frozen
+  # private copy of the shared scale while believing it shared one, and the next
+  # engine layer change would simply not have arrived. Nothing failed. Nothing
+  # looked wrong. It was found by a reviewer reading another repo's diff.
+  #
+  # A code comment or a ledger entry saying "delete at the bump" is a reminder,
+  # not a gate — the previous one lived in a task's agent_context, which archives
+  # away with the task. This asks the question the bump itself answers: once the
+  # RESOLVED engine defines a tier, any local definition of it is drift. Silent
+  # while the pin is old; red the instant it is not.
+  #
+  # TWO THINGS IT DELIBERATELY DOES DIFFERENTLY FROM THE HUB'S FIRST CUT of this
+  # guard, both found in review there and not worth inheriting:
+  #
+  #   1. NO TRAILING SEMICOLON IS REQUIRED. The hub matched
+  #      /(--z-[a-z-]+):\s*-?\d+;/, so a legal `:root { --z-modal: 999 }` — last
+  #      declaration in a block, no `;` — evaded it in silence. This matches the
+  #      NAME and its colon and does not care what follows, which also catches a
+  #      redefinition to a var() or a calc() rather than only to an integer.
+  #   2. IT SCANS EVERY SOURCE CSS FILE THIS APP SHIPS, not one filename. The
+  #      hub scanned application.css alone while a second stylesheet was imported
+  #      after the engine with identical outranking power, so a tier relocated by
+  #      one line into that file evaded the guard completely. The order matters
+  #      and the filename does not: everything this app ships is loaded after the
+  #      engine build it imports first.
+  test "no local CSS redefines a layer tier the resolved engine already ships" do
+    engine_css = Studio::Engine.root.join("app/assets/tailwind/studio_engine/engine.css").read
+    tiers = engine_css[/^:root \{(.*?)^\}/m].to_s.scan(/(--z-[a-z-]+)\s*:/).flatten.uniq
+
+    # ASSERTED, NOT SKIPPED, and the assertion is on the guard's own input. A
+    # `skip` would switch this off silently and keep its name on the ratchet; an
+    # empty tier list would do the same thing without even announcing it, since
+    # a scan over no needles finds no offenders and passes forever. The
+    # precondition is worth failing on in its own right: this app is pinned to an
+    # engine that ships the scale, so an engine that does not means the pin
+    # walked backwards.
+    assert_includes tiers, "--z-modal",
+                    "the resolved studio-engine (#{Studio::VERSION}) no longer defines the layer " \
+                    "scale in its :root — either the pin walked backwards or that block moved, " \
+                    "and this guard is reading nothing either way"
+
+    files = source_css_files
+    assert_includes files.map { |f| f.relative_path_from(Rails.root).to_s },
+                    "app/assets/tailwind/application.css",
+                    "the CSS entrypoint is not in this guard's file list, so the file the shim " \
+                    "actually lived in is no longer being scanned"
+
+    offenders = files.flat_map do |path|
+      body = without_css_comments(path.read)
+      tiers.select { |tier| body.match?(/#{Regexp.escape(tier)}\s*:/) }
+           .map { |tier| "#{path.relative_path_from(Rails.root)} → #{tier}" }
+    end
+
+    assert_empty offenders,
+                 "the resolved engine ships the layer scale, so these local definitions now " \
+                 "OUTRANK it — every stylesheet here is loaded after the engine build " \
+                 "application.css imports first, and later source order wins on equal " \
+                 "specificity:\n  #{offenders.join("\n  ")}\n" \
+                 "Delete them and read the engine's tiers through var(--z-*)."
+  end
+
+  # THE GUARD ON THE STRIPPER. A stripper that returns "" makes every assertion
+  # downstream of it pass forever, so the stripper is asserted on its INPUT and
+  # its OUTPUT rather than trusted because the guard above went green.
+  test "the CSS comment stripper keeps the code it is meant to scan" do
+    # 1. ON THE REAL FILES: what survives is a plausible fraction of the source,
+    #    not near-empty. The size floor is deliberate — the sprockets manifest at
+    #    app/assets/stylesheets/application.css is ~90% banner comment and would
+    #    false-RED any percentage rule, and a false red trains people to delete
+    #    the guard. This is what goes red if anyone swaps the balance check back
+    #    out for a bare span-strip and a stray opener appears.
+    gutted = source_css_files.filter_map do |path|
+      raw = path.read
+      next if raw.length < 2_000
+
+      share = without_css_comments(raw).length.to_f / raw.length
+      "#{path.relative_path_from(Rails.root)} kept #{(share * 100).round}%" if share < 0.20
+    end
+
+    assert_empty gutted,
+                 "comment stripping is eating these stylesheets, so the tier scan reads almost " \
+                 "nothing in them and passes for the wrong reason:\n  #{gutted.join("\n  ")}"
+
+    # 2. ON THE SHAPES THAT BREAK COMMENT STRIPPING. Each fixture holds a live
+    #    `--z-modal` declaration the guard must still be able to see. The second
+    #    is the one the naive span-strip actually fails: an opener inside a
+    #    string pairs with a genuine closer below it and swallows the code in
+    #    between.
+    {
+      "unterminated opener" =>
+        ":root { --z-modal: 1 }\n/* never closed\n.live { color: red }\n",
+      "opener in a string, real closer below" =>
+        %(a::after { content: "/*" }\n:root { --z-modal: 1 }\n.x { color: red } /* real */\n),
+      "closer inside url()" =>
+        %(a { background: url("x*/y.png") }\n:root { --z-modal: 1 }\n),
+      "nested-looking opener" =>
+        "/* /* still one comment */\n:root { --z-modal: 1 }\n"
+    }.each do |shape, css|
+      assert_includes without_css_comments(css), "--z-modal",
+                      "the stripper ate a live declaration on a #{shape} — that is the fail-open " \
+                      "mode this guard exists for: the scan still runs and reads nothing"
+    end
+
+    # 3. AND IT MUST STILL STRIP. Without this, a stripper that returned its
+    #    input unchanged would satisfy every assertion above — and the guard
+    #    would then ban documenting the tiers, failing in the other direction.
+    assert_not_includes without_css_comments("/* mentions --z-modal: 9 */\n.live { color: red }\n"),
+                        "--z-modal",
+                        "a BALANCED comment must still be stripped, or the guard bans its own docs"
   end
 
   # THE FLOOR AND THE PIN MUST AGREE. Two places state the same fact — the
@@ -231,6 +361,39 @@ class EnginePinContractTest < ActiveSupport::TestCase
   end
 
   private
+
+    # Comments EXPLAIN the tiers — application.css documents this very deletion
+    # using the names the guard bans — so scanning them would make documenting the
+    # fix impossible.
+    #
+    # BUT THE STRIPPER IS THE FAIL-OPEN RISK IN ANY SUCH GUARD, and this one
+    # guards a defect that is already invisible. A bare `/\*.*?\*/m` span-strip
+    # pairs a stray `/*` — inside a string, a url(), or a nested-looking opener —
+    # with a genuine `*/` far below it and eats everything between: the scan still
+    # runs, still passes, and is reading nothing. That exact failure cost this repo
+    # real coverage once, swallowing 93% of a file (see `without_block_comments` in
+    # test/views/layer_scale_adoption_test.rb, which is where this shape is from).
+    #
+    # So span-strip ONLY when the file's openers and closers BALANCE. Otherwise
+    # drop whole-line comments, where a stray opener costs one line instead of the
+    # rest of the file. Both directions are asserted below, on fixtures.
+    def without_css_comments(text)
+      if text.scan(%r{/\*}).size == text.scan(%r{\*/}).size
+        text.gsub(%r{/\*.*?\*/}m, " ")
+      else
+        text.each_line.reject { |line| line.match?(%r{\A\s*(?:/\*|\*)}) }.join
+      end
+    end
+
+    # EVERY SOURCE CSS FILE THIS APP SHIPS — not the entrypoint alone.
+    #
+    # app/assets/builds is deliberately absent: it holds the COMPILED output and
+    # the generated engine import wrapper, so scanning it would report the
+    # engine's own scale as a local redefinition on every run.
+    def source_css_files
+      (Dir[Rails.root.join("app/assets/tailwind/**/*.css")] +
+       Dir[Rails.root.join("app/assets/stylesheets/**/*.css")]).map { |path| Pathname(path) }
+    end
 
     # Engine migration names with no counterpart in this repo's db/migrate.
     #

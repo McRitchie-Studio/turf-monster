@@ -164,104 +164,29 @@
   .tm-sidebar-pushed .tm-opponent-row span  { font-size: 10px; line-height: inherit; }
 }
 
-/* === ADOPTION SHIM — the shared layer scale ==============================
-   studio-engine owns this scale (its engine.css `-- Layer scale` block). The
-   definitions are MIRRORED here only because the pin is still "~> 0.62", and
-   0.62.5 predates them. DELETE this whole block at the pin bump: every call
-   site below and in the views already reads the tiers, so the engine's copy
-   takes over with no other edit.
+/* The layer scale comes from the ENGINE — engine.css `-- Layer scale`, imported
+   at the top of this file. The ADOPTION SHIM that used to sit here is deleted.
+   It mirrored three engine-owned things: the tier :root, a copy of the
+   modal-open lift that raises the environment bars over a backdrop, and the
+   --studio-toast-z / --studio-toast-blur-z override seams. All three first
+   shipped in engine 0.63.0, which is why the FLOOR moved there and the pin now
+   reads ~> 0.63. The RESOLVED version (0.65.0) is not the reason: a two-segment
+   ~> admits anything under 1.0, so the old ~> 0.62 already allowed it.
 
-   Read the ORDER, not the number. Below 100 the tiers coincide with Tailwind's
-   own z-10..z-50, so `z-20` and var(--z-raised) are the same rung and this app's
-   existing sub-100 classes are already ON the scale. At 100 and up every tier is
-   chrome that can cover other chrome — which is where the bare numbers this
-   replaced stopped being readable. The two defects they produced, both visible
-   on one QA screenshot: the docked entry slip carried z-index:9999 and painted
-   over the sign-in modal at z-[120], and the DEV MODE banner carried no level at
-   all, so the same backdrop dimmed it.
+   IT HAD TO GO RATHER THAN LINGER HARMLESSLY. The engine build is imported
+   ABOVE and the shim's :root came AFTER it — equal specificity, later source
+   order wins — so THE SHIM OUTRANKED THE ENGINE. Leaving it meant this app kept
+   a frozen private copy of the scale while believing it shared one, and the next
+   engine layer change would silently not reach us. Nothing would have failed.
 
-   ON THE FALLBACKS, which are deliberately asymmetric. Plain CSS reads a tier as
-   `var(--z-docked, 100)` — the fallback costs nothing and keeps the rule sane if
-   the scale ever goes missing. Tailwind call sites read `z-[var(--z-modal)]`
-   with NO fallback, because a comma inside an arbitrary value is a class-name
-   parsing hazard and the trade is not worth it there: those utilities exist only
-   because this file compiled, so the file defining the tiers is present by
-   construction. The asymmetry is the rule, not an oversight. */
-:root {
-  --z-behind:       -1;  /* decoration painted behind its own box */
-  --z-base:          0;  /* fixed page backgrounds and their scrims */
-  --z-content:      10;  /* raised content inside a card */
-  --z-raised:       20;  /* hover lifts, in-page click catchers */
-  --z-sticky:       30;  /* in-page sticky headers, bars pinned under the nav */
-  --z-panel:        40;  /* in-page side panels — the desktop Your Picks cart */
-  --z-dropdown:     50;  /* menus and anchored popovers */
+   THE OTHER TWO HALVES WERE CHECKED BEFORE DELETING, not assumed. The engine's
+   lift covers both the bar-stack class this app's navbar emits and the
+   app-banner class it does not, and carries the tier fallback this copy lacked;
+   the engine's own layouts/studio/_flash defaults both toast seams to the toast
+   tier. So no resolved value moves — only the owner.
 
-  --z-docked:      100;  /* the mobile entry slip — must never cover a modal */
-  --z-nav:         110;  /* the pinned navbar */
-  --z-drawer:      150;  /* the gear sidebar */
-  --z-modal:       200;  /* modal backdrop + card — THE app blocker */
-  --z-lightbox:    210;  /* a lightbox opened from inside a modal */
-  --z-alert:       300;  /* the live scoring overlay */
-  --z-toast-blur:  399;  /* the frosted halo behind the toasts */
-  --z-toast:       400;  /* toasts */
-  --z-banner:      500;  /* QA / DEV MODE bars — reachable mid-modal */
-  --z-tooltip:     600;  /* tooltips on those bars, so they clear them.
-                            UNUSED in this app: the only consumer is the
-                            engine's banners/_button, which reads the tier from
-                            the gem. It is mirrored anyway because this block is
-                            a copy of the engine's scale, not a subset of it —
-                            a partial mirror is how the two drift. */
-
-  /* The engine's per-component toast names are still the published override
-     seam, so they stay — but they now READ the tier instead of pinning 200/199
-     beside it. On 0.62.5 the engine's own fallback is a bare 60, below this
-     app's navbar, so dropping these before the pin bump would sink every toast
-     under the header. */
-  --studio-toast-z: var(--z-toast);
-  --studio-toast-blur-z: var(--z-toast-blur);
-}
-
-/* The QA / impersonation bars sit in NORMAL FLOW at rest (studio-engine's
-   banners/_stack records why: pinning them in the RESTING state needs one pinned
-   sibling to measure the other, and the measured version visibly jumped). Flow
-   costs them a stacking level, so the modal backdrop dimmed DEV MODE and the
-   email chip exactly when a QA session needed them.
-
-   So both the level AND the pin are scoped to body.modal-open — the one state
-   where each is free:
-
-     · the LEVEL is free because that class locks body scroll, so the bars can
-       never scroll up behind the pinned navbar while they outrank it;
-     · the PIN is free because a frozen page cannot jump. The measurement
-       problem is a RESTING-state problem: two pinned siblings of unknown height
-       have to lay out adjacently, and one must measure the other. Here they
-       deliberately OVERLAP — the navbar is dimmed under a backdrop and is not
-       the reader's business — so nothing has to be measured.
-
-   sticky, NOT fixed, and the difference is load-bearing: sticky keeps the bars'
-   space reserved in flow, so applying it on open shifts no page content;
-   `fixed` pulls them out and the whole page jumps up by their height. Measured
-   at scrollY 900 with the modal open: flow left the bars at top -900 (off
-   screen — the defect a scrolled reader actually hits, which is what a
-   relative-only lift did NOT fix), sticky and fixed both put them at top 0.
-
-   It only reaches them because layouts/_navbar renders the stack as a SIBLING of
-   <header> rather than inside it: the header is sticky WITH a z-index, so it is a
-   stacking context, and a descendant's z-index is clamped within it. Ships in the
-   engine at the pin bump — so this half of the shim disappears with the rest,
-   and /tasks/own-the-layer-shim-deletion owns that removal.
-
-   ONE SELECTOR, not two. The engine's copy of this rule also matches
-   .studio-app-banner, for a host that renders the environment bar directly
-   rather than through the stack. This app renders the stack, and that class does
-   not exist in studio-engine 0.62.5 anyway, so carrying it here would be a dead
-   selector pretending to be coverage. */
-body.modal-open .studio-bar-stack {
-  position: sticky;
-  top: 0;
-  z-index: var(--z-banner);
-}
-/* === end ADOPTION SHIM ================================================== */
+   test/lib/engine_pin_contract_test.rb now REFUSES a re-introduced shim, in any
+   source CSS file this app ships, once the resolved gem defines the tiers. */
 
 /* The gear menu is a full-cover drawer: above the docked entry slip and the
    navbar, BELOW a modal. It used to be a bare 10000 — which also tied it exactly

@@ -164,12 +164,33 @@ jobs:
           rubygems: 3.5.11
           bundler-cache: true
 
+      # THE SUITE READS THE COMPILED STYLESHEET, so it must exist before the suite runs.
+      # test/views/layer_scale_adoption_test.rb asserts that every --z-* layer tier a
+      # browser resolves comes from studio-engine and is defined exactly once — the only
+      # check that can speak to CASCADE ORDER, which is what the deleted layer-scale
+      # shim actually broke. No source scan can answer that question.
+      #
+      # THIS IS NOT REDUNDANT WITH THE LINE BELOW, and that is measured rather than
+      # assumed: tailwindcss-rails enhances Rails' `test:prepare` hook, and
+      # `bin/rails db:test:prepare test` does NOT fire it — only an ARGLESS `rails test`
+      # COMMAND invokes test:prepare, and a leading non-command routes this whole line
+      # through RAKE instead. Verified by deleting app/assets/builds/tailwind.css,
+      # running `bin/rails db:test:prepare`, and finding it still absent. The playwright
+      # job below already pays for the same build, for the same reason.
+      - name: Build Tailwind CSS for the suite
+        env:
+          RAILS_ENV: test
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432
+          REDIS_URL: redis://localhost:6379/0
+        run: bin/rails tailwindcss:build
+
       # `db:test:prepare test` — the SYSTEM tier is gone with the browser above. Keep
       # db:test:prepare FIRST: `test` is a real rails COMMAND, so a rails-command first arg
       # would parse the rest of the line as paths; a leading non-command routes the whole
-      # thing through RAKE, where each token is a task. It is also what fires Rails' own
-      # `test:prepare` hook (the one tailwindcss-rails enhances), and the hook is skipped
-      # the moment any argument looks like a path.
+      # thing through RAKE, where each token is a task. Routing through rake is ALSO why
+      # this line does NOT fire Rails' own `test:prepare` hook (the one tailwindcss-rails
+      # enhances): rake's `test` task carries no prerequisites, and `db:test:prepare` is
+      # not the task that gets enhanced. That is what the explicit build step above covers.
       - name: Run tests
         env:
           RAILS_ENV: test
