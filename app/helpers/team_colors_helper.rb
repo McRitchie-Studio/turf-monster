@@ -64,29 +64,26 @@ module TeamColorsHelper
   # A subtle halo that keeps the mascot legible on the team gradient: a light
   # halo behind an essentially-black mascot, a dark halo behind everything else.
   # Held at 0.5 alpha so it reads as a soft glow, not a hard sticker outline.
-  # THE PICK PILL: the team's own dark, with the lightest brand colour it owns
-  # sitting on top of it.
+  # THE PICK PILL: the team's own dark, wearing the team's own accent.
   #
-  # The naive reading of "dark background, light text" is
-  # `color_dark` + `color_light`, and for most of the league that is exactly
-  # right. It is wrong for the teams whose "light" is not light — Tampa Bay's is
-  # a red, Houston's is a red — and those pills came out dark-red-on-near-black,
-  # which reads as an empty pill with a multiplier floating in it.
+  # `glow` is the value, not `light` and not `mascot` — it is "the team's extra
+  # brand colour where it curates one, falling back to the light", which is
+  # exactly the distinction the pill needs. Atlanta curates no alt and falls to
+  # its red; Tampa Bay curates ORANGE, and its red-on-charcoal is the muddy pair
+  # the alt exists to replace. Both come out as the colour a fan would name.
   #
-  # So the colour is CHOSEN rather than assumed: take the lightest brand colour
-  # the team actually has, and if even that cannot clear WCAG AA against the
-  # team's own dark, fall back to white. The pill keeps the team's identity
-  # wherever the team's own palette can carry it, and stays readable where it
-  # cannot.
-  PILL_MIN_CONTRAST = 4.5
-
+  # LEGIBILITY IS THE HALO, NOT A DIFFERENT COLOUR. An earlier cut measured the
+  # contrast and swapped anything under WCAG AA for white, which is a defensible
+  # rule and the wrong one here: it turned six of the pills white and threw away
+  # the one thing the pill is for. This app already solved that problem — the
+  # mascot on every team card wears its accent over `mascot_shadow`, which is how
+  # Buffalo's red-on-blue (1.88:1 unaided) is readable on the contest board. The
+  # pill does the same, so it stays legible AND stays the team's.
   def team_pill_palette(team)
     bg = normalize_hex(team&.color_dark) || normalize_hex(team&.card_background) || FALLBACK_PRIMARY
-    candidates = [team&.color_light, team&.card_mascot, team&.color_alt].filter_map { |hex| normalize_hex(hex) }
-    fg = candidates.max_by { |hex| relative_luminance(hex) }
-    fg = LIGHT_FG if fg.nil? || contrast_ratio(fg, bg) < PILL_MIN_CONTRAST
+    fg = team_card_palette(team)[:glow]
 
-    { bg: bg, fg: fg }
+    { bg: bg, fg: fg, shadow: mascot_shadow(fg) }
   end
 
   def mascot_shadow(mascot)

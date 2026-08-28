@@ -78,9 +78,16 @@
       });
       return found;
     }
+    // THE SCORING RING IS FOCUS-PANEL ONLY, and that is a conflict avoided
+    // rather than a scope missed. The chip uses the same custom properties to
+    // show which game is SELECTED, and these functions write them inline — an
+    // inline value outranks the class, so a chip that scored would have kept a
+    // ring after `unglow` wrote opacity 0 onto it, and the selected chip would
+    // have gone dark the moment some other game scored. The chip still shows the
+    // score itself: the row washes and the number goes hot.
     function cards(gameSlug) {
-      if (!gameSlug) return [];
-      return all('[data-game-slug="' + gameSlug + '"]');
+      if (!gameSlug || !focus) return [];
+      return Array.prototype.slice.call(focus.querySelectorAll('[data-game-slug="' + gameSlug + '"]'));
     }
     function teamRows(gameSlug, teamSlug) {
       if (!gameSlug || !teamSlug) return [];
@@ -140,14 +147,18 @@
     // only moves the error to everyone outside it. Idempotent: the <time>
     // element's datetime attribute is the source, never this function's own
     // previous output.
+    var KICKOFF_FORMATS = {
+      kickoff:      { weekday: 'short', hour: 'numeric', minute: '2-digit' },
+      'kickoff-date': { month: 'short', day: 'numeric' }
+    };
     function formatKickoffs() {
-      all('time[data-role="kickoff"]').forEach(function (el) {
+      all('time[data-role="kickoff"], time[data-role="kickoff-date"]').forEach(function (el) {
         var iso = el.getAttribute('datetime');
         if (!iso) return;
         var when = new Date(iso);
         if (isNaN(when.getTime())) return;   // keep the server fallback
         try {
-          var next = when.toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+          var next = when.toLocaleString(undefined, KICKOFF_FORMATS[el.getAttribute('data-role')]);
           // WRITE ONLY ON CHANGE — the same loop guard as the rank badge. This
           // runs from a childList observer and setting textContent IS a childList
           // mutation, so an unconditional write re-fires the observer forever.

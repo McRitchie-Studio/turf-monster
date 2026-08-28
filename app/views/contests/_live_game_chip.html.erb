@@ -33,11 +33,23 @@
         data-test="live-game-chip"
         @click="focus = '<%= game.slug %>'"
         :class="focus === '<%= game.slug %>' ? 'tt-chip-focused' : ''"
-        class="tt-chip card p-0 w-[168px] text-left overflow-hidden transition"
+        <%# THE SELECTED CHIP WEARS THE GLOW RING — the engine's .studio-team-glow,
+            lit in this game's own two colours, which is a far better answer to
+            "which one am I watching" than a border in a colour belonging to
+            nobody. Opacity is driven by .tt-chip / .tt-chip-focused rather than
+            set here, so the existing focus toggle turns it on and off for free.
+            NOT overflow-hidden: the ring paints at a NEGATIVE inset, outside the
+            host's box, and clipping the host clips the whole effect away. %>
+        class="tt-chip card p-0 w-[168px] text-left transition studio-team-glow"
+        style="--studio-team-glow-color: <%= away_palette[:accent] %>;
+               --studio-team-glow-color-b: <%= home_palette[:accent] %>;
+               --studio-team-glow-thickness: 2.5px;
+               --studio-team-glow-bloom: 16px;
+               --studio-team-glow-speed: 5s"
         :aria-pressed="focus === '<%= game.slug %>' ? 'true' : 'false'"
         aria-label="<%= away&.short_name || game.away_team_slug %> <%= game.away_score.to_i %>, <%= home&.short_name || game.home_team_slug %> <%= game.home_score.to_i %>">
-  <div class="flex items-stretch"
-       style="background: linear-gradient(100deg,
+  <div class="flex items-stretch" style="overflow: hidden; border-top-left-radius: inherit; border-top-right-radius: inherit;
+       background: linear-gradient(100deg,
               <%= away_field %> 0%, <%= away_field %> 34%,
               <%= home_field %> 66%, <%= home_field %> 100%)">
     <% [[away, game.away_score, away_palette, :away], [home, game.home_score, home_palette, :home]].each do |team, score, palette, side| %>
@@ -71,7 +83,8 @@
       printed "FRI 11:00 PM" over "8/28 - 7:00 PM EDT" and wrapped. So the
       detail is kept only where it says something the badge cannot — the game
       clock on a live game — and a scheduled game shows its kickoff alone. %>
-  <div class="px-2 py-0.5 bg-surface-alt/60 flex items-center justify-between gap-1 whitespace-nowrap">
+  <div class="px-2 py-0.5 bg-surface-alt/60 flex items-center justify-between gap-1 whitespace-nowrap"
+       style="overflow: hidden; border-bottom-left-radius: inherit; border-bottom-right-radius: inherit">
     <% if game.live? %>
       <span class="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-red-400 flex-shrink-0">
         <span class="h-1 w-1 rounded-full bg-red-500 animate-pulse"></span> Live

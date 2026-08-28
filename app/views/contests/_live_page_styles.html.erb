@@ -9,33 +9,33 @@
     Live page only. The show page renders the same partial and never loads this,
     because none of it has anything to say about a board that is not moving. %>
 <style>
-  /* ── THE ROW ────────────────────────────────────────────────────────────
+  <%#── THE ROW ────────────────────────────────────────────────────────────
      The transform is written by the script (a FLIP: put the row back where it
      used to be, then let it travel to where it now is). All this declares is
-     that the row is a thing that moves, so the browser can promote it. */
+     that the row is a thing that moves, so the browser can promote it. %>
   .tt-lb-row { will-change: transform; }
 
-  /* ── YOUR ENTRY ─────────────────────────────────────────────────────────
+  <%#── YOUR ENTRY ─────────────────────────────────────────────────────────
      Not a colour swap — the row already spends its colours on rank, prize and
      picks. A left-edge post in the CTA colour, which no other state on this
-     board uses, so "mine" never has to compete with "first" or "paid". */
+     board uses, so "mine" never has to compete with "first" or "paid". %>
   .tt-lb-mine {
     box-shadow: inset 3px 0 0 0 var(--color-cta, #22c55e);
   }
 
-  /* ── MOVEMENT ───────────────────────────────────────────────────────────
+  <%#── MOVEMENT ───────────────────────────────────────────────────────────
      Written under the rank number, and deliberately absolute: a badge that took
      part in layout would change every row's height the moment the board moved,
      which is the one instant the reader is trying to follow a row with their
-     eyes. Empty until the script has TWO renders to compare. */
+     eyes. Empty until the script has TWO renders to compare. %>
   .tt-rank-move { transition: opacity .4s ease; }
   .tt-move-up   { color: #4ade80; }
   .tt-move-down { color: #f87171; }
 
-  /* ── THE SCORE ──────────────────────────────────────────────────────────
+  <%#── THE SCORE ──────────────────────────────────────────────────────────
      Same idea as the league board's hot score, in this board's idiom: the
      number swells as it changes, then stays lit while the play is still recent
-     so a glance answers "what just moved?" without having watched it move. */
+     so a glance answers "what just moved?" without having watched it move. %>
   @keyframes ttScorePop {
     0%   { transform: scale(1); }
     35%  { transform: scale(1.45); }
@@ -49,30 +49,31 @@
     text-shadow: 0 0 16px var(--color-cta, #22c55e), 0 0 5px var(--color-cta, #22c55e);
   }
 
-  /* ── THE STRIP ──────────────────────────────────────────────────────────
+  <%#── THE STRIP ──────────────────────────────────────────────────────────
      Sixteen chips, one of which is the game being watched. The focused chip is
-     marked in the APP's colour rather than by dimming the other fifteen: those
-     fifteen are the reason the strip exists — they are how you notice a game
-     worth switching to — and a strip of greyed-out games stops doing that job.
-     The lift is small on purpose; the chip is 152px wide and a heavy ring at
-     that size eats the scores it is pointing at. */
-  .tt-chip { border: 1px solid transparent; }
+     marked in ITS OWN TWO TEAM COLOURS, using the engine's .studio-team-glow —
+     the ring the game tiles already wear when they score. A border in the app's
+     green said "selected" in a colour belonging to nobody; the ring says it in
+     the colours of the game you chose.
+
+     Opacity is the only thing set here. The two hues are inline per chip (they
+     differ every chip), and .studio-team-glow carries its own 0.4s opacity
+     transition — so this one declaration lights the new chip AND fades the old
+     one as the focus moves. %>
+  .tt-chip { --studio-team-glow-opacity: 0; }
   .tt-chip:hover { transform: translateY(-1px); }
-  .tt-chip-focused {
-    border-color: var(--color-cta, #22c55e);
-    box-shadow: 0 0 0 1px var(--color-cta, #22c55e), 0 6px 16px -6px rgba(0, 0, 0, .6);
-  }
-  /* Keyboard parity: the strip is a row of buttons and it has to be usable from
+  .tt-chip-focused { --studio-team-glow-opacity: 1; }
+  <%#Keyboard parity: the strip is a row of buttons and it has to be usable from
      the keyboard, which means the focus ring must be visible against sixteen
-     different team fields. */
+     different team fields. %>
   .tt-chip:focus-visible {
     outline: 2px solid var(--color-cta, #22c55e);
     outline-offset: 2px;
   }
 
-  /* The system setting wins. The board still re-ranks, the badge still says
+  <%#The system setting wins. The board still re-ranks, the badge still says
      which way and by how much, the score still lights — they just stop moving,
-     which is the distinction the preference actually asks for. */
+     which is the distinction the preference actually asks for. %>
   @media (prefers-reduced-motion: reduce) {
     .tt-lb-row    { transition: none !important; transform: none !important; }
     .tt-score-pop { animation: none !important; }

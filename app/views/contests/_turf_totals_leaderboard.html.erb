@@ -209,45 +209,55 @@
              data-score="<%= entry.score.to_f.round(1) %>"
              data-viewer="<%= is_viewer ? 1 : 0 %>"
              style="<%= first_place ? 'background: linear-gradient(90deg, rgba(75,175,80,0.08) 0%, transparent 40%)' : '' %>">
-          <div class="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
-            <%# Rank %>
-            <div class="w-8 flex-shrink-0 relative text-center font-mono font-bold text-lg <%= first_place ? 'text-primary' : (dimmed ? 'text-muted' : 'text-secondary') %>">
+          <%# THE AVATAR CARRIES THE STANDING. Rank and crown used to live in their
+              own left-hand column, which spent a fixed 32px on a number and put
+              the crown WHERE THE NUMBER GOES — so first place was the one row
+              that did not say what place it was in. As badges on the avatar they
+              cost no column at all: the crown rides the top-right corner, the
+              place rides the bottom-left, and both are read at a glance against
+              the one thing already identifying the entrant. %>
+          <div class="flex items-start gap-3 px-4 py-3">
+            <div class="relative flex-shrink-0">
+              <%= render "components/avatar", user: entry.user, size: "lg" %>
               <% if first_place %>
-                <span title="In the money">👑</span>
-              <% else %>
-                <%= display_rank %>
+                <span class="absolute -top-2 -right-1 text-3xl leading-none drop-shadow-lg" title="In the money">👑</span>
               <% end %>
-              <%# Filled in by the live page after a re-rank — empty here because on a
-                  FIRST render nothing has moved yet, and a board that claims movement
-                  it did not observe is worse than a board that claims none. %>
-              <span data-role="rank-move" class="tt-rank-move absolute left-0 right-0 top-full text-center text-[10px] font-bold leading-none" aria-hidden="true"></span>
+              <%# Place, bottom-left, on its own disc so it stays readable over
+                  whatever colour the avatar happens to be. %>
+              <span class="absolute -bottom-1 -left-1 min-w-5 h-5 px-1 rounded-full bg-surface-alt border border-subtle
+                           flex items-center justify-center font-mono font-bold text-[11px] leading-none
+                           <%= first_place ? 'text-primary' : (dimmed ? 'text-muted' : 'text-secondary') %>"><%= display_rank %></span>
+              <%# Movement sits beside the place, because "third" and "up two" are
+                  one fact. Filled in by the live page after a re-rank — empty on a
+                  first render, when nothing has moved yet and a board that claims
+                  movement it did not observe is worse than one that claims none. %>
+              <span data-role="rank-move"
+                    class="tt-rank-move absolute -bottom-1 left-5 pl-1 text-[10px] font-bold leading-5 whitespace-nowrap"
+                    aria-hidden="true"></span>
             </div>
-            <%# Player %>
-            <div class="flex items-center gap-2 min-w-0" style="width:14rem">
-              <%= render "components/avatar", user: entry.user, size: "nav" %>
-              <span class="font-semibold truncate text-sm <%= dimmed ? 'text-muted' : 'text-heading' %>"><%= entry.user.display_name %></span>
-              <% if entry.onchain_tx_signature.present? %>
-                <a href="https://explorer.solana.com/tx/<%= entry.onchain_tx_signature %><%= '?cluster=devnet' if Solana::Config.devnet? %>"
-                   target="_blank" class="text-muted hover:text-primary transition flex-shrink-0" title="Verified onchain">
-                  <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-                </a>
-              <% end %>
-            </div>
-            <% rank_prize = contest.settled? ? entry.payout_cents : contest.payouts[display_rank] %>
-            <% if rank_prize.to_i > 0 %>
-              <span class="text-xs font-bold text-primary flex-shrink-0"><%= dollars(rank_prize / 100.0) %></span>
-            <% end %>
-            <%# Audit H2 (2026-05-23): per-entry admin Payout button removed.
-                Payouts now flow through the on-chain settle_contest path
-                exclusively (Contest#grade! -> settle_onchain! -> 2-of-3 cosign
-                in /admin/pending_transactions). Winners' UserAccount.balance
-                is credited on settle; they withdraw via /wallet themselves.
-                The `entries.payout_tx_signature` column was dropped in the
-                companion migration (RemovePayoutTxSignatureFromEntries). %>
-            <%# Score — right end of the top info row %>
-            <div class="text-right flex-shrink-0 ml-auto" style="min-width:3.5rem">
-              <div data-role="entry-score" class="font-mono font-bold text-lg <%= dimmed ? 'text-muted' : 'text-violet' %>"><%= sprintf('%.1f', entry.score) %></div>
-            </div>
+
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="font-bold truncate text-lg <%= dimmed ? 'text-muted' : 'text-heading' %>"><%= entry.user.display_name %></span>
+                <% if entry.onchain_tx_signature.present? %>
+                  <a href="https://explorer.solana.com/tx/<%= entry.onchain_tx_signature %><%= '?cluster=devnet' if Solana::Config.devnet? %>"
+                     target="_blank" class="text-muted hover:text-primary transition flex-shrink-0" title="Verified onchain">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                  </a>
+                <% end %>
+                <% rank_prize = contest.settled? ? entry.payout_cents : contest.payouts[display_rank] %>
+                <% if rank_prize.to_i > 0 %>
+                  <span class="text-xs font-bold text-primary flex-shrink-0 ml-auto"><%= dollars(rank_prize / 100.0) %></span>
+                <% end %>
+                <%# Audit H2 (2026-05-23): per-entry admin Payout button removed.
+                    Payouts now flow through the on-chain settle_contest path
+                    exclusively (Contest#grade! -> settle_onchain! -> 2-of-3 cosign
+                    in /admin/pending_transactions). Winners' UserAccount.balance
+                    is credited on settle; they withdraw via /wallet themselves. %>
+                <div data-role="entry-score"
+                     class="font-mono font-bold text-lg text-right flex-shrink-0 <%= rank_prize.to_i > 0 ? '' : 'ml-auto' %> <%= dimmed ? 'text-muted' : 'text-violet' %>"
+                     style="min-width:3.5rem"><%= sprintf('%.1f', entry.score) %></div>
+              </div>
             <%# Selections — stacked on mobile (tap to expand 3×2), inline on desktop.
                 While the contest is `open`, only the entry owner (and admins on
                 /contests/:slug/admin) see the picks; everyone else gets six
@@ -267,13 +277,13 @@
                 # colour and its own light counterpart say "which team" without
                 # spending any width on saying it.
                 #
-                # The pair comes from team_pill_palette, which picks the lightest
-                # colour the team owns and falls back to white when even that
-                # cannot clear AA — Tampa Bay's and Houston's "light" are both
-                # reds, and those two pills came out dark-on-dark.
+                # The pair comes from team_pill_palette: the team's dark, wearing
+                # the team's own accent over the same legibility halo the mascot
+                # wears on every team card.
                 pill = team_pill_palette(t)
                 c1 = pill[:bg]
                 c2 = pill[:fg]
+                c3 = pill[:shadow]
                 # Multi-week: a pick is "live" as soon as ANY week of its span has
                 # scored — the anchor week's game status alone would keep the pill
                 # showing a multiplier for the whole rest of the contest.
@@ -300,7 +310,7 @@
                        span_or_week = multi_week ? span_scores[sel.slate_matchup.team_slug] : sel.slate_matchup.turf_score
                        span_or_week ? "x#{span_or_week}" : "x?"
                      end
-                { team: t, c1: c1, c2: c2, ip: ip, dp: dp, tv: tv }
+                { team: t, c1: c1, c2: c2, c3: c3, ip: ip, dp: dp, tv: tv }
               end
             %>
             <%# picksOpen is now only the MANUAL override for the narrow fan; the
@@ -314,11 +324,11 @@
                   <% pills.each_with_index do |p, si| %>
                     <span class="inline-flex items-center py-1 rounded-lg text-xs font-semibold border border-white/10"
                           :class="{ 'px-2': picksOpen || mid, 'px-1': !picksOpen && !mid, 'justify-between': <%= si == pills.size - 1 ? '(picksOpen || wide)' : 'true' %>, 'justify-center': <%= si == pills.size - 1 ? '!(picksOpen || wide)' : 'false' %> }"
-                          style="background: <%= p[:c1] %>; color: <%= p[:c2] %>"
+                          style="background: <%= p[:c1] %>; color: <%= p[:c2] %>; text-shadow: <%= p[:c3] %>"
                           :style="(picksOpen || wide) ? {} : { width: wide ? '7rem' : (mid ? 'calc((100% - <%= (pills.size - 1) * 0.3 %>rem) / <%= pills.size %>)' : '5rem'), <% if si > 0 %>marginLeft: wide ? 'calc((100% - <%= pills.size * 7 %>rem) / <%= pills.size - 1 %>)' : (mid ? '0.3rem' : 'calc((100% - <%= pills.size * 5 %>rem) / <%= pills.size - 1 %>)'), <% end %>position: 'relative', zIndex: <%= si + 1 %> }"
                           title="<%= p[:team].name %> — <%= p[:tv] %>">
                       <span class="truncate"><%= p[:team].short_name %></span>
-                      <span x-show="picksOpen || wide" class="font-mono ml-1 flex-shrink-0" style="opacity:0.85"><%= p[:ip] %><% if p[:dp] %><span style="font-size:0.7em;opacity:0.8"><%= p[:dp] %></span><% end %></span>
+                      <span x-show="picksOpen || wide" class="font-mono ml-1 flex-shrink-0"><%= p[:ip] %><%= p[:dp] %></span>
                     </span>
                   <% end %>
                 </div>
@@ -326,11 +336,11 @@
               <%# Desktop (1080px+): one full-width row of 6 even pills %>
               <div x-show="dkFull" x-cloak class="grid grid-cols-6 gap-1.5">
                 <% pills.each do |p| %>
-                  <span class="flex items-center justify-between min-w-0 px-2 py-1 rounded-lg text-xs font-semibold border border-white/10"
-                        style="background: <%= p[:c1] %>; color: <%= p[:c2] %>"
+                  <span class="flex items-center justify-between min-w-0 px-1.5 py-1 rounded-lg text-xs font-semibold border border-white/10"
+                        style="background: <%= p[:c1] %>; color: <%= p[:c2] %>; text-shadow: <%= p[:c3] %>"
                         title="<%= p[:team].name %> — <%= p[:tv] %>">
                     <span class="truncate"><%= p[:team].short_name %></span>
-                    <span class="font-mono ml-1 flex-shrink-0" style="opacity:0.85"><%= p[:ip] %><% if p[:dp] %><span style="font-size:0.7em;opacity:0.8"><%= p[:dp] %></span><% end %></span>
+                    <span class="font-mono ml-0.5 flex-shrink-0"><%= p[:ip] %><%= p[:dp] %></span>
                   </span>
                 <% end %>
               </div>
@@ -345,6 +355,7 @@
               <% end %>
             </div>
             <% end %>
+            </div>
           </div>
         </div>
         <%= render "contests/money_line", contest: contest, collapsed: (collapse && lb_row >= 7) if display_rank == last_paid_rank && last_paid_rank < total_seats %>
@@ -362,21 +373,22 @@
         <div <% if collapse && lb_row >= 8 %>x-show="expanded" x-cloak <% end %>class="relative">
           <div class="card overflow-hidden" style="opacity: 0.5">
             <div class="flex items-center gap-3 px-4 py-3">
-              <div class="w-8 text-center font-mono font-bold text-lg text-muted">
+              <%# Mirrors the taken seats: an avatar-sized disc wearing the place
+                  badge, so an empty seat lines up with the rows above it instead
+                  of sitting on its own grid. %>
+              <div class="relative flex-shrink-0">
+                <div class="w-14 h-14 rounded-full bg-surface-alt border border-subtle"></div>
                 <% if seat_rank == 1 %>
-                  <span>👑</span>
-                <% else %>
-                  <%= seat_rank %>
+                  <span class="absolute -top-2 -right-1 text-3xl leading-none">👑</span>
                 <% end %>
+                <span class="absolute -bottom-1 -left-1 min-w-5 h-5 px-1 rounded-full bg-surface-alt border border-subtle
+                             flex items-center justify-center font-mono font-bold text-[11px] leading-none text-muted"><%= seat_rank %></span>
               </div>
-              <div class="flex items-center gap-2 min-w-0" style="width:14rem">
-                <div class="w-8 h-8 rounded-full bg-surface-alt border border-subtle flex-shrink-0"></div>
-                <span class="text-sm text-muted">Open</span>
-              </div>
+              <span class="text-sm text-muted">Open</span>
             </div>
           </div>
           <% if prize_cents %>
-            <span class="absolute text-xs font-bold text-primary" style="top:50%; transform:translateY(-50%); left: calc(1rem + 2rem + 0.75rem + 14rem + 0.75rem)"><%= dollars(prize_cents / 100.0) %></span>
+            <span class="absolute text-xs font-bold text-primary" style="top:50%; transform:translateY(-50%); left: calc(1rem + 3.5rem + 0.75rem + 4rem)"><%= dollars(prize_cents / 100.0) %></span>
           <% end %>
           <% if first_open && can_add_entry %>
             <%= link_to contest_path(contest, add_entry: true), class: "absolute right-4 btn btn-primary btn-sm", style: "top: 50%; transform: translateY(-50%);" do %>
