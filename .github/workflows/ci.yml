@@ -187,9 +187,10 @@ jobs:
       # `db:test:prepare test` — the SYSTEM tier is gone with the browser above. Keep
       # db:test:prepare FIRST: `test` is a real rails COMMAND, so a rails-command first arg
       # would parse the rest of the line as paths; a leading non-command routes the whole
-      # thing through RAKE, where each token is a task. It is also what fires Rails' own
-      # `test:prepare` hook (the one tailwindcss-rails enhances), and the hook is skipped
-      # the moment any argument looks like a path.
+      # thing through RAKE, where each token is a task. Routing through rake is ALSO why
+      # this line does NOT fire Rails' own `test:prepare` hook (the one tailwindcss-rails
+      # enhances): rake's `test` task carries no prerequisites, and `db:test:prepare` is
+      # not the task that gets enhanced. That is what the explicit build step above covers.
       - name: Run tests
         env:
           RAILS_ENV: test

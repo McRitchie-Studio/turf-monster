@@ -375,10 +375,13 @@ class LayerScaleAdoptionTest < ActionDispatch::IntegrationTest
   #
   # WHY IT FAILS RATHER THAN SKIPS WHEN THE BUILD IS ABSENT. The build is
   # gitignored, and `tailwindcss:build` produces it — a task tailwindcss-rails
-  # enhances Rails' own `test:prepare` hook with, so CI's
-  # `bin/rails db:test:prepare test`, the playwright lane's explicit build, and
-  # studio-engine's consumer lane all have it. A skip here would be the same
-  # shape of silence the shim itself lived in for a whole release.
+  # enhances Rails' own `test:prepare` hook with. Every lane that runs this file
+  # has it, by three different routes: ci.yml's `test` job builds it in an
+  # EXPLICIT step, because `bin/rails db:test:prepare test` routes through rake
+  # and never fires that hook; the playwright lane builds explicitly too; and
+  # studio-engine's consumer lane runs an ARGLESS `rails test`, which is the one
+  # shape that does fire the hook. A skip here would be the same shape of silence
+  # the shim itself lived in for a whole release.
   #
   # IT IS THE SECOND HALF OF A PAIR, not the whole guard.
   # test/lib/engine_pin_contract_test.rb refuses a re-introduced shim in SOURCE
