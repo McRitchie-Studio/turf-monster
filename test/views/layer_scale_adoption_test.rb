@@ -283,7 +283,12 @@ class LayerScaleAdoptionTest < ActionDispatch::IntegrationTest
 
   test "nothing in this app paints at a bare blocking number" do
     files = Dir[Rails.root.join("app/views/**/*.erb")] +
-            Dir[Rails.root.join("app/assets/tailwind/**/*.css")]
+            Dir[Rails.root.join("app/assets/tailwind/**/*.css")] +
+            # JS MODULES TOO, and this glob is why the scan needed one more
+            # directory: _alpine_factories' two confetti bursts were converted
+            # while an identical pair in app/javascript/solana_utils.js kept its
+            # bare 9999, unseen because the scan stopped at app/views.
+            Dir[Rails.root.join("app/javascript/**/*.js")]
 
     offenders = files.flat_map do |path|
       code  = code_of(path)
