@@ -168,8 +168,10 @@
    at the top of this file. The ADOPTION SHIM that used to sit here is deleted.
    It mirrored three engine-owned things: the tier :root, a copy of the
    modal-open lift that raises the environment bars over a backdrop, and the
-   --studio-toast-z / --studio-toast-blur-z override seams. The pin reached
-   0.65.0, which ships all three.
+   --studio-toast-z / --studio-toast-blur-z override seams. All three first
+   shipped in engine 0.63.0, which is why the FLOOR moved there and the pin now
+   reads ~> 0.63. The RESOLVED version (0.65.0) is not the reason: a two-segment
+   ~> admits anything under 1.0, so the old ~> 0.62 already allowed it.
 
    IT HAD TO GO RATHER THAN LINGER HARMLESSLY. The engine build is imported
    ABOVE and the shim's :root came AFTER it — equal specificity, later source
