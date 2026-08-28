@@ -479,7 +479,6 @@ class ContestsController < ApplicationController
 
     load_contest_board_data
     @games = @contest.games_by_phase
-    @picked_slugs = viewer_picked_team_slugs
     @focus_slug = default_focus_game_slug(@games)
   end
 
@@ -2218,20 +2217,6 @@ class ContestsController < ApplicationController
     end
     @cart_entry = @contest.entries.cart.find_by(user: current_user) if logged_in?
     @pending_recovery_ptx = find_pending_recovery_ptx
-  end
-
-  # Team slugs the VIEWER holds a pick on, for the live page's game tiles.
-  #
-  # Read off @entries rather than re-queried: load_contest_board_data already
-  # eager-loads selections -> slate_matchup, so this is six array reads instead
-  # of a query per pick. Empty for a signed-out visitor, which is correct — the
-  # live page is readable without an entry and a marker needs an owner.
-  def viewer_picked_team_slugs
-    return [] unless logged_in?
-
-    Array(@entries).select { |entry| entry.user_id == current_user.id }
-                   .flat_map { |entry| entry.selections.map { |sel| sel.slate_matchup.team_slug } }
-                   .uniq
   end
 
   # Which game the live page opens on: whatever is being played, else whatever

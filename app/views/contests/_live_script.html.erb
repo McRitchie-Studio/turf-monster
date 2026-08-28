@@ -45,7 +45,6 @@
     }
     // WHAT IS MINE, read once from the shell element that no stream can replace.
     var myEntries = list(shell && shell.dataset.entrySlugs);
-    var myTeams   = list(shell && shell.dataset.pickedSlugs);
 
     // Re-running an animation on an element that already carries its class is a
     // no-op — the class never changed. Strip, force a reflow, re-add.
@@ -135,10 +134,6 @@
       glow[gameSlug] = setTimeout(function () { unglow(gameSlug); }, GLOW_MS);
     }
 
-    // THE PICK MARKS. Server-rendered on first paint and re-applied here after
-    // every replacement, because the broadcast's single payload cannot carry
-    // them. Keyed on the team, not the row, so a team picked in one game is
-    // marked wherever that game is drawn.
     // KICKOFF TIMES ARE RENDERED BY THE BROWSER, in the reader's own zone. The
     // app runs on UTC, so a server-rendered 7:00 PM Eastern kickoff printed as
     // "Thu 11:00 PM" — wrong for every reader — and picking one zone server-side
@@ -158,16 +153,6 @@
           // mutation, so an unconditional write re-fires the observer forever.
           if (el.textContent !== next) el.textContent = next;
         } catch (_) { /* keep the server fallback */ }
-      });
-    }
-
-    function applyPicks() {
-      if (!myTeams.length) return;
-      myTeams.forEach(function (slug) {
-        all('[data-team-slug="' + slug + '"]').forEach(function (el) {
-          el.classList.add('nfl-row-picked');
-          el.setAttribute('data-picked', '1');
-        });
       });
     }
 
@@ -391,7 +376,7 @@
     // A broadcast replaces each section wholesale; re-paint everything the page
     // knows and the payload does not onto the nodes that just arrived.
     boards.forEach(function (b) {
-      new MutationObserver(function () { applyPicks(); applyHot(); applyGlow(); formatKickoffs(); })
+      new MutationObserver(function () { applyHot(); applyGlow(); formatKickoffs(); })
         .observe(b, { childList: true, subtree: true });
     });
     if (board) {
@@ -400,7 +385,6 @@
     }
 
     // First paint.
-    applyPicks();
     formatKickoffs();
     syncBoard();
   })();

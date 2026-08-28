@@ -1,8 +1,8 @@
 <% content_for(:title) { "#{@contest.name} — Live" } %>
 <%
-  # The viewer's own entry slugs, for the sticky "this one is mine" highlight.
-  # Same source as @picked_slugs (the controller's eager-loaded @entries), and
-  # empty for a signed-out reader, which is correct — the live page is public.
+  # The viewer's own entry slugs, for the sticky "this one is mine" post on the
+  # ranking. Read off the controller's eager-loaded @entries, and empty for a
+  # signed-out reader, which is correct — the live page is public.
   viewer_entry_slugs = current_user ? Array(@entries).select { |e| e.user_id == current_user.id }.map(&:slug) : []
 %>
 <%# max-w-7xl, not 5xl: this page is now two real columns, and the right-hand one
@@ -32,8 +32,7 @@
       answer lives out here, where no stream can reach it, and the script below
       re-applies it to whatever markup the latest broadcast left behind. %>
   <div id="contest_<%= @contest.id %>_viewer" class="hidden" aria-hidden="true"
-       data-entry-slugs="<%= viewer_entry_slugs.join(",") %>"
-       data-picked-slugs="<%= Array(@picked_slugs).join(",") %>"></div>
+       data-entry-slugs="<%= viewer_entry_slugs.join(",") %>"></div>
 
   <%# Strip carousel factory. Defined inline (not importmap) so it exists before
       Alpine processes x-data — including on broadcast-replaced strip content.
@@ -124,36 +123,29 @@
     <%= link_to "← Contest", contest_path(@contest), class: "btn btn-outline btn-sm flex-shrink-0" %>
   </div>
 
-  <%# The strip, across the full width, above both columns. Wrapper owns the id;
-      the broadcaster updates its inner HTML. %>
-  <div id="contest_<%= @contest.id %>_games">
-    <%= render "contests/live_games", **@games, contest: @contest, picked_slugs: @picked_slugs %>
+  <%# THE CENTREPIECE, first and full width. The game you are watching is the
+      reason the page is open, so it gets the whole row and the large type; the
+      strip that CHOOSES it sits underneath, and the two columns of standings and
+      talk sit under that. Wrapper owns the id; the broadcaster updates its inner
+      HTML on every score. %>
+  <div id="contest_<%= @contest.id %>_focus" class="mb-4">
+    <%= render "contests/live_focus", **@games, contest: @contest, focus_slug: @focus_slug %>
   </div>
 
-  <%# LEFT: the focused game, then chat. RIGHT: the ranking, full height.
-      DOM order is focus → ranking → chat so that a single-column phone reads in
-      the order that matters (what is happening, where I stand, what people are
-      saying); the explicit row/column placement at lg puts chat back under the
-      focused game and hands the ranking the whole right-hand half. %>
-  <%# grid-rows-[auto_1fr] is what keeps chat tucked under the focused game.
-      The ranking spans both rows, and with auto rows the browser grows BOTH to
-      fit it — so row one stretched to half the leaderboard's height and left a
-      few hundred pixels of nothing between the game and the chat. Pinning row
-      one to `auto` sizes it to the tile, and row two (1fr) absorbs whatever the
-      ranking still needs. %>
-  <div class="grid grid-cols-1 lg:grid-cols-2 lg:grid-rows-[auto_1fr] gap-4 items-start mb-8">
-    <div id="contest_<%= @contest.id %>_focus" class="lg:col-start-1 lg:row-start-1">
-      <%= render "contests/live_focus", **@games, contest: @contest,
-                 picked_slugs: @picked_slugs, focus_slug: @focus_slug %>
+  <%# The strip, full width, directly under the game it drives. %>
+  <div id="contest_<%= @contest.id %>_games">
+    <%= render "contests/live_games", **@games, contest: @contest %>
+  </div>
+
+  <%# Standings on the right, talk on the left. DOM order puts the ranking first
+      so a single-column phone reads what matters before the chatter; at lg the
+      explicit columns put it back on the right. %>
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start mb-8">
+    <div id="contest_<%= @contest.id %>_leaderboard" class="lg:col-start-2 lg:row-start-1">
+      <%= render "contests/turf_totals_leaderboard", compact: true, viewer: current_user %>
     </div>
 
-    <div class="lg:col-start-2 lg:row-start-1 lg:row-span-2">
-      <div id="contest_<%= @contest.id %>_leaderboard">
-        <%= render "contests/turf_totals_leaderboard", compact: true, viewer: current_user %>
-      </div>
-    </div>
-
-    <div class="lg:col-start-1 lg:row-start-2">
+    <div class="lg:col-start-1 lg:row-start-1">
       <%= render "contests/chat_panel", contest: @contest %>
     </div>
   </div>

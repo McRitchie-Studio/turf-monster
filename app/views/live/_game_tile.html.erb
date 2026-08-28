@@ -25,24 +25,18 @@
       · .nfl-sweep                      — the touchdown's left-to-right strip %>
 <% home = game.home_team %>
 <% away = game.away_team %>
-<%# CONTEST EXTRAS. Both default to OFF, so the league board's render is
-    byte-for-byte what it was before the contest live page adopted this tile —
-    which is the point of sharing the partial rather than copying it.
+<%# CONTEST EXTRAS. Both default to the league board's own values, so /live
+    renders byte-for-byte what it did before the contest live page adopted this
+    tile — which is the point of sharing the partial rather than copying it.
 
-      picked_slugs  team slugs the VIEWER holds a pick on. The one thing a
-                    contest board knows that the league board never can.
-      scorers       true draws the chronological scoring-play strip.
-
-    THE PICK MARKER IS A CLASS, NOT MARKUP, and that is load-bearing rather than
-    tidy. Contest::LiveBroadcast replaces this whole games section on every
-    score, with ONE payload for every subscriber — so it cannot carry anything
-    viewer-specific, and a marker rendered as markup here would vanish on the
-    first touchdown and never come back. A class can be re-applied to the fresh
-    nodes by the page's own observer, which is exactly how the hot score and the
-    glow ring already survive a board replacement. The server render below is
-    the no-JS answer and what the component test asserts on. %>
-<% picked_slugs = Array(local_assigns.fetch(:picked_slugs, [])) %>
-<% scorers      = local_assigns.fetch(:scorers, false) %>
+      scorers  true draws the chronological scoring-play strip.
+      size     :hero enlarges the type for the contest page, where this tile is
+               the full-width centrepiece rather than one of four across. Only
+               type and spacing change; the structure, the colours and every
+               animation hook are identical, so nothing downstream has to know
+               which size it is looking at. %>
+<% scorers = local_assigns.fetch(:scorers, false) %>
+<% hero    = local_assigns.fetch(:size, :default).to_sym == :hero %>
 <%# THE CARD HOSTS THE GLOW RING, and the clipping moved inside it.
     `.studio-team-glow` paints ::before/::after at a NEGATIVE inset, so the ring
     lives OUTSIDE the host's box — and `overflow-hidden` on the host would clip
@@ -65,11 +59,9 @@
     <% [[away, game.away_score], [home, game.home_score]].each_with_index do |(team, score), index| %>
       <% palette = team_card_palette(team) %>
       <% field = normalize_hex(team&.card_background) || "#3a3f4b" %>
-      <% picked = picked_slugs.include?(team&.slug) %>
-      <div class="relative flex items-center gap-3 px-3 py-2.5 overflow-hidden<%= " nfl-row-picked" if picked %>"
+      <div class="relative flex items-center overflow-hidden <%= hero ? "gap-4 px-5 py-4" : "gap-3 px-3 py-2.5" %>"
            data-team-slug="<%= team&.slug %>"
            data-role="team-row"
-           data-picked="<%= picked ? 1 : 0 %>"
            style="background: <%= palette[:gradient] %>;
                   --nfl-team: <%= field %>;
                   --nfl-team-ink: <%= palette[:accent] %>;
@@ -92,9 +84,9 @@
               style="width: 34%;
                      background: linear-gradient(90deg, transparent, <%= palette[:accent] %>, transparent)"></span>
 
-        <span class="nfl-rail relative w-1 h-8 rounded-full flex-shrink-0"
+        <span class="nfl-rail relative rounded-full flex-shrink-0 <%= hero ? "w-1.5 h-14" : "w-1 h-8" %>"
               style="background: <%= palette[:accent] %>"></span>
-        <span class="relative text-xl leading-none flex-shrink-0"
+        <span class="relative leading-none flex-shrink-0 <%= hero ? "text-4xl" : "text-xl" %>"
               style="text-shadow: <%= palette[:mascot_shadow] %>"><%= team&.emoji %></span>
         <%# Same colour convention as contests/_multi_week_team_card: the MASCOT
             in the team accent over its legibility halo, the CITY in the light
@@ -102,11 +94,11 @@
             team's own field — it is why Buffalo's red-on-blue (1.88:1 unaided)
             works here exactly as it does on the contests card. %>
         <span class="relative min-w-0 flex-1">
-          <span class="block text-sm font-extrabold truncate"
+          <span class="block font-extrabold truncate <%= hero ? "text-2xl" : "text-sm" %>"
                 style="color: <%= palette[:accent] %>; text-shadow: <%= palette[:mascot_shadow] %>">
             <%= team&.mascot.presence || team&.short_name || team&.name %>
           </span>
-          <span class="block text-[11px] font-medium truncate" style="color: <%= palette[:location] %>">
+          <span class="block font-medium truncate <%= hero ? "text-base" : "text-[11px]" %>" style="color: <%= palette[:location] %>">
             <%= team&.location %>
           </span>
         </span>
@@ -114,7 +106,7 @@
             An inline style beats a stylesheet rule, so the hot state could never
             repaint it — the score reads its resting colour from --nfl-team-fg
             through a rule instead, which the hot rule can then override. %>
-        <span class="relative text-2xl font-extrabold tabular-nums"
+        <span class="relative font-extrabold tabular-nums <%= hero ? "text-5xl" : "text-2xl" %>"
               style="--nfl-team-fg: <%= palette[:fg] %>"
               data-role="score"><%= score.to_i %></span>
       </div>
@@ -132,13 +124,13 @@
   <% badge = game.live? ? "Live" : (game.completed? ? "Final" : nil) %>
   <% detail = game.status_detail.presence %>
   <% detail = nil if detail && badge && detail.casecmp(badge).zero? %>
-  <div class="px-3 py-1.5 bg-surface-alt/60 flex items-center justify-between gap-2">
+  <div class="bg-surface-alt/60 flex items-center justify-between gap-2 <%= hero ? "px-5 py-2.5" : "px-3 py-1.5" %>">
     <% if game.live? %>
-      <span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-red-400">
-        <span class="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse"></span> Live
+      <span class="inline-flex items-center gap-1 font-bold uppercase tracking-wider text-red-400 <%= hero ? "text-xs" : "text-[10px]" %>">
+        <span class="rounded-full bg-red-500 animate-pulse <%= hero ? "h-2 w-2" : "h-1.5 w-1.5" %>"></span> Live
       </span>
     <% elsif game.completed? %>
-      <span class="text-[10px] font-bold uppercase tracking-wider text-muted">Final</span>
+      <span class="font-bold uppercase tracking-wider text-muted <%= hero ? "text-xs" : "text-[10px]" %>">Final</span>
     <% elsif game.kickoff_at %>
       <%# A MACHINE-READABLE timestamp the browser formats in the VIEWER's zone.
           The app runs on UTC (config.time_zone is commented out), so a
@@ -149,11 +141,11 @@
           it is never silently four hours out. %>
       <time datetime="<%= game.kickoff_at.utc.iso8601 %>"
             data-role="kickoff"
-            class="text-[10px] font-bold uppercase tracking-wider text-muted"><%= game.kickoff_at.utc.strftime("%a %-I:%M %p") %> UTC</time>
+            class="font-bold uppercase tracking-wider text-muted <%= hero ? "text-xs" : "text-[10px]" %>"><%= game.kickoff_at.utc.strftime("%a %-I:%M %p") %> UTC</time>
     <% else %>
-      <span class="text-[10px] font-bold uppercase tracking-wider text-muted">TBD</span>
+      <span class="font-bold uppercase tracking-wider text-muted <%= hero ? "text-xs" : "text-[10px]" %>">TBD</span>
     <% end %>
-    <span class="text-[11px] text-secondary font-mono truncate"><%= detail %></span>
+    <span class="text-secondary font-mono truncate <%= hero ? "text-sm" : "text-[11px]" %>"><%= detail %></span>
   </div>
 
   <%# SCORING PLAYS, chronological. The score above says what the game stands at;
@@ -163,12 +155,12 @@
   <% if scorers %>
     <% plays = game.goals.sort_by { |goal| [goal.minute || 0, goal.id] } %>
     <% if plays.any? %>
-      <div class="px-3 py-1.5 border-t border-subtle flex items-center gap-3 overflow-x-auto"
+      <div class="border-t border-subtle flex items-center overflow-x-auto <%= hero ? "px-5 py-2.5 gap-5" : "px-3 py-1.5 gap-3" %>"
            data-test="live-game-scorers">
         <% plays.each do |play| %>
           <% scoring_team = play.team_slug == game.home_team_slug ? home : away %>
-          <span class="flex items-center gap-1 flex-shrink-0 text-[11px] leading-none whitespace-nowrap">
-            <span class="text-[10px]"><%= scoring_team&.emoji %></span>
+          <span class="flex items-center gap-1 flex-shrink-0 leading-none whitespace-nowrap <%= hero ? "text-sm" : "text-[11px]" %>">
+            <span class="<%= hero ? "text-base" : "text-[10px]" %>"><%= scoring_team&.emoji %></span>
             <span class="text-secondary font-medium">
               <%= play.player&.name&.split&.last || play.scoring_label.presence || scoring_team&.short_name || "Score" %>
             </span>

@@ -70,32 +70,16 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
       "the tile should wear the team's own field colour, not a neutral card")
   end
 
-  # The contest-only half of the tile.
-  test "marks the rows of teams the viewer picked, and only those" do
-    get_live(as: users(:alex))
-
-    assert_select "[data-game-slug=?] [data-team-slug=?][data-picked=?]", @played.slug, "team-a", "1"
-    assert_select "[data-game-slug=?] [data-team-slug=?][data-picked=?]", @played.slug, "team-b", "0"
-  end
-
-  test "marks nothing for a signed-out reader" do
-    get_live
-
-    assert_response :success
-    assert_select "[data-picked=?]", "1", count: 0
-  end
-
   # THE STICKY STATE. Contest::LiveBroadcast sends one payload to every
   # subscriber, so anything viewer-specific inside a broadcast target is gone
-  # after the first score. These two lists live outside every target precisely
-  # so the page can put the marks back — if they stop being rendered, the marks
-  # survive the first paint and vanish for the rest of the contest.
-  test "publishes the viewer's own entries and picks outside every broadcast target" do
+  # after the first score. This list lives outside every target precisely so the
+  # page can put the mark back — if it stops being rendered, the viewer's own row
+  # is marked on first paint and anonymous for the rest of the contest.
+  test "publishes the viewer's own entries outside every broadcast target" do
     get_live(as: users(:alex))
 
     shell = css_select("#contest_#{@contest.id}_viewer").first
     assert_equal @mine.reload.slug, shell["data-entry-slugs"]
-    assert_equal "team-a", shell["data-picked-slugs"]
   end
 
   test "publishes empty sticky state for a signed-out reader" do
@@ -103,7 +87,6 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
 
     shell = css_select("#contest_#{@contest.id}_viewer").first
     assert_equal "", shell["data-entry-slugs"]
-    assert_equal "", shell["data-picked-slugs"]
   end
 
   # The ranking hooks. rank and score are what "who moved" is derived FROM;
@@ -165,6 +148,13 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
   # The chip and the full tile draw the same game, and a score has to light both.
   # The page's script queries all matching rows rather than the first, which only
   # works while both carry the hooks.
+  # The centrepiece is drawn LARGE — same partial, same hooks, bigger type.
+  test "draws the focused game at hero size" do
+    get_live
+
+    assert_select "[data-test='live-focus-game'] [data-role=score].text-5xl", minimum: 1
+  end
+
   test "chip and focus tile share the animation hooks" do
     get_live
 

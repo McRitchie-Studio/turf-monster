@@ -1,6 +1,5 @@
 <%# THE FOCUS PANEL — the one game the reader is watching, at full size.
-    Locals: active / upcoming / completed (Game[]) + contest, plus optional
-    picked_slugs.
+    Locals: active / upcoming / completed (Game[]) + contest.
 
     EVERY GAME IS RENDERED HERE AND ALL BUT ONE IS HIDDEN, which looks wasteful
     until you ask what the alternatives cost. Fetching the chosen game on click
@@ -18,7 +17,6 @@
     after first paint, so without it every tile is briefly visible and the page
     opens with a column of sixteen games that then collapses to one. %>
 <%
-  picked_slugs = Array(local_assigns.fetch(:picked_slugs, []))
   phased = active + upcoming + completed
   default_slug = local_assigns.fetch(:focus_slug, nil) || phased.first&.slug
 %>
@@ -28,7 +26,7 @@
          data-test="live-focus-game"
          data-focus-slug="<%= game.slug %>"
          style="<%= "display: none" unless game.slug == default_slug %>">
-      <%= render "live/game_tile", game: game, picked_slugs: picked_slugs, scorers: true %>
+      <%= render "live/game_tile", game: game, scorers: true, size: :hero %>
     </div>
   <% end %>
 <% else %>

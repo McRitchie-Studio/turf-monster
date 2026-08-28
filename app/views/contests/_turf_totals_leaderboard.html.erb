@@ -259,8 +259,21 @@
               pills = sorted_sels.map do |sel|
                 t = sel.slate_matchup.team
                 g = sel.slate_matchup.game
-                c1 = t.card_background || "#666"
-                c2 = t.card_mascot || c1
+                # THE TEAM'S OWN DARK, WITH ITS OWN LIGHT ON TOP. The pill used
+                # to be a two-colour gradient carrying white text and the team
+                # emoji, which at six-across is three decorations competing for
+                # the same 80 pixels as the two things a reader is actually
+                # after: which team, and what it multiplies by. One flat brand
+                # colour and its own light counterpart say "which team" without
+                # spending any width on saying it.
+                #
+                # The pair comes from team_pill_palette, which picks the lightest
+                # colour the team owns and falls back to white when even that
+                # cannot clear AA — Tampa Bay's and Houston's "light" are both
+                # reds, and those two pills came out dark-on-dark.
+                pill = team_pill_palette(t)
+                c1 = pill[:bg]
+                c2 = pill[:fg]
                 # Multi-week: a pick is "live" as soon as ANY week of its span has
                 # scored — the anchor week's game status alone would keep the pill
                 # showing a multiplier for the whole rest of the contest.
@@ -299,12 +312,12 @@
               <div x-show="!dkFull" x-cloak @click="picksOpen = !picksOpen">
                 <div class="cursor-pointer" :class="(picksOpen || wide) ? 'grid grid-cols-3 gap-1.5' : 'flex'">
                   <% pills.each_with_index do |p, si| %>
-                    <span class="inline-flex items-center py-1 rounded-lg text-xs font-semibold text-white border border-white/15"
+                    <span class="inline-flex items-center py-1 rounded-lg text-xs font-semibold border border-white/10"
                           :class="{ 'px-2': picksOpen || mid, 'px-1': !picksOpen && !mid, 'justify-between': <%= si == pills.size - 1 ? '(picksOpen || wide)' : 'true' %>, 'justify-center': <%= si == pills.size - 1 ? '!(picksOpen || wide)' : 'false' %> }"
-                          style="background: linear-gradient(135deg, <%= p[:c1] %>, <%= p[:c2] %>)"
+                          style="background: <%= p[:c1] %>; color: <%= p[:c2] %>"
                           :style="(picksOpen || wide) ? {} : { width: wide ? '7rem' : (mid ? 'calc((100% - <%= (pills.size - 1) * 0.3 %>rem) / <%= pills.size %>)' : '5rem'), <% if si > 0 %>marginLeft: wide ? 'calc((100% - <%= pills.size * 7 %>rem) / <%= pills.size - 1 %>)' : (mid ? '0.3rem' : 'calc((100% - <%= pills.size * 5 %>rem) / <%= pills.size - 1 %>)'), <% end %>position: 'relative', zIndex: <%= si + 1 %> }"
                           title="<%= p[:team].name %> — <%= p[:tv] %>">
-                      <span class="truncate"><%= p[:team].emoji %> <%= p[:team].short_name %></span>
+                      <span class="truncate"><%= p[:team].short_name %></span>
                       <span x-show="picksOpen || wide" class="font-mono ml-1 flex-shrink-0" style="opacity:0.85"><%= p[:ip] %><% if p[:dp] %><span style="font-size:0.7em;opacity:0.8"><%= p[:dp] %></span><% end %></span>
                     </span>
                   <% end %>
@@ -313,10 +326,10 @@
               <%# Desktop (1080px+): one full-width row of 6 even pills %>
               <div x-show="dkFull" x-cloak class="grid grid-cols-6 gap-1.5">
                 <% pills.each do |p| %>
-                  <span class="flex items-center justify-between min-w-0 px-2 py-1 rounded-lg text-xs font-semibold text-white border border-white/15"
-                        style="background: linear-gradient(135deg, <%= p[:c1] %>cc, <%= p[:c2] %>99)"
+                  <span class="flex items-center justify-between min-w-0 px-2 py-1 rounded-lg text-xs font-semibold border border-white/10"
+                        style="background: <%= p[:c1] %>; color: <%= p[:c2] %>"
                         title="<%= p[:team].name %> — <%= p[:tv] %>">
-                    <span class="truncate"><%= p[:team].emoji %> <%= p[:team].short_name %></span>
+                    <span class="truncate"><%= p[:team].short_name %></span>
                     <span class="font-mono ml-1 flex-shrink-0" style="opacity:0.85"><%= p[:ip] %><% if p[:dp] %><span style="font-size:0.7em;opacity:0.8"><%= p[:dp] %></span><% end %></span>
                   </span>
                 <% end %>

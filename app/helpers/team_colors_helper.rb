@@ -64,6 +64,31 @@ module TeamColorsHelper
   # A subtle halo that keeps the mascot legible on the team gradient: a light
   # halo behind an essentially-black mascot, a dark halo behind everything else.
   # Held at 0.5 alpha so it reads as a soft glow, not a hard sticker outline.
+  # THE PICK PILL: the team's own dark, with the lightest brand colour it owns
+  # sitting on top of it.
+  #
+  # The naive reading of "dark background, light text" is
+  # `color_dark` + `color_light`, and for most of the league that is exactly
+  # right. It is wrong for the teams whose "light" is not light — Tampa Bay's is
+  # a red, Houston's is a red — and those pills came out dark-red-on-near-black,
+  # which reads as an empty pill with a multiplier floating in it.
+  #
+  # So the colour is CHOSEN rather than assumed: take the lightest brand colour
+  # the team actually has, and if even that cannot clear WCAG AA against the
+  # team's own dark, fall back to white. The pill keeps the team's identity
+  # wherever the team's own palette can carry it, and stays readable where it
+  # cannot.
+  PILL_MIN_CONTRAST = 4.5
+
+  def team_pill_palette(team)
+    bg = normalize_hex(team&.color_dark) || normalize_hex(team&.card_background) || FALLBACK_PRIMARY
+    candidates = [team&.color_light, team&.card_mascot, team&.color_alt].filter_map { |hex| normalize_hex(hex) }
+    fg = candidates.max_by { |hex| relative_luminance(hex) }
+    fg = LIGHT_FG if fg.nil? || contrast_ratio(fg, bg) < PILL_MIN_CONTRAST
+
+    { bg: bg, fg: fg }
+  end
+
   def mascot_shadow(mascot)
     hex = normalize_hex(mascot)
     return "none" unless hex

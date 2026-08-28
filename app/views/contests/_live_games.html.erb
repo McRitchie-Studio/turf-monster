@@ -1,6 +1,5 @@
 <%# THE GAME STRIP — every game in the contest, shrunk to a row of buttons.
-    Locals: active / upcoming / completed (Game[]) + contest, plus optional
-    picked_slugs.
+    Locals: active / upcoming / completed (Game[]) + contest.
 
     Two jobs, and only two. It shows the whole slate at a glance, and it is how
     the reader CHOOSES which game the panel below shows. Ordered active →
@@ -12,7 +11,6 @@
     chips, and a selection stored among them would be forgotten every time
     anyone scored. %>
 <%
-  picked_slugs = Array(local_assigns.fetch(:picked_slugs, []))
   phased = active + upcoming + completed
 %>
 <section class="mb-5">
@@ -25,7 +23,7 @@
         <div x-ref="track" class="flex gap-2 items-stretch will-change-transform">
           <% phased.each do |game| %>
             <div class="flex-shrink-0">
-              <%= render "contests/live_game_chip", game: game, picked_slugs: picked_slugs %>
+              <%= render "contests/live_game_chip", game: game %>
             </div>
           <% end %>
         </div>
