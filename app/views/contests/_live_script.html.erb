@@ -91,6 +91,76 @@
     var BANNER_FULL_MS = window.TT_BANNER_MS     || 8000;
     var BANNER_MIN_MS  = window.TT_BANNER_MIN_MS || 4000;
 
+    // ── WAIT FOR THE FACE ───────────────────────────────────────────────────
+    //
+    // An event is not presented until its headshot has DECODED. The card and the
+    // banner both lead with the player's face, and showing them the instant the
+    // score lands meant the image arrived a beat later — the panel rolled up
+    // around an empty disc and the portrait popped in afterwards.
+    //
+    // The wait is nearly always zero. Preloading starts when the event is
+    // ENQUEUED, and a chained event then sits in the queue for four seconds
+    // before its turn, so the picture is long since ready. Only the first score
+    // of a quiet stretch can actually wait, and it waits at most
+    // HEADSHOT_WAIT_MS — a broken or slow image delays the chain, it never
+    // stalls it.
+    var HEADSHOT_WAIT_MS = window.TT_HEADSHOT_WAIT_MS || 2000;
+    var headshots = {};    // url -> 'loading' | 'ready' | 'failed'
+
+    function preloadHeadshot(url) {
+      if (!url || headshots[url]) return;
+      headshots[url] = 'loading';
+      var img = new Image();
+      img.onload  = function () { headshots[url] = 'ready'; };
+      img.onerror = function () { headshots[url] = 'failed'; };
+      img.src = url;
+    }
+
+    function headshotSettled(url) {
+      return headshots[url] === 'ready' || headshots[url] === 'failed';
+    }
+
+    // WAIT ON THE ELEMENT THAT WILL BE SEEN, not on a warm cache.
+    //
+    // The first cut waited on a `new Image()` preload and still presented cards
+    // with an empty disc: warming the cache does not decode the <img> the card
+    // actually renders, and that element has its own load to do once its src is
+    // set. Measured against throttled images, the card appeared 984ms in with no
+    // picture. So the gate is this — the very node about to roll into view.
+    //
+    // Resolves immediately when there is nothing to wait for: no src at all (a
+    // scorer we hold no photo of, who draws initials), or an image already
+    // decoded, which is the common case once a chain is running.
+    // Waits on the DETACHED preload — the copy no broadcast can destroy.
+    function whenPreloaded(d, cb) {
+      var url = d && d.scorerHeadshot;
+      if (!url || headshotSettled(url)) return cb();
+
+      preloadHeadshot(url);
+      var done = false;
+      function finish() { if (done) return; done = true; clearInterval(poll); cb(); }
+      var poll = setInterval(function () { if (headshotSettled(url)) finish(); }, 40);
+      setTimeout(finish, HEADSHOT_WAIT_MS);
+    }
+
+    function imgReady(img, cb) {
+      if (!img || !img.getAttribute('src')) return cb();
+      if (img.complete && img.naturalWidth > 0) return cb();
+
+      var done = false;
+      function finish() {
+        if (done) return;
+        done = true;
+        img.removeEventListener('load', finish);
+        img.removeEventListener('error', finish);
+        cb();
+      }
+      img.addEventListener('load', finish);
+      img.addEventListener('error', finish);
+      // A broken or slow image delays the event; it never strands the chain.
+      setTimeout(finish, HEADSHOT_WAIT_MS);
+    }
+
     var queue    = [];     // events waiting their turn
     var showing  = null;   // the event on screen, or null between chains
     var shownAt  = 0;
@@ -104,7 +174,28 @@
       document.getElementById('nfl-score-emoji').textContent  = isFinal ? '🏁' : (d.teamEmoji || '🏈');
       document.getElementById('nfl-score-label').textContent  = isFinal ? 'Final' : (d.label || 'Score');
       document.getElementById('nfl-score-team').textContent   = isFinal ? '' : (d.teamName || d.team || '');
-      document.getElementById('nfl-score-points').textContent = (isFinal || !d.points) ? '' : ('+' + d.points);
+      // THE FACE, OR THE NUMBER — never both. The avatar carries more than "+6"
+      // ever did, and the points stay as the fallback for the league board,
+      // whose feed carries no scorer.
+      var avatar = document.getElementById('nfl-score-avatar');
+      var points = document.getElementById('nfl-score-points');
+      // A URL IS NOT A PICTURE. whenPreloaded already recorded whether this image
+      // decoded; keying merely on the url being PRESENT put a broken-image glyph
+      // and the literal alt text where the points chip belongs when a headshot
+      // 404s. Only a decoded image earns the slot — anything else falls back to
+      // the points, which is what the league board shows anyway.
+      var face = (!isFinal && d.scorerHeadshot && headshots[d.scorerHeadshot] !== 'failed')
+        ? d.scorerHeadshot : null;
+      if (avatar) {
+        if (face) {
+          if (avatar.getAttribute('src') !== face) avatar.src = face;
+          avatar.alt = d.scorer || '';
+        }
+        avatar.classList.toggle('hidden', !face);
+      }
+      if (points) {
+        points.textContent = (isFinal || !d.points || face) ? '' : ('+' + d.points);
+      }
       document.getElementById('nfl-score-line').textContent =
         (d.awayTeam || '') + ' ' + (d.awayScore || '0') + '  –  ' + (d.homeScore || '0') + ' ' + (d.homeTeam || '');
 
@@ -128,6 +219,8 @@
     var chainMoved = {};
 
     function enqueueEvent(d) {
+      // Start fetching the face NOW, while the event waits its turn.
+      preloadHeadshot(d.scorerHeadshot);
       if (!showing && chainBaseline === null) chainBaseline = viewerBestRank();
       queue.push(d);
       if (!showing) advanceChain();
@@ -146,10 +239,44 @@
     function advanceChain() {
       if (queue.length) {
         if (rankTimer) { clearTimeout(rankTimer); rankTimer = null; }
-        showing = queue.shift();
+        var next = queue.shift();
+        showing = next;
+        // Hold the clock from HERE so a queued sibling cannot advance past an
+        // event that has not been painted yet; it is reset on present so the
+        // full hold is measured from when the reader could first see it.
         shownAt = Date.now();
-        paintBanner(showing);
-        scheduleChain();
+
+        // Build it off screen first, then wait for that pane's own picture to
+        // decode, and only then present. The extra beat is deliberate: a card
+        // that rolls up around an empty disc and fills in afterwards reads worse
+        // than one that arrives whole.
+        // TWO WAITS, AND THE ORDER MATTERS.
+        //
+        // First the detached preload, which is the only thing that survives a
+        // broadcast: every score replaces the focus panel, so the <img> staged
+        // into a pane can be destroyed and rebuilt mid-wait. Waiting on that
+        // element alone presented cards whose picture was still loading, because
+        // the element that finished loading was no longer in the document.
+        //
+        // Then the staged element itself, which by now is a cache hit and
+        // resolves in the same tick — it is the belt to the preload's braces,
+        // and it is what guarantees the node about to roll is decoded.
+        whenPreloaded(next, function () {
+          if (showing !== next) return;
+
+          var tile = visibleFocusTile();
+          var frame = (tile && tile.dataset.focusSlug === next.gameSlug)
+            ? tile.querySelector('[data-role="event-feed-frame"]') : null;
+          var staged = frame ? stageScorerCard(frame, next) : null;
+
+          imgReady(staged, function () {
+            if (showing !== next) return;   // superseded while we waited
+            shownAt = Date.now();
+            paintBanner(next);
+            syncScorerCard(next);
+            scheduleChain();
+          });
+        });
         return;
       }
       // THE ORDER HERE IS LOAD-BEARING. hideBanner() schedules a 340ms fade and
@@ -158,6 +285,7 @@
       // second later by a timer belonging to the chain that had just ended. The
       // summary gets asked first, and only when it declines does the banner go.
       showing = null;
+      syncScorerCard(null);          // the chain is over; give the rail its list back
       if (!flushChain()) hideBanner();
     }
 
@@ -541,7 +669,9 @@
     // warning glyph — and it announced the best thing that can happen to a
     // reader on this page in the same voice. The summary belongs to the same
     // family as the thing that caused it, so it uses the same element, the same
-    // four slots, and an entrance of its own: every scoring type DROPS in,
+    // FIVE slots — emoji, label, team, points and the avatar, which this banner
+    // CLEARS because a rank summary is about the reader and not a player — and an
+    // entrance of its own: every scoring type DROPS in,
     // because a score comes at you; this one RISES, because it is telling you
     // that you went up.
     //
@@ -560,6 +690,23 @@
         ? 'linear-gradient(135deg, #14532d 0%, #1c7a45 55%, #2ea55f 100%)'
         : 'linear-gradient(135deg, #0f3d2e 0%, #17683f 60%, #1f8a4c 100%)';
       banner.style.color = '#eafff2';
+      // THE AVATAR IS THE FIFTH SLOT, AND IT IS NOT OURS.
+      //
+      // paintBanner un-hid #nfl-score-avatar for the score that just played, and
+      // the drain path deliberately does NOT call hideBanner before painting this
+      // (see advanceChain) — so the overlay never blanks in between and the
+      // summary inherited the scorer's face. Measured: the green "Now 2nd"
+      // banner sat for its full 6s beside a touchdown scorer's headshot.
+      //
+      // A rank summary is about the READER, not a player, so it clears the slot
+      // rather than filling it.
+      var rankAvatar = document.getElementById('nfl-score-avatar');
+      if (rankAvatar) {
+        rankAvatar.classList.add('hidden');
+        rankAvatar.removeAttribute('src');
+        rankAvatar.removeAttribute('alt');
+      }
+
       document.getElementById('nfl-score-emoji').textContent  = crowned ? '👑' : '📈';
       document.getElementById('nfl-score-label').textContent  = 'Now ' + ordinal(rank);
       document.getElementById('nfl-score-team').textContent   = body;
@@ -577,6 +724,364 @@
         // Only if no chain has claimed the banner in the meantime.
         if (!showing) hideBanner();
       }, 6000);
+    }
+
+    // ── THE SCORER REVEAL ───────────────────────────────────────────────────
+    //
+    // A touchdown or field goal on the FOCUSED game takes over its events rail:
+    // the list of scores leaves upward and a card carrying the scorer — their
+    // headshot, their name, what they did — arrives from below.
+    //
+    // IT RIDES THE BANNER CHAIN rather than firing on arrival. Scores queue (see
+    // THE EVENT CHAIN above) so a flurry plays as an ordered sequence; a reveal
+    // that fired on arrival would swap the rail four times in a second while the
+    // banners were still narrating the first score, and the two channels would
+    // be describing different plays at the same moment. Hanging it off
+    // advanceChain means the card and the banner always show the same event.
+    //
+    // WHICH TILE. Every game is rendered into the focus panel and all but one is
+    // hidden by Alpine, so "the focused game" is the one tile whose offsetParent
+    // is not null. Reading layout beats reading Alpine's internals, and it is
+    // the same test snapshot() uses to tell a collapsed leaderboard row apart
+    // from a visible one.
+    var scorerShowing = null;   // the event whose card is up, or null
+
+    function visibleFocusTile() {
+      if (!focus) return null;
+      var tiles = focus.querySelectorAll('[data-test="live-focus-game"]');
+      for (var i = 0; i < tiles.length; i++) {
+        if (tiles[i].offsetParent !== null) return tiles[i];
+      }
+      return null;
+    }
+
+    function initialsOf(name) {
+      return (name || '').split(/\s+/).filter(Boolean)
+        .slice(0, 2).map(function (part) { return part[0]; }).join('').toUpperCase();
+    }
+
+    // ROW 1 — the shout. Deliberately not d.label: the label is sentence case
+    // for the banner's own line ("Field Goal"), and this row is the one thing
+    // read at a glance from across a room.
+    var HEADLINES = {
+      touchdown:  'Touchdown!',
+      field_goal: 'Field Goal',
+      safety:     'Safety',
+      two_point:  '2-Point',
+      pat:        'Extra Point'
+    };
+
+    function scorerHeadline(d) {
+      return HEADLINES[d.scoringType] || (d.label || 'Score');
+    }
+
+    // ROW 3 — how it happened. Parsed from ESPN's play text at write time
+    // ("22 yard receiving TD"); falls back to the scoring label when a
+    // hand-recorded goal has no prose behind it.
+    function scorerDetail(d) {
+      return d.playDescription || d.label || '';
+    }
+
+    // THE WHEEL'S POSITIONS. Three panes on a 300% track: the events list, then
+    // two interchangeable scorer cards.
+    //
+    //   0        the list
+    //   -33.33%  card A
+    //   -66.67%  card B
+    //
+    // A chain plays list -> A -> B -> A -> B ... and the roll is always DOWNWARD,
+    // because after each card settles the page copies it into A and jumps the
+    // track back to A's position with the transition off. Nothing moves on
+    // screen during that jump — the content either side of it is identical — and
+    // B is free again for the next event.
+    var WHEEL = { list: '0', a: '-33.3333%', b: '-66.6667%' };
+    var wheelPane = 'list';     // which pane the window is showing
+    var settleTimer = null;
+
+    function trackOf(frame) {
+      return frame ? frame.querySelector('.tt-event-track') : null;
+    }
+
+    function paneOf(frame, which) {
+      return frame ? frame.querySelector('[data-pane="' + which + '"] [data-role="scorer-card"]') : null;
+    }
+
+    function rollTo(frame, pane) {
+      var track = trackOf(frame);
+      if (!track) return;
+      track.style.transform = 'translateY(' + WHEEL[pane] + ')';
+    }
+
+    // Put the settled card into A and snap the track back onto A without a
+    // transition, so the next event always rolls forward into B.
+    function settleWheel(frame) {
+      if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
+      if (wheelPane !== 'b') return;
+
+      var track = trackOf(frame);
+      var a = paneOf(frame, 'a');
+      if (!track || !a || !scorerShowing) return;
+
+      paintCardFields(a, scorerShowing);
+      track.style.transition = 'none';
+      track.style.transform = 'translateY(' + WHEEL.a + ')';
+      void track.offsetWidth;              // commit the jump before re-arming
+      track.style.transition = '';
+      wheelPane = 'a';
+    }
+
+    function applyScorer() {
+      // Re-apply after a broadcast, and take the card down from any tile that
+      // should no longer be wearing one. Both directions matter: the panel is
+      // replaced wholesale, so a card left set on a stale frame would reappear
+      // the moment that game came back into focus.
+      if (!focus) return;
+      var frames = focus.querySelectorAll('[data-role="event-feed-frame"]');
+      var tile = scorerShowing ? visibleFocusTile() : null;
+      var live = (tile && tile.dataset.focusSlug === scorerShowing.gameSlug)
+        ? tile.querySelector('[data-role="event-feed-frame"]')
+        : null;
+
+      // RETIRING RESETS THE WHEEL'S IDEA OF ITSELF, not just the DOM.
+      //
+      // Clearing the inline transform rolls the track home, but `wheelPane` was
+      // left saying 'a' — so the next event computed its free pane as B and
+      // rolled two panes from a track that was actually at the list, leaving the
+      // events feed 37% in frame instead of back where it started. The position
+      // and the variable have to agree.
+      if (!scorerShowing) wheelPane = 'list';
+
+      Array.prototype.forEach.call(frames, function (frame) {
+        if (frame === live) return;
+        frame.classList.remove('tt-revealing');
+        var track = trackOf(frame);
+        if (track) track.style.transform = '';
+        Array.prototype.forEach.call(frame.querySelectorAll('[data-role="scorer-card"]'), function (c) {
+          if (c.getAttribute('aria-hidden') !== 'true') c.setAttribute('aria-hidden', 'true');
+        });
+      });
+
+      if (!live) return;
+
+      // A BROADCAST HANDS BACK A BRAND-NEW WHEEL. Every stream replaces the
+      // focus panel, so the panes that arrive are empty and the track is at
+      // rest — none of the JS state survives in the DOM. Restoring means
+      // painting the current event into A and SNAPPING there, transition off:
+      // re-rolling would replay the reveal on every unrelated score in the
+      // contest, which is a wheel spinning for no reason four times a goal.
+      // ONLY WHEN NEITHER PANE ALREADY HOLDS THIS EVENT. Checking pane A alone
+      // was wrong in the one case that matters: an event mid-roll lives in pane
+      // B, so A legitimately holds the previous stamp — and restoring on that
+      // basis snapped the wheel onto A with a freshly-set, still-decoding image,
+      // which is precisely the empty-disc flash the load gate exists to
+      // prevent. Measured: the card appeared 964ms in with no picture, from a
+      // path that never consulted the gate. When either pane carries the stamp,
+      // the DOM is not stale and there is nothing to restore.
+      var a = paneOf(live, 'a'), bPane = paneOf(live, 'b');
+      var held = (a && a.dataset.stamp === scorerShowing.stamp) ||
+                 (bPane && bPane.dataset.stamp === scorerShowing.stamp);
+      if (!held) restoreWheel(live, scorerShowing);
+      live.classList.add('tt-revealing');
+
+      // ARIA IS OWNED HERE, NOT BY THE PAINTER.
+      //
+      // The loop above marks every card in every OTHER frame hidden — and a
+      // broadcast can leave the focused tile momentarily unresolvable
+      // (offsetParent goes null while Alpine re-applies x-show), so the live
+      // frame's own cards get swept up in that pass. The painter only writes
+      // aria when the stamp changes, so nothing ever set it back: the card a
+      // reader could see stayed aria-hidden="true", invisible to a screen reader
+      // for the whole reveal. Caught by the browser spec, which asserted on the
+      // VISIBLE card rather than on the first one in the DOM.
+      //
+      // So the pane holding the current event is announced, and its sibling —
+      // parked off screen with a copy of the same content — is not.
+      [a, bPane].forEach(function (pane) {
+        if (!pane) return;
+        var announce = pane.dataset.stamp === scorerShowing.stamp &&
+                       pane.parentNode.dataset.pane === wheelPane;
+        var want = announce ? 'false' : 'true';
+        if (pane.getAttribute('aria-hidden') !== want) pane.setAttribute('aria-hidden', want);
+      });
+    }
+
+    function restoreWheel(frame, d) {
+      var track = trackOf(frame);
+      var a = paneOf(frame, 'a');
+      if (!track || !a) return;
+
+      paintCardFields(a, d);
+      track.style.transition = 'none';
+      track.style.transform = 'translateY(' + WHEEL.a + ')';
+      void track.offsetWidth;
+      track.style.transition = '';
+      wheelPane = 'a';
+    }
+
+    // WRITE ONLY ON CHANGE. This runs from a childList observer on the focus
+    // panel, and setting textContent IS a childList mutation — so an
+    // unconditional write re-fires the observer, which calls applyScorer again,
+    // which writes again. Measured: the page locks up and stops responding to
+    // anything, including Playwright. The same loop guard formatKickoffs carries
+    // above, for the same reason, discovered the same way.
+    function setText(el, value) {
+      if (el && el.textContent !== value) el.textContent = value;
+    }
+
+    // Drive the wheel: build the next event in whichever card pane is NOT on
+    // screen, then roll to it.
+    // STAGE the event into the off-screen pane and hand back its <img>, so the
+    // caller can wait for the picture before turning the wheel.
+    function stageScorerCard(frame, d) {
+      var next = wheelPane === 'a' ? 'b' : 'a';
+      var card = paneOf(frame, next);
+      if (!card) return null;
+
+      paintCardFields(card, d);
+      return card.querySelector('[data-role="scorer-headshot"]');
+    }
+
+    function paintScorerCard(frame, d) {
+      var next = wheelPane === 'a' ? 'b' : 'a';
+      var card = paneOf(frame, next);
+      if (!card) return;
+
+      var changed = card.dataset.stamp !== d.stamp;
+      paintCardFields(card, d);
+
+      if (changed || wheelPane === 'list') {
+        rollTo(frame, next);
+        wheelPane = next;
+
+        // NORMALISE ON transitionend, NOT ON A TIMER. A 560ms timer against a
+        // 520ms roll looked safe and was not: the transition does not start
+        // until the next frame, and under load it starts later still, so the
+        // snap landed while the wheel was mid-roll and moved the card 24px
+        // under the reader. The event that says "the roll is over" is the only
+        // thing that actually knows.
+        var track = trackOf(frame);
+        if (track) {
+          if (track._settle) track.removeEventListener('transitionend', track._settle);
+          track._settle = function (e) {
+            if (e.target !== track || e.propertyName !== 'transform') return;
+            track.removeEventListener('transitionend', track._settle);
+            track._settle = null;
+            settleWheel(frame);
+          };
+          track.addEventListener('transitionend', track._settle);
+        }
+        // Belt and braces: a transition that never fires (the tab was hidden,
+        // reduced motion is on) must not strand the wheel on B.
+        if (settleTimer) clearTimeout(settleTimer);
+        settleTimer = setTimeout(function () { settleWheel(frame); }, 1200);
+      }
+    }
+
+    function paintCardFields(card, d) {
+      if (!card) return;
+
+      var img      = card.querySelector('[data-role="scorer-headshot"]');
+      var initials = card.querySelector('[data-role="scorer-initials"]');
+      var shot     = d.scorerHeadshot;
+
+      // The headshot is swapped, never merely re-src'd: pointing an <img> at a
+      // new URL leaves the PREVIOUS portrait on screen until the new one
+      // decodes, so a second scorer would wear the first one's face for a beat.
+      // Attribute writes are not childList mutations, but they are still only
+      // made when they change — an <img> re-pointed at its own src re-decodes
+      // and flickers.
+      if (img) {
+        if (shot) {
+          if (img.getAttribute('src') !== shot) {
+            img.classList.add('hidden');
+            img.onload = function () { img.classList.remove('hidden'); };
+            img.src = shot;
+            // ALREADY IN CACHE? Show it now. Every headshot in a chain has been
+            // fetched before (the same 32 rosters, the same S3 objects), so
+            // waiting on `load` cost a frame of empty disc on each new card for
+            // an image the browser already had decoded.
+            if (img.complete && img.naturalWidth > 0) img.classList.remove('hidden');
+          }
+          if (img.getAttribute('alt') !== (d.scorer || '')) img.alt = d.scorer || '';
+        } else if (img.hasAttribute('src')) {
+          img.classList.add('hidden');
+          img.removeAttribute('src');
+        }
+      }
+      // THE MIRROR OF THE ABOVE. Keying the initials on a BLANK url meant a url
+      // that FAILED left the img hidden and the initials hidden too — no avatar
+      // at all, just a gap. A picture we could not load is, for the reader,
+      // exactly the same as one we never had.
+      var usable = shot && headshots[shot] !== 'failed';
+      setText(initials, usable ? '' : initialsOf(d.scorer));
+      if (initials) initials.classList.toggle('hidden', !!usable);
+
+      setText(card.querySelector('[data-role="scorer-headline"]'), scorerHeadline(d));
+      setText(card.querySelector('[data-role="scorer-name"]'), d.scorer || '');
+      setText(card.querySelector('[data-role="scorer-detail"]'), scorerDetail(d));
+
+      // The team, named the way the TILE names it: location quietly above, the
+      // mascot below in the team's own accent. Colours come from the feed node
+      // (the server's palette) rather than being guessed here.
+      var location = card.querySelector('[data-role="scorer-location"]');
+      var mascot = card.querySelector('[data-role="scorer-mascot"]');
+      setText(location, d.teamLocation || '');
+      setText(mascot, (d.teamMascot || '').toUpperCase());
+      if (location && d.locationColor && location.style.color !== d.locationColor) {
+        location.style.color = d.locationColor;
+      }
+      if (mascot && d.accent && mascot.style.color !== d.accent) {
+        mascot.style.color = d.accent;
+      }
+
+      card.classList.toggle('tt-scorer-td', d.scoringType === 'touchdown');
+      if (card.getAttribute('aria-hidden') !== 'false') card.setAttribute('aria-hidden', 'false');
+
+      // NO ENTRANCE ANIMATION HERE ANY MORE. The card used to re-run a nudge on
+      // every event because it was being repainted in place; now each event is
+      // built in an off-screen pane and the WHEEL carries it in, which is the
+      // motion. Animating on top of that was the jump.
+      card.dataset.stamp = d.stamp;
+    }
+
+    // Called for every event the chain shows, INCLUDING the ones that do not
+    // qualify — passing a non-revealing event is how the rail gets its list
+    // back when a chain moves on from a touchdown to an extra point.
+    function syncScorerCard(d) {
+      var qualifies = d && d.reveals && d.scorer;
+      var tile = qualifies ? visibleFocusTile() : null;
+
+      if (!qualifies || !tile || tile.dataset.focusSlug !== d.gameSlug) {
+        scorerShowing = null;
+        applyScorer();
+        return;
+      }
+
+      var fresh = !scorerShowing || scorerShowing.gameSlug !== d.gameSlug ||
+                  scorerShowing.scorer !== d.scorer || scorerShowing.points !== d.points;
+
+      scorerShowing = {
+        gameSlug: d.gameSlug, scorer: d.scorer, scorerHeadshot: d.scorerHeadshot,
+        scoringType: d.scoringType, label: d.label, points: d.points,
+        playDescription: d.playDescription,
+        teamLocation: d.teamLocation, teamMascot: d.teamMascot,
+        accent: d.accent, locationColor: d.locationColor,
+        // A token that changes with the EVENT, not with its contents — two
+        // touchdowns by the same player in one chain are still two cards, and
+        // the re-entrance below keys off this to replay for each.
+        stamp: (d.gameSlug || '') + '|' + (d.scorer || '') + '|' + (d.points || '') + '|' + Date.now()
+      };
+
+      // Drive the wheel for the event itself; applyScorer is the RESTORE path
+      // that broadcasts take, and must not roll.
+      if (tile) {
+        var frame = tile.querySelector('[data-role="event-feed-frame"]');
+        if (frame) {
+          if (wheelPane === 'list' || fresh) paintScorerCard(frame, scorerShowing);
+          frame.classList.add('tt-revealing');
+        }
+      }
+      applyScorer();
     }
 
     // ── THE FEED ────────────────────────────────────────────────────────────
@@ -620,7 +1125,7 @@
     // A broadcast replaces each section wholesale; re-paint everything the page
     // knows and the payload does not onto the nodes that just arrived.
     boards.forEach(function (b) {
-      new MutationObserver(function () { applyHot(); applyGlow(); formatKickoffs(); wireFeeds(); })
+      new MutationObserver(function () { applyHot(); applyGlow(); applyScorer(); formatKickoffs(); wireFeeds(); })
         .observe(b, { childList: true, subtree: true });
     });
     if (board) {

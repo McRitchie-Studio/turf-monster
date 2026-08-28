@@ -289,6 +289,26 @@ async function recordTouchdown(page, gameSlug, teamSlug) {
   expect(status).toBe(200);
 }
 
+// Same injector, with the scorer PINNED. The dev endpoint otherwise picks a
+// plausible player off the scoring team's roster, which is right for a demo and
+// wrong for a test: the e2e database carries the small offline athlete seed, so
+// which player is available depends on which game the contest opened on. Naming
+// one keeps the assertion about the card, not about the fixture.
+async function recordTouchdownBy(page, gameSlug, teamSlug, scorerSlug) {
+  const status = await page.evaluate(async ([game, team, scorer]) => {
+    const token = document.querySelector('meta[name="csrf-token"]');
+    const res = await fetch("/dev/live_scores/record", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": token ? token.content : "" },
+      body: JSON.stringify({
+        game_slug: game, team_slug: team, scoring_type: "touchdown", scorer_slug: scorer,
+      }),
+    });
+    return res.status;
+  }, [gameSlug, teamSlug, scorerSlug]);
+  expect(status).toBe(200);
+}
+
 test.describe("Contest live page", () => {
   // Hand the contest back OPEN. `lock` only moves starts_at, so pushing it an
   // hour out is the same door in the other direction — no test-only endpoint,
@@ -396,5 +416,161 @@ test.describe("Contest live page", () => {
     await expect(banner).toBeVisible();
     await expect(banner).toHaveClass(/nfl-b-td/);
     await expect(page.locator("#nfl-score-label")).toHaveText(/touchdown/i);
+  });
+
+  // THE SCORER REVEAL. A touchdown on the focused game swaps its events rail for
+  // a card naming who scored.
+  //
+  // Josh Allen is pinned because he is in db/seeds/nfl_athletes_demo.rb, the
+  // offline set this lane seeds — see recordTouchdownBy above.
+  test("a touchdown on the focused game reveals the scorer", async ({ page }) => {
+    await allowMotion(page);
+    await loginAdmin(page);
+    await openLive(page, CONTEST);
+
+    const visible = () => page.locator('[data-test="live-focus-game"]:visible');
+    const gameSlug = await visible().getAttribute("data-focus-slug");
+    const teamSlug = await page
+      .locator('[data-test="live-focus-game"]:visible [data-team-slug]')
+      .first()
+      .getAttribute("data-team-slug");
+
+    await recordTouchdownBy(page, gameSlug, teamSlug, "josh-allen");
+
+    // The frame is what wears the state, so one class swaps both children and
+    // they can never disagree about which is showing.
+    // WAIT FOR THE RAIL TO EXIST FIRST. A game with no scores yet renders no
+    // events frame — the first touchdown is what brings one into being, via the
+    // broadcast that re-renders the panel. Asserting the class on a locator that
+    // has not resolved yet spends the whole timeout on the wrong question.
+    const frame = page.locator(
+      `[data-focus-slug="${gameSlug}"] [data-role="event-feed-frame"]`
+    );
+    await expect(frame).toHaveCount(1, { timeout: 15000 });
+    await expect(frame).toHaveClass(/tt-revealing/, { timeout: 15000 });
+
+    // The card that is actually IN the window. Two panes exist so the next
+    // event can be built off screen, and the one parked below is legitimately
+    // filled with the same content after a settle — asserting on the first
+    // match would sometimes read the parked copy.
+    const card = frame.locator('[data-role="scorer-card"]:visible').first();
+    await expect(card.locator('[data-role="scorer-headline"]')).toHaveText("Touchdown!");
+    await expect(card.locator('[data-role="scorer-name"]')).toHaveText("Josh Allen");
+
+    // The team leads the detail, above the player — a score belongs to a team
+    // first. And the points chip is gone from the card entirely.
+    await expect(card.locator('[data-role="scorer-mascot"]')).not.toHaveText("");
+    await expect(card.locator('[data-role="scorer-points"]')).toHaveCount(0);
+
+    // The card is genuinely on screen, not merely class-swapped: a transform
+    // typo would leave it parked below the rail while the class said otherwise.
+    //
+    // toBeVisible() is not enough by itself — overflow clipping is not "hidden"
+    // to playwright, so a pane sliced in half by a wrong wheel position still
+    // passes it. Assert CONTAINMENT: nothing of the card clipped by its frame.
+    await expect(card).toBeVisible();
+    const clipped = await frame.evaluate((f) => {
+      const w = f.getBoundingClientRect();
+      const shown = [...f.querySelectorAll('[data-role="scorer-card"]')].find((c) => {
+        const r = c.getBoundingClientRect();
+        const mid = (r.top + r.bottom) / 2;
+        return mid > w.top && mid < w.bottom;
+      });
+      if (!shown) return -1;
+      const r = shown.getBoundingClientRect();
+      return Math.round(Math.max(0, w.top - r.top) + Math.max(0, r.bottom - w.bottom));
+    });
+    expect(clipped).toBeLessThanOrEqual(1);
+    await expect(card).toHaveAttribute("aria-hidden", "false");
+
+    // AND THE LIST HAS LEFT THE WINDOW. Asserted on GEOMETRY, not opacity: the
+    // panes do not fade any more, they ride a track that rolls, so the list is
+    // gone because it is outside the frame's box — not because it went
+    // transparent. An opacity assertion here passed against the old cross-fade
+    // and reported nothing about the wheel.
+    await expect
+      .poll(async () =>
+        frame.evaluate((f) => {
+          const w = f.getBoundingClientRect();
+          const feed = f.querySelector(".tt-event-feed").getBoundingClientRect();
+          const overlap = Math.min(feed.bottom, w.bottom) - Math.max(feed.top, w.top);
+          return Math.max(0, Math.round(overlap));
+        })
+      )
+      .toBeLessThan(4);
+  });
+
+  // The card is a MOMENT, not a new resting state. It rides the banner chain,
+  // so it retires when the chain drains and the rail goes back to its list.
+  test("the scorer card retires and the events list returns", async ({ page }) => {
+    await allowMotion(page);
+    await loginAdmin(page);
+    await openLive(page, CONTEST);
+
+    const visible = () => page.locator('[data-test="live-focus-game"]:visible');
+    const gameSlug = await visible().getAttribute("data-focus-slug");
+    const teamSlug = await page
+      .locator('[data-test="live-focus-game"]:visible [data-team-slug]')
+      .first()
+      .getAttribute("data-team-slug");
+
+    await recordTouchdownBy(page, gameSlug, teamSlug, "josh-allen");
+
+    // WAIT FOR THE RAIL TO EXIST FIRST. A game with no scores yet renders no
+    // events frame — the first touchdown is what brings one into being, via the
+    // broadcast that re-renders the panel. Asserting the class on a locator that
+    // has not resolved yet spends the whole timeout on the wrong question.
+    const frame = page.locator(
+      `[data-focus-slug="${gameSlug}"] [data-role="event-feed-frame"]`
+    );
+    await expect(frame).toHaveCount(1, { timeout: 15000 });
+    await expect(frame).toHaveClass(/tt-revealing/, { timeout: 15000 });
+
+    // A lone banner holds 8s; the card goes with it. Waiting on the class rather
+    // than on a timer keeps this honest if that hold is ever retuned.
+    await expect(frame).not.toHaveClass(/tt-revealing/, { timeout: 20000 });
+    await expect(frame.locator('[data-role="scorer-card"]').first()).toHaveAttribute("aria-hidden", "true");
+
+    // THE LIST IS BACK IN THE WINDOW — measured as POSITION, not as content.
+    //
+    // The first version of this assertion divided the overlap by the FRAME's
+    // height, which reduces to feedHeight / frameHeight: a count of scoring
+    // rows, not a wheel position. The feed is centred in a pane that exactly
+    // fills the frame, so when the wheel is home the overlap IS the feed's own
+    // height — and 85% is only reachable once the list OVERFLOWS the rail, about
+    // five rows. This spec records ONE touchdown and nothing clears goals
+    // between runs, so every attempt added a row and the number climbed: it
+    // failed 3/3 locally and went green on CI only at retry 2. A spec that
+    // passes because it has been run before is worse than no spec, and merged
+    // as-is it would have reddened the first playwright attempt for every PR
+    // after it.
+    //
+    // What actually says "the wheel is home" is that NO PART of the feed is
+    // clipped by the frame — absolute pixels, independent of how much has been
+    // scored.
+    await expect
+      .poll(async () =>
+        frame.evaluate((f) => {
+          const w = f.getBoundingClientRect();
+          const feed = f.querySelector(".tt-event-feed").getBoundingClientRect();
+          return Math.round(
+            Math.max(0, w.top - feed.top) + Math.max(0, feed.bottom - w.bottom)
+          );
+        })
+      )
+      .toBeLessThanOrEqual(1);
+
+    // And the track is at its resting position — the feed fitting and the wheel
+    // being home are only the same thing when the transform is zero.
+    await expect
+      .poll(async () =>
+        frame.evaluate((f) => {
+          const t = getComputedStyle(f.querySelector(".tt-event-track")).transform;
+          if (t === "none") return 0;
+          const m = t.match(/matrix\(([^)]+)\)/);
+          return m ? Math.abs(Math.round(parseFloat(m[1].split(",")[5]))) : -1;
+        })
+      )
+      .toBe(0);
   });
 });

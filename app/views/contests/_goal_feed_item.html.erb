@@ -32,8 +32,30 @@
          the team's extra brand colour where it curates one (falling back to the
          light), so a two-colour team lights two wedges and a one-colour team
          reads as a single hue rather than a mismatch. %>
-     data-glow-a="<%= team ? team_card_palette(team)[:accent] : "" %>"
-     data-glow-b="<%= team ? team_card_palette(team)[:glow] : "" %>"
+     <%# team_glow_pair, not palette[:glow]: the ring says WHOSE score this was,
+         and a team with no curated alt colour returned its accent twice and drew
+         a flat one-colour ring. See TeamColorsHelper#team_glow_pair. %>
+     <% glow_a, glow_b = team ? team_glow_pair(team) : [nil, nil] %>
+     data-glow-a="<%= glow_a %>"
+     data-glow-b="<%= glow_b %>"
+     <%# THE SCORER, for the focus panel's reveal. `scorer` is what ESPN's play
+         text named; `scorer-headshot` is a cached S3 URL and is legitimately
+         blank when we hold no athlete for them, which the card renders as
+         initials. `reveals` is the model's own verdict on whether this score
+         earns the takeover (touchdowns and field goals) — decided in Ruby so
+         the rule lives in one place rather than being re-derived in JS. %>
+     data-scorer="<%= goal&.scorer_name %>"
+     data-scorer-slug="<%= goal&.scorer_slug %>"
+     data-scorer-headshot="<%= goal&.scorer_headshot_url(width: 400) %>"
+     data-reveals="<%= goal&.reveals_scorer? ? "1" : "" %>"
+     data-play-description="<%= goal&.play_description %>"
+     <%# The card names the team the way the TILE does — location above, mascot
+         below in the team's own accent — so the two read as one object. Same
+         palette the tile uses, passed through rather than recomputed in JS. %>
+     data-team-location="<%= team&.location %>"
+     data-team-mascot="<%= team ? (team.mascot.presence || team.short_name || team.name) : "" %>"
+     data-accent="<%= team ? team_card_palette(team)[:accent] : "" %>"
+     data-location-color="<%= team ? team_card_palette(team)[:location] : "" %>"
      data-home-team="<%= game.home_team&.short_name || game.home_team_slug %>"
      data-away-team="<%= game.away_team&.short_name || game.away_team_slug %>"
      data-home-score="<%= game.home_score.to_i %>"
