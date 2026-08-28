@@ -28,6 +28,14 @@
         <div id="nfl-score-label" class="text-xl font-extrabold uppercase tracking-wide leading-tight"></div>
         <div id="nfl-score-team" class="text-sm font-semibold opacity-90 truncate"></div>
       </div>
+      <%# THE SCORER, when we know them. The avatar REPLACES the points chip
+          rather than joining it: "+6" is already implied by the word TOUCHDOWN
+          above it, and a face is worth more than a number the reader can infer.
+          Both slots stay in the markup — the league board raises this same
+          banner from a feed that carries no scorer, and falls back to the
+          points. %>
+      <img id="nfl-score-avatar" alt=""
+           class="h-14 w-auto max-w-none object-contain object-bottom shrink-0 hidden">
       <div id="nfl-score-points" class="text-3xl font-black tabular-nums opacity-95"></div>
     </div>
     <div id="nfl-score-line" class="px-5 py-2 text-sm font-bold tabular-nums bg-black/25"></div>

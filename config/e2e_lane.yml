@@ -413,7 +413,7 @@
 #   npx playwright test --list --grep-invert "@devnet" --project=chromium
 #                                                                -> 195 tests in 55 files
 #   212 - 17 - 4 = 191, and 195 collected - 4 runtime skips = 191   OK agree
-total_specs: 212
+total_specs: 214
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -635,7 +635,7 @@ allowed_skips: 4
 # here. allowed_skips stays 4 — it is the one HAND-declared field, and the two
 # identities still agree, which is what proves no new spec brought a runtime skip.
 # 212 - 17 - 4 = 191, and 195 collected - 4 runtime skips = 191. Both routes agree.
-executed: 191
+executed: 193
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to

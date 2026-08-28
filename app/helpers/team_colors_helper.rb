@@ -183,4 +183,30 @@ module TeamColorsHelper
   def clamp255(value)
     value.round.clamp(0, 255)
   end
+  # TWO COLOURS, GUARANTEED DISTINCT — the scoring ring on the contest live page.
+  #
+  # The ring draws two wedges to say WHOSE score just landed, and `palette[:glow]`
+  # cannot always supply the second: it falls back `color_alt || color_light ||
+  # mascot`, so a team that curates no alt returns the accent again and the ring
+  # renders as one flat hue. Measured: Baltimore has an alt (#C60C30) and reads as
+  # gold-and-red; Washington has none and read as yellow-and-yellow.
+  #
+  # `color_dark` is the missing half. Every team has one — it is the field their
+  # own tile is painted with — so falling back to it gives Washington
+  # yellow-and-burgundy and Kansas City yellow-and-red, which is what a viewer
+  # means by "their colours".
+  #
+  # Returns [accent, second]; the second is never equal to the first unless the
+  # team genuinely has one colour and nothing to pair it with.
+  def team_glow_pair(team)
+    palette = team_card_palette(team)
+    accent  = palette[:accent]
+    second  = palette[:glow]
+
+    if second.nil? || second.casecmp?(accent.to_s)
+      second = normalize_hex(team&.color_dark) || normalize_hex(team&.card_background) || accent
+    end
+
+    [accent, second]
+  end
 end
