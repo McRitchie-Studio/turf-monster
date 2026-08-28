@@ -85,7 +85,7 @@ the first six preserve behaviour exactly and the last five change it deliberatel
 |---|---|---|---|
 | `session` | `app/views/layouts/application.html.erb:473` (inline, `alpine:init`) | State | Canonical viewer identity + funding hints: `loggedIn`, `mode`, `phantomLinked`, `userId`, `address`, `usdcCents`, `usdtCents`, `tokensAvailable`, `web2UsdcEntry`, `ageGateRequired`, `ageVerified`, `walletSetupRequired`, `firstNameRequired`, `walletConnected` |
 | `wallet` | `app/javascript/solana_stores.js:41` (module) | State | Live Phantom watcher: `address`, `watching`, `pendingAddress`, `_provider`, `_reauthing` |
-| `modals` | `app/views/studio/modals/_host.html.erb:109` (studio-engine partial) | UI | Modal stack |
+| `modals` | **studio-engine** `app/views/studio/modals/_host.html.erb` (resolved from the gem; see the correction below) | UI | Modal stack |
 | `solanaModal` | `app/views/layouts/application.html.erb:612` (inline) | UI façade | Read/write proxy over `modals` for the `onchain-tx` card. Holds no session state. |
 | `sidebars` | `app/views/layouts/application.html.erb:370` (inline) | UI | `gearOpen` |
 | `theme` | **studio-engine** `app/views/layouts/studio/_head.html.erb:162` | UI | `value` ('dark'/'light'), `isDark`, `toggle()` — persists to the `theme` key |
@@ -113,11 +113,21 @@ flagged. Confirmed, with one correction: the brief listed
 they are, and so are the `session`, `solanaModal` and `sidebars` stores. Only the
 `wallet` store loads from a module.
 
-A fourth split worth recording: `modals` is registered from
-`app/views/studio/modals/_host.html.erb:109`, which is a **host-app override that
-shadows the engine's own copy** of the same partial (`studio-engine`
-`app/views/studio/modals/_host.html.erb:226` registers `modals` too). Same
-disease as §2.2 — two copies of one store, kept in step by hand.
+A fourth split worth recording — **CLOSED 2026-08-28 by
+`defork-turf-modal-host`.** As written on 2026-08-25 this said: `modals` is
+registered from `app/views/studio/modals/_host.html.erb`, a **host-app override
+that shadows the engine's own copy** of the same partial, which registers
+`modals` too — the same disease as §2.2, two copies of one store kept in step by
+hand. That override is DELETED. `modals` now has exactly one registration, in
+studio-engine's own host, and this app reaches it through the engine's two
+consumer seams (`window.StudioModals.CARD_WIDTHS` and `modals/_host_extras`)
+rather than by forking. See `docs/UI_PATTERNS.md` § modal host.
+
+**Do not restore a file at `app/views/studio/modals/_host.html.erb` to "fix" a
+modal.** studio-engine is non-isolated, so that path silently wins the lookup and
+re-opens exactly this split. `test/views/modal_host_adoption_test.rb` resolves
+the host through `lookup_context` and fails if it ever resolves inside this
+app's `app/views` again.
 
 The inline block totals **1,034 lines** across `application.html.erb` (of 1,424).
 Revision 1 said 1,058; that figure counted the external `<script src=...>` tag

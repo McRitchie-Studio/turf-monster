@@ -163,6 +163,14 @@ class OnboardingGalleryTest < ActionDispatch::IntegrationTest
     # factories or stores the preview layout does not load, the way `username`
     # does), so it is a follow-up, not a passenger on this one. Widen this test
     # to the full manifest when that task lands.
+    #
+    # COSIGN-REJECTED IS OFF THAT LIST as of 2026-08-28
+    # (defork-turf-modal-host). It is registered ONCE, in
+    # app/views/modals/_host_extras.html.erb, which studio-engine's host renders
+    # inside its card on every path through it — so it now reaches BOTH layouts
+    # from a single entry. Do NOT "fix" it by adding it to a layout block:
+    # modal_host_adoption_test.rb fails on a second registration, because two
+    # copies are free to drift and that is the disease this test names.
     preview = Rails.root.join("app/views/layouts/modal_preview.html.erb").read
     # `birthday` replaced `age-verify` in the adoption; `age-gate` JOINED the
     # list, because the birthday card swaps to it on the server's underage

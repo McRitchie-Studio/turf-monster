@@ -36,7 +36,11 @@ class LayerScaleAdoptionTest < ActionDispatch::IntegrationTest
   # of tier VALUES, which is the distinction the shim blurred.
   NAVBAR = Rails.root.join("app/views/layouts/_navbar.html.erb")
   BOARD  = Rails.root.join("app/views/contests/_turf_totals_board.html.erb")
-  HOST   = Rails.root.join("app/views/studio/modals/_host.html.erb")
+  # NO HOST CONSTANT. This app shadowed studio-engine's modal host with a fork of
+  # its own at app/views/studio/modals/_host.html.erb; defork-turf-modal-host
+  # deleted it, so that path reads nothing now — and before the deletion it read
+  # the FORK rather than whichever host a page actually renders. The tier
+  # assertion below resolves the host instead (see ResolvedModalHost).
 
   # THE RESOLVED ENGINE'S OWN SCALE, and the compiled stylesheet that resolves
   # from it. Both replaced reads of application.css when the layer-scale
@@ -83,7 +87,14 @@ class LayerScaleAdoptionTest < ActionDispatch::IntegrationTest
   end
 
   def markup_of(path)
-    text = without_block_comments(without_markup_comments(Pathname(path).read))
+    markup_text(Pathname(path).read)
+  end
+
+  # Same stripping, for markup that arrives as a STRING rather than a path — the
+  # resolved modal host, which lives outside this repo and must never be read
+  # through a hardcoded path.
+  def markup_text(raw)
+    text = without_block_comments(without_markup_comments(raw))
     text.each_line.map { |l| l.gsub(TRAILING, " ") }.join
   end
 
@@ -256,7 +267,11 @@ class LayerScaleAdoptionTest < ActionDispatch::IntegrationTest
   end
 
   test "the modal host reads the modal tier" do
-    assert_includes markup_of(HOST), "z-[var(--z-modal)]",
+    # READ THE HOST THAT ACTUALLY RENDERS, resolved rather than assumed. Same
+    # move the lift rule above made when its local duplicate went away: the rule
+    # that applies to this app's pages is the engine's, and a hardcoded app path
+    # is how a test keeps asserting against a file nothing renders.
+    assert_includes markup_text(ResolvedModalHost.source), "z-[var(--z-modal)]",
                     "the backdrop is the app blocker; it must sit on the shared tier"
   end
 
