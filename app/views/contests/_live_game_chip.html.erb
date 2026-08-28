@@ -1,0 +1,106 @@
+<%# ONE GAME, ON ONE LINE. Locals: game (Game).
+
+    Reads as a scoreboard line — `17 JAX  LAC 28` — with the SCORES on the
+    outside edges and the two teams meeting in the middle. That is the shape a
+    reader already knows from a TV bug or a ticker, so a strip of sixteen of
+    them scans without being studied.
+
+    THE TWO TEAMS BLEND INTO EACH OTHER. One gradient runs the width of the
+    chip, each team's own field holding its end and the pair meeting in the
+    middle, so the chip reads as one object rather than two cards stuck
+    together. The halves are still separate elements — the score animations need
+    a per-team box — but they are transparent and only the gradient beneath is
+    seen. Nothing divides them: no slash, no rule, no rail. At 168px every mark
+    is competing with the four characters that carry the meaning.
+
+    The strip's job is CHOOSING, not watching, so everything the tile below says
+    better is gone: no city, no mascot, no scoring plays, no emoji.
+
+    IT WEARS THE SAME ANIMATION HOOKS AS live/_game_tile — data-game-slug,
+    data-team-slug, data-role="score", .nfl-row-wash, .nfl-sweep — on purpose. A
+    score lands once and lights BOTH the chip and the focus tile, because the
+    page's script queries every match rather than the first. If you add a hook
+    there, add it here. (.nfl-rail is the exception: the rail it animates is the
+    pipe that was removed, so there is nothing here for it to pulse.) %>
+<% home = game.home_team %>
+<% away = game.away_team %>
+<% away_palette = team_card_palette(away) %>
+<% home_palette = team_card_palette(home) %>
+<% away_field = normalize_hex(away&.card_background) || "#3a3f4b" %>
+<% home_field = normalize_hex(home&.card_background) || "#3a3f4b" %>
+<button type="button"
+        data-game-slug="<%= game.slug %>"
+        data-test="live-game-chip"
+        @click="focus = '<%= game.slug %>'"
+        :class="focus === '<%= game.slug %>' ? 'tt-chip-focused' : ''"
+        <%# THE SELECTED CHIP WEARS THE GLOW RING — the engine's .studio-team-glow,
+            lit in this game's own two colours, which is a far better answer to
+            "which one am I watching" than a border in a colour belonging to
+            nobody. Opacity is driven by .tt-chip / .tt-chip-focused rather than
+            set here, so the existing focus toggle turns it on and off for free.
+            NOT overflow-hidden: the ring paints at a NEGATIVE inset, outside the
+            host's box, and clipping the host clips the whole effect away. %>
+        class="tt-chip card p-0 w-[168px] text-left transition studio-team-glow"
+        style="--studio-team-glow-color: <%= away_palette[:accent] %>;
+               --studio-team-glow-color-b: <%= home_palette[:accent] %>;
+               --studio-team-glow-thickness: 2.5px;
+               --studio-team-glow-bloom: 16px;
+               --studio-team-glow-speed: 5s"
+        :aria-pressed="focus === '<%= game.slug %>' ? 'true' : 'false'"
+        aria-label="<%= away&.short_name || game.away_team_slug %> <%= game.away_score.to_i %>, <%= home&.short_name || game.home_team_slug %> <%= game.home_score.to_i %>">
+  <div class="flex items-stretch" style="overflow: hidden; border-top-left-radius: inherit; border-top-right-radius: inherit;
+       background: linear-gradient(100deg,
+              <%= away_field %> 0%, <%= away_field %> 34%,
+              <%= home_field %> 66%, <%= home_field %> 100%)">
+    <% [[away, game.away_score, away_palette, :away], [home, game.home_score, home_palette, :home]].each do |team, score, palette, side| %>
+      <%# The two halves MIRROR each other: the away score sits hard left, the
+          home score hard right, and the abbreviations meet in the middle. %>
+      <div class="relative flex-1 min-w-0 flex items-center gap-1.5 px-2 py-1.5 overflow-hidden<%= " flex-row-reverse" if side == :home %>"
+           data-team-slug="<%= team&.slug %>"
+           data-role="team-row"
+           style="--nfl-team: <%= side == :away ? away_field : home_field %>;
+                  --nfl-team-ink: <%= palette[:accent] %>;">
+        <span class="nfl-row-wash absolute inset-0 pointer-events-none opacity-0"
+              style="background: <%= palette[:accent] %>"></span>
+        <span class="nfl-sweep absolute inset-y-0 left-0 pointer-events-none opacity-0"
+              style="width: 45%;
+                     background: linear-gradient(90deg, transparent, <%= palette[:accent] %>, transparent)"></span>
+        <%# No inline colour on the score — an inline style beats a stylesheet
+            rule, and the hot state could then never repaint it. %>
+        <span class="relative text-sm font-extrabold tabular-nums flex-shrink-0"
+              style="--nfl-team-fg: <%= palette[:fg] %>"
+              data-role="score"><%= score.to_i %></span>
+        <span class="relative min-w-0 flex-1 text-[11px] font-extrabold truncate<%= " text-right" if side == :home %>"
+              style="color: <%= palette[:accent] %>; text-shadow: <%= palette[:mascot_shadow] %>">
+          <%= team&.short_name || team&.mascot || team&.name %>
+        </span>
+      </div>
+    <% end %>
+  </div>
+
+  <%# ONE FACT, not two. The tile below shows the badge AND the feed's own
+      detail because it has the width for both; at this size a scheduled game
+      printed "FRI 11:00 PM" over "8/28 - 7:00 PM EDT" and wrapped. So the
+      detail is kept only where it says something the badge cannot — the game
+      clock on a live game — and a scheduled game shows its kickoff alone. %>
+  <div class="px-2 py-0.5 bg-surface-alt/60 flex items-center justify-between gap-1 whitespace-nowrap"
+       style="overflow: hidden; border-bottom-left-radius: inherit; border-bottom-right-radius: inherit">
+    <% if game.live? %>
+      <span class="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-red-400 flex-shrink-0">
+        <span class="h-1 w-1 rounded-full bg-red-500 animate-pulse"></span> Live
+      </span>
+      <span class="text-[9px] text-secondary font-mono truncate"><%= game.status_detail.presence %></span>
+    <% elsif game.completed? %>
+      <span class="text-[9px] font-bold uppercase tracking-wider text-muted">Final</span>
+    <% elsif game.kickoff_at %>
+      <%# Machine-readable, formatted by the BROWSER in the reader's own zone —
+          the app runs on UTC, so a server-rendered kickoff is wrong for
+          everyone. The text is a truthful no-JS fallback. %>
+      <time datetime="<%= game.kickoff_at.utc.iso8601 %>"
+            data-role="kickoff"
+            class="text-[9px] font-bold uppercase tracking-wider text-muted"><%= game.kickoff_at.utc.strftime("%a %-I:%M %p") %></time>
+    <% else %>
+      <span class="text-[9px] font-bold uppercase tracking-wider text-muted">TBD</span>
+    <% end %>
+  </div>
+</button>

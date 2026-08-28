@@ -1,12 +1,39 @@
 <%# A data-only node appended to the hidden goal feed on the live page. The
-    page's MutationObserver reads these data-* attrs, fires a toast, then removes
-    the node. NO <script> here — Turbo doesn't execute scripts inside broadcast
-    <template>s. Locals: event ("goal"|"final"), team (Team|nil), player
-    (Player|nil), game (Game). %>
+    page's MutationObserver reads these data-* attrs, fires a toast AND the
+    scoring animation on the game tile, then removes the node. NO <script> here —
+    Turbo doesn't execute scripts inside broadcast templates, which is why every
+    value the page needs is an attribute.
+
+    Locals: event ("goal"|"final"), goal (Goal|nil), team (Team|nil),
+    player (Player|nil), game (Game).
+
+    The slug/type/colour attrs were added when the contest page adopted the
+    league board's tile: a toast only needs to name the team, but lighting the
+    right ROW in the right COLOURS needs to identify it. Deliberately the same
+    attribute names live/_event_feed_item uses, so the two feeds stay readable
+    by the same eyes. %>
 <div data-event="<%= event %>"
+     data-game-slug="<%= game.slug %>"
+     data-team-slug="<%= team&.slug %>"
      data-team="<%= team ? (team.short_name.presence || team.name) : "" %>"
      data-team-emoji="<%= team&.emoji %>"
+     data-team-name="<%= team&.name %>"
+     <%# The banner's own field and ink. Same two attributes live/_event_feed_item
+         carries, because the two feeds raise the same banner. %>
+     data-team-bg="<%= team&.card_background %>"
+     data-team-fg="<%= team&.card_mascot %>"
      data-player="<%= player&.name %>"
+     <%# The RAW type, not the label — the page keys its per-type animations off
+         this, and "2-Point Conversion" is a display string that will change. %>
+     data-scoring-type="<%= goal&.scoring_type %>"
+     data-label="<%= goal&.scoring_label %>"
+     data-points="<%= goal&.points %>"
+     <%# The two wedge colours for the card's glow ring: the mascot accent, and
+         the team's extra brand colour where it curates one (falling back to the
+         light), so a two-colour team lights two wedges and a one-colour team
+         reads as a single hue rather than a mismatch. %>
+     data-glow-a="<%= team ? team_card_palette(team)[:accent] : "" %>"
+     data-glow-b="<%= team ? team_card_palette(team)[:glow] : "" %>"
      data-home-team="<%= game.home_team&.short_name || game.home_team_slug %>"
      data-away-team="<%= game.away_team&.short_name || game.away_team_slug %>"
      data-home-score="<%= game.home_score.to_i %>"
