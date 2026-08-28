@@ -25,11 +25,12 @@ test.describe("Audit consolidation (2026-05-23)", () => {
       return el ? getComputedStyle(el).zIndex : null;
     });
     expect(z).not.toBeNull();
-    // --studio-toast-z is still the engine's published override seam (read via
-    // var(), no !important since engine 0.4.10) — it now RESOLVES through the
-    // shared layer scale rather than pinning a bare 200 beside the other bare
-    // numbers. The property under test is unchanged and is what is asserted:
-    // toasts sit above the modal backdrop, and the blur sits just under them.
+    // --studio-toast-z remains the engine's published override seam, but this app
+    // sets it NOWHERE — the engine's flash partial defaults it to the tier, so the
+    // toast layer resolves straight through the shared scale. That is why the reads
+    // below are of the TIERS and not of the seam: the tiers are the values that
+    // exist. The property under test is unchanged and is what is asserted: toasts
+    // sit above the modal backdrop, and the blur sits just under them.
     const { toast, blur, modal } = await page.evaluate(() => {
       const read = (n) =>
         parseInt(getComputedStyle(document.documentElement).getPropertyValue(n).trim(), 10);

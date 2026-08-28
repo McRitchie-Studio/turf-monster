@@ -139,10 +139,7 @@ class EnginePinContractTest < ActiveSupport::TestCase
                     "actually lived in is no longer being scanned"
 
     offenders = files.flat_map do |path|
-      # Comments EXPLAIN the tiers — including this deletion — so scanning them
-      # would make documenting the fix impossible, which is the opposite of the
-      # point.
-      body = path.read.gsub(%r{/\*.*?\*/}m, " ")
+      body = without_css_comments(path.read)
       tiers.select { |tier| body.match?(/#{Regexp.escape(tier)}\s*:/) }
            .map { |tier| "#{path.relative_path_from(Rails.root)} → #{tier}" }
     end
@@ -153,6 +150,56 @@ class EnginePinContractTest < ActiveSupport::TestCase
                  "application.css imports first, and later source order wins on equal " \
                  "specificity:\n  #{offenders.join("\n  ")}\n" \
                  "Delete them and read the engine's tiers through var(--z-*)."
+  end
+
+  # THE GUARD ON THE STRIPPER. A stripper that returns "" makes every assertion
+  # downstream of it pass forever, so the stripper is asserted on its INPUT and
+  # its OUTPUT rather than trusted because the guard above went green.
+  test "the CSS comment stripper keeps the code it is meant to scan" do
+    # 1. ON THE REAL FILES: what survives is a plausible fraction of the source,
+    #    not near-empty. The size floor is deliberate — the sprockets manifest at
+    #    app/assets/stylesheets/application.css is ~90% banner comment and would
+    #    false-RED any percentage rule, and a false red trains people to delete
+    #    the guard. This is what goes red if anyone swaps the balance check back
+    #    out for a bare span-strip and a stray opener appears.
+    gutted = source_css_files.filter_map do |path|
+      raw = path.read
+      next if raw.length < 2_000
+
+      share = without_css_comments(raw).length.to_f / raw.length
+      "#{path.relative_path_from(Rails.root)} kept #{(share * 100).round}%" if share < 0.20
+    end
+
+    assert_empty gutted,
+                 "comment stripping is eating these stylesheets, so the tier scan reads almost " \
+                 "nothing in them and passes for the wrong reason:\n  #{gutted.join("\n  ")}"
+
+    # 2. ON THE SHAPES THAT BREAK COMMENT STRIPPING. Each fixture holds a live
+    #    `--z-modal` declaration the guard must still be able to see. The second
+    #    is the one the naive span-strip actually fails: an opener inside a
+    #    string pairs with a genuine closer below it and swallows the code in
+    #    between.
+    {
+      "unterminated opener" =>
+        ":root { --z-modal: 1 }\n/* never closed\n.live { color: red }\n",
+      "opener in a string, real closer below" =>
+        %(a::after { content: "/*" }\n:root { --z-modal: 1 }\n.x { color: red } /* real */\n),
+      "closer inside url()" =>
+        %(a { background: url("x*/y.png") }\n:root { --z-modal: 1 }\n),
+      "nested-looking opener" =>
+        "/* /* still one comment */\n:root { --z-modal: 1 }\n"
+    }.each do |shape, css|
+      assert_includes without_css_comments(css), "--z-modal",
+                      "the stripper ate a live declaration on a #{shape} — that is the fail-open " \
+                      "mode this guard exists for: the scan still runs and reads nothing"
+    end
+
+    # 3. AND IT MUST STILL STRIP. Without this, a stripper that returned its
+    #    input unchanged would satisfy every assertion above — and the guard
+    #    would then ban documenting the tiers, failing in the other direction.
+    assert_not_includes without_css_comments("/* mentions --z-modal: 9 */\n.live { color: red }\n"),
+                        "--z-modal",
+                        "a BALANCED comment must still be stripped, or the guard bans its own docs"
   end
 
   # THE FLOOR AND THE PIN MUST AGREE. Two places state the same fact — the
@@ -301,6 +348,29 @@ class EnginePinContractTest < ActiveSupport::TestCase
   end
 
   private
+
+    # Comments EXPLAIN the tiers — application.css documents this very deletion
+    # using the names the guard bans — so scanning them would make documenting the
+    # fix impossible.
+    #
+    # BUT THE STRIPPER IS THE FAIL-OPEN RISK IN ANY SUCH GUARD, and this one
+    # guards a defect that is already invisible. A bare `/\*.*?\*/m` span-strip
+    # pairs a stray `/*` — inside a string, a url(), or a nested-looking opener —
+    # with a genuine `*/` far below it and eats everything between: the scan still
+    # runs, still passes, and is reading nothing. That exact failure cost this repo
+    # real coverage once, swallowing 93% of a file (see `without_block_comments` in
+    # test/views/layer_scale_adoption_test.rb, which is where this shape is from).
+    #
+    # So span-strip ONLY when the file's openers and closers BALANCE. Otherwise
+    # drop whole-line comments, where a stray opener costs one line instead of the
+    # rest of the file. Both directions are asserted below, on fixtures.
+    def without_css_comments(text)
+      if text.scan(%r{/\*}).size == text.scan(%r{\*/}).size
+        text.gsub(%r{/\*.*?\*/}m, " ")
+      else
+        text.each_line.reject { |line| line.match?(%r{\A\s*(?:/\*|\*)}) }.join
+      end
+    end
 
     # EVERY SOURCE CSS FILE THIS APP SHIPS — not the entrypoint alone.
     #

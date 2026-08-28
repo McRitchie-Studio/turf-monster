@@ -22,7 +22,10 @@ require "test_helper"
 # ADOPTION: the structure defect 2 needs, the value defect 1 needs, and a drift
 # guard so the next bare 9999 is refused where it is written.
 class LayerScaleAdoptionTest < ActionDispatch::IntegrationTest
-  CSS    = Rails.root.join("app/assets/tailwind/application.css")
+  # NO application.css CONSTANT. Every assertion that used to read it now reads
+  # the resolved gem or the compiled output. The file is still SCANNED — the
+  # drift scan globs app/assets/tailwind/**/*.css — just never again as a source
+  # of tier VALUES, which is the distinction the shim blurred.
   NAVBAR = Rails.root.join("app/views/layouts/_navbar.html.erb")
   BOARD  = Rails.root.join("app/views/contests/_turf_totals_board.html.erb")
   HOST   = Rails.root.join("app/views/studio/modals/_host.html.erb")
