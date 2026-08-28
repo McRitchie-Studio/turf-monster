@@ -203,10 +203,14 @@ class Contest < ApplicationRecord
     "survivor_wc_free" => { entry_fee_cents: 0,     max_entries: 59, payouts: { 1 => 200_00 } },
 
     # Test scaffolding — $1 entry, gated behind ENABLE_TEST_SCAFFOLDING (AppFlags.test_scaffolding?).
-    # A low-stakes end-to-end rehearsal tier: 9 entries → $9 gross / $7 payout / $2 margin (22%).
+    # A low-stakes end-to-end rehearsal tier: 9 entries → $9 gross / $9 payout / $0 margin.
+    # BREAK-EVEN BY DESIGN (operator call, 2026-08-27): this tier exists to rehearse the full
+    # entry → onchain → grade → payout path with real money at pocket-change stakes, not to earn.
+    # A short fill loses more than it grosses (1 entry = $1 in, $9 guaranteed out) — that is the
+    # accepted cost of the rehearsal, and the reason the tier stays flag-gated.
     # Hidden from the create UIs unless the flag is on; DISABLE before the public launch.
     # FORMATS still lists it always so an existing micro contest resolves config + grades correctly.
-    "micro"            => { entry_fee_cents: 1_00, max_entries: 9, payouts: { 1 => 5_00, 2 => 1_00, 3 => 1_00 } }
+    "micro"            => { entry_fee_cents: 1_00, max_entries: 9, payouts: { 1 => 5_00, 2 => 2_00, 3 => 2_00 } }
   }.freeze
 
   # Format keys hidden from the contest-create UIs unless ENABLE_TEST_SCAFFOLDING is on.
