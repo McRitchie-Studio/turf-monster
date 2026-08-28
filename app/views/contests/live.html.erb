@@ -1,19 +1,51 @@
 <% content_for(:title) { "#{@contest.name} — Live" } %>
-<div class="max-w-5xl mx-auto px-4 py-6">
-  <%# Single live stream for all real-time read updates (leaderboard / games /
-      goal-feed). Chat keeps its own [@contest, :messages] subscription inside
-      the chat panel — don't duplicate it here. %>
+<%
+  # The viewer's own entry slugs, for the sticky "this one is mine" highlight.
+  # Same source as @picked_slugs (the controller's eager-loaded @entries), and
+  # empty for a signed-out reader, which is correct — the live page is public.
+  viewer_entry_slugs = current_user ? Array(@entries).select { |e| e.user_id == current_user.id }.map(&:slug) : []
+%>
+<%# max-w-7xl, not 5xl: this page is now two real columns, and the right-hand one
+    has to hold six pick pills on one line. At 5xl each column came to 488px and
+    the pills fell back to a 3x2 grid; at 7xl they are 616px and the row fits. %>
+<%# THE FOCUS LIVES HERE, on the outermost element, and that placement is the
+    whole trick. Contest::LiveBroadcast replaces the strip and the focus panel on
+    every score; Alpine state declared inside either one would be reset by the
+    next touchdown, so the reader's chosen game would silently jump back to the
+    default mid-play. Declared out here, it survives every replacement, and the
+    fresh chips read it as Alpine initialises them. %>
+<div class="max-w-7xl mx-auto px-4 py-6" x-data="{ focus: '<%= @focus_slug %>' }">
+  <%# Single live stream for all real-time read updates (strip / focus /
+      leaderboard / goal-feed). Chat keeps its own [@contest, :messages]
+      subscription inside the chat panel — don't duplicate it here. %>
   <%= turbo_stream_from @contest, :live %>
 
-  <%# Active-games carousel factory. Defined inline (not importmap) so it exists
-      before Alpine processes x-data — including on broadcast-replaced games
-      content. Dwell 10s → smooth-scroll one full content-width (lands back on an
-      identical first row via cloned cards) → snap to 0 → dwell. Only rotates
-      when the row overflows; honors prefers-reduced-motion. %>
+  <%# The scoring vocabulary, shared verbatim with /live — same keyframes, same
+      class names, so a touchdown reads the same on both boards. %>
+  <%= render "live/score_animations" %>
+  <%= render "contests/live_page_styles" %>
+
+  <%# WHAT IS MINE, parked OUTSIDE every broadcast target on purpose.
+      Contest::LiveBroadcast sends ONE payload to every subscriber, so nothing it
+      replaces can carry a viewer-specific mark: a highlight rendered inside the
+      leaderboard is correct until the first score and gone forever after it. The
+      answer lives out here, where no stream can reach it, and the script below
+      re-applies it to whatever markup the latest broadcast left behind. %>
+  <div id="contest_<%= @contest.id %>_viewer" class="hidden" aria-hidden="true"
+       data-entry-slugs="<%= viewer_entry_slugs.join(",") %>"
+       data-picked-slugs="<%= Array(@picked_slugs).join(",") %>"></div>
+
+  <%# Strip carousel factory. Defined inline (not importmap) so it exists before
+      Alpine processes x-data — including on broadcast-replaced strip content.
+      Dwell 8s → smooth-scroll one full content-width (lands back on an identical
+      first row via cloned chips) → snap to 0 → dwell. Only rotates when the row
+      overflows; honors prefers-reduced-motion; pauses under the pointer, because
+      the chips are buttons and a moving button is a missed click. %>
   <script>
     window.gamesCarousel = function () {
       return {
         _timer: null,
+        _paused: false,
         init() {
           if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
           this.$nextTick(() => this.setup());
@@ -30,12 +62,32 @@
           });
           this._dwellThenScroll();
         },
+        // FREEZE WHERE IT IS, not back at the start: reading the live transform
+        // and pinning it is what stops the strip lurching when the pointer
+        // arrives mid-travel. Resume simply restarts the dwell from there.
+        pause() {
+          if (this._paused) return;
+          this._paused = true;
+          if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+          var track = this.$refs.track;
+          if (!track) return;
+          var now = getComputedStyle(track).transform;
+          track.style.transition = 'none';
+          if (now && now !== 'none') track.style.transform = now;
+        },
+        resume() {
+          if (!this._paused) return;
+          this._paused = false;
+          if (!this._origWidth) return;
+          this._dwellThenScroll();
+        },
         _dwellThenScroll() {
           var self = this;
-          this._timer = setTimeout(function () { self._scroll(); }, 10000);
+          this._timer = setTimeout(function () { self._scroll(); }, 8000);
         },
         _scroll() {
           var track = this.$refs.track, self = this;
+          if (this._paused || !track) return;
           var dur = Math.max(2500, (this._origWidth / 90) * 1000); // ~90 px/s
           track.style.transition = 'transform ' + dur + 'ms linear';
           track.style.transform = 'translateX(-' + this._origWidth + 'px)';
@@ -49,7 +101,7 @@
           track.style.transition = 'none';
           track.style.transform = 'translateX(0)';
           void track.offsetWidth; // reflow so the next transition animates
-          this._dwellThenScroll();
+          if (!this._paused) this._dwellThenScroll();
         },
         destroy() { if (this._timer) clearTimeout(this._timer); }
       };
@@ -57,7 +109,7 @@
   </script>
 
   <%# Header %>
-  <div class="mb-6 flex items-start justify-between gap-3">
+  <div class="mb-5 flex items-start justify-between gap-3">
     <div class="min-w-0">
       <% if @contest.slate %>
         <p class="text-sm text-secondary font-medium"><%= @contest.slate.name %></p>
@@ -72,65 +124,49 @@
     <%= link_to "← Contest", contest_path(@contest), class: "btn btn-outline btn-sm flex-shrink-0" %>
   </div>
 
-  <%# Games — wrapper owns the id; Contest::LiveBroadcast updates its inner HTML. %>
+  <%# The strip, across the full width, above both columns. Wrapper owns the id;
+      the broadcaster updates its inner HTML. %>
   <div id="contest_<%= @contest.id %>_games">
-    <%= render "contests/live_games", **@games, contest: @contest %>
+    <%= render "contests/live_games", **@games, contest: @contest, picked_slugs: @picked_slugs %>
   </div>
 
-  <%# Leaderboard + Chat — mirrors the show page (2 cols desktop, tabs mobile). %>
-  <div x-data="{ tab: 'leaderboard' }" class="mb-8">
-    <div class="flex gap-1 mb-4 md:hidden bg-surface-alt rounded-lg p-1">
-      <button type="button" @click="tab = 'leaderboard'"
-              :class="tab === 'leaderboard' ? 'bg-primary text-white' : 'text-secondary hover:text-heading'"
-              class="flex-1 py-2 rounded-md text-sm font-semibold transition">Leaderboard</button>
-      <button type="button" @click="tab = 'chat'"
-              :class="tab === 'chat' ? 'bg-primary text-white' : 'text-secondary hover:text-heading'"
-              class="flex-1 py-2 rounded-md text-sm font-semibold transition">Chat</button>
+  <%# LEFT: the focused game, then chat. RIGHT: the ranking, full height.
+      DOM order is focus → ranking → chat so that a single-column phone reads in
+      the order that matters (what is happening, where I stand, what people are
+      saying); the explicit row/column placement at lg puts chat back under the
+      focused game and hands the ranking the whole right-hand half. %>
+  <%# grid-rows-[auto_1fr] is what keeps chat tucked under the focused game.
+      The ranking spans both rows, and with auto rows the browser grows BOTH to
+      fit it — so row one stretched to half the leaderboard's height and left a
+      few hundred pixels of nothing between the game and the chat. Pinning row
+      one to `auto` sizes it to the tile, and row two (1fr) absorbs whatever the
+      ranking still needs. %>
+  <div class="grid grid-cols-1 lg:grid-cols-2 lg:grid-rows-[auto_1fr] gap-4 items-start mb-8">
+    <div id="contest_<%= @contest.id %>_focus" class="lg:col-start-1 lg:row-start-1">
+      <%= render "contests/live_focus", **@games, contest: @contest,
+                 picked_slugs: @picked_slugs, focus_slug: @focus_slug %>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:items-start">
-      <%# Wrapper owns the id; the broadcaster updates its inner HTML (the compact
-          leaderboard partial), so the wrapper + id survive every re-rank. %>
-      <div id="contest_<%= @contest.id %>_leaderboard" :class="tab === 'leaderboard' ? '' : 'hidden'" class="md:block">
+    <div class="lg:col-start-2 lg:row-start-1 lg:row-span-2">
+      <div id="contest_<%= @contest.id %>_leaderboard">
         <%= render "contests/turf_totals_leaderboard", compact: true, viewer: current_user %>
       </div>
-      <div x-cloak :class="tab === 'chat' ? '' : 'hidden'" class="md:block">
-        <%= render "contests/chat_panel", contest: @contest %>
-      </div>
+    </div>
+
+    <div class="lg:col-start-1 lg:row-start-2">
+      <%= render "contests/chat_panel", contest: @contest %>
     </div>
   </div>
 
   <%# Hidden goal feed — broadcast_append_to drops data-only nodes here; the
-      observer below turns each into a toast, then removes it. %>
+      observer below turns each into a toast + the scoring animation, then
+      removes it. %>
   <div id="contest_<%= @contest.id %>_goal_feed" class="hidden" aria-hidden="true"></div>
+
+  <%# THE SCREEN-READER ANNOUNCEMENT. Everything the live page says about a score
+      and a re-rank is visual — a colour, a badge, a row that slides. Without this
+      a non-sighted reader is told nothing at all when the contest moves. %>
+  <div id="contest_<%= @contest.id %>_announcer" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
 </div>
 
-<script>
-  (function () {
-    var feed = document.getElementById('contest_<%= @contest.id %>_goal_feed');
-    if (!feed || feed.dataset.observed) return;  // guard double-attach across Turbo visits
-    feed.dataset.observed = '1';
-
-    function fire(node) {
-      if (node.nodeType !== 1) return;
-      var d = node.dataset;
-      var matchup = ((d.homeTeam || '') + ' ' + (d.homeScore || '0') + '–' + (d.awayScore || '0') + ' ' + (d.awayTeam || '')).trim();
-      var detail;
-      if (d.event === 'final') {
-        detail = { type: 'notice', title: 'Full time', message: matchup, duration: 4000 };
-      } else {
-        var title = (((d.teamEmoji ? d.teamEmoji + ' ' : '') + (d.team || 'Goal')) + ' scored!').trim();
-        var msg = (d.player ? d.player + ' · ' : '') + matchup;
-        detail = { type: 'notice', title: title, message: msg, duration: 3500 };
-      }
-      try { window.dispatchEvent(new CustomEvent('toast', { detail: detail })); } catch (_) {}
-      node.remove();
-    }
-
-    // Drain anything already present (broadcast could land before attach).
-    Array.prototype.slice.call(feed.children).forEach(fire);
-    new MutationObserver(function (muts) {
-      muts.forEach(function (m) { Array.prototype.slice.call(m.addedNodes).forEach(fire); });
-    }).observe(feed, { childList: true });
-  })();
-</script>
+<%= render "contests/live_script", contest: @contest %>

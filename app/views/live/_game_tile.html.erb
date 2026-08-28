@@ -25,6 +25,24 @@
       · .nfl-sweep                      — the touchdown's left-to-right strip %>
 <% home = game.home_team %>
 <% away = game.away_team %>
+<%# CONTEST EXTRAS. Both default to OFF, so the league board's render is
+    byte-for-byte what it was before the contest live page adopted this tile —
+    which is the point of sharing the partial rather than copying it.
+
+      picked_slugs  team slugs the VIEWER holds a pick on. The one thing a
+                    contest board knows that the league board never can.
+      scorers       true draws the chronological scoring-play strip.
+
+    THE PICK MARKER IS A CLASS, NOT MARKUP, and that is load-bearing rather than
+    tidy. Contest::LiveBroadcast replaces this whole games section on every
+    score, with ONE payload for every subscriber — so it cannot carry anything
+    viewer-specific, and a marker rendered as markup here would vanish on the
+    first touchdown and never come back. A class can be re-applied to the fresh
+    nodes by the page's own observer, which is exactly how the hot score and the
+    glow ring already survive a board replacement. The server render below is
+    the no-JS answer and what the component test asserts on. %>
+<% picked_slugs = Array(local_assigns.fetch(:picked_slugs, [])) %>
+<% scorers      = local_assigns.fetch(:scorers, false) %>
 <%# THE CARD HOSTS THE GLOW RING, and the clipping moved inside it.
     `.studio-team-glow` paints ::before/::after at a NEGATIVE inset, so the ring
     lives OUTSIDE the host's box — and `overflow-hidden` on the host would clip
@@ -47,9 +65,11 @@
     <% [[away, game.away_score], [home, game.home_score]].each_with_index do |(team, score), index| %>
       <% palette = team_card_palette(team) %>
       <% field = normalize_hex(team&.card_background) || "#3a3f4b" %>
-      <div class="relative flex items-center gap-3 px-3 py-2.5 overflow-hidden"
+      <% picked = picked_slugs.include?(team&.slug) %>
+      <div class="relative flex items-center gap-3 px-3 py-2.5 overflow-hidden<%= " nfl-row-picked" if picked %>"
            data-team-slug="<%= team&.slug %>"
            data-role="team-row"
+           data-picked="<%= picked ? 1 : 0 %>"
            style="background: <%= palette[:gradient] %>;
                   --nfl-team: <%= field %>;
                   --nfl-team-ink: <%= palette[:accent] %>;
@@ -135,4 +155,29 @@
     <% end %>
     <span class="text-[11px] text-secondary font-mono truncate"><%= detail %></span>
   </div>
+
+  <%# SCORING PLAYS, chronological. The score above says what the game stands at;
+      this says how it got there. Scrolls sideways rather than wrapping, so a
+      shoot-out cannot make one card twice the height of its neighbours in a row
+      whose cards all stretch to the tallest. %>
+  <% if scorers %>
+    <% plays = game.goals.sort_by { |goal| [goal.minute || 0, goal.id] } %>
+    <% if plays.any? %>
+      <div class="px-3 py-1.5 border-t border-subtle flex items-center gap-3 overflow-x-auto"
+           data-test="live-game-scorers">
+        <% plays.each do |play| %>
+          <% scoring_team = play.team_slug == game.home_team_slug ? home : away %>
+          <span class="flex items-center gap-1 flex-shrink-0 text-[11px] leading-none whitespace-nowrap">
+            <span class="text-[10px]"><%= scoring_team&.emoji %></span>
+            <span class="text-secondary font-medium">
+              <%= play.player&.name&.split&.last || play.scoring_label.presence || scoring_team&.short_name || "Score" %>
+            </span>
+            <% if play.points %>
+              <span class="text-muted font-mono tabular-nums">+<%= play.points %></span>
+            <% end %>
+          </span>
+        <% end %>
+      </div>
+    <% end %>
+  <% end %>
 </div>

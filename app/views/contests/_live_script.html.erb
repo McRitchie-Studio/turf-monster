@@ -1,0 +1,407 @@
+<%# THE LIVE PAGE'S ONE SCRIPT. Locals: contest.
+
+    Two boards move on this page and they move for the same reason — a Goal row
+    was written — but they need opposite things from it. The GAMES row needs to
+    know which team scored, so it can light that team's row in that team's
+    colours. The LEADERBOARD needs to know which ENTRIES moved, which no
+    broadcast tells it: Contest::LiveBroadcast sends a fully re-ranked list and
+    nothing else, so "who passed whom" has to be derived here, by comparing the
+    list that just arrived against the one it replaced.
+
+    EVERY PIECE OF STATE THIS SCRIPT KEEPS IS KEPT BECAUSE A BROADCAST DESTROYS
+    THE DOM IT LIVED IN. A class the page adds to a row survives exactly until
+    the next score anywhere in the contest, at which point Turbo swaps the whole
+    section out. So the hot score, the card glow, the pick marks, the "this one
+    is mine" post and the movement badges all live in JS objects and are
+    re-applied to the fresh nodes by the observers at the bottom. This is the
+    same posture live/index.html.erb takes with the league board, for the same
+    reason. %>
+<script>
+  (function () {
+    var ID       = "<%= contest.id %>";
+    var feed     = document.getElementById('contest_' + ID + '_goal_feed');
+    var games    = document.getElementById('contest_' + ID + '_games');
+    var focus    = document.getElementById('contest_' + ID + '_focus');
+    var board    = document.getElementById('contest_' + ID + '_leaderboard');
+    // TWO PLACES DRAW THE SAME GAME. The strip shows all sixteen as chips and
+    // the panel shows the focused one at full size, and both carry the same
+    // data-game-slug / data-team-slug / data-role="score" hooks. So every lookup
+    // below is querySelectorAll across BOTH — a touchdown has to light the chip
+    // and the tile, and querySelector would have lit whichever came first in the
+    // document and left the other one grey.
+    var boards   = [games, focus].filter(Boolean);
+    var shell    = document.getElementById('contest_' + ID + '_viewer');
+    var announcer = document.getElementById('contest_' + ID + '_announcer');
+    if (!feed || feed.dataset.observed) return;   // guard double-attach across Turbo visits
+    feed.dataset.observed = '1';
+
+    var REDUCED = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    var HOT_MS  = window.NFL_HOT_MS  || 50000;    // a score stays lit
+    var GLOW_MS = window.NFL_GLOW_MS || 45000;    // a card wears its team ring
+    var MOVE_MS = window.TT_MOVE_MS  || 60000;    // a rank badge stays up
+
+    function list(str) {
+      return (str || '').split(',').filter(function (s) { return s.length; });
+    }
+    // WHAT IS MINE, read once from the shell element that no stream can replace.
+    var myEntries = list(shell && shell.dataset.entrySlugs);
+    var myTeams   = list(shell && shell.dataset.pickedSlugs);
+
+    // Re-running an animation on an element that already carries its class is a
+    // no-op — the class never changed. Strip, force a reflow, re-add.
+    function restart(el, classes, cls) {
+      if (!el) return;
+      classes.forEach(function (c) { el.classList.remove(c); });
+      void el.offsetWidth;
+      if (cls) el.classList.add(cls);
+    }
+
+    // ── THE GAMES ROW ───────────────────────────────────────────────────────
+    var ANIM = {
+      touchdown:  { score: 'nfl-s-td',  sweep: true },
+      field_goal: { score: 'nfl-s-fg'  },
+      two_point:  { score: 'nfl-s-2pt' },
+      pat:        { score: 'nfl-s-pat' },
+      safety:     { score: 'nfl-s-saf' }
+    };
+    var FALLBACK = ANIM.touchdown;
+    var SCORE_CLASSES = ['nfl-s-td', 'nfl-s-fg', 'nfl-s-2pt', 'nfl-s-pat', 'nfl-s-saf'];
+
+    var hot = {};        // "gameSlug|teamSlug" -> timeout id
+    var glow = {};       // "gameSlug"          -> timeout id
+    var glowColors = {};
+
+    function key(g, t) { return g + '|' + t; }
+    function all(selector) {
+      var found = [];
+      boards.forEach(function (b) {
+        Array.prototype.push.apply(found, b.querySelectorAll(selector));
+      });
+      return found;
+    }
+    function cards(gameSlug) {
+      if (!gameSlug) return [];
+      return all('[data-game-slug="' + gameSlug + '"]');
+    }
+    function teamRows(gameSlug, teamSlug) {
+      if (!gameSlug || !teamSlug) return [];
+      return all('[data-game-slug="' + gameSlug + '"] [data-team-slug="' + teamSlug + '"]');
+    }
+
+    function applyHot() {
+      Object.keys(hot).forEach(function (k) {
+        var parts = k.split('|');
+        teamRows(parts[0], parts[1]).forEach(function (el) {
+          var score = el.querySelector('[data-role="score"]');
+          if (score) score.classList.add('nfl-score-hot');
+        });
+      });
+    }
+    function cool(gameSlug, teamSlug) {
+      var k = key(gameSlug, teamSlug);
+      if (!(k in hot)) return;
+      clearTimeout(hot[k]);
+      delete hot[k];
+      teamRows(gameSlug, teamSlug).forEach(function (el) {
+        var score = el.querySelector('[data-role="score"]');
+        if (score) score.classList.remove('nfl-score-hot');
+      });
+    }
+    function applyGlow() {
+      Object.keys(glowColors).forEach(function (g) {
+        cards(g).forEach(function (el) {
+          el.style.setProperty('--studio-team-glow-color', glowColors[g].a);
+          el.style.setProperty('--studio-team-glow-color-b', glowColors[g].b);
+          el.style.setProperty('--studio-team-glow-opacity', '1');
+        });
+      });
+    }
+    function unglow(gameSlug) {
+      if (!(gameSlug in glow)) return;
+      clearTimeout(glow[gameSlug]);
+      delete glow[gameSlug];
+      delete glowColors[gameSlug];
+      // Back to 0 rather than removed: the class's own opacity transition then
+      // fades the ring out instead of cutting it.
+      cards(gameSlug).forEach(function (el) {
+        el.style.setProperty('--studio-team-glow-opacity', '0');
+      });
+    }
+    function lightCard(gameSlug, a, b) {
+      if (!cards(gameSlug).length) return;
+      glowColors[gameSlug] = { a: a || 'var(--color-cta)', b: b || a || 'var(--color-cta)' };
+      applyGlow();
+      if (glow[gameSlug]) clearTimeout(glow[gameSlug]);   // RESET, never stack
+      glow[gameSlug] = setTimeout(function () { unglow(gameSlug); }, GLOW_MS);
+    }
+
+    // THE PICK MARKS. Server-rendered on first paint and re-applied here after
+    // every replacement, because the broadcast's single payload cannot carry
+    // them. Keyed on the team, not the row, so a team picked in one game is
+    // marked wherever that game is drawn.
+    // KICKOFF TIMES ARE RENDERED BY THE BROWSER, in the reader's own zone. The
+    // app runs on UTC, so a server-rendered 7:00 PM Eastern kickoff printed as
+    // "Thu 11:00 PM" — wrong for every reader — and picking one zone server-side
+    // only moves the error to everyone outside it. Idempotent: the <time>
+    // element's datetime attribute is the source, never this function's own
+    // previous output.
+    function formatKickoffs() {
+      all('time[data-role="kickoff"]').forEach(function (el) {
+        var iso = el.getAttribute('datetime');
+        if (!iso) return;
+        var when = new Date(iso);
+        if (isNaN(when.getTime())) return;   // keep the server fallback
+        try {
+          var next = when.toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+          // WRITE ONLY ON CHANGE — the same loop guard as the rank badge. This
+          // runs from a childList observer and setting textContent IS a childList
+          // mutation, so an unconditional write re-fires the observer forever.
+          if (el.textContent !== next) el.textContent = next;
+        } catch (_) { /* keep the server fallback */ }
+      });
+    }
+
+    function applyPicks() {
+      if (!myTeams.length) return;
+      myTeams.forEach(function (slug) {
+        all('[data-team-slug="' + slug + '"]').forEach(function (el) {
+          el.classList.add('nfl-row-picked');
+          el.setAttribute('data-picked', '1');
+        });
+      });
+    }
+
+    function animateRow(d) {
+      var targets = teamRows(d.gameSlug, d.teamSlug);
+      if (!targets.length) return;
+      var anim = ANIM[d.scoringType] || FALLBACK;
+      if (!REDUCED) {
+        targets.forEach(function (el) {
+          restart(el.querySelector('.nfl-row-wash'), ['nfl-wash-run'], 'nfl-wash-run');
+          restart(el.querySelector('.nfl-rail'),     ['nfl-rail-run'], 'nfl-rail-run');
+          restart(el.querySelector('.nfl-sweep'),    ['nfl-sweep-run'], anim.sweep ? 'nfl-sweep-run' : null);
+          restart(el.querySelector('[data-role="score"]'), SCORE_CLASSES, anim.score);
+        });
+      }
+      var k = key(d.gameSlug, d.teamSlug);
+      if (hot[k]) clearTimeout(hot[k]);                  // RESET, never stack
+      hot[k] = setTimeout(function () { cool(d.gameSlug, d.teamSlug); }, HOT_MS);
+      applyHot();
+      lightCard(d.gameSlug, d.glowA, d.glowB);
+    }
+
+    // ── THE LEADERBOARD ─────────────────────────────────────────────────────
+    // prev is the SHAPE OF THE LAST RENDER: rank, score and layout position per
+    // entry. It is the only record that the board used to look different, and
+    // without it a re-rank is indistinguishable from a first paint.
+    var prev  = null;
+    var moves = {};      // entrySlug -> { delta, timer }
+
+    function entryRows() {
+      if (!board) return [];
+      return Array.prototype.slice.call(board.querySelectorAll('[data-role="entry-row"]'));
+    }
+
+    // RANK AND SCORE ARE ALWAYS RECORDED; POSITION ONLY WHEN THE ROW IS VISIBLE.
+    //
+    // The board collapses past eight seats, so on a ten-seat contest two rows are
+    // display:none — and a hidden row reports offsetTop 0, which reads as "sitting
+    // at the top of the board". Skipping hidden rows outright was the first fix
+    // and it was wrong in a way that hid the best moment on the page: an entry
+    // climbing out of the collapsed tail into the money is the biggest move a
+    // board can show, and it arrived with no badge at all because the render it
+    // climbed FROM had never been recorded. Rank and score come off data
+    // attributes and need no layout, so they are always kept; only the FLIP,
+    // which is the one thing that genuinely needs geometry, opts out.
+    function snapshot(rows) {
+      var out = {};
+      rows.forEach(function (el) {
+        var visible = el.offsetParent !== null;
+        out[el.dataset.entrySlug] = {
+          rank:  parseInt(el.dataset.rank, 10),
+          score: parseFloat(el.dataset.score),
+          top:   visible ? el.offsetTop : null
+        };
+      });
+      return out;
+    }
+
+    function applyMine() {
+      if (!board || !myEntries.length) return;
+      myEntries.forEach(function (slug) {
+        var el = board.querySelector('[data-entry-slug="' + slug + '"]');
+        if (el) el.classList.add('tt-lb-mine');
+      });
+    }
+
+    function applyMoves() {
+      if (!board) return;
+      Object.keys(moves).forEach(function (slug) {
+        var el = board.querySelector('[data-entry-slug="' + slug + '"]');
+        var badge = el && el.querySelector('[data-role="rank-move"]');
+        if (!badge) return;
+        var delta = moves[slug].delta;
+        badge.classList.remove('tt-move-up', 'tt-move-down');
+        badge.classList.add(delta > 0 ? 'tt-move-up' : 'tt-move-down');
+        // WRITE ONLY ON CHANGE. This guard is what stops an infinite loop, not a
+        // micro-optimisation: setting textContent replaces the element's text
+        // NODE, which is a childList mutation, and this runs from an observer
+        // watching { childList, subtree }. An unconditional write re-fires the
+        // observer, which writes again, forever — queued, never spinning, so the
+        // page stays responsive while it never reaches its load event.
+        var next = (delta > 0 ? '▲' : '▼') + Math.abs(delta);
+        if (badge.textContent !== next) badge.textContent = next;
+      });
+    }
+
+    function markMove(slug, delta) {
+      if (moves[slug]) clearTimeout(moves[slug].timer);   // RESET, never stack
+      moves[slug] = {
+        delta: delta,
+        timer: setTimeout(function () { clearMove(slug); }, MOVE_MS)
+      };
+    }
+
+    function clearMove(slug) {
+      if (!moves[slug]) return;
+      clearTimeout(moves[slug].timer);
+      delete moves[slug];
+      var el = board && board.querySelector('[data-entry-slug="' + slug + '"]');
+      var badge = el && el.querySelector('[data-role="rank-move"]');
+      if (badge) {
+        if (badge.textContent !== '') badge.textContent = '';   // see applyMoves
+        badge.classList.remove('tt-move-up', 'tt-move-down');
+      }
+    }
+
+    // FLIP: the row has already been painted in its NEW place, so put it back in
+    // its old one with no transition, then let it travel. Cheaper and steadier
+    // than animating a list reorder, and it works on markup we did not create.
+    function slide(el, shift) {
+      if (REDUCED || !shift) return;
+      el.style.transition = 'none';
+      el.style.transform = 'translateY(' + shift + 'px)';
+      void el.offsetWidth;
+      el.style.transition = 'transform 520ms cubic-bezier(.2,.8,.3,1)';
+      el.style.transform = 'translateY(0)';
+      el.addEventListener('transitionend', function done() {
+        el.removeEventListener('transitionend', done);
+        el.style.transition = '';
+        el.style.transform = '';
+      });
+    }
+
+    function popScore(el) {
+      var score = el.querySelector('[data-role="entry-score"]');
+      if (!score) return;
+      restart(score, ['tt-score-pop'], REDUCED ? null : 'tt-score-pop');
+      score.classList.add('tt-score-hot');
+      setTimeout(function () { score.classList.remove('tt-score-hot'); }, HOT_MS);
+    }
+
+    function say(line) {
+      if (announcer) announcer.textContent = line;
+    }
+
+    function syncBoard() {
+      var rows = entryRows();
+      if (!rows.length) return;
+      var now = snapshot(rows);
+
+      if (prev) {
+        rows.forEach(function (el) {
+          var slug = el.dataset.entrySlug;
+          var was = prev[slug], is = now[slug];
+          if (!was || !is) return;
+
+          if (is.rank !== was.rank) markMove(slug, was.rank - is.rank);
+          if (is.score > was.score) popScore(el);
+          // Only when BOTH renders measured it. A row that was collapsed has no
+          // "from" to travel from; it simply appears, already badged.
+          if (was.top !== null && is.top !== null) slide(el, was.top - is.top);
+
+          // The one movement worth interrupting a reader for is their own.
+          if (is.rank !== was.rank && myEntries.indexOf(slug) !== -1) {
+            var up = is.rank < was.rank;
+            say('You moved ' + (up ? 'up' : 'down') + ' to ' + ordinal(is.rank) +
+                ' of ' + rows.length + '.');
+            try {
+              window.dispatchEvent(new CustomEvent('toast', { detail: {
+                type: up ? 'success' : 'notice',
+                title: (up ? '▲ ' : '▼ ') + 'Now ' + ordinal(is.rank),
+                message: 'Your entry moved ' + (up ? 'up' : 'down') +
+                         ' ' + Math.abs(was.rank - is.rank) + ' place' +
+                         (Math.abs(was.rank - is.rank) === 1 ? '' : 's') + '.',
+                duration: 3500
+              } }));
+            } catch (_) {}
+          }
+        });
+      }
+
+      prev = now;
+      applyMine();
+      applyMoves();
+    }
+
+    function ordinal(n) {
+      var s = ['th', 'st', 'nd', 'rd'], v = n % 100;
+      return n + (s[(v - 20) % 10] || s[v] || s[0]);
+    }
+
+    // ── THE FEED ────────────────────────────────────────────────────────────
+    function fire(node) {
+      if (node.nodeType !== 1) return;
+      var d = node.dataset;
+      var matchup = ((d.homeTeam || '') + ' ' + (d.homeScore || '0') + '–' +
+                     (d.awayScore || '0') + ' ' + (d.awayTeam || '')).trim();
+      var detail;
+      if (d.event === 'final') {
+        detail = { type: 'notice', title: 'Full time', message: matchup, duration: 4000 };
+        say('Final. ' + matchup + '.');
+      } else {
+        var title = (((d.teamEmoji ? d.teamEmoji + ' ' : '') + (d.team || 'Score')) +
+                     (d.label ? ' — ' + d.label : ' scored!')).trim();
+        var msg = (d.player ? d.player + ' · ' : '') + matchup;
+        detail = { type: 'notice', title: title, message: msg, duration: 3500 };
+        say((d.label || 'Score') + ', ' + (d.team || '') + '. ' + matchup + '.');
+      }
+      try { window.dispatchEvent(new CustomEvent('toast', { detail: detail })); } catch (_) {}
+
+      // Next frame, not this one. The server sends the games update ahead of the
+      // event, but Turbo applies streams as they arrive and a SECOND game
+      // scoring at the same instant would replace the row out from under an
+      // animation started synchronously here.
+      if (d.event !== 'final' && d.gameSlug && d.teamSlug) {
+        var payload = {
+          gameSlug: d.gameSlug, teamSlug: d.teamSlug,
+          scoringType: d.scoringType, glowA: d.glowA, glowB: d.glowB
+        };
+        requestAnimationFrame(function () { animateRow(payload); });
+      }
+      node.remove();
+    }
+
+    // Drain anything already present (a broadcast can land before attach).
+    Array.prototype.slice.call(feed.children).forEach(fire);
+    new MutationObserver(function (muts) {
+      muts.forEach(function (m) { Array.prototype.slice.call(m.addedNodes).forEach(fire); });
+    }).observe(feed, { childList: true });
+
+    // A broadcast replaces each section wholesale; re-paint everything the page
+    // knows and the payload does not onto the nodes that just arrived.
+    boards.forEach(function (b) {
+      new MutationObserver(function () { applyPicks(); applyHot(); applyGlow(); formatKickoffs(); })
+        .observe(b, { childList: true, subtree: true });
+    });
+    if (board) {
+      new MutationObserver(function () { syncBoard(); })
+        .observe(board, { childList: true, subtree: true });
+    }
+
+    // First paint.
+    applyPicks();
+    formatKickoffs();
+    syncBoard();
+  })();
+</script>

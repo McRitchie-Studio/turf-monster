@@ -25,6 +25,7 @@ class Contest
           append_goal_feed(contest, goal, game)
           replace_leaderboard(contest)
           replace_games(contest)
+          replace_focus(contest)
         end
       end
 
@@ -37,6 +38,7 @@ class Contest
           append_final_feed(contest, game) if event == :game_completed
           replace_leaderboard(contest)
           replace_games(contest)
+          replace_focus(contest)
         end
       end
 
@@ -84,12 +86,33 @@ class Contest
         ErrorLog.capture!(e)
       end
 
+      # THE FOCUS PANEL IS ITS OWN TARGET, because it is not next to the strip in
+      # the layout — the strip runs across the top, the focused game sits in the
+      # left column above chat, and one stream target cannot span both. Same
+      # locals as the strip: which of the sixteen tiles is visible is decided by
+      # Alpine on the client, from state this payload never sees.
+      def replace_focus(contest)
+        Turbo::StreamsChannel.broadcast_update_to(
+          [contest, :live],
+          target:  "contest_#{contest.id}_focus",
+          partial: "contests/live_focus",
+          locals:  contest.games_by_phase.merge(contest: contest)
+        )
+      rescue => e
+        ErrorLog.capture!(e)
+      end
+
       def append_goal_feed(contest, goal, game)
         Turbo::StreamsChannel.broadcast_append_to(
           [contest, :live],
           target:  "contest_#{contest.id}_goal_feed",
           partial: "contests/goal_feed_item",
-          locals:  { event: "goal", team: goal.team, player: goal.player, game: game }
+          # `goal` rides along now, not just its team: the live page animates the
+          # scoring row per scoring TYPE (a touchdown takes the whole card, an
+          # extra point is deliberately understated), and the type lives on the
+          # Goal. Without it every score would fall back to the touchdown motion
+          # and the vocabulary would say nothing.
+          locals:  { event: "goal", goal: goal, team: goal.team, player: goal.player, game: game }
         )
       rescue => e
         ErrorLog.capture!(e)
@@ -100,7 +123,7 @@ class Contest
           [contest, :live],
           target:  "contest_#{contest.id}_goal_feed",
           partial: "contests/goal_feed_item",
-          locals:  { event: "final", team: nil, player: nil, game: game }
+          locals:  { event: "final", goal: nil, team: nil, player: nil, game: game }
         )
       rescue => e
         ErrorLog.capture!(e)

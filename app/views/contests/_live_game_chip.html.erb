@@ -1,0 +1,79 @@
+<%# ONE GAME, SHRUNK TO A BUTTON. Locals: game (Game), picked_slugs, focus_slug.
+
+    The strip above the two columns has a different job from the tile below it:
+    the tile is what you WATCH, the strip is how you CHOOSE. So this is not the
+    tile at a smaller font — it drops the city, the kickoff line and the scoring
+    plays, and keeps only what a glance needs to pick a game out of sixteen: the
+    two teams' colours, their abbreviations, the score, and whether it is live.
+
+    IT WEARS THE SAME ANIMATION HOOKS AS live/_game_tile — data-game-slug,
+    data-team-slug, data-role="score", .nfl-row-wash, .nfl-rail, .nfl-sweep — on
+    purpose. A score lands once and lights BOTH the chip and the focus tile,
+    because the page's script queries all matching rows rather than the first.
+    If you add a hook there, add it here. %>
+<% home = game.home_team %>
+<% away = game.away_team %>
+<button type="button"
+        data-game-slug="<%= game.slug %>"
+        data-test="live-game-chip"
+        @click="focus = '<%= game.slug %>'"
+        :class="focus === '<%= game.slug %>' ? 'tt-chip-focused' : ''"
+        class="tt-chip card p-0 w-[152px] text-left overflow-hidden transition"
+        :aria-pressed="focus === '<%= game.slug %>' ? 'true' : 'false'"
+        aria-label="Show <%= away&.short_name || game.away_team_slug %> at <%= home&.short_name || game.home_team_slug %>">
+  <% [[away, game.away_score], [home, game.home_score]].each_with_index do |(team, score), index| %>
+    <% palette = team_card_palette(team) %>
+    <% field = normalize_hex(team&.card_background) || "#3a3f4b" %>
+    <% picked = Array(picked_slugs).include?(team&.slug) %>
+    <div class="relative flex items-center gap-1.5 px-2 py-1 overflow-hidden<%= " nfl-row-picked" if picked %>"
+         data-team-slug="<%= team&.slug %>"
+         data-role="team-row"
+         data-picked="<%= picked ? 1 : 0 %>"
+         style="background: <%= palette[:gradient] %>;
+                --nfl-team: <%= field %>;
+                --nfl-team-ink: <%= palette[:accent] %>;
+                <%= "border-bottom: 1px solid #{palette[:divider]};" if index.zero? %>">
+      <span class="nfl-row-wash absolute inset-0 pointer-events-none opacity-0"
+            style="background: <%= palette[:accent] %>"></span>
+      <span class="nfl-sweep absolute inset-y-0 left-0 pointer-events-none opacity-0"
+            style="width: 34%;
+                   background: linear-gradient(90deg, transparent, <%= palette[:accent] %>, transparent)"></span>
+      <span class="nfl-rail relative w-0.5 h-4 rounded-full flex-shrink-0"
+            style="background: <%= palette[:accent] %>"></span>
+      <span class="relative text-xs leading-none flex-shrink-0"><%= team&.emoji %></span>
+      <span class="relative min-w-0 flex-1 text-[11px] font-extrabold truncate"
+            style="color: <%= palette[:accent] %>; text-shadow: <%= palette[:mascot_shadow] %>">
+        <%= team&.short_name || team&.mascot || team&.name %>
+      </span>
+      <%# Same rule as the tile: no inline colour on the score, so the hot state
+          can repaint it through a stylesheet rule. %>
+      <span class="relative text-sm font-extrabold tabular-nums"
+            style="--nfl-team-fg: <%= palette[:fg] %>"
+            data-role="score"><%= score.to_i %></span>
+    </div>
+  <% end %>
+  <%# ONE FACT PER CHIP, not two. The tile below shows the badge AND the feed's
+      own detail because it has the width for both; at 152px a scheduled game
+      printed "FRI 11:00 PM" over "8/28 - 7:00 PM EDT" and wrapped to two lines.
+      So the detail is kept only where it says something the badge cannot — the
+      game clock on a live game — and a scheduled game shows its kickoff alone. %>
+  <div class="px-2 py-0.5 bg-surface-alt/60 flex items-center justify-between gap-1 whitespace-nowrap">
+    <% if game.live? %>
+      <span class="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-red-400 flex-shrink-0">
+        <span class="h-1 w-1 rounded-full bg-red-500 animate-pulse"></span> Live
+      </span>
+      <span class="text-[9px] text-secondary font-mono truncate"><%= game.status_detail.presence %></span>
+    <% elsif game.completed? %>
+      <span class="text-[9px] font-bold uppercase tracking-wider text-muted">Final</span>
+    <% elsif game.kickoff_at %>
+      <%# Machine-readable, formatted by the BROWSER in the reader's own zone —
+          the app runs on UTC, so a server-rendered kickoff is wrong for
+          everyone. The text is a truthful no-JS fallback. %>
+      <time datetime="<%= game.kickoff_at.utc.iso8601 %>"
+            data-role="kickoff"
+            class="text-[9px] font-bold uppercase tracking-wider text-muted"><%= game.kickoff_at.utc.strftime("%a %-I:%M %p") %></time>
+    <% else %>
+      <span class="text-[9px] font-bold uppercase tracking-wider text-muted">TBD</span>
+    <% end %>
+  </div>
+</button>
