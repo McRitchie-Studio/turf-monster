@@ -36,7 +36,7 @@
       </div>
 
       <% if @athletes.empty? %>
-        <%= render "components/empty_state", message: "No players seeded yet. Run: bin/rails nfl:players_seed" %>
+        <%= render "components/empty_state", message: "No players to show yet." %>
       <% else %>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           <%= render partial: "nfl_players/athlete_card", collection: @athletes, as: :athlete %>

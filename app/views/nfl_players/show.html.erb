@@ -11,10 +11,10 @@
         <img src="<%= headshot %>"
              alt="<%= person&.full_name %>"
              width="160" height="160"
-             class="w-40 h-40 rounded-full object-cover bg-surface-2 shrink-0"
+             class="w-40 h-40 rounded-full object-cover bg-surface-alt shrink-0"
              style="<%= "box-shadow: 0 0 0 4px #{@team.card_background}" if @team&.card_background.present? %>">
       <% else %>
-        <span class="w-40 h-40 rounded-full bg-surface-2 text-secondary shrink-0
+        <span class="w-40 h-40 rounded-full bg-surface-alt text-secondary shrink-0
                      flex items-center justify-center text-4xl font-bold">
           <%= [person&.first_name, person&.last_name].compact.map { |n| n[0] }.join %>
         </span>

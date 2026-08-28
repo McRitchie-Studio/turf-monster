@@ -17,11 +17,11 @@
            alt="<%= person&.full_name %>"
            loading="lazy"
            width="48" height="48"
-           class="w-12 h-12 rounded-full object-cover bg-surface-2 shrink-0">
+           class="w-12 h-12 rounded-full object-cover bg-surface-alt shrink-0">
     <% else %>
       <%# No cached headshot: nflverse had no espn_id, or the upload has not
           run for this player yet. Initials keep the row height stable. %>
-      <span class="w-12 h-12 rounded-full bg-surface-2 text-secondary shrink-0
+      <span class="w-12 h-12 rounded-full bg-surface-alt text-secondary shrink-0
                    flex items-center justify-center text-sm font-semibold">
         <%= [person&.first_name, person&.last_name].compact.map { |n| n[0] }.join %>
       </span>

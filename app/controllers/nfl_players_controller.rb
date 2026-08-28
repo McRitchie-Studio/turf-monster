@@ -22,7 +22,11 @@ class NflPlayersController < ApplicationController
     # Nothing selected — render the team picker instead of 2,900 cards.
     @teams = Team.where(league: "nfl").order(:name) if @athletes.nil?
 
-    @positions = PositionConcern::ORDERED_POSITIONS & Athlete.football.distinct.pluck(:position).compact
+    # Chips offer only the positions present in what the visitor is looking at.
+    # A team page must not advertise a position its roster lacks: every such chip
+    # is a link the page itself rendered straight into an empty grid.
+    pool = @team ? Athlete.football.for_team(@team.slug) : Athlete.football
+    @positions = PositionConcern::ORDERED_POSITIONS & pool.distinct.pluck(:position).compact
   end
 
   def show
