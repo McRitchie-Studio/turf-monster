@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { reseed, allowMotion } = require("./helpers");
+const { reseed, allowMotion, loginAdmin, createActiveEntry } = require("./helpers");
 
 // The league-wide live scoreboard at /live.
 //
@@ -223,5 +223,169 @@ test.describe("Live NFL scoreboard", () => {
 
     await page.locator('[data-test="dev-score-clear"]').click();
     await expect(scoreCell).toHaveText("0", { timeout: 10000 });
+  });
+});
+
+// The CONTEST live page at /contests/:slug/live.
+//
+// Its sibling above proves a score reaches an open browser. This proves the
+// half that only exists here: the reader chooses which game to watch, and that
+// choice has to survive the score arriving.
+//
+// WHY THIS CANNOT BE A RAILS TEST. Every assertion below is about state no
+// response body carries. Which of the sixteen focus tiles is visible is decided
+// by Alpine after paint; the hot score, the glow and the "this entry is mine"
+// post are put back onto broadcast-replaced markup by a MutationObserver; and
+// the focus surviving a broadcast is only observable AFTER a websocket message
+// has torn out and rebuilt the DOM the choice was made in. A String assertion
+// sees the markup that arrives, never the markup the page ends up with.
+// nfl-weeks-15-17, NOT the main world-cup-2026 fixture. These specs have to LOCK
+// a contest to make its live page reachable at all, and locking the contest the
+// rest of the lane enters would leak that state into every spec that runs after
+// them. This one backs multi_week_contest.spec.js alone, and the afterEach below
+// hands it back unlocked.
+const CONTEST = "nfl-weeks-15-17";
+
+// The live page refuses a contest that has not locked (Contest#live? is
+// locked? && !settled?), and locked? is derived from starts_at. #lock is the
+// real admin path — off-chain here, so it just moves starts_at.
+async function setLock(page, slug, inSeconds) {
+  await page.goto(`/contests/${slug}`);
+  const status = await page.evaluate(async ([contestSlug, seconds]) => {
+    const token = document.querySelector('meta[name="csrf-token"]');
+    const res = await fetch(`/contests/${contestSlug}/lock`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": token ? token.content : "" },
+      body: JSON.stringify({ in_seconds: seconds }),
+    });
+    return res.status;
+  }, [slug, inSeconds]);
+  expect(status).toBeLessThan(400);
+}
+
+// Lock it, then land on the live page and CHECK WE ARE STILL THERE. #live
+// redirects a contest that has not locked, and a redirect would otherwise show
+// up further down as "element(s) not found" — pointing at the assertions rather
+// than at the premise that failed.
+async function openLive(page, slug) {
+  await setLock(page, slug, 0);
+  await page.goto(`/contests/${slug}/live`);
+  await expect(page).toHaveURL(new RegExp(`/contests/${slug}/live$`));
+}
+
+// Score a real Goal on a game the contest actually contains, through the same
+// dev injector the league board uses — so the whole pipeline runs (recompute →
+// matchups → re-score → websocket) rather than a broadcast being faked.
+async function recordTouchdown(page, gameSlug, teamSlug) {
+  const status = await page.evaluate(async ([game, team]) => {
+    const token = document.querySelector('meta[name="csrf-token"]');
+    const res = await fetch("/dev/live_scores/record", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": token ? token.content : "" },
+      body: JSON.stringify({ game_slug: game, team_slug: team, scoring_type: "touchdown" }),
+    });
+    return res.status;
+  }, [gameSlug, teamSlug]);
+  expect(status).toBe(200);
+}
+
+test.describe("Contest live page", () => {
+  // Hand the contest back OPEN. `lock` only moves starts_at, so pushing it an
+  // hour out is the same door in the other direction — no test-only endpoint,
+  // and the next spec finds the contest as the seed left it.
+  test.afterEach(async ({ page }) => {
+    await loginAdmin(page);
+    await setLock(page, CONTEST, 3600);
+  });
+
+  test("the focused game follows the chip you click", async ({ page }) => {
+    await loginAdmin(page);
+    await openLive(page, CONTEST);
+
+    const focusTiles = page.locator('[data-test="live-focus-game"]');
+    await expect(focusTiles.first()).toBeAttached();
+
+    // Every game is rendered into the panel and all but one is hidden. Alpine
+    // owns which — nothing in the response says it.
+    const visible = () => page.locator('[data-test="live-focus-game"]:visible');
+    await expect(visible()).toHaveCount(1);
+    const before = await visible().getAttribute("data-focus-slug");
+
+    // Click a DIFFERENT chip and the panel follows it.
+    const other = page
+      .locator(`[data-test="live-game-chip"]:not([data-game-slug="${before}"])`)
+      .first();
+    const wanted = await other.getAttribute("data-game-slug");
+    await other.click();
+
+    await expect(visible()).toHaveCount(1);
+    await expect(visible()).toHaveAttribute("data-focus-slug", wanted);
+    // The strip agrees with the panel — one chip marked, and it is that one.
+    await expect(page.locator(".tt-chip-focused").first())
+      .toHaveAttribute("data-game-slug", wanted);
+  });
+
+  test("a score lights both renderings and does not steal your focus", async ({ page }) => {
+    await allowMotion(page);
+    await loginAdmin(page);
+    await createActiveEntry(page, CONTEST);
+    await openLive(page, CONTEST);
+
+    // Watch a game the reader CHOSE, not the one the page opened on — the bug
+    // this guards is the broadcast resetting that choice.
+    const visible = () => page.locator('[data-test="live-focus-game"]:visible');
+    const opened = await visible().getAttribute("data-focus-slug");
+    const chosen = page
+      .locator(`[data-test="live-game-chip"]:not([data-game-slug="${opened}"])`)
+      .first();
+    const gameSlug = await chosen.getAttribute("data-game-slug");
+    await chosen.click();
+    await expect(visible()).toHaveAttribute("data-focus-slug", gameSlug);
+
+    const teamSlug = await page
+      .locator(`[data-test="live-focus-game"]:visible [data-team-slug]`)
+      .first()
+      .getAttribute("data-team-slug");
+
+    const chipScore = page.locator(
+      `[data-test="live-game-chip"][data-game-slug="${gameSlug}"] [data-team-slug="${teamSlug}"] [data-role="score"]`
+    ).first();
+    const tileScore = page.locator(
+      `[data-test="live-focus-game"] [data-game-slug="${gameSlug}"] [data-team-slug="${teamSlug}"] [data-role="score"]`
+    ).first();
+    await expect(chipScore).toHaveText("0");
+
+    await recordTouchdown(page, gameSlug, teamSlug);
+
+    await expect(chipScore).not.toHaveText("0", { timeout: 15000 });
+    await expect(tileScore).not.toHaveText("0", { timeout: 15000 });
+
+    // EVERY rendering of that score, not just the two named above.
+    //
+    // The strip CLONES its whole row to loop seamlessly, so a game the reader
+    // can see is drawn two or three times: the chip, its clone, and the tile.
+    // The page looks up all of them; a querySelector would light the first and
+    // leave the rest grey — invisible until the carousel scrolled the cold copy
+    // into view. Asserting only the first chip and the tile does not catch that,
+    // which is exactly what an earlier cut of this spec failed to notice when
+    // the lookup was deliberately broken to check the spec bites.
+    const everyCopy = page.locator(
+      `[data-game-slug="${gameSlug}"] [data-team-slug="${teamSlug}"] [data-role="score"]`
+    );
+    const copies = await everyCopy.count();
+    expect(copies).toBeGreaterThan(1);
+    for (let i = 0; i < copies; i += 1) {
+      await expect(everyCopy.nth(i)).toHaveClass(/nfl-score-hot/);
+      await expect(everyCopy.nth(i)).not.toHaveText("0");
+    }
+
+    // The choice survived the broadcast that replaced the strip AND the panel.
+    await expect(visible()).toHaveCount(1);
+    await expect(visible()).toHaveAttribute("data-focus-slug", gameSlug);
+
+    // AND the viewer's own row is still marked. This one is only true if the
+    // script re-applied it: the broadcast sends one payload to every subscriber,
+    // so the server's re-render of the leaderboard cannot know whose entry it is.
+    await expect(page.locator("[data-role=entry-row].tt-lb-mine")).toHaveCount(1);
   });
 });

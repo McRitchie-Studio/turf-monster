@@ -382,7 +382,24 @@
 # sibling branch, or arithmetic. This very merge is the fifth: the number below
 # was re-derived by `bin/e2e-lane-derive --write` on the MERGED tree, not carried
 # over from either side of the conflict.
-total_specs: 203
+# 203 -> 205 (contest-live-score-ranking): two specs appended to the EXISTING
+# e2e/nfl_live_scoreboard.spec.js — no new file — for the contest live page's
+# focus game. The page draws every game twice (a chip in the strip, the chosen
+# one at full size) and lets the reader pick which one the panel shows, and both
+# claims are invisible to a String assertion: which tile is visible is decided by
+# Alpine AFTER paint, and the interesting failure only exists after a websocket
+# message has torn out and rebuilt the DOM the choice was made in.
+#   · the panel follows the chip you click
+#   · a score lights BOTH renderings and does NOT steal your focus — the bug a
+#     querySelector would have caused (one lit, one grey) and the one Alpine
+#     state declared inside a broadcast target would have caused (focus reset to
+#     the default mid-play). It also asserts the viewer's own leaderboard row is
+#     still marked afterwards, which is only true if the page put the mark back:
+#     the broadcast sends ONE payload to every subscriber and cannot know whose
+#     entry it is.
+# Re-derived with bin/e2e-lane-derive --write on the tree AFTER merging accepted
+# (8 commits of it), never hand-incremented.
+total_specs: 205
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -598,7 +615,7 @@ allowed_skips: 4
 # 203 - 17 - 4 = 182, and 186 collected - 4 runtime skips = 182. Both routes agree.
 # allowed_skips stays 4: had a new spec added a runtime skip the two identities
 # would disagree, and they agree.
-executed: 182
+executed: 184
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
