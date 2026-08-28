@@ -134,6 +134,28 @@
   .tt-fade { transition: opacity 200ms ease-out; }
   [data-role="event-feed-frame"].tt-revealing .tt-fade { opacity: 0; }
 
+  /* THE CARD IS SIZED BY ITS RAIL, NOT BY THE VIEWPORT.
+     The rail is a third of the hero tile, so a 1024px phone-landscape viewport
+     and a 1024px tile column are completely different amounts of room. Container
+     queries ask the only question that matters here — how wide is THIS card —
+     which is why the fix is not an `sm:` prefix. */
+  [data-role="event-feed-frame"] { container-type: inline-size; }
+
+  /* Below ~230px of rail there is not room for a face AND the words, and the
+     words win: the events list this card replaced is perfectly readable at that
+     width, so a cropped portrait with no text is strictly worse than what was
+     there. Measured: 390px viewport gives a 76px rail, 640px gives 159px. */
+  @container (max-width: 230px) {
+    .tt-scorer-card .tt-scorer-avatar { display: none; }
+    .tt-scorer-card { gap: 0.25rem; padding-left: 0.25rem; padding-right: 0.25rem; }
+  }
+
+  /* Between there and comfortable, the face yields first — it degrades to a
+     sliver gracefully, where the text degrades to nothing. */
+  @container (max-width: 340px) {
+    .tt-scorer-card .tt-scorer-avatar { max-width: 38%; }
+  }
+
   /* THE HEADLINE scales with the rail rather than taking a fixed size: the hero
      tile gives this card ~64px of height for five rows, and a fixed 18px shout
      either overflowed the short rail or looked timid in the tall one. */

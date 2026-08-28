@@ -464,7 +464,23 @@ test.describe("Contest live page", () => {
 
     // The card is genuinely on screen, not merely class-swapped: a transform
     // typo would leave it parked below the rail while the class said otherwise.
+    //
+    // toBeVisible() is not enough by itself — overflow clipping is not "hidden"
+    // to playwright, so a pane sliced in half by a wrong wheel position still
+    // passes it. Assert CONTAINMENT: nothing of the card clipped by its frame.
     await expect(card).toBeVisible();
+    const clipped = await frame.evaluate((f) => {
+      const w = f.getBoundingClientRect();
+      const shown = [...f.querySelectorAll('[data-role="scorer-card"]')].find((c) => {
+        const r = c.getBoundingClientRect();
+        const mid = (r.top + r.bottom) / 2;
+        return mid > w.top && mid < w.bottom;
+      });
+      if (!shown) return -1;
+      const r = shown.getBoundingClientRect();
+      return Math.round(Math.max(0, w.top - r.top) + Math.max(0, r.bottom - w.bottom));
+    });
+    expect(clipped).toBeLessThanOrEqual(1);
     await expect(card).toHaveAttribute("aria-hidden", "false");
 
     // AND THE LIST HAS LEFT THE WINDOW. Asserted on GEOMETRY, not opacity: the
@@ -515,17 +531,46 @@ test.describe("Contest live page", () => {
     await expect(frame).not.toHaveClass(/tt-revealing/, { timeout: 20000 });
     await expect(frame.locator('[data-role="scorer-card"]').first()).toHaveAttribute("aria-hidden", "true");
 
-    // The list is back IN the window — the wheel rolled home. Geometry again,
-    // for the same reason as the reveal.
+    // THE LIST IS BACK IN THE WINDOW — measured as POSITION, not as content.
+    //
+    // The first version of this assertion divided the overlap by the FRAME's
+    // height, which reduces to feedHeight / frameHeight: a count of scoring
+    // rows, not a wheel position. The feed is centred in a pane that exactly
+    // fills the frame, so when the wheel is home the overlap IS the feed's own
+    // height — and 85% is only reachable once the list OVERFLOWS the rail, about
+    // five rows. This spec records ONE touchdown and nothing clears goals
+    // between runs, so every attempt added a row and the number climbed: it
+    // failed 3/3 locally and went green on CI only at retry 2. A spec that
+    // passes because it has been run before is worse than no spec, and merged
+    // as-is it would have reddened the first playwright attempt for every PR
+    // after it.
+    //
+    // What actually says "the wheel is home" is that NO PART of the feed is
+    // clipped by the frame — absolute pixels, independent of how much has been
+    // scored.
     await expect
       .poll(async () =>
         frame.evaluate((f) => {
           const w = f.getBoundingClientRect();
           const feed = f.querySelector(".tt-event-feed").getBoundingClientRect();
-          const overlap = Math.min(feed.bottom, w.bottom) - Math.max(feed.top, w.top);
-          return Math.round(overlap / w.height * 100);
+          return Math.round(
+            Math.max(0, w.top - feed.top) + Math.max(0, feed.bottom - w.bottom)
+          );
         })
       )
-      .toBeGreaterThanOrEqual(85);
+      .toBeLessThanOrEqual(1);
+
+    // And the track is at its resting position — the feed fitting and the wheel
+    // being home are only the same thing when the transform is zero.
+    await expect
+      .poll(async () =>
+        frame.evaluate((f) => {
+          const t = getComputedStyle(f.querySelector(".tt-event-track")).transform;
+          if (t === "none") return 0;
+          const m = t.match(/matrix\(([^)]+)\)/);
+          return m ? Math.abs(Math.round(parseFloat(m[1].split(",")[5]))) : -1;
+        })
+      )
+      .toBe(0);
   });
 });

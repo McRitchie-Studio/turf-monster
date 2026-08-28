@@ -34,11 +34,21 @@
       The source is landscape (600x436), so `object-contain` with an auto width
       shows the whole cutout instead of `object-cover` cropping it into a disc.
       Bottom-aligned: the shoulders sit on the rail's floor and the head is what
-      rises into the card. %>
-  <span class="tt-scorer-avatar relative shrink-0 h-full flex items-end justify-center self-stretch">
+      rises into the card.
+
+      IT SHRINKS, AND BELOW A THRESHOLD IT GOES. `shrink-0` plus `max-w-none`
+      pinned it at a constant 154px, and the text column — the only flexible
+      thing left — was what gave: measured at 390px and 640px viewports the card
+      rendered ZERO characters of headline, mascot, name and detail and
+      overflowed its frame by 33px. The rail is `w-1/3` of the tile, so the
+      constraint is CARD width and a viewport breakpoint cannot see it; the
+      container query in live_page_styles is what drops the face and keeps the
+      words. The events list this replaces is perfectly legible on a phone, so
+      showing less than it does is a regression, not a trade-off. %>
+  <span class="tt-scorer-avatar relative h-full flex items-end justify-center self-stretch">
     <img data-role="scorer-headshot"
          alt=""
-         class="h-full w-auto max-w-none object-contain object-bottom hidden">
+         class="h-full w-auto max-w-full object-contain object-bottom hidden">
     <%# No cached headshot: nflverse had no espn_id, or the upload has not run
         for this player. THIS is where a disc belongs — initials need a ground to
         sit on, and there is no cutout here to show one through. %>
@@ -54,7 +64,7 @@
       THE TEAM SITS ABOVE THE PLAYER. A score belongs to a team first: that is
       what moves the number on the left and what the reader has money on. The
       scorer and the play are the detail underneath it. %>
-  <div class="min-w-0 flex flex-col justify-center text-center gap-1.5">
+  <div class="min-w-0 flex-1 flex flex-col justify-center text-center gap-1.5">
     <p class="tt-scorer-headline font-black uppercase tracking-wide text-white leading-none truncate"
        data-role="scorer-headline"></p>
 

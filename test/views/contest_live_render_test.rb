@@ -308,4 +308,48 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
     assert_select "#nfl-score-banner #nfl-score-avatar", count: 1
     assert_select "#nfl-score-banner #nfl-score-points", count: 1
   end
+
+  # ── THE BANNER'S SHARED SLOTS ─────────────────────────────────────────────
+  #
+  # The scoring banner and the rank summary are the SAME element, repainted.
+  # That sharing is deliberate and free, but it has now produced three bugs from
+  # state surviving a repaint — the latest being the rank summary inheriting the
+  # touchdown scorer's headshot for its full six seconds, because
+  # paintRankBanner repainted four slots and the diff had made it five.
+  #
+  # A render test cannot run the repaint, so it pins the CONTRACT the repaint has
+  # to honour: the script must clear every slot it does not own, and the script
+  # must be the only thing that fills them.
+  test "the banner ships with every slot empty" do
+    get_live
+
+    %w[nfl-score-emoji nfl-score-label nfl-score-team nfl-score-points nfl-score-line].each do |id|
+      assert_select "##{id}" do |els|
+        assert_equal "", els.first.text.strip, "#{id} must ship empty — the script owns it"
+      end
+    end
+    assert_select "#nfl-score-avatar[src]", { count: 0 },
+      "the banner's avatar must ship with no source"
+  end
+
+  # Every slot paintRankBanner has to account for. If a sixth is added to the
+  # banner and not to that function, this list is where the omission shows.
+  test "the banner has exactly the five slots the summary must repaint" do
+    get_live
+
+    %w[nfl-score-emoji nfl-score-label nfl-score-team nfl-score-points nfl-score-avatar].each do |id|
+      assert_select "#nfl-score-banner ##{id}", { count: 1 },
+        "paintRankBanner must account for ##{id}"
+    end
+  end
+
+  # The avatar ships hidden: an <img> with no src that is not hidden renders as a
+  # broken-image glyph in the banner's own layout.
+  test "the banner avatar ships hidden" do
+    get_live
+
+    assert_select "#nfl-score-avatar" do |els|
+      assert_includes els.first["class"].to_s.split, "hidden"
+    end
+  end
 end

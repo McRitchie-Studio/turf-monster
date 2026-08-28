@@ -179,7 +179,13 @@
       // whose feed carries no scorer.
       var avatar = document.getElementById('nfl-score-avatar');
       var points = document.getElementById('nfl-score-points');
-      var face = isFinal ? null : d.scorerHeadshot;
+      // A URL IS NOT A PICTURE. whenPreloaded already recorded whether this image
+      // decoded; keying merely on the url being PRESENT put a broken-image glyph
+      // and the literal alt text where the points chip belongs when a headshot
+      // 404s. Only a decoded image earns the slot — anything else falls back to
+      // the points, which is what the league board shows anyway.
+      var face = (!isFinal && d.scorerHeadshot && headshots[d.scorerHeadshot] !== 'failed')
+        ? d.scorerHeadshot : null;
       if (avatar) {
         if (face) {
           if (avatar.getAttribute('src') !== face) avatar.src = face;
@@ -663,7 +669,9 @@
     // warning glyph — and it announced the best thing that can happen to a
     // reader on this page in the same voice. The summary belongs to the same
     // family as the thing that caused it, so it uses the same element, the same
-    // four slots, and an entrance of its own: every scoring type DROPS in,
+    // FIVE slots — emoji, label, team, points and the avatar, which this banner
+    // CLEARS because a rank summary is about the reader and not a player — and an
+    // entrance of its own: every scoring type DROPS in,
     // because a score comes at you; this one RISES, because it is telling you
     // that you went up.
     //
@@ -682,6 +690,23 @@
         ? 'linear-gradient(135deg, #14532d 0%, #1c7a45 55%, #2ea55f 100%)'
         : 'linear-gradient(135deg, #0f3d2e 0%, #17683f 60%, #1f8a4c 100%)';
       banner.style.color = '#eafff2';
+      // THE AVATAR IS THE FIFTH SLOT, AND IT IS NOT OURS.
+      //
+      // paintBanner un-hid #nfl-score-avatar for the score that just played, and
+      // the drain path deliberately does NOT call hideBanner before painting this
+      // (see advanceChain) — so the overlay never blanks in between and the
+      // summary inherited the scorer's face. Measured: the green "Now 2nd"
+      // banner sat for its full 6s beside a touchdown scorer's headshot.
+      //
+      // A rank summary is about the READER, not a player, so it clears the slot
+      // rather than filling it.
+      var rankAvatar = document.getElementById('nfl-score-avatar');
+      if (rankAvatar) {
+        rankAvatar.classList.add('hidden');
+        rankAvatar.removeAttribute('src');
+        rankAvatar.removeAttribute('alt');
+      }
+
       document.getElementById('nfl-score-emoji').textContent  = crowned ? '👑' : '📈';
       document.getElementById('nfl-score-label').textContent  = 'Now ' + ordinal(rank);
       document.getElementById('nfl-score-team').textContent   = body;
@@ -983,8 +1008,13 @@
           img.removeAttribute('src');
         }
       }
-      setText(initials, shot ? '' : initialsOf(d.scorer));
-      if (initials) initials.classList.toggle('hidden', !!shot);
+      // THE MIRROR OF THE ABOVE. Keying the initials on a BLANK url meant a url
+      // that FAILED left the img hidden and the initials hidden too — no avatar
+      // at all, just a gap. A picture we could not load is, for the reader,
+      // exactly the same as one we never had.
+      var usable = shot && headshots[shot] !== 'failed';
+      setText(initials, usable ? '' : initialsOf(d.scorer));
+      if (initials) initials.classList.toggle('hidden', !!usable);
 
       setText(card.querySelector('[data-role="scorer-headline"]'), scorerHeadline(d));
       setText(card.querySelector('[data-role="scorer-name"]'), d.scorer || '');
