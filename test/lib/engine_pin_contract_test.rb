@@ -85,6 +85,76 @@ class EnginePinContractTest < ActiveSupport::TestCase
                     ">= 0.54; the rail-row and close-x chrome primitives this app RENDERS need >= 0.61, and an UNESCAPED rail-row click handler needs >= 0.62.2)"
   end
 
+  # SELF-FIRING, and that is the whole design.
+  #
+  # The layer-scale ADOPTION SHIM — a local :root in application.css mirroring
+  # the engine's --z-* tiers — was CORRECT while the pin predated the gem that
+  # ships them, and became a liability the instant it did not. application.css
+  # imports the engine build at the top and the shim's :root came after it, so on
+  # equal specificity and later source order THE SHIM WON. This app kept a frozen
+  # private copy of the shared scale while believing it shared one, and the next
+  # engine layer change would simply not have arrived. Nothing failed. Nothing
+  # looked wrong. It was found by a reviewer reading another repo's diff.
+  #
+  # A code comment or a ledger entry saying "delete at the bump" is a reminder,
+  # not a gate — the previous one lived in a task's agent_context, which archives
+  # away with the task. This asks the question the bump itself answers: once the
+  # RESOLVED engine defines a tier, any local definition of it is drift. Silent
+  # while the pin is old; red the instant it is not.
+  #
+  # TWO THINGS IT DELIBERATELY DOES DIFFERENTLY FROM THE HUB'S FIRST CUT of this
+  # guard, both found in review there and not worth inheriting:
+  #
+  #   1. NO TRAILING SEMICOLON IS REQUIRED. The hub matched
+  #      /(--z-[a-z-]+):\s*-?\d+;/, so a legal `:root { --z-modal: 999 }` — last
+  #      declaration in a block, no `;` — evaded it in silence. This matches the
+  #      NAME and its colon and does not care what follows, which also catches a
+  #      redefinition to a var() or a calc() rather than only to an integer.
+  #   2. IT SCANS EVERY SOURCE CSS FILE THIS APP SHIPS, not one filename. The
+  #      hub scanned application.css alone while a second stylesheet was imported
+  #      after the engine with identical outranking power, so a tier relocated by
+  #      one line into that file evaded the guard completely. The order matters
+  #      and the filename does not: everything this app ships is loaded after the
+  #      engine build it imports first.
+  test "no local CSS redefines a layer tier the resolved engine already ships" do
+    engine_css = Studio::Engine.root.join("app/assets/tailwind/studio_engine/engine.css").read
+    tiers = engine_css[/^:root \{(.*?)^\}/m].to_s.scan(/(--z-[a-z-]+)\s*:/).flatten.uniq
+
+    # ASSERTED, NOT SKIPPED, and the assertion is on the guard's own input. A
+    # `skip` would switch this off silently and keep its name on the ratchet; an
+    # empty tier list would do the same thing without even announcing it, since
+    # a scan over no needles finds no offenders and passes forever. The
+    # precondition is worth failing on in its own right: this app is pinned to an
+    # engine that ships the scale, so an engine that does not means the pin
+    # walked backwards.
+    assert_includes tiers, "--z-modal",
+                    "the resolved studio-engine (#{Studio::VERSION}) no longer defines the layer " \
+                    "scale in its :root — either the pin walked backwards or that block moved, " \
+                    "and this guard is reading nothing either way"
+
+    files = source_css_files
+    assert_includes files.map { |f| f.relative_path_from(Rails.root).to_s },
+                    "app/assets/tailwind/application.css",
+                    "the CSS entrypoint is not in this guard's file list, so the file the shim " \
+                    "actually lived in is no longer being scanned"
+
+    offenders = files.flat_map do |path|
+      # Comments EXPLAIN the tiers — including this deletion — so scanning them
+      # would make documenting the fix impossible, which is the opposite of the
+      # point.
+      body = path.read.gsub(%r{/\*.*?\*/}m, " ")
+      tiers.select { |tier| body.match?(/#{Regexp.escape(tier)}\s*:/) }
+           .map { |tier| "#{path.relative_path_from(Rails.root)} → #{tier}" }
+    end
+
+    assert_empty offenders,
+                 "the resolved engine ships the layer scale, so these local definitions now " \
+                 "OUTRANK it — every stylesheet here is loaded after the engine build " \
+                 "application.css imports first, and later source order wins on equal " \
+                 "specificity:\n  #{offenders.join("\n  ")}\n" \
+                 "Delete them and read the engine's tiers through var(--z-*)."
+  end
+
   # THE FLOOR AND THE PIN MUST AGREE. Two places state the same fact — the
   # Gemfile's `~> x.y` and MINIMUM above — and the interesting failure is not
   # either one being wrong, it is them DISAGREEING, which is what happened
@@ -231,6 +301,16 @@ class EnginePinContractTest < ActiveSupport::TestCase
   end
 
   private
+
+    # EVERY SOURCE CSS FILE THIS APP SHIPS — not the entrypoint alone.
+    #
+    # app/assets/builds is deliberately absent: it holds the COMPILED output and
+    # the generated engine import wrapper, so scanning it would report the
+    # engine's own scale as a local redefinition on every run.
+    def source_css_files
+      (Dir[Rails.root.join("app/assets/tailwind/**/*.css")] +
+       Dir[Rails.root.join("app/assets/stylesheets/**/*.css")]).map { |path| Pathname(path) }
+    end
 
     # Engine migration names with no counterpart in this repo's db/migrate.
     #

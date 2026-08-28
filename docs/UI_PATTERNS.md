@@ -612,17 +612,23 @@ Practical implications:
 
 ## Layer scale
 
-Every layer that can cover other chrome reads a named `--z-*` tier instead of a bare number. The scale is studio-engine's; it is MIRRORED in the `ADOPTION SHIM` `:root` block of `app/assets/tailwind/application.css` until the engine pin reaches the gem that ships it, and that block is the single source of truth for the values. Read the ORDER, not the number:
+Every layer that can cover other chrome reads a named `--z-*` tier instead of a bare number. **studio-engine owns the scale outright** — the tiers are defined once, in the gem's `app/assets/tailwind/studio_engine/engine.css` (`-- Layer scale`), and reach this app through the engine build `application.css` imports on line 3. There is no local copy. Read the ORDER, not the number:
 
 `--z-docked` (mobile entry slip) → `--z-nav` (pinned navbar) → `--z-drawer` (gear sidebar) → `--z-modal` (modal backdrop + card, THE app blocker) → `--z-lightbox` → `--z-alert` (live scoring overlay, confetti) → `--z-toast-blur` → `--z-toast` → `--z-banner` (QA / DEV MODE bars, reachable mid-modal) → `--z-tooltip`.
 
-Below 100 the tiers coincide with Tailwind's own `z-10`..`z-50`, so existing sub-100 classes are already on the scale. `test/views/layer_scale_adoption_test.rb` asserts the ordering AND refuses any bare blocking number (>= 100) written into `app/views/**/*.erb`, `app/assets/tailwind/**/*.css`, or `app/javascript/**/*.js`.
+Below 100 the tiers coincide with Tailwind's own `z-10`..`z-50`, so existing sub-100 classes are already on the scale. `test/views/layer_scale_adoption_test.rb` asserts the ordering **against the resolved gem**, refuses any bare blocking number (>= 100) written into `app/views/**/*.erb`, `app/assets/tailwind/**/*.css`, or `app/javascript/**/*.js`, and reads the COMPILED `app/assets/builds/tailwind.css` to prove every tier a browser resolves is the engine's — defined exactly once, at the engine's value.
 
-## Toast manager z-index override
+**Never redefine a tier locally.** This app carried an `ADOPTION SHIM` — a `:root` in `application.css` mirroring the tiers while the pin predated the gem that ships them — and it was deleted in `delete-turf-layer-shim`. It had to go rather than linger: `application.css` imports the engine build FIRST, so a local `:root` further down won on equal specificity and this app silently ran a frozen private copy of the shared scale. Nothing failed; the next engine layer change simply would not have arrived. `test/lib/engine_pin_contract_test.rb` now refuses a re-introduced definition of any engine-shipped tier, in **any** source CSS file this app ships. To change a level, change it in studio-engine.
 
-The studio-engine `_flash.html.erb` partial ships toasts at `z-index: 60` (above most content but below sticky-fixed-tops). Turf Monster overrides this with the engine's CSS custom properties — `--studio-toast-z` and `--studio-toast-blur-z`, set on `:root` in `app/assets/tailwind/application.css` and read by studio-engine 0.4.10+ — so toasts render **above** both the sticky navbar AND any open modal. Those two names are still the engine's published override seam, but they now READ the tiers (`var(--z-toast)` / `var(--z-toast-blur)`) instead of pinning their own numbers beside them. Change a tier in the scale, not here.
+## Toast layer — the override seam this app no longer uses
 
-The override used to live in an inline `<style>` block in `_navbar.html.erb` and needed `!important` to beat the engine's old inline `style="z-index:60"`. The engine no longer renders that inline style, so the variable-based override now wins by normal cascade. Only the explanatory comment remains in the navbar, at `_navbar.html.erb:14-19`.
+`--studio-toast-z` and `--studio-toast-blur-z` are studio-engine's published per-component override seam for the toast stack. **This app sets neither**, and that is the correct state: the engine's own `layouts/studio/_flash.html.erb` defaults them to the shared tiers — `var(--studio-toast-z, var(--z-toast, 400))` and `var(--studio-toast-blur-z, var(--z-toast-blur, 399))` — so toasts already render above both the sticky navbar and any open modal with nothing declared here.
+
+Turf Monster used to set both names on `:root`, from inside the layer-scale adoption shim, back when the engine's own default was a bare `60` (above most content, BELOW a modal — a toast fired from an open modal was invisible). Both the shim and the local overrides went in `delete-turf-layer-shim`. Verified in a real browser after the deletion: `#toast-container` computes `z-index: 400` and `.toast-page-blur` computes `399`, resolved from the engine.
+
+Reach for the seam only for a genuinely turf-specific toast level, and set it once — `test/lib/tailwind_css_dedupe_test.rb` refuses a second declaration, because the later one wins in silence. To move the toast layer for every Studio app, change `--z-toast` in studio-engine instead.
+
+Historical note: the override once lived in an inline style block in `_navbar.html.erb` and needed `!important` to beat the engine's old inline `style="z-index:60"`. The engine stopped rendering that inline style long ago.
 
 ## Test scaffolding feature flag (`ENABLE_TEST_SCAFFOLDING`)
 

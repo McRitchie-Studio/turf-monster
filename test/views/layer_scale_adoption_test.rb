@@ -27,6 +27,12 @@ class LayerScaleAdoptionTest < ActionDispatch::IntegrationTest
   BOARD  = Rails.root.join("app/views/contests/_turf_totals_board.html.erb")
   HOST   = Rails.root.join("app/views/studio/modals/_host.html.erb")
 
+  # THE RESOLVED ENGINE'S OWN SCALE, and the compiled stylesheet that resolves
+  # from it. Both replaced reads of application.css when the layer-scale
+  # ADOPTION SHIM was deleted (task delete-turf-layer-shim).
+  ENGINE_CSS = Studio::Engine.root.join("app/assets/tailwind/studio_engine/engine.css")
+  BUILD      = Rails.root.join("app/assets/builds/tailwind.css")
+
   # Comments are prose, and every one of these files EXPLAINS the defect using
   # the very numbers being banned. Scanning them would make documenting the fix
   # impossible — which is the opposite of the point.
@@ -117,10 +123,39 @@ class LayerScaleAdoptionTest < ActionDispatch::IntegrationTest
     Nokogiri::HTML5(response.body)
   end
 
+  # THE ENGINE'S TIERS, not this app's.
+  #
+  # THIS LINE IS WHAT CEMENTED THE SHIM. While it read application.css the
+  # adoption suite did not merely tolerate the local :root — it REQUIRED one, so
+  # deleting the shim broke the suite instead of prompting the cleanup the shim's
+  # own comment asked for. Measured on this repo at the deletion: 3 failures and
+  # 2 errors ("key not found: --z-dropdown"), which reads as a regression rather
+  # than as tidy-up — and that is how the shim survived its own expiry.
+  #
+  # Reading the gem means every assertion below verifies the ENGINE's numbers. If
+  # the engine re-tiers something this app's suite moves with it, which is the
+  # entire point of a shared scale and was not true before.
+  #
+  # THE TRAILING SEMICOLON IS OPTIONAL in the pattern. `--z-tooltip: 600 }` is
+  # legal CSS, and a pattern that requires the `;` drops the last tier in the
+  # block from this map silently — surfacing as a KeyError far from its cause.
   def tiers
-    @tiers ||= CSS.read[/^:root \{(.*?)^\}/m].to_s
-                  .scan(/(--z-[a-z-]+):\s*(-?\d+);/)
-                  .to_h { |name, value| [name, value.to_i] }
+    @tiers ||= ENGINE_CSS.read[/^:root \{(.*?)^\}/m].to_s
+                         .scan(/(--z-[a-z-]+):\s*(-?\d+)/)
+                         .to_h { |name, value| [name, value.to_i] }
+  end
+
+  # THE GUARD ON THE GUARD. `tiers` is a regex over a file in ANOTHER repo. A
+  # scan that reads NOTHING fails loudly (every fetch below raises KeyError), but
+  # a PARTIAL scan fails quietly — it compares whichever tiers survived, and
+  # passes. Assert the map was really read before trusting anything from it.
+  test "the tier map is read from the engine, not silently partial" do
+    assert_includes tiers.keys, "--z-modal",
+                    "the tier scan read no --z-modal from the engine's :root — that block " \
+                    "moved or was reformatted, and every tier comparison here is now vacuous"
+    assert_operator tiers.size, :>=, 10,
+                    "the tier scan found only #{tiers.size} tiers (#{tiers.keys.join(', ')}); " \
+                    "the engine ships the full scale, so a short map means a partial read"
   end
 
   # ── Defect 2: the structure that makes a level reachable ──────────────
@@ -159,9 +194,13 @@ class LayerScaleAdoptionTest < ActionDispatch::IntegrationTest
            "is scoped to body.modal-open, when scroll is locked and it costs nothing"
   end
 
+  # BOTH ENDS OF ONE SEAM, and only one end is still this app's. The RULE moved
+  # to the engine when the adoption shim was deleted; the CLASS is still rendered
+  # here, and a rule that selects a class nobody emits is the silent half of the
+  # pair — which is why both ends stay asserted together.
   test "the modal-open lift still finds the class the navbar emits" do
-    assert_match(/body\.modal-open\s+\.studio-bar-stack/, CSS.read,
-                 "application.css lost the lift rule that raises the bars over a modal")
+    assert_match(/body\.modal-open\s+\.studio-bar-stack/, ENGINE_CSS.read,
+                 "the resolved engine lost the lift rule that raises the bars over a modal")
     assert_match(/class="[^"]*\bstudio-bar-stack\b[^"]*"/, markup_of(NAVBAR),
                  "the navbar no longer EMITS studio-bar-stack, the class the lift selects")
   end
@@ -178,9 +217,13 @@ class LayerScaleAdoptionTest < ActionDispatch::IntegrationTest
   # in flow, so applying it on open shifts no page content — `fixed` also pins,
   # but pulls the stack out of flow and the page jumps up by its height.
   test "the lift PINS the bars, it does not merely level them" do
-    rule = CSS.read[/body\.modal-open\s+\.studio-bar-stack.*?\{(.*?)\}/m]
+    # READ FROM THE GEM. This app carried a duplicate of the engine's lift inside
+    # the adoption shim, and the duplicate went with the shim — so the rule that
+    # actually applies to this app's pages is the engine's. A local copy is
+    # exactly the thing that drifts from it in silence.
+    rule = ENGINE_CSS.read[/body\.modal-open\s+\.studio-bar-stack.*?\{(.*?)\}/m]
 
-    refute_nil rule, "the modal-open lift rule is gone"
+    refute_nil rule, "the engine's modal-open lift rule is gone"
     assert_match(/position:\s*sticky/, rule,
                  "a scrolled reader never sees a bar that only got a z-index — pin it")
     assert_match(/top:\s*0/, rule,
@@ -304,5 +347,58 @@ class LayerScaleAdoptionTest < ActionDispatch::IntegrationTest
 
     assert_empty offenders,
                  "use a --z-* tier, not a bare number:\n  #{offenders.join("\n  ")}"
+  end
+
+  # ── Resolution: what the browser is actually handed ───────────────────
+
+  # THE ONE ASSERTION IN THIS FILE THAT READS COMPILED OUTPUT, and the reason it
+  # has to: every other test here reads SOURCE, and source cannot answer the
+  # question the adoption shim posed. The shim was legal CSS in a legal file.
+  # What made it a defect was CASCADE ORDER — application.css imports the engine
+  # build at the top, so a local :root further down won on equal specificity and
+  # this app silently ran a frozen private copy of the scale while believing it
+  # shared one. A source scan sees two lawful definitions and cannot say which
+  # one a browser resolves. The compiled stylesheet can, because the cascade is
+  # already settled in it: measured on this repo, every tier appeared TWICE
+  # before the deletion (engine, then shim) and ONCE after.
+  #
+  # WHY IT FAILS RATHER THAN SKIPS WHEN THE BUILD IS ABSENT. The build is
+  # gitignored, and `tailwindcss:build` produces it — a task tailwindcss-rails
+  # enhances Rails' own `test:prepare` hook with, so CI's
+  # `bin/rails db:test:prepare test`, the playwright lane's explicit build, and
+  # studio-engine's consumer lane all have it. A skip here would be the same
+  # shape of silence the shim itself lived in for a whole release.
+  #
+  # IT IS THE SECOND HALF OF A PAIR, not the whole guard.
+  # test/lib/engine_pin_contract_test.rb refuses a re-introduced shim in SOURCE
+  # and needs no build to do it, so a stale build cannot hide one from the suite.
+  test "[component] every layer tier the compiled stylesheet resolves is the engine's" do
+    assert BUILD.exist?,
+           "#{BUILD.relative_path_from(Rails.root)} is missing, so nothing here can say " \
+           "which layer scale a browser resolves. Run `bin/rails tailwindcss:build`."
+
+    compiled = BUILD.read
+    found = tiers.keys.to_h do |tier|
+      [tier, compiled.scan(/#{Regexp.escape(tier)}\s*:\s*(-?\d+)/).flatten.map(&:to_i)]
+    end
+
+    assert_empty found.select { |_, values| values.empty? }.keys,
+                 "the compiled stylesheet defines no value at all for " \
+                 "#{found.select { |_, v| v.empty? }.keys.join(', ')} — the engine build " \
+                 "import at the top of application.css is not reaching the output"
+
+    # THE SHIM DETECTOR. A second definition is not a duplicate to tidy up, it is
+    # a second OWNER: whichever lands later wins, silently, forever.
+    duplicated = found.select { |_, values| values.size > 1 }
+    assert_empty duplicated.keys,
+                 "these tiers are defined more than once in the compiled stylesheet, so a " \
+                 "local copy is OUTRANKING the engine's: " \
+                 "#{duplicated.map { |tier, values| "#{tier} #{values.inspect}" }.join(', ')}. " \
+                 "Delete the local definition — the engine owns this scale."
+
+    assert_equal tiers, found.transform_values(&:last),
+                 "the value a browser resolves for these tiers is not the engine's. The " \
+                 "engine is the single owner of the scale, so a compiled value that " \
+                 "disagrees means something local re-tiered it."
   end
 end
