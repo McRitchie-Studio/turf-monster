@@ -17,10 +17,18 @@ require "test_helper"
 #      z-index is clamped inside its context, so no value on the banner could
 #      ever have escaped. Moving it OUT is the fix; the level is the follow-on.
 #
-# The scale itself is the engine's (engine.css `-- Layer scale`), mirrored in
-# application.css until the pin reaches the gem that ships it. This test pins the
-# ADOPTION: the structure defect 2 needs, the value defect 1 needs, and a drift
-# guard so the next bare 9999 is refused where it is written.
+# The scale itself is the ENGINE's, and now only the engine's: engine.css
+# `-- Layer scale` defines the tiers, and this app reads them through the engine
+# build application.css imports on line 3. They were MIRRORED here in an
+# `ADOPTION SHIM` while the pin predated the gem that ships them — and because
+# that mirror was emitted AFTER the import, it OUTRANKED the gem it was copying.
+# delete-turf-layer-shim removed it, and raised this app's engine floor to 0.63
+# in the same pass, since there is no longer a local copy to fall back on.
+#
+# This test pins the ADOPTION: the structure defect 2 needs, the value defect 1
+# needs, a drift guard so the next bare 9999 is refused where it is written, and
+# — by reading the COMPILED stylesheet — that the tiers a browser actually
+# resolves are the engine's, defined exactly once.
 class LayerScaleAdoptionTest < ActionDispatch::IntegrationTest
   # NO application.css CONSTANT. Every assertion that used to read it now reads
   # the resolved gem or the compiled output. The file is still SCANNED — the
