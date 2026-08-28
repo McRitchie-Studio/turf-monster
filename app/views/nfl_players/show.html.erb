@@ -1,0 +1,66 @@
+<% person = @athlete.person %>
+<section class="space-y-6">
+  <%= link_to "← #{@team ? @team.name : 'All players'}",
+              nfl_players_path(team: @team&.slug),
+              class: "text-sm text-secondary hover:text-primary" %>
+
+  <div class="card p-6">
+    <div class="flex flex-col sm:flex-row items-center sm:items-start gap-6">
+      <% headshot = @athlete.headshot_url(width: 400) %>
+      <% if headshot.present? %>
+        <img src="<%= headshot %>"
+             alt="<%= person&.full_name %>"
+             width="160" height="160"
+             class="w-40 h-40 rounded-full object-cover bg-surface-2 shrink-0"
+             style="<%= "box-shadow: 0 0 0 4px #{@team.card_background}" if @team&.card_background.present? %>">
+      <% else %>
+        <span class="w-40 h-40 rounded-full bg-surface-2 text-secondary shrink-0
+                     flex items-center justify-center text-4xl font-bold">
+          <%= [person&.first_name, person&.last_name].compact.map { |n| n[0] }.join %>
+        </span>
+      <% end %>
+
+      <div class="flex-1 min-w-0 text-center sm:text-left">
+        <h1 class="text-3xl font-bold text-heading"><%= person&.full_name %></h1>
+
+        <div class="flex flex-wrap items-center justify-center sm:justify-start gap-2 mt-2">
+          <% if @athlete.position.present? %>
+            <span class="badge bg-primary/10 text-primary border-primary/20"><%= @athlete.position %></span>
+          <% end %>
+          <% if @athlete.jersey_number.present? %>
+            <span class="text-primary font-bold font-mono">#<%= @athlete.jersey_number %></span>
+          <% end %>
+          <% if @team %>
+            <%= link_to nfl_players_path(team: @team.slug), class: "text-sm text-secondary hover:text-primary" do %>
+              <%= @team.emoji %> <%= @team.name %>
+            <% end %>
+          <% end %>
+        </div>
+
+        <dl class="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3 mt-5 text-sm">
+          <% {
+               "Height"  => @athlete.height_display,
+               "Weight"  => @athlete.weight_lbs.present? ? "#{@athlete.weight_lbs} lbs" : nil,
+               "College" => @athlete.college_display,
+               "Drafted" => (@athlete.draft_year.present? ? "#{@athlete.draft_year} · Rd #{@athlete.draft_round} · Pk #{@athlete.draft_pick}" : "Undrafted")
+             }.each do |label, value| %>
+            <% next if value.blank? %>
+            <div>
+              <dt class="text-muted text-xs uppercase tracking-wide"><%= label %></dt>
+              <dd class="text-heading font-medium mt-0.5"><%= value %></dd>
+            </div>
+          <% end %>
+        </dl>
+      </div>
+    </div>
+  </div>
+
+  <% if @teammates.any? %>
+    <div>
+      <h2 class="text-lg font-bold text-heading mb-3">Teammates</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <%= render partial: "nfl_players/athlete_card", collection: @teammates, as: :athlete %>
+      </div>
+    </div>
+  <% end %>
+</section>

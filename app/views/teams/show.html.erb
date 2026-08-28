@@ -80,6 +80,22 @@
     </div>
   <% end %>
 
+  <%# NFL roster from the seeded player database, grouped by position. Capped
+      at a preview here; the full roster lives on /nfl-players. %>
+  <%# Loaded once: .any?/.size/.first(12) on an Array beats three queries. %>
+  <% roster = @team.athletes.includes(:person, :team, :image_caches).in_roster_order.to_a %>
+  <% if roster.any? %>
+    <div class="mb-6">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-lg font-bold text-heading">Roster (<%= roster.size %>)</h3>
+        <%= link_to "View all →", nfl_players_path(team: @team.slug), class: "text-sm text-secondary hover:text-primary" %>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <%= render partial: "nfl_players/athlete_card", collection: roster.first(12), as: :athlete %>
+      </div>
+    </div>
+  <% end %>
+
   <% games = (@team.home_games + @team.away_games).sort_by(&:kickoff_at) %>
   <% if games.any? %>
     <div class="mb-6">

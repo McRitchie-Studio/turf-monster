@@ -1,0 +1,54 @@
+<%# One player card. Shared by the /nfl-players grid and the team roster. %>
+<%# data-* attributes feed cardListFilter's client-side name search. %>
+<% person = athlete.person %>
+<% team = athlete.team %>
+<%= link_to nfl_player_path(athlete.person_slug),
+            class: "card p-4 block hover:border-primary/40 transition-colors",
+            data: {
+              athlete_card: true,
+              name: "#{person&.full_name} #{team&.name} #{athlete.position}".downcase,
+              position: athlete.position.to_s,
+              team: athlete.team_slug.to_s
+            } do %>
+  <div class="flex items-center gap-3">
+    <% headshot = athlete.headshot_url(width: 100) %>
+    <% if headshot.present? %>
+      <img src="<%= headshot %>"
+           alt="<%= person&.full_name %>"
+           loading="lazy"
+           width="48" height="48"
+           class="w-12 h-12 rounded-full object-cover bg-surface-2 shrink-0">
+    <% else %>
+      <%# No cached headshot: nflverse had no espn_id, or the upload has not
+          run for this player yet. Initials keep the row height stable. %>
+      <span class="w-12 h-12 rounded-full bg-surface-2 text-secondary shrink-0
+                   flex items-center justify-center text-sm font-semibold">
+        <%= [person&.first_name, person&.last_name].compact.map { |n| n[0] }.join %>
+      </span>
+    <% end %>
+
+    <% if athlete.jersey_number.present? %>
+      <span class="text-primary font-bold font-mono text-lg w-8 text-right shrink-0">#<%= athlete.jersey_number %></span>
+    <% end %>
+
+    <div class="flex-1 min-w-0">
+      <p class="text-heading font-semibold truncate"><%= person&.full_name %></p>
+      <div class="flex items-center gap-2 mt-1">
+        <% if athlete.position.present? %>
+          <span class="badge bg-primary/10 text-primary border-primary/20 text-xs"><%= athlete.position %></span>
+        <% end %>
+        <% if team.present? %>
+          <span class="flex items-center gap-1 text-xs text-secondary min-w-0">
+            <% if team.card_background.present? %>
+              <span class="inline-block w-2.5 h-2.5 rounded-full shrink-0" style="background-color: <%= team.card_background %>"></span>
+            <% end %>
+            <span class="truncate"><%= team.emoji %> <%= team.short_name || team.name %></span>
+          </span>
+        <% end %>
+        <% if athlete.height_display.present? %>
+          <span class="text-xs text-muted whitespace-nowrap"><%= athlete.height_display %></span>
+        <% end %>
+      </div>
+    </div>
+  </div>
+<% end %>

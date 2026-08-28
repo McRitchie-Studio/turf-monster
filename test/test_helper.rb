@@ -139,6 +139,12 @@ module ActiveSupport
       parallelize_teardown { |_worker| SimpleCov.result }
     end
 
+    # ImageCache is defined in studio-engine, and the fixture loader does not
+    # infer an engine class from a host-app table name — without this it treats
+    # image_caches.yml as raw columns, which loses both the polymorphic `owner:`
+    # shorthand and the automatic timestamps.
+    set_fixture_class image_caches: ImageCache
+
     fixtures :all
 
     # Give `user` a managed (custodial) wallet, whatever the onboarding flag says.

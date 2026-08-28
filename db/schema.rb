@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_26_050100) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_28_061500) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -78,6 +78,43 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_26_050100) do
     t.string "timezone"
     t.datetime "updated_at", null: false
     t.index ["slug"], name: "index_arenas_on_slug", unique: true
+  end
+
+  create_table "athletes", force: :cascade do |t|
+    t.string "college_name"
+    t.datetime "created_at", null: false
+    t.integer "draft_pick"
+    t.integer "draft_round"
+    t.integer "draft_year"
+    t.string "espn_headshot_url"
+    t.string "espn_id"
+    t.string "gsis_id"
+    t.integer "height_inches"
+    t.integer "jersey_number"
+    t.string "nflverse_id"
+    t.string "otc_id"
+    t.string "person_slug", null: false
+    t.integer "pff_id"
+    t.string "pfr_id"
+    t.string "position"
+    t.string "sleeper_id"
+    t.string "slug", null: false
+    t.string "sport", null: false
+    t.string "team_slug"
+    t.datetime "updated_at", null: false
+    t.integer "weight_lbs"
+    t.index ["espn_id"], name: "index_athletes_on_espn_id"
+    t.index ["gsis_id"], name: "index_athletes_on_gsis_id", unique: true
+    t.index ["nflverse_id"], name: "index_athletes_on_nflverse_id", unique: true
+    t.index ["otc_id"], name: "index_athletes_on_otc_id", unique: true
+    t.index ["person_slug"], name: "index_athletes_on_person_slug", unique: true
+    t.index ["pff_id"], name: "index_athletes_on_pff_id", unique: true
+    t.index ["pfr_id"], name: "index_athletes_on_pfr_id", unique: true
+    t.index ["position"], name: "index_athletes_on_position"
+    t.index ["sleeper_id"], name: "index_athletes_on_sleeper_id", unique: true
+    t.index ["slug"], name: "index_athletes_on_slug", unique: true
+    t.index ["sport"], name: "index_athletes_on_sport"
+    t.index ["team_slug"], name: "index_athletes_on_team_slug"
   end
 
   create_table "cdp_ramp_transactions", force: :cascade do |t|
@@ -475,6 +512,23 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_26_050100) do
     t.index ["status"], name: "index_pending_transactions_on_status"
     t.index ["target_type", "target_id"], name: "index_pending_transactions_on_target"
     t.index ["tx_signature"], name: "index_pending_transactions_on_tx_signature_unique", unique: true, where: "(tx_signature IS NOT NULL)"
+  end
+
+  create_table "people", force: :cascade do |t|
+    t.jsonb "aliases", default: []
+    t.boolean "athlete", default: false
+    t.string "avatar_url"
+    t.boolean "coach", default: false
+    t.datetime "created_at", null: false
+    t.string "disambiguator"
+    t.string "first_name", null: false
+    t.string "last_name", null: false
+    t.string "location"
+    t.string "slug", null: false
+    t.datetime "updated_at", null: false
+    t.index ["aliases"], name: "index_people_on_aliases", using: :gin
+    t.index ["last_name", "first_name"], name: "index_people_on_last_name_and_first_name"
+    t.index ["slug"], name: "index_people_on_slug", unique: true
   end
 
   create_table "players", force: :cascade do |t|
