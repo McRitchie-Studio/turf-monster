@@ -517,11 +517,30 @@
     picker._targetMessageEl = btn.closest('[data-react-url]');
     picker.classList.add('is-open');
     // Prefer above-right of the "+"; clamp into the viewport, flip below if no room.
+    //
+    // THE FLOOR IS THE NAVBAR'S BOTTOM EDGE, NOT 8px. This element is
+    // position:fixed, so it is positioned against the VIEWPORT and competes with
+    // the pinned navbar directly — no z-index tier can rescue it, because a
+    // dropdown that outranks the navbar is a dropdown that covers the navbar.
+    // With a bare 8px floor the "above" placement bottomed out squarely inside
+    // the header band, under an opaque bg-page header with no pointer-events:
+    // none, so the covered emoji rows were invisible AND unclickable.
+    //
+    // --nav-bottom is the header's LIVE bottom edge in viewport coordinates,
+    // published by studio-engine (layouts/studio/_head.html.erb) and republished
+    // on scroll and on every header resize, so it already accounts for the
+    // collapse animation and for chrome stacked above the header. --nav-h would
+    // be wrong here: it is the header's HEIGHT, which stops matching its bottom
+    // edge the moment anything renders above it.
     var r = btn.getBoundingClientRect();
     var pw = picker.offsetWidth, ph = picker.offsetHeight;
+    var navBottom = parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue('--nav-bottom')
+    ) || 0;
+    var minTop = Math.max(8, navBottom + 6);
     var left = Math.min(Math.max(8, r.right - pw), window.innerWidth - pw - 8);
     var top = r.top - ph - 6;
-    if (top < 8) top = r.bottom + 6;
+    if (top < minTop) top = r.bottom + 6;
     picker.style.left = left + 'px';
     picker.style.top = top + 'px';
   }

@@ -44,6 +44,15 @@ class Goal < ApplicationRecord
 
   after_create :update_slug_with_id
   after_create :refresh_game_scores
+  # A GOAL'S POINTS CAN CHANGE AFTER IT IS WRITTEN.
+  #
+  # ESPN does not report the extra point as its own play — it folds the try into
+  # the touchdown that earned it and RESTATES that same play, 6 while the kick
+  # is in the air and 7 once it is good. So a goal caught mid-try is amended,
+  # not replaced, and with only a create and a destroy hook here that amendment
+  # moved the goal row and nothing else: the game score, its slate matchups, and
+  # every contest scored off them kept the old number.
+  after_update :refresh_game_scores, if: :score_relevant_change?
   after_destroy :refresh_game_scores
 
   # Live page (Turbo Streams over ActionCable). _commit so scores recomputed by
@@ -52,6 +61,13 @@ class Goal < ApplicationRecord
   after_create_commit  -> { Nfl::LiveBroadcast.scoring_event(self) }
   after_destroy_commit -> { Contest::LiveBroadcast.score_changed(game, event: :goal_removed) }
   after_destroy_commit -> { Nfl::LiveBroadcast.score_changed(game) }
+
+  # An amendment moves the score without being a new scoring event, so it takes
+  # the score_changed road rather than the toast road: the boards redraw at the
+  # corrected number and nobody is announced as scoring twice.
+  after_update_commit -> { Contest::LiveBroadcast.score_changed(game, event: :goal_amended) },
+                      if: :score_relevant_change?
+  after_update_commit -> { Nfl::LiveBroadcast.score_changed(game) }, if: :score_relevant_change?
 
   # The points a scoring type is worth. Falls back to 1 — the soccer value and
   # the column default — so an unrecognised type can never silently score zero.
@@ -81,5 +97,12 @@ class Goal < ApplicationRecord
 
   def refresh_game_scores
     game.update_scores_from_goals!
+  end
+
+  # Only the columns a score is computed from. Every other write — a play's
+  # text, a late player attribution — must not drag the whole propagation chain
+  # (matchups, contests, two broadcasts) behind it.
+  def score_relevant_change?
+    saved_change_to_points? || saved_change_to_team_slug? || saved_change_to_game_slug?
   end
 end

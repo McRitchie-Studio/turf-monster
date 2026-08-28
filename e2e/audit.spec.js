@@ -18,22 +18,32 @@ test.describe("Audit consolidation (2026-05-23)", () => {
   });
 
   // Phase A + C7
-  test("toast container z-index resolves to 200 via CSS var (no !important in app)", async ({ page }) => {
+  test("toast container z-index resolves to the shared toast tier (no !important in app)", async ({ page }) => {
     await page.goto("/");
     const z = await page.evaluate(() => {
       const el = document.getElementById("toast-container");
       return el ? getComputedStyle(el).zIndex : null;
     });
     expect(z).not.toBeNull();
-    // turf-monster's :root sets --studio-toast-z: 200 (above navbar z-[110]
-    // and modal backdrop z-[120]); engine 0.4.10 reads via var().
-    expect(parseInt(z, 10)).toBe(200);
+    // --studio-toast-z is still the engine's published override seam (read via
+    // var(), no !important since engine 0.4.10) — it now RESOLVES through the
+    // shared layer scale rather than pinning a bare 200 beside the other bare
+    // numbers. The property under test is unchanged and is what is asserted:
+    // toasts sit above the modal backdrop, and the blur sits just under them.
+    const { toast, blur, modal } = await page.evaluate(() => {
+      const read = (n) =>
+        parseInt(getComputedStyle(document.documentElement).getPropertyValue(n).trim(), 10);
+      return { toast: read("--z-toast"), blur: read("--z-toast-blur"), modal: read("--z-modal") };
+    });
+    expect(parseInt(z, 10)).toBe(toast);
+    expect(toast).toBeGreaterThan(modal);
 
     const blurZ = await page.evaluate(() => {
       const el = document.querySelector(".toast-page-blur");
       return el ? getComputedStyle(el).zIndex : null;
     });
-    expect(parseInt(blurZ, 10)).toBe(199);
+    expect(parseInt(blurZ, 10)).toBe(blur);
+    expect(blur).toBeLessThan(toast);
   });
 
   // Phase B1
