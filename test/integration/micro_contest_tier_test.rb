@@ -42,6 +42,11 @@ class MicroContestTierTest < ActionDispatch::IntegrationTest
   end
 
   test "create refuses a micro contest while scaffolding is off" do
+    # The admin fixture carries NO Phantom wallet, and #create refuses those at
+    # contests_controller.rb:145 — before the format guard at :157 ever runs. So
+    # give it one: without this the "no contest was created" assertion below
+    # passes with the flag ON too, and proves nothing about the flag.
+    @admin.update!(web3_solana_address: "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr")
     log_in_as(@admin)
 
     AppFlags.stub :test_scaffolding?, false do
@@ -49,5 +54,8 @@ class MicroContestTierTest < ActionDispatch::IntegrationTest
         post contests_path, params: { contest: { contest_type: "micro", slate_id: slates(:one).id } }
       end
     end
+
+    # Assert the REASON, so the format guard is what this test is pinning.
+    assert_equal "Unknown or unavailable contest format", JSON.parse(response.body)["error"]
   end
 end
