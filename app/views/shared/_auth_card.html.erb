@@ -12,7 +12,7 @@
     </div>
 
     <%# ageAttested initializes TRUE when the attestation flag is off — the
-        checkbox partial renders nothing and every gate below passes. %>
+        callsite below renders no checkbox and every gate below passes. %>
     <div class="card shadow p-8" x-data="{ ageAttested: <%= AppFlags.age_attestation? ? 'false' : 'true' %>, ageError: false }">
       <%# Legal-age attestation — gates account creation. Google + email are
           gated here; the Solana button opens the Connect Wallet picker, which
@@ -20,7 +20,7 @@
           Server-side enforcement on every signup endpoint is the boundary. %>
       <% if AppFlags.age_attestation? %>
         <div class="mb-4">
-          <%= render "shared/age_attestation" %>
+          <%= render "studio/modals/shared/age_attestation" %>
         </div>
       <% end %>
 

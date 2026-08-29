@@ -155,12 +155,18 @@
             aria-label="Close">&times;</button>
   </div>
 
-  <%# Legal-age attestation — guests only (connect is create-or-login). %>
-  <template x-if="needsAttestation">
-    <div class="mb-3">
-      <%= render "shared/age_attestation" %>
-    </div>
-  </template>
+  <%# Legal-age attestation — guests only (connect is create-or-login). The
+      ENGINE partial deliberately does not self-gate on AppFlags, so the flag
+      check that used to live inside the deleted turf fork lives here now,
+      matching the auth modal and the signin card. needsAttestation still
+      narrows the mounted checkbox to guests at mount time. %>
+  <% if AppFlags.age_attestation? %>
+    <template x-if="needsAttestation">
+      <div class="mb-3">
+        <%= render "studio/modals/shared/age_attestation" %>
+      </div>
+    </template>
+  <% end %>
 
   <div class="space-y-2">
     <%# Detected wallets — INSTALLED, click to connect %>
