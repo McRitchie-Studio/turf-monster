@@ -164,7 +164,7 @@ difference in scope, and the rebuttal is withdrawn.
 | `phantom_dl_link_mode` | local | `phantom_deeplink.js:43` | callback `:245`, `:255` | `cleanup()` |
 | `phantom_dl_cluster` | local | `phantom_deeplink.js:44` | callback | `cleanup()` |
 | `phantom_dl_user_id` | local | `phantom_deeplink.js:46` / removed `:48` | callback `:244` | **NOT in `cleanup()`** — see §2.1 |
-| `phantom_dl_age_attested` | local | `modals/_wallet_connect.html.erb:100` | callback `:276` | `cleanup()` |
+| `phantom_dl_age_attested` | local | `WalletPickerHelper#wallet_connect_extra_data` (the picker's `onDeepLink` hook) | callback `:276` | `cleanup()` |
 | `seedsNavbar` | local | **five writers** — see §2.3 | 5 readers | Purged on identity change only |
 | `seedsLevelUp` | local | `state_fanout.js:124` | `seeds_bar.js:45`, `_seeds_bar.html.erb:60` | Consumed on read |
 | `walletSetupAutoConnect` | session | `modals/_wallet_setup.html.erb:267` | same file `:66`, removed `:67` | Consumed on read |
