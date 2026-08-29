@@ -38,8 +38,14 @@ module Nfl
         3 => "field_goal", 2 => "safety", 1 => "pat"
       }.freeze
 
+      # `scorer` is the player ESPN names at the FRONT of the play text — the
+      # receiver on a pass, the rusher on a rush, the returner on a defensive
+      # score, the kicker on a field goal. Derived here rather than at the call
+      # site so the parse stays with the rest of the payload reading, and nil
+      # when the text names nobody we can trust. See Nfl::Espn::Scorer.
       Row = Data.define(
-        :external_id, :team_abbr, :scoring_type, :points, :period, :clock, :text
+        :external_id, :team_abbr, :scoring_type, :points, :period, :clock, :text,
+        :scorer, :description
       )
 
       # `home_abbr` / `away_abbr` come from the scoreboard row for the same
@@ -96,7 +102,9 @@ module Nfl
             points:       points,
             period:       play.dig("period", "number"),
             clock:        play.dig("clock", "displayValue"),
-            text:         play["text"].to_s.strip
+            text:         play["text"].to_s.strip,
+            scorer:       Scorer.from(play["text"]),
+            description:  PlayDescription.from(play["text"], type_for(play, points))
           )
         end
       end

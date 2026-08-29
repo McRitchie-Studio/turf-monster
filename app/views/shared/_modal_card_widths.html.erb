@@ -1,0 +1,37 @@
+<%#
+  Per-modal card WIDTH registry — the engine modal host's first extension point
+  (studio-engine 0.65.0, window.StudioModals.CARD_WIDTHS).
+
+  The host's card is max-w-sm by default, which is right for a question and two
+  buttons. A modal carrying something with an INTRINSIC aspect ratio needs more:
+  wallet-setup shows a 16:9 explainer video, and at max-w-sm the player is small
+  enough that the thing it is teaching cannot be read.
+
+  KEYED BY MODAL ID, NOT PASSED AS A PROP, and that is the whole reason this is a
+  registry. wallet-setup is opened from three places (the board's entry gate, the
+  onboarding chain driver, and the post-Connect reopen); a prop would have to be
+  remembered at each, and one miss renders the same card at two different widths
+  depending on how the user arrived.
+
+  WHY A PARTIAL AND NOT AN IMPORTMAP MODULE. The engine host resolves the width
+  in cardClasses() and merges this map at the top of its own inline script, so
+  the registration has to be on window before that script runs. A synchronous
+  inline script runs during HTML parse; importmap modules are deferred and load
+  after Alpine has already started. Same reason shared/_alpine_factories and
+  studio/_birthday_assets are inlined at layout level rather than shipped as
+  modules.
+
+  RENDER IT ABOVE the host in EVERY layout that mounts the host. This app has two
+  (layouts/application and layouts/modal_preview); a layout that renders the host
+  without this one silently falls back to max-w-sm for every id, which looks like
+  a styling regression rather than a missing include.
+
+  Merged rather than assigned so the map survives another registration and a
+  future engine default. Add a width: one line below, plus nothing else.
+%>
+<script>
+  window.StudioModals = window.StudioModals || {};
+  window.StudioModals.CARD_WIDTHS = Object.assign({}, window.StudioModals.CARD_WIDTHS || {}, {
+    'wallet-setup': 'max-w-md'
+  });
+</script>

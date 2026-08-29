@@ -3,23 +3,30 @@
 require "test_helper"
 require "nokogiri"
 
-# [integration] This app's FORK of the modal host must carry the engine's focus
+# [integration] The modal host THIS APP RENDERS must carry the engine's focus
 # contract.
 #
-# WHY A TEST HERE AT ALL, when the engine already has one. studio-engine is
-# NON-ISOLATED, so an app view SHADOWS the engine view of the same path. This app
-# ships its own app/views/studio/modals/_host.html.erb, so the
-# engine's file is NEVER RENDERED in this app — and a gem bump therefore does not
-# deliver a single one of these fixes. Verified before porting: the fork carried
-# no captureFocus, no tabindex=-1, no tab trap, no cycleFocus and no dialogLabel.
-# Only _scoped_host, which is unforked, propagates from the engine.
+# THE PREMISE INVERTED ON 2026-08-28 (defork-turf-modal-host), and the tests did
+# not have to change with it. This file used to open "This app's FORK of the
+# modal host…": the app shipped its own app/views/studio/modals/_host.html.erb,
+# studio-engine is NON-ISOLATED so that view SHADOWED the engine's, the engine's
+# file was never rendered here, and every engine focus fix had to be ported by
+# hand. The fork is deleted; the engine's host renders.
 #
-# So the engine's coverage says nothing about what this app's users get. This
-# does.
+# WHY THIS FILE STAYS, rather than deferring to the engine's own suite. What the
+# engine covers is the engine's file. What this app's users get is whichever host
+# RESOLVES here, and two things can still change that answer without touching a
+# line of the engine: a new app view at the same path re-creates the shadow, and
+# the pin (~> 0.63) admits a version whose host predates a fix. Both are silent —
+# the page still renders a modal either way. So the assertions below read the
+# RESOLVED host (ResolvedModalHost, test/support), which is the same file a page
+# actually gets, and they hold whichever repo it came from.
+#
+# NEVER re-point this at a hardcoded path — not the app's, and not the gem's. A
+# gem path asserts how the engine HAPPENS to be installed and cannot pass in
+# studio-engine's own consumer-CI lane, which bundles it as a path checkout.
 class ModalHostFocusContractTest < ActionDispatch::IntegrationTest
-  HOST = "app/views/studio/modals/_host.html.erb"
-
-  def host_source = File.read(Rails.root.join(HOST))
+  def host_source = ResolvedModalHost.source
 
   # THE BACKDROP ELEMENT, parsed out of the RENDERED page.
   #
@@ -104,7 +111,7 @@ class ModalHostFocusContractTest < ActionDispatch::IntegrationTest
     end
   end
 
-  # THE FOURTH ENGINE FIX, which this fork missed entirely. The backdrop centres the
+  # THE FOURTH ENGINE FIX, which the deleted fork missed entirely. The backdrop centres the
   # card with `flex items-center`, so a card taller than the viewport is clipped past
   # BOTH edges with nothing scrollable and its actions unreachable — and on a
   # dismissible: false card escape and click-outside are gated off, so there is no way
@@ -125,11 +132,11 @@ class ModalHostFocusContractTest < ActionDispatch::IntegrationTest
   # THE SWAP DEFECT, which is the one the engine's review sent back. A swap keeps
   # current() truthy, so the outer template never re-mounts and x-init never
   # re-runs — the trap would hold on open and release on every swap.
-  test "the forked host re-focuses after a swap" do
+  test "the resolved host re-focuses after a swap" do
     src = host_source
 
     assert_includes src, "refocus: function",
-                    "the fork has no refocus() — the trap releases on the first swap"
+                    "the host has no refocus() — the trap releases on the first swap"
     # Anchored on the RECEIVER, not the bare name: this file documents refocus()
     # in prose, so a bare /refocus\(\)/ matches the comment and stays green with
     # every call deleted. That exact trap was caught by mutation in the engine.
@@ -139,28 +146,38 @@ class ModalHostFocusContractTest < ActionDispatch::IntegrationTest
 
   # FOCUS MUST COME BACK. Without releaseFocus the opener never regains focus and
   # a keyboard user is stranded on a detached backdrop.
-  test "the forked host returns focus to the opener when the last dialog closes" do
+  test "the resolved host returns focus to the opener when the last dialog closes" do
     src = host_source
 
-    assert_includes src, "releaseFocus",
-                    "the fork never restores focus, so closing strands the keyboard user"
+    # ANCHORED ON THE DEFINITION FORM, same as refocus above, and for the same
+    # reason. A bare `assert_includes src, "releaseFocus"` is satisfied by the
+    # host's own prose: it documents the close() gating in a JS comment
+    # ("releaseFocus() was correctly gated on an empty stack"). MEASURED on
+    # 2026-08-28 — deleting the whole function AND its call left that assertion
+    # green, and the failure below then read "defined but never called" about a
+    # function that was no longer defined at all.
+    assert_includes src, "releaseFocus: function",
+                    "the host never restores focus, so closing strands the keyboard user"
     assert_match(/self\.releaseFocus\(\)|this\.releaseFocus\(\)/, src,
                  "releaseFocus is defined but never called")
   end
 
   # THE ACCESSIBLE NAME. An unnamed dialog announces as just "dialog".
-  test "the forked host names the dialog" do
+  test "the resolved host names the dialog" do
     src = host_source
 
-    assert_includes src, "dialogLabel",
+    # Definition form, not the bare name — prose cannot satisfy it. Nothing in
+    # the host documents dialogLabel in a comment TODAY, which is exactly the
+    # state releaseFocus was in before a comment was added above it.
+    assert_includes src, "dialogLabel: function",
                     "the dialog has no accessible name — it announces as just 'dialog'"
     assert_match(/:aria-label=/, src, "the name is computed but never bound to the element")
   end
 
   # CLOSE() MUST RELEASE EVEN WHEN THE ENTRY IS ALREADY GONE.
   #
-  # This fork put `if (!self.stack.length) self.releaseFocus();` INSIDE the
-  # `if (idx >= 0)` block; the engine puts it outside (_host.html.erb:494). Trigger:
+  # The deleted fork put `if (!self.stack.length) self.releaseFocus();` INSIDE
+  # the `if (idx >= 0)` block; the engine puts it outside. Trigger:
   # press Escape on a dismissible modal, then let clearStaleModals() ->
   # closeAllDismissible() fire from turbo:before-cache or a bfcache pageshow inside
   # the 220ms exit window. The entry is already spliced, idx is -1, the block is

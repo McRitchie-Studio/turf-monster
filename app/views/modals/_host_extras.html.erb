@@ -1,0 +1,36 @@
+<%#
+  APP-WIDE modal registrations — the engine modal host's second extension point
+  (studio-engine 0.65.0). studio/modals/_host renders "modals/host_extras"
+  INSIDE its card on every render path through it, guarded by
+  lookup_context.exists?, so a card registered here is registered ONCE for every
+  layout that mounts the host.
+
+  WHY THIS FILE EXISTS. Until 2026-08-28 this app shadowed the engine's host with
+  its own copy of the whole partial, and the only app-specific thing that copy
+  carried in its shell was the registration below. The block each layout passes to
+  the host is per-CALLSITE: this app mounts the host from TWO layouts
+  (layouts/application for the live site and layouts/modal_preview for the
+  /admin/modals gallery iframes), so a card registered in a block has to be
+  repeated in both, and a card added to only one renders as an EMPTY card in the
+  other. That has happened here before (see the age-verify note in
+  layouts/modal_preview). A card that belongs to the APP rather than to one page
+  belongs here instead.
+
+  WHAT GOES HERE, and what does not. Only a card with no per-callsite locals and
+  no per-layout gating: this file is rendered by both layouts identically and has
+  no access to a block's surrounding conditionals. Anything that needs
+  logged_in?, a feature flag, or helper-computed locals stays in the layout block
+  that can supply them.
+
+  Each entry is a template x-if keyed on the current modal id. current() is
+  guaranteed non-null here — the engine host wraps this whole card in its own
+  outer template x-if on current(). Sibling roots inside a template x-if silently
+  mount as a no-op, so every registered partial must have exactly ONE root.
+%>
+<%# Audit C1 — cosign-rejected (tx mismatch). Opened with
+    Alpine.store('modals').open('cosign-rejected', {}) from the entry boards when
+    confirm_onchain_entry answers code 'tx_rejected'. Needed on BOTH render paths:
+    the live layout raises it for real, and the gallery previews it. %>
+<template x-if="$store.modals.current().id === 'cosign-rejected'">
+  <%= render "modals/cosign_rejected" %>
+</template>

@@ -1225,10 +1225,21 @@
     <%= render "shared/footer" %>
 
     <%= render "shared/solana_errors" %>
+    <%# Per-modal card widths. MUST render ABOVE the host: the host merges this
+        map at the top of its own inline script, and a deferred module would
+        arrive after it. See the partial header. %>
+    <%= render "shared/modal_card_widths" %>
     <%# Generic modal host from studio-engine. Owns Alpine.store('modals'),
         the StudioModals.holdAtLeast helper, the backdrop / scroll lock /
-        escape / click-outside / ARIA / transitions, and renders this app's
-        content partials by id (registered in the block below). %>
+        escape / click-outside / ARIA / transitions, its own mount and unmount
+        keyframes, and renders this app's content partials by id.
+
+        TWO REGISTRATION SEAMS, and the choice between them matters. Cards
+        registered in the block below are per-CALLSITE — this layout and
+        layouts/modal_preview each keep their own list, so a card added to only
+        one renders EMPTY in the other. A card that belongs to the APP rather
+        than to a page goes in app/views/modals/_host_extras instead, which the
+        host renders on every path through it. cosign-rejected lives there. %>
     <%= render "studio/modals/host" do %>
       <%# Email-change-pending — opened on the /account page after a held
           email change (AccountsController#update). Informational handoff:

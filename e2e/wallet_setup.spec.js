@@ -502,3 +502,84 @@ test("the free-contest path is gated too (entry is on-chain either way)", async 
   expect(blocker).not.toBeNull();
   expect(blocker.reason).toBe("wallet_setup_required");
 });
+
+// THE CARD-WIDTH REGISTRY, PROVEN IN A BROWSER (defork-turf-modal-host, 2026-08-28).
+//
+// WHY THIS SPEC EXISTS AT ALL. This app stopped forking studio-engine's modal host
+// and moved its one per-modal width onto the engine's CARD_WIDTHS seam, which is an
+// inline <script> in app/views/shared/_modal_card_widths.html.erb. Every other tier
+// this shape has renders to a String, and a String assertion cannot observe a script
+// RUNNING — the engine host even documents the seam with a worked
+// `// window.StudioModals.CARD_WIDTHS = { 'wallet-setup': 'max-w-md' };` example
+// inside its own inline script, so a markup grep for the registration finds the
+// COMMENT and stays green with the real registration deleted. That was measured, not
+// imagined: it is the mutation that survived while this task was being built.
+//
+// SO ASSERT ONLY WHAT A LIVE BROWSER CAN PRODUCE. Three things below, none of them
+// visible in the response bytes:
+//   1. the registry OBJECT exists on window — the inline script executed,
+//   2. the card's COMPUTED max-width resolves to real pixels, and
+//   3. those pixels are strictly MORE than the engine default's, resolved on this
+//      same page by letting the browser apply the default class to a probe.
+//
+// (3) is the assertion that matters. "max-w-md is present" would pass just as
+// happily if the engine default were also max-w-md, and a registry that silently
+// resolves to the default is this seam's actual failure mode. Comparing two
+// browser-resolved widths is the only form that can tell those apart. It also
+// catches a Tailwind build that never compiled one of the classes, which markup
+// cannot see either: an uncompiled class computes to "none", not to a width.
+test("the card-width registry runs in the browser and makes this card wider than the default", async ({ page }) => {
+  await signUpFreshEmail(page);
+
+  const dialog = page.locator('[role="dialog"]');
+  await expect(dialog).toBeVisible();
+
+  // Wait on an OBSERVABLE, never a timer: Alpine has bound a width class onto the
+  // card, and the mount animation has finished so the spring's scale transform is
+  // back to identity and a measured box is the real box.
+  await page.waitForFunction(() => {
+    const card = document.querySelector('[role="dialog"] div');
+    if (!card || !/max-w-/.test(card.className)) return false;
+    const anims = card.getAnimations();
+    return anims.length > 0 && anims.every((a) => a.playState === "finished");
+  });
+
+  const measured = await page.evaluate(() => {
+    const sm = window.StudioModals || {};
+    const card = document.querySelector('[role="dialog"] div');
+    // Let the BROWSER resolve a Tailwind class to pixels. A class the build never
+    // compiled computes to "none" here, which is the silent half of this failure.
+    const resolve = (cls) => {
+      const probe = document.createElement("div");
+      probe.className = cls;
+      document.body.appendChild(probe);
+      const value = getComputedStyle(probe).maxWidth;
+      probe.remove();
+      return value;
+    };
+    return {
+      registered: sm.CARD_WIDTHS ? sm.CARD_WIDTHS["wallet-setup"] : null,
+      fallback: sm.DEFAULT_CARD_WIDTH || null,
+      cardWidths: (card.className.match(/max-w-[\w-]+/g) || []),
+      cardMaxWidth: getComputedStyle(card).maxWidth,
+      defaultMaxWidth: sm.DEFAULT_CARD_WIDTH ? resolve(sm.DEFAULT_CARD_WIDTH) : null,
+    };
+  });
+
+  // 1. The inline <script> RAN. Nothing in the markup can establish this.
+  expect(measured.registered, "window.StudioModals.CARD_WIDTHS carries no wallet-setup entry — the registry script never ran on this page, so the card is silently at the engine default").toBeTruthy();
+  expect(measured.fallback).toBeTruthy();
+  expect(measured.registered).not.toBe(measured.fallback);
+
+  // 2. Exactly ONE max-w-* lands on the card. Two would leave the winner to
+  //    stylesheet source order, which is not something a view gets to decide.
+  expect(measured.cardWidths).toHaveLength(1);
+
+  // 3. Both classes resolve to real pixels, and this card is WIDER than the default.
+  const px = (v) => (/^\d/.test(String(v)) ? parseFloat(v) : NaN);
+  const cardPx = px(measured.cardMaxWidth);
+  const defaultPx = px(measured.defaultMaxWidth);
+  expect(cardPx, `the card's max-width computed to ${measured.cardMaxWidth} — the ${measured.registered} class is not in the compiled stylesheet`).toBeGreaterThan(0);
+  expect(defaultPx, `the engine default ${measured.fallback} computed to ${measured.defaultMaxWidth} — not in the compiled stylesheet`).toBeGreaterThan(0);
+  expect(cardPx, `wallet-setup resolved to ${measured.cardMaxWidth}, the engine default to ${measured.defaultMaxWidth} — the registry is doing nothing`).toBeGreaterThan(defaultPx);
+});

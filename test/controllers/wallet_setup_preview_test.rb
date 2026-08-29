@@ -56,7 +56,12 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
   # tiers at all, so parsing its first `:root` block for them returned an empty
   # map and every fetch raised KeyError.
   test "the shared modal layer covers the Turf navbar and stays below toasts" do
-    host = Rails.root.join("app/views/studio/modals/_host.html.erb").read.gsub(/<%#.*?%>/m, "")
+    # THE HOST MOVED AGAIN, and this time out of the app entirely. This app used
+    # to shadow studio-engine's modal host with a fork at
+    # app/views/studio/modals/_host.html.erb; defork-turf-modal-host deleted it.
+    # Resolve the host rather than reading a path — see ResolvedModalHost for why
+    # the identifier must never be asserted to contain "/gems/".
+    host = ResolvedModalHost.source.gsub(/<%#.*?%>/m, "")
     navbar = Rails.root.join("app/views/layouts/_navbar.html.erb").read.gsub(/<%#.*?%>/m, "")
     engine_css = Studio::Engine.root.join("app/assets/tailwind/studio_engine/engine.css").read
     flash = Studio::Engine.root.join("app/views/layouts/studio/_flash.html.erb").read
@@ -355,15 +360,36 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
     # onboarding chain driver, the post-Connect reopen). A prop would have to be
     # remembered at each, and one miss means the same card is two different
     # widths depending on how the user got there.
-    host = Rails.root.join("app/views/studio/modals/_host.html.erb").read
+    # THE REGISTRY LEFT THE HOST. This app carried a fork of studio-engine's
+    # modal host and registered the width inside it; defork-turf-modal-host
+    # deleted the fork and moved the registration onto the engine's CARD_WIDTHS
+    # seam (app/views/shared/_modal_card_widths, rendered above the host by every
+    # layout that mounts it). So the app half is read from the RENDERED PAGE —
+    # which is also the stronger question, since a registration that never
+    # reaches the page is the failure this seam actually has.
+    log_in_as users(:alex)
+    get admin_modal_preview_path(modal_id: "wallet-setup")
+    assert_response :success
 
-    assert_includes host, "CARD_WIDTHS = { 'wallet-setup': 'max-w-md' }"
-    assert_includes host, "DEFAULT_CARD_WIDTH = 'max-w-sm'",
-                    "every other modal must keep the width it had"
+    host = ResolvedModalHost.source
+    default = host[/DEFAULT_CARD_WIDTH\s*=\s*'([\w-]+)'/, 1]
+    # READ AS CODE. A plain substring match on the body finds the engine host's
+    # own `// … CARD_WIDTHS = { 'wallet-setup': 'max-w-md' };` doc example, which
+    # ships to the page like any other text inside an inline script — so it stays
+    # green with the registration deleted. See RenderedCardWidths.
+    registered = RenderedCardWidths.width_for(response.body, "wallet-setup")
+
+    assert default.present?, "the engine host no longer names a default card width"
+    assert registered.present?,
+           "the page registers no width for wallet-setup, so the card silently " \
+           "falls back to #{default}"
+    assert_not_equal default, registered,
+                     "wallet-setup is registered at the DEFAULT width (#{default}) — " \
+                     "a registry that resolves to the default is doing nothing"
 
     # And exactly ONE max-w-* ever lands on the card. A static class plus a
     # bound one would leave the winner to stylesheet source order, which is not
-    # something this file gets to decide.
+    # something a view gets to decide.
     card = host[/<div class="bg-surface rounded-xl[^"]*"/]
     assert card.present?, "could not locate the modal card element — did it move?"
     assert_not_includes card, "max-w-",

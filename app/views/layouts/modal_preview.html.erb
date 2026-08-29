@@ -132,6 +132,11 @@
         module duplicate). %>
     <%= render "shared/alpine_factories" %>
     <%= render "studio/birthday_assets" %>
+    <%# Per-modal card widths, same registration the app layout renders. MUST
+        render ABOVE the host, and the gallery needs it as much as the live site:
+        wallet-setup is previewed here, and without this the preview shows it at
+        the default width while production shows it wider. %>
+    <%= render "shared/modal_card_widths" %>
     <%= yield %>
     <%= render "studio/modals/host" do %>
       <template x-if="$store.modals.current().id === 'auth'">

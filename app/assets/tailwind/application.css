@@ -1051,6 +1051,13 @@
 }
 
 /* === Modal host (studio/modals/_host.html.erb) =========================
+   THE HOST IS NOT IN THIS APP. Since 2026-08-28 (defork-turf-modal-host) the
+   partial named throughout this block resolves from the studio-engine GEM, not
+   from app/views — this app deleted its fork of it. The virtual path below is
+   still how you render it; the file is in the gem. The engine host also ships
+   an inline \3c style> block defining the SAME keyframe and class names as this
+   block (verified name-for-name 2026-08-28, values not diffed), so these rules
+   are a duplicate rather than the only definition.
    Promoted from the local override partial's inline \3c style> block
    2026-05-24 — these rules are page-static and were being emitted on
    every HTML response. */
