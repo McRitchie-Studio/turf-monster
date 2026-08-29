@@ -76,7 +76,9 @@ module AppFlags
   end
 
   # True when the legal-age attestation checkbox gates account creation
-  # (signin page, auth modal, wallet-connect modal — shared/_age_attestation).
+  # (signin page, auth modal, wallet-connect modal). The checkbox itself is
+  # the ENGINE partial studio/modals/shared/_age_attestation, which does NOT
+  # self-gate — each of those three callsites wraps its render in this flag.
   # Parked OFF for the first contest (operator call, 2026-06-10); set
   # ENABLE_AGE_ATTESTATION=true to restore the full gate. While off the
   # checkbox doesn't render, every client/server gate passes, and —
