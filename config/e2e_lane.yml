@@ -438,7 +438,7 @@
 # compares two browser-RESOLVED widths (the card's computed max-width against the
 # engine default's, applied to a probe on the same page), which is the only form that
 # can tell a working registry from one that silently resolves to the default.
-total_specs: 215
+total_specs: 216
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -665,7 +665,7 @@ allowed_skips: 4
 # focus-game-scorer-card and one from the modal-host defork. allowed_skips stays 4 —
 # the two identities still agree, which is what proves no new spec brought a runtime
 # skip with it.
-executed: 194
+executed: 195
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to

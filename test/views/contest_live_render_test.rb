@@ -332,14 +332,82 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
       "the banner's avatar must ship with no source"
   end
 
-  # Every slot paintRankBanner has to account for. If a sixth is added to the
-  # banner and not to that function, this list is where the omission shows.
-  test "the banner has exactly the five slots the summary must repaint" do
+  # THE INVARIANT, CHECKED AGAINST THE SCRIPT ITSELF.
+  #
+  # An earlier version of this test listed the five slot ids and asserted the
+  # BANNER PARTIAL rendered each one. That partial is not where the bug lives:
+  # it was byte-identical before and after the fix, so the test passed on the
+  # bug it was written to catch. A test that cannot fail is worse than no test,
+  # because it reads as coverage.
+  #
+  # The real contract is between the two FUNCTIONS that share the element:
+  # paintBanner fills it for a score, paintRankBanner repaints it for the rank
+  # summary, and the summary is drawn WITHOUT the overlay hiding in between (see
+  # advanceChain). So every slot the score writes, the summary must also write —
+  # or it inherits it. That is exactly how the summary ended up wearing a
+  # touchdown scorer's headshot for six seconds.
+  #
+  # Structural, and deliberately so: it reads each function's own body out of
+  # the script and compares the sets. Add a sixth slot to paintBanner and forget
+  # paintRankBanner, and this goes red naming it.
+  SCRIPT = Rails.root.join("app/views/contests/_live_script.html.erb")
+
+  # The body of a top-level `function name(...) { ... }` in the script, matched
+  # by brace depth rather than by a regex, so a nested block cannot end it early.
+  def function_body(source, name)
+    start = source.index("function #{name}(")
+    assert start, "#{name} not found in the script — was it renamed?"
+
+    open_brace = source.index("{", start)
+    depth = 0
+    open_brace.upto(source.length - 1) do |i|
+      depth += 1 if source[i] == "{"
+      depth -= 1 if source[i] == "}"
+      return source[open_brace..i] if depth.zero?
+    end
+    flunk "#{name} has unbalanced braces"
+  end
+
+  # COMMENTS ARE STRIPPED BEFORE SCANNING, and that is not a nicety.
+  #
+  # The first cut of this test scanned the raw body, and the mutation that
+  # reintroduces the real bug did NOT turn it red: the explanatory comment above
+  # the fix still said "#nfl-score-avatar", so the id was found in PROSE and the
+  # assertion passed on code that no longer touched the slot. A test satisfied by
+  # a comment is a test that fails the moment someone rewords a comment, and
+  # passes the moment someone deletes the code it describes.
+  def code_only(body)
+    body.gsub(%r{/\*.*?\*/}m, " ").gsub(%r{//[^\n]*}, " ")
+  end
+
+  def banner_slots_written_by(source, name)
+    code_only(function_body(source, name)).scan(/nfl-score-[a-z]+/).uniq.to_set
+  end
+
+  test "the rank summary repaints every banner slot a score writes" do
+    source = File.read(SCRIPT)
+
+    by_score = banner_slots_written_by(source, "paintBanner")
+    by_rank  = banner_slots_written_by(source, "paintRankBanner")
+
+    assert by_score.any?, "paintBanner writes no banner slots — the parse is wrong"
+
+    missed = by_score - by_rank
+    assert_empty missed,
+      "paintRankBanner must account for every slot paintBanner fills, or the " \
+      "summary inherits it — the overlay never hides between the two. Missed: " \
+      "#{missed.to_a.sort.join(", ")}"
+  end
+
+  # And the slots they agree on are really in the markup — the pair could be
+  # consistent with each other and both wrong about the element.
+  test "every slot the script writes exists in the banner" do
+    source = File.read(SCRIPT)
     get_live
 
-    %w[nfl-score-emoji nfl-score-label nfl-score-team nfl-score-points nfl-score-avatar].each do |id|
+    banner_slots_written_by(source, "paintBanner").each do |id|
       assert_select "#nfl-score-banner ##{id}", { count: 1 },
-        "paintRankBanner must account for ##{id}"
+        "the script writes ##{id}, so the banner must render it"
     end
   end
 
