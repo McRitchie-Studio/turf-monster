@@ -19,26 +19,39 @@ require "test_helper"
 # ERB comments are stripped first: every prose block below the fold names these
 # same identifiers, and an assertion that matched the comment would stay green
 # through a deletion of the code it claims to cover.
+#
+# 2026-08-29 (adopt-turf-engine-picker): THE PICKER IS THE ENGINE'S NOW, so the
+# picker half reads studio-engine's source RESOLVED — a File.read of the old app
+# path is a read of a file that no longer exists, and hardcoding the gem path
+# instead would encode how the engine happens to be installed. The guarantee
+# still belongs here: it is a bug THIS APP shipped, and this app is what a
+# regression would be visible in. The setup card is still this app's own file.
 class WalletPickerSinglePhantomTest < ActionDispatch::IntegrationTest
-  CONNECT = "app/views/modals/_wallet_connect.html.erb".freeze
-  SETUP   = "app/views/modals/_wallet_setup.html.erb".freeze
+  SETUP = "app/views/modals/_wallet_setup.html.erb".freeze
 
   # Source with ERB comments removed, so a match is code and never prose.
   def code(path)
     Rails.root.join(path).read.gsub(/<%#.*?%>/m, "")
   end
 
+  # The picker that actually renders, with ERB comments AND the // comments in
+  # its x-data removed — the engine names canDeepLink, showPhantomDeepLink and
+  # missingInstalls in prose that ships to the page.
+  def picker
+    ResolvedWalletPicker.code
+  end
+
   # --- the picker (guest "Connect Wallet") --------------------------------
 
   test "the picker has exactly one Phantom deep-link trigger" do
-    triggers = code(CONNECT).scan(/@click="deepLink\(\)"/)
+    triggers = picker.scan(/@click="deepLink\(\)"/)
     assert_equal 1, triggers.length,
                  "expected a single deep-link row in the picker, found #{triggers.length} — " \
                  "a second one is the duplicate-Phantom bug coming back"
   end
 
   test "the picker's deep-link row is gated on Phantom's absence, not on the user agent alone" do
-    body = code(CONNECT)
+    body = picker
     row = body[/<button\b[^>]*@click="deepLink\(\)"[^>]*>/m]
     assert row.present?, "could not locate the deep-link row — did the element change?"
 
@@ -58,18 +71,27 @@ class WalletPickerSinglePhantomTest < ActionDispatch::IntegrationTest
   end
 
   test "the picker drops Phantom's install row on mobile" do
-    getter = code(CONNECT)[/get missingInstalls\(\)\s*\{(.*?)\n\s*\},/m, 1]
+    getter = picker[/get missingInstalls\(\)\s*\{(.*?)\n\s*\},/m, 1]
     assert getter.present?, "missingInstalls getter is missing"
-    assert_match(/self\.isMobile\s*&&\s*i\.name\s*===\s*'Phantom'/, getter,
+    assert_match(/self\.isMobile\s*&&.*?i\.name\s*===\s*'Phantom'/, getter,
                  "a phone has no extension to install, so Phantom's download-page row " \
                  "must be filtered out — leaving it is the second row from the bug report")
+    # The engine adds a conjunct the fork did not have, and it is not cosmetic:
+    # the install row is suppressed ONLY when a deep link can replace it. Drop
+    # it and an app with no startPhantomDeepLink gets a phone with no Phantom
+    # path at all — install row suppressed, deep-link row hidden. This app DOES
+    # define it (pinned in wallet_picker_adoption_test), which is what makes the
+    # suppression here behave as it did before the adoption.
+    assert_match(/self\.canDeepLink/, getter,
+                 "the install row must only be suppressed when a deep link can " \
+                 "replace it — without this a deep-link-less consumer loses Phantom entirely")
     assert_no_match(/(?:self|this)\.isMobile\s*&&\s*i\.name\s*===\s*'(?:Solflare|Backpack)'/, getter,
                     "Solflare and Backpack keep their install rows: we ship no deep link " \
                     "for either, so the download page is still their only path")
   end
 
   test "no row in the picker is gated on the bare user-agent test" do
-    assert_no_match(/x-show="isMobile"/, code(CONNECT),
+    assert_no_match(/x-show="isMobile"/, picker,
                     "isMobile alone cannot tell a Phantom-less browser from Phantom's own; " \
                     "every mobile row must go through a guard that asks about the wallet too")
   end
@@ -105,19 +127,17 @@ class WalletPickerSinglePhantomTest < ActionDispatch::IntegrationTest
   end
 
   # --- the failure mode no markup assertion above can see -----------------
-
+  #
   # A single double quote inside the double-quoted x-data closes the attribute
-  # early; Alpine then mounts the component as a silent no-op. Every assertion
-  # in this file still passes while both modals are dead in a real browser.
-  # Guarded for the setup card already; this pass edited the picker's x-data.
-  test "the picker's x-data attribute contains no double quotes" do
-    source = Rails.root.join(CONNECT).read
-    x_data = source[/<div x-data="(.*?)"\s*\n\s*class=/m, 1]
-    assert x_data.present?, "could not locate the x-data attribute — did the root element change?"
-    assert_not_includes x_data, '"',
-                        "a double quote inside the double-quoted x-data closes it early and " \
-                        "silently kills the modal in the browser"
-  end
+  # early; Alpine then mounts the component as a silent no-op, and every
+  # assertion in this file still passes while the modal is dead in a real
+  # browser. For the PICKER that attribute is now the engine's, plus this app's
+  # extra_data fragment — the only half this app can still break — so the guard
+  # moved to test/views/wallet_picker_adoption_test.rb, where it reads
+  # WalletPickerHelper's fragment DIRECTLY. Reading it out of the rendered
+  # attribute, as the version here did, cannot work: any extractor bounded by
+  # the quote character returns a string that can never contain one, so the
+  # assertion is inert. Mutation is what showed that.
 
   # --- render smoke --------------------------------------------------------
 

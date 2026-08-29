@@ -30,11 +30,22 @@ attestation.
 
 The checkbox is the studio-engine partial
 `studio/modals/shared/_age_attestation`, which deliberately does NOT self-gate.
-Each callsite wraps its own render in `<% if AppFlags.age_attestation? %>` —
-`modals/_auth`, `shared/_auth_card`, and `modals/_wallet_connect`. A new
+Each callsite gates its own render on `AppFlags.age_attestation?`, and a new
 callsite must do the same. A `<template>` body renders server-side whether or
 not Alpine mounts it, so an unwrapped render ships the parked checkbox in the
 page source of every page that carries the partial.
+
+The three callsites, and how each gates:
+
+| Callsite | Gate |
+|---|---|
+| `modals/_auth` | `<% if AppFlags.age_attestation? %>` around the render |
+| `shared/_auth_card` | `<% if AppFlags.age_attestation? %>` around the render |
+| the Connect-Wallet picker | `WalletPickerHelper#wallet_connect_modal_locals` passes the engine picker a `slot:` — or `nil` when the flag is parked |
+
+The picker is studio-engine's (`studio/modals/_wallet_connect`) as of
+/tasks/adopt-turf-engine-picker, so its attestation arrives as that partial's
+`slot` local rather than an inline render.
 
 ## User Model Auth Design
 

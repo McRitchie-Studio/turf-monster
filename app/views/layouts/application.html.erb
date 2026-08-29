@@ -289,7 +289,7 @@
               // the rejection here drops into connect() + signMessage() below and
               // asks a user who just said no twice more, in the change whose whole
               // purpose is to ask once. It also silently breaks working decline
-              // handling: modals/_wallet_connect and modals/_wallet_setup both
+              // handling: the engine wallet picker and modals/_wallet_setup both
               // render "Signature rejected" off this rejection, and can only do so
               // if it propagates.
               //
@@ -1271,12 +1271,17 @@
       <template x-if="$store.modals.current().id === 'age-gate'">
         <%= render "studio/modals/blocks/age_gate", **age_gate_modal_locals %>
       </template>
-      <%# Multi-wallet "Connect Wallet" picker (reown-style). Opened directly
-          from the standalone Solana button, or swapped-into from the auth
-          modal's Solana button (board#openWalletConnect saves the cart first
-          and passes returnUrl). %>
+      <%# Multi-wallet "Connect Wallet" picker — STUDIO-ENGINE OWNS IT. Opened
+          directly from the standalone Solana button, or swapped-into from the
+          auth modal's Solana button (board#openWalletConnect saves the cart
+          first and passes returnUrl). This app's 226-line fork was deleted in
+          /tasks/adopt-turf-engine-picker; everything turf adds now arrives
+          through WalletPickerHelper as the engine's extra_data hooks plus the
+          legal-age slot. The SAME helper feeds layouts/modal_preview, which
+          keeps its own registration list — a picker adopted in one layout and
+          forked in the other renders the old copy at /admin/style forever. %>
       <template x-if="$store.modals.current().id === 'wallet-connect'">
-        <%= render "modals/wallet_connect" %>
+        <%= render "studio/modals/wallet_connect", **wallet_connect_modal_locals %>
       </template>
       <%# "Set up your wallet" — the web3-only onboarding step. Auto-opens on the
           render right after auth success (session prompt, below) and on demand

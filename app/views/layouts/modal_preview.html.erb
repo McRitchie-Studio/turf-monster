@@ -151,8 +151,11 @@
       <template x-if="$store.modals.current().id === 'wallet-deposit'">
         <%= render "modals/wallet_deposit" %>
       </template>
+      <%# The engine picker, through the SAME helper the app layout uses. This
+          preview layout keeps its own registration list, so rendering anything
+          else here is how /admin/style silently keeps showing a fork. %>
       <template x-if="$store.modals.current().id === 'wallet-connect'">
-        <%= render "modals/wallet_connect" %>
+        <%= render "studio/modals/wallet_connect", **wallet_connect_modal_locals %>
       </template>
       <template x-if="$store.modals.current().id === 'wallet-changed'">
         <%= render "modals/wallet_changed" %>

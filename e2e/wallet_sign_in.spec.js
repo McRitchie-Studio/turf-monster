@@ -108,7 +108,7 @@ test("a declined signIn propagates instead of re-prompting through the fallback 
     return { rejected, message, connectCalls };
   });
 
-  // The decline must reach the caller — modals/_wallet_connect and
+  // The decline must reach the caller — studio-engine's wallet picker and
   // modals/_wallet_setup both render "Signature rejected" off exactly this.
   expect(outcome.rejected).toBe(true);
   expect(outcome.message).toMatch(/rejected/i);

@@ -119,27 +119,16 @@ class AgeAttestationAdoptionTest < ActionView::TestCase
     end
   end
 
-  test "the wallet picker gates its attestation on the flag" do
-    # The callsite that had no ERB flag check of its own: it relied on the
-    # deleted fork's self-gate plus a client-side needsAttestation getter. A
-    # <template> body is rendered SERVER-SIDE whether or not Alpine mounts it,
-    # so without this gate the parked checkbox ships in the page source of
-    # every layout that carries the picker.
-    with_attestation_flag(false) do
-      assert_not_includes render_wallet_picker, "data-age-attestation",
-        "flag off: the picker must ship no attestation markup at all"
-    end
-    with_attestation_flag(true) do
-      assert_includes render_wallet_picker, "data-age-attestation",
-        "flag on: the picker must render the engine checkbox"
-    end
-  end
+  # THE PICKER'S GATE MOVED. This file used to render modals/_wallet_connect and
+  # assert the flag gated its attestation. That partial is gone
+  # (/tasks/adopt-turf-engine-picker): the picker is studio-engine's, and the
+  # gate is now the SLOT that WalletPickerHelper passes it — or does not, when
+  # the flag is parked. The property is asserted in
+  # test/views/wallet_picker_adoption_test.rb against real pages on BOTH
+  # layouts, which is strictly more than a partial render could see. One
+  # assertion per property, so it is not restated here.
 
   private
-
-  def render_wallet_picker
-    render partial: "modals/wallet_connect"
-  end
 
   def with_attestation_flag(on)
     previous = ENV["ENABLE_AGE_ATTESTATION"]
