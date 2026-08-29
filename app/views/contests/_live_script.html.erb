@@ -179,12 +179,19 @@
       // whose feed carries no scorer.
       var avatar = document.getElementById('nfl-score-avatar');
       var points = document.getElementById('nfl-score-points');
-      // A URL IS NOT A PICTURE. whenPreloaded already recorded whether this image
-      // decoded; keying merely on the url being PRESENT put a broken-image glyph
-      // and the literal alt text where the points chip belongs when a headshot
-      // 404s. Only a decoded image earns the slot — anything else falls back to
-      // the points, which is what the league board shows anyway.
-      var face = (!isFinal && d.scorerHeadshot && headshots[d.scorerHeadshot] !== 'failed')
+      // A URL IS NOT A PICTURE, AND "NOT YET FAILED" IS NOT "READY".
+      //
+      // This read used to be `!== 'failed'`, which is a deny-list over a state
+      // that holds undefined | loading | ready | failed — so a picture still
+      // LOADING counted as usable. The gate gives up after HEADSHOT_WAIT_MS and
+      // paints anyway, so any failure slower than that arrived here as
+      // 'loading' and reproduced the original symptom exactly: a broken-image
+      // glyph and the literal alt text where the points chip belongs.
+      //
+      // An allow-list cannot have that gap. Only a decoded image earns the
+      // slot; everything else falls back to the points, which is what the
+      // league board shows anyway.
+      var face = (!isFinal && d.scorerHeadshot && headshots[d.scorerHeadshot] === 'ready')
         ? d.scorerHeadshot : null;
       if (avatar) {
         if (face) {
@@ -994,13 +1001,34 @@
         if (shot) {
           if (img.getAttribute('src') !== shot) {
             img.classList.add('hidden');
-            img.onload = function () { img.classList.remove('hidden'); };
+            img.onload = function () {
+              headshots[shot] = 'ready';
+              img.classList.remove('hidden');
+              if (initials) initials.classList.add('hidden');   // the pair swaps
+            };
+            // NOTHING USED TO REVISIT THE DECISION. The card was painted while
+            // the picture was still loading, and this element had an onload but
+            // no onerror — so when the load later failed, the img stayed hidden,
+            // the initials stayed hidden, and the reader was left with a gap
+            // until the next score repainted the card. The verdict, whenever it
+            // lands, has to reach the DOM that is already on screen.
+            img.onerror = function () {
+              headshots[shot] = 'failed';
+              img.classList.add('hidden');
+              if (initials) {
+                initials.textContent = initialsOf(d.scorer);
+                initials.classList.remove('hidden');           // the pair swaps back
+              }
+            };
             img.src = shot;
             // ALREADY IN CACHE? Show it now. Every headshot in a chain has been
             // fetched before (the same 32 rosters, the same S3 objects), so
             // waiting on `load` cost a frame of empty disc on each new card for
             // an image the browser already had decoded.
-            if (img.complete && img.naturalWidth > 0) img.classList.remove('hidden');
+            if (img.complete && img.naturalWidth > 0) {
+              img.classList.remove('hidden');
+              if (initials) initials.classList.add('hidden');
+            }
           }
           if (img.getAttribute('alt') !== (d.scorer || '')) img.alt = d.scorer || '';
         } else if (img.hasAttribute('src')) {
@@ -1008,13 +1036,24 @@
           img.removeAttribute('src');
         }
       }
-      // THE MIRROR OF THE ABOVE. Keying the initials on a BLANK url meant a url
-      // that FAILED left the img hidden and the initials hidden too — no avatar
-      // at all, just a gap. A picture we could not load is, for the reader,
-      // exactly the same as one we never had.
-      var usable = shot && headshots[shot] !== 'failed';
-      setText(initials, usable ? '' : initialsOf(d.scorer));
-      if (initials) initials.classList.toggle('hidden', !!usable);
+      // EXACTLY ONE OF THE TWO IS VISIBLE, ALWAYS — and the test is the IMAGE's
+      // own visibility, not the preload's opinion of the url.
+      //
+      // Three versions of this line got it wrong in the same way, each keying
+      // off a proxy: a BLANK url (so a failed url showed neither), then `!==
+      // 'failed'` (so a still-loading url showed neither), then `=== 'ready'`
+      // (so a url the PRELOAD had decoded, whose card <img> was still fetching,
+      // showed neither). Measured on that last one: 4791ms of a revealed card
+      // displaying nothing at all.
+      //
+      // The proxies were all trying to predict whether the photo will appear.
+      // The element already knows: if the <img> is not currently shown, the
+      // initials are what the reader gets. onload and onerror flip it, so the
+      // pair can never both be hidden however the fetch resolves.
+      setText(initials, initialsOf(d.scorer));
+      if (initials) {
+        initials.classList.toggle('hidden', !!(img && !img.classList.contains('hidden')));
+      }
 
       setText(card.querySelector('[data-role="scorer-headline"]'), scorerHeadline(d));
       setText(card.querySelector('[data-role="scorer-name"]'), d.scorer || '');

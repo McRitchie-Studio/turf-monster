@@ -74,5 +74,32 @@ DEMO_ATHLETES.each do |first, last, team_slug, position, jersey, height, weight,
   athlete.save!
 end
 
+# ONE ATHLETE WITH A CACHED HEADSHOT, and it is not decoration.
+#
+# The real roster is ~97% photographed, but this offline set cached nothing —
+# so every environment seeded from it had ImageCache.count == 0 and EVERY card
+# took the initials path. That made a whole class of bug untestable: a browser
+# spec written for the headshot fallback passed identically on the fix and on
+# the bug, because the scenario it described could not occur. Measured, not
+# assumed: the spec's own trace showed one state throughout, and it was the
+# correct one, on code that still had the defect.
+#
+# The key points at a real object in the shared bucket. Nothing fetches it in a
+# test — a spec that cares routes the request — but its PRESENCE is what makes
+# the photographed path reachable at all.
+photographed = Athlete.find_by(person_slug: "josh-allen")
+if photographed && photographed.image_caches.none? { |c| c.purpose == "headshot" }
+  %w[original 100 400].each do |variant|
+    ImageCache.create!(
+      owner: photographed, purpose: "headshot", variant: variant,
+      s3_key: "headshots/nfl/buffalo-bills/josh-allen/#{variant}.png",
+      source_url: "https://a.espncdn.com/i/headshots/nfl/players/full/3918298.png",
+      content_type: "image/png"
+    )
+  end
+  photographed.update!(espn_headshot_url: "https://a.espncdn.com/i/headshots/nfl/players/full/3918298.png")
+end
+
 puts "  #{created} created, #{Athlete.count} athletes total (#{Person.athletes.count} people)"
+puts "  #{ImageCache.where(purpose: "headshot").count} cached headshot variant(s) — the photographed path"
 puts "  Full league: bin/rails nfl:players_seed  (then nfl:upload_headshots for avatars)"

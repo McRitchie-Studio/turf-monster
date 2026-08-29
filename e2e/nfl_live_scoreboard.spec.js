@@ -469,18 +469,29 @@ test.describe("Contest live page", () => {
     // to playwright, so a pane sliced in half by a wrong wheel position still
     // passes it. Assert CONTAINMENT: nothing of the card clipped by its frame.
     await expect(card).toBeVisible();
-    const clipped = await frame.evaluate((f) => {
-      const w = f.getBoundingClientRect();
-      const shown = [...f.querySelectorAll('[data-role="scorer-card"]')].find((c) => {
-        const r = c.getBoundingClientRect();
-        const mid = (r.top + r.bottom) / 2;
-        return mid > w.top && mid < w.bottom;
-      });
-      if (!shown) return -1;
-      const r = shown.getBoundingClientRect();
-      return Math.round(Math.max(0, w.top - r.top) + Math.max(0, r.bottom - w.bottom));
-    });
-    expect(clipped).toBeLessThanOrEqual(1);
+
+    // POLLED, AND A MISSING CARD IS A FAILURE — NOT A PASS.
+    //
+    // This read once and returned -1 when no card was centred in the window.
+    // `-1 <= 1` is true, so the exact condition it exists to catch — no card
+    // where one should be — read as SUCCESS. Sampled every 10ms it returned -1
+    // from t=11ms to t=94ms, and it fired inside that window most runs. The
+    // sentinel is now larger than any real clip, so "no card" cannot satisfy it.
+    await expect
+      .poll(async () =>
+        frame.evaluate((f) => {
+          const w = f.getBoundingClientRect();
+          const shown = [...f.querySelectorAll('[data-role="scorer-card"]')].find((c) => {
+            const r = c.getBoundingClientRect();
+            const mid = (r.top + r.bottom) / 2;
+            return mid > w.top && mid < w.bottom;
+          });
+          if (!shown) return Number.MAX_SAFE_INTEGER;
+          const r = shown.getBoundingClientRect();
+          return Math.round(Math.max(0, w.top - r.top) + Math.max(0, r.bottom - w.bottom));
+        })
+      )
+      .toBeLessThanOrEqual(1);
     await expect(card).toHaveAttribute("aria-hidden", "false");
 
     // AND THE LIST HAS LEFT THE WINDOW. Asserted on GEOMETRY, not opacity: the
@@ -573,4 +584,112 @@ test.describe("Contest live page", () => {
       )
       .toBe(0);
   });
+
+  // ── A HEADSHOT THAT FAILS SLOWLY ──────────────────────────────────────────
+  //
+  // The card and the banner both lead with a portrait, and both used to ask
+  // "has this url not FAILED?" — a deny-list over a state that also holds
+  // 'loading'. The presentation gate gives up after HEADSHOT_WAIT_MS and paints
+  // anyway, so a failure slower than that arrived as 'loading', counted as
+  // usable, and reproduced the symptom the fast case had already fixed.
+  //
+  // A FAST 404 was always handled — that is the point of routing this one SLOW.
+  //
+  // SAMPLED ACROSS THE WINDOW, not polled for the happy ending. An earlier cut
+  // polled for "initials visible" with a long timeout and PASSED ON THE BUG: a
+  // later broadcast repaints the card, by which time the preload has recorded
+  // 'failed', so the system recovers on its own and the poll sees the recovery.
+  // It proved "it eventually looks right", which was never in doubt. The defect
+  // is a WINDOW, so the assertion is about the window — while the card is
+  // revealed there must never be a frame showing neither picture nor initials.
+  test("a headshot that fails slowly still shows initials and the points", async ({
+    page,
+  }) => {
+    // The route hangs 12s on purpose, so this outlives the default budget.
+    test.setTimeout(60000);
+    await allowMotion(page);
+    await loginAdmin(page);
+    await openLive(page, CONTEST);
+
+    // Longer than HEADSHOT_WAIT_MS (2s) plus imgReady's own 2s, so the event is
+    // presented while the picture is still in flight.
+    await page.route("**/headshots/**", async (route) => {
+      await new Promise((r) => setTimeout(r, 12000));
+      await route.abort("failed");
+    });
+
+    const visible = () => page.locator('[data-test="live-focus-game"]:visible');
+    const gameSlug = await visible().getAttribute("data-focus-slug");
+    const teamSlug = await page
+      .locator('[data-test="live-focus-game"]:visible [data-team-slug]')
+      .first()
+      .getAttribute("data-team-slug");
+
+    await recordTouchdownBy(page, gameSlug, teamSlug, "josh-allen");
+
+    // THE MEASUREMENT IS A DURATION, NOT A FRAME.
+    //
+    // "Both hidden" happens legitimately for a frame or two: when the preload
+    // already said 'ready', the card hides the initials and waits for its own
+    // <img> to decode, which is a blink. Asserting on any single such frame
+    // failed on the FIX as well as the bug — measured at 7ms in, with
+    // complete:false, which is exactly that healthy blink.
+    //
+    // The defect is that the gap PERSISTS: with a deny-list read the card sat
+    // showing nothing from the moment it painted until the next broadcast
+    // repainted it — seconds, not milliseconds. So this measures the longest
+    // continuous stretch with neither picture nor initials, and allows a blink.
+    const gap = await page.evaluate(async (slug) => {
+      const t0 = Date.now();
+      const deadline = t0 + 14000;
+      let sawRevealed = false;
+      let longest = 0;
+      let runStart = null;
+
+      while (Date.now() < deadline) {
+        const f = document.querySelector(
+          `[data-focus-slug="${slug}"] [data-role="event-feed-frame"]`
+        );
+        let blank = false;
+
+        if (f && f.classList.contains("tt-revealing")) {
+          const w = f.getBoundingClientRect();
+          const card = [...f.querySelectorAll('[data-role="scorer-card"]')].find((c) => {
+            const r = c.getBoundingClientRect();
+            const mid = (r.top + r.bottom) / 2;
+            return mid > w.top && mid < w.bottom;
+          });
+          if (card) {
+            sawRevealed = true;
+            const img = card.querySelector('[data-role="scorer-headshot"]');
+            const ini = card.querySelector('[data-role="scorer-initials"]');
+            blank =
+              (!img || img.classList.contains("hidden")) &&
+              (!ini || ini.classList.contains("hidden"));
+          }
+        }
+
+        const now = Date.now();
+        if (blank) {
+          if (runStart === null) runStart = now;
+          longest = Math.max(longest, now - runStart);
+        } else {
+          runStart = null;
+        }
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      return { sawRevealed, longest };
+    }, gameSlug);
+
+    expect(gap.sawRevealed, "the card never revealed — the test proved nothing").toBe(true);
+    expect(
+      gap.longest,
+      `the card showed neither a picture nor initials for ${gap.longest}ms`
+    ).toBeLessThan(1000);
+
+    // THE BANNER: the points chip, not a broken image and a literal alt string.
+    await expect(page.locator("#nfl-score-avatar")).toHaveClass(/hidden/);
+    await expect(page.locator("#nfl-score-points")).toHaveText("+6");
+  });
+
 });
