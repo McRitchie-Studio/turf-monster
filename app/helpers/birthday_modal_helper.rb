@@ -24,7 +24,8 @@ module BirthdayModalHelper
   # (studio-engine blocks/_birthday). Threading min_age without it shipped the
   # policy NUMBER and dropped the policy TEXT: the per-state table vanished from
   # the one screen that gates on age, and ENABLE_AGE_GATE suppresses
-  # shared/_age_attestation, the only other surface carrying it.
+  # the signup attestation checkbox (studio/modals/shared/_age_attestation),
+  # the only other surface carrying it.
   AGE_FINE_PRINT = "We use your date of birth only to confirm eligibility. " \
                    "Skill-based contest age limits: 18+ most states; " \
                    "19+ AL/NE; 21+ IA/MA/VA.".freeze

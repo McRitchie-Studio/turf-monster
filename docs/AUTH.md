@@ -22,11 +22,19 @@ See [SIGNUP_FLOWS.md](SIGNUP_FLOWS.md) for end-to-end flow diagrams.
 The underwriting-compliance checkbox is flag-gated by
 `AppFlags.age_attestation?` / `ENABLE_AGE_ATTESTATION`.
 
-When the flag is off, the shared checkbox partial renders nothing, client auth
-models initialize as already attested, server signup gates pass, and
+When the flag is off, each callsite omits the render, client auth models
+initialize as already attested, server signup gates pass, and
 `age_attested_at` is intentionally not stamped. When the flag is on, brand-new
 magic-link, Google, wallet, and fallback `POST /signup` creations must carry the
 attestation.
+
+The checkbox is the studio-engine partial
+`studio/modals/shared/_age_attestation`, which deliberately does NOT self-gate.
+Each callsite wraps its own render in `<% if AppFlags.age_attestation? %>` —
+`modals/_auth`, `shared/_auth_card`, and `modals/_wallet_connect`. A new
+callsite must do the same. A `<template>` body renders server-side whether or
+not Alpine mounts it, so an unwrapped render ships the parked checkbox in the
+page source of every page that carries the partial.
 
 ## User Model Auth Design
 
