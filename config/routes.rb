@@ -464,6 +464,25 @@ Rails.application.routes.draw do
     patch "dashboard/link_preview",       to: "dashboard#update_link_preview",       as: :dashboard_link_preview
     patch "dashboard/link_preview_image", to: "dashboard#update_link_preview_image", as: :dashboard_link_preview_image
 
+    # NFL week board — the operator's focus-game priority list for the /live
+    # scoreboard. Namespaced under `nfl` because the ranking is read through a
+    # sport's own policy (Live::FocusGame::POLICIES) and a soccer matchday
+    # board would be a sibling here, not a mode of this one.
+    #
+    # `:id` is the SEASON SLOT, "year-seasonType-week" ("2026-2-12"): the same
+    # triple Game.in_season_slot takes, the same set /live renders, and the
+    # scope focus_rank is unique within.
+    namespace :nfl do
+      # The week board is ONE drag-ordered list, so there is exactly one write:
+      # the new order. That is the studio/board primitive's own `reorder_url`
+      # contract — POST { slugs: [...], zone: "..." } — and the list covers the
+      # whole week, so a reorder always sends the complete set. No cross-column
+      # move endpoint, because there is no second column to cross into.
+      resources :weeks, only: [:index, :show] do
+        member { post :reorder }
+      end
+    end
+
     resources :outbound_requests, only: [:index, :show]
 
     # Error logs — read-only incident-triage browser over ErrorLog (engine model).

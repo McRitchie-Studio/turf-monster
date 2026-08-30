@@ -11,9 +11,44 @@
     target and appends to the event feed; nothing on this page polls. %>
 <%= turbo_stream_from "nfl_live" %>
 
+<%# The board's Alpine component. Defined inline rather than in the importmap
+    so it exists before Alpine processes the x-data below — the same reason
+    contests/live.html.erb defines its carousel factory inline. %>
+<script>
+  window.nflLiveBoard = function (initialFocus) {
+    return {
+      focus: initialFocus || '',
+
+      // Pressing a card in the grid makes it the focus game, which also REMOVES
+      // it from the grid (live/_scoreboard hides the focused slug). The scroll
+      // is not a flourish: without it the card you pressed vanishes and the
+      // thing that replaced it is off the top of the screen, so the press reads
+      // as having deleted the game.
+      //
+      // $nextTick, because the panel is 30KB of hero tiles and the one being
+      // revealed has to be laid out before its position can be scrolled to.
+      select(slug) {
+        this.focus = slug;
+        this.$nextTick(function () {
+          var panel = document.getElementById('nfl_live_focus');
+          if (!panel) return;
+          var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          panel.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+        });
+      }
+    };
+  };
+</script>
+
 <%# max-w-7xl, not 6xl: four cards across need the extra 128px to keep each
     one wide enough for a mascot, a city and a two-digit score without truncation. %>
-<div class="max-w-7xl mx-auto px-4 py-6">
+<%# THE FOCUS LIVES ON THE OUTERMOST ELEMENT, and that placement is the whole
+    trick — the same one the contest live page turns. Nfl::LiveBroadcast
+    replaces the focus panel and the scoreboard on every score, so Alpine state
+    declared inside either one would be reset by the next touchdown and the
+    reader's chosen game would jump back to the server's pick mid-play.
+    Declared out here it survives every replacement. %>
+<div class="max-w-7xl mx-auto px-4 py-6" x-data="nflLiveBoard('<%= @focus_slug %>')">
   <div class="mb-5 flex items-start justify-between gap-3 flex-wrap">
     <div class="min-w-0">
       <p class="text-sm text-secondary font-medium">Live Scoreboard</p>
@@ -29,8 +64,23 @@
     <%= render "live/dev_score_tools", games: @games %>
   </div>
 
+  <%# THE CENTREPIECE, first and full width. The game you are watching is the
+      reason the page is open, so it gets the whole row and the large type; the
+      grid that CHOOSES it sits underneath. The wrapper owns the id and the
+      broadcaster replaces its contents on every score.
+
+      scroll-margin-top is what makes `select()`'s scrollIntoView land BELOW the
+      sticky header instead of under it. --nav-bottom is the header's bottom
+      EDGE (--nav-h is only its height, and the two differ whenever an
+      environment bar sits above it), and letting CSS do the unit arithmetic
+      beats parsing a rem value out of a computed style in JS. %>
+  <div id="nfl_live_focus" class="mb-4"
+       style="scroll-margin-top: calc(var(--nav-bottom, var(--nav-h, 4rem)) + 0.75rem)">
+    <%= render "live/focus", games: @games, focus_slug: @focus_slug %>
+  </div>
+
   <div id="nfl_live_scoreboard">
-    <%= render "live/scoreboard", games: @games %>
+    <%= render "live/scoreboard", games: @games, focus_slug: @focus_slug %>
   </div>
 
   <%# Hidden event feed — broadcast_append_to drops data-only nodes here; the
@@ -61,10 +111,26 @@
     if (!feed || feed.dataset.observed) return;  // guard double-attach across Turbo visits
     feed.dataset.observed = '1';
 
+    var board = document.getElementById('nfl_live_scoreboard');
+
+    // TWO BOARDS NOW, and every lookup below runs across BOTH. The focus panel
+    // draws the same game as a hero tile with the same data-game-slug and the
+    // same animation hooks, and it sits ABOVE the grid — so a querySelector
+    // would have lit whichever came first in the document (the hidden hero, for
+    // fifteen of the sixteen games) and left the visible card grey.
+    var focusPanel = document.getElementById('nfl_live_focus');
+    var boards = [focusPanel, board].filter(Boolean);
+    function all(selector) {
+      var found = [];
+      boards.forEach(function (b) {
+        Array.prototype.push.apply(found, b.querySelectorAll(selector));
+      });
+      return found;
+    }
+
     var overlay = document.getElementById('nfl-score-overlay');
     var banner  = document.getElementById('nfl-score-banner');
     var shimmer = document.getElementById('nfl-score-shimmer');
-    var board   = document.getElementById('nfl_live_scoreboard');
     var hideTimer = null;
 
     // The two hold windows. Both are overridable from the page so a test can
@@ -101,11 +167,9 @@
       if (cls) el.classList.add(cls);
     }
 
-    function row(gameSlug, teamSlug) {
-      if (!gameSlug || !teamSlug) return null;
-      return document.querySelector(
-        '[data-game-slug="' + gameSlug + '"] [data-team-slug="' + teamSlug + '"]'
-      );
+    function rows(gameSlug, teamSlug) {
+      if (!gameSlug || !teamSlug) return [];
+      return all('[data-game-slug="' + gameSlug + '"] [data-team-slug="' + teamSlug + '"]');
     }
 
     // WHICH SCORES ARE STILL HOT. Held in JS and re-applied after every board
@@ -130,9 +194,10 @@
     function applyHot() {
       Object.keys(hot).forEach(function (k) {
         var parts = k.split('|');
-        var el = row(parts[0], parts[1]);
-        var score = el && el.querySelector('[data-role="score"]');
-        if (score) score.classList.add('nfl-score-hot');
+        rows(parts[0], parts[1]).forEach(function (el) {
+          var score = el.querySelector('[data-role="score"]');
+          if (score) score.classList.add('nfl-score-hot');
+        });
       });
     }
 
@@ -141,10 +206,10 @@
       if (!(k in hot)) return;
       clearTimeout(hot[k]);
       delete hot[k];
-      var el = row(gameSlug, teamSlug);
-      var score = el && el.querySelector('[data-role="score"]');
-      if (!score) return;
-      score.classList.remove('nfl-score-hot');   // the transition above fades it home
+      rows(gameSlug, teamSlug).forEach(function (el) {
+        var score = el.querySelector('[data-role="score"]');
+        if (score) score.classList.remove('nfl-score-hot');   // the transition above fades it home
+      });
     }
 
     // Kickoff times are rendered by the BROWSER, in the viewer's own zone. The
@@ -187,8 +252,35 @@
       );
     }
 
-    function card(gameSlug) {
-      return gameSlug ? document.querySelector('[data-game-slug="' + gameSlug + '"]') : null;
+    // SCROLL SHADOWS on the focus tile's events rail. A fade at each end says
+    // "there is more this way", so each has to be absent when there is not — at
+    // the top of the list the MISSING top fade is what says you are at the top.
+    // The rule that reads these attributes ships in live/_score_animations,
+    // which this page already renders; the server's default is top-off,
+    // bottom-on, and this corrects it once the list has a measured height.
+    //
+    // Attribute writes only: this runs from a childList observer, and setting an
+    // attribute is not a childList mutation, so it cannot feed itself the way a
+    // textContent write would.
+    function updateFades(rail) {
+      var frame = rail.closest('[data-role="event-feed-frame"]');
+      if (!frame) return;
+      var slack = rail.scrollHeight - rail.clientHeight;
+      frame.setAttribute('data-fade-top', rail.scrollTop > 2 ? '1' : '0');
+      frame.setAttribute('data-fade-bottom', slack > 2 && rail.scrollTop < slack - 2 ? '1' : '0');
+    }
+
+    function wireFeeds() {
+      all('[data-test="live-focus-events"]').forEach(function (rail) {
+        updateFades(rail);
+        if (rail.dataset.fadeWired) return;   // a broadcast brings fresh nodes
+        rail.dataset.fadeWired = '1';
+        rail.addEventListener('scroll', function () { updateFades(rail); }, { passive: true });
+      });
+    }
+
+    function cards(gameSlug) {
+      return gameSlug ? all('[data-game-slug="' + gameSlug + '"]') : [];
     }
 
     // Re-applied after every board replacement, same as the hot score: a
@@ -197,11 +289,11 @@
     var glowColors = {};
     function applyGlow() {
       Object.keys(glowColors).forEach(function (g) {
-        var el = card(g);
-        if (!el) return;
-        el.style.setProperty('--studio-team-glow-color', glowColors[g].a);
-        el.style.setProperty('--studio-team-glow-color-b', glowColors[g].b);
-        el.style.setProperty('--studio-team-glow-opacity', '1');
+        cards(g).forEach(function (el) {
+          el.style.setProperty('--studio-team-glow-color', glowColors[g].a);
+          el.style.setProperty('--studio-team-glow-color-b', glowColors[g].b);
+          el.style.setProperty('--studio-team-glow-opacity', '1');
+        });
       });
     }
 
@@ -210,14 +302,15 @@
       clearTimeout(glow[gameSlug]);
       delete glow[gameSlug];
       delete glowColors[gameSlug];
-      var el = card(gameSlug);
       // Back to 0 rather than removing the property: the class's own 0.4s
       // opacity transition then fades the ring out instead of cutting it.
-      if (el) el.style.setProperty('--studio-team-glow-opacity', '0');
+      cards(gameSlug).forEach(function (el) {
+        el.style.setProperty('--studio-team-glow-opacity', '0');
+      });
     }
 
     function lightCard(gameSlug, a, b) {
-      if (!card(gameSlug)) return;
+      if (!cards(gameSlug).length) return;
       glowColors[gameSlug] = { a: a || 'var(--color-cta)', b: b || a || 'var(--color-cta)' };
       applyGlow();
       if (glow[gameSlug]) clearTimeout(glow[gameSlug]);   // RESET, never stack
@@ -225,14 +318,16 @@
     }
 
     function animateRow(d) {
-      var el = row(d.gameSlug, d.teamSlug);
-      if (!el) return;
+      var targets = rows(d.gameSlug, d.teamSlug);
+      if (!targets.length) return;
       var anim = ANIM[d.scoringType] || FALLBACK;
 
-      restart(el.querySelector('.nfl-row-wash'), ['nfl-wash-run'], 'nfl-wash-run');
-      restart(el.querySelector('.nfl-rail'),     ['nfl-rail-run'], 'nfl-rail-run');
-      restart(el.querySelector('.nfl-sweep'), ['nfl-sweep-run'], anim.sweep ? 'nfl-sweep-run' : null);
-      restart(el.querySelector('[data-role="score"]'), SCORE_CLASSES, anim.score);
+      targets.forEach(function (el) {
+        restart(el.querySelector('.nfl-row-wash'), ['nfl-wash-run'], 'nfl-wash-run');
+        restart(el.querySelector('.nfl-rail'),     ['nfl-rail-run'], 'nfl-rail-run');
+        restart(el.querySelector('.nfl-sweep'), ['nfl-sweep-run'], anim.sweep ? 'nfl-sweep-run' : null);
+        restart(el.querySelector('[data-role="score"]'), SCORE_CLASSES, anim.score);
+      });
 
       var k = key(d.gameSlug, d.teamSlug);
       if (hot[k]) clearTimeout(hot[k]);                   // RESET, never stack
@@ -304,16 +399,21 @@
       muts.forEach(function (m) { Array.prototype.slice.call(m.addedNodes).forEach(fire); });
     }).observe(feed, { childList: true });
 
-    // A broadcast replaces the board wholesale; re-paint the still-hot scores
+    // A broadcast replaces BOTH boards wholesale; re-paint the still-hot scores
     // onto the new nodes so a score that just changed does not go grey again
     // because a DIFFERENT game scored.
-    if (board) {
-      new MutationObserver(function () { applyHot(); applyGlow(); formatKickoffs(board); })
-        .observe(board, { childList: true, subtree: true });
-    }
+    boards.forEach(function (b) {
+      new MutationObserver(function () {
+        applyHot();
+        applyGlow();
+        formatKickoffs(b);
+        wireFeeds();
+      }).observe(b, { childList: true, subtree: true });
+    });
 
-    // First paint. Redraws are covered by the observer above rather than a
-    // second one — a broadcast delivers fresh nodes still carrying UTC.
+    // First paint. Redraws are covered by the observers above rather than a
+    // second pair — a broadcast delivers fresh nodes still carrying UTC.
     formatKickoffs(document);
+    wireFeeds();
   })();
 </script>
