@@ -30,8 +30,13 @@
           scrollbar is hidden the same way .tt-event-feed hides its own: a bar
           under a single row of chips reads as chrome, and the strip already
           advertises that it moves by rotating. %>
+      <%# @scroll records the position on a page-level object OUTSIDE this
+          container, because a score replaces everything in here — see the
+          gamesStripMemory note in live.html.erb. Passive: it only reads
+          scrollLeft, so it must never hold up the scroll it is watching. %>
       <div x-ref="viewport"
            class="tt-games-strip overflow-x-auto overflow-y-hidden py-2"
+           @scroll.passive="remember()"
            @wheel="standDown()" @touchstart.passive="standDown()" @pointerdown="standDown()" @keydown="standDown()">
         <div x-ref="track" class="flex gap-2 items-stretch will-change-transform">
           <% phased.each do |game| %>

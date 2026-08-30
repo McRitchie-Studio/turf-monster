@@ -704,11 +704,13 @@ test.describe("Contest live page", () => {
   test("a reader can scroll the strip, and it stays where they put it", async ({
     page,
   }) => {
+    test.setTimeout(90000);
     await allowMotion(page);
     await loginAdmin(page);
     await openLive(page, CONTEST);
 
     const viewport = page.locator('[x-ref="viewport"]').first();
+    const at = () => viewport.evaluate((el) => Math.round(el.scrollLeft));
 
     // It has somewhere to scroll TO — otherwise the rest proves nothing.
     const room = await viewport.evaluate((el) => el.scrollWidth - el.clientWidth);
@@ -720,18 +722,69 @@ test.describe("Contest live page", () => {
     );
     expect(transform).toBe("none");
 
-    await viewport.evaluate((el) => { el.scrollLeft = 400; });
-    expect(await viewport.evaluate((el) => Math.round(el.scrollLeft))).toBeGreaterThan(300);
+    // THE CONTROL, and it is the reason this test means anything.
+    //
+    // Everything below asserts the strip DID NOT move. That assertion is worth
+    // nothing unless an untouched strip WOULD have moved in the same window —
+    // and the rotation dwells 8s before its first frame, so a shorter wait
+    // passes on a strip that is merely idle and on one that is properly stood
+    // down alike. This measures the window first: leave the strip alone, wait
+    // out the dwell, and prove it travels. Only then does "it held" have force.
+    const restingAt = await at();
+    await page.waitForTimeout(9500);
+    const rotated = await at();
+    expect(
+      rotated - restingAt,
+      "the rotation never moved, so a later 'it held' would prove nothing"
+    ).toBeGreaterThan(30);
 
-    // AND IT STAYS. A wheel hands the strip over for good, so the rotation must
-    // not creep it back — this is the assertion that would have failed on every
-    // version where both mechanisms were live at once.
-    await viewport.dispatchEvent("wheel");
+    // Now hand it over. A wheel stands the rotation down for good.
+    await viewport.hover();
+    await page.mouse.wheel(300, 0);
     await viewport.evaluate((el) => { el.scrollLeft = 700; });
-    await page.waitForTimeout(3000);
+    expect(await at()).toBe(700);
 
-    const held = await viewport.evaluate((el) => Math.round(el.scrollLeft));
+    // AND IT STAYS — across a window we have just proven is long enough for the
+    // rotation to have moved it.
+    await page.waitForTimeout(9500);
+    const held = await at();
     expect(Math.abs(held - 700), `the strip drifted to ${held}`).toBeLessThan(20);
+
+    // AND IT SURVIVES A SCORE, which is the case that actually broke.
+    //
+    // Contest::LiveBroadcast#replace_games swaps the innerHTML of the container
+    // this component's x-data lives in, so every goal destroys and rebuilds the
+    // carousel. Before the state was hoisted out of that container, the reader's
+    // offset and their stand-down went back to 0/false on every touchdown — on
+    // the page this feature exists for, on the event that page exists to show.
+    const chip = page.locator('[data-test="live-game-chip"][data-game-slug]').first();
+    const gameSlug = await chip.getAttribute("data-game-slug");
+    const teamSlug = await chip.locator("[data-team-slug]").first().getAttribute("data-team-slug");
+
+    const swapped = viewport.evaluate((el) => new Promise((res) => {
+      const box = el.closest('[id$="_games"]');
+      new MutationObserver(() => res(true)).observe(box, { childList: true, subtree: true });
+    }));
+    await recordTouchdown(page, gameSlug, teamSlug);
+    await swapped;
+    await page.waitForTimeout(1500);
+
+    const afterScore = await page.locator('[x-ref="viewport"]').first()
+      .evaluate((el) => Math.round(el.scrollLeft));
+    expect(
+      Math.abs(afterScore - 700),
+      `the score reset the strip to ${afterScore} — the reader lost their place`
+    ).toBeLessThan(20);
+
+    // Still stood down afterwards: the rebuilt component inherited the handover,
+    // so the rotation does not start up again under someone who is reading.
+    await page.waitForTimeout(9500);
+    const settled = await page.locator('[x-ref="viewport"]').first()
+      .evaluate((el) => Math.round(el.scrollLeft));
+    expect(
+      Math.abs(settled - 700),
+      `the rotation restarted after the score and crept to ${settled}`
+    ).toBeLessThan(20);
   });
 
 });

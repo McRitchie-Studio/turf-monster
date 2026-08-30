@@ -41,6 +41,22 @@
       overflows; honors prefers-reduced-motion; pauses under the pointer, because
       the chips are buttons and a moving button is a missed click. %>
   <script>
+    // WHAT THE READER DID, KEPT OUTSIDE THE THING THAT GETS REPLACED.
+    //
+    // Contest::LiveBroadcast#replace_games swaps the innerHTML of
+    // #contest_<id>_games on EVERY score, and this component's x-data lives
+    // inside that container. So the component object is destroyed and rebuilt
+    // whenever anyone scores: every field on it goes back to its initial value.
+    // A scroll offset or a stand-down flag stored on the component would be
+    // forgotten by the very event this page exists to show.
+    //
+    // The strip partial's header comment already names this trap — it is why
+    // the FOCUS selection lives on a wrapper outside the target. The reader's
+    // position and their stand-down are the same kind of state, so they live
+    // out here, on an object no DOM replacement can reach. Not an Alpine store:
+    // this script runs before Alpine boots, and plain state needs no framework.
+    window.gamesStripMemory = window.gamesStripMemory || { scroll: 0, stoodDown: false };
+
     window.gamesCarousel = function () {
       return {
         _timer: null,
@@ -50,27 +66,54 @@
         _origWidth: 0,
 
         init() {
+          // Pick up where the last instance left off. On a first render this is
+          // the default (0 / false); after a broadcast it is what the reader was
+          // actually looking at a moment ago.
+          this._stood_down = window.gamesStripMemory.stoodDown;
+
           // Reduced motion stops the ROTATION, never the scrolling. A reader who
           // asked for less movement still gets to reach every game by hand — the
           // viewport is scrollable in markup, so there is nothing to set up here.
           if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
             this._stood_down = true;
-            return;
           }
+
+          // Restore the offset even when stood down (especially then) — a reader
+          // who parked the strip keeps their place across the score that lands.
           this.$nextTick(() => this.setup());
         },
 
         setup() {
           var vp = this.$refs.viewport, track = this.$refs.track;
           if (!vp || !track) return;
-          if (track.scrollWidth <= vp.clientWidth + 4) return; // fits — no rotation
+          if (track.scrollWidth <= vp.clientWidth + 4) {
+            // Fits — no rotation, and no clones to scroll through. The reader's
+            // remembered offset cannot survive a strip that no longer overflows,
+            // so drop it rather than restore a position that no longer exists.
+            window.gamesStripMemory.scroll = 0;
+            return;
+          }
           this._origWidth = track.scrollWidth;
           // Clone the originals so scrolling one content-width lands on an
           // identical first row before we snap back to 0 (seamless loop).
           Array.prototype.slice.call(track.children).forEach(function (c) {
             track.appendChild(c.cloneNode(true));
           });
-          this._dwellThenScroll();
+
+          // Put the strip back where it was. Clamped, because a score can change
+          // how many chips there are: a remembered offset from a wider strip
+          // would otherwise scroll past the end and read as a jump to the edge.
+          var want = Math.min(window.gamesStripMemory.scroll, vp.scrollWidth - vp.clientWidth);
+          if (want > 0) vp.scrollLeft = want;
+
+          if (!this._stood_down) this._dwellThenScroll();
+        },
+
+        // Every movement is recorded, the reader's and the rotation's alike, so a
+        // broadcast landing mid-travel resumes from where the eye last was.
+        remember() {
+          var vp = this.$refs.viewport;
+          if (vp) window.gamesStripMemory.scroll = vp.scrollLeft;
         },
 
         // THE READER TAKES THE WHEEL, PERMANENTLY.
@@ -84,8 +127,17 @@
         standDown() {
           if (this._stood_down) return;
           this._stood_down = true;
+          window.gamesStripMemory.stoodDown = true;
+          this.remember();
           this._halt();
         },
+
+        // Alpine calls this when the node goes away — which, on this page, is
+        // every single score. Without it the rAF chain below outlives the element
+        // it animates and keeps requesting frames forever, one orphaned loop per
+        // score. The old transform version survived the omission by luck: a
+        // detached node never fires transitionend, so that chain died by itself.
+        destroy() { this._halt(); },
 
         _halt() {
           if (this._timer) { clearTimeout(this._timer); this._timer = null; }
@@ -138,6 +190,10 @@
 
           var step = function (now) {
             if (self._paused || self._stood_down) return;
+            // Belt and braces with destroy(): if this element has left the
+            // document the loop stops on its own, so a missed teardown costs one
+            // frame rather than an immortal 60fps loop.
+            if (!vp.isConnected) { self._raf = null; return; }
             if (t0 === null) t0 = now;
             var progress = Math.min(1, (now - t0) / dur);
             vp.scrollLeft = from + distance * progress;
@@ -158,6 +214,7 @@
           var vp = this.$refs.viewport;
           if (!vp || this._stood_down) return;
           vp.scrollLeft = 0;
+          window.gamesStripMemory.scroll = 0;
           this._dwellThenScroll();
         }
       };
