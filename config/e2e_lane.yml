@@ -466,7 +466,25 @@
 # branch tree IS the merged tree), both identities: `npx playwright test --list` -> 218
 # tests in 56 files, `--grep "@devnet"` -> 17 in 1 file, `--grep-invert "@devnet"
 # --project=chromium` -> 201 collected.
-total_specs: 218
+#
+# 218 -> 219 (same task, second pass): ONE more spec, extending
+# e2e/wallet_sign_in.spec.js — the mobile RETURN leg. The adoption also deleted
+# this app's copy of solana_sessions/phantom_callback, which was a TRUE SHADOW at
+# the identical virtual path, so while it existed the engine's copy was dead code
+# and no assertion anywhere could tell.
+#
+# WHY A BROWSER AND NOTHING CHEAPER. The engine's studio/solana/deeplink_assets
+# APPENDS a script element for tweetnacl — asynchronous — while the callback reads
+# `nacl` AT PARSE TIME and hard-fails with no retry. This app resolved that by
+# keeping its own BLOCKING tag and rendering deeplink_assets nowhere. A Rails test
+# can assert the tag carries no defer; it CANNOT assert nacl was defined when the
+# IIFE ran. The difference is one line of runtime text, and the spec reads it.
+# Mutation, with the server actually restarted: adding `defer` to that tag turns it
+# RED with Received: "TweetNaCl not loaded". The same spec pins the debug sink this
+# app opts back in to, and the OPSEC guarantee that the dapp x25519 secret's VALUE
+# never reaches it — against a REAL localStorage, where the existing Node-level test
+# uses a stubbed one.
+total_specs: 219
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -699,7 +717,12 @@ allowed_skips: 4
 # says so and means it. allowed_skips stays 4: neither spec carries a runtime skip,
 # and the two identities agreeing is what proves that rather than my saying so.
 # 218 - 17 - 4 = 197, and 201 collected - 4 runtime skips = 197. Both routes agree.
-executed: 197
+#
+# 197 -> 198 (same task, second pass): the callback spec described beside
+# total_specs above. Re-derived with bin/e2e-lane-derive, which is the tool, not
+# arithmetic — it read 219 in the tree against a contract of 218 and said so.
+# allowed_skips stays 4; it carries no runtime skip.
+executed: 198
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
