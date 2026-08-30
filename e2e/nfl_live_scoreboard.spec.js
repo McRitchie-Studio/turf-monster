@@ -701,6 +701,56 @@ test.describe("Contest live page", () => {
   // while one drove `transform` and the other drove scrollLeft — whichever
   // wrote last snapped the strip out from under the other — so the fix made the
   // native scroll offset the only owner, and this is where that is proven.
+  // A PLAIN VERTICAL PAGE SCROLL MUST LEAVE THE ROTATION ALONE.
+  //
+  // A wheel event fires on whatever sits under the pointer and bubbles, whether
+  // or not that element is what ends up scrolling. This strip runs full width
+  // across the TOP of the live page, so it is directly under the cursor on the
+  // way down to chat — and while the handover was bound to @wheel, reading the
+  // chat cost you the rotation for the rest of the session. The strip itself
+  // never moved: page scrollY 400, strip scrollLeft 0, stood down anyway.
+  //
+  // It mattered more than it sounds because this page hides the strip's
+  // scrollbar, so the rotation is the only thing advertising that games exist
+  // off-screen. Kill it and a 16-game slate silently reads as however many chips
+  // happen to fit.
+  test("scrolling the page past the strip leaves the rotation alone", async ({
+    page,
+  }) => {
+    test.setTimeout(60000);
+    await allowMotion(page);
+    await loginAdmin(page);
+    await openLive(page, CONTEST);
+
+    const viewport = page.locator('[x-ref="viewport"]').first();
+    const at = () => viewport.evaluate((el) => Math.round(el.scrollLeft));
+
+    const room = await viewport.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(room, "the strip must overflow, or it would not rotate at all").toBeGreaterThan(100);
+
+    // The gesture: pointer over the strip, wheel DOWN. deltaX is 0.
+    await viewport.hover();
+    await page.mouse.wheel(0, 400);
+    await page.waitForTimeout(700);
+
+    // The page moved and the strip did not — which is exactly why the strip must
+    // not treat this as the reader taking it over.
+    expect(await page.evaluate(() => Math.round(window.scrollY)),
+      "the page should have scrolled").toBeGreaterThan(100);
+    expect(await at(), "the strip itself never moved").toBe(0);
+
+    // Pointer off the strip, so hover-pause is not what we are measuring, then
+    // wait out the 8s dwell. A rotation that survived the wheel will travel.
+    await page.mouse.move(5, 5);
+    const before = await at();
+    await page.waitForTimeout(11000);
+    const after = await at();
+    expect(
+      after - before,
+      `the rotation died on a vertical page scroll (${before} -> ${after})`
+    ).toBeGreaterThan(30);
+  });
+
   test("a reader can scroll the strip, and it stays where they put it", async ({
     page,
   }) => {

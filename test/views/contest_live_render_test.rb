@@ -452,22 +452,73 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
   end
 
   # A reader who scrolls has said where they want to be far more clearly than a
-  # hover does, so the rotation stands down for good rather than pausing. These
-  # are the four interactions that mean "a person did this" — a `scroll` event
-  # would not do, because the rotation fires that itself.
-  test "a real interaction stands the rotation down" do
+  # hover does, so the rotation stands down for good rather than pausing. The
+  # signal is the STRIP'S OWN scroll event, because that is the only thing that
+  # fires when this element actually moved.
+  test "a reader scrolling the strip stands the rotation down" do
     get_live
 
     assert_select "[x-ref=viewport]" do |els|
       markup = els.first.to_s
-      %w[@wheel @touchstart.passive @pointerdown @keydown].each do |handler|
-        assert_includes markup, handler,
-          "#{handler} must hand the strip to the reader"
-      end
-      assert_includes markup, "standDown()",
-        "and it must stand DOWN, not merely pause — resume() refuses afterwards"
+      assert_includes markup, "@scroll.passive",
+        "the strip's own scroll is what hands it to the reader"
       assert_includes markup, "remember()",
         "and every movement must be recorded, or a score forgets where the reader was"
+    end
+  end
+
+  # THE VERTICAL-SCROLL REGRESSION.
+  #
+  # A `wheel` fires on whatever is under the pointer and bubbles whether or not
+  # that element scrolls, and this strip spans the top of the live page — right
+  # under the cursor on the way down to chat. A bare @wheel="standDown()" here
+  # therefore killed the rotation for the rest of the session on a plain
+  # VERTICAL page scroll, with the strip itself never having moved. Measured:
+  # page scrollY 400, strip scrollLeft 0, stoodDown true, no travel in 11s.
+  #
+  # An axis check alone is NOT the fix either: Chrome implements shift+wheel
+  # horizontal scrolling by setting deltaY with shiftKey, so `deltaX !== 0`
+  # would miss a mouse user scrolling this strip sideways.
+  test "a vertical wheel over the strip cannot stand the rotation down" do
+    get_live
+
+    assert_select "[x-ref=viewport]" do |els|
+      markup = els.first.to_s
+      refute_includes markup, '@wheel="standDown()"',
+        "an unconditional wheel handler kills the rotation on a vertical page scroll"
+      assert_includes markup, "wheelAcross($event)",
+        "the wheel must be filtered for horizontal intent, not taken at face value"
+    end
+
+    factory = games_carousel_source
+    assert_match(/wheelAcross\s*\(\s*e\s*\)\s*\{[^}]*shiftKey/, factory,
+      "shiftKey must be honoured, or a mouse user scrolling sideways is missed")
+  end
+
+  # Choosing a game is what this strip is FOR. A click or a tap must not cost the
+  # reader the rotation — hover already freezes it while the pointer is there,
+  # and a drag, swipe or arrow key reaches @scroll on its own.
+  test "choosing a game does not cost the reader the rotation" do
+    get_live
+
+    assert_select "[x-ref=viewport]" do |els|
+      markup = els.first.to_s
+      %w[@pointerdown @keydown @touchstart].each do |handler|
+        refute_includes markup, handler,
+          "#{handler} stands the rotation down on a TAP, and a tap is not a scroll"
+      end
+    end
+  end
+
+  # Neither listener calls preventDefault, and a non-passive listener on a scroll
+  # container blocks the scroll it is watching.
+  test "the strip's listeners are passive" do
+    get_live
+
+    assert_select "[x-ref=viewport]" do |els|
+      markup = els.first.to_s
+      assert_includes markup, "@scroll.passive", "a scroll listener must not block scrolling"
+      assert_includes markup, "@wheel.passive",  "nor may a wheel listener on a scroll container"
     end
   end
 

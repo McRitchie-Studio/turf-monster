@@ -72,6 +72,7 @@
         _paused: false,
         _stood_down: false,
         _origWidth: 0,
+        _written: 0,      // the last scrollLeft THIS component wrote — see remember()
 
         init() {
           // Pick up where the last instance left off. On a first render this is
@@ -112,16 +113,58 @@
           // how many chips there are: a remembered offset from a wider strip
           // would otherwise scroll past the end and read as a jump to the edge.
           var want = Math.min(window.gamesStripMemory.scroll, vp.scrollWidth - vp.clientWidth);
-          if (want > 0) vp.scrollLeft = want;
+          this._writeScroll(vp, want > 0 ? want : 0);
 
           if (!this._stood_down) this._dwellThenScroll();
         },
 
-        // Every movement is recorded, the reader's and the rotation's alike, so a
-        // broadcast landing mid-travel resumes from where the eye last was.
+        // Every programmatic write goes through here so remember() can tell the
+        // rotation's own movement apart from a reader's. Read back rather than
+        // trusting the assignment: the browser clamps to the scrollable range and
+        // rounds to device pixels, so what lands is not always what we asked for.
+        _writeScroll(vp, x) {
+          vp.scrollLeft = x;
+          this._written = vp.scrollLeft;
+        },
+
+        // THE ONE SIGNAL THAT MEANS A PERSON MOVED THE STRIP.
+        //
+        // Not the input event. A wheel fires on whatever sits under the pointer
+        // and bubbles whether or not that element scrolls, and this strip runs
+        // full width across the top of the page — directly under the cursor on
+        // the way down to chat. Standing down on `wheel` therefore killed the
+        // rotation for the rest of the session on a plain VERTICAL page scroll,
+        // with the strip itself never having moved. Nor is the axis a fix:
+        // Chrome implements shift+wheel horizontal scrolling by setting deltaY
+        // with shiftKey, so a `deltaX !== 0` guard would miss a mouse user
+        // scrolling this strip sideways — the exact reader we mean to yield to.
+        //
+        // A `scroll` event, by contrast, fires only when this element's own
+        // offset actually changed. All that remains is attribution, and the
+        // component knows what it wrote: anything else is the reader. That also
+        // covers a drag, a swipe and an arrow key without a listener each.
         remember() {
           var vp = this.$refs.viewport;
-          if (vp) window.gamesStripMemory.scroll = vp.scrollLeft;
+          if (!vp) return;
+          var pos = vp.scrollLeft;
+          // Tolerance, not equality: sub-pixel rounding on a device-pixel grid
+          // makes an exact comparison read the rotation's own writes as a reader.
+          if (!this._stood_down && Math.abs(pos - this._written) > 2) {
+            this.standDown();
+            return;                     // standDown() records the position itself
+          }
+          this._written = pos;
+          window.gamesStripMemory.scroll = pos;
+        },
+
+        // A horizontal wheel, caught at the input rather than waiting for the
+        // scroll it causes. Only for the case remember() can genuinely miss: mid
+        // rotation, a frame may overwrite the reader's position before the scroll
+        // event is dispatched, and the attribution above then sees only our own
+        // value. Vertical wheels are ignored here — that is the bug this replaces
+        // — and shiftKey is honoured because that is how a mouse scrolls sideways.
+        wheelAcross(e) {
+          if (e.deltaX !== 0 || e.shiftKey) this.standDown();
         },
 
         // THE READER TAKES THE WHEEL, PERMANENTLY.
@@ -204,7 +247,7 @@
             if (!vp.isConnected) { self._raf = null; return; }
             if (t0 === null) t0 = now;
             var progress = Math.min(1, (now - t0) / dur);
-            vp.scrollLeft = from + distance * progress;
+            self._writeScroll(vp, from + distance * progress);
             if (progress < 1) {
               self._raf = requestAnimationFrame(step);
             } else {
@@ -221,7 +264,7 @@
         _reset() {
           var vp = this.$refs.viewport;
           if (!vp || this._stood_down) return;
-          vp.scrollLeft = 0;
+          this._writeScroll(vp, 0);
           window.gamesStripMemory.scroll = 0;
           this._dwellThenScroll();
         }
