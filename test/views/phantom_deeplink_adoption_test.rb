@@ -125,9 +125,20 @@ class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
     refute_match(%r{^\s*// Phantom deep link protocol}, stripped, "a JS line comment survived the strip")
     # And the prose it removed really did name the function, which is the whole
     # reason a bare-name assertion cannot be trusted here.
-    assert_match(/startPhantomDeepLink/, raw.gsub(ResolvedPhantomDeeplink.deeplink_code, ""),
+    #
+    # THE REMOVED TEXT IS COLLECTED, NOT SUBTRACTED. `raw.gsub(stripped, "")` looks
+    # like the removed prose and is not: the stripper cuts INTERIOR spans, so the
+    # stripped text is nowhere a contiguous substring of raw, gsub matches nothing,
+    # and the assertion silently degrades to "raw mentions the name" — which is
+    # true no matter what the stripper did. Gather the spans instead.
+    prose = raw.scan(/<%#.*?%>/m).join("\n") + raw.scan(%r{^\s*//.*$}).join("\n")
+    assert_match(/startPhantomDeepLink/, prose,
                  "the removed prose never mentioned startPhantomDeepLink, so the strip " \
                  "is guarding against a danger that does not exist here — re-check it")
+    assert_operator prose.length, :>, 500,
+                 "the stripper claims to have removed #{raw.length - stripped.length} bytes " \
+                 "but only #{prose.length} bytes of comment can be found — the two are " \
+                 "measuring different things"
   end
 
   # ── The function is DEFINED, not merely named ─────────────────────────
