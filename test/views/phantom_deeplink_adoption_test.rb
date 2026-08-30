@@ -42,6 +42,19 @@ require "test_helper"
 # registration lists, and both mount the picker — so both need the global. One
 # render in shared/_alpine_factories covers both; these tests check the RENDERED
 # pages rather than that arrangement, so a future third layout fails here.
+# THE ENGINE FLOOR THIS FILE DEPENDS ON IS NOT THE ONE THE GEMFILE DECLARES, and
+# that is deliberate rather than overlooked. `studio/solana/_phantom_deeplink`,
+# `Studio.wallet_debug_sink` and `Studio.wallet_sign_in_statement` all first exist
+# in studio-engine 0.64.0; the Gemfile pins `~> 0.63` and
+# test/lib/engine_pin_contract_test.rb sets MINIMUM to 0.63.0. Nothing is red
+# today — a two-segment `~>` under 1.0 admits anything, and the lockfile resolves
+# 0.65.2 — but the floor is UNDERSTATED, and understated is the failure mode that
+# file exists to catch. Raising it means moving the pin and MINIMUM together
+# (engine_pin_contract_test:264 asserts they agree), which is a change of its own:
+# /tasks/raise-engine-pin-to-0-64. Until it lands, the tests below are what fail
+# first on a bundle that walks back to 0.63 — loudly, at resolution, naming the
+# partial.
+#
 class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
   # The literal this app's users have been signing since long before the
   # promotion. HARDCODED on purpose: deriving it from Studio.wallet_sign_in_statement
