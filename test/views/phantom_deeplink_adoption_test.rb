@@ -42,18 +42,21 @@ require "test_helper"
 # registration lists, and both mount the picker — so both need the global. One
 # render in shared/_alpine_factories covers both; these tests check the RENDERED
 # pages rather than that arrangement, so a future third layout fails here.
-# THE ENGINE FLOOR THIS FILE DEPENDS ON IS NOT THE ONE THE GEMFILE DECLARES, and
-# that is deliberate rather than overlooked. `studio/solana/_phantom_deeplink`,
-# `Studio.wallet_debug_sink` and `Studio.wallet_sign_in_statement` all first exist
-# in studio-engine 0.64.0; the Gemfile pins `~> 0.63` and
-# test/lib/engine_pin_contract_test.rb sets MINIMUM to 0.63.0. Nothing is red
-# today — a two-segment `~>` under 1.0 admits anything, and the lockfile resolves
-# 0.65.2 — but the floor is UNDERSTATED, and understated is the failure mode that
-# file exists to catch. Raising it means moving the pin and MINIMUM together
-# (engine_pin_contract_test:264 asserts they agree), which is a change of its own:
-# /tasks/raise-engine-pin-to-0-64. Until it lands, the tests below are what fail
-# first on a bundle that walks back to 0.63 — loudly, at resolution, naming the
-# partial.
+# THE ENGINE FLOOR THIS FILE DEPENDS ON IS NOW THE ONE THE GEMFILE DECLARES.
+# `studio/solana/_phantom_deeplink`, the `solana_sessions/phantom_callback`
+# template, `Studio.wallet_debug_sink` and `Studio.wallet_sign_in_statement` all
+# first exist in studio-engine 0.64.0. This file used to record that the pin
+# UNDERSTATED that — `~> 0.63` with MINIMUM at 0.63.0 — and point at
+# /tasks/raise-engine-pin-to-0-64 as the change that would close it. That task
+# landed: the Gemfile pins `~> 0.64` and engine_pin_contract_test sets MINIMUM to
+# 0.64.0, which is the MAXIMUM first-appearance across everything this app
+# renders or configures.
+#
+# The sharpest consequence is worth keeping in view here, because it is NOT what
+# this file's own tests catch: `config/initializers/studio.rb` SETS
+# `config.wallet_debug_sink`, so a bundle that walks back to 0.63 raises
+# NoMethodError inside `Studio.configure` and the app never boots. The tests
+# below would fail on such a bundle too, but the boot does first.
 #
 class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
   # The literal this app's users have been signing since long before the

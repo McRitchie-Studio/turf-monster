@@ -17,7 +17,7 @@ require "nokogiri"
 # engine covers is the engine's file. What this app's users get is whichever host
 # RESOLVES here, and two things can still change that answer without touching a
 # line of the engine: a new app view at the same path re-creates the shadow, and
-# the pin (~> 0.63) admits a version whose host predates a fix. Both are silent —
+# the pin (~> 0.64) admits a version whose host predates a fix. Both are silent —
 # the page still renders a modal either way. So the assertions below read the
 # RESOLVED host (ResolvedModalHost, test/support), which is the same file a page
 # actually gets, and they hold whichever repo it came from.

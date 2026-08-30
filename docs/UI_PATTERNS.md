@@ -273,7 +273,7 @@ pass in studio-engine's own consumer-CI lane, which bundles the engine as a path
 `test/support/resolved_modal_host.rb` wraps this; `test/views/modal_host_adoption_test.rb`
 pins it, and `test/integration/modal_host_focus_contract_test.rb` reads the RESOLVED host
 so the focus contract stays asserted against whatever a page actually gets — a re-fork or
-an engine downgrade under the `~> 0.63` pin both re-open the gap silently.
+an engine downgrade under the `~> 0.64` pin both re-open the gap silently.
 
 **Two consumer seams, so nothing has to fork this file again** (studio-engine 0.65.0):
 
