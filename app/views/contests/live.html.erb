@@ -44,11 +44,22 @@
     window.gamesCarousel = function () {
       return {
         _timer: null,
+        _raf: null,
         _paused: false,
+        _stood_down: false,
+        _origWidth: 0,
+
         init() {
-          if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+          // Reduced motion stops the ROTATION, never the scrolling. A reader who
+          // asked for less movement still gets to reach every game by hand — the
+          // viewport is scrollable in markup, so there is nothing to set up here.
+          if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            this._stood_down = true;
+            return;
+          }
           this.$nextTick(() => this.setup());
         },
+
         setup() {
           var vp = this.$refs.viewport, track = this.$refs.track;
           if (!vp || !track) return;
@@ -61,51 +72,97 @@
           });
           this._dwellThenScroll();
         },
-        // FREEZE WHERE IT IS, not back at the start: reading the live transform
-        // and pinning it is what stops the strip lurching when the pointer
-        // arrives mid-travel. Resume simply restarts the dwell from there.
-        pause() {
-          if (this._paused) return;
-          this._paused = true;
-          if (this._timer) { clearTimeout(this._timer); this._timer = null; }
-          var track = this.$refs.track;
-          if (!track) return;
-          var now = getComputedStyle(track).transform;
-          track.style.transition = 'none';
-          if (now && now !== 'none') track.style.transform = now;
+
+        // THE READER TAKES THE WHEEL, PERMANENTLY.
+        //
+        // Any real interaction — wheel, drag, swipe, arrow key — hands the strip
+        // over for good. Not a pause: `resume()` refuses once this is set, so
+        // moving the pointer away does not start the strip moving under someone
+        // who is reading it. The existing hover-pause is the precedent; this is
+        // the same argument carried to its end, because a reader who scrolled has
+        // told us where they want to be far more clearly than a hover does.
+        standDown() {
+          if (this._stood_down) return;
+          this._stood_down = true;
+          this._halt();
         },
+
+        _halt() {
+          if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+          if (this._raf) { cancelAnimationFrame(this._raf); this._raf = null; }
+        },
+
+        // Hover still pauses, and it still freezes WHERE IT IS — scrollLeft is
+        // already the live position, so unlike the old transform version there is
+        // nothing to read back and pin. Stopping the animation is the whole job.
+        pause() {
+          if (this._paused || this._stood_down) return;
+          this._paused = true;
+          this._halt();
+        },
+
         resume() {
-          if (!this._paused) return;
+          if (!this._paused || this._stood_down) return;
           this._paused = false;
           if (!this._origWidth) return;
           this._dwellThenScroll();
         },
+
         _dwellThenScroll() {
           var self = this;
           this._timer = setTimeout(function () { self._scroll(); }, 8000);
         },
+
+        // SCROLLLEFT, NOT TRANSFORM — one owner of the position.
+        //
+        // The strip used to travel by animating `transform` while the viewport
+        // clipped with overflow-hidden. That made hand-scrolling impossible: the
+        // two mechanisms describe the same movement in different coordinates, so a
+        // reader's scroll and the rotation would fight, and whichever wrote last
+        // would snap the strip out from under the other. Driving the native scroll
+        // position instead means the rotation and the reader are doing the same
+        // thing to the same number, and handing over costs nothing.
+        //
+        // rAF rather than scroll-behavior:smooth because the duration is ours to
+        // choose: ~90 px/s, matching what the transform version travelled at.
         _scroll() {
-          var track = this.$refs.track, self = this;
-          if (this._paused || !track) return;
-          var dur = Math.max(2500, (this._origWidth / 90) * 1000); // ~90 px/s
-          track.style.transition = 'transform ' + dur + 'ms linear';
-          track.style.transform = 'translateX(-' + this._origWidth + 'px)';
-          track.addEventListener('transitionend', function onEnd() {
-            track.removeEventListener('transitionend', onEnd);
-            self._reset();
-          });
+          var vp = this.$refs.viewport, self = this;
+          if (this._paused || this._stood_down || !vp) return;
+
+          var from = vp.scrollLeft;
+          var distance = this._origWidth - from;
+          if (distance <= 0) return this._reset();
+
+          var dur = Math.max(2500, (distance / 90) * 1000);
+          var t0 = null;
+
+          var step = function (now) {
+            if (self._paused || self._stood_down) return;
+            if (t0 === null) t0 = now;
+            var progress = Math.min(1, (now - t0) / dur);
+            vp.scrollLeft = from + distance * progress;
+            if (progress < 1) {
+              self._raf = requestAnimationFrame(step);
+            } else {
+              self._raf = null;
+              self._reset();
+            }
+          };
+          this._raf = requestAnimationFrame(step);
         },
+
+        // Snap back to the identical first row. Instant by definition — the clone
+        // under the viewport is pixel-identical to the original, so the jump is
+        // invisible and the loop reads as continuous.
         _reset() {
-          var track = this.$refs.track;
-          track.style.transition = 'none';
-          track.style.transform = 'translateX(0)';
-          void track.offsetWidth; // reflow so the next transition animates
-          if (!this._paused) this._dwellThenScroll();
-        },
-        destroy() { if (this._timer) clearTimeout(this._timer); }
+          var vp = this.$refs.viewport;
+          if (!vp || this._stood_down) return;
+          vp.scrollLeft = 0;
+          this._dwellThenScroll();
+        }
       };
     };
-  </script>
+</script>
 
   <%# Header %>
   <div class="mb-5 flex items-start justify-between gap-3">

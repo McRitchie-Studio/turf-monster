@@ -420,4 +420,52 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
       assert_includes els.first["class"].to_s.split, "hidden"
     end
   end
+
+  # ── THE GAMES STRIP SCROLLS ───────────────────────────────────────────────
+  #
+  # The strip auto-rotates, and used to do it by animating a `transform` inside
+  # an `overflow-hidden` viewport — which meant a reader could not reach a game
+  # the rotation had not got to yet. The position is now owned by the native
+  # scroll offset, so the reader and the rotation move the same number and the
+  # handover costs nothing.
+  test "the strip viewport scrolls horizontally" do
+    get_live
+
+    assert_select "[x-ref=viewport]" do |els|
+      classes = els.first["class"].to_s.split
+      assert_includes classes, "overflow-x-auto",
+        "the reader must be able to scroll the strip by hand"
+    end
+  end
+
+  # overflow-y MUST stay hidden and the py-2 MUST stay. The selected chip's glow
+  # ring paints outside its own box; the padding is what stops the viewport
+  # slicing it flat, and an `overflow: auto` one-liner silently takes both away.
+  test "the strip still clips vertically and keeps room for the ring" do
+    get_live
+
+    assert_select "[x-ref=viewport]" do |els|
+      classes = els.first["class"].to_s.split
+      assert_includes classes, "overflow-y-hidden", "the ring is clipped vertically by design"
+      assert_includes classes, "py-2", "and the padding is what keeps it from being sliced"
+    end
+  end
+
+  # A reader who scrolls has said where they want to be far more clearly than a
+  # hover does, so the rotation stands down for good rather than pausing. These
+  # are the four interactions that mean "a person did this" — a `scroll` event
+  # would not do, because the rotation fires that itself.
+  test "a real interaction stands the rotation down" do
+    get_live
+
+    assert_select "[x-ref=viewport]" do |els|
+      markup = els.first.to_s
+      %w[@wheel @touchstart.passive @pointerdown @keydown].each do |handler|
+        assert_includes markup, handler,
+          "#{handler} must hand the strip to the reader"
+      end
+      assert_includes markup, "standDown()",
+        "and it must stand DOWN, not merely pause — resume() refuses afterwards"
+    end
+  end
 end

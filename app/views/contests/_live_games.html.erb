@@ -22,7 +22,17 @@
       <%# py-2 is for the RING, not for looks. The selected chip's glow paints
           outside its own box, and this viewport clips — without the padding the
           ring is sliced flat along the top and bottom of the strip. %>
-      <div x-ref="viewport" class="overflow-hidden py-2">
+      <%# SCROLLABLE, and the reader owns it the moment they touch it.
+          overflow-x is auto so the strip can be dragged, swiped or wheeled to a
+          game the rotation has not reached; overflow-y stays hidden because the
+          selected chip's glow ring paints outside its box and the py-2 above is
+          what keeps it from being sliced — see the note on this element. The
+          scrollbar is hidden the same way .tt-event-feed hides its own: a bar
+          under a single row of chips reads as chrome, and the strip already
+          advertises that it moves by rotating. %>
+      <div x-ref="viewport"
+           class="tt-games-strip overflow-x-auto overflow-y-hidden py-2"
+           @wheel="standDown()" @touchstart.passive="standDown()" @pointerdown="standDown()" @keydown="standDown()">
         <div x-ref="track" class="flex gap-2 items-stretch will-change-transform">
           <% phased.each do |game| %>
             <div class="flex-shrink-0">

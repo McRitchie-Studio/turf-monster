@@ -692,4 +692,46 @@ test.describe("Contest live page", () => {
     await expect(page.locator("#nfl-score-points")).toHaveText("+6");
   });
 
+
+  // ── THE STRIP IS THE READER'S ────────────────────────────────────────────
+  //
+  // The markup test can see overflow-x and the handlers. What it cannot see is
+  // the thing that actually broke before: the rotation and a reader's scroll
+  // both trying to own the position. That was impossible to get wrong safely
+  // while one drove `transform` and the other drove scrollLeft — whichever
+  // wrote last snapped the strip out from under the other — so the fix made the
+  // native scroll offset the only owner, and this is where that is proven.
+  test("a reader can scroll the strip, and it stays where they put it", async ({
+    page,
+  }) => {
+    await allowMotion(page);
+    await loginAdmin(page);
+    await openLive(page, CONTEST);
+
+    const viewport = page.locator('[x-ref="viewport"]').first();
+
+    // It has somewhere to scroll TO — otherwise the rest proves nothing.
+    const room = await viewport.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(room, "the strip must overflow, or there is nothing to scroll").toBeGreaterThan(100);
+
+    // The track carries no transform: scrollLeft is the sole owner of position.
+    const transform = await viewport.evaluate(
+      (el) => getComputedStyle(el.querySelector('[x-ref="track"]')).transform
+    );
+    expect(transform).toBe("none");
+
+    await viewport.evaluate((el) => { el.scrollLeft = 400; });
+    expect(await viewport.evaluate((el) => Math.round(el.scrollLeft))).toBeGreaterThan(300);
+
+    // AND IT STAYS. A wheel hands the strip over for good, so the rotation must
+    // not creep it back — this is the assertion that would have failed on every
+    // version where both mechanisms were live at once.
+    await viewport.dispatchEvent("wheel");
+    await viewport.evaluate((el) => { el.scrollLeft = 700; });
+    await page.waitForTimeout(3000);
+
+    const held = await viewport.evaluate((el) => Math.round(el.scrollLeft));
+    expect(Math.abs(held - 700), `the strip drifted to ${held}`).toBeLessThan(20);
+  });
+
 });
