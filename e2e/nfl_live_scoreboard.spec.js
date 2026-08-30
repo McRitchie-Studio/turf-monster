@@ -803,6 +803,20 @@ test.describe("Contest live page", () => {
       "the page should have scrolled").toBeGreaterThan(100);
     expect(await at(), "the strip itself never moved").toBe(0);
 
+    // AND THE SAME SCROLL WITH A HAIR OF SIDEWAYS DRIFT — a trackpad emits a
+    // fraction of a pixel of deltaX on a nominally vertical scroll, and
+    // `deltaX !== 0` read that as the reader taking over. Asserted on the flag,
+    // because the flag IS the predicate the travel below already exercises.
+    const stoodDown = () =>
+      viewport.evaluate((el) => window.Alpine.$data(el)._stood_down);
+    await viewport.hover();
+    await viewport.evaluate((el) =>
+      el.dispatchEvent(
+        new WheelEvent("wheel", { deltaX: 0.4, deltaY: 400, bubbles: true })
+      )
+    );
+    expect(await stoodDown(), "0.4px of drift is not the reader taking over").toBe(false);
+
     // Pointer off the strip, so hover-pause is not what we are measuring, then
     // wait out the 8s dwell. A rotation that survived the wheel will travel.
     await page.mouse.move(5, 5);

@@ -161,10 +161,16 @@
         // scroll it causes. Only for the case remember() can genuinely miss: mid
         // rotation, a frame may overwrite the reader's position before the scroll
         // event is dispatched, and the attribution above then sees only our own
-        // value. Vertical wheels are ignored here — that is the bug this replaces
-        // — and shiftKey is honoured because that is how a mouse scrolls sideways.
+        // value. shiftKey is honoured because that is how a mouse scrolls sideways.
+        //
+        // DOMINANT AXIS, not "any deltaX at all". A trackpad emits a fraction of a
+        // pixel of sideways drift on a nominally VERTICAL scroll, largest at the
+        // start of the gesture — the notch that lands on this strip on the way
+        // down the page. `deltaX !== 0` read that as horizontal intent and stood
+        // the rotation down for the session: the bug above, smaller trigger,
+        // measured lethal at deltaX 0.4 and unrecoverable short of a reload.
         wheelAcross(e) {
-          if (e.deltaX !== 0 || e.shiftKey) this.standDown();
+          if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.shiftKey) this.standDown();
         },
 
         // THE READER TAKES THE WHEEL, PERMANENTLY.
