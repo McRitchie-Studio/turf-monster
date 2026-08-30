@@ -1,10 +1,10 @@
 require "test_helper"
 
 # The Phantom deeplink callback shipped a visual debug sink that printed
-# localStorage — including `phantom_dl_secret`, which phantom_deeplink.js:38
-# sets to encodeBase58(dappKeyPair.secretKey), a real private key — to an
-# on-page element AND the console, with NO environment gate, on every mobile
-# Phantom sign-in.
+# localStorage — including `phantom_dl_secret`, which the deep link
+# (studio/solana/_phantom_deeplink) sets to encodeBase58(dappKeyPair.secretKey),
+# a real private key — to an on-page element AND the console, with NO
+# environment gate, on every mobile Phantom sign-in.
 #
 # Two independent guards, and this file pins the server half:
 #   1. the sink is not RENDERED on a real production deploy (here), and
@@ -15,6 +15,14 @@ require "test_helper"
 # OPSEC-020 kill-switches use — so QA keeps its debugging. Stubbing it is the
 # only way to reach the production branch from the test env, where
 # Rails.env.production? is false by construction.
+#
+# 2026-08-30 (adopt-engine-phantom-deeplink): THE VIEW IS THE ENGINE'S NOW, and
+# these assertions did not move BECAUSE they never read a file — they read the
+# response to a real request, so they follow the template wherever it resolves.
+# What DID move is the predicate behind the render: the engine gates on
+# Studio.wallet_debug_sink and DEFAULTS IT OFF, and config/initializers/studio.rb
+# opts this app back in with `-> { !AppFlags.live_production? }`. Delete that one
+# line and the second test below — the control — is what fails.
 class PhantomCallbackDebugGateTest < ActionDispatch::IntegrationTest
   test "a real production deploy renders no debug sink at all" do
     AppFlags.stub :live_production?, true do

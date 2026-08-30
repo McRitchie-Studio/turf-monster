@@ -7,9 +7,9 @@ require "open3"
 # that guard deliberately allows: QA and development, where the sink DOES render
 # and an operator is looking at the screen.
 #
-# `phantom_dl_secret` is set by phantom_deeplink.js:38 to
-# encodeBase58(dappKeyPair.secretKey) — a real private key. Its VALUE must never
-# be printed, in any environment.
+# `phantom_dl_secret` is set by the deep link (studio/solana/_phantom_deeplink,
+# studio-engine) to encodeBase58(dappKeyPair.secretKey) — a real private key. Its
+# VALUE must never be printed, in any environment.
 #
 # WHY THIS RUNS THE REAL JS RATHER THAN GREPPING THE SOURCE: a source-text
 # assertion cannot tell a live redaction branch from a dead one, and this house
@@ -24,8 +24,16 @@ require "open3"
 class PhantomCallbackSecretRedactionJsTest < ActiveSupport::TestCase
   SENTINEL = "SECRET-DO-NOT-PRINT-4f3a9c1e8b7d2065".freeze
 
+  # 2026-08-30 (adopt-engine-phantom-deeplink): RESOLVED, not read from a fixed
+  # path. The callback view is studio-engine's now, and this app's copy — which
+  # shadowed it at the identical virtual path — is deleted, so a File.read of
+  # app/views errored instead of failing. Hardcoding the gem path instead would
+  # encode how the engine happens to be installed here and could never pass in
+  # studio-engine's own consumer-CI lane, which bundles it as a path checkout.
+  # The guarantee still belongs to this app: the sink is rendered here, under
+  # this app's Studio.wallet_debug_sink, on this app's route.
   def dump_loop_source
-    view = Rails.root.join("app/views/solana_sessions/phantom_callback.html.erb").read
+    view = ResolvedPhantomDeeplink.callback_source
     # Pull the two declarations and the dump loop out of the view verbatim, so
     # the test executes the shipped code rather than a paraphrase of it.
     all_keys   = view[/var ALL_KEYS = \[.*?\];/m]

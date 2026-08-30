@@ -1145,3 +1145,34 @@
   // because its body is ~150 lines and it has a single render site (navbar);
   // pulling it here would bloat this shared file without saving page weight.
 </script>
+
+<%#
+  window.startPhantomDeepLink — the Phantom MOBILE round trip. Rendered from
+  studio-engine (studio/solana/phantom_deeplink) since
+  /tasks/adopt-engine-phantom-deeplink deleted this app's fork, which lived at
+  app/javascript/phantom_deeplink.js and loaded through the importmap.
+
+  WHY IT LIVES IN THIS FILE rather than at each layout. TWO layouts mount the
+  engine Connect-Wallet picker (layouts/application and layouts/modal_preview)
+  and each keeps its own registration list, so anything written at the callsite
+  is written twice and is then free to drift. Both layouts already render this
+  partial, immediately inside the opening body tag, so one render here reaches
+  both. Same reasoning as WalletPickerHelper.
+
+  AND WHY NOT THE IMPORTMAP, which is where the fork loaded from. The engine
+  picker suppresses Phantom's mobile INSTALL row and paints its deep-link row on
+  a getter that asks whether startPhantomDeepLink is a function, and Alpine
+  evaluates x-data before importmap modules execute — the race this file's
+  header documents for every other factory. A parse-time inline script wins it;
+  an ES module does not. So this move is strictly earlier than the fork was.
+
+  NACL, and the race this app DECIDED rather than inherited. The engine ships
+  studio/solana/deeplink_assets, which APPENDS a script element for tweetnacl
+  and is therefore asynchronous; the callback view reads nacl at PARSE TIME and
+  hard-fails with no retry. This app does not render deeplink_assets anywhere.
+  It loads tweetnacl from a blocking, SRI-pinned tag in the layout head, so
+  window.nacl is defined before either half runs and there is no race to lose.
+  Deleting that tag means adopting deeplink_assets AND teaching the callback to
+  wait; do not do one without the other.
+%>
+<%= render "studio/solana/phantom_deeplink" %>
