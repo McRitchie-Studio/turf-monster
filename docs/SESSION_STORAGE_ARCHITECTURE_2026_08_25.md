@@ -83,16 +83,16 @@ the first six preserve behaviour exactly and the last five change it deliberatel
 
 | Store | Registered at | Kind | Owner of |
 |---|---|---|---|
-| `session` | `app/views/layouts/application.html.erb:473` (inline, `alpine:init`) | State | Canonical viewer identity + funding hints: `loggedIn`, `mode`, `phantomLinked`, `userId`, `address`, `usdcCents`, `usdtCents`, `tokensAvailable`, `web2UsdcEntry`, `ageGateRequired`, `ageVerified`, `walletSetupRequired`, `firstNameRequired`, `walletConnected` |
+| `session` | `app/views/layouts/application.html.erb:486` (inline, `alpine:init`) | State | Canonical viewer identity + funding hints: `loggedIn`, `mode`, `phantomLinked`, `userId`, `address`, `usdcCents`, `usdtCents`, `tokensAvailable`, `web2UsdcEntry`, `ageGateRequired`, `ageVerified`, `walletSetupRequired`, `firstNameRequired`, `walletConnected` |
 | `wallet` | `app/javascript/solana_stores.js:41` (module) | State | Live Phantom watcher: `address`, `watching`, `pendingAddress`, `_provider`, `_reauthing` |
 | `modals` | **studio-engine** `app/views/studio/modals/_host.html.erb` (resolved from the gem; see the correction below) | UI | Modal stack |
-| `solanaModal` | `app/views/layouts/application.html.erb:612` (inline) | UI façade | Read/write proxy over `modals` for the `onchain-tx` card. Holds no session state. |
-| `sidebars` | `app/views/layouts/application.html.erb:370` (inline) | UI | `gearOpen` |
+| `solanaModal` | `app/views/layouts/application.html.erb:631` (inline) | UI façade | Read/write proxy over `modals` for the `onchain-tx` card. Holds no session state. |
+| `sidebars` | `app/views/layouts/application.html.erb:383` (inline) | UI | `gearOpen` |
 | `theme` | **studio-engine** `app/views/layouts/studio/_head.html.erb:162` | UI | `value` ('dark'/'light'), `isDark`, `toggle()` — persists to the `theme` key |
 | `devMode` | **studio-engine** `app/views/layouts/studio/_head.html.erb:161` | UI | A bare boolean seeded from the `devMode` key |
 
 **`theme` and `devMode` were missing from revision 1.** They reach every page
-through `app/views/layouts/application.html.erb:873` → `render "layouts/studio/head"`
+through `app/views/layouts/application.html.erb:892` → `render "layouts/studio/head"`
 (also `layouts/landing.html.erb:25` and `layouts/modal_preview.html.erb:123`). An
 `app/`-scoped grep cannot see them. They are UI-only and carry no auth state, but
 they are browser-persisted state on every page and they belong in a storage
@@ -150,25 +150,43 @@ on the `app/` + `e2e/` scope. Revision 1 compared its own `app/`-only 13 against
 the brief's 17 and called the difference an error in the brief. It was a
 difference in scope, and the rebuttal is withdrawn.
 
+**Amended 2026-08-30 (`adopt-engine-phantom-deeplink`).** Both halves of the
+`phantom_dl_*` handshake now live in studio-engine — the writer is
+`studio/solana/_phantom_deeplink` (rendered by `shared/_alpine_factories`) and the
+reader is the engine's `solana_sessions/phantom_callback`. This app's forks
+(`app/javascript/phantom_deeplink.js` and its copy of the callback view) are
+deleted. **The KEYS, their owners and their lifetimes are unchanged** — the
+promotion moved the code, not the contract, including the `phantom_dl_user_id`
+gap in §2.1, which is still open and now open in the engine. Line numbers were
+dropped from the moved rows rather than re-derived against a gem the next reader
+may be pinned to a different version of.
+
+Every `layouts/application.html.erb:NN` reference in this document was **re-derived
+against the post-change file** in the same pass. That change added 13 lines high in
+the head, which silently shifted every one of them; six were correct before it and
+would have been wrong after. The remaining few were already stale from earlier
+edits and are now correct too. Re-derived, not arithmetic: the anchors were located
+by their own text.
+
 | Key | Store | Writer(s) — the owner | Reader(s) | Lifetime rule |
 |---|---|---|---|---|
-| `inviter_slug` | local | `layouts/application.html.erb:143` | same file `:164` | Cleared on successful `PATCH /account/set_inviter` (`:171`) |
-| `lastUserId` | local | `layouts/application.html.erb:952` | same file `:936` | Identity-change sentinel; drives the purge below |
+| `inviter_slug` | local | `layouts/application.html.erb:156` | same file `:177` | Cleared on successful `PATCH /account/set_inviter` (`:184`) |
+| `lastUserId` | local | `layouts/application.html.erb:977` | same file `:961` | Identity-change sentinel; drives the purge below |
 | `pendingAuthStep` | session | **NONE — ORPHANED. See below.** | `:397` reads | `:400`, `:424` remove |
 | `pendingContestEntry` | local | `contests/_turf_totals_board.html.erb:914` | `:458` | Consumed on read; 30-min freshness guard (`:461`) |
-| `phantom_dl_secret` | local | `phantom_deeplink.js:38` | `solana_sessions/phantom_callback.html.erb:167` | `cleanup()` at `:97` |
-| `phantom_dl_pubkey` | local | `phantom_deeplink.js:39` | callback | `cleanup()` |
-| `phantom_dl_nonce` | local | `phantom_deeplink.js:40` | callback `:239` | `cleanup()` |
-| `phantom_dl_nonce_at` | local | `phantom_deeplink.js:41` | callback `:134` | `cleanup()` |
-| `phantom_dl_step` | local | `phantom_deeplink.js:42` | callback `:125` | `cleanup()` |
-| `phantom_dl_link_mode` | local | `phantom_deeplink.js:43` | callback `:245`, `:255` | `cleanup()` |
-| `phantom_dl_cluster` | local | `phantom_deeplink.js:44` | callback | `cleanup()` |
-| `phantom_dl_user_id` | local | `phantom_deeplink.js:46` / removed `:48` | callback `:244` | **NOT in `cleanup()`** — see §2.1 |
-| `phantom_dl_age_attested` | local | `WalletPickerHelper#wallet_connect_extra_data` (the picker's `onDeepLink` hook) | callback `:276` | `cleanup()` |
+| `phantom_dl_secret` | local | `studio/solana/_phantom_deeplink` (engine) | callback (engine) | `cleanup()` |
+| `phantom_dl_pubkey` | local | `studio/solana/_phantom_deeplink` (engine) | callback (engine) | `cleanup()` |
+| `phantom_dl_nonce` | local | `studio/solana/_phantom_deeplink` (engine) | callback (engine) | `cleanup()` |
+| `phantom_dl_nonce_at` | local | `studio/solana/_phantom_deeplink` (engine) | callback (engine) | `cleanup()` |
+| `phantom_dl_step` | local | `studio/solana/_phantom_deeplink` (engine) | callback (engine) | `cleanup()` |
+| `phantom_dl_link_mode` | local | `studio/solana/_phantom_deeplink` (engine) | callback (engine) | `cleanup()` |
+| `phantom_dl_cluster` | local | `studio/solana/_phantom_deeplink` (engine) | callback (engine) | `cleanup()` |
+| `phantom_dl_user_id` | local | `studio/solana/_phantom_deeplink` (engine) (written, or removed, per link mode) | callback (engine) | **NOT in `cleanup()`** — see §2.1 |
+| `phantom_dl_age_attested` | local | `WalletPickerHelper#wallet_connect_extra_data` (the picker's `onDeepLink` hook) | callback (engine) | `cleanup()` |
 | `seedsNavbar` | local | **five writers** — see §2.3 | 5 readers | Purged on identity change only |
 | `seedsLevelUp` | local | `state_fanout.js:124` | `seeds_bar.js:45`, `_seeds_bar.html.erb:60` | Consumed on read |
 | `walletSetupAutoConnect` | session | `modals/_wallet_setup.html.erb:267` | same file `:66`, removed `:67` | Consumed on read |
-| `walletSetupReopen` | session | `modals/_wallet_setup.html.erb:266` | `layouts/application.html.erb:1147`, removed `:1149` | Consumed on read |
+| `walletSetupReopen` | session | `modals/_wallet_setup.html.erb:266` | `layouts/application.html.erb:1173`, removed `:1175` | Consumed on read |
 | **`theme`** | local | **studio-engine** `layouts/studio/_head.html.erb:169` | same file `:3` (pre-paint FOUC guard) and `:163` | **Never cleared.** Survives logout and the identity purge |
 | **`devMode`** | local | **studio-engine** `studio/banners/_dev_mode_button.html.erb:4` | `layouts/studio/_head.html.erb:161` | **Never cleared.** Survives logout and the identity purge |
 
@@ -287,15 +305,16 @@ can disagree.
 
 ### 2.1 CONFIRMED — Two enumerations of the `phantom_dl_*` key set, already disagreeing
 
-- **Path 1:** `app/views/solana_sessions/phantom_callback.html.erb:92` —
+- **Path 1:** the engine's `solana_sessions/phantom_callback` (no longer this
+  app's file — see the amendment above) —
   `var ALL_KEYS = ['phantom_dl_secret', 'phantom_dl_pubkey', 'phantom_dl_nonce',
   'phantom_dl_nonce_at', 'phantom_dl_step', 'phantom_dl_link_mode',
   'phantom_dl_cluster', 'phantom_dl_age_attested']` — **8 keys**, consumed by
-  `cleanup()` at `:97`.
-- **Path 2:** `app/views/layouts/application.html.erb:946-949` — a prefix scan,
+  `cleanup()`.
+- **Path 2:** `app/views/layouts/application.html.erb:971-974` — a prefix scan,
   `if (k && k.indexOf('phantom_dl_') === 0) localStorage.removeItem(k)` — **all keys**.
 
-`app/javascript/phantom_deeplink.js:46` writes a ninth key, `phantom_dl_user_id`.
+The deep link writes a ninth key, `phantom_dl_user_id`.
 It is **absent from `ALL_KEYS`**. So the deeplink callback's `cleanup()` leaves
 `phantom_dl_user_id` in localStorage after a completed handshake; only the
 layout's identity-change purge removes it, and only on a user change. Two lists
@@ -467,8 +486,8 @@ So the check is green whenever **any** address is stored — including a purely
 custodial one. It says nothing about Phantom, and nothing about *now*.
 
 The extra degree: **the same predicate gates both the page-load hydrate and the
-watcher itself.** `layouts/application.html.erb:105` wraps `hydrateNavbar` in
-`<% if logged_in? && current_user.solana_connected? %>`, and `:1420` wraps
+watcher itself.** `layouts/application.html.erb:118` wraps `hydrateNavbar` in
+`<% if logged_in? && current_user.solana_connected? %>`, and `:1472` wraps
 `render "shared/phantom_watcher"` in the identical condition. So one DB fact
 decides "show the connected check", "fetch on-chain values", *and* "watch for
 wallet changes at all" — which is exactly why the read-only mode of requirement 5
@@ -520,7 +539,7 @@ timers at `:157` and `:199` — and did not read what the file logs.
 | No environment guard exists | `grep -rn "DEBUG_NET" app/ config/` outside the file itself returns **nothing** |
 | It prints request bodies | `:52` — `console.log('request:', _trunc(reqBody, 1500))` |
 | It prints response bodies | `:53` — `console.log('response:', _trunc(body, 1500))` |
-| The wallet-verify body carries auth material | `layouts/application.html.erb:332` — `JSON.stringify({ message, signature: signatureB58, pubkey, age_attestation, wallet_provider })`. Both the SIWS message and the full base58 signature are well inside the 1,500-char truncation |
+| The wallet-verify body carries auth material | `layouts/application.html.erb:345` — `JSON.stringify({ message, signature: signatureB58, pubkey, age_attestation, wallet_provider })`. Both the SIWS message and the full base58 signature are well inside the 1,500-char truncation |
 | It repeats | On first sign-in, and again on **every** `_reauth` (`solana_stores.js:269`) — which slice 7 makes *more* frequent, since a wallet switch drives a re-auth |
 | Responses leak a live CSRF token | `accounts_controller.rb:90` — `session_state` returns `csrf: form_authenticity_token`, printed by `:53` on every visibility rehydrate |
 
@@ -801,7 +820,7 @@ later.
 
 | Key | Blast radius for a user mid-flow |
 |---|---|
-| **`phantom_dl_*`** | **The dangerous one.** These nine keys are a *live cryptographic handshake*: `phantom_deeplink.js` writes the dapp keypair + nonce, the user leaves for the Phantom mobile app, and `phantom_callback.html.erb` reads them back on return. A rename landing inside that window means the callback reads `null` for `phantom_dl_secret` and cannot decrypt Phantom's response. The user lands on the error path (`phantom_callback.html.erb:89`) and is redirected to `/signin` after 30 seconds. They are not harmed — no session is created, nothing is signed — but the connect attempt is lost and must be restarted. **The read-through shim is mandatory here**, and the shim must cover the whole set including `phantom_dl_user_id` (see §2.1). |
+| **`phantom_dl_*`** | **The dangerous one.** These nine keys are a *live cryptographic handshake*: the engine's `studio/solana/_phantom_deeplink` writes the dapp keypair + nonce, the user leaves for the Phantom mobile app, and the engine's `phantom_callback` view reads them back on return. A rename landing inside that window means the callback reads `null` for `phantom_dl_secret` and cannot decrypt Phantom's response. The user lands on the callback's `showError` path and is redirected to `/signin` after 30 seconds. They are not harmed — no session is created, nothing is signed — but the connect attempt is lost and must be restarted. **The read-through shim is mandatory here**, and the shim must cover the whole set including `phantom_dl_user_id` (see §2.1). |
 | **`pendingContestEntry`** | **Low.** Written on an external redirect, consumed on return, and already guarded by a 30-minute freshness check (`_turf_totals_board.html.erb:461`) plus a `?picks=` URL fallback that carries the lineup independently of storage (`:441`). A stranded value means one lost saved cart: the user returns to the contest page with an empty cart and re-picks. The `?picks=` path is unaffected because it never touches storage. A shim makes even that invisible. |
 | `seedsNavbar` / `seedsLevelUp` | **Cosmetic.** A stranded value means the seeds bar starts from the server value instead of animating from the cache — one render, self-heals on the next hydrate. The level-up confetti for one crossing may not play. |
 | `inviter_slug` | **Low, but revenue-adjacent.** A stranded value loses referral attribution for a user who arrived via `?ref=` and had not yet logged in. Not recoverable without the shim (the URL param is stripped at `layout:144`). Include it in the shim. |

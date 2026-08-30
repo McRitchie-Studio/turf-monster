@@ -77,11 +77,16 @@ class WalletPickerSinglePhantomTest < ActionDispatch::IntegrationTest
                  "a phone has no extension to install, so Phantom's download-page row " \
                  "must be filtered out — leaving it is the second row from the bug report")
     # The engine adds a conjunct the fork did not have, and it is not cosmetic:
-    # the install row is suppressed ONLY when a deep link can replace it. Drop
-    # it and an app with no startPhantomDeepLink gets a phone with no Phantom
-    # path at all — install row suppressed, deep-link row hidden. This app DOES
-    # define it (pinned in wallet_picker_adoption_test), which is what makes the
-    # suppression here behave as it did before the adoption.
+    # the install row is suppressed ONLY when a deep link can replace it. Drop it
+    # and an app with no startPhantomDeepLink hands a phone Phantom's INSTALL row
+    # — the very iOS dead end this file exists to kill — because both getters read
+    # canDeepLink and flip together. (Corrected 2026-08-30: this comment used to
+    # say such a phone gets "no Phantom path at all", which is backwards; measured
+    # in a browser under adopt-engine-phantom-deeplink.) This app DOES
+    # define it — since adopt-engine-phantom-deeplink by rendering the engine's
+    # studio/solana/phantom_deeplink from shared/_alpine_factories, pinned on the
+    # RENDERED page in wallet_picker_adoption_test and phantom_deeplink_adoption_test
+    # — which is what makes the suppression here behave as it did before the adoption.
     assert_match(/self\.canDeepLink/, getter,
                  "the install row must only be suppressed when a deep link can " \
                  "replace it — without this a deep-link-less consumer loses Phantom entirely")

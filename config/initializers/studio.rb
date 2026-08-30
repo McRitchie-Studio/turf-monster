@@ -75,6 +75,24 @@ Studio.configure do |config|
   # that property rather than this spelling.
   config.wallet_address_method = :web3_solana_address
 
+  # THE PHANTOM CALLBACK'S ON-PAGE DEBUG SINK. Restores exactly what this app had
+  # before /tasks/adopt-engine-phantom-deeplink deleted its fork of the callback
+  # view. The engine DEFAULTS THIS OFF and the default is the point: the sink
+  # prints phantom_dl_secret's presence and every other phantom_dl_* key to the
+  # page and the console on every mobile sign-in, so a capability sitting next to
+  # a signing key is opted into, never defaulted on.
+  #
+  # AppFlags.live_production? is production-AND-not-QA — the same predicate the
+  # OPSEC-020 kill-switches use — so QA keeps its debugging. Rails.env.production?
+  # is NOT a substitute: a Heroku QA dyno runs RAILS_ENV=production, which would
+  # take QA's debugging away silently. Omitting this line loses the sink the same
+  # silent way, which is why test/integration/phantom_callback_debug_gate_test.rb
+  # asserts BOTH branches rather than only the production one.
+  #
+  # The value never leaks even when the sink renders: the callback redacts
+  # SECRET_KEYS at the point of display (test/lib/phantom_callback_secret_redaction_js_test.rb).
+  config.wallet_debug_sink = -> { !AppFlags.live_production? }
+
   # THE PROFILE PAGE'S ROWS: the engine's defaults, plus this app's own Quests card.
   #
   # THE NEWSLETTER ROW IS BACK. It was held off this page because the engine's row
