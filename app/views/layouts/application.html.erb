@@ -48,7 +48,20 @@
 
     <%# SRI-pinned (audit H2): exact versions + integrity so a poisoned CDN/package
         can't swap the signing-path crypto. web3.js @1 currently resolves to 1.98.4;
-        pinning freezes that (re-pin + recompute the sha384 on any intentional bump). %>
+        pinning freezes that (re-pin + recompute the sha384 on any intentional bump).
+
+        THE TWEETNACL TAG IS LOAD-BEARING, and BLOCKING is the load-bearing part.
+        Both halves of the Phantom mobile round trip need window.nacl, and since
+        /tasks/adopt-engine-phantom-deeplink both halves come from studio-engine:
+        the deep link reads it on a user tap (safe either way) but the callback
+        view's IIFE reads it AT PARSE TIME and hard-fails with no retry. A
+        blocking tag here means nacl is already defined when that runs.
+
+        So this app deliberately does NOT render studio/solana/deeplink_assets,
+        the engine's own nacl loader: it APPENDS a script element, which is
+        asynchronous, and the callback would race it. Same integrity value, same
+        URL, different timing. Swap to it only together with a callback that
+        waits for nacl instead of failing. %>
     <script src="https://unpkg.com/@solana/web3.js@1.98.4/lib/index.iife.min.js"
             integrity="sha384-I45YF+S0YGWIolUyTksLk9TNtTqaDgZg8e6T1OoBoJvvFmphqYNIPZw3Kl0TkZNN"
             crossorigin="anonymous"></script>
