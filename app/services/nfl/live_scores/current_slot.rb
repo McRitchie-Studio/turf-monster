@@ -26,7 +26,10 @@ module Nfl
       def self.games_for(slot)
         return Game.none unless slot
 
-        Game.nfl.in_season_slot(**slot).includes(:home_team, :away_team)
+        # `:goals` is for the FOCUS PANEL, which renders every game as a hero
+        # tile and each hero tile draws its own scoring-play rail. Without it
+        # the one query behind this page becomes sixteen.
+        Game.nfl.in_season_slot(**slot).includes(:home_team, :away_team, :goals)
       end
 
       def self.slot_for(game)
