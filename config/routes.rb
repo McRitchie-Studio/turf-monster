@@ -133,7 +133,26 @@ Rails.application.routes.draw do
   get "lp/:slug", to: "landing_pages#show", as: :landing_page
 
   # Phantom deep link callback — must be before Studio.routes to avoid
-  # matching OmniAuth's /auth/:provider/callback wildcard
+  # matching OmniAuth's /auth/:provider/callback wildcard.
+  #
+  # THIS LINE STAYS, and /tasks/adopt-engine-phantom-deeplink VERIFIED that
+  # rather than assuming it. The adoption deleted this app's fork of the
+  # callback VIEW so the engine's renders instead, but the ROUTE is still this
+  # app's, for two independent reasons:
+  #
+  #   1. The engine's own declaration sits behind `Studio.draw_auth_routes &&
+  #      Studio.auth_method?(:wallet)`, and config/initializers/studio.rb sets
+  #      draw_auth_routes = false (this app draws its own auth set). So the
+  #      engine never draws it here at all.
+  #   2. Even with that flag on it would lose. Studio.routes draws the OmniAuth
+  #      wildcard `auth/:provider/callback` UNCONDITIONALLY and EARLIER in the
+  #      same block, so a phantom callback drawn after it recognises as
+  #      omniauth_callbacks#create with provider "phantom".
+  #
+  # Deleting this line therefore does not hand the engine control; it 404s
+  # every mobile Phantom sign-in. The controller action is this app's too
+  # (SolanaSessionsController#phantom_callback, client-side only) — a host
+  # controller wins over the engine's, and only the view was adopted.
   get  "auth/phantom/callback", to: "solana_sessions#phantom_callback"
 
   # Unified auth — login + signup are one create-or-login flow, so they share a

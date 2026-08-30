@@ -438,7 +438,53 @@
 # compares two browser-RESOLVED widths (the card's computed max-width against the
 # engine default's, applied to a probe on the same page), which is the only form that
 # can tell a working registry from one that silently resolves to the default.
-total_specs: 216
+#
+# 216 -> 218 (adopt-engine-phantom-deeplink): two specs EXTENDING e2e/auth_modal.spec.js,
+# both inside a new "the Connect Wallet picker on a phone" describe. A file was not
+# added — auth_modal.spec.js was already the one spec that reaches the picker, and it
+# already asserted Phantom's desktop INSTALL row.
+#
+# WHAT THEY BUY, and why no cheaper tier can. The adoption deleted this app's
+# app/javascript/phantom_deeplink.js and renders studio-engine's partial instead. The
+# engine picker decides what a PHONE sees from `typeof startPhantomDeepLink ===
+# 'function'` — `missingInstalls` and `showPhantomDeepLink` both read it, so they flip
+# together. Lose the render and the phone silently gets Phantom's browser-extension
+# INSTALL row, which cannot be completed on iOS Safari. The page ships IDENTICAL markup
+# either way: the guards are Alpine getters evaluated against navigator.userAgent, so no
+# server render and no source grep can tell the two apart.
+#   · one asserts the computed state — the "Open app" row visible, Phantom's install row
+#     absent from the DOM, Solflare's and Backpack's still there as the control.
+#   · one TAPS it and reads the resulting phantom.app hand-off URL, decoding the base58
+#     payload with the spec's own decoder. That is the shape the engine's partial
+#     records as having escaped eleven passing view tests AND a browser check of
+#     `typeof startPhantomDeepLink` that never CALLED it: B58_ALPHABET left at module
+#     scope, so the encoder read a free variable resolving to nothing at CALL TIME.
+#
+# Both were mutated: deleting the render turns the first RED on "Expected: visible /
+# Received: hidden" and the second RED on the click timing out against a hidden row.
+# Derived on the MERGED tree (origin/accepted was 3d5dfea, this branch's own base, so the
+# branch tree IS the merged tree), both identities: `npx playwright test --list` -> 218
+# tests in 56 files, `--grep "@devnet"` -> 17 in 1 file, `--grep-invert "@devnet"
+# --project=chromium` -> 201 collected.
+#
+# 218 -> 219 (same task, second pass): ONE more spec, extending
+# e2e/wallet_sign_in.spec.js — the mobile RETURN leg. The adoption also deleted
+# this app's copy of solana_sessions/phantom_callback, which was a TRUE SHADOW at
+# the identical virtual path, so while it existed the engine's copy was dead code
+# and no assertion anywhere could tell.
+#
+# WHY A BROWSER AND NOTHING CHEAPER. The engine's studio/solana/deeplink_assets
+# APPENDS a script element for tweetnacl — asynchronous — while the callback reads
+# `nacl` AT PARSE TIME and hard-fails with no retry. This app resolved that by
+# keeping its own BLOCKING tag and rendering deeplink_assets nowhere. A Rails test
+# can assert the tag carries no defer; it CANNOT assert nacl was defined when the
+# IIFE ran. The difference is one line of runtime text, and the spec reads it.
+# Mutation, with the server actually restarted: adding `defer` to that tag turns it
+# RED with Received: "TweetNaCl not loaded". The same spec pins the debug sink this
+# app opts back in to, and the OPSEC guarantee that the dapp x25519 secret's VALUE
+# never reaches it — against a REAL localStorage, where the existing Node-level test
+# uses a stubbed one.
+total_specs: 219
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -665,7 +711,18 @@ allowed_skips: 4
 # focus-game-scorer-card and one from the modal-host defork. allowed_skips stays 4 —
 # the two identities still agree, which is what proves no new spec brought a runtime
 # skip with it.
-executed: 195
+#
+# 195 -> 197 (adopt-engine-phantom-deeplink): the two phone-picker specs described
+# beside total_specs above. Both keys move in THIS commit — the check's own message
+# says so and means it. allowed_skips stays 4: neither spec carries a runtime skip,
+# and the two identities agreeing is what proves that rather than my saying so.
+# 218 - 17 - 4 = 197, and 201 collected - 4 runtime skips = 197. Both routes agree.
+#
+# 197 -> 198 (same task, second pass): the callback spec described beside
+# total_specs above. Re-derived with bin/e2e-lane-derive, which is the tool, not
+# arithmetic — it read 219 in the tree against a contract of 218 and said so.
+# allowed_skips stays 4; it carries no runtime skip.
+executed: 198
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to

@@ -30,11 +30,22 @@ attestation.
 
 The checkbox is the studio-engine partial
 `studio/modals/shared/_age_attestation`, which deliberately does NOT self-gate.
-Each callsite wraps its own render in `<% if AppFlags.age_attestation? %>` —
-`modals/_auth`, `shared/_auth_card`, and `modals/_wallet_connect`. A new
+Each callsite gates its own render on `AppFlags.age_attestation?`, and a new
 callsite must do the same. A `<template>` body renders server-side whether or
 not Alpine mounts it, so an unwrapped render ships the parked checkbox in the
 page source of every page that carries the partial.
+
+The three callsites, and how each gates:
+
+| Callsite | Gate |
+|---|---|
+| `modals/_auth` | `<% if AppFlags.age_attestation? %>` around the render |
+| `shared/_auth_card` | `<% if AppFlags.age_attestation? %>` around the render |
+| the Connect-Wallet picker | `WalletPickerHelper#wallet_connect_modal_locals` passes the engine picker a `slot:` — or `nil` when the flag is parked |
+
+The picker is studio-engine's (`studio/modals/_wallet_connect`) as of
+/tasks/adopt-turf-engine-picker, so its attestation arrives as that partial's
+`slot` local rather than an inline render.
 
 ## User Model Auth Design
 
@@ -110,6 +121,21 @@ Routes:
 - `POST /auth/solana/verify`
 - `GET /auth/phantom/callback` for mobile deep links
 - `GET /login/wallet` for the Google-collided-with-wallet recovery path
+
+All four are drawn by **this app**, not the engine: `config/initializers/studio.rb`
+sets `Studio.draw_auth_routes = false`. The phantom callback in particular MUST
+stay declared before `Studio.routes`, which draws the OmniAuth wildcard
+`auth/:provider/callback` unconditionally and would otherwise recognise
+`/auth/phantom/callback` as `omniauth_callbacks#create` with provider `phantom`.
+
+The mobile deep link itself is **studio-engine's** since
+`adopt-engine-phantom-deeplink`: `studio/solana/_phantom_deeplink` publishes
+`window.startPhantomDeepLink` and `solana_sessions/phantom_callback` completes the
+return leg. Turf renders the deep link once from `shared/_alpine_factories` (one
+callsite, both layouts that mount the wallet picker), keeps its own blocking
+tweetnacl tag rather than the engine's async `studio/solana/deeplink_assets`, and
+opts the callback's debug sink back on with
+`Studio.wallet_debug_sink = -> { !AppFlags.live_production? }`.
 
 `Solana::SessionAuth#verify_solana_signature!` enforces:
 

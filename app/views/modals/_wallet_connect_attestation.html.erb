@@ -1,0 +1,16 @@
+<%# The picker's legal-age attestation, as the engine picker's SLOT.
+    Guests only: a wallet connect is create-or-login, so a brand-new wallet
+    creates an account, while a linking flow or a signed-in user has already
+    answered. needsAttestation is contributed by extra_data
+    (WalletPickerHelper), and the slot renders INSIDE the picker's root, so it
+    binds straight to it.
+
+    The AppFlags gate is at the callsite in WalletPickerHelper, not here: the
+    engine checkbox does not self-gate, so a parked flag means no slot at all.
+
+    ONE ROOT inside the template, per Alpine. %>
+<template x-if="needsAttestation">
+  <div class="mb-3">
+    <%= render "studio/modals/shared/age_attestation" %>
+  </div>
+</template>

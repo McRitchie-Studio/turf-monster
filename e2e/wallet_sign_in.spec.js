@@ -108,7 +108,7 @@ test("a declined signIn propagates instead of re-prompting through the fallback 
     return { rejected, message, connectCalls };
   });
 
-  // The decline must reach the caller — modals/_wallet_connect and
+  // The decline must reach the caller — studio-engine's wallet picker and
   // modals/_wallet_setup both render "Signature rejected" off exactly this.
   expect(outcome.rejected).toBe(true);
   expect(outcome.message).toMatch(/rejected/i);
@@ -168,4 +168,62 @@ test("falls back to connect + signMessage when the wallet has no signIn @smoke",
   });
   expect(state.loggedIn).toBe(true);
   expect(state.mode).toBe("web3");
+});
+
+// ── The MOBILE return leg, and the race this app DECIDED ──────────────────
+//
+// adopt-engine-phantom-deeplink deleted this app's copy of
+// solana_sessions/phantom_callback and now renders studio-engine's. That copy was
+// a TRUE SHADOW at the identical virtual path, so for as long as it existed the
+// engine's was dead code and no assertion anywhere could tell.
+//
+// WHY A BROWSER AND NOTHING CHEAPER. The engine also ships
+// studio/solana/deeplink_assets, which APPENDS a script element for tweetnacl and
+// is therefore ASYNCHRONOUS, while this callback reads `nacl` AT PARSE TIME and
+// hard-fails with no retry. This app resolved that by keeping its own BLOCKING,
+// SRI-pinned tweetnacl tag in layouts/application and rendering deeplink_assets
+// nowhere. A Rails test can assert the tag carries no defer and that no view
+// renders the loader — it cannot assert that `nacl` was actually DEFINED when the
+// IIFE ran. Only a page load can, and the difference between the two outcomes is
+// one line of runtime text.
+//
+// It also pins the sink this app opts back in to
+// (Studio.wallet_debug_sink = -> { !AppFlags.live_production? }) and the OPSEC
+// guarantee attached to it, against a REAL localStorage rather than a stubbed one.
+test("the callback clears its nacl gate and never prints the dapp secret @smoke", async ({ page }) => {
+  const SENTINEL = "SECRET-DO-NOT-PRINT-4f3a9c1e8b7d2065";
+
+  // A handshake in flight, as the deep link leaves it. Without a pending step the
+  // callback short-circuits before the nacl gate and this proves nothing.
+  await page.addInitScript((secret) => {
+    localStorage.setItem("phantom_dl_step", "signIn");
+    localStorage.setItem("phantom_dl_nonce_at", String(Date.now()));
+    localStorage.setItem("phantom_dl_secret", secret);
+    localStorage.setItem("phantom_dl_pubkey", "PUBKEY-fine-to-print");
+  }, SENTINEL);
+
+  await page.goto("/auth/phantom/callback");
+  await page.locator("#phantom-error:not(.hidden)").waitFor();
+
+  // THE RACE, decided. Reaching the PARAMS error means execution passed the nacl
+  // gate; losing the race stops three checks earlier with a different string.
+  await expect(page.locator("#phantom-error")).toHaveText("Missing Phantom response parameters");
+  expect(await page.evaluate(() => typeof window.nacl)).toBe("object");
+
+  // The sink renders outside a real production deploy — this app's opt-in, in a
+  // real browser rather than a stubbed predicate.
+  const log = page.locator("#phantom-log");
+  await expect(log).toBeVisible();
+
+  // OPSEC: the dapp x25519 secret is a live private key. Its VALUE must never be
+  // printed — not in full, and not as a prefix, because truncate() is not a
+  // redactor. Asserted against the REAL localStorage the real page read.
+  const printed = await log.innerText();
+  expect(printed).not.toContain(SENTINEL);
+  expect(printed).not.toContain(SENTINEL.slice(0, 16));
+
+  // THE CONTROLS, without which "nothing leaked" passes against a sink that
+  // prints nothing at all.
+  expect(printed).toContain("PUBKEY-fine-to-print");
+  expect(printed).toMatch(/redacted/);
 });

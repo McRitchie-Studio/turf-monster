@@ -975,13 +975,13 @@ window.selectionBoard = function() {
     },
 
     // Solana clicked in the auth modal → save the guest lineup, then progress
-    // the modal to the "Connect Wallet" picker (modals/_wallet_connect). The
+    // the modal to the "Connect Wallet" picker (the engine picker). The
     // picker runs the SIWS connect itself (window.solanaConnectAndVerify) and
     // returns here (returnUrl = this contest) so the saved cart auto-enters.
     openWalletConnect(ageAttested) {
       this.saveCartForRedirect(true);
       // ageAttested pre-checks the picker's own attestation checkbox (the
-      // auth modal already collected it) — see modals/_wallet_connect.
+      // auth modal already collected it) — see WalletPickerHelper onInit.
       Alpine.store('modals').swap('wallet-connect', { returnUrl: window.location.href, backTo: 'auth', ageAttested: !!ageAttested });
     },
 

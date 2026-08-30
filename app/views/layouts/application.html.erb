@@ -48,7 +48,20 @@
 
     <%# SRI-pinned (audit H2): exact versions + integrity so a poisoned CDN/package
         can't swap the signing-path crypto. web3.js @1 currently resolves to 1.98.4;
-        pinning freezes that (re-pin + recompute the sha384 on any intentional bump). %>
+        pinning freezes that (re-pin + recompute the sha384 on any intentional bump).
+
+        THE TWEETNACL TAG IS LOAD-BEARING, and BLOCKING is the load-bearing part.
+        Both halves of the Phantom mobile round trip need window.nacl, and since
+        /tasks/adopt-engine-phantom-deeplink both halves come from studio-engine:
+        the deep link reads it on a user tap (safe either way) but the callback
+        view's IIFE reads it AT PARSE TIME and hard-fails with no retry. A
+        blocking tag here means nacl is already defined when that runs.
+
+        So this app deliberately does NOT render studio/solana/deeplink_assets,
+        the engine's own nacl loader: it APPENDS a script element, which is
+        asynchronous, and the callback would race it. Same integrity value, same
+        URL, different timing. Swap to it only together with a callback that
+        waits for nacl instead of failing. %>
     <script src="https://unpkg.com/@solana/web3.js@1.98.4/lib/index.iife.min.js"
             integrity="sha384-I45YF+S0YGWIolUyTksLk9TNtTqaDgZg8e6T1OoBoJvvFmphqYNIPZw3Kl0TkZNN"
             crossorigin="anonymous"></script>
@@ -289,7 +302,7 @@
               // the rejection here drops into connect() + signMessage() below and
               // asks a user who just said no twice more, in the change whose whole
               // purpose is to ask once. It also silently breaks working decline
-              // handling: modals/_wallet_connect and modals/_wallet_setup both
+              // handling: the engine wallet picker and modals/_wallet_setup both
               // render "Signature rejected" off this rejection, and can only do so
               // if it propagates.
               //
@@ -1271,12 +1284,17 @@
       <template x-if="$store.modals.current().id === 'age-gate'">
         <%= render "studio/modals/blocks/age_gate", **age_gate_modal_locals %>
       </template>
-      <%# Multi-wallet "Connect Wallet" picker (reown-style). Opened directly
-          from the standalone Solana button, or swapped-into from the auth
-          modal's Solana button (board#openWalletConnect saves the cart first
-          and passes returnUrl). %>
+      <%# Multi-wallet "Connect Wallet" picker — STUDIO-ENGINE OWNS IT. Opened
+          directly from the standalone Solana button, or swapped-into from the
+          auth modal's Solana button (board#openWalletConnect saves the cart
+          first and passes returnUrl). This app's 226-line fork was deleted in
+          /tasks/adopt-turf-engine-picker; everything turf adds now arrives
+          through WalletPickerHelper as the engine's extra_data hooks plus the
+          legal-age slot. The SAME helper feeds layouts/modal_preview, which
+          keeps its own registration list — a picker adopted in one layout and
+          forked in the other renders the old copy at /admin/style forever. %>
       <template x-if="$store.modals.current().id === 'wallet-connect'">
-        <%= render "modals/wallet_connect" %>
+        <%= render "studio/modals/wallet_connect", **wallet_connect_modal_locals %>
       </template>
       <%# "Set up your wallet" — the web3-only onboarding step. Auto-opens on the
           render right after auth success (session prompt, below) and on demand

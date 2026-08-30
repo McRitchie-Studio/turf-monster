@@ -22,7 +22,7 @@
 
 ### 1. Admin logs in via Phantom (SIWS)
 
-1. **Click "Connect Wallet"** — the multi-wallet picker modal (`app/views/layouts/application.html.erb:957`) invokes the inline `window.solanaConnectAndVerify(...)` SIWS helper (`app/views/layouts/application.html.erb:210-266`). Alpine `x-data` factory functions must be inline because importmap modules load *after* Alpine processes `x-data` (`app/views/layouts/application.html.erb:770-772`).
+1. **Click "Connect Wallet"** — the multi-wallet picker modal (studio-engine's `studio/modals/_wallet_connect`, mounted from `app/views/layouts/application.html.erb` with `wallet_connect_modal_locals`) invokes the inline `window.solanaConnectAndVerify(...)` SIWS helper (`app/views/layouts/application.html.erb:210-266`). Alpine `x-data` factory functions must be inline because importmap modules load *after* Alpine processes `x-data` (`app/views/layouts/application.html.erb:770-772`).
 2. **`GET /auth/solana/nonce`** — `app/controllers/solana_sessions_controller.rb:5-9`. Stores `session[:solana_nonce]` + `session[:solana_nonce_at]`.
    - Route: `config/routes.rb:141`.
 3. **Client builds the SIWS message** and calls `provider.signMessage(...)` — `app/views/layouts/application.html.erb:221-225`.

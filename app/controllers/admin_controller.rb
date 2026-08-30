@@ -107,7 +107,7 @@ class AdminController < ApplicationController
       props: { step: "magic-link-resent", sentEmail: "you@example.com" } },
     { group: "Web3",
       label: "Connect Wallet (picker)", key: "wallet-connect",
-      modal_id: "wallet-connect", file: "app/views/modals/_wallet_connect.html.erb",
+      modal_id: "wallet-connect", file: "[studio-engine] app/views/studio/modals/_wallet_connect.html.erb",
       props: {} },
     { group: "Web3",
       label: "Wallet changed (session handoff)", key: "wallet-changed",
