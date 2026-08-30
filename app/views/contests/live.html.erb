@@ -41,71 +41,242 @@
       overflows; honors prefers-reduced-motion; pauses under the pointer, because
       the chips are buttons and a moving button is a missed click. %>
   <script>
+    // WHAT THE READER DID, KEPT OUTSIDE THE THING THAT GETS REPLACED.
+    //
+    // Contest::LiveBroadcast#replace_games swaps the innerHTML of
+    // #contest_<id>_games on EVERY score, and this component's x-data lives
+    // inside that container. So the component object is destroyed and rebuilt
+    // whenever anyone scores: every field on it goes back to its initial value.
+    // A scroll offset or a stand-down flag stored on the component would be
+    // forgotten by the very event this page exists to show.
+    //
+    // The strip partial's header comment already names this trap — it is why
+    // the FOCUS selection lives on a wrapper outside the target. The reader's
+    // position and their stand-down are the same kind of state, so they live
+    // out here, on an object no DOM replacement can reach. Not an Alpine store:
+    // this script runs before Alpine boots, and plain state needs no framework.
+    // KEYED BY CONTEST, because `window` outlives a Turbo visit. Turbo swaps the
+    // body and re-runs this script rather than reloading the page, so a bare
+    // `|| {}` would carry one contest's offset onto another contest's strip —
+    // a different slate, a different width, and a position that means nothing.
+    // Same contest keeps its place; a different one starts clean.
+    window.gamesStripMemory =
+      (window.gamesStripMemory && window.gamesStripMemory.contest === <%= @contest.id.to_json.html_safe %>)
+        ? window.gamesStripMemory
+        : { contest: <%= @contest.id.to_json.html_safe %>, scroll: 0, stoodDown: false };
+
     window.gamesCarousel = function () {
       return {
         _timer: null,
+        _raf: null,
         _paused: false,
+        _stood_down: false,
+        _origWidth: 0,
+        _written: 0,      // the last scrollLeft THIS component wrote — see remember()
+
         init() {
-          if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+          // Pick up where the last instance left off. On a first render this is
+          // the default (0 / false); after a broadcast it is what the reader was
+          // actually looking at a moment ago.
+          this._stood_down = window.gamesStripMemory.stoodDown;
+
+          // Reduced motion stops the ROTATION, never the scrolling. A reader who
+          // asked for less movement still gets to reach every game by hand — the
+          // viewport is scrollable in markup, so there is nothing to set up here.
+          if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            this._stood_down = true;
+          }
+
+          // Restore the offset even when stood down (especially then) — a reader
+          // who parked the strip keeps their place across the score that lands.
           this.$nextTick(() => this.setup());
         },
+
         setup() {
           var vp = this.$refs.viewport, track = this.$refs.track;
           if (!vp || !track) return;
-          if (track.scrollWidth <= vp.clientWidth + 4) return; // fits — no rotation
+          if (track.scrollWidth <= vp.clientWidth + 4) {
+            // Fits — no rotation, and no clones to scroll through. The reader's
+            // remembered offset cannot survive a strip that no longer overflows,
+            // so drop it rather than restore a position that no longer exists.
+            window.gamesStripMemory.scroll = 0;
+            return;
+          }
           this._origWidth = track.scrollWidth;
           // Clone the originals so scrolling one content-width lands on an
           // identical first row before we snap back to 0 (seamless loop).
           Array.prototype.slice.call(track.children).forEach(function (c) {
             track.appendChild(c.cloneNode(true));
           });
-          this._dwellThenScroll();
+
+          // Put the strip back where it was. Clamped, because a score can change
+          // how many chips there are: a remembered offset from a wider strip
+          // would otherwise scroll past the end and read as a jump to the edge.
+          var want = Math.min(window.gamesStripMemory.scroll, vp.scrollWidth - vp.clientWidth);
+          this._writeScroll(vp, want > 0 ? want : 0);
+
+          if (!this._stood_down) this._dwellThenScroll();
         },
-        // FREEZE WHERE IT IS, not back at the start: reading the live transform
-        // and pinning it is what stops the strip lurching when the pointer
-        // arrives mid-travel. Resume simply restarts the dwell from there.
-        pause() {
-          if (this._paused) return;
-          this._paused = true;
+
+        // Every programmatic write goes through here so remember() can tell the
+        // rotation's own movement apart from a reader's. Read back rather than
+        // trusting the assignment: the browser clamps to the scrollable range and
+        // rounds to device pixels, so what lands is not always what we asked for.
+        _writeScroll(vp, x) {
+          vp.scrollLeft = x;
+          this._written = vp.scrollLeft;
+        },
+
+        // THE ONE SIGNAL THAT MEANS A PERSON MOVED THE STRIP.
+        //
+        // Not the input event. A wheel fires on whatever sits under the pointer
+        // and bubbles whether or not that element scrolls, and this strip runs
+        // full width across the top of the page — directly under the cursor on
+        // the way down to chat. Standing down on `wheel` therefore killed the
+        // rotation for the rest of the session on a plain VERTICAL page scroll,
+        // with the strip itself never having moved. Nor is the axis a fix:
+        // Chrome implements shift+wheel horizontal scrolling by setting deltaY
+        // with shiftKey, so a `deltaX !== 0` guard would miss a mouse user
+        // scrolling this strip sideways — the exact reader we mean to yield to.
+        //
+        // A `scroll` event, by contrast, fires only when this element's own
+        // offset actually changed. All that remains is attribution, and the
+        // component knows what it wrote: anything else is the reader. That also
+        // covers a drag, a swipe and an arrow key without a listener each.
+        remember() {
+          var vp = this.$refs.viewport;
+          if (!vp) return;
+          var pos = vp.scrollLeft;
+          // Tolerance, not equality: sub-pixel rounding on a device-pixel grid
+          // makes an exact comparison read the rotation's own writes as a reader.
+          if (!this._stood_down && Math.abs(pos - this._written) > 2) {
+            this.standDown();
+            return;                     // standDown() records the position itself
+          }
+          this._written = pos;
+          window.gamesStripMemory.scroll = pos;
+        },
+
+        // A horizontal wheel, caught at the input rather than waiting for the
+        // scroll it causes. Only for the case remember() can genuinely miss: mid
+        // rotation, a frame may overwrite the reader's position before the scroll
+        // event is dispatched, and the attribution above then sees only our own
+        // value. shiftKey is honoured because that is how a mouse scrolls sideways.
+        //
+        // DOMINANT AXIS, not "any deltaX at all". A trackpad emits a fraction of a
+        // pixel of sideways drift on a nominally VERTICAL scroll, largest at the
+        // start of the gesture — the notch that lands on this strip on the way
+        // down the page. `deltaX !== 0` read that as horizontal intent and stood
+        // the rotation down for the session: the bug above, smaller trigger,
+        // measured lethal at deltaX 0.4 and unrecoverable short of a reload.
+        wheelAcross(e) {
+          if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.shiftKey) this.standDown();
+        },
+
+        // THE READER TAKES THE WHEEL, PERMANENTLY.
+        //
+        // Any real interaction — wheel, drag, swipe, arrow key — hands the strip
+        // over for good. Not a pause: `resume()` refuses once this is set, so
+        // moving the pointer away does not start the strip moving under someone
+        // who is reading it. The existing hover-pause is the precedent; this is
+        // the same argument carried to its end, because a reader who scrolled has
+        // told us where they want to be far more clearly than a hover does.
+        standDown() {
+          if (this._stood_down) return;
+          this._stood_down = true;
+          window.gamesStripMemory.stoodDown = true;
+          this.remember();
+          this._halt();
+        },
+
+        // Alpine calls this when the node goes away — which, on this page, is
+        // every single score. Without it the rAF chain below outlives the element
+        // it animates and keeps requesting frames forever, one orphaned loop per
+        // score. The old transform version survived the omission by luck: a
+        // detached node never fires transitionend, so that chain died by itself.
+        destroy() { this._halt(); },
+
+        _halt() {
           if (this._timer) { clearTimeout(this._timer); this._timer = null; }
-          var track = this.$refs.track;
-          if (!track) return;
-          var now = getComputedStyle(track).transform;
-          track.style.transition = 'none';
-          if (now && now !== 'none') track.style.transform = now;
+          if (this._raf) { cancelAnimationFrame(this._raf); this._raf = null; }
         },
+
+        // Hover still pauses, and it still freezes WHERE IT IS — scrollLeft is
+        // already the live position, so unlike the old transform version there is
+        // nothing to read back and pin. Stopping the animation is the whole job.
+        pause() {
+          if (this._paused || this._stood_down) return;
+          this._paused = true;
+          this._halt();
+        },
+
         resume() {
-          if (!this._paused) return;
+          if (!this._paused || this._stood_down) return;
           this._paused = false;
           if (!this._origWidth) return;
           this._dwellThenScroll();
         },
+
         _dwellThenScroll() {
           var self = this;
           this._timer = setTimeout(function () { self._scroll(); }, 8000);
         },
+
+        // SCROLLLEFT, NOT TRANSFORM — one owner of the position.
+        //
+        // The strip used to travel by animating `transform` while the viewport
+        // clipped with overflow-hidden. That made hand-scrolling impossible: the
+        // two mechanisms describe the same movement in different coordinates, so a
+        // reader's scroll and the rotation would fight, and whichever wrote last
+        // would snap the strip out from under the other. Driving the native scroll
+        // position instead means the rotation and the reader are doing the same
+        // thing to the same number, and handing over costs nothing.
+        //
+        // rAF rather than scroll-behavior:smooth because the duration is ours to
+        // choose: ~90 px/s, matching what the transform version travelled at.
         _scroll() {
-          var track = this.$refs.track, self = this;
-          if (this._paused || !track) return;
-          var dur = Math.max(2500, (this._origWidth / 90) * 1000); // ~90 px/s
-          track.style.transition = 'transform ' + dur + 'ms linear';
-          track.style.transform = 'translateX(-' + this._origWidth + 'px)';
-          track.addEventListener('transitionend', function onEnd() {
-            track.removeEventListener('transitionend', onEnd);
-            self._reset();
-          });
+          var vp = this.$refs.viewport, self = this;
+          if (this._paused || this._stood_down || !vp) return;
+
+          var from = vp.scrollLeft;
+          var distance = this._origWidth - from;
+          if (distance <= 0) return this._reset();
+
+          var dur = Math.max(2500, (distance / 90) * 1000);
+          var t0 = null;
+
+          var step = function (now) {
+            if (self._paused || self._stood_down) return;
+            // Belt and braces with destroy(): if this element has left the
+            // document the loop stops on its own, so a missed teardown costs one
+            // frame rather than an immortal 60fps loop.
+            if (!vp.isConnected) { self._raf = null; return; }
+            if (t0 === null) t0 = now;
+            var progress = Math.min(1, (now - t0) / dur);
+            self._writeScroll(vp, from + distance * progress);
+            if (progress < 1) {
+              self._raf = requestAnimationFrame(step);
+            } else {
+              self._raf = null;
+              self._reset();
+            }
+          };
+          this._raf = requestAnimationFrame(step);
         },
+
+        // Snap back to the identical first row. Instant by definition — the clone
+        // under the viewport is pixel-identical to the original, so the jump is
+        // invisible and the loop reads as continuous.
         _reset() {
-          var track = this.$refs.track;
-          track.style.transition = 'none';
-          track.style.transform = 'translateX(0)';
-          void track.offsetWidth; // reflow so the next transition animates
-          if (!this._paused) this._dwellThenScroll();
-        },
-        destroy() { if (this._timer) clearTimeout(this._timer); }
+          var vp = this.$refs.viewport;
+          if (!vp || this._stood_down) return;
+          this._writeScroll(vp, 0);
+          window.gamesStripMemory.scroll = 0;
+          this._dwellThenScroll();
+        }
       };
     };
-  </script>
+</script>
 
   <%# Header %>
   <div class="mb-5 flex items-start justify-between gap-3">
