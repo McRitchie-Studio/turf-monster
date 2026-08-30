@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_28_160000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_30_040000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -287,6 +287,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_28_160000) do
     t.string "clock"
     t.datetime "created_at", null: false
     t.string "external_id"
+    t.integer "focus_rank"
     t.integer "home_score"
     t.string "home_team_slug", null: false
     t.datetime "kickoff_at"
@@ -303,6 +304,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_28_160000) do
     t.index ["away_team_slug"], name: "index_games_on_away_team_slug"
     t.index ["external_id"], name: "index_games_on_external_id_when_present", unique: true, where: "(external_id IS NOT NULL)"
     t.index ["home_team_slug"], name: "index_games_on_home_team_slug"
+    t.index ["season_year", "season_type", "week", "focus_rank"], name: "index_games_on_focus_rank_per_slot", unique: true, where: "(focus_rank IS NOT NULL)"
     t.index ["season_year", "season_type", "week", "kickoff_at"], name: "index_games_on_season_slot"
     t.index ["slug"], name: "index_games_on_slug", unique: true
     t.index ["status"], name: "index_games_on_status"

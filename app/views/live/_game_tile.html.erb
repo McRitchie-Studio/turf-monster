@@ -25,6 +25,10 @@
       · .nfl-sweep                      — the touchdown's left-to-right strip %>
 <% home = game.home_team %>
 <% away = game.away_team %>
+<%# The raw field colours, for the side-by-side blend below. Same fallback the
+    contest chip uses, so an unbranded team reads identically on both. %>
+<% away_field = normalize_hex(away&.card_background) || "#3a3f4b" %>
+<% home_field = normalize_hex(home&.card_background) || "#3a3f4b" %>
 <%# CONTEST EXTRAS. Both default to the league board's own values, so /live
     renders byte-for-byte what it did before the contest live page adopted this
     tile — which is the point of sharing the partial rather than copying it.
@@ -36,7 +40,14 @@
                animation hook are identical, so nothing downstream has to know
                which size it is looking at. %>
 <% scorers = local_assigns.fetch(:scorers, false) %>
-<% hero    = local_assigns.fetch(:size, :default).to_sym == :hero %>
+<% size    = local_assigns.fetch(:size, :default).to_sym %>
+<% hero    = size == :hero %>
+<%# :split lays the two team rows SIDE BY SIDE instead of stacking them, which
+    halves the card's height. It is for a list of games read as a list — the
+    admin week board — where vertical room is the scarce thing and each card
+    only has to say which two teams and what score. Same rows, same hooks, same
+    colours: only the axis changes. %>
+<% split   = size == :split %>
 <%# THE CARD HOSTS THE GLOW RING, and the clipping moved inside it.
     `.studio-team-glow` paints ::before/::after at a NEGATIVE inset, so the ring
     lives OUTSIDE the host's box — and `overflow-hidden` on the host would clip
@@ -58,17 +69,36 @@
   <%# The hero card is given a floor and its two rows share it. Without one the
       card is only as tall as two lines of text, and the events rail — the thing
       that is supposed to EVOLVE — showed three plays and clipped the fourth. %>
-  <div class="relative <%= "flex flex-col min-h-[15rem]" if hero %>" style="overflow: hidden; border-radius: inherit">
+  <%# data-layout is the testable name for the axis. Sniffing utility classes to
+      tell the two apart would pass just as happily on a card that had silently
+      fallen back to stacked. %>
+  <%# THE TWO TEAMS BLEND INTO EACH OTHER when they sit side by side: ONE
+      gradient runs the width of the card, each team's own field holding its end
+      and the pair meeting in the middle, so the card reads as one object rather
+      than two blocks stuck together. Same recipe as contests/_live_game_chip,
+      which learned it first — and the reason nothing divides them: at this size
+      a rule between the halves is a mark competing with the four things that
+      carry the meaning. The halves stay separate ELEMENTS (the score animations
+      need a per-team box) and simply go transparent over the blend.
+      Stacked rows keep their own per-team gradient and their divider — a
+      vertical seam between two full-width rows has room to be drawn. %>
+  <% blend = split ? "background: linear-gradient(100deg, #{away_field} 0%, #{away_field} 34%, #{home_field} 66%, #{home_field} 100%);" : "" %>
+  <div class="relative <%= "flex flex-col min-h-[15rem]" if hero %><%= "flex items-stretch" if split %>"
+       data-role="team-rows"
+       data-layout="<%= split ? "split" : "stack" %>"
+       style="overflow: hidden; border-radius: inherit; <%= blend %>">
     <% [[away, game.away_score], [home, game.home_score]].each_with_index do |(team, score), index| %>
       <% palette = team_card_palette(team) %>
       <% field = normalize_hex(team&.card_background) || "#3a3f4b" %>
-      <div class="relative flex items-center overflow-hidden <%= hero ? "flex-1 gap-4 pl-5 pr-[35%] py-4" : "gap-3 px-3 py-2.5" %>"
+      <%# The divider follows the axis: the seam between the halves is a RIGHT
+          edge when they sit side by side and a BOTTOM edge when they stack. %>
+      <div class="relative flex items-center overflow-hidden <%= hero ? "flex-1 gap-4 pl-5 pr-[35%] py-4" : "gap-3 px-3 py-2.5" %><%= " flex-1 min-w-0" if split %>"
            data-team-slug="<%= team&.slug %>"
            data-role="team-row"
-           style="background: <%= palette[:gradient] %>;
+           style="background: <%= split ? "transparent" : palette[:gradient] %>;
                   --nfl-team: <%= field %>;
                   --nfl-team-ink: <%= palette[:accent] %>;
-                  <%= "border-bottom: 1px solid #{palette[:divider]};" if index.zero? %>">
+                  <%= "border-bottom: 1px solid #{palette[:divider]};" if index.zero? && !split %>">
         <%# Flash overlay and touchdown sweep, both in the ACCENT colour and both
             parked at opacity 0 until an animation class runs them. %>
         <span class="nfl-row-wash absolute inset-0 pointer-events-none opacity-0"

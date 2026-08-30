@@ -1,0 +1,31 @@
+<%# THE FOCUS GAME — the one game the reader is watching, at full size.
+    Locals: games (enumerable of Game), focus_slug (String or nil).
+
+    EVERY GAME IS RENDERED HERE AND ALL BUT ONE IS HIDDEN, the same bargain the
+    contest live page strikes (contests/_live_focus) and for the same reasons:
+    fetching the chosen game on click needs a route, a frame and a spinner
+    between the click and the picture, and the next broadcast would overwrite
+    that frame with whichever game the SERVER thought was interesting. Rendering
+    all of them makes switching instant and makes a score reach the focused game
+    and the fifteen you might switch to by exactly the same path as everything
+    else on the page — the broadcast that replaces this whole panel.
+
+    WHAT IS DIFFERENT HERE: the focused game is REMOVED FROM THE GRID below
+    (live/_scoreboard hides it with the same `focus` state), so it appears
+    exactly once on the page. On the contest page the strip is a chooser and
+    keeps every chip; here the grid IS the list of games, and a game drawn both
+    as a hero and as a card two inches below it reads as a duplicate.
+
+    The inline `display:none` is not belt-and-braces for x-show. Alpine boots
+    after first paint, so without it the page opens with a column of sixteen
+    hero tiles that then collapses to one. %>
+<% if games.any? %>
+  <% games.each do |game| %>
+    <div x-show="focus === '<%= game.slug %>'"
+         data-test="live-focus-game"
+         data-focus-slug="<%= game.slug %>"
+         style="<%= "display: none" unless game.slug == focus_slug %>">
+      <%= render "live/game_tile", game: game, scorers: true, size: :hero %>
+    </div>
+  <% end %>
+<% end %>

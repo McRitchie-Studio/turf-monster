@@ -42,15 +42,35 @@ class DevLiveScoresTest < ActionDispatch::IntegrationTest
     assert_equal 14, @game.reload.home_score
   end
 
-  # Two streams, because a scoring event is two distinct pieces of news: the
-  # board's new score (an update to nfl_live_scoreboard) and the event itself
-  # (an append to nfl_live_event_feed, which the page animates).
+  # THREE streams. A scoring event is two distinct pieces of news — the board's
+  # new score and the event itself (an append to nfl_live_event_feed, which the
+  # page animates) — and the board is TWO targets: the focus panel
+  # (nfl_live_focus) and the grid (nfl_live_scoreboard). Both are updated from
+  # one slot query so the game in the hero panel and the game missing from the
+  # grid can never disagree.
   test "a recorded score reaches the live board over the websocket" do
-    assert_turbo_stream_broadcasts("nfl_live", count: 2) do
+    assert_turbo_stream_broadcasts("nfl_live", count: 3) do
       post dev_live_scores_record_path,
            params: { game_slug: @game.slug, team_slug: @home.slug, scoring_type: "touchdown" },
            as: :json
     end
+  end
+
+  # The two board targets must move TOGETHER. The grid hides whichever game the
+  # focus panel is showing, so refreshing one without the other is exactly how a
+  # game ends up drawn twice, or not at all — and the count above cannot tell
+  # three broadcasts to the right places from three to the wrong ones.
+  test "a score refreshes the focus panel and the grid together" do
+    broadcasts = capture_turbo_stream_broadcasts("nfl_live") do
+      post dev_live_scores_record_path,
+           params: { game_slug: @game.slug, team_slug: @home.slug, scoring_type: "touchdown" },
+           as: :json
+    end
+
+    targets = broadcasts.map { |stream| stream["target"] }
+    assert_includes targets, "nfl_live_focus"
+    assert_includes targets, "nfl_live_scoreboard"
+    assert_includes targets, "nfl_live_event_feed"
   end
 
   test "clearing a game takes it back to kickoff" do
@@ -72,11 +92,12 @@ class DevLiveScoresTest < ActionDispatch::IntegrationTest
 
   # Clearing ten goals one at a time would fire ten recomputations and ten
   # broadcasts, so every viewer would watch the score count backwards. One bulk
-  # delete, one recompute, one pair of broadcasts.
+  # delete, one recompute, one board refresh — which is two streams, the focus
+  # panel and the grid, and no event append because nothing scored.
   test "clearing broadcasts once, not once per goal" do
     5.times { @game.goals.create!(team_slug: @home.slug, points: 6, scoring_type: "touchdown") }
 
-    assert_turbo_stream_broadcasts("nfl_live", count: 1) do
+    assert_turbo_stream_broadcasts("nfl_live", count: 2) do
       post dev_live_scores_clear_game_path, params: { game_slug: @game.slug }, as: :json
     end
   end
@@ -102,8 +123,9 @@ class DevLiveScoresTest < ActionDispatch::IntegrationTest
     assert_equal 6, @game.home_score, "concluding must not disturb the score"
   end
 
+  # The final graphic (one append) plus the board refresh (two updates).
   test "concluding broadcasts the final graphic to the live board" do
-    assert_turbo_stream_broadcasts("nfl_live", count: 2) do
+    assert_turbo_stream_broadcasts("nfl_live", count: 3) do
       post dev_live_scores_conclude_game_path, params: { game_slug: @game.slug }, as: :json
     end
   end
