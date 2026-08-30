@@ -1,0 +1,91 @@
+<% content_for(:title, "#{@label} — Focus Order") %>
+
+<%# The studioBoard factory, rendered ONCE at page level. A <script> inside the
+    board component template would be cloned and re-parsed by the component and
+    never run — the engine's own note on _board_assets. It self-guards, so a
+    layout that later adopts it does not double-define. %>
+<%= render "studio/board_assets" %>
+
+<style>
+  /* THE RANK IS THE POSITION, so the number is a COUNTER over the list rather
+     than a value any template writes. After a drop the cards have moved and the
+     numbering is already correct — no re-render, no JS, and no second source of
+     truth to drift from the order it is describing. */
+  #dropzone-focus { counter-reset: focus-rank; }
+  #dropzone-focus .kanban-card { counter-increment: focus-rank; }
+  #dropzone-focus .kanban-card .tt-rank-badge::before { content: counter(focus-rank); }
+
+  /* The engine's dropzone reserves most of the viewport height, which is right
+     for a kanban row of columns and wrong for one list — a three-game week drew
+     an acre of dashed border under it. Keep a floor generous enough to be an
+     easy drop target and let the list size the rest. */
+  @media (min-width: 640px) { #dropzone-focus { min-height: 12rem; } }
+</style>
+
+<div class="max-w-screen-md mx-auto py-8 px-4 space-y-6">
+  <div class="min-w-0">
+    <%= link_to "← All weeks", admin_nfl_weeks_path, class: "text-xs text-muted hover:text-heading" %>
+    <h1 class="text-heading text-2xl font-bold mt-1 mb-1"><%= @label %></h1>
+    <p class="text-muted text-sm max-w-2xl">
+      Drag to set the order the live board prefers — the top game leads. Each
+      drop saves on its own; there is nothing to submit. The list starts in
+      kickoff order, which is exactly what the board does on its own, so an
+      untouched week is already correct and dragging is how you disagree with it.
+    </p>
+    <p class="text-muted text-sm max-w-2xl mt-2">
+      The order is a TIEBREAK, not an override: the board first narrows the week
+      to the games eligible right now — being played, or inside the twelve hours
+      before the next kickoff — and the highest game in THAT set leads. So
+      putting the night game first will not take the board off the afternoon
+      games it is competing with.
+    </p>
+  </div>
+
+  <%# WHAT THE ORDER DOES, on the page that sets it. Recomputed on each load
+      from the same service /live calls, so this is the answer, not a mock-up of
+      it. It is a page-load reading: it does not follow a drag until you reload. %>
+  <div class="card p-4 flex items-center gap-3 flex-wrap" data-test="week-focus-now">
+    <span class="text-[10px] text-muted uppercase tracking-wide">Focus right now</span>
+    <% if @focus_now %>
+      <%# Full names, matching the cards below — the abbreviations are for a
+          scoreboard read at a glance, and this line is read once. %>
+      <span class="text-heading font-semibold">
+        <%= @focus_now.away_team&.name || @focus_now.away_team_slug %>
+        <span class="text-muted font-normal">at</span>
+        <%= @focus_now.home_team&.name || @focus_now.home_team_slug %>
+      </span>
+      <% if @focus_now.focus_rank %>
+        <span class="text-[10px] font-bold uppercase tracking-wider text-primary">#<%= @focus_now.focus_rank %> in the order</span>
+      <% end %>
+    <% else %>
+      <span class="text-muted text-sm">No games in this week.</span>
+    <% end %>
+  </div>
+
+  <% if @games.empty? %>
+    <div class="card p-8 text-center">
+      <p class="text-sm text-muted">No games on file for this week.</p>
+    </div>
+  <% else %>
+    <%# The engine's board primitive, in its within-lane REORDER-ONLY shape:
+        one column, `group: false` so nothing can be dragged out of it, and no
+        move_url because there is nowhere to move to. A drop POSTs the whole
+        list's new order to reorder_url. %>
+    <%= render "studio/board/board",
+          columns: [
+            { key: Admin::Nfl::WeeksController::FOCUS_ZONE,
+              label: "Focus order",
+              cards: @games,
+              count: @games.size }
+          ],
+          card_partial: "admin/nfl/weeks/game_card",
+          card_as: :card,
+          card_locals: { zone: Admin::Nfl::WeeksController::FOCUS_ZONE },
+          reorder_url: reorder_admin_nfl_week_path(params[:id]),
+          reorder_payload: :slugs,
+          group: false,
+          id_attr: "slug",
+          zone_attr: "stage",
+          empty_label: "No games this week" %>
+  <% end %>
+</div>

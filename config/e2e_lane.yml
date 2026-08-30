@@ -485,6 +485,50 @@
 # never reaches it — against a REAL localStorage, where the existing Node-level test
 # uses a stubbed one.
 #
+# RE-DERIVED on this tree for /tasks/live-focus-game-ranking (+2, in two files:
+# the /live focus game, and the admin focus-rank drag board). Both identities,
+# with the runner:
+#   npx playwright test --list                                   -> 218 tests in 57 files
+#   npx playwright test --list --grep "@devnet"                  ->  17 tests in  1 file
+#   npx playwright test --list --grep-invert "@devnet" --project=chromium
+#                                                                -> 201 tests in 56 files
+#   218 - 17 - 4 = 197, and 201 collected - 4 runtime skips = 197   OK agree
+#
+# WHAT THE TWO NEW SPECS BUY.
+#
+# nfl_live_scoreboard (+1, the focus press): the panel's two halves are hidden by
+# two different rules in two different partials, and the Rails view test can prove
+# the MARKUP of both. What it cannot reach is the press — that Alpine state
+# declared on the page wrapper actually reaches a card inside a broadcast target,
+# that the pressed game leaves the grid and the one it replaced comes back, and
+# that the page travels up to the panel. That scroll is a thing no rendered String
+# has an opinion about, and it is the only visible consequence of a press that
+# would otherwise read as a game disappearing.
+#
+# admin_focus_ranks (+1, a whole new file, the week's drag-ordered focus list):
+# the reorder endpoint has an integration test and the board's wiring has a
+# component test, but both describe a page nobody has picked a card up on. A drag
+# is the only thing that exercises SortableJS binding to the engine's dropzone and
+# the studioBoard factory being present at all — a <script> rendered in the wrong
+# place yields a board that simply does not drag, with no server-side symptom
+# anywhere. Measured: removing the factory render turns this spec red, and so does
+# making the reorder endpoint a no-op, while every Rails test stays green.
+#
+# It asserts that the drag MOVED the game up and that a reload matches what the
+# browser ended up showing — deliberately NOT which slot SortableJS chose. That
+# pointer arithmetic is the library's, and pinning it here would make the spec a
+# metronome for a dependency rather than a test of this app.
+#
+# MERGED (this branch + accepted), re-derived on the merged tree with the tool
+# and both listers — NOT by adding the two sides' numbers, neither of which
+# describes this tree. 218 (mine) and 219 (theirs) each counted their own specs
+# and not the other's:
+#   npx playwright test --list                                   -> 221 tests in 57 files
+#   npx playwright test --list --grep "@devnet"                  ->  17 tests in  1 file
+#   npx playwright test --list --grep-invert "@devnet" --project=chromium
+#                                                                -> 204 tests in 56 files
+#   221 - 17 - 4 = 200, and 204 collected - 4 runtime skips = 200   OK agree
+#
 # 219 -> 220 (scroll-the-games-strip): ONE spec, EXTENDING
 # e2e/nfl_live_scoreboard.spec.js — no file was added. It covers the games strip
 # becoming hand-scrollable, and specifically the two ways that could regress
@@ -506,7 +550,7 @@
 # waits out the dwell, and requires it to travel — before any assertion that it
 # held. Mutated both ways: dropping the restore turns it RED at 0 instead of 700,
 # and neutering standDown() turns it RED on the drift after the dwell.
-total_specs: 220
+total_specs: 221
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -745,12 +789,22 @@ allowed_skips: 4
 # arithmetic — it read 219 in the tree against a contract of 218 and said so.
 # allowed_skips stays 4; it carries no runtime skip.
 #
+# 195 -> 197 (/tasks/live-focus-game-ranking): one spec for the /live focus game
+# and one for the admin drag board. Re-derived with both listers on this tree
+# rather than incremented — 218 - 17 - 4 = 197, and 201 collected - 4 runtime
+# skips = 197. allowed_skips stays 4: the two identities still agree, which is
+# what proves neither new spec brought a runtime skip with it.
+#
+# MERGED: 197 (mine) / 198 (theirs) -> 200. Re-derived on the merged tree, both
+# identities above, with allowed_skips still 4 — the two routes agreeing is what
+# proves neither branch's specs brought a runtime skip.
+#
 # 198 -> 199 (scroll-the-games-strip): the strip-scroll spec described beside
 # total_specs above. Re-derived with bin/e2e-lane-derive ON THE MERGED TREE, not
 # by arithmetic — this branch was cut when the contract read 216/195, and merging
 # origin/accepted first is what makes 220/199 the real numbers rather than my
 # branch's stale pair. allowed_skips stays 4; it carries no runtime skip.
-executed: 199
+executed: 200
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to

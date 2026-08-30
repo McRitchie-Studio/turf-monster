@@ -24,6 +24,8 @@
     <%= render "hub_tile", name: "NFL Team Totals", url: nfl_team_totals_path,
           note: "2026 baseline expected points by team and week" %>
     <%= render "hub_tile", name: "Goal Console", url: admin_scoring_path, note: "Record goals live on game day (team + minute)" %>
+    <%= render "hub_tile", name: "🏈 NFL Weeks", url: admin_nfl_weeks_path,
+          note: "Drag a week's games into the order the live board prefers" %>
   <% end %>
 
   <%= render layout: "hub_section", locals: { title: "Admin" } do %>

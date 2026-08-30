@@ -9,6 +9,11 @@ const { reseed, allowMotion, loginAdmin, createActiveEntry } = require("./helper
 // standing in for a real NFL scoring play.
 test.beforeEach(async ({ request }) => await reseed(request));
 
+// `:visible` runs through the selectors below because the board draws every
+// game TWICE — once as a hero tile in the focus panel, once as a card in the
+// grid — and hides one of each so the reader sees it exactly once. Without it
+// each lookup matches two nodes and Playwright refuses in strict mode; with it
+// every assertion follows the game to whichever half is on screen.
 test.describe("Live NFL scoreboard", () => {
   test("renders the board without a sign-in", async ({ page }) => {
     await page.goto("/live");
@@ -16,7 +21,13 @@ test.describe("Live NFL scoreboard", () => {
     // Named, not `level: 1` — the navbar brand is also an h1, so an unnamed
     // level-1 lookup is a strict-mode violation rather than an assertion.
     await expect(page.getByRole("heading", { name: /Week 4/ })).toBeVisible();
-    await expect(page.locator('[data-test="live-game-tile"]').first()).toBeVisible();
+    // :visible and scoped to the grid — the FIRST tile in the grid's DOM order is
+    // the focused game's card, which the board deliberately hides (it is drawn as
+    // the hero above instead), so an unscoped `.first()` asserts on the one node
+    // that is supposed to be invisible.
+    await expect(page.locator('#nfl_live_scoreboard [data-test="live-game-tile"]:visible').first()).toBeVisible();
+    // The hero panel is the other half of the same board, and it opens on one game.
+    await expect(page.locator('[data-test="live-focus-game"]:visible')).toHaveCount(1);
     // Public: no redirect to the sign-in screen.
     await expect(page).toHaveURL(/\/live$/);
 
@@ -48,7 +59,7 @@ test.describe("Live NFL scoreboard", () => {
     const [gameSlug, teamSlug] = target.split("|");
 
     const scoreCell = page
-      .locator(`[data-game-slug="${gameSlug}"] [data-team-slug="${teamSlug}"] [data-role="score"]`);
+      .locator(`[data-game-slug="${gameSlug}"] [data-team-slug="${teamSlug}"] [data-role="score"]:visible`);
     const before = parseInt((await scoreCell.textContent()).trim(), 10);
 
     await select.selectOption(target);
@@ -93,7 +104,7 @@ test.describe("Live NFL scoreboard", () => {
     const [gameSlug, teamSlug] = target.split("|");
     await select.selectOption(target);
 
-    const row = page.locator(`[data-game-slug="${gameSlug}"] [data-team-slug="${teamSlug}"]`);
+    const row = page.locator(`[data-game-slug="${gameSlug}"] [data-team-slug="${teamSlug}"]:visible`);
     // Both brand colours must reach the row: the field (washes, rail glow) and
     // the ink (the score). The ink is the fix for a score that rendered in a
     // team's near-black brand colour and vanished against the dark board.
@@ -133,7 +144,7 @@ test.describe("Live NFL scoreboard", () => {
     await select.selectOption(target);
 
     const scoreCell = page
-      .locator(`[data-game-slug="${gameSlug}"] [data-team-slug="${teamSlug}"] [data-role="score"]`);
+      .locator(`[data-game-slug="${gameSlug}"] [data-team-slug="${teamSlug}"] [data-role="score"]:visible`);
     const before = parseInt((await scoreCell.textContent()).trim(), 10);
 
     await page.locator('[data-test="dev-score-field_goal"]').click();
@@ -162,7 +173,7 @@ test.describe("Live NFL scoreboard", () => {
     await select.selectOption(target);
 
     const opacity = () =>
-      page.locator(`[data-game-slug="${gameSlug}"]`).evaluate((el) =>
+      page.locator(`[data-game-slug="${gameSlug}"]:visible`).evaluate((el) =>
         getComputedStyle(el).getPropertyValue("--studio-team-glow-opacity").trim());
 
     await page.locator('[data-test="dev-score-touchdown"]').click();
@@ -205,7 +216,60 @@ test.describe("Live NFL scoreboard", () => {
     await expect(banner).toHaveClass(/nfl-b-final/);
 
     // And the card itself settles into its final state, no reload.
-    await expect(page.locator(`[data-game-slug="${gameSlug}"]`)).toContainText("Final");
+    await expect(page.locator(`[data-game-slug="${gameSlug}"]:visible`)).toContainText("Final");
+  });
+
+  // THE FOCUS GAME. The board opens on the game the ladder picks and draws it
+  // large at the top; pressing any card in the grid hands that panel over —
+  // which takes the pressed game OUT of the grid and carries the page up to it.
+  //
+  // The scroll is the half a Rails view test cannot reach, and it is not a
+  // flourish: the card you pressed disappears, so without the scroll the only
+  // visible consequence of the press is a game vanishing from the list.
+  test("pressing a card focuses it, takes it out of the grid, and scrolls up to it", async ({ page }) => {
+    // Short viewport so the page is definitely taller than the window — a
+    // scroll assertion on a page that cannot scroll proves nothing.
+    await page.setViewportSize({ width: 900, height: 500 });
+    await page.goto("/live");
+
+    const hero = page.locator('[data-test="live-focus-game"]:visible');
+    await expect(hero).toHaveCount(1);
+    const opened = await hero.getAttribute("data-focus-slug");
+
+    // The board opens on ONE game and that game is not also in the grid.
+    await expect(page.locator(`[data-test="live-grid-card"][data-pick-slug="${opened}"]`)).toBeHidden();
+
+    const others = page.locator(`[data-test="live-grid-card"]:visible`);
+    expect(await others.count()).toBeGreaterThan(0);
+
+    // Start at the bottom, so "it scrolled up to the panel" is measured rather
+    // than inherited from a page that was already at the top.
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    const startedAt = await page.evaluate(() => window.scrollY);
+
+    const card = others.first();
+    const wanted = await card.getAttribute("data-pick-slug");
+    await card.click();
+
+    // The hero is the game that was pressed…
+    await expect(page.locator('[data-test="live-focus-game"]:visible'))
+      .toHaveAttribute("data-focus-slug", wanted);
+    // …it has left the grid…
+    await expect(page.locator(`[data-test="live-grid-card"][data-pick-slug="${wanted}"]`)).toBeHidden();
+    // …and the one it replaced has come back to it.
+    await expect(page.locator(`[data-test="live-grid-card"][data-pick-slug="${opened}"]`)).toBeVisible();
+
+    // POLLED, not read once: the scroll is animated, so a single evaluate
+    // straight after the click samples a page still on its way.
+    await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 5000 })
+      .toBeLessThan(startedAt);
+
+    // And it landed with the panel actually on screen, below the sticky header
+    // rather than under it — which is what the panel's scroll-margin buys.
+    const top = await page.locator("#nfl_live_focus").evaluate((el) => el.getBoundingClientRect().top);
+    expect(top).toBeGreaterThanOrEqual(0);
+    expect(top).toBeLessThan(500);
   });
 
   test("clearing a game takes its score back to zero", async ({ page }) => {
@@ -217,7 +281,7 @@ test.describe("Live NFL scoreboard", () => {
     await select.selectOption(target);
 
     const scoreCell = page
-      .locator(`[data-game-slug="${gameSlug}"] [data-team-slug="${teamSlug}"] [data-role="score"]`);
+      .locator(`[data-game-slug="${gameSlug}"] [data-team-slug="${teamSlug}"] [data-role="score"]:visible`);
     await page.locator('[data-test="dev-score-touchdown"]').click();
     await expect(scoreCell).not.toHaveText("0", { timeout: 10000 });
 
