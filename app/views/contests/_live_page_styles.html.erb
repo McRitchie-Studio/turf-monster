@@ -197,4 +197,21 @@
       animation: none;
     }
   }
+
+  /* ── THE GAMES STRIP ──────────────────────────────────────────────────────
+     Scrollable by hand, with the bar hidden — the same treatment .tt-event-feed
+     gets, and for the same reason: a scrollbar under a single row of chips reads
+     as chrome rather than as an affordance, and the strip already advertises
+     that it moves by rotating on its own.
+
+     `overscroll-behavior-x: contain` stops a horizontal fling at the end of the
+     strip from turning into a browser back-navigation, which on a trackpad is
+     one flick away and would throw the reader off a live page. */
+  .tt-games-strip {
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tt-games-strip::-webkit-scrollbar { display: none; }
+
 </style>

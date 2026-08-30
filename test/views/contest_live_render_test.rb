@@ -420,4 +420,177 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
       assert_includes els.first["class"].to_s.split, "hidden"
     end
   end
+
+  # ── THE GAMES STRIP SCROLLS ───────────────────────────────────────────────
+  #
+  # The strip auto-rotates, and used to do it by animating a `transform` inside
+  # an `overflow-hidden` viewport — which meant a reader could not reach a game
+  # the rotation had not got to yet. The position is now owned by the native
+  # scroll offset, so the reader and the rotation move the same number and the
+  # handover costs nothing.
+  test "the strip viewport scrolls horizontally" do
+    get_live
+
+    assert_select "[x-ref=viewport]" do |els|
+      classes = els.first["class"].to_s.split
+      assert_includes classes, "overflow-x-auto",
+        "the reader must be able to scroll the strip by hand"
+    end
+  end
+
+  # overflow-y MUST stay hidden and the py-2 MUST stay. The selected chip's glow
+  # ring paints outside its own box; the padding is what stops the viewport
+  # slicing it flat, and an `overflow: auto` one-liner silently takes both away.
+  test "the strip still clips vertically and keeps room for the ring" do
+    get_live
+
+    assert_select "[x-ref=viewport]" do |els|
+      classes = els.first["class"].to_s.split
+      assert_includes classes, "overflow-y-hidden", "the ring is clipped vertically by design"
+      assert_includes classes, "py-2", "and the padding is what keeps it from being sliced"
+    end
+  end
+
+  # A reader who scrolls has said where they want to be far more clearly than a
+  # hover does, so the rotation stands down for good rather than pausing. The
+  # signal is the STRIP'S OWN scroll event, because that is the only thing that
+  # fires when this element actually moved.
+  test "a reader scrolling the strip stands the rotation down" do
+    get_live
+
+    assert_select "[x-ref=viewport]" do |els|
+      markup = els.first.to_s
+      assert_includes markup, "@scroll.passive",
+        "the strip's own scroll is what hands it to the reader"
+      assert_includes markup, "remember()",
+        "and every movement must be recorded, or a score forgets where the reader was"
+    end
+  end
+
+  # THE VERTICAL-SCROLL REGRESSION.
+  #
+  # A `wheel` fires on whatever is under the pointer and bubbles whether or not
+  # that element scrolls, and this strip spans the top of the live page — right
+  # under the cursor on the way down to chat. A bare @wheel="standDown()" here
+  # therefore killed the rotation for the rest of the session on a plain
+  # VERTICAL page scroll, with the strip itself never having moved. Measured:
+  # page scrollY 400, strip scrollLeft 0, stoodDown true, no travel in 11s.
+  #
+  # An axis check alone is NOT the fix either: Chrome implements shift+wheel
+  # horizontal scrolling by setting deltaY with shiftKey, so `deltaX !== 0`
+  # would miss a mouse user scrolling this strip sideways.
+  test "a vertical wheel over the strip cannot stand the rotation down" do
+    get_live
+
+    assert_select "[x-ref=viewport]" do |els|
+      markup = els.first.to_s
+      refute_includes markup, '@wheel="standDown()"',
+        "an unconditional wheel handler kills the rotation on a vertical page scroll"
+      assert_includes markup, "wheelAcross($event)",
+        "the wheel must be filtered for horizontal intent, not taken at face value"
+    end
+
+    # Asserted against the factory with its COMMENTS STRIPPED. The method's own
+    # doc comment explains why shiftKey is honoured, so a search of the raw
+    # source stays green with the guard deleted — caught exactly that way while
+    # mutating this test.
+    code = games_carousel_code
+    assert_match(/wheelAcross\s*\([^)]*\)\s*\{[^}]*shiftKey/, code,
+      "shiftKey must be honoured, or a mouse user scrolling sideways is missed")
+  end
+
+  # Choosing a game is what this strip is FOR. A click or a tap must not cost the
+  # reader the rotation — hover already freezes it while the pointer is there,
+  # and a drag, swipe or arrow key reaches @scroll on its own.
+  test "choosing a game does not cost the reader the rotation" do
+    get_live
+
+    assert_select "[x-ref=viewport]" do |els|
+      markup = els.first.to_s
+      %w[@pointerdown @keydown @touchstart].each do |handler|
+        refute_includes markup, handler,
+          "#{handler} stands the rotation down on a TAP, and a tap is not a scroll"
+      end
+    end
+  end
+
+  # Neither listener calls preventDefault, and a non-passive listener on a scroll
+  # container blocks the scroll it is watching.
+  test "the strip's listeners are passive" do
+    get_live
+
+    assert_select "[x-ref=viewport]" do |els|
+      markup = els.first.to_s
+      assert_includes markup, "@scroll.passive", "a scroll listener must not block scrolling"
+      assert_includes markup, "@wheel.passive",  "nor may a wheel listener on a scroll container"
+    end
+  end
+
+  # THE STATE MUST NOT LIVE WHERE THE BROADCAST CAN REACH IT.
+  #
+  # Contest::LiveBroadcast#replace_games re-renders EXACTLY this partial into
+  # #contest_<id>_games on every score, so anything the partial declares is
+  # rebuilt from scratch each time anyone scores. While the reader's scroll
+  # offset and stand-down lived on the component inside it, both reset on every
+  # touchdown — the strip jumped back to 0 and started rotating again under
+  # someone who had parked it. The declaration therefore belongs to the page,
+  # outside the target, and this is the seam that keeps it there.
+  test "the strip's memory is declared outside the broadcast target" do
+    strip = render_strip_partial
+    refute_includes strip, "gamesStripMemory =",
+      "declaring the memory inside the re-rendered partial resets it on every score"
+
+    get_live
+    assert_includes response.body, "window.gamesStripMemory",
+      "the page must declare it, outside #contest_<id>_games"
+  end
+
+  # The rotation drives requestAnimationFrame, and a broadcast detaches the node
+  # it animates. Without a teardown the orphaned chain keeps requesting frames
+  # forever — measured at one extra 60fps loop per score, 240 -> 480 -> 720 calls
+  # per 2s across two touchdowns. The transform version survived the omission by
+  # luck: a detached node never fires transitionend, so that chain died by itself.
+  test "the carousel tears its animation down when the node goes away" do
+    get_live
+
+    # Sliced to the carousel factory, and asserted as a DEFINITION rather than a
+    # mention. Half a dozen other components on this page define destroy(), and
+    # the factory's own comment names it — so a page-wide substring search stays
+    # green with the method deleted. Verified by deleting it: this goes red, the
+    # substring version did not.
+    code = games_carousel_code
+    assert_match(/destroy\(\)\s*\{/, code,
+      "Alpine's teardown hook must exist, or every score leaks a rAF loop")
+    assert_match(/isConnected/, code,
+      "and the loop must self-terminate too, so a missed teardown costs one frame")
+  end
+
+  private
+
+  # The strip exactly as the broadcaster re-renders it — same partial, same
+  # locals as Contest::LiveBroadcast#replace_games — so what this returns is what
+  # a score actually puts on the page.
+  # JUST the strip carousel factory, so an assertion about it cannot be satisfied
+  # by one of the page's many other Alpine components.
+  def games_carousel_source
+    body  = response.body
+    start = body.index("window.gamesCarousel")
+    refute_nil start, "the carousel factory must be on the page at all"
+    body[start...body.index("</script>", start)]
+  end
+
+  # The factory with its comments removed, so an assertion about the CODE cannot
+  # be satisfied by the prose explaining that code. This file's comments are
+  # deliberately long, which makes a bare substring search on the source nearly
+  # useless: every guard is named in the paragraph above it.
+  def games_carousel_code
+    games_carousel_source.gsub(%r{//[^\n]*}, "")
+  end
+
+  def render_strip_partial
+    ApplicationController.render(
+      partial: "contests/live_games",
+      locals: @contest.games_by_phase.merge(contest: @contest)
+    )
+  end
 end

@@ -22,7 +22,48 @@
       <%# py-2 is for the RING, not for looks. The selected chip's glow paints
           outside its own box, and this viewport clips — without the padding the
           ring is sliced flat along the top and bottom of the strip. %>
-      <div x-ref="viewport" class="overflow-hidden py-2">
+      <%# SCROLLABLE, and the reader owns it the moment they touch it.
+          overflow-x is auto so the strip can be dragged, swiped or wheeled to a
+          game the rotation has not reached; overflow-y stays hidden because the
+          selected chip's glow ring paints outside its box and the py-2 above is
+          what keeps it from being sliced — see the note on this element. The
+          scrollbar is hidden the same way .tt-event-feed hides its own: a bar
+          under a single row of chips reads as chrome, and the strip already
+          advertises that it moves by rotating. %>
+      <%# @scroll IS THE HANDOVER, and it is deliberately the only one.
+          It fires when this element's own offset actually changed, so a drag, a
+          swipe, a sideways wheel and an arrow key all arrive here, while a
+          VERTICAL page scroll past the strip does not — the strip never moved.
+          That distinction is the whole point: this element spans the top of the
+          page, so it sits under the cursor on the way down to chat, and a
+          `wheel` listener here stood the rotation down for the rest of the
+          session on the commonest gesture on the page. remember() tells the
+          reader's scroll from the rotation's own by what the component wrote.
+
+          It also records the position on a page-level object OUTSIDE this
+          container, because a score replaces everything in here — see the
+          gamesStripMemory note in live.html.erb.
+
+          NO @pointerdown / @keydown / @touchstart. Choosing a game is what this
+          strip is FOR, so neither a click nor a TAP may cost the reader the
+          rotation; hover already freezes it while the pointer is on the chip,
+          and a drag, a swipe or an arrow key reaches @scroll on its own.
+          Criterion 3 yields to a reader who scrolls the strip, and a tap is not
+          a scroll.
+
+          The wheel is the ONE input still worth listening to, because it is the
+          one that is DISCRETE. A drag or a swipe emits scroll events for as long
+          as it lasts, so if the rotation overwrites the reader mid-frame the
+          next event still catches them; a single wheel notch gets exactly one
+          chance, which a rotation frame can swallow. Hence the supplement — and
+          only for horizontal intent, since a vertical wheel is the bug above.
+
+          Both listeners are passive: neither calls preventDefault, and a
+          non-passive listener on a scroll container blocks the scroll it watches. %>
+      <div x-ref="viewport"
+           class="tt-games-strip overflow-x-auto overflow-y-hidden py-2"
+           @scroll.passive="remember()"
+           @wheel.passive="wheelAcross($event)">
         <div x-ref="track" class="flex gap-2 items-stretch will-change-transform">
           <% phased.each do |game| %>
             <div class="flex-shrink-0">

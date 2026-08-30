@@ -756,4 +756,186 @@ test.describe("Contest live page", () => {
     await expect(page.locator("#nfl-score-points")).toHaveText("+6");
   });
 
+
+  // ── THE STRIP IS THE READER'S ────────────────────────────────────────────
+  //
+  // The markup test can see overflow-x and the handlers. What it cannot see is
+  // the thing that actually broke before: the rotation and a reader's scroll
+  // both trying to own the position. That was impossible to get wrong safely
+  // while one drove `transform` and the other drove scrollLeft — whichever
+  // wrote last snapped the strip out from under the other — so the fix made the
+  // native scroll offset the only owner, and this is where that is proven.
+  // A PLAIN VERTICAL PAGE SCROLL MUST LEAVE THE ROTATION ALONE.
+  //
+  // A wheel event fires on whatever sits under the pointer and bubbles, whether
+  // or not that element is what ends up scrolling. This strip runs full width
+  // across the TOP of the live page, so it is directly under the cursor on the
+  // way down to chat — and while the handover was bound to @wheel, reading the
+  // chat cost you the rotation for the rest of the session. The strip itself
+  // never moved: page scrollY 400, strip scrollLeft 0, stood down anyway.
+  //
+  // It mattered more than it sounds because this page hides the strip's
+  // scrollbar, so the rotation is the only thing advertising that games exist
+  // off-screen. Kill it and a 16-game slate silently reads as however many chips
+  // happen to fit.
+  test("scrolling the page past the strip leaves the rotation alone", async ({
+    page,
+  }) => {
+    test.setTimeout(60000);
+    await allowMotion(page);
+    await loginAdmin(page);
+    await openLive(page, CONTEST);
+
+    const viewport = page.locator('[x-ref="viewport"]').first();
+    const at = () => viewport.evaluate((el) => Math.round(el.scrollLeft));
+
+    const room = await viewport.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(room, "the strip must overflow, or it would not rotate at all").toBeGreaterThan(100);
+
+    // The gesture: pointer over the strip, wheel DOWN. deltaX is 0.
+    await viewport.hover();
+    await page.mouse.wheel(0, 400);
+    await page.waitForTimeout(700);
+
+    // The page moved and the strip did not — which is exactly why the strip must
+    // not treat this as the reader taking it over.
+    expect(await page.evaluate(() => Math.round(window.scrollY)),
+      "the page should have scrolled").toBeGreaterThan(100);
+    expect(await at(), "the strip itself never moved").toBe(0);
+
+    // AND THE SAME SCROLL WITH A HAIR OF SIDEWAYS DRIFT — a trackpad emits a
+    // fraction of a pixel of deltaX on a nominally vertical scroll, and
+    // `deltaX !== 0` read that as the reader taking over. Asserted on the flag,
+    // because the flag IS the predicate the travel below already exercises.
+    const stoodDown = () =>
+      viewport.evaluate((el) => window.Alpine.$data(el)._stood_down);
+    await viewport.hover();
+    await viewport.evaluate((el) =>
+      el.dispatchEvent(
+        new WheelEvent("wheel", { deltaX: 0.4, deltaY: 400, bubbles: true })
+      )
+    );
+    expect(await stoodDown(), "0.4px of drift is not the reader taking over").toBe(false);
+
+    // Pointer off the strip, so hover-pause is not what we are measuring, then
+    // wait out the 8s dwell. A rotation that survived the wheel will travel.
+    await page.mouse.move(5, 5);
+    const before = await at();
+    await page.waitForTimeout(11000);
+    const after = await at();
+    expect(
+      after - before,
+      `the rotation died on a vertical page scroll (${before} -> ${after})`
+    ).toBeGreaterThan(30);
+  });
+
+  test("a reader can scroll the strip, and it stays where they put it", async ({
+    page,
+  }) => {
+    test.setTimeout(90000);
+    await allowMotion(page);
+    await loginAdmin(page);
+    await openLive(page, CONTEST);
+
+    const viewport = page.locator('[x-ref="viewport"]').first();
+    const at = () => viewport.evaluate((el) => Math.round(el.scrollLeft));
+
+    // It has somewhere to scroll TO — otherwise the rest proves nothing.
+    const room = await viewport.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(room, "the strip must overflow, or there is nothing to scroll").toBeGreaterThan(100);
+
+    // The track carries no transform: scrollLeft is the sole owner of position.
+    const transform = await viewport.evaluate(
+      (el) => getComputedStyle(el.querySelector('[x-ref="track"]')).transform
+    );
+    expect(transform).toBe("none");
+
+    // THE CONTROL, and it is the reason this test means anything.
+    //
+    // Everything below asserts the strip DID NOT move. That assertion is worth
+    // nothing unless an untouched strip WOULD have moved in the same window —
+    // and the rotation dwells 8s before its first frame, so a shorter wait
+    // passes on a strip that is merely idle and on one that is properly stood
+    // down alike. This measures the window first: leave the strip alone, wait
+    // out the dwell, and prove it travels. Only then does "it held" have force.
+    const restingAt = await at();
+    await page.waitForTimeout(9500);
+    const rotated = await at();
+    expect(
+      rotated - restingAt,
+      "the rotation never moved, so a later 'it held' would prove nothing"
+    ).toBeGreaterThan(30);
+
+    // Now hand it over. A wheel stands the rotation down for good.
+    //
+    // Then WAIT FOR THE WHEEL TO LAND before parking the strip by hand. Chromium
+    // animates a wheel scroll, so it is still travelling when mouse.wheel()
+    // resolves; assigning scrollLeft into that animation gets overwritten by the
+    // frames still to come, and the strip settles somewhere else entirely.
+    await viewport.hover();
+    await page.mouse.wheel(300, 0);
+    await expect
+      .poll(async () => {
+        const a = await at();
+        await page.waitForTimeout(120);
+        return (await at()) - a;
+      }, { message: "the wheel scroll never settled", timeout: 5000 })
+      .toBe(0);
+
+    await viewport.evaluate((el) => { el.scrollLeft = 700; });
+    expect(await at()).toBe(700);
+
+    // GET THE POINTER OFF THE STRIP, or this test proves nothing.
+    //
+    // The strip pauses under the pointer (@mouseenter="pause()"), so a hovering
+    // mouse holds it still whether or not the stand-down works — an earlier cut
+    // of this test asserted "it held" with the pointer parked on the strip and
+    // passed happily against a standDown() neutered to a no-op. Moving away
+    // fires @mouseleave="resume()", and resume() is exactly what refuses once
+    // the reader has taken over. Now only a REAL stand-down keeps it here.
+    await page.mouse.move(5, 5);
+
+    // AND IT STAYS — across a window we have just proven is long enough for the
+    // rotation to have moved it.
+    await page.waitForTimeout(9500);
+    const held = await at();
+    expect(Math.abs(held - 700), `the strip drifted to ${held}`).toBeLessThan(20);
+
+    // AND IT SURVIVES A SCORE, which is the case that actually broke.
+    //
+    // Contest::LiveBroadcast#replace_games swaps the innerHTML of the container
+    // this component's x-data lives in, so every goal destroys and rebuilds the
+    // carousel. Before the state was hoisted out of that container, the reader's
+    // offset and their stand-down went back to 0/false on every touchdown — on
+    // the page this feature exists for, on the event that page exists to show.
+    const chip = page.locator('[data-test="live-game-chip"][data-game-slug]').first();
+    const gameSlug = await chip.getAttribute("data-game-slug");
+    const teamSlug = await chip.locator("[data-team-slug]").first().getAttribute("data-team-slug");
+
+    const swapped = viewport.evaluate((el) => new Promise((res) => {
+      const box = el.closest('[id$="_games"]');
+      new MutationObserver(() => res(true)).observe(box, { childList: true, subtree: true });
+    }));
+    await recordTouchdown(page, gameSlug, teamSlug);
+    await swapped;
+    await page.waitForTimeout(1500);
+
+    const afterScore = await page.locator('[x-ref="viewport"]').first()
+      .evaluate((el) => Math.round(el.scrollLeft));
+    expect(
+      Math.abs(afterScore - 700),
+      `the score reset the strip to ${afterScore} — the reader lost their place`
+    ).toBeLessThan(20);
+
+    // Still stood down afterwards: the rebuilt component inherited the handover,
+    // so the rotation does not start up again under someone who is reading.
+    await page.waitForTimeout(9500);
+    const settled = await page.locator('[x-ref="viewport"]').first()
+      .evaluate((el) => Math.round(el.scrollLeft));
+    expect(
+      Math.abs(settled - 700),
+      `the rotation restarted after the score and crept to ${settled}`
+    ).toBeLessThan(20);
+  });
+
 });
