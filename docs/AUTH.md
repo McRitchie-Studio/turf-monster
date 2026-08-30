@@ -122,6 +122,21 @@ Routes:
 - `GET /auth/phantom/callback` for mobile deep links
 - `GET /login/wallet` for the Google-collided-with-wallet recovery path
 
+All four are drawn by **this app**, not the engine: `config/initializers/studio.rb`
+sets `Studio.draw_auth_routes = false`. The phantom callback in particular MUST
+stay declared before `Studio.routes`, which draws the OmniAuth wildcard
+`auth/:provider/callback` unconditionally and would otherwise recognise
+`/auth/phantom/callback` as `omniauth_callbacks#create` with provider `phantom`.
+
+The mobile deep link itself is **studio-engine's** since
+`adopt-engine-phantom-deeplink`: `studio/solana/_phantom_deeplink` publishes
+`window.startPhantomDeepLink` and `solana_sessions/phantom_callback` completes the
+return leg. Turf renders the deep link once from `shared/_alpine_factories` (one
+callsite, both layouts that mount the wallet picker), keeps its own blocking
+tweetnacl tag rather than the engine's async `studio/solana/deeplink_assets`, and
+opts the callback's debug sink back on with
+`Studio.wallet_debug_sink = -> { !AppFlags.live_production? }`.
+
 `Solana::SessionAuth#verify_solana_signature!` enforces:
 
 - a server-generated nonce with a five-minute freshness window,

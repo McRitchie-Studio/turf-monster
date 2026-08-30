@@ -195,17 +195,34 @@ class WalletPickerAdoptionTest < ActionDispatch::IntegrationTest
   test "this app supplies the deep-link function the engine gates on" do
     # NEW CONTRACT, and it is easy to miss. The engine suppresses Phantom's
     # mobile install row ONLY when `typeof startPhantomDeepLink === 'function'`,
-    # and paints the deep-link row on the same condition. In an app that does
-    # not define it, adopting the picker leaves a phone with NO Phantom path at
-    # all. The fork suppressed the install row unconditionally, so this
-    # dependency did not exist before the adoption.
-    assert_match(/^window\.startPhantomDeepLink\s*=/,
-                 Rails.root.join("app/javascript/phantom_deeplink.js").read,
-                 "phantom_deeplink.js no longer publishes startPhantomDeepLink on window")
-    assert_match(/^import ["']phantom_deeplink["']/,
-                 Rails.root.join("app/javascript/application.js").read,
-                 "phantom_deeplink is no longer imported, so window.startPhantomDeepLink " \
-                 "never exists and the engine picker offers a phone no Phantom row")
+    # and paints the deep-link row on the same condition. The fork suppressed the
+    # install row unconditionally, so this dependency did not exist before the
+    # adoption.
+    #
+    # CORRECTED 2026-08-30, measured rather than reasoned. This comment used to
+    # say an app without the global "leaves a phone with NO Phantom path at all".
+    # It does not: both getters read canDeepLink, so losing it un-suppresses the
+    # INSTALL row at the same moment it hides the deep-link row. The phone gets
+    # Phantom's browser-extension download page — a dead end on iOS Safari, which
+    # is bug enough, but a VISIBLE one. Anyone auditing for an empty wallet list
+    # would have looked straight past it.
+    #
+    # 2026-08-30 (adopt-engine-phantom-deeplink): THE DEEP LINK IS THE ENGINE'S
+    # NOW TOO. It used to be app/javascript/phantom_deeplink.js loaded through
+    # the importmap; a File.read of that path is now a read of a file that does
+    # not exist, and the assertion errored rather than failed. The GUARANTEE is
+    # unchanged and still belongs here — it is the picker's precondition — so it
+    # is restated against the page the picker is mounted on. Everything else
+    # about the deep link is pinned in phantom_deeplink_adoption_test.
+    each_picker_render do |label, body|
+      assert_match(/window\.startPhantomDeepLink\s*=\s*startPhantomDeepLink\s*;/, body,
+                   "#{label}: nothing on this page publishes startPhantomDeepLink on " \
+                   "window, so the engine picker hides its deep-link row and hands a " \
+                   "phone Phantom's browser-extension INSTALL row instead — the iOS " \
+                   "dead end. Assert the DEFINITION, never the bare " \
+                   "name: the picker's x-data and the engine partial both NAME the " \
+                   "function in comments that ship to this page.")
+    end
   end
 
   private

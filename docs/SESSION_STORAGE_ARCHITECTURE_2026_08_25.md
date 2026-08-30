@@ -150,21 +150,32 @@ on the `app/` + `e2e/` scope. Revision 1 compared its own `app/`-only 13 against
 the brief's 17 and called the difference an error in the brief. It was a
 difference in scope, and the rebuttal is withdrawn.
 
+**Amended 2026-08-30 (`adopt-engine-phantom-deeplink`).** Both halves of the
+`phantom_dl_*` handshake now live in studio-engine — the writer is
+`studio/solana/_phantom_deeplink` (rendered by `shared/_alpine_factories`) and the
+reader is the engine's `solana_sessions/phantom_callback`. This app's forks
+(`app/javascript/phantom_deeplink.js` and its copy of the callback view) are
+deleted. **The KEYS, their owners and their lifetimes are unchanged** — the
+promotion moved the code, not the contract, including the `phantom_dl_user_id`
+gap in §2.1, which is still open and now open in the engine. Line numbers were
+dropped from the moved rows rather than re-derived against a gem the next reader
+may be pinned to a different version of.
+
 | Key | Store | Writer(s) — the owner | Reader(s) | Lifetime rule |
 |---|---|---|---|---|
 | `inviter_slug` | local | `layouts/application.html.erb:143` | same file `:164` | Cleared on successful `PATCH /account/set_inviter` (`:171`) |
 | `lastUserId` | local | `layouts/application.html.erb:952` | same file `:936` | Identity-change sentinel; drives the purge below |
 | `pendingAuthStep` | session | **NONE — ORPHANED. See below.** | `:397` reads | `:400`, `:424` remove |
 | `pendingContestEntry` | local | `contests/_turf_totals_board.html.erb:914` | `:458` | Consumed on read; 30-min freshness guard (`:461`) |
-| `phantom_dl_secret` | local | `phantom_deeplink.js:38` | `solana_sessions/phantom_callback.html.erb:167` | `cleanup()` at `:97` |
-| `phantom_dl_pubkey` | local | `phantom_deeplink.js:39` | callback | `cleanup()` |
-| `phantom_dl_nonce` | local | `phantom_deeplink.js:40` | callback `:239` | `cleanup()` |
-| `phantom_dl_nonce_at` | local | `phantom_deeplink.js:41` | callback `:134` | `cleanup()` |
-| `phantom_dl_step` | local | `phantom_deeplink.js:42` | callback `:125` | `cleanup()` |
-| `phantom_dl_link_mode` | local | `phantom_deeplink.js:43` | callback `:245`, `:255` | `cleanup()` |
-| `phantom_dl_cluster` | local | `phantom_deeplink.js:44` | callback | `cleanup()` |
-| `phantom_dl_user_id` | local | `phantom_deeplink.js:46` / removed `:48` | callback `:244` | **NOT in `cleanup()`** — see §2.1 |
-| `phantom_dl_age_attested` | local | `WalletPickerHelper#wallet_connect_extra_data` (the picker's `onDeepLink` hook) | callback `:276` | `cleanup()` |
+| `phantom_dl_secret` | local | `studio/solana/_phantom_deeplink` (engine) | callback (engine) | `cleanup()` |
+| `phantom_dl_pubkey` | local | `studio/solana/_phantom_deeplink` (engine) | callback (engine) | `cleanup()` |
+| `phantom_dl_nonce` | local | `studio/solana/_phantom_deeplink` (engine) | callback (engine) | `cleanup()` |
+| `phantom_dl_nonce_at` | local | `studio/solana/_phantom_deeplink` (engine) | callback (engine) | `cleanup()` |
+| `phantom_dl_step` | local | `studio/solana/_phantom_deeplink` (engine) | callback (engine) | `cleanup()` |
+| `phantom_dl_link_mode` | local | `studio/solana/_phantom_deeplink` (engine) | callback (engine) | `cleanup()` |
+| `phantom_dl_cluster` | local | `studio/solana/_phantom_deeplink` (engine) | callback (engine) | `cleanup()` |
+| `phantom_dl_user_id` | local | `studio/solana/_phantom_deeplink` (engine) (written, or removed, per link mode) | callback (engine) | **NOT in `cleanup()`** — see §2.1 |
+| `phantom_dl_age_attested` | local | `WalletPickerHelper#wallet_connect_extra_data` (the picker's `onDeepLink` hook) | callback (engine) | `cleanup()` |
 | `seedsNavbar` | local | **five writers** — see §2.3 | 5 readers | Purged on identity change only |
 | `seedsLevelUp` | local | `state_fanout.js:124` | `seeds_bar.js:45`, `_seeds_bar.html.erb:60` | Consumed on read |
 | `walletSetupAutoConnect` | session | `modals/_wallet_setup.html.erb:267` | same file `:66`, removed `:67` | Consumed on read |
@@ -295,7 +306,7 @@ can disagree.
 - **Path 2:** `app/views/layouts/application.html.erb:946-949` — a prefix scan,
   `if (k && k.indexOf('phantom_dl_') === 0) localStorage.removeItem(k)` — **all keys**.
 
-`app/javascript/phantom_deeplink.js:46` writes a ninth key, `phantom_dl_user_id`.
+The deep link writes a ninth key, `phantom_dl_user_id`.
 It is **absent from `ALL_KEYS`**. So the deeplink callback's `cleanup()` leaves
 `phantom_dl_user_id` in localStorage after a completed handshake; only the
 layout's identity-change purge removes it, and only on a user change. Two lists
