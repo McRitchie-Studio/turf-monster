@@ -484,7 +484,29 @@
 # app opts back in to, and the OPSEC guarantee that the dapp x25519 secret's VALUE
 # never reaches it — against a REAL localStorage, where the existing Node-level test
 # uses a stubbed one.
-total_specs: 219
+#
+# 219 -> 220 (scroll-the-games-strip): ONE spec, EXTENDING
+# e2e/nfl_live_scoreboard.spec.js — no file was added. It covers the games strip
+# becoming hand-scrollable, and specifically the two ways that could regress
+# invisibly.
+#
+# WHY A BROWSER AND NOTHING CHEAPER. The strip's Alpine component is rendered
+# INSIDE #contest_<id>_games, which Contest::LiveBroadcast#replace_games swaps
+# wholesale on every score — so a touchdown destroys and rebuilds it, and any
+# position or stand-down held on the component resets. The markup is IDENTICAL
+# before and after, so no view test and no source grep can see it: the only
+# witness is a live socket delivering a real Goal and a real scrollLeft read
+# afterwards. The spec drives the actual dev injector and waits on the container
+# being replaced, then asserts the reader's offset survived.
+#
+# IT CARRIES ITS OWN CONTROL, because the first cut of this spec did not and
+# passed for the wrong reason: it asserted "the strip did not move" inside a
+# 3s window while the rotation dwells 8s, so an untouched strip would not have
+# moved either. The spec now measures the window first — leaves the strip alone,
+# waits out the dwell, and requires it to travel — before any assertion that it
+# held. Mutated both ways: dropping the restore turns it RED at 0 instead of 700,
+# and neutering standDown() turns it RED on the drift after the dwell.
+total_specs: 220
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -722,7 +744,13 @@ allowed_skips: 4
 # total_specs above. Re-derived with bin/e2e-lane-derive, which is the tool, not
 # arithmetic — it read 219 in the tree against a contract of 218 and said so.
 # allowed_skips stays 4; it carries no runtime skip.
-executed: 198
+#
+# 198 -> 199 (scroll-the-games-strip): the strip-scroll spec described beside
+# total_specs above. Re-derived with bin/e2e-lane-derive ON THE MERGED TREE, not
+# by arithmetic — this branch was cut when the contract read 216/195, and merging
+# origin/accepted first is what makes 220/199 the real numbers rather than my
+# branch's stale pair. allowed_skips stays 4; it carries no runtime skip.
+executed: 199
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to

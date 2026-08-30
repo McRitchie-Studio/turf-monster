@@ -466,6 +466,68 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
       end
       assert_includes markup, "standDown()",
         "and it must stand DOWN, not merely pause — resume() refuses afterwards"
+      assert_includes markup, "remember()",
+        "and every movement must be recorded, or a score forgets where the reader was"
     end
+  end
+
+  # THE STATE MUST NOT LIVE WHERE THE BROADCAST CAN REACH IT.
+  #
+  # Contest::LiveBroadcast#replace_games re-renders EXACTLY this partial into
+  # #contest_<id>_games on every score, so anything the partial declares is
+  # rebuilt from scratch each time anyone scores. While the reader's scroll
+  # offset and stand-down lived on the component inside it, both reset on every
+  # touchdown — the strip jumped back to 0 and started rotating again under
+  # someone who had parked it. The declaration therefore belongs to the page,
+  # outside the target, and this is the seam that keeps it there.
+  test "the strip's memory is declared outside the broadcast target" do
+    strip = render_strip_partial
+    refute_includes strip, "gamesStripMemory =",
+      "declaring the memory inside the re-rendered partial resets it on every score"
+
+    get_live
+    assert_includes response.body, "window.gamesStripMemory",
+      "the page must declare it, outside #contest_<id>_games"
+  end
+
+  # The rotation drives requestAnimationFrame, and a broadcast detaches the node
+  # it animates. Without a teardown the orphaned chain keeps requesting frames
+  # forever — measured at one extra 60fps loop per score, 240 -> 480 -> 720 calls
+  # per 2s across two touchdowns. The transform version survived the omission by
+  # luck: a detached node never fires transitionend, so that chain died by itself.
+  test "the carousel tears its animation down when the node goes away" do
+    get_live
+
+    # Sliced to the carousel factory, and asserted as a DEFINITION rather than a
+    # mention. Half a dozen other components on this page define destroy(), and
+    # the factory's own comment names it — so a page-wide substring search stays
+    # green with the method deleted. Verified by deleting it: this goes red, the
+    # substring version did not.
+    factory = games_carousel_source
+    assert_match(/destroy\(\)\s*\{/, factory,
+      "Alpine's teardown hook must exist, or every score leaks a rAF loop")
+    assert_match(/isConnected/, factory,
+      "and the loop must self-terminate too, so a missed teardown costs one frame")
+  end
+
+  private
+
+  # The strip exactly as the broadcaster re-renders it — same partial, same
+  # locals as Contest::LiveBroadcast#replace_games — so what this returns is what
+  # a score actually puts on the page.
+  # JUST the strip carousel factory, so an assertion about it cannot be satisfied
+  # by one of the page's many other Alpine components.
+  def games_carousel_source
+    body  = response.body
+    start = body.index("window.gamesCarousel")
+    refute_nil start, "the carousel factory must be on the page at all"
+    body[start...body.index("</script>", start)]
+  end
+
+  def render_strip_partial
+    ApplicationController.render(
+      partial: "contests/live_games",
+      locals: @contest.games_by_phase.merge(contest: @contest)
+    )
   end
 end

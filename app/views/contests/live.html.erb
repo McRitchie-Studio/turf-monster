@@ -55,7 +55,15 @@
     // position and their stand-down are the same kind of state, so they live
     // out here, on an object no DOM replacement can reach. Not an Alpine store:
     // this script runs before Alpine boots, and plain state needs no framework.
-    window.gamesStripMemory = window.gamesStripMemory || { scroll: 0, stoodDown: false };
+    // KEYED BY CONTEST, because `window` outlives a Turbo visit. Turbo swaps the
+    // body and re-runs this script rather than reloading the page, so a bare
+    // `|| {}` would carry one contest's offset onto another contest's strip —
+    // a different slate, a different width, and a position that means nothing.
+    // Same contest keeps its place; a different one starts clean.
+    window.gamesStripMemory =
+      (window.gamesStripMemory && window.gamesStripMemory.contest === <%= @contest.id.to_json.html_safe %>)
+        ? window.gamesStripMemory
+        : { contest: <%= @contest.id.to_json.html_safe %>, scroll: 0, stoodDown: false };
 
     window.gamesCarousel = function () {
       return {

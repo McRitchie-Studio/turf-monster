@@ -739,10 +739,33 @@ test.describe("Contest live page", () => {
     ).toBeGreaterThan(30);
 
     // Now hand it over. A wheel stands the rotation down for good.
+    //
+    // Then WAIT FOR THE WHEEL TO LAND before parking the strip by hand. Chromium
+    // animates a wheel scroll, so it is still travelling when mouse.wheel()
+    // resolves; assigning scrollLeft into that animation gets overwritten by the
+    // frames still to come, and the strip settles somewhere else entirely.
     await viewport.hover();
     await page.mouse.wheel(300, 0);
+    await expect
+      .poll(async () => {
+        const a = await at();
+        await page.waitForTimeout(120);
+        return (await at()) - a;
+      }, { message: "the wheel scroll never settled", timeout: 5000 })
+      .toBe(0);
+
     await viewport.evaluate((el) => { el.scrollLeft = 700; });
     expect(await at()).toBe(700);
+
+    // GET THE POINTER OFF THE STRIP, or this test proves nothing.
+    //
+    // The strip pauses under the pointer (@mouseenter="pause()"), so a hovering
+    // mouse holds it still whether or not the stand-down works — an earlier cut
+    // of this test asserted "it held" with the pointer parked on the strip and
+    // passed happily against a standDown() neutered to a no-op. Moving away
+    // fires @mouseleave="resume()", and resume() is exactly what refuses once
+    // the reader has taken over. Now only a REAL stand-down keeps it here.
+    await page.mouse.move(5, 5);
 
     // AND IT STAYS — across a window we have just proven is long enough for the
     // rotation to have moved it.
