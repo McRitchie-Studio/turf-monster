@@ -490,8 +490,12 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
         "the wheel must be filtered for horizontal intent, not taken at face value"
     end
 
-    factory = games_carousel_source
-    assert_match(/wheelAcross\s*\(\s*e\s*\)\s*\{[^}]*shiftKey/, factory,
+    # Asserted against the factory with its COMMENTS STRIPPED. The method's own
+    # doc comment explains why shiftKey is honoured, so a search of the raw
+    # source stays green with the guard deleted — caught exactly that way while
+    # mutating this test.
+    code = games_carousel_code
+    assert_match(/wheelAcross\s*\([^)]*\)\s*\{[^}]*shiftKey/, code,
       "shiftKey must be honoured, or a mouse user scrolling sideways is missed")
   end
 
@@ -554,10 +558,10 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
     # the factory's own comment names it — so a page-wide substring search stays
     # green with the method deleted. Verified by deleting it: this goes red, the
     # substring version did not.
-    factory = games_carousel_source
-    assert_match(/destroy\(\)\s*\{/, factory,
+    code = games_carousel_code
+    assert_match(/destroy\(\)\s*\{/, code,
       "Alpine's teardown hook must exist, or every score leaks a rAF loop")
-    assert_match(/isConnected/, factory,
+    assert_match(/isConnected/, code,
       "and the loop must self-terminate too, so a missed teardown costs one frame")
   end
 
@@ -573,6 +577,14 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
     start = body.index("window.gamesCarousel")
     refute_nil start, "the carousel factory must be on the page at all"
     body[start...body.index("</script>", start)]
+  end
+
+  # The factory with its comments removed, so an assertion about the CODE cannot
+  # be satisfied by the prose explaining that code. This file's comments are
+  # deliberately long, which makes a bare substring search on the source nearly
+  # useless: every guard is named in the paragraph above it.
+  def games_carousel_code
+    games_carousel_source.gsub(%r{//[^\n]*}, "")
   end
 
   def render_strip_partial

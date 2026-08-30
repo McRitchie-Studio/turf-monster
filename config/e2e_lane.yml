@@ -529,10 +529,13 @@
 #                                                                -> 204 tests in 56 files
 #   221 - 17 - 4 = 200, and 204 collected - 4 runtime skips = 200   OK agree
 #
-# 219 -> 220 (scroll-the-games-strip): ONE spec, EXTENDING
-# e2e/nfl_live_scoreboard.spec.js — no file was added. It covers the games strip
-# becoming hand-scrollable, and specifically the two ways that could regress
-# invisibly.
+# 221 -> 223 (scroll-the-games-strip): TWO specs, both EXTENDING
+# e2e/nfl_live_scoreboard.spec.js — no file was added. Re-derived with
+# bin/e2e-lane-derive ON THE MERGED TREE after taking origin/accepted (2682b24,
+# which carried /tasks/live-focus-game-ranking's +2), NOT by adding the two
+# sides' numbers: this branch's own 220/199 was correct against the OLD base and
+# went stale the moment #497 merged. They cover the games strip becoming
+# hand-scrollable, and specifically the three ways that could regress invisibly.
 #
 # WHY A BROWSER AND NOTHING CHEAPER. The strip's Alpine component is rendered
 # INSIDE #contest_<id>_games, which Contest::LiveBroadcast#replace_games swaps
@@ -550,7 +553,18 @@
 # waits out the dwell, and requires it to travel — before any assertion that it
 # held. Mutated both ways: dropping the restore turns it RED at 0 instead of 700,
 # and neutering standDown() turns it RED on the drift after the dwell.
-total_specs: 221
+#
+# THE SECOND SPEC IS THE VERTICAL-SCROLL REGRESSION, and it needs a browser for a
+# reason no cheaper tier reaches: it is about which element an EVENT reaches, not
+# about what is rendered. A `wheel` fires on whatever sits under the pointer and
+# bubbles whether or not that element scrolls, and this strip spans the top of
+# the live page — under the cursor on the way down to chat. While the handover
+# was bound to @wheel, reading the chat killed the rotation for the rest of the
+# session, with the strip itself never having moved (page scrollY 400, strip
+# scrollLeft 0, stood down anyway). The markup is identical either way; only a
+# real wheel over a real layout can tell. The view test pins the CONTRACT (no
+# bare @wheel="standDown()", shiftKey honoured); this pins the BEHAVIOUR.
+total_specs: 223
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -799,12 +813,13 @@ allowed_skips: 4
 # identities above, with allowed_skips still 4 — the two routes agreeing is what
 # proves neither branch's specs brought a runtime skip.
 #
-# 198 -> 199 (scroll-the-games-strip): the strip-scroll spec described beside
+# 200 -> 202 (scroll-the-games-strip): the two strip specs described beside
 # total_specs above. Re-derived with bin/e2e-lane-derive ON THE MERGED TREE, not
-# by arithmetic — this branch was cut when the contract read 216/195, and merging
-# origin/accepted first is what makes 220/199 the real numbers rather than my
-# branch's stale pair. allowed_skips stays 4; it carries no runtime skip.
-executed: 200
+# by arithmetic — this branch was cut when the contract read 216/195, reached
+# 220/199 against a base that then moved, and only the tool run after merging
+# 2682b24 describes this tree. allowed_skips stays 4; neither spec carries a
+# runtime skip.
+executed: 202
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
