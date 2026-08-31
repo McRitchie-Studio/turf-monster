@@ -85,7 +85,34 @@ class EnginePinContractTest < ActiveSupport::TestCase
   #          left, below 0.63.0 every var(--z-*) here resolves to nothing and the
   #          modal backdrop, navbar, drawer, docked slip and toasts all fall to
   #          z-index:auto — the page silently loses its stacking order entirely.
-  MINIMUM = Gem::Version.new("0.63.0")
+  #   0.64 — the WALLET surface, and the only floor in this list that stops the
+  #          app BOOTING. Three adoptions land on one version:
+  #            * `Studio.wallet_debug_sink` and `Studio.wallet_sign_in_statement`
+  #              (via the wallet_sign_in_statement_builder accessor) first exist
+  #              in 0.64.0's lib/studio.rb. config/initializers/studio.rb SETS
+  #              the first of them, so below 0.64.0 `Studio.configure` raises
+  #              NoMethodError and nothing boots — louder even than the 0.57 geo
+  #              floor, which at least got as far as the concern.
+  #            * studio/solana/_phantom_deeplink and the
+  #              solana_sessions/phantom_callback template. This app DELETED both
+  #              halves of the mobile round trip (app/javascript/phantom_deeplink.js
+  #              and its own phantom_callback view), so below 0.64.0 the render
+  #              resolves nothing and the return leg has no template.
+  #              (studio/solana/_deeplink_assets shipped alongside them and is
+  #              deliberately NOT rendered here — this app keeps a blocking
+  #              tweetnacl tag — so it is not part of the floor.)
+  #            * the shared picker's `canDeepLink` getter, which gates BOTH
+  #              Phantom's mobile install-row suppression and the deep-link row.
+  #              0.63.0's getter reads `self.isMobile && i.name === 'Phantom'`
+  #              and defines no canDeepLink, so wallet_picker_single_phantom_test
+  #              has nothing to match. This third one fails in TESTS rather than
+  #              at boot; the first two are why the floor is 0.64 regardless.
+  #          DERIVED BY DATING EVERY SURFACE, not by reading a changelog — the
+  #          gem's CHANGELOG files everything after 0.39 under "Unreleased", so
+  #          it cannot date anything here. Each partial rendered, accessor
+  #          configured and symbol named was traced to its FIRST appearance
+  #          across the installed 0.4.13-0.65.2 trees; 0.64.0 is the maximum.
+  MINIMUM = Gem::Version.new("0.64.0")
 
   test "the resolved studio-engine is at or above the floor this app depends on" do
     resolved = Gem::Version.new(Studio::VERSION)
@@ -95,7 +122,7 @@ class EnginePinContractTest < ActiveSupport::TestCase
                     "a host-owned layered banner needs >= 0.43; the adopted first-name onboarding " \
                     "endpoints need >= 0.46; the shared /profile page and its section registry need " \
                     ">= 0.52; the shared date-of-birth field rendered by modals/_birthday needs " \
-                    ">= 0.54; the rail-row and close-x chrome primitives this app RENDERS need >= 0.61, and an UNESCAPED rail-row click handler needs >= 0.62.2; and the shared layer scale this app no longer mirrors locally needs >= 0.63)"
+                    ">= 0.54; the rail-row and close-x chrome primitives this app RENDERS need >= 0.61, and an UNESCAPED rail-row click handler needs >= 0.62.2; and the shared layer scale this app no longer mirrors locally needs >= 0.63; and the wallet surface needs >= 0.64 — config.wallet_debug_sink is SET in this app's initializer, so below it Studio.configure raises at boot)"
   end
 
   # SELF-FIRING, and that is the whole design.
@@ -265,6 +292,81 @@ class EnginePinContractTest < ActiveSupport::TestCase
                  "the Gemfile pins ~> #{pin} but MINIMUM says #{MINIMUM}. One of them was moved " \
                  "and the other was not — the version this app actually requires must be stated " \
                  "the same way in both places."
+  end
+
+  # WHY THE LOCKFILE IS NOT GUARDED HERE, written down because the obvious guard
+  # is INERT and was very nearly shipped.
+  #
+  # The floor is stated in three files, not two: the Gemfile pin, MINIMUM above,
+  # and Gemfile.lock's DEPENDENCIES entry (`studio-engine (~> 0.64)`, which is a
+  # separate fact from the resolved version in the GEM section). A test asserting
+  # the third against the first looks like the natural completion of the pair
+  # above. It cannot work, in BOTH directions:
+  #
+  #   locally  a non-frozen bundler REWRITES Gemfile.lock to agree with the
+  #            Gemfile during boot — so by the time any test reads the file the
+  #            drift has already been repaired. Measured on 2026-08-30: editing
+  #            the DEPENDENCIES entry to `~> 0.63` and running this file left it
+  #            reading `~> 0.64` afterwards, and the assertion passed. Every
+  #            mutation of that guard is erased by the act of running it.
+  #   frozen   `bundle install --deployment` / BUNDLE_FROZEN compares exactly
+  #            those two and REFUSES, before Rails boots. The suite never runs,
+  #            so the test could not report even if it were right.
+  #
+  # So bundler already owns this seam at both ends, and owns it better than a
+  # test could: it repairs the drift where repair is safe and refuses where it is
+  # not. What is left for this file is the pair bundler CANNOT see — the pin
+  # against MINIMUM (above) and against the floor note (below), both of which are
+  # prose-and-constant agreements no resolver has an opinion about.
+
+  # THE FLOOR NOTE AND THE PIN MUST AGREE — the third statement of the same fact,
+  # and the one that actually drifted into this task.
+  #
+  # The pin carries a hand-written chain of floor notes, each opening
+  # `<version> is the real floor, and the pin SAYS so.` and demoting its
+  # predecessor to `PRIOR FLOOR NOTE, still true:`. That leading version is a
+  # THIRD copy of the floor, in prose — and prose is exactly what goes stale
+  # while the constants stay in step. The 0.63 note kept claiming 0.63 was the
+  # real floor for the whole window in which this app adopted the engine's
+  # Phantom deep link and its wallet accessors, which moved the true floor to
+  # 0.64 (see MINIMUM's 0.64 entry). Nothing was red: the pin and MINIMUM agreed
+  # with each other and both were wrong together.
+  #
+  # This asserts the note's leading version against the pin, so a bump that moves
+  # the numbers without writing the paragraph that JUSTIFIES them fails here. It
+  # cannot check that the paragraph is TRUE — only a human dating the gem trees
+  # can — but it can guarantee the paragraph is about the version actually pinned,
+  # which is what makes the rest of the comment worth reading.
+  test "the Gemfile floor note documents the version the pin declares" do
+    gemfile = Rails.root.join("Gemfile").read
+    declaration = gemfile[/^\s*gem\s+["']studio-engine["'].*$/]
+
+    assert declaration, "no `gem \"studio-engine\"` line found in the Gemfile at all"
+
+    code, comment = declaration.split("#", 2)
+
+    skip "studio-engine is sourced by override — no version pin to compare" if
+      code.match?(/\b(?:path|git|github|branch):/)
+
+    pin = code[/["']~>\s*([\d.]+)["']/, 1]
+
+    assert pin, "no `gem \"studio-engine\", \"~> x.y\"` line found in the Gemfile"
+    assert comment, "the studio-engine pin carries no floor note at all — the chain of derivations " \
+                    "explaining WHY each floor exists is the point of this pin, not decoration"
+
+    documented = comment[/\A\s*([\d.]+) is the real floor/, 1]
+
+    assert documented,
+           "the floor note does not open with `<version> is the real floor, and the pin SAYS so.` " \
+           "— that opening is the convention every note in this chain follows, and it is what " \
+           "makes the current floor readable without diffing. Note begins: " \
+           "#{comment.strip[0, 120].inspect}"
+    assert_equal Gem::Version.new(pin).segments.first(2),
+                 Gem::Version.new(documented).segments.first(2),
+                 "the Gemfile pins ~> #{pin} but its floor note derives #{documented}. The pin moved " \
+                 "and the paragraph explaining WHY did not — write the new note (naming the engine " \
+                 "capability that first appears in #{pin} and what breaks below it) and demote the " \
+                 "old one to `PRIOR FLOOR NOTE, still true:`."
   end
 
   # THE TEST THAT CATCHES A GEM BUMP OUTRUNNING AN ADOPTION.
