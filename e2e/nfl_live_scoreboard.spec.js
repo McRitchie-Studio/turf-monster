@@ -844,12 +844,6 @@ test.describe("Contest live page", () => {
     const room = await viewport.evaluate((el) => el.scrollWidth - el.clientWidth);
     expect(room, "the strip must overflow, or there is nothing to scroll").toBeGreaterThan(100);
 
-    // The track carries no transform: scrollLeft is the sole owner of position.
-    const transform = await viewport.evaluate(
-      (el) => getComputedStyle(el.querySelector('[x-ref="track"]')).transform
-    );
-    expect(transform).toBe("none");
-
     // THE CONTROL, and it is the reason this test means anything.
     //
     // Everything below asserts the strip DID NOT move. That assertion is worth
@@ -865,6 +859,31 @@ test.describe("Contest live page", () => {
       rotated - restingAt,
       "the rotation never moved, so a later 'it held' would prove nothing"
     ).toBeGreaterThan(30);
+
+    // ONE OWNER OF THE POSITION, ASKED AFTER THE ROTATION HAS ACTUALLY MOVED.
+    //
+    // The strip used to travel by animating the track's `transform` while the
+    // viewport clipped, which made hand-scrolling impossible: two mechanisms
+    // describing the same movement in different coordinates, and whichever
+    // wrote last snapped the strip out from under the other. So `none` here is
+    // the claim that scrollLeft is the sole owner.
+    //
+    // IT ONLY MEANS THAT AFTER THE ROTATION HAS RUN. This assertion used to sit
+    // at the top of the test, where a track with no transform and a track whose
+    // transform has not been written YET are indistinguishable -- the old
+    // implementation wrote it inside the scroll step, behind the same 8s dwell,
+    // so it read `none` there too. Measured on the merged branch: `none` at T0
+    // and `none` at T+12s alike, the assertion passing identically against the
+    // implementation it was written to reject. The control above has just
+    // proven the rotation travelled, so asking now is the first moment the
+    // answer distinguishes anything.
+    const transform = await viewport.evaluate(
+      (el) => getComputedStyle(el.querySelector('[x-ref="track"]')).transform
+    );
+    expect(
+      transform,
+      `the rotation travelled ${rotated - restingAt}px by transform, not scrollLeft`
+    ).toBe("none");
 
     // Now hand it over. A wheel stands the rotation down for good.
     //
