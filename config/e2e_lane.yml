@@ -529,6 +529,20 @@
 #                                                                -> 204 tests in 56 files
 #   221 - 17 - 4 = 200, and 204 collected - 4 runtime skips = 200   OK agree
 #
+# 223 -> 225 (harden-strip-scroll-attribution): TWO specs in
+# e2e/nfl_live_scoreboard.spec.js, for two attribution gaps that only a browser
+# can see and that the strip's markup test cannot reach.
+#   · a drag whose every step is SMALLER than the handover tolerance. The
+#     comparison re-anchored on each scroll event, so the tolerance was spent
+#     afresh every few milliseconds and a slow finger was invisible however far
+#     it went -- 180px, two chips, with the rotation still armed. Verified RED
+#     against the pre-fix view.
+#   · a viewport WIDENING, which shrinks the largest reachable offset and makes
+#     the browser clamp scrollLeft back. 900px -> 1600px clamped 380px and read
+#     as the reader, standing the rotation down permanently (the flag lives on
+#     window, so no broadcast and no Turbo visit clears it). Verified RED too.
+# Re-derived with bin/e2e-lane-derive --write, never hand-incremented.
+#
 # 221 -> 223 (scroll-the-games-strip): TWO specs, both EXTENDING
 # e2e/nfl_live_scoreboard.spec.js — no file was added. Re-derived with
 # bin/e2e-lane-derive ON THE MERGED TREE after taking origin/accepted (2682b24,
@@ -564,7 +578,7 @@
 # scrollLeft 0, stood down anyway). The markup is identical either way; only a
 # real wheel over a real layout can tell. The view test pins the CONTRACT (no
 # bare @wheel="standDown()", shiftKey honoured); this pins the BEHAVIOUR.
-total_specs: 223
+total_specs: 225
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -813,13 +827,18 @@ allowed_skips: 4
 # identities above, with allowed_skips still 4 — the two routes agreeing is what
 # proves neither branch's specs brought a runtime skip.
 #
+# 202 -> 204 (harden-strip-scroll-attribution): the two strip-attribution specs
+# described beside total_specs above. allowed_skips stays 4; neither carries a
+# runtime skip. Re-derived with bin/e2e-lane-derive --write against a tree
+# already level with origin/accepted (0 behind at derive time).
+#
 # 200 -> 202 (scroll-the-games-strip): the two strip specs described beside
 # total_specs above. Re-derived with bin/e2e-lane-derive ON THE MERGED TREE, not
 # by arithmetic — this branch was cut when the contract read 216/195, reached
 # 220/199 against a base that then moved, and only the tool run after merging
 # 2682b24 describes this tree. allowed_skips stays 4; neither spec carries a
 # runtime skip.
-executed: 202
+executed: 204
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
