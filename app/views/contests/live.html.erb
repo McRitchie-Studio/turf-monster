@@ -72,7 +72,7 @@
         _paused: false,
         _stood_down: false,
         _origWidth: 0,
-        _written: 0,      // ONLY _writeScroll() sets this — see _anchor()
+        _written: 0,      // OUR OWN last write — never a seen position; see _anchor()
 
         init() {
           // Pick up where the last instance left off. On a first render this is
@@ -196,11 +196,12 @@
         },
 
         // A horizontal wheel, caught at the input rather than waiting for the
-        // scroll it causes. Mid rotation the loop above now asks the same
-        // attribution question before each write, so the reader's notch is no
-        // longer erased unseen; this catches it a frame earlier and without
-        // depending on the loop running at all. shiftKey is honoured because
-        // that is how a mouse scrolls sideways.
+        // scroll it causes. Only for the case remember() can genuinely miss: a
+        // compositor scroll can land mid frame, AFTER the scroll steps that
+        // would have reported it, and the rotation then writes over the reader's
+        // position before it was ever read -- so the attribution above sees only
+        // our own value. shiftKey is honoured because that is how a mouse
+        // scrolls sideways.
         //
         // DOMINANT AXIS, not "any deltaX at all". A trackpad emits a fraction of a
         // pixel of sideways drift on a nominally VERTICAL scroll, largest at the
@@ -290,12 +291,6 @@
             // document the loop stops on its own, so a missed teardown costs one
             // frame rather than an immortal 60fps loop.
             if (!vp.isConnected) { self._raf = null; return; }
-            // The reader can also move the strip BETWEEN our frames, and this
-            // loop would otherwise write over them before the scroll event they
-            // caused was ever read -- the rotation quietly erasing the movement
-            // it exists to yield to. Same attribution question, asked before the
-            // write rather than after it.
-            if (self._movedByReader(vp)) return self.standDown();
             if (t0 === null) t0 = now;
             var progress = Math.min(1, (now - t0) / dur);
             self._writeScroll(vp, from + distance * progress);
