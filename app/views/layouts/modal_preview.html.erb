@@ -69,6 +69,13 @@
           reaches the same row one hop further out. The relation is transitive
           and the test walks it as such.
 
+          NEITHER — username is on the gate for its own reason and always was:
+          its signing path is the one that also loads web3.js. It is not derived
+          and the test does not require it, which is why the assertion is that
+          the gate is no NARROWER than the derived set rather than equal to it.
+          The birthday control below is what stops that slack becoming a licence
+          to ungate everything.
+
           UNRESOLVABLE — the swap target is an ERB expression the test cannot
           read statically, so it counts as a host rather than being assumed
           harmless. web3-step-up swaps to picker_modal_id (the engine defaults it
