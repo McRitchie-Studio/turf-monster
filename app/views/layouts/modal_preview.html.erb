@@ -65,9 +65,18 @@
           HOSTS — the modal cannot call it, but it can SWAP to one that can, and
           the host registration list below is page-wide, so the target is always
           mounted and ready. auth swaps to the picker from its Solana button
-          (modals/_auth, openWalletHub); web3-step-up swaps to picker_modal_id,
-          which the engine defaults to wallet-connect and this app does not
-          override.
+          (modals/_auth, openWalletHub), and buy-entry-token swaps to auth, so it
+          reaches the same row one hop further out. The relation is transitive
+          and the test walks it as such.
+
+          UNRESOLVABLE — the swap target is an ERB expression the test cannot
+          read statically, so it counts as a host rather than being assumed
+          harmless. web3-step-up swaps to picker_modal_id (the engine defaults it
+          to wallet-connect, which this app does not override) and age-gate swaps
+          to birthday_modal_id. age-gate is the deliberate over-approximation of
+          this rule: birthday cannot reach the deep link, so age-gate almost
+          certainly does not either. It ships the tag anyway, because the rule
+          that guesses is the rule that produced this bug.
 
         The first version of this gate listed only the CALLERS, because it was
         derived by grepping for the call. That left the row painted and dead on
@@ -77,7 +86,7 @@
         fails CLOSED on a swap target it cannot resolve statically.
 
         WHAT IT COSTS, measured on the gallery 2026-08-31 rather than estimated.
-        The tag now renders on 14 of the 49 preview iframes, up from 3. The
+        The tag now renders on 16 of the 49 preview iframes, up from 3. The
         NETWORK cost of that is zero: layouts/application loads the very same
         pinned URL on every app page, so anyone who reached /admin/modals already
         holds it, and every iframe entry measured transferSize 0 against a 31 KB
@@ -88,7 +97,7 @@
         Same URL, same version pin, same integrity value as layouts/application.
         NEVER hand-write that SRI: a plausible wrong one makes the browser refuse
         the script and leaves nacl silently absent, which is this bug again. %>
-    <% if %w[username wallet-connect wallet-setup auth web3-step-up].include?(@modal_id) %>
+    <% if %w[username age-gate auth buy-entry-token wallet-connect wallet-setup web3-step-up].include?(@modal_id) %>
       <script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"
               integrity="sha384-05+sicyRJQ56XpL4U9HJ8YbtSzFDvAg7apPKOGV6A0JsAJKFM68jp5oLnUjG5mEp"
               crossorigin="anonymous"></script>
