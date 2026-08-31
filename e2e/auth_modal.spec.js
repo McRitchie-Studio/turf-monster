@@ -192,6 +192,13 @@ test.describe("the Connect Wallet picker on a phone", () => {
 
     const dialog = await openPicker(page);
 
+    // READ BEFORE THE TAP. The hand-off is a real navigation
+    // (window.location.href = the universal link), so after it the page is the
+    // stubbed phantom.app document and page.evaluate throws "Execution context
+    // was destroyed". The cluster assertions at the end of this test compare
+    // against this value.
+    const declared = await page.evaluate(() => document.body.dataset.solanaCluster);
+
     const handoff = page.waitForRequest((r) => r.url().startsWith("https://phantom.app/ul/v1/signIn"));
     await dialog.locator('button:has-text("Open app")').click();
     const params = new URL((await handoff).url()).searchParams;
@@ -210,8 +217,30 @@ test.describe("the Connect Wallet picker on a phone", () => {
     expect(signIn.domain).toBe(new URL(page.url()).host);
     expect(signIn.nonce).toMatch(/^[0-9a-f]{32}$/);
 
-    // The cluster comes off <body data-solana-cluster>, not a devnet default.
-    expect(["devnet", "mainnet-beta"]).toContain(params.get("cluster"));
+    // The cluster comes off <body data-solana-cluster>, not a devnet default —
+    // and proving that takes TWO assertions, because this lane cannot separate
+    // them with one. The old form here was
+    // `expect(["devnet", "mainnet-beta"]).toContain(cluster)`, which passes
+    // identically whether the attribute was read or vanished into the engine
+    // deep link's FALLBACK: SOLANA_NETWORK is unset in the e2e lane, so
+    // Solana::Config.NETWORK resolves to "devnet" and the expected value IS the
+    // fallback string. Pinning it alone therefore still cannot tell the two apart.
+    //
+    // 1. THE VALUE THIS ENVIRONMENT DECLARES, pinned rather than enumerated, and
+    //    read off the page above so a body tag that stopped emitting it fails here.
+    expect(declared).toBe("devnet");
+    expect(params.get("cluster")).toBe(declared);
+
+    // 2. PROVENANCE: that the deep link FOLLOWS that attribute rather than
+    //    defaulting to the same string by coincidence. Declare a cluster the
+    //    fallback would never produce and hand off again — only a deep link that
+    //    actually reads the attribute can emit "mainnet-beta". Without this, the
+    //    engine's `cluster = 'devnet'` fallback branch passes every assertion above.
+    const dialog2 = await openPicker(page);
+    await page.evaluate(() => { document.body.dataset.solanaCluster = "mainnet-beta"; });
+    const handoff2 = page.waitForRequest((r) => r.url().startsWith("https://phantom.app/ul/v1/signIn"));
+    await dialog2.locator('button:has-text("Open app")').click();
+    expect(new URL((await handoff2).url()).searchParams.get("cluster")).toBe("mainnet-beta");
   });
 });
 

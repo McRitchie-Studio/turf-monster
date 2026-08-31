@@ -137,6 +137,21 @@ tweetnacl tag rather than the engine's async `studio/solana/deeplink_assets`, an
 opts the callback's debug sink back on with
 `Studio.wallet_debug_sink = -> { !AppFlags.live_production? }`.
 
+**The two layouts load that tag on different terms, and the difference bites.**
+`layouts/application` loads tweetnacl on every page. `layouts/modal_preview` gates
+it per modal id, because loading web3.js and tweetnacl in all 49 gallery iframes
+stalled the page. Rendering the deep link is unconditional either way, so a
+preview card always publishes `window.startPhantomDeepLink` — and the engine
+picker paints its mobile Phantom row on that global merely EXISTING. A card that
+publishes the global without the tag therefore paints a row whose tap throws
+`nacl is not defined` synchronously, before the fetch, where nothing catches it.
+That is `/tasks/preview-gallery-deeplink-dead`. `phantom_deeplink_adoption_test`
+derives the ids that owe the tag from the preview layout's own registrations —
+the deep-link callers plus anything that reaches one through `swap`/`open` hops,
+failing closed on a target it cannot read — and fails when the gate is narrower.
+The derivation is scoped to that one layout by name: a THIRD layout rendering
+`shared/_alpine_factories` owes tweetnacl too, and nothing asserts it.
+
 `Solana::SessionAuth#verify_solana_signature!` enforces:
 
 - a server-generated nonce with a five-minute freshness window,
