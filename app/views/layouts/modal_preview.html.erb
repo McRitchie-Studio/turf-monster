@@ -23,7 +23,7 @@
     <link rel="apple-touch-icon" href="/favicon.png">
     <%# Solana web3 — the EXPENSIVE half, and still scoped to the one preview
         whose signing path deserializes and broadcasts a transaction. Measured
-        against the CDN on 2026-08-31: web3.js is 452 KB and tweetnacl is 31 KB,
+        against the CDN on 2026-08-31: web3.js is 453 KB and tweetnacl is 31 KB,
         so this tag is 93 pct of the pair and it is the whole reason the pair was
         gated. Loading it in every preview iframe stalled the gallery's page
         load, and the gallery is now 52 cards, not the "15+" this note used to
@@ -55,17 +55,40 @@
         A blocking tag matches layouts/application exactly, so the gallery
         exercises the same code on the same timing as production.
 
-        THE LIST IS THE MODALS THAT CAN REACH A NACL CALL, and nothing wider:
-        wallet-connect (the engine picker) and wallet-setup (this app's own) both
-        call startPhantomDeepLink; username keeps the nacl it already had. Two
-        cards out of 52 gain 31 KB each. phantom_deeplink_adoption_test asserts
-        both halves — that these previews ship it, and that a preview which
-        cannot reach the deep link still does NOT.
+        WHO IS ON THE LIST, and why it is longer than the callers. A preview owes
+        tweetnacl if its page can put a deep-link caller ON SCREEN, which is two
+        different things:
+
+          CALLERS — the modal itself calls startPhantomDeepLink. wallet-connect
+          (the engine picker) and wallet-setup (this app's own).
+
+          HOSTS — the modal cannot call it, but it can SWAP to one that can, and
+          the host registration list below is page-wide, so the target is always
+          mounted and ready. auth swaps to the picker from its Solana button
+          (modals/_auth, openWalletHub); web3-step-up swaps to picker_modal_id,
+          which the engine defaults to wallet-connect and this app does not
+          override.
+
+        The first version of this gate listed only the CALLERS, because it was
+        derived by grepping for the call. That left the row painted and dead on
+        the host cards, which is the same bug on a different door. Do not extend
+        this list by hand: phantom_deeplink_adoption_test now DERIVES both sets
+        from the registrations below and fails when the gate is narrower, and it
+        fails CLOSED on a swap target it cannot resolve statically.
+
+        WHAT IT COSTS, measured on the gallery 2026-08-31 rather than estimated.
+        The tag now renders on 14 of the 49 preview iframes, up from 3. The
+        NETWORK cost of that is zero: layouts/application loads the very same
+        pinned URL on every app page, so anyone who reached /admin/modals already
+        holds it, and every iframe entry measured transferSize 0 against a 31 KB
+        decoded body. What each added frame pays is one 31 KB parse. That is not
+        the web3.js problem this gate exists for, which is 453 KB and stays on
+        the single card that signs a transaction.
 
         Same URL, same version pin, same integrity value as layouts/application.
         NEVER hand-write that SRI: a plausible wrong one makes the browser refuse
         the script and leaves nacl silently absent, which is this bug again. %>
-    <% if %w[username wallet-connect wallet-setup].include?(@modal_id) %>
+    <% if %w[username wallet-connect wallet-setup auth web3-step-up].include?(@modal_id) %>
       <script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"
               integrity="sha384-05+sicyRJQ56XpL4U9HJ8YbtSzFDvAg7apPKOGV6A0JsAJKFM68jp5oLnUjG5mEp"
               crossorigin="anonymous"></script>
