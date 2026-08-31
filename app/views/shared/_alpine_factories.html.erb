@@ -1174,5 +1174,24 @@
   window.nacl is defined before either half runs and there is no race to lose.
   Deleting that tag means adopting deeplink_assets AND teaching the callback to
   wait; do not do one without the other.
+
+  AND EACH LAYOUT OWES THAT TAG SEPARATELY — the trap this file sets, because
+  rendering here is unconditional while the tag is not. layouts/application
+  loads tweetnacl for every page; layouts/modal_preview gates it per modal id,
+  so a preview card gets the global from this line and nacl only if its id is on
+  that list. When the gate was narrower than this render, the engine picker
+  painted its mobile Phantom row (the getter only asks whether the global is a
+  function) and the tap threw "nacl is not defined" SYNCHRONOUSLY, before the
+  fetch, where the deep link's own catch could not see it. That was
+  /tasks/preview-gallery-deeplink-dead.
+
+  WHAT THE TEST COVERS, AND WHAT IT DOES NOT — stated exactly, because the
+  earlier version of this note claimed more than was true and a reader who
+  believes it stops looking. phantom_deeplink_adoption_test derives the modals
+  that owe tweetnacl from the registrations in layouts/modal_preview and asserts
+  the gate there is no narrower, so a modal added to THAT layout cannot paint a
+  dead button. It is scoped to that one layout by name. A THIRD layout rendering
+  this partial owes tweetnacl too and NOTHING ASSERTS IT: no test enumerates
+  layouts. If you add one, add its own coverage with it.
 %>
 <%= render "studio/solana/phantom_deeplink" %>

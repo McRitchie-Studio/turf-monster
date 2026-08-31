@@ -66,6 +66,16 @@ class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
   # "Turf Monster" and the engine builds "Sign in to #{app_name}".
   SIGNED_STATEMENT = "Sign in to Turf Monster".freeze
 
+  # The preview layout whose per-modal nacl gate the tests below derive and
+  # check. Named once: the derivation is scoped to THIS layout and nothing
+  # enumerates layouts, which shared/_alpine_factories says out loud.
+  PREVIEW_LAYOUT = Rails.root.join("app/views/layouts/modal_preview.html.erb").freeze
+
+  # A card that cannot reach the deep link, used as the payload control below.
+  # It is the counterweight to the derived set: without it, "every preview that
+  # can reach the deep link ships nacl" is satisfied by giving all 52 cards nacl.
+  NON_DEEP_LINK_PREVIEW = "birthday".freeze
+
   # ── The fork is gone, proved by RESOLUTION ────────────────────────────
 
   test "the deep link renders from outside this app" do
@@ -297,6 +307,108 @@ class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # ── nacl on the PREVIEW layout, the half the blocking-tag test missed ──
+
+  test "every preview that can reach the deep link ships nacl on the same page" do
+    # THE BUG THIS KILLS (found reviewing /tasks/adopt-engine-phantom-deeplink).
+    # shared/_alpine_factories renders the engine deep link on EVERY preview, so
+    # window.startPhantomDeepLink exists on all 52 cards and the engine picker
+    # paints its mobile Phantom row on that global EXISTING. But
+    # layouts/modal_preview gated tweetnacl on @modal_id == "username", so on a
+    # phone the row painted and the tap threw "nacl is not defined"
+    # SYNCHRONOUSLY, before the fetch — where the deep link's own catch could
+    # never see it. A dead button that reported nothing.
+    #
+    # Asserted on the RENDERED page because that is the only place the two halves
+    # meet. Reading the gate out of the layout source would pass on a card that
+    # never rendered it, which is exactly how this gap survived.
+    deep_link_previews.each do |modal_id|
+      body = preview_page(modal_id)
+
+      # THE PRECONDITION, asserted first: without it this test could pass by
+      # asserting nacl for a card that has no deep link to feed.
+      assert_match(/window\.startPhantomDeepLink\s*=\s*startPhantomDeepLink\s*;/, body,
+                   "#{modal_id}: this preview does not define the global at all, so the " \
+                   "nacl assertion below is guarding nothing — the derivation is wrong")
+
+      tag = nacl_tag(body)
+      assert tag.present?,
+             "#{modal_id}: the preview defines startPhantomDeepLink but loads no tweetnacl. " \
+             "The engine picker paints its mobile Phantom row on that global, and the deep " \
+             "link's first act is nacl.box.keyPair() — so the row is a dead button whose " \
+             "tap throws before the fetch, where nothing catches it."
+      refute_match(/\bdefer\b|\basync\b/, tag,
+                   "#{modal_id}: tweetnacl is loaded #{tag} — deferring it reintroduces the " \
+                   "race the blocking tag exists to avoid")
+    end
+  end
+
+  test "a preview that cannot reach the deep link still does not pay for nacl" do
+    # THE CONTROL, and the acceptance criterion "the iframe payload cost stays
+    # deliberate" written as an assertion. Without it the test above is satisfied
+    # by ungating tweetnacl for all 52 cards, which is the fix this one refuses.
+    body = preview_page(NON_DEEP_LINK_PREVIEW)
+    assert_nil nacl_tag(body),
+               "#{NON_DEEP_LINK_PREVIEW} loads tweetnacl, but nothing on that card can call " \
+               "startPhantomDeepLink. The gate has been widened past the cards that need it."
+  end
+
+  test "the expensive half stays on the one preview that needs it" do
+    # web3.js measured 452 KB against the CDN versus tweetnacl's 31 KB, so it is
+    # 93 percent of the pair and the entire reason the pair was gated. The nacl
+    # split must not have dragged it along: a gallery that loads web3.js on the
+    # wallet cards is the page-load stall this gate was written to prevent.
+    assert_nil web3_tag(preview_page("wallet-connect")),
+               "wallet-connect now loads web3.js. Only the username preview signs a " \
+               "transaction; every other card pays 452 KB for a script it never calls."
+    assert web3_tag(preview_page("username")).present?,
+           "the username preview lost web3.js — its signing path deserializes and " \
+           "broadcasts a transaction through it"
+  end
+
+  test "the layout gate covers every modal that can put a deep-link caller on screen" do
+    # THE RULE THAT WAS ACTUALLY BROKEN, and the reason this file no longer
+    # carries a hand-written list of previews.
+    #
+    # The first fix derived its list by grepping the view trees for calls to
+    # startPhantomDeepLink. That finds the CALLERS and stops there. It misses
+    # every modal that cannot call the deep link itself but can SWAP to one that
+    # can — and because layouts/modal_preview registers the whole modal set on
+    # every preview page, the swap target is always mounted and one tap away. So
+    # auth (Solana button, openWalletHub) and web3-step-up both reached a picker
+    # with no nacl behind it: the row painted and the tap threw. Same bug, a
+    # door the grep could not see.
+    #
+    # The rule this asserts instead: a preview owes tweetnacl if the modal it
+    # opens can reach a caller through any number of swap or open hops. It is
+    # derived from the layout's own registrations, so a modal added there is
+    # walked automatically rather than remembered, and it fails CLOSED — a swap
+    # whose target is an ERB expression counts as reaching a caller, because a
+    # target the test cannot read is exactly the case it must not wave through.
+    derived = deep_link_previews
+    gate    = layout_nacl_gate
+
+    assert_includes derived, "auth",
+                    "the derivation stopped finding the auth host path. auth swaps to the " \
+                    "picker in openWalletHub; if that edge is gone the walk is broken, not the app."
+    assert_includes derived, "web3-step-up",
+                    "the derivation stopped finding web3-step-up, whose swap target is the ERB " \
+                    "expression picker_modal_id — the fail-closed branch is what catches it."
+    assert_includes derived, "buy-entry-token",
+                    "the derivation stopped walking PAST the first hop. buy-entry-token reaches " \
+                    "no caller directly; it swaps to auth, which swaps to the picker. A rule " \
+                    "that only looks one hop out is the same shape of miss as the grep that " \
+                    "only looked at callers."
+
+    missing = derived - gate
+    assert_empty missing,
+                 "layouts/modal_preview loads tweetnacl for #{gate.sort.inspect} but these " \
+                 "previews can put a deep-link caller on screen without it: #{missing.sort.inspect}. " \
+                 "Each one paints the picker's mobile Phantom row and throws " \
+                 "\"nacl is not defined\" on tap, synchronously, before the fetch — so nothing " \
+                 "catches it and the button is dead in silence. Add them to the gate."
+  end
+
   private
 
   def each_picker_render
@@ -333,5 +445,110 @@ class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
   # carries many x-data attributes; a first-match read would grab another one.
   def picker_x_data(body)
     body[/<div x-data="([^"]*canDeepLink[^"]*)"/m, 1]
+  end
+
+  # One rendered preview card, by modal id. Memoised per id: each card is a
+  # separate request with its own @modal_id, which is precisely what the layout
+  # gate keys on.
+  def preview_page(modal_id)
+    @preview_pages ||= {}
+    @preview_pages[modal_id] ||= begin
+      log_in_as users(:alex)
+      get admin_modal_preview_path(modal_id: modal_id)
+      assert_response :success
+      response.body
+    end
+  end
+
+  def nacl_tag(body)
+    body[%r{<script[^>]*tweetnacl[^>]*>}]
+  end
+
+  def web3_tag(body)
+    body[%r{<script[^>]*web3\.js[^>]*>}]
+  end
+
+  # ── Deriving which previews owe tweetnacl ─────────────────────────────
+  #
+  # Read layouts/modal_preview's OWN registrations rather than a list kept here.
+  # Two lists that must agree is what let auth and web3-step-up slip through.
+
+  # modal id => partial name, from the host registrations in the preview layout.
+  def preview_registrations
+    @preview_registrations ||= begin
+      layout = PREVIEW_LAYOUT.read
+      layout.scan(/current\(\)\.id === '([a-z0-9-]+)'"\s*>(.*?)<\/template>/m)
+            .each_with_object({}) do |(id, block), acc|
+              partial = block[/render\s+"([\w\/]+)"/, 1]
+              acc[id] = partial if partial
+            end
+    end
+  end
+
+  # The partial's SOURCE, resolved through the app's own view paths so an engine
+  # partial (studio/modals/_wallet_connect) reads the same as a local one.
+  def partial_source(partial)
+    @partial_sources ||= {}
+    @partial_sources[partial] ||= begin
+      parts  = partial.split("/")
+      prefix = parts[0..-2].join("/")
+      ActionView::LookupContext.new(ApplicationController.view_paths)
+                              .find_template(parts.last, [prefix], true).source
+    end
+  end
+
+  # Every registered preview whose modal can reach a startPhantomDeepLink caller
+  # through any number of swap/open hops. Fails CLOSED on a target it cannot
+  # read: an ERB expression counts as reaching a caller.
+  def deep_link_previews
+    @deep_link_previews ||= begin
+      sources = preview_registrations.transform_values { |partial| partial_source(partial) }
+
+      owes  = sources.select { |_id, src| src.match?(/startPhantomDeepLink\s*\(/) }.keys
+      edges = {}
+
+      sources.each do |id, src|
+        literals = []
+        src.scan(/\.(?:swap|open)\(\s*(?:'([^']*)'|([^,)\s]+))/) do |quoted, bare|
+          arg = quoted || bare
+          if quoted && quoted.match?(/\A[a-z0-9-]+\z/)
+            literals << quoted            # a modal id, written out
+          elsif arg.include?("<%")
+            owes |= [id]                  # unreadable target — fail closed
+          elsif quoted
+            next                          # a URL or path, not a modal id
+          else
+            owes |= [id]                  # a bare expression — fail closed
+          end
+        end
+        edges[id] = literals.uniq
+      end
+
+      # Walk the swap graph until it stops growing: a host that reaches a host
+      # that reaches a caller owes the tag too.
+      loop do
+        grew = false
+        edges.each do |id, targets|
+          next if owes.include?(id)
+          next unless targets.any? { |t| owes.include?(t) }
+
+          owes << id
+          grew = true
+        end
+        break unless grew
+      end
+
+      owes.sort
+    end
+  end
+
+  # The modal ids layouts/modal_preview actually loads tweetnacl for.
+  def layout_nacl_gate
+    @layout_nacl_gate ||= begin
+      block = PREVIEW_LAYOUT.read[/if\s+(%w\[[^\]]*\])\.include\?\(@modal_id\)\s+%>\s*<script[^>]*tweetnacl/m, 1]
+      raise "could not read the tweetnacl gate out of #{PREVIEW_LAYOUT}" if block.nil?
+
+      block[/%w\[([^\]]*)\]/, 1].split
+    end
   end
 end

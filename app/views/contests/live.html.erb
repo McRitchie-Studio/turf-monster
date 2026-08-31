@@ -72,7 +72,7 @@
         _paused: false,
         _stood_down: false,
         _origWidth: 0,
-        _written: 0,      // the last scrollLeft THIS component wrote — see remember()
+        _written: 0,      // OUR OWN last write — never a seen position; see _anchor()
 
         init() {
           // Pick up where the last instance left off. On a first render this is
@@ -146,22 +146,62 @@
         remember() {
           var vp = this.$refs.viewport;
           if (!vp) return;
-          var pos = vp.scrollLeft;
-          // Tolerance, not equality: sub-pixel rounding on a device-pixel grid
-          // makes an exact comparison read the rotation's own writes as a reader.
-          if (!this._stood_down && Math.abs(pos - this._written) > 2) {
+          if (!this._stood_down && this._movedByReader(vp)) {
             this.standDown();
             return;                     // standDown() records the position itself
           }
-          this._written = pos;
-          window.gamesStripMemory.scroll = pos;
+          window.gamesStripMemory.scroll = vp.scrollLeft;
+        },
+
+        // WHERE THE ROTATION LEFT THE STRIP, IN TODAY'S GEOMETRY.
+        //
+        // Attribution compares the live offset against the last value this
+        // component WROTE, never against the last value it merely SAW. Those
+        // stop being the same number the moment a reader is moving the strip,
+        // and taking the second one re-anchored the comparison to the reader on
+        // every event: each step was then measured against the step before it
+        // rather than against the rotation, so the tolerance was spent afresh
+        // every few milliseconds and never ran out. A slow drag stayed inside
+        // it forever. Measured at 120 events of 1.5px: the strip travelled
+        // 240px, two whole chips, with the handover never firing -- and the
+        // rotation still due to resume and drag the strip off the game the
+        // reader had parked on, which is the one thing this feature exists to
+        // prevent. Anchoring on our own last write makes the tolerance a TOTAL
+        // budget instead of a per-event one, which is the only reading under
+        // which a fixed number of pixels means anything at all.
+        //
+        // CLAMPED, because the browser moves scrollLeft on its own whenever the
+        // scrollable range shrinks under it. Widen the window and clientWidth
+        // grows, the maximum offset falls, and a strip parked at the end gets
+        // dragged back with it -- measured, 900px to 1600px pulled a strip
+        // parked at 4826 down to 4446, a 380px jump that read as the reader and
+        // stood the rotation down for the rest of the session (permanently: the
+        // flag lives on window, so it outlives both a broadcast and a Turbo
+        // visit). That jump is not the reader. It is our OWN last position,
+        // still at the end of a strip that got shorter, so the anchor follows
+        // it there. Asked of the geometry at compare time rather than through a
+        // resize listener, which would be a fourth input heuristic racing the
+        // scroll event it causes.
+        _anchor(vp) {
+          var max = vp.scrollWidth - vp.clientWidth;
+          if (max < 0) max = 0;
+          if (this._written > max) this._written = max;
+          return this._written;
+        },
+
+        // Tolerance, not equality: sub-pixel rounding on a device-pixel grid
+        // makes an exact comparison read the rotation's own writes as a reader.
+        _movedByReader(vp) {
+          return Math.abs(vp.scrollLeft - this._anchor(vp)) > 2;
         },
 
         // A horizontal wheel, caught at the input rather than waiting for the
-        // scroll it causes. Only for the case remember() can genuinely miss: mid
-        // rotation, a frame may overwrite the reader's position before the scroll
-        // event is dispatched, and the attribution above then sees only our own
-        // value. shiftKey is honoured because that is how a mouse scrolls sideways.
+        // scroll it causes. Only for the case remember() can genuinely miss: a
+        // compositor scroll can land mid frame, AFTER the scroll steps that
+        // would have reported it, and the rotation then writes over the reader's
+        // position before it was ever read -- so the attribution above sees only
+        // our own value. shiftKey is honoured because that is how a mouse
+        // scrolls sideways.
         //
         // DOMINANT AXIS, not "any deltaX at all". A trackpad emits a fraction of a
         // pixel of sideways drift on a nominally VERTICAL scroll, largest at the
