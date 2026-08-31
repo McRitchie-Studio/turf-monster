@@ -957,4 +957,161 @@ test.describe("Contest live page", () => {
     ).toBeLessThan(20);
   });
 
+  // A SLOW DRAG IS STILL THE READER — THE TOLERANCE IS A TOTAL, NOT A PER-EVENT
+  // ALLOWANCE.
+  //
+  // The handover compares the strip's live offset against the last value the
+  // component itself WROTE. While that comparison also re-anchored on every
+  // scroll event — taking the position it had just seen as the next baseline —
+  // each step got measured against the step before it rather than against the
+  // rotation, and the tolerance was handed out afresh every few milliseconds. A
+  // drag slow enough to move less than the tolerance per event was therefore
+  // invisible no matter how far it travelled. Measured on the merged branch:
+  // 120 events of 1.5px moved the strip 180px, two whole chips, with the
+  // handover never firing and the rotation still due to resume and drag the
+  // strip off the game the reader had parked on.
+  //
+  // A FINGER IS EXACTLY THAT INPUT, which is why it went unseen: a trackpad and
+  // a mouse are both caught at the wheel instead, so every hand-check of this
+  // feature on a laptop passed.
+  test("a drag too slow to trip any one event still hands the strip over", async ({
+    page,
+  }) => {
+    test.setTimeout(90000);
+    await allowMotion(page);
+    await loginAdmin(page);
+    await openLive(page, CONTEST);
+
+    const viewport = page.locator('[x-ref="viewport"]').first();
+    const stood = () =>
+      viewport.evaluate((el) => window.Alpine.$data(el)._stood_down);
+
+    const room = await viewport.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(room, "the strip must overflow, or there is nothing to drag").toBeGreaterThan(300);
+    expect(await stood(), "the rotation must still be armed before the drag").toBe(false);
+
+    // ONE NUDGE PER FRAME, which is the event stream a finger produces. Driving
+    // the same distance in a single turn would coalesce into one large scroll
+    // event — the case that already worked — and prove the opposite.
+    const drag = await viewport.evaluate((el, [frames, step]) => new Promise((resolve) => {
+      let i = 0, pos = el.scrollLeft, events = 0, stoodAt = null;
+      const onScroll = () => {
+        events += 1;
+        if (stoodAt === null && window.Alpine.$data(el)._stood_down) {
+          stoodAt = Math.round(el.scrollLeft);
+        }
+      };
+      el.addEventListener("scroll", onScroll, { passive: true });
+      const tick = () => {
+        if (i++ >= frames) {
+          return setTimeout(() => {
+            el.removeEventListener("scroll", onScroll);
+            resolve({ travelled: Math.round(el.scrollLeft), events, stoodAt });
+          }, 200);
+        }
+        pos += step;
+        el.scrollLeft = pos;
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }), [300, 0.6]);
+
+    // THE CONTROL, and it is what stops this test quietly ceasing to
+    // discriminate. Every step here has to stay UNDER the 2px tolerance, or the
+    // drag is one a per-event comparison would have caught anyway and the test
+    // passes against the very implementation it exists to reject. Asserted as
+    // the average rather than the maximum: a dropped frame merges two nudges
+    // and spikes a maximum without changing what the drag IS.
+    expect(drag.events, "the drag must arrive as many small events").toBeGreaterThan(100);
+    expect(
+      drag.travelled / drag.events,
+      `steps averaged ${(drag.travelled / drag.events).toFixed(2)}px — over the tolerance, so a per-event comparison would catch them too`
+    ).toBeLessThanOrEqual(2);
+    expect(drag.travelled, "the strip must actually have gone somewhere").toBeGreaterThan(100);
+
+    // And it hands over almost immediately, because the budget is cumulative:
+    // a few pixels of travel, not a few pixels per event forever.
+    expect(
+      await stood(),
+      `${drag.travelled}px of reader-driven travel across ${drag.events} events, and the rotation still has the strip`
+    ).toBe(true);
+    expect(
+      drag.stoodAt,
+      `the handover waited for ${drag.stoodAt}px of travel instead of the tolerance`
+    ).toBeLessThan(20);
+  });
+
+  // A WINDOW THAT GETS WIDER IS NOT A READER.
+  //
+  // Widen the viewport and clientWidth grows, so the largest reachable offset
+  // SHRINKS and the browser drags scrollLeft back with it. Nothing about that
+  // is the reader — it is the rotation's own last position, still at the end of
+  // a strip that just got shorter — but it arrives as a scroll event like any
+  // other, and the strip read it as a takeover. Measured on the merged branch:
+  // 900px to 1600px moved clientWidth 836 -> 1216 and clamped a strip parked at
+  // the end down 380px, standing the rotation down.
+  //
+  // PERMANENTLY, which is what makes it worth a spec of its own: the flag lives
+  // on `window` so a broadcast cannot clear it and neither can a Turbo visit
+  // away and back. One rotation of a laptop, or one drag of a window edge, and
+  // the strip never moves again for the rest of the session.
+  test("widening the window is not the reader taking the strip over", async ({
+    page,
+  }) => {
+    test.setTimeout(90000);
+    await allowMotion(page);
+    await loginAdmin(page);
+    await page.setViewportSize({ width: 900, height: 720 });
+    await openLive(page, CONTEST);
+
+    const viewport = page.locator('[x-ref="viewport"]').first();
+    const read = () => viewport.evaluate((el) => ({
+      at: Math.round(el.scrollLeft),
+      max: Math.round(el.scrollWidth - el.clientWidth),
+      clientWidth: el.clientWidth,
+      stood: window.Alpine.$data(el)._stood_down,
+      remembered: window.gamesStripMemory.stoodDown,
+    }));
+
+    // PARKED THROUGH THE COMPONENT'S OWN WRITE PATH — the one the rotation
+    // uses. This has to be the rotation's position, not a reader's: assigning
+    // scrollLeft here would hand the strip over first, and the resize would
+    // then be measured against a rotation that was already dead.
+    await viewport.evaluate((el) => {
+      window.Alpine.$data(el)._writeScroll(el, el.scrollWidth - el.clientWidth);
+    });
+    const before = await read();
+    expect(before.at, "the strip must be parked at the end for the clamp to bite").toBe(before.max);
+    expect(before.stood, "and parking it by rotation is not a handover").toBe(false);
+
+    await page.setViewportSize({ width: 1600, height: 720 });
+
+    // Wait on the LAYOUT, not on a timer: the clamp lands with the new
+    // clientWidth, and a sleep here would race it in both directions.
+    await expect
+      .poll(async () => (await read()).clientWidth, {
+        message: "the viewport never widened",
+        timeout: 5000,
+      })
+      .toBeGreaterThan(before.clientWidth);
+
+    const after = await read();
+
+    // THE CONTROL. A widening that clamped nothing proves nothing — this test
+    // would then be asserting that an event which never happened was ignored.
+    expect(
+      before.at - after.at,
+      `the browser clamped ${before.at - after.at}px, too little to be mistaken for a reader`
+    ).toBeGreaterThan(100);
+
+    expect(
+      after.stood,
+      `a ${before.at - after.at}px clamp from a window resize read as the reader`
+    ).toBe(false);
+    expect(
+      after.remembered,
+      "and it was written to the memory that outlives every broadcast and Turbo visit"
+    ).toBe(false);
+  });
+
 });
