@@ -565,6 +565,54 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
       "and the loop must self-terminate too, so a missed teardown costs one frame")
   end
 
+  # THE ANCHOR IS WHAT WE WROTE, NEVER WHAT WE SAW.
+  #
+  # remember() used to finish by assigning the position it had just observed
+  # back onto _written. That reads as bookkeeping and is the whole bug: it
+  # re-anchors the comparison to the READER on every event, so each step is
+  # measured against the step before it rather than against the rotation, and
+  # the 2px tolerance is spent afresh every few milliseconds instead of once.
+  # Measured on the merged branch: 120 scroll events of 1.5px moved the strip
+  # 180px with the handover never firing. A slow finger is exactly that input.
+  #
+  # Asserted as "no method other than the two that OWN the anchor may write it",
+  # because the defect is an assignment in the wrong place — naming the one line
+  # that was there would go green the moment it came back in a different shape.
+  test "only the component's own writes move the scroll anchor" do
+    get_live
+
+    writers = carousel_methods.select { |_name, body| body.match?(/_written\s*=/) }.keys
+    assert_equal %w[_anchor _writeScroll], writers.sort,
+      "_written is the last position the ROTATION wrote; anything else assigning it " \
+      "re-anchors the handover on the reader and the tolerance stops being cumulative"
+
+    assert_match(/_movedByReader\(/, carousel_methods.fetch("remember"),
+      "remember() must ask the attribution question rather than compare inline")
+  end
+
+  # A WINDOW THAT GETS WIDER IS NOT A READER.
+  #
+  # Widening the viewport grows clientWidth, which SHRINKS the largest reachable
+  # offset, and the browser drags scrollLeft back to meet it. Measured: 900px to
+  # 1600px clamped a strip parked at the end down 380px — a scroll event the
+  # strip read as a takeover, permanently, because the flag lives on `window`
+  # and outlives both a broadcast and a Turbo visit.
+  #
+  # The fix is not a resize listener racing the scroll event it causes: it is
+  # asking the geometry at compare time, so our own last position is re-read as
+  # what survives of it today.
+  test "the anchor is clamped to what the strip can still reach" do
+    get_live
+
+    body = carousel_methods.fetch("_anchor")
+    assert_match(/scrollWidth\s*-\s*\w+\.clientWidth/, body,
+      "the anchor must be measured against the CURRENT scrollable range")
+    assert_match(/_written\s*>\s*\w+/, body,
+      "and an anchor past the end must follow the end down, or a resize reads as the reader")
+    assert_match(/_anchor\(/, carousel_methods.fetch("_movedByReader"),
+      "the comparison must go through the clamped anchor, not the raw field")
+  end
+
   private
 
   # The strip exactly as the broadcaster re-renders it — same partial, same
@@ -585,6 +633,17 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
   # useless: every guard is named in the paragraph above it.
   def games_carousel_code
     games_carousel_source.gsub(%r{//[^\n]*}, "")
+  end
+
+  # The factory's methods, sliced one per key, so an assertion about WHERE a line
+  # lives cannot be satisfied by that line existing somewhere else in the object.
+  # Comments are already stripped by games_carousel_code; the closing brace is
+  # matched at the methods' own indentation, which nothing inside a body shares.
+  def carousel_methods
+    found = games_carousel_code.scan(/^ {8}(\w+)\([^)]*\)\s*\{\n(.*?)^ {8}\},?$/m).to_h
+    assert_operator found.size, :>=, 8,
+      "the method slicer read #{found.size} methods — it has stopped matching the source"
+    found
   end
 
   def render_strip_partial
