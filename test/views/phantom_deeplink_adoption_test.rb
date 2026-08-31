@@ -66,6 +66,15 @@ class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
   # "Turf Monster" and the engine builds "Sign in to #{app_name}".
   SIGNED_STATEMENT = "Sign in to Turf Monster".freeze
 
+  # The preview cards whose modal can actually CALL startPhantomDeepLink:
+  # wallet-connect is the engine picker, wallet-setup is this app's own. Derived
+  # by grepping both view trees for the call, not guessed — widen this only
+  # together with the layout gate it mirrors.
+  DEEP_LINK_PREVIEWS = %w[wallet-connect wallet-setup].freeze
+
+  # A card that cannot reach the deep link, used as the payload control below.
+  NON_DEEP_LINK_PREVIEW = "birthday".freeze
+
   # ── The fork is gone, proved by RESOLUTION ────────────────────────────
 
   test "the deep link renders from outside this app" do
@@ -297,6 +306,65 @@ class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # ── nacl on the PREVIEW layout, the half the blocking-tag test missed ──
+
+  test "every preview that can reach the deep link ships nacl on the same page" do
+    # THE BUG THIS KILLS (found reviewing /tasks/adopt-engine-phantom-deeplink).
+    # shared/_alpine_factories renders the engine deep link on EVERY preview, so
+    # window.startPhantomDeepLink exists on all 52 cards and the engine picker
+    # paints its mobile Phantom row on that global EXISTING. But
+    # layouts/modal_preview gated tweetnacl on @modal_id == "username", so on a
+    # phone the row painted and the tap threw "nacl is not defined"
+    # SYNCHRONOUSLY, before the fetch — where the deep link's own catch could
+    # never see it. A dead button that reported nothing.
+    #
+    # Asserted on the RENDERED page because that is the only place the two halves
+    # meet. Reading the gate out of the layout source would pass on a card that
+    # never rendered it, which is exactly how this gap survived.
+    DEEP_LINK_PREVIEWS.each do |modal_id|
+      body = preview_page(modal_id)
+
+      # THE PRECONDITION, asserted first: without it this test could pass by
+      # asserting nacl for a card that has no deep link to feed.
+      assert_match(/window\.startPhantomDeepLink\s*=\s*startPhantomDeepLink\s*;/, body,
+                   "#{modal_id}: this preview does not define the global at all, so the " \
+                   "nacl assertion below is guarding nothing — re-derive DEEP_LINK_PREVIEWS")
+
+      tag = nacl_tag(body)
+      assert tag.present?,
+             "#{modal_id}: the preview defines startPhantomDeepLink but loads no tweetnacl. " \
+             "The engine picker paints its mobile Phantom row on that global, and the deep " \
+             "link's first act is nacl.box.keyPair() — so the row is a dead button whose " \
+             "tap throws before the fetch, where nothing catches it."
+      refute_match(/\bdefer\b|\basync\b/, tag,
+                   "#{modal_id}: tweetnacl is loaded #{tag} — deferring it reintroduces the " \
+                   "race the blocking tag exists to avoid")
+    end
+  end
+
+  test "a preview that cannot reach the deep link still does not pay for nacl" do
+    # THE CONTROL, and the acceptance criterion "the iframe payload cost stays
+    # deliberate" written as an assertion. Without it the test above is satisfied
+    # by ungating tweetnacl for all 52 cards, which is the fix this one refuses.
+    body = preview_page(NON_DEEP_LINK_PREVIEW)
+    assert_nil nacl_tag(body),
+               "#{NON_DEEP_LINK_PREVIEW} loads tweetnacl, but nothing on that card can call " \
+               "startPhantomDeepLink. The gate has been widened past the cards that need it."
+  end
+
+  test "the expensive half stays on the one preview that needs it" do
+    # web3.js measured 452 KB against the CDN versus tweetnacl's 31 KB, so it is
+    # 93 percent of the pair and the entire reason the pair was gated. The nacl
+    # split must not have dragged it along: a gallery that loads web3.js on the
+    # wallet cards is the page-load stall this gate was written to prevent.
+    assert_nil web3_tag(preview_page("wallet-connect")),
+               "wallet-connect now loads web3.js. Only the username preview signs a " \
+               "transaction; every other card pays 452 KB for a script it never calls."
+    assert web3_tag(preview_page("username")).present?,
+           "the username preview lost web3.js — its signing path deserializes and " \
+           "broadcasts a transaction through it"
+  end
+
   private
 
   def each_picker_render
@@ -333,5 +401,26 @@ class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
   # carries many x-data attributes; a first-match read would grab another one.
   def picker_x_data(body)
     body[/<div x-data="([^"]*canDeepLink[^"]*)"/m, 1]
+  end
+
+  # One rendered preview card, by modal id. Memoised per id: each card is a
+  # separate request with its own @modal_id, which is precisely what the layout
+  # gate keys on.
+  def preview_page(modal_id)
+    @preview_pages ||= {}
+    @preview_pages[modal_id] ||= begin
+      log_in_as users(:alex)
+      get admin_modal_preview_path(modal_id: modal_id)
+      assert_response :success
+      response.body
+    end
+  end
+
+  def nacl_tag(body)
+    body.gsub(/<%#.*?%>/m, "")[%r{<script[^>]*tweetnacl[^>]*>}]
+  end
+
+  def web3_tag(body)
+    body[%r{<script[^>]*web3\.js[^>]*>}]
   end
 end
