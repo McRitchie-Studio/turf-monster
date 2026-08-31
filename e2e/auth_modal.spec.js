@@ -192,6 +192,13 @@ test.describe("the Connect Wallet picker on a phone", () => {
 
     const dialog = await openPicker(page);
 
+    // READ BEFORE THE TAP. The hand-off is a real navigation
+    // (window.location.href = the universal link), so after it the page is the
+    // stubbed phantom.app document and page.evaluate throws "Execution context
+    // was destroyed". The cluster assertions at the end of this test compare
+    // against this value.
+    const declared = await page.evaluate(() => document.body.dataset.solanaCluster);
+
     const handoff = page.waitForRequest((r) => r.url().startsWith("https://phantom.app/ul/v1/signIn"));
     await dialog.locator('button:has-text("Open app")').click();
     const params = new URL((await handoff).url()).searchParams;
@@ -220,8 +227,7 @@ test.describe("the Connect Wallet picker on a phone", () => {
     // fallback string. Pinning it alone therefore still cannot tell the two apart.
     //
     // 1. THE VALUE THIS ENVIRONMENT DECLARES, pinned rather than enumerated, and
-    //    read off the page so a body tag that stopped emitting it fails here.
-    const declared = await page.evaluate(() => document.body.dataset.solanaCluster);
+    //    read off the page above so a body tag that stopped emitting it fails here.
     expect(declared).toBe("devnet");
     expect(params.get("cluster")).toBe(declared);
 
