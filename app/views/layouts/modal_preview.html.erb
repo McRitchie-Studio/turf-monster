@@ -21,13 +21,54 @@
   <head>
     <title><%= content_for(:title) || "Modal Preview" %></title>
     <link rel="apple-touch-icon" href="/favicon.png">
-    <%# Solana web3 + nacl — ONLY the username modal's signing path needs
-        them. Loading ~1.5MB from unpkg in every preview iframe stalled the
-        gallery's page load (15+ iframes × unpkg), so scope it to the one
-        modal that uses it. @modal_id is nil for modal_preview_crop → skipped. %>
+    <%# Solana web3 — the EXPENSIVE half, and still scoped to the one preview
+        whose signing path deserializes and broadcasts a transaction. Measured
+        against the CDN on 2026-08-31: web3.js is 452 KB and tweetnacl is 31 KB,
+        so this tag is 93 pct of the pair and it is the whole reason the pair was
+        gated. Loading it in every preview iframe stalled the gallery's page
+        load, and the gallery is now 52 cards, not the "15+" this note used to
+        claim. @modal_id is nil for modal_preview_crop, which skips both tags.
+        (Spelled "pct" on purpose: ERB comment bodies must contain zero percent
+        characters — see docs/UI_PATTERNS.md "Alpine + ERB Constraints".) %>
     <% if @modal_id == "username" %>
-      <script src="https://unpkg.com/@solana/web3.js@1/lib/index.iife.min.js"></script>
-      <script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
+      <script src="https://unpkg.com/@solana/web3.js@1.98.4/lib/index.iife.min.js"
+              integrity="sha384-I45YF+S0YGWIolUyTksLk9TNtTqaDgZg8e6T1OoBoJvvFmphqYNIPZw3Kl0TkZNN"
+              crossorigin="anonymous"></script>
+    <% end %>
+
+    <%# tweetnacl — a SEPARATE gate from web3.js above, and the split is the fix.
+        THE BUG IT CLOSES: shared/alpine_factories, rendered in the body below,
+        renders the engine's studio/solana/phantom_deeplink on EVERY preview, so
+        window.startPhantomDeepLink exists on every card. The engine picker paints
+        its mobile Phantom row on that global EXISTING, and the deep link's first
+        act is nacl.box.keyPair(). So on a phone the row painted and the tap threw
+        "nacl is not defined" SYNCHRONOUSLY, before the fetch — where the catch
+        around the handshake could never see it. A dead button reporting nothing.
+
+        WHY NOT THE OTHER THREE FIXES. Gating the row on nacl means changing the
+        engine's canDeepLink getter for every consumer to suit an admin gallery,
+        and it shows a picker production never shows. Lazy-loading on tap adds a
+        code path the real picker does not have. Rendering the engine's
+        studio/solana/deeplink_assets is banned app-wide by
+        phantom_deeplink_adoption_test: it APPENDS a script element, and the
+        callback reads nacl at parse time and hard-fails when it loses that race.
+        A blocking tag matches layouts/application exactly, so the gallery
+        exercises the same code on the same timing as production.
+
+        THE LIST IS THE MODALS THAT CAN REACH A NACL CALL, and nothing wider:
+        wallet-connect (the engine picker) and wallet-setup (this app's own) both
+        call startPhantomDeepLink; username keeps the nacl it already had. Two
+        cards out of 52 gain 31 KB each. phantom_deeplink_adoption_test asserts
+        both halves — that these previews ship it, and that a preview which
+        cannot reach the deep link still does NOT.
+
+        Same URL, same version pin, same integrity value as layouts/application.
+        NEVER hand-write that SRI: a plausible wrong one makes the browser refuse
+        the script and leaves nacl silently absent, which is this bug again. %>
+    <% if %w[username wallet-connect wallet-setup].include?(@modal_id) %>
+      <script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"
+              integrity="sha384-05+sicyRJQ56XpL4U9HJ8YbtSzFDvAg7apPKOGV6A0JsAJKFM68jp5oLnUjG5mEp"
+              crossorigin="anonymous"></script>
     <% end %>
     <%# Cropper.js + image-upload factories (cropPhotoModal) — the crop-photo
         modal preview needs them; ships from studio-engine (v0.4.12). %>
