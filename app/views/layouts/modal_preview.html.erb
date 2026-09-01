@@ -235,7 +235,7 @@
           preview layout keeps its own registration list, so rendering anything
           else here is how /admin/style silently keeps showing a fork. %>
       <template x-if="$store.modals.current().id === 'wallet-connect'">
-        <%= render "studio/modals/wallet_connect", **wallet_connect_modal_locals %>
+        <%= render "solana_studio/modals/wallet_connect", **wallet_connect_modal_locals %>
       </template>
       <template x-if="$store.modals.current().id === 'wallet-changed'">
         <%= render "modals/wallet_changed" %>
@@ -263,7 +263,7 @@
           Same partial and same locals as the app layout, via the helper — this
           card is exactly where an inline copy drifted before. %>
       <template x-if="$store.modals.current().id === 'web3-step-up'">
-        <%= render "studio/modals/web3_step_up", **web3_step_up_locals %>
+        <%= render "solana_studio/modals/web3_step_up", **web3_step_up_locals %>
       </template>
       <%# age-verify was MISSING here until 2026-08-19 — the exact gap the note
           above warns about. The gallery listed the variant and /admin/modals

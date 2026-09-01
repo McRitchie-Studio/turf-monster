@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Locals for studio-engine's Connect-Wallet picker (studio/modals/_wallet_connect).
+# Locals for solana-studio's Connect-Wallet picker (solana_studio/modals/_wallet_connect).
 #
 # WHY A HELPER AND NOT TWO CALLSITES. The picker is mounted from BOTH layouts —
 # layouts/application and layouts/modal_preview — and each keeps its own modal

@@ -19,7 +19,7 @@ module Web3StepUpHelper
                     "session can’t sign on-chain — so entering contests and moving funds " \
                     "still need your wallet.".freeze
 
-  # Locals for `render "studio/modals/web3_step_up"`.
+  # Locals for `render "solana_studio/modals/web3_step_up"`.
   #
   # Everything NOT set here is an engine default that already matches this app:
   # picker_modal_id (wallet-connect), modal_id (web3-step-up), modal_store

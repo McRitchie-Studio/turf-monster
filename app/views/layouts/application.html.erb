@@ -1294,7 +1294,7 @@
           keeps its own registration list — a picker adopted in one layout and
           forked in the other renders the old copy at /admin/style forever. %>
       <template x-if="$store.modals.current().id === 'wallet-connect'">
-        <%= render "studio/modals/wallet_connect", **wallet_connect_modal_locals %>
+        <%= render "solana_studio/modals/wallet_connect", **wallet_connect_modal_locals %>
       </template>
       <%# "Set up your wallet" — the web3-only onboarding step. Auto-opens on the
           render right after auth success (session prompt, below) and on demand
@@ -1322,7 +1322,7 @@
           this app's own words and its own help route. Those locals live in the
           helper, not inline, because modal_preview registers this card too. %>
       <template x-if="$store.modals.current().id === 'web3-step-up'">
-        <%= render "studio/modals/web3_step_up", **web3_step_up_locals %>
+        <%= render "solana_studio/modals/web3_step_up", **web3_step_up_locals %>
       </template>
       <template x-if="$store.modals.current().id === 'wallet-changed'">
         <%= render "modals/wallet_changed" %>
