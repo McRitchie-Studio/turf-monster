@@ -10,15 +10,24 @@
 # TWO HALVES WERE ADOPTED, and they resolve through different mechanisms, so this
 # module covers both:
 #
-#   the deep link  studio/solana/_phantom_deeplink — a PARTIAL, rendered by
+#   the deep link  solana_studio/_phantom_deeplink — a PARTIAL, rendered by
 #                  shared/_alpine_factories. It replaced a JAVASCRIPT MODULE
 #                  (app/javascript/phantom_deeplink.js, loaded via the importmap),
 #                  so there was never a competing view path — the fork's ghost is
-#                  a file on disk and two loader lines, not a template.
+#                  a file on disk and two loader lines, not a template. It sat at
+#                  studio/solana/_phantom_deeplink in studio-engine until
+#                  /tasks/turf-rides-gem-modals moved it to solana-studio; the
+#                  engine still ships its copy until wave 3 deletes it, so during
+#                  that window BOTH paths resolve and only this lookup says which
+#                  one the app actually renders.
 #   the callback   solana_sessions/phantom_callback — a full TEMPLATE, and this
 #                  one WAS a shadow: the app's copy sat at the identical virtual
 #                  path and won resolution outright, leaving the engine's inert.
 #                  Deleting it is the whole of what hands the engine control.
+#                  IT STAYS IN studio-engine — the gem move took the deep link
+#                  only. The two are a matched signing pair (both read
+#                  Studio.wallet_sign_in_statement, unparameterized), which is
+#                  why the studio-engine floor survives this migration intact.
 #
 # DO NOT ASSERT THE IDENTIFIER CONTAINS "/gems/". That encodes how the engine
 # HAPPENS to be installed here and can never pass in studio-engine's own
@@ -39,7 +48,7 @@ module ResolvedPhantomDeeplink
 
   def lookup = ApplicationController.new.lookup_context
 
-  def template  = lookup.find("phantom_deeplink", [ "studio/solana" ], true)
+  def template  = lookup.find("phantom_deeplink", [ "solana_studio" ], true)
   def identifier = template.identifier
   def source     = template.source
 
@@ -47,12 +56,12 @@ module ResolvedPhantomDeeplink
   def callback_identifier = callback_template.identifier
   def callback_source     = callback_template.source
 
-  # True when the engine path resolves to a file inside this app — i.e. someone
+  # True when the shared path resolves to a file inside this app — i.e. someone
   # re-forked it as a shadow. Deliberately a prefix test on app/views.
   def shadowed_by_app?          = identifier.start_with?(APP_VIEWS)
   def callback_shadowed_by_app? = callback_identifier.start_with?(APP_VIEWS)
 
-  # Engine source with ERB comments and JS line-comments removed.
+  # Shared source with ERB comments and JS line-comments removed.
   #
   # WHY: BOTH halves document themselves by name in prose that SHIPS TO THE PAGE.
   # The partial's script carries `// Phantom deep link protocol for mobile

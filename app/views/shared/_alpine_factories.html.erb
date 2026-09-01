@@ -1148,26 +1148,29 @@
 
 <%#
   window.startPhantomDeepLink — the Phantom MOBILE round trip. Rendered from
-  studio-engine (studio/solana/phantom_deeplink) since
-  /tasks/adopt-engine-phantom-deeplink deleted this app's fork, which lived at
-  app/javascript/phantom_deeplink.js and loaded through the importmap.
+  solana-studio (solana_studio/phantom_deeplink) since
+  /tasks/turf-rides-gem-modals moved it off studio-engine, and from studio-engine
+  before that, since /tasks/adopt-engine-phantom-deeplink deleted this app's fork
+  (it lived at app/javascript/phantom_deeplink.js and loaded through the
+  importmap). The gem is the one copy now; studio-engine keeps its own only until
+  /tasks/drop-engine-web3-modals deletes it.
 
   WHY IT LIVES IN THIS FILE rather than at each layout. TWO layouts mount the
-  engine Connect-Wallet picker (layouts/application and layouts/modal_preview)
+  shared Connect-Wallet picker (layouts/application and layouts/modal_preview)
   and each keeps its own registration list, so anything written at the callsite
   is written twice and is then free to drift. Both layouts already render this
   partial, immediately inside the opening body tag, so one render here reaches
   both. Same reasoning as WalletPickerHelper.
 
-  AND WHY NOT THE IMPORTMAP, which is where the fork loaded from. The engine
+  AND WHY NOT THE IMPORTMAP, which is where the fork loaded from. The shared
   picker suppresses Phantom's mobile INSTALL row and paints its deep-link row on
   a getter that asks whether startPhantomDeepLink is a function, and Alpine
   evaluates x-data before importmap modules execute — the race this file's
   header documents for every other factory. A parse-time inline script wins it;
   an ES module does not. So this move is strictly earlier than the fork was.
 
-  NACL, and the race this app DECIDED rather than inherited. The engine ships
-  studio/solana/deeplink_assets, which APPENDS a script element for tweetnacl
+  NACL, and the race this app DECIDED rather than inherited. solana-studio ships
+  solana_studio/deeplink_assets, which APPENDS a script element for tweetnacl
   and is therefore asynchronous; the callback view reads nacl at PARSE TIME and
   hard-fails with no retry. This app does not render deeplink_assets anywhere.
   It loads tweetnacl from a blocking, SRI-pinned tag in the layout head, so
@@ -1179,7 +1182,7 @@
   rendering here is unconditional while the tag is not. layouts/application
   loads tweetnacl for every page; layouts/modal_preview gates it per modal id,
   so a preview card gets the global from this line and nacl only if its id is on
-  that list. When the gate was narrower than this render, the engine picker
+  that list. When the gate was narrower than this render, the shared picker
   painted its mobile Phantom row (the getter only asks whether the global is a
   function) and the tap threw "nacl is not defined" SYNCHRONOUSLY, before the
   fetch, where the deep link's own catch could not see it. That was
@@ -1194,4 +1197,4 @@
   this partial owes tweetnacl too and NOTHING ASSERTS IT: no test enumerates
   layouts. If you add one, add its own coverage with it.
 %>
-<%= render "studio/solana/phantom_deeplink" %>
+<%= render "solana_studio/phantom_deeplink" %>

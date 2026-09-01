@@ -1,6 +1,6 @@
 <%# locals: (link_mode: false) %>
 <%# Solana auth entry point — opens the "Connect Wallet" picker modal
-    (studio-engine's studio/modals/_wallet_connect, mounted through
+    (solana-studio's solana_studio/modals/_wallet_connect, mounted through
     WalletPickerHelper). OPSEC-005: when link_mode is true the user is
     logged in, so their id is passed so the signed wallet message can embed
     `User-ID: <id>`. The connect itself runs inside the modal via

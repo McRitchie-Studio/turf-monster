@@ -473,7 +473,8 @@
 # the identical virtual path, so while it existed the engine's copy was dead code
 # and no assertion anywhere could tell.
 #
-# WHY A BROWSER AND NOTHING CHEAPER. The engine's studio/solana/deeplink_assets
+# WHY A BROWSER AND NOTHING CHEAPER. The deeplink_assets loader (shipped by BOTH
+# studio-engine and, since /tasks/turf-rides-gem-modals, solana-studio)
 # APPENDS a script element for tweetnacl — asynchronous — while the callback reads
 # `nacl` AT PARSE TIME and hard-fails with no retry. This app resolved that by
 # keeping its own BLOCKING tag and rendering deeplink_assets nowhere. A Rails test
