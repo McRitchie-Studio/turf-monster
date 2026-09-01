@@ -87,16 +87,34 @@ class AdminController < ApplicationController
       partial: "studio/modals/templates/form",
       props: {} },
 
+    # CREDENTIALS-STEP PROPS MIRROR THE LIVE CALL SITES KEY-FOR-KEY.
+    # components/_user_nav.html.erb and layouts/_navbar.html.erb both open this
+    # modal with { step, mode, submitting, formError, phantomError, googleError },
+    # and the gallery must pass what production passes or it reviews a fiction.
+    #
+    # `submitting: nil` is the load-bearing one, and it is NOT the same as
+    # leaving the key out. The four credential controls bind the BARE dotted
+    # expression :disabled="props.submitting". Alpine's x-bind rewrites an
+    # `undefined` result to "" whenever the expression contains a dot
+    # (alpine.js 3.16.1, vendored in studio-engine). "" then misses
+    # bindAttribute's [null, undefined, false] removal test, and `disabled` is a
+    # boolean attribute, so Alpine SETS disabled="disabled" — the omitted key
+    # painted a dead Google/Solana/email card where production paints a live
+    # one. An explicit nil takes the removal branch instead. So: a missing key
+    # here is a rendered defect, not a shorthand.
+    # See docs/UI_PATTERNS.md § "Alpine + ERB Constraints" item 10.
     { group: "Auth — credentials",
       label: "Credentials (Google / wallet / magic link)", key: "auth-credentials",
       modal_id: "auth", file: "app/views/modals/_auth.html.erb",
-      props: { mode: "signup", step: "credentials" } },
+      props: { mode: "signup", step: "credentials", submitting: nil,
+               formError: "", phantomError: "", googleError: "" } },
     { group: "Auth — credentials",
       label: "Credentials (sending magic link)", key: "auth-credentials-sending",
       # submitting: 'magic-link' drives the Email Link button's .cta-spinner;
       # Google/Solana spin the same way with submitting 'google'/'wallet'.
       modal_id: "auth", file: "app/views/modals/_auth.html.erb",
-      props: { mode: "signup", step: "credentials", submitting: "magic-link" } },
+      props: { mode: "signup", step: "credentials", submitting: "magic-link",
+               formError: "", phantomError: "", googleError: "" } },
     { group: "Auth — credentials",
       label: "Magic link sent", key: "auth-magic-link-sent",
       modal_id: "auth", file: "app/views/modals/_auth.html.erb",
