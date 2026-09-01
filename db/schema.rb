@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_30_040000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_01_221256) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -720,6 +720,30 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_30_040000) do
     t.datetime "updated_at", null: false
     t.index ["app_name"], name: "index_studio_geo_settings_on_app_name", unique: true
     t.index ["slug"], name: "index_studio_geo_settings_on_slug", unique: true
+  end
+
+  create_table "studio_knowledge_docs", force: :cascade do |t|
+    t.jsonb "access", default: {}, null: false
+    t.bigint "byte_size"
+    t.string "category"
+    t.datetime "created_at", null: false
+    t.date "document_date"
+    t.string "entity", null: false
+    t.string "mime_type"
+    t.string "path", default: "", null: false
+    t.string "s3_key"
+    t.string "source_note"
+    t.string "status", default: "inbox", null: false
+    t.text "summary"
+    t.bigint "superseded_by_id"
+    t.jsonb "tags", default: [], null: false
+    t.string "title", null: false
+    t.datetime "updated_at", null: false
+    t.string "uploaded_by"
+    t.index ["entity", "path"], name: "index_studio_knowledge_docs_on_entity_and_path"
+    t.index ["entity", "status"], name: "index_studio_knowledge_docs_on_entity_and_status"
+    t.index ["s3_key"], name: "index_studio_knowledge_docs_on_s3_key", unique: true
+    t.index ["superseded_by_id"], name: "index_studio_knowledge_docs_on_superseded_by_id"
   end
 
   create_table "studio_links", force: :cascade do |t|
