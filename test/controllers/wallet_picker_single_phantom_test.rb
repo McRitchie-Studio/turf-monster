@@ -83,8 +83,9 @@ class WalletPickerSinglePhantomTest < ActionDispatch::IntegrationTest
     # canDeepLink and flip together. (Corrected 2026-08-30: this comment used to
     # say such a phone gets "no Phantom path at all", which is backwards; measured
     # in a browser under adopt-engine-phantom-deeplink.) This app DOES
-    # define it — since adopt-engine-phantom-deeplink by rendering the engine's
-    # studio/solana/phantom_deeplink from shared/_alpine_factories, pinned on the
+    # define it — since adopt-engine-phantom-deeplink by rendering
+    # solana_studio/phantom_deeplink from shared/_alpine_factories (it came from
+    # studio-engine until /tasks/turf-rides-gem-modals), pinned on the
     # RENDERED page in wallet_picker_adoption_test and phantom_deeplink_adoption_test
     # — which is what makes the suppression here behave as it did before the adoption.
     assert_match(/self\.canDeepLink/, getter,

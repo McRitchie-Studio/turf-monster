@@ -38,18 +38,18 @@
 
     <%# tweetnacl — a SEPARATE gate from web3.js above, and the split is the fix.
         THE BUG IT CLOSES: shared/alpine_factories, rendered in the body below,
-        renders the engine's studio/solana/phantom_deeplink on EVERY preview, so
-        window.startPhantomDeepLink exists on every card. The engine picker paints
+        renders solana-studio's solana_studio/phantom_deeplink on EVERY preview,
+        so window.startPhantomDeepLink exists on every card. The shared picker paints
         its mobile Phantom row on that global EXISTING, and the deep link's first
         act is nacl.box.keyPair(). So on a phone the row painted and the tap threw
         "nacl is not defined" SYNCHRONOUSLY, before the fetch — where the catch
         around the handshake could never see it. A dead button reporting nothing.
 
         WHY NOT THE OTHER THREE FIXES. Gating the row on nacl means changing the
-        engine's canDeepLink getter for every consumer to suit an admin gallery,
-        and it shows a picker production never shows. Lazy-loading on tap adds a
-        code path the real picker does not have. Rendering the engine's
-        studio/solana/deeplink_assets is banned app-wide by
+        shared picker's canDeepLink getter for every consumer to suit an admin
+        gallery, and it shows a picker production never shows. Lazy-loading on tap
+        adds a code path the real picker does not have. Rendering solana-studio's
+        solana_studio/deeplink_assets is banned app-wide by
         phantom_deeplink_adoption_test: it APPENDS a script element, and the
         callback reads nacl at parse time and hard-fails when it loses that race.
         A blocking tag matches layouts/application exactly, so the gallery
@@ -231,11 +231,12 @@
       <template x-if="$store.modals.current().id === 'wallet-deposit'">
         <%= render "modals/wallet_deposit" %>
       </template>
-      <%# The engine picker, through the SAME helper the app layout uses. This
-          preview layout keeps its own registration list, so rendering anything
-          else here is how /admin/style silently keeps showing a fork. %>
+      <%# The shared picker from solana-studio, through the SAME helper the app
+          layout uses. This preview layout keeps its own registration list, so
+          rendering anything else here is how /admin/style silently keeps showing
+          a fork. %>
       <template x-if="$store.modals.current().id === 'wallet-connect'">
-        <%= render "studio/modals/wallet_connect", **wallet_connect_modal_locals %>
+        <%= render "solana_studio/modals/wallet_connect", **wallet_connect_modal_locals %>
       </template>
       <template x-if="$store.modals.current().id === 'wallet-changed'">
         <%= render "modals/wallet_changed" %>
@@ -263,7 +264,7 @@
           Same partial and same locals as the app layout, via the helper — this
           card is exactly where an inline copy drifted before. %>
       <template x-if="$store.modals.current().id === 'web3-step-up'">
-        <%= render "studio/modals/web3_step_up", **web3_step_up_locals %>
+        <%= render "solana_studio/modals/web3_step_up", **web3_step_up_locals %>
       </template>
       <%# age-verify was MISSING here until 2026-08-19 — the exact gap the note
           above warns about. The gallery listed the variant and /admin/modals

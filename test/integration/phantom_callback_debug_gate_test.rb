@@ -2,7 +2,7 @@ require "test_helper"
 
 # The Phantom deeplink callback shipped a visual debug sink that printed
 # localStorage — including `phantom_dl_secret`, which the deep link
-# (studio/solana/_phantom_deeplink) sets to encodeBase58(dappKeyPair.secretKey),
+# (solana_studio/_phantom_deeplink) sets to encodeBase58(dappKeyPair.secretKey),
 # a real private key — to an on-page element AND the console, with NO
 # environment gate, on every mobile Phantom sign-in.
 #

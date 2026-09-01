@@ -7,8 +7,8 @@ require "open3"
 # that guard deliberately allows: QA and development, where the sink DOES render
 # and an operator is looking at the screen.
 #
-# `phantom_dl_secret` is set by the deep link (studio/solana/_phantom_deeplink,
-# studio-engine) to encodeBase58(dappKeyPair.secretKey) — a real private key. Its
+# `phantom_dl_secret` is set by the deep link (solana_studio/_phantom_deeplink,
+# solana-studio) to encodeBase58(dappKeyPair.secretKey) — a real private key. Its
 # VALUE must never be printed, in any environment.
 #
 # WHY THIS RUNS THE REAL JS RATHER THAN GREPPING THE SOURCE: a source-text

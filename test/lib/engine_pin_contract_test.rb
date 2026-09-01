@@ -93,20 +93,29 @@ class EnginePinContractTest < ActiveSupport::TestCase
   #              the first of them, so below 0.64.0 `Studio.configure` raises
   #              NoMethodError and nothing boots — louder even than the 0.57 geo
   #              floor, which at least got as far as the concern.
-  #            * studio/solana/_phantom_deeplink and the
-  #              solana_sessions/phantom_callback template. This app DELETED both
-  #              halves of the mobile round trip (app/javascript/phantom_deeplink.js
-  #              and its own phantom_callback view), so below 0.64.0 the render
-  #              resolves nothing and the return leg has no template.
-  #              (studio/solana/_deeplink_assets shipped alongside them and is
-  #              deliberately NOT rendered here — this app keeps a blocking
-  #              tweetnacl tag — so it is not part of the floor.)
-  #            * the shared picker's `canDeepLink` getter, which gates BOTH
-  #              Phantom's mobile install-row suppression and the deep-link row.
-  #              0.63.0's getter reads `self.isMobile && i.name === 'Phantom'`
-  #              and defines no canDeepLink, so wallet_picker_single_phantom_test
-  #              has nothing to match. This third one fails in TESTS rather than
-  #              at boot; the first two are why the floor is 0.64 regardless.
+  #            * the solana_sessions/phantom_callback template — the mobile
+  #              return leg. This app DELETED both halves of the round trip
+  #              (app/javascript/phantom_deeplink.js and its own phantom_callback
+  #              view), and the callback half is STILL the engine's, so below
+  #              0.64.0 the return leg has no template at all.
+  #
+  #          WHAT LEFT THIS FLOOR ON 2026-09-01, and why the floor did not move:
+  #          /tasks/turf-rides-gem-modals moved the PARTIALS to solana-studio.
+  #          studio/solana/_phantom_deeplink, studio/modals/_wallet_connect and
+  #          studio/modals/_web3_step_up are no longer rendered from the engine
+  #          here, so they no longer justify an engine floor — their floor is now
+  #          solana-studio 0.5.3 (see SOLANA_STUDIO_MINIMUM below), and the same
+  #          goes for the shared picker's `canDeepLink` getter, which travelled
+  #          with the picker.
+  #
+  #          THE ENGINE FLOOR STAYS AT 0.64.0 ANYWAY, on the two bullets above,
+  #          and BOTH are independent of the partials: the accessors are set in
+  #          this app's initializer (a BOOT failure) and the callback template is
+  #          still the engine's. The migration therefore removes a REASON without
+  #          moving the NUMBER. There is a third tie besides: the gem's
+  #          _phantom_deeplink itself reads Studio.wallet_sign_in_statement, so
+  #          the partials depend on studio-engine >= 0.64 at RENDER time even
+  #          from inside solana-studio.
   #          DERIVED BY DATING EVERY SURFACE, not by reading a changelog — the
   #          gem's CHANGELOG files everything after 0.39 under "Unreleased", so
   #          it cannot date anything here. Each partial rendered, accessor
@@ -123,6 +132,72 @@ class EnginePinContractTest < ActiveSupport::TestCase
                     "endpoints need >= 0.46; the shared /profile page and its section registry need " \
                     ">= 0.52; the shared date-of-birth field rendered by modals/_birthday needs " \
                     ">= 0.54; the rail-row and close-x chrome primitives this app RENDERS need >= 0.61, and an UNESCAPED rail-row click handler needs >= 0.62.2; and the shared layer scale this app no longer mirrors locally needs >= 0.63; and the wallet surface needs >= 0.64 — config.wallet_debug_sink is SET in this app's initializer, so below it Studio.configure raises at boot)"
+  end
+
+  # ── The solana-studio floor, which is a DIFFERENT KIND of floor ────────
+  #
+  # 0.5.3 is where solana_studio/modals/_wallet_connect, _web3_step_up,
+  # _phantom_deeplink and _deeplink_assets FIRST EXIST. Derived by unpacking the
+  # published .gem artifacts rather than reading a changelog: 0.5.0 and 0.5.1
+  # ship two files under app/, 0.5.2 ships three (network_guard.js,
+  # auth/_wallet_credential, modals/_network_mismatch), and 0.5.3 ships seven.
+  #
+  # WHY THIS ONE IS NOT INVISIBLE TO THE RESOLVER, unlike every studio-engine
+  # bump above. Those were all two-segment pins, so the old `~>` already admitted
+  # the new floor and only the COMMENT moved. This app's pin was `~> 0.5` and it
+  # DID already admit 0.5.3 — but Gemfile.lock resolved 0.5.1, and measured in
+  # this app on 2026-09-01 all four partials above resolved MISSING through a
+  # real LookupContext while studio-engine's copies still resolved FOUND. A
+  # missing partial in a `render` call raises NOTHING: the Connect-Wallet picker,
+  # the step-up card and the whole mobile Phantom leg would each have rendered as
+  # an EMPTY modal. That is why the Gemfile pin is three segments now, and why
+  # this assertion reads the RESOLVED version rather than the pin string.
+  SOLANA_STUDIO_MINIMUM = Gem::Version.new("0.5.3")
+
+  test "the resolved solana-studio is at or above the floor this app renders from" do
+    resolved = Gem::Version.new(Gem.loaded_specs.fetch("solana-studio").version.to_s)
+    assert_operator resolved, :>=, SOLANA_STUDIO_MINIMUM,
+                    "solana-studio #{resolved} is below the #{SOLANA_STUDIO_MINIMUM} floor this " \
+                    "app renders from — solana_studio/modals/_wallet_connect, " \
+                    "solana_studio/modals/_web3_step_up and solana_studio/_phantom_deeplink " \
+                    "first exist in 0.5.3, and below it every one of those render calls " \
+                    "resolves to NOTHING without raising: empty modals, no error"
+  end
+
+  # The floor above is only worth having if the partials it names actually
+  # resolve. This asks the question the render sites ask, through the same
+  # LookupContext they use, and it is what a version assertion alone cannot say.
+  test "every partial this app renders from solana-studio actually resolves" do
+    lookup    = ApplicationController.new.lookup_context
+    app_views = Rails.root.join("app/views").to_s
+
+    { "wallet_connect"   => "solana_studio/modals",
+      "web3_step_up"     => "solana_studio/modals",
+      "phantom_deeplink" => "solana_studio" }.each do |name, prefix|
+      template =
+        begin
+          lookup.find(name, [ prefix ], true)
+        rescue ActionView::MissingTemplate
+          flunk "#{prefix}/#{name} does not resolve — the render site for it comes up " \
+                "EMPTY, silently, with nothing raised in production"
+        end
+
+      # Install-agnostic, deliberately: NOT a "/gems/" match, which cannot pass
+      # in a consumer-CI lane that bundles the gem as a path checkout.
+      assert_not template.identifier.start_with?(app_views),
+                 "#{prefix}/#{name} resolved to #{template.identifier}, inside this app's own " \
+                 "app/views — a local copy is shadowing the gem at its own virtual path"
+    end
+
+    # THE CONTROL, and it is not decoration. A LookupContext that resolved
+    # everything — a stubbed lookup, a prefix that silently falls back — would
+    # make all three assertions above vacuously true. This proves the probe can
+    # still say no.
+    assert_raises(ActionView::MissingTemplate,
+                  "the lookup resolved a partial that does not exist, so the three " \
+                  "assertions above prove nothing") do
+      lookup.find("definitely_not_a_partial", [ "solana_studio/modals" ], true)
+    end
   end
 
   # SELF-FIRING, and that is the whole design.

@@ -27,14 +27,19 @@ class Web3StepUpGalleryTest < ActionDispatch::IntegrationTest
     node.to_html
   end
 
-  # THE PARTIAL LIVES IN THE ENGINE NOW (2026-08-24). studio-engine lifted this
-  # card out on 2026-08-21 and this app kept rendering a second copy until the
-  # switch-over; the copy is gone and `studio/modals/_web3_step_up` is the one
-  # file. The path below therefore resolves through Studio::Engine, not
-  # Rails.root — and this app keeps the guard rather than handing it entirely to
-  # the engine because THIS app is what renders the card to a real player.
-  ENGINE_PARTIAL =
-    Studio::Engine.root.join("app/views/studio/modals/_web3_step_up.html.erb").freeze
+  # THE PARTIAL LIVES IN solana-studio NOW (2026-09-01). studio-engine lifted
+  # this card out of this app on 2026-08-21, this app kept rendering a second copy
+  # until 2026-08-24, and /tasks/turf-rides-gem-modals then moved the shared copy
+  # on to solana-studio as `solana_studio/modals/_web3_step_up`. This app keeps
+  # the guard rather than handing it entirely to the owning gem because THIS app
+  # is what renders the card to a real player.
+  #
+  # RESOLVED, NOT PATH-JOINED. This used to read a fixed path into Studio::Engine.
+  # A fixed path answers "what does that gem ship?", not "what does this app
+  # render", and the two diverged the moment the card moved: studio-engine still
+  # ships its copy until wave 3 deletes it, so the old join would have kept
+  # PASSING against a partial this app no longer renders, then died with ENOENT at
+  # wave 3 instead of at the change that broke it. See ResolvedWeb3StepUp.
 
   # Same failure mode the onboarding and wallet-setup modals each carry a guard
   # for: a double quote inside the double-quoted x-data closes the attribute
@@ -43,7 +48,7 @@ class Web3StepUpGalleryTest < ActionDispatch::IntegrationTest
   # in a browser. It has bitten this codebase twice, so every new step-machine
   # modal gets this test.
   test "the x-data attribute contains no double quotes" do
-    source = ENGINE_PARTIAL.read
+    source = ResolvedWeb3StepUp.source
     x_data = source[/x-data="(\{.*?\})"\s*\n/m, 1]
     assert x_data.present?, "could not locate the x-data attribute — did the root element change?"
     assert_not_includes x_data, '"',
@@ -60,31 +65,42 @@ class Web3StepUpGalleryTest < ActionDispatch::IntegrationTest
   # markup assertion in this file while quietly restoring the drift.
   test "this app carries no second copy of the partial" do
     assert_not Rails.root.join("app/views/modals/_web3_step_up.html.erb").exist?,
-               "app/views/modals/_web3_step_up.html.erb is back — the engine owns this card " \
-               "(studio/modals/_web3_step_up); two files for one modal is the drift this removed"
+               "app/views/modals/_web3_step_up.html.erb is back — solana-studio owns this " \
+               "card (solana_studio/modals/_web3_step_up); two files for one modal is the " \
+               "drift this removed"
   end
 
-  # The layout must render the ENGINE partial. Asserting on the rendered card
+  # The card this app renders must be the GEM's, and it must not resolve inside
+  # this app's own app/views. Install-agnostic on purpose — see ResolvedWeb3StepUp
+  # for why asserting on "/gems/" is the wrong shape.
+  test "the step-up card resolves to the gem, not to a copy in this app" do
+    assert_not ResolvedWeb3StepUp.shadowed_by_app?,
+               "solana_studio/modals/web3_step_up resolved to " \
+               "#{ResolvedWeb3StepUp.identifier}, which is inside this app's own app/views — " \
+               "the fork is back as a shadow at the gem's virtual path"
+  end
+
+  # The layout must render the GEM partial. Asserting on the rendered card
   # rather than on the layout source, because what matters is which template
   # actually produced the markup a player sees.
-  test "the layout renders the engine partial, with this app's own words" do
+  test "the layout renders the gem partial, with this app's own words" do
     preview(REMEMBERED)
-    # The engine default names "on-chain actions"; this app names the two things
+    # The shared default names "on-chain actions"; this app names the two things
     # a player actually loses. If the local passed by the layout ever goes
-    # missing, the copy silently reverts to the engine's — hence this assertion.
+    # missing, the copy silently reverts to the gem's — hence this assertion.
     assert_includes card, "entering contests",
                     "the app-supplied subtext local is missing — the card fell back to the " \
-                    "engine's generic 'on-chain actions' wording"
+                    "gem's generic 'on-chain actions' wording"
     assert_includes card, "moving funds"
   end
 
-  # help_url is a String local in the engine but a route helper here. The escape
+  # help_url is a String local in the gem but a route helper here. The escape
   # hatch is not decoration: a self-custody wallet is the one credential this app
   # cannot reset for a user, so a card without it strands a locked-out owner.
   test "the help escape hatch survives the switch-over" do
     preview(REMEMBERED)
     assert_includes card, help_path,
-                    "the help_url local is missing — the engine renders no help line " \
+                    "the help_url local is missing — the card renders no help line " \
                     "unless the host passes one"
   end
 
