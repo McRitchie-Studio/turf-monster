@@ -107,7 +107,7 @@ class AdminController < ApplicationController
       props: { step: "magic-link-resent", sentEmail: "you@example.com" } },
     { group: "Web3",
       label: "Connect Wallet (picker)", key: "wallet-connect",
-      modal_id: "wallet-connect", file: "[studio-engine] app/views/studio/modals/_wallet_connect.html.erb",
+      modal_id: "wallet-connect", file: "[solana-studio] app/views/solana_studio/modals/_wallet_connect.html.erb",
       props: {} },
     { group: "Web3",
       label: "Wallet changed (session handoff)", key: "wallet-changed",
@@ -120,8 +120,9 @@ class AdminController < ApplicationController
     # INSTALL state unless the previewing browser actually has Phantom, which is
     # the state a brand-new player sees.
     # === Web3 step-up — MOVED, not deleted ===================================
-    # Web3StepUpPolicy's card left this gallery on 2026-08-24. studio-engine owns
-    # the partial (studio/modals/_web3_step_up) and its living style guide shows
+    # Web3StepUpPolicy's card left this gallery on 2026-08-24. solana-studio owns
+    # the partial (solana_studio/modals/_web3_step_up) and the engine's living
+    # style guide shows
     # BOTH states this registry used to carry — remembered brand and no brand —
     # against the very partial the app renders, not a specimen copy of it. Two
     # cards here would have been the duplicate. See /admin/style#modals.

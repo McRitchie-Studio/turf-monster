@@ -18,8 +18,8 @@ require "test_helper"
 #   the callback   was a TRUE SHADOW at the identical virtual path, winning
 #                  resolution outright and leaving the engine's copy inert.
 #
-# THE CONTRACT THIS APP OWES THE ENGINE, and the reason this file is not
-# optional: studio/modals/_wallet_connect suppresses Phantom's mobile INSTALL row
+# THE CONTRACT THIS APP OWES THE PICKER, and the reason this file is not
+# optional: solana_studio/modals/_wallet_connect suppresses Phantom's mobile INSTALL row
 # on `self.isMobile && self.canDeepLink && i.name === 'Phantom'`, and canDeepLink
 # is `typeof startPhantomDeepLink === 'function'`. Whether that global exists on
 # the page therefore decides what a phone SEES, not merely what a tap does.
@@ -42,10 +42,22 @@ require "test_helper"
 # registration lists, and both mount the picker — so both need the global. One
 # render in shared/_alpine_factories covers both; these tests check the RENDERED
 # pages rather than that arrangement, so a future third layout fails here.
-# THE ENGINE FLOOR THIS FILE DEPENDS ON IS NOW THE ONE THE GEMFILE DECLARES.
-# `studio/solana/_phantom_deeplink`, the `solana_sessions/phantom_callback`
+# TWO FLOORS, AND THE MIGRATION MOVED ONLY PART OF ONE. Since
+# /tasks/turf-rides-gem-modals the deep link is `solana_studio/_phantom_deeplink`
+# and its floor is solana-studio 0.5.3, where it first exists.
+#
+# THE STUDIO-ENGINE 0.64.0 FLOOR SURVIVES THAT MOVE INTACT, which is the thing to
+# get right before anyone tries to lower it: the `solana_sessions/phantom_callback`
 # template, `Studio.wallet_debug_sink` and `Studio.wallet_sign_in_statement` all
-# first exist in studio-engine 0.64.0. This file used to record that the pin
+# first exist in studio-engine 0.64.0 and NONE of them moved. The deep link and
+# the callback are a MATCHED SIGNING PAIR — each reads
+# Studio.wallet_sign_in_statement, unparameterized, and the callback rebuilds the
+# signed message to verify it — so the gem partial now depends on studio-engine
+# at RENDER time. Verified byte-level 2026-09-01 in the published artifacts: the
+# gem's copy reads the helper exactly once, and phantom_callback reads it
+# identically.
+#
+# Historical note, still true of the engine pin: This file used to record that the pin
 # UNDERSTATED that — `~> 0.63` with MINIMUM at 0.63.0 — and point at
 # /tasks/raise-engine-pin-to-0-64 as the change that would close it. That task
 # landed: the Gemfile pins `~> 0.64` and engine_pin_contract_test sets MINIMUM to
@@ -80,7 +92,7 @@ class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
 
   test "the deep link renders from outside this app" do
     assert_not ResolvedPhantomDeeplink.shadowed_by_app?,
-      "studio/solana/phantom_deeplink resolved to #{ResolvedPhantomDeeplink.identifier}, " \
+      "solana_studio/phantom_deeplink resolved to #{ResolvedPhantomDeeplink.identifier}, " \
       "inside this app's app/views — the deep link has been re-forked as a shadow"
   end
 
@@ -255,15 +267,24 @@ class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
   # ── The nacl race, decided rather than inherited ──────────────────────
 
   test "this app loads nacl from a blocking tag and renders no async loader" do
-    # THE DECISION /tasks/adopt-engine-phantom-deeplink made. The engine's
-    # studio/solana/deeplink_assets APPENDS a script element — asynchronous — and
-    # the callback's IIFE reads nacl AT PARSE TIME and hard-fails with no retry.
-    # Rendering the engine loader here would race it. A blocking tag cannot.
+    # THE DECISION /tasks/adopt-engine-phantom-deeplink made. The async loader
+    # APPENDS a script element, and the callback's IIFE reads nacl AT PARSE TIME
+    # and hard-fails with no retry. Rendering it here would race it. A blocking
+    # tag cannot.
+    #
+    # BOTH PATHS ARE BANNED, and that is not belt-and-braces. The loader shipped
+    # as studio/solana/_deeplink_assets in studio-engine and, since
+    # /tasks/turf-rides-gem-modals, ALSO as solana_studio/_deeplink_assets in
+    # solana-studio. Both gems ship one until /tasks/drop-engine-web3-modals
+    # deletes the engine's, so a ban naming only one path would leave the other
+    # free to be adopted — the identical race, through a path this guard was not
+    # watching.
+    banned = %r{["'](?:studio/solana|solana_studio)/deeplink_assets["']}
     offenders = Dir[Rails.root.join("app/views/**/*.erb").to_s].select do |path|
-      File.read(path).gsub(/<%#.*?%>/m, "").match?(%r{["']studio/solana/deeplink_assets["']})
+      File.read(path).gsub(/<%#.*?%>/m, "").match?(banned)
     end
     assert_empty offenders.map { |p| p.delete_prefix("#{Rails.root}/") },
-      "these views render the engine's ASYNC nacl loader. The callback reads nacl " \
+      "these views render an ASYNC nacl loader. The callback reads nacl " \
       "at parse time and fails outright when it loses the race. Adopt it only " \
       "together with a callback that waits."
 
@@ -272,7 +293,7 @@ class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
     assert tag.present?, "the layout no longer loads tweetnacl at all — every mobile sign-in fails"
     refute_match(/\bdefer\b|\basync\b/, tag,
                  "tweetnacl is loaded #{tag} — deferring it reintroduces exactly the race " \
-                 "this app avoided by NOT adopting studio/solana/deeplink_assets")
+                 "this app avoided by NOT adopting either deeplink_assets loader")
   end
 
   # ── The route this app KEEPS ──────────────────────────────────────────
@@ -305,6 +326,36 @@ class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
     AppFlags.stub :live_production?, false do
       assert Studio.wallet_debug_sink?, "QA and development lost the sink"
     end
+  end
+
+  # ── The render site itself, which resolution alone cannot defend ──────
+
+  # THE GAP THIS CLOSES, and it is only open during wave 2. studio-engine and
+  # solana-studio BOTH ship a _phantom_deeplink until /tasks/drop-engine-web3-modals
+  # deletes the engine's. While both exist, every other test in this file passes
+  # against EITHER of them: `shadowed_by_app?` only asks whether the template is
+  # outside app/views (both gems are), and the rendered-page assertions only ask
+  # whether startPhantomDeepLink reached the page (both would put it there).
+  #
+  # So a revert of the render line in shared/_alpine_factories to the engine path
+  # would be INVISIBLE to this whole file — green all the way through wave 2, and
+  # then wave 3 deletes the engine copy, the render resolves to nothing, and every
+  # mobile Phantom sign-in dies with no error anywhere. Silent both times.
+  #
+  # This asserts the path this app actually names. Sibling of the picker's
+  # "every layout that registers the picker renders the GEM partial".
+  test "the deep link is rendered from the GEM path, not the engine's" do
+    factories = Rails.root.join("app/views/shared/_alpine_factories.html.erb")
+    body      = factories.read.gsub(/<%#.*?%>/m, "")
+
+    assert_includes body, %(render "solana_studio/phantom_deeplink"),
+      "shared/_alpine_factories no longer renders solana_studio/phantom_deeplink. " \
+      "If it went back to the engine path this is green everywhere else until " \
+      "wave 3 deletes that copy, and then the mobile leg dies silently."
+
+    assert_not_includes body, %(render "studio/solana/phantom_deeplink"),
+      "shared/_alpine_factories renders the ENGINE deep link again — solana-studio " \
+      "owns it now, and the engine copy is deleted in /tasks/drop-engine-web3-modals"
   end
 
   # ── nacl on the PREVIEW layout, the half the blocking-tag test missed ──
@@ -485,8 +536,8 @@ class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
     end
   end
 
-  # The partial's SOURCE, resolved through the app's own view paths so an engine
-  # partial (studio/modals/_wallet_connect) reads the same as a local one.
+  # The partial's SOURCE, resolved through the app's own view paths so a gem
+  # partial (solana_studio/modals/_wallet_connect) reads the same as a local one.
   def partial_source(partial)
     @partial_sources ||= {}
     @partial_sources[partial] ||= begin

@@ -4,8 +4,11 @@ require "test_helper"
 # copy of it.
 #
 # WHAT THIS REPLACED. turf-monster owned a 226-line modals/_wallet_connect while
-# studio-engine ships studio/modals/_wallet_connect — the partial PROMOTED OUT OF
-# THIS APP, which is why the diff was small. DIFFERENT virtual paths, so Rails
+# the shared copy sat at studio/modals/_wallet_connect — the partial PROMOTED OUT
+# OF THIS APP, which is why the diff was small. That shared copy moved once more
+# on 2026-09-01 (/tasks/turf-rides-gem-modals): solana-studio owns it now, at
+# solana_studio/modals/_wallet_connect, and studio-engine keeps its copy only
+# until /tasks/drop-engine-web3-modals deletes it. DIFFERENT virtual paths, so Rails
 # resolution never collapsed them: this was a parallel COPY that simply won at
 # every callsite, and the engine's copy was never reached. It had already drifted
 # ahead — a live region on the connect error, a connecting-guard on the deep
@@ -13,8 +16,8 @@ require "test_helper"
 # and canDeepLink, which stops the mobile Phantom install row being suppressed in
 # favour of a deep-link button that cannot work.
 #
-# WHAT IS LEFT FOR THIS APP TO DEFEND is the SEAM, not the picker. The engine
-# tests the picker. This app supplies four hooks and one slot through
+# WHAT IS LEFT FOR THIS APP TO DEFEND is the SEAM, not the picker. The owning
+# gem tests the picker. This app supplies four hooks and one slot through
 # WalletPickerHelper, and every one of them is the sort of thing that can go
 # missing while the page still looks perfect:
 #
@@ -33,7 +36,7 @@ class WalletPickerAdoptionTest < ActionDispatch::IntegrationTest
 
   test "the picker renders from outside this app" do
     assert_not ResolvedWalletPicker.shadowed_by_app?,
-      "studio/modals/wallet_connect resolved to #{ResolvedWalletPicker.identifier}, " \
+      "solana_studio/modals/wallet_connect resolved to #{ResolvedWalletPicker.identifier}, " \
       "inside this app's app/views — the picker has been re-forked as a shadow"
   end
 
@@ -63,7 +66,7 @@ class WalletPickerAdoptionTest < ActionDispatch::IntegrationTest
       "these layouts still render the deleted fork"
   end
 
-  test "every layout that registers the picker renders the ENGINE partial" do
+  test "every layout that registers the picker renders the GEM partial" do
     # Registration and render are separate lines, and the failure mode is a
     # layout that registers the id and renders nothing (blank card) or renders
     # the fork. Derived from the glob so a third layout cannot slip through.
@@ -77,12 +80,12 @@ class WalletPickerAdoptionTest < ActionDispatch::IntegrationTest
       "almost nothing, so every assertion below it is vacuous"
 
     offenders = registering.reject do |path|
-      File.read(path).include?(%(render "studio/modals/wallet_connect"))
+      File.read(path).include?(%(render "solana_studio/modals/wallet_connect"))
     end
 
     assert_empty offenders.map { |p| Pathname(p).relative_path_from(Rails.root).to_s },
       "these layouts register the wallet-connect id without rendering the " \
-      "engine picker — the card comes up EMPTY there"
+      "gem picker — the card comes up EMPTY there"
   end
 
   # ── The seam: the hooks this app contributes ──────────────────────────

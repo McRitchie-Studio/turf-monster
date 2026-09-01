@@ -9,11 +9,18 @@
 # cannot tell them apart.
 #
 # THIS ONE WAS A PARALLEL COPY, NOT A SHADOW. The app's picker lived at
-# modals/_wallet_connect and the engine's at studio/modals/_wallet_connect —
+# modals/_wallet_connect and the shared one at studio/modals/_wallet_connect —
 # DIFFERENT virtual paths, so Rails resolution never collapsed them and the app
-# copy simply won at every callsite. Both questions therefore matter: the engine
+# copy simply won at every callsite. Both questions therefore matter: the shared
 # path must not resolve into this app (a future shadow), and the old app path
 # must not resolve at all (the fork coming back).
+#
+# THE SHARED COPY MOVED AGAIN on 2026-09-01 (/tasks/turf-rides-gem-modals):
+# studio-engine handed the picker to solana-studio, so the resolved prefix below
+# is solana_studio/modals rather than studio/modals. studio-engine still SHIPS
+# its copy until /tasks/drop-engine-web3-modals deletes it, which is exactly why
+# this module resolves the path instead of reading a file: during that window
+# BOTH paths exist and only resolution can say which one this app renders.
 #
 # DO NOT ASSERT THE IDENTIFIER CONTAINS "/gems/". That encodes how the engine
 # HAPPENS to be installed here and can never pass in studio-engine's own
@@ -32,7 +39,7 @@ module ResolvedWalletPicker
   module_function
 
   def template
-    ApplicationController.new.lookup_context.find("wallet_connect", [ "studio/modals" ], true)
+    ApplicationController.new.lookup_context.find("wallet_connect", [ "solana_studio/modals" ], true)
   end
 
   def identifier
@@ -43,7 +50,7 @@ module ResolvedWalletPicker
     template.source
   end
 
-  # True when the ENGINE path resolves to a file inside this app — i.e. someone
+  # True when the GEM path resolves to a file inside this app — i.e. someone
   # re-forked it as a shadow this time. Deliberately a prefix test on app/views.
   def shadowed_by_app?
     identifier.start_with?(APP_VIEWS)
@@ -57,7 +64,7 @@ module ResolvedWalletPicker
     false
   end
 
-  # Engine source with JS line-comments and ERB comments removed.
+  # Gem source with JS line-comments and ERB comments removed.
   #
   # WHY: the picker documents its own hooks by name in prose that SHIPS TO THE
   # PAGE — the x-data attribute carries // comments naming canPick, onBack and
