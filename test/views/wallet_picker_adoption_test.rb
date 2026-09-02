@@ -146,13 +146,16 @@ class WalletPickerAdoptionTest < ActionDispatch::IntegrationTest
   test "the render capture reads the namespace, not just the file name" do
     # THE NEAR MISS, pinned. The capture the test above depends on filters render
     # identifiers, and the obvious filter — basename == _wallet_connect.* — looks
-    # exact and is not. studio-engine 0.67.0 ships
+    # exact and is not. studio-engine ships
     # app/views/style/modals/_wallet_connect.html.erb, a thin demo configuration
     # of this same picker that the living style guide renders. Same file name,
     # different virtual path, and it sits in the ENGINE — so a name-only filter
     # captures it on any page carrying the style guide and reports the picker as
     # served from outside the gem. That is a guard failing on a CORRECT bundle,
     # which is worse than no guard at all.
+    #
+    # That engine file is not a leftover: the 0.66.2 drop took the studio/solana
+    # and studio/modals namespaces only, never style/modals. Reason by NAMESPACE.
     #
     # Asserted against synthetic paths rather than the engine's real one: a
     # fixed path into another gem is the antipattern this whole support module
