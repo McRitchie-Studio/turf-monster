@@ -96,7 +96,24 @@ export async function authedFetch(url, opts) {
   } catch (e) {}
   try {
     var modals = window.Alpine && Alpine.store && Alpine.store('modals');
-    if (modals && modals.open) modals.open('auth', { step: 'credentials' });
+    // Seed every prop the credentials card's controls read. `submitting: null`
+    // is the load-bearing one and is NOT the same as omitting the key: the
+    // four controls are bound through dotted expressions, and Alpine rewrites
+    // an undefined result to the empty string, which SETS a boolean attribute
+    // rather than removing it. The binds are hardened with !! as well, so this
+    // is the belt to that pair of braces -- it keeps every opener passing the
+    // same shape, which is what the gallery mirrors. `mode` is deliberately
+    // absent: the navbar openers pass it, but _auth.html.erb never reads it,
+    // and this is a re-login rather than a signup.
+    if (modals && modals.open) {
+      modals.open('auth', {
+        step: 'credentials',
+        submitting: null,
+        formError: '',
+        phantomError: '',
+        googleError: ''
+      });
+    }
   } catch (e) {}
   return null;
 }
