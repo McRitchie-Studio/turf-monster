@@ -230,7 +230,7 @@ class WalletPickerAdoptionTest < ActionDispatch::IntegrationTest
         # attribute early leaves the later hooks in the page as loose text, so a
         # body-wide match would still find them while they no longer run.
         assert_match definition, x_data,
-          "#{label}: #{name} is not DEFINED on the picker. The engine calls each " \
+          "#{label}: #{name} is not DEFINED on the picker. The gem picker calls each " \
           "hook only `if (typeof this.#{name} === 'function')`, so a missing one " \
           "is silent: the picker keeps working and just stops doing turf's half."
       end
@@ -338,10 +338,10 @@ class WalletPickerAdoptionTest < ActionDispatch::IntegrationTest
     each_picker_render do |label, body|
       assert_match(/window\.startPhantomDeepLink\s*=\s*startPhantomDeepLink\s*;/, body,
                    "#{label}: nothing on this page publishes startPhantomDeepLink on " \
-                   "window, so the engine picker hides its deep-link row and hands a " \
+                   "window, so the gem picker hides its deep-link row and hands a " \
                    "phone Phantom's browser-extension INSTALL row instead — the iOS " \
                    "dead end. Assert the DEFINITION, never the bare " \
-                   "name: the picker's x-data and the engine partial both NAME the " \
+                   "name: the picker's x-data and the gem's partial both NAME the " \
                    "function in comments that ship to this page.")
     end
   end
