@@ -9,10 +9,9 @@ require "test_helper"
 # studio-engine took both, PROMOTED OUT OF THIS APP, which is why the diff was
 # small. The two have SPLIT since: /tasks/turf-rides-gem-modals moved the deep
 # link to solana-studio, and /tasks/drop-engine-web3-modals dropped the engine's
-# copy in 0.66.2, so on studio-engine 0.67.0 — the version this app runs — the
-# deep link comes from solana-studio and only the callback still comes from the
-# engine. What this app keeps is the ROUTE, the controller action, and the
-# blocking tweetnacl tag.
+# copy in 0.66.2. This app runs above that floor, so the deep link comes from
+# solana-studio and only the callback still comes from the engine. What this app
+# keeps is the ROUTE, the controller action, and the blocking tweetnacl tag.
 #
 # THE TWO HALVES FAILED DIFFERENTLY, which is why they are asserted differently:
 #
@@ -348,9 +347,9 @@ class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
   # else, until the drop landed, the render resolved to nothing, and every mobile
   # Phantom sign-in died with no error anywhere. Silent both times.
   #
-  # THE GUARD OUTLIVES THE WINDOW, which is why it is still here. On 0.67.0 that
-  # revert resolves to nothing immediately, so it fails loudly rather than
-  # silently — but loudness is a property of the CURRENT BUNDLE, not of this app,
+  # THE GUARD OUTLIVES THE WINDOW, which is why it is still here. Above the 0.66.2
+  # floor that revert resolves to nothing immediately, so it fails loudly rather
+  # than silently — but loudness is a property of the CURRENT BUNDLE, not of this app,
   # and a re-added engine copy restores the silence exactly. This names the path
   # this app must render rather than trusting the gem set to stay disjoint.
   #
@@ -362,8 +361,8 @@ class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
 
     assert_includes body, %(render "solana_studio/phantom_deeplink"),
       "shared/_alpine_factories no longer renders solana_studio/phantom_deeplink. " \
-      "solana-studio owns the deep link and studio-engine 0.67.0 ships no copy to " \
-      "fall back to, so the mobile leg has nothing left to render."
+      "solana-studio owns the deep link and studio-engine dropped its copy in " \
+      "0.66.2, so the mobile leg has nothing left to fall back to."
 
     assert_not_includes body, %(render "studio/solana/phantom_deeplink"),
       "shared/_alpine_factories renders the ENGINE deep link again — solana-studio " \

@@ -1152,9 +1152,9 @@
   /tasks/turf-rides-gem-modals moved it off studio-engine, and from studio-engine
   before that, since /tasks/adopt-engine-phantom-deeplink deleted this app's fork
   (it lived at app/javascript/phantom_deeplink.js and loaded through the
-  importmap). The gem is the one copy now, and it is the only one:
-  /tasks/drop-engine-web3-modals dropped the engine's in studio-engine 0.66.2, and
-  this app runs 0.67.0, which ships no studio/solana directory at all.
+  importmap). The gem is the only copy now: /tasks/drop-engine-web3-modals dropped
+  the engine's in studio-engine 0.66.2, and this app runs above that floor, so
+  studio-engine hands it no studio/solana partial at all.
 
   WHY IT LIVES IN THIS FILE rather than at each layout. TWO layouts mount the
   shared Connect-Wallet picker (layouts/application and layouts/modal_preview)
