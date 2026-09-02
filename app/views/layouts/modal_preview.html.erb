@@ -60,7 +60,7 @@
         different things:
 
           CALLERS — the modal itself calls startPhantomDeepLink. wallet-connect
-          (the engine picker) and wallet-setup (this app's own).
+          (solana-studio's picker) and wallet-setup (this app's own).
 
           HOSTS — the modal cannot call it, but it can SWAP to one that can, and
           the host registration list below is page-wide, so the target is always
@@ -78,8 +78,8 @@
 
           UNRESOLVABLE — the swap target is an ERB expression the test cannot
           read statically, so it counts as a host rather than being assumed
-          harmless. web3-step-up swaps to picker_modal_id (the engine defaults it
-          to wallet-connect, which this app does not override) and age-gate swaps
+          harmless. web3-step-up swaps to picker_modal_id (solana-studio's card
+          defaults it to wallet-connect, which this app does not override) and age-gate swaps
           to birthday_modal_id. age-gate is the deliberate over-approximation of
           this rule: birthday cannot reach the deep link, so age-gate almost
           certainly does not either. It ships the tag anyway, because the rule

@@ -20,10 +20,11 @@ require "test_helper"
 # same identifiers, and an assertion that matched the comment would stay green
 # through a deletion of the code it claims to cover.
 #
-# 2026-08-29 (adopt-turf-engine-picker): THE PICKER IS THE ENGINE'S NOW, so the
-# picker half reads studio-engine's source RESOLVED — a File.read of the old app
+# 2026-08-29 (adopt-turf-engine-picker): THE PICKER IS A GEM'S NOW — studio-engine's
+# at adoption, and solana-studio's since /tasks/turf-rides-gem-modals — so the
+# picker half reads the GEM's source RESOLVED: a File.read of the old app
 # path is a read of a file that no longer exists, and hardcoding the gem path
-# instead would encode how the engine happens to be installed. The guarantee
+# instead would encode how that gem happens to be installed. The guarantee
 # still belongs here: it is a bug THIS APP shipped, and this app is what a
 # regression would be visible in. The setup card is still this app's own file.
 class WalletPickerSinglePhantomTest < ActionDispatch::IntegrationTest
@@ -35,7 +36,7 @@ class WalletPickerSinglePhantomTest < ActionDispatch::IntegrationTest
   end
 
   # The picker that actually renders, with ERB comments AND the // comments in
-  # its x-data removed — the engine names canDeepLink, showPhantomDeepLink and
+  # its x-data removed — the gem picker names canDeepLink, showPhantomDeepLink and
   # missingInstalls in prose that ships to the page.
   def picker
     ResolvedWalletPicker.code
@@ -76,7 +77,7 @@ class WalletPickerSinglePhantomTest < ActionDispatch::IntegrationTest
     assert_match(/self\.isMobile\s*&&.*?i\.name\s*===\s*'Phantom'/, getter,
                  "a phone has no extension to install, so Phantom's download-page row " \
                  "must be filtered out — leaving it is the second row from the bug report")
-    # The engine adds a conjunct the fork did not have, and it is not cosmetic:
+    # The gem picker adds a conjunct the fork did not have, and it is not cosmetic:
     # the install row is suppressed ONLY when a deep link can replace it. Drop it
     # and an app with no startPhantomDeepLink hands a phone Phantom's INSTALL row
     # — the very iOS dead end this file exists to kill — because both getters read
@@ -137,7 +138,7 @@ class WalletPickerSinglePhantomTest < ActionDispatch::IntegrationTest
   # A single double quote inside the double-quoted x-data closes the attribute
   # early; Alpine then mounts the component as a silent no-op, and every
   # assertion in this file still passes while the modal is dead in a real
-  # browser. For the PICKER that attribute is now the engine's, plus this app's
+  # browser. For the PICKER that attribute is now solana-studio's, plus this app's
   # extra_data fragment — the only half this app can still break — so the guard
   # moved to test/views/wallet_picker_adoption_test.rb, where it reads
   # WalletPickerHelper's fragment DIRECTLY. Reading it out of the rendered

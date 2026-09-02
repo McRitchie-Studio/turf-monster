@@ -92,16 +92,20 @@ class AdminController < ApplicationController
     # modal with { step, mode, submitting, formError, phantomError, googleError },
     # and the gallery must pass what production passes or it reviews a fiction.
     #
-    # `submitting: nil` is the load-bearing one, and it is NOT the same as
-    # leaving the key out. The four credential controls bind the BARE dotted
-    # expression :disabled="props.submitting". Alpine's x-bind rewrites an
-    # `undefined` result to "" whenever the expression contains a dot
-    # (alpine.js 3.16.1, vendored in studio-engine). "" then misses
-    # bindAttribute's [null, undefined, false] removal test, and `disabled` is a
-    # boolean attribute, so Alpine SETS disabled="disabled" — the omitted key
-    # painted a dead Google/Solana/email card where production paints a live
-    # one. An explicit nil takes the removal branch instead. So: a missing key
-    # here is a rendered defect, not a shorthand.
+    # `submitting: nil` is deliberate and is NOT the same as leaving the key
+    # out. Alpine's x-bind rewrites an `undefined` result to "" whenever the
+    # bound expression contains a dot (alpine.js 3.16.1, vendored in
+    # studio-engine). "" then misses bindAttribute's [null, undefined, false]
+    # removal test, and `disabled` is a boolean attribute, so Alpine SETS
+    # disabled="disabled" — an omitted key painted a dead Google/Solana/email
+    # card. An explicit nil takes the removal branch instead.
+    #
+    # The four credential controls are now HARDENED (`!!props.submitting`), so
+    # the gallery no longer depends on this key to render live. It stays anyway,
+    # and the test below still enforces it: the variant's job is to mirror the
+    # live call sites key-for-key, and a preview that drifts from production
+    # reviews a different app than the one that ships. Hardening fixed the
+    # rendering; it did not remove the reason to mirror.
     # See docs/UI_PATTERNS.md § "Alpine + ERB Constraints" item 10.
     { group: "Auth — credentials",
       label: "Credentials (Google / wallet / magic link)", key: "auth-credentials",
