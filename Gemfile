@@ -162,7 +162,7 @@ gem "studio-engine", "~> 0.64" # 0.64.0 is the real floor, and the pin SAYS so. 
 # for tidiness. test/lib/view_path_order_contract_test.rb asserts the
 # resulting order, so a reorder fails there instead of changing which gem a
 # partial renders from.
-gem "solana-studio", "~> 0.5.3"
+gem "solana-studio", "~> 0.6"
 
 # IP geolocation for state-level geo-blocking
 gem "geocoder"
