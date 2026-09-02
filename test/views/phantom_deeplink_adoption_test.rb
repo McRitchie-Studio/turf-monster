@@ -6,8 +6,12 @@ require "test_helper"
 # WHAT THIS REPLACED. turf-monster owned both halves of the mobile round trip —
 # app/javascript/phantom_deeplink.js (the hand-off out to the Phantom app) and
 # app/views/solana_sessions/phantom_callback.html.erb (the return leg) — and
-# studio-engine now ships both, PROMOTED OUT OF THIS APP, which is why the diff
-# was small. What this app keeps is the ROUTE, the controller action, and the
+# studio-engine took both, PROMOTED OUT OF THIS APP, which is why the diff was
+# small. The two have SPLIT since: /tasks/turf-rides-gem-modals moved the deep
+# link to solana-studio, and /tasks/drop-engine-web3-modals dropped the engine's
+# copy in 0.66.2, so on studio-engine 0.67.0 — the version this app runs — the
+# deep link comes from solana-studio and only the callback still comes from the
+# engine. What this app keeps is the ROUTE, the controller action, and the
 # blocking tweetnacl tag.
 #
 # THE TWO HALVES FAILED DIFFERENTLY, which is why they are asserted differently:
