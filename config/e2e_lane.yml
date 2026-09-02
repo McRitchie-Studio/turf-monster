@@ -445,8 +445,10 @@
 # already asserted Phantom's desktop INSTALL row.
 #
 # WHAT THEY BUY, and why no cheaper tier can. The adoption deleted this app's
-# app/javascript/phantom_deeplink.js and renders studio-engine's partial instead. The
-# engine picker decides what a PHONE sees from `typeof startPhantomDeepLink ===
+# app/javascript/phantom_deeplink.js and renders the gem's partial instead
+# (solana_studio/_phantom_deeplink — studio-engine's at adoption, moved to
+# solana-studio by /tasks/turf-rides-gem-modals). The gem
+# picker decides what a PHONE sees from `typeof startPhantomDeepLink ===
 # 'function'` — `missingInstalls` and `showPhantomDeepLink` both read it, so they flip
 # together. Lose the render and the phone silently gets Phantom's browser-extension
 # INSTALL row, which cannot be completed on iOS Safari. The page ships IDENTICAL markup
@@ -473,8 +475,9 @@
 # the identical virtual path, so while it existed the engine's copy was dead code
 # and no assertion anywhere could tell.
 #
-# WHY A BROWSER AND NOTHING CHEAPER. The deeplink_assets loader (shipped by BOTH
-# studio-engine and, since /tasks/turf-rides-gem-modals, solana-studio)
+# WHY A BROWSER AND NOTHING CHEAPER. The deeplink_assets loader (solana-studio's
+# solana_studio/_deeplink_assets — the only copy, since /tasks/drop-engine-web3-modals
+# dropped studio-engine's in 0.66.2)
 # APPENDS a script element for tweetnacl — asynchronous — while the callback reads
 # `nacl` AT PARSE TIME and hard-fails with no retry. This app resolved that by
 # keeping its own BLOCKING tag and rendering deeplink_assets nowhere. A Rails test

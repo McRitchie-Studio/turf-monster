@@ -108,7 +108,7 @@ test("a declined signIn propagates instead of re-prompting through the fallback 
     return { rejected, message, connectCalls };
   });
 
-  // The decline must reach the caller — studio-engine's wallet picker and
+  // The decline must reach the caller — solana-studio's wallet picker and
   // modals/_wallet_setup both render "Signature rejected" off exactly this.
   expect(outcome.rejected).toBe(true);
   expect(outcome.message).toMatch(/rejected/i);
@@ -177,8 +177,8 @@ test("falls back to connect + signMessage when the wallet has no signIn @smoke",
 // a TRUE SHADOW at the identical virtual path, so for as long as it existed the
 // engine's was dead code and no assertion anywhere could tell.
 //
-// WHY A BROWSER AND NOTHING CHEAPER. The engine also ships
-// studio/solana/deeplink_assets, which APPENDS a script element for tweetnacl and
+// WHY A BROWSER AND NOTHING CHEAPER. solana-studio ships
+// solana_studio/_deeplink_assets, which APPENDS a script element for tweetnacl and
 // is therefore ASYNCHRONOUS, while this callback reads `nacl` AT PARSE TIME and
 // hard-fails with no retry. This app resolved that by keeping its own BLOCKING,
 // SRI-pinned tweetnacl tag in layouts/application and rendering deeplink_assets
