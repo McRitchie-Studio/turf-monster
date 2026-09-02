@@ -17,9 +17,10 @@
 #                  a file on disk and two loader lines, not a template. It sat at
 #                  studio/solana/_phantom_deeplink in studio-engine until
 #                  /tasks/turf-rides-gem-modals moved it to solana-studio; the
-#                  engine still ships its copy until wave 3 deletes it, so during
-#                  that window BOTH paths resolve and only this lookup says which
-#                  one the app actually renders.
+#                  engine kept its copy until wave 3 deleted it, and for that
+#                  window BOTH paths resolved with only this lookup able to say
+#                  which one the app rendered. studio-engine 0.67.0 ships no
+#                  studio/solana directory at all.
 #   the callback   solana_sessions/phantom_callback — a full TEMPLATE, and this
 #                  one WAS a shadow: the app's copy sat at the identical virtual
 #                  path and won resolution outright, leaving the engine's inert.
