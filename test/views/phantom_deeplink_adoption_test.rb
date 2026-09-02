@@ -340,9 +340,15 @@ class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
   # whether startPhantomDeepLink reached the page (both would put it there).
   #
   # So a revert of the render line in shared/_alpine_factories to the engine path
-  # would be INVISIBLE to this whole file — green all the way through wave 2, and
-  # then wave 3 deletes the engine copy, the render resolves to nothing, and every
-  # mobile Phantom sign-in dies with no error anywhere. Silent both times.
+  # was INVISIBLE to this whole file while both copies existed — green everywhere
+  # else, until the drop landed, the render resolved to nothing, and every mobile
+  # Phantom sign-in died with no error anywhere. Silent both times.
+  #
+  # THE GUARD OUTLIVES THE WINDOW, which is why it is still here. On 0.67.0 that
+  # revert resolves to nothing immediately, so it fails loudly rather than
+  # silently — but loudness is a property of the CURRENT BUNDLE, not of this app,
+  # and a re-added engine copy restores the silence exactly. This names the path
+  # this app must render rather than trusting the gem set to stay disjoint.
   #
   # This asserts the path this app actually names. Sibling of the picker's
   # "every layout that registers the picker renders the GEM partial".
@@ -352,12 +358,12 @@ class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
 
     assert_includes body, %(render "solana_studio/phantom_deeplink"),
       "shared/_alpine_factories no longer renders solana_studio/phantom_deeplink. " \
-      "If it went back to the engine path this is green everywhere else until " \
-      "wave 3 deletes that copy, and then the mobile leg dies silently."
+      "solana-studio owns the deep link and studio-engine 0.67.0 ships no copy to " \
+      "fall back to, so the mobile leg has nothing left to render."
 
     assert_not_includes body, %(render "studio/solana/phantom_deeplink"),
       "shared/_alpine_factories renders the ENGINE deep link again — solana-studio " \
-      "owns it now, and the engine copy is deleted in /tasks/drop-engine-web3-modals"
+      "owns it, and /tasks/drop-engine-web3-modals deleted the engine copy in 0.66.2"
   end
 
   # ── nacl on the PREVIEW layout, the half the blocking-tag test missed ──
