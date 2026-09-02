@@ -15,7 +15,8 @@
 # window the old path still EXISTED and still READ — the fixed-path guard would
 # have gone on passing while inspecting a partial this app no longer renders, and
 # would then have died with ENOENT at wave 3 rather than at the change that broke
-# it. studio-engine 0.67.0 ships neither the card nor studio/solana.
+# it. studio-engine dropped both the card and studio/solana in 0.66.2 and has
+# shipped neither since.
 #
 # Resolution is the only thing that can tell the two apart while both exist.
 #

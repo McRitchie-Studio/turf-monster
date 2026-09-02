@@ -19,8 +19,9 @@
 #                  /tasks/turf-rides-gem-modals moved it to solana-studio; the
 #                  engine kept its copy until wave 3 deleted it, and for that
 #                  window BOTH paths resolved with only this lookup able to say
-#                  which one the app rendered. studio-engine 0.67.0 ships no
-#                  studio/solana directory at all.
+#                  which one the app rendered. studio-engine dropped
+#                  studio/solana in 0.66.2 and has shipped no such directory
+#                  since.
 #   the callback   solana_sessions/phantom_callback — a full TEMPLATE, and this
 #                  one WAS a shadow: the app's copy sat at the identical virtual
 #                  path and won resolution outright, leaving the engine's inert.

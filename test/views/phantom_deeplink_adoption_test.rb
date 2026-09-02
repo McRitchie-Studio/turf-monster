@@ -6,9 +6,12 @@ require "test_helper"
 # WHAT THIS REPLACED. turf-monster owned both halves of the mobile round trip —
 # app/javascript/phantom_deeplink.js (the hand-off out to the Phantom app) and
 # app/views/solana_sessions/phantom_callback.html.erb (the return leg) — and
-# studio-engine now ships both, PROMOTED OUT OF THIS APP, which is why the diff
-# was small. What this app keeps is the ROUTE, the controller action, and the
-# blocking tweetnacl tag.
+# studio-engine took both, PROMOTED OUT OF THIS APP, which is why the diff was
+# small. The two have SPLIT since: /tasks/turf-rides-gem-modals moved the deep
+# link to solana-studio, and /tasks/drop-engine-web3-modals dropped the engine's
+# copy in 0.66.2. This app runs above that floor, so the deep link comes from
+# solana-studio and only the callback still comes from the engine. What this app
+# keeps is the ROUTE, the controller action, and the blocking tweetnacl tag.
 #
 # THE TWO HALVES FAILED DIFFERENTLY, which is why they are asserted differently:
 #
@@ -275,8 +278,8 @@ class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
     # BOTH PATHS ARE BANNED, and that is not belt-and-braces. The loader shipped
     # as studio/solana/_deeplink_assets in studio-engine and, since
     # /tasks/turf-rides-gem-modals, ALSO as solana_studio/_deeplink_assets in
-    # solana-studio. Both gems ship one until /tasks/drop-engine-web3-modals
-    # deletes the engine's, so a ban naming only one path would leave the other
+    # solana-studio. Both gems shipped one until /tasks/drop-engine-web3-modals
+    # deleted the engine's in 0.66.2, so a ban naming only one path would leave the other
     # free to be adopted — the identical race, through a path this guard was not
     # watching.
     banned = %r{["'](?:studio/solana|solana_studio)/deeplink_assets["']}
@@ -330,17 +333,25 @@ class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
 
   # ── The render site itself, which resolution alone cannot defend ──────
 
-  # THE GAP THIS CLOSES, and it is only open during wave 2. studio-engine and
-  # solana-studio BOTH ship a _phantom_deeplink until /tasks/drop-engine-web3-modals
-  # deletes the engine's. While both exist, every other test in this file passes
+  # THE GAP THIS CLOSES. It was open during wave 2 only: studio-engine and
+  # solana-studio BOTH shipped a _phantom_deeplink until /tasks/drop-engine-web3-modals
+  # deleted the engine's in 0.66.2. That window has since closed; the reasoning
+  # below is why this guard was written and why it stays. While both existed,
+  # every other test in this file passed
   # against EITHER of them: `shadowed_by_app?` only asks whether the template is
   # outside app/views (both gems are), and the rendered-page assertions only ask
   # whether startPhantomDeepLink reached the page (both would put it there).
   #
   # So a revert of the render line in shared/_alpine_factories to the engine path
-  # would be INVISIBLE to this whole file — green all the way through wave 2, and
-  # then wave 3 deletes the engine copy, the render resolves to nothing, and every
-  # mobile Phantom sign-in dies with no error anywhere. Silent both times.
+  # was INVISIBLE to this whole file while both copies existed — green everywhere
+  # else, until the drop landed, the render resolved to nothing, and every mobile
+  # Phantom sign-in died with no error anywhere. Silent both times.
+  #
+  # THE GUARD OUTLIVES THE WINDOW, which is why it is still here. Above the 0.66.2
+  # floor that revert resolves to nothing immediately, so it fails loudly rather
+  # than silently — but loudness is a property of the CURRENT BUNDLE, not of this app,
+  # and a re-added engine copy restores the silence exactly. This names the path
+  # this app must render rather than trusting the gem set to stay disjoint.
   #
   # This asserts the path this app actually names. Sibling of the picker's
   # "every layout that registers the picker renders the GEM partial".
@@ -350,12 +361,12 @@ class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
 
     assert_includes body, %(render "solana_studio/phantom_deeplink"),
       "shared/_alpine_factories no longer renders solana_studio/phantom_deeplink. " \
-      "If it went back to the engine path this is green everywhere else until " \
-      "wave 3 deletes that copy, and then the mobile leg dies silently."
+      "solana-studio owns the deep link and studio-engine dropped its copy in " \
+      "0.66.2, so the mobile leg has nothing left to fall back to."
 
     assert_not_includes body, %(render "studio/solana/phantom_deeplink"),
       "shared/_alpine_factories renders the ENGINE deep link again — solana-studio " \
-      "owns it now, and the engine copy is deleted in /tasks/drop-engine-web3-modals"
+      "owns it, and /tasks/drop-engine-web3-modals deleted the engine copy in 0.66.2"
   end
 
   # ── nacl on the PREVIEW layout, the half the blocking-tag test missed ──

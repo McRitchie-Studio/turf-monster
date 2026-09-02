@@ -36,10 +36,15 @@ class Web3StepUpGalleryTest < ActionDispatch::IntegrationTest
   #
   # RESOLVED, NOT PATH-JOINED. This used to read a fixed path into Studio::Engine.
   # A fixed path answers "what does that gem ship?", not "what does this app
-  # render", and the two diverged the moment the card moved: studio-engine still
-  # ships its copy until wave 3 deletes it, so the old join would have kept
-  # PASSING against a partial this app no longer renders, then died with ENOENT at
-  # wave 3 instead of at the change that broke it. See ResolvedWeb3StepUp.
+  # render", and the two diverged the moment the card moved: studio-engine went on
+  # shipping its copy until /tasks/drop-engine-web3-modals deleted it in 0.66.2, so
+  # the old join would have kept PASSING against a partial this app no longer
+  # renders, then died with ENOENT at that release rather than at the change that
+  # broke it. This app runs above that floor, so studio-engine hands it neither the
+  # card nor a studio/solana directory. Resolution stays the right instrument now
+  # that only one copy is left, for a reason the window merely made obvious: it is
+  # the only thing that answers "what does THIS APP render", and the next competing
+  # copy will not announce itself either. See ResolvedWeb3StepUp.
 
   # Same failure mode the onboarding and wallet-setup modals each carry a guard
   # for: a double quote inside the double-quoted x-data closes the attribute

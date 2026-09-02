@@ -19,8 +19,10 @@
 # studio-engine handed the picker to solana-studio, so the resolved prefix below
 # is solana_studio/modals rather than studio/modals. For a window both gems
 # shipped it, and only resolution could say which one this app rendered;
-# /tasks/drop-engine-web3-modals then closed the window, and studio-engine 0.67.0
-# ships no studio/modals/_wallet_connect and no studio/solana at all. Resolution
+# /tasks/drop-engine-web3-modals then closed the window: studio-engine dropped
+# studio/modals/_wallet_connect, studio/modals/_web3_step_up and studio/solana
+# TOGETHER in 0.66.2 and has shipped none of them since. Anchored on that drop
+# and not on a current version, which the next engine release falsifies. Resolution
 # is still the right instrument, for a reason the window merely made obvious: it
 # is the only one that answers "what does THIS APP render", and the next
 # competing copy will not announce itself either.
@@ -93,13 +95,18 @@ module ResolvedWalletPicker
   # file _wallet_connect.<handler>.
   #
   # THE NAMESPACE HALF IS NOT DECORATION — measured, not reasoned. A basename
-  # filter alone looks exact and is not: studio-engine 0.67.0 ships
+  # filter alone looks exact and is not: studio-engine ships
   # app/views/style/modals/_wallet_connect.html.erb, a thin demo configuration of
   # the picker rendered by the living style guide. Same basename, different
   # virtual path, and it lives in the ENGINE — so a capture filtered on the name
   # alone would pick it up on any page that mounted the style guide and report
   # the picker as served from outside the gem. The guard would fail on a correct
   # bundle, which is the worst failure a guard has.
+  #
+  # AND THAT FILE IS NOT GOING ANYWHERE. The 0.66.2 drop took the studio/solana
+  # and studio/modals namespaces only; style/modals was never part of it. Reason
+  # by NAMESPACE, not basename: a basename check sees _wallet_connect still in
+  # the engine and concludes the picker never moved.
   PARTIAL_DIR      = "solana_studio/modals"
   PARTIAL_BASENAME = "_wallet_connect"
 
