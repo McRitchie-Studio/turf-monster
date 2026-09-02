@@ -85,16 +85,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
+    # NONE of these three is REQUIRED by the unit suite any more — see
+    # app/services/solana/keypair.rb. Under Rails.env.test? ONLY, Solana::Keypair
+    # falls back to fixed non-secret values for the admin signer and for
+    # secret_key_base, so the suite runs with no credentials at all. That is
+    # load-bearing: DEPENDABOT pull requests execute against the separate
+    # Dependabot secret store and cannot read repository secrets by design, so
+    # every dependency PR on this repo used to fail these same tests forever —
+    # no rebase or re-run could clear it. Proven by
+    # test/services/solana/keypair_admin_fallback_test.rb, which also asserts
+    # the fallbacks stay unreachable in every non-test environment.
+    #
+    # They are still supplied here so that ORDINARY (non-Dependabot) PRs
+    # exercise the real key material and the real credentials derivation rather
+    # than the fallback:
     # MANAGED_WALLET_ENCRYPTION_KEY: throwaway value so the v2 managed-wallet
     #   encryptor has a non-empty key (KeyGenerator). NOT the OPSEC-015 prod key.
-    # RAILS_MASTER_KEY: repo secret so credentials.secret_key_base decrypts —
-    #   the LEGACY keypair encryptor reads secret_key_base[0,32] directly and
-    #   raised "nil[]" without it (3 KeypairTest errors).
+    # RAILS_MASTER_KEY: repo secret so credentials.secret_key_base decrypts, so
+    #   the LEGACY keypair encryptor is exercised against a real secret_key_base.
     # SOLANA_ADMIN_KEY: a THROWAWAY base58 keypair (NOT the prod Alex Bot
-    #   signer). Solana::Keypair.admin raises "SOLANA_ADMIN_KEY env var
-    #   required" when absent, erroring the 7 vault tests that build
-    #   admin-signed TXs. No test asserts the pubkey, so any valid keypair
-    #   clears them; secret-stored so the value never lands in the repo.
+    #   signer). No test asserts the pubkey, so any valid keypair works;
+    #   secret-stored so the value never lands in the repo.
     env:
       MANAGED_WALLET_ENCRYPTION_KEY: ci-test-only-managed-wallet-key-not-a-real-secret
       RAILS_MASTER_KEY: ${{ secrets.RAILS_MASTER_KEY }}
@@ -219,7 +230,10 @@ jobs:
     # See the test job. Managed-wallet flows (signup) need the encryption
     # key; RAILS_MASTER_KEY lets credentials decrypt for the test server.
     # SOLANA_ADMIN_KEY (throwaway, see test job) — the test server boots the
-    # app, and admin-signed Solana paths call Solana::Keypair.admin.
+    # app, and admin-signed Solana paths call Solana::Keypair.admin. The server
+    # boots in RAILS_ENV=test, so it too would reach the test-env fallback if
+    # this were absent; it is supplied so ordinary PRs run against real key
+    # material.
     # SOLANA_RPC_URL: black-hole loopback so the e2e stack is HERMETIC.
     #   Without it the test server defaults to public devnet
     #   (https://api.devnet.solana.com) and every authenticated HTML request
