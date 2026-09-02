@@ -64,9 +64,10 @@
         ships the only one (solana_studio/_deeplink_assets) and it APPENDS a
         script element, which is asynchronous, so the callback would race it.
         studio-engine shipped a second copy until /tasks/drop-engine-web3-modals
-        dropped it in 0.66.2, and this app's floor sits above that, so the engine
-        path cannot resolve at all now. phantom_deeplink_adoption_test still bans
-        both paths, which costs nothing and catches a re-add. Same integrity value, same
+        dropped it in 0.66.2. That is ABOVE this app's 0.64.0 engine floor, not
+        below it, so a resolver sitting at the floor still sees the engine's copy
+        — which is why phantom_deeplink_adoption_test bans BOTH paths rather
+        than just solana-studio's. Same integrity value, same
         URL, different timing. Swap to it only together with a callback that
         waits for nacl instead of failing. %>
     <script src="https://unpkg.com/@solana/web3.js@1.98.4/lib/index.iife.min.js"
