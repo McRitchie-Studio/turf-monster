@@ -151,6 +151,16 @@ gem "studio-engine", "~> 0.64" # 0.64.0 is the real floor, and the pin SAYS so. 
 #
 # 0.4.7 adds Solana::Transaction.cosign_wire + Client#simulate_transaction for the
 # Phantom-first signing-order flow (published to RubyGems).
+#
+# THE ORDER OF THIS LINE AND THE studio-engine LINE ABOVE IS LOAD-BEARING.
+# Rails engines PREPEND their app/views in railtie load order, which follows
+# Bundler.require — so the engine on the LATER Gemfile line resolves FIRST.
+# solana-studio leads studio-engine here for that reason and no other, and
+# swapping the two lines silently reverses it: measured on 2026-09-01, the
+# swap exchanged their positions and nothing raised. Do not reorder these two
+# for tidiness. test/lib/view_path_order_contract_test.rb asserts the
+# resulting order, so a reorder fails there instead of changing which gem a
+# partial renders from.
 gem "solana-studio", "~> 0.5.3"
 
 # IP geolocation for state-level geo-blocking
