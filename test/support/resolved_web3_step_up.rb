@@ -10,11 +10,12 @@
 # — a FIXED PATH INTO ANOTHER GEM. That answers "what does studio-engine ship?",
 # never "what does this app render?", and the two stopped being the same question
 # on 2026-09-01 when /tasks/turf-rides-gem-modals moved the card to solana-studio
-# (solana_studio/modals/_web3_step_up). studio-engine still ships its copy until
-# /tasks/drop-engine-web3-modals deletes it, so for the length of that window the
-# old path still EXISTS and still READS — the guard below would have gone on
-# passing while inspecting a partial this app no longer renders, and would then
-# have died with ENOENT at wave 3 rather than at the change that broke it.
+# (solana_studio/modals/_web3_step_up). studio-engine went on shipping its copy
+# until /tasks/drop-engine-web3-modals deleted it, so for the length of that
+# window the old path still EXISTED and still READ — the fixed-path guard would
+# have gone on passing while inspecting a partial this app no longer renders, and
+# would then have died with ENOENT at wave 3 rather than at the change that broke
+# it. studio-engine 0.67.0 ships neither the card nor studio/solana.
 #
 # Resolution is the only thing that can tell the two apart while both exist.
 #
