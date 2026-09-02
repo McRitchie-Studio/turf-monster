@@ -41,11 +41,12 @@ The three callsites, and how each gates:
 |---|---|
 | `modals/_auth` | `<% if AppFlags.age_attestation? %>` around the render |
 | `shared/_auth_card` | `<% if AppFlags.age_attestation? %>` around the render |
-| the Connect-Wallet picker | `WalletPickerHelper#wallet_connect_modal_locals` passes the engine picker a `slot:` — or `nil` when the flag is parked |
+| the Connect-Wallet picker | `WalletPickerHelper#wallet_connect_modal_locals` passes the gem picker a `slot:` — or `nil` when the flag is parked |
 
-The picker is studio-engine's (`studio/modals/_wallet_connect`) as of
-/tasks/adopt-turf-engine-picker, so its attestation arrives as that partial's
-`slot` local rather than an inline render.
+The picker is solana-studio's (`solana_studio/modals/_wallet_connect`) — adopted
+from studio-engine in /tasks/adopt-turf-engine-picker, then moved on to
+solana-studio in /tasks/turf-rides-gem-modals — so its attestation arrives as that
+partial's `slot` local rather than an inline render.
 
 ## User Model Auth Design
 
@@ -128,12 +129,13 @@ stay declared before `Studio.routes`, which draws the OmniAuth wildcard
 `auth/:provider/callback` unconditionally and would otherwise recognise
 `/auth/phantom/callback` as `omniauth_callbacks#create` with provider `phantom`.
 
-The mobile deep link itself is **studio-engine's** since
-`adopt-engine-phantom-deeplink`: `studio/solana/_phantom_deeplink` publishes
-`window.startPhantomDeepLink` and `solana_sessions/phantom_callback` completes the
-return leg. Turf renders the deep link once from `shared/_alpine_factories` (one
+The mobile deep link itself is **solana-studio's**: `adopt-engine-phantom-deeplink`
+took it off this app, and `turf-rides-gem-modals` moved it on to the gem, so
+`solana_studio/_phantom_deeplink` publishes `window.startPhantomDeepLink`.
+**studio-engine's** `solana_sessions/phantom_callback`, which never moved,
+completes the return leg. Turf renders the deep link once from `shared/_alpine_factories` (one
 callsite, both layouts that mount the wallet picker), keeps its own blocking
-tweetnacl tag rather than the engine's async `studio/solana/deeplink_assets`, and
+tweetnacl tag rather than the gem's async `solana_studio/_deeplink_assets`, and
 opts the callback's debug sink back on with
 `Studio.wallet_debug_sink = -> { !AppFlags.live_production? }`.
 
@@ -141,7 +143,7 @@ opts the callback's debug sink back on with
 `layouts/application` loads tweetnacl on every page. `layouts/modal_preview` gates
 it per modal id, because loading web3.js and tweetnacl in all 49 gallery iframes
 stalled the page. Rendering the deep link is unconditional either way, so a
-preview card always publishes `window.startPhantomDeepLink` — and the engine
+preview card always publishes `window.startPhantomDeepLink` — and the gem
 picker paints its mobile Phantom row on that global merely EXISTING. A card that
 publishes the global without the tag therefore paints a row whose tap throws
 `nacl is not defined` synchronously, before the fetch, where nothing catches it.
@@ -305,7 +307,7 @@ address. One standard now covers both.
 | Armed at sign-in | `record_web3_step_up_state!` → `session[:web3_step_up_prompt]` (one-shot) |
 | Armed at the Google collision | `arm_web3_step_up_for(user)` — popup branch only |
 | Read on render | `web3_step_up_required?` — helper, RPC-free, true for the whole session |
-| The modal | `studio/modals/_web3_step_up` — studio-engine owns the card; this app passes its own subtext + help route via `Web3StepUpHelper#web3_step_up_locals` |
+| The modal | `solana_studio/modals/_web3_step_up` — solana-studio owns the card; this app passes its own subtext + help route via `Web3StepUpHelper#web3_step_up_locals` |
 | Brand memory | `users.web3_wallet_provider` + `web3_authenticated_at`, stamped by `User#record_web3_authentication!` |
 | Showroom | `/admin/style#modals` — both states, against the real partial. This app's own wording renders at `/admin/modals/preview/web3-step-up` |
 
@@ -354,10 +356,12 @@ Rules worth knowing:
   `wallet-changed`, `cdp-ramp`, `buy-entry-token`, `cosign-rejected`,
   `quest-success`, `unsubscribe-confirm`, `unsubscribe-goodbye`) — port first,
   delete second, so no state loses its review surface on the way out.
-  `web3-step-up` came off this list on 2026-08-24: the engine owns the partial
-  AND shows both of its states, so its cards here were the duplicate rather than
-  the review surface. This card's own port into
-  `studio/modals/` as a shared engine partial is the next step for it.
+  `web3-step-up` came off this list on 2026-08-24: the card had moved out of this
+  app, and the engine's style guide shows both of its states — it renders
+  solana-studio's real partial there, not a specimen copy — so its cards here were
+  the duplicate rather than the review surface. The port is DONE rather than
+  pending: solana-studio owns the partial now
+  (`solana_studio/modals/_web3_step_up`).
 - **The CTA is the STANDARD wallet row**, not a filled button — brand mark, the
   wallet's own name, `Installed` badge, chevron — the same shape the connect
   picker and the wallet-setup step use, so a wallet reads identically everywhere
