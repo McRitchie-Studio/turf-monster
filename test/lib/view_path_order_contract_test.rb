@@ -2,7 +2,11 @@ require "test_helper"
 
 # Contract for the ORDER of this app's resolved view paths.
 #
-# MEASURED on 2026-09-01, with studio-engine 0.67.0 and solana-studio 0.5.4:
+# MEASURED on 2026-09-01, with studio-engine 0.67.0 and solana-studio 0.5.4.
+# A DATED SNAPSHOT, not a claim about the current resolve: the versions below
+# are what was observed that day. The ORDER is the contract and does not depend
+# on them, which is why a bump does not invalidate this note.
+#
 #
 #   0. <app>/app/views
 #   1. solana-studio-0.5.4/app/views
@@ -41,8 +45,9 @@ require "test_helper"
 # publish on 2026-08-27 (/tasks/fix-picker-gem-path-assertion). Every position
 # below is found by asking the engine for its OWN root.
 #
-# NAMESPACE, NOT BASENAME. studio-engine 0.67.0 ships
-# style/modals/_wallet_connect.html.erb and solana-studio ships
+# NAMESPACE, NOT BASENAME. studio-engine ships
+# style/modals/_wallet_connect.html.erb — the 0.66.2 drop took the studio/solana
+# and studio/modals namespaces only, never style/modals — and solana-studio ships
 # solana_studio/modals/_wallet_connect.html.erb — the same basename at
 # different virtual paths, which Rails never collapses. A basename comparison
 # reports that CORRECT bundle as a collision, which is the worst thing a guard

@@ -275,8 +275,8 @@ class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
     # BOTH PATHS ARE BANNED, and that is not belt-and-braces. The loader shipped
     # as studio/solana/_deeplink_assets in studio-engine and, since
     # /tasks/turf-rides-gem-modals, ALSO as solana_studio/_deeplink_assets in
-    # solana-studio. Both gems ship one until /tasks/drop-engine-web3-modals
-    # deletes the engine's, so a ban naming only one path would leave the other
+    # solana-studio. Both gems shipped one until /tasks/drop-engine-web3-modals
+    # deleted the engine's in 0.66.2, so a ban naming only one path would leave the other
     # free to be adopted — the identical race, through a path this guard was not
     # watching.
     banned = %r{["'](?:studio/solana|solana_studio)/deeplink_assets["']}
@@ -330,9 +330,11 @@ class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
 
   # ── The render site itself, which resolution alone cannot defend ──────
 
-  # THE GAP THIS CLOSES, and it is only open during wave 2. studio-engine and
-  # solana-studio BOTH ship a _phantom_deeplink until /tasks/drop-engine-web3-modals
-  # deletes the engine's. While both exist, every other test in this file passes
+  # THE GAP THIS CLOSES. It was open during wave 2 only: studio-engine and
+  # solana-studio BOTH shipped a _phantom_deeplink until /tasks/drop-engine-web3-modals
+  # deleted the engine's in 0.66.2. That window has since closed; the reasoning
+  # below is why this guard was written and why it stays. While both existed,
+  # every other test in this file passed
   # against EITHER of them: `shadowed_by_app?` only asks whether the template is
   # outside app/views (both gems are), and the rendered-page assertions only ask
   # whether startPhantomDeepLink reached the page (both would put it there).
