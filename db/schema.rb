@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_01_221256) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_02_163646) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -729,6 +729,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_01_221256) do
     t.datetime "created_at", null: false
     t.date "document_date"
     t.string "entity", null: false
+    t.bigint "expectation_id"
     t.string "mime_type"
     t.string "path", default: "", null: false
     t.string "s3_key"
@@ -742,8 +743,23 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_01_221256) do
     t.string "uploaded_by"
     t.index ["entity", "path"], name: "index_studio_knowledge_docs_on_entity_and_path"
     t.index ["entity", "status"], name: "index_studio_knowledge_docs_on_entity_and_status"
+    t.index ["expectation_id"], name: "index_studio_knowledge_docs_on_expectation_id"
     t.index ["s3_key"], name: "index_studio_knowledge_docs_on_s3_key", unique: true
     t.index ["superseded_by_id"], name: "index_studio_knowledge_docs_on_superseded_by_id"
+  end
+
+  create_table "studio_knowledge_expectations", force: :cascade do |t|
+    t.boolean "active", default: true, null: false
+    t.string "cadence", default: "once", null: false
+    t.string "category"
+    t.datetime "created_at", null: false
+    t.string "entity", null: false
+    t.string "path", default: "", null: false
+    t.string "source_note"
+    t.date "start_on"
+    t.string "title", null: false
+    t.datetime "updated_at", null: false
+    t.index ["entity", "active"], name: "index_studio_knowledge_expectations_on_entity_and_active"
   end
 
   create_table "studio_links", force: :cascade do |t|
