@@ -51,16 +51,23 @@
         pinning freezes that (re-pin + recompute the sha384 on any intentional bump).
 
         THE TWEETNACL TAG IS LOAD-BEARING, and BLOCKING is the load-bearing part.
-        Both halves of the Phantom mobile round trip need window.nacl, and since
-        /tasks/adopt-engine-phantom-deeplink both halves come from studio-engine:
-        the deep link reads it on a user tap (safe either way) but the callback
+        Both halves of the Phantom mobile round trip need window.nacl, and they
+        come from DIFFERENT gems: the deep link from solana-studio
+        (solana_studio/_phantom_deeplink, moved off studio-engine by
+        /tasks/turf-rides-gem-modals) and the callback view from studio-engine
+        (solana_sessions/phantom_callback, which never moved).
+        The deep link reads it on a user tap (safe either way) but the callback
         view's IIFE reads it AT PARSE TIME and hard-fails with no retry. A
         blocking tag here means nacl is already defined when that runs.
 
-        So this app deliberately renders NEITHER deeplink_assets loader —
-        studio-engine ships one and solana-studio ships another, and both APPEND
-        a script element, which is asynchronous, so the callback would race it.
-        phantom_deeplink_adoption_test bans both paths. Same integrity value, same
+        So this app deliberately renders NO deeplink_assets loader. solana-studio
+        ships the only one (solana_studio/_deeplink_assets) and it APPENDS a
+        script element, which is asynchronous, so the callback would race it.
+        studio-engine shipped a second copy until /tasks/drop-engine-web3-modals
+        dropped it in 0.66.2. That is ABOVE this app's 0.64.0 engine floor, not
+        below it, so a resolver sitting at the floor still sees the engine's copy
+        — which is why phantom_deeplink_adoption_test bans BOTH paths rather
+        than just solana-studio's. Same integrity value, same
         URL, different timing. Swap to it only together with a callback that
         waits for nacl instead of failing. %>
     <script src="https://unpkg.com/@solana/web3.js@1.98.4/lib/index.iife.min.js"
@@ -303,7 +310,7 @@
               // the rejection here drops into connect() + signMessage() below and
               // asks a user who just said no twice more, in the change whose whole
               // purpose is to ask once. It also silently breaks working decline
-              // handling: the engine wallet picker and modals/_wallet_setup both
+              // handling: solana-studio's wallet picker and modals/_wallet_setup both
               // render "Signature rejected" off this rejection, and can only do so
               // if it propagates.
               //
@@ -1285,13 +1292,16 @@
       <template x-if="$store.modals.current().id === 'age-gate'">
         <%= render "studio/modals/blocks/age_gate", **age_gate_modal_locals %>
       </template>
-      <%# Multi-wallet "Connect Wallet" picker — STUDIO-ENGINE OWNS IT. Opened
+      <%# Multi-wallet "Connect Wallet" picker — SOLANA-STUDIO OWNS IT
+          (solana_studio/modals/_wallet_connect). Opened
           directly from the standalone Solana button, or swapped-into from the
           auth modal's Solana button (board#openWalletConnect saves the cart
           first and passes returnUrl). This app's 226-line fork was deleted in
-          /tasks/adopt-turf-engine-picker; everything turf adds now arrives
-          through WalletPickerHelper as the engine's extra_data hooks plus the
-          legal-age slot. The SAME helper feeds layouts/modal_preview, which
+          /tasks/adopt-turf-engine-picker, which adopted studio-engine's copy;
+          /tasks/turf-rides-gem-modals then moved the picker on to solana-studio,
+          and /tasks/drop-engine-web3-modals dropped the engine's in 0.66.2.
+          Everything turf adds now arrives through WalletPickerHelper as the gem
+          picker's extra_data hooks plus the legal-age slot. The SAME helper feeds layouts/modal_preview, which
           keeps its own registration list — a picker adopted in one layout and
           forked in the other renders the old copy at /admin/style forever. %>
       <template x-if="$store.modals.current().id === 'wallet-connect'">
