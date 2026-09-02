@@ -101,8 +101,17 @@ class AuthCredentialsGalleryTest < ActionDispatch::IntegrationTest
 
   # The general rule, derived from the partial rather than from a list here: any
   # BARE dotted prop bound to a boolean attribute must be defined by every
-  # variant that renders it. A fourth `:disabled="props.foo"` added tomorrow
-  # brings `foo` into this assertion automatically.
+  # variant that renders it. A `:disabled="props.foo"` added tomorrow brings
+  # `foo` into this assertion automatically.
+  #
+  # RETUNED (turf-adopts-wallet-credential-slot) rather than deleted, exactly as
+  # the previous calibration guard here asked. `submitting` is no longer bare:
+  # all four credential controls now bind `!!props.submitting`, because call-site
+  # discipline alone could never close the hole. The `props` getter in
+  # #{AUTH_PARTIAL} returns an EMPTY OBJECT whenever current() is transiently
+  # null during an open or close transition, and no opener exists to seed a key
+  # on that path. So the rule below still stands for any bare bind, and the
+  # calibration moves to the coerced form.
   BOOLEAN_ATTRS = %w[disabled checked readonly required selected multiple autofocus].freeze
 
   test "every bare dotted prop bound to a boolean attribute is defined by the credentials variants" do
@@ -112,10 +121,16 @@ class AuthCredentialsGalleryTest < ActionDispatch::IntegrationTest
     bound += erb.scan(/disabled_expr:\s*"props\.(\w+)"/).flatten.map(&:to_sym)
     bound = bound.uniq
 
-    assert_includes bound, :submitting,
-                    "no bare `:disabled=\"props.submitting\"` left in #{AUTH_PARTIAL} — if the " \
-                    "binding was hardened or renamed, retune this test to the new shape rather " \
-                    "than deleting it"
+    # Guard the guard, retuned to the hardened shape: the scan must still be
+    # READING the partial. If `submitting` stops appearing in the coerced form
+    # too, this file has drifted off the control it was built for and the loop
+    # below would pass vacuously.
+    coerced = erb.scan(/:(?:#{BOOLEAN_ATTRS.join('|')})="!!props\.(\w+)"/).flatten.map(&:to_sym)
+    coerced += erb.scan(/disabled_expr:\s*"!!props\.(\w+)"/).flatten.map(&:to_sym)
+    assert_includes coerced.uniq, :submitting,
+                    "#{AUTH_PARTIAL} no longer binds `submitting` to a boolean attribute in " \
+                    "either the bare or the coerced form — retune this test to the new shape " \
+                    "rather than deleting it"
 
     credentials_variants.each do |v|
       bound.each do |key|
