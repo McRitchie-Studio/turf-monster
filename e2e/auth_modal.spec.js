@@ -291,3 +291,49 @@ test("Email link in the auth modal works on a page with NO contest board @smoke"
 
   await expect(dialog.getByText("Check your inbox")).toBeVisible();
 });
+
+// Regression — bug: the credential controls painted DEAD when `submitting` was
+// undefined (turf-adopts-wallet-credential-slot).
+//
+// Alpine's x-bind rewrites an `undefined` result to "" whenever the bound
+// expression contains a DOT (`c === void 0 && ... n.match(/\./) && (c = "")`,
+// alpine.js 3.16.1). "" misses bindAttribute's [null, undefined, false] removal
+// list, and `disabled` is a boolean attribute, so Alpine emitted
+// disabled="disabled" for a prop nobody set. No console error; the card simply
+// could not be tapped.
+//
+// WHY THIS TIER AND NOT A MARKUP ASSERTION. The server's HTML is BYTE-IDENTICAL
+// whether the card is live or dead — the attribute is applied by Alpine at
+// runtime and never appears in the response. That is exactly why this shipped
+// unnoticed, and it is why only a browser can see the fix.
+//
+// The payload below is the real one: app/javascript/solana_utils.js reopened
+// this modal after a 401 with { step: 'credentials' } and nothing else, so a
+// user whose session had just expired met a card where nothing worked.
+test("credential controls stay live when the opener omits submitting @smoke", async ({ page }) => {
+  await page.goto("/signin");
+
+  // Scope to the MODAL. /signin also renders shared/_auth_card, a standalone
+  // card with its own Google/Solana/Email controls; an unscoped query reads
+  // that card and reports the modal healthy no matter what the modal does.
+  await page.evaluate(() => {
+    Alpine.store("modals").open("auth", { step: "credentials" });
+  });
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("heading", { name: "Sign in" })).toBeVisible();
+
+  await expect(dialog.getByRole("button", { name: "Google" })).toBeEnabled();
+  await expect(dialog.getByRole("button", { name: "Solana" })).toBeEnabled();
+  await expect(dialog.getByRole("button", { name: "Email Link" })).toBeEnabled();
+  await expect(dialog.locator('input[placeholder="you@example.com"]')).toBeEnabled();
+
+  // CONTROL — the same four controls MUST still disable while a credential is
+  // in flight. Without this the assertions above would pass just as happily
+  // against a modal that had stopped binding `disabled` at all.
+  await page.evaluate(() => {
+    Alpine.store("modals").open("auth", { step: "credentials", submitting: "google" });
+  });
+  await expect(dialog.getByRole("button", { name: "Solana" })).toBeDisabled();
+  await expect(dialog.getByRole("button", { name: "Email Link" })).toBeDisabled();
+  await expect(dialog.locator('input[placeholder="you@example.com"]')).toBeDisabled();
+});
