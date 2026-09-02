@@ -1,4 +1,5 @@
 require "test_helper"
+require "tmpdir"
 
 # [component] The Connect-Wallet picker, after this app stopped carrying its own
 # copy of it.
@@ -7,8 +8,8 @@ require "test_helper"
 # the shared copy sat at studio/modals/_wallet_connect — the partial PROMOTED OUT
 # OF THIS APP, which is why the diff was small. That shared copy moved once more
 # on 2026-09-01 (/tasks/turf-rides-gem-modals): solana-studio owns it now, at
-# solana_studio/modals/_wallet_connect, and studio-engine keeps its copy only
-# until /tasks/drop-engine-web3-modals deletes it. DIFFERENT virtual paths, so Rails
+# solana_studio/modals/_wallet_connect, and /tasks/drop-engine-web3-modals has
+# since deleted studio-engine's. DIFFERENT virtual paths, so Rails
 # resolution never collapsed them: this was a parallel COPY that simply won at
 # every callsite, and the engine's copy was never reached. It had already drifted
 # ahead — a live region on the connect error, a connecting-guard on the deep
@@ -86,6 +87,123 @@ class WalletPickerAdoptionTest < ActionDispatch::IntegrationTest
     assert_empty offenders.map { |p| Pathname(p).relative_path_from(Rails.root).to_s },
       "these layouts register the wallet-connect id without rendering the " \
       "gem picker — the card comes up EMPTY there"
+  end
+
+  # ── WHICH gem serves it, not merely "not this app" ────────────────────
+
+  # THE HOLE THESE FOUR CLOSE. Every assertion above answers "is the picker
+  # forked BY THIS APP". None of them answers "which external copy WINS", and
+  # for the whole of wave 2 that difference was invisible: solana-studio and
+  # studio-engine both shipped the partial, at solana_studio/modals and
+  # studio/modals respectively, so a resolution check passed against EITHER one.
+  # It discriminated only because the two namespaces happened to be disjoint.
+  # /tasks/drop-engine-web3-modals deleted the engine copy and took that accident
+  # with it. These make the discrimination deliberate: the file that serves the
+  # picker must sit under the directory SOLANA-STUDIO ITSELF names.
+
+  test "the picker resolves out of the solana-studio gem's own view root" do
+    # ASKED OF THE GEM, never matched against "/gems/" — see the long warning in
+    # test/support/resolved_wallet_picker.rb. The literal-path form cannot pass
+    # in a consumer-CI lane that bundles the gem as a path checkout, and it once
+    # red-sealed a gem publish.
+    assert_not_empty ResolvedWalletPicker::GEM_VIEWS,
+      "solana-studio contributes no app/views to this app's lookup at all, so " \
+      "every origin assertion here is unanswerable rather than merely false"
+
+    assert ResolvedWalletPicker.served_by_gem?,
+      "solana_studio/modals/wallet_connect resolved to " \
+      "#{ResolvedWalletPicker.identifier}, which is not under " \
+      "#{ResolvedWalletPicker::GEM_VIEWS.join(', ')} — something OTHER than " \
+      "solana-studio is serving this app's picker"
+  end
+
+  test "both render paths are SERVED BY the gem file, not merely resolvable to it" do
+    # RESOLUTION AND SERVICE ARE DIFFERENT QUESTIONS. The test above asks a fresh
+    # lookup what WOULD resolve; this one watches the two real pages render and
+    # reads back the identifier of the template that actually ran. A view path
+    # prepended after boot, or a template already compiled and served from cache,
+    # separates the two answers.
+    origins = ResolvedWalletPicker.render_origins do
+      each_picker_render(reload: true) { |label, body| assert body.present?, "#{label}: empty page" }
+    end
+
+    # COUNT FIRST, ALWAYS. If neither page mounted the picker, origins is [] and
+    # the offender check below is vacuously true — the exact shape of a probe
+    # that passes while measuring the wrong page.
+    assert_operator origins.length, :>=, 2,
+      "captured #{origins.length} picker render(s) across /about and " \
+      "/admin/modals/preview, expected one from each — a page stopped mounting " \
+      "the picker, so the origin assertion below would have passed on nothing"
+
+    offenders = origins.uniq.reject { |served| ResolvedWalletPicker.served_by_gem?(served) }
+
+    assert_empty offenders,
+      "these files served the picker and are not under " \
+      "#{ResolvedWalletPicker::GEM_VIEWS.join(', ')} — the page is being " \
+      "rendered by a copy that is not solana-studio's"
+  end
+
+  test "the render capture reads the namespace, not just the file name" do
+    # THE NEAR MISS, pinned. The capture the test above depends on filters render
+    # identifiers, and the obvious filter — basename == _wallet_connect.* — looks
+    # exact and is not. studio-engine 0.67.0 ships
+    # app/views/style/modals/_wallet_connect.html.erb, a thin demo configuration
+    # of this same picker that the living style guide renders. Same file name,
+    # different virtual path, and it sits in the ENGINE — so a name-only filter
+    # captures it on any page carrying the style guide and reports the picker as
+    # served from outside the gem. That is a guard failing on a CORRECT bundle,
+    # which is worse than no guard at all.
+    #
+    # Asserted against synthetic paths rather than the engine's real one: a
+    # fixed path into another gem is the antipattern this whole support module
+    # exists to avoid, and it would turn a future engine cleanup into an error
+    # here instead of a finding.
+    assert ResolvedWalletPicker.serves_this_partial?(
+      "/anywhere/solana_studio/modals/_wallet_connect.html.erb"
+    ), "the capture no longer recognises the picker's own path — every origin " \
+       "assertion in this section would go quiet rather than fail"
+
+    assert_not ResolvedWalletPicker.serves_this_partial?(
+      "/anywhere/style/modals/_wallet_connect.html.erb"
+    ), "the capture matched the style guide's specimen, which shares the file " \
+       "name and lives in studio-engine — the origin check would fail on a " \
+       "bundle that is entirely correct"
+  end
+
+  test "a competing copy at the SAME virtual path is caught, and only by this check" do
+    # THE NEGATIVE CONTROL. An assertion that cannot fail is worse than none, and
+    # the two above would both pass today against a bundle that had never been
+    # checked. So this stands a decoy up at the SAME virtual path, in a directory
+    # that is neither this app nor the gem — the shape studio-engine re-adding
+    # app/views/solana_studio/modals/_wallet_connect would take — and proves
+    # three things in order: the decoy really did win, served_by_gem? rejects it,
+    # and shadowed_by_app? calls it innocent.
+    #
+    # That last one is the point of the whole task. The pre-existing guards are
+    # BLIND here: the decoy is not inside app/views, and the old app path still
+    # does not resolve, so every assertion that existed before this section stays
+    # green while a foreign file renders the picker.
+    Dir.mktmpdir do |root|
+      decoy = File.join(root, "solana_studio", "modals", "_wallet_connect.html.erb")
+      FileUtils.mkdir_p(File.dirname(decoy))
+      File.write(decoy, "<div data-decoy-picker></div>")
+
+      origins = with_prepended_view_path(root) do
+        ResolvedWalletPicker.render_origins { about_page(reload: true) }
+      end
+
+      assert_equal [ decoy ], origins.uniq,
+        "the decoy never served the page (got #{origins.uniq.inspect}), so this " \
+        "control demonstrates nothing about the assertions above"
+
+      assert_not ResolvedWalletPicker.served_by_gem?(decoy),
+        "served_by_gem? accepted a file outside the gem's view root — the origin " \
+        "assertions above cannot fail and are decoration"
+
+      assert_not decoy.start_with?(ResolvedWalletPicker::APP_VIEWS),
+        "the decoy landed inside app/views, so shadowed_by_app? would have caught " \
+        "it too and this control proves nothing about the NEW check's reach"
+    end
   end
 
   # ── The seam: the hooks this app contributes ──────────────────────────
@@ -261,6 +379,23 @@ class WalletPickerAdoptionTest < ActionDispatch::IntegrationTest
   def picker_x_data(body)
     body[/<div x-data="([^"]*get needsAttestation[^"]*)"/m, 1] ||
       body[/<div x-data="([^"]*canPick\(\)[^"]*)"/m, 1]
+  end
+
+  # Renders inside a lookup whose FIRST view path is `path`, then puts the
+  # controller's own path set back.
+  #
+  # Restoring the PathSet is not enough on its own: ActionView memoises compiled
+  # templates against a details key, so a stale key would keep serving the decoy
+  # to every test that ran after this one in the same process. Cleared on both
+  # sides, and the ensure runs even when the block raises.
+  def with_prepended_view_path(path)
+    previous = ApplicationController.view_paths
+    ApplicationController.prepend_view_path(path)
+    ActionView::LookupContext::DetailsKey.clear
+    yield
+  ensure
+    ApplicationController.view_paths = previous
+    ActionView::LookupContext::DetailsKey.clear
   end
 
   def with_attestation_flag(on)
