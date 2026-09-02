@@ -17,13 +17,13 @@ const { reseed, attestAge } = require("./helpers");
 // Tagged @smoke: core auth, part of the fast "general" e2e lane
 // (`npm run test:smoke` / `--grep @smoke`). See docs/LOCAL_STACK.md.
 // Base58 decode, deliberately INDEPENDENT of the encoder it judges. The phone
-// hand-off spec below reads the payload studio-engine's deep link built; decoding
+// hand-off spec below reads the payload solana-studio's deep link built; decoding
 // it with a second implementation is what makes "the encoder ran and produced
 // something real" an assertion rather than a restatement.
 //
 // Standard convention, verified against 3,958 random buffers with leading zeros:
 // every shape this file decodes round-trips. The ONE input that does not is an
-// all-zero VALUE, where the engine's encoder emits an extra leading "1" — its
+// all-zero VALUE, where the gem's encoder emits an extra leading "1" — its
 // quirk, not this decoder's, and unreachable here: an x25519 public key is never
 // all zeros and a JSON payload starts with "{".
 const B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -108,8 +108,8 @@ test("Solana button in standalone auth modal opens the wallet chooser @smoke", a
 // ── The MOBILE Phantom row, which no browser had ever seen ────────────────
 //
 // WHAT THIS COVERS AND WHY IT IS HERE. adopt-engine-phantom-deeplink deleted this
-// app's app/javascript/phantom_deeplink.js and now renders studio-engine's
-// studio/solana/phantom_deeplink instead. The engine picker decides what a PHONE
+// app's app/javascript/phantom_deeplink.js and now renders solana-studio's
+// solana_studio/phantom_deeplink instead. The gem picker decides what a PHONE
 // sees from `typeof startPhantomDeepLink === 'function'` — both `missingInstalls`
 // and `showPhantomDeepLink` read it, so the two flip together. Lose the render and
 // the phone silently falls back to Phantom's browser-extension INSTALL row, which
@@ -173,7 +173,7 @@ test.describe("the Connect Wallet picker on a phone", () => {
     await expect(dialog.getByRole("link", { name: /Backpack Install/ })).toBeVisible();
   });
 
-  // TAPPING IT, rather than checking the symbol exists. The engine's own partial
+  // TAPPING IT, rather than checking the symbol exists. The gem's own partial
   // records why: an earlier cut left B58_ALPHABET at module scope while inlining
   // the encoder into a classic script, so encodeBase58 read a free variable that
   // resolved to nothing AT CALL TIME and every mobile sign-in threw on the first

@@ -156,10 +156,12 @@ proved the address and the server re-validated the token.
 
 **Key files:** `SolanaSessionsController`,
 `app/controllers/concerns/solana/session_auth.rb`, `solana-studio`
-`Solana::AuthVerifier`, `wallet_provider.js`. The MOBILE deep link and its
-callback view are studio-engine's since `adopt-engine-phantom-deeplink`:
-`studio/solana/_phantom_deeplink` (rendered by `shared/_alpine_factories`) and
-`solana_sessions/phantom_callback`. Turf keeps the route, the controller action,
+`Solana::AuthVerifier`, `wallet_provider.js`. The MOBILE deep link is
+solana-studio's — `solana_studio/_phantom_deeplink`, rendered by
+`shared/_alpine_factories` — and its callback view is studio-engine's,
+`solana_sessions/phantom_callback`. `adopt-engine-phantom-deeplink` took both off
+this app; `turf-rides-gem-modals` then moved the deep-link half to solana-studio,
+while the callback stayed with the engine. Turf keeps the route, the controller action,
 and the blocking tweetnacl tag in `layouts/application`.
 
 ```mermaid

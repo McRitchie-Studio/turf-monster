@@ -31,7 +31,7 @@ module WalletPickerHelper
   private
 
   # EXTRA x-data members, as a JS fragment with no surrounding braces. The
-  # engine picker merges it after its own built-ins and marks it html_safe, so
+  # gem picker merges it after its own built-ins and marks it html_safe, so
   # it reaches the attribute as written.
   #
   # NO DOUBLE QUOTES ANYWHERE IN HERE. The x-data attribute is double-quoted, so
@@ -39,7 +39,7 @@ module WalletPickerHelper
   # no-op — a dead modal that every markup assertion still passes.
   # wallet_picker_single_phantom_test pins that.
   #
-  # These are the four hooks the engine documents, plus the two state members
+  # These are the four hooks the gem picker documents, plus the two state members
   # they read. Together they are the whole of what turf-monster adds to the
   # shared picker.
   def wallet_connect_extra_data

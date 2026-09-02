@@ -121,7 +121,7 @@ class AgeAttestationAdoptionTest < ActionView::TestCase
 
   # THE PICKER'S GATE MOVED. This file used to render modals/_wallet_connect and
   # assert the flag gated its attestation. That partial is gone
-  # (/tasks/adopt-turf-engine-picker): the picker is studio-engine's, and the
+  # (/tasks/adopt-turf-engine-picker): the picker is solana-studio's, and the
   # gate is now the SLOT that WalletPickerHelper passes it — or does not, when
   # the flag is parked. The property is asserted in
   # test/views/wallet_picker_adoption_test.rb against real pages on BOTH

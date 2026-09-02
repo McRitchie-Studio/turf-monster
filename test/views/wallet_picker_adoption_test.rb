@@ -52,7 +52,7 @@ class WalletPickerAdoptionTest < ActionDispatch::IntegrationTest
     # A render assertion cannot answer this: the fork and the engine partial
     # produce near-identical markup, which is what let the copy survive.
     assert_not File.exist?(ResolvedWalletPicker::FORK_PATH),
-      "#{ResolvedWalletPicker::FORK_PATH} is back — the engine owns this picker now"
+      "#{ResolvedWalletPicker::FORK_PATH} is back — solana-studio owns this picker now"
   end
 
   test "no layout renders the old picker path" do
@@ -245,7 +245,7 @@ class WalletPickerAdoptionTest < ActionDispatch::IntegrationTest
     each_picker_render do |label, body|
       x_data = picker_x_data(body)
       assert x_data.present?, "#{label}: could not locate the picker's x-data"
-      # Anchored on a quoted string ONLY turf's fragment carries. The engine's
+      # Anchored on a quoted string ONLY turf's fragment carries. The gem picker's
       # own back() also reads Alpine.store('modals'), so an assertion on that
       # would pass with this app's fragment escaped, or absent altogether.
       assert_includes x_data, "localStorage.setItem('phantom_dl_age_attested'",
@@ -298,7 +298,7 @@ class WalletPickerAdoptionTest < ActionDispatch::IntegrationTest
   end
 
   test "the slot does not leak the page body into the card" do
-    # THE TRAP THE ENGINE'S OWN HEADER WARNS ABOUT. The slot is a NAMED LOCAL,
+    # THE TRAP THE GEM PICKER'S OWN HEADER WARNS ABOUT. The slot is a NAMED LOCAL,
     # never a block: block_given? is ALWAYS true inside a compiled Rails partial
     # — it inherits the LAYOUT's yield — so a block-shaped slot falls through to
     # view_flow[:layout] and prints the whole captured page body inside the modal
@@ -311,10 +311,10 @@ class WalletPickerAdoptionTest < ActionDispatch::IntegrationTest
     end
   end
 
-  # ── The capability the engine now asks this app for ───────────────────
+  # ── The capability the gem picker now asks this app for ───────────────
 
-  test "this app supplies the deep-link function the engine gates on" do
-    # NEW CONTRACT, and it is easy to miss. The engine suppresses Phantom's
+  test "this app supplies the deep-link function the gem picker gates on" do
+    # NEW CONTRACT, and it is easy to miss. The gem picker suppresses Phantom's
     # mobile install row ONLY when `typeof startPhantomDeepLink === 'function'`,
     # and paints the deep-link row on the same condition. The fork suppressed the
     # install row unconditionally, so this dependency did not exist before the
@@ -328,8 +328,8 @@ class WalletPickerAdoptionTest < ActionDispatch::IntegrationTest
     # is bug enough, but a VISIBLE one. Anyone auditing for an empty wallet list
     # would have looked straight past it.
     #
-    # 2026-08-30 (adopt-engine-phantom-deeplink): THE DEEP LINK IS THE ENGINE'S
-    # NOW TOO. It used to be app/javascript/phantom_deeplink.js loaded through
+    # 2026-08-30 (adopt-engine-phantom-deeplink): THE DEEP LINK IS A GEM'S NOW
+    # TOO — studio-engine's then, solana-studio's since turf-rides-gem-modals. It used to be app/javascript/phantom_deeplink.js loaded through
     # the importmap; a File.read of that path is now a read of a file that does
     # not exist, and the assertion errored rather than failed. The GUARANTEE is
     # unchanged and still belongs here — it is the picker's precondition — so it
