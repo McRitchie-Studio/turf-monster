@@ -11,7 +11,10 @@ amazon:
   access_key_id: <%= ENV["AWS_ACCESS_KEY_ID"] %>
   secret_access_key: <%= ENV["AWS_SECRET_ACCESS_KEY"] %>
   region: us-east-2
-  bucket: turf-monster-production
+  # QA apps boot RAILS_ENV=production and load this service; QA_ENV (read via
+  # Studio.qa_environment?, the same signal Studio::S3 keys on) is the one
+  # thing separating them. Unset or unrecognised resolves PRODUCTION.
+  bucket: <%= Studio.qa_environment? ? "turf-monster-dev" : "turf-monster-production" %>
 
 amazon_dev:
   service: S3
@@ -39,7 +42,9 @@ amazon_public:
   access_key_id: <%= ENV["AWS_ACCESS_KEY_ID"] %>
   secret_access_key: <%= ENV["AWS_SECRET_ACCESS_KEY"] %>
   region: us-east-2
-  bucket: turf-monster-production
+  # Same QA_ENV split as `amazon`: QA runs Rails.env.production, so
+  # OgImageAttachable resolves THIS service there too.
+  bucket: <%= Studio.qa_environment? ? "turf-monster-dev" : "turf-monster-production" %>
   public: true
 
 amazon_public_dev:

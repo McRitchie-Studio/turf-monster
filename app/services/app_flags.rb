@@ -51,9 +51,11 @@ module AppFlags
   end
 
   # True for stable QA apps that run Rails in production mode but must still
-  # identify themselves as non-production review targets.
+  # identify themselves as non-production review targets. Delegates to the
+  # engine so every QA_ENV reader shares ONE truthiness (the EnvironmentBanner
+  # allow-list) — this was the third, stricter vocabulary for the same flag.
   def self.qa_environment?
-    ENV["QA_ENV"].to_s.strip.downcase == "true"
+    Studio.qa_environment?
   end
 
   # True only on a REAL production deployment: Rails.env is production AND
