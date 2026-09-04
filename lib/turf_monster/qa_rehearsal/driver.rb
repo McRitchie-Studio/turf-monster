@@ -121,8 +121,8 @@ module TurfMonster
           vault.ensure_ata(admin, mint: Solana::Config::USDC_MINT)
 
           # The pool is denominated in CENTS in Rails and in 6-decimal base
-          # units on-chain. Comparing the two directly is how a $500 pool turns
-          # into a 50-cent mint, so convert once and compare in one unit.
+          # units on-chain. Comparing the two directly is how a 500-dollar pool
+          # turns into a 50-cent mint, so convert once and compare in one unit.
           needed_cents = Contest::FORMATS.fetch(#{CONTEST_TYPE.inspect})[:payouts].values.sum
           needed = Solana::Config.dollars_to_lamports(needed_cents / 100.0)
           ata, = Solana::SplToken.find_associated_token_address(admin, Solana::Config::USDC_MINT)
@@ -274,8 +274,14 @@ module TurfMonster
 
         say "  watch: https://#{host}/live"
         say "  polling ESPN slot #{POLL_SLOT} …"
-        system("heroku", "run", "--app", app, "--no-tty", "--",
-               "bin/nfl-live-poll", "--slot", POLL_SLOT)
+        # The return value IS the verdict. A poll that fails exits this method
+        # having ALREADY cleared the board, so a later `conclude` would grade an
+        # unplayed slate and broadcast a real settle against it.
+        unless system("heroku", "run", "--app", app, "--no-tty", "--",
+                      "bin/nfl-live-poll", "--slot", POLL_SLOT)
+          raise StepError, "the ESPN poll failed — the board is CLEARED and no scores landed. " \
+                           "Re-run step 3 before concluding."
+        end
 
         replay(pace) if pace.positive?
       end
@@ -349,7 +355,9 @@ module TurfMonster
           raise StepError, "replay script contains a shell-expandable name — see RemoteRunner::SHELL_EXPANDABLE"
         end
 
-        system("heroku", "run", "--app", app, "--no-tty", "--", "bin/rails", "runner", script)
+        return if system("heroku", "run", "--app", app, "--no-tty", "--", "bin/rails", "runner", script)
+
+        raise StepError, "the replay failed partway — the board holds a partial week. Re-run step 3."
       end
 
       # --- Step 4 --------------------------------------------------------
@@ -418,8 +426,14 @@ module TurfMonster
           out = { already_closed: contest.onchain_closed }
           unless contest.onchain_closed?
             sig = Solana::Vault.new.close_contest(contest.slug)
+            signature = sig.is_a?(Hash) ? sig[:signature] : sig
+            # Only stamp the flag on a signature we actually got back. Setting
+            # it unconditionally makes the DB claim a close that never landed,
+            # and the rent stays unreclaimed with nothing left to say so.
+            raise "close_contest returned no signature" if signature.to_s.empty?
+
             contest.update!(onchain_closed: true)
-            out[:signature] = sig.is_a?(Hash) ? sig[:signature] : sig
+            out[:signature] = signature
           end
           emit(**out)
         RUBY

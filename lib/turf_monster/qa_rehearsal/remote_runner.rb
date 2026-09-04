@@ -40,7 +40,13 @@ module TurfMonster
       # specify a valid ruby command", and the visible symptom is a confusing
       # "undefined method `flush' for an instance of String". Use STDOUT, and
       # keep shell-expandable names out of remote source.
-      SHELL_EXPANDABLE = /\$\w/
+      # Covers what the dyno's shell actually expands inside the double quotes
+      # `heroku run` wraps the command in: a parameter (`$name`, `$5`), a
+      # brace expansion (`${…}`), and both command substitutions (`$(…)` and
+      # backticks). The first version matched only `$\w`, which was wrong in
+      # BOTH directions — it missed `$(` entirely, and it flagged the `$500` in
+      # an English prose comment, which broke step 1 outright.
+      SHELL_EXPANDABLE = /\$[\w({]|`/
 
       # @param source [String] Ruby evaluated on the dyno. It is expected to
       #   call `emit(hash)` exactly once — the helper is prepended below so
