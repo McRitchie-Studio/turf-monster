@@ -16,13 +16,43 @@ class QaRehearsalStepHaltTest < ActiveSupport::TestCase
   Driver = TurfMonster::QaRehearsal::Driver
   SOURCE = Rails.root.join("lib/turf_monster/qa_rehearsal/driver.rb").read.freeze
 
-  # The five operator-facing steps. `conclude` is listed once here and gets its
-  # own per-exit test below, because it is the step with branches.
-  STEP_METHODS = %w[create_contest enter_cast play_preseason conclude close_contest].freeze
+  # DERIVED FROM THE CLI, not typed here. A hardcoded list cannot keep the
+  # promise this file makes — a sixth step added to bin/qa-contest-rehearsal
+  # would simply not be in it, and the suite would stay green saying nothing.
+  # `status` is excluded: it prints the manifest and is not a step of the run.
+  CLI = Rails.root.join("bin/qa-contest-rehearsal").read.freeze
+  STEP_METHODS = CLI.scan(/when "(?!status")[a-z]+"\s+then driver\.([a-z_]+)/).flatten.uniq.freeze
 
   def capture
     io = StringIO.new
     yield Driver.new(io: io)
+    io.string
+  end
+
+  # Drive step 3 down one of its two exits with nothing real behind it — no
+  # Rails, no DB, no desk — and hand back what it PRINTED. Stubbing the
+  # collaborators is what lets the test assert on the branch instead of the
+  # source text.
+  def play_step_output(already_scored:)
+    io = StringIO.new
+    driver = Driver.new(io: io)
+    manifest = Struct.new(:data) do
+      def read = data
+      def merge(*) = data
+      def write(*) = data
+    end.new({ "contest_slug" => "qa-rehearsal-x", "kickoff_shift_seconds" => 0 })
+
+    driver.define_singleton_method(:guard!) { { app: "turf-monster-qa" } }
+    driver.define_singleton_method(:manifest) { manifest }
+    driver.define_singleton_method(:slate_already_scored?) { already_scored }
+    driver.define_singleton_method(:unshift_fixture) { |_s| nil }
+    driver.define_singleton_method(:lock_contest) { |_slug| nil }
+    driver.define_singleton_method(:replay) { |_pace| :replayed }
+    driver.define_singleton_method(:remote) { Struct.new(:x).new(nil).tap { |r| r.define_singleton_method(:call) { |_s| {} } } }
+    # The reset path shells out to the ESPN poller; the paced path does not.
+    driver.define_singleton_method(:system) { |*_args| true }
+
+    driver.play_preseason(pace: 4, reset: false)
     io.string
   end
 
@@ -42,14 +72,61 @@ class QaRehearsalStepHaltTest < ActiveSupport::TestCase
     body
   end
 
-  # THE LOAD-BEARING TEST. A step added later with no halt fails here, which is
-  # the whole point — the defect was a missing instruction, not a wrong one.
-  test "every operator-facing step ends by halting for the operator" do
-    missing = STEP_METHODS.reject { |m| body_of(m).include?("hand_back(") }
+  # A source scan finds `hand_back(` ANYWHERE in the method, including on a
+  # branch an early `return` jumps over — which is exactly how the paced re-run
+  # of step 3 shipped unhalted while this file was green. It has now been wrong
+  # in BOTH directions on this one method: green while unhalted, then red once
+  # the halt moved into a tail helper. So it is kept only as a cheap net for a
+  # step carrying no halt ANYWHERE, and it resolves one hop into the helpers a
+  # step delegates to. The executing tests below hold the actual property.
+  def halts?(method, depth: 1)
+    body = body_of(method)
+    return true if body.include?("hand_back(")
+    return false if depth.zero?
+
+    callees = body.scan(/^\s+(?:return )?([a-z_]+)\(/).flatten.uniq - [method]
+    callees.any? { |c| SOURCE.match?(/^\s*def #{Regexp.escape(c)}\b/) && halts?(c, depth: depth - 1) }
+  end
+
+  # A derivation that silently returns [] makes every scan below vacuously
+  # green. Pin the count and the members, so a CLI refactor that breaks the
+  # regex fails HERE rather than quietly switching the guard off.
+  test "the step list really derived from the CLI" do
+    assert_equal %w[create_contest enter_cast play_preseason conclude close_contest],
+                 STEP_METHODS,
+                 "STEP_METHODS is scanned out of bin/qa-contest-rehearsal — an empty or " \
+                 "partial list would make the halt scan pass while reading nothing"
+  end
+
+  test "no step method is missing a halt entirely" do
+    missing = STEP_METHODS.reject { |m| halts?(m) }
 
     assert_empty missing,
-                 "these steps run to completion without handing back: #{missing.join(', ')}. " \
-                 "A step that does not stop is a step the operator cannot watch."
+                 "these steps reach no hand_back, directly or through a tail helper: " \
+                 "#{missing.join(', ')}. This is the weak check — the per-exit tests are the real one."
+  end
+
+  # THE LOAD-BEARING TEST, and it RUNS the branch rather than reading it.
+  #
+  # `play --pace 4` is the string the SOP's step 3 and the driver's own step-2
+  # hand-back both name, so this is the command an operator actually types. The
+  # evergreen slate is one shared Slate and `replay` re-lays the Goal rows it
+  # captured, so `slate_already_scored?` is false exactly once and true forever
+  # after: the branch that skipped the halt is the one used every run but the
+  # first.
+  test "the paced re-run of step 3 halts, not just the first run" do
+    out = play_step_output(already_scored: true)
+
+    assert_match(/── STOP ─/, out,
+                 "the paced re-run ended without handing back — this is the branch an operator uses most")
+    assert_match(/conclude --cosign link/, out, "the halt must still name the next step")
+  end
+
+  test "the first run of step 3 halts too" do
+    out = play_step_output(already_scored: false)
+
+    assert_match(/── STOP ─/, out)
+    assert_match(/conclude --cosign link/, out)
   end
 
   # `conclude` is the step with branches, and one of them is the only step in

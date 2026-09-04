@@ -273,7 +273,12 @@ module TurfMonster
           # while its games read FINAL — the exact incoherence the unshift
           # exists to prevent, on the path an operator uses most.
           unshift_fixture(data["kickoff_shift_seconds"].to_i)
-          return replay(pace)
+          # THROUGH THE TAIL, never around it. This `return` has now eaten a
+          # tail behaviour twice: first the unshift (387d9a2a), then the halt
+          # itself, which shipped unhalted on the branch an operator uses most
+          # while a source-scanning test stayed green. Both exits end in
+          # finish_play for that reason — there is no longer a tail to jump.
+          return finish_play(data, replay(pace))
         end
 
         if reset
@@ -312,11 +317,17 @@ module TurfMonster
                            "Re-run step 3 before concluding."
         end
 
-        replay(pace) if pace.positive?
+        finish_play(data, pace.positive? ? replay(pace) : nil)
+      end
 
+      # The one tail step 3 has. Both exits return through it, so a branch added
+      # later cannot skip the halt by returning early — the mistake this method
+      # has now made twice.
+      def finish_play(data, result)
         say_urls(data.fetch("contest_slug"), live_first: true)
         hand_back(verify: "the live board built from zero and every game reads FINAL",
                   next_command: "bin/qa-contest-rehearsal conclude --cosign link")
+        result
       end
 
       # Replay the week one scoring play at a time, so an operator can watch
