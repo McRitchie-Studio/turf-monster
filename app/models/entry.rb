@@ -271,14 +271,6 @@ class Entry < ApplicationRecord
     # Seeds (25 per entry) are awarded on-chain by the turf_vault Anchor program
   end
 
-  # Assign (or re-assign) this entry's on-chain slot to the lowest index whose
-  # Entry PDA isn't already allocated for `wallet_address`, and isn't claimed by
-  # another of this user's live entries in the contest. Probes the chain (not a
-  # DB count) because on-chain Entry PDAs outlive DB rows — a contest Reset
-  # destroys entries but not their PDAs, so a count-derived index collides with
-  # an orphaned PDA ("Allocate ... already in use" / custom program error 0x0 at
-  # EnterContest). No-op once this entry is confirmed on-chain (it keeps the slot
-  # it was created under). Raises when the user has used every slot.
   # RELEASE THE SLOT WHEN AN ENTRY IS ABANDONED.
   #
   # Two places decide what "taken" means and they used to disagree:
@@ -304,6 +296,14 @@ class Entry < ApplicationRecord
   # one that costs a broadcast to discover.
   before_save :release_slot_if_abandoned
 
+  # Assign (or re-assign) this entry's on-chain slot to the lowest index whose
+  # Entry PDA isn't already allocated for `wallet_address`, and isn't claimed by
+  # another of this user's live entries in the contest. Probes the chain (not a
+  # DB count) because on-chain Entry PDAs outlive DB rows — a contest Reset
+  # destroys entries but not their PDAs, so a count-derived index collides with
+  # an orphaned PDA ("Allocate ... already in use" / custom program error 0x0 at
+  # EnterContest). No-op once this entry is confirmed on-chain (it keeps the slot
+  # it was created under). Raises when the user has used every slot.
   def assign_onchain_entry_number!(wallet_address, vault = Solana::Vault.new)
     return entry_number if onchain_tx_signature.present?
 
