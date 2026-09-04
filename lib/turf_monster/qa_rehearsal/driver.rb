@@ -273,23 +273,15 @@ module TurfMonster
         end
 
         if reset
-          shift = data["kickoff_shift_seconds"].to_i
+          # Undo step 1's time-shift FIRST, through the SAME method the paced
+          # path uses. This used to be a second inline copy, and the comment
+          # claiming the two were "extracted so they cannot drift" was false
+          # while two implementations sat here differing in their guards.
+          unshift_fixture(data["kickoff_shift_seconds"].to_i)
 
           cleared = remote.call(<<~RUBY)
             slate = Slate.find_by!(name: #{SLATE_NAME.inspect})
             slugs = slate.slate_matchups.pluck(:game_slug).compact.uniq
-
-            # Undo step 1's time-shift FIRST. The poller matches ESPN by the
-            # slot and the game's external id, never by our clock, so this is
-            # cosmetic to the fetch -- but a board showing tomorrow's date beside
-            # a final score is the kind of detail that makes an operator distrust
-            # a run that is actually fine.
-            shift = #{shift}
-            if shift.positive?
-              Game.where(slug: slugs).find_each do |g|
-                g.update_columns(kickoff_at: g.kickoff_at - shift.seconds) if g.kickoff_at
-              end
-            end
 
             goals = Goal.where(game_slug: slugs).delete_all
             games = Game.where(slug: slugs).update_all(home_score: nil, away_score: nil,
@@ -297,10 +289,11 @@ module TurfMonster
             ms = slate.slate_matchups.update_all(goals: nil, status: "pending")
             zeroed = Entry.where(contest_id: Contest.where(slate_id: slate.id).select(:id))
                           .where.not(score: 0).update_all(score: 0)
-            emit(goals_deleted: goals, games_reset: games, matchups_reset: ms, unshifted: shift, scores_zeroed: zeroed)
+            emit(goals_deleted: goals, games_reset: games, matchups_reset: ms, scores_zeroed: zeroed)
           RUBY
           say "  reset: #{cleared['goals_deleted']} goals, #{cleared['games_reset']} games, " \
-              "#{cleared['matchups_reset']} matchups back to kickoff"
+              "#{cleared['matchups_reset']} matchups back to kickoff, " \
+              "#{cleared['scores_zeroed']} score(s) zeroed"
         end
 
         say_urls(data.fetch("contest_slug"), live_first: true)
@@ -337,6 +330,16 @@ module TurfMonster
       # matches ESPN by slot and external id, never by our clock, so this is
       # cosmetic to the FETCH — but a board showing tomorrow's date beside a
       # final score is what makes an operator distrust a run that is fine.
+      # IDEMPOTENT BY CLEARING THE SHIFT IT CONSUMED.
+      #
+      # `kickoff_shift_seconds` was written once by step 1 and never cleared. On
+      # the RESET path that was survivable by accident — the ESPN poll re-anchors
+      # kickoff_at seconds later — but the paced path SKIPS that poll, so a
+      # second run moved the fixture to real−S and a third to real−2S, walking
+      # the whole week backwards into the past a run at a time.
+      #
+      # Recording that it has been spent is what makes re-running a step safe,
+      # which is the property every step in this driver is supposed to have.
       def unshift_fixture(shift)
         return if shift <= 0
 
@@ -352,6 +355,7 @@ module TurfMonster
           end
           emit(unshifted: moved)
         RUBY
+        manifest.merge("kickoff_shift_seconds" => 0)
         say "  fixture clock put back (#{shift}s)"
       end
 

@@ -30,11 +30,19 @@ class QaRehearsalRemoteScriptsTest < ActiveSupport::TestCase
     DRIVER.read.scan(/<<~RUBY[^\n]*\n(.*?)^\s*RUBY$/m).flatten
   end
 
-  # Every heredoc opener in the file, however it is spelled. Counting these
-  # rather than the scanned scripts is what makes the coverage assertion below
-  # able to notice a script the scanner cannot see.
+  # Every heredoc opener in the file, in ANY of Ruby's spellings — squiggly or
+  # dash, quoted or bare: `<<~RUBY`, `<<-RUBY`, `<<RUBY`, `<<~'RUBY'`,
+  # `<<~"RUBY"`.
+  #
+  # The previous version matched only `<<[~-]\w+`, so a `<<~'RUBY'` was
+  # invisible to the counter AND to the scanner — and a planted `$500` inside
+  # one passed all three tests. A coverage check that cannot see a script is
+  # not coverage, it is decoration.
+  ANY_HEREDOC_OPENER = /<<[-~]?(['"]?)\w+\1/
+  EXPECTED_OPENER = "<<~RUBY"
+
   def heredoc_openers
-    DRIVER.read.scan(/<<[~-]\w+/)
+    DRIVER.read.to_enum(:scan, ANY_HEREDOC_OPENER).map { Regexp.last_match(0) }
   end
 
   # A scan that matched nothing would pass every assertion below while
@@ -44,6 +52,22 @@ class QaRehearsalRemoteScriptsTest < ActiveSupport::TestCase
   # whole script went unexamined — the floor cannot tell "the driver has fewer
   # scripts" from "the scanner sees fewer scripts". Equality against the openers
   # can: every heredoc in the file must be one this test actually read.
+  # RATHER THAN PARSE EVERY SPELLING, REFUSE THE ONES WE DO NOT READ.
+  #
+  # Chasing Ruby's heredoc grammar in a regex is how the last two versions of
+  # this file were defeated. The driver only ever needs one form, so requiring
+  # it turns "the scanner might not see this" into a failing test naming the
+  # line. A new spelling is then a deliberate decision with a red test attached,
+  # not a silent hole.
+  test "every heredoc in the driver uses the one form the scanner reads" do
+    exotic = heredoc_openers.reject { |opener| opener == EXPECTED_OPENER }
+
+    assert_empty exotic,
+                 "these heredoc openers are not #{EXPECTED_OPENER}: #{exotic.uniq.join(', ')}. " \
+                 "The scanner below reads only #{EXPECTED_OPENER}, so anything else is a script " \
+                 "no guard in this file examines. Use #{EXPECTED_OPENER}, or teach the scanner first."
+  end
+
   test "the scanner reads EVERY heredoc in the driver, not merely several" do
     assert_operator heredoc_openers.size, :>=, 7,
                     "expected several heredocs in #{DRIVER}, found #{heredoc_openers.size} — " \
