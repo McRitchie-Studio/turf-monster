@@ -168,15 +168,60 @@ module ContestsHelper
   # announced themselves as in progress. The badge is the first thing read on
   # that page; a badge that is wrong is worse than no badge.
   #
-  # `live?` is `locked? && !settled?` — the same predicate the broadcast filters
-  # on, so this label tells the truth about whether updates can arrive.
+  # THE STATE SPACE IS NOT AN ENUM. `status` is (pending/open/settled), but
+  # cancellation is a BOOLEAN orthogonal to it (`contests.onchain_cancelled`),
+  # and `locked?` is DERIVED from the clock. So the model's reachable states are
+  # a product, and a map with one branch per `status` value cannot cover them:
+  #
+  #   status         cancelled?  locked?   label
+  #   ------------------------------------------------
+  #   pending/open   no          no        Not started
+  #   pending/open   no          yes       Live
+  #   settled        no          (always)  Final
+  #   pending/open   yes         no        Cancelled
+  #   pending/open   yes         yes       Cancelled   <- read "Live" before this
+  #   settled        yes         (always)  Cancelled   <- read "Final" before this
+  #
+  # PRECEDENCE: cancelled, then final, then live, then upcoming. Cancellation
+  # wins outright because it is terminal whatever else is true of the contest,
+  # and it is the fact that changes what the viewer should do next. Do NOT read
+  # it as "refunded": cancel_contest returns the prize pool to the CREATOR
+  # (Solana::Vault#build_cancel_contest), entry fees stay operator revenue, and
+  # entrant compensation is a manual mint_entry_token playbook. Terms promise a
+  # refund only for a contest cancelled BEFORE it locks, which is not the case
+  # this branch exists for. An entrant reading "Cancelled" may still be owed
+  # money — which is the reason the badge must not read "Live" at them.
+  #
+  # THE BADGE NO LONGER TRACKS `live?`, AND MUST NOT BE MADE TO AGAIN. It was
+  # documented as carrying "the same predicate the broadcast filters on", so
+  # that it told you whether an update could arrive. That is what produced the
+  # bug: cancel-while-locked is deliberately supported, `live?` is
+  # `locked? && !settled?`, and Contest::LiveBroadcast selects `status: [:open]`
+  # then `.select(&:live?)` — neither filter excludes a cancelled contest. So a
+  # cancelled, locked contest IS still in the broadcast set while this badge
+  # reads "Cancelled". That divergence is deliberate: the badge is a claim about
+  # what the contest IS, not about whether packets are still being pushed at the
+  # games strip below it.
+  #
+  # MOTION IS RESERVED FOR `live`. The pulsing dot is the one animated element
+  # here, and it means exactly one thing: this contest is in progress. Every
+  # terminal or not-yet state is static, so "is it moving?" stays a reliable
+  # read at a glance. Cancelled keeps the app's cancelled red (it matches
+  # CONTEST_BADGE_STYLES["cancelled"]) but takes a solid dot, never a pulse.
+  #
+  # This badge is server-rendered at page load. Contest::LiveBroadcast replaces
+  # the games strip and the focus panel, not this header, so a contest whose
+  # state changes under a viewer keeps the label it was drawn with until a
+  # reload. Out of scope here; do not read these labels as self-correcting.
   LIVE_STATES = {
+    cancelled: { label: "Cancelled", classes: "text-red-400", dot: "bg-red-500" },
     live: { label: "Live", classes: "text-red-400", dot: "bg-red-500 animate-pulse" },
     final: { label: "Final", classes: "text-muted", dot: "bg-slate-500" },
     upcoming: { label: "Not started", classes: "text-muted", dot: "bg-slate-500" }
   }.freeze
 
   def contest_live_state(contest)
+    return :cancelled if contest.cancelled?
     return :final if contest.settled?
     return :live if contest.live?
 
