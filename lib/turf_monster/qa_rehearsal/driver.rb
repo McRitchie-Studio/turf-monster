@@ -36,7 +36,7 @@ module TurfMonster
       # a filed key, so the driver can hold its session. It cannot PLAY —
       # its username is the reserved prefix "turf" and the program refuses to
       # register that UserAccount — but admin actions never touch a UserAccount.
-      ADMIN_ACTOR = "turf"
+      ADMIN_ACTOR = "turf-admin"
 
       # Mason and Mack, and the two exclusions are not preferences:
       #
@@ -45,13 +45,13 @@ module TurfMonster
       #     payer the transaction needs one signature slot, not two, and
       #     prepare_entry refuses with "Signer count mismatch: 2 provided
       #     (0 local + 2 additional), 1 required by the account list".
-      #   * TURF cannot play. Its username is literally "turf", a reserved
-      #     on-chain prefix, and it has no UserAccount yet. The program (v0.25)
-      #     ships `admin_create_user_account` for exactly this, but
-      #     Solana::Vault has no binding for it — so the reserved-name path the
-      #     User model's comment promises cannot actually be taken. Bind it and
-      #     Turf joins the cast by adding one word to --cast.
-      DEFAULT_CAST = %w[mason mack].freeze
+      #   * TURF plays as the phantom.turf wallet (39QTL1dd), NOT as the
+      #     turf-5 admin account. turf-5's username is the reserved prefix
+      #     "turf" and it has no UserAccount, so the program refuses to
+      #     register it; phantom.turf already has one, which sidesteps the
+      #     whole question. turf-5 stays on as ADMIN_ACTOR, where no
+      #     UserAccount is needed.
+      DEFAULT_CAST = %w[mason mack turf].freeze
 
       attr_reader :app, :host, :cast, :io
 

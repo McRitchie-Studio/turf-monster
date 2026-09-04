@@ -28,7 +28,12 @@ module TurfMonster
       class KeyMismatchError < StandardError; end
 
       VAULT = "studio-agents"
-      SECRET_FIELD  = "private key"
+
+      # The vault is not internally consistent about this label -- the older
+      # agent.* items spell it "private key", the newer phantom.* items
+      # "private-key" -- so accept both rather than making the next filed
+      # wallet a code change. Order is preference, not precedence.
+      SECRET_FIELDS = ["private key", "private-key"].freeze
       ADDRESS_FIELD = "wallet address"
 
       # Cast slug => 1Password item. Only wallets this rehearsal may act as.
@@ -40,11 +45,22 @@ module TurfMonster
       # fee payer and contest creator. It is listed because it is a real filed
       # wallet the driver may need to act as, but see Driver::DEFAULT_CAST for
       # why it does not play.
+      # TWO TURF WALLETS, ON PURPOSE.
+      #
+      # "turf-admin" (agent.turf.solana, BLSBw8fX) is the turf-5 ADMIN account.
+      # It drives the admin HTTP surface and cannot play: its username is the
+      # reserved prefix "turf" and it has no on-chain UserAccount, so the
+      # program refuses to register it (6020 UsernameReserved).
+      #
+      # "turf" (phantom.turf, 39QTL1dd) is the PLAYER. Its UserAccount already
+      # exists, which is the whole reason it works -- ensure_user_account
+      # short-circuits on an existing account and never looks at the username.
       ITEMS = {
-        "mason" => "agent.mason.solana",
-        "mack"  => "agent.mack.solana",
-        "turf"  => "agent.turf.solana",
-        "alex"  => "agent.alex.solana"
+        "mason"      => "agent.mason.solana",
+        "mack"       => "agent.mack.solana",
+        "turf"       => "phantom.turf",
+        "turf-admin" => "agent.turf.solana",
+        "alex"       => "agent.alex.solana"
       }.freeze
 
       def initialize(runner: nil)
@@ -73,8 +89,11 @@ module TurfMonster
 
       def load_keypair(item)
         fields = @runner.call(item)
-        secret = fields[SECRET_FIELD].to_s.strip
-        raise MissingKeyError, "1Password returned no #{SECRET_FIELD.inspect} for #{item}" if secret.empty?
+        secret = SECRET_FIELDS.filter_map { |f| fields[f].presence }.first.to_s.strip
+        if secret.empty?
+          raise MissingKeyError,
+                "1Password returned no #{SECRET_FIELDS.join(' / ')} field for #{item}"
+        end
 
         keypair = decode(secret, item)
 
