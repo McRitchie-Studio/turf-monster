@@ -36,7 +36,7 @@ module TurfMonster
       NONCE_PATH  = "/auth/solana/nonce"
       VERIFY_PATH = "/auth/solana/verify"
 
-      attr_reader :host, :cookies
+      attr_reader :host, :cookies, :keypair
 
       # @param host [String] host_with_port, e.g. "turf-monster-qa.herokuapp.com".
       #   This is also what gets baked into the signed message, so it MUST equal
