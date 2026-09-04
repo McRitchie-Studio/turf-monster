@@ -384,7 +384,12 @@ module TurfMonster
           emit(serialized_tx: built[:serialized_tx], winners: winners.size)
         RUBY
         signed = Solana::Transaction.cosign_wire_base64(wire.fetch("serialized_tx"), signer: mason)
-        signature = Solana::Client.new(rpc_url: devnet_rpc).send_and_confirm(signed)
+        # Solana::Config.client, never Solana::Client.new: a raw client falls
+        # through to the gem's ENV.fetch("SOLANA_RPC_URL", <public devnet>) and
+        # so FAILS OPEN, where Solana::Config::RPC_URL fails closed (OPSEC-012).
+        # The repo has a test that enforces exactly this, and it caught this
+        # line in CI.
+        signature = Solana::Config.client.send_and_confirm(signed)
         say "  broadcast: #{signature}"
 
         response = admin_session.post_json(
@@ -424,10 +429,6 @@ module TurfMonster
           session.sign_in!
           session
         end
-      end
-
-      def devnet_rpc
-        "https://api.devnet.solana.com"
       end
 
       def say(message)
