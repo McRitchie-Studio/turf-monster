@@ -132,8 +132,9 @@ name only for a row written before the migration — `sport_from_name` (`:252`) 
 `year_from_name` (`:258`) are those fallback helpers, not the primary source. `ensure_slate!`
 sets neither: `Slate`'s `before_validation` derives both from the name for every writer, so a
 missed assignment can no longer leave a column null. Every span lookup then scopes by the
-columns — `Slate.where(week:, year:, sport:)` (`app/services/nfl/build_span_slate.rb:81`),
-not `name LIKE` — so a 2025 slate cannot be absorbed into a 2026 contest.
+columns — `Slate.where(week:, year:, sport:, season_type:)`
+(`app/services/nfl/build_span_slate.rb:92`), not `name LIKE` — so a 2025 slate cannot be
+absorbed into a 2026 contest, and a preseason week cannot be absorbed into a regular one.
 
 ### 4. Ensure the matchups — ✅ LIVE
 
