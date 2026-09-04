@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_02_163646) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_04_163053) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -626,6 +626,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_02_163646) do
     t.float "formula_mult_scale"
     t.float "formula_prob_exp"
     t.string "name", null: false
+    t.integer "season_type", default: 2, null: false
     t.string "slug"
     t.string "sport"
     t.datetime "starts_at"
@@ -633,6 +634,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_02_163646) do
     t.integer "week"
     t.integer "year"
     t.index ["slug"], name: "index_slates_on_slug", unique: true
+    t.index ["sport", "year", "season_type", "week"], name: "index_slates_on_season_slot"
     t.index ["week"], name: "index_slates_on_week"
     t.index ["year", "week"], name: "index_slates_on_year_and_week"
   end

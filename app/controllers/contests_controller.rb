@@ -469,13 +469,27 @@ class ContestsController < ApplicationController
     end
   end
 
-  # Live "active contest" page — real-time leaderboard + chat + games for an
-  # in-progress contest, pushed over ActionCable (Contest::LiveBroadcast). New
-  # dedicated route for now; we'll fold it into #show's live state later.
-  # Turf Totals only for v1; Survivor + not-yet-live redirect to the show page.
+  # Live "active contest" page — real-time leaderboard + chat + games, pushed
+  # over ActionCable (Contest::LiveBroadcast). Dedicated route for now; we'll
+  # fold it into #show's live state later. Turf Totals only; a survivor contest
+  # redirects to the show page because it has no turf-totals board to draw.
+  #
+  # "not-yet-live redirects" used to be part of that sentence and is no longer
+  # true — see below.
+  # The live board, reachable in EVERY contest state.
+  #
+  # It used to redirect unless `@contest.live?` — that is `locked? && !settled?`,
+  # a window that excludes both halves an operator actually wants: before the
+  # lock (watching an empty board fill as the games start) and after the settle
+  # (reading the final result). During the first watched QA rehearsal the page
+  # built for watching redirected for the ENTIRE watchable run, because the
+  # contest was still open while its fixtures played.
+  #
+  # The NAV BUTTON stays conditional — there is no reason to point at a live
+  # board for a contest with nothing happening — but the URL always resolves.
+  # A link an operator has is a link that should work.
   def live
     return redirect_to contest_path(@contest) unless @contest.turf_totals?
-    return redirect_to contest_path(@contest), notice: "This contest isn't live yet." unless @contest.live?
 
     load_contest_board_data
     @games = @contest.games_by_phase
@@ -1865,7 +1879,18 @@ class ContestsController < ApplicationController
     year = anchor.season_year || Time.current.year
     weeks = (anchor.week...(anchor.week + span)).to_a
 
-    Nfl::BuildSpanSlate.call(year: year, weeks: weeks)
+    # THE SPAN FOLLOWS THE ANCHOR'S SEASON, and omitting that is not a
+    # defaulting nicety — it silently builds a DIFFERENT contest.
+    #
+    # Week numbers repeat within a year, so weeks [3,4] name two different sets
+    # of games depending on the season. Before slates carried `season_type`,
+    # this line was unreachable for a preseason anchor BY ACCIDENT: preseason
+    # slates had `week: nil`, and the guard above returns nil on a blank week.
+    # Giving them a real week removed that accident, so the season has to be
+    # asked for explicitly or the operator picks "Preseason Week 3", gets a span
+    # of REGULAR weeks 3-4 — unplayed games — and #create mints it on-chain
+    # while `c.slate_id = span.id` silently replaces the slate they chose.
+    Nfl::BuildSpanSlate.call(year: year, weeks: weeks, season_type: anchor.season_type)
   rescue Nfl::BuildSpanSlate::Error => e
     @span_slate_error = e.message
     nil

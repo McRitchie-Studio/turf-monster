@@ -2451,17 +2451,41 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_match(/turbo-cable-stream-source/, response.body)
   end
 
-  test "live redirects to show when the contest is not yet live" do
+  # WAS: "live redirects to show when the contest is not yet live". It no longer
+  # does, deliberately. `live?` is `locked? && !settled?` — a window that excludes
+  # both halves an operator wants: the board filling before the lock, and the
+  # final result after the settle. During the first watched QA rehearsal that
+  # redirect made the page built for watching unreachable for the entire run,
+  # because the contest was still open while its fixtures played.
+  test "live renders BEFORE the contest locks, so an early link still works" do
     @contest.update!(starts_at: 1.hour.from_now)
+    refute @contest.reload.live?, "fixture must be un-live for this test to mean anything"
+
     get live_contest_path(@contest)
-    assert_redirected_to contest_path(@contest)
+
+    assert_response :success
+    assert_match(/turbo-cable-stream-source/, response.body)
   end
 
-  test "live redirects to show for a survivor contest" do
-    survivor = Contest.create!(name: "Survivor Live #{SecureRandom.hex(2)}",
+  test "live renders AFTER the contest settles, as the result view" do
+    @contest.update!(starts_at: 1.hour.ago, status: "settled")
+    refute @contest.reload.live?, "a settled contest is not `live?` — that is the point"
+
+    get live_contest_path(@contest)
+
+    assert_response :success
+  end
+
+  # The nav BUTTON stays conditional even though the URL does not — pointing at a
+  # live board for a contest with nothing happening is the clutter the gate was
+  # protecting against, and that half is worth keeping.
+  test "live still refuses a survivor contest, which has no turf-totals board" do
+    survivor = Contest.create!(name: "Survivor Gate #{SecureRandom.hex(2)}",
                                game_type: :world_cup_survivor, contest_type: "survivor_wc_free",
                                status: "open", starts_at: 1.hour.ago, rank: 8000 + rand(900))
+
     get live_contest_path(survivor)
+
     assert_redirected_to contest_path(survivor)
   end
 
