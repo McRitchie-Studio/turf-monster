@@ -35,10 +35,16 @@ module TurfMonster
       # Mr. McRitchie's own Phantom (7ZDJ…) is deliberately absent: it has no
       # filed key, and the human half of the settle is signed in a browser by
       # him, not here.
+      #
+      # "alex" is the ALEX BOT wallet — the same key the server signs with as
+      # fee payer and contest creator. It is listed because it is a real filed
+      # wallet the driver may need to act as, but see Driver::DEFAULT_CAST for
+      # why it does not play.
       ITEMS = {
         "mason" => "agent.mason.solana",
         "mack"  => "agent.mack.solana",
-        "turf"  => "agent.turf.solana"
+        "turf"  => "agent.turf.solana",
+        "alex"  => "agent.alex.solana"
       }.freeze
 
       def initialize(runner: nil)
