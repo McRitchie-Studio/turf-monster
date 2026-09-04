@@ -5,7 +5,7 @@
 #
 #   bin/qa-contest-rehearsal create     # 1. contest, on-chain, pool funded
 #   bin/qa-contest-rehearsal enter      # 2. the cast enters, as real players
-#   bin/qa-contest-rehearsal play       # 3. replay preseason, real ESPN scores
+#   bin/qa-contest-rehearsal play --pace 3   # 3. replay preseason, watchable
 #   bin/qa-contest-rehearsal conclude   # 4. lock, grade, settle
 #   bin/qa-contest-rehearsal close      # 5. reclaim rent
 #
@@ -25,13 +25,14 @@
 require_relative "../config/environment"
 require "optparse"
 
-options = { cast: nil, cosign: :agent, reset: true }
+options = { cast: nil, cosign: :agent, reset: true, pace: 0 }
 
 parser = OptionParser.new do |o|
   o.banner = "Usage: bin/qa-contest-rehearsal <create|enter|play|conclude|close|status> [options]"
   o.on("--cast LIST", "Comma-separated cast (default: mason,mack)") { |v| options[:cast] = v.split(",").map(&:strip) }
   o.on("--cosign MODE", "agent (default) or link") { |v| options[:cosign] = v.to_sym }
   o.on("--no-reset", "Step 3: do not clear existing scores first") { options[:reset] = false }
+  o.on("--pace SECONDS", "Step 3: replay scoring plays this far apart, so you can watch") { |v| options[:pace] = v.to_i }
   o.on("-h", "--help") { puts o; exit 0 }
 end
 parser.parse!
@@ -50,7 +51,7 @@ begin
   case step
   when "create"   then driver.create_contest
   when "enter"    then driver.enter_cast
-  when "play"     then driver.play_preseason(reset: options[:reset])
+  when "play"     then driver.play_preseason(reset: options[:reset], pace: options[:pace])
   when "conclude" then driver.conclude(cosign: options[:cosign])
   when "close"    then driver.close_contest
   when "status"

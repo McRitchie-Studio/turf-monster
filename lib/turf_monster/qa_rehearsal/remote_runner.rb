@@ -34,11 +34,25 @@ module TurfMonster
         @executor = executor || method(:shell_out)
       end
 
+      # A `$` followed by a word character is refused, because the dyno's shell
+      # expands it before Ruby ever sees the script. `$stdout.flush` arrives as
+      # `.flush`, `rails runner` then rejects the whole script with "Please
+      # specify a valid ruby command", and the visible symptom is a confusing
+      # "undefined method `flush' for an instance of String". Use STDOUT, and
+      # keep shell-expandable names out of remote source.
+      SHELL_EXPANDABLE = /\$\w/
+
       # @param source [String] Ruby evaluated on the dyno. It is expected to
       #   call `emit(hash)` exactly once — the helper is prepended below so
       #   every caller marks its answer the same way.
       # @return [Hash] whatever the snippet emitted
       def call(source)
+        if source.match?(SHELL_EXPANDABLE)
+          raise RemoteError,
+                "remote source contains a shell-expandable #{source[SHELL_EXPANDABLE]}… — " \
+                "the dyno's shell would eat it before Ruby ran. Use STDOUT, not $stdout."
+        end
+
         script = <<~RUBY_SOURCE
           def emit(payload)
             puts "#{MARKER} " + payload.to_json

@@ -72,6 +72,23 @@ class QaRehearsalRemoteRunnerTest < ActiveSupport::TestCase
     assert_match(/unparseable/, error.message)
   end
 
+  # Learned the hard way: `$stdout.flush` in a remote script is expanded by the
+  # DYNO's shell, arrives as `.flush`, and rails runner rejects the whole
+  # thing — surfacing as "undefined method `flush\' for an instance of String",
+  # which points nowhere near the cause.
+  test "refuses source the dyno's shell would expand" do
+    error = assert_raises(Runner::RemoteError) do
+      runner_returning(out: "").call("puts 1\n$stdout.flush")
+    end
+
+    assert_match(/shell-expandable/, error.message)
+    assert_match(/STDOUT/, error.message)
+  end
+
+  test "ordinary source with no shell variables passes the guard" do
+    assert_equal({}, runner_returning(out: "#{Runner::MARKER} {}").call("STDOUT.flush; emit({})"))
+  end
+
   test "the emit helper is prepended so callers never define it" do
     seen = nil
     executor = lambda do |argv|

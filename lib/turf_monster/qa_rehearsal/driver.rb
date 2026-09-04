@@ -238,7 +238,7 @@ module TurfMonster
       # `live-score-watch` entry point, unchanged and pointed at one slot, so
       # what lands here is real ESPN data through the real chain: Goal rows,
       # Game#update_slate_matchups!, contest re-score, live broadcast.
-      def play_preseason(reset: true)
+      def play_preseason(reset: true, pace: 0)
         guard!
         data = manifest.read
         say "Step 3 · run the preseason for #{data['contest_slug']}"
@@ -276,6 +276,80 @@ module TurfMonster
         say "  polling ESPN slot #{POLL_SLOT} …"
         system("heroku", "run", "--app", app, "--no-tty", "--",
                "bin/nfl-live-poll", "--slot", POLL_SLOT)
+
+        replay(pace) if pace.positive?
+      end
+
+      # Replay the week one scoring play at a time, so an operator can watch
+      # the board move instead of reading a log of 145 things that already
+      # happened.
+      #
+      # This is a REPLAY, not a simulation. The poll above has already written
+      # the real Goal rows; this captures them, deletes them, and writes them
+      # back one at a time. Every re-created Goal fires the same callbacks the
+      # feed fires — refresh_game_scores, the contest re-score, and BOTH live
+      # broadcasts — so what appears on /live is the real touchdown, arriving
+      # on a clock we choose.
+      #
+      # It runs entirely on the dyno, in ONE invocation, and streams. A version
+      # that reached back to Rails per play would cost a dyno per touchdown.
+      def replay(pace)
+        say ""
+        say "  replaying #{POLL_SLOT} at #{pace}s per scoring play — watch https://#{host}/live"
+
+        script = <<~RUBY
+          slate = Slate.find_by!(name: #{SLATE_NAME.inspect})
+          slugs = slate.slate_matchups.pluck(:game_slug).compact.uniq
+          kickoffs = Game.where(slug: slugs).pluck(:slug, :kickoff_at).to_h
+
+          # Capture the real plays, then take them off the board. Ordered by
+          # kickoff then game clock, so simultaneous games interleave the way a
+          # Sunday actually does rather than finishing one at a time.
+          captured = Goal.where(game_slug: slugs).map { |g| g.attributes.except("id", "slug") }
+          captured.sort_by! { |g| [kickoffs[g["game_slug"]] || Time.current, g["minute"].to_i, g["created_at"].to_s] }
+
+          Goal.where(game_slug: slugs).delete_all
+          Game.where(slug: slugs).update_all(home_score: nil, away_score: nil,
+                                             status: "scheduled", status_detail: nil)
+          slate.slate_matchups.update_all(goals: nil, status: "pending")
+          puts "replay: board cleared, \#{captured.size} plays queued"
+          STDOUT.flush
+
+          remaining = captured.group_by { |g| g["game_slug"] }.transform_values(&:size)
+
+          captured.each_with_index do |attrs, i|
+            goal = Goal.create!(attrs)
+            game = goal.game
+            puts format("replay: %3d/%d  %-4s %-12s +%-2s  %s %s-%s %s",
+                        i + 1, captured.size, goal.team_slug.to_s[0, 4].upcase,
+                        goal.scoring_type, goal.points,
+                        game.away_team_slug.to_s[0, 3].upcase,
+                        game.away_score, game.home_score,
+                        game.home_team_slug.to_s[0, 3].upcase)
+            STDOUT.flush
+
+            # A game concludes right after its last play, which is what flips
+            # its matchups final and re-scores the contests that hold them.
+            remaining[goal.game_slug] -= 1
+            if remaining[goal.game_slug] <= 0
+              game.reload.conclude!
+              puts "replay: FINAL  \#{game.slug}"
+              STDOUT.flush
+            end
+
+            sleep #{pace}
+          end
+
+          puts "replay: done — \#{captured.size} plays, \#{remaining.size} games"
+        RUBY
+
+        # The streaming path bypasses RemoteRunner, so it borrows its guard
+        # rather than rediscovering the shell-expansion bug on its own.
+        if script.match?(RemoteRunner::SHELL_EXPANDABLE)
+          raise StepError, "replay script contains a shell-expandable name — see RemoteRunner::SHELL_EXPANDABLE"
+        end
+
+        system("heroku", "run", "--app", app, "--no-tty", "--", "bin/rails", "runner", script)
       end
 
       # --- Step 4 --------------------------------------------------------
