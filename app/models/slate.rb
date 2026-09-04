@@ -26,6 +26,19 @@ class Slate < ApplicationRecord
   # answer. That matters because `where(sport: "nfl")` is a live query
   # (app/services/nfl/build_span_slate.rb:77) and it silently drops NULL rows — this keeps
   # it honest. (No `sport` index exists; the migration deliberately refuses one.)
+  # ESPN's season codes, the SAME scale `games.season_type` already uses (see
+  # Game.in_season_slot). One vocabulary across both tables, so a join or a
+  # comparison between them means what it looks like.
+  PRESEASON_SEASON_TYPE = 1
+  DEFAULT_SEASON_TYPE = 2
+
+  # Week numbers are not unique within a year — NFL preseason week 3 and regular
+  # week 3 both exist — so a slate's week alone cannot say which games it holds.
+  # See the AddSeasonTypeToSlates migration for what that ambiguity cost.
+  def self.season_type_from_name(name)
+    name.to_s.match?(/preseason/i) ? PRESEASON_SEASON_TYPE : DEFAULT_SEASON_TYPE
+  end
+
   before_validation :derive_sport_and_year_from_name
 
   # Weekly slates in week order. Excludes the "Default" formula-holder row and
@@ -44,7 +57,13 @@ class Slate < ApplicationRecord
     return [self] if count.to_i <= 1 || week.blank?
 
     wanted = (week...(week + count.to_i)).to_a
-    found = self.class.weekly.where(week: wanted)
+    # SCOPED BY SEASON TYPE as well as year. Preseason slates used to be kept
+    # out of this lookup by carrying `week: nil` — a workaround for exactly this
+    # collision, which cost them the ability to be found at all. Now that
+    # season_type is a column they carry a real week, so this has to say which
+    # season it means or a regular-season span would absorb an exhibition week
+    # of the same number.
+    found = self.class.weekly.where(week: wanted, season_type: season_type)
                 .select { |slate| slate.season_year == season_year }
                 .index_by(&:week)
     wanted.take_while { |number| found.key?(number) }.map { |number| found[number] }
@@ -323,5 +342,22 @@ class Slate < ApplicationRecord
   def derive_sport_and_year_from_name
     self.sport = self.class.sport_from_name(name) if has_attribute?(:sport) && self[:sport].blank?
     self.year = self.class.year_from_name(name) if has_attribute?(:year) && self[:year].blank?
+    derive_season_type_from_name
+  end
+
+  # Season type joins sport and year as a name-derived column, so every writer
+  # gets it without having to remember. It is NOT guarded on `blank?` like the
+  # other two because the column has a NOT NULL default of "regular" — a caller
+  # who never thought about it would otherwise pin every preseason slate to
+  # "regular" simply by existing.
+  #
+  # An EXPLICIT non-default value still wins: a caller that sets "preseason" on
+  # a name that does not say so is making a deliberate statement, and the last
+  # thing this should do is overrule it.
+  def derive_season_type_from_name
+    return unless has_attribute?(:season_type)
+    return if season_type_changed? && self[:season_type] != DEFAULT_SEASON_TYPE
+
+    self.season_type = self.class.season_type_from_name(name)
   end
 end
