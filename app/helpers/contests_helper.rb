@@ -159,4 +159,31 @@ module ContestsHelper
   def chat_prompt_priciest(matchups)
     matchups.select { |m| m.turf_score.present? }.max_by { |m| m.turf_score.to_f }
   end
+
+  # What the live board should CALL itself, given the contest's state.
+  #
+  # The page renders in every state now (a link an operator has should work),
+  # but its header said "Live" with a pulsing red dot unconditionally — so a
+  # contest that had not kicked off, and one that had already paid out, both
+  # announced themselves as in progress. The badge is the first thing read on
+  # that page; a badge that is wrong is worse than no badge.
+  #
+  # `live?` is `locked? && !settled?` — the same predicate the broadcast filters
+  # on, so this label tells the truth about whether updates can arrive.
+  LIVE_STATES = {
+    live: { label: "Live", classes: "text-red-400", dot: "bg-red-500 animate-pulse" },
+    final: { label: "Final", classes: "text-muted", dot: "bg-slate-500" },
+    upcoming: { label: "Not started", classes: "text-muted", dot: "bg-slate-500" }
+  }.freeze
+
+  def contest_live_state(contest)
+    return :final if contest.settled?
+    return :live if contest.live?
+
+    :upcoming
+  end
+
+  def contest_live_badge(contest)
+    LIVE_STATES.fetch(contest_live_state(contest))
+  end
 end

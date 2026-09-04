@@ -1,4 +1,6 @@
-<% content_for(:title) { "#{@contest.name} — Live" } %>
+<%# The tab title reads the state too — a settled contest sitting in a browser
+    tab labelled "Live" is the same lie in a smaller place. %>
+<% content_for(:title) { "#{@contest.name} — #{contest_live_badge(@contest)[:label]}" } %>
 <%
   # The viewer's own entry slugs, for the sticky "this one is mine" post on the
   # ranking. Read off the controller's eager-loaded @entries, and empty for a
@@ -17,7 +19,14 @@
 <div class="max-w-7xl mx-auto px-4 py-6" x-data="{ focus: '<%= @focus_slug %>' }">
   <%# Single live stream for all real-time read updates (strip / focus /
       leaderboard / goal-feed). Chat keeps its own [@contest, :messages]
-      subscription inside the chat panel — don't duplicate it here. %>
+      subscription inside the chat panel — don't duplicate it here.
+      
+      SUBSCRIBED IN EVERY STATE, DELIBERATELY. Contest::LiveBroadcast filters at
+      SEND time (`status: [:open]` + `live?`), so this stream is dormant before
+      the lock rather than broken — and a viewer who had the page open when the
+      contest kicked off starts receiving without reloading. Subscribing only
+      when live would trade a harmless idle socket for a board that silently
+      never starts. The BADGE says which of those states you are in. %>
   <%= turbo_stream_from @contest, :live %>
 
   <%# The scoring vocabulary, shared verbatim with /live — same keyframes, same
@@ -326,8 +335,10 @@
       <% end %>
       <h1 class="text-2xl md:text-3xl font-extrabold text-heading flex items-center gap-2 flex-wrap">
         <%= @contest.name %>
-        <span class="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-red-400">
-          <span class="h-2 w-2 rounded-full bg-red-500 animate-pulse"></span> Live
+        <% badge = contest_live_badge(@contest) %>
+        <span class="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider <%= badge[:classes] %>"
+              data-test="live-state" data-state="<%= contest_live_state(@contest) %>">
+          <span class="h-2 w-2 rounded-full <%= badge[:dot] %>"></span> <%= badge[:label] %>
         </span>
       </h1>
     </div>
