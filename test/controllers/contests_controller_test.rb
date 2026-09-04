@@ -2489,14 +2489,6 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_redirected_to contest_path(survivor)
   end
 
-  test "live redirects to show for a survivor contest" do
-    survivor = Contest.create!(name: "Survivor Live #{SecureRandom.hex(2)}",
-                               game_type: :world_cup_survivor, contest_type: "survivor_wc_free",
-                               status: "open", starts_at: 1.hour.ago, rank: 8000 + rand(900))
-    get live_contest_path(survivor)
-    assert_redirected_to contest_path(survivor)
-  end
-
   # --- Phantom-driven contest creation: precheck hardening + fresh unsigned rebuild ---
   #
   # #create / #rebuild_create_tx / #finalize are admin-only AND require a Phantom

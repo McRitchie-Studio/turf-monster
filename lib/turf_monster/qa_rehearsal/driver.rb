@@ -261,6 +261,14 @@ module TurfMonster
         # before, the fetch is not just redundant, it is the thing that ruins it.
         if pace.positive? && slate_already_scored?
           say "  slate already holds its real plays — skipping the fetch and replaying from a clean board"
+
+          # UNSHIFT ON THIS PATH TOO. Step 1 nudges the whole week into the
+          # future so the board is pickable; putting the clock back used to live
+          # inside the `if reset` block below, which this return jumps over. So
+          # every paced re-run left the fixture claiming to kick off tomorrow
+          # while its games read FINAL — the exact incoherence the unshift
+          # exists to prevent, on the path an operator uses most.
+          unshift_fixture(data["kickoff_shift_seconds"].to_i)
           return replay(pace)
         end
 
@@ -323,6 +331,30 @@ module TurfMonster
       #
       # It runs entirely on the dyno, in ONE invocation, and streams. A version
       # that reached back to Rails per play would cost a dyno per touchdown.
+      # Put the fixture's clock back where step 1 found it.
+      #
+      # Extracted so the paced path and the reset path cannot drift: the poller
+      # matches ESPN by slot and external id, never by our clock, so this is
+      # cosmetic to the FETCH — but a board showing tomorrow's date beside a
+      # final score is what makes an operator distrust a run that is fine.
+      def unshift_fixture(shift)
+        return if shift <= 0
+
+        remote.call(<<~RUBY)
+          slate = Slate.find_by!(name: #{SLATE_NAME.inspect})
+          slugs = slate.slate_matchups.pluck(:game_slug).compact.uniq
+          moved = 0
+          Game.where(slug: slugs).find_each do |g|
+            next unless g.kickoff_at
+
+            g.update_columns(kickoff_at: g.kickoff_at - #{shift}.seconds)
+            moved += 1
+          end
+          emit(unshifted: moved)
+        RUBY
+        say "  fixture clock put back (#{shift}s)"
+      end
+
       # Does the slate already carry the real Goal rows a replay can re-lay?
       def slate_already_scored?
         remote.call(<<~RUBY).fetch("goals").positive?
@@ -418,8 +450,14 @@ module TurfMonster
       #
       # grade! refuses while the contest is unlocked (the program rejects a
       # settle before lock, so grading first would only fail later and louder),
-      # which is why the lock is moved here rather than at create time — the
-      # cast needs an open contest in step 2.
+      # which is why the lock is not set at create time — the cast needs an open
+      # contest in step 2.
+      #
+      # STEP 3 now does the locking (see #play_preseason), because a contest
+      # locks at kickoff and THEN the games play. This kept saying the lock was
+      # moved "here" long after it moved again, which is how a reader ends up
+      # looking for it in the wrong step. The call below stays as a backstop for
+      # a run that concludes without a step 3.
       def conclude(cosign: :agent)
         guard!
         data = manifest.read

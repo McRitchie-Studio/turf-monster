@@ -469,10 +469,13 @@ class ContestsController < ApplicationController
     end
   end
 
-  # Live "active contest" page — real-time leaderboard + chat + games for an
-  # in-progress contest, pushed over ActionCable (Contest::LiveBroadcast). New
-  # dedicated route for now; we'll fold it into #show's live state later.
-  # Turf Totals only for v1; Survivor + not-yet-live redirect to the show page.
+  # Live "active contest" page — real-time leaderboard + chat + games, pushed
+  # over ActionCable (Contest::LiveBroadcast). Dedicated route for now; we'll
+  # fold it into #show's live state later. Turf Totals only; a survivor contest
+  # redirects to the show page because it has no turf-totals board to draw.
+  #
+  # "not-yet-live redirects" used to be part of that sentence and is no longer
+  # true — see below.
   # The live board, reachable in EVERY contest state.
   #
   # It used to redirect unless `@contest.live?` — that is `locked? && !settled?`,
