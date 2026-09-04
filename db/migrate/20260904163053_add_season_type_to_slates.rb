@@ -43,14 +43,15 @@ class AddSeasonTypeToSlates < ActiveRecord::Migration[8.1]
     # span source. Recover the number from the name it is already displaying.
     execute <<~SQL
       UPDATE slates
-         SET week = CAST(substring(name FROM '[Ww]eek ([0-9]+)') AS INTEGER)
+         SET week = CAST(substring(name FROM '(?i)week ([0-9]+)') AS INTEGER)
        WHERE season_type = #{PRESEASON}
          AND week IS NULL
          AND name ~* 'week [0-9]+'
     SQL
   end
 
-  # A TRUE INVERSE, because `up` mutated more than the schema.
+  # `down` RESTORES THE CONVENTION, NOT THE EXACT ROWS — and the difference is
+  # worth stating rather than glossing.
   #
   # `up` writes `week` on preseason slates (NULL -> 4). Dropping only the column
   # would leave those rows carrying a week with NOTHING left to disambiguate
@@ -60,14 +61,20 @@ class AddSeasonTypeToSlates < ActiveRecord::Migration[8.1]
   # matchups: the exact failure the old `week = nil` workaround prevented, made
   # deterministic rather than merely possible.
   #
-  # That is not a theoretical rollback either. The release phase runs
-  # `db:migrate`, which never reverses; the real incident lever is `heroku
-  # rollback`, which leaves the column in place while the CODE reverts — so the
-  # reverted code has no season_type scope and reads the backfilled week anyway.
-  # This restores the only thing it can: the state `up` found.
+  # WHAT THIS DOES NOT COVER, stated plainly because an earlier version of this
+  # comment claimed otherwise:
   #
-  # Exactly inverse by construction — `up` wrote `week` only where it was NULL
-  # AND season_type is preseason, so nulling that same set restores it.
+  #   * It is NOT a row-level inverse. `up` wrote `week` only where it was NULL;
+  #     `down` nulls it on every preseason slate, including any created AFTER
+  #     the migration (BuildPreseasonSlate now sets a real week). Those rows did
+  #     not exist for `up` to skip, and returning them to the pre-migration
+  #     convention is the only coherent answer — but it is a convention restored,
+  #     not a snapshot replayed.
+  #   * It does NOT run on `heroku rollback`. That is the real incident lever,
+  #     and it reverts the SLUG while leaving the database alone — no `down`, no
+  #     migration, column and backfill both still in place, and the reverted code
+  #     with no season_type scope reading the week anyway. This method cannot
+  #     help there. Only `rails db:rollback` reaches it.
   def down
     execute "UPDATE slates SET week = NULL WHERE season_type = #{PRESEASON}"
     remove_index :slates, name: "index_slates_on_season_slot"

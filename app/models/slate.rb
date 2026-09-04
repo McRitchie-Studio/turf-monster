@@ -25,7 +25,9 @@ class Slate < ApplicationRecord
   # same name, so this records what a reader already saw rather than changing anyone's
   # answer. That matters because `where(sport: "nfl")` is a live query
   # (app/services/nfl/build_span_slate.rb:77) and it silently drops NULL rows — this keeps
-  # it honest. (No `sport` index exists; the migration deliberately refuses one.)
+  # it honest. (A `sport` index now exists, but only as the leading column of the
+  # composite `index_slates_on_season_slot` added with season_type — the earlier
+  # deliberate refusal of a STANDALONE sport index still stands.)
   # ESPN's season codes, the SAME scale `games.season_type` already uses (see
   # Game.in_season_slot). One vocabulary across both tables, so a join or a
   # comparison between them means what it looks like.
