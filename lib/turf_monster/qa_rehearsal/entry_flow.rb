@@ -67,8 +67,23 @@ module TurfMonster
       # existing picks OFF and errored, and a third run oscillated. Clearing
       # first is what makes this step re-runnable, which is the whole reason an
       # operator can watch it fail and simply run it again.
+      # CHECK THE ANSWER. WalletSession#post_json returns whatever the server
+      # said — it does not raise on a 4xx — so a refused clear comes back as
+      # `{ "success" => false, "error" => ... }` from a 422 and reads exactly
+      # like a success to anyone who discards it. This call used to, and was
+      # the only one in the flow that did; the flow then built picks onto a
+      # cart it had not cleared and ran to completion, which is precisely the
+      # oscillation the clear exists to prevent.
+      #
+      # Presence of `error`, not truthiness of `success`, mirroring build_cart:
+      # clear_picks answers `{ success: true }` even when there was no cart to
+      # clear, and parse_json answers `{}` for an empty body — so an
+      # error-presence check cannot refuse a clear that actually succeeded.
       def clear_cart
-        session.post_json(path("clear_picks"))
+        response = session.post_json(path("clear_picks"))
+        return if response["error"].blank?
+
+        raise EntryError, "clear_picks refused: #{response['error']}"
       end
 
       def build_cart
