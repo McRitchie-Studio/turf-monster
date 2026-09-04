@@ -52,21 +52,28 @@ module Nfl
 
     private
 
-    # `week` IS DELIBERATELY NIL, and that is the load-bearing line in this file.
+    # `week` USED TO BE DELIBERATELY NIL, and that was the load-bearing line in
+    # this file. The reasoning was right and is worth keeping in view:
     #
-    # `Nfl::BuildSpanSlate` selects its source slates with
-    # `Slate.where(week: @weeks, year: @year, sport: "nfl")`
-    # (build_span_slate.rb:81). A preseason slate carrying `week: 4` therefore
-    # answers that query for a regular-season "Weeks 2-4" contest and drags
-    # exhibition matchups into it — silently, because the row looks like any
-    # other week-4 slate. `Slate.weekly` excludes null weeks for the same reason.
+    #   `Nfl::BuildSpanSlate` selected its sources with
+    #   `Slate.where(week:, year:, sport:)`, so a preseason slate carrying
+    #   `week: 4` answered that query for a regular-season "Weeks 2-4" contest
+    #   and dragged exhibition matchups into it — silently, because the row
+    #   looked like any other week-4 slate.
     #
-    # This is the same collision the game slug already had to solve (preseason
-    # LAC-vs-SF colliding with regular-season week 15), one table over. The week
-    # number lives in the NAME, where nothing queries on it.
+    # Nilling the week solved that by making the slate UNFINDABLE, which also
+    # made it unusable: a preseason SPAN could never be built, because its own
+    # source slates could not be selected either. The collision was real; the
+    # remedy was a workaround.
+    #
+    # `season_type` is now a column (see AddSeasonTypeToSlates), and both
+    # week-based lookups scope by it — BuildSpanSlate#source_slates and
+    # Slate#consecutive_weeks. So the week can be what it actually is, and the
+    # ambiguity is resolved where it belongs rather than by hiding one side of
+    # it.
     def ensure_slate!
       slate = Slate.find_or_initialize_by(name: slate_name)
-      slate.week = nil
+      slate.week = @week
       slate.starts_at ||= Time.current
       slate.save!
       slate

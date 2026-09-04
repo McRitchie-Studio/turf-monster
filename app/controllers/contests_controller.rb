@@ -1879,7 +1879,18 @@ class ContestsController < ApplicationController
     year = anchor.season_year || Time.current.year
     weeks = (anchor.week...(anchor.week + span)).to_a
 
-    Nfl::BuildSpanSlate.call(year: year, weeks: weeks)
+    # THE SPAN FOLLOWS THE ANCHOR'S SEASON, and omitting that is not a
+    # defaulting nicety — it silently builds a DIFFERENT contest.
+    #
+    # Week numbers repeat within a year, so weeks [3,4] name two different sets
+    # of games depending on the season. Before slates carried `season_type`,
+    # this line was unreachable for a preseason anchor BY ACCIDENT: preseason
+    # slates had `week: nil`, and the guard above returns nil on a blank week.
+    # Giving them a real week removed that accident, so the season has to be
+    # asked for explicitly or the operator picks "Preseason Week 3", gets a span
+    # of REGULAR weeks 3-4 — unplayed games — and #create mints it on-chain
+    # while `c.slate_id = span.id` silently replaces the slate they chose.
+    Nfl::BuildSpanSlate.call(year: year, weeks: weeks, season_type: anchor.season_type)
   rescue Nfl::BuildSpanSlate::Error => e
     @span_slate_error = e.message
     nil

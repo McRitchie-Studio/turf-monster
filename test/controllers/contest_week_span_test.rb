@@ -226,4 +226,109 @@ class ContestWeekSpanTest < ActionDispatch::IntegrationTest
     assert_empty vault.create_contest_calls
     assert_nil json["params_token"], "no create token may be issued when the contest is refused"
   end
+
+  # --- THE SPAN MUST FOLLOW THE ANCHOR'S SEASON ---
+  #
+  # Week numbers repeat within a year, so weeks [3,4] name two different sets of
+  # games depending on season. This class had ZERO preseason cases, and the
+  # mechanism was only ever proven through the private #source_slates — so the
+  # CALLER, which is what decides which contest an operator actually gets, was
+  # unproven. That is where the regression was.
+  #
+  # `resolve_span_slate` used to be unreachable for a preseason anchor by
+  # ACCIDENT: preseason slates carried `week: nil` and it returns nil on a blank
+  # week. Giving them a real week removed that accident, so the season must be
+  # asked for explicitly.
+  #
+  # Driven through the controller's own private method rather than a full POST:
+  # the defect is one argument on one line, and a successful #create would drag
+  # an on-chain mint into a test about slate selection.
+
+  def preseason_pair
+    pre3 = Slate.create!(name: "NFL 2026 Preseason Week 3", slug: "nfl-2026-pre-week-3", week: 3)
+    pre4 = Slate.create!(name: "NFL 2026 Preseason Week 4", slug: "nfl-2026-pre-week-4", week: 4)
+    [[pre3, 3], [pre4, 4]].each do |slate, week|
+      # The same fixture teams the regular slates use — this test is about which
+      # SLATE gets picked, not about who plays.
+      %w[team-a team-b].each_with_index do |team, index|
+        SlateMatchup.create!(slate: slate, team_slug: team, opponent_team_slug: "team-f",
+                             game_slug: "#{team}-pre#{week}-#{SecureRandom.hex(3)}",
+                             week: week, expected_score: 22.0 - index, status: "pending")
+      end
+    end
+    [pre3, pre4]
+  end
+
+  # THE SWAP ITSELF, not just the resolver.
+  #
+  # `:1838` (`c.slate_id = span.id if span`) is the line that actually replaces
+  # the operator's chosen slate, and a test stopping at resolve_span_slate
+  # proves the resolver while leaving the swap unproven — the same shape as the
+  # gap that got this PR blocked, one layer up.
+  #
+  # It builds an UNPERSISTED contest, so this proves the whole params-to-contest
+  # chain with no database write and no on-chain mint. The objection I had to
+  # covering this (that it drags a mint into a slate test) turned out to be
+  # wrong: nothing here mints.
+  def contest_built_from(anchor, span)
+    controller = ContestsController.new
+    controller.params = ActionController::Parameters.new(
+      contest: { name: "Span Swap #{SecureRandom.hex(2)}", contest_type: "medium",
+                 slate_id: anchor.id.to_s, week_span: span.to_s }
+    )
+    controller.send(:build_unpersisted_contest_from_params)
+  end
+
+  def resolved_span_for(anchor, span)
+    controller = ContestsController.new
+    controller.params = ActionController::Parameters.new(
+      contest: { slate_id: anchor.id.to_s, week_span: span.to_s }
+    )
+    controller.send(:resolve_span_slate, Contest.new)
+  end
+
+  test "a preseason anchor spans PRESEASON weeks, not the regular weeks of the same number" do
+    pre3, = preseason_pair
+    Slate.create!(name: "NFL 2026 Week 4", slug: "nfl-2026-week-4", week: 4) # the collider
+
+    span = resolved_span_for(pre3, 2)
+
+    refute_nil span, "a preseason anchor must still resolve a span"
+    assert_equal Slate::PRESEASON_SEASON_TYPE, span.season_type,
+                 "an operator who picked a preseason slate must not be handed regular-season games"
+    assert_equal "NFL 2026 Preseason Weeks 3-4", span.name
+  end
+
+  # The end the operator actually experiences: what slate the contest they are
+  # about to mint is carrying.
+  test "the contest built from a preseason anchor carries the PRESEASON span" do
+    pre3, = preseason_pair
+    Slate.create!(name: "NFL 2026 Week 4", slug: "nfl-2026-week-4", week: 4)
+
+    contest = contest_built_from(pre3, 2)
+    swapped = Slate.find(contest.slate_id)
+
+    assert_equal Slate::PRESEASON_SEASON_TYPE, swapped.season_type,
+                 "the slate swapped in must be the operator's own season"
+    assert_equal "NFL 2026 Preseason Weeks 3-4", swapped.name
+    refute_equal pre3.id, contest.slate_id, "a span of 2 still swaps the anchor for the span slate"
+  end
+
+  test "a span of one leaves the operator's chosen slate alone" do
+    pre3, = preseason_pair
+
+    contest = contest_built_from(pre3, 1)
+
+    assert_equal pre3.id, contest.slate_id, "a single-week contest keeps the slate that was picked"
+  end
+
+  test "a regular anchor still spans regular weeks when a preseason collider exists" do
+    preseason_pair
+    Slate.create!(name: "NFL 2026 Week 4", slug: "nfl-2026-week-4", week: 4)
+
+    span = resolved_span_for(@w3, 2)
+
+    assert_equal Slate::DEFAULT_SEASON_TYPE, span.season_type
+    assert_equal "NFL 2026 Weeks 3-4", span.name
+  end
 end
