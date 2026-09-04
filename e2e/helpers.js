@@ -253,9 +253,29 @@ async function allowMotion(page) {
  */
 const OPERATOR_USERNAME = "alex";
 
+/**
+ * Two seeded accounts chosen for the WIDTH of their username, for the navbar
+ * fade specs — which need a name that does not fit and a name that does.
+ *
+ * `mcritchie` (9 chars, ~72px) overflows the navbar's username slot; `turf`
+ * (34px) fits with room to spare at every width and on both faces of the
+ * balance slot. Sign-in email, not username, because the login helper takes an
+ * email and because the email is the half that does not churn.
+ *
+ * These moved on 2026-09-04: the overflowing name used to be the human
+ * operator's. The swap gave the human `alex` — 38px, which FITS — so the fade
+ * specs lost their overflowing subject and failed on their own precondition
+ * ("this width must actually be overflowing"). The long name did not disappear;
+ * it moved to the shared team account, which is what these point at now.
+ */
+const OVERFLOWING_NAME_EMAIL = "team@mcritchie.studio";
+const FITTING_NAME_EMAIL = "team@turfmonster.media";
+
 module.exports = {
   login,
   OPERATOR_USERNAME,
+  OVERFLOWING_NAME_EMAIL,
+  FITTING_NAME_EMAIL,
   loginAdmin,
   loginViaPhantom,
   reseed,
