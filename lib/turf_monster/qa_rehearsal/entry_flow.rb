@@ -40,6 +40,7 @@ module TurfMonster
 
       def call
         session.verify_age!
+        clear_cart
         build_cart
         prepared = prepare
         confirm(prepared)
@@ -51,20 +52,25 @@ module TurfMonster
         "/contests/#{contest_slug}/#{action}"
       end
 
-      # NOTE: this deliberately does NOT call clear_picks first, even though
-      # starting from an empty cart would be tidier.
+      # START FROM A KNOWN-EMPTY CART.
       #
-      # clear_picks marks the cart entry `abandoned` and LEAVES its
-      # entry_number set. The slot allocator
-      # (Entry#assign_onchain_entry_number!) builds its `taken` list from
-      # cart/active/complete only, so it hands the same number out again — and
-      # the unique index on (user, contest, entry_number) is partial on
-      # `entry_number IS NOT NULL`, not on status, so it still counts the
-      # abandoned row. The insert then dies with a raw PG::UniqueViolation.
+      # This step used to skip clear_picks deliberately, because clear_picks
+      # abandoned the cart entry while LEAVING its entry_number set, and the
+      # allocator would then hand the same number back into a partial unique
+      # index that still counted the abandoned row. Calling it was the one move
+      # that made this step permanently un-rerunnable.
       #
-      # Calling clear_picks between attempts is therefore the one move that
-      # makes this step permanently un-rerunnable. Filed separately as an app
-      # bug; the driver simply does not take that path.
+      # That app bug is fixed — Entry releases the slot on abandon, except when
+      # the row carries an on-chain signature (see Entry#release_slot_if_abandoned).
+      # So the workaround is retired, and retiring it FIXES a defect of its own:
+      # toggle_selection TOGGLES, so a re-run over a partial cart turned the
+      # existing picks OFF and errored, and a third run oscillated. Clearing
+      # first is what makes this step re-runnable, which is the whole reason an
+      # operator can watch it fail and simply run it again.
+      def clear_cart
+        session.post_json(path("clear_picks"))
+      end
+
       def build_cart
         picks.each_with_index do |matchup_id, index|
           response = session.post_json(path("toggle_selection"), matchup_id: matchup_id)
