@@ -183,6 +183,7 @@ module TurfMonster
         say "  on-chain: yes · pool $#{result['prize_pool_cents'].to_i / 100} · payouts #{result['payouts'].inspect}"
         say "  picks:    #{result['picks_required']} from #{result['matchup_ids'].size} matchups"
         say "  locks at: #{result['locks_at']}"
+        say_urls(result["contest_slug"])
         result
       end
 
@@ -226,6 +227,7 @@ module TurfMonster
         manifest.merge("entries" => results)
         failed = results.reject { |r| r[:ok] }
         say failed.empty? ? "  all #{results.size} entered" : "  #{failed.size} of #{results.size} FAILED"
+        say_urls(slug)
         results
       end
 
@@ -242,6 +244,25 @@ module TurfMonster
         guard!
         data = manifest.read
         say "Step 3 · run the preseason for #{data['contest_slug']}"
+
+        # LOCK BEFORE THE GAMES PLAY. A contest locks at kickoff and then the
+        # games happen — doing it the other way leaves the board open while its
+        # fixtures conclude, and `Contest#live?` is `locked? && !settled?`, so
+        # the per-contest LIVE PAGE — the one built for watching this — redirects
+        # for the entire watchable window. Step 1 sets the lock hours out so the
+        # cast can enter; this is where that stops being true.
+        lock_contest(data.fetch("contest_slug"))
+
+        # A PACED RUN MUST NOT POLL FIRST when the slate already holds its goals.
+        # The poll writes the whole week in one burst, so the operator watches a
+        # finished board for ~3 minutes before the replay clears it and starts
+        # over — a spoiler followed by a rewind. The replay captures, clears and
+        # re-lays what is already there, so on a slate that has been fetched
+        # before, the fetch is not just redundant, it is the thing that ruins it.
+        if pace.positive? && slate_already_scored?
+          say "  slate already holds its real plays — skipping the fetch and replaying from a clean board"
+          return replay(pace)
+        end
 
         if reset
           shift = data["kickoff_shift_seconds"].to_i
@@ -266,13 +287,16 @@ module TurfMonster
             games = Game.where(slug: slugs).update_all(home_score: nil, away_score: nil,
                                                        status: "scheduled", status_detail: nil)
             ms = slate.slate_matchups.update_all(goals: nil, status: "pending")
-            emit(goals_deleted: goals, games_reset: games, matchups_reset: ms, unshifted: shift)
+            zeroed = Entry.where(contest_id: Contest.where(slate_id: slate.id).select(:id))
+                          .where.not(score: 0).update_all(score: 0)
+            emit(goals_deleted: goals, games_reset: games, matchups_reset: ms, unshifted: shift, scores_zeroed: zeroed)
           RUBY
           say "  reset: #{cleared['goals_deleted']} goals, #{cleared['games_reset']} games, " \
               "#{cleared['matchups_reset']} matchups back to kickoff"
         end
 
-        say "  watch: https://#{host}/live"
+        say_urls(data.fetch("contest_slug"), live_first: true)
+        say ""
         say "  polling ESPN slot #{POLL_SLOT} …"
         # The return value IS the verdict. A poll that fails exits this method
         # having ALREADY cleared the board, so a later `conclude` would grade an
@@ -299,6 +323,27 @@ module TurfMonster
       #
       # It runs entirely on the dyno, in ONE invocation, and streams. A version
       # that reached back to Rails per play would cost a dyno per touchdown.
+      # Does the slate already carry the real Goal rows a replay can re-lay?
+      def slate_already_scored?
+        remote.call(<<~RUBY).fetch("goals").positive?
+          slate = Slate.find_by!(name: #{SLATE_NAME.inspect})
+          slugs = slate.slate_matchups.pluck(:game_slug).compact.uniq
+          emit(goals: Goal.where(game_slug: slugs).count)
+        RUBY
+      end
+
+      def lock_contest(slug)
+        locked = remote.call(<<~RUBY)
+          contest = Contest.find_by!(slug: #{slug.inspect})
+          unless contest.locked?
+            Solana::Vault.new.set_contest_lock_time(contest.slug, Time.current.to_i)
+            contest.update!(starts_at: Time.current)
+          end
+          emit(locked: contest.reload.locked?, live: contest.live?)
+        RUBY
+        say "  contest locked: #{locked['locked']} · live page: #{locked['live'] ? 'open' : 'closed'}"
+      end
+
       def replay(pace)
         say ""
         say "  replaying #{POLL_SLOT} at #{pace}s per scoring play — watch https://#{host}/live"
@@ -318,7 +363,15 @@ module TurfMonster
           Game.where(slug: slugs).update_all(home_score: nil, away_score: nil,
                                              status: "scheduled", status_detail: nil)
           slate.slate_matchups.update_all(goals: nil, status: "pending")
-          puts "replay: board cleared, \#{captured.size} plays queued"
+          # ZERO THE LEADERBOARD TOO. Clearing the goals does not clear the
+          # scores derived from them -- nothing re-scores an entry until the next
+          # goal lands, so the board keeps showing last run's totals while the
+          # games sit at 0-0. An operator reading that cannot tell how much
+          # football is left to play, which is the whole point of watching a
+          # paced replay.
+          zeroed = Entry.where(contest_id: Contest.where(slate_id: slate.id).select(:id))
+                        .where.not(score: 0).update_all(score: 0)
+          puts "replay: board cleared, \#{captured.size} plays queued, \#{zeroed} score(s) zeroed"
           STDOUT.flush
 
           remaining = captured.group_by { |g| g["game_slug"] }.transform_values(&:size)
@@ -409,6 +462,8 @@ module TurfMonster
 
         manifest.merge("ptx_slug" => graded["ptx_slug"], "winners" => graded["winners"])
 
+        say_urls(slug)
+
         return say("  no settle transaction to co-sign (nobody was owed)") if graded["ptx_slug"].blank?
 
         cosign == :link ? offer_cosign_link(graded) : cosign_with_agent(graded)
@@ -439,6 +494,7 @@ module TurfMonster
         RUBY
 
         say "  closed: #{result.inspect}"
+        say_urls(slug)
         result
       end
 
@@ -517,6 +573,23 @@ module TurfMonster
           session.sign_in!
           session
         end
+      end
+
+      # Every step ends by printing where to LOOK. The operator drives this from a
+      # terminal but watches it in a browser, and a step that reports what it did
+      # without saying where to see it makes them go hunting for a URL they were
+      # just told about in a different step.
+      def say_urls(slug, live_first: false)
+        contest = "https://#{host}/contests/#{slug}"
+        say ""
+        if live_first
+          say "  Live Board:   #{contest}/live"
+          say "  Contest:      #{contest}"
+        else
+          say "  Contest:      #{contest}"
+          say "  Live Board:   #{contest}/live"
+        end
+        say "  League Board: https://#{host}/live"
       end
 
       def say(message)
