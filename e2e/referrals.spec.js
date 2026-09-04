@@ -21,20 +21,26 @@ test.beforeEach(async ({ request }) => await reseed(request));
 const CONTEST_SLUG = "world-cup-2026";
 
 // Seeded users — these slugs come from the deterministic E2E seed.
-// CORE_USERS order: human (mcritchie, id 1), bot (alex, 2), mason (3),
-// mack (4), turf (5).
+// CORE_USERS order: human (alex, id 1), team account (mcritchie, 2), mason (3),
+// mack (4), turf (5). The first two traded usernames on 2026-09-04; only ids 1
+// and 2 are affected, so the inviter slugs below are unchanged.
+//
+// A slug is "<username>-<id>", so RENAMING A USER RENAMES THIS CONSTANT. That is
+// the whole reason it is spelled out here: the spec drives /referrals by slug,
+// and a stale one 404s rather than failing an assertion, which reads like a
+// broken page instead of a stale fixture.
 //
 // Every slug now carries its id. It did not always: Sluggable builds
 // "<base>-<id>" in a before_save, which on CREATE runs before the id exists, so
 // rows landed as "<base>-" and only gained the id if something saved them again.
 // generate_managed_wallet! was that something — for non-admins only, which is
-// why the reserved-username admins (alex, turf) kept the dangling shape and this
-// file used to say "turf-". User#finalize_slug! settles it on create instead, so
-// the shape no longer depends on which callbacks happened to fire.
+// why the admin rows kept the dangling shape and this file used to say "turf-".
+// User#finalize_slug! settles it on create instead, so the shape no longer
+// depends on which callbacks happened to fire.
 const INVITER_FOR_PHANTOM = "mason-3";
 const INVITER_FOR_GOOGLE  = "mack-4";
 const INVITER_FOR_EMAIL   = "turf-5";
-const ALEX_SLUG           = "mcritchie-1"; // the human operator (id 1)
+const ALEX_SLUG           = "alex-1"; // the human operator (id 1) — holds `alex` again after the 2026-09-04 username swap
 
 // --- Helpers --------------------------------------------------------------
 
