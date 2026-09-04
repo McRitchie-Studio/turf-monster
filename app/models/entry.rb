@@ -221,6 +221,14 @@ class Entry < ApplicationRecord
 
   private
 
+  def release_slot_if_abandoned
+    return unless status_changed? && abandoned?
+    return if entry_number.nil?
+    return if onchain_tx_signature.present?
+
+    self.entry_number = nil
+  end
+
   def update_slug_with_id
     update_column(:slug, name_slug)
   end
@@ -262,6 +270,31 @@ class Entry < ApplicationRecord
 
     # Seeds (25 per entry) are awarded on-chain by the turf_vault Anchor program
   end
+
+  # RELEASE THE SLOT WHEN AN ENTRY IS ABANDONED.
+  #
+  # Two places decide what "taken" means and they used to disagree:
+  # #assign_onchain_entry_number! builds its `taken` list from
+  # cart/active/complete, deliberately ignoring abandoned rows, while
+  # index_entries_on_user_contest_entry_number is partial on `entry_number IS
+  # NOT NULL` and does not. So an abandoned row kept a number the allocator
+  # would hand out again, and the insert died on the index.
+  #
+  # The visible cost was a player locked out of a contest: reach the Phantom
+  # prompt (which stamps the number), tap "Clear picks" (which abandons the
+  # row), build picks again — and every attempt from then on raised a raw
+  # PG::UniqueViolation at them.
+  #
+  # Releasing here rather than in ContestsController#clear_picks is deliberate:
+  # clear_picks is one of the paths that abandons an entry, and a fix that
+  # lived there would leave the disagreement intact for every other one.
+  #
+  # THE EXCEPTION IS NOT OPTIONAL. An entry that carries an on-chain signature
+  # has a real ContestEntry PDA at that index whatever the database says.
+  # Releasing its number would let a later entry be built against an occupied
+  # PDA, which fails on-chain — a worse failure than the one being fixed, and
+  # one that costs a broadcast to discover.
+  before_save :release_slot_if_abandoned
 
   # Assign (or re-assign) this entry's on-chain slot to the lowest index whose
   # Entry PDA isn't already allocated for `wallet_address`, and isn't claimed by
