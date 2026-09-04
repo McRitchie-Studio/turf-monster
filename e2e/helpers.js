@@ -239,8 +239,23 @@ async function allowMotion(page) {
   await page.emulateMedia({ reducedMotion: "no-preference" });
 }
 
+/**
+ * The human operator's USERNAME, as seeded by db/seeds/users.rb.
+ *
+ * It lives here because three specs assert the nav chip's text and a fourth
+ * builds a profile slug from it, and on 2026-09-04 it changed: `alex` and
+ * `mcritchie` traded owners (the human took the bare name back; the shared team
+ * account moved to `mcritchie`), which reddened the playwright lane in four
+ * places at once. One literal is one edit next time.
+ *
+ * Keep it in step with User::PARKED_IDENTITIES — nothing enforces that from
+ * JavaScript, so a rename is a two-file change by hand.
+ */
+const OPERATOR_USERNAME = "alex";
+
 module.exports = {
   login,
+  OPERATOR_USERNAME,
   loginAdmin,
   loginViaPhantom,
   reseed,

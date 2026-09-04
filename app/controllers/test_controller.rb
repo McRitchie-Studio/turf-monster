@@ -118,11 +118,8 @@ class TestController < ApplicationController
   #   - `use_phantom_mock_admin` — called from Playwright globalSetup.
   #     Stashes the human operator's current wallet into a Rails.cache key,
   #     then points them at MOCK_PUBKEY so loginViaPhantom resolves to the
-  #     human admin. NB: the human's username is `mcritchie` after the
-  #     2026-06-02 naming flip (the bare `alex` username now belongs to the
-  #     server bot — see db/seeds/users.rb). This must stay in sync with the
-  #     cold-start path in e2e/seed.rb, which stamps PHANTOM_MOCK_WALLET onto
-  #     `users["mcritchie"]`.
+  #     human admin. It resolves the human by EMAIL — see HUMAN_ADMIN_EMAIL for
+  #     why that is not the username.
   #   - `restore_canonical_admin` — called from Playwright globalTeardown.
   #     Reads the stashed wallet back. If the cache key is missing
   #     (crash, container restart, expired), falls back to
@@ -131,19 +128,27 @@ class TestController < ApplicationController
   ADMIN_WALLET_STASH_KEY   = "test/canonical_admin_wallet".freeze
   CANONICAL_ADMIN_FALLBACK = "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr".freeze
 
-  # Human operator's username post-2026-06-02 naming flip (was "alex"; the bare
-  # "alex" username now belongs to the server bot — see db/seeds/users.rb).
-  HUMAN_ADMIN_USERNAME = "mcritchie".freeze
+  # THE HUMAN OPERATOR, KEYED BY EMAIL — because the username churns and the
+  # email does not. It has moved twice: `alex` -> `mcritchie` (2026-06-02) ->
+  # `alex` (2026-09-04, traded back with the shared team account).
+  #
+  # A stale username here does NOT fail as a missing user, which is what makes it
+  # worth keying off: it finds the OTHER seeded admin, tries to hand it the mock
+  # wallet the human already holds, and dies `Web3 solana address has already been
+  # taken` (422) inside Playwright's globalSetup — so EVERY shard fails before
+  # running a single test, reading as a wallet bug rather than a rename. Measured
+  # 2026-09-04.
+  HUMAN_ADMIN_EMAIL = "alex@mcritchie.studio".freeze
 
   def use_phantom_mock_admin
-    human = User.find_by!(username: HUMAN_ADMIN_USERNAME)
+    human = User.find_by!(email: HUMAN_ADMIN_EMAIL)
     Rails.cache.write(ADMIN_WALLET_STASH_KEY, human.web3_solana_address, expires_in: 1.hour)
     human.update!(web3_solana_address: PHANTOM_MOCK_WALLET)
     render json: { ok: true, from: Rails.cache.read(ADMIN_WALLET_STASH_KEY), to: PHANTOM_MOCK_WALLET }
   end
 
   def restore_canonical_admin
-    human = User.find_by!(username: HUMAN_ADMIN_USERNAME)
+    human = User.find_by!(email: HUMAN_ADMIN_EMAIL)
     stashed = Rails.cache.read(ADMIN_WALLET_STASH_KEY)
     Rails.cache.delete(ADMIN_WALLET_STASH_KEY)
     canonical = stashed.presence ||

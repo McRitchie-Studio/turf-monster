@@ -14,7 +14,7 @@
 // path would.
 
 const { test, expect } = require("@playwright/test");
-const { login, loginViaPhantom, setupPhantomMock, reseed } = require("./helpers");
+const { login, loginViaPhantom, setupPhantomMock, reseed, OPERATOR_USERNAME } = require("./helpers");
 
 test.beforeEach(async ({ request }) => await reseed(request));
 
@@ -40,7 +40,7 @@ const CONTEST_SLUG = "world-cup-2026";
 const INVITER_FOR_PHANTOM = "mason-3";
 const INVITER_FOR_GOOGLE  = "mack-4";
 const INVITER_FOR_EMAIL   = "turf-5";
-const ALEX_SLUG           = "alex-1"; // the human operator (id 1) — holds `alex` again after the 2026-09-04 username swap
+const ALEX_SLUG           = `${OPERATOR_USERNAME}-1`; // the human operator (id 1)
 
 // --- Helpers --------------------------------------------------------------
 

@@ -198,9 +198,12 @@ test("logged-in navbar keeps the Free Entry face contained and the username read
     expect(metrics.controls.some((c) => c.name === "balance"), message).toBe(false);
 
     // ...and the part containment alone never noticed. The wider face used to
-    // starve the username to 15.6px -- zero readable characters of "mcritchie"
-    // at every width from 768 through 1024 -- while documentOverflow stayed 0
-    // and nothing went offscreen, so the old pass called that a pass.
+    // starve the username to 15.6px -- zero readable characters of the operator
+    // name (then nine characters, "mcritchie") at every width from 768 through
+    // 1024 -- while documentOverflow stayed 0 and nothing went offscreen, so the
+    // old pass called that a pass. The assertion below is length-adaptive on
+    // purpose (`min(4, length)`), so it keeps biting after the 2026-09-04 swap
+    // shortened the name to "alex".
     const legible = await usernameLegibility(page);
     const want = Math.min(4, legible.length);
     expect(legible.visibleChars,
