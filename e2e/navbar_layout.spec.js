@@ -729,7 +729,7 @@ test("the fade follows a resize across the squeeze band, and leaves a fitting na
     // to spare at every width and on BOTH faces of the balance slot (measured:
     // scrollWidth 34 == clientWidth 34 at 900 and 1366, amount and Free Entry
     // alike). A name that fits must never be faded.
-    await login(page, "turf@mcritchie.studio", "password");
+    await login(page, "team@turfmonster.media", "password");
     await page.setViewportSize({ width: 900, height: 800 });
     await page.goto("/contests");
     await settleNavbar(page);

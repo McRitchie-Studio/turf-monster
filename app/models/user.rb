@@ -4,7 +4,12 @@ class User < ApplicationRecord
   # The seeded house account's stable identity (db/seeds/users.rb). Usernames
   # can be renamed (and "turf" is itself a reserved prefix), so User.turf keys
   # on this email, never the username.
-  TURF_HOUSE_EMAIL = "turf@mcritchie.studio".freeze
+  #
+  # It moved off `turf@mcritchie.studio` on 2026-09-04. That address was a Google
+  # GROUP with zero members forwarding into the studio inbox; this one is a real
+  # Google user on Turf's own domain (1Password `google.turf.agents`), which is
+  # what lets the house account actually receive mail as itself.
+  TURF_HOUSE_EMAIL = "team@turfmonster.media".freeze
 
   # Stable identities whose usernames are parked before the generic generator
   # runs. These are keyed by verified email or wallet ownership so a fresh DB,
@@ -15,18 +20,27 @@ class User < ApplicationRecord
     # the FIRST NAME TOKEN, so the old value rendered "Welcome Mr.!" in every
     # sign-in email and on /admin/emails. mcritchie-studio already names the same
     # person "Alex McRitchie" — one person, one name, across the apps.
-    { email: "alex@mcritchie.studio",    name: "Alex McRitchie",  username: "mcritchie", role: "admin", wallet: "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr" },
-    { email: "team@mcritchie.studio",    name: "Team McRitchie",  username: "alex",      role: "admin", wallet: "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd" },
-    { email: "mason@mcritchie.studio",   name: "Mason McRitchie", username: "mason",     role: "user",  wallet: "CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR" },
-    { email: "mack@mcritchie.studio",    name: "Mack McRitchie",  username: "mack",      role: "user",  wallet: "foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds" },
-    { email: TURF_HOUSE_EMAIL,           name: "Turf Monster",    username: "turf",      role: "admin", wallet: "BLSBw8fXHzZc5pbaYCKMpMSsrtXBTbWXpUPVzMrXx9oo" },
-    # THIS APP'S OWN ADMIN, on its own domain. Distinct from the shared
-    # alex@mcritchie.studio above (one operator, every app) and from
-    # TURF_HOUSE_EMAIL (the house ACCOUNT that User.turf keys on, not a person).
-    # Every app seeds the shared pair plus an admin on its own domain, so a
+    #
+    # THE HUMAN HOLDS `alex`, as of 2026-09-04. The 2026-06-02 flip had given the
+    # bare name to the shared team account and put the person on `mcritchie`;
+    # this reverses it, so the username reads as the person it belongs to.
+    { email: "alex@mcritchie.studio",  name: "Alex McRitchie",  username: "alex",      role: "admin", wallet: "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr" },
+    # The shared team account — the server-side signer, not a person — now on
+    # `mcritchie`. Named "Team McRitchie" here and in mcritchie-studio.
+    { email: "team@mcritchie.studio",  name: "Team McRitchie",  username: "mcritchie", role: "admin", wallet: "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd" },
+    { email: "mason@mcritchie.studio", name: "Mason McRitchie", username: "mason",     role: "user",  wallet: "CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR" },
+    { email: "mack@mcritchie.studio",  name: "Mack McRitchie",  username: "mack",      role: "user",  wallet: "foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds" },
+    # THIS APP'S ADMIN ON ITS OWN DOMAIN — and it is the house account itself now.
+    # Every app seeds the shared identities plus an admin on its own domain, so a
     # session can be signed in as "the operator of THIS app" without borrowing
-    # Studio's identity.
-    { email: "alex@turfmonster.media",   name: "Alex McRitchie",  username: "alexturf",  role: "admin" }
+    # Studio's identity. A separate `alex@turfmonster.media` / `alexturf` row used
+    # to carry that; it was removed on 2026-09-04 because TURF_HOUSE_EMAIL now
+    # satisfies the same property with one account instead of two.
+    #
+    # (`alex@turfmonster.media` still exists as the SUPPORT and marketing FROM
+    # address — see ApplicationMailer::MARKETING_FROM and the pages/ views. Only
+    # the seeded user was retired.)
+    { email: TURF_HOUSE_EMAIL,         name: "Turf Monster",    username: "turf",      role: "admin", wallet: "BLSBw8fXHzZc5pbaYCKMpMSsrtXBTbWXpUPVzMrXx9oo" }
   ].freeze
 
   # Rails mirror of turf-vault's on-chain reserved-prefix list — keep in sync
