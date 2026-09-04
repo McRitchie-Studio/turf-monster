@@ -183,8 +183,14 @@ module ContestsHelper
   #   settled        yes         (always)  Cancelled   <- read "Final" before this
   #
   # PRECEDENCE: cancelled, then final, then live, then upcoming. Cancellation
-  # wins outright because a refunded contest is over whatever else is true of
-  # it, and it is the fact that changes what the viewer should do next.
+  # wins outright because it is terminal whatever else is true of the contest,
+  # and it is the fact that changes what the viewer should do next. Do NOT read
+  # it as "refunded": cancel_contest returns the prize pool to the CREATOR
+  # (Solana::Vault#build_cancel_contest), entry fees stay operator revenue, and
+  # entrant compensation is a manual mint_entry_token playbook. Terms promise a
+  # refund only for a contest cancelled BEFORE it locks, which is not the case
+  # this branch exists for. An entrant reading "Cancelled" may still be owed
+  # money — which is the reason the badge must not read "Live" at them.
   #
   # THE BADGE NO LONGER TRACKS `live?`, AND MUST NOT BE MADE TO AGAIN. It was
   # documented as carrying "the same predicate the broadcast filters on", so

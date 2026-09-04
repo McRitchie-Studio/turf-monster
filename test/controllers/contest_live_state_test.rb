@@ -106,8 +106,10 @@ class ContestLiveStateTest < ActionDispatch::IntegrationTest
   end
 
   # THE ORDERING RULE. Both terminal flags can be set at once — a contest can be
-  # settled and then cancelled on-chain. Cancelled wins: it is the one that says
-  # the money went back.
+  # settled and then cancelled on-chain: grade! carries no cancelled guard, and
+  # the 2-of-3 cosign that finally writes onchain_cancelled re-checks nothing.
+  # Cancelled wins. Not because the money went back — it may not have — but
+  # because it is the state that tells the viewer to stop waiting on a result.
   test "cancelled wins over settled when both apply" do
     @contest.update!(starts_at: 1.hour.ago, status: "settled", onchain_cancelled: true)
     assert @contest.reload.settled?
