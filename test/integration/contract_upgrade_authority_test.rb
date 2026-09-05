@@ -8,9 +8,21 @@ require "test_helper"
 # "Squads V4 2-of-3 vault PDA. Only the Squad can ship upgrades." On
 # `turf-monster-mainnet` that is a WRONG ADDRESS STATED AUTHORITATIVELY, on the
 # one page an operator consults before proposing a program upgrade — and it was
-# the only copy of this defect a human ever saw in a browser. Every other reader
-# (Admin::VaultInitController, `solana:init_vault`) already honoured
-# SOLANA_SQUADS_VAULT_PDA; the view could not follow it.
+# the only copy of this defect a human ever saw in a browser.
+#
+# CORRECTION (vault-pda-readers-diverge). This header used to claim the view
+# was the only BROKEN reader — "every other reader (Admin::VaultInitController,
+# `solana:init_vault`) already honoured SOLANA_SQUADS_VAULT_PDA". It was not.
+# Both of those fell back to the DEVNET literal on EVERY cluster, and because
+# the key is ABSENT on both deployed apps (re-verified 2026-09-05 by key
+# presence), that fallback is what ran: all three readers had the SAME live
+# symptom, the devnet Squad on the mainnet app. The controller carried a second
+# defect in the same expression — `ENV.fetch` takes its default only for an
+# ABSENT key, never for an empty one — but that one was LATENT, one
+# `heroku config:set VAR=` from live, and no deployed app has ever set the key.
+# Both now route through Solana::Config.squads_vault_pda, and the guard at the
+# bottom of this file was widened from ERB to Ruby and rake so the claim is now
+# ENFORCED rather than asserted in prose.
 #
 # WHY THIS TEST DRIVES BOTH CLUSTERS. A suite that only asserts the mainnet
 # address passes against a view that hardcodes the mainnet address — the same
@@ -79,11 +91,18 @@ class ContractUpgradeAuthorityTest < ActionDispatch::IntegrationTest
 
   setup { log_in_as(users(:alex)) }
 
-  # --- cluster configuration 1: the env override the deployed apps set ---
+  # --- cluster configuration 1: the env override, which NO deployed app sets ---
   #
-  # This is the production shape. `turf-monster-mainnet` sets
-  # SOLANA_SQUADS_VAULT_PDA correctly and every other site resolved to it; only
-  # this page ignored it.
+  # Corrected 2026-09-05 (vault-pda-readers-diverge). This block used to call
+  # itself "the production shape" and say `turf-monster-mainnet` "sets
+  # SOLANA_SQUADS_VAULT_PDA correctly". Both statements are inverted: the key
+  # is ABSENT from turf-monster-mainnet AND turf-monster-qa — not
+  # set-and-empty — verified by key presence (`heroku config --json -a <app>`
+  # does not carry it; the table view, which names every key regardless of
+  # value, names it zero times). `heroku config:get` cannot establish this: it
+  # prints a bare newline for absent and for present-but-empty alike. The
+  # override is the runbook escape hatch for pointing an app at a fresh Squad;
+  # configuration 2 below is what production actually runs.
 
   test "with the mainnet vault configured, the admin card shows the MAINNET authority" do
     with_vault_env(MAINNET) { assert_renders_authority(MAINNET, DEVNET, "SOLANA_SQUADS_VAULT_PDA=mainnet") }
@@ -93,10 +112,13 @@ class ContractUpgradeAuthorityTest < ActionDispatch::IntegrationTest
     with_vault_env(DEVNET) { assert_renders_authority(DEVNET, MAINNET, "SOLANA_SQUADS_VAULT_PDA=devnet") }
   end
 
-  # --- cluster configuration 2: the network-keyed default, env unset ---
+  # --- cluster configuration 2: the network-keyed default — THE PRODUCTION SHAPE ---
   #
   # Omission must not print a devnet authority on a mainnet build. This is the
-  # half that would still be broken if the fix only read the env var.
+  # half that would still be broken if the fix only read the env var — and,
+  # since the SOLANA_SQUADS_VAULT_PDA key is ABSENT from both deployed apps, it
+  # is the half that every production render and every production rake run
+  # takes.
 
   test "a mainnet build with no override still shows the MAINNET authority" do
     with_vault_env(nil) do
@@ -126,19 +148,47 @@ class ContractUpgradeAuthorityTest < ActionDispatch::IntegrationTest
 
   # --- the standing guard, for surfaces this sweep does not visit ---
   #
-  # Holds for views that do not exist yet: no ERB template may name either
-  # cluster's Squads vault PDA as a literal. That is the exact mutation this
-  # task reverses, kept permanently armed. Modelled on the "no view names
-  # Config::RPC_URL" guard in test/integration/rpc_credential_not_in_browser_test.rb.
-  test "no view hardcodes a Squads vault PDA" do
+  # Holds for readers that do not exist yet: no application source may name
+  # either cluster's Squads vault PDA as a literal. That is the exact mutation
+  # this pair of tasks reverses, kept permanently armed. Modelled on the "no
+  # view names Config::RPC_URL" guard in
+  # test/integration/rpc_credential_not_in_browser_test.rb.
+  #
+  # WIDENED from ERB to Ruby and rake by vault-pda-readers-diverge. The ERB-only
+  # form was the right scope for admin-shows-devnet-authority, because widening
+  # it there would have gone RED on two live offenders
+  # (app/controllers/admin/vault_init_controller.rb and lib/tasks/solana.rake)
+  # that the view task had no business rewriting. Those two are fixed, so the
+  # guard now covers every surface that could hold one.
+  #
+  # app/services/solana/config.rb is the one file EXEMPT — it is where the two
+  # literals are defined. Excluding it by path rather than by pattern is
+  # deliberate: a second exemption has to be added consciously.
+  GUARDED_GLOBS = ["app/**/*.erb", "app/**/*.rb", "lib/**/*.rb", "lib/tasks/**/*.rake"].freeze
+  LITERAL_HOME  = "app/services/solana/config.rb".freeze
+
+  test "no application source hardcodes a Squads vault PDA" do
     root = Rails.root
-    offenders = Dir[root.join("app/views/**/*.erb")].select do |path|
+    paths = GUARDED_GLOBS.flat_map { |glob| Dir[root.join(glob)] }.uniq
+    relative = ->(path) { Pathname.new(path).relative_path_from(root).to_s }
+
+    scanned = paths.reject { |path| relative.call(path) == LITERAL_HOME }
+
+    # A glob that matched nothing would make the assertion below pass without
+    # reading a line. Pin that the sweep actually reached both readers this
+    # task fixed.
+    %w[app/controllers/admin/vault_init_controller.rb lib/tasks/solana.rake].each do |expected|
+      assert_includes scanned.map(&relative), expected,
+        "the guard's globs no longer reach #{expected} — it would pass vacuously"
+    end
+
+    offenders = scanned.select do |path|
       contents = File.read(path)
       contents.include?(DEVNET) || contents.include?(MAINNET)
     end
 
-    assert_empty offenders.map { |path| Pathname.new(path).relative_path_from(root).to_s },
-      "these views hardcode a cluster-specific Squads vault PDA — the upgrade authority " \
+    assert_empty offenders.map(&relative),
+      "these files hardcode a cluster-specific Squads vault PDA — the upgrade authority " \
       "differs per cluster, so a literal is wrong on one of them. Use " \
       "Solana::Config.squads_vault_pda."
   end

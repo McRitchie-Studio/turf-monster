@@ -63,8 +63,17 @@ namespace :solana do
       end
 
       threshold = (ENV["THRESHOLD"] || "2").to_i
-      treasury  = ENV["TREASURY"].presence || ENV["SOLANA_SQUADS_VAULT_PDA"].presence ||
-                  "BW13kgfiG2koFn3WRkte21NW9TFygsD1ge2fNJdjH6kC"
+      # TREASURY= stays the task-level override (a one-off address for this
+      # invocation). Everything below it — SOLANA_SQUADS_VAULT_PDA and the
+      # per-cluster default — belongs to the shared reader.
+      #
+      # WHAT THIS REPLACES (vault-pda-readers-diverge). The final fallback here
+      # was the DEVNET literal on EVERY cluster, so `solana:init_vault` run on
+      # a mainnet build with the variable unset would have pinned VaultState's
+      # treasury_authority to the DEVNET Squad — a value no mainnet signer can
+      # sweep to. Each cluster runs its own Squad, so only a network-keyed
+      # default is correct on both.
+      treasury  = ENV["TREASURY"].presence || Solana::Config.squads_vault_pda
 
       puts "\nInitializing vault..."
       signer_list.each_with_index { |s, i| puts "  Signer #{i + 1}: #{s}" }

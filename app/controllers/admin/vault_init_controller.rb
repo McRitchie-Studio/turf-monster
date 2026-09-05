@@ -15,20 +15,46 @@ module Admin
     DEFAULT_THRESHOLD  = Solana::Config::MULTISIG_THRESHOLD
     # v0.16: treasury_authority is pinned at initialize time so leaked admin
     # keys can't drain swept operator revenue to anywhere but the Squads
-    # vault. Mainnet uses a fresh mainnet Squads vault — devnet uses the
-    # existing one (BW13…6kC). Configurable via env so the mainnet runbook
-    # can override.
-    DEFAULT_TREASURY_AUTHORITY = ENV.fetch(
-      "SOLANA_SQUADS_VAULT_PDA",
-      "BW13kgfiG2koFn3WRkte21NW9TFygsD1ge2fNJdjH6kC"
-    )
+    # vault. Each cluster runs its OWN Squad, so this address differs per
+    # cluster — devnet BW13…H6kC, mainnet Bk9s…GdJm.
+    #
+    # WHAT THIS REPLACES (vault-pda-readers-diverge). The default used to be
+    # `ENV.fetch("SOLANA_SQUADS_VAULT_PDA", "<devnet literal>")`, which carried
+    # two defects in one expression:
+    #   1. NOT NETWORK-KEYED — and this is the defect production actually ran.
+    #      The fallback was the devnet literal on every cluster, and the key
+    #      SOLANA_SQUADS_VAULT_PDA is ABSENT on turf-monster-mainnet and
+    #      turf-monster-qa alike (re-verified 2026-09-05 by key presence:
+    #      `heroku config --json -a <app>`). So `ENV.fetch` DID take its
+    #      default, and the mainnet vault-init form pre-filled the DEVNET Squad
+    #      BW13…H6kC as treasury_authority — a wrong address stated
+    #      authoritatively, on a field pinned immutably at `initialize`.
+    #   2. `ENV.fetch` only takes its default when the key is ABSENT — a key
+    #      present but empty yields "", so the fallback would not run at all.
+    #      LATENT, never live: no deployed app sets this key, so this form
+    #      never offered a blank treasury. One `heroku config:set VAR=` would
+    #      have been enough to trigger it, which is why the replacement
+    #      resolves via `.presence` rather than a second `ENV.fetch`.
+    #
+    # Do NOT check the key's state with `heroku config:get`: it prints a bare
+    # newline for an absent key AND for a present-but-empty one.
+    #
+    # A METHOD rather than a constant, for the reason
+    # `Solana::Config.squads_vault_pda` is one: the value derives from NETWORK,
+    # and freezing it at class-load time is what makes a per-cluster reader
+    # untestable without constant surgery. The resolution itself lives in
+    # Solana::Config — env wins via `.presence`, only the DEFAULT is
+    # network-keyed — so this file holds no address of its own.
+    def self.default_treasury_authority
+      Solana::Config.squads_vault_pda
+    end
 
     def show
       @vault = Solana::Vault.new.read_vault_state
       @init_authority = INIT_AUTHORITY
       @default_signers = DEFAULT_SIGNERS
       @default_threshold = DEFAULT_THRESHOLD
-      @default_treasury_authority = DEFAULT_TREASURY_AUTHORITY
+      @default_treasury_authority = self.class.default_treasury_authority
       # BROWSER-facing (rendered into #cosign-config for web3.js), so the
       # public endpoint — RPC_URL carries the provider api-key on mainnet.
       @rpc_url = Solana::Config.public_rpc_url
@@ -42,7 +68,7 @@ module Admin
         creator   = params[:creator_pubkey].to_s.strip
         signers   = [params[:signer_1], params[:signer_2], params[:signer_3]].map { |s| s.to_s.strip }
         threshold = params[:threshold].to_i
-        treasury  = params[:treasury_authority].presence&.strip || DEFAULT_TREASURY_AUTHORITY
+        treasury  = params[:treasury_authority].presence&.strip || self.class.default_treasury_authority
 
         validate_init_params!(creator, signers, threshold, treasury)
 
