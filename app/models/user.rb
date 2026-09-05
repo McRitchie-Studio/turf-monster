@@ -43,6 +43,26 @@ class User < ApplicationRecord
     { email: TURF_HOUSE_EMAIL,         name: "Turf Monster",    username: "turf",      role: "admin", wallet: "BLSBw8fXHzZc5pbaYCKMpMSsrtXBTbWXpUPVzMrXx9oo" }
   ].freeze
 
+  # SEATS THE ROSTER HAS RETIRED, email => the role their row keeps, and the only
+  # thing that ever demotes one.
+  #
+  # Nothing in this app reconciles a user against PARKED_IDENTITIES: there is no
+  # save-time callback for role or email (only `ensure_username`, and only on
+  # create), the seed touches the rows it seeds, and `admin:claim_usernames`
+  # writes usernames. So an identity dropped from the roster does not lose
+  # anything — it simply stops being described, and keeps the admin it was seeded
+  # with. `alex@turfmonster.media` is that case: retired on 2026-09-04 because
+  # TURF_HOUSE_EMAIL now satisfies the same "an admin on this app's own domain"
+  # property, and it remains the PUBLIC support and marketing address (see
+  # ApplicationMailer::MARKETING_FROM and the pages/ views), so an app account on
+  # it that still holds admin is a login anyone who reads the footer can address.
+  #
+  # It is demoted, not deleted: the row has entries, purchases and a managed
+  # wallet, and destroying a real account is the operator's call, not a seed's.
+  RETIRED_IDENTITIES = {
+    "alex@turfmonster.media" => "user"
+  }.freeze
+
   # Rails mirror of turf-vault's on-chain reserved-prefix list — keep in sync
   # with RESERVED_PREFIXES in turf-vault
   # programs/turf_vault/src/instructions/set_username.rs (v0.15.1, audit C2).

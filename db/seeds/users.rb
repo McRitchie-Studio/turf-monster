@@ -59,9 +59,29 @@ def park_swapped_usernames!(identities)
   end
 end
 
+# A seat the roster RETIRED keeps everything it had, because nothing in this app
+# reconciles a row against PARKED_IDENTITIES — dropping an identity from the list
+# stops it being described, it does not demote it. So retire it explicitly, and
+# only its ROLE: the row may be a real account with entries and a wallet, and a
+# seed does not get to delete one of those. Deployed rows are carried by the
+# ReconcileTurfParkedIdentities migration; this is the same move for the
+# databases a re-seed owns.
+def retire_unparked_identities!(retired = User::RETIRED_IDENTITIES)
+  retired.each do |email, role|
+    row = User.find_by(email: email)
+    next if row.nil? || row.role == role
+
+    # update_column: this touches a row the roster no longer describes, so it must
+    # not drag a grandfathered record through today's validations to change a role.
+    row.update_column(:role, role)
+    puts "  ↪ retired #{email}: role -> #{role}"
+  end
+end
+
 def seed_core_users!
   users = {}
 
+  retire_unparked_identities!
   park_swapped_usernames!(CORE_USERS)
 
   CORE_USERS.each do |data|
