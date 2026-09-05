@@ -92,7 +92,7 @@
       auth: "user signs",
       auth_class: "user",
       summary: "Pay your entry fee from your own wallet's USDC (or USDT) ATA, in one signed transaction. Your stats counter ticks up.",
-      detail: "Replaces v0.15.1's `enter_contest_direct`. You sign an SPL transfer from your ATA to the contest's per-currency operator-revenue ATA. The instruction creates the ContestEntry PDA, awards seeds from the current Season, and increments your UserAccount.entries counter."
+      detail: "Replaces v0.15.1's `enter_contest_direct`. You sign an SPL transfer from your ATA to the vault-wide, per-currency operator-revenue ATA (seeds [b\"op_rev\", mint]) — not to the contest's prize pool. The instruction creates the ContestEntry PDA, awards seeds from the current Season, and increments your UserAccount.entries counter."
     },
     {
       name: "enter_contest_with_token",
