@@ -599,9 +599,25 @@
 # then reopens with submitting: 'google' and asserts they DISABLE — the control
 # case, without which the first half would pass just as happily against a modal
 # that had stopped binding `disabled` at all.
+#
+# 226 -> 228 on 2026-09-05: e2e/contests_rail.spec.js pins the /contests featured
+# rail (/tasks/redesign-contests-page-sections). Two specs, both browser-only by
+# nature: the right-edge fade is a MEASUREMENT (scrollWidth vs clientWidth vs
+# scrollLeft) that no rendered-HTML tier can settle, and it is asserted in the
+# falsifiable direction — at the END of the scroll nothing is off-screen, so a
+# fade still painted there is a lie; and the Coming Soon flag is driven in
+# through the REAL admin control on /contests/:slug/edit and back out as a
+# dimmed, sashed, re-sorted card, which is the only tier that proves the button
+# writes the column. The first spec also sweeps EVERY card title for the
+# one-line rule against a deliberately long fixture name, so that measurement
+# cannot go vacuous. Both specs seed their own contests (the dev seed ships
+# exactly one, and neither an overflowing rail nor an ordering is observable
+# with one card) and delete them by slug prefix in afterEach — the lane runs one
+# worker against one database, so a leftover contest is paid for by every later
+# spec that measures this page. Coverage ADDED; `quarantined` is untouched.
 # Re-derived with bin/e2e-lane-derive --write on a tree level with
 # origin/accepted (0 behind at derive time), never hand-incremented.
-total_specs: 226
+total_specs: 228
 
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
@@ -861,7 +877,7 @@ allowed_skips: 4
 # 220/199 against a base that then moved, and only the tool run after merging
 # 2682b24 describes this tree. allowed_skips stays 4; neither spec carries a
 # runtime skip.
-executed: 205
+executed: 207
 
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to

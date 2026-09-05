@@ -259,7 +259,7 @@
         // drops the cropped blob into the hidden contest_image input + shows a
         // preview; the Create-Contest finalize step submits that file.
         function contestBannerCrop() {
-          var CROP = { aspectRatio: 4, maxWidth: 2000, maxHeight: 500, transparent: true, autoCropArea: 1, dispatch: true };
+          var CROP = { aspectRatio: 5, maxWidth: 2000, maxHeight: 400, transparent: true, autoCropArea: 1, dispatch: true };
           return {
             previewUrl: null,
             fileName: '',
@@ -296,6 +296,19 @@
           };
         }
       </script>
+
+      <%# Coming Soon — advertise the contest on the /contests rail but mark it
+          as not ready: the card sorts below the plain-open ones, dims, and
+          takes a "Coming Soon" sash. It changes nothing about the contest
+          itself; entry is not blocked. Mirrors the Enable-contest-chat
+          checkbox on /contests/:slug/edit. %>
+      <div class="mb-6">
+        <label class="flex items-center gap-2.5 cursor-pointer">
+          <%= f.check_box :coming_soon, class: "w-4 h-4", style: "accent-color: var(--color-primary)" %>
+          <span class="text-sm text-secondary font-medium">Coming soon</span>
+        </label>
+        <p class="text-xs text-muted mt-1">Shows on the contests page below the open contests, dimmed and sashed &ldquo;Coming Soon&rdquo;.</p>
+      </div>
 
       <div>
         <button type="submit" class="btn btn-primary btn-lg w-full" data-creating-label="Creating contest + on-chain TX…">

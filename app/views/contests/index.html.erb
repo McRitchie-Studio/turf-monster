@@ -1,125 +1,106 @@
-<%# The whole page shares one Alpine scope so the admin toggle controls settled
-    visibility in BOTH lists at once. showSettled starts false: settled contests
-    are hidden by default for everyone (admins and non-admins alike). Only the
-    admin-only toggle button can flip it. Single-quote everything inside x-data
-    to avoid breaking the double-quoted attribute. %>
-<div x-data="{ showSettled: false }">
-  <div class="mb-6 flex items-center justify-between">
-    <h1 class="text-3xl font-extrabold text-heading">Contests</h1>
-    <div class="flex items-center gap-2">
-      <%# Admin-only: Show/Hide Settled toggle. Non-admins never get this button,
-          so settled contests stay hidden for them (x-show defaults to false).
-          Style flips on state: muted outline when OFF, filled accent when ON,
-          so it reads as secondary to the green New Contest CTA. %>
-      <% if current_user&.admin? %>
-        <button type="button"
-                @click="showSettled = !showSettled"
-                :class="showSettled ? 'btn btn-secondary' : 'btn btn-outline'"
-                :aria-pressed="showSettled"
-                x-text="showSettled ? 'Hide Settled' : 'Show Settled'">Show Settled</button>
-      <% end %>
-      <%# Admin-only: contest creation is gated to admins server-side (ContestsController
-          #new/#create require_admin), so hide the button for everyone else. %>
-      <% if current_user&.admin? %>
-        <%= link_to "New Contest", new_contest_path, class: "btn btn-primary" %>
-      <% end %>
-    </div>
-  </div>
+<%# /contests — three bands, each answering a different question:
 
-  <%# ===== My Contests — contests you've entered, in the same card grid. Only
-      rendered when you have at least one (hidden for guests + the entry-less);
-      capped to a single row (3 on desktop) with a "View all" link to the full
-      /contests/my list. ===== %>
+      1. the featured rail   what can I play right now?
+      2. My Contests         where do I stand in the ones I'm in?
+      3. All Contests        the full list.
+
+    The whole page shares one Alpine scope so the admin Show Settled toggle
+    controls the All Contests table from the section header it now sits in.
+    showSettled starts false: settled contests are hidden there by default for
+    everyone (admins and non-admins alike), and only the admin-only toggle can
+    flip it. Single-quote everything inside x-data to avoid breaking the
+    double-quoted attribute.
+
+    MY CONTESTS DOES NOT ANSWER TO THAT TOGGLE. A settled contest is the one
+    thing that band exists to report on — the Won / Complete badge and the
+    amount won have no meaning before a contest ends — so it always shows its
+    settled rows. See contests/_contest_table's `hide_settled`. %>
+<div x-data="{ showSettled: false }">
+  <h1 class="text-3xl font-extrabold text-heading mb-6">Contests</h1>
+
+  <%# ===== The featured rail — open contests first, then coming soon, each
+      band newest-first (Contest.featured_order). It carries NO heading: it is
+      the top of the page and it is the page's headline, so a label above it
+      would only push the contests themselves down. ===== %>
+  <% if @featured_contests.any? %>
+    <section class="mb-10" x-data="contestRail()" data-contest-band="featured">
+      <%# The mask is the house's overflow idiom (shared/_alpine_factories
+          contestRail, and navUsernameFade before it): taper the content itself
+          rather than paint a gradient that would have to know the page's
+          background colour. It is bound, not static, so a rail that fits on
+          screen is not given a fade that lies about more cards to the right. %>
+      <div x-ref="viewport"
+           data-contest-rail
+           class="tt-contest-rail overflow-x-auto overflow-y-hidden pb-2"
+           @scroll.passive="measure()"
+           x-bind:style="canScrollRight ? '-webkit-mask-image: linear-gradient(to right, black 85%, transparent); mask-image: linear-gradient(to right, black 85%, transparent);' : ''">
+        <div class="flex gap-4 items-stretch">
+          <% @featured_contests.each do |contest| %>
+            <div class="w-72 sm:w-80 flex-shrink-0 flex">
+              <%= render "contests/contest_card",
+                         contest: contest,
+                         entry_count: @entry_counts[contest.id] || 0,
+                         my_entry_count: @my_entry_counts[contest.id] || 0 %>
+            </div>
+          <% end %>
+        </div>
+      </div>
+    </section>
+  <% end %>
+
+  <%# ===== My Contests — every contest this viewer is in or has been part of,
+      finished ones included. Hidden entirely for guests and for anyone with no
+      entries. ===== %>
   <% if logged_in? && @my_contests.any? %>
-    <% my_shown = @my_contests.first(3) %>
-    <% my_visible_by_default = my_shown.reject(&:settled?) %>
-    <section class="mb-10">
+    <section class="mb-10" data-contest-band="mine">
       <div class="flex items-center justify-between mb-4">
         <h2 class="text-xl font-bold text-heading">My Contests</h2>
         <%= link_to "View all →", my_contests_path, class: "text-sm text-primary hover:underline" %>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <% my_shown.each do |contest| %>
-          <% if contest.settled? %>
-            <%# Settled card: hidden by default, revealed only when the admin
-                toggle is ON. x-cloak prevents a flash before Alpine hydrates. %>
-            <div x-show="showSettled" x-cloak>
-              <%= render "contests/contest_card", contest: contest, entry_count: @entry_counts[contest.id] || 0 %>
-            </div>
-          <% else %>
-            <%= render "contests/contest_card", contest: contest, entry_count: @entry_counts[contest.id] || 0 %>
-          <% end %>
-        <% end %>
-      </div>
-
-      <%# Empty state: this row's only entries were settled, so with the toggle
-          OFF the grid above renders nothing. Show a subtle placeholder instead
-          of a broken empty block (hidden once settled are revealed). %>
-      <% if my_visible_by_default.empty? %>
-        <p x-show="!showSettled" class="text-sm text-muted">All of your contests here have settled.</p>
-      <% end %>
+      <%= render "contests/contest_table",
+                 contests: @my_contests,
+                 entry_counts: @entry_counts,
+                 entered_contest_ids: @entered_contest_ids,
+                 payouts: @my_payout_cents,
+                 hide_settled: false %>
     </section>
   <% end %>
 
-  <%# ===== All Contests — compact table of every open/settled contest. Whole row
-      is click-through (CSP allows inline handlers); the name stays a real link
-      for keyboard access, with stopPropagation so it doesn't double-fire.
-      Settled rows are hidden by default (x-show on the row), admin-toggleable. ===== %>
-  <section>
-    <h2 class="text-xl font-bold text-heading mb-4">All Contests</h2>
+  <%# ===== All Contests — the full list, and the home of the two controls that
+      act on it. Show Settled filters this table; New Contest adds to it. Both
+      are admin-only: contest creation is gated server-side (ContestsController
+      #new/#create require_admin), and settled contests stay hidden for
+      everyone else because only this button can reveal them. ===== %>
+  <section data-contest-band="all">
+    <div class="flex items-center justify-between gap-2 mb-4">
+      <h2 class="text-xl font-bold text-heading">All Contests</h2>
+      <% if current_user&.admin? %>
+        <div class="flex items-center gap-2">
+          <%# Style flips on state: muted outline when OFF, filled accent when
+              ON, so it reads as secondary to the green New Contest CTA. %>
+          <button type="button"
+                  @click="showSettled = !showSettled"
+                  :class="showSettled ? 'btn btn-secondary' : 'btn btn-outline'"
+                  :aria-pressed="showSettled"
+                  x-text="showSettled ? 'Hide Settled' : 'Show Settled'">Show Settled</button>
+          <%= link_to "New Contest", new_contest_path, class: "btn btn-primary" %>
+        </div>
+      <% end %>
+    </div>
 
     <% if @contests.any? %>
-      <% all_visible_by_default = @contests.reject(&:settled?) %>
-      <div class="card overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="border-b border-subtle">
-              <th class="px-4 py-3 text-left text-xs font-semibold text-muted uppercase tracking-wider">Contest</th>
-              <th class="px-4 py-3 text-left text-xs font-semibold text-muted uppercase tracking-wider">Status</th>
-              <th class="px-4 py-3 text-right text-xs font-semibold text-muted uppercase tracking-wider">Entry</th>
-              <th class="px-4 py-3 text-right text-xs font-semibold text-muted uppercase tracking-wider">Prizes</th>
-              <th class="px-4 py-3 text-center text-xs font-semibold text-muted uppercase tracking-wider">Entries</th>
-              <th class="px-4 py-3 text-left text-xs font-semibold text-muted uppercase tracking-wider">Starts</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-subtle">
-            <% @contests.each do |contest| %>
-              <%# Settled rows carry x-show + x-cloak so they stay hidden for
-                  everyone until an admin flips the toggle. The whole <tr> is the
-                  x-show root (single element), so no parser/template issues. %>
-              <tr class="hover:bg-surface-alt transition cursor-pointer" onclick="window.location='<%= contest_path(contest) %>'"
-                  <%== contest.settled? ? 'x-show="showSettled" x-cloak' : '' %>>
-                <td class="px-4 py-3">
-                  <div class="flex items-center gap-2 flex-wrap">
-                    <%= link_to contest.name, contest_path(contest), class: "font-semibold text-heading hover:text-primary transition", onclick: "event.stopPropagation()" %>
-                    <% if @entered_contest_ids.include?(contest.id) %>
-                      <span class="badge text-[10px] bg-primary/15 text-primary border border-primary/30">Entered</span>
-                    <% end %>
-                  </div>
-                  <% if contest.slate %>
-                    <p class="text-xs text-muted mt-0.5"><%= contest.slate.name %></p>
-                  <% end %>
-                </td>
-                <td class="px-4 py-3">
-                  <span class="badge text-[10px] <%= contest_badge_classes(contest.status) %>"><%= contest.status.capitalize %></span>
-                </td>
-                <td class="px-4 py-3 text-right font-mono text-secondary whitespace-nowrap"><%= dollars(contest.entry_fee_dollars) %></td>
-                <td class="px-4 py-3 text-right font-mono text-primary whitespace-nowrap"><%= dollars(contest.guaranteed_prize_dollars) %></td>
-                <td class="px-4 py-3 text-center font-mono text-secondary whitespace-nowrap">
-                  <%= @entry_counts[contest.id] || 0 %><span class="text-muted">/<%= contest.max_entries %></span>
-                </td>
-                <td class="px-4 py-3 text-muted text-xs whitespace-nowrap"><%= contest.starts_at ? contest.starts_at.strftime("%b %-d, %Y") : "TBD" %></td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
+      <%= render "contests/contest_table",
+                 contests: @contests,
+                 entry_counts: @entry_counts,
+                 entered_contest_ids: @entered_contest_ids,
+                 payouts: nil,
+                 hide_settled: true %>
 
-      <%# Empty state: every contest in the list is settled, so the table renders
-          no visible rows with the toggle OFF. Show a subtle note (revealed-away
-          once settled are shown). %>
-      <% if all_visible_by_default.empty? %>
+      <%# Empty state: every contest in the list is settled, so the table
+          renders no visible rows with the toggle OFF. Show a subtle note
+          (revealed away once settled are shown). %>
+      <% if @contests.all?(&:settled?) %>
         <p x-show="!showSettled" class="text-secondary mt-3">No open contests right now.</p>
       <% end %>
     <% else %>

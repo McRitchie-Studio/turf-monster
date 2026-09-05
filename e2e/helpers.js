@@ -271,8 +271,37 @@ const OPERATOR_USERNAME = "alex";
 const OVERFLOWING_NAME_EMAIL = "team@mcritchie.studio";
 const FITTING_NAME_EMAIL = "team@turfmonster.media";
 
+/**
+ * Seed / clear the /contests featured rail's own fixtures
+ * (TestController#seed_contests, #clear_seeded_contests).
+ *
+ * The rail's browser-only properties need more than one contest to be
+ * observable and the dev seed ships exactly one, so the rail specs state their
+ * premise instead of inheriting it. Every seeded row carries the `e2e-rail-`
+ * slug prefix and `clearRailContests` deletes exactly that set — the lane runs
+ * one worker against one database, so a leftover contest is paid for by every
+ * later spec that measures this page.
+ */
+async function seedRailContests(page, count) {
+  const res = await page.request.post("/test/seed_contests", { data: { count } });
+  if (!res.ok()) {
+    throw new Error(`seed_contests failed: ${res.status()} ${await res.text()}`);
+  }
+  return res.json();
+}
+
+async function clearRailContests(page) {
+  const res = await page.request.post("/test/clear_seeded_contests");
+  if (!res.ok()) {
+    throw new Error(`clear_seeded_contests failed: ${res.status()} ${await res.text()}`);
+  }
+  return res.json();
+}
+
 module.exports = {
   login,
+  seedRailContests,
+  clearRailContests,
   OPERATOR_USERNAME,
   OVERFLOWING_NAME_EMAIL,
   FITTING_NAME_EMAIL,

@@ -14,7 +14,7 @@
         OWN form (HTML can't nest it inside the main edit form below). %>
     <%= render "studio/cropper_assets" %>
     <div class="mb-5"
-         x-data="imageUploadHost({ aspectRatio: 4, maxWidth: 2000, maxHeight: 500, transparent: true, autoCropArea: 1, filename: 'banner.png', saving: 'Saving banner…', success: 'Banner updated', successMessage: 'Your new banner is live.', failure: 'Couldn\'t save the banner' })"
+         x-data="imageUploadHost({ aspectRatio: 5, maxWidth: 2000, maxHeight: 400, transparent: true, autoCropArea: 1, filename: 'banner.png', saving: 'Saving banner…', success: 'Banner updated', successMessage: 'Your new banner is live.', failure: 'Couldn\'t save the banner' })"
          @crop-photo-confirmed.window="applyCrop($event.detail.blob)">
       <label class="block text-sm text-secondary mb-2 font-medium">Banner</label>
       <%= render "contests/banner_preview" %>
@@ -124,6 +124,35 @@
           <span class="text-sm text-secondary font-medium">Enable contest chat</span>
         </label>
         <p class="text-xs text-muted mt-1">Players can post messages on the contest page. Uncheck to close the chat room.</p>
+      </div>
+
+      <%# Coming Soon — a BUTTON here, where /contests/new gets a checkbox.
+          Both write the same column; the difference is what the two pages are.
+          Create is a form you fill in once, where a checkbox reads as one more
+          field. Edit is a page an operator opens to flip ONE thing, and a
+          two-state button says the current state out loud ("Coming Soon: On")
+          instead of making them read a tick.
+
+          It still saves with the form rather than acting on its own click. An
+          instant-effect button would have to reload the page, discarding
+          whatever else the operator had already typed into the fields above —
+          the name, the lock time — which is a worse trade than one extra click
+          on Save Changes.
+
+          The hidden field is the thing that actually submits, and it is
+          rendered with the contest's CURRENT value server-side. So if Alpine
+          never boots, this control degrades to "submits what it already was"
+          rather than to "silently turns the flag off". x-model keeps it in
+          step with the button once Alpine does boot. %>
+      <div class="mb-6" x-data="{ comingSoon: <%= @contest.coming_soon? %> }">
+        <%= f.hidden_field :coming_soon, "x-model": "comingSoon" %>
+        <button type="button"
+                @click="comingSoon = !comingSoon"
+                :class="comingSoon ? 'btn btn-secondary' : 'btn btn-outline'"
+                :aria-pressed="comingSoon"
+                class="<%= @contest.coming_soon? ? "btn btn-secondary" : "btn btn-outline" %>"
+                x-text="comingSoon ? 'Coming Soon: On' : 'Coming Soon: Off'">Coming Soon: <%= @contest.coming_soon? ? "On" : "Off" %></button>
+        <p class="text-xs text-muted mt-1">On shows this contest on the contests page below the open ones, dimmed and sashed &ldquo;Coming Soon&rdquo;. It does not stop anyone entering.</p>
       </div>
 
       <button type="submit" class="btn btn-primary btn-lg w-full">Save Changes</button>
