@@ -36,9 +36,11 @@
     <div class="bg-surface-alt border border-subtle rounded-lg p-4">
       <dt class="text-[10px] uppercase tracking-wider text-secondary font-semibold mb-1">Upgrade authority</dt>
       <dd class="font-mono text-xs sm:text-sm text-heading break-all">
-        BW13kgfiG2koFn3WRkte21NW9TFygsD1ge2fNJdjH6kC
+        <%# Read from Solana::Config at request time. PER CLUSTER, unlike the program ID above:
+            devnet and mainnet are different Squads, so this must never be a literal. %>
+        <%= (Solana::Config.squads_vault_pda rescue "(SOLANA_SQUADS_VAULT_PDA not set)") %>
       </dd>
-      <p class="text-[11px] text-muted mt-1">Squads V4 2-of-3 vault PDA. Only the Squad can ship upgrades.</p>
+      <p class="text-[11px] text-muted mt-1">Squads V4 2-of-3 vault PDA on <%= (Solana::Config::NETWORK rescue "this cluster") %> &mdash; each cluster has its own Squad. Only the Squad can ship upgrades.</p>
     </div>
 
     <div class="bg-surface-alt border border-subtle rounded-lg p-4">
