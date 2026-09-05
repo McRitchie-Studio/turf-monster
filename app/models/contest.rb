@@ -510,7 +510,7 @@ class Contest < ApplicationRecord
   # path (docs/workflows/submit-entry-decision-tree.md row 7); Terms promise an
   # entry-fee refund only for a contest cancelled BEFORE it locks, on request by
   # email (pages/terms.html.erb #refunds). So an entrant looking at "Cancelled"
-  # may still be owed something — see ContestsHelper#live_state_key.
+  # may still be owed something — see ContestsHelper#contest_live_state.
   #
   # Aliased as #cancelled? for read sites that don't care it's an on-chain flag.
   # Distinct from #settled? (the other terminal state).

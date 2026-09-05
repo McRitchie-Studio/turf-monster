@@ -85,7 +85,7 @@ class ContestLiveStateTest < ActionDispatch::IntegrationTest
   # `locked? && !settled?`, so `live?` is TRUE for such a contest. It read "Live",
   # pulsing, on a terminal cancelled contest. ("Cancelled" is not "refunded":
   # cancel_contest returns the prize pool to the CREATOR and entry fees stay
-  # operator revenue — contest.rb#cancelled?, ContestsHelper#live_state_key.)
+  # operator revenue — contest.rb#cancelled?, ContestsHelper#contest_live_state.)
   #
   # The badge no longer tracks `live?`. It is not a claim about whether a packet
   # can arrive; it is a claim about what the contest IS.
