@@ -39,7 +39,37 @@ Tailwind emits only classes it can see during the build. Keep dynamic class name
 Open Graph images must use the `amazon_public` / `amazon_dev_public` Active Storage services. The private `amazon` services return signed URLs; social unfurlers cache image URLs long enough for signed links to expire. Public OG services return permanent S3 object URLs, and `OgImageAttachable` owns the per-environment service choice.
 
 ### Status Badges
-mint=open, yellow=locked (DERIVED time-gate, not a status — `Contest#locked?`), gray=settled, violet=pending
+`ApplicationHelper::CONTEST_BADGE_STYLES`, keyed by contest status — the pill on
+contest cards and headers: mint=open, yellow=locked (DERIVED time-gate, not a
+status — `Contest#locked?`), gray=settled, violet=pending, red=cancelled
+(`Contest#cancelled?`, the `onchain_cancelled` boolean — also not a status).
+
+### Live Board State Badge
+A DIFFERENT badge from the one above: `ContestsHelper::LIVE_STATES`, the label +
+dot beside the contest name on `/contests/:slug/live`, and the same string in the
+tab `<title>`. Five states — Cancelled (red), Live (red + `animate-pulse`),
+Concluded (orange), Final (gray), Not started (gray).
+
+Fixed precedence: **cancelled → final → concluded → live → upcoming**. The order
+is load-bearing, not cosmetic. `Contest#live?` is `locked? && !settled?` and
+mentions neither cancellation nor conclusion, so both of those states satisfy
+`live?` and would be swallowed by the `live` branch if asked later; and `settled?`
+forces both `locked?` and `concluded?` true by definition, so `final` must be
+asked before `concluded`. Two separate bugs have been filed against this helper
+for exactly that class of miss — the full five-predicate state space, including
+the combinations that are unreachable and why, is documented in the comment above
+`LIVE_STATES` in `app/helpers/contests_helper.rb`. Read it before adding a state.
+
+**Motion is reserved for `live`.** The pulsing dot means one thing — this contest
+is in progress — so every terminal, finished, and not-yet state takes a solid dot.
+Pinned end to end in `test/controllers/contest_live_state_test.rb`, which asserts
+on rendered page output (label, `data-state`, dot class, `<title>`) rather than on
+the helper's return value.
+
+The badge is server-rendered at page load and does NOT self-correct:
+`Contest::LiveBroadcast` replaces the games strip and focus panel, not the header,
+so a contest whose state changes under a viewer keeps the label it was drawn with
+until a reload.
 
 ## Button System
 
