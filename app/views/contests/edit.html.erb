@@ -14,7 +14,7 @@
         OWN form (HTML can't nest it inside the main edit form below). %>
     <%= render "studio/cropper_assets" %>
     <div class="mb-5"
-         x-data="imageUploadHost({ aspectRatio: 4, maxWidth: 2000, maxHeight: 500, transparent: true, autoCropArea: 1, filename: 'banner.png', saving: 'Saving banner…', success: 'Banner updated', successMessage: 'Your new banner is live.', failure: 'Couldn\'t save the banner' })"
+         x-data="imageUploadHost({ aspectRatio: 5, maxWidth: 2000, maxHeight: 400, transparent: true, autoCropArea: 1, filename: 'banner.png', saving: 'Saving banner…', success: 'Banner updated', successMessage: 'Your new banner is live.', failure: 'Couldn\'t save the banner' })"
          @crop-photo-confirmed.window="applyCrop($event.detail.blob)">
       <label class="block text-sm text-secondary mb-2 font-medium">Banner</label>
       <%= render "contests/banner_preview" %>
