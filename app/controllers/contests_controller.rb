@@ -17,18 +17,59 @@ class ContestsController < ApplicationController
   # B4 / OPSEC-048: frozen accounts can browse but cannot spend or enter.
   before_action :require_unfrozen_account, only: [:enter, :prepare_entry, :confirm_onchain_entry, :toggle_selection]
 
+  # The contests page is three bands, and each one answers a different question:
+  #
+  #   1. the featured rail  — what can I play right now?  (Contest.featured_order)
+  #   2. My Contests        — where do I stand?           (@my_contests)
+  #   3. All Contests       — the full list.              (@contests)
+  #
+  # All three read the SAME loaded array, so the page stays the handful of
+  # queries below however many bands render it.
   def index
     @contests = Contest.where(status: [:open, :settled])
                        .includes(:slate).with_attached_contest_image
                        .order(created_at: :desc).to_a
     # One grouped query for confirmed entry counts — avoids a per-card / per-row
-    # N+1 across the My Contests grid + All Contests table.
+    # N+1 across the featured rail + both tables.
     @entry_counts = Entry.confirmed.where(contest_id: @contests.map(&:id)).group(:contest_id).count
     # "My Contests" = contests the viewer has entered. Filter the already-loaded
     # list in Ruby so there's no extra Contest query.
     @entered_contest_ids = (logged_in? ? current_user.entries.confirmed.distinct.pluck(:contest_id) : []).to_set
+    # SETTLED CONTESTS STAY IN THIS LIST. My Contests is the band that reports
+    # how a contest ENDED — the Won / Complete badge and the amount won only
+    # exist for a finished contest — so it deliberately does not inherit the
+    # All Contests table's hide-settled default.
     @my_contests = @contests.select { |c| @entered_contest_ids.include?(c.id) }
+    @featured_contests = Contest.featured_order(@contests)
+    load_my_contest_totals
   end
+
+  # The two per-viewer numbers My Contests reports, each one grouped query over
+  # this viewer's own confirmed entries:
+  #
+  #   @my_entry_counts — how many entries I hold, which is what the card sash
+  #                      says ("Entered" at one, "3 Entries" above that). NOT
+  #                      @entry_counts, which is every entrant's.
+  #   @my_payout_cents — what I won, summed across those entries. Contest#grade!
+  #                      writes payout_cents and then flips the contest to
+  #                      settled in the same transaction, so a settled contest
+  #                      always has its final number here and an unsettled one
+  #                      always reads zero.
+  #
+  # Both default to empty for a signed-out reader, whose My Contests band does
+  # not render at all.
+  def load_my_contest_totals
+    unless logged_in?
+      @my_entry_counts = {}
+      @my_payout_cents = {}
+      return
+    end
+
+    mine = current_user.entries.confirmed.where(contest_id: @my_contests.map(&:id))
+    @my_entry_counts = mine.group(:contest_id).count
+    @my_payout_cents = mine.group(:contest_id).sum(:payout_cents)
+  end
+  private :load_my_contest_totals
 
   def my
     @contests = Contest.where(status: [:open, :settled]).order(created_at: :desc)
@@ -1931,6 +1972,23 @@ class ContestsController < ApplicationController
       onchain_contest_id:         derived_pda_b58,
       onchain_tx_signature:       tx_signature,
       season_id:                  payload[:season_id],
+      # Purely presentational, and deliberately absent from
+      # #build_contest_from_payload above: that builder's contest exists only
+      # to compute onchain_params and the season check, and coming_soon reaches
+      # neither. This is the builder whose contest is SAVED, so this is where
+      # it has to land.
+      #
+      # `|| false` IS LOAD-BEARING, NOT DEFENSIVE TIDINESS. A token minted
+      # before this field shipped carries no `coming_soon` key at all, and the
+      # column is NOT NULL — an explicitly-assigned nil goes into the INSERT
+      # rather than falling back to the column default. Without the fallback
+      # that raises at `contest.save!` below, which runs AFTER
+      # cosign_and_broadcast_create_contest has already moved the creator's
+      # prize pool on chain: a funded Contest PDA with no row, invisible to
+      # Solana::Reconciler (it takes a Contest record) and not repairable by a
+      # retry (the slug guard asks the DB, and the missing row is what it looks
+      # for). Pinned by test/controllers/contests_legacy_create_token_test.rb.
+      coming_soon:                payload[:coming_soon] || false,
       # The create_contest TX just verified was built from onchain_params,
       # which funds entry_fee_by_currency slot 1 (USDT) alongside slot 0.
       accepts_usdt:               true
@@ -2072,6 +2130,11 @@ class ContestsController < ApplicationController
       entry_fee_cents:            contest.entry_fee_cents,
       max_entries:                contest.max_entries,
       season_id:                  contest.season_id,
+      # The create form's Coming Soon toggle. It has to ride the SIGNED token
+      # like every other field: #finalize rebuilds the contest from this
+      # payload, not from params, so anything missing here is silently dropped
+      # between the operator ticking the box and the row being written.
+      coming_soon:                contest.coming_soon,
       user_id:                    creator.id,
       creator_pubkey:             creator.web3_solana_address
     }
@@ -2308,7 +2371,7 @@ class ContestsController < ApplicationController
   end
 
   def contest_params
-    params.require(:contest).permit(:name, :slug, :slate_id, :contest_type, :season_id, :starts_at, :contest_image, :locks_at_date_selected, :locks_at_time_selected, :locks_at_timezone_selected)
+    params.require(:contest).permit(:name, :slug, :slate_id, :contest_type, :season_id, :starts_at, :contest_image, :coming_soon, :locks_at_date_selected, :locks_at_time_selected, :locks_at_timezone_selected)
   end
 
   # Slates an operator may build a contest on. Weekly NFL slates carry a `week`
@@ -2343,6 +2406,6 @@ class ContestsController < ApplicationController
   # its own #update_banner action. Permitting it would let any future field on
   # the edit form submit an empty value and purge the existing attachment.
   def contest_update_params
-    params.require(:contest).permit(:name, :tagline, :rank, :starts_at, :locks_at_date_selected, :locks_at_time_selected, :locks_at_timezone_selected, :chat_enabled)
+    params.require(:contest).permit(:name, :tagline, :rank, :starts_at, :locks_at_date_selected, :locks_at_time_selected, :locks_at_timezone_selected, :chat_enabled, :coming_soon)
   end
 end

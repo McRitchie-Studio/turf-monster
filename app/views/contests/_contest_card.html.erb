@@ -1,24 +1,52 @@
 <%# A contest summary card — banner, slate, name, status, fee/prizes/entries,
-    lock date. Locals: contest, entry_count (active+complete entries, passed in
-    so the card never triggers its own count query). Extracted from the index so
-    the My Contests grid and any future grid share one card. %>
-<%= link_to contest_path(contest), class: "card-hover block overflow-hidden" do %>
+    lock date, and (when it has one) the sash laid across its top-right corner.
+
+    Locals:
+      contest         the Contest.
+      entry_count     the FIELD size — every entrant's confirmed entries. Passed
+                      in so the card never triggers its own count query.
+      my_entry_count  THIS VIEWER'S entries, which is what the sash reports.
+                      Defaults to 0 for a signed-out reader.
+
+    `relative` is load-bearing, not decoration: both the dim layer and the sash
+    are absolutely positioned against this card, and the existing
+    `overflow-hidden` is what clips the sash's rotated ends into a corner
+    ribbon rather than letting them hang off the card. %>
+<% my_entry_count = local_assigns.fetch(:my_entry_count, 0) %>
+<% sash = contest_sash_label(contest, my_entry_count) %>
+<%# `h-full flex flex-col` is what makes a row of these cards share one height.
+    The featured rail is a flex row with `items-stretch`, which stretches each
+    card's WRAPPER — not the card, which is a block-level <a> inside it. So
+    without this the cards sit at their own content heights and a contest whose
+    name wraps to two lines is visibly taller than its neighbours. The body
+    below takes `flex-1` so the extra height lands there rather than under the
+    banner. %>
+<%= link_to contest_path(contest), class: "card-hover flex flex-col h-full overflow-hidden relative", data: { contest_card: contest.slug } do %>
   <% if contest.contest_image.attached? %>
     <%= image_tag contest.contest_image, class: "w-full h-36 object-cover", alt: contest.name %>
   <% else %>
     <div class="w-full h-36" style="background: linear-gradient(135deg, var(--color-primary-700), var(--color-primary-900))"></div>
   <% end %>
 
-  <div class="p-5">
+  <div class="p-5 flex-1">
     <% if contest.slate %>
       <p class="text-xs text-secondary font-medium mb-1"><%= contest.slate.name %></p>
     <% end %>
 
-    <% card_status = contest.cancelled? ? "cancelled" : contest.status %>
-    <div class="flex items-center justify-between mb-3">
-      <h2 class="text-lg font-bold text-heading"><%= contest.name %></h2>
-      <span class="badge text-[10px] <%= contest_badge_classes(card_status) %>"><%= card_status.capitalize %></span>
-    </div>
+    <%# NO STATUS BADGE ON THE CARD, and no wrapping title.
+        The rail holds only open and coming-soon contests
+        (Contest.featured_order excludes settled and cancelled), so an "Open"
+        pill on every card made the same claim about all of them while taking
+        the width the NAME needs. What is not open carries the sash instead,
+        which says it louder and costs the title nothing.
+
+        `truncate` then guarantees ONE line for any name, however long — the
+        card is a fixed 288/320px and the names are operator-typed, so no font
+        size can promise this and only a hard single-line rule can. The full
+        name rides in `title` so a clipped one is still readable on hover, and
+        it is never the only place the name appears: both tables below print it
+        in full. %>
+    <h2 class="text-lg font-bold text-heading truncate mb-3" title="<%= contest.name %>"><%= contest.name %></h2>
 
     <div class="flex items-center gap-4 text-sm text-secondary mb-2">
       <span><%= dollars(contest.entry_fee_dollars) %> entry</span>
@@ -32,4 +60,20 @@
       <p class="text-xs text-muted"><%= contest.starts_at.strftime("%b %-d, %Y") %></p>
     <% end %>
   </div>
+
+  <%# The not-ready-yet layer. It sits ABOVE the card's content and BELOW the
+      sash, so the whole card reads as pushed back while the one label
+      explaining why stays at full strength. `pointer-events-none` keeps the
+      card clickable through it — a coming-soon contest is dimmed, not
+      disabled, and clicking it opens the ordinary contest page. %>
+  <% if contest.coming_soon? %>
+    <div class="absolute inset-0 bg-black/40 pointer-events-none" aria-hidden="true" data-contest-dim></div>
+  <% end %>
+
+  <% if sash %>
+    <div class="tt-sash <%= contest.coming_soon? ? "tt-sash-soon" : "tt-sash-entered" %>"
+         data-contest-sash="<%= contest.coming_soon? ? "soon" : "entered" %>">
+      <span><%= sash %></span>
+    </div>
+  <% end %>
 <% end %>

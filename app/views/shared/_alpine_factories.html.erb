@@ -543,6 +543,73 @@
     };
   };
 
+  // === contestRail — the featured strip's right-edge fade ==============
+  //
+  // /contests leads with a horizontal rail of open + coming-soon cards. A
+  // strip that scrolls has to SAY it scrolls, and the house idiom for that is
+  // the one navUsernameFade uses above and the navbar username already ships:
+  // taper the content itself with a mask-image, so the last card fades out
+  // instead of being cut off square at the viewport edge.
+  //
+  // MASK, NOT AN OVERLAY GRADIENT. A gradient div faked over the edge has to
+  // know the page's background colour to fade INTO, which is a theme token
+  // that changes under it; a mask fades the content to transparent and is
+  // therefore correct on any background, in either theme, over any surface a
+  // future layout puts the rail on.
+  //
+  // 85% is where the taper starts — the last ~15% of the strip's width. Far
+  // enough in to read as a soft edge, not so far that a card sitting fully
+  // inside the viewport gets dimmed.
+  //
+  // IT IS A MEASUREMENT, NOT A STYLE, which is the whole reason this is a
+  // component and not a CSS class. A rail with three cards on a wide screen
+  // does not scroll, and fading its right edge would be a lie about what is
+  // there. So the mask is bound to `canScrollRight` and reasserted on every
+  // input that can change the answer:
+  //
+  //   @scroll   the reader scrolls — at the far right there is no more to
+  //             show and the fade must come OFF, or it reads as a strip that
+  //             never ends.
+  //   observer  the viewport is resized (a window resize, the sidebar's
+  //             breakpoint, a font swap). None of these announce themselves,
+  //             so watching the BOX means a future caller cannot forget to.
+  //
+  // The observer belongs to the instance and dies with it in destroy(), so a
+  // Turbo navigation that re-runs init() on a fresh rail cannot leave a second
+  // one bound behind it.
+  //
+  // $nextTick before the first read: init() runs while this component's own
+  // subtree is still being set up, and x-ref="viewport" is on a CHILD, so a
+  // straight this.$refs.viewport in init() can find nothing and measure a rail
+  // that is permanently un-faded.
+  //
+  // The 1px slack in the comparison absorbs sub-pixel scroll positions — a
+  // fractional scrollLeft at the true end of the strip otherwise leaves a
+  // half-pixel of "more to scroll" and the fade never clears.
+  window.contestRail = function () {
+    return {
+      canScrollRight: false,
+      _ro: null,
+      init() {
+        var self = this;
+        this.$nextTick(function () {
+          self.measure();
+          if (!window.ResizeObserver || !self.$refs.viewport) return;
+          self._ro = new ResizeObserver(function () { self.measure(); });
+          self._ro.observe(self.$refs.viewport);
+        });
+      },
+      destroy() {
+        if (this._ro) { this._ro.disconnect(); this._ro = null; }
+      },
+      measure() {
+        var el = this.$refs.viewport;
+        if (!el) { this.canScrollRight = false; return; }
+        this.canScrollRight = (el.scrollWidth - el.clientWidth - el.scrollLeft) > 1;
+      }
+    };
+  };
+
   // ageVerifyModal was DELETED 2026-08-26 (adopt-birthday-age-gate-flow). The
   // engine owns the factory now — window.birthdayModal, rendered at layout
   // level by studio/_birthday_assets. It is not a rename with the same
