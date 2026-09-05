@@ -211,6 +211,60 @@ class TestController < ApplicationController
     }
   end
 
+  # ── /contests featured-rail fixtures ──────────────────────────────────
+  #
+  # The rail's two browser-only properties — the right-edge fade appearing only
+  # while something is off-screen, and the open-before-coming-soon order — both
+  # need MORE THAN ONE contest to be observable, and the dev seed ships exactly
+  # one. So the spec states its own premise here rather than inheriting a
+  # fixture it cannot see.
+  #
+  # Every row is slugged with one prefix and the spec deletes them by that
+  # prefix when it finishes, so this cannot leave the rail wider than it found
+  # it. That matters more than it sounds: the lane runs `workers: 1` against
+  # ONE database, and a leftover contest is paid for by every later spec that
+  # measures this page.
+  #
+  # `skip_onchain_callback` is not optional. Contest's after_create mints a
+  # Contest PDA on devnet unless the flag is set, and Rails.env.test? — which
+  # skips it automatically — is FALSE here: Playwright boots the app in
+  # DEVELOPMENT. Without the flag each of these would make a real RPC round
+  # trip and the seeding call would hang or fail.
+  E2E_RAIL_SLUG_PREFIX = "e2e-rail-".freeze
+
+  def seed_contests
+    count = params[:count].to_i.clamp(1, 12)
+    slate = Slate.order(:id).first
+    return render json: { error: "no slate to hang a contest on" }, status: :unprocessable_entity if slate.nil?
+
+    made = (1..count).map do |i|
+      Contest.new(
+        # ONE deliberately long name in the set. The rail's cards are a fixed
+        # width and their titles are pinned to a single line; a fixture of
+        # uniformly short names makes that measurement pass whether the rule is
+        # applied or not.
+        name: i == 1 ? "E2E Rail Contest With A Deliberately Very Long Operator Typed Name" : "E2E Rail Contest #{i}",
+        slug: "#{E2E_RAIL_SLUG_PREFIX}#{i}",
+        status: "open",
+        coming_soon: false,
+        entry_fee_cents: 1900,
+        max_entries: 29,
+        contest_type: "standard",
+        slate: slate,
+        # Newest first inside the rail's open band, so the spec can name the
+        # order it expects rather than discover it.
+        created_at: i.minutes.ago
+      ).tap { |c| c.skip_onchain_callback = true }.tap(&:save!)
+    end
+
+    render json: { ok: true, slugs: made.map(&:slug) }
+  end
+
+  def clear_seeded_contests
+    removed = Contest.where("slug LIKE ?", "#{E2E_RAIL_SLUG_PREFIX}%").destroy_all.map(&:slug)
+    render json: { ok: true, removed: removed }
+  end
+
   # Give the signed-in user a managed (custodial) wallet — i.e. make them a
   # GRANDFATHERED web2 user.
   #

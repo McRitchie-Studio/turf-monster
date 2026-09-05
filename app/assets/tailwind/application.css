@@ -1806,6 +1806,83 @@ html.dark { --rx-fill: 0 0 0; }
   .holo-border-glow::before { animation: none; }
 }
 
+/* ── The contest card sash ────────────────────────────────────────────────
+   A ribbon clipped into a contest card's top-right corner: "Entered",
+   "3 Entries", or "Coming Soon".
+
+   HOW THE CLIP WORKS, because it is not obvious from the numbers. .tt-sash is
+   a 132px square pinned to the card's corner with its own overflow hidden; the
+   span inside is far WIDER than that square (186px) and rotated 45°, so its
+   two ends run past the square's edges and are cut off by it. That is what
+   produces the mitred ribbon look with no clip-path and no SVG. Change the
+   square's size and the span's width/offsets have to move with it or the ends
+   stop being cut and hang off the card as a rotated rectangle.
+
+   The card itself must be `relative overflow-hidden` (contests/_contest_card):
+   relative anchors this square, and the card's own overflow is a second clip
+   that keeps the ribbon inside its rounded corner.
+
+   z-index 2 lifts it above the coming-soon dim layer, which is the point — the
+   card is pushed back and the one label saying why is not.
+
+   COLOURS ARE LITERAL HEX, DELIBERATELY. The brand palette is a JS config, and
+   its brand hues compile to literal values rather than to --color-* custom
+   properties (verified in app/assets/builds/tailwind.css: text-mint resolves to
+   #06d6a0, text-violet to #8e82fe). A var() here would resolve to nothing and
+   the ribbon would render transparent. These two are the palette's mint-500 and
+   violet DEFAULT.
+
+   Navy (#1A1535) is the text on both fills rather than white: on mint-500 white
+   measures 2.56:1 — below AA and the same trap the bg-primary guard at the foot
+   of this file exists for — while navy measures 9.34:1. Neither colour is a
+   theme token, so that figure holds in the light theme too. */
+.tt-sash {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 132px;
+  height: 132px;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 2;
+}
+.tt-sash > span {
+  position: absolute;
+  top: 26px;
+  right: -44px;
+  display: block;
+  width: 186px;
+  padding: 5px 0;
+  transform: rotate(45deg);
+  text-align: center;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #1A1535;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.45);
+}
+.tt-sash-entered > span { background: #06D6A0; }
+.tt-sash-soon > span { background: #8E82FE; }
+
+/* ── The featured contest rail ────────────────────────────────────────────
+   The horizontal strip of open + coming-soon cards at the top of /contests.
+   Same treatment .tt-games-strip gets on the live page, for the same reasons:
+   a scrollbar under a single row of cards reads as chrome rather than as an
+   affordance, and `overscroll-behavior-x: contain` stops a horizontal fling at
+   the end of the strip from turning into a browser back-navigation — one flick
+   away on a trackpad, and it would throw the reader off the page.
+
+   The right-edge fade that advertises the overflow is NOT here: it is painted
+   by a sibling element the contestRail Alpine component shows and hides, since
+   whether there is more to scroll is a measurement, not a style. */
+.tt-contest-rail {
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.tt-contest-rail::-webkit-scrollbar { display: none; }
+
 /* ── Accessibility guard: small white text on bg-primary ─────────────────────
    The theme primary (#4baf50) paints white text at only 2.78:1 — below WCAG AA
    (4.5:1 for small text) in BOTH themes. PR 249 fixed one instance (the

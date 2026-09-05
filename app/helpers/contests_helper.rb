@@ -1,4 +1,92 @@
 module ContestsHelper
+  # ── The status badge the contests page paints ────────────────────────────
+  #
+  # Three states this page adds on top of the plain status enum:
+  #
+  #   Coming Soon  an open contest flagged `coming_soon` — advertised, not
+  #                ready yet. It says so wherever the contest is listed, so a
+  #                table's Status column can never contradict the rail's sash
+  #                about the same contest on the same screen.
+  #   Won          a settled contest this viewer took money out of.
+  #   Complete     a settled contest this viewer entered and did not.
+  #
+  # `payout_cents` is the axis that separates those last two, and NIL IS A
+  # THIRD ANSWER, not a zero. Nil means "not asked on behalf of any particular
+  # viewer" — the All Contests table, which keeps the plain "Settled" it has
+  # always shown. Only the My Contests band passes a number, and only there is
+  # a settled contest told apart into Won and Complete.
+  #
+  # Won is the ONE FILLED badge on the page. Everything else takes the house
+  # outline treatment, so the row a reader actually won reads differently at a
+  # glance instead of being a second green outline beside Open's. Contrast:
+  # mint-500 (#06D6A0) under navy (#1A1535) text measures 9.34:1, and both are
+  # fixed brand hues rather than theme tokens, so that figure holds in the
+  # light theme as well as the dark one.
+  #
+  # PRECEDENCE, and why each guard comes before the ones it would otherwise
+  # swallow: cancelled first (terminal whatever else is true, and the fact that
+  # changes what the reader should do next), then the settled pair (a settled
+  # contest is never coming soon and its status branch would just say
+  # "Settled"), then coming soon, then the plain status.
+  def contest_status_badge(contest, payout_cents: nil)
+    return { label: "Cancelled", classes: contest_badge_classes("cancelled") } if contest.cancelled?
+
+    if contest.settled? && !payout_cents.nil?
+      return { label: "Won", classes: "bg-mint-500 text-navy border-mint-500 font-bold" } if payout_cents.to_i.positive?
+
+      return { label: "Complete", classes: contest_badge_classes("settled") }
+    end
+
+    return { label: "Coming Soon", classes: contest_badge_classes("pending") } if contest.coming_soon?
+
+    { label: contest.status.capitalize, classes: contest_badge_classes(contest.status) }
+  end
+
+  # ── The ribbon laid across a contest card ────────────────────────────────
+  #
+  # Returns the sash's text, or nil when the card should not carry one — most
+  # cards do not, which is what makes the ones that do worth looking at.
+  #
+  # `my_entry_count` is THIS VIEWER'S entry count, not the contest's. The card
+  # already prints the field size ("15 entries") in its stat line, so a sash
+  # repeating that number would say nothing; what it is for is the reader's own
+  # stake. One entry says "Entered" because a count of one adds nothing to it.
+  #
+  # Coming soon OUTRANKS entered. The two can co-occur — nothing stops an
+  # operator flagging a contest that already has entries — and "not ready yet"
+  # is the more urgent claim about a contest a reader is looking at now.
+  def contest_sash_label(contest, my_entry_count)
+    return "Coming Soon" if contest.coming_soon?
+
+    count = my_entry_count.to_i
+    return nil unless count.positive?
+
+    count == 1 ? "Entered" : "#{count} Entries"
+  end
+
+  # What the Prizes cell says about a contest, for the viewer named by
+  # `payout_cents`. Three readings, and the middle one is the only place on the
+  # page where the number itself changes:
+  #
+  #   unsettled           the guaranteed prize pool, green — what is on offer.
+  #   settled, won        the amount THIS VIEWER won, green — the pool is
+  #                       history, their share is the fact.
+  #   settled, won none   the guaranteed pool, GREY. The number is kept rather
+  #                       than blanked because "$500 was on the table" is the
+  #                       point; the grey is what says it went elsewhere.
+  #
+  # Nil `payout_cents` (the All Contests table, which is nobody's ledger) takes
+  # the first reading whatever the status, exactly as it did before.
+  def contest_prize_cell(contest, payout_cents: nil)
+    return { amount: contest.guaranteed_prize_dollars, classes: "text-primary" } if payout_cents.nil? || !contest.settled?
+
+    if payout_cents.to_i.positive?
+      { amount: payout_cents.to_i / 100.0, classes: "text-primary font-bold" }
+    else
+      { amount: contest.guaranteed_prize_dollars, classes: "text-muted" }
+    end
+  end
+
   # Whether the current viewer is allowed to see this entry's picks.
   # While the contest is open and not yet locked, picks are private to the
   # entry owner so network-tab readers can't preview competitors' selections.

@@ -602,6 +602,8 @@ Rails.application.routes.draw do
     post "test/oauth_mock",               to: "test#set_oauth_mock"
     post "test/set_user_referral_counts", to: "test#set_user_referral_counts"
     post "test/create_active_entry",      to: "test#create_active_entry"
+    post "test/seed_contests",            to: "test#seed_contests"
+    post "test/clear_seeded_contests",    to: "test#clear_seeded_contests"
     post "test/grant_managed_wallet",     to: "test#grant_managed_wallet"
     post "test/set_quest_state",          to: "test#set_quest_state"
     post "test/grant_web3_wallet",        to: "test#grant_web3_wallet"

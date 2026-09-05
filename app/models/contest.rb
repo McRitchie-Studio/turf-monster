@@ -77,6 +77,42 @@ class Contest < ApplicationRecord
 
   scope :ranked, -> { where.not(rank: nil).order(rank: :asc) }
 
+  # ── The featured rail's contents and order ───────────────────────────────
+  #
+  # The contests page leads with a horizontal rail of the contests a reader can
+  # act on. This method decides BOTH which contests are in it and what order
+  # they sit in, so the page and its tests read one definition.
+  #
+  # WHAT IS IN IT: the live board. A `settled` contest is finished — it belongs
+  # in My Contests (where its result is the point) and in the All Contests
+  # table, never in the rail that exists to advertise what is playable. A
+  # CANCELLED contest is excluded for the same reason and is NOT the same test:
+  # `cancelled?` reads the `onchain_cancelled` boolean, and a cancelled contest
+  # keeps `status: "open"` (contest.rb #cancelled?), so filtering on status
+  # alone would put a dead contest at the top of the page under a red badge.
+  #
+  # THE ORDER IS TWO BANDS, NOT ONE SORT KEY. Open first, coming-soon after,
+  # each band newest-to-oldest. Expressed as a tuple so the band always
+  # outranks the date: a coming-soon contest created this morning still sits
+  # below an open contest created last month, because the reader scanning left
+  # to right is looking for something to enter and everything enterable should
+  # come first.
+  #
+  # `-created_at.to_i` reverses the date WITHIN the band without a second sort
+  # pass. Whole seconds are enough: two contests created in the same second tie
+  # and fall back to sort_by's order, which is a stable no-op here — nothing
+  # downstream reads the order of a tie.
+  #
+  # Takes an ARRAY, not a relation, because the caller (ContestsController
+  # #index) has already loaded every open/settled contest with its slate and
+  # banner attached. Re-querying here would undo that and re-introduce the
+  # N+1 the single load exists to prevent.
+  def self.featured_order(contests)
+    contests
+      .reject { |contest| contest.settled? || contest.cancelled? }
+      .sort_by { |contest| [contest.coming_soon? ? 1 : 0, -contest.created_at.to_i] }
+  end
+
   def self.target
     ranked.find_by(status: :open)
   end
