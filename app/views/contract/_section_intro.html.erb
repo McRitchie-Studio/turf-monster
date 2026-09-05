@@ -7,15 +7,18 @@
   <h2 class="text-heading font-bold text-xl mb-3">What this contract does</h2>
   <div class="space-y-3 text-body text-base leading-relaxed max-w-3xl">
     <p>
-      Every Turf Monster contest you enter is escrowed by a small program that lives on Solana &mdash;
-      a public, immutable blockchain. The prize pool isn't sitting in a Turf Monster bank account.
-      It's locked in an on-chain account that <strong>only the contract itself can move</strong>,
-      following rules anyone can read.
+      Every Turf Monster contest runs on a small program that lives on Solana &mdash;
+      a public, immutable blockchain. A contest's prize money isn't sitting in a Turf Monster
+      bank account. It's held in an on-chain <strong>prize pool</strong> the program controls:
+      the contract pays the winners when the contest settles, and returns the money to the
+      creator who funded the pool if the contest is cancelled &mdash; following rules anyone can read.
     </p>
     <p>
-      You sign your own entry. Your USDC moves from your wallet to a contest account in one
-      transaction. When the contest settles, the contract pays winners directly from that account
-      to their wallets &mdash; we can't touch the money in between.
+      You sign your own entry, and that one transaction moves exactly the entry fee and nothing else.
+      The fee is Turf Monster's revenue, so it goes to a dedicated on-chain account for that currency,
+      and the only place the program can send it from there is our treasury. Prizes come out of the
+      contest's prize pool instead &mdash; a separate account &mdash; and the contract cannot pay out
+      more than that pool already holds.
     </p>
     <p class="text-secondary text-sm">
       Below: the exact bytes that ship on chain, every instruction the contract exposes,

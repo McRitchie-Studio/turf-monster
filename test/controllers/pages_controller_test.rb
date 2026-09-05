@@ -22,6 +22,21 @@ class PagesControllerTest < ActionDispatch::IntegrationTest
     assert_select "a[href=?]", contact_path
   end
 
+  # /about carried the same per-contest misdescription of the operator-revenue
+  # account that /contract did. The ATA is derived from [b"op_rev", mint] alone
+  # (enter_contest.rs:95), so it is one account per currency for the whole
+  # vault, shared by every contest. Assert the topology, not the sentence.
+  test "about page does not call operator revenue a per-contest account" do
+    get about_path
+
+    assert_response :success
+    # The separator is written loose on purpose: the apostrophe reaches the body
+    # as &rsquo; (7 chars) here, and would arrive as &#39; if the copy switched to
+    # a plain one. A guard pinned to one spelling is a guard that never bites.
+    assert_no_match(/contest.{0,8}s operator[- ]revenue/i, response.body)
+    assert_match(/operator revenue account/i, response.body)
+  end
+
   test "contact page renders without auth" do
     get contact_path
     assert_response :success
