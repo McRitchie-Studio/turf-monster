@@ -83,7 +83,9 @@ class ContestLiveStateTest < ActionDispatch::IntegrationTest
   # — cancel-while-locked is deliberately supported (contests/show gates the
   # entry board on `open? && !cancelled?`, not on `!locked?`) — and `live?` is
   # `locked? && !settled?`, so `live?` is TRUE for such a contest. It read "Live",
-  # pulsing, on a terminal refunded contest.
+  # pulsing, on a terminal cancelled contest. ("Cancelled" is not "refunded":
+  # cancel_contest returns the prize pool to the CREATOR and entry fees stay
+  # operator revenue — contest.rb#cancelled?, ContestsHelper#live_state_key.)
   #
   # The badge no longer tracks `live?`. It is not a claim about whether a packet
   # can arrive; it is a claim about what the contest IS.
@@ -98,7 +100,7 @@ class ContestLiveStateTest < ActionDispatch::IntegrationTest
     assert_select "[data-test='live-state'][data-state='cancelled']"
     assert_select "[data-test='live-state']", text: /Cancelled/i
     assert_select "[data-test='live-state']", { text: /Live/i, count: 0 },
-                  "a refunded contest must not announce itself as in progress"
+                  "a cancelled contest must not announce itself as in progress"
     assert_select "[data-test='live-state'] .animate-pulse", { count: 0 },
                   "a terminal contest must not pulse like one that is in progress"
   end
@@ -153,8 +155,10 @@ class ContestLiveStateTest < ActionDispatch::IntegrationTest
   # `status: [:open]` then `.select(&:live?)`, and NEITHER filter excludes a
   # cancelled contest — so a cancelled, locked, unsettled contest is still in the
   # broadcast set while its badge says "Cancelled". The divergence is deliberate.
-  # What a viewer needs first is that the contest is over and refunded; whether
-  # score packets are still being pushed at the games strip is not the headline.
+  # What a viewer needs first is that the contest is terminal and no result is
+  # coming — not that they have been paid, which cancelling does not do for an
+  # entrant; whether score packets are still being pushed at the games strip is
+  # not the headline.
   test "the badge diverges from the broadcast predicate for a cancelled contest" do
     @contest.update!(starts_at: 1.hour.ago, status: "open", onchain_cancelled: true)
     @contest.reload
