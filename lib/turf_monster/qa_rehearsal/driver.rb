@@ -32,6 +32,26 @@ module TurfMonster
       MAX_ENTRIES  = 29
       ENTRY_FEE_CENTS = 1_900
 
+      # WHO THE CONTEST IS CREATED AS, keyed on the one field that does not move.
+      #
+      # This was `User.find_by(slug: "alex-2")` until 2026-09-05. A User slug is
+      # "#{username}-#{id}" and Sluggable rewrites it on EVERY save, so the
+      # operator username swap turned that row into `mcritchie-2` and the lookup
+      # would have gone nil — silently, because the `|| User.where(role: "admin")
+      # .first` fallback beside it had no ORDER BY and would have handed the
+      # rehearsal an arbitrary admin. If that landed on alex@mcritchie.studio the
+      # server holds no key for it (KeyStore::ITEMS has no entry) and could not
+      # sign as the creator it had just named. An email is the roster's own
+      # primary key; nothing in the app rewrites one.
+      #
+      # This address is the ALEX BOT account — the same wallet the server signs
+      # with as fee payer and contest creator (KeyStore "alex" =>
+      # agent.alex.solana, which is this identity's roster wallet).
+      CREATOR_EMAIL = "team@mcritchie.studio"
+      CREATOR_MISSING = "no user on #{CREATOR_EMAIL} to create the rehearsal contest as — " \
+                        "that is the Alex Bot identity the server signs with, so re-seed " \
+                        "the app rather than letting another admin stand in"
+
       # The admin drives the HTTP admin surface. turf-5 is an admin account with
       # a filed key, so the driver can hold its session. It cannot PLAY —
       # its username is the reserved prefix "turf" and the program refuses to
@@ -148,6 +168,13 @@ module TurfMonster
             raise "minted but the admin balance never reached the pool size" if have < needed
           end
 
+          # RAISE RATHER THAN SUBSTITUTE. A rehearsal created under the wrong
+          # identity does not fail here; it fails four steps later, on-chain,
+          # with an error about signature counts that says nothing about the
+          # creator. Loud and early is the cheaper failure.
+          creator = User.find_by(email: #{CREATOR_EMAIL.inspect})
+          raise #{CREATOR_MISSING.inspect} if creator.nil?
+
           contest = Contest.create!(
             name: "QA Rehearsal " + Time.current.strftime("%b %-d %H:%M"),
             slate: slate,
@@ -156,7 +183,7 @@ module TurfMonster
             max_entries: #{MAX_ENTRIES},
             entry_fee_cents: #{ENTRY_FEE_CENTS},
             starts_at: 8.hours.from_now,
-            user: User.find_by(slug: "alex-2") || User.where(role: "admin").first
+            user: creator
           )
 
           emit(

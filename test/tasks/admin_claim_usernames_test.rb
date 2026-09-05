@@ -144,7 +144,9 @@ class AdminClaimUsernamesTaskTest < ActiveSupport::TestCase
 
     out = run_task
     assert_match(/DRY RUN/, out)
-    assert_match(/CLAIM\s+mcritchie/, out)
+    # Derived like every other assertion in this file: the literal was correct
+    # today and would have broken on the next roster move.
+    assert_match(/CLAIM\s+#{parked("team@mcritchie.studio")}/, out)
     assert_equal "mcritchiee", @alex.reload.username
     assert_equal "team-auto", @team.reload.username
   end

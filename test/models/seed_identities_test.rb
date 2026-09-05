@@ -161,6 +161,39 @@ class SeedIdentitiesTest < ActiveSupport::TestCase
     assert_equal "Stranger", stranger.name, "the seed overwrote the stranger's identity"
   end
 
+  # THE INDEX IS CASE-INSENSITIVE AND THE GUARDS WERE NOT. `users` is unique on
+  # lower(username) and the model validates case_insensitive, so a holder on
+  # "Alex" or "Mason" walked straight past an exact-match `where(username:)` and
+  # then tripped `save!` with the opaque RecordInvalid those guards exist to
+  # prevent. lib/tasks/admin_usernames.rake keys on LOWER(username); these now
+  # agree with it.
+  test "the swap frees a username a parked row holds in another case" do
+    alex = users(:alex)
+    team = User.create!(email: "team@mcritchie.studio", name: "Team McRitchie", role: "admin")
+    team.update_column(:username, "Alex")
+    alex.update_column(:username, "mcritchie")
+
+    silence_warnings { load Rails.root.join("db/seeds/users.rb") }
+    capture_io { seed_core_users! }
+
+    assert_equal "alex", alex.reload.username
+    assert_equal "mcritchie", team.reload.username
+  end
+
+  test "a stranger holding a wanted username in another case is reported, not raised" do
+    mason = User.create!(email: "mason@mcritchie.studio", name: "Mason McRitchie", role: "user")
+    mason.update_column(:username, "mason_existing")
+    stranger = User.create!(email: "stranger@example.com", name: "Stranger", role: "user")
+    stranger.update_column(:username, "Mason")
+
+    silence_warnings { load Rails.root.join("db/seeds/users.rb") }
+    out, = capture_io { seed_core_users! }
+
+    assert_equal "Mason", stranger.reload.username, "the seed renamed an account it does not own"
+    assert_equal "mason_existing", mason.reload.username
+    assert_match(/wants "mason"/, out, "the seed took the name silently instead of reporting it")
+  end
+
   test "every seeded identity is unique by email and username" do
     emails = User::PARKED_IDENTITIES.map { |i| i[:email] }
     usernames = User::PARKED_IDENTITIES.map { |i| i[:username] }.compact

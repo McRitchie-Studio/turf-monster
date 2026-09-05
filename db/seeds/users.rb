@@ -44,7 +44,11 @@ def park_swapped_usernames!(identities)
     map[user.id] = data[:username] if user.persisted?
   end
 
-  User.where(username: wanted).find_each do |holder|
+  # LOWER(...), not an exact match: the unique index is on lower(username) and the
+  # model validates case-insensitively, so a holder on "Alex" slips past an exact
+  # comparison and then trips save! below with exactly the opaque RecordInvalid
+  # this guard exists to prevent. lib/tasks/admin_usernames.rake keys the same way.
+  User.where("LOWER(username) IN (?)", wanted.map(&:downcase)).find_each do |holder|
     next if intended[holder.id].to_s.casecmp?(holder.username.to_s)
 
     unless intended.key?(holder.id)
@@ -68,7 +72,9 @@ end
 # databases a re-seed owns.
 def retire_unparked_identities!(retired = User::RETIRED_IDENTITIES)
   retired.each do |email, role|
-    row = User.find_by(email: email)
+    # Case-insensitive for the same reason the migration uses LOWER(email): the
+    # address is the key here, and its casing is whatever a sign-up once typed.
+    row = User.where("LOWER(email) = ?", email.downcase).first
     next if row.nil? || row.role == role
 
     # update_column: this touches a row the roster no longer describes, so it must
@@ -94,7 +100,8 @@ def seed_core_users!
     # forced. Letting save! raise here would take the whole seed down with an
     # opaque RecordInvalid on a database that is otherwise fine.
     username = data[:username]
-    if username.present? && User.where(username: username).where.not(id: user.id).exists?
+    if username.present? &&
+       User.where("LOWER(username) = ?", username.downcase).where.not(id: user.id).exists?
       puts "  ! #{data[:email]} wants #{username.inspect}, which is taken — keeping #{user.username.inspect}"
       username = user.username
     end

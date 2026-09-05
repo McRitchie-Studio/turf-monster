@@ -165,6 +165,18 @@ class TurfIdentityMoveTest < ActiveSupport::TestCase
     assert User.exists?(seat.id), "the seed destroyed a real account instead of demoting it"
   end
 
+  # The address is the key, and its casing is whatever a sign-up once typed. The
+  # migration keys on LOWER(email); the seed has to agree or a mixed-case row
+  # keeps admin in every database a re-seed owns.
+  test "the seed retires the seat whatever case its address was stored in" do
+    seat = User.create!(name: "Alex McRitchie", email: "Alex@TurfMonster.media", username: "alexturf")
+    seat.update_column(:role, "admin")
+
+    run_seed
+
+    assert_equal "user", seat.reload.role, "a mixed-case address dodged the retirement"
+  end
+
   test "the seed leaves an admin the roster never retired alone" do
     stranger = User.create!(name: "Stranger", email: "stranger@example.com", username: "stranger")
     stranger.update_column(:role, "admin")
