@@ -1977,7 +1977,18 @@ class ContestsController < ApplicationController
       # to compute onchain_params and the season check, and coming_soon reaches
       # neither. This is the builder whose contest is SAVED, so this is where
       # it has to land.
-      coming_soon:                payload[:coming_soon],
+      #
+      # `|| false` IS LOAD-BEARING, NOT DEFENSIVE TIDINESS. A token minted
+      # before this field shipped carries no `coming_soon` key at all, and the
+      # column is NOT NULL — an explicitly-assigned nil goes into the INSERT
+      # rather than falling back to the column default. Without the fallback
+      # that raises at `contest.save!` below, which runs AFTER
+      # cosign_and_broadcast_create_contest has already moved the creator's
+      # prize pool on chain: a funded Contest PDA with no row, invisible to
+      # Solana::Reconciler (it takes a Contest record) and not repairable by a
+      # retry (the slug guard asks the DB, and the missing row is what it looks
+      # for). Pinned by test/controllers/contests_legacy_create_token_test.rb.
+      coming_soon:                payload[:coming_soon] || false,
       # The create_contest TX just verified was built from onchain_params,
       # which funds entry_fee_by_currency slot 1 (USDT) alongside slot 0.
       accepts_usdt:               true
