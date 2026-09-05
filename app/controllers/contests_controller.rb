@@ -275,6 +275,36 @@ class ContestsController < ApplicationController
     render_create_error(e.message)
   end
 
+  # WRITE-AHEAD, THEN BROADCAST, THEN PROMOTE. The order of the two writes in
+  # this method is a money invariant, so it is spelled out rather than left to
+  # be re-derived:
+  #
+  #   1. save the row   status `pending`, carrying the derived PDA
+  #   2. broadcast      the creator's prize-pool USDC moves into the vault
+  #   3. stamp          the signature, before anything that can raise
+  #   4. verify         the read-back (OPSEC-010)
+  #   5. promote        status `open`
+  #   6. attach         the banner, last, and unable to fail the request
+  #
+  # This mirrors the ENTRY path, which has written ahead since 2026-06-05: the
+  # row is created first, then the broadcast, then the signature is stamped on
+  # it (see #confirm_onchain_entry and the note at :675 — "a strand is then a
+  # recoverable row"). The Phantom CONTEST path was the last money path without
+  # that property, and it is the one where the USER's money moves.
+  #
+  # WHY IT MATTERS. Every step from 2 onward can raise, and every raise lands in
+  # the `rescue StandardError` below, which tells the user their contest failed.
+  # Before this change the row was written at the END, so that message was a lie
+  # whenever the broadcast had already succeeded: the prize pool was in the
+  # vault and NOTHING outside the request knew — `tx_signature` was a local
+  # variable, and Entries::OnchainReconciler is rooted in Contest rows, so a
+  # funded PDA with no row is unreachable, not merely unreconciled.
+  #
+  # The failure mode now INVERTS. A crash leaves a row with no money (sweepable:
+  # read the PDA, promote if funded, delete if not) instead of money with no row.
+  #
+  # `pending` + a signature means "broadcast, not yet verified" — a sweeper must
+  # re-verify rather than trust that stamp. `open` is the verified state.
   def finalize
     payload = verify_onchain_create_payload(params[:params_token])
     raise "User mismatch — token was issued to a different user" unless payload[:user_id] == current_user.id
@@ -284,21 +314,44 @@ class ContestsController < ApplicationController
     raise "A contest with that slug already exists" if Contest.exists?(slug: payload[:slug])
     raise "Missing signed transaction" if params[:signed_tx].blank?
 
-    contest = build_contest_from_payload(payload)
+    # `draft` is never saved and never leaves this method — it exists only to
+    # compute `onchain_params` and the season check. It is deliberately NOT
+    # called `contest`: the rescue at the bottom asks `contest&.persisted?` to
+    # decide what to file the ErrorLog against, and a throwaway sharing that
+    # name is how that question starts returning an answer about the wrong
+    # object.
+    draft = build_contest_from_payload(payload)
     vault = Solana::Vault.new
-    ensure_onchain_season_ready!(contest.season_id, vault: vault)
+    ensure_onchain_season_ready!(draft.season_id, vault: vault)
 
     vault.assert_create_contest_cosign_safe!(
       params[:signed_tx],
       wallet_address: payload[:creator_pubkey],
       contest_slug: payload[:slug],
-      onchain_params: contest.onchain_params
+      onchain_params: draft.onchain_params
     )
 
+    # STEP 1 — the write-ahead row, before a single lamport moves. Everything
+    # this record needs is already known: `derived_pda_b58` was computed at the
+    # top of the method, and only the signature has to wait for the broadcast.
+    # Saving here also moves the column-level failures (`coming_soon` NOT NULL,
+    # slug format, the season default) to BEFORE the money instead of after it.
+    contest = build_pending_contest(payload, derived_pda_b58)
+    contest.save!
+
+    # STEP 2 — the creator's prize pool moves. Past this line the money is real
+    # whatever else happens.
     tx_signature = vault.cosign_and_broadcast_create_contest(params[:signed_tx])
 
-    # OPSEC-010: assert the broadcast tx is the create_contest IX targeting
-    # THIS PDA, signed by the original creator from the server-issued token.
+    # STEP 3 — record the signature IMMEDIATELY, before the read-back that can
+    # raise. It is the only off-chain evidence tying this request to the
+    # on-chain effect; losing it because an RPC flaked is avoidable for the cost
+    # of one UPDATE. The row stays `pending`: broadcast is not verification.
+    contest.update!(onchain_tx_signature: tx_signature)
+
+    # STEP 4 — OPSEC-010: assert the broadcast tx is the create_contest IX
+    # targeting THIS PDA, signed by the original creator from the server-issued
+    # token.
     verify_solana_transaction!(
       tx_signature,
       instruction: "create_contest",
@@ -306,9 +359,16 @@ class ContestsController < ApplicationController
       writable: derived_pda_b58
     )
 
-    contest = build_finalized_contest(payload, derived_pda_b58, tx_signature)
-    contest.contest_image.attach(params[:contest_image]) if params[:contest_image].present?
-    contest.save!
+    # STEP 5 — verified. Publish it.
+    contest.update!(status: :open)
+
+    # STEP 6 — the banner LAST, and unable to fail the request. This is an S3
+    # upload of a user-supplied file: the widest failure window in the method
+    # and the one least worth a contest over. Between the broadcast and the
+    # promote it could strand a funded contest at `pending`; after the promote
+    # the worst it can cost is a missing image on a contest that exists, is
+    # funded, and is live. Logged, never raised.
+    attach_contest_banner(contest)
 
     render json: { success: true, redirect: contest_path(contest), slug: contest.slug }
   rescue ActiveSupport::MessageVerifier::InvalidSignature
@@ -318,7 +378,12 @@ class ContestsController < ApplicationController
     render_create_error("Signed transaction did not match this contest request. Rebuild the transaction and try again.")
   rescue StandardError => e
     Rails.logger.error("[ContestsController#finalize] #{e.class}: #{e.message}")
-    capture_unlogged(e)
+    # `target:` is what makes capture_unlogged actually PERSIST the log (see
+    # :1878 — it only saves when given a target or parent). Before the
+    # write-ahead row there was no contest to name here, so this rescue logged
+    # to Rails.logger and nowhere else. Now a strand files an ErrorLog against
+    # the exact row an operator has to repair.
+    capture_unlogged(e, target: contest&.persisted? ? contest : nil)
     render_create_error(e.message)
   end
 
@@ -1955,7 +2020,29 @@ class ContestsController < ApplicationController
     )
   end
 
-  def build_finalized_contest(payload, derived_pda_b58, tx_signature)
+  # The row #finalize writes AHEAD of the broadcast (step 1). It carries every
+  # field the finished contest needs except the one that cannot be known yet —
+  # the transaction signature — so the promote after verification is a status
+  # flip and nothing more, and every column-level failure happens BEFORE the
+  # creator's money moves.
+  #
+  # `status: :pending` is deliberate and is not a new state: `pending` is the
+  # contests.status column default and the first member of the enum, and until
+  # this method nothing ever left a row resting there. A `pending` contest is
+  # invisible to ContestsController#index and to ProofOfReservesController,
+  # both of which filter `status: [:open, :settled]` — so an unverified contest
+  # cannot appear in a listing or be counted as a reserve.
+  #
+  # `skip_onchain_callback = true` IS THE MOST IMPORTANT LINE IN THIS METHOD.
+  # Contest's after_create (contest.rb:70) fires the SERVER-FUNDED create path
+  # unless it is suppressed — a second `create_contest` broadcast paid from the
+  # HOUSE wallet. A write-ahead row saved without this would turn a fix for one
+  # stranded payment into a double spend. Two other guards happen to cover it
+  # (`onchain?` is true because the row carries the PDA, and `create_onchain!`
+  # returns early on the same test), but redundancy is not a reason to leave the
+  # intent implicit: this row opts out ON PURPOSE, and says so.
+  # Pinned by test/controllers/contests_finalize_write_ordering_test.rb.
+  def build_pending_contest(payload, derived_pda_b58)
     Contest.new(
       name:                       payload[:name],
       slug:                       payload[:slug],
@@ -1967,10 +2054,9 @@ class ContestsController < ApplicationController
       locks_at_timezone_selected: payload[:locks_at_timezone_selected],
       entry_fee_cents:            payload[:entry_fee_cents],
       max_entries:                payload[:max_entries],
-      status:                     :open,
+      status:                     :pending,
       user:                       current_user,
       onchain_contest_id:         derived_pda_b58,
-      onchain_tx_signature:       tx_signature,
       season_id:                  payload[:season_id],
       # Purely presentational, and deliberately absent from
       # #build_contest_from_payload above: that builder's contest exists only
@@ -1981,18 +2067,35 @@ class ContestsController < ApplicationController
       # `|| false` IS LOAD-BEARING, NOT DEFENSIVE TIDINESS. A token minted
       # before this field shipped carries no `coming_soon` key at all, and the
       # column is NOT NULL — an explicitly-assigned nil goes into the INSERT
-      # rather than falling back to the column default. Without the fallback
-      # that raises at `contest.save!` below, which runs AFTER
-      # cosign_and_broadcast_create_contest has already moved the creator's
-      # prize pool on chain: a funded Contest PDA with no row, invisible to
-      # Solana::Reconciler (it takes a Contest record) and not repairable by a
-      # retry (the slug guard asks the DB, and the missing row is what it looks
-      # for). Pinned by test/controllers/contests_legacy_create_token_test.rb.
+      # rather than falling back to the column default, so a legacy payload
+      # raises PG::NotNullViolation on save. That raise USED to happen after
+      # the broadcast and strand the creator's prize pool; since the
+      # write-ahead reordering it happens before the money moves and costs
+      # nothing but an error message. Keep the fallback anyway — a clean
+      # refusal beats a 500 either way.
+      # Pinned by test/controllers/contests_legacy_create_token_test.rb.
       coming_soon:                payload[:coming_soon] || false,
-      # The create_contest TX just verified was built from onchain_params,
-      # which funds entry_fee_by_currency slot 1 (USDT) alongside slot 0.
+      # The create_contest TX about to be broadcast was built from
+      # onchain_params, which funds entry_fee_by_currency slot 1 (USDT)
+      # alongside slot 0.
       accepts_usdt:               true
     ).tap { |c| c.skip_onchain_callback = true }
+  end
+
+  # Step 6 of #finalize. A banner is cosmetic; the contest it hangs on is money.
+  # An S3 upload of a user-supplied file is the likeliest thing in the method to
+  # fail, so it runs last and swallows its own failure — the alternative is
+  # telling a user their contest failed when it is live, funded, and merely
+  # missing a picture. Logged against the contest so it is still diagnosable.
+  def attach_contest_banner(contest)
+    return if params[:contest_image].blank?
+
+    contest.contest_image.attach(params[:contest_image])
+  rescue StandardError => e
+    Rails.logger.error(
+      "[ContestsController#finalize] banner attach failed for slug=#{contest.slug}: #{e.class}: #{e.message}"
+    )
+    capture_unlogged(e, target: contest)
   end
 
   # Returns nil if it's safe to proceed, or an error message string explaining
