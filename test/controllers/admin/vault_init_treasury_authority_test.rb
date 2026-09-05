@@ -10,25 +10,33 @@ require "test_helper"
 #     "BW13kgfiG2koFn3WRkte21NW9TFygsD1ge2fNJdjH6kC"   # the DEVNET Squad
 #   )
 #
-# Two defects in one expression:
+# Two defects in one expression — one LIVE, one LATENT:
 #
-#   1. NOT NETWORK-KEYED. The fallback was the devnet literal on every cluster,
-#      so a mainnet build with the variable unset pre-filled the vault-init form
-#      with the DEVNET Squad — the address VaultState.treasury_authority is
-#      PINNED to at initialize time, and which sweep_operator_revenue then
-#      refuses to pay anywhere else.
+#   1. NOT NETWORK-KEYED, and this is the one production ran. The fallback was
+#      the devnet literal on every cluster, and the key SOLANA_SQUADS_VAULT_PDA
+#      is ABSENT on turf-monster-mainnet and turf-monster-qa alike (re-verified
+#      2026-09-05 by key presence: `heroku config --json -a <app>` does not
+#      carry the key, and the table view — which names every key regardless of
+#      value — names it zero times). So `ENV.fetch` DID take its default, and
+#      the mainnet vault-init form pre-filled the DEVNET Squad BW13…H6kC — the
+#      address VaultState.treasury_authority is PINNED to at initialize time,
+#      and which sweep_operator_revenue then refuses to pay anywhere else.
 #   2. `ENV.fetch` TAKES ITS DEFAULT ONLY FOR AN ABSENT KEY. A key present but
-#      empty yields "", never reaching the fallback. `heroku config:set VAR=`
-#      sets exactly that, and it is the live state of both deployed apps
-#      (verified 2026-09-05: SOLANA_SQUADS_VAULT_PDA is length 0 on
-#      turf-monster-mainnet AND turf-monster-qa). So production rendered a
-#      BLANK treasury authority into the form.
+#      empty yields "", never reaching the fallback. LATENT, never live: no
+#      deployed app sets this key, so no form ever rendered a blank treasury.
+#      One `heroku config:set SOLANA_SQUADS_VAULT_PDA=` would have made it
+#      live, which is why the replacement resolves via `.presence`.
+#
+# Do NOT verify the key's state with `heroku config:get` — it prints a bare
+# newline for an absent key AND for a present-but-empty one, so it cannot tell
+# them apart. Reading it as "empty" is how this header first carried a false
+# production fact.
 #
 # Bounded rather than an incident: the mainnet VaultState PDA
 # GBu44HFJjq61WnS9UV1twcSrCC6SkuXHK8RM6tUKsWzV already exists, so `build`
 # raises "Vault already initialized" before any of this is submitted, and the
-# on-chain treasury authority is correctly Bk9sS7ii…GdJm. This is a wrong (and
-# blank) address offered to an operator, not money moved.
+# on-chain treasury authority is correctly Bk9sS7ii…GdJm. This is a WRONG
+# address offered to an operator, not money moved.
 #
 # WHY BOTH CLUSTERS, EVERY TIME. A suite asserting only the mainnet address
 # passes against a reader that hardcodes the mainnet address — the same bug
@@ -155,10 +163,16 @@ class Admin::VaultInitTreasuryAuthorityTest < ActionDispatch::IntegrationTest
 
   # --- unset vs EMPTY vs whitespace: three states, not one ---
   #
-  # This is the distinction the old `ENV.fetch` reader got wrong, and the EMPTY
-  # case is the one both production apps are actually in. Each state gets its
-  # own test so none of them can pass on the strength of another.
+  # UNSET is the one both production apps are actually in — the key is ABSENT
+  # from both configs. EMPTY is the distinction the old `ENV.fetch` reader got
+  # wrong, and it is defensive coverage rather than a production state: no
+  # deployed app has ever set this key. Each state gets its own test so none of
+  # them can pass on the strength of another.
 
+  # THE LIVE PRODUCTION STATE. The key SOLANA_SQUADS_VAULT_PDA is ABSENT from
+  # turf-monster-mainnet and turf-monster-qa (re-verified 2026-09-05 by key
+  # presence). Under `ENV.fetch` this took the default — which was the devnet
+  # literal on every cluster, so the mainnet form offered the DEVNET Squad.
   test "an UNSET variable falls through to the cluster default" do
     with_vault_env(nil) do
       with_network("devnet")       { assert_equal DEVNET,  Admin::VaultInitController.default_treasury_authority }
@@ -166,9 +180,9 @@ class Admin::VaultInitTreasuryAuthorityTest < ActionDispatch::IntegrationTest
     end
   end
 
-  # THE LIVE PRODUCTION STATE. `heroku config:get SOLANA_SQUADS_VAULT_PDA`
-  # returns a length-0 string on turf-monster-mainnet and turf-monster-qa.
-  # Under `ENV.fetch` this rendered "" into the form on both.
+  # NOT a production state — no deployed app sets this key. Defensive coverage
+  # for what `heroku config:set SOLANA_SQUADS_VAULT_PDA=` would create, which
+  # `ENV.fetch` would have resolved to "".
   test "an EMPTY variable falls through to the cluster default" do
     with_vault_env("") do
       with_network("devnet")       { assert_equal DEVNET,  Admin::VaultInitController.default_treasury_authority }
@@ -183,8 +197,10 @@ class Admin::VaultInitTreasuryAuthorityTest < ActionDispatch::IntegrationTest
     end
   end
 
-  # The rendered half of the same claim: production's empty variable must not
-  # reach the browser as a blank input on either cluster.
+  # The rendered half of the same claim: an empty variable must not reach the
+  # browser as a blank input on either cluster. Latent rather than live — no
+  # deployed app sets this key — but a blank pre-fill on a field pinned at
+  # `initialize` is worth pinning against.
   test "an EMPTY variable never renders a blank treasury input" do
     with_vault_env("") do
       with_network("devnet")       { assert_offers_treasury(DEVNET, MAINNET, "empty on devnet") }

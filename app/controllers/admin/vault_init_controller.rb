@@ -21,14 +21,23 @@ module Admin
     # WHAT THIS REPLACES (vault-pda-readers-diverge). The default used to be
     # `ENV.fetch("SOLANA_SQUADS_VAULT_PDA", "<devnet literal>")`, which carried
     # two defects in one expression:
-    #   1. The fallback was NOT network-keyed, so a mainnet build with the
-    #      variable unset offered the DEVNET Squad as the treasury authority.
+    #   1. NOT NETWORK-KEYED — and this is the defect production actually ran.
+    #      The fallback was the devnet literal on every cluster, and the key
+    #      SOLANA_SQUADS_VAULT_PDA is ABSENT on turf-monster-mainnet and
+    #      turf-monster-qa alike (re-verified 2026-09-05 by key presence:
+    #      `heroku config --json -a <app>`). So `ENV.fetch` DID take its
+    #      default, and the mainnet vault-init form pre-filled the DEVNET Squad
+    #      BW13…H6kC as treasury_authority — a wrong address stated
+    #      authoritatively, on a field pinned immutably at `initialize`.
     #   2. `ENV.fetch` only takes its default when the key is ABSENT — a key
-    #      present but empty yields "", so the fallback never ran at all.
-    #      `heroku config:set VAR=` sets exactly that empty string, and that is
-    #      the live state of both deployed apps (verified 2026-09-05:
-    #      SOLANA_SQUADS_VAULT_PDA is length 0 on turf-monster-mainnet AND
-    #      turf-monster-qa). So this form offered a BLANK treasury on both.
+    #      present but empty yields "", so the fallback would not run at all.
+    #      LATENT, never live: no deployed app sets this key, so this form
+    #      never offered a blank treasury. One `heroku config:set VAR=` would
+    #      have been enough to trigger it, which is why the replacement
+    #      resolves via `.presence` rather than a second `ENV.fetch`.
+    #
+    # Do NOT check the key's state with `heroku config:get`: it prints a bare
+    # newline for an absent key AND for a present-but-empty one.
     #
     # A METHOD rather than a constant, for the reason
     # `Solana::Config.squads_vault_pda` is one: the value derives from NETWORK,

@@ -15,7 +15,9 @@ require "test_helper"
 # not follow it." That was false. Admin::VaultInitController and
 # `solana:init_vault` both fell back to the DEVNET literal on EVERY cluster,
 # and the controller read the variable with `ENV.fetch`, which takes its
-# default only when the key is absent — not when it is empty. Both now route
+# default only when the key is absent — not when it is empty. The key IS absent
+# on both deployed apps, so that fallback is what ran and all three readers had
+# the SAME live symptom: the devnet Squad on the mainnet app. Both now route
 # through Solana::Config.squads_vault_pda; the view was simply the only copy a
 # human could see.
 #
@@ -50,10 +52,11 @@ class Solana::SquadsVaultPdaTest < ActiveSupport::TestCase
   # hardcoded literal too, which would be the same bug wearing a different
   # constant; only driving BOTH configurations distinguishes them.
   #
-  # And this is the path both deployed apps take. SOLANA_SQUADS_VAULT_PDA is
-  # empty on turf-monster-mainnet and turf-monster-qa alike (verified
-  # 2026-09-05), so every reader on production resolves through the default
-  # below, not through the override section further down.
+  # And this is the path both deployed apps take. The SOLANA_SQUADS_VAULT_PDA
+  # key is ABSENT from turf-monster-mainnet and turf-monster-qa alike
+  # (re-verified 2026-09-05 by key presence: `heroku config --json -a <app>`),
+  # so every reader on production resolves through the default below, not
+  # through the override section further down.
 
   test "devnet resolves to the devnet Squads vault" do
     with_vault_env(nil) do
@@ -82,11 +85,14 @@ class Solana::SquadsVaultPdaTest < ActiveSupport::TestCase
   # --- the env override, which NO deployed app currently uses ---
   #
   # Corrected 2026-09-05 (vault-pda-readers-diverge): this section used to be
-  # labelled "what the deployed apps actually use", which is backwards.
-  # `heroku config:get SOLANA_SQUADS_VAULT_PDA` returns a length-0 string on
-  # turf-monster-mainnet AND turf-monster-qa, so the network-keyed DEFAULT
-  # above is the production path on both clusters and the override below is a
-  # runbook escape hatch for pointing an app at a fresh Squad.
+  # labelled "what the deployed apps actually use", which is backwards. The
+  # SOLANA_SQUADS_VAULT_PDA key is ABSENT from turf-monster-mainnet AND
+  # turf-monster-qa — not present-and-empty. `heroku config --json -a <app>`
+  # does not carry it and the table view names it zero times; `config:get`
+  # cannot establish this, printing a bare newline for both states. So the
+  # network-keyed DEFAULT above is the production path on both clusters and the
+  # override below is a runbook escape hatch for pointing an app at a fresh
+  # Squad.
 
   test "SOLANA_SQUADS_VAULT_PDA wins on BOTH clusters" do
     with_vault_env(OVERRIDE) do
@@ -99,12 +105,21 @@ class Solana::SquadsVaultPdaTest < ActiveSupport::TestCase
   #
   # UNSET, EMPTY and WHITESPACE-ONLY are three distinct states, and Ruby treats
   # them differently: `ENV.fetch(k, default)` takes its default for UNSET only,
-  # while `ENV[k].presence` collapses all three. `heroku config:set VAR=` sets
-  # the EMPTY one, and that is the live state of both deployed apps — so the
-  # case that actually runs on production is the one an `ENV.fetch` reader
-  # would get wrong. Asserting them together in a single test would let two
-  # pass on the strength of the third, so they get one test each.
+  # while `ENV[k].presence` collapses all three.
+  #
+  # UNSET is the live production state — the key is ABSENT on both deployed
+  # apps — so it is the case that actually runs, and it is the one an
+  # `ENV.fetch` reader resolves correctly. EMPTY is what
+  # `heroku config:set VAR=` would create; no deployed app is in it, and it is
+  # the case an `ENV.fetch` reader would get wrong. Both are worth pinning: one
+  # is what production does, the other is one config:set away and is the reason
+  # the reader uses `.presence`.
+  #
+  # Asserting them together in a single test would let two pass on the strength
+  # of the third, so they get one test each.
 
+  # THE LIVE PRODUCTION STATE on turf-monster-mainnet and turf-monster-qa: the
+  # key is ABSENT from both configs (re-verified 2026-09-05 by key presence).
   test "an UNSET variable falls through to the cluster default" do
     with_vault_env(nil) do
       assert_equal DEVNET,  Solana::Config.squads_vault_pda("devnet")
@@ -112,7 +127,8 @@ class Solana::SquadsVaultPdaTest < ActiveSupport::TestCase
     end
   end
 
-  # The live production state on turf-monster-mainnet and turf-monster-qa.
+  # NOT a production state — no deployed app sets this key. Defensive coverage
+  # for the one `heroku config:set SOLANA_SQUADS_VAULT_PDA=` away.
   test "an EMPTY variable falls through to the cluster default" do
     with_vault_env("") do
       assert_equal DEVNET,  Solana::Config.squads_vault_pda("devnet")

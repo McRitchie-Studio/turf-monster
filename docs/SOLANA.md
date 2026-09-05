@@ -100,9 +100,23 @@ Signers (`VaultState.signers`, threshold 2) — the same set on **devnet and mai
 
 **In Rails, read the vault PDA from `Solana::Config.squads_vault_pda` — never as a literal.** It resolves `SOLANA_SQUADS_VAULT_PDA` first (via `.presence`, so an EMPTY value falls through rather than resolving to blank), then falls back to a NETWORK-keyed default (mainnet-beta -> `Bk9s…GdJm`, anything else -> `BW13…H6kC`), so a mainnet build cannot present a devnet authority by omission.
 
-**Neither deployed app sets that variable.** `heroku config:get SOLANA_SQUADS_VAULT_PDA` returns a length-0 string on `turf-monster-mainnet` and `turf-monster-qa` alike (verified 2026-09-05), so the NETWORK-keyed default is the production path on both clusters and the env var is a runbook escape hatch for pointing an app at a fresh Squad. `SOLANA_NETWORK` is therefore what actually selects the authority: `mainnet-beta` on the mainnet app, `devnet` on QA.
+**Neither deployed app sets that variable — the key is ABSENT, not empty.** So the NETWORK-keyed default is the production path on both clusters, and the env var is a runbook escape hatch for pointing an app at a fresh Squad. `SOLANA_NETWORK` is therefore what actually selects the authority: `mainnet-beta` on `turf-monster-mainnet`, `devnet` on `turf-monster-qa` (both present and non-empty).
 
-Three readers have carried this literal and been corrected. The view (`app/views/contract/_section_admin_state.html.erb`) showed the devnet Squad on `turf-monster-mainnet` — admin-shows-devnet-authority. Then `Admin::VaultInitController` and `solana:init_vault`, which had a devnet fallback that was not network-keyed, and in the controller's case an `ENV.fetch` that never fell back at all for an empty value — vault-pda-readers-diverge. The guard in `test/integration/contract_upgrade_authority_test.rb` now bans both cluster literals from **every** `app/` and `lib/` source, not just views; `app/services/solana/config.rb` is the single exempted home for them.
+**Check it by KEY PRESENCE — never with `heroku config:get`.** `config:get` prints a bare newline for an absent key *and* for a present-but-empty one, so it cannot tell the two states apart. This doc used to cite it as the verification method, and that is how "absent" got written down as "length 0" in a review. Ask whether the key exists instead:
+
+```bash
+# absent -> false; present -> true (even when its value is the empty string)
+heroku config --json --app turf-monster-mainnet | jq 'has("SOLANA_SQUADS_VAULT_PDA")'
+heroku config --json --app turf-monster-qa      | jq 'has("SOLANA_SQUADS_VAULT_PDA")'
+
+# independent second read: the table view lists every key BY NAME regardless of
+# value, so zero matching lines means the key does not exist.
+heroku config --app turf-monster-mainnet | grep -c SOLANA_SQUADS_VAULT_PDA
+```
+
+Re-verified 2026-09-05: absent on both apps, with `SOLANA_NETWORK` present and non-empty on both (`mainnet-beta` len 12, `devnet` len 6).
+
+Three readers have carried this literal and been corrected. The view (`app/views/contract/_section_admin_state.html.erb`) showed the devnet Squad on `turf-monster-mainnet` — admin-shows-devnet-authority. Then `Admin::VaultInitController` and `solana:init_vault`, whose devnet fallback was not network-keyed; because the variable is absent, that fallback is what ran, so all three readers had the SAME live symptom — the devnet Squad on the mainnet app. The controller carried a second, LATENT defect in the same expression: `ENV.fetch` does not fall back for an empty value, so a single `heroku config:set SOLANA_SQUADS_VAULT_PDA=` would have turned the wrong address into a blank one. Both readers now route through `Solana::Config.squads_vault_pda` — vault-pda-readers-diverge. The guard in `test/integration/contract_upgrade_authority_test.rb` now bans both cluster literals from **every** `app/` and `lib/` source, not just views; `app/services/solana/config.rb` is the single exempted home for them.
 
 Use `turf-vault/scripts/squad-upgrade.js` — it builds a buffer, sets the buffer authority to the Squad vault, then proposes + approves the upgrade tx through the Squad. Treat `turf-vault/docs/CURRENT_DEPLOYMENT.md` as the canonical program identity record; use the McRitchie Studio credential inventory for current 1Password item names instead of copying key refs into this app doc.
 

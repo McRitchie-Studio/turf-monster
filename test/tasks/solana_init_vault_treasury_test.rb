@@ -10,12 +10,16 @@ require "rake"
 #
 # The `.presence` chain handled empty values correctly — this reader's defect
 # was the OTHER one: the final fallback is the devnet literal on EVERY cluster.
-# Run against a mainnet build with SOLANA_SQUADS_VAULT_PDA unset (which is the
-# state of turf-monster-mainnet — the variable is length 0 there, verified
-# 2026-09-05), the task would pin VaultState.treasury_authority to the DEVNET
-# Squad. That value is fixed at initialize time and sweep_operator_revenue
-# refuses to pay anywhere else, so it is the one field here that a later deploy
-# cannot correct.
+# Run against a mainnet build with SOLANA_SQUADS_VAULT_PDA UNSET — which is the
+# live state of turf-monster-mainnet, where the key is ABSENT from the config
+# (re-verified 2026-09-05 by key presence: `heroku config --json -a <app>` does
+# not carry it, and the table view names it zero times) — the task would pin
+# VaultState.treasury_authority to the DEVNET Squad. That value is fixed at
+# initialize time and sweep_operator_revenue refuses to pay anywhere else, so
+# it is the one field here that a later deploy cannot correct.
+#
+# ABSENT, not empty. `heroku config:get` prints a bare newline for both states
+# and cannot distinguish them; the key-presence read above is the one that can.
 #
 # WHY THIS DRIVES THE REAL TASK. The resolution is one line inside a rake body;
 # asserting it by re-deriving the same expression in the test would certify the
@@ -134,8 +138,11 @@ class SolanaInitVaultTreasuryTest < ActiveSupport::TestCase
 
   # --- unset vs EMPTY vs whitespace ---
   #
-  # EMPTY is the live state of both deployed apps, so it is the case a
-  # production run actually exercises. Each state gets its own test.
+  # UNSET is the live state of both deployed apps — the key is ABSENT from both
+  # configs — so it is the case a production run actually exercises, and the
+  # network-keyed-default pair above is what covers it. EMPTY and
+  # WHITESPACE-ONLY are defensive coverage for states no deployed app is in.
+  # Each gets its own test.
 
   test "an EMPTY SOLANA_SQUADS_VAULT_PDA still pins the right Squad per cluster" do
     assert_equal DEVNET,  run_init_vault(network: "devnet",       vault_pda_env: "")

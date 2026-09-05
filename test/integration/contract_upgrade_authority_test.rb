@@ -13,12 +13,16 @@ require "test_helper"
 # CORRECTION (vault-pda-readers-diverge). This header used to claim the view
 # was the only BROKEN reader — "every other reader (Admin::VaultInitController,
 # `solana:init_vault`) already honoured SOLANA_SQUADS_VAULT_PDA". It was not.
-# Both of those fell back to the DEVNET literal on EVERY cluster, and the
-# controller read the variable with `ENV.fetch`, which takes its default only
-# for an ABSENT key — never for an empty one. Both now route through
-# Solana::Config.squads_vault_pda, and the guard at the bottom of this file was
-# widened from ERB to Ruby and rake so the claim is now ENFORCED rather than
-# asserted in prose.
+# Both of those fell back to the DEVNET literal on EVERY cluster, and because
+# the key is ABSENT on both deployed apps (re-verified 2026-09-05 by key
+# presence), that fallback is what ran: all three readers had the SAME live
+# symptom, the devnet Squad on the mainnet app. The controller carried a second
+# defect in the same expression — `ENV.fetch` takes its default only for an
+# ABSENT key, never for an empty one — but that one was LATENT, one
+# `heroku config:set VAR=` from live, and no deployed app has ever set the key.
+# Both now route through Solana::Config.squads_vault_pda, and the guard at the
+# bottom of this file was widened from ERB to Ruby and rake so the claim is now
+# ENFORCED rather than asserted in prose.
 #
 # WHY THIS TEST DRIVES BOTH CLUSTERS. A suite that only asserts the mainnet
 # address passes against a view that hardcodes the mainnet address — the same
@@ -91,11 +95,14 @@ class ContractUpgradeAuthorityTest < ActionDispatch::IntegrationTest
   #
   # Corrected 2026-09-05 (vault-pda-readers-diverge). This block used to call
   # itself "the production shape" and say `turf-monster-mainnet` "sets
-  # SOLANA_SQUADS_VAULT_PDA correctly". Both statements are inverted:
-  # `heroku config:get SOLANA_SQUADS_VAULT_PDA` returns a length-0 string on
-  # turf-monster-mainnet AND turf-monster-qa. The override is the runbook
-  # escape hatch for pointing an app at a fresh Squad; configuration 2 below is
-  # what production actually runs.
+  # SOLANA_SQUADS_VAULT_PDA correctly". Both statements are inverted: the key
+  # is ABSENT from turf-monster-mainnet AND turf-monster-qa — not
+  # set-and-empty — verified by key presence (`heroku config --json -a <app>`
+  # does not carry it; the table view, which names every key regardless of
+  # value, names it zero times). `heroku config:get` cannot establish this: it
+  # prints a bare newline for absent and for present-but-empty alike. The
+  # override is the runbook escape hatch for pointing an app at a fresh Squad;
+  # configuration 2 below is what production actually runs.
 
   test "with the mainnet vault configured, the admin card shows the MAINNET authority" do
     with_vault_env(MAINNET) { assert_renders_authority(MAINNET, DEVNET, "SOLANA_SQUADS_VAULT_PDA=mainnet") }
@@ -109,8 +116,9 @@ class ContractUpgradeAuthorityTest < ActionDispatch::IntegrationTest
   #
   # Omission must not print a devnet authority on a mainnet build. This is the
   # half that would still be broken if the fix only read the env var — and,
-  # since SOLANA_SQUADS_VAULT_PDA is empty on both deployed apps, it is the
-  # half that every production render and every production rake run takes.
+  # since the SOLANA_SQUADS_VAULT_PDA key is ABSENT from both deployed apps, it
+  # is the half that every production render and every production rake run
+  # takes.
 
   test "a mainnet build with no override still shows the MAINNET authority" do
     with_vault_env(nil) do

@@ -384,17 +384,34 @@ module Solana
     # browser, but it was NOT the only copy: the original note here claimed
     # "every other reader already honoured SOLANA_SQUADS_VAULT_PDA", and that
     # was wrong. Admin::VaultInitController and `solana:init_vault` each fell
-    # back to the DEVNET literal on every cluster, and the controller used
-    # `ENV.fetch`, which does not fall back at all for an EMPTY value. Both were
-    # routed through this method by vault-pda-readers-diverge; the guard in
+    # back to the DEVNET literal on every cluster — and because the variable is
+    # ABSENT on both deployed apps, that fallback is what actually ran, so a
+    # mainnet build offered the DEVNET Squad. The controller additionally used
+    # `ENV.fetch`, which does not fall back at all for an EMPTY value; that
+    # second defect was LATENT (one `heroku config:set VAR=` from live), never
+    # the observed production behaviour. Both readers were routed through this
+    # method by vault-pda-readers-diverge; the guard in
     # test/integration/contract_upgrade_authority_test.rb now covers Ruby and
     # rake as well as ERB, so a third reader cannot reintroduce a literal.
     #
-    # WHAT THE DEPLOYED APPS ACTUALLY DO. Neither sets this variable —
-    # SOLANA_SQUADS_VAULT_PDA is EMPTY (length 0) on turf-monster-mainnet and
-    # turf-monster-qa alike, verified 2026-09-05. The NETWORK-keyed DEFAULT
-    # below is therefore the production path on both, and the env override is
-    # the runbook escape hatch. That is the load the `.presence` carries.
+    # WHAT THE DEPLOYED APPS ACTUALLY DO. Neither sets this variable — the key
+    # SOLANA_SQUADS_VAULT_PDA is ABSENT from the config of turf-monster-mainnet
+    # and turf-monster-qa alike, re-verified 2026-09-05 by KEY PRESENCE
+    # (`heroku config --json -a <app>` does not carry the key, and the table
+    # view — which names every key regardless of value — names it zero times).
+    # ABSENT, not set-and-empty. So the NETWORK-keyed DEFAULT below is the
+    # production path on both clusters, SOLANA_NETWORK is what actually selects
+    # the authority (mainnet-beta on the mainnet app, devnet on QA — both
+    # present and non-empty), and the env override is the runbook escape hatch.
+    #
+    # DO NOT VERIFY THIS WITH `heroku config:get`. It prints a bare newline for
+    # an ABSENT key and a bare newline for a PRESENT-BUT-EMPTY one, so it
+    # cannot tell the two apart. Reading its output as "empty" is exactly how
+    # this comment once carried a false production fact into review.
+    #
+    # `.presence` therefore guards a LATENT case rather than the live one: a
+    # single `heroku config:set SOLANA_SQUADS_VAULT_PDA=` would make the key
+    # present-and-empty, which `ENV.fetch(k, default)` would resolve to "".
     #
     # A METHOD, not a constant, for exactly the reason `public_rpc_url` is one:
     # the resolution has to be exercisable across BOTH clusters without constant
