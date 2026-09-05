@@ -184,6 +184,8 @@ module TurfMonster
         say "  picks:    #{result['picks_required']} from #{result['matchup_ids'].size} matchups"
         say "  locks at: #{result['locks_at']}"
         say_urls(result["contest_slug"])
+        hand_back(verify: "the contest reads $500 Prizes, $19 Entry, 0/29 Entries, cards unlocked",
+                  next_command: "bin/qa-contest-rehearsal enter")
         result
       end
 
@@ -228,6 +230,8 @@ module TurfMonster
         failed = results.reject { |r| r[:ok] }
         say failed.empty? ? "  all #{results.size} entered" : "  #{failed.size} of #{results.size} FAILED"
         say_urls(slug)
+        hand_back(verify: "entries read #{results.count { |r| r[:ok] }}/29 and every player sits on the leaderboard at 0",
+                  next_command: "bin/qa-contest-rehearsal play --pace 4")
         results
       end
 
@@ -269,7 +273,12 @@ module TurfMonster
           # while its games read FINAL — the exact incoherence the unshift
           # exists to prevent, on the path an operator uses most.
           unshift_fixture(data["kickoff_shift_seconds"].to_i)
-          return replay(pace)
+          # THROUGH THE TAIL, never around it. This `return` has now eaten a
+          # tail behaviour twice: first the unshift (387d9a2a), then the halt
+          # itself, which shipped unhalted on the branch an operator uses most
+          # while a source-scanning test stayed green. Both exits end in
+          # finish_play for that reason — there is no longer a tail to jump.
+          return finish_play(data, replay(pace))
         end
 
         if reset
@@ -308,7 +317,17 @@ module TurfMonster
                            "Re-run step 3 before concluding."
         end
 
-        replay(pace) if pace.positive?
+        finish_play(data, pace.positive? ? replay(pace) : nil)
+      end
+
+      # The one tail step 3 has. Both exits return through it, so a branch added
+      # later cannot skip the halt by returning early — the mistake this method
+      # has now made twice.
+      def finish_play(data, result)
+        say_urls(data.fetch("contest_slug"), live_first: true)
+        hand_back(verify: "the live board built from zero and every game reads FINAL",
+                  next_command: "bin/qa-contest-rehearsal conclude --cosign link")
+        result
       end
 
       # Replay the week one scoring play at a time, so an operator can watch
@@ -506,7 +525,11 @@ module TurfMonster
 
         say_urls(slug)
 
-        return say("  no settle transaction to co-sign (nobody was owed)") if graded["ptx_slug"].blank?
+        if graded["ptx_slug"].blank?
+          say "  no settle transaction to co-sign (nobody was owed)"
+          return hand_back(verify: "the contest graded with no winner owed a payout",
+                           next_command: "bin/qa-contest-rehearsal close")
+        end
 
         cosign == :link ? offer_cosign_link(graded) : cosign_with_agent(graded)
       end
@@ -537,6 +560,7 @@ module TurfMonster
 
         say "  closed: #{result.inspect}"
         say_urls(slug)
+        hand_back(verify: "the contest reads settled and the rent came back")
         result
       end
 
@@ -587,6 +611,9 @@ module TurfMonster
         raise StepError, "confirm refused: #{response['error']}" if response["error"].present?
 
         say "  confirmed: #{response.inspect}"
+        hand_back(verify: "the payout arithmetic — the pool fell by exactly the sum paid, " \
+                          "and each winner rose by exactly their rank",
+                  next_command: "bin/qa-contest-rehearsal close")
         response
       end
 
@@ -606,6 +633,12 @@ module TurfMonster
         say ""
         say "  Magic Link: #{url}"
         say "  Rebuild, then Co-sign in Phantom. Transaction #{graded.fetch('ptx_slug')} is waiting."
+        # The one halt that is not a courtesy: this step CANNOT proceed without
+        # him. The settle is 2-of-3 and the server has signed only its own half,
+        # so an agent that runs `close` next closes a contest that never paid.
+        hand_back(verify: "the payout landed — the pool fell by exactly the sum paid, " \
+                          "and each winner rose by exactly their rank",
+                  next_command: "bin/qa-contest-rehearsal close")
         { magic_link: url, ptx_slug: graded["ptx_slug"] }
       end
 
@@ -632,6 +665,32 @@ module TurfMonster
           say "  Live Board:   #{contest}/live"
         end
         say "  League Board: https://#{host}/live"
+      end
+
+      # THE HALT. A step that ends by printing a URL and returning is a step an
+      # agent runs straight past — measured 2026-09-04, when a rehearsal ran all
+      # five steps in one turn and the operator never saw a board mid-flight.
+      #
+      # The five-step split exists so the run can be WATCHED. Without a halt the
+      # split buys nothing: the same five things happen, and the only person who
+      # wanted to look between them is told about it afterwards.
+      #
+      # This prints where the STOP has to be read — the terminal, at the moment
+      # the agent is deciding what to do next. The SOP says the same thing, but
+      # prose read once at the top loses to momentum, and a doc that is the ONLY
+      # place a rule lives is a doc that drifts.
+      #
+      # `verify` is what the operator is being asked to confirm, in their words,
+      # not a restatement of what the step did. "Entries read 3/29" is checkable
+      # at a glance; "entries were created" is not.
+      def hand_back(verify:, next_command: nil)
+        say ""
+        say "  ── STOP ─────────────────────────────────────────────────────"
+        say "  Hand the URLs above to Mr. McRitchie and WAIT for his go-ahead."
+        say "  Ask him to confirm: #{verify}"
+        say ""
+        say(next_command ? "  Next, once he confirms:  #{next_command}" : "  This was the last step. The rehearsal is complete.")
+        say "  ─────────────────────────────────────────────────────────────"
       end
 
       def say(message)
