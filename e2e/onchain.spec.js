@@ -4,6 +4,7 @@ const {
   loginViaPhantom,
   setupPhantomMock,
   setupOnchainMocks,
+  OPERATOR_USERNAME,
 } = require("./helpers");
 
 const CONTEST_PATH = "/contests/world-cup-2026";
@@ -62,11 +63,11 @@ test("phantom sign-in with existing user", async ({ page }) => {
   await loginViaPhantom(page);
 
   // The human operator's username should appear in the nav (nav shows username,
-  // not display name). After the 2026-06-02 naming flip the human's username is
-  // `mcritchie` (the bare `alex` username now belongs to the server bot).
+  // not display name). Read from the shared constant: the human and the team
+  // account traded usernames on 2026-09-04.
   // Filter by hasText on the current nav display hook.
   await expect(
-    page.locator("[data-username-display]").filter({ hasText: "mcritchie" }).first()
+    page.locator("[data-username-display]").filter({ hasText: OPERATOR_USERNAME }).first()
   ).toBeVisible();
 
   // "Sign in" link should NOT be visible (proves we're authenticated)
@@ -85,8 +86,8 @@ test("phantom sign-in creates new user", async ({ page }) => {
   // animal slug like "cumquat-shark" right at signup, so the profile-
   // modal-auto-open prompt the old assertion checked for no longer
   // fires — instead we verify the username chip in the nav is now
-  // SOMETHING OTHER than "mcritchie" (which would be the existing-user case;
-  // the human operator's username post-2026-06-02 naming flip).
+  // SOMETHING OTHER than the human operator's username (which would be the
+  // existing-user case).
   await setupPhantomMock(page, { seedByte: 2 });
 
   await loginViaPhantom(page);
@@ -95,7 +96,7 @@ test("phantom sign-in creates new user", async ({ page }) => {
   await expect(page.locator('a[href="/signin"]')).not.toBeVisible();
 
   // A new-user (generated) username chip must be visible in the nav, distinct
-  // from the existing human operator's `mcritchie`. We filter by a hyphen —
+  // from the existing human operator's. We filter by a hyphen —
   // Studio::UsernameGenerator always emits a kebab-case "<food>-<animal>" slug
   // — which uniquely separates the chip from the dropdown's same-href
   // "Account" link.
@@ -104,7 +105,7 @@ test("phantom sign-in creates new user", async ({ page }) => {
     .filter({ hasText: "-" })
     .first();
   await expect(usernameChip).toBeVisible({ timeout: 3000 });
-  await expect(usernameChip).not.toContainText("mcritchie");
+  await expect(usernameChip).not.toContainText(OPERATOR_USERNAME);
 });
 
 // ---------------------------------------------------------------------------

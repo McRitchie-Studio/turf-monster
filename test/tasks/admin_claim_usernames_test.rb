@@ -19,8 +19,14 @@ class AdminClaimUsernamesTaskTest < ActiveSupport::TestCase
 
   teardown { ENV.delete("DRY_RUN") }
 
+  # The parked usernames, read from the roster rather than spelled out: `alex`
+  # and `mcritchie` traded owners on 2026-09-04, and this file is about the
+  # claim mechanism, not about which name each identity currently parks.
+  def parked(email) = User.parked_username_for(email: email)
+
   def create_kickoff_rows!
-    # Mirrors prod: Alex's row holds "mcritchiee" and should become "mcritchie".
+    # Mirrors prod: Alex's row holds a near-miss username and should be claimed
+    # onto the parked one.
     @alex  = User.create!(email: "human@mcritchie.studio", name: "Mr. McRitchie", role: "admin",
                           username: "mcritchiee", web3_solana_address: ALEX_WALLET)
     @team  = User.create!(email: "team@mcritchie.studio", name: "Team McRitchie", role: "admin",
@@ -41,15 +47,15 @@ class AdminClaimUsernamesTaskTest < ActiveSupport::TestCase
     create_kickoff_rows!
     out = run_task
 
-    assert_equal "mcritchie", @alex.reload.username
-    assert_equal "alex",      @team.reload.username
+    assert_equal parked("alex@mcritchie.studio"), @alex.reload.username
+    assert_equal parked("team@mcritchie.studio"), @team.reload.username
     assert_equal "mason",     @mason.reload.username # already claimed
     assert_equal "turf",      @house.reload.username
     assert_equal "admin",     @alex.role
     assert_equal "admin",     @team.role
 
-    assert_match(/CLAIMED\s+mcritchie/, out)
-    assert_match(/CLAIMED\s+alex/, out)
+    assert_match(/CLAIMED\s+#{parked("alex@mcritchie.studio")}/, out)
+    assert_match(/CLAIMED\s+#{parked("team@mcritchie.studio")}/, out)
     assert_match(/already claimed/, out)
     assert_match(/On-chain set_username still owed/, out)
     assert_match(/v0\.25 admin init path/, out)            # house account's path
@@ -58,11 +64,11 @@ class AdminClaimUsernamesTaskTest < ActiveSupport::TestCase
 
   test "repairs parked role and email when username was already claimed" do
     users(:alex).update!(email: "fixture-admin@example.com")
-    user = User.create!(username: "mcritchie", web3_solana_address: ALEX_WALLET)
+    user = User.create!(username: parked("alex@mcritchie.studio"), web3_solana_address: ALEX_WALLET)
 
     out = run_task
 
-    assert_match(/CLAIMED\s+mcritchie/, out)
+    assert_match(/CLAIMED\s+#{parked("alex@mcritchie.studio")}/, out)
     user.reload
     assert_equal "admin", user.role
     assert_equal "alex@mcritchie.studio", user.email
@@ -78,11 +84,52 @@ class AdminClaimUsernamesTaskTest < ActiveSupport::TestCase
     @task.reenable
     out = run_task
     refute_match(/CLAIMED/, out) # uppercase CLAIMED only appears on a write
-    assert_equal "mcritchie", @alex.reload.username
+    assert_equal parked("alex@mcritchie.studio"), @alex.reload.username
   end
 
+  # THE SWAP DEADLOCK. `alex` and `mcritchie` traded owners on 2026-09-04, and
+  # each row then wanted a name the OTHER was sitting on. The holder check saw a
+  # squatter in both directions, reported two CONFLICTs, wrote nothing and exited
+  # 0 — so the swap looked applied and had not been. Production is the only
+  # database where this can happen (a fresh one creates every row already
+  # correct), which is exactly why it has to be built by hand here.
+  test "two rows that want each other's usernames both get claimed" do
+    alex = User.create!(email: "human@mcritchie.studio", name: "Alex McRitchie", role: "admin",
+                        username: parked("team@mcritchie.studio"), web3_solana_address: ALEX_WALLET)
+    team = User.create!(email: "team@mcritchie.studio", name: "Team McRitchie", role: "admin",
+                        username: parked("alex@mcritchie.studio"), web3_solana_address: ALEX_BOT_WALLET)
+
+    out = run_task
+
+    assert_equal parked("alex@mcritchie.studio"), alex.reload.username
+    assert_equal parked("team@mcritchie.studio"), team.reload.username
+    refute_match(/CONFLICT/, out, "a swap partner was mistaken for a squatter")
+  end
+
+  # The dry run has to READ as a swap too, or the operator previews two conflicts
+  # and never runs the real thing.
+  test "DRY_RUN previews a swap as a claim and writes nothing" do
+    alex = User.create!(email: "human@mcritchie.studio", name: "Alex McRitchie", role: "admin",
+                        username: parked("team@mcritchie.studio"), web3_solana_address: ALEX_WALLET)
+    team = User.create!(email: "team@mcritchie.studio", name: "Team McRitchie", role: "admin",
+                        username: parked("alex@mcritchie.studio"), web3_solana_address: ALEX_BOT_WALLET)
+    ENV["DRY_RUN"] = "1"
+
+    out = run_task
+
+    refute_match(/CONFLICT/, out)
+    assert_match(/releases it/, out)
+    assert_equal parked("team@mcritchie.studio"), alex.reload.username, "DRY_RUN wrote"
+    assert_equal parked("alex@mcritchie.studio"), team.reload.username, "DRY_RUN wrote"
+  end
+
+  # A row NO kickoff wallet owns keeps its name. Parking a swap partner must not
+  # become a licence to rename a stranger — the partner is only ever released
+  # because it is about to claim a parked name of its own.
   test "username conflict is reported, not raised, and the holder keeps the name" do
-    User.create!(email: "squatter@mcritchie.studio", username: "mcritchie")
+    # The squatter must hold the name this wallet actually WANTS, or there is no
+    # conflict left to report.
+    User.create!(email: "squatter@mcritchie.studio", username: parked("alex@mcritchie.studio"))
     alex = User.create!(email: "human@mcritchie.studio", role: "admin",
                         username: "mcritchiee", web3_solana_address: ALEX_WALLET)
 
@@ -97,7 +144,9 @@ class AdminClaimUsernamesTaskTest < ActiveSupport::TestCase
 
     out = run_task
     assert_match(/DRY RUN/, out)
-    assert_match(/CLAIM\s+mcritchie/, out)
+    # Derived like every other assertion in this file: the literal was correct
+    # today and would have broken on the next roster move.
+    assert_match(/CLAIM\s+#{parked("team@mcritchie.studio")}/, out)
     assert_equal "mcritchiee", @alex.reload.username
     assert_equal "team-auto", @team.reload.username
   end

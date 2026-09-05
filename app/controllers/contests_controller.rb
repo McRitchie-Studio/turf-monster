@@ -1283,7 +1283,7 @@ class ContestsController < ApplicationController
     rescue_and_log(target: @contest) do
       @contest.fill!(users: User.where(email: [
         "alex@mcritchie.studio", "mason@mcritchie.studio",
-        "mack@mcritchie.studio", "turf@mcritchie.studio"
+        "mack@mcritchie.studio", User::TURF_HOUSE_EMAIL
       ]))
       redirect_to @contest, notice: "Contest filled with #{@contest.entries.where(status: [:active, :complete]).count} entries!"
     end
