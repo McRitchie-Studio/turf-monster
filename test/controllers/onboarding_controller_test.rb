@@ -49,10 +49,34 @@ class OnboardingControllerTest < ActionDispatch::IntegrationTest
   test "the name is trimmed, inner whitespace collapsed, and length capped" do
     post onboarding_first_name_path, params: { first_name: "  Alex   James#{'x' * 80}  " }, as: :json
     assert_response :success
-    stored = @user.reload.first_name
+    # Assert the STORED FULL NAME, not `first_name`. Normalisation — trim,
+    # collapse, cap — is what this test is about, and `name` is the column that
+    # holds the whole normalised answer under every engine version.
+    #
+    # `first_name` is NOT that column, and asserting it here pinned a bug rather
+    # than a behaviour: the engine wrote the whole typed string into first_name
+    # (so "Ada Lovelace" landed first_name="Ada Lovelace", last_name NULL, and
+    # never self-healed), which is exactly what made a 40-character first_name
+    # look correct. The engine now derives the halves — first_name here is
+    # "Alex", 4 characters — so the old assertion failed against the fix while
+    # the endpoint was behaving better, not worse.
+    stored = @user.reload.name
     # The bound now belongs to the engine's controller — this app deleted its own.
     assert_equal Studio::OnboardingController::MAX_FIRST_NAME, stored.length
     assert stored.start_with?("Alex James"), "expected collapsed whitespace, got #{stored.inspect}"
+    # first_name still gets written, and is still the leading part of what was
+    # stored — true whether the engine writes the whole value or just the first
+    # half, so this keeps the column covered without pinning either shape.
+    #
+    # The presence guard is LOAD-BEARING, not decoration. `start_with?` alone is
+    # vacuous when first_name is blank — "anything".start_with?("") is true — so
+    # an engine that stopped writing first_name for a MULTI-WORD name would slip
+    # through, and a multi-word name is the exact shape the split exists to get
+    # right. Measured: without this line the file stays 10 runs / 0 failures
+    # while the writer drops first_name for every value containing a space.
+    assert @user.first_name.present?, "first_name should still be written"
+    assert stored.start_with?(@user.first_name),
+      "first_name #{@user.first_name.inspect} should lead the stored name #{stored.inspect}"
   end
 
   test "a blank name column is backfilled so display_name has something to show" do
