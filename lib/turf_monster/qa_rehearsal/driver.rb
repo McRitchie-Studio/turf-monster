@@ -21,8 +21,13 @@ module TurfMonster
       # Preseason week 4 is the evergreen slate: those games were played on
       # 2026-08-27/28, so their scores are final and identical on every run. A
       # live week would make the rehearsal's outcome depend on the day it ran.
-      SLATE_NAME = "NFL 2026 Preseason Week 4"
-      POLL_SLOT  = "2026:1:4"
+      SLATE_NAME = "NFL 2026 Preseason Weeks 3-4"
+      # A SPAN, so there are two slots to fetch and one board to watch them on.
+      # The single-week form left the rehearsal on the plain tm-pair-grid, which
+      # never calls TeamColorsHelper — the coloured team cards render only on the
+      # multi_week branch, so the board an operator was asked to watch was the
+      # uncoloured one. The span fixes that without touching a view.
+      POLL_SLOTS = %w[2026:1:3 2026:1:4].freeze
 
       # Standard tier, matching production's world-cup-turf-totals-week-1: five
       # paid ranks over a $500 pool. With a small cast every player finishes in
@@ -334,15 +339,7 @@ module TurfMonster
 
         say_urls(data.fetch("contest_slug"), live_first: true)
         say ""
-        say "  polling ESPN slot #{POLL_SLOT} …"
-        # The return value IS the verdict. A poll that fails exits this method
-        # having ALREADY cleared the board, so a later `conclude` would grade an
-        # unplayed slate and broadcast a real settle against it.
-        unless system("heroku", "run", "--app", app, "--no-tty", "--",
-                      "bin/nfl-live-poll", "--slot", POLL_SLOT)
-          raise StepError, "the ESPN poll failed — the board is CLEARED and no scores landed. " \
-                           "Re-run step 3 before concluding."
-        end
+        poll_slots!
 
         finish_play(data, pace.positive? ? replay(pace) : nil)
       end
@@ -426,9 +423,29 @@ module TurfMonster
         say "  contest locked: #{locked['locked']} · live page: #{locked['live'] ? 'open' : 'closed'}"
       end
 
+      # EVERY slot must land, not just the last. A span whose second week fetched
+      # and whose first did not is a half-scored board that still looks
+      # plausible — one week final, the other reading as "not kicked off yet" —
+      # and `conclude` would grade and settle real money against it.
+      #
+      # The return value IS the verdict. By the time this runs the board has
+      # ALREADY been cleared, so a failure has to stop the step rather than be
+      # logged and stepped over.
+      def poll_slots!
+        say "  polling ESPN slots #{POLL_SLOTS.join(', ')} …"
+
+        POLL_SLOTS.each do |slot|
+          next if system("heroku", "run", "--app", app, "--no-tty", "--",
+                         "bin/nfl-live-poll", "--slot", slot)
+
+          raise StepError, "the ESPN poll failed for slot #{slot} — the board is CLEARED and " \
+                           "no scores landed. Re-run step 3 before concluding."
+        end
+      end
+
       def replay(pace)
         say ""
-        say "  replaying #{POLL_SLOT} at #{pace}s per scoring play — watch https://#{host}/live"
+        say "  replaying #{POLL_SLOTS.join(' + ')} at #{pace}s per scoring play — watch https://#{host}/live"
 
         script = <<~RUBY
           slate = Slate.find_by!(name: #{SLATE_NAME.inspect})
