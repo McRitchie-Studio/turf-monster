@@ -215,12 +215,18 @@ module ContestsHelper
   # The fourth row — concluded but NOT locked — looks contradictory and is not.
   # On chain, `set_contest_conclusion_time` requires a conclusion later than the
   # lock ONLY when a lock is set (`lock != 0`,
-  # turf_vault/src/instructions/set_contest_conclusion_time.rs:71-74). A contest
-  # with no on-chain lock has `starts_at` nil, and `starts_in_at` then FALLS BACK
-  # to the slate's schedule (contest.rb:578) — a Rails-side value the chain never
-  # sees and never constrained. So a slate starting next week plus a conclusion
-  # already passed gives concluded-and-not-locked, and before this fix it read
-  # "Not started" at a contest whose results were final.
+  # programs/turf_vault/src/instructions/set_contest_conclusion_time.rs:71-74).
+  # The chain sees `starts_in_at` ONCE, at create: it is mirrored into
+  # `lock_timestamp` (contest.rb:526) and passed to create_contest
+  # (contest.rb:265). Nothing re-reads it afterwards, and no validation couples
+  # `concludes_at` to it — confirm_conclusion_time writes `concludes_at` ALONE
+  # (contests_controller.rb:1404). So the PAIR is unconstrained after create: a
+  # contest made with no slate schedule (lock 0, conclusion then unconstrained)
+  # that is later given one, or one whose first game is POSTPONED past a
+  # conclusion that has already passed, lands concluded-and-not-locked — and
+  # before this fix it read "Not started" at a contest whose results were final.
+  # It cannot be created that way outright: a conclusion must be in the FUTURE
+  # when set (same file, :70), so it reaches the past only by elapsed time.
   #
   # PRECEDENCE: cancelled, then final, then concluded, then live, then upcoming.
   #
