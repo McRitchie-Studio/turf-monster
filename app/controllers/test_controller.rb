@@ -56,9 +56,9 @@ class TestController < ApplicationController
     # Without this, referrals.spec.js's second run finds the existing
     # Phantom/Google/email-signup user with invited_by_id already set;
     # set_inviter doesn't re-fire; inviter counters stay at 0; assertions
-    # fail. Core users (mcritchie/alex/mason/mack/turf at IDs 1-5 — human is
-    # `mcritchie`, bot is `alex` after the 2026-06-02 naming flip) stay —
-    # specs depend on their slugs being stable.
+    # fail. Core users (alex/mcritchie/mason/mack/turf at IDs 1-5 — human is
+    # `alex`, bot is `mcritchie` after the 2026-09-04 swap, which reversed the
+    # 2026-06-02 flip) stay — specs depend on their slugs being stable.
     #
     # destroy_all (not delete_all) so dependent: :destroy on User cascades
     # to entries, transaction_logs, stripe_purchases.

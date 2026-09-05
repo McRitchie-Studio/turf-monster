@@ -33,9 +33,9 @@ puts "Seeding test database for Playwright (additive overlay)..."
 
 # ── Step 1: canonical state via db/seeds.rb ──────────────────────────
 # Loads idempotently. Creates / preserves teams, slates, matchups, games.
-# Also seeds the 5 core users (mcritchie/alex/mason/mack/turf — the human
-# operator is `mcritchie`, the server bot is `alex` after the 2026-06-02
-# naming flip) but we
+# Also seeds the 5 core users (alex/mcritchie/mason/mack/turf — the human
+# operator is `alex`, the server bot is `mcritchie` after the 2026-09-04 swap,
+# which reversed the 2026-06-02 flip) but we
 # wipe + redo them below for deterministic IDs.
 load Rails.root.join("db/seeds.rb")
 
