@@ -49,11 +49,14 @@ class Contest < ApplicationRecord
   #
   # PRIMARY PATH — Phantom-funded (default for the /contests/new UI):
   #   ContestsController#create builds a partially-signed `create_contest`
-  #   TX (admin pays SOL rent, creator slot left for Phantom). User signs
-  #   in their wallet → broadcast + confirm → ContestsController#finalize
-  #   creates the DB row with `skip_onchain_callback = true` and the
-  #   onchain_contest_id / onchain_tx_signature already populated.
-  #   See app/views/contests/new.html.erb + Solana::Vault#build_create_contest.
+  #   TX (admin pays SOL rent, creator slot left for Phantom). The user signs
+  #   in their wallet, then ContestsController#finalize WRITES THE ROW FIRST —
+  #   `status: :pending`, carrying the derived PDA, `skip_onchain_callback =
+  #   true` — broadcasts, stamps the signature, verifies, and only then
+  #   promotes the row to `open`. The row is therefore created BEFORE
+  #   onchain_tx_signature exists; `pending` means "written, not yet verified".
+  #   See app/views/contests/new.html.erb + Solana::Vault#build_create_contest,
+  #   and the ordering contract at the head of ContestsController#finalize.
   #
   # FALLBACK PATH — server-funded (Rails console / operator scripts):
   #   `Contest.create!(...)` without `skip_onchain_callback = true` fires
@@ -66,6 +69,15 @@ class Contest < ApplicationRecord
   # Opt-out via `skip_onchain_callback = true`:
   #   - The Phantom-funded UI flow sets this on save (Contest is already on-chain).
   #   - Test fixtures + Rails tests (Rails.env.test? auto-skips).
+  #
+  # THE HAZARD, because the two paths meet here and the cost is real money:
+  # a Phantom-funded row that reaches this callback WITHOUT the opt-out
+  # broadcasts a SECOND `create_contest` — the creator's prize pool from their
+  # wallet, then another from the HOUSE wallet. Three things happen to prevent
+  # it (the flag, `onchain?` being true once the PDA is set, and
+  # `create_onchain!`'s own `return if onchain?`), which is three more than the
+  # one a reader should have to find. Pinned by
+  # test/controllers/contests_finalize_write_ordering_test.rb.
   attr_accessor :skip_onchain_callback
   after_create :create_onchain_with_rollback!, unless: :skip_onchain_callback_active?
 
