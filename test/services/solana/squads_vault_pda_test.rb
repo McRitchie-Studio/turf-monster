@@ -145,8 +145,12 @@ class Solana::SquadsVaultPdaTest < ActiveSupport::TestCase
     end
   end
 
-  # None of the three may yield a blank, on either cluster — the failure the
-  # `ENV.fetch` reader in Admin::VaultInitController actually produced.
+  # None of the three may yield a blank, on either cluster. The blank was the
+  # LATENT half of the `ENV.fetch` reader in Admin::VaultInitController: no
+  # deployed app sets this key, so it never produced one — it is one
+  # `heroku config:set SOLANA_SQUADS_VAULT_PDA=` away. What that reader DID
+  # produce on mainnet was the DEVNET address, from a fallback that was not
+  # network-keyed.
   test "no empty-ish value ever resolves to a blank address" do
     [nil, "", "   ", "\t\n"].each do |value|
       with_vault_env(value) do
