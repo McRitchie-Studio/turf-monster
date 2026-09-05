@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { login, attestAge } = require("./helpers");
+const { login, attestAge, OPERATOR_USERNAME } = require("./helpers");
 
 function selectableMatchupCards(page) {
   return page.locator(
@@ -41,11 +41,11 @@ test("guest clicking matchup card does not crash the page", async ({ page }) => 
 
 test("login with valid credentials", async ({ page }) => {
   await login(page, "alex@mcritchie.studio", "password");
-  // Username should appear in header nav. The human operator's username is
-  // `mcritchie` after the 2026-06-02 naming flip (the bare `alex` username now
-  // belongs to the server bot).
+  // Username should appear in header nav. The nav shows the USERNAME, not the
+  // display name, and the human operator's changed on 2026-09-04 — hence the
+  // shared constant rather than a literal here.
   await expect(
-    page.locator("[data-username-display]").filter({ hasText: "mcritchie" })
+    page.locator("[data-username-display]").filter({ hasText: OPERATOR_USERNAME })
   ).toBeVisible();
 });
 

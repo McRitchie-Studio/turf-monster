@@ -20,14 +20,30 @@ namespace :admin do
   desc "Idempotently claim parked kickoff usernames in the DB by wallet (DRY_RUN=1 to preview)"
   task claim_usernames: :environment do
     # KEYED BY WALLET, so an identity without one has nothing for this task to
-    # claim and is skipped rather than fetched. Not every parked identity has a
-    # wallet: alex@turfmonster.media is an email-only operator admin, and
-    # `fetch` raised KeyError on it, taking the whole task down.
+    # claim and is skipped rather than fetched. Every parked identity carries a
+    # wallet as of 2026-09-04 (the email-only alex@turfmonster.media admin that
+    # `fetch` used to raise KeyError on — taking the whole task down — was
+    # retired), so keep the guard for the next one that does not.
     kickoff = User::PARKED_IDENTITIES.each_with_object({}) do |identity, claims|
       wallet = identity[:wallet]
       next if wallet.blank?
 
       claims[wallet] = identity
+    end.freeze
+
+    # THE SWAP DEADLOCK. Two kickoff rows can want each other's names — `alex`
+    # and `mcritchie` traded owners on 2026-09-04 — and the holder check below
+    # then refuses BOTH: each wants a name the other is sitting on. A single
+    # pass reports two CONFLICTs, writes nothing, and exits 0, so the swap looks
+    # done and never happened.
+    #
+    # So tell a swap PARTNER from a squatter. A holder that is itself a kickoff
+    # row headed somewhere else is parked (username nulled) and picks up its own
+    # name later in this same loop. A holder no kickoff wallet owns is a real
+    # conflict and still keeps its name: this task never renames a stranger.
+    claimed_by = kickoff.each_with_object({}) do |(wallet, identity), map|
+      holder = User.find_by(web3_solana_address: wallet) || User.find_by(web2_solana_address: wallet)
+      map[holder.id] = identity.fetch(:username) if holder
     end.freeze
 
     dry_run = ENV["DRY_RUN"].present?
@@ -57,16 +73,24 @@ namespace :admin do
       end
 
       holder = User.where("LOWER(username) = ?", username.downcase).where.not(id: user.id).first
-      if holder
+      swapping = holder && claimed_by.key?(holder.id) && !claimed_by[holder.id].to_s.casecmp?(username)
+
+      if holder && !swapping
         puts "  CONFLICT #{label} — \"#{username}\" is held by #{holder.slug}; #{user.slug} keeps \"#{user.username}\""
         next
       end
 
       if dry_run
-        puts "  CLAIM   #{label} — would rename #{user.slug}: \"#{user.username}\" -> \"#{username}\""
+        after = swapping ? " (after #{holder.slug} releases it)" : ""
+        puts "  CLAIM   #{label} — would rename #{user.slug}: \"#{user.username}\" -> \"#{username}\"#{after}"
         onchain_owed << [user, username]
         next
       end
+
+      # Park the swap partner so the unique index does not refuse this claim. It
+      # is only ever nulled here, never handed to anyone: the partner claims its
+      # own parked name on its own pass through this loop.
+      holder.update_column(:username, nil) if swapping
 
       begin
         previous = user.username

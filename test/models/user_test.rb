@@ -115,7 +115,11 @@ class UserTest < ActiveSupport::TestCase
 
     user = User.create!(web3_solana_address: wallet)
 
-    assert_equal "mcritchie", user.username
+    # Derived, like the name below it. The usernames `alex` and `mcritchie`
+    # traded owners on 2026-09-04, and this test is about the CLAIM firing, not
+    # about which name the roster currently parks. The roster's content is
+    # pinned once, in SeedIdentitiesTest.
+    assert_equal User.parked_username_for(email: "alex@mcritchie.studio"), user.username
     assert_equal "admin", user.role
     # Derived from the identity list, not spelled out: the claim is what this
     # test is about, and pinning the literal name made a seed-copy change fail
@@ -126,7 +130,7 @@ class UserTest < ActiveSupport::TestCase
   test "new email account claims parked username before generating a random one" do
     user = User.create!(email: "team@mcritchie.studio")
 
-    assert_equal "alex", user.username
+    assert_equal User.parked_username_for(email: "team@mcritchie.studio"), user.username
     assert_equal "admin", user.role
     assert_equal "Team McRitchie", user.name
   end
@@ -138,19 +142,23 @@ class UserTest < ActiveSupport::TestCase
                         web3_solana_address: wallet)
 
     assert user.claim_parked_username!
-    assert_equal "mcritchie", user.reload.username
+    assert_equal User.parked_username_for(email: "alex@mcritchie.studio"), user.reload.username
     assert_equal "admin", user.role
     assert_equal User.parked_identity_for(email: "alex@mcritchie.studio").fetch(:name), user.name
   end
 
   test "parked username falls back to generated username when claim is already taken" do
-    User.create!(email: "holder@example.com", username: "mcritchie")
+    # The holder must sit on the name this identity actually WANTS, or the
+    # fallback never has anything to fall back from — a swap of the parked
+    # usernames would otherwise leave this test passing on an empty premise.
+    claimed = User.parked_username_for(email: "alex@mcritchie.studio")
+    User.create!(email: "holder@example.com", username: claimed)
     wallet = User.parked_identity_for(email: "alex@mcritchie.studio").fetch(:wallet)
 
     user = User.create!(web3_solana_address: wallet)
 
     assert user.username.present?
-    refute_equal "mcritchie", user.username
+    refute_equal claimed, user.username
     assert_equal "admin", user.role
   end
 

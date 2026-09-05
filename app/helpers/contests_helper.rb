@@ -168,16 +168,155 @@ module ContestsHelper
   # announced themselves as in progress. The badge is the first thing read on
   # that page; a badge that is wrong is worse than no badge.
   #
-  # `live?` is `locked? && !settled?` — the same predicate the broadcast filters
-  # on, so this label tells the truth about whether updates can arrive.
+  # THE STATE SPACE IS NOT AN ENUM, AND IT IS NOT THREE AXES EITHER. Two fixes
+  # have now been made here by enumerating the axes their author knew about and
+  # missing the next one. So enumerate them all, and say which pairings cannot
+  # occur — a branch that silently assumes a state is unreachable is how both
+  # earlier bugs survived review.
+  #
+  # FIVE PREDICATES ARE READ ABOUT A CONTEST. Only FOUR of them are free:
+  #
+  #   status      enum, pending/open/settled           (contest.rb:44)
+  #   cancelled?  onchain_cancelled, a boolean column  (contest.rb:498)
+  #   locked?     settled? || now >= starts_in_at      (contest.rb:586)
+  #   concluded?  settled? || now >= concludes_at      (contest.rb:594)
+  #   live?       locked? && !settled?                 (contest.rb:602)
+  #
+  # `live?` IS NOT AN AXIS. It is a derived reading of two others, and it carries
+  # NO conclusion term — which is the whole of this bug: a contest that has
+  # concluded but not been graded still satisfies `locked? && !settled?`, so it
+  # answered `live?` true and the badge pulsed "Live" at results that were final.
+  # The previous round of this same bug was the same shape with `cancelled?`.
+  #
+  # WHAT IS REACHABLE (settled forces both derived flags true, so it is listed
+  # once; `pending`/`open` behave alike here — neither is read directly):
+  #
+  #   status         cancelled?  locked?  concluded?   label
+  #   ---------------------------------------------------------------
+  #   pending/open   no          no       no           Not started
+  #   pending/open   no          yes      no           Live
+  #   pending/open   no          yes      yes          Concluded  <- read "Live"
+  #   pending/open   no          no       yes          Concluded  <- read "Not started"
+  #   pending/open   yes         any      any          Cancelled
+  #   settled        no          (forced) (forced)     Final
+  #   settled        yes         (forced) (forced)     Cancelled
+  #
+  # WHAT IS NOT REACHABLE, and why — do not add a branch for these:
+  #
+  #   settled + !locked?     `locked?` returns true unconditionally when
+  #                          `settled?` (contest.rb:587). No clock value changes it.
+  #   settled + !concluded?  Same shape: `concluded?` returns true unconditionally
+  #                          when `settled?` (contest.rb:595) — even with
+  #                          `concludes_at` nil or in the FUTURE. Pinned by
+  #                          test/models/contest_locking_test.rb:84.
+  #   live? + settled?       Excluded by `live?`'s own definition.
+  #   live? + !locked?       Excluded by `live?`'s own definition.
+  #
+  # The fourth row — concluded but NOT locked — looks contradictory and is not.
+  # On chain, `set_contest_conclusion_time` requires a conclusion later than the
+  # lock ONLY when a lock is set (`lock != 0`,
+  # programs/turf_vault/src/instructions/set_contest_conclusion_time.rs:71-74).
+  # The chain sees `starts_in_at` ONCE, at create: it is mirrored into
+  # `lock_timestamp` (contest.rb:526) and passed to create_contest
+  # (contest.rb:265). Nothing re-reads it afterwards, and no validation couples
+  # `concludes_at` to it — confirm_conclusion_time writes `concludes_at` ALONE
+  # (contests_controller.rb:1404). So the PAIR is unconstrained after create: a
+  # contest made with no slate schedule (lock 0, conclusion then unconstrained)
+  # that is later given one, or one whose first game is POSTPONED past a
+  # conclusion that has already passed, lands concluded-and-not-locked — and
+  # before this fix it read "Not started" at a contest whose results were final.
+  # It cannot be created that way outright: a conclusion must be in the FUTURE
+  # when set (same file, :70), so it reaches the past only by elapsed time.
+  #
+  # PRECEDENCE: cancelled, then final, then concluded, then live, then upcoming.
+  #
+  #   cancelled first  — terminal whatever else is true, and it is the fact that
+  #                      changes what the viewer should do next.
+  #   final next       — a settled contest is ALSO concluded and ALSO locked by
+  #                      definition (above), so anything checked before `final`
+  #                      would swallow every settled contest.
+  #   concluded next   — this is the fix. `live?` has no conclusion term, so a
+  #                      concluded, ungraded contest reaches `live` unless
+  #                      `concluded?` is asked first.
+  #   live, upcoming   — what is left once the terminal and final-results states
+  #                      are spoken for.
+  #
+  # Do NOT read "Cancelled" as "refunded": cancel_contest returns the prize pool
+  # to the CREATOR (Solana::Vault#build_cancel_contest), entry fees stay operator
+  # revenue, and entrant compensation is a manual mint_entry_token playbook.
+  # Terms promise a refund only for a contest cancelled BEFORE it locks, which is
+  # not the case this branch exists for. An entrant reading "Cancelled" may still
+  # be owed money — which is the reason the badge must not read "Live" at them.
+  #
+  # "Concluded" makes a NARROWER claim than "Final", and the difference is load
+  # bearing. It says the games are over and the result will not change; it does
+  # NOT say the contest is graded or that anyone has been paid.
+  #
+  # Do not upgrade that into "concluded always comes before final". It does not:
+  # `settle_contest` requires that the lock OR the conclusion has passed
+  # (turf_vault/src/instructions/settle_contest.rs:103-106), so a contest with a
+  # passed lock can be settled having never concluded. Concluding is one of two
+  # ways to open the settle gate, not a stage every contest passes through.
+  # "Concluded" therefore means "waiting on the payout", never "paid", and never
+  # "the step before Final".
+  #
+  # THE BADGE NO LONGER TRACKS `live?`, AND MUST NOT BE MADE TO AGAIN. It was
+  # documented as carrying "the same predicate the broadcast filters on", so
+  # that it told you whether an update could arrive. That is what produced the
+  # bug: cancel-while-locked is deliberately supported, `live?` is
+  # `locked? && !settled?`, and Contest::LiveBroadcast selects `status: [:open]`
+  # then `.select(&:live?)` — neither filter excludes a cancelled contest. So a
+  # cancelled, locked contest IS still in the broadcast set while this badge
+  # reads "Cancelled". That divergence is deliberate: the badge is a claim about
+  # what the contest IS, not about whether packets are still being pushed at the
+  # games strip below it.
+  #
+  # MOTION IS RESERVED FOR `live`. The pulsing dot is the one animated element
+  # here, and it means exactly one thing: this contest is in progress. Every
+  # terminal, finished, or not-yet state is static, so "is it moving?" stays a
+  # reliable read at a glance. Cancelled keeps the app's cancelled red (it
+  # matches CONTEST_BADGE_STYLES["cancelled"]) but takes a solid dot, never a
+  # pulse. Concluded takes the app's conclusion ORANGE — the same tone the
+  # header countdown lands on when it finishes ("🏁 Concluded", tone "orange" in
+  # contests/_timestamp_countdown.html.erb) — so the two places that report a
+  # conclusion agree on colour, and neither can be mistaken for live's red.
+  #
+  # Contrast, measured on the rendered page rather than computed from the
+  # palette (rasterised pixel vs the actual `bg-page`, sanity-checked against
+  # white-on-black = 21:1): text-orange-400 is 7.34:1 on the dark theme and
+  # 2.27:1 on the light one. The dark figure BEATS the text-red-400 that live
+  # and cancelled already use (6.05:1); the light figure trails it (2.76:1).
+  # Light mode is below AA for every state in this row, orange included — that
+  # is a pre-existing property of the row, not something the concluded state
+  # introduced, and fixing it means re-toning live and cancelled too. If you do
+  # that, note text-orange-500 measures EXACTLY at red-400's parity in both
+  # themes (6.05 / 2.76) and is the drop-in; it was passed over here only
+  # because 400 is the house label shade (label-400 over dot-500) and is the
+  # tone the countdown above already lands on.
+  #
+  # This badge is server-rendered at page load. Contest::LiveBroadcast replaces
+  # the games strip and the focus panel, not this header, so a contest whose
+  # state changes under a viewer keeps the label it was drawn with until a
+  # reload. Out of scope here; do not read these labels as self-correcting.
+  # Every utility below is written as a FULL LITERAL. Tailwind scans this file
+  # (config/tailwind.config.js content includes ./app/helpers/**/*.rb) but it
+  # only ever matches whole class names — a class assembled by interpolation
+  # compiles to no rule at all and the dot renders transparent.
   LIVE_STATES = {
+    cancelled: { label: "Cancelled", classes: "text-red-400", dot: "bg-red-500" },
     live: { label: "Live", classes: "text-red-400", dot: "bg-red-500 animate-pulse" },
+    concluded: { label: "Concluded", classes: "text-orange-400", dot: "bg-orange-500" },
     final: { label: "Final", classes: "text-muted", dot: "bg-slate-500" },
     upcoming: { label: "Not started", classes: "text-muted", dot: "bg-slate-500" }
   }.freeze
 
+  # Order is the precedence rule documented above. Each guard is checked before
+  # any predicate it definitionally implies, so no later branch can swallow an
+  # earlier state.
   def contest_live_state(contest)
+    return :cancelled if contest.cancelled?
     return :final if contest.settled?
+    return :concluded if contest.concluded?
     return :live if contest.live?
 
     :upcoming

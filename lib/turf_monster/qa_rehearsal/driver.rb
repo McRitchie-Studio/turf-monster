@@ -21,8 +21,13 @@ module TurfMonster
       # Preseason week 4 is the evergreen slate: those games were played on
       # 2026-08-27/28, so their scores are final and identical on every run. A
       # live week would make the rehearsal's outcome depend on the day it ran.
-      SLATE_NAME = "NFL 2026 Preseason Week 4"
-      POLL_SLOT  = "2026:1:4"
+      SLATE_NAME = "NFL 2026 Preseason Weeks 3-4"
+      # A SPAN, so there are two slots to fetch and one board to watch them on.
+      # The single-week form left the rehearsal on the plain tm-pair-grid, which
+      # never calls TeamColorsHelper — the coloured team cards render only on the
+      # multi_week branch, so the board an operator was asked to watch was the
+      # uncoloured one. The span fixes that without touching a view.
+      POLL_SLOTS = %w[2026:1:3 2026:1:4].freeze
 
       # Standard tier, matching production's world-cup-turf-totals-week-1: five
       # paid ranks over a $500 pool. With a small cast every player finishes in
@@ -31,6 +36,26 @@ module TurfMonster
       CONTEST_TYPE = "standard"
       MAX_ENTRIES  = 29
       ENTRY_FEE_CENTS = 1_900
+
+      # WHO THE CONTEST IS CREATED AS, keyed on the one field that does not move.
+      #
+      # This was `User.find_by(slug: "alex-2")` until 2026-09-05. A User slug is
+      # "#{username}-#{id}" and Sluggable rewrites it on EVERY save, so the
+      # operator username swap turned that row into `mcritchie-2` and the lookup
+      # would have gone nil — silently, because the `|| User.where(role: "admin")
+      # .first` fallback beside it had no ORDER BY and would have handed the
+      # rehearsal an arbitrary admin. If that landed on alex@mcritchie.studio the
+      # server holds no key for it (KeyStore::ITEMS has no entry) and could not
+      # sign as the creator it had just named. An email is the roster's own
+      # primary key; nothing in the app rewrites one.
+      #
+      # This address is the ALEX BOT account — the same wallet the server signs
+      # with as fee payer and contest creator (KeyStore "alex" =>
+      # agent.alex.solana, which is this identity's roster wallet).
+      CREATOR_EMAIL = "team@mcritchie.studio"
+      CREATOR_MISSING = "no user on #{CREATOR_EMAIL} to create the rehearsal contest as — " \
+                        "that is the Alex Bot identity the server signs with, so re-seed " \
+                        "the app rather than letting another admin stand in"
 
       # The admin drives the HTTP admin surface. turf-5 is an admin account with
       # a filed key, so the driver can hold its session. It cannot PLAY —
@@ -148,6 +173,13 @@ module TurfMonster
             raise "minted but the admin balance never reached the pool size" if have < needed
           end
 
+          # RAISE RATHER THAN SUBSTITUTE. A rehearsal created under the wrong
+          # identity does not fail here; it fails four steps later, on-chain,
+          # with an error about signature counts that says nothing about the
+          # creator. Loud and early is the cheaper failure.
+          creator = User.find_by(email: #{CREATOR_EMAIL.inspect})
+          raise #{CREATOR_MISSING.inspect} if creator.nil?
+
           contest = Contest.create!(
             name: "QA Rehearsal " + Time.current.strftime("%b %-d %H:%M"),
             slate: slate,
@@ -156,7 +188,7 @@ module TurfMonster
             max_entries: #{MAX_ENTRIES},
             entry_fee_cents: #{ENTRY_FEE_CENTS},
             starts_at: 8.hours.from_now,
-            user: User.find_by(slug: "alex-2") || User.where(role: "admin").first
+            user: creator
           )
 
           emit(
@@ -184,6 +216,8 @@ module TurfMonster
         say "  picks:    #{result['picks_required']} from #{result['matchup_ids'].size} matchups"
         say "  locks at: #{result['locks_at']}"
         say_urls(result["contest_slug"])
+        hand_back(verify: "the contest reads $500 Prizes, $19 Entry, 0/29 Entries, cards unlocked",
+                  next_command: "bin/qa-contest-rehearsal enter")
         result
       end
 
@@ -228,6 +262,8 @@ module TurfMonster
         failed = results.reject { |r| r[:ok] }
         say failed.empty? ? "  all #{results.size} entered" : "  #{failed.size} of #{results.size} FAILED"
         say_urls(slug)
+        hand_back(verify: "entries read #{results.count { |r| r[:ok] }}/29 and every player sits on the leaderboard at 0",
+                  next_command: "bin/qa-contest-rehearsal play --pace 4")
         results
       end
 
@@ -269,7 +305,12 @@ module TurfMonster
           # while its games read FINAL — the exact incoherence the unshift
           # exists to prevent, on the path an operator uses most.
           unshift_fixture(data["kickoff_shift_seconds"].to_i)
-          return replay(pace)
+          # THROUGH THE TAIL, never around it. This `return` has now eaten a
+          # tail behaviour twice: first the unshift (387d9a2a), then the halt
+          # itself, which shipped unhalted on the branch an operator uses most
+          # while a source-scanning test stayed green. Both exits end in
+          # finish_play for that reason — there is no longer a tail to jump.
+          return finish_play(data, replay(pace))
         end
 
         if reset
@@ -298,17 +339,19 @@ module TurfMonster
 
         say_urls(data.fetch("contest_slug"), live_first: true)
         say ""
-        say "  polling ESPN slot #{POLL_SLOT} …"
-        # The return value IS the verdict. A poll that fails exits this method
-        # having ALREADY cleared the board, so a later `conclude` would grade an
-        # unplayed slate and broadcast a real settle against it.
-        unless system("heroku", "run", "--app", app, "--no-tty", "--",
-                      "bin/nfl-live-poll", "--slot", POLL_SLOT)
-          raise StepError, "the ESPN poll failed — the board is CLEARED and no scores landed. " \
-                           "Re-run step 3 before concluding."
-        end
+        poll_slots!
 
-        replay(pace) if pace.positive?
+        finish_play(data, pace.positive? ? replay(pace) : nil)
+      end
+
+      # The one tail step 3 has. Both exits return through it, so a branch added
+      # later cannot skip the halt by returning early — the mistake this method
+      # has now made twice.
+      def finish_play(data, result)
+        say_urls(data.fetch("contest_slug"), live_first: true)
+        hand_back(verify: "the live board built from zero and every game reads FINAL",
+                  next_command: "bin/qa-contest-rehearsal conclude --cosign link")
+        result
       end
 
       # Replay the week one scoring play at a time, so an operator can watch
@@ -380,9 +423,29 @@ module TurfMonster
         say "  contest locked: #{locked['locked']} · live page: #{locked['live'] ? 'open' : 'closed'}"
       end
 
+      # EVERY slot must land, not just the last. A span whose second week fetched
+      # and whose first did not is a half-scored board that still looks
+      # plausible — one week final, the other reading as "not kicked off yet" —
+      # and `conclude` would grade and settle real money against it.
+      #
+      # The return value IS the verdict. By the time this runs the board has
+      # ALREADY been cleared, so a failure has to stop the step rather than be
+      # logged and stepped over.
+      def poll_slots!
+        say "  polling ESPN slots #{POLL_SLOTS.join(', ')} …"
+
+        POLL_SLOTS.each do |slot|
+          next if system("heroku", "run", "--app", app, "--no-tty", "--",
+                         "bin/nfl-live-poll", "--slot", slot)
+
+          raise StepError, "the ESPN poll failed for slot #{slot} — the board is CLEARED and " \
+                           "no scores landed. Re-run step 3 before concluding."
+        end
+      end
+
       def replay(pace)
         say ""
-        say "  replaying #{POLL_SLOT} at #{pace}s per scoring play — watch https://#{host}/live"
+        say "  replaying #{POLL_SLOTS.join(' + ')} at #{pace}s per scoring play — watch https://#{host}/live"
 
         script = <<~RUBY
           slate = Slate.find_by!(name: #{SLATE_NAME.inspect})
@@ -506,7 +569,11 @@ module TurfMonster
 
         say_urls(slug)
 
-        return say("  no settle transaction to co-sign (nobody was owed)") if graded["ptx_slug"].blank?
+        if graded["ptx_slug"].blank?
+          say "  no settle transaction to co-sign (nobody was owed)"
+          return hand_back(verify: "the contest graded with no winner owed a payout",
+                           next_command: "bin/qa-contest-rehearsal close")
+        end
 
         cosign == :link ? offer_cosign_link(graded) : cosign_with_agent(graded)
       end
@@ -537,6 +604,7 @@ module TurfMonster
 
         say "  closed: #{result.inspect}"
         say_urls(slug)
+        hand_back(verify: "the contest reads settled and the rent came back")
         result
       end
 
@@ -587,6 +655,9 @@ module TurfMonster
         raise StepError, "confirm refused: #{response['error']}" if response["error"].present?
 
         say "  confirmed: #{response.inspect}"
+        hand_back(verify: "the payout arithmetic — the pool fell by exactly the sum paid, " \
+                          "and each winner rose by exactly their rank",
+                  next_command: "bin/qa-contest-rehearsal close")
         response
       end
 
@@ -606,6 +677,12 @@ module TurfMonster
         say ""
         say "  Magic Link: #{url}"
         say "  Rebuild, then Co-sign in Phantom. Transaction #{graded.fetch('ptx_slug')} is waiting."
+        # The one halt that is not a courtesy: this step CANNOT proceed without
+        # him. The settle is 2-of-3 and the server has signed only its own half,
+        # so an agent that runs `close` next closes a contest that never paid.
+        hand_back(verify: "the payout landed — the pool fell by exactly the sum paid, " \
+                          "and each winner rose by exactly their rank",
+                  next_command: "bin/qa-contest-rehearsal close")
         { magic_link: url, ptx_slug: graded["ptx_slug"] }
       end
 
@@ -632,6 +709,32 @@ module TurfMonster
           say "  Live Board:   #{contest}/live"
         end
         say "  League Board: https://#{host}/live"
+      end
+
+      # THE HALT. A step that ends by printing a URL and returning is a step an
+      # agent runs straight past — measured 2026-09-04, when a rehearsal ran all
+      # five steps in one turn and the operator never saw a board mid-flight.
+      #
+      # The five-step split exists so the run can be WATCHED. Without a halt the
+      # split buys nothing: the same five things happen, and the only person who
+      # wanted to look between them is told about it afterwards.
+      #
+      # This prints where the STOP has to be read — the terminal, at the moment
+      # the agent is deciding what to do next. The SOP says the same thing, but
+      # prose read once at the top loses to momentum, and a doc that is the ONLY
+      # place a rule lives is a doc that drifts.
+      #
+      # `verify` is what the operator is being asked to confirm, in their words,
+      # not a restatement of what the step did. "Entries read 3/29" is checkable
+      # at a glance; "entries were created" is not.
+      def hand_back(verify:, next_command: nil)
+        say ""
+        say "  ── STOP ─────────────────────────────────────────────────────"
+        say "  Hand the URLs above to Mr. McRitchie and WAIT for his go-ahead."
+        say "  Ask him to confirm: #{verify}"
+        say ""
+        say(next_command ? "  Next, once he confirms:  #{next_command}" : "  This was the last step. The rehearsal is complete.")
+        say "  ─────────────────────────────────────────────────────────────"
       end
 
       def say(message)

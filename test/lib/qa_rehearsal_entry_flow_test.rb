@@ -11,12 +11,16 @@ class QaRehearsalEntryFlowTest < ActiveSupport::TestCase
   class FakeSession
     attr_reader :calls, :keypair
 
-    def initialize(prepare: nil, confirm: nil, toggle_error: nil)
+    def initialize(prepare: nil, confirm: nil, toggle_error: nil, clear: nil)
       @calls = []
       @prepare = prepare || { "success" => true, "serialized_tx" => "AA==",
                               "entry_id" => 7, "entry_pda" => "PDA", "ptx_slug" => "ptx-1" }
       @confirm = confirm || { "success" => true, "tx_signature" => "SIG" }
       @toggle_error = toggle_error
+      # Shaped from ContestsController#clear_picks, not from EntryFlow: it
+      # renders `{ success: true }` on the happy path and
+      # `{ success: false, error: e.message }` at 422 on refusal.
+      @clear = clear || { "success" => true }
       @selected = 0
       @keypair = Object.new
     end
@@ -27,7 +31,7 @@ class QaRehearsalEntryFlowTest < ActiveSupport::TestCase
       @calls << [path.split("/").last.to_sym, params]
 
       case path
-      when %r{/clear_picks} then (@selected = 0) && { "success" => true }
+      when %r{/clear_picks} then (@selected = 0) && @clear
       when %r{/toggle_selection}
         return { "error" => @toggle_error } if @toggle_error
 
@@ -96,6 +100,43 @@ class QaRehearsalEntryFlowTest < ActiveSupport::TestCase
     assert_match(/pick 1 refused/, error.message)
     assert_match(/already started/, error.message)
     refute_includes session.calls.map(&:first), :prepare_entry, "it must not reach prepare"
+  end
+
+  # THE REGRESSION. clear_cart used to discard its response, and it was the only
+  # call in the flow that did. WalletSession#post_json returns whatever comes
+  # back — it does not raise on a 4xx — so a refused clear returned
+  # `{ "success" => false, "error" => ... }` and was silently dropped, and the
+  # flow built picks onto a cart it had not cleared. A probe ran all the way
+  # through confirm_onchain_entry while clear_picks was refusing every time.
+  test "a refused clear fails at the clear, naming it" do
+    session = FakeSession.new(clear: { "success" => false, "error" => "Entry is locked" })
+
+    error = assert_raises(Flow::EntryError) { flow_for(session).call }
+
+    assert_match(/clear_picks refused/, error.message)
+    assert_match(/Entry is locked/, error.message)
+    refute_includes session.calls.map(&:first), :toggle_selection,
+                    "it must not build picks onto a cart it failed to clear"
+    refute_includes session.calls.map(&:first), :prepare_entry
+  end
+
+  # Why the guard reads `error` PRESENCE rather than `success` truthiness.
+  # WalletSession#parse_json answers `{}` for an empty body, and clear_picks
+  # answers `{ success: true }` even when there was no cart to clear — so a
+  # success-truthiness guard would refuse a clear that in fact succeeded, and
+  # this step is the one an operator re-runs. An empty body carries no error,
+  # so it must pass.
+  test "a clear that carries no error is accepted, empty body included" do
+    [{ "success" => true }, {}].each do |body|
+      session = FakeSession.new(clear: body)
+
+      Solana::Transaction.stub :cosign_wire_base64, "SIGNED" do
+        flow_for(session).call
+      end
+
+      assert_includes session.calls.map(&:first), :confirm_onchain_entry,
+                      "clear response #{body.inspect} must not stop the flow"
+    end
   end
 
   test "it refuses to build with fewer matchups than picks required" do
