@@ -15,20 +15,37 @@ module Admin
     DEFAULT_THRESHOLD  = Solana::Config::MULTISIG_THRESHOLD
     # v0.16: treasury_authority is pinned at initialize time so leaked admin
     # keys can't drain swept operator revenue to anywhere but the Squads
-    # vault. Mainnet uses a fresh mainnet Squads vault — devnet uses the
-    # existing one (BW13…6kC). Configurable via env so the mainnet runbook
-    # can override.
-    DEFAULT_TREASURY_AUTHORITY = ENV.fetch(
-      "SOLANA_SQUADS_VAULT_PDA",
-      "BW13kgfiG2koFn3WRkte21NW9TFygsD1ge2fNJdjH6kC"
-    )
+    # vault. Each cluster runs its OWN Squad, so this address differs per
+    # cluster — devnet BW13…H6kC, mainnet Bk9s…GdJm.
+    #
+    # WHAT THIS REPLACES (vault-pda-readers-diverge). The default used to be
+    # `ENV.fetch("SOLANA_SQUADS_VAULT_PDA", "<devnet literal>")`, which carried
+    # two defects in one expression:
+    #   1. The fallback was NOT network-keyed, so a mainnet build with the
+    #      variable unset offered the DEVNET Squad as the treasury authority.
+    #   2. `ENV.fetch` only takes its default when the key is ABSENT — a key
+    #      present but empty yields "", so the fallback never ran at all.
+    #      `heroku config:set VAR=` sets exactly that empty string, and that is
+    #      the live state of both deployed apps (verified 2026-09-05:
+    #      SOLANA_SQUADS_VAULT_PDA is length 0 on turf-monster-mainnet AND
+    #      turf-monster-qa). So this form offered a BLANK treasury on both.
+    #
+    # A METHOD rather than a constant, for the reason
+    # `Solana::Config.squads_vault_pda` is one: the value derives from NETWORK,
+    # and freezing it at class-load time is what makes a per-cluster reader
+    # untestable without constant surgery. The resolution itself lives in
+    # Solana::Config — env wins via `.presence`, only the DEFAULT is
+    # network-keyed — so this file holds no address of its own.
+    def self.default_treasury_authority
+      Solana::Config.squads_vault_pda
+    end
 
     def show
       @vault = Solana::Vault.new.read_vault_state
       @init_authority = INIT_AUTHORITY
       @default_signers = DEFAULT_SIGNERS
       @default_threshold = DEFAULT_THRESHOLD
-      @default_treasury_authority = DEFAULT_TREASURY_AUTHORITY
+      @default_treasury_authority = self.class.default_treasury_authority
       # BROWSER-facing (rendered into #cosign-config for web3.js), so the
       # public endpoint — RPC_URL carries the provider api-key on mainnet.
       @rpc_url = Solana::Config.public_rpc_url
@@ -42,7 +59,7 @@ module Admin
         creator   = params[:creator_pubkey].to_s.strip
         signers   = [params[:signer_1], params[:signer_2], params[:signer_3]].map { |s| s.to_s.strip }
         threshold = params[:threshold].to_i
-        treasury  = params[:treasury_authority].presence&.strip || DEFAULT_TREASURY_AUTHORITY
+        treasury  = params[:treasury_authority].presence&.strip || self.class.default_treasury_authority
 
         validate_init_params!(creator, signers, threshold, treasury)
 

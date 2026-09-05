@@ -380,8 +380,21 @@ module Solana
     # card hardcoded the DEVNET literal into markup, so `turf-monster-mainnet`
     # presented the devnet Squad as the live upgrade authority — a wrong address
     # stated authoritatively on the page an operator consults before proposing an
-    # upgrade. Every other reader of this value already honoured
-    # SOLANA_SQUADS_VAULT_PDA; the view could not.
+    # upgrade. The view was the only copy of the defect a human ever saw in a
+    # browser, but it was NOT the only copy: the original note here claimed
+    # "every other reader already honoured SOLANA_SQUADS_VAULT_PDA", and that
+    # was wrong. Admin::VaultInitController and `solana:init_vault` each fell
+    # back to the DEVNET literal on every cluster, and the controller used
+    # `ENV.fetch`, which does not fall back at all for an EMPTY value. Both were
+    # routed through this method by vault-pda-readers-diverge; the guard in
+    # test/integration/contract_upgrade_authority_test.rb now covers Ruby and
+    # rake as well as ERB, so a third reader cannot reintroduce a literal.
+    #
+    # WHAT THE DEPLOYED APPS ACTUALLY DO. Neither sets this variable —
+    # SOLANA_SQUADS_VAULT_PDA is EMPTY (length 0) on turf-monster-mainnet and
+    # turf-monster-qa alike, verified 2026-09-05. The NETWORK-keyed DEFAULT
+    # below is therefore the production path on both, and the env override is
+    # the runbook escape hatch. That is the load the `.presence` carries.
     #
     # A METHOD, not a constant, for exactly the reason `public_rpc_url` is one:
     # the resolution has to be exercisable across BOTH clusters without constant

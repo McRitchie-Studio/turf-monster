@@ -8,8 +8,16 @@ require "test_helper"
 # THE BUG. `app/views/contract/_section_admin_state.html.erb` hardcoded the
 # DEVNET Squads vault PDA into markup, so `turf-monster-mainnet` presented the
 # devnet Squad as the live program upgrade authority — under a caption reading
-# "Only the Squad can ship upgrades." Every other reader of that value already
-# honoured SOLANA_SQUADS_VAULT_PDA; the view could not follow it.
+# "Only the Squad can ship upgrades."
+#
+# CORRECTION (vault-pda-readers-diverge). This header used to add "every other
+# reader of that value already honoured SOLANA_SQUADS_VAULT_PDA; the view could
+# not follow it." That was false. Admin::VaultInitController and
+# `solana:init_vault` both fell back to the DEVNET literal on EVERY cluster,
+# and the controller read the variable with `ENV.fetch`, which takes its
+# default only when the key is absent — not when it is empty. Both now route
+# through Solana::Config.squads_vault_pda; the view was simply the only copy a
+# human could see.
 #
 # The addresses below are the on-chain truth, re-read 2026-09-05:
 #   solana program show EQGFJAc…bpMJ --url devnet       -> BW13kgfi…H6kC
@@ -36,11 +44,16 @@ class Solana::SquadsVaultPdaTest < ActiveSupport::TestCase
     previous.nil? ? ENV.delete("SOLANA_SQUADS_VAULT_PDA") : ENV["SOLANA_SQUADS_VAULT_PDA"] = previous
   end
 
-  # --- the two clusters resolve to two DIFFERENT vaults ---
+  # --- the network-keyed default: THE PRODUCTION SHAPE, on both clusters ---
   #
   # This pair is the regression. A single-cluster assertion passes against a
   # hardcoded literal too, which would be the same bug wearing a different
   # constant; only driving BOTH configurations distinguishes them.
+  #
+  # And this is the path both deployed apps take. SOLANA_SQUADS_VAULT_PDA is
+  # empty on turf-monster-mainnet and turf-monster-qa alike (verified
+  # 2026-09-05), so every reader on production resolves through the default
+  # below, not through the override section further down.
 
   test "devnet resolves to the devnet Squads vault" do
     with_vault_env(nil) do
@@ -66,7 +79,14 @@ class Solana::SquadsVaultPdaTest < ActiveSupport::TestCase
     end
   end
 
-  # --- the env override, which is what the deployed apps actually use ---
+  # --- the env override, which NO deployed app currently uses ---
+  #
+  # Corrected 2026-09-05 (vault-pda-readers-diverge): this section used to be
+  # labelled "what the deployed apps actually use", which is backwards.
+  # `heroku config:get SOLANA_SQUADS_VAULT_PDA` returns a length-0 string on
+  # turf-monster-mainnet AND turf-monster-qa, so the network-keyed DEFAULT
+  # above is the production path on both clusters and the override below is a
+  # runbook escape hatch for pointing an app at a fresh Squad.
 
   test "SOLANA_SQUADS_VAULT_PDA wins on BOTH clusters" do
     with_vault_env(OVERRIDE) do
@@ -75,13 +95,51 @@ class Solana::SquadsVaultPdaTest < ActiveSupport::TestCase
     end
   end
 
-  # `heroku config:set SOLANA_SQUADS_VAULT_PDA=` sets an EMPTY string, not an
-  # unset var. Rendering "" as the upgrade authority is worse than rendering the
-  # cluster default, so blank falls through.
-  test "a blank override falls through to the cluster default" do
+  # --- three ways to say "no value", kept apart on purpose ---
+  #
+  # UNSET, EMPTY and WHITESPACE-ONLY are three distinct states, and Ruby treats
+  # them differently: `ENV.fetch(k, default)` takes its default for UNSET only,
+  # while `ENV[k].presence` collapses all three. `heroku config:set VAR=` sets
+  # the EMPTY one, and that is the live state of both deployed apps — so the
+  # case that actually runs on production is the one an `ENV.fetch` reader
+  # would get wrong. Asserting them together in a single test would let two
+  # pass on the strength of the third, so they get one test each.
+
+  test "an UNSET variable falls through to the cluster default" do
+    with_vault_env(nil) do
+      assert_equal DEVNET,  Solana::Config.squads_vault_pda("devnet")
+      assert_equal MAINNET, Solana::Config.squads_vault_pda("mainnet-beta")
+    end
+  end
+
+  # The live production state on turf-monster-mainnet and turf-monster-qa.
+  test "an EMPTY variable falls through to the cluster default" do
     with_vault_env("") do
       assert_equal DEVNET,  Solana::Config.squads_vault_pda("devnet")
       assert_equal MAINNET, Solana::Config.squads_vault_pda("mainnet-beta")
+    end
+  end
+
+  # A pasted-with-a-trailing-space config set. Rendering "   " as the upgrade
+  # authority is worse than rendering the cluster default.
+  test "a WHITESPACE-ONLY variable falls through to the cluster default" do
+    with_vault_env("   ") do
+      assert_equal DEVNET,  Solana::Config.squads_vault_pda("devnet")
+      assert_equal MAINNET, Solana::Config.squads_vault_pda("mainnet-beta")
+    end
+  end
+
+  # None of the three may yield a blank, on either cluster — the failure the
+  # `ENV.fetch` reader in Admin::VaultInitController actually produced.
+  test "no empty-ish value ever resolves to a blank address" do
+    [nil, "", "   ", "\t\n"].each do |value|
+      with_vault_env(value) do
+        %w[devnet mainnet-beta].each do |network|
+          resolved = Solana::Config.squads_vault_pda(network)
+          assert resolved.present?,
+                 "#{value.inspect} on #{network} resolved to a blank Squads vault address"
+        end
+      end
     end
   end
 
