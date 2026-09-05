@@ -492,9 +492,28 @@ class Contest < ApplicationRecord
   end
 
   # On-chain cancellation (cancel_contest, 2-of-3). A cancelled contest is
-  # terminal — entries are refunded to the creator and no new entry may be
-  # submitted. Aliased as #cancelled? for read sites that don't care it's an
-  # on-chain flag. Distinct from #settled? (the other terminal state).
+  # terminal: no new entry may be submitted.
+  #
+  # WHO GETS THE MONEY, read off the program rather than off sibling prose —
+  # this comment has been wrong before. cancel_contest's ONLY token transfer
+  # moves the prize-pool PDA's full live balance to the CREATOR's ATA
+  # (turf_vault cancel_contest.rs; the destination is constrained
+  # `token::authority == contest.creator`). The creator funded that pool at
+  # create_contest, so cancelling returns it to them.
+  # Rails side: Solana::Vault#build_cancel_contest (vault.rb:1141).
+  #
+  # ENTRANTS ARE NOT REFUNDED BY THIS FLOW, and entries are not what moves.
+  # Entry fees never reach the prize pool at all — enter_contest transfers the
+  # user's ATA straight to the operator-revenue ATA — so there is no entrant
+  # money in the account cancel drains, and no instruction pays an entrant back.
+  # Compensation is a manual mint_entry_token goodwill playbook with no code
+  # path (docs/workflows/submit-entry-decision-tree.md row 7); Terms promise an
+  # entry-fee refund only for a contest cancelled BEFORE it locks, on request by
+  # email (pages/terms.html.erb #refunds). So an entrant looking at "Cancelled"
+  # may still be owed something — see ContestsHelper#contest_live_state.
+  #
+  # Aliased as #cancelled? for read sites that don't care it's an on-chain flag.
+  # Distinct from #settled? (the other terminal state).
   def cancelled?
     onchain_cancelled?
   end
