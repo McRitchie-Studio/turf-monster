@@ -428,6 +428,36 @@ var walletProvider = {
     if (KeypairProvider.isAvailable()) return KeypairProvider;
     if (PhantomProvider.isAvailable()) return PhantomProvider;
     if (_wsWallets.length) return _wsWallets[0];
+
+    // NOTHING IS INJECTED. On a desktop that means no extension; on a phone it
+    // is simply the normal state, because a mobile browser cannot host one. The
+    // redirect transport is the answer to the second case and only the second
+    // case — so this is gated on isMobile(), not merely on "nothing found".
+    //
+    // GATED ON THE REGISTRY TOO, the way every optional capability here is: a
+    // page that did not load solana_studio/redirect_provider.js has no registry
+    // to ask, and must fall through to null so requireProvider() can give the
+    // honest "open this page in your wallet app" message instead.
+    //
+    // WHY PHANTOM SPECIFICALLY, and this is a real limitation rather than a
+    // preference. detect() exists for call sites that do NOT let the user
+    // choose, so something has to be picked, and Phantom is the only wallet with
+    // a working mobile sign-in path in this app today — the deeplink that
+    // establishes a web3 session is Phantom's. Its universal link also degrades
+    // honestly when the app is absent: Phantom serves its own install page
+    // rather than failing blank.
+    //
+    // THE COST, stated so nobody has to discover it: a Solflare or Backpack user
+    // on a phone whose page reaches THIS function is pointed at Phantom. That is
+    // wrong for them, and the reason it is tolerable is that it is not their
+    // path — the wallet PICKER is where a wallet gets chosen, and its mobile
+    // handoff rows send those users into their own wallet's browser, where a
+    // provider IS injected and this function returns long before reaching here.
+    // Retiring the guess needs a persisted per-user wallet choice, which this
+    // app does not have yet.
+    if (this.isMobile() && window.SolanaStudio && window.SolanaStudio.redirectProvider) {
+      return window.SolanaStudio.redirectProvider.forWallet('phantom');
+    }
     return null;
   },
 

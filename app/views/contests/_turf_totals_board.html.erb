@@ -203,6 +203,80 @@
   });
 })();
 
+// THE TWO HALVES OF contest_entry, split at the seam a page death runs through.
+//
+// Everything before the wallet is reached lives in prepare(); everything after
+// it answers lives in complete(). They share NOTHING but their arguments,
+// because on the redirect transport they execute in DIFFERENT DOCUMENTS.
+//
+// BASE58 IS THE WIRE FORMAT, and the conversions here are the price of that.
+// The server speaks base64 (serialized_tx in, signed_tx out); every wallet
+// deeplink protocol speaks base58. The gem's codec owns both directions, so the
+// encoding lives here rather than being re-derived at each end.
+
+// Prepare: mint the server-side transaction and hand back ONLY what survives
+// serialisation. No Transaction object, no closure, no DOM — this return value
+// is written to localStorage verbatim.
+window.tmPrepareContestEntry = async function (ctx) {
+  console.log('[contest-entry] POST prepare_entry (fresh blockhash + priority fee), currency=' + ctx.currency);
+  var resp = await window.authedFetch('/contests/' + ctx.contestId + '/prepare_entry', {
+    method: 'POST',
+    headers: { 'X-CSRF-Token': ctx.csrfToken, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({ currency: ctx.currency })
+  });
+  // authedFetch answers falsy on a 401 and has ALREADY surfaced the login modal.
+  // The inline flow returns here; a handler must THROW instead, because walletOps
+  // is awaiting a promise and a silent undefined would read as a prepared entry.
+  if (!resp) throw new Error('Your session expired — sign in and try again.');
+
+  var data = await resp.json();
+  console.log('[contest-entry] prepare_entry response:', { success: data.success, error: data.error, entry_pda: data.entry_pda, ptx_slug: data.ptx_slug, serialized_tx_len: data.serialized_tx ? data.serialized_tx.length : null });
+  if (!data.success) throw new Error(data.error || 'Failed to prepare entry');
+
+  var bytes = Uint8Array.from(atob(data.serialized_tx), function (c) { return c.charCodeAt(0); });
+  return {
+    transaction: window.SolanaStudio.walletTransport.base58.encode(bytes),
+    ptx_slug: data.ptx_slug,
+    entry_id: data.entry_id,
+    entry_pda: data.entry_pda,
+    token_funded: !!data.token_funded
+  };
+};
+
+// Complete: hand the wallet's signature to the server, which cosigns and
+// broadcasts. Runs in a document that never saw prepare().
+window.tmCompleteContestEntry = async function (ctx, result, state) {
+  // SIGN-ONLY IS A REQUIREMENT HERE, not a preference — see the intent's comment
+  // above. A wallet that broadcast instead of signing returns a signature and no
+  // transaction, and there is nothing to recover: the server never got the bytes
+  // it must cosign. Refuse loudly rather than post an empty body.
+  if (!result || !result.signedTransaction) {
+    throw new Error('The wallet broadcast this entry instead of signing it. ' +
+                    'This contest needs a co-signature from the server, so the entry could not complete.');
+  }
+
+  var signed = window.SolanaStudio.walletTransport.base58.decode(result.signedTransaction);
+  // Chunked, because String.fromCharCode.apply blows the argument stack on a
+  // full transaction — the same 0x8000 window the inline path uses.
+  var sb = '';
+  var chunk = 0x8000;
+  for (var i = 0; i < signed.length; i += chunk) {
+    sb += String.fromCharCode.apply(null, signed.subarray(i, i + chunk));
+  }
+
+  var resp = await window.authedFetch('/contests/' + ctx.contestId + '/confirm_onchain_entry', {
+    method: 'POST',
+    headers: { 'X-CSRF-Token': ctx.csrfToken, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({ signed_tx: btoa(sb), entry_id: state.entry_id, entry_pda: state.entry_pda, ptx_slug: state.ptx_slug })
+  });
+  if (!resp) throw new Error('Your session expired before the entry was recorded.');
+
+  var data = await resp.json();
+  if (!data.success) throw new Error(data.error || 'Failed to confirm entry');
+  console.log('[contest-entry] server cosigned + confirmed on-chain:', data.tx_signature);
+  return data;
+};
+
 // selectionBoard — MUST be inline because Alpine processes x-data before importmap modules load.
 // Reads config from #board-config JSON element above.
 window.selectionBoard = function() {
@@ -1682,6 +1756,47 @@ window.selectionBoard = function() {
       try {
         if (useOnchainFlow) {
           var provider = window.walletProvider.requireProvider();
+
+          // === THE REDIRECT TRANSPORT ==================================
+          //
+          // A mobile browser has no injected wallet, so this provider reaches
+          // the wallet APP by URL and the page is destroyed until it answers.
+          // Everything below this block assumes a provider that resolves in
+          // place, which a redirect provider cannot do — so it forks here and
+          // hands off to walletOps, which owns the hops and the journal.
+          //
+          // WHY THE INLINE PATH BELOW IS LEFT ALONE, stated because the design
+          // doc promises ONE call site and this is visibly two. Three gaps in
+          // walletOps block the unification, each filed with evidence at
+          // /tasks/walletops-blocks-inline-unification: the inline provider
+          // needs a Transaction OBJECT while the redirect protocol needs base58
+          // wire bytes and one prepare() cannot return both; there is no
+          // post-connect hook, so the wrong-wallet check has nowhere to live on
+          // the redirect side (UX only — Anchor is the real ownership proof);
+          // and walletOps prefers signAndSendTransaction, which is wrong for a
+          // co-signed entry (/tasks/intent-declares-sign-only).
+          //
+          // Converting the inline path anyway would have meant reordering
+          // connect-before-prepare in the flow that takes payment, to satisfy an
+          // abstraction that cannot yet carry it. The duplication is deliberate,
+          // it is TRACKED, and retiring it is a task rather than a hope.
+          if (provider.transport === 'redirect') {
+            Alpine.store('solanaModal').show('Opening Your Wallet', 'Handing this entry to your wallet app…');
+            // run() prepares, journals, and navigates. Nothing after it executes
+            // in this document — the callback page resumes the intent by NAME.
+            await window.SolanaStudio.walletOps.run('contest_entry', {
+              contestId: this.contestId,
+              csrfToken: this.csrfToken,
+              currency: this.entryCurrency()
+            }, {
+              provider: provider,
+              appUrl: window.location.origin,
+              redirectLink: window.location.origin + '/auth/phantom/callback',
+              cluster: document.body.dataset.solanaCluster
+            });
+            return;
+          }
+
           Alpine.store('solanaModal').show('Preparing Transaction', 'Building onchain transaction...');
 
           var resp = await provider.connect();
