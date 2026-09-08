@@ -154,6 +154,55 @@
 </script>
 
 <script>
+// THE contest_entry INTENT — registered here, at page load, BY NAME.
+//
+// WHY BY NAME AND NOT AS A CLOSURE, which is the whole reason walletOps has this
+// shape: on the redirect transport the page is DESTROYED between preparing the
+// transaction and getting it back signed. A closure cannot survive that. The name
+// is the only thing that can be written into localStorage and looked up again by
+// whatever document the wallet returns to — which may not even be the same tab.
+//
+// WHAT CROSSES THE REDIRECT is a server-side SLUG, never transaction bytes.
+// prepare_entry mints a PreparedTransaction row and hands back ptx_slug; the
+// journal carries that plus the ids, and complete() posts them to
+// confirm_onchain_entry. The row is the durable half, and it already existed for
+// blockhash freshness — this flow just needed it to be the thing that travels.
+//
+// SIGN-ONLY, AND THIS IS NOT A PREFERENCE. prepare_entry returns a PARTIALLY
+// signed transaction whose admin slot is deliberately EMPTY. The user's wallet
+// signs its own slot and the SERVER cosigns and broadcasts (Transaction
+// #cosign_wire). A wallet that broadcast it directly would hand Solana a
+// transaction missing a required signature — and worse, we would never receive
+// the signed bytes the server needs, so the entry would fail with nothing to
+// retry. See /tasks/intent-declares-sign-only: walletOps currently PREFERS
+// signAndSendTransaction where a wallet has one, which is wrong for every
+// co-signed flow. It does not bite Phantom (its send-side deeplink is
+// deprecated, so signingHop already falls to signTransaction) and no other
+// wallet reaches redirect signing yet — but this comment is here so the next
+// reader does not "fix" the preference back.
+(function () {
+  var S = window.SolanaStudio;
+  // GUARDED like every optional capability in this app: a page that did not load
+  // solana_studio/wallet_ops.js simply has no registry, and the entry flow's
+  // inline path below is unaffected. An absent capability must not default to
+  // the permissive branch.
+  if (!S || !S.walletOps || typeof S.walletOps.define !== 'function') return;
+
+  S.walletOps.define('contest_entry', {
+    // Runs BEFORE the wallet is reached on the redirect transport, so everything
+    // it returns must be JSON-serialisable — it is literally serialised.
+    prepare: function (ctx) {
+      return window.tmPrepareContestEntry(ctx);
+    },
+    // Runs on the callback document, in a page that never saw prepare().
+    // Everything it needs arrives through ctx (the caller's own arguments) and
+    // state (what prepare returned) — nothing from a closure.
+    complete: function (ctx, result, state) {
+      return window.tmCompleteContestEntry(ctx, result, state);
+    }
+  });
+})();
+
 // selectionBoard — MUST be inline because Alpine processes x-data before importmap modules load.
 // Reads config from #board-config JSON element above.
 window.selectionBoard = function() {

@@ -76,6 +76,33 @@
     <script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"
             integrity="sha384-05+sicyRJQ56XpL4U9HJ8YbtSzFDvAg7apPKOGV6A0JsAJKFM68jp5oLnUjG5mEp"
             crossorigin="anonymous"></script>
+
+    <%# THE REDIRECT TRANSPORT — the second way to reach a wallet.
+        `walletProvider` models only an INJECTED provider, which no ordinary
+        mobile browser has: on iOS Safari and Android Chrome detect() returns
+        null, and before /tasks/guard-wallet-detect-mobile that null reached
+        `.connect()` and printed a JavaScript error into a transaction modal.
+        These four files are the other transport — the one that hands off to the
+        wallet app by URL and resumes when it returns.
+
+        ORDER IS LOAD-BEARING, and it is a dependency chain, not a preference:
+        nacl above is read by the codec in wallet_transport; redirect_provider
+        and wallet_ops both read SolanaStudio.walletTransport; wallet_ops also
+        reaches for walletJournal. Each reads the one before it AT CALL TIME, so
+        a wrong order fails on the first tap rather than at load — the worst
+        place to find it.
+
+        NACL STAYS BLOCKING AND ABOVE THEM for the reason its own tag records:
+        the deep link reads it on a user tap (safe either way) but the callback
+        view's IIFE reads it AT PARSE TIME and hard-fails with no retry.
+
+        Served through sprockets from solana-studio, which declares all four in
+        config.assets.precompile (lib/solana_studio/engine.rb) — a gem-shipped
+        asset not named there 404s in production with no local warning. %>
+    <%= javascript_include_tag "solana_studio/wallet_transport" %>
+    <%= javascript_include_tag "solana_studio/redirect_provider" %>
+    <%= javascript_include_tag "solana_studio/wallet_journal" %>
+    <%= javascript_include_tag "solana_studio/wallet_ops" %>
     <% if session_replay_active? %>
       <script src="https://cdn.logr-in.com/LogRocket.min.js" crossorigin="anonymous"></script>
       <script>
