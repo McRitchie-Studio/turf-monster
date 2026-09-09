@@ -76,8 +76,16 @@
             starts_at, then the slate first kickoff, then the slate start
             (contest.rb lines 686 to 693): an explicit starts_at WINS, it is
             admin-permitted on create AND edit, and nothing validates it against
-            the slate, so the two moments coincide only when an admin leaves
-            starts_at blank.
+            the slate. The two moments coincide in TWO ways, not one: when an
+            admin leaves starts_at blank, so the derivation falls through to
+            that kickoff; and when an admin SETS starts_at to exactly that
+            kickoff, which nothing forbids. The second way is the one the World
+            Cup rulebook's worked example depicts, at a lock and a first kickoff
+            both 3pm. So a comment naming only the blank case loses an argument
+            with that example, and a reader who catches a comment in a
+            half-truth discards the rest of it. Any OTHER explicit starts_at
+            splits the two, and that is the case which makes "at the first
+            kickoff" false.
 
             Both halves now agree with section 07, and
             test/integration/turf_totals_lock_rule_test.rb holds this subtree to

@@ -318,12 +318,65 @@
           // five minutes cover human think-time at the prompt. It fails CLOSED —
           // a user who dwells past five minutes gets a clean "Nonce expired" and
           // retries — which is why the trade is worth a saved round trip.
+          //
+          // OUR SERVER'S OWN SENTENCE, COMPOSED ONCE. Measured 2026-09-08 on the
+          // code this replaces: a nonce fetch that 500s with an HTML body makes
+          // r.json() reject with "Unexpected token '<', \"<!DOCTYPE \"... is not
+          // valid JSON", parseSolanaError's /^unexpected/i branch reads that as a
+          // TRANSACTION failure, and the user is told to check their wallet
+          // connection and their USDC balance. An outage of ours, read back to a
+          // paying user as their wallet being short of funds.
+          //
+          // SURVIVES THE MAPPER, which is the whole reason it can be substituted
+          // rather than rethrown — parseSolanaError passes unrecognised messages
+          // through untouched, and test/views/nonce_server_failure_copy_test.rb
+          // runs this literal past every regex the mapper tests a message against.
+          var nonceServerCopy = 'Our server could not start sign-in \u2014 the problem is on our side, not your wallet. Please try again in a moment.';
           var noncePromise = fetch('/auth/solana/nonce')
-            .then(function(r) { return r.json(); })
+            .then(function(r) {
+              // A BODY WE CANNOT READ IS OUR SERVER FAILING, AND THIS IS THE ONE
+              // PLACE THAT KNOWS IT. Below, in the single .catch, an offline
+              // TypeError and an unreadable 500 body are the same rejection and
+              // cannot be told apart; here they are already separated by WHICH
+              // step threw. So the substitution belongs here — inside r.json() —
+              // and the network failure keeps its own words on the way past.
+              //
+              // BOTH WALLET PATHS, FROM ONE PLACE. The signIn branch awaits this
+              // promise ABOVE its try (the nonce is an INPUT to signIn), so no
+              // catch in this function ever sees its rejection — it propagates
+              // straight to the surface. A substitution at the nonceFetchFailed
+              // guard alone would therefore have left every signIn-capable wallet,
+              // Phantom included, still reading the balance advice. Measured on
+              // both paths, 2026-09-08.
+              return r.json().catch(function() {
+                var serverError = new Error(nonceServerCopy);
+                // NOT REPORTED — the one substitution in this file that owes no
+                // report, and it owes none for the reason docs/AUTH.md already
+                // gives for a server REJECTION: report-client-wallet-failures
+                // exists for failures that leave NO server-side trace, because
+                // they happen entirely in the browser. This one is a 500 OF OURS;
+                // the exception, its backtrace and the request are already in the
+                // server's own log, and the POST would go to the very server that
+                // just failed. The string being replaced is V8's complaint about
+                // our error page, not a wallet's words, so nothing diagnostic
+                // dies here.
+                //
+                // TAGGED ANYWAY, so no SURFACE reports it either. Without the tag
+                // the wallet-setup modal's catch would file a row carrying our
+                // sentence in BOTH halves — the raw == mapped shape docs/AUTH.md
+                // names as an anomaly worth chasing — for a fault that is fully
+                // recorded server-side.
+                serverError.walletFailureReported = true;
+                throw serverError;
+              });
+            })
             .catch(function(e) {
               // Tag the error the fetch actually produced rather than wrapping
               // it: a wrapper would drop `TypeError: Failed to fetch` — the one
               // string that says "offline" — and replace it with our own guess.
+              // The substituted server sentence above arrives here as an object
+              // too, so it picks up the same tag and the fallback's guard goes on
+              // rethrowing a nonce failure untouched, whichever shape it took.
               if (e && typeof e === 'object') { e.nonceFetchFailed = true; throw e; }
               var wrapped = new Error(String(e));
               wrapped.nonceFetchFailed = true;
@@ -493,20 +546,27 @@
               // the mapper, which the e2e spec pins against the page's OWN mapper
               // rather than a copy.
               //
-              // STILL EXPOSED, DELIBERATELY UNFIXED HERE: a nonce fetch that
-              // fails with an HTML body makes r.json() reject with "Unexpected
-              // token '<' ... is not valid JSON", which matches that same
-              // /^unexpected/i branch. The nonceFetchFailed guard rethrows it
-              // untouched, so the commonest server-failure shape still lands on
-              // the transaction sentence. Closing it needs either a second
-              // substitution here or a mapper change whose blast radius crosses
-              // the entry paths that legitimately own that wording -- an operator
-              // decision, named here rather than made silently.
+              // THAT LEFT ONE HOLE OPEN UNTIL 2026-09-08, AND IT IS NOW CLOSED
+              // UPSTREAM OF HERE. A nonce fetch that failed with an HTML body
+              // made r.json() reject with "Unexpected token '<' ... is not valid
+              // JSON", which matches that same /^unexpected/i branch, so the
+              // commonest server-failure shape still landed on the transaction
+              // sentence. The substitution for it lives in the nonce fetch
+              // itself (see nonceServerCopy above), NOT in this guard: the signIn
+              // branch awaits that promise above its own try, so a guard here
+              // could never have covered it, and only the fetch knows whether the
+              // request failed to arrive or came back unreadable. The mapper is
+              // untouched -- its transaction wording still belongs to the entry
+              // paths that own it. See docs/AUTH.md and
+              // test/views/nonce_server_failure_copy_test.rb.
 
               // OUR OWN SERVER, FIRST. /auth/solana/nonce failing is an offline
               // moment or a blip on our side. Telling that user to create a
               // wallet is the same confidently-wrong diagnosis this whole task
-              // exists to remove, pointed at a different innocent party.
+              // exists to remove, pointed at a different innocent party. Either
+              // shape arrives tagged, so this rethrow stays exactly as it was:
+              // a network failure carries its own words, and a server fault
+              // carries the sentence composed for it.
               if (e && e.nonceFetchFailed) throw e;
 
               var em = (e && e.message) ? e.message : String(e);

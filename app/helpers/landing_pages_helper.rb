@@ -62,12 +62,20 @@ module LandingPagesHelper
         # Contest#locks_at is `starts_at || slate.first_game_starts_at ||
         # slate.starts_at` (contest.rb:686-693): an explicit starts_at WINS, it
         # is admin-permitted on create AND edit, and nothing validates it
-        # against the slate's first kickoff. So the two moments are equal only
-        # when an admin leaves starts_at blank. This step said "when the first
-        # game kicks off" until 2026-09-08, and on production that day three of
-        # seven contests had locked EARLIER than their first kickoff — one by
-        # 8.6 days. On a pre-payment page, that overstates how long a visitor
-        # may ENTER: they wait for kickoff and find the door shut.
+        # against the slate's first kickoff. So the two moments are equal in TWO
+        # cases, not one: when an admin leaves starts_at blank and the
+        # derivation falls through to that kickoff, and when an admin SETS
+        # starts_at to exactly that kickoff — legal, unvalidated, and what the
+        # World Cup rulebook's worked example depicts (a lock and a first
+        # kickoff both 3pm). Any OTHER explicit starts_at splits them, which is
+        # the case this sentence exists to survive; turf_totals_lock_rule_test.rb
+        # measures all three against Contest.
+        #
+        # This step said "when the first game kicks off" until 2026-09-08, and
+        # on production that day three of seven contests had locked EARLIER than
+        # their first kickoff — one by 8.6 days. On a pre-payment page, that
+        # overstates how long a visitor may ENTER: they wait for kickoff and
+        # find the door shut.
         #
         # "its start time" is the value the card above this list already prints
         # (Contest#lock_time_display -> starts_in_at -> the same attribute
