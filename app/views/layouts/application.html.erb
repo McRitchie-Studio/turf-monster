@@ -103,6 +103,11 @@
     <%= javascript_include_tag "solana_studio/redirect_provider" %>
     <%= javascript_include_tag "solana_studio/wallet_journal" %>
     <%= javascript_include_tag "solana_studio/wallet_ops" %>
+
+    <%# Registered on EVERY page, because the wallet returns to a page this app
+        does not own — see the partial for the entry that was lost when this
+        lived in the contest board. %>
+    <%= render "shared/contest_entry_intent" %>
     <% if session_replay_active? %>
       <script src="https://cdn.logr-in.com/LogRocket.min.js" crossorigin="anonymous"></script>
       <script>

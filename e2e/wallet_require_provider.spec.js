@@ -83,18 +83,40 @@ test.describe("wallet guard on a device with no wallet", () => {
         .poll(() => page.evaluate(() => typeof window.walletProvider?.get))
         .toBe("function");
 
+      // VACUOUS BEFORE, AND THAT IS THE POINT OF THIS COMMENT. The try branch
+      // used to return noWalletMessage() — a hardcoded constant which by
+      // construction contains no "null" and no "is not an object". Once
+      // requireProvider() started RESOLVING on mobile, this test took that branch
+      // every time and could never fail. The assertion written to preserve the
+      // safety property was made inert by the same commit that created it, and it
+      // is why CI could not see the redirect provider reaching callers that
+      // cannot drive it.
+      //
+      // Now it CALLS what the callers call. A provider that cannot answer these
+      // produces the real TypeError, which is exactly the string this file exists
+      // to keep off a user's screen.
       const message = await page.evaluate(() => {
         try {
-          window.walletProvider.requireProvider();
-          return window.walletProvider.noWalletMessage();
+          const p = window.walletProvider.requireInlineProvider();
+          p.connect();
+          return "resolved";
         } catch (e) {
           return e.message;
         }
       });
 
-      expect(message).not.toMatch(/is not an object/i);
-      expect(message).not.toMatch(/\bnull\b/i);
-      expect(message).not.toMatch(/undefined/i);
+      // POSITIVE, and that is the whole lesson. The first repair of this test
+      // asserted only that the message LACKS "null" / "undefined" /
+      // "is not an object" — and a redirect provider reaching a caller that
+      // cannot drive it produces "p.connect is not a function", which contains
+      // none of those. Mutation testing caught it surviving: reverting the guard
+      // broke nothing. A negative-only assertion cannot bite, because the space
+      // of wrong answers is unbounded.
+      //
+      // So assert the ONE right answer. Only the honest remedy passes; every
+      // TypeError fails, whatever it happens to say.
+      expect(message).toMatch(/wallet app/i);
+      expect(message).not.toMatch(/is not a function/i);
     });
   });
 

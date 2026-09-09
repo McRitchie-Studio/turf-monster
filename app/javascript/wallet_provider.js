@@ -577,6 +577,34 @@ var walletProvider = {
   // user commits to an action, rather than only after one fails. The copy
   // differs because the remedies do: installing an extension is not a thing a
   // phone can do, and telling someone to do it is worse than saying nothing.
+  // A provider that can sign IN THIS PAGE, or an honest refusal.
+  //
+  // WHY THIS EXISTS, and it is a defect this change itself created. detect() now
+  // returns a REDIRECT provider on a phone. That object is not a drop-in for an
+  // injected one: its surface is begin*/complete* pairs plus can/browseUrl, and
+  // `connect`, `signTransaction`, `signMessage` and `publicKey` are all
+  // undefined on it. Any caller that took requireProvider() and reached for
+  // .connect() therefore went from a readable refusal to
+  // "provider.connect is not a function" — which is the ORIGINAL incident,
+  // relocated. Found in review of PR 632 across three live call sites.
+  //
+  // A caller that has been TAUGHT the redirect transport asks requireProvider()
+  // and forks on provider.transport. A caller that has NOT — every flow still
+  // written around a provider that resolves in place — asks for this instead and
+  // gets the mobile remedy it used to get, unchanged.
+  //
+  // Deliberately NOT a narrower detect(). detect() answering "nothing" on a phone
+  // is what made the contest-entry redirect path unreachable in the first place;
+  // the honest fix is for the CALLER to say which shape it can use.
+  requireInlineProvider: function() {
+    var provider = this.detect();
+    if (provider && provider.transport !== 'redirect') return provider;
+    // A redirect provider IS a wallet — just not one this caller can drive — so
+    // the remedy is the same one a phone with no wallet gets: open the page where
+    // a provider is injected.
+    throw new Error(this.noWalletMessage());
+  },
+
   noWalletMessage: function() {
     if (this.isMobile()) {
       return "This browser cannot reach a wallet. Open this page inside your " +
