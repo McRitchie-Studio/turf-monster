@@ -23,6 +23,81 @@ class WalletSetupPolicyTest < ActiveSupport::TestCase
     end
   end
 
+  # --- the free-entry bypass (operator QA, 2026-09-09) ---
+  #
+  # A gifted player has the price of admission in hand, so the wallet nudge is
+  # asking them to solve a problem they do not have. These are the two shapes
+  # that reach the policy, and the second is the one the bug lived in.
+
+  test "a managed user holding an entry token needs no wallet setup" do
+    user = managed_user
+    user.stub :entry_token_balance, 1 do
+      assert_not WalletSetupPolicy.required_for?(user, vault: StubVault.new(usdc: 0.0))
+    end
+  end
+
+  # THE ONE THAT MATTERS. The verdict is computed ONCE at sign-in, and at that
+  # instant a just-claimed gift has NO token yet — the claim is synchronous, the
+  # mint is a queued job. A token-only bypass reads false here, arms the modal
+  # for the whole session, and reproduces the reported bug exactly.
+  test "a claimed gift whose mint is still queued needs no wallet setup" do
+    user = managed_user
+    gift = EntryGift.create!(recipient_email: user.email, sender: users(:alex))
+    gift.update!(claimed_by: user, claimed_at: Time.current)
+
+    user.stub :entry_token_balance, 0 do
+      assert_not WalletSetupPolicy.required_for?(user, vault: StubVault.new(usdc: 0.0)),
+                 "a gift in flight must not trigger the wallet nudge"
+    end
+  end
+
+  # THE CONTROL. Same user, same zero balance, NO gift — the nudge still fires.
+  # Without this the two tests above pass for a policy that never asks anyone.
+  test "a managed user with no entry and no USDC still needs wallet setup" do
+    user = managed_user
+    user.stub :entry_token_balance, 0 do
+      assert WalletSetupPolicy.required_for?(user, vault: StubVault.new(usdc: 0.0))
+    end
+  end
+
+  # The bypass must not outlive the entry it is based on. A gift that has been
+  # MINTED is covered by the token half; once that token is spent, both halves
+  # go false and the account is an ordinary empty managed wallet again.
+  test "a spent gift restores the wallet nudge" do
+    user = managed_user
+    gift = EntryGift.create!(recipient_email: user.email, sender: users(:alex))
+    gift.update!(claimed_by: user, claimed_at: 1.hour.ago, minted_at: 1.hour.ago,
+                 mint_signature: "sig_spent")
+
+    user.stub :entry_token_balance, 0 do # minted, then consumed
+      assert WalletSetupPolicy.required_for?(user, vault: StubVault.new(usdc: 0.0)),
+             "a spent gift must not buy a permanent bypass"
+    end
+  end
+
+  # A gift that can NEVER be paid (an admin claimant — OPSEC-044) carries a
+  # mint_error, and must not buy a bypass either: there is no entry coming.
+  test "an unpayable gift does not bypass the nudge" do
+    user = managed_user
+    gift = EntryGift.create!(recipient_email: user.email, sender: users(:alex))
+    gift.update!(claimed_by: user, claimed_at: Time.current,
+                 mint_error: "admin accounts hold no custodial keys")
+
+    user.stub :entry_token_balance, 0 do
+      assert WalletSetupPolicy.required_for?(user, vault: StubVault.new(usdc: 0.0))
+    end
+  end
+
+  # A token read that FAULTS must not grant a bypass — the direction to fail is
+  # "ask about the wallet", never "wave an empty account into a contest".
+  test "a failed token read falls through rather than bypassing" do
+    user = managed_user
+    boom = ->(*) { raise "RPC down" }
+    user.stub :entry_token_balance, boom do
+      assert WalletSetupPolicy.required_for?(user, vault: StubVault.new(usdc: 0.0))
+    end
+  end
+
   # Every case below is about what the policy says WHEN THE FEATURE IS ON. The
   # flag-off behaviour is its own contract, asserted at the bottom.
   def setup

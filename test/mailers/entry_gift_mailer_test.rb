@@ -6,14 +6,52 @@ class EntryGiftMailerTest < ActionMailer::TestCase
     @sender = users(:alex)
     @gift = EntryGift.create!(recipient_email: "friend@example.com", sender: @sender,
                               contest: contests(:one),
+                              sender_username: @sender.username,
                               note: "Put a lineup in this week.")
     @mail = EntryGiftMailer.gift_invite(@gift, "tok_abc123")
   end
 
-  test "addresses the recipient and speaks in the sender's name" do
+  # THE USERNAME, not the real name (operator call 2026-09-09): the handle is who
+  # a player is on this platform, and it is what a friend recognises in a lobby.
+  test "addresses the recipient and speaks in the sender's username" do
     assert_equal ["friend@example.com"], @mail.to
-    assert_match @sender.name, @mail.subject
+    assert_match @sender.username, @mail.subject
     assert_match "free entry", @mail.subject
+    assert_no_match(/#{Regexp.escape(@sender.name)}/, @mail.subject,
+                    "the real name must not be what the invite announces")
+  end
+
+  # "At the time, of course." A username is changeable, so reading it live would
+  # rewrite the greeting on every invite already sitting in an inbox the moment
+  # somebody renames. The snapshot is what makes the gift a fact about a moment.
+  test "the greeting is the username as it was when the gift was sent" do
+    gift = EntryGift.create!(recipient_email: "later@example.com", sender: @sender,
+                             sender_username: "old_handle")
+    @sender.update_columns(username: "brand_new_handle")
+
+    mail = EntryGiftMailer.gift_invite(gift.reload, "tok_snap")
+    assert_match "old_handle", mail.subject
+    assert_no_match(/brand_new_handle/, mail.subject)
+    assert_match "old_handle", mail.html_part.body.to_s
+  end
+
+  # A row sent BEFORE the column existed has no snapshot; the live username is
+  # the best available answer rather than "A friend".
+  test "a gift with no snapshot falls back to the live username" do
+    gift = EntryGift.create!(recipient_email: "legacy@example.com", sender: @sender)
+    gift.update_columns(sender_username: nil)
+
+    assert_match @sender.username, EntryGiftMailer.gift_invite(gift.reload, "tok_l").subject
+  end
+
+  # The CTA glyph, pinned because the operator picked it by sight on QA: the
+  # ticket emoji rendered as a broken box in Gmail. A test is the only thing
+  # that stops the next edit from quietly reintroducing one.
+  test "the call to action carries the sparkle, not the ticket" do
+    html = @mail.html_part.body.to_s
+    assert_match "Claim your free entry ✨", html
+    assert_no_match(/🎟/, html)
+    assert_no_match(/🎟/, @mail.subject)
   end
 
   # A reply must reach the PERSON who invited them, not team@. Somebody
@@ -76,13 +114,22 @@ class EntryGiftMailerTest < ActionMailer::TestCase
     assert_match "<script>alert(1)</script>", mail.text_part.body.to_s
   end
 
-  test "a script tag in the sender's name is escaped too" do
-    attacker = User.create!(email: "attacker@example.com", name: "<script>alert(2)</script>")
-    gift = EntryGift.create!(recipient_email: "xss2@example.com", sender: attacker)
+  # AIMED AT THE FIELD THAT IS ACTUALLY RENDERED. This asserted on the sender's
+  # `name` until the greeting moved to the username — at which point it passed
+  # while testing a value the template no longer touches, which is worse than no
+  # test. sender_username is the rendered string now, and it is a plain column
+  # with no format validation, so it is the realistic vector.
+  test "a script tag in the sender's username is escaped" do
+    attacker = User.create!(email: "attacker@example.com")
+    gift = EntryGift.create!(recipient_email: "xss2@example.com", sender: attacker,
+                             sender_username: "<script>alert(2)</script>")
     mail = EntryGiftMailer.gift_invite(gift, "tok_xss2")
+    html = mail.html_part.body.to_s
 
-    assert_match "&lt;script&gt;", mail.html_part.body.to_s
-    assert_no_match(/<script>alert\(2\)<\/script>/, mail.html_part.body.to_s)
+    assert_match "&lt;script&gt;", html
+    assert_no_match(/<script>alert\(2\)<\/script>/, html,
+                    "no live script tag may reach the inbox")
+    assert_match "<script>alert(2)</script>", mail.text_part.body.to_s
   end
 
   # display_name falls back to the email local part, so an account with no
@@ -92,6 +139,7 @@ class EntryGiftMailerTest < ActionMailer::TestCase
     nameless = User.create!(email: "quiet-sender@example.com")
     nameless.update_columns(name: nil, username: nil)
     gift = EntryGift.create!(recipient_email: "friend2@example.com", sender: nameless.reload)
+    gift.update_columns(sender_username: nil)
     mail = EntryGiftMailer.gift_invite(gift, "tok_1")
 
     assert_match "A friend", mail.subject
