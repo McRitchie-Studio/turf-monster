@@ -250,9 +250,65 @@ export function refreshBalance() {
 // does not survive unload. Scheduling in the caller would be a SILENT no-op on
 // exactly the flows this was built for. So a navigating caller leaves a marker
 // in sessionStorage and the DESTINATION page picks it up (see the layout's
-// hydrateNavbar). A caller that stays put (every entry flow) schedules directly.
+// hydrateNavbar). A caller that cannot navigate schedules directly.
+//
+// AND A THIRD KIND, which the either/or above could not express: a surface that
+// stays put but MAY be navigated away from — the survivor board, whose success
+// card arms no countdown yet navigates when the user closes it. It takes both
+// paths at once. See onchainSettled for the full shape table.
 var ONCHAIN_SETTLE_KEY = "tm:onchain-settle-until";
 export var ONCHAIN_SETTLE_MS = 10000;
+
+// Writing the marker and retiring it are SEPARATE concerns, because they are no
+// longer done by the same caller at the same moment. A stay-put-but-may-navigate
+// caller writes one for a navigation that might never happen (see onchainSettled),
+// and its own in-page read is what retires it (see settleRead).
+//
+// SO A MARKER IS AN IDENTITY, NOT JUST A DEADLINE IN A KEY. Because the write
+// and the retire are separated in time, a retire can arrive while the slot holds
+// a DIFFERENT spend's marker, and a bare removeItem would delete that one.
+//
+// Two spends in one session is not exotic: spend, close the card (which
+// navigates), spend again on the page you land on. The first spend's read is now
+// deferred onto that second page, and when it lands it would wipe the second
+// spend's marker. The second spend then settles NOWHERE — its in-page timer dies
+// at the next navigation and the destination inherits nothing, so it hydrates
+// normally and paints the PRE-SPEND figure with .hidden cleared, presented as the
+// answer. That is precisely the failure this whole seam exists to refuse, and a
+// key-scoped clear reintroduces it on a surface this fix never meant to touch.
+//
+// STORED AS "<until>:<id>". parseInt stops at the colon, so pendingOnchainSettleMs
+// reads the deadline out of either shape and a marker left by a page loaded
+// before this deploy still hands its window over correctly.
+var _markerSeq = 0;
+
+function markerIdOf(raw) {
+  if (raw == null) return null;
+  var at = String(raw).indexOf(":");
+  return at < 0 ? null : String(raw).slice(at + 1);
+}
+
+// Returns the id of the marker it wrote, or null when it wrote none. Null is the
+// honest answer for a caller that owns no marker, and it is what keeps such a
+// caller from retiring somebody else's.
+function writeOnchainSettleMarker(delay) {
+  var id = String(++_markerSeq) + "-" + Math.random().toString(36).slice(2, 10);
+  try {
+    window.sessionStorage.setItem(ONCHAIN_SETTLE_KEY, String(Date.now() + delay) + ":" + id);
+  } catch (_) { return null; }
+  return id;
+}
+
+// Retire a marker ONLY when the slot still holds the one this settle wrote. A
+// settle that wrote none — the deferred read on a destination page, whose marker
+// was consumed by settleOnLoadIfPending on the way in — retires nothing at all.
+function clearOnchainSettleMarker(id) {
+  if (!id) return;
+  try {
+    if (markerIdOf(window.sessionStorage.getItem(ONCHAIN_SETTLE_KEY)) !== id) return;
+    window.sessionStorage.removeItem(ONCHAIN_SETTLE_KEY);
+  } catch (_) {}
+}
 
 // Put the balance pill back into the server's cache-cold "loading" shape:
 // hidden, with no dollar figure. Mirrors _navbar.html.erb's `hide_balance`
@@ -308,13 +364,31 @@ var SETTLE_RETRY_MS = 3000;
 // A 200 whose wallet read FLAKED carries usdc AND usdt null (AccountsController
 // #session_refresh) and refreshSession paints nothing on that shape, so unless
 // it counts as a failure the blanked pill stays blank, unretried, for good.
-function settleRead() {
+function settleRead(markerId) {
   return refreshSession({ lockKey: SETTLE_LOCK_KEY }).then(function (data) {
-    return (data && (data.usdc != null || data.usdt != null)) ? data : null;
+    var landed = (data && (data.usdc != null || data.usdt != null)) ? data : null;
+    // THE READ LANDED, SO THE MARKER IT SERVED HAS DONE ITS JOB — retire THAT one.
+    //
+    // Only a mayNavigate caller holds a markerId here: a navigating caller
+    // schedules no read at all, and a deferred read's marker was consumed by
+    // settleOnLoadIfPending on the way in, so it passes null and retires nothing.
+    // That mayNavigate caller wrote its marker for a navigation that MIGHT
+    // happen. If the user then leaves late — closing the survivor card
+    // navigates, which is the normal way out of it — the destination would
+    // otherwise consume a marker whose window we have already served: blank a
+    // pill that is showing the settled number and hold it blank for another
+    // full window. Retiring the served marker is what stops the two halves
+    // fighting; retiring the KEY would take a later spend's window with it.
+    //
+    // A read that did NOT land deliberately leaves the marker alone. The pill
+    // has been restored to the stale figure by then, so the destination is a
+    // second chance at the settle rather than a double-blank.
+    if (landed) clearOnchainSettleMarker(markerId);
+    return landed;
   });
 }
 
-function scheduleOnchainSettle(delay) {
+function scheduleOnchainSettle(delay, markerId) {
   paintBalanceLoading();
   _settlePending = true;
   if (window.showNavSpinner) window.showNavSpinner();
@@ -329,11 +403,13 @@ function scheduleOnchainSettle(delay) {
     setTimeout(function () {
       // The settle's own read must be allowed to paint, so drop the flag first.
       _settlePending = false;
-      settleRead().then(function (data) {
+      settleRead(markerId).then(function (data) {
         if (data) return done(resolve);
         // Refused or failed. One more try, then put back what was there.
+        // The retry carries the SAME marker id: if a newer spend has taken the
+        // slot in the meantime, this retry must not retire that one either.
         setTimeout(function () {
-          settleRead().then(function (retryData) {
+          settleRead(markerId).then(function (retryData) {
             if (!retryData) paintBalanceRestore();
             done(resolve);
           });
@@ -343,23 +419,41 @@ function scheduleOnchainSettle(delay) {
   });
 }
 
-// opts.navigating — true when the caller is about to assign window.location.
-// opts.delayMs    — override the settle window (default ONCHAIN_SETTLE_MS).
+// THREE SHAPES, because a surface is not simply navigating or not. The middle
+// one is real and was missing, and the cost of not having it was a settle that
+// never fired at all on the survivor board.
+//
+// opts.navigating  — the caller assigns window.location NOW. A setTimeout does
+//                    not survive unload, so leave the marker and schedule
+//                    nothing; the destination page runs the read.
+// opts.mayNavigate — the caller STAYS PUT, but the user may leave at any moment.
+//                    The survivor board is this shape: its success card sets no
+//                    lobbyUrl, so the engine's startCountdown() returns early and
+//                    the card just sits there — yet modal.onClose assigns
+//                    window.location, and closing the card is the normal way out
+//                    of it. Needs BOTH halves: schedule in-page so the pill
+//                    settles for the user who stays, AND leave the marker so the
+//                    settle is not lost for the user who goes. Exactly one of the
+//                    two ever serves the window — settleRead() retires the marker
+//                    THIS call wrote, by id, the moment the in-page read lands.
+//                    By id and not by key, because a later spend may already own
+//                    the slot; see writeOnchainSettleMarker.
+// neither          — a surface with no navigation at all (the faucet). Schedule.
+//
+// opts.delayMs     — override the settle window (default ONCHAIN_SETTLE_MS).
 export function onchainSettled(opts) {
   opts = opts || {};
   var delay = (opts.delayMs == null) ? ONCHAIN_SETTLE_MS : opts.delayMs;
-  if (opts.navigating) {
-    try {
-      window.sessionStorage.setItem(ONCHAIN_SETTLE_KEY, String(Date.now() + delay));
-    } catch (_) {}
-    return null;
-  }
-  return scheduleOnchainSettle(delay);
+  var markerId = (opts.navigating || opts.mayNavigate) ? writeOnchainSettleMarker(delay) : null;
+  if (opts.navigating) return null;
+  return scheduleOnchainSettle(delay, markerId);
 }
 
-// Consume a marker left by a navigating caller. Returns the REMAINING ms when
-// one was pending (never negative), else null. Clears it either way, so a
-// reload cannot re-arm the wait forever.
+// Consume a marker left by a navigating OR mayNavigate caller. Returns the
+// REMAINING ms when one was pending (never negative), else null. Clears it
+// either way, so a reload cannot re-arm the wait forever — and the caller it
+// hands the window to therefore owns no marker, which is why its settle retires
+// nothing (see clearOnchainSettleMarker).
 export function pendingOnchainSettleMs() {
   var raw = null;
   try {
@@ -388,6 +482,13 @@ export function pendingOnchainSettleMs() {
 // the probe only because its unstubbed fetch happened to fail.
 export function settleOnLoadIfPending(onSettled) {
   var pendingMs = pendingOnchainSettleMs();
+  // `== null`, NOT `!pendingMs`. pendingOnchainSettleMs floors its answer at 0,
+  // and zero milliseconds left is still a marker: a spend DID happen on the page
+  // that sent us here. mayNavigate makes that ordinary — the user closes the
+  // card long after the window elapsed — and falling through to the layout's
+  // hydrate is not an equivalent read. That one runs on the contended 'session'
+  // lock (lockedFetch answers a contender with null) and never retries; the
+  // settle takes its own key and retries once.
   if (pendingMs == null) return false;
   var pending = onchainSettled({ delayMs: pendingMs });
   if (pending && typeof onSettled === "function") pending.then(onSettled, onSettled);

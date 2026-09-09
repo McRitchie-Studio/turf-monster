@@ -23,6 +23,8 @@
 - **Surfaces**: Use `bg-page`, `bg-surface`, `bg-surface-alt`, `bg-inset` — never hardcode `bg-navy-*`
 - **Text**: Use `text-heading`, `text-body`, `text-secondary`, `text-muted` — never hardcode `text-white` for headings or `text-gray-*` for body text
 - **Borders**: Use `border-subtle`, `border-strong` — never hardcode `border-navy-*`
+- **Error / danger TEXT**: Use `text-danger-ink` — never a static red (`text-red-400`, `text-red-300`, an inline `color:#f87171`). A fill may be vivid; text must clear WCAG AA 4.5:1 on **both** cards, and no static red does. The modal card is `bg-surface`, which is pure white in light mode: measured against this app's resolved theme, `text-red-400` is 2.89:1 light and 3.86:1 dark, so it fails both. `text-danger-ink` is derived per theme by studio-engine's `ThemeResolver#contrast_ink` (5.76:1 light, 4.50:1 dark here). Guarded by `test/views/error_text_contrast_test.rb`, which resolves the colour and measures the ratio rather than matching a class name. Its scope is two lanes: every text colour in the modal/sign-in surfaces **and** the four user-facing error surfaces (`contests/_quest_newsletter`, `contests/_turf_totals_leaderboard`, `wallet_exports/show`, `proof_of_reserves/show`), plus any element anywhere under `app/views` (except `app/views/admin`) bound to an error-ish Alpine expression — so a NEW error paragraph is measured without anyone remembering to widen a list.
+- **Danger text needs a theme surface under it.** `text-danger-ink` is derived to clear AA against the four theme surfaces (`bg-surface`, `bg-page`, `bg-surface-alt`, `bg-inset`), and a tint is not one of them — compositing `bg-red-500/10` over the dark card yields `#4f3750`, where the ink measures **4.25:1** and fails AA. (Composite in GAMMA-ENCODED sRGB, the way a browser does — a linear-light blend gives `#673751` and 3.78:1, which is wrong and is the figure this line carried between PR #649 and `contrast-guard-composites-wrong`. Chrome's own pixel is one 8-bit step away at `#4f3650`, 4.29:1 — also a fail.) Put an alert panel on a theme surface (`bg-inset` or `bg-surface-alt`; the ink is 7.31:1 on the dark `bg-surface-alt`) and keep the red *border* for the affordance, rather than a red wash. The guard composites every enclosing background before measuring, so a red-tinted panel is caught rather than scored against the bare card.
 - **CSS var naming**: `--color-cta` / `--color-cta-hover` for singular CTA color. Full `--color-primary-{50..900}` palette with RGB variants for Tailwind `primary-*` utilities.
 - **Tailwind config**: `primary` palette is dynamic from shared studio config (CSS vars). `warning` palette defined locally in `config/tailwind.config.js`. Safelist includes `bg`, `text`, `border`, `ring` utilities for brand colors.
 
@@ -36,7 +38,34 @@ Tailwind emits only classes it can see during the build. Keep dynamic class name
 - One-off static dimensions can stay inline when extracting a class would create noise or when a previously valid utility was purged.
 
 ### Public S3 and OG Assets
-Open Graph images must use the `amazon_public` / `amazon_dev_public` Active Storage services. The private `amazon` services return signed URLs; social unfurlers cache image URLs long enough for signed links to expire. Public OG services return permanent S3 object URLs, and `OgImageAttachable` owns the per-environment service choice.
+
+The constraint is that an og:image URL must be **permanent**: an unfurler caches
+the URL it was handed and re-fetches it days later, so anything carrying an
+expiring signature is a preview that works today and is broken by the weekend.
+There are two sanctioned ways to satisfy that, and which one applies depends on
+whether the image is an OG asset in its own right or a rendition of an image
+that already lives somewhere private.
+
+**1. Images uploaded AS og:images — public service.** `SiteSetting`'s
+`default_og_image` and `LandingPage`'s `og_image` use the `amazon_public` /
+`amazon_public_dev` services and are served as permanent S3 object URLs.
+`OgImageAttachable` owns the per-environment service choice. Do NOT put these on
+the private `amazon` services, whose `.url` is a signature that expires.
+
+**2. Renditions of an image that lives on the PRIVATE service — proxy route.**
+A contest banner (`Contest#contest_image`) is a normal private attachment that
+also has to unfurl, and moving every existing banner into a public bucket to get
+that is the wrong trade. Instead `OgHelper#contest_og_image_url` hands out
+`rails_storage_proxy_url(... .variant(:og_card))` — the representation **proxy**
+route, which is permanent (the signed blob id carries no expiry), lives on our
+own domain, and streams from the same private bucket. Use the proxy route, never
+`rails_storage_redirect_url`, which hands back the expiring service URL this
+whole section exists to avoid.
+
+Guard the variant on `variable?`, not merely `attached?` — `.variant` raises
+`ActiveStorage::InvariableError` eagerly for a content type outside
+`ActiveStorage.variable_content_types`, which would 500 the public page rather
+than fall through to the default card.
 
 ### Status Badges
 `ApplicationHelper::CONTEST_BADGE_STYLES`, keyed by contest status — the pill on

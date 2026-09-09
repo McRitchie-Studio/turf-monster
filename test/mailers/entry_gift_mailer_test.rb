@@ -36,11 +36,53 @@ class EntryGiftMailerTest < ActionMailer::TestCase
     assert_match contests(:one).name, @mail.html_part.body.to_s
   end
 
-  test "renders without a note" do
+  # The no-note case renders, and renders no EMPTY quote block.
+  #
+  # The assertion here was `assert_no_match(/&ldquo;\s*&rdquo;/, ...)` and it was
+  # VACUOUS: those entities live in _gift_row.html.erb, never in this template,
+  # so no input could have made it fail. The quote marks this view actually draws
+  # are the CSS border on the note's table row, so the honest assertion is that
+  # the note block itself is absent.
+  test "renders without a note, and draws no empty note block" do
     gift = EntryGift.create!(recipient_email: "other@example.com", sender: @sender)
     mail = EntryGiftMailer.gift_invite(gift, "tok_xyz")
-    assert_match "/l/tok_xyz", mail.html_part.body.to_s
-    assert_no_match(/&ldquo;\s*&rdquo;/, mail.html_part.body.to_s)
+    html = mail.html_part.body.to_s
+
+    assert_match "/l/tok_xyz", html
+    assert_no_match(/border-left:3px solid/, html, "the note's quote block must not render")
+    # And the control: with a note, that block IS drawn — without this the
+    # assertion above passes for a template that lost the block entirely.
+    with_note = EntryGiftMailer.gift_invite(
+      EntryGift.create!(recipient_email: "third@example.com", sender: @sender, note: "hi"),
+      "tok_2"
+    )
+    assert_match(/border-left:3px solid/, with_note.html_part.body.to_s)
+  end
+
+  # ESCAPING — this feature's most attacker-adjacent surface, and nothing pinned
+  # it. The note and the sender name are the only free text in the email, both
+  # are operator-supplied, and both are interpolated into HTML. ERB escapes them
+  # by default; the danger is a future `.html_safe` or `raw` added for styling.
+  test "a script tag in the note is escaped in HTML and literal in text" do
+    gift = EntryGift.create!(recipient_email: "xss@example.com", sender: @sender,
+                             note: "<script>alert(1)</script>")
+    mail = EntryGiftMailer.gift_invite(gift, "tok_xss")
+    html = mail.html_part.body.to_s
+
+    assert_match "&lt;script&gt;", html, "the note must be escaped"
+    assert_no_match(/<script>alert\(1\)<\/script>/, html, "no live script tag may reach the inbox")
+    # The text part is not HTML, so the literal is correct there — and asserting
+    # it keeps someone from "fixing" the text part by escaping it too.
+    assert_match "<script>alert(1)</script>", mail.text_part.body.to_s
+  end
+
+  test "a script tag in the sender's name is escaped too" do
+    attacker = User.create!(email: "attacker@example.com", name: "<script>alert(2)</script>")
+    gift = EntryGift.create!(recipient_email: "xss2@example.com", sender: attacker)
+    mail = EntryGiftMailer.gift_invite(gift, "tok_xss2")
+
+    assert_match "&lt;script&gt;", mail.html_part.body.to_s
+    assert_no_match(/<script>alert\(2\)<\/script>/, mail.html_part.body.to_s)
   end
 
   # display_name falls back to the email local part, so an account with no

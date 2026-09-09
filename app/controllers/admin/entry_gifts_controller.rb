@@ -12,7 +12,11 @@ module Admin
     PER_PAGE = 50
 
     def index
-      @gifts    = EntryGift.recent.includes(:sender, :contest, :claimed_by).limit(PER_PAGE)
+      # :link is what the rows RENDER (the dev-only claim link), so it has to be
+      # here or the page pays a query per row. :sender is not rendered at all —
+      # the form names current_user, not the gift's sender — so preloading it
+      # bought nothing. Swapped rather than added.
+      @gifts    = EntryGift.recent.includes(:contest, :claimed_by, :link).limit(PER_PAGE)
       @contests = Contest.order(created_at: :desc).limit(25)
       @default_contest = Contest.featured
       @counts = {
@@ -66,6 +70,15 @@ module Admin
         deliver_invite(gift.reload)
         flash[:notice] = "Re-sent to #{gift.recipient_email} with a fresh link."
       end
+      redirect_to admin_entry_gifts_path
+    rescue StandardError => e
+      # THE SAME RESCUE #create HAS, and this action needs it MORE. rescue_and_log
+      # re-raises by design, and the destroy above has already run — so without
+      # this an SMTP failure 500s the admin having left the gift with NO link at
+      # all, which is worse than the state they started in. Say what happened and
+      # name the way out; #resend is safe to press again.
+      flash[:alert] = "Could not re-send to #{gift.recipient_email}: #{e.message}. " \
+                      "The old link is gone — press Re-send again to mint a new one."
       redirect_to admin_entry_gifts_path
     end
 

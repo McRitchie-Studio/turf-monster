@@ -107,6 +107,54 @@ class EntryGiftFlowTest < ActionDispatch::IntegrationTest
     assert_equal first_claimed_at.to_i, gift.reload.claimed_at.to_i
   end
 
+  # THE THIRD OUTCOME. Studio::LinkConsumption's decision table has three
+  # branches — :authenticate, :continue, :dead — and every other test in this
+  # file signs out first (reset!), so they all exercise :authenticate. A
+  # recipient who is ALREADY SIGNED IN as the gift's own address takes
+  # :continue instead: the token burns, the session is deliberately left alone,
+  # and before the link_continue override below, claim_entry_gift! never ran at
+  # all. The gift stayed unclaimed forever with NO error anywhere — the ledger
+  # read "Sent", stalled? could not see it (it requires claimed?), and a re-send
+  # walked them straight back into the same cell.
+  #
+  # Ordinary trigger: gift an existing player who reads their mail on the device
+  # they are signed in on. Caught in review, not by any tier here.
+  test "a recipient already signed in as the gift's own email still claims it" do
+    existing = users(:sam)
+    gift = EntryGift.create!(recipient_email: existing.email, sender: @admin)
+    link = Studio::Link.create_magic_link(email: existing.email, linkable: gift,
+                                          ttl: EntryGift::LINK_TTL)
+
+    log_in_as(existing) # the ONLY difference from the tests above: no reset!
+
+    assert_enqueued_with(job: EntryGiftMintJob) do
+      post link_consume_path(token: link.token)
+    end
+
+    gift.reload
+    assert gift.claimed?, "a signed-in recipient must not silently lose the gift"
+    assert_equal existing, gift.claimed_by
+    assert_equal existing.solana_address, gift.wallet_address
+  end
+
+  # The :continue path must stay INVISIBLE in every other respect — that is the
+  # whole reason the engine routes it away from sign_in_existing. Claiming the
+  # gift must not cost the viewer the session they already had.
+  test "claiming on the signed-in path leaves the session alone" do
+    existing = users(:sam)
+    gift = EntryGift.create!(recipient_email: existing.email, sender: @admin)
+    link = Studio::Link.create_magic_link(email: existing.email, linkable: gift,
+                                          ttl: EntryGift::LINK_TTL)
+
+    log_in_as(existing)
+    post link_consume_path(token: link.token)
+
+    # Still the same signed-in person, and still signed in.
+    get account_path
+    assert_response :success
+    assert_equal existing, gift.reload.claimed_by
+  end
+
   # An ordinary sign-in link carries no gift, and must stay ordinary.
   test "a plain magic link grants no entry" do
     reset!

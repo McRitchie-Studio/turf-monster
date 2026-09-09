@@ -120,6 +120,50 @@ class Admin::EntryGiftsControllerTest < ActionDispatch::IntegrationTest
     assert_match(/not a valid email/, flash[:alert])
   end
 
+  # --- the four ledger states, RENDERED ---
+  #
+  # Acceptance 6 asks for sent / claimed / minted / failed to be VISIBLE on the
+  # ledger, and only :sent was ever observed on screen. EntryGift#status is
+  # exhaustively unit-tested, but the label and colour come from two literal
+  # hashes in _gift_row.html.erb — a typo in either renders an EMPTY status cell
+  # with every unit test still green. These assert the string a human reads.
+
+  test "the ledger renders every gift state" do
+    log_in_as(@admin)
+    sent    = EntryGift.create!(recipient_email: "sent@example.com", sender: @admin)
+    claimed = EntryGift.create!(recipient_email: "claimed@example.com", sender: @admin)
+    minted  = EntryGift.create!(recipient_email: "minted@example.com", sender: @admin)
+    failed  = EntryGift.create!(recipient_email: "failed@example.com", sender: @admin)
+
+    claimed.update!(claimed_by: @user, claimed_at: 1.minute.ago)
+    minted.update!(claimed_by: @user, claimed_at: 1.hour.ago, minted_at: Time.current,
+                   mint_signature: "sig_rendered")
+    failed.update!(claimed_by: @user, claimed_at: 1.hour.ago, mint_error: "no wallet to mint to")
+
+    get admin_entry_gifts_path
+    assert_response :success
+
+    assert_select "tr", text: /sent@example\.com.*Sent/m
+    assert_select "tr", text: /claimed@example\.com.*Claimed — minting/m
+    assert_select "tr", text: /minted@example\.com.*Minted/m
+    assert_select "tr", text: /failed@example\.com.*Mint failed/m
+    # The failure's REASON is on screen too — a state with no explanation sends
+    # the operator to the logs.
+    assert_match "no wallet to mint to", response.body
+    assert_equal 4, EntryGift.count
+  end
+
+  # The state the ledger exists to make loud: claimed long ago, still no token.
+  # It renders as its own label rather than sitting quietly as "Claimed".
+  test "a stalled claim says so, distinctly from a fresh one" do
+    log_in_as(@admin)
+    stalled = EntryGift.create!(recipient_email: "stalled@example.com", sender: @admin)
+    stalled.update!(claimed_by: @user, claimed_at: 30.minutes.ago)
+
+    get admin_entry_gifts_path
+    assert_select "tr", text: /stalled@example\.com.*mint stalled/m
+  end
+
   # --- the dev-only claim link ---
   #
   # On a desk the invite is CAPTURED, not sent (LOCAL_EMAIL_CAPTURE=1), and the

@@ -43,18 +43,29 @@ module EntryGifts
       return result(false, "no user to claim for")  if @user.blank?
       return result(false, "already claimed")       if @gift.claimed?
 
+      wallet_created = false
+
       @gift.with_lock do
         # Re-read inside the lock: two clicks racing both passed the check above.
         return result(false, "already claimed") if @gift.reload.claimed?
 
-        address = ensure_wallet!
+        address, wallet_created = ensure_wallet!
         @gift.update!(claimed_by: @user, claimed_at: Time.current,
                       wallet_address: address, mint_error: unpayable_reason(address))
       end
 
-      # OUTSIDE the lock and outside the transaction: enqueueing inside would
-      # let Sidekiq pick the job up before the claim row commits, and the job
-      # would then read a gift that is not claimed yet.
+      # BOTH ENQUEUES SIT OUT HERE, and the second one used to not.
+      #
+      # Enqueueing inside the lock lets Sidekiq pick the job up before the claim
+      # row commits, and the job then reads a gift that is not claimed yet.
+      # `enqueue_after_transaction_commit` defaults false and is unset app-wide,
+      # so nothing else defends this. CreateOnchainUserAccountJob was inside,
+      # nine lines below the comment explaining why the mint was moved out — and
+      # its failure mode is quiet: it returns on `!solana_connected?`, so a
+      # worker that wins the race no-ops and the PDA is simply never created.
+      # (Recoverable — contests_controller calls ensure_user_account before
+      # enter_contest_with_token — but recoverable is not correct.)
+      CreateOnchainUserAccountJob.perform_later(@user.id) if wallet_created
       EntryGiftMintJob.perform_later(@gift.id) if @gift.mint_error.blank?
 
       result(true, nil)
@@ -67,21 +78,21 @@ module EntryGifts
     # on-chain token and a token needs an address. Returns the address the mint
     # should target, or nil when this account can hold no custodial key.
     #
-    # IT ALSO ENQUEUES THE ON-CHAIN UserAccount, and leaving that out would have
-    # been a silent half-gift. User's `after_commit :enqueue_onchain_account_setup`
-    # already ran at signup, when web3-only onboarding meant the account had no
-    # wallet — so CreateOnchainUserAccountJob returned on `solana_connected?` and
-    # created no PDA, and nothing re-runs it when a wallet appears later. The
-    # mint itself does not need that PDA, but SPENDING the token does:
-    # Vault#enter_contest_with_token passes `user_pda` as a writable account. So
-    # a gifted player would have held a token they could not play.
+    # Returns [address, wallet_created] — the second half tells the caller
+    # whether to enqueue the on-chain UserAccount, which it does AFTER the lock.
+    #
+    # THAT PDA MATTERS, and leaving it out would be a silent half-gift. User's
+    # `after_commit :enqueue_onchain_account_setup` already ran at signup, when
+    # web3-only onboarding meant the account had no wallet — so
+    # CreateOnchainUserAccountJob returned on `solana_connected?` and created no
+    # PDA, and nothing re-runs it when a wallet appears later. The mint does not
+    # need that PDA, but SPENDING the token does:
+    # Vault#enter_contest_with_token passes `user_pda` as a writable account.
     def ensure_wallet!
-      return @user.solana_address if @user.solana_address.present?
+      return [@user.solana_address, false] if @user.solana_address.present?
 
       @user.generate_managed_wallet!(reason: :gift)
-      address = @user.reload.solana_address
-      CreateOnchainUserAccountJob.perform_later(@user.id) if address.present?
-      address
+      [@user.reload.solana_address, @user.solana_address.present?]
     end
 
     def unpayable_reason(address)

@@ -203,13 +203,19 @@ class MagicLinksController < ApplicationController
         # Wallet setup pending: no toast promising an entry token, because a
         # wallet-less account can't buy one. Land on the contest (picks intact)
         # and let the setup modal carry the next step.
-        # The stock copy tells them to GRAB an entry token, which is exactly wrong
-        # for someone who was just handed one — hence the gift's own line.
-        redirect_to result.return_to, **(onboarding_steps.any? ? {} : { flash: { auth_toast:
-                      entry_gift_toast || {
-                        title:   "You're signed in",
-                        message: "Grab an entry token to lock in your picks."
-                      } } })
+        # NO GIFT TOAST ON THIS BRANCH, and it is not an oversight — it is
+        # unreachable. This is sign_up_new, so the account was created in this
+        # request and has no first name, so `first_name` is always outstanding,
+        # so onboarding_steps.any? is always TRUE and this flash is never set at
+        # all. An `entry_gift_toast ||` sat here and could not fire; it read as
+        # a live branch and described an outcome the code cannot produce.
+        # The chain's opening card carries this moment; a gifted NEW account
+        # sees its entry in the badge, and the :continue / returning-login paths
+        # are where the gift toast actually appears.
+        redirect_to result.return_to, **(onboarding_steps.any? ? {} : { flash: { auth_toast: {
+                      title:   "You're signed in",
+                      message: "Grab an entry token to lock in your picks."
+                    } } })
       else
         # A GENERIC /signin signup: the onboarding chain owns this moment. Its
         # first card here is the first-name ask, outstanding by definition for an
@@ -356,6 +362,33 @@ class MagicLinksController < ApplicationController
   # message in the flow. The override is kept because the bespoke title reads
   # better than a bare sentence, and because it lets the outcome's severity ride
   # through to the toast; inheriting the default would have worked too.
+  # THE THIRD OUTCOME, and the one this app had left on the engine's default.
+  #
+  # Studio::LinkConsumption routes a click to :authenticate, :continue, or
+  # :dead. `claim_entry_gift!` was wired into the first only — sign_in_existing
+  # and sign_up_new — so a recipient who was ALREADY SIGNED IN as the gift's own
+  # address took :continue and silently lost the gift: the token burned, the
+  # claim never happened, no ErrorLog was filed, the ledger still read "Sent",
+  # and EntryGift#stalled? could not surface it because it requires claimed?. A
+  # re-send minted a fresh link and walked them back into the same cell.
+  #
+  # That is not an exotic path. It is gifting an existing player who reads their
+  # mail on the device they are signed in on. Caught in review; pinned now by
+  # entry_gift_flow_test.rb's ":continue" pair.
+  #
+  # CLAIM, THEN DELEGATE. `super` keeps every property this path exists for —
+  # the session is left exactly as it stands, no toast, indistinguishable from
+  # following a plain link. The claim is additive.
+  #
+  # NO GIFT TOAST HERE, deliberately: the engine routes :continue away from
+  # sign_in_existing precisely so the click stays invisible, and a celebration
+  # would announce a sign-in that never happened. The badge picks the token up
+  # on its next poll, which is the same way every other mint surfaces.
+  def link_continue(result, outcome)
+    claim_entry_gift!(current_user)
+    super
+  end
+
   def link_dead(outcome, result)
     path = link_destination(outcome.destination, result)
     return redirect_to(path) if outcome.silent?

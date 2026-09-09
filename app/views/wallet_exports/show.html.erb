@@ -4,14 +4,14 @@
 
 <div class="max-w-2xl mx-auto px-4 py-10" x-data="walletExportPage()" x-cloak>
   <%# ── Warning banner ────────────────────────────────────────────── %>
-  <div class="rounded-2xl border-2 border-rose-500/60 bg-rose-500/10 p-6 mb-6">
-    <h1 class="text-2xl font-bold text-rose-200 mb-2">Read this carefully</h1>
-    <p class="text-rose-100 text-sm leading-relaxed">
+  <div class="rounded-2xl border-2 border-rose-500/60 bg-surface-alt p-6 mb-6">
+    <h1 class="text-2xl font-bold text-danger-ink mb-2">Read this carefully</h1>
+    <p class="text-body text-sm leading-relaxed">
       Below is your wallet's <strong>private key</strong>. Anyone with a copy of it
       controls everything in that wallet — your USDC, your entry tokens, your contest
       entries. <strong>We cannot recover it for you</strong> if you lose it.
     </p>
-    <ul class="text-rose-100 text-sm mt-3 space-y-1 list-disc list-inside">
+    <ul class="text-body text-sm mt-3 space-y-1 list-disc list-inside">
       <li>Only continue when you're at a private screen.</li>
       <li>Paste the key into a wallet you trust (Phantom, Solflare, the Solana CLI).</li>
       <li>Never share this key by email, message, or with support staff.</li>
@@ -87,7 +87,7 @@
       <span x-show="status === 'signing'">Waiting for Phantom…</span>
       <span x-show="status === 'error'">Try again</span>
     </button>
-    <p class="text-xs text-rose-300 mt-2" x-show="errorText" x-text="errorText"></p>
+    <p class="text-xs text-danger-ink mt-2" x-show="errorText" x-text="errorText"></p>
   </div>
 
   <%# ── Success state ─────────────────────────────────────────────── %>
