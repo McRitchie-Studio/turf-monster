@@ -70,7 +70,16 @@ class AuthCredentialsGalleryTest < ActionDispatch::IntegrationTest
     end
   end
 
-  # --- the shape the gallery owes --------------------------------------------
+  # --- the shape the live call sites set -------------------------------------
+  #
+  # TWO TESTS LEFT WITH THE GALLERY on 2026-09-09. Both asserted that the
+  # gallery's own variant records carried every key the live call sites pass —
+  # a real guard while a SECOND opener existed, and moot once it does not. What
+  # survives is the half that was never about the gallery: the live call sites
+  # must agree with each other, and a null `submitting` must survive the round
+  # trip into a rendered page. The coercion half (`!!props.submitting`, which
+  # reaches the empty-object transient no call site can) is pinned separately in
+  # test/views/auth_submitting_coercion_test.rb.
 
   test "both live call sites open the credentials card with the same prop shape" do
     shapes = LIVE_CALL_SITES.to_h { |p| [p, live_keys(p)] }
@@ -80,24 +89,6 @@ class AuthCredentialsGalleryTest < ActionDispatch::IntegrationTest
                  "them before deciding what the preview should pass"
   end
 
-  test "every credentials variant passes every key the live call sites pass" do
-    expected = live_keys(LIVE_CALL_SITES.first)
-    # Guard the guard: if the payload ever stops carrying submitting, the loop
-    # below would pass vacuously against the very key this file exists for.
-    assert_includes expected, :submitting,
-                    "the live call site no longer passes `submitting` — this whole file is " \
-                    "calibrated against that key"
-
-    assert credentials_variants.any?, "no credentials-step auth variants found"
-    credentials_variants.each do |v|
-      missing = expected - v[:props].keys
-      assert_empty missing,
-                   "gallery variant #{v[:key].inspect} omits #{missing.inspect}, which the live " \
-                   "callers pass. A key the preview leaves out is not a shorthand: a bare dotted " \
-                   "bind on a boolean attribute renders `disabled` for an undefined prop, so the " \
-                   "card reviews as dead while production is live."
-    end
-  end
 
   # The general rule, derived from the partial rather than from a list here: any
   # BARE dotted prop bound to a boolean attribute must be defined by every
@@ -114,33 +105,6 @@ class AuthCredentialsGalleryTest < ActionDispatch::IntegrationTest
   # calibration moves to the coerced form.
   BOOLEAN_ATTRS = %w[disabled checked readonly required selected multiple autofocus].freeze
 
-  test "every bare dotted prop bound to a boolean attribute is defined by the credentials variants" do
-    erb = source(AUTH_PARTIAL)
-    bound = erb.scan(/:(#{BOOLEAN_ATTRS.join('|')})="props\.(\w+)"/).map { |_attr, key| key.to_sym }
-    # ...including the ones handed to a shared field partial as an expression.
-    bound += erb.scan(/disabled_expr:\s*"props\.(\w+)"/).flatten.map(&:to_sym)
-    bound = bound.uniq
-
-    # Guard the guard, retuned to the hardened shape: the scan must still be
-    # READING the partial. If `submitting` stops appearing in the coerced form
-    # too, this file has drifted off the control it was built for and the loop
-    # below would pass vacuously.
-    coerced = erb.scan(/:(?:#{BOOLEAN_ATTRS.join('|')})="!!props\.(\w+)"/).flatten.map(&:to_sym)
-    coerced += erb.scan(/disabled_expr:\s*"!!props\.(\w+)"/).flatten.map(&:to_sym)
-    assert_includes coerced.uniq, :submitting,
-                    "#{AUTH_PARTIAL} no longer binds `submitting` to a boolean attribute in " \
-                    "either the bare or the coerced form — retune this test to the new shape " \
-                    "rather than deleting it"
-
-    credentials_variants.each do |v|
-      bound.each do |key|
-        assert v[:props].key?(key),
-               "variant #{v[:key].inspect} leaves `#{key}` undefined while #{AUTH_PARTIAL} binds " \
-               "it to a boolean attribute through a dotted expression — Alpine rewrites the " \
-               "undefined to \"\" and SETS the attribute, so the control renders dead"
-      end
-    end
-  end
 
   # --- the delivery path ------------------------------------------------------
 
@@ -149,11 +113,18 @@ class AuthCredentialsGalleryTest < ActionDispatch::IntegrationTest
   # refactor to to_query) would leave the key absent again with every assertion
   # above still green, so the round trip gets its own test.
   test "an explicit null submitting survives the round trip into the preview page" do
-    variant = credentials_variants.find { |v| v[:key] == "auth-credentials" }
-    assert variant, "the auth-credentials variant is gone"
+    # SOURCED FROM THE LIVE CALL SITES, not from a gallery variant. It used to
+    # read MODAL_VARIANTS, which was retired with /admin/modals on 2026-09-09 —
+    # and the call sites were always the better source anyway: they are what a
+    # real user's click passes, and the defect this file exists for was the
+    # preview's props DIFFERING from them.
+    props = live_keys(LIVE_CALL_SITES.first).to_h { |k| [k, k == :step ? "credentials" : nil] }
+    assert_includes props.keys, :submitting,
+                    "the live call site no longer passes `submitting` — this test is calibrated " \
+                    "against that key and would pass vacuously without it"
 
     log_in_as users(:alex)
-    get admin_modal_preview_path(modal_id: "auth", props: variant[:props].to_json)
+    get admin_modal_preview_path(modal_id: "auth", props: props.to_json)
     assert_response :success
 
     config = preview_config

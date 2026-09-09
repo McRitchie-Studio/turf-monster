@@ -293,44 +293,8 @@ class Web3StepUpGalleryTest < ActionDispatch::IntegrationTest
     end
   end
 
-  # The go-forward rule has to be VISIBLE where it applies, or it deprecates
-  # nothing: an agent reading this page decides where to build before it reads
-  # any doc. Pinned because a banner is the first thing a redesign drops.
-  test "the gallery signposts the engine style guide as the go-forward home" do
-    log_in_as users(:alex)
-    get admin_modals_path
-    assert_response :success
-    assert_includes response.body, "/admin/style#modals"
-    assert_includes response.body, "Deprecated"
-    # And it must say WHY the page still stands, naming a modal that has no
-    # engine card — otherwise the notice reads as an unmade decision.
-    assert_includes response.body, "wallet-setup"
-  end
 
-  # The gallery's two cards for this modal moved to the engine style guide, which
-  # shows both states against the same partial this app renders. Their removal is
-  # the "delete second" half of the banner's own port-first rule.
-  test "the gallery no longer catalogues a card the engine style guide shows" do
-    log_in_as users(:alex)
-    get admin_modals_path
-    assert_response :success
-    assert_empty AdminController::MODAL_VARIANTS.select { |v| v[:modal_id] == "web3-step-up" },
-                 "the engine style guide shows both step-up states against the real partial; " \
-                 "a card here is the duplicate"
-    assert_empty AdminController::MODAL_FLOWS.select { |f| f[:key] == "web3-step-up" },
-                 "the step-up flow's every step was one of those variants"
-  end
 
-  # A flow step whose variant was deleted renders the literal string
-  # "MISSING VARIANT" on the page rather than failing — so a dangling step is
-  # invisible to every other assertion in this file. This is the one that catches
-  # it, and it guards the WHOLE registry, not just this modal's former steps.
-  test "no flow step points at a variant that no longer exists" do
-    log_in_as users(:alex)
-    get admin_modals_path
-    assert_response :success
-    assert_not_includes response.body, "MISSING VARIANT"
-  end
 
   # A preview showing a shape the server never emits reviews a fiction. The two
   # gallery variants used to be what this guarded; now that the catalogue entries
@@ -340,4 +304,10 @@ class Web3StepUpGalleryTest < ActionDispatch::IntegrationTest
     assert_equal [], REMEMBERED.keys.map(&:to_sym) - emitted,
                  "the remembered-wallet preview passes a prop Web3StepUpPolicy#to_h never emits"
   end
+  # THREE GALLERY TESTS LEFT HERE on 2026-09-09, with /admin/modals itself. They
+  # asserted the gallery's deprecation banner named the style guide, that its
+  # registry no longer carded web3-step-up, and that no flow step rendered
+  # "MISSING VARIANT". All three were about the SHOWROOM, and the showroom is
+  # gone — the twenty tests above are about the card, the gem it came from, and
+  # the seam that passes this app's help route, and none of them moved.
 end

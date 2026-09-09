@@ -133,7 +133,7 @@
           // Was: a Phantom-specific message telling a phone to install an
           // extension it cannot install. requireProvider answers with the remedy
           // that fits the device.
-          var provider = window.walletProvider.requireProvider();
+          var provider = window.walletProvider.requireInlineProvider();
 
           var message = <%= raw @sign_message.to_json %>;
           var encoded = new TextEncoder().encode(message);

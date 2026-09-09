@@ -428,6 +428,36 @@ var walletProvider = {
     if (KeypairProvider.isAvailable()) return KeypairProvider;
     if (PhantomProvider.isAvailable()) return PhantomProvider;
     if (_wsWallets.length) return _wsWallets[0];
+
+    // NOTHING IS INJECTED. On a desktop that means no extension; on a phone it
+    // is simply the normal state, because a mobile browser cannot host one. The
+    // redirect transport is the answer to the second case and only the second
+    // case — so this is gated on isMobile(), not merely on "nothing found".
+    //
+    // GATED ON THE REGISTRY TOO, the way every optional capability here is: a
+    // page that did not load solana_studio/redirect_provider.js has no registry
+    // to ask, and must fall through to null so requireProvider() can give the
+    // honest "open this page in your wallet app" message instead.
+    //
+    // WHY PHANTOM SPECIFICALLY, and this is a real limitation rather than a
+    // preference. detect() exists for call sites that do NOT let the user
+    // choose, so something has to be picked, and Phantom is the only wallet with
+    // a working mobile sign-in path in this app today — the deeplink that
+    // establishes a web3 session is Phantom's. Its universal link also degrades
+    // honestly when the app is absent: Phantom serves its own install page
+    // rather than failing blank.
+    //
+    // THE COST, stated so nobody has to discover it: a Solflare or Backpack user
+    // on a phone whose page reaches THIS function is pointed at Phantom. That is
+    // wrong for them, and the reason it is tolerable is that it is not their
+    // path — the wallet PICKER is where a wallet gets chosen, and its mobile
+    // handoff rows send those users into their own wallet's browser, where a
+    // provider IS injected and this function returns long before reaching here.
+    // Retiring the guess needs a persisted per-user wallet choice, which this
+    // app does not have yet.
+    if (this.isMobile() && window.SolanaStudio && window.SolanaStudio.redirectProvider) {
+      return window.SolanaStudio.redirectProvider.forWallet('phantom');
+    }
     return null;
   },
 
@@ -555,7 +585,35 @@ var walletProvider = {
     }
     return "No wallet detected. Install or unlock a Solana wallet extension, " +
            "then refresh this page.";
-  }
+  },
+
+  // A provider that can sign IN THIS PAGE, or an honest refusal.
+  //
+  // WHY THIS EXISTS, and it is a defect this change itself created. detect() now
+  // returns a REDIRECT provider on a phone. That object is not a drop-in for an
+  // injected one: its surface is begin*/complete* pairs plus can/browseUrl, and
+  // `connect`, `signTransaction`, `signMessage` and `publicKey` are all
+  // undefined on it. Any caller that took requireProvider() and reached for
+  // .connect() therefore went from a readable refusal to
+  // "provider.connect is not a function" — which is the ORIGINAL incident,
+  // relocated. Found in review of PR 632 across three live call sites.
+  //
+  // A caller that has been TAUGHT the redirect transport asks requireProvider()
+  // and forks on provider.transport. A caller that has NOT — every flow still
+  // written around a provider that resolves in place — asks for this instead and
+  // gets the mobile remedy it used to get, unchanged.
+  //
+  // Deliberately NOT a narrower detect(). detect() answering "nothing" on a phone
+  // is what made the contest-entry redirect path unreachable in the first place;
+  // the honest fix is for the CALLER to say which shape it can use.
+  requireInlineProvider: function() {
+    var provider = this.detect();
+    if (provider && provider.transport !== 'redirect') return provider;
+    // A redirect provider IS a wallet — just not one this caller can drive — so
+    // the remedy is the same one a phone with no wallet gets: open the page where
+    // a provider is injected.
+    throw new Error(this.noWalletMessage());
+  },
 };
 
 window.walletProvider = walletProvider;

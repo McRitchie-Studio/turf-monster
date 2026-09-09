@@ -202,7 +202,20 @@ class EnginePinContractTest < ActiveSupport::TestCase
   #              gate interrupted. Below 0.72.0 the key is undefined on every
   #              path, so the branch never fires and a held entry never resumes
   #              — a dead hold-to-confirm with nothing logged anywhere.
-  MINIMUM = Gem::Version.new("0.72.0")
+  # 0.73.0 — solana_sessions/phantom_callback first dispatches a pending wallet_dl
+  #          journal to SolanaStudio.walletOps.resume BEFORE its legacy signIn
+  #          path. This app now sends contest entries out over the redirect
+  #          transport, so the RETURN leg is not optional: below 0.73.0 the
+  #          callback does not recognise the journal, falls through to the legacy
+  #          branch, and hands a returning ENTRY to a sign-in flow that has no
+  #          idea what a contest entry is. The user approves a transaction in
+  #          their wallet, comes back, and lands nowhere — nothing raises, nothing
+  #          logs, no test fails. DERIVED by unpacking every published gem across
+  #          the boundary: 0.72.0, 0.72.1, 0.72.2 and 0.72.3 all contain ZERO
+  #          occurrences of the dispatch guard; 0.73.0 contains it. Stated as the
+  #          EARLIEST containing version, because a list of versions goes stale on
+  #          the next release while "earliest" is a fact about the code.
+  MINIMUM = Gem::Version.new("0.73.0")
 
   test "the resolved studio-engine is at or above the floor this app depends on" do
     resolved = Gem::Version.new(Studio::VERSION)
@@ -410,7 +423,15 @@ class EnginePinContractTest < ActiveSupport::TestCase
   # the step-up card and the whole mobile Phantom leg would each have rendered as
   # an EMPTY modal. That is why the Gemfile pin is three segments now, and why
   # this assertion reads the RESOLVED version rather than the pin string.
-  SOLANA_STUDIO_MINIMUM = Gem::Version.new("0.5.3")
+  # 0.9.0 — the picker's mobile handoff rows (mobileHandoffs + openInWallet). The
+  #         redirect TRANSPORT itself arrived in 0.8.0 and fails LOUDLY below that
+  #         (SolanaStudio.walletOps undefined, walletOps.run throws on the first
+  #         hold-to-confirm). 0.9.0 is the floor that moved this constant because
+  #         it fails SILENTLY: this app now loads the registry those getters read,
+  #         and below 0.9.0 the picker never asks it, so Solflare and Backpack
+  #         fall back to their DESKTOP EXTENSION download rows on a phone with
+  #         nothing raised, logged, or failed.
+  SOLANA_STUDIO_MINIMUM = Gem::Version.new("0.9.0")
 
   test "the resolved solana-studio is at or above the floor this app renders from" do
     resolved = Gem::Version.new(Gem.loaded_specs.fetch("solana-studio").version.to_s)

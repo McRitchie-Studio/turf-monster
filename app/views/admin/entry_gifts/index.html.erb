@@ -75,7 +75,7 @@
 
       <div class="flex items-center justify-between gap-3">
         <p class="text-muted text-xs">
-          Sent as <strong class="text-secondary"><%= current_user.name.presence || current_user.username %></strong>,
+          Sent as <strong class="text-secondary"><%= current_user.username %></strong>,
           with replies going to <span class="font-mono"><%= current_user.email %></span>.
         </p>
         <%= f.submit "Send Free Entry", class: "btn btn-success" %>
