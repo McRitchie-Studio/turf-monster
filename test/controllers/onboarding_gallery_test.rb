@@ -69,7 +69,9 @@ class OnboardingGalleryTest < ActionDispatch::IntegrationTest
     assert_not_includes response.body, "You&#39;re in"
     assert_not_includes response.body, "continueFromWelcome"
     assert_not_includes response.body, "asksFirstName"
-    assert_not_includes AdminController::MODAL_VARIANTS.map { |v| v[:key] }, "onboarding-welcome"
+    # A fourth assertion here checked MODAL_VARIANTS carried no onboarding-welcome
+    # key. It went with the registry on 2026-09-09; the three above are what
+    # actually prove the step left nothing in the rendered card.
   end
 
   # No props: the modal asks one question now, so there is nothing to pass it.
@@ -291,46 +293,26 @@ class OnboardingGalleryTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "onboarding-step-done"
   end
 
-  test "the gallery lists both flows with their steps in order" do
-    log_in_as users(:alex)
-    get admin_modals_path
-    assert_response :success
 
-    assert_includes response.body, "Flows"
-    assert_includes response.body, "Onboarding (after first auth)"
-    assert_includes response.body, "Wallet setup"
-    assert_includes response.body, "Play flow"
-    # A mistyped step key would render this instead of a step.
-    assert_not_includes response.body, "MISSING VARIANT"
-  end
 
-  test "every flow step resolves to a real registered variant" do
-    # MODAL_FLOWS references MODAL_VARIANTS by key; a typo would silently render
-    # a blank step in the gallery, so fail loudly here instead.
-    AdminController::MODAL_FLOWS.each do |flow|
-      flow[:steps].each do |step|
-        variant = AdminController::MODAL_VARIANTS.find { |v| v[:key] == step[:key] }
-        assert variant, "flow #{flow[:key]} references unknown variant key #{step[:key].inspect}"
-        assert variant[:modal_id].present?, "variant #{step[:key]} has no modal_id to open"
-      end
-    end
-  end
-
-  test "the flows cover every step OnboardingFlow can resolve" do
-    # The showroom must not fall behind the chain: a step added to the service
-    # with no gallery step means a state nobody can review.
-    #
-    # Map service steps onto the modal ids the flows actually open.
-    flow_modal_ids = AdminController::MODAL_FLOWS.flat_map { |f|
-      f[:steps].map { |s| AdminController::MODAL_VARIANTS.find { |v| v[:key] == s[:key] }[:modal_id] }
-    }.uniq
+  # RESCUED FROM THE GALLERY, and it got stronger in the move. This pinned
+  # OnboardingFlow::STEPS against MODAL_FLOWS — "a step added to the service with
+  # no gallery step means a state nobody can review". The gallery is gone, but
+  # the invariant is not about a showroom: it is that the CHAIN DRIVER opens a
+  # modal for every step the service can resolve. That driver is the thing that
+  # actually walks a user through, so pinning against it is what the original
+  # test was reaching for.
+  test "the chain driver opens a modal for every step OnboardingFlow resolves" do
+    driver = File.read(Rails.root.join("app/views/layouts/application.html.erb"))
     expected = { first_name: "onboarding", age: "birthday", wallet: "wallet-setup" }
 
     assert_equal OnboardingFlow::STEPS.sort, expected.keys.sort,
-                 "OnboardingFlow::STEPS changed — update this map AND the gallery flows"
+                 "OnboardingFlow::STEPS changed — update this map AND the chain driver"
+
     expected.each do |step, modal_id|
-      assert_includes flow_modal_ids, modal_id,
-                      "chain step #{step} opens #{modal_id}, which no gallery flow shows"
+      assert_includes driver, "open('#{modal_id}'",
+                      "chain step #{step} resolves to #{modal_id}, which the layout's chain " \
+                      "driver never opens — the step would strand the user"
     end
   end
 end
