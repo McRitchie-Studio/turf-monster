@@ -27,6 +27,34 @@ const PHANTOM_DECLINE = { code: 4001, message: "User rejected the request." };
 
 const REPORT_PATH = "/auth/solana/report_failure";
 
+// THE ERROR PARAGRAPH, NAMED BY ITS SURFACE — and this is the THIRD thing these
+// locators have keyed on. They were `p.text-red-400` until
+// /tasks/error-text-fails-light-mode repainted every error sentence with the
+// theme's derived danger ink, and six tests here went red for a change that
+// altered nothing they are about. Re-aiming them at `p[role="alert"]` fixed
+// that, but bought a subtler dependency: it resolved to one element only
+// because exactly ONE error paragraph in the whole app carried the role.
+//
+// /tasks/error-paragraphs-lack-live-regions made a live region the NORM for
+// error paragraphs — thirteen of them now — so "the alert on the page" stopped
+// being a description of this paragraph and became a fact about page gating.
+// Measured on 2026-09-09, after that change, this page still holds exactly ONE
+// `p[role="alert"]`: the modal host renders only the open modal
+// (`<template x-if="$store.modals.current().id === …">`), and the one other
+// alert on this route lives in the quest card, which is gated on `@has_entry`
+// — false for the fresh signup openWalletSetup creates. All six assertions
+// passed unchanged. But a margin of one element, held up by a fixture's
+// entry count, is not what these tests should rest on: give this spec's user
+// an entry and the quest card's error paragraph joins the DOM, strict mode
+// resolves two, and all six throw at once.
+//
+// So they key on the surface instead. `data-test` names WHICH paragraph
+// without borrowing a colour, a role, or a container — and, unlike a role
+// locator, it is independent of what the live-region test below asserts, so
+// that test can actually fail on a dropped attribute instead of merely
+// resolving nothing.
+const WALLET_SETUP_ERROR = 'p[data-test="wallet-setup-error"]';
+
 // A wallet nobody owns. Seed byte 1 is MOCK_PUBKEY_B58, which global-setup.js
 // has already pinned to the ADMIN — linking it to a fresh signup calls
 // merge_users! and absorbs the admin, which global-teardown then cannot restore.
@@ -92,14 +120,9 @@ test("a declined signature is reported with BOTH the raw and mapped message", as
     "stage",
   ]);
 
-  // And the user still gets their sentence.
-  //
-  // LOCATED BY ROLE, NOT BY COLOUR. This was `p.text-red-400` until
-  // /tasks/error-text-fails-light-mode repainted every error sentence with the
-  // theme's derived danger ink, and six tests in this file went red for a change
-  // that altered nothing they are about. `role="alert"` is what the paragraph
-  // IS; a colour class is only what it looks like this month.
-  await expect(page.locator('p[role="alert"]')).toHaveText("Signature rejected");
+  // And the user still gets their sentence. Located by surface, not by colour
+  // or role — see WALLET_SETUP_ERROR above for why it has moved twice.
+  await expect(page.locator(WALLET_SETUP_ERROR)).toHaveText("Signature rejected");
 });
 
 test("a 500 from the reporter leaves the sign-in flow untouched", async ({ page }) => {
@@ -120,7 +143,7 @@ test("a 500 from the reporter leaves the sign-in flow untouched", async ({ page 
   await page.getByText("Installed", { exact: true }).click();
 
   // 1. The user reads exactly the same sentence.
-  await expect(page.locator('p[role="alert"]')).toHaveText("Signature rejected");
+  await expect(page.locator(WALLET_SETUP_ERROR)).toHaveText("Signature rejected");
 
   // 2. The modal is still theirs to retry with — `connecting` was released, so
   //    the row is not stuck in its disabled/spinner state behind a dead POST.
@@ -171,7 +194,7 @@ test("a dead network while reporting leaves the sign-in flow untouched", async (
   await page.getByText("Installed", { exact: true }).click();
 
   // 1. The user reads exactly the sentence they would have read anyway.
-  await expect(page.locator('p[role="alert"]')).toHaveText("Signature rejected");
+  await expect(page.locator(WALLET_SETUP_ERROR)).toHaveText("Signature rejected");
 
   // 2. The modal is still theirs to retry with.
   await expect(page.getByText("Connecting…")).toBeHidden();
@@ -264,7 +287,7 @@ test("the 2026-09-06 incident: an empty Phantom reports what the WALLET said", a
   // `mapped` IS WHAT THE USER READ, and it is compared against the page rather
   // than against a sentence typed into this spec. A copy of the copy cannot fail
   // when the copy changes; this can.
-  const shown = page.locator('p[role="alert"]');
+  const shown = page.locator(WALLET_SETUP_ERROR);
   await expect(shown).toContainText("create or import one");
   expect(body.mapped_message).toBe((await shown.textContent()).trim());
 
@@ -322,7 +345,7 @@ test("the SAME failure on the Wallet Standard interface reports the wallet's str
   expect(body.raw_message).not.toBe(body.mapped_message);
   expect(body.stage).toBe("connect_verify_fallback");
 
-  const shown = page.locator('p[role="alert"]');
+  const shown = page.locator(WALLET_SETUP_ERROR);
   await expect(shown).toContainText("create or import one");
   expect(body.mapped_message).toBe((await shown.textContent()).trim());
 });
@@ -393,7 +416,7 @@ test("a wallet that connects and then refuses to sign reports the WALLET's strin
 
   // `mapped` IS WHAT THE USER READ, compared against the page rather than a copy
   // typed into this spec.
-  const shown = page.locator('p[role="alert"]');
+  const shown = page.locator(WALLET_SETUP_ERROR);
   await expect(shown).toContainText("could not sign you in");
   expect(body.mapped_message).toBe((await shown.textContent()).trim());
 
@@ -417,7 +440,13 @@ test("the failure paragraph is a live region that existed before the failure", a
   // thing that makes the attributes mean anything.
   await openWalletSetup(page, PHANTOM_DECLINE);
 
-  const region = page.locator('p[x-text="error"]');
+  // Located by the surface hook, NOT by `p[x-text="error"]` as it was: this
+  // change gave five other error paragraphs that same binding, so the old
+  // locator was one co-rendered modal away from resolving two. The hook is also
+  // deliberately not the attribute under test — locating by `role="alert"` here
+  // would mean a regression that DROPPED the role failed as "element not found"
+  // rather than as "the region is not announced".
+  const region = page.locator(WALLET_SETUP_ERROR);
 
   // 1. It is here, before anything has failed, and it is empty.
   await expect(region).toHaveAttribute("role", "alert");

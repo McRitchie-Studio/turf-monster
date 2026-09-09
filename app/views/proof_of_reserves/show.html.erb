@@ -289,7 +289,13 @@
       <p class="text-xs text-muted mt-4" x-show="lastFetchedAt">
         Last refreshed <span x-text="fetchedAtLabel()"></span>
       </p>
-      <p class="text-xs text-danger-ink mt-4" x-show="bannerError" x-text="bannerError"></p>
+      <%# POLITE, NOT ASSERTIVE. refresh() runs from init() as well as from the
+          Refresh button, so this paragraph can fill while someone is still
+          reading the page they just opened. role=status queues the sentence for
+          the next pause instead of interrupting; the failure is informational
+          and blocks nothing. Guard: test/views/error_live_regions_test.rb %>
+      <p x-show="bannerError" x-cloak role="status" aria-live="polite" aria-atomic="true"
+         class="text-xs text-danger-ink mt-4" x-text="bannerError"></p>
     </div>
   </section>
 
