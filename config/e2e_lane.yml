@@ -800,7 +800,18 @@
 # while it is still EMPTY and then watches it fill, which is the ordering no
 # source scan can reach. Re-derived with bin/e2e-lane-derive --write ON THE
 # MERGED TREE, after this line conflicted with #639's bump of the same counter.
-total_specs: 266
+#
+# 266 -> 268 (gift-entry-by-email): two specs in e2e/entry_gift.spec.js for
+# gifting a free entry by email. The second is the one that needs a browser: the
+# server tiers already prove the click creates the account, mints the wallet and
+# redirects to the contest, but the thing the feature was ASKED for — that the
+# recipient lands IN the onboarding chain (first name → birthday) rather than on
+# a bare contest page — is walked by the layout's driver and the Alpine modal
+# host, so only a runtime can witness a card actually opening. The first drives
+# the operator's real send form, which is what makes the second's link the one a
+# real send produces rather than a fixture. Derived with bin/e2e-lane-derive
+# --write, not incremented by hand.
+total_specs: 268
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1084,7 +1095,17 @@ allowed_skips: 4
 # spec described beside total_specs above. It is not tagged @devnet and does not
 # skip, so excluded stays 17 and allowed_skips stays 4. Re-derived with
 # bin/e2e-lane-derive --write ON THE MERGED TREE, not by arithmetic.
-executed: 245
+#
+# 245 -> 247 (gift-entry-by-email): the two gift specs described beside
+# total_specs above. Neither is tagged @devnet and neither skips, so excluded
+# stays 17 and allowed_skips stays 4 — both listers agree, which is what proves
+# the new specs brought no runtime skip with them. Re-derived with
+# bin/e2e-lane-derive --write ON THE MERGED TREE, not by arithmetic on either
+# side of the conflict. THE BASE HAS MOVED UNDER A CORRECT RE-DERIVE TWICE ON
+# THIS TASK — 264/243 at the first review, 265/244 when it was resolved, 266/245
+# at the second review, 267/246 after that merge — so the only value worth
+# writing is the one the runner prints on the tree you are about to push.
+executed: 247
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

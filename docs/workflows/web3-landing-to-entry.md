@@ -103,7 +103,7 @@ Phantom must be installed in the browser or available via mobile deep link.
    - `runHoldValidations()` (`:1507-1537`) hits `GET /geo/check` first
      (`:1509`); a blocked state aborts into the `Location Restricted` redirect
      modal (`:1513`). That route is drawn by the engine now, behind
-     `config.draw_geo_routes`, not by this app (`config/routes.rb:602-608`).
+     `config.draw_geo_routes`, not by this app (`config/routes.rb:610-616`).
    - `confirmEntry()` (`_turf_totals_board.html.erb:1554-1963`) short-circuits
      to `showLoginModal()` when the session is a guest (`:1563-1567`), which
      opens the auth wizard at `step: 'credentials'` (`:923-936`) — the entry
@@ -151,20 +151,20 @@ Phantom must be installed in the browser or available via mobile deep link.
      apart in `app/models/user.rb`, so both are cited:
      - `before_validation :ensure_username` (`app/models/user.rb:106`) —
        `ensure_username` auto-fills a username via
-       `Studio::UsernameGenerator.generate` (`:728-743`).
+       `Studio::UsernameGenerator.generate` (`:742-757`).
      - `before_create :set_initial_session_token` (`:108`) — writes
        `users.session_token` for OPSEC-045 cookie binding (`:527-529`).
      - `after_create :generate_managed_wallet!` (`:123`) — generates a
-       server-managed ed25519 keypair with `Solana::Keypair.generate` (`:573`,
-       local, no RPC), encrypts the secret key (`:576`), and writes
+       server-managed ed25519 keypair with `Solana::Keypair.generate` (`:587`,
+       local, no RPC), encrypts the secret key (`:590`), and writes
        `web2_solana_address` + `encrypted_web2_solana_private_key`. It bails for
-       admins (`:572`) and, under `AppFlags.web3_only_onboarding?`, for everyone
-       (`:566`). The key material itself is read a layer down, in
+       admins (`:586`) and, under `AppFlags.web3_only_onboarding?`, for everyone
+       (`:580`). The key material itself is read a layer down, in
        `Solana::Keypair.current_encryptor`
        (`app/services/solana/keypair.rb:117-122`).
      - `after_commit :enqueue_onchain_account_setup`
        (`app/models/user.rb:127`) →
-       `CreateOnchainUserAccountJob.perform_later` (`:779-781`). Async — the
+       `CreateOnchainUserAccountJob.perform_later` (`:793-795`). Async — the
        user is logged in before the on-chain PDA finalizes.
    - `cookies.delete(:reference)` consumes the cookie only for a new signup
      (`app/controllers/solana_sessions_controller.rb:62`).
