@@ -36,7 +36,19 @@ async function sendGift(page, email) {
   await page.selectOption("select[name=contest_slug]", CONTEST);
   await page.fill("textarea[name=note]", "Put a lineup in this week.");
   await page.click('input[type=submit][value="Send Free Entry"]');
-  await page.waitForURL(/\/admin\/entry_gifts/);
+
+  // WAIT ON THE ROW, NOT ON THE URL — and this is the whole reason this helper
+  // has a comment. `waitForURL(/\/admin\/entry_gifts/)` was here, and it is a
+  // NO-OP: the form lives ON /admin/entry_gifts, so the pattern already matches
+  // the CURRENT url and the wait resolves instantly, before the POST has even
+  // been answered. Everything after it then raced the server.
+  //
+  // It passed locally on speed alone and went RED in CI three times, with the
+  // response body naming the exact window it landed in — {"error":"gift has no
+  // link"}, i.e. after `gift.save` and before `create_magic_link`. A wait that
+  // is satisfied by the state you were already in proves nothing; the row
+  // appearing is the server's own confirmation that the whole create finished.
+  await expect(page.locator("tr", { hasText: email })).toBeVisible();
 }
 
 // Which modal the shared host currently shows — the same probe the onboarding
