@@ -71,7 +71,18 @@ require "prism"
 #      broadcast (`connection.sendRawTransaction`) and a `stamp_entry_signature`
 #      round trip that the code had stopped doing. Nothing mechanical catches
 #      that — only reading the code does.
-#   3. CROSS-REPO REFERENCES CARRY NO LINE NUMBER, on purpose. studio-engine is
+#   3. THE LITERAL FALLBACK CAN ANCHOR ON A COMMENT. Where a citation has no
+#      enclosing definition, it passes if a prose token appears anywhere in the
+#      cited lines — including inside a comment that merely MENTIONS the symbol.
+#      Measured 2026-09-09: after `accepted` moved, the `provider.signMessage`
+#      citation at application.html.erb:450-452 landed on a comment reading
+#      "drops into connect() + signMessage() below" and stayed GREEN while being
+#      stale. This is not stripped, because the document cites comments
+#      DELIBERATELY in six places — a route that moved to the engine, an endpoint
+#      no client calls any more — and three of those say so in the prose. So the
+#      literal branch is a weaker claim than the symbol branch by construction:
+#      it proves the words are there, not that the code is.
+#   4. CROSS-REPO REFERENCES CARRY NO LINE NUMBER, on purpose. studio-engine is
 #      a versioned gem (`~> 0.72`), so a line number in it would rot on an
 #      unrelated `bundle update` and redden this test for a change nobody made
 #      here. Those citations name the file and the symbol, and are checked

@@ -107,17 +107,17 @@ Phantom must be installed in the browser or available via mobile deep link.
    (`app/views/contests/_turf_totals_board.html.erb:1011-1016`), which swaps in
    solana-studio's wallet picker. The picker runs
    `window.solanaConnectAndVerify` — `app/views/layouts/application.html.erb:299`.
-   - The nonce is fetched from `/auth/solana/nonce` (`:321`) →
+   - The nonce is fetched from `/auth/solana/nonce` (`:335`) →
      `SolanaSessionsController#nonce`
      (`app/controllers/solana_sessions_controller.rb:5-9`).
    - Two signing paths. A wallet that supports SIWS `signIn` is used directly;
      otherwise the message is built locally — domain, pubkey, statement,
      `Nonce:` — and signed with `provider.signMessage`
-     (`app/views/layouts/application.html.erb:450-452`).
+     (`app/views/layouts/application.html.erb:503-505`).
    - The `User-ID` binding that ties a signature to an account (OPSEC-005) rides
-     only on the wallet-LINK path (`opts.linkMode`), not on signup (`:340`).
+     only on the wallet-LINK path (`opts.linkMode`), not on signup (`:393`).
    - The signature is base58-encoded and POSTed to `/auth/solana/verify`
-     (`:623`) as `signatureB58` alongside the message and pubkey (`:636-640`).
+     (`:683`) as `signatureB58` alongside the message and pubkey (`:694-698`).
 
 6. **Server verifies + creates User.** `SolanaSessionsController#verify` —
    `app/controllers/solana_sessions_controller.rb:25-103`.
@@ -249,6 +249,12 @@ Phantom must be installed in the browser or available via mobile deep link.
      - `Solana::Vault#cosign_and_broadcast_entry` (`:1340`) fills the admin
        slot, runs a `simulate_transaction` pre-flight, then sends and waits for
        confirmation (`app/services/solana/vault.rb:2400-2420`).
+     - The `PendingTransaction` is stamped `submitted` with the signature
+       (`app/controllers/contests_controller.rb:1352`) — IMMEDIATELY after
+       broadcast and BEFORE the verification below. That order is the A1
+       double-charge guard: the money has already moved, so a verification that
+       raises must leave a PT that CARRIES the signature, or recovery reads it
+       as "never broadcast" and lets the user pay a second time.
      - **OPSEC-010 server-side proof.** `verify_and_confirm_onchain_entry!`
        re-derives the entry PDA through `Solana::Vault#entry_pda`
        (`app/services/solana/vault.rb:186-191`) and refuses a client-supplied
@@ -264,9 +270,8 @@ Phantom must be installed in the browser or available via mobile deep link.
        (`:249`) it re-checks `assert_enterable!` (`:250`), refuses an entry with
        no verified signature (`:260-262`), then `update!(status: :active,
        onchain_tx_signature:, onchain_entry_id:)` (`:264-268`).
-     - The `PendingTransaction` is stamped `submitted` with the signature
-       (`app/controllers/contests_controller.rb:1352`) and `confirmed` once the
-       entry is active (`:1363`).
+     - The `PendingTransaction` is stamped `confirmed` once the entry is
+       active (`app/controllers/contests_controller.rb:1363`).
      - `post_entry_seeds_payload` (`:2020-2065`) reads
        `Solana::Vault#seeds_for_entry` to mirror the on-chain award (`:2028`)
        and refreshes the total through `sync_balance` (`:2034-2036`).
@@ -296,7 +301,7 @@ Phantom must be installed in the browser or available via mobile deep link.
 - on-chain: `UserAccount` PDA (`ensure_user_account` in step 7; re-asserted
   synchronously in step 9 `#prepare_entry`)
 - on-chain: `Entry` PDA + `Contest.entry_fees` USDC/USDT credit, or an entry
-  token burned instead — one atomic `enter_contest` or
+  token consumed instead — one atomic `enter_contest` or
   `enter_contest_with_token` instruction (step 9)
 - external: Solana devnet/mainnet RPC for simulate, broadcast, confirm and
   signature fetch — all SERVER-side now (logged through
@@ -343,11 +348,16 @@ Phantom must be installed in the browser or available via mobile deep link.
   on-chain error marks it `failed` (`:1228-1231`), and a landed transaction is
   verified and promoted to `active` (`:1245-1249`). The CLIENT owns the polling
   cadence; the only server-side clock sweeps signature-less rows older than ten
-  minutes to `expired` (`:2680-2682`).
+  minutes to `expired` (`:2681-2683`).
 - **Refresh between sign and hand-off.** The server never received the bytes, so
-  `ptx.tx_signature` is blank; `recover_pending_entry` marks the row `failed`
-  and releases the user with `"Your last entry did not go through — try
-  again."` (`:1213-1216`). Safe because nothing was broadcast.
+  `ptx.tx_signature` is blank — and the recovery modal never opens for it.
+  `find_pending_recovery_ptx` returns only signature-carrying rows and sweeps
+  the signature-less ones to `expired` after ten minutes (`:2680-2685`), so the
+  board config gets no slug and `recoverPendingEntry()` is never called. The
+  user is released silently; nothing was broadcast, so nothing is owed. The
+  blank-signature branch inside `recover_pending_entry` — `"Your last entry did
+  not go through — try again."` (`:1213-1216`) — is defense-in-depth for a
+  caller that supplies such a slug directly, not a message this flow produces.
 - **OPSEC-010 PDA mismatch.** `verify_and_confirm_onchain_entry!` raises
   `"Entry PDA mismatch"` when the client-supplied `entry_pda` differs from the
   server-derived one (`:2556-2559`). Surfaces as a red Solana modal; the entry
