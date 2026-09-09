@@ -192,13 +192,43 @@ jobs:
       # check that can speak to CASCADE ORDER, which is what the deleted layer-scale
       # shim actually broke. No source scan can answer that question.
       #
-      # THIS IS NOT REDUNDANT WITH THE LINE BELOW, and that is measured rather than
-      # assumed: tailwindcss-rails enhances Rails' `test:prepare` hook, and
-      # `bin/rails db:test:prepare test` does NOT fire it — only an ARGLESS `rails test`
-      # COMMAND invokes test:prepare, and a leading non-command routes this whole line
-      # through RAKE instead. Verified by deleting app/assets/builds/tailwind.css,
-      # running `bin/rails db:test:prepare`, and finding it still absent. The playwright
-      # job below already pays for the same build, for the same reason.
+      # THIS STEP IS A BELT: the line below usually builds the stylesheet itself. An
+      # earlier version of this comment claimed the opposite — that `bin/rails
+      # db:test:prepare test` never fires Rails' `test:prepare` hook — and backed it with
+      # a receipt for `bin/rails db:test:prepare`, the BARE form. That measured one
+      # command and drew a conclusion about a different one. The two share a prefix, so
+      # the substitution was invisible on the page.
+      #
+      # RE-MEASURED ON UBUNTU, on this job's runner image, each cell deleting
+      # app/assets/builds/tailwind.css first (probe run 34382943177, 2026-09-09):
+      #
+      #   bin/rails db:test:prepare                     -> tailwind.css ABSENT
+      #   bin/rails db:test:prepare test                -> PRESENT at 7s, with the suite
+      #                                                    still booting and no test
+      #                                                    output written yet
+      #   TEST=test/lib/ci_job_timeout_test.rb \
+      #     bin/rails db:test:prepare test              -> tailwind.css ABSENT
+      #
+      # WHY THE MIDDLE CELL BUILDS IT. rake's `test` task has no prerequisites — the true
+      # half of the old comment, and the half that made its conclusion look sound — but
+      # its BODY is `Rails::TestUnit::Runner.run_from_rake`, which is `system("rails",
+      # "test", *argv)`. It SHELLS OUT to the ARGLESS `rails test` COMMAND, and that
+      # command does invoke `test:prepare`, which tailwindcss-rails enhances with
+      # `tailwindcss:build`. The hook is reached through the task's body, never through
+      # the dependency graph, which is why reading the graph alone misleads.
+      #
+      # WHY THE STEP STAYS ANYWAY — the third cell. `run_from_rake` forwards ENV["TEST"]
+      # and ENV["TESTOPTS"] into that argv, and TestCommand skips the prepare task as
+      # soon as an argument looks like a path or `-n`. Adding a filter to the line below
+      # therefore silences the hook while the command still READS the same. This step
+      # costs 7s here (run 34382258693), nearly all of it Rails boot — the compile itself
+      # is ~0.3s — and it is what guarantees the stylesheet for
+      # test/views/error_text_contrast_test.rb, which measures the colour of money-page
+      # error text out of the compiled file.
+      #
+      # Every link in that chain is asserted in test/lib/tailwind_test_prepare_hook_test.rb,
+      # so a gem upgrade that breaks one reddens a test instead of stranding this comment.
+      # The playwright job below builds explicitly for the same reason.
       - name: Build Tailwind CSS for the suite
         env:
           RAILS_ENV: test
@@ -209,10 +239,15 @@ jobs:
       # `db:test:prepare test` — the SYSTEM tier is gone with the browser above. Keep
       # db:test:prepare FIRST: `test` is a real rails COMMAND, so a rails-command first arg
       # would parse the rest of the line as paths; a leading non-command routes the whole
-      # thing through RAKE, where each token is a task. Routing through rake is ALSO why
-      # this line does NOT fire Rails' own `test:prepare` hook (the one tailwindcss-rails
-      # enhances): rake's `test` task carries no prerequisites, and `db:test:prepare` is
-      # not the task that gets enhanced. That is what the explicit build step above covers.
+      # thing through RAKE, where each token is a task.
+      #
+      # ROUTING THROUGH RAKE DOES NOT ESCAPE Rails' `test:prepare` hook, and this comment
+      # used to say it did. rake's `test` task carries no prerequisites, but its body
+      # shells out to an argless `rails test`, which runs the hook — so this line builds
+      # the Tailwind stylesheet itself, 7s in, measured on ubuntu. The explicit step above
+      # is the belt that survives adding a `TEST=` or `-n` filter here, which WOULD
+      # suppress the hook. Receipts and mechanism: the comment on that step. Assertions:
+      # test/lib/tailwind_test_prepare_hook_test.rb.
       - name: Run tests
         env:
           RAILS_ENV: test
