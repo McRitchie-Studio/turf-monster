@@ -281,8 +281,8 @@ through it.
 ### ⚠️ All five call sites are wired
 
 Three **render surfaces** catch these rejections, and two of the three live in
-the **solana-studio gem** — wired there since **0.9.0**, the version this app
-locks. The other two sites are not surfaces at all — they are the two guards
+the **solana-studio gem** — wired there since **0.7.0**; this app locks 0.9.0.
+The other two sites are not surfaces at all — they are the two guards
 inside `solanaConnectAndVerify` that REPLACE a wallet's message with one of
 ours, and each reports before it destroys the evidence:
 
@@ -291,15 +291,19 @@ ours, and each reports before it destroys the evidence:
 | `wallet_setup_connect` | `app/views/modals/_wallet_setup.html.erb` | **wired** |
 | `connect_verify_fallback` | `app/views/layouts/application.html.erb`, `solanaConnectAndVerify` — `connect()` never answered | **wired** |
 | `connect_verify_signature` | `app/views/layouts/application.html.erb`, `solanaConnectAndVerify` — connected, then `signMessage` refused | **wired** |
-| `wallet_connect` | solana-studio `solana_studio/modals/_wallet_connect.html.erb` | **wired** — in the gem since 0.9.0 |
-| `web3_step_up` | solana-studio `solana_studio/modals/_web3_step_up.html.erb` | **wired** — in the gem since 0.9.0 |
+| `wallet_connect` | solana-studio `solana_studio/modals/_wallet_connect.html.erb` | **wired** — in the gem since 0.7.0 |
+| `web3_step_up` | solana-studio `solana_studio/modals/_web3_step_up.html.erb` | **wired** — in the gem since 0.7.0 |
 
 **Nothing in this app checks the gem's two, by choice.** The wiring test below
 deliberately does not read the gem's source, and the Gemfile floor is `~> 0.6`,
 so those two rows are maintained by hand. They read **not wired** from the day
-0.9.0 landed until 2026-09-09 — an operator filtering `error_logs` by
+0.7.0 landed until 2026-09-09 — an operator filtering `error_logs` by
 `wallet_connect` was told, by this table, that the stage could hold nothing.
-Re-read the gem before trusting the column.
+Re-read the gem before trusting the column — `grep reportWalletFailure "$(bundle
+show solana-studio)"/app/views/solana_studio/modals/_wallet_connect.html.erb`.
+The version above is the EARLIEST tag containing the commit that wired them
+(`06bda3b`), not a tag that happens to carry it; and the floor `~> 0.6` still
+admits 0.6.x, where both rows are false.
 
 The two layout stages are not a substitute for the surfaces and the surfaces are
 not a substitute for them. Each fires for exactly one thing — a failure whose
