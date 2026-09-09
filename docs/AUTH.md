@@ -420,10 +420,10 @@ red-seal the gem's own release.
 
   **The nonce exposure, closed on 2026-09-08** (`/tasks/nonce-failure-reads-as-balance`).
   This page carried it as a known, deliberately-unfixed hole from 2026-09-07: a
-  nonce fetch that fails with an HTML body — any 500 that renders a page — makes
-  `r.json()` reject with "Unexpected token '<' … is not valid JSON", which
-  matches the mapper's SAME `/^unexpected/i` branch, so the commonest
-  server-failure shape reached the user as the transaction sentence. An outage of
+  nonce fetch that fails with an HTML body — see **What actually sends HTML**
+  below — makes `r.json()` reject with "Unexpected token '<' … is not valid
+  JSON", which matches the mapper's SAME `/^unexpected/i` branch, so the
+  commonest server-failure shape reached the user as the transaction sentence. An outage of
   ours, read back to a paying user as their wallet being short of USDC.
 
   It is now substituted where the failure is identified — inside `r.json()`,
@@ -466,9 +466,12 @@ red-seal the gem's own release.
     branch and the `connect` + `signMessage` fallback both fall THROUGH to this
     single fetch; neither wraps it. So unlike the nonce leg — where a
     guard-local fix would have missed every `signIn`-capable wallet, Phantom
-    included — no second substitution is needed. Both paths are driven anyway,
-    because that convergence is a property of the control flow and a refactor
-    could break it.
+    included — no second substitution is needed. Both paths are driven, and
+    since 2026-09-09 the drive is **verified to be two paths**: the copy test's
+    wallet mock is strict (a `signIn`-capable wallet refuses `connect`, and one
+    without `signIn` refuses `signIn`) and every drive records which wallet
+    methods it reached. Before that, forcing `useSignIn` either way left the
+    file green, so "both paths" was a comment rather than a guarantee.
   - **`r.ok` is NOT the fix, and gating on it would be a new defect.** This page
     used to note that "nothing checks `r.ok`" as though the check were the
     remedy. `SolanaSessionsController#verify` answers **401** (expired nonce, bad
@@ -482,6 +485,37 @@ red-seal the gem's own release.
     rejection. Inside `.json()` they are already separated by which step threw,
     so a request that never reached us keeps its own words and stays reportable.
 
+  - **The verify POST sends no `Accept` header, and that is load-bearing.**
+    Measured 2026-09-09 against `ActionDispatch::PublicExceptions`: with no
+    `Accept` (or `*/*`, or `text/html`) a 500 comes back as the rendered error
+    PAGE — the body `.json()` rejects on; with `Accept: application/json` the
+    same 500 comes back as `{"status":500,"error":"Internal Server Error"}`,
+    which **parses**. Adding that header is a one-line tidy-up two sibling call
+    sites in the layout already make, and it would silently DISARM this guard:
+    `.json()` would resolve, the substitution would never run, and a user who
+    had already signed would read a bare "Internal Server Error" instead of
+    being told their signature moved no funds. The copy test's fake server now
+    answers by `Accept` the way Rails does, so the header cannot be added
+    without reddening. Adding it deliberately means re-aiming the guard in the
+    same diff — and a JSON error body has to be told apart by STATUS, which the
+    `r.ok` bullet above explains this endpoint cannot do naively.
+
+  **What actually sends HTML — not "any unhandled exception".** This page and
+  both copy tests carried that sentence until 2026-09-09 and it is FALSE on the
+  verify leg: `SolanaSessionsController#verify` and `AccountsController#link_solana`
+  each END in a generic `rescue StandardError` rendering **JSON 422**, which
+  parses. Three things do send HTML, and **two arrive at status 200**:
+
+  | Producer | What the browser gets |
+  |---|---|
+  | The engine catch-all — `Studio::ErrorHandling`'s `rescue_from StandardError` claims whatever an action's own rescues do not: a raise in a `before_action`, or in `#nonce`, which has no local rescue | `handle_unexpected_error` → `respond_to`; this fetch sends no `Accept`, so `format.html` → **302 to root**, followed by `fetch` to HTML at **status 200** |
+  | OPSEC-045 forced logout (`ApplicationController#verify_session_token`) | `format.html` → **302 to /signin**, followed to HTML at **status 200**. Measured end to end 2026-09-09 |
+  | A fault outside `rescue_from`'s reach — middleware, routing | `ActionDispatch::PublicExceptions` → the rendered **500** page |
+
+  `r.ok` is TRUE on the first two, which is the whole argument for substituting
+  inside `.json()`: an `!r.ok` gate would not fire at all on the two shapes this
+  app actually produces most.
+
   The substituted error carries `walletFailureReported`, for the reason the nonce
   leg gives: the 500 is already in our own log with its backtrace, and the report
   POST would go to the very server that just failed.
@@ -491,6 +525,28 @@ red-seal the gem's own release.
   literal past every regex the mapper tests a message against.
   `test/docs/auth_failure_mode_reachability_test.rb` now guards the CLOSED state
   through its derived path, so this section and the behaviour cannot drift apart.
+
+  **The cause the substitution costs, bought back on the OPSEC-045 path**
+  (`/tasks/verify-guard-leaves-four-holes`, 2026-09-09). The guard is right to
+  replace an unreadable body with a sentence the user can act on, but the
+  replacement means the surface can no longer say WHY. For the commonest
+  status-200 producer in the table above that is now answered server-side:
+  `ApplicationController#verify_session_token` files an `ErrorLog` under
+  `SessionTokenMismatch` before it clears the session, targeted at the user it
+  logged out. So a support report of "it said your server could not finish
+  sign-in" is a query — `ErrorLog.where("inspect LIKE '%SessionTokenMismatch%'")`
+  — rather than a guess. Before this the forced logout emitted a
+  `Rails.logger.info` line and nothing else, which made it the one user-facing
+  event in this app that left no row.
+
+  Two properties of that record are deliberate and tested
+  (`test/controllers/session_token_mismatch_trace_test.rb`): **neither session
+  token is written down** — both are credentials, so the row says only whether
+  the cookie carried one (`present but stale` vs `absent`, which distinguishes a
+  rotation from a session predating the binding) — and the recorder is
+  **fail-open**, swallowing its own faults into the Rails log, because a forced
+  logout is a security act and a logger that can veto what it observes is worse
+  than no logger.
 
 - **The report is best-effort by design.** It is dropped on a throttle, a
   closed tab that beats `keepalive`, or a blocked request. `error_logs` is a

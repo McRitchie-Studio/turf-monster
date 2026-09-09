@@ -117,8 +117,10 @@ Phantom must be installed in the browser or available via mobile deep link.
    - The `User-ID` binding that ties a signature to an account (OPSEC-005) rides
      only on the wallet-LINK path (`opts.linkMode`), not on signup (`:393`).
    - The signature is base58-encoded and POSTed to `/auth/solana/verify`
-     (`:683`) as `signatureB58` alongside the message and pubkey (`:715-719`).
-     An unreadable answer to that POST — an HTML-bodied 500 of ours — is
+     (`:683`) as `signatureB58` alongside the message and pubkey (`:765-769`).
+     An unreadable answer to that POST — an HTML body from a fault of ours,
+     which usually arrives as a 302 followed to status 200 rather than a 500;
+     see docs/AUTH.md — is
      substituted inside `.json()` and named as our server's fault rather than
      mapped into balance advice (closed 2026-09-09; see `docs/AUTH.md`).
 
@@ -158,8 +160,8 @@ Phantom must be installed in the browser or available via mobile deep link.
    - `set_app_session(user)` writes `session[:turf_user_id]` +
      `session[:session_token]` and clears any stale on-chain flag
      (`app/controllers/application_controller.rb:33-66`, `:41`).
-     `promote_to_onchain_session!` then grants it (`:499-504`) — that write is
-     what `onchain_session?` reads (`:478-481`), and `verify` calls it at
+     `promote_to_onchain_session!` then grants it (`:547-552`) — that write is
+     what `onchain_session?` reads (`:526-529`), and `verify` calls it at
      `app/controllers/solana_sessions_controller.rb:77`. It lives in
      `ApplicationController` because the login and wallet-link paths used to
      drift apart.
@@ -300,7 +302,7 @@ Phantom must be installed in the browser or available via mobile deep link.
   `submitted` → `confirmed` inside `#confirm_onchain_entry`)
 - `session[:turf_user_id]`, `session[:session_token]` (write in step 6), and the
   on-chain flag set by `promote_to_onchain_session!`
-  (`app/controllers/application_controller.rb:499-504`)
+  (`app/controllers/application_controller.rb:547-552`)
 - on-chain: `UserAccount` PDA (`ensure_user_account` in step 7; re-asserted
   synchronously in step 9 `#prepare_entry`)
 - on-chain: `Entry` PDA + `Contest.entry_fees` USDC/USDT credit, or an entry

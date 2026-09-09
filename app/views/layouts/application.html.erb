@@ -694,11 +694,39 @@
 
           // THE NONCE LEG'S DEFECT, ONE FETCH LATER, AND WORSE. Until 2026-09-09
           // this was a bare `return await (await fetch(...)).json()` sitting
-          // outside BOTH try blocks. A 500 that renders a page — any unhandled
-          // exception — resolves the fetch and makes `.json()` reject with V8's
+          // outside BOTH try blocks. A reply that carries a rendered PAGE makes
+          // `.json()` reject with V8's
           // "Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON";
           // parseSolanaError's /^unexpected/i branch reads that as a TRANSACTION
           // failure and answers "check wallet connection and USDC balance".
+          //
+          // WHICH FAULTS ACTUALLY SEND AN UNREADABLE BODY — NOT "any unhandled
+          // exception". That was this comment's claim until 2026-09-09 and it is
+          // FALSE on both endpoints: SolanaSessionsController#verify and
+          // AccountsController#link_solana each END in a generic
+          // `rescue StandardError` that renders JSON 422, which parses fine. An
+          // exception raised INSIDE either action is therefore not this case at
+          // all. THREE things do send HTML, and TWO OF THEM ARRIVE AT STATUS 200:
+          //
+          //   * THE ENGINE CATCH-ALL. Studio::ErrorHandling registers
+          //     `rescue_from StandardError`, so anything the actions' own rescues
+          //     do not claim — a raise in one of the before_actions this POST
+          //     runs, or in /auth/solana/nonce, which has no local rescue —
+          //     reaches handle_unexpected_error. In production that answers
+          //     through `respond_to`, and this fetch sends no Accept header, so
+          //     it takes `format.html`: a 302 to root, which fetch FOLLOWS to an
+          //     HTML body at status 200;
+          //   * THE OPSEC-045 FORCED LOGOUT. A session_token mismatch in
+          //     ApplicationController#verify_session_token answers the same way —
+          //     a 302 to /signin, followed to an HTML body at status 200.
+          //     Measured end to end 2026-09-09;
+          //   * A FAULT OUTSIDE rescue_from's REACH — middleware, routing — which
+          //     ActionDispatch::PublicExceptions renders as the 500 error page.
+          //
+          // `r.ok` is TRUE on the first two. That is the whole argument for why
+          // the substitution below sits inside `.json()` and can never become an
+          // `!r.ok` gate — such a gate would not fire at all on the two shapes
+          // this app actually produces most.
           //
           // WORSE THAN THE NONCE CASE BECAUSE OF WHEN IT FIRES. The nonce fetch
           // happens BEFORE the user signs. This one happens AFTER the signature
@@ -712,6 +740,28 @@
           // through to this line; neither wraps it. So a substitution here covers
           // every wallet, and no guard-local variant is needed.
           var verifyServerCopy = 'Your signature went through, but our server could not finish sign-in \u2014 the problem is on our side, not your wallet. Signing in moves no funds. Please try again in a moment.';
+          // NO `Accept: application/json` HERE, AND THAT IS THE DELIBERATE
+          // CHOICE, NOT AN OVERSIGHT. Two sibling call sites in this file send
+          // it (postMagicLink below, and the nonce fetch takes the default), so
+          // adding it here reads as a tidy-up. It would DISARM the guard on the
+          // next line. Measured 2026-09-09 against ActionDispatch::PublicExceptions:
+          // with no Accept header — or `*/*`, or `text/html` — a 500 comes back
+          // as the rendered error PAGE, which is the body `.json()` rejects on;
+          // with `Accept: application/json` the same 500 comes back as
+          // {"status":500,"error":"Internal Server Error"}, which PARSES. The
+          // helper would then resolve that object, the substitution would never
+          // run, and the user would read a bare "Internal Server Error" instead
+          // of a sentence telling them their signature moved no funds — while
+          // every assertion about the guard stayed green, because the guard is
+          // simply never reached.
+          //
+          // So the absence of this header is load-bearing and is pinned as such:
+          // test/views/verify_server_failure_copy_test.rb drives the RENDERED
+          // helper against a server that answers by Accept the way Rails does,
+          // and reddens the moment this header appears. If a future change wants
+          // the header, it has to re-aim the guard in the same diff — a JSON
+          // error body needs a STATUS test, which the note below explains this
+          // endpoint cannot have naively (401/422 carry bodies the user must read).
           var verifyResponse = await fetch(verifyUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.content || '' },
