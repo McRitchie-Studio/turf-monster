@@ -163,7 +163,18 @@ jobs:
         # 45-minute job bound, so a step that blows through its retries still fails
         # long before it can take the whole job down with it.
         timeout-minutes: 25
-        run: .github/scripts/apt-retry curl libjemalloc2 libvips postgresql-client
+        # imagemagick IS THE PROCESSOR THIS APP ACTUALLY RENDERS WITH, and CI had
+        # the opposite stack from production until it was added here. Measured
+        # 2026-09-08: turf-monster-mainnet (heroku-26), turf-monster-qa
+        # (heroku-24) and the dev Mac all carry /usr/bin/magick and NO libvips,
+        # which is why config/application.rb pins variant_processor to
+        # :mini_magick. This runner installed libvips and nothing else, so the
+        # first variant the suite rendered died with `executable not found:
+        # "convert"` — a lane that had libvips could only ever have gone green by
+        # testing a processor production does not run. libvips stays: ruby-vips
+        # binds it at require time, and Active Storage's Vips.block_untrusted
+        # hardening only runs when that require succeeds.
+        run: .github/scripts/apt-retry curl imagemagick libjemalloc2 libvips postgresql-client
 
       - name: Await RubyGems propagation for locked gems
         run: .github/scripts/await-gem-propagation.sh
@@ -357,6 +368,19 @@ jobs:
         run: |
           npm ci
           npx playwright install --with-deps chromium
+      # The shards boot the app (Playwright's webServer runs `bin/rails server
+      # -e test`), so any spec that renders an Active Storage variant needs the
+      # same processor the `test` job installs — e2e/og_image.spec.js fetches a
+      # contest's composed link-preview card. `playwright install --with-deps`
+      # brings Chromium's libraries, not the app's.
+      - name: Install ImageMagick for Active Storage variants
+        # Bounded at the STEP, like the `test` job's fetch: apt-retry's escalating
+        # budgets total ~22 minutes, so 25 sits above them and well under the
+        # 45-minute job bound (test/lib/ci_apt_step_timeout_test.rb enforces both
+        # the presence of this bound and its 30-minute ceiling).
+        timeout-minutes: 25
+        run: .github/scripts/apt-retry imagemagick
+
       - name: Seed test DB
         env:
           RAILS_ENV: test

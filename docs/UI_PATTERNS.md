@@ -38,7 +38,34 @@ Tailwind emits only classes it can see during the build. Keep dynamic class name
 - One-off static dimensions can stay inline when extracting a class would create noise or when a previously valid utility was purged.
 
 ### Public S3 and OG Assets
-Open Graph images must use the `amazon_public` / `amazon_dev_public` Active Storage services. The private `amazon` services return signed URLs; social unfurlers cache image URLs long enough for signed links to expire. Public OG services return permanent S3 object URLs, and `OgImageAttachable` owns the per-environment service choice.
+
+The constraint is that an og:image URL must be **permanent**: an unfurler caches
+the URL it was handed and re-fetches it days later, so anything carrying an
+expiring signature is a preview that works today and is broken by the weekend.
+There are two sanctioned ways to satisfy that, and which one applies depends on
+whether the image is an OG asset in its own right or a rendition of an image
+that already lives somewhere private.
+
+**1. Images uploaded AS og:images — public service.** `SiteSetting`'s
+`default_og_image` and `LandingPage`'s `og_image` use the `amazon_public` /
+`amazon_public_dev` services and are served as permanent S3 object URLs.
+`OgImageAttachable` owns the per-environment service choice. Do NOT put these on
+the private `amazon` services, whose `.url` is a signature that expires.
+
+**2. Renditions of an image that lives on the PRIVATE service — proxy route.**
+A contest banner (`Contest#contest_image`) is a normal private attachment that
+also has to unfurl, and moving every existing banner into a public bucket to get
+that is the wrong trade. Instead `OgHelper#contest_og_image_url` hands out
+`rails_storage_proxy_url(... .variant(:og_card))` — the representation **proxy**
+route, which is permanent (the signed blob id carries no expiry), lives on our
+own domain, and streams from the same private bucket. Use the proxy route, never
+`rails_storage_redirect_url`, which hands back the expiring service URL this
+whole section exists to avoid.
+
+Guard the variant on `variable?`, not merely `attached?` — `.variant` raises
+`ActiveStorage::InvariableError` eagerly for a content type outside
+`ActiveStorage.variable_content_types`, which would 500 the public page rather
+than fall through to the default card.
 
 ### Status Badges
 `ApplicationHelper::CONTEST_BADGE_STYLES`, keyed by contest status — the pill on

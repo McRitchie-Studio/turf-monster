@@ -6,7 +6,50 @@ class Contest < ApplicationRecord
   belongs_to :slate, optional: true
 
   belongs_to :user, optional: true
-  has_one_attached :contest_image
+  # ── The banner, and its link-preview rendition ──────────────────────────
+  #
+  # THE BANNER AND THE UNFURL CARD ARE DIFFERENT SHAPES, which is the whole
+  # reason this variant exists. Banners are cropped 5:1 by the admin uploader
+  # (imageUploadHost aspectRatio: 5, maxWidth 2000, maxHeight 400, transparency
+  # allowed) because they sit as a wide strip above a contest. Every unfurler —
+  # Discord, iMessage, Slack, X — renders og:image at roughly 1.91:1, so handing
+  # them the raw 5:1 strip letterboxes it into a sliver and drops a transparent
+  # banner onto whatever background the client happens to use.
+  #
+  # resize_and_pad scales the banner to fit and centres it on the brand navy,
+  # producing the 1200x630 card those clients expect.
+  #
+  # `background:` IS LOAD-BEARING BEYOND THE PADDING, which is easy to miss
+  # because the option reads like it only colours the bars. The uploader allows
+  # a transparent banner (`transparent: true`), and image_processing's MiniMagick
+  # resize_and_pad expands to `-resize … -background … -gravity … -extent …`
+  # — that -extent composites the scaled banner ONTO the background canvas, so
+  # the same option that paints the bars is also what flattens the banner's own
+  # transparent pixels. Drop it and it defaults to :transparent: the card keeps
+  # its alpha, and the subject renders on whatever each client composites
+  # against — white in one chat app, black in the next. Measured 2026-09-09
+  # against a half-transparent fixture; ContestOgCardTest is the guard, and no
+  # separate alpha-flattening operation is needed (an `alpha: "remove"` after
+  # the pad is a no-op here, and `alpha:` inside resize_and_pad raises
+  # ArgumentError — it is forwarded to the gem's `thumbnail` HELPER, whose only
+  # keyword is `sharpen:`; that helper emits `-resize`, not `-thumbnail`).
+  #
+  # `preprocessed: true` renders the card when the banner is attached, not on
+  # the first unfurl. An unfurler gives a page a short budget and does not come
+  # back on a timeout, so generating a 2000px composite inside that first
+  # request is how a share silently loses its image. Banners attached BEFORE
+  # this shipped have no stored card and are composed on demand at the proxy
+  # route the first time they are fetched — one slow fetch, then cached.
+  OG_CARD_SIZE       = [1200, 630].freeze
+  OG_CARD_BACKGROUND = "#1e1b35".freeze # --color-page, matches the theme-color meta
+
+  has_one_attached :contest_image do |attachable|
+    attachable.variant :og_card, preprocessed: true, format: :png,
+                                 resize_and_pad: [
+                                   *OG_CARD_SIZE,
+                                   { background: OG_CARD_BACKGROUND, gravity: "Center" }
+                                 ]
+  end
 
   # Name is repeatable + branded — NO uniqueness. Slug is the unique key.
   # 96-byte cap matches the future on-chain fixed `name` field (Part B / v0.21);
