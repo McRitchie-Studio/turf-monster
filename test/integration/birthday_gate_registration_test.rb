@@ -3,10 +3,12 @@ require "test_helper"
 # [integration] Both halves of the age gate are registered on the modal host.
 #
 # THE FAILURE THIS EXISTS FOR is one this app has already shipped once. Until
-# 2026-08-19 layouts/modal_preview listed the age modal in its gallery but had no
+# 2026-08-19 layouts/modal_preview listed the age modal but had no
 # <template x-if> for the id, so opening it rendered an EMPTY card — a working
 # modal with nothing in it, which reads as a styling bug rather than a missing
-# partial and therefore gets ignored rather than reported.
+# partial and therefore gets ignored rather than reported. That layout was
+# deleted on 2026-09-09 and this asserts against the one that remains; the
+# failure mode is a property of registering by id, not of that layout.
 #
 # The 2026-08-26 adoption doubles that risk: the birthday card now SWAPS to
 # 'age-gate' on the server's underage verdict, so an unregistered gate id turns
