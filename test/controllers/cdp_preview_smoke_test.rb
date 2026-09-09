@@ -1,19 +1,14 @@
 require "test_helper"
 
-# Render smoke for the cdp-ramp additions to the admin modal gallery:
-#   - /admin/modals lists the "CDP ramp (Coinbase)" variant group
-#   - /admin/modals/preview/cdp-ramp renders through the modal_preview
-#     layout (which now ships shared/_alpine_factories so cdpRampFlow —
-#     inline-only, no importmap duplicate — exists in the iframe).
+# Render smoke for the cdp-ramp preview: /admin/modals/preview/cdp-ramp renders
+# through the modal_preview layout, which ships shared/_alpine_factories so
+# cdpRampFlow — inline-only, no importmap duplicate — exists in the iframe.
+#
+# WAS TWO SMOKES. The other asserted /admin/modals LISTED the "CDP ramp
+# (Coinbase)" variant group; it was retired with the gallery on 2026-09-09, and
+# what it proved has no subject any more — the card lives in turf's own
+# style-guide section now and is asserted there against the real partial.
 class CdpPreviewSmokeTest < ActionDispatch::IntegrationTest
-  test "admin modal gallery lists the CDP ramp group" do
-    log_in_as users(:alex)
-    get admin_modals_path
-    assert_response :success
-    assert_includes response.body, "CDP ramp (Coinbase)"
-    assert_includes response.body, "modals/_cdp_ramp.html.erb"
-  end
-
   test "cdp-ramp preview renders via the modal_preview layout with the factory inline" do
     log_in_as users(:alex)
     get admin_modal_preview_path(

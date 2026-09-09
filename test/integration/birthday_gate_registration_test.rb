@@ -73,15 +73,9 @@ class BirthdayGateRegistrationTest < ActionDispatch::IntegrationTest
       "the onboarding chain and the contest board both open the DOB card by id"
   end
 
-  test "the admin modal gallery registers both halves too" do
-    # The gallery is a SECOND registration list in a second layout, which is
-    # exactly how the 2026-08-19 gap happened: the id was listed in the gallery's
-    # index while the layout that renders it had no template for it.
-    log_in_as(users(:alex))
-    get admin_modals_path
-    assert_response :success
-
-    assert_includes response.body, "$store.modals.current().id === 'birthday'"
-    assert_includes response.body, "$store.modals.current().id === 'age-gate'"
-  end
+  # A gallery counterpart to the app-layout test above was retired with
+  # /admin/modals on 2026-09-09. It asserted the SAME register-both-or-neither
+  # invariant against the gallery's own second registration list — and that list
+  # is exactly what made the 2026-08-19 gap possible. With one registration
+  # surface left, the test at the top of this file is the whole guard.
 end
