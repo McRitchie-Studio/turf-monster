@@ -341,7 +341,7 @@ Its whole body is `lib/tasks/market.rake:13-33`: it takes `CSV_PATH` or the chec
 default, narrows to `WEEK` when one is given, and records one `MarketSnapshot` artifact
 per run. What makes it safe is an ABSENCE — it never loads the schedule seed, so it
 cannot trip the unguarded site-2 re-rank. An absence cannot be cited, so read those
-twenty lines and confirm it yourself:
+twenty-one lines and confirm it yourself:
 
 ```bash
 bin/rails market:snapshot SPORT=nfl WEEK=3
