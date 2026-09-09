@@ -506,11 +506,11 @@ DEPENDENCIES
   sidekiq
   sidekiq-cron (~> 1.12)
   simplecov
-  solana-studio (~> 0.6)
+  solana-studio (~> 0.9)
   sprockets-rails
   stimulus-rails
   stripe
-  studio-engine (~> 0.72)
+  studio-engine (~> 0.73)
   tailwindcss-rails (~> 4.5)
   turbo-rails
   tzinfo-data
