@@ -691,11 +691,65 @@
           // normalises it (Solana::WalletProvider) and ignores anything off the
           // registry, so the test-only 'keypair' provider stamps nothing.
           var walletProviderName = (provider && provider.name) || walletName || undefined;
-          return await (await fetch(verifyUrl, {
+
+          // THE NONCE LEG'S DEFECT, ONE FETCH LATER, AND WORSE. Until 2026-09-09
+          // this was a bare `return await (await fetch(...)).json()` sitting
+          // outside BOTH try blocks. A 500 that renders a page — any unhandled
+          // exception — resolves the fetch and makes `.json()` reject with V8's
+          // "Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON";
+          // parseSolanaError's /^unexpected/i branch reads that as a TRANSACTION
+          // failure and answers "check wallet connection and USDC balance".
+          //
+          // WORSE THAN THE NONCE CASE BECAUSE OF WHEN IT FIRES. The nonce fetch
+          // happens BEFORE the user signs. This one happens AFTER the signature
+          // succeeded — so on a real-money product a user signs, our server
+          // faults, and we tell them they are short of funds at the exact moment
+          // they have most reason to think something was taken. The one step that
+          // proved their wallet fine is the step that precedes the accusation.
+          //
+          // ONE SITE, BOTH PATHS — and unlike the nonce leg, that is free here.
+          // The signIn branch and the connect + signMessage fallback both fall
+          // through to this line; neither wraps it. So a substitution here covers
+          // every wallet, and no guard-local variant is needed.
+          var verifyServerCopy = 'Your signature went through, but our server could not finish sign-in \u2014 the problem is on our side, not your wallet. Signing in moves no funds. Please try again in a moment.';
+          var verifyResponse = await fetch(verifyUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.content || '' },
             body: JSON.stringify({ message: message, signature: signatureB58, pubkey: pubkeyB58, age_attestation: ageAttestation, wallet_provider: walletProviderName })
-          })).json();
+          });
+          // SUBSTITUTED INSIDE r.json(), FOR THE SAME REASON THE NONCE LEG IS,
+          // AND DELIBERATELY NOT AT `!r.ok`. docs/AUTH.md used to note that
+          // "nothing checks r.ok" as though the check were the fix. It is not:
+          // this endpoint answers 401 and 422 with a JSON body the user MUST
+          // read — an expired nonce, a bad signature, the age attestation
+          // (SolanaSessionsController#verify renders all three) — and the modal
+          // paints `result.error` from it. A throw on !r.ok would replace those
+          // precise, actionable sentences with this generic one, which is the
+          // same class of confidently-wrong diagnosis pointed at a new party.
+          // Only an UNREADABLE body is unambiguously our fault, and `.json()`
+          // rejecting is exactly the signal that says so.
+          //
+          // AND THE OFFLINE USER STAYS OUT OF IT. Wrapping the fetch itself —
+          // the obvious simplification — makes `TypeError: Failed to fetch` and
+          // an unreadable 500 body the same rejection, and relabels a genuinely
+          // offline user as our outage. Here they are already separated by WHICH
+          // step threw, so a request that never reached us keeps its own words
+          // and stays reportable. Mutated both ways in
+          // test/views/verify_server_failure_copy_test.rb.
+          //
+          // NOT REPORTED, tagged so no surface reports it either — the reasoning
+          // is the nonce leg's, unchanged: this is a 500 OF OURS, already carrying
+          // its exception and backtrace in the server's own log, and the report
+          // POST would go to the very server that just failed. The string being
+          // replaced is V8's complaint about our error page, not a wallet's
+          // words, so nothing diagnostic dies here. Without the tag the
+          // wallet-setup modal's catch files a row with our sentence in BOTH
+          // halves — the raw == mapped shape docs/AUTH.md names as an anomaly.
+          return await verifyResponse.json().catch(function() {
+            var serverError = new Error(verifyServerCopy);
+            serverError.walletFailureReported = true;
+            throw serverError;
+          });
         };
 
         // Shared magic-link request. Form-encoded (so the rack-attack per-email

@@ -309,21 +309,41 @@ class AuthFailureModeReachabilityTest < ActionDispatch::IntegrationTest
     refute result.fetch("suppressed"), "a network failure of the USER'S must stay reportable"
   end
 
-  test "an HTML-bodied 500 from the VERIFY leg still reaches the surface" do
-    # THIS IS THE ROW MOST LIKELY TO GO STALE, so it is pinned to behaviour.
-    # AUTH.md's triage table says an "Unexpected token '<'" reading can no longer
-    # come from the NONCE fetch (substituted upstream on 2026-09-08) and that the
-    # VERIFY POST's own .json() carries no such guard. If this ever goes green-to-
-    # red because the verify leg was fixed, that is good news — and AUTH.md's
-    # triage row has to be corrected in the same change.
+  test "an HTML-bodied 500 from the VERIFY leg names our server" do
+    # THIS ROW WAS PINNED TO THE DEFECT, AND THE PIN HAS NOW BEEN TURNED OVER.
+    # Until 2026-09-09 this test asserted that an unreadable verify body reached
+    # the user as the mapper's balance sentence, and said in as many words that
+    # reddening because someone fixed the leg would be good news requiring
+    # AUTH.md's triage row to change in the same commit. That is what happened
+    # (`/tasks/verify-leg-repeats-nonce-bug`), so the assertion now guards the
+    # FIX instead of the exposure — a pin that keeps asserting a closed defect is
+    # how a suite starts demanding the bug back.
+    #
+    # WHAT IT DEFENDS NOW. The substitution lives inside the verify POST's
+    # `.json()`. Revert it, gate it on `!r.ok`, or hoist it around the fetch, and
+    # the user is back to reading parser noise or being mislabelled — the two
+    # directions test/views/verify_server_failure_copy_test.rb mutates in detail.
+    # Here it is checked once more, through the DERIVED path this file uses for
+    # everything else, so the doc audit and the behaviour cannot drift apart.
     result = outcomes.fetch("verify_html_500")
     refute result["resolved"], "an unreadable verify body must still reject"
-    assert_match(/\AUnexpected token '<'/, result.fetch("raw"),
-                 "the verify leg's .json() is now guarded — update docs/AUTH.md's triage row, " \
-                 "which documents this leg as still open")
+
+    server_copy = LAYOUT.read[/^\s*var verifyServerCopy = '(.*)';$/, 1]
+    refute_nil server_copy, "the verify leg's server sentence has moved — this row cannot audit what it cannot find"
+    server_copy = server_copy.gsub('\\u2014', "—")
+
+    refute_match(/\AUnexpected token '<'/, result.fetch("raw"),
+                 "the verify leg's .json() guard has regressed — an HTML-bodied 500 is reaching " \
+                 "the surface as V8 parser noise again, and AUTH.md documents this leg as CLOSED")
+    assert_equal server_copy, result.fetch("shown"),
+                 "AUTH.md documents this as naming our server, not the user's balance"
+
     transaction_sentence = MAPPER.read[/return "(Wallet couldn't process the transaction[^"]*)";/, 1]
     refute_nil transaction_sentence, "the mapper's generic branch has moved"
-    assert_equal transaction_sentence, result.fetch("shown"),
-                 "AUTH.md documents this as the reading an operator meets on wallet_setup_connect"
+    refute_equal transaction_sentence, result.fetch("shown"),
+                 "our outage must not read as the user's wallet being short of funds"
+    assert result.fetch("suppressed"),
+           "a 500 of ours is already in the server's log — the substituted error must carry " \
+           "walletFailureReported so no surface files a raw == mapped row for it"
   end
 end
