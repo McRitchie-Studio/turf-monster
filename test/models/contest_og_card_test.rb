@@ -12,14 +12,24 @@ require "mini_magick"
 # arrives as a sliver. This asserts the composite that reconciles the two — the
 # banner scaled to fit and centred on the brand navy at exactly 1200x630.
 #
-# THE TRANSPARENCY CASE IS THE ONE THAT ROTS SILENTLY. resize_and_pad's
-# -background paints only the PADDING, so a banner cropped with transparency
-# (the uploader allows it: `transparent: true`) keeps its own alpha through the
-# pad and the subject lands on whatever the client composites against — white in
-# one chat app, black in the next. The `alpha: "remove"` operation is what
-# flattens it, it is a SEPARATE operation from the pad, and nothing about the
-# card's SIZE changes when it is dropped. So the size assertions below cannot
-# see that regression and the opacity assertions are the ones that bite.
+# THE TRANSPARENCY CASE IS THE ONE THAT ROTS SILENTLY. The uploader allows a
+# transparent banner (`transparent: true`), and a card that keeps that alpha
+# lands its subject on whatever each client composites against — white in one
+# chat app, black in the next.
+#
+# WHAT FLATTENS IT IS `background:`, THE SAME OPTION THAT PAINTS THE BARS —
+# there is no separate alpha-flattening operation in the variant, and this file
+# must not send anyone looking for one. image_processing's MiniMagick
+# resize_and_pad (mini_magick.rb:90-95) expands to
+# `-thumbnail … -background … -gravity … -extent …`, and -extent composites the
+# scaled banner ONTO that background canvas. Drop `background:` and it defaults
+# to :transparent, so the flattening goes with it. Adding an `alpha: "remove"`
+# INSIDE resize_and_pad does not help either — it is forwarded to thumbnail,
+# which has no such keyword, and raises ArgumentError.
+#
+# Measured 2026-09-09 by mutation: with `background:` removed from the variant,
+# the opacity assertion at :69 fails AND the navy-bar assertion at :44 fails.
+# Both bite, and they bite on the same option.
 class ContestOgCardTest < ActiveSupport::TestCase
   BRAND_NAVY   = "srgb(30,27,53)"   # Contest::OG_CARD_BACKGROUND (#1E1B35)
   FIXTURE_GREEN = "srgb(34,197,94)" # the opaque third of banner_transparent.png
