@@ -62,7 +62,11 @@ class ContestOgCardTest < ActiveSupport::TestCase
     # what was transparent and x=100 y=315 inside what was not.
     card = card_for("banner_transparent.png")
 
-    assert_equal "True", card["%[opaque]"],
+    # DOWNCASED ON PURPOSE: ImageMagick 7 (the dev Macs and the Heroku dynos)
+    # prints "True" for %[opaque] while ImageMagick 6 (the ubuntu-24.04 runner's
+    # `imagemagick` package, via convert-im6.q16) prints "true". The casing is
+    # the version talking, not the image.
+    assert_equal "true", card["%[opaque]"].to_s.downcase,
                  "a transparent banner must be flattened, or the subject renders on the client's own background"
     assert_equal BRAND_NAVY, card["%[pixel:p{800,315}]"],
                  "transparent banner pixels must land on the brand navy, not stay transparent"

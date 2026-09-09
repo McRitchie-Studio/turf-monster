@@ -374,6 +374,11 @@ jobs:
       # contest's composed link-preview card. `playwright install --with-deps`
       # brings Chromium's libraries, not the app's.
       - name: Install ImageMagick for Active Storage variants
+        # Bounded at the STEP, like the `test` job's fetch: apt-retry's escalating
+        # budgets total ~22 minutes, so 25 sits above them and well under the
+        # 45-minute job bound (test/lib/ci_apt_step_timeout_test.rb enforces both
+        # the presence of this bound and its 30-minute ceiling).
+        timeout-minutes: 25
         run: .github/scripts/apt-retry imagemagick
 
       - name: Seed test DB
