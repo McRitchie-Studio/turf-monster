@@ -329,19 +329,31 @@ red-seal the gem's own release.
 
 ### Four limits worth knowing before reading a row
 
-- **Two branches replace the wallet's string — and both report it first, so
-  `raw` is still the wallet's.** On the `connect` + `signMessage` fallback path,
-  `solanaConnectAndVerify` REPLACES the wallet's message before rethrowing. By
-  the time any surface catches, the original Phantom string is gone, so what the
-  USER reads is always our sentence. **What `error_logs` holds is not.** Since
-  2026-09-07 (`/tasks/raw-message-is-ours`) each substituting guard reports from
+- **Three branches replace the message before any surface sees it — the two
+  WALLET ones report it first, so `raw` is still the wallet's.** On the `connect`
+  + `signMessage` fallback path, `solanaConnectAndVerify` REPLACES the wallet's
+  message before rethrowing. By the time any surface catches, the original
+  Phantom string is gone, so what the USER reads is always our sentence. **What
+  `error_logs` holds is not.** Since 2026-09-07
+  (`/tasks/raw-message-is-ours`) each substituting WALLET guard reports from
   INSIDE `solanaConnectAndVerify`, at the last point the wallet's own words
-  exist, and the two guards report on stages of their own:
+  exist, and those two guards report on stages of their own:
 
   | Substituted failure | Stage | The sentence the user reads |
   |---|---|---|
   | A `connect()` that NEVER ANSWERED (2026-09-06) | `connect_verify_fallback` | "Finish setting up your wallet in … — create or import one, then try again." |
   | Connected, then could not sign — `connect()` returned a public key and `signMessage` rejected (2026-09-07) | `connect_verify_signature` | "Your wallet connected but could not sign you in. Signing in moves no funds — try again." |
+  | `/auth/solana/nonce` answered with a body we could not read (2026-09-08) | none, deliberately | "Our server could not start sign-in — the problem is on our side, not your wallet. Please try again in a moment." |
+
+  **The third one reports nothing, and that is the rule below applied, not an
+  omission.** It is a fault of OURS: the 500 that produced the unreadable body
+  is already in the server's own log with its exception and backtrace, so the
+  browser has nothing to add — and the POST would go to the server that just
+  failed. The string it replaces is V8's complaint about our error page, never a
+  wallet's words, so no diagnosis dies with it. The substituted error carries
+  `walletFailureReported` so no SURFACE files it either; without that tag the
+  wallet-setup modal would record a row holding our sentence in both halves —
+  the `raw == mapped` anomaly named in the triage table below.
 
   The second substitution exists because rethrowing that failure UNTOUCHED was
   not safe. Phantom's generic "Unexpected error" is the string this path carries
@@ -369,27 +381,46 @@ red-seal the gem's own release.
   | Failure | Why it is not a missing wallet |
   |---|---|
   | A decline (`code 4001`, "user rejected/declined") | The human said no |
-  | `/auth/solana/nonce` failing (tagged `nonceFetchFailed`) | Our own server, not the wallet |
+  | `/auth/solana/nonce` failing to REACH us — the request never arrived, and the rejection still says `Failed to fetch` (tagged `nonceFetchFailed`) | The network, not the wallet — and it leaves no server-side trace, so it stays reportable |
   | Wallet Standard rejections tagged `walletAnswered` — "No account authorized" (an empty accounts array: a dismissed account-selection sheet), "Wallet not connected" | The wallet answered and authorized nothing |
 
   **Triage by the STAGE, then read both halves.** The stage says which diagnosis
-  fired; `mapped` is what the user read; `raw` is what the wallet said. Three
+  fired; `mapped` is what the user read; `raw` is what the wallet said. Four
   readings and what they mean:
 
   | What you see | What it means |
   |---|---|
   | `raw: "Unexpected error"` on `connect_verify_fallback` or `connect_verify_signature` | **Normal, and the fix working.** A substitution fired and the wallet's own generic string was captured before it was replaced. The stage tells you which of the two diagnoses the user was given. |
   | `raw` == `mapped` on either of those two stages | **An anomaly worth chasing.** It means the row came from a surface downstream of the substitution — the layout's report or its `walletFailureReported` tag has regressed — which is exactly the defect fixed on 2026-09-07. |
-  | `raw: "Unexpected error"` (or `"Unexpected token '<' …"`) with `mapped` reading "Wallet couldn't process the transaction…" | One of the three rethrows above met the mapper's generic branch. Not a missing wallet, and not a transaction either — see the exposure below. |
+  | `raw: "Unexpected error"` with `mapped` reading "Wallet couldn't process the transaction…" | One of the rethrows above met the mapper's generic branch. Not a missing wallet, and not a transaction either. |
+  | `raw: "Unexpected token '<' …"` on ANY stage | **A regression.** Since 2026-09-08 that string is replaced upstream, inside the nonce fetch, and never reaches a surface — see below. |
 
-  **Known exposure, unfixed as of 2026-09-07.** A nonce fetch that fails with an
-  HTML body — any 500 that renders a page — makes `r.json()` reject with
-  "Unexpected token '<' … is not valid JSON", which matches that SAME
-  `/^unexpected/i` branch. It is tagged `nonceFetchFailed` and rethrown
-  untouched, so the commonest server-failure shape still reaches the user as the
-  transaction sentence. Closing it needs either a third substitution at the guard
-  or a mapper change whose blast radius crosses the entry paths that legitimately
-  own that wording.
+  **The nonce exposure, closed on 2026-09-08** (`/tasks/nonce-failure-reads-as-balance`).
+  This page carried it as a known, deliberately-unfixed hole from 2026-09-07: a
+  nonce fetch that fails with an HTML body — any 500 that renders a page — makes
+  `r.json()` reject with "Unexpected token '<' … is not valid JSON", which
+  matches the mapper's SAME `/^unexpected/i` branch, so the commonest
+  server-failure shape reached the user as the transaction sentence. An outage of
+  ours, read back to a paying user as their wallet being short of USDC.
+
+  It is now substituted where the failure is identified — inside `r.json()`,
+  not at the `nonceFetchFailed` guard, and the difference matters twice:
+
+  - **A guard-local fix would have missed the commonest wallet.** The `signIn`
+    branch awaits the nonce ABOVE its `try`, because the nonce is an INPUT to
+    `signIn()`, so its rejection is caught by nothing in
+    `solanaConnectAndVerify` and lands on the surface intact. Phantom supports
+    `signIn`. Measured on both paths, 2026-09-08.
+  - **An offline user must not be told it was us.** Inside the single `.catch`,
+    a `TypeError: Failed to fetch` and an unreadable 500 body are the same
+    rejection; inside `r.json()` they are already separated by which step threw.
+    So a request that never reached us keeps its own words and stays reportable.
+
+  The mapper is untouched: its transaction wording still belongs to the entry
+  and transaction paths that own it. `test/views/nonce_server_failure_copy_test.rb`
+  drives the RENDERED helper against a real 500 with an HTML body and asserts the
+  decoded sentence on both paths, and runs the literal past every regex the mapper
+  tests a message against.
 
 - **The report is best-effort by design.** It is dropped on a throttle, a
   closed tab that beats `keepalive`, or a blocked request. `error_logs` is a
