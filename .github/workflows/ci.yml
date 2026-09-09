@@ -221,8 +221,10 @@ jobs:
       # and ENV["TESTOPTS"] into that argv, and TestCommand skips the prepare task as
       # soon as an argument looks like a path or `-n`. Adding a filter to the line below
       # therefore silences the hook while the command still READS the same. This step
-      # costs 7s here (run 34382258693), nearly all of it Rails boot — the compile itself
-      # is ~0.3s — and it is what guarantees the stylesheet for
+      # costs 7s here (run 34382258693, ATTEMPT 1 — cite the attempt: attempt 2 was
+      # cancelled with this step skipped, and both the API and the web UI open a run on
+      # its LATEST attempt). Of that 7s the compile itself is 3s ("Done in 3s", log line
+      # 1117); the rest is Rails boot. It is what guarantees the stylesheet for
       # test/views/error_text_contrast_test.rb, which measures the colour of money-page
       # error text out of the compiled file.
       #
