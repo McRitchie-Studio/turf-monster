@@ -139,7 +139,7 @@ window.survivorBoard = function() {
 
       try {
         if (useOnchainFlow) {
-          var provider = window.walletProvider.requireProvider();
+          var provider = window.walletProvider.requireInlineProvider();
           modal.show('Preparing Transaction', 'Building on-chain transaction…');
           var connectResp = await provider.connect();
           var pubkeyB58 = connectResp.publicKey.toBase58();
