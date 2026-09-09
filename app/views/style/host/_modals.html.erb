@@ -8,8 +8,11 @@
   turf's cards had one. Those mirrors drifted — wallet_setup's dropped the whole
   isMobile axis its real card forks on three times, and wallet_changed's opened
   with a `currentAddress` prop the real card has never read. This section
-  replaces them; /tasks/retire-five-modal-mirrors deletes them once the prose
-  below has landed here.
+  replaced them, and /tasks/retire-five-modal-mirrors then deleted those five
+  from the gem once the prose below had landed here. That is the ORDER this
+  file's cards arrive in, and it is deliberate: transplant the prose first,
+  delete the mirror second, because the prose is the only part of a mirror
+  worth keeping and a deletion takes it with everything else.
 
   WHAT THE GEM OWNS AND WHAT THIS FILE OWNS. The section element, its anchor,
   the heading and the sticky-nav pill are all rendered by studio-engine's
@@ -104,6 +107,126 @@
     <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 text-center space-y-2">
       <div class="text-2xl leading-none">&#128737;&#65039;</div>
       <span class="block h-1.5 w-28 mx-auto rounded" style="background: var(--color-text); opacity: .3"></span>
+    </div>
+  <% end %>
+
+  <%# ─── batch 2, the cheap five (2026-09-09) ───────────────────────────────
+      Five more cards whose engine mirrors carried nothing this app disagrees
+      with, or one fragment each. Their reference prose is transplanted here
+      from style/modals/_quest_success, _ds_newsletter_success,
+      _unsubscribe_goodbye, _wallet_deposit and _network_guard, which are still
+      standing in studio-engine as this lands. Deleting them is a studio-engine
+      task and it comes AFTER, in the same order batch 1 used, so nothing is
+      dropped in the gap. Each drift fragment found on the way is recorded in
+      the card it belongs to, so the reason a prop is absent here survives the
+      file it was measured against.
+
+      FOUR OF THESE FIVE IDS ALSO EXIST ON THE GEM'S OWN Modals section, on this
+      same page, under the same id string. That is harmless at runtime, since the
+      two hosts are separate stores, and it is NOT harmless to a test that asks
+      only whether the id is registered somewhere on the page. The section test
+      filters registrations down to this app's host for exactly that reason. %>
+
+  <%# THE PROPS THE REAL CALLER PASSES ARE NOT THE PROPS THIS CARD READS, which
+      is why the trigger below passes none. Measured 2026-09-09:
+      shared/_alpine_factories swaps to this id with seeds_earned, seeds_total
+      and seeds_level, and modals/_quest_success reads NONE of the three — its
+      x-data is empty and its bar comes from the server-side display_seeds_data
+      helper. Passing them would render an identical card while teaching a
+      reader three prop names the card has never answered to. The retired mirror
+      drifted the other way, inventing a subscribed toggle and a seedsTotal that
+      exist nowhere in this app. %>
+  <%= render layout: "style/modal_specimen", locals: {
+        label:     "Quest success (off-page)",
+        reference: %(turf-monster's modals/_quest_success — the off-page quest celebration, shown when a quest completes away from any quest card. THE SAME BEAT AS THE LEVELING CELEBRATION, reached from somewhere else: that one fires INSIDE the modal that did the work, while this is what the host shows when there was no quest card to advance in place — a /account username change — so the celebration has to arrive on its own. The engine lends blocks/_card_header; the seeds bar is this app's components/_seeds_bar, fed display_seeds_data, which falls back to a zero payload on a cold cache and self-heals from the seedsNavbar value StateFanout just bumped. THE FORK AT THE FOOT is why this is one card and not two: a viewer who has NOT joined the newsletter is offered it as the next quest, so the celebration doubles as the funnel, and one who already has is sent to the contest where the remaining quests live. That gate is SERVER-rendered from current_user.subscribed_to_newsletter?, precisely so the CTA never flashes the wrong option at someone already in — which is also why this card carries no toggle and should not grow one. IT OPENS WITH NO PROPS BY MEASUREMENT rather than by omission: the real swap in shared/_alpine_factories passes seeds_earned, seeds_total and seeds_level, and the partial reads not one of them.),
+        open_expr: "$store.modals.open('quest-success', {})",
+        openable:  true } do %>
+    <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 text-center space-y-2">
+      <div class="text-2xl leading-none">&#127793;</div>
+      <span class="block h-2 w-24 mx-auto rounded" style="background: var(--color-text); opacity: .18"></span>
+      <%# the seeds bar, which is this card's middle %>
+      <span class="flex gap-1">
+        <span class="flex-1 h-2 rounded" style="background: var(--color-primary)"></span>
+        <span class="flex-1 h-2 rounded" style="background: var(--color-primary); opacity: .4"></span>
+        <span class="flex-1 h-2 rounded" style="background: var(--color-primary); opacity: .2"></span>
+      </span>
+      <span class="block h-5 w-full rounded" style="background: var(--color-primary); opacity: .35"></span>
+    </div>
+  <% end %>
+
+  <%= render layout: "style/modal_specimen", locals: {
+        label:     "Subscribed!",
+        reference: %(turf-monster's modals/_newsletter_success — the standalone newsletter celebration, swapped in from the subscribe modal or opened from the /account newsletter row, so it has to carry its own way forward. NOTE THE ID IS newsletter-success: the retired mirror was filed as _ds_newsletter_success and registered as ds-newsletter-success, because the gem's own section already held a leveling card by the plainer name. Nothing in this app answers to the ds- form. TWO FORKS, AND NEITHER IS VISIBLE TO A READER OF THE MARKUP. THE SEEDS BAR IS FIRST-JOIN ONLY — a re-subscribe earns nothing, and the card HIDES the bar rather than showing a flat zero, which would read to the person as a bug about their own account rather than as an accurate zero. THE CTA IS SERVER-DECIDED — with the username quest still open, meaning current_user.next_quest is :username, the button nudges straight into it, and otherwise it sends them off to browse contests; showing only one of those hides the funnel this celebration doubles as. ONLY THE FIRST FORK IS A PROP. The mirror made both into toggles so its cabinet could walk four combinations, and the real card reads exactly one key, props.seeds_earned, gating the bar on it being above zero. The CTA fork is server-rendered, precisely so the button never flashes the wrong option at someone whose quest is already done, and no prop can move it.),
+        open_expr: "$store.modals.open('newsletter-success', { seeds_earned: 25 })",
+        openable:  true } do %>
+    <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 text-center space-y-2">
+      <div class="text-2xl leading-none">&#127793;</div>
+      <span class="block h-2 w-20 mx-auto rounded" style="background: var(--color-text); opacity: .18"></span>
+      <%# the first-join seeds bar, hidden entirely on a re-subscribe %>
+      <span class="flex gap-1">
+        <span class="flex-1 h-2 rounded" style="background: var(--color-primary)"></span>
+        <span class="flex-1 h-2 rounded" style="background: var(--color-primary); opacity: .35"></span>
+        <span class="flex-1 h-2 rounded" style="background: var(--color-primary); opacity: .18"></span>
+      </span>
+      <span class="block h-5 w-full rounded" style="background: var(--color-primary); opacity: .35"></span>
+    </div>
+  <% end %>
+
+  <%= render layout: "style/modal_specimen", locals: {
+        label:     "See you later",
+        reference: %(turf-monster's modals/_unsubscribe_goodbye — the final beat after a confirmed unsubscribe, swapped in by modals/_unsubscribe_confirm. The smallest card in this section, and it earns its place: it is the half of the newsletter story a guide most easily forgets. The way IN is carded twice over, subscribe and Subscribed!, and a section that only ever demonstrates opt-in is not showing the flow, it is showing the happy half of it. APP-SPECIFIC, engine chrome only — the engine owns no newsletter; it lends blocks/_card_header and the tone. THE COPY IS NOT A GUILT TRIP: change your mind anytime from your account is a door left open rather than a plea, and it is worth preserving if this is ever reworded. It reads no props at all, which is the one thing the retired mirror and the real card always agreed on.),
+        open_expr: "$store.modals.open('unsubscribe-goodbye', {})",
+        openable:  true } do %>
+    <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 text-center space-y-2">
+      <div class="text-2xl leading-none">&#9996;&#65039;</div>
+      <span class="block h-2 w-24 mx-auto rounded" style="background: var(--color-text); opacity: .18"></span>
+      <span class="block h-1.5 w-28 mx-auto rounded" style="background: var(--color-text); opacity: .18"></span>
+      <span class="block h-5 w-full rounded" style="background: var(--color-primary); opacity: .35"></span>
+    </div>
+  <% end %>
+
+  <%= render layout: "style/modal_specimen", locals: {
+        label:     "Wallet deposit",
+        reference: %(turf-monster's modals/_wallet_deposit — the top-up card raised by the entry-eligibility blocker when a web3 player lacks the USDC or USDT to cover an entry fee. Symmetric to the tokens-picker step inside auth, which is the web2 path, and kept standalone because deposit state has nothing to do with auth credentials. SINGLE-CARD BY DECISION, no step machinery: the shortfall arithmetic, a Pay with Card CTA, and a copy-your-address row for a player who can self-fund from another wallet. THE THREE PROPS ARE THE ARITHMETIC and the card reads all three, so the numbers on screen are the ones the blocker measured; the Layer 2 interpreter does not know the client's balances, so the opener falls back to the session store rather than letting the card show a plausible zero. WHAT THE MIRROR HAD TO FAKE IS THE TELL: it took the wallet address as a fourth prop with a demo default, because a specimen has no session to read. The real card reads $store.session.address, which is why no address is passed here — what you see is this browser's own session. Its Pay with Card is a real Rails-CSRF form to Stripe checkout targeting a new tab, and its Coinbase rail self-gates on the same cdp_ramp? flag as the greyed card above, so on this stack that rail is simply absent.),
+        open_expr: "$store.modals.open('wallet-deposit', { neededCents: 500, usdcCents: 120, usdtCents: 0 })",
+        openable:  true } do %>
+    <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 space-y-2">
+      <span class="block h-2 w-24 mx-auto rounded" style="background: var(--color-text); opacity: .18"></span>
+      <span class="block h-5 w-full rounded" style="background: var(--color-primary); opacity: .35"></span>
+      <span class="block h-5 w-full rounded border border-strong"></span>
+    </div>
+  <% end %>
+
+  <%# THE CALLBACKS ARE DELIBERATELY NOT PASSED. modals/_network_guard reads six
+      keys, and two of them, onConfirm and onCancel, are functions the opener in
+      app/javascript/solana_utils.js uses to settle a promise. A style-guide
+      trigger has no promise to settle, the card guards both with a truthiness
+      check, and Cancel and Continue simply close without them — so passing a
+      function here would add a brace to the trigger expression and buy nothing.
+      Note also what the opener passes and this card must not: an action key,
+      which solana_utils uses to BUILD the message string and which the partial
+      never reads. %>
+  <%= render layout: "style/modal_specimen", locals: {
+        label:     "Network guard",
+        reference: %(turf-monster's modals/_network_guard — the confirmation shown before a wallet request when the app and the wallet disagree about which network is in play. Raised by confirmSolanaNetworkIntent in app/javascript/solana_utils.js, and only on a real mismatch. APP-SPECIFIC: the engine detects no network and no environment and lends blocks/_card_header alone, so every label here is supplied by this app and only ever DISPLAYED. THE CHECKBOX IS THE POINT and it is not friction for its own sake — a request signed against the wrong network looks identical to a correct one right up until it is irreversible, mainnet money moved on a devnet assumption or the reverse. So the card does three things a plain confirm cannot: it NAMES both the network and the environment, it keeps Continue inert until the person has ticked an explicit acknowledgement, and it gives Cancel equal visual weight rather than burying it. A confirmation whose safe path is harder to reach than its risky one is a formality, and this one is deliberately not. FOUR DISPLAY PROPS ARE PASSED; TWO MORE ARE READ. onConfirm and onCancel are callbacks the opener uses to resolve or reject its promise, and a guide has nothing to settle, so they are left off and both buttons just close. ONLY title CARRIES A DEFAULT in the real card — message, networkLabel and environmentLabel render empty when absent, where the retired mirror defaulted all three and so could never show that.),
+        open_expr: "$store.modals.open('network-guard', { title: 'Check Network', message: 'This wallet request is about to use devnet.', networkLabel: 'devnet', environmentLabel: 'QA' })",
+        openable:  true } do %>
+    <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 text-center space-y-2">
+      <%# A BARE EXCLAMATION MARK, not a warning sign. modals/_network_guard
+          passes icon_emoji as a plain ! and the retired mirror used a warning
+          emoji — a one-glyph drift, and exactly the kind a mini-mock is for. %>
+      <div class="text-2xl leading-none font-bold text-heading">!</div>
+      <%# the two named facts, then the tick that gates Continue %>
+      <span class="block h-1.5 w-full rounded" style="background: var(--color-text); opacity: .3"></span>
+      <span class="block h-1.5 w-full rounded" style="background: var(--color-text); opacity: .3"></span>
+      <span class="flex items-center gap-1.5">
+        <span class="h-3 w-3 rounded border border-strong"></span>
+        <span class="flex-1 h-1.5 rounded" style="background: var(--color-text); opacity: .18"></span>
+      </span>
+      <span class="grid grid-cols-2 gap-1.5">
+        <span class="block h-5 rounded border border-strong"></span>
+        <span class="block h-5 rounded" style="background: var(--color-primary); opacity: .35"></span>
+      </span>
     </div>
   <% end %>
 
