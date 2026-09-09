@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# bin/review-link <path> [--port N] [--email addr]
+#
+# Print the review link to hand Mr. McRitchie for a page on THIS stack — one
+# click that signs him in AND lands him on <path>.
+#
+# WHY THIS SCRIPT EXISTS. The obvious recipe is to mint a token in a console:
+#
+#   bin/rails runner 'l = Studio::Link.create_magic_link(...); puts l.token'
+#
+# On a desk (worktree) stack that silently mints into the WRONG DATABASE. A desk
+# owns its own database via DATABASE_URL in .env.agent-stack, and nothing in
+# config/ or bin/ loads that file — so a bare `bin/rails runner` falls through
+# config/database.yml to the SHARED turf_monster_development. The row lands
+# there, the desk server reads its own database, Studio::LinksController#show
+# finds no such token, and the operator is bounced to /signin holding a link
+# that is alive and unexpired in a database nobody is serving.
+#
+# It fails quietly and it fails often: measured 2026-09-09, 26 review links were
+# minted into the shared development database over three days and exactly ONE
+# was ever consumed.
+#
+# THE FIX IS NOT A BETTER CONSOLE INCANTATION. It is to stop minting out of
+# band. /_studio/local_review mints IN-REQUEST, on the server that will serve
+# the click, so the row cannot land anywhere else. Two properties fall out:
+#
+#   · Right database, by construction — not by remembering to source an env file.
+#   · REUSABLE — each click mints a fresh single-use token, so opening the link
+#     to check it does not spend it. A hand-minted /l/<token> is single-use, and
+#     "let me just make sure it works" is what burns it before he clicks.
+#
+# The endpoint is loopback-only and 404s in production (Studio.local_tool_enabled?).
+#
+# Pinned by test/integration/desk_review_link_test.rb (the mint round-trips
+# through this app's own database) and test/controllers/studio/desk_link_db_binding_test.rb
+# (a token this database does not hold is what produces the /signin bounce).
+
+set -euo pipefail
+
+app_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$app_root"
+
+path=""
+port=""
+email=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --port)  port="$2"; shift 2 ;;
+    --email) email="$2"; shift 2 ;;
+    -h|--help)
+      sed -n '2,4p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0 ;;
+    *)
+      if [ -z "$path" ]; then path="$1"; shift; else
+        echo "review-link: unexpected argument '$1'" >&2; exit 64
+      fi ;;
+  esac
+done
+
+[ -n "$path" ] || path="/"
+case "$path" in
+  /*) ;;
+  *) path="/$path" ;;
+esac
+
+# The desk's port comes from its own env file, so nobody has to remember to
+# source it. Fall back to the primary stack's 3100.
+if [ -z "$port" ] && [ -f .env.agent-stack ]; then
+  port="$(grep -E '^PORT=' .env.agent-stack | tail -1 | cut -d= -f2- | tr -d '"'"'"' ')"
+fi
+[ -n "$port" ] || port="3100"
+
+base="http://localhost:${port}"
+
+# Percent-encode return_to. A bare '#' would be swallowed as a fragment and the
+# operator would land on the page but not the anchor he was sent to.
+encoded="$(printf '%s' "$path" | sed -e 's/%/%25/g' -e 's/#/%23/g' -e 's/&/%26/g' -e 's/?/%3F/g' -e 's/ /%20/g' -e 's/+/%2B/g')"
+url="${base}/_studio/local_review?return_to=${encoded}"
+[ -n "$email" ] && url="${url}&email=${email}"
+
+die() { echo "review-link: $*" >&2; exit 1; }
+
+# Never print a link that has not been proven to work. A URL that greets the
+# operator with a sign-in wall is worse than no URL: he cannot tell whether the
+# page is broken or the link is.
+code="$(curl -s -o /dev/null -w '%{http_code}' -m 20 "${base}/signin" || true)"
+case "$code" in
+  2*|3*) ;;
+  000) die "nothing is serving ${base} — start it with: bin/agent-worktree up turf-monster <task-slug>" ;;
+  *)    die "${base}/signin answered ${code}; the stack is not healthy yet" ;;
+esac
+
+# Follow the mint once. This BURNS the token it makes, which is exactly why the
+# endpoint is the right thing to hand over: the operator's click mints his own.
+location="$(curl -s -o /dev/null -m 20 -w '%{redirect_url}' "$url" || true)"
+case "$location" in
+  *"/magic_link/"*) ;;
+  "")
+    code="$(curl -s -o /dev/null -w '%{http_code}' -m 20 "$url" || true)"
+    if [ "$code" = "404" ]; then
+      die "/_studio/local_review is 404 here — it is loopback-only and disabled in production"
+    fi
+    die "/_studio/local_review answered ${code} without a redirect; cannot verify the link"
+    ;;
+  *"/signin"*)
+    die "the mint bounced to /signin — this stack has no admin to sign in; pass --email <addr>" ;;
+  *)
+    die "unexpected redirect from /_studio/local_review: ${location}" ;;
+esac
+
+# The token must resolve against THIS server's database. That is the whole
+# failure this script exists to prevent, so assert it rather than assume it.
+code="$(curl -s -o /dev/null -w '%{http_code}' -m 20 "$location" || true)"
+[ "$code" = "200" ] || die "the freshly minted token did not resolve (${code}) — the mint and the server disagree about the database"
+
+echo "$url"
