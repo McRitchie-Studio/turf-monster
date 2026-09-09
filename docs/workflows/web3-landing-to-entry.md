@@ -51,7 +51,7 @@ Phantom must be installed in the browser or available via mobile deep link.
      contest_path(@contest.slug, scroll: 280)` with `target: "_blank"`
      (`app/views/landing_pages/show.html.erb:65-67`).
    - The `scroll=280` param drives a `window.scrollTo` past the hero chrome to
-     the matchup board (`app/views/contests/show.html.erb:224-237`).
+     the matchup board (`app/views/contests/show.html.erb:236-249`).
    - Route: `get "lp/:slug", to: "landing_pages#show", as: :landing_page` —
      `config/routes.rb:139`.
 
@@ -63,11 +63,11 @@ Phantom must be installed in the browser or available via mobile deep link.
      rows from non-admins (`:2589-2590`). On a miss it logs a forensic
      `[set_contest:miss]` warning — slug, path, referer, turbo-frame, user
      agent — for the recurring "Contest not found" toast (`:2598-2609`).
-   - `render "contests/hero"` (`app/views/contests/show.html.erb:14`) and
-     `render "contests/contest_header"` (`:17`) are unconditional. Only the
+   - `render "contests/hero"` (`app/views/contests/show.html.erb:26`) and
+     `render "contests/contest_header"` (`:29`) are unconditional. Only the
      matchup board is gated: contest `open?`, not cancelled, and the viewer
      holding no entry — unless `show_board_for_existing_entry` opens it back
-     up for `?add_entry=true` (`:59`).
+     up for `?add_entry=true` (`:71`).
    - The board partial mounts `x-data="selectionBoard()"` —
      `app/views/contests/_turf_totals_board.html.erb:2049`. The factory is
      defined inline as `window.selectionBoard = function()` (`:159`) because
