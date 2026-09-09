@@ -217,8 +217,10 @@ jobs:
       # `tailwindcss:build`. The hook is reached through the task's body, never through
       # the dependency graph, which is why reading the graph alone misleads.
       #
-      # WHY THE STEP STAYS ANYWAY — the third cell. `run_from_rake` forwards ENV["TEST"]
-      # and ENV["TESTOPTS"] into that argv, and TestCommand skips the prepare task as
+      # WHY THE STEP STAYS ANYWAY — the third cell. Both ENV["TEST"] and ENV["TESTOPTS"]
+      # reach that argv, from DIFFERENT layers: the rake task passes ENV["TEST"]
+      # (testing.rake, `run_from_rake("test", Array(ENV["TEST"]))`) and run_from_rake
+      # itself splices ENV["TESTOPTS"]. TestCommand then skips the prepare task as
       # soon as an argument looks like a path or `-n`. Adding a filter to the line below
       # therefore silences the hook while the command still READS the same. This step
       # costs 7s here (run 34382258693, ATTEMPT 1 — cite the attempt: attempt 2 was

@@ -95,8 +95,10 @@ class TailwindTestPrepareHookTest < ActiveSupport::TestCase
   # LINK 4 — and the reason the explicit build step STAYS.
   #
   # TestCommand only runs the prepare task when nothing in argv looks like a path
-  # or a `-n` filter. `run_from_rake` forwards `ENV["TEST"]` and `ENV["TESTOPTS"]`
-  # into that argv, so adding either to the CI line silences the hook without
+  # or a `-n` filter. `ENV["TEST"]` and `ENV["TESTOPTS"]` both reach that argv, but
+  # from different layers: the rake task passes `ENV["TEST"]` positionally
+  # (testing.rake), while `run_from_rake` splices `ENV["TESTOPTS"]` (runner.rb).
+  # So adding either to the CI line silences the hook without
   # changing a visible word of the command. Measured on ubuntu-latest: with
   # `TEST=test/lib/ci_job_timeout_test.rb` set, the same line left the stylesheet
   # absent. The explicit build step is what survives that edit.
