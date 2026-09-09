@@ -198,7 +198,7 @@ Phantom must be installed in the browser or available via mobile deep link.
 
 9. **Web3 entry: prepare + sign + confirm.** `confirmEntry()` branches on
    `sess.isWeb3 && this.contestOnchain`
-   (`_turf_totals_board.html.erb:1621`).
+   (`_turf_totals_board.html.erb:1618`).
    - **Wallet re-assert.** `provider.connect()` runs first, and a `pubkeyB58`
      that does not match the session address aborts before any server call
      (`:1638-1642`).
