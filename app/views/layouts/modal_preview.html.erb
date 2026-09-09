@@ -280,9 +280,11 @@
           above: this preview layout keeps its own list, and a modal in only one
           of them renders as a blank card in the other. The catalogue entry for
           this card moved to the engine style guide on 2026-08-24, but the
-          registration STAYS: #modal_preview is addressed by id and does not
-          consult MODAL_VARIANTS, and this app's component test for the card
-          previews it through here.
+          registration STAYS: #modal_preview is addressed by id and consults no
+          catalogue at all, and this app's component test for the card previews
+          it through here. (It never consulted one — the MODAL_VARIANTS this
+          note used to name was the retired gallery page's list, not this
+          layout's, which is the whole reason the two could drift.)
 
           Same partial and same locals as the app layout, via the helper — this
           card is exactly where an inline copy drifted before. %>

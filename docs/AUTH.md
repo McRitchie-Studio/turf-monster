@@ -748,31 +748,44 @@ Rules worth knowing:
   before the column existed has one, and there is no backfill — the brand is not
   recoverable from an address. Those users get the same card with the picker as
   its primary action.
-- **The showroom is moving.** `/admin/modals` is DEPRECATED as a destination
-  (operator direction, 2026-08-21): modal primitive work goes to the engine's
-  living style guide at `/admin/style#modals`, where a modal is inherited by
-  every Studio app instead of being turf's alone. The page still stands because
-  5 modal ids have no card in the engine guide yet (`wallet-setup`,
-  `wallet-changed`, `cdp-ramp`, `buy-entry-token`, `cosign-rejected`) — port
-  first, delete second, so no state loses its review surface on the way out.
-  A NAME LEAVES THIS LIST FOR ONE OF TWO REASONS, and they are not the same
+- **The showroom moved, and then it closed.** `/admin/modals` was DEPRECATED as
+  a destination on 2026-08-21 (operator direction) and RETIRED on 2026-09-08:
+  modal primitive work goes to the engine's living style guide at
+  `/admin/style#modals`, where a modal is inherited by every Studio app instead
+  of being turf's alone. The five ids that held the old page open the longest
+  (`wallet-setup`, `wallet-changed`, `cdp-ramp`, `buy-entry-token`,
+  `cosign-rejected`) all have cards on the guide now — in TURF's own section at
+  `/admin/style#host-modals`, rendered from
+  `app/views/style/host/_modals.html.erb` against the real partials. Port first,
+  delete second: no state lost its review surface on the way out, and what
+  follows is the record of how each name left. Expect ONE of the five to be
+  greyed out when you go and look: `cdp-ramp`'s registration is gated on
+  `cdp_ramp_modal_available?`, so on any stack without `ENABLE_CDP_RAMP` (which
+  is every stack but QA and production) its card renders disabled, carrying the
+  flag's name instead of a trigger. That is the honest state, not a missing
+  card — a live trigger there would open an empty panel.
+  A NAME LEFT THIS LIST FOR ONE OF THREE REASONS, and they are not the same
   reason. Either the engine now OWNS the partial and shows its states (a true
-  port, as `web3-step-up` was below), or this page turned out never to be that modal's
-  review surface at all (it drew an EMPTY card). An engine SPECIMEN of a card
-  turf still owns is neither: it does not review turf's partial, so it does not
-  retire a name from this list. Measure against that bar, not against a
-  matching id in the engine guide.
+  port, as `web3-step-up` was below); or this page turned out never to be that
+  modal's review surface at all (it drew an EMPTY card); or turf CARDS ITS OWN
+  partial on the shared guide, which is the route studio-engine 0.71.0 opened
+  and how the last five went. An engine SPECIMEN of a card turf still owns is
+  none of the three: it does not review turf's partial, so it never retired a
+  name from this list. Measure against that bar, not against a matching id in
+  the engine guide.
   2026-09-06 (/tasks/drop-dead-gallery-cards) took three names off by the
   SECOND route: `quest-success`, `unsubscribe-confirm` and `unsubscribe-goodbye`
   were registered in `layouts/application` but never in `layouts/modal_preview`,
   and `admin/modal_preview.html.erb` has no dynamic fallback, so each drew a
-  blank card here. This page was never their showroom, so it is not holding one
-  open for them. The same change dropped the five `Templates` cards (a TRUE
+  blank card there. That page was never their showroom, so it was not holding
+  one open for them. The same change dropped the five `Templates` cards (a TRUE
   port — the engine owns and cards `studio/modals/templates/*` itself) and the
   three remaining blank Quest / Newsletter cards (`free-entry-earned`,
   `newsletter-subscribe`, `newsletter-success`).
-  `cosign-rejected` STAYS: it is registered once in `modals/_host_extras`, which
-  studio-engine's host renders on every path, so it genuinely draws here.
+  `cosign-rejected` STAYED to the end, by the FIRST route's opposite: it is
+  registered once in `modals/_host_extras`, which studio-engine's host renders on
+  every path, so it genuinely drew a card rather than a blank one. It left by the
+  THIRD route with the other four.
   `web3-step-up` came off this list on 2026-08-24: the card had moved out of this
   app, and the engine's style guide shows both of its states — it renders
   solana-studio's real partial there, not a specimen copy — so its cards here were
@@ -864,11 +877,17 @@ Rules worth knowing:
   on the first-name card. The picker can therefore still land on top of a walking
   chain (a cosmetic stack). Who owns the screen after the chain, and after age
   verification where the board runs its own resume, is an open design question.
-- **The showroom** is `/admin/modals` → **Flows** (`AdminController::MODAL_FLOWS`),
-  which walks the steps on the live modal host. It is pinned to
-  `OnboardingFlow::STEPS` by a test, so a new step cannot go unshown. These
-  flows are intended to move to the engine's `/admin/style#modals` later, which
-  needs a studio-engine release plus a pin bump in turf.
+- **The chain has no showroom, but its pin outlived one.** The ordered
+  walk-through lived at `/admin/modals` → **Flows** (`AdminController::MODAL_FLOWS`)
+  until the gallery was retired on 2026-09-08; the section, the route and the
+  constant all went with it. The invariant it carried did not.
+  `OnboardingFlow::STEPS` is pinned in `test/controllers/onboarding_gallery_test.rb`
+  — "the chain driver opens a modal for every step OnboardingFlow resolves" —
+  which asserts against the layout's own chain driver rather than against a
+  review page, so a new step now strands a user in a red assertion instead of
+  merely going unlisted in a gallery. The individual cards stay reviewable on the
+  living style guide (`/admin/style#host-modals`); the ordered walk is not, and
+  nothing replaced it.
 
 ## Account Management
 

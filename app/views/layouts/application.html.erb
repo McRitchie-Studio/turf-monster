@@ -2070,10 +2070,24 @@
       <% end %>
 
 
-      <%# Template reference modals — registered in non-production only so
-          they don't add JS surface area to prod. Surfaced at the top of
-          /admin/modals as "Templates" so new modal work has copy-paste
-          starting points. %>
+      <%# Template reference modals — the copy-from archetypes under
+          studio/modals/templates/, registered in non-production only so they
+          don't add JS surface area to prod.
+
+          NOTHING IN THIS APP OPENS ONE. There is no trigger, no link and no
+          entry in layouts/modal_preview's own registration list, so these five
+          are reachable only by opening the id on this host by hand. Their
+          REVIEW surface is elsewhere and needs none of this: the engine's
+          living style guide cards all five in its own Templates section at
+          /admin/style#modals, and it opens them on the guide's page-scoped
+          dsModals host rather than on this one.
+
+          The claim this replaces said they were surfaced at the top of
+          /admin/modals as Templates. That page never had a Templates section
+          in the first place, so the sentence was already false before the
+          gallery was retired on 2026-09-08 — the retirement only made it
+          obvious. What these registrations buy is a real host to open an
+          archetype on while copying from it. %>
       <% unless Rails.env.production? %>
         <template x-if="$store.modals.current().id === 'template-form'">
           <%= render "studio/modals/templates/form" %>

@@ -1023,9 +1023,12 @@
       init() {
         var self = this;
         var p = this.props;
-        // Gallery preview affordance: MODAL_VARIANTS is a static constant and
-        // can't carry a live ISO deadline, so demoCountdownMinutes synthesizes
-        // one at mount (0 → already expired, for the late-send preview).
+        // Preview affordance: a caller that hands this card static props can't
+        // carry a live ISO deadline, so demoCountdownMinutes synthesizes one at
+        // mount (0 → already expired, for the late-send preview). Written for
+        // the MODAL_VARIANTS catalogue, which was retired with /admin/modals on
+        // 2026-09-08; it is still driven, now from cdp_preview_smoke_test
+        // through /admin/modals/preview.
         if (p.demoCountdownMinutes != null && !p.deadlineAt) {
           p.deadlineAt = new Date(Date.now() + p.demoCountdownMinutes * 60000).toISOString();
         }

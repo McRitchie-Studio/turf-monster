@@ -13,7 +13,7 @@ class AdminController < ApplicationController
   # SURVIVES ITS GALLERY, deliberately. /admin/modals was retired 2026-09-08 —
   # turf cards its own modals on /admin/style#host-modals now, against the real
   # partials. This action and layouts/modal_preview are kept ONLY as a render
-  # seam for the nine test files that drive them and never touched the gallery
+  # seam for the test files that drive them and never touched the gallery
   # page. Nothing links here; it is not a review surface, and layouts/
   # modal_preview keeps a SECOND registration list which has drifted before
   # (it is why six gallery cards rendered empty for months). Retiring it is
