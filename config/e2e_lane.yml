@@ -790,7 +790,17 @@
 # formed tag pointing at a 404 fails here and passes everywhere else.
 # Re-derived with bin/e2e-lane-derive --write ON THE MERGED TREE, not by
 # arithmetic on the conflict this line has now hit a fourth time.
-total_specs: 265
+#
+# 265 -> 266 (error-paragraphs-lack-live-regions): one spec added to the EXISTING
+# e2e/auth_modal.spec.js. That task made live regions of twelve error paragraphs,
+# five of which were `<template x-if="<error>">` and so did not exist until the
+# error did. The component tier pins that markup shape for all thirteen, but it
+# reads SOURCE: it cannot see whether Alpine really leaves the element mounted
+# once the modal's own step template has rendered. The spec reads the region
+# while it is still EMPTY and then watches it fill, which is the ordering no
+# source scan can reach. Re-derived with bin/e2e-lane-derive --write ON THE
+# MERGED TREE, after this line conflicted with #639's bump of the same counter.
+total_specs: 266
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1069,7 +1079,12 @@ allowed_skips: 4
 # excluded stays 17 and allowed_skips stays 4 — both listers agree, which is
 # what proves the new spec brought no runtime skip with it. Re-derived with
 # bin/e2e-lane-derive --write ON THE MERGED TREE, not by arithmetic.
-executed: 244
+#
+# 244 -> 245 (error-paragraphs-lack-live-regions): the auth-modal live-region
+# spec described beside total_specs above. It is not tagged @devnet and does not
+# skip, so excluded stays 17 and allowed_skips stays 4. Re-derived with
+# bin/e2e-lane-derive --write ON THE MERGED TREE, not by arithmetic.
+executed: 245
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

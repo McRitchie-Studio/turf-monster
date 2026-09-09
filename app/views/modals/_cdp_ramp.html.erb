@@ -213,9 +213,13 @@
         </div>
       </template>
 
-      <template x-if="props.sendError">
-        <p class="text-danger-ink text-xs text-center mt-3" x-text="props.sendError"></p>
-      </template>
+      <%# LIVE REGION, NOT A CONDITIONAL INSERT. This was a template x-if, so
+          the paragraph did not exist until the send failed, and a region
+          inserted alongside its own content is not reliably announced. It is
+          now mounted and empty for the whole life of the sending step.
+          Guard: test/views/error_live_regions_test.rb %>
+      <p x-show="props.sendError" x-cloak role="alert" aria-live="assertive" aria-atomic="true"
+         class="text-danger-ink text-xs text-center mt-3" x-text="props.sendError"></p>
     </div>
   </template>
 
