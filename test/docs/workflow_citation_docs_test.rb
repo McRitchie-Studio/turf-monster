@@ -88,6 +88,29 @@ require "prism"
 #      here. Those citations name the file and the symbol, and are checked
 #      against the RESOLVED gem — the symbol survives the bump, the number would
 #      not.
+#   5. THE SYMBOL BRANCH DOES NOT COVER EVERY CITATION, and the gap is not
+#      random. Measured 2026-09-09: 164 citations, 131 on the symbol branch, 33
+#      on the literal fallback — and ALL SEVEN citations on
+#      `app/views/layouts/application.html.erb`, the whole Phantom
+#      connect-and-sign surface, are in that 33. The cause is mechanical, not
+#      editorial: JS_DEF below requires `function name(...) {`, and that file
+#      writes `window.solanaConnectAndVerify = async function(walletName, opts)`,
+#      so no line in its ~400-line body has an enclosing definition to anchor on.
+#      A reader following a security claim is the reader most likely to land
+#      there, and there the guard proves the words are present, not that the code
+#      is. The preamble of the guarded document says so, and
+#      "the preamble states the split ..." below holds it to those numbers.
+#   6. A WIDE SYMBOL MAKES THE SYMBOL BRANCH NEARLY AS WEAK AS THE FALLBACK. The
+#      symbol branch asks only that the cited line fall SOMEWHERE inside the
+#      named definition. `confirmEntry()` spans 410 lines and 11 citations land
+#      in it, so any of those numbers could be a hundred lines off and still
+#      anchor. That is how `:201` cited `_turf_totals_board.html.erb:1621` — a
+#      BLANK line, three past the `useOnchainFlow` branch it names at :1618 — and
+#      passed. This is NOT fixed by tightening the anchor: a citation
+#      legitimately points into a long function, and demanding a tighter match
+#      would redden honest ones. What IS fixed is the degenerate case — a
+#      citation whose cited lines are entirely blank is now rejected outright, at
+#      0 false positives across all 164. The rest of the weakness stands stated.
 class WorkflowCitationDocsTest < ActiveSupport::TestCase
   GUARDED_DOCS = %w[docs/workflows/web3-landing-to-entry.md].freeze
 
@@ -107,6 +130,12 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   ].freeze
 
   MIN_LITERAL_TOKEN = 6
+
+  # The one guarded file whose citations ALL ride the literal fallback (limit 5).
+  # The guarded document names it to its reader; this constant is what holds the
+  # document to that claim, so if the file ever grows a definition the guard can
+  # see, the preamble goes stale LOUDLY instead of quietly.
+  FALLBACK_ONLY_FILE = "app/views/layouts/application.html.erb"
 
   # A citation: `path/to/file.rb:12`, `file.rb:12-18`, `:12`, `:12, 20-24`.
   LINES  = /\d+(?:-\d+)?(?:,\s*\d+(?:-\d+)?)*/
@@ -187,7 +216,114 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
     end
   end
 
+  # A citation whose cited lines are ALL blank names nothing. It clears the
+  # symbol branch because a wide definition swallows it (limit 6) and it clears
+  # the literal branch because a blank line has no token to reject, so it is
+  # invisible to every other check here. web3-landing-to-entry.md:201 cited
+  # _turf_totals_board.html.erb:1621 that way — blank, three lines past the
+  # branch it named — and stayed green.
+  test "no citation lands on lines that are entirely blank" do
+    blank = citations.select { |c| blank_citation?(c) }
+    assert_empty blank.map { |c| "#{c[:doc]}:#{c[:line]}  #{c[:raw]}  -> #{c[:path]}" },
+                 "citation points at blank lines, which name nothing — cite the code, " \
+                 "not the gap after it"
+  end
+
+  # The guard above is VACUOUSLY green on a correct document, so this proves it
+  # bites. Nothing is hard-coded: a blank line and a non-blank line are located
+  # at run time, so the control cannot itself go stale.
+  test "the blank-line rejection rejects a blank citation and only a blank one" do
+    lines       = source(FALLBACK_ONLY_FILE)
+    blank_no    = lines.index { |l| l.strip.empty? }&.succ
+    nonblank_no = lines.index { |l| !l.strip.empty? }&.succ
+    assert blank_no,    "expected #{FALLBACK_ONLY_FILE} to contain a blank line"
+    assert nonblank_no, "expected #{FALLBACK_ONLY_FILE} to contain a non-blank line"
+
+    assert blank_citation?(cite_at(FALLBACK_ONLY_FILE, blank_no..blank_no)),
+           "the rejection passed #{FALLBACK_ONLY_FILE}:#{blank_no}, which is blank — " \
+           "the guard above is inert"
+    refute blank_citation?(cite_at(FALLBACK_ONLY_FILE, nonblank_no..nonblank_no)),
+           "the rejection failed #{FALLBACK_ONLY_FILE}:#{nonblank_no}, which is not blank"
+
+    lo, hi = [blank_no, nonblank_no].minmax
+    refute blank_citation?(cite_at(FALLBACK_ONLY_FILE, lo..hi)),
+           "the rejection failed #{FALLBACK_ONLY_FILE}:#{lo}-#{hi} — a range that merely " \
+           "CONTAINS a blank line is legitimate; only an all-blank one names nothing"
+  end
+
+  # THE PREAMBLE MAKES CLAIMS ABOUT THIS GUARD, so this guard checks them. An
+  # unenforced number in prose is the exact defect the document exists to
+  # prevent, and it gets no exemption for being a number about the guard itself.
+  test "the preamble states the split between the symbol branch and the fallback" do
+    symbol   = citations.count { |c| enclosing_names(c).any? }
+    fallback = citations.size - symbol
+
+    m = preamble_text.match(/\*\*(\d+) of the (\d+) citations\*\*/)
+    assert m, "the preamble must state how many citations get the SYMBOL check, written " \
+              "`**N of the M citations**`. Left unqualified it promises a reader a check " \
+              "that #{fallback} citations in this document do not get."
+    said_symbol, said_total = m[1].to_i, m[2].to_i
+    said_fallback = preamble_text[/[Tt]he other \*\*(\d+)\*\*/, 1].to_i
+
+    assert_equal [symbol, citations.size, fallback], [said_symbol, said_total, said_fallback],
+                 "the preamble says #{said_symbol} of #{said_total} on the symbol branch and " \
+                 "#{said_fallback} on the fallback; measured #{symbol} of #{citations.size} " \
+                 "and #{fallback}. Re-derive the numbers in the preamble — do not drop them."
+  end
+
+  # The share alone would let a reader assume the fallback is scattered noise. It
+  # is not: it is concentrated, and it covers the signing surface whole.
+  test "the file the preamble names as fallback-only really is fallback-only" do
+    m = preamble_text.match(/\*\*All (\d+) citations on `([^`]+)`/)
+    assert m, "the preamble must name the file whose citations ALL ride the weaker " \
+              "fallback, written **All N citations on `path`**"
+    said_count, said_path = m[1].to_i, m[2]
+    assert_equal FALLBACK_ONLY_FILE, said_path,
+                 "the preamble names #{said_path}; this guard tracks #{FALLBACK_ONLY_FILE}"
+
+    on_file = citations.select { |c| c[:path] == said_path }
+    assert_equal said_count, on_file.size,
+                 "the preamble says #{said_count} citations on #{said_path}; there are #{on_file.size}"
+
+    symbol_checked = on_file.select { |c| enclosing_names(c).any? }
+    assert_empty symbol_checked.map { |c| "#{c[:doc]}:#{c[:line]} #{c[:raw]} inside #{enclosing_names(c).join(", ")}" },
+                 "the preamble tells a reader EVERY citation on #{said_path} rides the weaker " \
+                 "fallback branch. These no longer do, so the preamble now understates the " \
+                 "guard — move the prose"
+  end
+
   # ---------------------------------------------------------------- machinery
+
+  # A citation whose cited lines are all blank. `body.any?` keeps an out-of-range
+  # citation out of this report: "past the end of the file" is a different defect
+  # with a different remedy, and the bounds test above owns it.
+  def blank_citation?(citation)
+    return false unless citation[:path] && File.exist?(abs(citation[:path]))
+    body = citation[:ranges].flat_map { |r| source(citation[:path])[(r.first - 1)..(r.last - 1)] || [] }
+    body.any? && body.all? { |l| l.to_s.strip.empty? }
+  end
+
+  def cite_at(path, range)
+    { doc: GUARDED_DOCS.first, line: 0, raw: "#{path}:#{range.first}-#{range.last}",
+      kind: :path, path: path, ranges: [range] }
+  end
+
+  # The guarded document's preamble as ONE line. Blockquote markers and hard
+  # wraps are typography, not content, and a claim must not escape a check by
+  # landing on a line break.
+  def preamble_text
+    @preamble_text ||= begin
+      lines = doc_lines(GUARDED_DOCS.first)
+      start = lines.index { |l| l.start_with?(">") }
+      if start
+        fin = start
+        fin += 1 while fin + 1 < lines.size && lines[fin + 1].start_with?(">")
+        lines[start..fin].map { |l| l.sub(/\A>\s?/, "") }.join(" ").gsub(/\s+/, " ")
+      else
+        ""
+      end
+    end
+  end
 
   def abs(rel) = Rails.root.join(rel).to_s
 
