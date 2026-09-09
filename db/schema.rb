@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_07_193251) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_09_060000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -263,6 +263,28 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_07_193251) do
     t.index ["user_id", "contest_id", "entry_number"], name: "index_entries_on_user_contest_entry_number", unique: true, where: "(entry_number IS NOT NULL)"
     t.index ["user_id", "contest_id"], name: "index_entries_on_user_id_and_contest_id"
     t.index ["user_id"], name: "index_entries_on_user_id"
+  end
+
+  create_table "entry_gifts", force: :cascade do |t|
+    t.datetime "claimed_at"
+    t.bigint "claimed_by_id"
+    t.bigint "contest_id"
+    t.datetime "created_at", null: false
+    t.string "mint_error"
+    t.string "mint_ref", null: false
+    t.string "mint_signature"
+    t.datetime "minted_at"
+    t.text "note"
+    t.string "recipient_email", null: false
+    t.bigint "sender_id", null: false
+    t.datetime "updated_at", null: false
+    t.string "wallet_address"
+    t.index ["claimed_by_id"], name: "index_entry_gifts_on_claimed_by_id"
+    t.index ["contest_id"], name: "index_entry_gifts_on_contest_id"
+    t.index ["created_at"], name: "index_entry_gifts_on_created_at"
+    t.index ["mint_ref"], name: "index_entry_gifts_on_mint_ref", unique: true
+    t.index ["recipient_email"], name: "index_entry_gifts_on_recipient_email"
+    t.index ["sender_id"], name: "index_entry_gifts_on_sender_id"
   end
 
   create_table "error_logs", force: :cascade do |t|
@@ -971,6 +993,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_07_193251) do
   add_foreign_key "email_deliveries", "users"
   add_foreign_key "entries", "contests"
   add_foreign_key "entries", "users"
+  add_foreign_key "entry_gifts", "contests"
+  add_foreign_key "entry_gifts", "users", column: "claimed_by_id"
+  add_foreign_key "entry_gifts", "users", column: "sender_id"
   add_foreign_key "games", "survivor_rounds"
   add_foreign_key "landing_pages", "contests", on_delete: :nullify
   add_foreign_key "messages", "contests"

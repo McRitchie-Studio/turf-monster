@@ -500,6 +500,24 @@ class TestController < ApplicationController
     render json: { ok: true, token: token, url: link_path(token: token) }
   end
 
+  # Reveals the claim link for a gift a spec just sent through /admin/entry_gifts.
+  #
+  # READ-ONLY BY DESIGN — it creates no gift and mints no link. The spec drives
+  # the real admin form for that, so what it claims is the link the real send
+  # path produced; an endpoint that built its own would let the two drift and the
+  # e2e would certify a fiction.
+  def entry_gift_link
+    return head :forbidden unless Rails.env.test? || Rails.env.development?
+
+    gift = EntryGift.where(recipient_email: params[:email].to_s.strip.downcase)
+                    .order(:created_at).last
+    return render json: { ok: false, error: "no gift for that address" }, status: :not_found if gift.nil?
+    return render json: { ok: false, error: "gift has no link" }, status: :not_found if gift.link.nil?
+
+    render json: { ok: true, token: gift.link.token, url: link_path(token: gift.link.token),
+                   status: gift.status }
+  end
+
   # Read-only JSON view of a user's referral state so specs can assert
   # without scraping HTML. Looks up by slug (path param).
   def user_info

@@ -337,3 +337,68 @@ test("credential controls stay live when the opener omits submitting @smoke", as
   await expect(dialog.getByRole("button", { name: "Email Link" })).toBeDisabled();
   await expect(dialog.locator('input[placeholder="you@example.com"]')).toBeDisabled();
 });
+
+test("the credentials form error is a live region that existed before the error @smoke", async ({ page }) => {
+  // THE RESTRUCTURED HALF OF /tasks/error-paragraphs-lack-live-regions, proved
+  // at runtime. That task made live regions of twelve error paragraphs, and
+  // five of them — these three in the auth modal, plus cdp_ramp's send failure
+  // and wallet_changed's — were `<template x-if="<error>">`, so the paragraph
+  // did not exist until the error did. A live region INSERTED alongside its own
+  // content is not reliably announced: assistive technology has to be observing
+  // the region before the text lands in it, so putting aria-live on that markup
+  // would have been a green test over an unchanged experience.
+  //
+  // test/views/error_live_regions_test.rb pins that shape for all thirteen
+  // paragraphs, but it reads SOURCE — it cannot see whether Alpine really
+  // leaves the element mounted once the modal's own `<template x-if>` step has
+  // rendered. That is this test's job, and the ORDER is the assertion: the
+  // region is read while still EMPTY, then watched to fill.
+  //
+  // DRIVEN BY A SERVER REFUSAL, NOT A BLANK SUBMIT. `sendMagicLinkStandalone`
+  // also sets formError to "Enter your email." on an empty field, but that
+  // branch is UNREACHABLE from the UI: the emailValidator installs a
+  // CAPTURE-phase submit gate (shared/_alpine_factories.html.erb) that
+  // stopPropagation()s an invalid or empty address, so the bubble-phase
+  // @submit.prevent never runs and submitMagicLink is never called. Measured
+  // 2026-09-09 — a blank-submit version of this test watched an empty region
+  // for the full timeout. A well-formed address the SERVER refuses is the path
+  // a real user takes to this sentence.
+  await page.goto("/signin");
+
+  await page.evaluate(() => {
+    Alpine.store("modals").open("auth", { step: "credentials" });
+  });
+
+  // SCOPED TO THE MODAL, for the reason the spec above this one records:
+  // /signin also renders shared/_auth_card, which has its own Email Link form
+  // and now its own error live region. Measured here: two "Email Link" buttons
+  // on this page, one of them outside the dialog.
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("heading", { name: "Sign in" })).toBeVisible();
+
+  const region = dialog.locator('p[x-text="props.formError"]');
+
+  // 1. It is here, before anything has failed, and it is empty.
+  await expect(region).toHaveAttribute("role", "alert");
+  await expect(region).toHaveAttribute("aria-live", "assertive");
+  await expect(region).toHaveAttribute("aria-atomic", "true");
+  expect((await region.textContent()).trim()).toBe("");
+
+  // 2. Now make the send fail, the way the server does.
+  await page.route("**/magic_link", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ success: false, error: "That address is not allowed." }),
+    })
+  );
+
+  await dialog.locator('input[placeholder="you@example.com"]').fill("live-region@example.com");
+  await dialog.getByRole("button", { name: "Email Link" }).click();
+
+  // 3. It fills IN PLACE. Same element handle throughout — a re-inserted node
+  //    would leave this locator resolving something else, which is exactly the
+  //    difference between x-show and the x-if this replaced.
+  await expect(region).toHaveText("That address is not allowed.");
+  await expect(region).toBeVisible();
+});

@@ -540,6 +540,14 @@ Rails.application.routes.draw do
     # a footgun no support workflow needs.
     post "free_entries/:user_slug/burn",       to: "free_entries#burn",     as: :burn_free_entries
 
+    # Entry gifts — "send my friend a free entry". Distinct from free_entries
+    # above, which mints to EXISTING users by their earned level; this one is
+    # addressed to an EMAIL that may have no account yet, and carries the invite.
+    get  "entry_gifts",                        to: "entry_gifts#index",      as: :entry_gifts
+    post "entry_gifts",                        to: "entry_gifts#create"
+    post "entry_gifts/:id/resend",             to: "entry_gifts#resend",     as: :resend_entry_gift
+    post "entry_gifts/:id/retry_mint",         to: "entry_gifts#retry_mint", as: :retry_mint_entry_gift
+
     # Vault init (one-time mainnet setup — Phantom cosigns as INIT_AUTHORITY)
     get  "vault_init",                         to: "vault_init#show",       as: :vault_init
     post "vault_init/build",                   to: "vault_init#build",      as: :build_vault_init
@@ -614,6 +622,7 @@ Rails.application.routes.draw do
   # the controller stays unreachable in production.
   unless Rails.env.production?
     post "test/reseed",                   to: "test#reseed"
+    post "test/entry_gift_link",          to: "test#entry_gift_link"
     post "test/use_phantom_mock_admin",   to: "test#use_phantom_mock_admin"
     post "test/restore_canonical_admin",  to: "test#restore_canonical_admin"
     post "test/oauth_mock",               to: "test#set_oauth_mock"

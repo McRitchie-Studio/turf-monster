@@ -1,0 +1,109 @@
+<% content_for(:title, "Entry Gifts — Admin") %>
+<%
+  field_class = "w-full text-sm rounded-md border border-subtle px-2 py-1.5"
+  field_style = "background: var(--color-bg-surface); color: var(--color-text-primary);"
+%>
+
+<div class="max-w-5xl mx-auto py-8 px-4 space-y-6">
+  <div>
+    <h1 class="text-heading text-2xl font-bold mb-1">Gift a Free Entry</h1>
+    <p class="text-muted text-sm">
+      Send someone a paid-for contest entry by email. They click once, their account is
+      created, and the on-chain <code class="font-mono">EntryTokenAccount</code> is minted to it —
+      no card, no deposit, no wallet extension.
+    </p>
+  </div>
+
+  <%# THE ONE CONDITION THAT SILENTLY BREAKS THIS PAGE, said out loud where the
+      person about to send a gift will read it. With ENABLE_AGE_ATTESTATION on,
+      MagicLinksController#sign_up_new refuses to CREATE an account from a link
+      that carries no legal-age attestation — and an operator cannot attest on a
+      stranger's behalf, so a gift link to a brand-new address bounces to /signin
+      and the link is spent. Existing accounts are unaffected. %>
+  <% if AppFlags.age_attestation? %>
+    <div class="card p-4" style="border-color: var(--color-danger);">
+      <p class="text-sm" style="color: var(--color-danger);">
+        <strong>Legal-age attestation is ON</strong> (<code class="font-mono">ENABLE_AGE_ATTESTATION</code>).
+        A gift link cannot create a NEW account while it is — the recipient is sent to /signin to
+        request their own link with the box checked, and this gift's link is spent. Gifts to people
+        who already have an account still work.
+      </p>
+    </div>
+  <% end %>
+
+  <div class="grid grid-cols-3 gap-3">
+    <div class="card p-4">
+      <div class="text-muted text-[10px] uppercase tracking-wide">Sent</div>
+      <div class="text-heading text-2xl font-bold font-mono"><%= @counts[:sent] %></div>
+    </div>
+    <div class="card p-4">
+      <div class="text-muted text-[10px] uppercase tracking-wide">Claimed</div>
+      <div class="text-heading text-2xl font-bold font-mono"><%= @counts[:claimed] %></div>
+    </div>
+    <div class="card p-4">
+      <div class="text-muted text-[10px] uppercase tracking-wide">Minted</div>
+      <div class="text-heading text-2xl font-bold font-mono"><%= @counts[:minted] %></div>
+    </div>
+  </div>
+
+  <div class="card p-6">
+    <h2 class="text-heading text-lg font-semibold mb-4">Send an invite</h2>
+    <%= form_with url: admin_entry_gifts_path, method: :post, local: true, class: "space-y-4" do |f| %>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">Friend's email</label>
+          <%= f.email_field :recipient_email, required: true, placeholder: "friend@example.com",
+              class: field_class, style: field_style %>
+        </div>
+        <div>
+          <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">Lands on</label>
+          <%= f.select :contest_slug,
+                options_for_select(@contests.map { |c| [c.name, c.slug] }, @default_contest&.slug),
+                { include_blank: "Featured contest" },
+                class: field_class, style: field_style %>
+        </div>
+      </div>
+
+      <div>
+        <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">
+          Personal note <span class="normal-case tracking-normal">(optional — quoted in the email)</span>
+        </label>
+        <%= f.text_area :note, rows: 2, maxlength: 500,
+            placeholder: "Put a lineup in this week — I want someone to beat.",
+            class: field_class, style: field_style %>
+      </div>
+
+      <div class="flex items-center justify-between gap-3">
+        <p class="text-muted text-xs">
+          Sent as <strong class="text-secondary"><%= current_user.name.presence || current_user.username %></strong>,
+          with replies going to <span class="font-mono"><%= current_user.email %></span>.
+        </p>
+        <%= f.submit "Send Free Entry", class: "btn btn-success" %>
+      </div>
+    <% end %>
+  </div>
+
+  <div class="card overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-subtle text-muted text-[10px] uppercase tracking-wide">
+          <th class="text-left px-4 py-3">Recipient</th>
+          <th class="text-left px-3 py-3">Contest</th>
+          <th class="text-left px-3 py-3">Sent</th>
+          <th class="text-left px-3 py-3">Status</th>
+          <th class="text-right px-4 py-3">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        <%= render partial: "gift_row", collection: @gifts, as: :gift %>
+        <% if @gifts.empty? %>
+          <tr>
+            <td colspan="5" class="px-4 py-8 text-center text-muted">
+              No gifts sent yet. Send the first one above.
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+</div>
