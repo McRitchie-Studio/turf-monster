@@ -1249,12 +1249,10 @@ class ContestsController < ApplicationController
       ptx.update!(status: "confirmed")
 
       # Same consume, same stale cache: this path credits an entry whose token
-      # `enter_contest_with_token` marked CONSUMED on-chain just as surely as the
-      # live path does — consumed, not burned; `burn_entry_token` is the separate
-      # operator claw-back, and only it sets the burned tombstone. It used to bust
-      # nothing at all, so a user who crashed mid-entry came back to a navbar badge
-      # and a "Hold for Free Entry" button still counting the token they had
-      # already spent.
+      # `enter_contest_with_token` CONSUMED on-chain — not burned; only the
+      # separate `burn_entry_token` claw-back sets that — and it used to bust
+      # nothing at all, so a user who crashed mid-entry came back to a navbar
+      # badge and a "Hold for Free Entry" button still counting a spent token.
       current_user.bust_entry_tokens_cache! if prepared_token_pda
 
       render json: {
