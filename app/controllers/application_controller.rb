@@ -460,6 +460,10 @@ class ApplicationController < ActionController::Base
     return if user_token.present? && user_token == cookie_token
 
     Rails.logger.info("[opsec-045] session_token mismatch user_id=#{true_user.id} — forcing re-login")
+    # RECORDED BEFORE THE IVARS ARE CLEARED — one line down there is no
+    # true_user left to key the row on, and WHO was logged out is the whole
+    # value of the row.
+    record_session_token_mismatch(true_user, cookie_token: cookie_token)
     @current_user = nil
     @true_user = nil
     @impersonating = false
@@ -468,6 +472,50 @@ class ApplicationController < ActionController::Base
       format.html { redirect_to signin_path, alert: "Your session expired. Please sign in again." }
       format.json { render json: { error: "session expired" }, status: :unauthorized }
     end
+  end
+
+  # OPSEC-045'S DURABLE TRACE, ADDED 2026-09-09.
+  #
+  # THE HOLE. The forced logout above left a `Rails.logger.info` line and
+  # nothing else. Rails logs are not a triage surface here — error_logs is,
+  # which is where every other user-facing failure in this app lands and where
+  # an operator actually looks. So the one event that ends a user's session
+  # against their will was the one event that could not be found afterwards.
+  # That mattered beyond tidiness: a `session_token` mismatch answers a
+  # non-HTML request with a 302 to /signin, which `fetch` FOLLOWS to an HTML
+  # body at status 200 — the exact shape `window.solanaConnectAndVerify`'s
+  # verify guard substitutes a server sentence for. Without a row, "our server
+  # could not finish sign-in" is all anyone can ever know about it; with one,
+  # the cause is named and attributed to a user.
+  #
+  # WHY A RAISE. Identical to SolanaSessionsController#record_client_wallet_failure,
+  # and for the same reason: `rescue_and_log` is this app's ONE persistence path
+  # for a logged failure — it captures, attaches target/parent by the shared slug
+  # rules, and fans out to Sentry — but it is built to CATCH a raise, and nothing
+  # here has thrown. Raising one line deep is what puts this event on that shared
+  # path instead of a hand-rolled second one that would drift from it, and it is
+  # what gives the row a real backtrace. `rescue_and_log` re-raises by contract;
+  # the re-raise is caught and dropped right here.
+  #
+  # IT MAY NOT BLOCK THE LOGOUT. A forced logout is a SECURITY act and completes
+  # whether or not it was written down, so the recorder swallows its own faults
+  # into the Rails log — a logger that can veto the thing it observes is worse
+  # than no logger. This is the same fail-open contract report_failure carries.
+  #
+  # NEITHER TOKEN IS RECORDED. Both are session credentials; the row says only
+  # whether the cookie carried one at all, which is the whole diagnostic
+  # difference (absent = a session predating the binding; stale = a rotation, a
+  # revoked sibling session, or a stolen cookie meeting one).
+  def record_session_token_mismatch(user, cookie_token:)
+    rescue_and_log(target: user) do
+      raise SessionTokenMismatch,
+            "OPSEC-045 forced logout: session_token mismatch for user_id=#{user.id} " \
+            "(cookie token #{cookie_token.present? ? 'present but stale' : 'absent'})"
+    end
+  rescue SessionTokenMismatch
+    nil
+  rescue StandardError => e
+    Rails.logger.error("[opsec-045] mismatch record dropped: #{e.class}: #{e.message}")
   end
 
   # True when the current session was authenticated via Solana wallet signature
