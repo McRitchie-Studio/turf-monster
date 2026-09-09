@@ -633,7 +633,7 @@ UI branching example:
 
 ## Landing Pages (funnel + referral attribution)
 
-Landing pages are `LandingPage` records (name, headline, subheadline, badge, cta_label, background_style, contest_id, slug, active). Rendered at `/landing/:slug` by `LandingPagesController#show`. Page sections:
+Landing pages are `LandingPage` records (name, headline, subheadline, badge, cta_label, background_style, contest_id, slug, active). Rendered at `/lp/:slug` by `LandingPagesController#show`. Page sections:
 
 1. Hero — brand logo + two-tone "Turf Totals" title (split-color rendering).
 2. Badge — optional `lp-badge` span (violet/20 background).
