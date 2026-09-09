@@ -16,7 +16,11 @@ require "json"
 # user has approved a transaction in their wallet — which is the worst possible
 # place to discover it and one no desktop test can reach.
 class ContestEntryIntentRegistrationTest < ActiveSupport::TestCase
-  PARTIAL = Rails.root.join("app/views/contests/_turf_totals_board.html.erb")
+  # The registration IIFE lives in the LAYOUT-rendered partial now — see the
+  # note in that file for why the board was the wrong home. The redirect FORK
+  # asserted lower down is still the board's, so this file reads both.
+  PARTIAL = Rails.root.join("app/views/shared/_contest_entry_intent.html.erb")
+  BOARD   = Rails.root.join("app/views/contests/_turf_totals_board.html.erb")
 
   # The registration IIFE, lifted verbatim.
   def registration_source
@@ -78,7 +82,7 @@ class ContestEntryIntentRegistrationTest < ActiveSupport::TestCase
     # provider's own transport field rather than on a user-agent sniff — which is
     # the mistake that would send a desktop user inside a wallet's in-app browser
     # down the redirect path. The behaviour is owned by e2e.
-    src = File.read(PARTIAL)
+    src = File.read(BOARD)
 
     assert_includes src, "provider.transport === 'redirect'",
                      "the fork must ask the PROVIDER what it is, not guess from the device"
@@ -96,7 +100,7 @@ class ContestEntryIntentRegistrationTest < ActiveSupport::TestCase
     # brace that happens to close, and then finds SOME later `return;` inside a
     # span that is not the branch — which is exactly how the first version of
     # this test passed while the return was deleted. Mutation testing caught it.
-    src = File.read(PARTIAL)
+    src = File.read(BOARD)
     start = src.index("if (provider.transport === 'redirect') {")
     assert start, "could not find the redirect branch"
 
@@ -120,5 +124,46 @@ class ContestEntryIntentRegistrationTest < ActiveSupport::TestCase
            "the redirect branch must END in `return;` — without it a mobile entry " \
            "navigates to the wallet AND keeps running the inline flow in a document " \
            "on its way out, minting a second prepared-transaction row nobody can see"
+  end
+
+  # --- what the redirect branch owes when the hop does NOT happen ------------
+  #
+  # ASSERTED ON SOURCE, with the same limits the fork test above states: these
+  # live inside an Alpine method that cannot be lifted out without its
+  # component. What they pin is that the recovery EXISTS and is keyed on the
+  # right signal; the behaviour is owned by e2e. They are here because all three
+  # were invisible to every tier when they shipped.
+
+  test "a hop that never happens restores the button and names the failure" do
+    src = File.read(BOARD)
+    start = src.index("if (provider.transport === 'redirect') {")
+    assert start, "the redirect fork moved"
+    branch = src[start, 3000]
+
+    assert_includes branch, "pagehide",
+                    "pagehide firing is the only honest signal that the hop took"
+    assert_includes branch, "board.resetHoldButtons()",
+                    "a declined universal link left the hold buttons dead"
+    assert_includes branch, "board.submitting = false",
+                    "and left submitting true, so a retry was refused"
+    assert_match(/sm\.error\(/, branch,
+                 "the modal must resolve to something actionable, not spin forever")
+  end
+
+  test "the entry flow reports wallet failures like every other wallet path" do
+    src = File.read(BOARD)
+
+    assert_includes src, "window.reportWalletFailure('contest_entry'",
+                    "this flow logged only through dbg(), a no-op in production — " \
+                    "which is why the original mobile crash raised no ErrorLog row, " \
+                    "no Sentry event, and no alert, and was found by a user instead"
+  end
+
+  test "a blocker payload from the redirect prepare reaches _handleBlockerResponse" do
+    src = File.read(BOARD)
+
+    assert_includes src, "err.blockerData && this._handleBlockerResponse(err.blockerData)",
+                    "without this every funds/age/first-name/wallet-setup blocker " \
+                    "collapsed to raw text on a phone"
   end
 end

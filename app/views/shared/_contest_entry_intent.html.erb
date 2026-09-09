@@ -97,7 +97,19 @@ window.tmPrepareContestEntry = async function (ctx) {
 
   var data = await resp.json();
   console.log('[contest-entry] prepare_entry response:', { success: data.success, error: data.error, entry_pda: data.entry_pda, ptx_slug: data.ptx_slug, serialized_tx_len: data.serialized_tx ? data.serialized_tx.length : null });
-  if (!data.success) throw new Error(data.error || 'Failed to prepare entry');
+  if (!data.success) {
+    // CARRY THE PAYLOAD, do not flatten it to a string. A failed prepare is
+    // often not an error at all but a BLOCKER the user can clear — no funds, an
+    // unmet age gate, a missing first name, a wallet still to set up — and each
+    // one has its own panel behind the board's _handleBlockerResponse. That
+    // method belongs to the board's Alpine component and cannot be reached from
+    // here, so the payload rides the Error back to the caller's catch, which is
+    // in the component and routes it. Throwing a bare string is what collapsed
+    // every one of those blockers into raw text on a phone.
+    var prepareError = new Error(data.error || 'Failed to prepare entry');
+    prepareError.blockerData = data;
+    throw prepareError;
+  }
 
   var bytes = Uint8Array.from(atob(data.serialized_tx), function (c) { return c.charCodeAt(0); });
   return {

@@ -1671,8 +1671,27 @@ window.selectionBoard = function() {
           // it is TRACKED, and retiring it is a task rather than a hope.
           if (provider.transport === 'redirect') {
             Alpine.store('solanaModal').show('Opening Your Wallet', 'Handing this entry to your wallet app…');
-            // run() prepares, journals, and navigates. Nothing after it executes
-            // in this document — the callback page resumes the intent by NAME.
+
+            // WHEN THE HOP NEVER HAPPENS. run() ends by handing the OS a
+            // universal link, and "nothing after this executes" is only true
+            // when the OS honours it. If Phantom is not installed, or the user
+            // dismisses the app-switch prompt, this document stays alive — and
+            // before this guard it stayed alive holding a modal with no
+            // resolution and hold buttons that never came back, so the entry
+            // could not even be retried without a reload. Raised in review of
+            // PR 632.
+            //
+            // pagehide is the signal, not a timer alone: it fires when the hop
+            // DOES take, so its absence after the handoff is what tells us we
+            // are still here. The delay only has to outlast the OS prompt.
+            var board = this;
+            var left = false;
+            var onPageHide = function () { left = true; };
+            window.addEventListener('pagehide', onPageHide, { once: true });
+
+            // run() prepares, journals, and navigates. On the happy path nothing
+            // after it executes in this document — the callback page resumes the
+            // intent by NAME.
             await window.SolanaStudio.walletOps.run('contest_entry', {
               contestId: this.contestId,
               csrfToken: this.csrfToken,
@@ -1683,6 +1702,20 @@ window.selectionBoard = function() {
               redirectLink: window.location.origin + '/auth/phantom/callback',
               cluster: document.body.dataset.solanaCluster
             });
+
+            setTimeout(function () {
+              window.removeEventListener('pagehide', onPageHide);
+              // document.hidden covers the iOS case where the app switch is in
+              // flight but pagehide has not fired yet — leaving then is correct.
+              if (left || document.hidden) return;
+              board.submitting = false;
+              board.resetHoldButtons();
+              var sm = Alpine.store('solanaModal');
+              if (sm.visible) {
+                sm.error('Your wallet app did not open. Make sure Phantom is installed on this ' +
+                         'device, then try again.', 'Wallet Did Not Open');
+              }
+            }, 2500);
             return;
           }
 
@@ -1978,9 +2011,32 @@ window.selectionBoard = function() {
           }
         }
 
+        // BLOCKERS MUST STILL BE BLOCKERS ON THE REDIRECT PATH. The inline path
+        // routes a failed prepare through _handleBlockerResponse, so funds-needed,
+        // age, first-name and wallet-setup each open their own panel. The redirect
+        // path prepares inside the intent handler, where that method is out of
+        // reach — so the handler attaches the server payload to the Error and this
+        // is where it rejoins the inline path. Without it every one of those
+        // blockers collapsed to a raw string on a phone. Raised in review of PR 632.
+        if (err && err.blockerData && this._handleBlockerResponse(err.blockerData)) {
+          this.resetHoldButtons();
+          this.submitting = false;
+          return;
+        }
+
         var msg = retryableUnsignedRequest
           ? 'The wallet signature was not completed. Your entry token is still available.'
           : parseSolanaError(err.message || 'Failed to sign entry');
+
+        // THE SILENT-FAILURE HOLE THIS FLOW FELL INTO. Every sign-in path reports
+        // a wallet failure; this one reported none, which is the whole reason the
+        // original mobile crash produced no ErrorLog row, no Sentry event, and no
+        // alert — it was found by a user, twice. dbg() is a no-op in production, so
+        // console logging above is not a substitute. Fire-and-forget by design:
+        // reportWalletFailure never throws and its response is never read.
+        if (typeof window.reportWalletFailure === 'function' && !(err && err.walletFailureReported)) {
+          window.reportWalletFailure('contest_entry', 'Phantom', err && err.message, msg);
+        }
         if (Alpine.store('solanaModal').visible) {
           var solanaModal = Alpine.store('solanaModal');
           solanaModal.error(msg, retryableUnsignedRequest ? 'Signature Not Completed' : null);

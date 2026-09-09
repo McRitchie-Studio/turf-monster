@@ -811,7 +811,21 @@
 # the operator's real send form, which is what makes the second's link the one a
 # real send produces rather than a fixture. Derived with bin/e2e-lane-derive
 # --write, not incremented by hand.
-total_specs: 268
+#
+# 268 -> 275 (wire-contest-entry-walletops): the mobile entry path's specs. Two
+# NEW files — e2e/contest_entry_callback_registration.spec.js, which loads
+# /auth/phantom/callback itself and asserts the contest_entry intent is
+# registered ON THAT DOCUMENT, and e2e/contest_entry_redirect_transport.spec.js
+# for the redirect handoff — plus a net addition in
+# e2e/wallet_require_provider.spec.js. The callback file exists because its
+# predecessor did not: a spec titled "the intent is registered by the name the
+# callback looks up" asserted at "/", a page that renders the board and so
+# registers the intent locally, and never visited the route in its own title.
+# The entry was lost in production with that spec green. This tier is the only
+# one that can witness it — the registration is a <script> in a layout partial,
+# so nothing below a real page load proves which documents carry it. Derived
+# with bin/e2e-lane-derive --write ON THE REBASED TREE, not by arithmetic.
+total_specs: 275
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1105,7 +1119,13 @@ allowed_skips: 4
 # THIS TASK — 264/243 at the first review, 265/244 when it was resolved, 266/245
 # at the second review, 267/246 after that merge — so the only value worth
 # writing is the one the runner prints on the tree you are about to push.
-executed: 247
+#
+# 247 -> 254 (wire-contest-entry-walletops): the mobile-entry specs described
+# beside total_specs above. None is tagged @devnet and none skips, so excluded
+# stays 17 and allowed_skips stays 4 — both listers agree, which is what proves
+# the new specs brought no runtime skip with them. Derived with
+# bin/e2e-lane-derive --write, not by arithmetic.
+executed: 254
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

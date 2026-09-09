@@ -18,7 +18,11 @@ require "json"
 # "complete refuses a broadcast" — are behaviour, and a source-text assertion
 # cannot see either.
 class ContestEntryIntentJsTest < ActiveSupport::TestCase
-  PARTIAL = Rails.root.join("app/views/contests/_turf_totals_board.html.erb")
+  # THE HANDLERS MOVED. They began in the contest board, which is exactly
+  # the placement that lost the entry: the board renders on two contest
+  # pages and the wallet returns to neither. They now live in the partial
+  # the LAYOUT renders, so every document carries them.
+  PARTIAL = Rails.root.join("app/views/shared/_contest_entry_intent.html.erb")
 
   # Pull both handlers out of the view verbatim.
   def handlers_source
@@ -27,7 +31,7 @@ class ContestEntryIntentJsTest < ActiveSupport::TestCase
     # CALLS window.tmPrepareContestEntry(ctx), so a bare index() lands mid-object
     # and extracts syntactically broken JS.
     start = src.index("window.tmPrepareContestEntry = async function")
-    finish = src.index("// selectionBoard")
+    finish = src.index("</script>")
     assert start, "could not find tmPrepareContestEntry in the partial"
     assert finish && finish > start, "could not bound the handler block"
     src[start...finish]
@@ -65,7 +69,10 @@ class ContestEntryIntentJsTest < ActiveSupport::TestCase
       var RESULT;
       (async function () {
         try { RESULT = { ok: true, value: await (#{script}) }; }
-        catch (e) { RESULT = { ok: false, message: e.message }; }
+        // blockerData rides the Error so the board's catch can route a failed
+        // prepare to the right panel — carry it out of node too, or the test
+        // below can only see the flattened string this change exists to avoid.
+        catch (e) { RESULT = { ok: false, message: e.message, blockerData: e.blockerData || null }; }
         RESULT.calls = calls;
         process.stdout.write(JSON.stringify(RESULT));
       })();
@@ -169,5 +176,37 @@ class ContestEntryIntentJsTest < ActiveSupport::TestCase
 
     refute result["ok"]
     assert_equal "Entry already recorded", result["message"]
+  end
+
+  # --- a failed prepare is often a BLOCKER, not an error ---------------------
+
+  # The inline path routes a failed prepare through _handleBlockerResponse, so
+  # "you need funds" opens the funds panel rather than printing itself. The
+  # redirect path prepares in here, where that method is out of reach, so the
+  # payload has to ride the Error back to the board's catch. Flattening it to a
+  # string is what collapsed every blocker to raw text on a phone.
+  test "prepare carries the server's blocker payload on the error it throws" do
+    body = { "success" => false, "error" => "You need USDC to enter",
+             "blocker" => "no_funding", "required_usdc" => 5 }
+    out = run_js("window.tmPrepareContestEntry({ contestId: 1, csrfToken: 'x', currency: 'usdc' })",
+                 body: body)
+
+    refute out["ok"], "a failed prepare must still throw"
+    assert_equal "You need USDC to enter", out["message"]
+    assert_equal "no_funding", out.dig("blockerData", "blocker"),
+                 "the board's catch reads blockerData to pick the right panel"
+    assert_equal 5, out.dig("blockerData", "required_usdc"),
+                 "the WHOLE payload travels, not just the blocker name"
+  end
+
+  # The 401 shape is not a blocker — authedFetch has already surfaced the login
+  # modal, and attaching a payload that does not exist would send the catch
+  # looking for a panel to open.
+  test "a 401 throws without a blocker payload" do
+    out = run_js("window.tmPrepareContestEntry({ contestId: 1, csrfToken: 'x', currency: 'usdc' })",
+                 fetch: :unauthorized)
+
+    refute out["ok"]
+    assert_nil out["blockerData"], "a session expiry is not a blocker panel"
   end
 end

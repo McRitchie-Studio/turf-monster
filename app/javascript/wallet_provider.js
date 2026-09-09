@@ -577,6 +577,16 @@ var walletProvider = {
   // user commits to an action, rather than only after one fails. The copy
   // differs because the remedies do: installing an extension is not a thing a
   // phone can do, and telling someone to do it is worse than saying nothing.
+  noWalletMessage: function() {
+    if (this.isMobile()) {
+      return "This browser cannot reach a wallet. Open this page inside your " +
+             "wallet app's own browser — Phantom, Solflare, and Backpack each " +
+             "have one — then try again.";
+    }
+    return "No wallet detected. Install or unlock a Solana wallet extension, " +
+           "then refresh this page.";
+  },
+
   // A provider that can sign IN THIS PAGE, or an honest refusal.
   //
   // WHY THIS EXISTS, and it is a defect this change itself created. detect() now
@@ -604,16 +614,6 @@ var walletProvider = {
     // a provider is injected.
     throw new Error(this.noWalletMessage());
   },
-
-  noWalletMessage: function() {
-    if (this.isMobile()) {
-      return "This browser cannot reach a wallet. Open this page inside your " +
-             "wallet app's own browser — Phantom, Solflare, and Backpack each " +
-             "have one — then try again.";
-    }
-    return "No wallet detected. Install or unlock a Solana wallet extension, " +
-           "then refresh this page.";
-  }
 };
 
 window.walletProvider = walletProvider;

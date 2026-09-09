@@ -86,11 +86,39 @@ class WalletGuardInvariantTest < ActiveSupport::TestCase
     # Must still IGNORE the boolean-guard read, or the scan flags correct code.
     refute_match DEREFERENCE_SHAPE, "      if (!window.walletProvider.detect()) return;"
 
-    users = Dir.glob(VIEWS.join("**/*.erb")).count { |p| File.read(p).include?("walletProvider.requireProvider()") }
+    # THE GUARD IS NOW TWO FUNCTIONS, and both count. requireProvider() answers
+    # with whatever wallet the device has, INCLUDING a redirect provider — which
+    # is correct only for a caller that forks on provider.transport. Every other
+    # caller wants requireInlineProvider(), which refuses a redirect provider
+    # with the same device-appropriate message, because a redirect provider has
+    # no connect/signTransaction/signMessage and reaching for them reproduces
+    # the original incident one call site over. Three views were converted to
+    # the stricter sibling; NONE was removed, so the floor does not move.
+    guards = %w[
+      walletProvider.requireProvider()
+      walletProvider.requireInlineProvider()
+    ]
+    users = Dir.glob(VIEWS.join("**/*.erb")).count do |p|
+      src = File.read(p)
+      guards.any? { |g| src.include?(g) }
+    end
 
     assert_operator users, :>=, 6,
                     "expected at least the six converted signing views to call " \
-                    "requireProvider(); found #{users}. If a call site was removed on " \
-                    "purpose, lower this floor deliberately rather than deleting the check."
+                    "requireProvider() or requireInlineProvider(); found #{users}. If a " \
+                    "call site was removed on purpose, lower this floor deliberately " \
+                    "rather than deleting the check."
+
+    # AND THE STRICTER ONE MUST ACTUALLY BE USED. Without this, converting every
+    # site back to the permissive guard would keep the count at six and hand a
+    # redirect provider to callers that cannot drive it — the defect this whole
+    # change exists to close.
+    inline = Dir.glob(VIEWS.join("**/*.erb")).count do |p|
+      File.read(p).include?("walletProvider.requireInlineProvider()")
+    end
+    assert_operator inline, :>=, 3,
+                    "the three views that cannot drive a redirect provider — the survivor " \
+                    "board, the alpine factories and the wallet export — must ask for an " \
+                    "INLINE provider; found #{inline}."
   end
 end

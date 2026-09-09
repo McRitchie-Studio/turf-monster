@@ -69,66 +69,66 @@ Phantom must be installed in the browser or available via mobile deep link.
      holding no entry — unless `show_board_for_existing_entry` opens it back
      up for `?add_entry=true` (`:71`).
    - The board partial mounts `x-data="selectionBoard()"` —
-     `app/views/contests/_turf_totals_board.html.erb:2049`. The factory is
-     defined inline as `window.selectionBoard = function()` (`:159`) because
+     `app/views/contests/_turf_totals_board.html.erb:2158`. The factory is
+     defined inline as `window.selectionBoard = function()` (`:171`) because
      Alpine processes `x-data` before importmap modules load (see
      `docs/UI_PATTERNS.md` § Alpine + ERB Constraints).
    - Board config — picks_required, matchup data, contest slug, cart state — is
      serialized into the `board-config` JSON block (`:72-154`) and read once by
-     the factory (`:160-161`). Auth state is never copied there: the `loggedIn`
-     getter reads `Alpine.store('session')` live on every access (`:185`).
+     the factory (`:172-173`). Auth state is never copied there: the `loggedIn`
+     getter reads `Alpine.store('session')` live on every access (`:197`).
 
 3. **Build cart (no auth required).** Guest taps matchup cards. Each tap calls
    `selectionBoard.toggleSelection(matchupId)` —
-   `_turf_totals_board.html.erb:652-730`.
+   `_turf_totals_board.html.erb:664-742`.
    - Hard-capped at `contest.picks_required` (6 for Turf Totals). A tap past the
-     cap replaces the oldest pick rather than refusing (`:676-686`).
+     cap replaces the oldest pick rather than refusing (`:688-698`).
    - A guest's tap only mutates local Alpine state — the method returns before
-     the network call (`:693`).
-   - When logged in it POSTs `/contests/:id/toggle_selection` (`:695-702`) →
+     the network call (`:705`).
+   - When logged in it POSTs `/contests/:id/toggle_selection` (`:707-714`) →
      `ContestsController#toggle_selection`
      (`app/controllers/contests_controller.rb:1424-1445`), which finds or
      creates the user's `:cart` entry (`:1432`) and toggles a `Selection`
      through `Entry#toggle_selection!` (`app/models/entry.rb:43-68`).
    - The server's selection set is authoritative; the client adopts it rather
      than trusting its own optimistic mutation
-     (`_turf_totals_board.html.erb:729`).
+     (`_turf_totals_board.html.erb:741`).
    - At `picks_required` selections the board blurs behind the cart —
-     `blurDismissed` gates the overlay (`:2060-2066`) — and the shared
-     `render 'studio/hold_button'` appears (`:2239`).
+     `blurDismissed` gates the overlay (`:2169-2175`) — and the shared
+     `render 'studio/hold_button'` appears (`:2348`).
 
 4. **Hold-to-Confirm fires.** The shared hold button dispatches the
    `hold-confirm-entry` window event; the board's `init()` listener routes it
-   into `confirmEntry()` (`_turf_totals_board.html.erb:343-350`).
-   - `runHoldValidations()` (`:1507-1537`) hits `GET /geo/check` first
-     (`:1509`); a blocked state aborts into the `Location Restricted` redirect
-     modal (`:1513`). That route is drawn by the engine now, behind
+   into `confirmEntry()` (`_turf_totals_board.html.erb:355-362`).
+   - `runHoldValidations()` (`:1519-1549`) hits `GET /geo/check` first
+     (`:1521`); a blocked state aborts into the `Location Restricted` redirect
+     modal (`:1525`). That route is drawn by the engine now, behind
      `config.draw_geo_routes`, not by this app (`config/routes.rb:610-616`).
-   - `confirmEntry()` (`_turf_totals_board.html.erb:1554-1963`) short-circuits
-     to `showLoginModal()` when the session is a guest (`:1563-1567`), which
-     opens the auth wizard at `step: 'credentials'` (`:923-936`) — the entry
+   - `confirmEntry()` (`_turf_totals_board.html.erb:1566-2072`) short-circuits
+     to `showLoginModal()` when the session is a guest (`:1575-1579`), which
+     opens the auth wizard at `step: 'credentials'` (`:935-948`) — the entry
      into step 5.
    - `Alpine.store('session').isGuest` is the canonical guest pivot, derived
      from `SessionContext#mode` (`studio-engine: app/models/session_context.rb`)
      and hydrated from the `session-context` JSON block on every render
-     (`app/views/layouts/application.html.erb:217`).
+     (`app/views/layouts/application.html.erb:249`).
 
 5. **Sign up via Phantom.** Choosing Solana in that wizard calls
    `openWalletConnect(ageAttested)`
-   (`app/views/contests/_turf_totals_board.html.erb:1011-1016`), which swaps in
+   (`app/views/contests/_turf_totals_board.html.erb:1023-1028`), which swaps in
    solana-studio's wallet picker. The picker runs
-   `window.solanaConnectAndVerify` — `app/views/layouts/application.html.erb:299`.
-   - The nonce is fetched from `/auth/solana/nonce` (`:335`) →
+   `window.solanaConnectAndVerify` — `app/views/layouts/application.html.erb:331`.
+   - The nonce is fetched from `/auth/solana/nonce` (`:367`) →
      `SolanaSessionsController#nonce`
      (`app/controllers/solana_sessions_controller.rb:5-9`).
    - Two signing paths. A wallet that supports SIWS `signIn` is used directly;
      otherwise the message is built locally — domain, pubkey, statement,
      `Nonce:` — and signed with `provider.signMessage`
-     (`app/views/layouts/application.html.erb:503-505`).
+     (`app/views/layouts/application.html.erb:535-537`).
    - The `User-ID` binding that ties a signature to an account (OPSEC-005) rides
-     only on the wallet-LINK path (`opts.linkMode`), not on signup (`:393`).
+     only on the wallet-LINK path (`opts.linkMode`), not on signup (`:425`).
    - The signature is base58-encoded and POSTed to `/auth/solana/verify`
-     (`:683`) as `signatureB58` alongside the message and pubkey (`:765-769`).
+     (`:715`) as `signatureB58` alongside the message and pubkey (`:797-801`).
      An unreadable answer to that POST — an HTML body from a fault of ours,
      which usually arrives as a 302 followed to status 200 rather than a 500;
      see docs/AUTH.md — is
@@ -181,8 +181,8 @@ Phantom must be installed in the browser or available via mobile deep link.
    - **The in-board flow does not follow that redirect.** The board's
      `openWalletConnect(ageAttested)` saved the guest lineup before handing off
      to the picker and set `returnUrl` to this contest
-     (`_turf_totals_board.html.erb:1011-1016`), so the user lands back on the
-     contest page with the cart persisted and replayed by `init()` (`:483-495`).
+     (`_turf_totals_board.html.erb:1023-1028`), so the user lands back on the
+     contest page with the cart persisted and replayed by `init()` (`:495-507`).
 
 7. **Background: on-chain UserAccount PDA created.**
    `CreateOnchainUserAccountJob#perform` —
@@ -201,24 +201,24 @@ Phantom must be installed in the browser or available via mobile deep link.
 
 8. **Post-reload: cart hydrates + auto-enter fires.** Board `init()` reads the
    saved lineup out of `localStorage`, discarding one older than 30 minutes or
-   belonging to another contest (`_turf_totals_board.html.erb:459-463`).
-   - Hydrates `selections` + `selectionOrder` and opens the cart (`:468-472`).
+   belonging to another contest (`_turf_totals_board.html.erb:471-475`).
+   - Hydrates `selections` + `selectionOrder` and opens the cart (`:480-484`).
    - When the session is logged in, the lineup asked to auto-enter, and the
      count matches `picksRequired`, `init()` schedules `afterLoginSuccess()`
-     (`:474`, `:492-494`). A pending wallet-setup prompt re-saves the cart
-     instead, so linking Phantom cannot cost the user their lineup (`:483-485`).
-   - `afterLoginSuccess()` (`:1349-1378`) surfaces an eligibility blocker first,
+     (`:486`, `:504-506`). A pending wallet-setup prompt re-saves the cart
+     instead, so linking Phantom cannot cost the user their lineup (`:495-497`).
+   - `afterLoginSuccess()` (`:1361-1390`) surfaces an eligibility blocker first,
      then replays the picks to the server through `replaySelectionsToServer()`
-     (`:1095-1112` — one `toggle_selection` POST per pick) and calls
+     (`:1107-1124` — one `toggle_selection` POST per pick) and calls
      `confirmEntry()`.
 
 9. **Web3 entry: prepare + sign + confirm.** `confirmEntry()` branches on
    `sess.isWeb3 && this.contestOnchain`
-   (`_turf_totals_board.html.erb:1618`).
+   (`_turf_totals_board.html.erb:1630`).
    - **Wallet re-assert.** `provider.connect()` runs first, and a `pubkeyB58`
      that does not match the session address aborts before any server call
-     (`:1638-1642`).
-   - **`POST /contests/:id/prepare_entry`** (`:1664`) →
+     (`:1724-1728`).
+   - **`POST /contests/:id/prepare_entry`** (`:1750`) →
      `ContestsController#prepare_entry`
      (`app/controllers/contests_controller.rb:952-1099`).
      - Requires `onchain_session?` — a session with no live wallet signature
@@ -249,12 +249,12 @@ Phantom must be installed in the browser or available via mobile deep link.
        token_funded }` (`:1086-1095`).
    - **Phantom signs FIRST, and the browser does not broadcast.** The client
      deserializes the base64 transaction and calls `provider.signTransaction`
-     (`_turf_totals_board.html.erb:1711`), then re-serializes with
+     (`_turf_totals_board.html.erb:1797`), then re-serializes with
      `requireAllSignatures: false` — the admin slot is deliberately still empty
-     (`:1716`). Phantom signing an entirely unsigned transaction is what clears
+     (`:1802`). Phantom signing an entirely unsigned transaction is what clears
      Phantom's multi-signer "could be malicious" banner.
    - **`POST /contests/:id/confirm_onchain_entry`** with those wire bytes
-     (`:1727-1731`) → `ContestsController#confirm_onchain_entry`
+     (`:1813-1817`) → `ContestsController#confirm_onchain_entry`
      (`app/controllers/contests_controller.rb:1284-1402`). The server owns
      everything from here — it cosigns with `Transaction.cosign_wire`, simulates,
      broadcasts and waits (`:1273-1283`).
@@ -293,7 +293,7 @@ Phantom must be installed in the browser or available via mobile deep link.
        and refreshes the total through `sync_balance` (`:2034-2036`).
    - Modal closes; the seeds bar animates; `lobbyUrl` drives the countdown
      redirect back to the contest page
-     (`_turf_totals_board.html.erb:1765`).
+     (`_turf_totals_board.html.erb:1851`).
 
 ## Data touched
 
@@ -326,7 +326,7 @@ Phantom must be installed in the browser or available via mobile deep link.
   (step 5) and `signTransaction` at entry (step 9). There is no separate
   per-entry SIWS prompt: `confirmEntry` records that it was removed as
   defence-in-depth which doubled the prompts without strengthening on-chain
-  integrity (`app/views/contests/_turf_totals_board.html.erb:1645-1651`).
+  integrity (`app/views/contests/_turf_totals_board.html.erb:1731-1737`).
 
 ## Failure modes
 
@@ -349,7 +349,7 @@ Phantom must be installed in the browser or available via mobile deep link.
   Phantom signature.
 - **Wrong wallet connected.** `confirmEntry` re-asserts the connected
   `pubkeyB58` against the session address
-  (`app/views/contests/_turf_totals_board.html.erb:1638-1642`) — symptom:
+  (`app/views/contests/_turf_totals_board.html.erb:1724-1728`) — symptom:
   "Wrong wallet connected. Switch to abcd…". The user must reconnect the wallet
   that owns the account, or switch Phantom's active wallet.
 - **Refresh mid-flight (signed, handed to the server, awaiting confirmation).**
@@ -357,7 +357,7 @@ Phantom must be installed in the browser or available via mobile deep link.
   `find_pending_recovery_ptx`
   (`app/controllers/contests_controller.rb:2666-2686`) puts the slug into the
   board config, `init()` calls `recoverPendingEntry()`
-  (`app/views/contests/_turf_totals_board.html.erb:518-554`, POST at `:526`),
+  (`app/views/contests/_turf_totals_board.html.erb:530-566`, POST at `:538`),
   and `ContestsController#recover_pending_entry`
   (`app/controllers/contests_controller.rb:1173-1271`) polls the signature once
   (`:1221-1222`): still propagating renders `processing` (`:1224-1226`), an

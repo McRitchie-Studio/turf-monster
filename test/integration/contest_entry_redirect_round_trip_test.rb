@@ -19,7 +19,11 @@ require "json"
 # bytes under test are the bytes a consumer installs. Fetch is stubbed at the
 # HTTP boundary and nowhere deeper, so the handlers' own logic runs.
 class ContestEntryRedirectRoundTripTest < ActiveSupport::TestCase
-  PARTIAL = Rails.root.join("app/views/contests/_turf_totals_board.html.erb")
+  # Both the handlers and the registration IIFE now live in the partial the
+  # LAYOUT renders, which is the fix this test's own subject depends on: the
+  # simulated callback world below is only faithful because the real callback
+  # page carries the registration too.
+  PARTIAL = Rails.root.join("app/views/shared/_contest_entry_intent.html.erb")
 
   def gem_js_dir
     @gem_js_dir ||= begin
@@ -36,7 +40,7 @@ class ContestEntryRedirectRoundTripTest < ActiveSupport::TestCase
   def handlers_source
     src = File.read(PARTIAL)
     start = src.index("window.tmPrepareContestEntry = async function")
-    finish = src.index("// selectionBoard")
+    finish = src.index("</script>")
     src[start...finish]
   end
 
