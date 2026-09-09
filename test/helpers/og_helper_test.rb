@@ -44,6 +44,44 @@ class OgHelperTest < ActionView::TestCase
     assert_equal OgHelper::DEFAULT_OG_DESCRIPTION, og_description(nil)
   end
 
+  # --- contest_og_image_url (the contest rung) ---
+
+  test "contest_og_image_url is nil when there is no contest or no banner" do
+    assert_nil contest_og_image_url(nil)
+    assert_nil contest_og_image_url(contests(:one)),
+               "an unbannered contest must fall through to the site default, not blank the card"
+  end
+
+  test "contest_og_image_url serves the banner card through the proxy route" do
+    contest = contests(:one)
+    contest.contest_image.attach(
+      io: file_fixture("banner_wide.png").open, filename: "banner.png", content_type: "image/png"
+    )
+
+    url = contest_og_image_url(contest)
+
+    assert url.start_with?("http"), "expected an absolute url, got #{url}"
+    # THE ROUTE IS THE POINT, not just that a url came back. contest_image lives
+    # on the private service, whose own url is a signature that expires — and an
+    # unfurler caches the og:image url it was handed and re-fetches it days
+    # later. The representation PROXY route is permanent (the signed blob id
+    # carries no expiry) and streams from that same private bucket.
+    assert_includes url, "/representations/proxy/"
+    assert_not_includes url, "/redirect/",
+                        "the redirect route hands back an expiring service url — the preview would break later"
+  end
+
+  test "contest_og_image_url points at the og_card variant, not the raw banner" do
+    contest = contests(:one)
+    contest.contest_image.attach(
+      io: file_fixture("banner_wide.png").open, filename: "banner.png", content_type: "image/png"
+    )
+
+    # A representation url carries a variation key; a plain blob url does not.
+    # Handing over the raw 5:1 banner is the regression this catches.
+    assert_no_match %r{/blobs/proxy/}, contest_og_image_url(contest)
+  end
+
   # --- og_image_url resolution order ---
   # (The static-asset fallback path needs request.base_url and is covered by
   # the integration test OgMetaTest, which renders a real page.)

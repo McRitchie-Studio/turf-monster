@@ -38,6 +38,17 @@ module TurfMonster
     # <script>), and Rails 8.1 already deprecates setting it to true (removed in 8.2).
     config.active_support.escape_js_separators_in_json = true
 
+    # Active Storage variants run through ImageMagick, NOT libvips. Rails 8.1
+    # defaults variant_processor to :vips, and libvips is absent everywhere this
+    # app runs — measured 2026-09-08 on turf-monster-mainnet (heroku-26),
+    # turf-monster-qa (heroku-24) and the development Mac: `command -v vips` finds
+    # nothing on all three while /usr/bin/magick is present on all three. Left at
+    # the default, the contest link-preview card (Contest's :og_card variant)
+    # would raise on every render. ruby-vips stays in the Gemfile for Active
+    # Storage's block_untrusted hardening (see the Gemfile note) — this flag only
+    # decides which processor renders a variant.
+    config.active_storage.variant_processor = :mini_magick
+
     # Configuration for the application, engines, and railties goes here.
     #
     # These settings can be overridden in specific environments using the files
