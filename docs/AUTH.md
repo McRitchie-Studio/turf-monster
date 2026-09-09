@@ -278,21 +278,32 @@ A **pubkey is kept, deliberately**: it is public (already on
 signature rule starts at 64 characters precisely so a 44-character pubkey passes
 through it.
 
-### ⚠️ Three of the five call sites are wired
+### ⚠️ All five call sites are wired
 
-Three **render surfaces** catch these rejections; two of the three are in the
-**solana-studio gem**, and wiring them needs a gem release. The other two sites
-are not surfaces at all — they are the two guards inside `solanaConnectAndVerify`
-that REPLACE a wallet's message with one of ours, and each reports before it
-destroys the evidence:
+Three **render surfaces** catch these rejections, and two of the three live in
+the **solana-studio gem** — wired there since **0.7.0**; this app locks 0.9.0.
+The other two sites are not surfaces at all — they are the two guards
+inside `solanaConnectAndVerify` that REPLACE a wallet's message with one of
+ours, and each reports before it destroys the evidence:
 
 | Stage | Where | Status |
 |---|---|---|
 | `wallet_setup_connect` | `app/views/modals/_wallet_setup.html.erb` | **wired** |
 | `connect_verify_fallback` | `app/views/layouts/application.html.erb`, `solanaConnectAndVerify` — `connect()` never answered | **wired** |
 | `connect_verify_signature` | `app/views/layouts/application.html.erb`, `solanaConnectAndVerify` — connected, then `signMessage` refused | **wired** |
-| `wallet_connect` | solana-studio `solana_studio/modals/_wallet_connect.html.erb` | **not wired** — needs a gem release |
-| `web3_step_up` | solana-studio `solana_studio/modals/_web3_step_up.html.erb` | **not wired** — needs a gem release |
+| `wallet_connect` | solana-studio `solana_studio/modals/_wallet_connect.html.erb` | **wired** — in the gem since 0.7.0 |
+| `web3_step_up` | solana-studio `solana_studio/modals/_web3_step_up.html.erb` | **wired** — in the gem since 0.7.0 |
+
+**Nothing in this app checks the gem's two, by choice.** The wiring test below
+deliberately does not read the gem's source, and the Gemfile floor is `~> 0.6`,
+so those two rows are maintained by hand. They read **not wired** from the day
+0.7.0 landed until 2026-09-09 — an operator filtering `error_logs` by
+`wallet_connect` was told, by this table, that the stage could hold nothing.
+Re-read the gem before trusting the column — `grep reportWalletFailure "$(bundle
+show solana-studio)"/app/views/solana_studio/modals/_wallet_connect.html.erb`.
+The version above is the EARLIEST tag containing the commit that wired them
+(`06bda3b`), not a tag that happens to carry it; and the floor `~> 0.6` still
+admits 0.6.x, where both rows are false.
 
 The two layout stages are not a substitute for the surfaces and the surfaces are
 not a substitute for them. Each fires for exactly one thing — a failure whose
@@ -305,14 +316,13 @@ would put the app's two most confusable wallet failures behind a single filter.
 
 Each substituted error is tagged `walletFailureReported`, and
 `_wallet_setup.html.erb` skips a tagged error, so one failure produces one row
-rather than two. **The two gem call sites owe that same guard when they are
-wired** — without it they would add a second row carrying our sentence in both
-halves, which is the shape this fix removes. Any FUTURE substituting guard added
-to `solanaConnectAndVerify` owes all three things: its own stage, a report made
-before the substitution, and the tag. The `connect_verify_signature` guard was
-added without them on 2026-09-07 (#587) and silently reopened the byte-identical
-row this endpoint exists to prevent, which is why the rule is written down here
-rather than left to be re-derived.
+rather than two. **Both gem call sites carry that same guard**, in the same
+line, so the gem release added no second row carrying our sentence in both
+halves. Any FUTURE substituting guard added to `solanaConnectAndVerify` owes all
+three things: its own stage, a report made before the substitution, and the tag.
+The `connect_verify_signature` guard was added without them on 2026-09-07 (#587)
+and silently reopened the byte-identical row this endpoint exists to prevent,
+which is why the rule is written down here rather than left to be re-derived.
 
 The reporter deliberately lives **here, not in the gem**. The gem's partials
 already call the host-provided `window.parseSolanaError` behind a `typeof`
@@ -382,7 +392,20 @@ red-seal the gem's own release.
   |---|---|
   | A decline (`code 4001`, "user rejected/declined") | The human said no |
   | `/auth/solana/nonce` failing to REACH us — the request never arrived, and the rejection still says `Failed to fetch` (tagged `nonceFetchFailed`) | The network, not the wallet — and it leaves no server-side trace, so it stays reportable |
-  | Wallet Standard rejections tagged `walletAnswered` — "No account authorized" (an empty accounts array: a dismissed account-selection sheet), "Wallet not connected" | The wallet answered and authorized nothing |
+  | The Wallet Standard rejection tagged `walletAnswered` — "No account authorized", an empty accounts array: a dismissed account-selection sheet | The wallet answered and authorized nothing |
+
+  **The adapter tags a SECOND rejection, and it never arrives.**
+  `wallet_provider.js` also tags "Wallet not connected", raised when `signMessage`
+  is called with no account. `solanaConnectAndVerify` calls `signMessage` only
+  after `connect()` has answered — and the `connected` guard rethrows ABOVE the
+  `walletAnswered` one, so that string is always substituted as
+  `connect_verify_signature`, with the wallet's words kept in `raw`. No operator
+  can read it. This table listed it anyway until 2026-09-09, which is what a
+  triage table written from the code's SHAPE rather than its BEHAVIOUR looks
+  like: it sent a reader after a cause the app cannot produce. Swap those two
+  guards and the string becomes reachable again —
+  `test/docs/auth_failure_mode_reachability_test.rb` runs the real helper and
+  reddens in either direction, naming the row that has to change.
 
   **Triage by the STAGE, then read both halves.** The stage says which diagnosis
   fired; `mapped` is what the user read; `raw` is what the wallet said. Four
@@ -392,8 +415,8 @@ red-seal the gem's own release.
   |---|---|
   | `raw: "Unexpected error"` on `connect_verify_fallback` or `connect_verify_signature` | **Normal, and the fix working.** A substitution fired and the wallet's own generic string was captured before it was replaced. The stage tells you which of the two diagnoses the user was given. |
   | `raw` == `mapped` on either of those two stages | **An anomaly worth chasing.** It means the row came from a surface downstream of the substitution — the layout's report or its `walletFailureReported` tag has regressed — which is exactly the defect fixed on 2026-09-07. |
-  | `raw: "Unexpected error"` with `mapped` reading "Wallet couldn't process the transaction…" | One of the rethrows above met the mapper's generic branch. Not a missing wallet, and not a transaction either. |
-  | `raw: "Unexpected token '<' …"` on ANY stage | **A regression.** Since 2026-09-08 that string is replaced upstream, inside the nonce fetch, and never reaches a surface — see below. |
+  | `mapped: "Signature rejected"` beside any `raw` at all | **A decline, whatever the wallet called it.** All three surfaces read `code === 4001` BEFORE the mapper, so the mapped half never depends on the raw half here. A frightening `raw` on this reading is a wallet's wording, not a second failure. |
+  | `raw: "Unexpected token '<' …"` | **A 500 of OURS — then read the stage.** On `wallet_setup_connect`, `wallet_connect` or `web3_step_up` it is the VERIFY leg: `/auth/solana/verify` or `/account/link_solana` answered with an HTML body, `.json()` rejected, and the mapper's `/^unexpected/i` branch turned it into the balance sentence — after a signature that SUCCEEDED. That leg still has none of the guards the nonce leg gained on 2026-09-08; see below. On `connect_verify_fallback` or `connect_verify_signature` it is a regression, because neither guard can see a nonce or a verify rejection. (Chrome's wording. Firefox and Safari phrase the same rejection differently, miss the mapper's branch, and hand the user the raw parser noise instead.) |
 
   **The nonce exposure, closed on 2026-09-08** (`/tasks/nonce-failure-reads-as-balance`).
   This page carried it as a known, deliberately-unfixed hole from 2026-09-07: a
@@ -421,6 +444,21 @@ red-seal the gem's own release.
   drives the RENDERED helper against a real 500 with an HTML body and asserts the
   decoded sentence on both paths, and runs the literal past every regex the mapper
   tests a message against.
+
+  **The same hole is still open one fetch later, and this page will not pretend
+  otherwise.** `solanaConnectAndVerify` ends by POSTing to `/auth/solana/verify`
+  (or `/account/link_solana`) and calling `.json()` on the answer. That call sits
+  outside BOTH `try` blocks, and the leg has none of the three things the nonce
+  leg gained: no substitution inside `r.json()`, no `walletFailureReported` tag,
+  no `nonceFetchFailed` tag. Nothing checks `r.ok`, so a 500 resolves the fetch
+  and `.json()` rejects. The result is the 2026-09-07 defect on the other
+  endpoint — our outage read back as the user's USDC balance — and it is WORSE
+  here, because the wallet already signed successfully, so the advice arrives
+  after the one step that proved the wallet fine.
+  `test/docs/auth_failure_mode_reachability_test.rb` pins the exposure and
+  reddens when someone closes it, so this paragraph is corrected in the same
+  change. Closing it is not a documentation task: it needs the same treatment
+  the nonce leg got, in `app/views/layouts/application.html.erb`.
 
 - **The report is best-effort by design.** It is dropped on a throttle, a
   closed tab that beats `keepalive`, or a blocked request. `error_logs` is a
