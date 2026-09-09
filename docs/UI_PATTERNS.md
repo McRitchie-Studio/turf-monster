@@ -23,6 +23,8 @@
 - **Surfaces**: Use `bg-page`, `bg-surface`, `bg-surface-alt`, `bg-inset` — never hardcode `bg-navy-*`
 - **Text**: Use `text-heading`, `text-body`, `text-secondary`, `text-muted` — never hardcode `text-white` for headings or `text-gray-*` for body text
 - **Borders**: Use `border-subtle`, `border-strong` — never hardcode `border-navy-*`
+- **Error / danger TEXT**: Use `text-danger-ink` — never a static red (`text-red-400`, `text-red-300`, an inline `color:#f87171`). A fill may be vivid; text must clear WCAG AA 4.5:1 on **both** cards, and no static red does. The modal card is `bg-surface`, which is pure white in light mode: measured against this app's resolved theme, `text-red-400` is 2.89:1 light and 3.86:1 dark, so it fails both. `text-danger-ink` is derived per theme by studio-engine's `ThemeResolver#contrast_ink` (5.76:1 light, 4.50:1 dark here). Guarded by `test/views/modal_error_text_contrast_test.rb`, which resolves the colour and measures the ratio rather than matching a class name.
+- **Danger text needs a theme surface under it.** `text-danger-ink` is derived to clear AA against the four theme surfaces, and a tint is not one of them — compositing `bg-red-500/10` over the dark card drops the ink to 4.25:1. Put an alert panel on `bg-inset` (keep the red border) rather than a red wash.
 - **CSS var naming**: `--color-cta` / `--color-cta-hover` for singular CTA color. Full `--color-primary-{50..900}` palette with RGB variants for Tailwind `primary-*` utilities.
 - **Tailwind config**: `primary` palette is dynamic from shared studio config (CSS vars). `warning` palette defined locally in `config/tailwind.config.js`. Safelist includes `bg`, `text`, `border`, `ring` utilities for brand colors.
 

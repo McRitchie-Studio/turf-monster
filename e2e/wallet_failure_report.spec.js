@@ -93,7 +93,13 @@ test("a declined signature is reported with BOTH the raw and mapped message", as
   ]);
 
   // And the user still gets their sentence.
-  await expect(page.locator("p.text-red-400")).toHaveText("Signature rejected");
+  //
+  // LOCATED BY ROLE, NOT BY COLOUR. This was `p.text-red-400` until
+  // /tasks/error-text-fails-light-mode repainted every error sentence with the
+  // theme's derived danger ink, and six tests in this file went red for a change
+  // that altered nothing they are about. `role="alert"` is what the paragraph
+  // IS; a colour class is only what it looks like this month.
+  await expect(page.locator('p[role="alert"]')).toHaveText("Signature rejected");
 });
 
 test("a 500 from the reporter leaves the sign-in flow untouched", async ({ page }) => {
@@ -114,7 +120,7 @@ test("a 500 from the reporter leaves the sign-in flow untouched", async ({ page 
   await page.getByText("Installed", { exact: true }).click();
 
   // 1. The user reads exactly the same sentence.
-  await expect(page.locator("p.text-red-400")).toHaveText("Signature rejected");
+  await expect(page.locator('p[role="alert"]')).toHaveText("Signature rejected");
 
   // 2. The modal is still theirs to retry with — `connecting` was released, so
   //    the row is not stuck in its disabled/spinner state behind a dead POST.
@@ -165,7 +171,7 @@ test("a dead network while reporting leaves the sign-in flow untouched", async (
   await page.getByText("Installed", { exact: true }).click();
 
   // 1. The user reads exactly the sentence they would have read anyway.
-  await expect(page.locator("p.text-red-400")).toHaveText("Signature rejected");
+  await expect(page.locator('p[role="alert"]')).toHaveText("Signature rejected");
 
   // 2. The modal is still theirs to retry with.
   await expect(page.getByText("Connecting…")).toBeHidden();
@@ -258,7 +264,7 @@ test("the 2026-09-06 incident: an empty Phantom reports what the WALLET said", a
   // `mapped` IS WHAT THE USER READ, and it is compared against the page rather
   // than against a sentence typed into this spec. A copy of the copy cannot fail
   // when the copy changes; this can.
-  const shown = page.locator("p.text-red-400");
+  const shown = page.locator('p[role="alert"]');
   await expect(shown).toContainText("create or import one");
   expect(body.mapped_message).toBe((await shown.textContent()).trim());
 
@@ -316,7 +322,7 @@ test("the SAME failure on the Wallet Standard interface reports the wallet's str
   expect(body.raw_message).not.toBe(body.mapped_message);
   expect(body.stage).toBe("connect_verify_fallback");
 
-  const shown = page.locator("p.text-red-400");
+  const shown = page.locator('p[role="alert"]');
   await expect(shown).toContainText("create or import one");
   expect(body.mapped_message).toBe((await shown.textContent()).trim());
 });
@@ -387,7 +393,7 @@ test("a wallet that connects and then refuses to sign reports the WALLET's strin
 
   // `mapped` IS WHAT THE USER READ, compared against the page rather than a copy
   // typed into this spec.
-  const shown = page.locator("p.text-red-400");
+  const shown = page.locator('p[role="alert"]');
   await expect(shown).toContainText("could not sign you in");
   expect(body.mapped_message).toBe((await shown.textContent()).trim());
 

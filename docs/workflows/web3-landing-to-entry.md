@@ -3,10 +3,21 @@
 > **Code is law.** Every claim below cites `path/to/file.rb:NN` from the current
 > codebase. A bare `:NN` inherits the file of the nearest preceding
 > path-qualified citation, so any citation that changes file re-states the path.
-> `test/docs/workflow_citation_docs_test.rb` enforces both rules, and checks that
-> each number still lands inside the symbol its prose names — the symbol is the
-> claim, the number is bookkeeping. Cross-repo references name a file and a
-> symbol and carry no line number, because a gem bump would rot one.
+> `test/docs/workflow_citation_docs_test.rb` enforces both rules and checks every
+> number against the symbol its prose names — the symbol is the claim, the number
+> is bookkeeping. That check comes in two strengths, and it is worth knowing
+> which one you are reading. **131 of the 164 citations** below sit inside a
+> definition, and there the prose must name that definition or the citation
+> reddens. The other **33** sit in code with no enclosing definition — a route
+> entry, ERB markup, a callback in a class body — and there the guard asks only
+> that a code token quoted nearby appear in the cited lines, which proves the
+> words are present, not that the code is. **All 7 citations on
+> `app/views/layouts/application.html.erb`** are on that weaker branch, and they
+> are the whole Phantom connect-and-sign surface: the file writes its functions
+> as `window.solanaConnectAndVerify = async function(…)`, which the guard does
+> not read as a definition. Follow one of those seven to the code before you
+> trust it. Cross-repo references name a file and a symbol and carry no line
+> number, because a gem bump would rot one.
 
 **Trigger:** `GET /lp/:slug` (a marketing funnel page) — typically reached from a
 paid ad, an X/Twitter post, or a friend's share link with `?reference=…`.
@@ -117,7 +128,10 @@ Phantom must be installed in the browser or available via mobile deep link.
    - The `User-ID` binding that ties a signature to an account (OPSEC-005) rides
      only on the wallet-LINK path (`opts.linkMode`), not on signup (`:393`).
    - The signature is base58-encoded and POSTed to `/auth/solana/verify`
-     (`:683`) as `signatureB58` alongside the message and pubkey (`:694-698`).
+     (`:683`) as `signatureB58` alongside the message and pubkey (`:715-719`).
+     An unreadable answer to that POST — an HTML-bodied 500 of ours — is
+     substituted inside `.json()` and named as our server's fault rather than
+     mapped into balance advice (closed 2026-09-09; see `docs/AUTH.md`).
 
 6. **Server verifies + creates User.** `SolanaSessionsController#verify` —
    `app/controllers/solana_sessions_controller.rb:25-103`.
