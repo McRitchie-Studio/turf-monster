@@ -31,8 +31,10 @@
 %>
 <%# Audit C1 — cosign-rejected (tx mismatch). Opened with
     Alpine.store('modals').open('cosign-rejected', {}) from the entry boards when
-    confirm_onchain_entry answers code 'tx_rejected'. Needed on BOTH render paths:
-    the live layout raises it for real, and the gallery previews it. %>
+    confirm_onchain_entry answers code 'tx_rejected'. It belongs HERE rather than in
+    a layout block for the reason the header gives — it is the APP's card, not one
+    page's. The BOTH-render-paths note this line used to carry named the second
+    path as the /admin/modals gallery, which was deleted on 2026-09-09. %>
 <template x-if="$store.modals.current().id === 'cosign-rejected'">
   <%= render "modals/cosign_rejected" %>
 </template>
