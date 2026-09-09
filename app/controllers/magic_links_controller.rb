@@ -128,6 +128,11 @@ class MagicLinksController < ApplicationController
     reset_prior_session!
     user.claim_parked_username!
     set_app_session(user)
+    # BEFORE record_onboarding_state!, and that order is load-bearing: claiming a
+    # gift can CREATE this account's managed wallet, which is one of the very
+    # facts WalletSetupPolicy reads. Claim first and a gifted player is not asked
+    # to install Phantom for a wallet they were just given.
+    claim_entry_gift!(user)
     # Web3-only onboarding: a RETURNING web2 user is nudged to link Phantom
     # unless their managed wallet still holds an entry's worth of USDC — those
     # users are useable as-is (operator call) and see nothing new.
@@ -150,7 +155,8 @@ class MagicLinksController < ApplicationController
     return redirect_to landing_path_for(result) if needs_wallet
 
     redirect_to landing_path_for(result),
-                flash: { auth_toast: { title: "Welcome back", message: "Signed in as #{user.username}." } }
+                flash: { auth_toast: entry_gift_toast ||
+                  { title: "Welcome back", message: "Signed in as #{user.username}." } }
   end
 
   # Mirrors RegistrationsController#create: build → configure_new_user → save!
@@ -177,6 +183,11 @@ class MagicLinksController < ApplicationController
       cookies.delete(:reference)
       user.update!(email_verified_at: Time.current)
       set_app_session(user)
+      # Same seam and the same reason as sign_in_existing: the claim mints this
+      # brand-new account's managed wallet (the after_create callback declined to,
+      # under web3-only onboarding), so it must land before the onboarding state
+      # is read.
+      claim_entry_gift!(user)
       # The onboarding chain owns this moment now: first name → age → wallet,
       # resolved server-side and walked by the layout's driver wherever the user
       # lands. Both branches below only decide whether to ALSO say something in a
@@ -192,10 +203,13 @@ class MagicLinksController < ApplicationController
         # Wallet setup pending: no toast promising an entry token, because a
         # wallet-less account can't buy one. Land on the contest (picks intact)
         # and let the setup modal carry the next step.
-        redirect_to result.return_to, **(onboarding_steps.any? ? {} : { flash: { auth_toast: {
-                      title:   "You're signed in",
-                      message: "Grab an entry token to lock in your picks."
-                    } } })
+        # The stock copy tells them to GRAB an entry token, which is exactly wrong
+        # for someone who was just handed one — hence the gift's own line.
+        redirect_to result.return_to, **(onboarding_steps.any? ? {} : { flash: { auth_toast:
+                      entry_gift_toast || {
+                        title:   "You're signed in",
+                        message: "Grab an entry token to lock in your picks."
+                      } } })
       else
         # A GENERIC /signin signup: the onboarding chain owns this moment. Its
         # first card here is the first-name ask, outstanding by definition for an
@@ -248,6 +262,62 @@ class MagicLinksController < ApplicationController
   def safe_path(path)
     p = path.to_s
     p.start_with?("/") && !p.start_with?("//") ? p : nil
+  end
+
+  # --- Entry gifts -----------------------------------------------------------
+
+  # Redeem the free entry this link was carrying, if it was carrying one.
+  #
+  # THE LINK ITSELF IS THE ONLY IDENTIFIER. Studio::Link is polymorphic, so an
+  # operator-sent gift rides in the row as `linkable` and nothing extra has to
+  # travel in the URL — no gift id to tamper with, and a link that carries no
+  # gift resolves to nil and takes every path below unchanged.
+  #
+  # NEVER FATAL. This runs after the session is already established, so a
+  # failure here must not 500 a visitor who is, from their side, correctly
+  # signed in — they would lose the account they just made to a bookkeeping
+  # error. The gift stays unclaimed and its link is spent, which is the one
+  # outcome that needs an operator: EntryGift#stalled? does not cover it (there
+  # is no claim), so it is logged AND filed as an ErrorLog rather than swallowed.
+  def claim_entry_gift!(user)
+    gift = ::Studio::Link.magic_links.find_by(token: params[:token])&.linkable
+    return unless gift.is_a?(EntryGift)
+
+    @entry_gift_claim = EntryGifts::Claim.call(gift, user)
+  rescue StandardError => e
+    Rails.logger.error "[entry-gift] claim_failed token=#{params[:token]} user=#{user&.id} " \
+                       "#{e.class}: #{e.message}"
+    capture_entry_gift_error(e, user)
+    nil
+  end
+
+  # ErrorLog directly rather than rescue_and_log, which RE-RAISES by design (see
+  # Admin::SeasonsController#create) — and re-raising is the one thing this path
+  # must not do. Telemetry that fails is swallowed for the same reason: it must
+  # never be what turns a successful sign-in into a 500.
+  def capture_entry_gift_error(exception, user)
+    log = ErrorLog.capture!(exception)
+    log.target = user
+    log.target_name = user.try(:slug)
+    log.save!
+  rescue StandardError => e
+    Rails.logger.error "[entry-gift] error_log_failed user=#{user&.id} #{e.class}: #{e.message}"
+  end
+
+  # The toast a just-claimed gift replaces the stock sign-in copy with, or nil
+  # when this click carried no gift. Deliberately says the entry is ALREADY
+  # theirs rather than promising a mint that is still in a job — the token is
+  # minted within seconds and the badge picks it up on the next poll, while a
+  # "minting…" message would be the only thing on screen still saying so if the
+  # RPC were slow.
+  def entry_gift_toast
+    return nil unless @entry_gift_claim&.claimed?
+
+    sender = @entry_gift_claim.gift.sender
+    from   = sender&.name.presence || sender&.username.presence
+    { title:   "You've got a free entry 🎟️",
+      message: from ? "#{from} covered your entry — pick your lineup." \
+                    : "Your entry is covered — pick your lineup." }
   end
 
   # --- Studio::LinkConsumption hooks -----------------------------------------

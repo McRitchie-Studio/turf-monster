@@ -35,6 +35,8 @@
           note: "Ten-row QA snapshots for users, teams, and arenas" %>
     <%= render "hub_tile", name: "Users",        url: admin_users_path, status: :reviewed %>
     <%= render "hub_tile", name: "Free Entries", url: admin_free_entries_path %>
+    <%= render "hub_tile", name: "Entry Gifts",  url: admin_entry_gifts_path,
+          note: "Send a friend a paid-for entry by email" %>
     <%= render "hub_tile", name: "Currencies",   url: admin_currencies_path, note: "On-chain accepted_currencies (register / deactivate / sweep)" %>
     <% unless Rails.env.production? %>
       <%= render "hub_tile", name: "Faucet",     url: faucet_path %>

@@ -554,7 +554,21 @@ class User < ApplicationRecord
     Solana::Keypair.from_encrypted(encrypted_web2_solana_private_key)
   end
 
-  def generate_managed_wallet!
+  # `reason:` names WHY a wallet is being asked for, because the two callers get
+  # different answers under web3-only onboarding:
+  #
+  #   :signup — the after_create callback. Honours the season's web3-only call
+  #             and mints nothing; the account links Phantom instead.
+  #   :gift   — EntryGifts::Claim, redeeming an operator-sent free entry. Mints
+  #             the managed wallet ANYWAY, because the gift is an on-chain token
+  #             and a token needs an address. Mr. McRitchie's explicit call
+  #             (2026-09-08): a friend handed a free entry should be able to play
+  #             it without first installing a browser extension.
+  #
+  # The admin refusal below is NOT parameterised the same way and must not be —
+  # see OPSEC-044. An admin who is gifted an entry gets no custodial key; the
+  # gift stays claimed-but-unminted and says so on the ledger.
+  def generate_managed_wallet!(reason: :signup)
     return if web2_solana_address.present?
     # Web3-only onboarding (NFL 2026 operator call — AppFlags.web3_only_onboarding?):
     # no custodial wallet is minted at signup at all. The account is created and
@@ -563,7 +577,7 @@ class User < ApplicationRecord
     # show it). Same shape as the OPSEC-044 admin rule below — "no managed
     # wallet" is an already-supported state (wallet_kind :none), which is why
     # this is a one-line early return rather than a flow change.
-    return if AppFlags.web3_only_onboarding?
+    return if reason == :signup && AppFlags.web3_only_onboarding?
     # OPSEC-044: admins go web3-only. Server should never hold custodial keys
     # for accounts with elevated privileges — a managed wallet for an admin
     # combines the highest-value account with the largest decryption surface.

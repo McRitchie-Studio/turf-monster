@@ -1,0 +1,16 @@
+<%= @sender_name %> just gave you a free entry to Turf Monster.
+<% if @note %>
+
+"<%= @note %>"
+<% end %>
+
+No card, no deposit — the entry is already paid for.<% if @contest %> Open the link below and you'll land on <%= @contest.name %> with your account set up.<% else %> Open the link below and your account is set up.<% end %>
+
+Claim your free entry:
+<%= @claim_url %>
+
+This link is for <%= @gift.recipient_email %>, sets up your account in one tap, and can only be used once.
+
+Not expecting this? You can safely ignore this email — nothing has been set up in your name.
+
+— <%= @sender_name %>, via Turf Monster

@@ -760,7 +760,17 @@
 # so the click-time refusal is its ENTIRE declaration and this is the only tier
 # that can witness it. Derived with bin/e2e-lane-derive --write, not
 # incremented by hand.
-total_specs: 261
+# 261 -> 263 (gift-entry-by-email): two specs in e2e/entry_gift.spec.js for
+# gifting a free entry by email. The second is the one that needs a browser: the
+# server tiers already prove the click creates the account, mints the wallet and
+# redirects to the contest, but the thing the feature was ASKED for — that the
+# recipient lands IN the onboarding chain (first name → birthday) rather than on
+# a bare contest page — is walked by the layout's driver and the Alpine modal
+# host, so only a runtime can witness a card actually opening. The first drives
+# the operator's real send form, which is what makes the second's link the one a
+# real send produces rather than a fixture. Derived with bin/e2e-lane-derive
+# --write, not incremented by hand.
+total_specs: 263
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1027,7 +1037,7 @@ allowed_skips: 4
 # TREE, not by arithmetic on any of the three conflicts this line has hit.
 # allowed_skips stays 4: both listers agree, which is what proves none of the new
 # specs brought a runtime skip with it.
-executed: 240
+executed: 242
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
