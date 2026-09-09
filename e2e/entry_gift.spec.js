@@ -101,3 +101,66 @@ test("the emailed link signs a stranger up and opens the onboarding chain", asyn
   await page.goto("/admin/entry_gifts");
   await expect(page.locator("tr", { hasText: email })).toContainText("Claimed");
 });
+
+// [e2e] THE AUNT TEST — the operator's whole reason for this feature.
+//
+// He ran the real flow on QA and was walked into "Set up your wallet" twice: as
+// step 3 of the onboarding chain, and AGAIN on hold-to-confirm after a refresh.
+// His words: "the state of the system should sense the free entry and not gate
+// any web3 guards … my easy way to make the app approachable for the aunts of
+// the world."
+//
+// WHY A BROWSER IS THE ONLY PLACE THIS CLOSES. The server tiers assert the two
+// facts the client READS (the chain's step list and session[:wallet_setup]).
+// They cannot see what the page DOES with them: the chain is walked by the
+// layout's driver, the wallet card is opened by the Alpine modal host, and the
+// hold-to-confirm block comes from eligibilityBlocker in solana_utils.js, which
+// checks walletSetupRequired BEFORE tokensAvailable. A wallet modal reappearing
+// on any of those three paths is invisible to every lower tier.
+test("a gifted player is never shown the wallet card, before or after a refresh", async ({ page, context }) => {
+  const email = freshEmail();
+  await sendGift(page, email);
+
+  const res = await page.request.post("/test/entry_gift_link", { data: { email } });
+  expect(res.ok(), `entry_gift_link failed: ${res.status()}`).toBeTruthy();
+  const { url } = await res.json();
+
+  await context.clearCookies();
+  await page.goto(url);
+  await page.waitForURL(new RegExp(`/contests/${CONTEST}`));
+
+  // The chain opens on first name — that part is wanted and unchanged.
+  await expect
+    .poll(async () => (await currentModal(page))?.id, { timeout: 15_000 })
+    .toBe("onboarding");
+
+  // THE ASSERTION. Walk the chain to its end and the wallet card must never be
+  // what is on screen. Polled rather than checked once, because the failure
+  // being guarded is a card that appears a beat LATER, which a single read
+  // would sail straight past.
+  await page.evaluate(() => window.Alpine.store("modals").closeAll?.() ?? window.Alpine.store("modals").close());
+  for (let i = 0; i < 10; i++) {
+    const id = (await currentModal(page))?.id;
+    expect(id, "the wallet card must never open for a gifted player").not.toBe("wallet-setup");
+    await page.waitForTimeout(300);
+  }
+
+  // AND AFTER A REFRESH — the second place the operator hit it. session
+  // [:wallet_setup] is computed once at sign-in and read on every later render,
+  // so a stale true would reopen the card here even though the chain was clean.
+  await page.reload();
+  await page.waitForLoadState("domcontentloaded");
+  for (let i = 0; i < 8; i++) {
+    const id = (await currentModal(page))?.id;
+    expect(id, "the wallet card must not return after a refresh").not.toBe("wallet-setup");
+    await page.waitForTimeout(300);
+  }
+
+  // And the flag the hold-to-confirm blocker actually reads is off, which is
+  // what makes Hold to Confirm reachable at all.
+  const blocked = await page.evaluate(() => {
+    const s = window.Alpine?.store?.("session");
+    return s ? !!s.walletSetupRequired : null;
+  });
+  expect(blocked, "walletSetupRequired gates hold-to-confirm before tokensAvailable").toBe(false);
+});
