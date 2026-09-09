@@ -8,19 +8,21 @@
   WHY THIS FILE EXISTS. Until 2026-08-28 this app shadowed the engine's host with
   its own copy of the whole partial, and the only app-specific thing that copy
   carried in its shell was the registration below. The block each layout passes to
-  the host is per-CALLSITE: this app mounts the host from TWO layouts
-  (layouts/application for the live site and layouts/modal_preview for the
-  /admin/modals gallery iframes), so a card registered in a block has to be
-  repeated in both, and a card added to only one renders as an EMPTY card in the
-  other. That has happened here before (see the age-verify note in
-  layouts/modal_preview). A card that belongs to the APP rather than to one page
-  belongs here instead.
+  the host is per-CALLSITE: it mounted the host from TWO layouts until 2026-09-09
+  (layouts/application for the live site, and layouts/modal_preview for the
+  admin modal preview seam), so a card registered in a block had to be repeated
+  in both, and a card added to only one rendered as an EMPTY card in the other.
+  That happened here before, to the age-verify card. The preview layout is gone
+  and layouts/application is the only mount left, which is what actually retired
+  that failure mode — this file is the guard against the next second mount, not
+  a workaround for a second one that exists today. A card that belongs to the APP
+  rather than to one page still belongs here.
 
   WHAT GOES HERE, and what does not. Only a card with no per-callsite locals and
-  no per-layout gating: this file is rendered by both layouts identically and has
-  no access to a block's surrounding conditionals. Anything that needs
-  logged_in?, a feature flag, or helper-computed locals stays in the layout block
-  that can supply them.
+  no per-layout gating: this file is rendered identically by every layout that
+  mounts the host and has no access to a block's surrounding conditionals.
+  Anything that needs logged_in?, a feature flag, or helper-computed locals stays
+  in the layout block that can supply them.
 
   Each entry is a template x-if keyed on the current modal id. current() is
   guaranteed non-null here — the engine host wraps this whole card in its own
@@ -29,8 +31,10 @@
 %>
 <%# Audit C1 — cosign-rejected (tx mismatch). Opened with
     Alpine.store('modals').open('cosign-rejected', {}) from the entry boards when
-    confirm_onchain_entry answers code 'tx_rejected'. Needed on BOTH render paths:
-    the live layout raises it for real, and the gallery previews it. %>
+    confirm_onchain_entry answers code 'tx_rejected'. It belongs HERE rather than in
+    a layout block for the reason the header gives — it is the APP's card, not one
+    page's. The BOTH-render-paths note this line used to carry named the second
+    path as the /admin/modals gallery, which was deleted on 2026-09-09. %>
 <template x-if="$store.modals.current().id === 'cosign-rejected'">
   <%= render "modals/cosign_rejected" %>
 </template>
