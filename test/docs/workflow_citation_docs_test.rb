@@ -53,18 +53,29 @@ require "prism"
 # THE FLOOR IS PART OF THE GUARD, not decoration. A sweep whose regex stops
 # matching passes having proved nothing, which is the failure mode this whole
 # class of test is prone to: rename the citation style, match zero, assert
-# nothing, stay green. So the parse is asserted to find at least MIN_CITATIONS,
-# and to find both citation SHAPES the document uses. Deleting citations
-# below the floor is a deliberate act that has to move a number in this file.
+# nothing, stay green. So the parse is asserted to find at least each guarded
+# document's own `min_citations` in COVERAGE, and to find both citation SHAPES
+# that document uses. Deleting citations below a floor is a deliberate act that
+# has to move a number in this file.
 #
 # ITS LIMITS, STATED PLAINLY.
 #
-#   1. IT GUARDS ONE DOCUMENT. docs/workflows/ holds 366 more citations across
-#      five other documents (admin-contest-setup 122, email-signup-token-to-chat
-#      98, referral-google-tokens-to-chat 55, slate-build 48, market-snapshot 43)
-#      and NONE of them are checked here. Adding one is a line in GUARDED_DOCS
-#      plus whatever sweep that doc then needs — do not read this file as
-#      covering the directory.
+#   1. IT GUARDS TWO DOCUMENTS OF NINE. COVERAGE below is the whole list, and
+#      docs/workflows/ holds 323 more citations that are NOT checked here —
+#      measured 2026-09-09 by this file's own parser: admin-contest-setup 122,
+#      email-signup-token-to-chat 98, referral-google-tokens-to-chat 55,
+#      slate-build 48. Do not read this file as covering the directory.
+#      WORSE THAN UNCHECKED, TWO DOCUMENTS ARE UNCITED. live-scoring.md and
+#      submit-entry-decision-tree.md parse to ZERO citations each, in a directory
+#      whose _TEMPLATE.md says to "Cite file:line for EVERY step". They name
+#      symbols throughout — Nfl::LiveScores::PollCycle, Live::FocusGame,
+#      ContestsController#prepare_entry — and point at none of them. A FLOOR
+#      CANNOT REACH THAT. Every check here starts from a parsed citation, so a
+#      document with no citations is not weakly guarded, it is invisible: adding
+#      it to COVERAGE with a floor of 0 would be a coverage claim backed by
+#      nothing. Those two need citing first, then guarding. Until they are, the
+#      directory README names them as uncited rather than describing every
+#      per-workflow file as line-cited, which is what it used to do.
 #   2. IT CANNOT CHECK PROSE. It proves a citation lands on the symbol the prose
 #      names. It cannot prove the sentence about that symbol is true, and the
 #      same sweep found sentences that were: the document described a client-side
@@ -89,16 +100,23 @@ require "prism"
 #      against the RESOLVED gem — the symbol survives the bump, the number would
 #      not.
 #   5. THE SYMBOL BRANCH DOES NOT COVER EVERY CITATION, and the gap is not
-#      random. Measured 2026-09-09: 164 citations, 131 on the symbol branch, 33
-#      on the literal fallback — and ALL SEVEN citations on
-#      `app/views/layouts/application.html.erb`, the whole Phantom
-#      connect-and-sign surface, are in that 33. The cause is mechanical, not
-#      editorial: JS_DEF below requires `function name(...) {`, and that file
+#      random. Measured 2026-09-09, per document. web3-landing-to-entry: 164
+#      citations, 131 on the symbol branch, 33 on the literal fallback — and ALL
+#      SEVEN citations on `app/views/layouts/application.html.erb`, the whole
+#      Phantom connect-and-sign surface, are in that 33. The cause is mechanical,
+#      not editorial: JS_DEF below requires `function name(...) {`, and that file
 #      writes `window.solanaConnectAndVerify = async function(walletName, opts)`,
 #      so no line in its ~400-line body has an enclosing definition to anchor on.
-#      A reader following a security claim is the reader most likely to land
-#      there, and there the guard proves the words are present, not that the code
-#      is. The preamble of the guarded document says so, and
+#      market-snapshot: 55 citations, 36 on the symbol branch, 19 on the
+#      fallback, and there the concentration is by FILE EXTENSION —
+#      `definitions` below reads `.rb` with Prism and inline JS inside `.erb`,
+#      and returns nothing for anything else. So every citation on `.rake` and
+#      `.js` is on the weaker branch BY CONSTRUCTION, never by an editor's
+#      choice, and in that document those two extensions plus a seed script with
+#      no `def` and one constant in a class body are exactly the 19.
+#      A reader following a security claim is the reader most likely to land on
+#      the weak branch, and there the guard proves the words are present, not
+#      that the code is. Each guarded document's preamble says so, and
 #      "the preamble states the split ..." below holds it to those numbers.
 #   6. A WIDE SYMBOL MAKES THE SYMBOL BRANCH NEARLY AS WEAK AS THE FALLBACK. The
 #      symbol branch asks only that the cited line fall SOMEWHERE inside the
@@ -112,14 +130,49 @@ require "prism"
 #      citation whose cited lines are entirely blank is now rejected outright, at
 #      0 false positives across all 164. The rest of the weakness stands stated.
 class WorkflowCitationDocsTest < ActiveSupport::TestCase
-  GUARDED_DOCS = %w[docs/workflows/web3-landing-to-entry.md].freeze
+  # COVERAGE IS PER DOCUMENT, AND THAT IS THE POINT. A second document guarded
+  # under one shared floor would be covered in name only: web3-landing-to-entry's
+  # 164 citations satisfy any total this file could reasonably assert, so a
+  # combined floor would stay green with the second document's citations deleted
+  # entirely. A floor implying reach the guard does not have is the same defect
+  # as a citation implying a check it does not get. So each guarded document
+  # carries its OWN floors and its OWN preamble claim, and adding one means
+  # measuring that document, not appending a path.
+  #
+  #   min_citations / min_path / min_bare
+  #     Floors for the parse, each set below the count that document's sweep left
+  #     behind — low enough that ordinary editing does not trip them, high enough
+  #     that a citation style change matching nothing cannot slip through green.
+  #     min_bare is per document because the two do not write citations alike:
+  #     web3-landing-to-entry leans on bare `:NN` (98 of 164), market-snapshot
+  #     re-states the path far more often (17 of 55).
+  #
+  #   fallback_only_files
+  #     Files on which EVERY citation in that document rides the weaker literal
+  #     branch. The document names them to its reader; this list is what holds it
+  #     to that claim, so if such a file ever grows a definition the guard can
+  #     see, the preamble goes stale LOUDLY rather than quietly understating.
+  #     It is a claim about the files it NAMES, not an exhaustive list of every
+  #     fallback-only file in the document — the split counts above carry the
+  #     exhaustive part.
+  COVERAGE = {
+    "docs/workflows/web3-landing-to-entry.md" => {
+      min_citations: 120, min_path: 45, min_bare: 70,
+      fallback_only_files: %w[app/views/layouts/application.html.erb]
+    },
+    "docs/workflows/market-snapshot.md" => {
+      min_citations: 45, min_path: 30, min_bare: 12,
+      fallback_only_files: %w[
+        lib/tasks/nfl.rake
+        lib/tasks/market.rake
+        db/seeds/nfl_2026.rb
+        scripts/scrape_draftkings.js
+        app/services/nfl/espn/client.rb
+      ]
+    }
+  }.freeze
 
-  # Floor for the parse. Set below the count this sweep left behind so ordinary
-  # editing does not trip it, and high enough that a citation style change which
-  # matches nothing cannot slip through green.
-  MIN_CITATIONS       = 120
-  MIN_PATH_QUALIFIED  = 45
-  MIN_BARE            = 70
+  GUARDED_DOCS = COVERAGE.keys.freeze
 
   # Tokens too common to anchor anything. A citation that only matches one of
   # these has not been verified by the literal branch.
@@ -131,11 +184,12 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
 
   MIN_LITERAL_TOKEN = 6
 
-  # The one guarded file whose citations ALL ride the literal fallback (limit 5).
-  # The guarded document names it to its reader; this constant is what holds the
-  # document to that claim, so if the file ever grows a definition the guard can
-  # see, the preamble goes stale LOUDLY instead of quietly.
-  FALLBACK_ONLY_FILE = "app/views/layouts/application.html.erb"
+  # A real repo file used as the CONTROL for the blank-line rejection below. It
+  # needs only two properties — it exists, and it holds both a blank line and a
+  # non-blank one — and the control locates them at run time, so it cannot go
+  # stale. Which file it is carries no other meaning; the per-document claim
+  # about fallback-only files lives in COVERAGE above.
+  BLANK_CONTROL_FILE = "app/views/layouts/application.html.erb"
 
   # A citation: `path/to/file.rb:12`, `file.rb:12-18`, `:12`, `:12, 20-24`.
   LINES  = /\d+(?:-\d+)?(?:,\s*\d+(?:-\d+)?)*/
@@ -194,13 +248,18 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   end
 
   # The parse itself is asserted, because a guard that matches nothing passes.
-  test "the parse still finds citations of both shapes the document uses" do
-    assert_operator citations.size, :>=, MIN_CITATIONS,
-                    "parsed #{citations.size} citations; the regex likely stopped matching"
-    assert_operator citations.count { |c| c[:kind] == :path }, :>=, MIN_PATH_QUALIFIED,
-                    "too few path-qualified citations parsed"
-    assert_operator citations.count { |c| c[:kind] == :bare }, :>=, MIN_BARE,
-                    "too few bare :NN citations parsed"
+  # PER DOCUMENT: a shared total would let one document's citations stand in for
+  # another's, so a floor is only worth what the smallest guarded document has.
+  test "the parse still finds citations of both shapes each document uses" do
+    COVERAGE.each do |doc, spec|
+      mine = citations_for(doc)
+      assert_operator mine.size, :>=, spec.fetch(:min_citations),
+                      "#{doc}: parsed #{mine.size} citations; the regex likely stopped matching"
+      assert_operator mine.count { |c| c[:kind] == :path }, :>=, spec.fetch(:min_path),
+                      "#{doc}: too few path-qualified citations parsed"
+      assert_operator mine.count { |c| c[:kind] == :bare }, :>=, spec.fetch(:min_bare),
+                      "#{doc}: too few bare :NN citations parsed"
+    end
     assert citations.all? { |c| c[:path] },
            "a bare citation resolved to no file: " \
            "#{citations.reject { |c| c[:path] }.map { |c| "#{c[:doc]}:#{c[:line]} #{c[:raw]}" }.join(', ')}"
@@ -233,21 +292,21 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # bites. Nothing is hard-coded: a blank line and a non-blank line are located
   # at run time, so the control cannot itself go stale.
   test "the blank-line rejection rejects a blank citation and only a blank one" do
-    lines       = source(FALLBACK_ONLY_FILE)
+    lines       = source(BLANK_CONTROL_FILE)
     blank_no    = lines.index { |l| l.strip.empty? }&.succ
     nonblank_no = lines.index { |l| !l.strip.empty? }&.succ
-    assert blank_no,    "expected #{FALLBACK_ONLY_FILE} to contain a blank line"
-    assert nonblank_no, "expected #{FALLBACK_ONLY_FILE} to contain a non-blank line"
+    assert blank_no,    "expected #{BLANK_CONTROL_FILE} to contain a blank line"
+    assert nonblank_no, "expected #{BLANK_CONTROL_FILE} to contain a non-blank line"
 
-    assert blank_citation?(cite_at(FALLBACK_ONLY_FILE, blank_no..blank_no)),
-           "the rejection passed #{FALLBACK_ONLY_FILE}:#{blank_no}, which is blank — " \
+    assert blank_citation?(cite_at(BLANK_CONTROL_FILE, blank_no..blank_no)),
+           "the rejection passed #{BLANK_CONTROL_FILE}:#{blank_no}, which is blank — " \
            "the guard above is inert"
-    refute blank_citation?(cite_at(FALLBACK_ONLY_FILE, nonblank_no..nonblank_no)),
-           "the rejection failed #{FALLBACK_ONLY_FILE}:#{nonblank_no}, which is not blank"
+    refute blank_citation?(cite_at(BLANK_CONTROL_FILE, nonblank_no..nonblank_no)),
+           "the rejection failed #{BLANK_CONTROL_FILE}:#{nonblank_no}, which is not blank"
 
     lo, hi = [blank_no, nonblank_no].minmax
-    refute blank_citation?(cite_at(FALLBACK_ONLY_FILE, lo..hi)),
-           "the rejection failed #{FALLBACK_ONLY_FILE}:#{lo}-#{hi} — a range that merely " \
+    refute blank_citation?(cite_at(BLANK_CONTROL_FILE, lo..hi)),
+           "the rejection failed #{BLANK_CONTROL_FILE}:#{lo}-#{hi} — a range that merely " \
            "CONTAINS a blank line is legitimate; only an all-blank one names nothing"
   end
 
@@ -255,41 +314,56 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # unenforced number in prose is the exact defect the document exists to
   # prevent, and it gets no exemption for being a number about the guard itself.
   test "the preamble states the split between the symbol branch and the fallback" do
-    symbol   = citations.count { |c| enclosing_names(c).any? }
-    fallback = citations.size - symbol
+    COVERAGE.each_key do |doc|
+      mine     = citations_for(doc)
+      symbol   = mine.count { |c| enclosing_names(c).any? }
+      fallback = mine.size - symbol
+      preamble = preamble_text(doc)
 
-    m = preamble_text.match(/\*\*(\d+) of the (\d+) citations\*\*/)
-    assert m, "the preamble must state how many citations get the SYMBOL check, written " \
-              "`**N of the M citations**`. Left unqualified it promises a reader a check " \
-              "that #{fallback} citations in this document do not get."
-    said_symbol, said_total = m[1].to_i, m[2].to_i
-    said_fallback = preamble_text[/[Tt]he other \*\*(\d+)\*\*/, 1].to_i
+      m = preamble.match(/\*\*(\d+) of the (\d+) citations\*\*/)
+      assert m, "#{doc}: the preamble must state how many citations get the SYMBOL check, " \
+                "written `**N of the M citations**`. Left unqualified it promises a reader " \
+                "a check that #{fallback} citations in this document do not get."
+      said_symbol, said_total = m[1].to_i, m[2].to_i
+      said_fallback = preamble[/[Tt]he other \*\*(\d+)\*\*/, 1].to_i
 
-    assert_equal [symbol, citations.size, fallback], [said_symbol, said_total, said_fallback],
-                 "the preamble says #{said_symbol} of #{said_total} on the symbol branch and " \
-                 "#{said_fallback} on the fallback; measured #{symbol} of #{citations.size} " \
-                 "and #{fallback}. Re-derive the numbers in the preamble — do not drop them."
+      assert_equal [symbol, mine.size, fallback], [said_symbol, said_total, said_fallback],
+                   "#{doc}: the preamble says #{said_symbol} of #{said_total} on the symbol " \
+                   "branch and #{said_fallback} on the fallback; measured #{symbol} of " \
+                   "#{mine.size} and #{fallback}. Re-derive the numbers in the preamble — " \
+                   "do not drop them."
+    end
   end
 
   # The share alone would let a reader assume the fallback is scattered noise. It
   # is not: it is concentrated, and it covers the signing surface whole.
-  test "the file the preamble names as fallback-only really is fallback-only" do
-    m = preamble_text.match(/\*\*All (\d+) citations on `([^`]+)`/)
-    assert m, "the preamble must name the file whose citations ALL ride the weaker " \
-              "fallback, written **All N citations on `path`**"
-    said_count, said_path = m[1].to_i, m[2]
-    assert_equal FALLBACK_ONLY_FILE, said_path,
-                 "the preamble names #{said_path}; this guard tracks #{FALLBACK_ONLY_FILE}"
+  test "the files the preamble names as fallback-only really are fallback-only" do
+    COVERAGE.each do |doc, spec|
+      expected = spec.fetch(:fallback_only_files)
+      next if expected.empty?
 
-    on_file = citations.select { |c| c[:path] == said_path }
-    assert_equal said_count, on_file.size,
-                 "the preamble says #{said_count} citations on #{said_path}; there are #{on_file.size}"
+      m = preamble_text(doc).match(/\*\*All (\d+) citations on ([^*]+)\*\*/)
+      assert m, "#{doc}: the preamble must name the file(s) whose citations ALL ride the " \
+                "weaker fallback, written **All N citations on `path`** — a backticked list " \
+                "of paths where there is more than one"
+      said_count = m[1].to_i
+      said_paths = m[2].scan(/`([^`]+)`/).flatten
 
-    symbol_checked = on_file.select { |c| enclosing_names(c).any? }
-    assert_empty symbol_checked.map { |c| "#{c[:doc]}:#{c[:line]} #{c[:raw]} inside #{enclosing_names(c).join(", ")}" },
-                 "the preamble tells a reader EVERY citation on #{said_path} rides the weaker " \
-                 "fallback branch. These no longer do, so the preamble now understates the " \
-                 "guard — move the prose"
+      assert_equal expected.sort, said_paths.sort,
+                   "#{doc}: the preamble names #{said_paths.inspect}; this guard tracks " \
+                   "#{expected.inspect}"
+
+      on_files = citations_for(doc).select { |c| said_paths.include?(c[:path]) }
+      assert_equal said_count, on_files.size,
+                   "#{doc}: the preamble says #{said_count} citations on those files; " \
+                   "there are #{on_files.size}"
+
+      symbol_checked = on_files.select { |c| enclosing_names(c).any? }
+      assert_empty symbol_checked.map { |c| "#{c[:doc]}:#{c[:line]} #{c[:raw]} inside #{enclosing_names(c).join(", ")}" },
+                   "#{doc}: the preamble tells a reader EVERY citation on those files rides " \
+                   "the weaker fallback branch. These no longer do, so the preamble now " \
+                   "understates the guard — move the prose"
+    end
   end
 
   # ---------------------------------------------------------------- machinery
@@ -308,12 +382,17 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
       kind: :path, path: path, ranges: [range] }
   end
 
-  # The guarded document's preamble as ONE line. Blockquote markers and hard
-  # wraps are typography, not content, and a claim must not escape a check by
-  # landing on a line break.
-  def preamble_text
-    @preamble_text ||= begin
-      lines = doc_lines(GUARDED_DOCS.first)
+  # The citations belonging to ONE guarded document. Every per-document claim
+  # goes through here rather than through `citations`, so no assertion about one
+  # document can be satisfied by another document's numbers.
+  def citations_for(doc) = citations.select { |c| c[:doc] == doc }
+
+  # A guarded document's preamble as ONE line. Blockquote markers and hard wraps
+  # are typography, not content, and a claim must not escape a check by landing
+  # on a line break.
+  def preamble_text(doc)
+    (@preamble_text ||= {})[doc] ||= begin
+      lines = doc_lines(doc)
       start = lines.index { |l| l.start_with?(">") }
       if start
         fin = start
