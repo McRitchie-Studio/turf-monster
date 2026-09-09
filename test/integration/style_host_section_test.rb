@@ -48,8 +48,44 @@ class StyleHostSectionTest < ActionDispatch::IntegrationTest
     # nothing to settle and the card guards both, so they are left off. Also NOT
     # `action`, which the opener passes to BUILD its message string and which
     # modals/_network_guard never reads.
-    "network-guard"       => %w[title message networkLabel environmentLabel]
+    "network-guard"       => %w[title message networkLabel environmentLabel],
+
+    # ─── batch 3, the middle five (2026-09-09) ───────────────────────────────
+    # BOTH ADDRESSES, because the card carries NO fallbacks:
+    # modals/_email_change_pending renders bare x-text on props.currentEmail and
+    # props.newEmail, so a prop left out paints an EMPTY span where an address
+    # belongs. The retired mirror defaulted both to sample addresses, which is
+    # the convenience that hides an omitted prop instead of exposing it.
+    "email-change-pending" => %w[currentEmail newEmail],
+    # NO lobbyUrl, AND THE OMISSION IS THE POINT. blocks/_cta_redirect forks on
+    # its destination: truthy runs window.location.href when the drain ends,
+    # null fires a no-op and a click falls through to closing the card.
+    # modals/_it_begins wires that destination straight to props.lobbyUrl, so a
+    # lobbyUrl passed HERE would navigate the guide to a contest page eight
+    # seconds after the card opened, leaving it a dead spinner on the way out
+    # (go sets redirecting true and never resets it). Declaring the key would
+    # fail half (a) against a trigger that correctly passes nothing.
+    "it-begins"            => [],
+    # ONE OF THE TWO KEYS THE CARD READS, and the one its caller sends.
+    # solana_utils.js's 429 interceptor is the only opener and passes
+    # secondsLeft alone; props.message is read with a default of "You are going
+    # a bit fast." that no caller in this app overrides, so the default is the
+    # line every real 429 shows and the trigger leaves it off rather than
+    # rendering copy nobody has met.
+    "rate-limit-general"   => %w[secondsLeft],
+    # THE ONLY PROP IS A CALLBACK. props.onSubmit is a function questNewsletter
+    # passes so the CALLER owns the subscribe request; a guide has no request to
+    # own, the card guards the call, and submit closes either way — the same
+    # reason network-guard is opened without onConfirm and onCancel.
+    "newsletter-email"     => [],
+    # READS NO PROPS AT ALL: its endpoint is server-rendered into the x-data
+    # from newsletter_unsubscribe_path, and its one production opener calls
+    # open with an id and no second argument.
+    "unsubscribe-confirm"  => []
   }.freeze
+
+  # One card's hidden reference prose, as style/_modal_specimen renders it.
+  REFERENCE_SPAN = %r{<span x-ref="ref" class="hidden">.*?</span>}m
 
   # Where a prop may legitimately be READ. The partial is the obvious place; the
   # Alpine factory is the one that made the first version of this test blind.
@@ -154,12 +190,51 @@ class StyleHostSectionTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # THE GUARD THAT MAKES EVERY OTHER GUARD IN THIS FILE REACH EVERY CARD.
+  #
+  # Every other assertion here iterates TRIGGERS, so a card added WITHOUT an
+  # entry was unguarded end to end: its id was never checked for a registration,
+  # its props were never compared against the partial, and nothing anywhere
+  # noticed it existed. MEASURED on this file at 4ec5a35d, the batch-2 merge, by
+  # adding a sixth card whose id was a typo nothing registers and giving it no
+  # TRIGGERS entry — the whole suite stayed GREEN while the page carried a card
+  # that opens an EMPTY panel. Found by mutation testing during the batch-2
+  # review and recorded there as scope for the next batch.
+  #
+  # The fix is to stop trusting the constant as the census. The set of cards the
+  # PAGE renders is asserted against the set this file declares, in both
+  # directions, so a card cannot be added invisibly and a declared card cannot
+  # quietly vanish.
+  test "the cards RENDERED in the section are exactly the cards this test declares" do
+    section = triggerable_section(@body)
+
+    # (a) THE IDS. A card added with no entry renders a trigger whose id nothing
+    # declares, and lands here. A declared id whose card was deleted goes
+    # missing from the page, and lands here too.
+    rendered = section.scan(/\$store\.modals\.open\('([^']+)'/).flatten.uniq.sort
+    expected = (TRIGGERS.keys - gated_off_ids(@body)).sort
+
+    assert_equal expected, rendered,
+                 "the section renders triggers for #{rendered.inspect} while this test declares " \
+                 "#{expected.inspect} — an undeclared card is checked by NOTHING in this file, " \
+                 "including whether the id it opens is registered at all"
+
+    # (b) THE CARDS. Half (a) can only see a card that renders a TRIGGER, and a
+    # card rendered with `openable: false` renders none — so an undeclared card
+    # would slip past (a) by being disabled. style/_modal_specimen prints
+    # exactly one hidden reference span per card, gated on nothing, so counting
+    # those counts cards whether or not they are clickable.
+    assert_equal TRIGGERS.size, decoded_section(@body).scan(REFERENCE_SPAN).size,
+                 "the section renders a different number of specimen cards than the " \
+                 "#{TRIGGERS.size} this test declares — half (a) above sees only cards that " \
+                 "render a trigger, so a disabled card added here is caught by this half alone"
+  end
+
   test "no trigger drives the gem's page-scoped store" do
     # dsModals is the engine section's private host. Driving it from here would
     # rebuild the mirror this section exists to replace — and it would LOOK fine,
     # because dsModals is defined on this page.
-    section = @body[@body.index('id="host-modals"')..] || ""
-    refute_includes section, "dsModals",
+    refute_includes decoded_section(@body), "dsModals",
                     "a host specimen must drive the app's real $store.modals, never dsModals"
   end
 
@@ -287,7 +362,36 @@ class StyleHostSectionTest < ActionDispatch::IntegrationTest
   # would PASS on a page rendering exactly the trigger it exists to forbid.
   def decoded_section(body)
     idx = body.index('id="host-modals"')
-    idx ? CGI.unescapeHTML(body[idx..]) : ""
+    return "" unless idx
+
+    # BOUNDED AT THE NEXT SECTION, because the host section is NOT the last one
+    # on this page: style/index.html.erb renders theme, modals, host, tricks,
+    # tasks in that order, so a slice to end-of-document carries Tricks and
+    # Tasks along with the section it claims to be. Nothing in those two renders
+    # a modal specimen or names a store today, which is the only reason the
+    # unbounded version was ever right — and a card-counting assertion cannot
+    # rest on that staying true. The search starts at the ATTRIBUTE, so the host
+    # section's own opening tag is already behind it.
+    nxt = body.index("<section id=", idx)
+    CGI.unescapeHTML(body[idx...(nxt || body.length)])
+  end
+
+  # decoded_section with the hidden REFERENCE PROSE stripped out.
+  #
+  # The reference is rendered page CONTENT — style/_modal_specimen prints it
+  # into a hidden span so the Copy button can read it back — so a card whose
+  # prose quotes an open() call is indistinguishable, to a scanner, from a card
+  # that carries one. Every assertion that hunts for triggers reads this, which
+  # is what lets the prose describe a trigger without becoming one.
+  def triggerable_section(body)
+    decoded_section(body).gsub(REFERENCE_SPAN, "")
+  end
+
+  # The capability-gated ids whose capability is OFF on this stack. Their card
+  # renders a disabled badge and NO trigger, so they are absent from the
+  # rendered-id set by design rather than by omission.
+  def gated_off_ids(body)
+    CAPABILITY_GATED.keys.select { |id| app_registration_sources(body, id).empty? }
   end
 
   # The prop keys the RENDERED trigger for one id passes, sorted; nil when the
@@ -301,7 +405,7 @@ class StyleHostSectionTest < ActionDispatch::IntegrationTest
   # prop the section passed before 2026-09-09 was camelCase, so nothing had ever
   # exercised it; modals/_newsletter_success reads props.seeds_earned.
   def rendered_trigger_props(body, id)
-    args = decoded_section(body)[/\$store\.modals\.open\('#{Regexp.escape(id)}'(?:,\s*\{(.*?)\})?\s*\)/m, 1]
+    args = triggerable_section(body)[/\$store\.modals\.open\('#{Regexp.escape(id)}'(?:,\s*\{(.*?)\})?\s*\)/m, 1]
     args&.scan(/([a-zA-Z_]+):/)&.flatten&.sort
   end
 end
