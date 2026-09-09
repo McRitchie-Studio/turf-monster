@@ -296,6 +296,18 @@
             if (provider) return provider;
             throw new Error(this.noWalletMessage());
           },
+          // MIRRORED BECAUSE A PRE-HYDRATION CALLER ALREADY REACHES FOR IT.
+          // shared/_alpine_factories asks for requireInlineProvider(), and this
+          // stub is what answers during the window before importmap modules
+          // execute — so a stub without it throws "requireInlineProvider is not
+          // a function", the same unreadable failure the pair above exists to
+          // remove. The stub's detect() always answers null, so the honest
+          // message is the only answer it can give, and it is the right one.
+          requireInlineProvider: function() {
+            var provider = this.detect();
+            if (provider && provider.transport !== 'redirect') return provider;
+            throw new Error(this.noWalletMessage());
+          },
           noWalletMessage: function() {
             if (this.isMobile()) {
               return "This browser cannot reach a wallet. Open this page inside your " +

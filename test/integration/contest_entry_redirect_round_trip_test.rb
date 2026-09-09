@@ -39,7 +39,7 @@ class ContestEntryRedirectRoundTripTest < ActiveSupport::TestCase
 
   def handlers_source
     src = File.read(PARTIAL)
-    start = src.index("window.tmPrepareContestEntry = async function")
+    start = src.index("window.tmEntryFetch = function")
     finish = src.index("</script>")
     src[start...finish]
   end

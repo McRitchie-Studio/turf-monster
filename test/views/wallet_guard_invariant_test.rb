@@ -60,14 +60,30 @@ class WalletGuardInvariantTest < ActiveSupport::TestCase
                  offenders.join("\n  ")
   end
 
-  test "every layout inlining a walletProvider stub mirrors requireProvider" do
+  # DERIVED FROM THE CALLERS, not from a hardcoded list. A stub owes whatever
+  # the pre-hydration window can actually reach for, and that set grows: when
+  # _alpine_factories moved from requireProvider to requireInlineProvider, a
+  # list written by hand would have kept asserting the old name and passed while
+  # the preview threw "requireInlineProvider is not a function". Reading the
+  # call sites means adding a third guard updates this test for free.
+  test "every layout inlining a walletProvider stub mirrors what its callers ask for" do
+    factories = File.read(VIEWS.join("shared/_alpine_factories.html.erb"))
+    needed = %w[requireProvider requireInlineProvider].select do |m|
+      factories.include?("walletProvider.#{m}()")
+    end
+    assert_operator needed.size, :>=, 1,
+                    "no walletProvider guard is called pre-hydration any more — if that is " \
+                    "true then this test and the stubs it guards should go together"
+
     Dir.glob(Rails.root.join("app/views/layouts/*.erb")).each do |path|
       src = File.read(path)
       next unless src.include?("window.walletProvider = {")
-      assert_includes src, "requireProvider: function()",
-                      "#{File.basename(path)} stubs walletProvider without requireProvider, " \
-                      "and shared/alpine_factories calls it — the pre-hydration window there " \
-                      "throws \"requireProvider is not a function\"."
+      needed.each do |m|
+        assert_includes src, "#{m}: function()",
+                        "#{File.basename(path)} stubs walletProvider without #{m}, and " \
+                        "shared/_alpine_factories calls it — the pre-hydration window there " \
+                        "throws \"#{m} is not a function\"."
+      end
     end
   end
 

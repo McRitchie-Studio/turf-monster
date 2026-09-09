@@ -55,6 +55,17 @@
   if (!S || !S.walletOps || typeof S.walletOps.define !== 'function') return;
 
   S.walletOps.define('contest_entry', {
+    // SIGN-ONLY, DECLARED TO THE GEM rather than only to the reader. walletOps
+    // PREFERS signAndSendTransaction where a wallet has one (wallet_ops.js:208),
+    // which is wrong for every co-signed flow: prepare_entry returns a partially
+    // signed transaction whose admin slot is EMPTY, and the server cosigns and
+    // broadcasts. A wallet that broadcast it would hand Solana a transaction
+    // missing a required signature — and we would never receive the bytes the
+    // server must cosign, so the entry would fail with nothing to retry. The
+    // prose below said this; the flag is what MAKES it true (:137 copies it onto
+    // the intent). Latent until now only because Phantom deprecated its
+    // send-side deeplink, so signingHop already fell through to signTransaction.
+    signOnly: true,
     // Runs BEFORE the wallet is reached on the redirect transport, so everything
     // it returns must be JSON-serialisable — it is literally serialised.
     prepare: function (ctx) {
@@ -80,12 +91,34 @@
 // deeplink protocol speaks base58. The gem's codec owns both directions, so the
 // encoding lives here rather than being re-derived at each end.
 
+// THE CALLBACK DOCUMENT DOES NOT HAVE window.authedFetch YET, and complete()
+// runs there. authedFetch ships only in the DEFERRED importmap module
+// solana_utils.js; studio-engine's phantom_callback view dispatches from a bare
+// inline script during body parse, and wallet_ops calls handler.complete
+// SYNCHRONOUSLY. So a direct window.authedFetch(...) throws a TypeError on the
+// one document that matters — after the user has already approved in Phantom,
+// and after resume() consumed the journal at take(), so there is nothing left to
+// retry. That is the original incident reproduced at the moment of highest cost.
+// Raised in review of PR 632; two of studio-engine's own callers on that same
+// page already defend with the `|| window.fetch` half of this.
+//
+// THE 401 NORMALISATION IS NOT OPTIONAL. authedFetch answers FALSY on a 401
+// (having surfaced the login modal); plain fetch answers a 401 Response. Both
+// call sites below branch on `if (!resp)`, so the fallback has to speak the same
+// dialect or an expired session reads as a successful prepare.
+window.tmEntryFetch = function (url, opts) {
+  if (typeof window.authedFetch === 'function') return window.authedFetch(url, opts);
+  return window.fetch(url, opts).then(function (resp) {
+    return resp && resp.status === 401 ? null : resp;
+  });
+};
+
 // Prepare: mint the server-side transaction and hand back ONLY what survives
 // serialisation. No Transaction object, no closure, no DOM — this return value
 // is written to localStorage verbatim.
 window.tmPrepareContestEntry = async function (ctx) {
   console.log('[contest-entry] POST prepare_entry (fresh blockhash + priority fee), currency=' + ctx.currency);
-  var resp = await window.authedFetch('/contests/' + ctx.contestId + '/prepare_entry', {
+  var resp = await window.tmEntryFetch('/contests/' + ctx.contestId + '/prepare_entry', {
     method: 'POST',
     headers: { 'X-CSRF-Token': ctx.csrfToken, 'Content-Type': 'application/json', 'Accept': 'application/json' },
     body: JSON.stringify({ currency: ctx.currency })
@@ -142,7 +175,7 @@ window.tmCompleteContestEntry = async function (ctx, result, state) {
     sb += String.fromCharCode.apply(null, signed.subarray(i, i + chunk));
   }
 
-  var resp = await window.authedFetch('/contests/' + ctx.contestId + '/confirm_onchain_entry', {
+  var resp = await window.tmEntryFetch('/contests/' + ctx.contestId + '/confirm_onchain_entry', {
     method: 'POST',
     headers: { 'X-CSRF-Token': ctx.csrfToken, 'Content-Type': 'application/json', 'Accept': 'application/json' },
     body: JSON.stringify({ signed_tx: btoa(sb), entry_id: state.entry_id, entry_pda: state.entry_pda, ptx_slug: state.ptx_slug })

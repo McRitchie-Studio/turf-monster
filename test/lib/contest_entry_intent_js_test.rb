@@ -30,9 +30,9 @@ class ContestEntryIntentJsTest < ActiveSupport::TestCase
     # THE DEFINITION, not the first mention. The intent registration above it
     # CALLS window.tmPrepareContestEntry(ctx), so a bare index() lands mid-object
     # and extracts syntactically broken JS.
-    start = src.index("window.tmPrepareContestEntry = async function")
+    start = src.index("window.tmEntryFetch = function")
     finish = src.index("</script>")
-    assert start, "could not find tmPrepareContestEntry in the partial"
+    assert start, "could not find tmEntryFetch in the partial"
     assert finish && finish > start, "could not bound the handler block"
     src[start...finish]
   end
@@ -43,6 +43,20 @@ class ContestEntryIntentJsTest < ActiveSupport::TestCase
     fetch_js =
       case fetch
       when :unauthorized then "window.authedFetch = function () { calls.push(['fetch', arguments[0], arguments[1]]); return Promise.resolve(null); };"
+      when :no_authed_fetch
+        # THE CALLBACK DOCUMENT. authedFetch ships in a DEFERRED importmap module
+        # and complete() runs from a bare inline script during body parse, so on
+        # the one page that matters it is simply not there yet. Every other shape
+        # in this method SUPPLIES it — which is exactly why the suite could not
+        # see the TypeError that lost a user's approved entry.
+        "window.fetch = function (u, o) { calls.push(['fetch', u, o]); " \
+          "return Promise.resolve({ status: 200, json: function () { return Promise.resolve(" +
+          ({ "success" => true, "serialized_tx" => "AQID", "ptx_slug" => "ptx-1", "entry_id" => 7,
+             "entry_pda" => "PDA", "token_funded" => true, "tx_signature" => "SIG" }.to_json) +
+          "); } }); };"
+      when :no_authed_fetch_401
+        "window.fetch = function (u, o) { calls.push(['fetch', u, o]); " \
+          "return Promise.resolve({ status: 401, json: function () { return Promise.resolve({}); } }); };"
       else
         payload = (body || {
           "success" => true, "serialized_tx" => "AQID", "ptx_slug" => "ptx-1",
@@ -208,5 +222,52 @@ class ContestEntryIntentJsTest < ActiveSupport::TestCase
 
     refute out["ok"]
     assert_nil out["blockerData"], "a session expiry is not a blocker panel"
+  end
+
+  # --- the callback document has no authedFetch ------------------------------
+  #
+  # THE DEFECT THESE EXIST FOR, and the reason the rest of this file could not
+  # see it: every other case here SUPPLIES window.authedFetch. On the real
+  # callback page it does not exist yet — it ships in a deferred importmap
+  # module, while studio-engine dispatches from a bare inline script during body
+  # parse and wallet_ops calls complete() synchronously. A direct
+  # window.authedFetch(...) therefore threw a TypeError AFTER the user approved
+  # in Phantom, with the journal already consumed by take(). Found in review of
+  # PR 632, on the second lap.
+
+  test "prepare completes on a document that has no authedFetch" do
+    out = run_js("window.tmPrepareContestEntry({ contestId: 1, csrfToken: 'x', currency: 'usdc' })",
+                 fetch: :no_authed_fetch)
+
+    assert out["ok"], "prepare must not throw where authedFetch is absent: #{out['message']}"
+    assert_equal "ptx-1", out.dig("value", "ptx_slug")
+  end
+
+  test "complete completes on a document that has no authedFetch" do
+    out = run_js("window.tmCompleteContestEntry({ contestId: 1, csrfToken: 'x' }, " \
+                 "{ signedTransaction: 'B58<1,2,3>' }, { entry_id: 7, entry_pda: 'PDA', ptx_slug: 'ptx-1' })",
+                 fetch: :no_authed_fetch)
+
+    assert out["ok"], "complete is the leg that runs on the callback page: #{out['message']}"
+    assert_equal "SIG", out.dig("value", "tx_signature")
+  end
+
+  # authedFetch answers FALSY on a 401; plain fetch answers a 401 Response. Both
+  # handlers branch on `if (!resp)`, so the fallback has to speak the same
+  # dialect or an expired session reads as a successful prepare.
+  test "the fallback normalises a 401 to the falsy shape authedFetch uses" do
+    out = run_js("window.tmPrepareContestEntry({ contestId: 1, csrfToken: 'x', currency: 'usdc' })",
+                 fetch: :no_authed_fetch_401)
+
+    refute out["ok"], "a 401 through the fallback must throw, not resolve"
+    assert_match(/session expired/i, out["message"])
+  end
+
+  test "authedFetch is still preferred when the document does have it" do
+    out = run_js("window.tmPrepareContestEntry({ contestId: 1, csrfToken: 'x', currency: 'usdc' })")
+
+    assert out["ok"]
+    assert_equal "/contests/1/prepare_entry", out["calls"].first[1],
+                 "the authed path must still be the one taken where it exists"
   end
 end

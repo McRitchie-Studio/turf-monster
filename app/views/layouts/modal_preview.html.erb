@@ -135,6 +135,15 @@
             var provider = this.detect();
             if (provider) return provider;
             throw new Error("No wallet is reachable in the modal preview.");
+          },
+          // The same rename flow now asks for the INLINE guard, so the preview
+          // stub owes it too — without it the pre-hydration window throws
+          // "requireInlineProvider is not a function" instead of the readable
+          // sentence this object exists to give.
+          requireInlineProvider: function() {
+            var provider = this.detect();
+            if (provider && provider.transport !== 'redirect') return provider;
+            throw new Error("No wallet is reachable in the modal preview.");
           }
         };
 

@@ -117,18 +117,18 @@ Phantom must be installed in the browser or available via mobile deep link.
    `openWalletConnect(ageAttested)`
    (`app/views/contests/_turf_totals_board.html.erb:1023-1028`), which swaps in
    solana-studio's wallet picker. The picker runs
-   `window.solanaConnectAndVerify` — `app/views/layouts/application.html.erb:331`.
-   - The nonce is fetched from `/auth/solana/nonce` (`:367`) →
+   `window.solanaConnectAndVerify` — `app/views/layouts/application.html.erb:343`.
+   - The nonce is fetched from `/auth/solana/nonce` (`:379`) →
      `SolanaSessionsController#nonce`
      (`app/controllers/solana_sessions_controller.rb:5-9`).
    - Two signing paths. A wallet that supports SIWS `signIn` is used directly;
      otherwise the message is built locally — domain, pubkey, statement,
      `Nonce:` — and signed with `provider.signMessage`
-     (`app/views/layouts/application.html.erb:535-537`).
+     (`app/views/layouts/application.html.erb:547-549`).
    - The `User-ID` binding that ties a signature to an account (OPSEC-005) rides
-     only on the wallet-LINK path (`opts.linkMode`), not on signup (`:425`).
+     only on the wallet-LINK path (`opts.linkMode`), not on signup (`:437`).
    - The signature is base58-encoded and POSTed to `/auth/solana/verify`
-     (`:715`) as `signatureB58` alongside the message and pubkey (`:797-801`).
+     (`:727`) as `signatureB58` alongside the message and pubkey (`:809-813`).
      An unreadable answer to that POST — an HTML body from a fault of ours,
      which usually arrives as a 302 followed to status 200 rather than a 500;
      see docs/AUTH.md — is

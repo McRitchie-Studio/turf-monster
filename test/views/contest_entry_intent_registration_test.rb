@@ -166,4 +166,27 @@ class ContestEntryIntentRegistrationTest < ActiveSupport::TestCase
                     "without this every funds/age/first-name/wallet-setup blocker " \
                     "collapsed to raw text on a phone"
   end
+
+  # --- the intent's contract with walletOps ----------------------------------
+
+  # walletOps PREFERS signAndSendTransaction where a wallet offers one
+  # (wallet_ops.js:208) and only an intent declaring signOnly opts out. This
+  # flow is CO-SIGNED: prepare_entry returns a transaction whose admin slot is
+  # empty and the server cosigns and broadcasts, so a wallet that broadcast it
+  # would submit a transaction missing a required signature AND leave the server
+  # without the bytes it must cosign. The partial documented that in prose for a
+  # lap while the flag was absent; prose does not reach the gem.
+  test "the intent declares signOnly so a co-signed entry is never broadcast" do
+    src = File.read(PARTIAL)
+    start = src.index("S.walletOps.define('contest_entry', {")
+    assert start, "the intent registration moved"
+    # Bounded at the first handler key, so the flag has to sit ON this intent
+    # rather than anywhere later in the file.
+    finish = src.index("prepare: function", start)
+    assert finish && finish > start, "could not bound the intent's option block"
+
+    assert_includes src[start...finish], "signOnly: true",
+                    "without this the gem takes signAndSendTransaction wherever a wallet " \
+                    "offers it, and the server never receives bytes to cosign"
+  end
 end
