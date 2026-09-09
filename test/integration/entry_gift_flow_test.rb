@@ -155,6 +155,62 @@ class EntryGiftFlowTest < ActionDispatch::IntegrationTest
     assert_equal existing, gift.reload.claimed_by
   end
 
+  # THE RESCUE NOBODY WAS TESTING — the one path whose entire purpose is "never
+  # 500 a signed-in visitor", and whose failure is invisible by construction: the
+  # link is already burned, the gift stays :sent, and EntryGift#stalled? cannot
+  # surface it because stalled? requires claimed?. So the ONLY trace it leaves is
+  # the ErrorLog, and until now nothing asserted that trace existed.
+  #
+  # Raised from the service, which is where a real failure would come from (a
+  # wallet-generation fault, a DB blip mid-claim).
+  test "a claim that raises still signs the visitor in, and files an ErrorLog" do
+    gift = EntryGift.create!(recipient_email: RECIPIENT, sender: @admin)
+    link = Studio::Link.create_magic_link(email: RECIPIENT, linkable: gift,
+                                          ttl: EntryGift::LINK_TTL)
+    reset!
+
+    boom = ->(*) { raise "wallet generation exploded" }
+    assert_difference -> { ErrorLog.count }, 1 do
+      EntryGifts::Claim.stub :call, boom do
+        post link_consume_path(token: link.token)
+      end
+    end
+
+    # The visitor is signed in and moving, NOT staring at a 500.
+    assert_response :redirect
+    assert User.find_by(email: RECIPIENT).present?, "the account was still created"
+
+    # And the failure is attributable rather than silent.
+    log = ErrorLog.order(:created_at).last
+    assert_match(/wallet generation exploded/, log.message)
+
+    # The gift is genuinely unclaimed — this asserts the DAMAGE the ErrorLog
+    # exists to announce, so the test cannot pass by the claim quietly working.
+    assert_not gift.reload.claimed?
+  end
+
+  # Telemetry must never be what turns a successful sign-in into a 500 — so a
+  # failure INSIDE the error reporting is swallowed too. Without this the rescue
+  # above is only half-proven: it would still 500 if ErrorLog itself were down.
+  test "a failure inside the error reporting still does not 500 the visitor" do
+    gift = EntryGift.create!(recipient_email: RECIPIENT, sender: @admin)
+    link = Studio::Link.create_magic_link(email: RECIPIENT, linkable: gift,
+                                          ttl: EntryGift::LINK_TTL)
+    reset!
+
+    boom = ->(*) { raise "wallet generation exploded" }
+    dead_log = ->(*) { raise "ErrorLog is down" }
+
+    EntryGifts::Claim.stub :call, boom do
+      ErrorLog.stub :capture!, dead_log do
+        post link_consume_path(token: link.token)
+      end
+    end
+
+    assert_response :redirect
+    assert User.find_by(email: RECIPIENT).present?
+  end
+
   # An ordinary sign-in link carries no gift, and must stay ordinary.
   test "a plain magic link grants no entry" do
     reset!

@@ -77,9 +77,13 @@
     This proves the wallet is yours &mdash; it does not move funds.
   </p>
 
-  <template x-if="error">
-    <p class="text-sm text-danger-ink mb-3" x-text="error"></p>
-  </template>
+  <%# LIVE REGION, NOT A CONDITIONAL INSERT. This was a template x-if, so the
+      paragraph did not exist until the signature failed, and a region inserted
+      alongside its own content is not reliably announced. It is now mounted and
+      empty from the moment the modal opens.
+      Guard: test/views/error_live_regions_test.rb %>
+  <p x-show="error" x-cloak role="alert" aria-live="assertive" aria-atomic="true"
+     class="text-sm text-danger-ink mb-3" x-text="error"></p>
 
   <div>
     <button type="button" class="btn btn-primary btn-lg w-full"

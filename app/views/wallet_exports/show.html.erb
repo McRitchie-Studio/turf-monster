@@ -87,7 +87,8 @@
       <span x-show="status === 'signing'">Waiting for Phantom…</span>
       <span x-show="status === 'error'">Try again</span>
     </button>
-    <p class="text-xs text-danger-ink mt-2" x-show="errorText" x-text="errorText"></p>
+    <p x-show="errorText" x-cloak role="alert" aria-live="assertive" aria-atomic="true"
+       class="text-xs text-danger-ink mt-2" x-text="errorText"></p>
   </div>
 
   <%# ── Success state ─────────────────────────────────────────────── %>
