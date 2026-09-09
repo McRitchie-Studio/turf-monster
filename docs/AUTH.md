@@ -278,21 +278,32 @@ A **pubkey is kept, deliberately**: it is public (already on
 signature rule starts at 64 characters precisely so a 44-character pubkey passes
 through it.
 
-### ⚠️ Three of the five call sites are wired
+### ⚠️ All five call sites are wired
 
-Three **render surfaces** catch these rejections; two of the three are in the
-**solana-studio gem**, and wiring them needs a gem release. The other two sites
-are not surfaces at all — they are the two guards inside `solanaConnectAndVerify`
-that REPLACE a wallet's message with one of ours, and each reports before it
-destroys the evidence:
+Three **render surfaces** catch these rejections, and two of the three live in
+the **solana-studio gem** — wired there since **0.7.0**; this app locks 0.9.0.
+The other two sites are not surfaces at all — they are the two guards
+inside `solanaConnectAndVerify` that REPLACE a wallet's message with one of
+ours, and each reports before it destroys the evidence:
 
 | Stage | Where | Status |
 |---|---|---|
 | `wallet_setup_connect` | `app/views/modals/_wallet_setup.html.erb` | **wired** |
 | `connect_verify_fallback` | `app/views/layouts/application.html.erb`, `solanaConnectAndVerify` — `connect()` never answered | **wired** |
 | `connect_verify_signature` | `app/views/layouts/application.html.erb`, `solanaConnectAndVerify` — connected, then `signMessage` refused | **wired** |
-| `wallet_connect` | solana-studio `solana_studio/modals/_wallet_connect.html.erb` | **not wired** — needs a gem release |
-| `web3_step_up` | solana-studio `solana_studio/modals/_web3_step_up.html.erb` | **not wired** — needs a gem release |
+| `wallet_connect` | solana-studio `solana_studio/modals/_wallet_connect.html.erb` | **wired** — in the gem since 0.7.0 |
+| `web3_step_up` | solana-studio `solana_studio/modals/_web3_step_up.html.erb` | **wired** — in the gem since 0.7.0 |
+
+**Nothing in this app checks the gem's two, by choice.** The wiring test below
+deliberately does not read the gem's source, and the Gemfile floor is `~> 0.6`,
+so those two rows are maintained by hand. They read **not wired** from the day
+0.7.0 landed until 2026-09-09 — an operator filtering `error_logs` by
+`wallet_connect` was told, by this table, that the stage could hold nothing.
+Re-read the gem before trusting the column — `grep reportWalletFailure "$(bundle
+show solana-studio)"/app/views/solana_studio/modals/_wallet_connect.html.erb`.
+The version above is the EARLIEST tag containing the commit that wired them
+(`06bda3b`), not a tag that happens to carry it; and the floor `~> 0.6` still
+admits 0.6.x, where both rows are false.
 
 The two layout stages are not a substitute for the surfaces and the surfaces are
 not a substitute for them. Each fires for exactly one thing — a failure whose
@@ -305,14 +316,13 @@ would put the app's two most confusable wallet failures behind a single filter.
 
 Each substituted error is tagged `walletFailureReported`, and
 `_wallet_setup.html.erb` skips a tagged error, so one failure produces one row
-rather than two. **The two gem call sites owe that same guard when they are
-wired** — without it they would add a second row carrying our sentence in both
-halves, which is the shape this fix removes. Any FUTURE substituting guard added
-to `solanaConnectAndVerify` owes all three things: its own stage, a report made
-before the substitution, and the tag. The `connect_verify_signature` guard was
-added without them on 2026-09-07 (#587) and silently reopened the byte-identical
-row this endpoint exists to prevent, which is why the rule is written down here
-rather than left to be re-derived.
+rather than two. **Both gem call sites carry that same guard**, in the same
+line, so the gem release added no second row carrying our sentence in both
+halves. Any FUTURE substituting guard added to `solanaConnectAndVerify` owes all
+three things: its own stage, a report made before the substitution, and the tag.
+The `connect_verify_signature` guard was added without them on 2026-09-07 (#587)
+and silently reopened the byte-identical row this endpoint exists to prevent,
+which is why the rule is written down here rather than left to be re-derived.
 
 The reporter deliberately lives **here, not in the gem**. The gem's partials
 already call the host-provided `window.parseSolanaError` behind a `typeof`
@@ -382,7 +392,20 @@ red-seal the gem's own release.
   |---|---|
   | A decline (`code 4001`, "user rejected/declined") | The human said no |
   | `/auth/solana/nonce` failing to REACH us — the request never arrived, and the rejection still says `Failed to fetch` (tagged `nonceFetchFailed`) | The network, not the wallet — and it leaves no server-side trace, so it stays reportable |
-  | Wallet Standard rejections tagged `walletAnswered` — "No account authorized" (an empty accounts array: a dismissed account-selection sheet), "Wallet not connected" | The wallet answered and authorized nothing |
+  | The Wallet Standard rejection tagged `walletAnswered` — "No account authorized", an empty accounts array: a dismissed account-selection sheet | The wallet answered and authorized nothing |
+
+  **The adapter tags a SECOND rejection, and it never arrives.**
+  `wallet_provider.js` also tags "Wallet not connected", raised when `signMessage`
+  is called with no account. `solanaConnectAndVerify` calls `signMessage` only
+  after `connect()` has answered — and the `connected` guard rethrows ABOVE the
+  `walletAnswered` one, so that string is always substituted as
+  `connect_verify_signature`, with the wallet's words kept in `raw`. No operator
+  can read it. This table listed it anyway until 2026-09-09, which is what a
+  triage table written from the code's SHAPE rather than its BEHAVIOUR looks
+  like: it sent a reader after a cause the app cannot produce. Swap those two
+  guards and the string becomes reachable again —
+  `test/docs/auth_failure_mode_reachability_test.rb` runs the real helper and
+  reddens in either direction, naming the row that has to change.
 
   **Triage by the STAGE, then read both halves.** The stage says which diagnosis
   fired; `mapped` is what the user read; `raw` is what the wallet said. Four
@@ -392,15 +415,15 @@ red-seal the gem's own release.
   |---|---|
   | `raw: "Unexpected error"` on `connect_verify_fallback` or `connect_verify_signature` | **Normal, and the fix working.** A substitution fired and the wallet's own generic string was captured before it was replaced. The stage tells you which of the two diagnoses the user was given. |
   | `raw` == `mapped` on either of those two stages | **An anomaly worth chasing.** It means the row came from a surface downstream of the substitution — the layout's report or its `walletFailureReported` tag has regressed — which is exactly the defect fixed on 2026-09-07. |
-  | `raw: "Unexpected error"` with `mapped` reading "Wallet couldn't process the transaction…" | One of the rethrows above met the mapper's generic branch. Not a missing wallet, and not a transaction either. |
-  | `raw: "Unexpected token '<' …"` on ANY stage | **A regression.** Since 2026-09-08 that string is replaced upstream, inside the nonce fetch, and never reaches a surface — see below. |
+  | `mapped: "Signature rejected"` beside any `raw` at all | **A decline, whatever the wallet called it.** All three surfaces read `code === 4001` BEFORE the mapper, so the mapped half never depends on the raw half here. A frightening `raw` on this reading is a wallet's wording, not a second failure. |
+  | `raw: "Unexpected token '<' …"` | **A REGRESSION, on every stage.** Both legs that could produce this reading are now substituted at the point the failure is identified — the nonce fetch on 2026-09-08, the verify POST on 2026-09-09 — so an unreadable HTML body is named as our server's fault before any surface maps it. A row still carrying this raw string means a guard has been reverted, hoisted, or gated on `r.ok`; the two copy tests named below redden on all three. On `connect_verify_fallback` or `connect_verify_signature` it was always a regression, because neither guard can see a nonce or a verify rejection. (Chrome's wording. Firefox and Safari phrase the same rejection differently, miss the mapper's branch, and hand the user the raw parser noise instead.) |
 
   **The nonce exposure, closed on 2026-09-08** (`/tasks/nonce-failure-reads-as-balance`).
   This page carried it as a known, deliberately-unfixed hole from 2026-09-07: a
-  nonce fetch that fails with an HTML body — any 500 that renders a page — makes
-  `r.json()` reject with "Unexpected token '<' … is not valid JSON", which
-  matches the mapper's SAME `/^unexpected/i` branch, so the commonest
-  server-failure shape reached the user as the transaction sentence. An outage of
+  nonce fetch that fails with an HTML body — see **What actually sends HTML**
+  below — makes `r.json()` reject with "Unexpected token '<' … is not valid
+  JSON", which matches the mapper's SAME `/^unexpected/i` branch, so the
+  commonest server-failure shape reached the user as the transaction sentence. An outage of
   ours, read back to a paying user as their wallet being short of USDC.
 
   It is now substituted where the failure is identified — inside `r.json()`,
@@ -421,6 +444,109 @@ red-seal the gem's own release.
   drives the RENDERED helper against a real 500 with an HTML body and asserts the
   decoded sentence on both paths, and runs the literal past every regex the mapper
   tests a message against.
+
+  **The verify exposure, closed on 2026-09-09**
+  (`/tasks/verify-leg-repeats-nonce-bug`). This page carried the same hole one
+  fetch later as a known, deliberately-unfixed defect: `solanaConnectAndVerify`
+  ended by POSTing to `/auth/solana/verify` (or `/account/link_solana`) and
+  calling `.json()` on the answer, outside BOTH `try` blocks and with none of the
+  three things the nonce leg gained. A 500 resolves the fetch, `.json()` rejects,
+  and the same `/^unexpected/i` branch produced the balance sentence.
+
+  It was WORSE than the nonce case, and that is why it was P1: the nonce fetch
+  happens BEFORE the user signs, this one AFTER the signature succeeded. A user
+  approved a wallet prompt, our server faulted, and we told them to check their
+  USDC balance — on a real-money product, at the moment they had most reason to
+  believe something had been taken.
+
+  It is now substituted inside `verifyResponse.json()`, and the site was chosen
+  by the same analysis the nonce leg used, with one result that differs:
+
+  - **One site covers both wallet paths, and here that is free.** The `signIn`
+    branch and the `connect` + `signMessage` fallback both fall THROUGH to this
+    single fetch; neither wraps it. So unlike the nonce leg — where a
+    guard-local fix would have missed every `signIn`-capable wallet, Phantom
+    included — no second substitution is needed. Both paths are driven, and
+    since 2026-09-09 the drive is **verified to be two paths**: the copy test's
+    wallet mock is strict (a `signIn`-capable wallet refuses `connect`, and one
+    without `signIn` refuses `signIn`) and every drive records which wallet
+    methods it reached. Before that, forcing `useSignIn` either way left the
+    file green, so "both paths" was a comment rather than a guarantee.
+  - **`r.ok` is NOT the fix, and gating on it would be a new defect.** This page
+    used to note that "nothing checks `r.ok`" as though the check were the
+    remedy. `SolanaSessionsController#verify` answers **401** (expired nonce, bad
+    signature) and **422** (age attestation) with a JSON body the user MUST read,
+    and the modal paints `result.error` from it. A throw gated on `!r.ok` would
+    replace three precise, actionable sentences with one generic one — the same
+    confidently-wrong diagnosis, pointed at a new party. Only an UNREADABLE body
+    is unambiguously ours, and `.json()` rejecting is exactly that signal.
+  - **An offline user must not be told it was us.** Wrapping the fetch itself
+    makes `TypeError: Failed to fetch` and an unreadable 500 body the same
+    rejection. Inside `.json()` they are already separated by which step threw,
+    so a request that never reached us keeps its own words and stays reportable.
+
+  - **The verify POST sends no `Accept` header, and that is load-bearing.**
+    Measured 2026-09-09 against `ActionDispatch::PublicExceptions`: with no
+    `Accept` (or `*/*`, or `text/html`) a 500 comes back as the rendered error
+    PAGE — the body `.json()` rejects on; with `Accept: application/json` the
+    same 500 comes back as `{"status":500,"error":"Internal Server Error"}`,
+    which **parses**. Adding that header is a one-line tidy-up two sibling call
+    sites in the layout already make, and it would silently DISARM this guard:
+    `.json()` would resolve, the substitution would never run, and a user who
+    had already signed would read a bare "Internal Server Error" instead of
+    being told their signature moved no funds. The copy test's fake server now
+    answers by `Accept` the way Rails does, so the header cannot be added
+    without reddening. Adding it deliberately means re-aiming the guard in the
+    same diff — and a JSON error body has to be told apart by STATUS, which the
+    `r.ok` bullet above explains this endpoint cannot do naively.
+
+  **What actually sends HTML — not "any unhandled exception".** This page and
+  both copy tests carried that sentence until 2026-09-09 and it is FALSE on the
+  verify leg: `SolanaSessionsController#verify` and `AccountsController#link_solana`
+  each END in a generic `rescue StandardError` rendering **JSON 422**, which
+  parses. Three things do send HTML, and **two arrive at status 200**:
+
+  | Producer | What the browser gets |
+  |---|---|
+  | The engine catch-all — `Studio::ErrorHandling`'s `rescue_from StandardError` claims whatever an action's own rescues do not: a raise in a `before_action`, or in `#nonce`, which has no local rescue | `handle_unexpected_error` → `respond_to`; this fetch sends no `Accept`, so `format.html` → **302 to root**, followed by `fetch` to HTML at **status 200** |
+  | OPSEC-045 forced logout (`ApplicationController#verify_session_token`) | `format.html` → **302 to /signin**, followed to HTML at **status 200**. Measured end to end 2026-09-09 |
+  | A fault outside `rescue_from`'s reach — middleware, routing | `ActionDispatch::PublicExceptions` → the rendered **500** page |
+
+  `r.ok` is TRUE on the first two, which is the whole argument for substituting
+  inside `.json()`: an `!r.ok` gate would not fire at all on the two shapes this
+  app actually produces most.
+
+  The substituted error carries `walletFailureReported`, for the reason the nonce
+  leg gives: the 500 is already in our own log with its backtrace, and the report
+  POST would go to the very server that just failed.
+  `test/views/verify_server_failure_copy_test.rb` drives the RENDERED helper
+  against a real 500 with an HTML body on both paths and asserts the decoded
+  sentence, pins a 401-with-JSON still reaching the user verbatim, and runs the
+  literal past every regex the mapper tests a message against.
+  `test/docs/auth_failure_mode_reachability_test.rb` now guards the CLOSED state
+  through its derived path, so this section and the behaviour cannot drift apart.
+
+  **The cause the substitution costs, bought back on the OPSEC-045 path**
+  (`/tasks/verify-guard-leaves-four-holes`, 2026-09-09). The guard is right to
+  replace an unreadable body with a sentence the user can act on, but the
+  replacement means the surface can no longer say WHY. For the commonest
+  status-200 producer in the table above that is now answered server-side:
+  `ApplicationController#verify_session_token` files an `ErrorLog` under
+  `SessionTokenMismatch` before it clears the session, targeted at the user it
+  logged out. So a support report of "it said your server could not finish
+  sign-in" is a query — `ErrorLog.where("inspect LIKE '%SessionTokenMismatch%'")`
+  — rather than a guess. Before this the forced logout emitted a
+  `Rails.logger.info` line and nothing else, which made it the one user-facing
+  event in this app that left no row.
+
+  Two properties of that record are deliberate and tested
+  (`test/controllers/session_token_mismatch_trace_test.rb`): **neither session
+  token is written down** — both are credentials, so the row says only whether
+  the cookie carried one (`present but stale` vs `absent`, which distinguishes a
+  rotation from a session predating the binding) — and the recorder is
+  **fail-open**, swallowing its own faults into the Rails log, because a forced
+  logout is a security act and a logger that can veto what it observes is worse
+  than no logger.
 
 - **The report is best-effort by design.** It is dropped on a throttle, a
   closed tab that beats `keepalive`, or a blocked request. `error_logs` is a

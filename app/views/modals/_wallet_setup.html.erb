@@ -499,8 +499,20 @@
       x-show + x-cloak shape the install hint above it already uses. `alert`
       rather than `status` because this interrupts a user who is waiting on a
       click they just made, and it carries no other content to talk over. %>
+  <%# COLOUR: text-danger-ink, never a static red. This paragraph sits on the
+      modal card, which is bg-surface, and bg-surface is PURE WHITE in light
+      mode. Measured against this app's own resolved theme vars, no static red
+      clears WCAG AA 4.5:1 on both cards: text-red-400 is 2.89:1 on the light
+      card and 3.86:1 on the dark one, so it failed BOTH, and worst at the exact
+      moment this sentence matters most. danger-ink is derived per theme by
+      studio-engine's ThemeResolver to clear 4.5:1 on every theme surface, and
+      resolves here to BA3535 light and F48484 dark.
+
+      The guard is test/views/error_text_contrast_test.rb. It resolves the
+      class through the COMPILED stylesheet to a real colour and measures the
+      ratio, so swapping in a different light red fails it too. %>
   <p x-show="error" x-cloak role="alert" aria-live="assertive" aria-atomic="true"
-     class="text-red-400 text-sm mt-3 text-center" x-text="error"></p>
+     class="text-danger-ink text-sm mt-3 text-center" x-text="error"></p>
 
   <%# === NEW TO SOLANA ======================================================
       The teaching half: someone walking the whole install on screen. This was

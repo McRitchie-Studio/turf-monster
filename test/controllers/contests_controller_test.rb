@@ -1002,8 +1002,8 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
   # assert_enterable! BEFORE vault.enter_contest_with_token — so the token stays
   # UNCONSUMED, the entry stays `cart`, and NO reconcile is scheduled (there is
   # nothing to recover; fail loudly). This is the primary fix for incident
-  # 2026-06-08, where the gate ran AFTER the irreversible burn.
-  test "enter validates selection count BEFORE consuming the token (short entry → nothing burned)" do
+  # 2026-06-08, where the gate ran AFTER the irreversible consume.
+  test "enter validates selection count BEFORE consuming the token (short entry → nothing consumed)" do
     @user.update!(
       web3_solana_address: nil,
       web2_solana_address: "ManagedAddr#{SecureRandom.hex(4)}",
@@ -1623,9 +1623,49 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
       assert_equal "confirmed", JSON.parse(response.body)["status"]
       assert entry.reload.active?
       assert_nil Rails.cache.read(cache_key),
-                 "crash recovery credits an entry whose token was burned on-chain — it owes " \
+                 "crash recovery credits an entry whose token was consumed on-chain — it owes " \
                  "the same cache bust as the live confirm path"
     end
+  end
+
+  # The instruction this path PROVES, which is what the comment above the cache
+  # bust in #recover_pending_entry describes. Crash recovery credits an entry whose
+  # token was CONSUMED by `enter_contest_with_token`; it is not a burn, and
+  # `burn_entry_token` — the operator claw-back the holder never signs — must never
+  # be what a recovered entry verifies against. The sibling tests above stub
+  # `TxVerifier.verify!` with a bare `true`, so nothing else in this file notices
+  # which instruction the server actually demanded.
+  test "recover_pending_entry verifies a token consume, never a burn" do
+    @user.update!(web3_solana_address: "WalletRIx#{SecureRandom.hex(4)}")
+    log_in_as @user
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
+    ptx = PendingTransaction.create!(
+      tx_type: "enter_contest", serialized_tx: "stx",
+      status: "submitted", tx_signature: "sig-recover-ix-1",
+      target: entry, initiator_address: @user.web3_solana_address,
+      metadata: { entry_pda: "epda-ix1", funding: "token", entry_token_pda: "tpda_ix_1" }.to_json
+    )
+
+    verified = []
+    vault = FakeVault.new(signature_statuses: {
+      "sig-recover-ix-1" => { "err" => nil, "confirmationStatus" => "confirmed" }
+    })
+    Solana::Vault.stub :new, vault do
+      Solana::Keypair.stub :encode_base58, ->(s) { s.is_a?(String) ? s : s.to_s } do
+        Solana::TxVerifier.stub :verify!, ->(**kw) { verified << kw[:instruction_name]; true } do
+          post recover_pending_entry_contest_path(@contest),
+            params: { ptx_slug: ptx.slug }, as: :json
+        end
+      end
+    end
+
+    assert_equal "confirmed", JSON.parse(response.body)["status"]
+    assert_equal ["enter_contest_with_token"], verified,
+                 "a token-funded recovery must prove the consume instruction"
+    refute_includes verified, "burn_entry_token",
+                    "entering a contest consumes the token; burning it is a separate " \
+                    "operator instruction and no entry path may verify against it"
   end
 
   # CONTROL: the bust is conditional on the SERVER having prepared a token, and
