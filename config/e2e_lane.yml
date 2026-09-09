@@ -760,7 +760,19 @@
 # so the click-time refusal is its ENTIRE declaration and this is the only tier
 # that can witness it. Derived with bin/e2e-lane-derive --write, not
 # incremented by hand.
-total_specs: 261
+#
+# 261 -> 264 (survivor-settle-never-fires): three specs added to the EXISTING
+# e2e/onchain_settled_navbar.spec.js (66 files, unchanged) for onchainSettled's
+# new mayNavigate shape — settles the pill in place, survives a close-triggered
+# navigation, and retires its marker once the in-page read lands. They cover the
+# seam no other tier reaches: the node tests execute the same module against
+# stubbed globals, so they prove the logic and nothing about the PAGE — not that
+# the importmap serves the new branch, not that window.onchainSettled takes the
+# option, not that the element it blanks is the pill the navbar renders. The
+# survivor board's call site is guarded by `typeof onchainSettled === 'function'`,
+# so each of those failures is SILENT, which is the same shape as the bug being
+# fixed. Derived with bin/e2e-lane-derive --write, not incremented by hand.
+total_specs: 264
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1027,7 +1039,13 @@ allowed_skips: 4
 # TREE, not by arithmetic on any of the three conflicts this line has hit.
 # allowed_skips stays 4: both listers agree, which is what proves none of the new
 # specs brought a runtime skip with it.
-executed: 240
+#
+# 240 -> 243 (survivor-settle-never-fires): the three mayNavigate specs described
+# beside total_specs above. None is tagged @devnet and none skips, so excluded
+# stays 17 and allowed_skips stays 4 — both listers agree, which is what proves
+# the new specs brought no runtime skip with them. Re-derived with
+# bin/e2e-lane-derive --write, not by arithmetic.
+executed: 243
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
