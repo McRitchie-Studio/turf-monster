@@ -252,6 +252,49 @@ class EntryGiftFlowTest < ActionDispatch::IntegrationTest
     assert User.find_by(email: RECIPIENT).present?
   end
 
+  # --- the aunt test (operator QA, 2026-09-09) ---
+  #
+  # The whole promise of gifting an entry is that the recipient does not have to
+  # understand Solana. On QA a gifted player was still walked into "Set up your
+  # wallet" twice — as step 3 of the onboarding chain, and again on
+  # hold-to-confirm after a refresh. Both are driven by ONE verdict computed at
+  # sign-in, so this asserts at that seam.
+
+  test "a gifted signup is never asked to set up a wallet" do
+    gift = send_gift
+    token = gift.link.token
+    reset!
+
+    post link_consume_path(token: token)
+    recipient = User.find_by(email: RECIPIENT)
+    assert recipient.present?
+
+    # The chain the client is told to walk. Wallet must NOT be in it — that is
+    # the modal the operator hit after first name → dob.
+    steps = session[:onboarding_prompt] || []
+    assert_not_includes steps, "wallet",
+                        "a gifted player must not be sent to wallet setup"
+
+    # And the session-level verdict the hold-to-confirm blocker reads
+    # (client_session_payload.walletSetupRequired -> eligibilityBlocker, which is
+    # checked BEFORE tokensAvailable — which is why hold-to-confirm blocked).
+    assert_not session[:wallet_setup],
+               "the wallet gate must be off for an account holding a free entry"
+  end
+
+  # THE CONTROL, and it is what stops the test above from passing vacuously: an
+  # ordinary signup with NO gift, same flag, still gets the wallet step. Without
+  # it, deleting the whole wallet gate would leave the assertion above green.
+  test "an ordinary signup is still asked to set up a wallet" do
+    reset!
+    token = Studio::Link.create_magic_link(email: "no-gift-here@example.com").token
+    post link_consume_path(token: token)
+
+    assert User.find_by(email: "no-gift-here@example.com").present?
+    assert session[:wallet_setup],
+           "web3-only onboarding must still nudge a wallet-less signup"
+  end
+
   # An ordinary sign-in link carries no gift, and must stay ordinary.
   test "a plain magic link grants no entry" do
     reset!

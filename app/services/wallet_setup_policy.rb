@@ -10,11 +10,20 @@
 #                                longer mints a managed wallet (AppFlags
 #                                .web3_only_onboarding?), so this account cannot
 #                                transact until it links one.
-#   3. Managed wallet, funded  → NO. A grandfathered web2 user holding at least
+#   3. Holds a free entry      → NO. A gifted player already has the price of
+#      (token, or one on its      admission in hand and needs no funding rail at
+#      way)                       all, so a wallet nudge is asking them to solve
+#                                a problem they do not have. This is the whole
+#                                point of gifting an entry (operator call,
+#                                2026-09-09): "the state of the system should
+#                                sense the free entry and not gate any web3
+#                                guards … my easy way to make the app
+#                                approachable for the aunts of the world."
+#   4. Managed wallet, funded  → NO. A grandfathered web2 user holding at least
 #      (>= MIN_USDC)             one entry's worth of USDC is USEABLE as-is
 #                                (operator call): their custodial rails still
 #                                work, so do not interrupt them.
-#   4. Managed wallet, short   → YES. Web2 top-up rails are going away for the
+#   5. Managed wallet, short   → YES. Web2 top-up rails are going away for the
 #                                season; the way forward is Phantom.
 #
 # The balance read is the only I/O here. It is cache-first (the same navbar
@@ -51,6 +60,7 @@ class WalletSetupPolicy
     return false unless AppFlags.web3_only_onboarding?
     return false if user.phantom_wallet?
     return true unless user.managed_wallet?
+    return false if holds_free_entry?
 
     usdc_balance < MIN_USDC
   end
@@ -58,6 +68,44 @@ class WalletSetupPolicy
   private
 
   attr_reader :user
+
+  # Does this account already hold the price of admission, or is it about to?
+  #
+  # TWO HALVES, AND THE SECOND ONE IS THE LOAD-BEARING ONE. The obvious half is
+  # a token already on chain. The half that actually matters is a gift that has
+  # been CLAIMED but whose mint is still queued — because this policy's verdict
+  # is computed exactly ONCE, at sign-in (ApplicationController
+  # #record_wallet_setup_state!, which stores it in session[:wallet_setup] and
+  # never recomputes), and the claim is SYNCHRONOUS while EntryGiftMintJob is
+  # ASYNC. So at the only instant this method runs for a gifted player, the
+  # token does not exist yet. A token-only check would read false, arm the
+  # modal for the whole session, and reproduce the exact bug this closes.
+  #
+  # Scoped to mints that are still expected — `mint_error` blank — so a gift
+  # that can never be paid (an admin claimant, OPSEC-044) does not silently buy
+  # a permanent bypass. Once the mint lands, the first half carries it.
+  #
+  # A SPENT gift falls out of both halves by construction: the token reads
+  # consumed, and minted_at is set so the pending half no longer matches. The
+  # bypass lasts exactly as long as the free entry does.
+  def holds_free_entry?
+    return true if entry_token_balance.positive?
+
+    EntryGift.where(claimed_by: user, minted_at: nil, mint_error: nil)
+             .where.not(claimed_at: nil)
+             .exists?
+  end
+
+  # Cache-first, like #usdc_balance and for the same reason — this runs on
+  # sign-in, not the render path. Failure returns 0, which falls through to the
+  # USDC question rather than granting a bypass: the direction to fail here is
+  # "ask about the wallet", never "wave an empty account into a contest".
+  def entry_token_balance
+    user.entry_token_balance
+  rescue StandardError => e
+    Rails.logger.warn("[WalletSetupPolicy] token read failed user=#{user.id}: #{e.class}: #{e.message}")
+    0
+  end
 
   # Cache-first, then ONE blocking RPC.
   #

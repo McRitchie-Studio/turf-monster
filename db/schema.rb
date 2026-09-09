@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_09_060000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_09_180000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -277,6 +277,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_09_060000) do
     t.text "note"
     t.string "recipient_email", null: false
     t.bigint "sender_id", null: false
+    t.string "sender_username"
     t.datetime "updated_at", null: false
     t.string "wallet_address"
     t.index ["claimed_by_id"], name: "index_entry_gifts_on_claimed_by_id"
