@@ -93,7 +93,8 @@ alongside the derived one, so the gap between DK's line and ours is a standing a
 check on the formula above. When a side is posted, `basis` is `posted` and
 `expected_points` uses DK's number as-is; otherwise `basis` is `derived` and the value
 falls back to the formula (`market_for`, `:172`). No NFL row is `posted` yet — the
-checked-in CSV is Yahoo-derived — so the comparison waits on the NFL fetch (step 1).
+checked-in CSV carries no `*_posted_line` column at all, whatever a row's source — so the
+comparison waits on the NFL fetch (step 1).
 
 ---
 
@@ -321,7 +322,7 @@ rows, and the `source` column splits them:
 
 | `source` | Rows | Weeks | What it is |
 |---|---|---|---|
-| `yahoo_sports_2026_lookahead` | 184 | 1–18 | a preseason Yahoo betting-lines article, transcribed by hand |
+| `yahoo_sports_2026_lookahead` | 184 | 1–3, 10–18 | a preseason Yahoo betting-lines article, transcribed by hand |
 | `draftkings_espn_scoreboard_2026_09_05` | 88 | 4–9 | DK's own spread and total, read off ESPN's scoreboard payload and transcribed by hand |
 
 So the earlier claim that none of this came from DraftKings no longer holds: 88 rows
