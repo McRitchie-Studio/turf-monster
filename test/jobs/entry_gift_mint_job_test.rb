@@ -72,6 +72,43 @@ class EntryGiftMintJobTest < ActiveSupport::TestCase
     assert_equal "sig_already", @gift.reload.mint_signature
   end
 
+  # THE RACE THE TEST ABOVE CANNOT SEE. That one stamps minted_at BEFORE the job
+  # starts, so the PRE-LOCK check (`return if gift.nil? || gift.minted?`)
+  # settles it and the in-lock re-read never speaks: delete
+  # `return if gift.reload.minted?` from inside the lock and the whole gift
+  # suite stays GREEN (measured) while two workers double-mint. The pair was
+  # killable together, which pins neither half.
+  #
+  # The window this covers is the real one for this job: EntryGifts::Claim
+  # enqueues the mint, and a Sidekiq retry or a duplicate delivery can put two
+  # runs against one gift. Both read an unminted row, both pass the pre-lock
+  # check, and only the lock orders them. The re-read is what makes the loser
+  # stand down instead of paying the chain a second time.
+  test "a rival mint committed before the lock is not paid twice" do
+    vault  = FakeVault.new
+    hooked = EntryGift.find(@gift.id)
+    raced  = false
+
+    hooked.define_singleton_method(:with_lock) do |*args, &blk|
+      unless raced
+        raced = true
+        EntryGift.find(id).update!(minted_at: Time.current, mint_signature: "sig_rival")
+      end
+      super(*args, &blk)
+    end
+
+    Solana::Vault.stub :ensure_program_id_live!, :live do
+      Solana::Vault.stub :new, vault do
+        EntryGift.stub :find_by, hooked do
+          EntryGiftMintJob.perform_now(@gift.id)
+        end
+      end
+    end
+
+    assert_empty vault.mint_calls, "the chain must not be paid twice for one gift"
+    assert_equal "sig_rival", @gift.reload.mint_signature, "the rival's mint must stand"
+  end
+
   test "a missing gift is a no-op, not a crash" do
     vault = FakeVault.new
     Solana::Vault.stub :new, vault do

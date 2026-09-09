@@ -95,6 +95,41 @@ class EntryGifts::ClaimTest < ActiveSupport::TestCase
     assert_equal first_claimed_at.to_i, @gift.claimed_at.to_i
   end
 
+  # THE RACE THE TEST ABOVE CANNOT SEE, and the reason this one exists as its
+  # own case. That one claims twice in sequence, so the PRE-LOCK check settles
+  # it and the in-lock re-read never speaks: delete `@gift.reload.claimed?` from
+  # inside the lock and the whole gift suite stays GREEN (measured) while the
+  # concurrent window silently reopens. The double-claim guard was killable only
+  # as a PAIR, which pins neither half.
+  #
+  # So this drops a committed rival claim into the ONE window the in-lock
+  # re-read exists for: after the pre-lock check has already passed on an
+  # unclaimed row, before this caller holds the lock. No threads needed — the
+  # hook fires inside Claim#call at exactly that seam, which is what makes the
+  # interleaving deterministic rather than timing-dependent.
+  test "a rival claim committed before the lock is not overwritten" do
+    rival = users(:sam)
+    raced = false
+
+    @gift.define_singleton_method(:with_lock) do |*args, &blk|
+      unless raced
+        raced = true
+        EntryGift.find(id).update!(claimed_by: rival, claimed_at: Time.current,
+                                   wallet_address: rival.solana_address)
+      end
+      super(*args, &blk)
+    end
+
+    result = nil
+    assert_no_enqueued_jobs(only: EntryGiftMintJob) do
+      result = with_web3_only(true) { EntryGifts::Claim.call(@gift, @user) }
+    end
+
+    assert_not result.claimed?, "the loser of the race must not report a claim"
+    assert_equal "already claimed", result.reason
+    assert_equal rival, @gift.reload.claimed_by, "the rival's committed claim must stand"
+  end
+
   # --- the states that cannot be paid ---
 
   # OPSEC-044 is NOT parameterised by the gift path: an admin never gets a

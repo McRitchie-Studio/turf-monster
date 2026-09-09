@@ -377,15 +377,34 @@ class MagicLinksController < ApplicationController
   # entry_gift_flow_test.rb's ":continue" pair.
   #
   # CLAIM, THEN DELEGATE. `super` keeps every property this path exists for —
-  # the session is left exactly as it stands, no toast, indistinguishable from
-  # following a plain link. The claim is additive.
+  # the session is left exactly as it stands, no re-auth, no onboarding beat.
+  # The claim is additive.
   #
-  # NO GIFT TOAST HERE, deliberately: the engine routes :continue away from
-  # sign_in_existing precisely so the click stays invisible, and a celebration
-  # would announce a sign-in that never happened. The badge picks the token up
-  # on its next poll, which is the same way every other mint surfaces.
+  # AND IT DOES ANNOUNCE THE GIFT. The engine's silence on :continue is about
+  # IDENTITY — it exists so a re-click on your own live link does not cost you
+  # the session you already had. It was never a rule that a click may change
+  # nothing visible: this one just gave the visitor an entry, which is the whole
+  # reason the mail was sent.
+  #
+  # The toast is honest about which fact it reports. `entry_gift_toast` says
+  # "You've got a free entry 🎟️" — it announces the ENTRY, never a sign-in, so
+  # showing it here claims nothing that did not happen.
+  #
+  # What decided it: staying silent makes the NEXT click a lie. The recipient
+  # taps "claim your free entry", lands on the contest with no acknowledgement,
+  # and the natural move is to tap it again — which now takes :dead and reads
+  # "link already used", for a gift they believe they never received. Silence
+  # does not keep the path invisible; it converts a working gift into a support
+  # question.
+  #
+  # SCOPED TO GIFTS. `entry_gift_toast` is nil unless a claim actually landed,
+  # so a plain magic-link re-click leaves the flash untouched and stays exactly
+  # as invisible as it was before.
   def link_continue(result, outcome)
     claim_entry_gift!(current_user)
+    if (toast = entry_gift_toast)
+      flash[:auth_toast] = toast
+    end
     super
   end
 

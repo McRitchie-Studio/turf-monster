@@ -155,6 +155,47 @@ class EntryGiftFlowTest < ActionDispatch::IntegrationTest
     assert_equal existing, gift.reload.claimed_by
   end
 
+  # THE PRODUCT CALL ON THIS PATH, pinned so it cannot be quietly reverted to
+  # silence. Claiming the gift is necessary but not sufficient: a recipient who
+  # taps "claim your free entry" and is shown NOTHING will tap it again, and the
+  # second tap takes :dead and reads "link already used" — for a gift they
+  # believe they never received. So :continue announces the ENTRY.
+  #
+  # The toast names the entry, never a sign-in, which is what makes it honest on
+  # a path where no sign-in happened.
+  test "a gift claimed on the signed-in path announces the entry" do
+    existing = users(:sam)
+    gift = EntryGift.create!(recipient_email: existing.email, sender: @admin)
+    link = Studio::Link.create_magic_link(email: existing.email, linkable: gift,
+                                          ttl: EntryGift::LINK_TTL)
+
+    log_in_as(existing)
+    post link_consume_path(token: link.token)
+
+    toast = flash[:auth_toast]&.with_indifferent_access
+    refute_nil toast, "a claimed gift must not land silently"
+    assert_equal "You've got a free entry 🎟️", toast[:title]
+    refute_match(/sign(ed)? in/i, toast[:message],
+                 "this path announces the entry, not a sign-in that never happened")
+  end
+
+  # THE CONTROL for the test above, and the property it must not break: the
+  # toast is scoped to gifts. A plain magic-link re-click still takes :continue
+  # and must stay exactly as invisible as it was before the gift work — the
+  # engine routes it away from sign_in_existing precisely so a re-click costs
+  # the visitor nothing. (magic_link_reclick_test.rb asserts the same from the
+  # engine's side; this states it in the gift suite, where the regression would
+  # be introduced.)
+  test "a gift-less re-click on the signed-in path still announces nothing" do
+    existing = users(:sam)
+    link = Studio::Link.create_magic_link(email: existing.email) # no linkable: no gift
+
+    log_in_as(existing)
+    post link_consume_path(token: link.token)
+
+    assert_nil flash[:auth_toast], "a spent link of your own is not an event worth announcing"
+  end
+
   # THE RESCUE NOBODY WAS TESTING — the one path whose entire purpose is "never
   # 500 a signed-in visitor", and whose failure is invisible by construction: the
   # link is already burned, the gift stays :sent, and EntryGift#stalled? cannot
