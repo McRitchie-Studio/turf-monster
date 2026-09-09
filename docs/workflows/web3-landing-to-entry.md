@@ -117,7 +117,10 @@ Phantom must be installed in the browser or available via mobile deep link.
    - The `User-ID` binding that ties a signature to an account (OPSEC-005) rides
      only on the wallet-LINK path (`opts.linkMode`), not on signup (`:393`).
    - The signature is base58-encoded and POSTed to `/auth/solana/verify`
-     (`:683`) as `signatureB58` alongside the message and pubkey (`:694-698`).
+     (`:683`) as `signatureB58` alongside the message and pubkey (`:715-719`).
+     An unreadable answer to that POST — an HTML-bodied 500 of ours — is
+     substituted inside `.json()` and named as our server's fault rather than
+     mapped into balance advice (closed 2026-09-09; see `docs/AUTH.md`).
 
 6. **Server verifies + creates User.** `SolanaSessionsController#verify` —
    `app/controllers/solana_sessions_controller.rb:25-103`.
