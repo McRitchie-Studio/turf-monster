@@ -318,6 +318,7 @@
           // five minutes cover human think-time at the prompt. It fails CLOSED —
           // a user who dwells past five minutes gets a clean "Nonce expired" and
           // retries — which is why the trade is worth a saved round trip.
+          //
           // OUR SERVER'S OWN SENTENCE, COMPOSED ONCE. Measured 2026-09-08 on the
           // code this replaces: a nonce fetch that 500s with an HTML body makes
           // r.json() reject with "Unexpected token '<', \"<!DOCTYPE \"... is not

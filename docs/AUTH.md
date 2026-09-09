@@ -385,7 +385,7 @@ red-seal the gem's own release.
   | Wallet Standard rejections tagged `walletAnswered` — "No account authorized" (an empty accounts array: a dismissed account-selection sheet), "Wallet not connected" | The wallet answered and authorized nothing |
 
   **Triage by the STAGE, then read both halves.** The stage says which diagnosis
-  fired; `mapped` is what the user read; `raw` is what the wallet said. Three
+  fired; `mapped` is what the user read; `raw` is what the wallet said. Four
   readings and what they mean:
 
   | What you see | What it means |
