@@ -79,7 +79,7 @@ require "prism"
 #      "drops into connect() + signMessage() below" and stayed GREEN while being
 #      stale. This is not stripped, because the document cites comments
 #      DELIBERATELY in six places — a route that moved to the engine, an endpoint
-#      no client calls any more — and three of those say so in the prose. So the
+#      no client calls any more — and two of those say so outright. So the
 #      literal branch is a weaker claim than the symbol branch by construction:
 #      it proves the words are there, not that the code is.
 #   4. CROSS-REPO REFERENCES CARRY NO LINE NUMBER, on purpose. studio-engine is
