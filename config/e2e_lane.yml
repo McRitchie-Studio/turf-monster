@@ -811,7 +811,16 @@
 # the operator's real send form, which is what makes the second's link the one a
 # real send produces rather than a fixture. Derived with bin/e2e-lane-derive
 # --write, not incremented by hand.
-total_specs: 268
+# 268 -> 269 (free-entry-skips-wallet): one spec in e2e/entry_gift.spec.js for
+# the free-entry wallet bypass. The server tiers assert the two facts the client
+# READS — the chain's step list and session[:wallet_setup] — and cannot see what
+# the page DOES with them: the chain is walked by the layout's driver, the card
+# is opened by the Alpine modal host, and the hold-to-confirm block comes from
+# eligibilityBlocker in solana_utils.js, which checks walletSetupRequired BEFORE
+# tokensAvailable. The operator hit this card on TWO paths (the chain, and again
+# after a refresh) and both are runtime-only. Derived with bin/e2e-lane-derive
+# --write, not incremented by hand.
+total_specs: 269
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1105,7 +1114,12 @@ allowed_skips: 4
 # THIS TASK — 264/243 at the first review, 265/244 when it was resolved, 266/245
 # at the second review, 267/246 after that merge — so the only value worth
 # writing is the one the runner prints on the tree you are about to push.
-executed: 247
+#
+# 247 -> 248 (free-entry-skips-wallet): the wallet-bypass spec described beside
+# total_specs above. Not tagged @devnet and does not skip, so excluded stays 17
+# and allowed_skips stays 4 — both listers agree. Re-derived with
+# bin/e2e-lane-derive --write, not by arithmetic.
+executed: 248
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

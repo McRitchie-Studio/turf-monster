@@ -28,13 +28,10 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
                         "silently kills the modal in the browser (markup assertions won't catch it)"
   end
 
-  test "admin modal gallery lists the wallet-setup variant" do
-    log_in_as users(:alex)
-    get admin_modals_path
-    assert_response :success
-    assert_includes response.body, "Set up your wallet (post-auth)"
-    assert_includes response.body, "modals/_wallet_setup.html.erb"
-  end
+  # The gallery-listing test was retired with /admin/modals on 2026-09-09.
+  # wallet-setup is carded in turf's own style-guide section now, against the
+  # real partial rather than a variant record. Everything below drives the
+  # preview route and is unaffected.
 
   # These three used to be hand-parsed integers — `z-[120]` scraped out of the
   # modal host, `z-[110]` out of the navbar, `--studio-toast-z: 200` out of the
