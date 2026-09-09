@@ -106,13 +106,13 @@ class Entry < ApplicationRecord
   # cosign+broadcast in #confirm_onchain_entry both call this as a PRE-FLIGHT
   # check (backend discipline #2: validate before irreversible side effects). A
   # failure here leaves the token UNCONSUMED and the entry in `cart` — nothing
-  # burned. `confirm!` / `confirm_onchain!` also invoke it as a serialized
+  # consumed. `confirm!` / `confirm_onchain!` also invoke it as a serialized
   # backstop so the two call sites can never drift and the post-broadcast path
   # stays safe.
   #
   # Incident 2026-06-08 (entry #133): the managed-token path consumed the token
   # on-chain and THEN ran confirm!, whose selection-count gate raised AFTER the
-  # irreversible burn — stranding the user (paid + entered on-chain, app showed
+  # irreversible consume — stranding the user (paid + entered on-chain, app showed
   # `cart`). A reconciler can't heal a genuine validation failure (re-running the
   # gate fails the same way); the only correct fix is to gate BEFORE the consume.
   #

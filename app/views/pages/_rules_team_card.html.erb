@@ -36,7 +36,7 @@
 
   <div class="<%= compact ? 'mt-2' : 'mt-3' %> flex items-center gap-2" aria-hidden="true">
     <span class="h-px flex-1" style="background-color: <%= pal[:divider] %>"></span>
-    <span class="text-[10px] uppercase tracking-wide" style="color: <%= pal[:grey] %>">Opponents</span>
+    <span class="text-xs font-bold" style="color: <%= pal[:fg] %>">vs</span>
     <span class="h-px flex-1" style="background-color: <%= pal[:divider] %>"></span>
   </div>
 
@@ -48,7 +48,8 @@
       <div class="px-px lg:px-1 text-center"
            style="<%= "border-left: 1px solid #{pal[:divider]};" if index.positive? %>">
         <p class="text-[9px] uppercase tracking-wide leading-tight" style="color: <%= pal[:grey] %>">Week <%= index + 1 %></p>
-        <p class="mt-1 flex items-center justify-center gap-0.5 leading-none">
+        <p class="mt-1 py-1 flex items-center justify-center gap-0.5 leading-none"
+           style="background: <%= opponent_label_halo(opponent, team) %>">
           <span class="text-[10px] lg:text-sm"><%= opponent&.emoji %></span>
           <span class="text-[10px] lg:text-sm font-semibold truncate"
                 style="color: <%= opponent_label_color(opponent, team) %>"><%= opponent&.short_name || slug.split("-").last.upcase %></span>

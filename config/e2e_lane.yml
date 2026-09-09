@@ -760,7 +760,37 @@
 # so the click-time refusal is its ENTIRE declaration and this is the only tier
 # that can witness it. Derived with bin/e2e-lane-derive --write, not
 # incremented by hand.
-total_specs: 262
+#
+# 261 -> 264 (survivor-settle-never-fires): three specs added to the EXISTING
+# e2e/onchain_settled_navbar.spec.js (66 files, unchanged) for onchainSettled's
+# new mayNavigate shape — arms both halves and settles in place, survives a
+# close-triggered navigation, and retires only the window it served. They cover
+# the seam no other tier reaches: the node tests execute the same module against
+# stubbed globals, so they prove the logic and nothing about the PAGE — not that
+# the importmap serves the new branch, not that window.onchainSettled takes the
+# option, not that the element it blanks is the pill the navbar renders. The
+# survivor board's call site is guarded by `typeof onchainSettled === 'function'`,
+# so each of those failures is SILENT, which is the same shape as the bug being
+# fixed. Derived with bin/e2e-lane-derive --write, not incremented by hand.
+#
+# EACH OF THE THREE DISCRIMINATES, measured against the pre-fix module on
+# 2026-09-09: with onchainSettled reverted, all three fail and the three
+# pre-existing specs still pass. That was not true of the first version — an
+# unknown option falls through to a plain schedule, so two of them passed
+# against the very bug they were written for. Both were re-aimed onto the
+# marker, which is the only thing the new shape does that no old shape does.
+#
+# 264 -> 265 (contest-banner-link-preview): one spec added in the NEW
+# e2e/og_image.spec.js for the contest link-preview card. It covers the seam no
+# lower tier reaches: the unit tiers assert the variant's TRANSFORMATION and the
+# integration tier asserts the TAG, and neither proves the URL in that tag
+# actually serves an image — the proxy route, the signed blob id and the
+# ImageMagick processor all sit between them. The spec fetches the og:image URL
+# back over HTTP and reads width/height out of the PNG IHDR, so a perfectly
+# formed tag pointing at a 404 fails here and passes everywhere else.
+# Re-derived with bin/e2e-lane-derive --write ON THE MERGED TREE, not by
+# arithmetic on the conflict this line has now hit a fourth time.
+total_specs: 265
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1027,7 +1057,19 @@ allowed_skips: 4
 # TREE, not by arithmetic on any of the three conflicts this line has hit.
 # allowed_skips stays 4: both listers agree, which is what proves none of the new
 # specs brought a runtime skip with it.
-executed: 241
+#
+# 240 -> 243 (survivor-settle-never-fires): the three mayNavigate specs described
+# beside total_specs above. None is tagged @devnet and none skips, so excluded
+# stays 17 and allowed_skips stays 4 — both listers agree, which is what proves
+# the new specs brought no runtime skip with them. Re-derived with
+# bin/e2e-lane-derive --write, not by arithmetic.
+#
+# 243 -> 244 (contest-banner-link-preview): the og:image card spec described
+# beside total_specs above. It is not tagged @devnet and does not skip, so
+# excluded stays 17 and allowed_skips stays 4 — both listers agree, which is
+# what proves the new spec brought no runtime skip with it. Re-derived with
+# bin/e2e-lane-derive --write ON THE MERGED TREE, not by arithmetic.
+executed: 244
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

@@ -92,7 +92,10 @@
         <button type="submit" :disabled="sending" class="btn btn-neutral btn-lg w-full disabled:cursor-wait">
           <span x-text="sending ? 'Sending…' : 'Email Link'">Email Link</span>
         </button>
-        <p x-show="error" x-cloak class="text-xs text-red-400 text-center mt-2" x-text="error"></p>
+        <%# text-danger-ink, not a static red: this card is bg-surface, which
+            is white in light mode, where every static red falls under WCAG AA.
+            Guarded by test/views/error_text_contrast_test.rb. %>
+        <p x-show="error" x-cloak class="text-xs text-danger-ink text-center mt-2" x-text="error"></p>
         <p class="text-xs text-muted text-center mt-2">We'll email you a one-tap link — no password needed.</p>
       </form>
     </div>

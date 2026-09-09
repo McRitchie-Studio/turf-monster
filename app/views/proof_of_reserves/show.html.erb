@@ -256,14 +256,14 @@
   <section class="mb-10">
     <div class="card border-2 p-6 shadow-lg"
          :class="{ 'border-mint/60 shadow-mint/10': solvencyTone() === 'ok',
-                   'border-rose/60 shadow-rose/10': solvencyTone() === 'warn',
+                   'border-red-500/60 shadow-red-500/10': solvencyTone() === 'warn',
                    'border-subtle': solvencyTone() === 'muted' }">
       <div class="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <p class="text-xs uppercase tracking-widest text-muted mb-2">Vault solvency</p>
           <p class="text-3xl md:text-4xl font-extrabold"
              :class="{ 'text-mint': solvencyTone() === 'ok',
-                       'text-rose': solvencyTone() === 'warn',
+                       'text-danger-ink': solvencyTone() === 'warn',
                        'text-heading': solvencyTone() === 'muted' }"
              x-text="solvencyLabel()"></p>
         </div>
@@ -289,7 +289,7 @@
       <p class="text-xs text-muted mt-4" x-show="lastFetchedAt">
         Last refreshed <span x-text="fetchedAtLabel()"></span>
       </p>
-      <p class="text-xs text-rose mt-4" x-show="bannerError" x-text="bannerError"></p>
+      <p class="text-xs text-danger-ink mt-4" x-show="bannerError" x-text="bannerError"></p>
     </div>
   </section>
 
@@ -362,7 +362,7 @@
 
           <!-- Error state -->
           <template x-if="c.error">
-            <div class="text-rose text-sm" x-text="c.error"></div>
+            <div class="text-danger-ink text-sm" x-text="c.error"></div>
           </template>
 
           <!-- Decoded state -->
@@ -377,7 +377,7 @@
                     <p class="font-mono text-mint text-lg font-bold" x-text="fmtUsd(c.prizePoolUsd)"></p>
                   </div>
                   <p class="text-[10px] mt-0.5"
-                     :class="poolCovers(c) === false ? 'text-rose' : 'text-muted'"
+                     :class="poolCovers(c) === false ? 'text-danger-ink' : 'text-muted'"
                      x-text="poolCovers(c) === false ? 'Short of guaranteed prize' : 'Funds the guaranteed prize'"></p>
                 </div>
                 <div class="bg-surface-alt rounded-lg p-3 border border-subtle">

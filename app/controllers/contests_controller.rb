@@ -810,7 +810,7 @@ class ContestsController < ApplicationController
       # read-only eligibility gate (selection count, lock time, started games,
       # sybil, per-user limit, contest-full) MUST run BEFORE it (entry.
       # assert_enterable! below). Incident 2026-06-08: the consume ran first and
-      # the gate-running confirm! raised AFTER the burn, stranding the user
+      # the gate-running confirm! raised AFTER the consume, stranding the user
       # (paid + entered on-chain, app showed `cart`). A reconciler can't heal a
       # genuine validation failure — re-running confirm! fails the same gate —
       # so the only correct fix is to validate BEFORE the irreversible side
@@ -1249,10 +1249,10 @@ class ContestsController < ApplicationController
       ptx.update!(status: "confirmed")
 
       # Same consume, same stale cache: this path credits an entry whose token
-      # was burned on-chain just as surely as the live path does, and it used to
-      # bust nothing at all — so a user who crashed mid-entry came back to a
-      # navbar badge and a "Hold for Free Entry" button still counting the token
-      # they had already spent.
+      # `enter_contest_with_token` CONSUMED on-chain — not burned; only the
+      # separate `burn_entry_token` claw-back sets that — and it used to bust
+      # nothing at all, so a user who crashed mid-entry came back to a navbar
+      # badge and a "Hold for Free Entry" button still counting a spent token.
       current_user.bust_entry_tokens_cache! if prepared_token_pda
 
       render json: {

@@ -10,10 +10,13 @@
   modal tells them to go click that link. The email does not change
   until they do.
 
-  Distinct from modals/check_email on purpose — that one's copy says
-  "finish entering" and its primary CTA dispatches a contest-board-only
-  resend event. This modal has no Resend CTA and no contest wiring; a
-  single "Got it" button closes via $store.modals.close().
+  No Resend CTA and no contest wiring; a single "Got it" button closes
+  via $store.modals.close(). That used to be written here as a CONTRAST
+  with modals/check_email, whose copy said "finish entering" and whose
+  primary CTA dispatched a contest-board-only resend event. THAT CARD IS
+  GONE — 5508f69c deleted it on 2026-06-06 as an orphan once magic-link
+  auth superseded it — so the sentence named a partial that no longer
+  exists. Kept here as history, not as a comparison a reader can make.
 
   Single root element wrapping the template (the host mounts the
   registered partial through its own template x-if; multiple sibling

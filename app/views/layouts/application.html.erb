@@ -691,11 +691,115 @@
           // normalises it (Solana::WalletProvider) and ignores anything off the
           // registry, so the test-only 'keypair' provider stamps nothing.
           var walletProviderName = (provider && provider.name) || walletName || undefined;
-          return await (await fetch(verifyUrl, {
+
+          // THE NONCE LEG'S DEFECT, ONE FETCH LATER, AND WORSE. Until 2026-09-09
+          // this was a bare `return await (await fetch(...)).json()` sitting
+          // outside BOTH try blocks. A reply that carries a rendered PAGE makes
+          // `.json()` reject with V8's
+          // "Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON";
+          // parseSolanaError's /^unexpected/i branch reads that as a TRANSACTION
+          // failure and answers "check wallet connection and USDC balance".
+          //
+          // WHICH FAULTS ACTUALLY SEND AN UNREADABLE BODY — NOT "any unhandled
+          // exception". That was this comment's claim until 2026-09-09 and it is
+          // FALSE on both endpoints: SolanaSessionsController#verify and
+          // AccountsController#link_solana each END in a generic
+          // `rescue StandardError` that renders JSON 422, which parses fine. An
+          // exception raised INSIDE either action is therefore not this case at
+          // all. THREE things do send HTML, and TWO OF THEM ARRIVE AT STATUS 200:
+          //
+          //   * THE ENGINE CATCH-ALL. Studio::ErrorHandling registers
+          //     `rescue_from StandardError`, so anything the actions' own rescues
+          //     do not claim — a raise in one of the before_actions this POST
+          //     runs, or in /auth/solana/nonce, which has no local rescue —
+          //     reaches handle_unexpected_error. In production that answers
+          //     through `respond_to`, and this fetch sends no Accept header, so
+          //     it takes `format.html`: a 302 to root, which fetch FOLLOWS to an
+          //     HTML body at status 200;
+          //   * THE OPSEC-045 FORCED LOGOUT. A session_token mismatch in
+          //     ApplicationController#verify_session_token answers the same way —
+          //     a 302 to /signin, followed to an HTML body at status 200.
+          //     Measured end to end 2026-09-09;
+          //   * A FAULT OUTSIDE rescue_from's REACH — middleware, routing — which
+          //     ActionDispatch::PublicExceptions renders as the 500 error page.
+          //
+          // `r.ok` is TRUE on the first two. That is the whole argument for why
+          // the substitution below sits inside `.json()` and can never become an
+          // `!r.ok` gate — such a gate would not fire at all on the two shapes
+          // this app actually produces most.
+          //
+          // WORSE THAN THE NONCE CASE BECAUSE OF WHEN IT FIRES. The nonce fetch
+          // happens BEFORE the user signs. This one happens AFTER the signature
+          // succeeded — so on a real-money product a user signs, our server
+          // faults, and we tell them they are short of funds at the exact moment
+          // they have most reason to think something was taken. The one step that
+          // proved their wallet fine is the step that precedes the accusation.
+          //
+          // ONE SITE, BOTH PATHS — and unlike the nonce leg, that is free here.
+          // The signIn branch and the connect + signMessage fallback both fall
+          // through to this line; neither wraps it. So a substitution here covers
+          // every wallet, and no guard-local variant is needed.
+          var verifyServerCopy = 'Your signature went through, but our server could not finish sign-in \u2014 the problem is on our side, not your wallet. Signing in moves no funds. Please try again in a moment.';
+          // NO `Accept: application/json` HERE, AND THAT IS THE DELIBERATE
+          // CHOICE, NOT AN OVERSIGHT. Two sibling call sites in this file send
+          // it (postMagicLink below, and the nonce fetch takes the default), so
+          // adding it here reads as a tidy-up. It would DISARM the guard on the
+          // next line. Measured 2026-09-09 against ActionDispatch::PublicExceptions:
+          // with no Accept header — or `*/*`, or `text/html` — a 500 comes back
+          // as the rendered error PAGE, which is the body `.json()` rejects on;
+          // with `Accept: application/json` the same 500 comes back as
+          // {"status":500,"error":"Internal Server Error"}, which PARSES. The
+          // helper would then resolve that object, the substitution would never
+          // run, and the user would read a bare "Internal Server Error" instead
+          // of a sentence telling them their signature moved no funds — while
+          // every assertion about the guard stayed green, because the guard is
+          // simply never reached.
+          //
+          // So the absence of this header is load-bearing and is pinned as such:
+          // test/views/verify_server_failure_copy_test.rb drives the RENDERED
+          // helper against a server that answers by Accept the way Rails does,
+          // and reddens the moment this header appears. If a future change wants
+          // the header, it has to re-aim the guard in the same diff — a JSON
+          // error body needs a STATUS test, which the note below explains this
+          // endpoint cannot have naively (401/422 carry bodies the user must read).
+          var verifyResponse = await fetch(verifyUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.content || '' },
             body: JSON.stringify({ message: message, signature: signatureB58, pubkey: pubkeyB58, age_attestation: ageAttestation, wallet_provider: walletProviderName })
-          })).json();
+          });
+          // SUBSTITUTED INSIDE r.json(), FOR THE SAME REASON THE NONCE LEG IS,
+          // AND DELIBERATELY NOT AT `!r.ok`. docs/AUTH.md used to note that
+          // "nothing checks r.ok" as though the check were the fix. It is not:
+          // this endpoint answers 401 and 422 with a JSON body the user MUST
+          // read — an expired nonce, a bad signature, the age attestation
+          // (SolanaSessionsController#verify renders all three) — and the modal
+          // paints `result.error` from it. A throw on !r.ok would replace those
+          // precise, actionable sentences with this generic one, which is the
+          // same class of confidently-wrong diagnosis pointed at a new party.
+          // Only an UNREADABLE body is unambiguously our fault, and `.json()`
+          // rejecting is exactly the signal that says so.
+          //
+          // AND THE OFFLINE USER STAYS OUT OF IT. Wrapping the fetch itself —
+          // the obvious simplification — makes `TypeError: Failed to fetch` and
+          // an unreadable 500 body the same rejection, and relabels a genuinely
+          // offline user as our outage. Here they are already separated by WHICH
+          // step threw, so a request that never reached us keeps its own words
+          // and stays reportable. Mutated both ways in
+          // test/views/verify_server_failure_copy_test.rb.
+          //
+          // NOT REPORTED, tagged so no surface reports it either — the reasoning
+          // is the nonce leg's, unchanged: this is a 500 OF OURS, already carrying
+          // its exception and backtrace in the server's own log, and the report
+          // POST would go to the very server that just failed. The string being
+          // replaced is V8's complaint about our error page, not a wallet's
+          // words, so nothing diagnostic dies here. Without the tag the
+          // wallet-setup modal's catch files a row with our sentence in BOTH
+          // halves — the raw == mapped shape docs/AUTH.md names as an anomaly.
+          return await verifyResponse.json().catch(function() {
+            var serverError = new Error(verifyServerCopy);
+            serverError.walletFailureReported = true;
+            throw serverError;
+          });
         };
 
         // Shared magic-link request. Form-encoded (so the rack-attack per-email

@@ -4,13 +4,28 @@ require "open3"
 
 # [component] What a NONCE-endpoint failure of OURS says to a paying user.
 #
-# THE DEFECT, MEASURED. `/auth/solana/nonce` 500s with an HTML body — any
-# unhandled exception renders a page — so `r.json()` rejects with V8's
+# THE DEFECT, MEASURED. `/auth/solana/nonce` answers with an HTML body — see
+# WHICH FAULTS below — so `r.json()` rejects with V8's
 # "Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON".
 # `parseSolanaError`'s generic branch matches /^unexpected/i and answers "Wallet
 # couldn't process the transaction. Check wallet connection and USDC balance."
 # An outage of OURS, read back to a signed-out user as their wallet being short
 # of funds — the worst direction the mistake can point on a money page.
+#
+# WHICH FAULTS SEND AN UNREADABLE BODY. Not "any unhandled exception", which is
+# what this file claimed until 2026-09-09. The identical sentence stood in
+# test/views/verify_server_failure_copy_test.rb and both are corrected together:
+# leaving one standing is how this house ends up with two authorities on the same
+# fact. `#nonce` has no local rescue, so an exception inside it reaches the
+# ENGINE CATCH-ALL — `Studio::ErrorHandling` registers `rescue_from StandardError`
+# — whose production branch `respond_to`s. This fetch sends no Accept header, so
+# it takes `format.html`: a 302 to root, which `fetch` FOLLOWS to an HTML body at
+# STATUS 200. A fault outside `rescue_from`'s reach (middleware, routing) is the
+# one that renders a true 500 page.
+#
+# EITHER WAY THE BODY IS HTML AND `r.json()` REJECTS, which is all this guard
+# needs — but the status is NOT reliably 500, and the fixture below drives the
+# body rather than the status for exactly that reason.
 #
 # READ WHAT THE USER READS, NOT WHICH BRANCH RAN. A test asserting that a guard
 # exists, or that a tag was set, passes on a page that still prints the balance
@@ -98,17 +113,33 @@ class NonceServerFailureCopyTest < ActionDispatch::IntegrationTest
         (0, eval)(#{helper_js.to_json});
 
         var HTML = #{HTML_500.to_json};
+        // WHICH WALLET METHODS THE HELPER ACTUALLY REACHED, for the drive in
+        // flight. Reset per drive. On this leg the record is not bookkeeping —
+        // it is the file's central structural claim, made checkable: see the
+        // "no wallet prompt is opened" test below.
+        var calls = [];
+
         function provider(supportsSignIn) {
           return {
             name: 'phantom',
             supportsSignIn: function () { return supportsSignIn; },
-            signIn: async function () { throw new Error('signIn should not be reached'); },
-            connect: async function () { return { publicKey: { toBase58: function () { return 'PubKeyBase58'; } } }; },
-            signMessage: async function () { return { signature: new Uint8Array(64) }; }
+            signIn: async function () {
+              calls.push('signIn');
+              throw new Error('signIn should not be reached');
+            },
+            connect: async function () {
+              calls.push('connect');
+              return { publicKey: { toBase58: function () { return 'PubKeyBase58'; } } };
+            },
+            signMessage: async function () {
+              calls.push('signMessage');
+              return { signature: new Uint8Array(64) };
+            }
           };
         }
 
         async function drive(shape, supportsSignIn) {
+          calls = [];
           globalThis.fetch = shape;
           window.walletProvider = {
             get: function () { return provider(supportsSignIn); },
@@ -116,14 +147,14 @@ class NonceServerFailureCopyTest < ActionDispatch::IntegrationTest
           };
           try {
             await window.solanaConnectAndVerify('phantom', {});
-            return { resolved: true };
+            return { resolved: true, calls: calls };
           } catch (e) {
             // modals/_wallet_setup.html.erb, verbatim: the wallet's string, then
             // the mapper, then onto the page as `this.error`.
             var raw = (e && e.message) || '';
             var shown = (e && e.code === 4001) ? 'Signature rejected' : (raw || 'Connection failed');
             shown = window.parseSolanaError(shown);
-            return { raw: raw, shown: shown, reported: !!(e && e.walletFailureReported) };
+            return { raw: raw, shown: shown, reported: !!(e && e.walletFailureReported), calls: calls };
           }
         }
 
@@ -154,6 +185,41 @@ class NonceServerFailureCopyTest < ActionDispatch::IntegrationTest
       stdout, stderr, status = Open3.capture3("node", "--input-type=module", "--eval", script)
       assert status.success?, stderr
       JSON.parse(stdout.lines.map(&:strip).reject(&:empty?).last)
+    end
+  end
+
+  # --- each path's rows really were collected from that path -----------------
+
+  test "the signIn path opens no wallet prompt at all, and the fallback opens one" do
+    # FINDING 1's TWIN, 2026-09-09. The header above argues from a STRUCTURAL
+    # fact: the signIn branch awaits the nonce ABOVE its `try`, because the nonce
+    # is an INPUT to `signIn()`, so a nonce failure is caught by nothing in the
+    # helper. Nothing here checked that. Forcing `useSignIn` either way in the
+    # layout left every assertion green, because both paths end in the same
+    # rejection carrying the same sentence — identical outcomes cannot tell two
+    # branches apart, and a claim of coverage no assertion backs is worse than
+    # silence: it stops the next reader adding the test.
+    #
+    # WHAT THE RECORD PROVES, and why it is not bookkeeping. On the signIn path
+    # the wallet is never touched — the nonce rejects before `provider.signIn`
+    # is reached — so the user is refused BEFORE a prompt opens. On the fallback
+    # `connect()` has already run and the human has already approved something.
+    # That asymmetry IS the argument for substituting inside `r.json()` rather
+    # than at the `nonceFetchFailed` guard, which only the fallback reaches.
+    #
+    # IT DOES NOT REPLACE READING THE SENTENCE. A branch check passes on a page
+    # that still prints the balance advice. This is the floor under the decoded
+    # copy assertions below: it proves each was collected from the path its name
+    # claims.
+    %w[html offline].each do |shape|
+      assert_equal [], outcomes.fetch("#{shape}_sign_in").fetch("calls"),
+                   "a signIn-capable wallet must never be prompted when the nonce fails (#{shape}) — " \
+                   "a wallet call here means the helper took the fallback and the #{shape}_sign_in " \
+                   "row describes the wrong path"
+      assert_equal %w[connect], outcomes.fetch("#{shape}_fallback").fetch("calls"),
+                   "the fallback must connect BEFORE it awaits the nonce (#{shape}) — that ordering " \
+                   "is what buys the overlap the helper's comments claim, and an empty record here " \
+                   "means the await was hoisted back above connect()"
     end
   end
 

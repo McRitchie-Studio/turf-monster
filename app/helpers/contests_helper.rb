@@ -436,4 +436,58 @@ module ContestsHelper
   def contest_live_badge(contest)
     LIVE_STATES.fetch(contest_live_state(contest))
   end
+
+  # ── The day a slate game is actually played ──────────────────────────────
+  #
+  # The multi-week team card labels each opponent column with the DAY that
+  # game kicks off ("Dec 25") instead of its week number. The board header,
+  # the contest name and the rules page all already say which weeks the span
+  # covers, so the column is free to answer the one question the week number
+  # cannot: when do I watch this one. On the 2026 Weeks 15-17 span that turns
+  # "Week 16" into "Dec 25" — the Christmas game, named.
+  #
+  # THE DAY IS DERIVED IN US EASTERN, NOT IN UTC, and that is the entire
+  # reason this is a helper and not a strftime in the partial. `kickoff_at`
+  # is stored in true UTC and this app sets no `config.time_zone`, so
+  # `Time.zone` IS UTC — and every NFL night game crosses midnight there.
+  # Measured against db/seeds/data/nfl_2026_weeks_1_17.json: Buffalo's week-5
+  # Monday nighter at the Rams kicks off Mon Oct 12 8:15 PM ET and stores as
+  # 2026-10-13T00:15Z, and DAL@GB in week 6 is Sun Oct 18 8:20 PM ET stored
+  # as Monday the 19th. A UTC strftime prints TOMORROW on every Sunday-night,
+  # Monday-night and Thursday-night game — roughly one column in seven, and
+  # the operator's own screenshot (Buffalo, weeks 4-6) was one of them.
+  #
+  # The NFL schedules on the Eastern calendar, so Eastern is the calendar the
+  # label reads. It is deliberately NOT the viewer's local zone: two people
+  # looking at the same card should see the same date, and a west-coast
+  # viewer reading "Dec 25" for a game the league calls a Christmas game is
+  # right even when it kicks at 10 AM for them.
+  NFL_CALENDAR_ZONE = "America/New_York"
+
+  # Nil when there is no game or no kickoff — a REAL case, not a defensive
+  # flourish. 256 of 272 weekly-slate games carried a kickoff_at when it was
+  # last counted (2026-07-29), so roughly one game in twenty is still TBD.
+  # Callers fall back to the week label there rather than printing a blank.
+  def game_day_label(game)
+    kickoff = game&.kickoff_at
+    return nil if kickoff.blank?
+
+    kickoff.in_time_zone(NFL_CALENDAR_ZONE).strftime("%b %-d")
+  end
+
+  # One opponent column's two labels, resolved together so the card, its
+  # tooltip and its aria-label can never disagree about a week.
+  #
+  #   shown  what the column prints — the date, or "Week 4" when there is none
+  #   detail what the tooltip and the accessible name carry — ALWAYS the week,
+  #          plus the date when there is one. The week never disappears; it
+  #          moves off the face of the card and into the description, which is
+  #          what makes dropping it from the visible label safe.
+  def opponent_slot_labels(week, week_matchup)
+    week_text = "Week #{week || '?'}"
+    day_text  = game_day_label(week_matchup&.game)
+
+    { shown: day_text || week_text,
+      detail: day_text ? "#{week_text} · #{day_text}" : week_text }
+  end
 end
