@@ -318,4 +318,143 @@ class OnchainSettledJsTest < ActiveSupport::TestCase
       "once the animation is done the reload repaints seeds normally — the guard is a WINDOW, not an off switch"
     assert_not_nil r.dig("after", "stored")
   end
+
+  # ── THE STAY-PUT-BUT-MAY-NAVIGATE CALLER ──────────────────────────────────
+  #
+  # PROPERTY 8/9/10 are one fix in three halves, so they are asserted as three
+  # tests: schedule in-page, leave the marker anyway, and retire the marker once
+  # the in-page read lands.
+  #
+  # THE SURFACE THAT NEEDED IT (survivor-settle-never-fires). The survivor board
+  # was calling onchainSettled({ navigating: true }) on the belief that its
+  # success card auto-redirects. It does not — it sets no lobbyUrl, so the
+  # engine's startCountdown() returns early and no countdown is armed. So the
+  # marker was written for a navigation that never came, nothing was scheduled,
+  # and the navbar held the PRE-SPEND figure for as long as the card stayed open.
+  # The other either/or branch is no better: the user leaves that card by CLOSING
+  # it, and modal.onClose assigns window.location, which destroys a bare timer.
+
+  # PROPERTY 8 — the half PR #609 removed. A mayNavigate caller must settle the
+  # pill IN PLACE for the user who never leaves the page.
+  test "a mayNavigate caller settles the pill in place, exactly like a stay-put one" do
+    r = run_module(<<~JS)
+      mod.onchainSettled({ mayNavigate: true, delayMs: 10000 });
+      const onSpend = { text: pill.textContent, hidden: pill.classList.has('hidden'), reads: fetched.length };
+
+      advance(9999);
+      const justBefore = fetched.length;
+      advance(2);
+      await settle(30);
+      const after = { text: pill.textContent, hidden: pill.classList.has('hidden'), reads: fetched.length };
+      console.log(JSON.stringify({ onSpend, justBefore, after }));
+    JS
+
+    assert_equal "", r.dig("onSpend", "text"),
+      "the stale figure must be cleared on the spend — a marker-only caller never blanked it, " \
+      "which is how the navbar kept showing the pre-spend balance while the card sat open"
+    assert r.dig("onSpend", "hidden"), "and the pill must hold the server's cache-cold LOADING shape"
+    assert_equal 0, r.dig("onSpend", "reads"), "no read on the spend itself"
+    assert_equal 0, r["justBefore"], "nothing at 9999ms — the window is honoured"
+    assert_equal 1, r.dig("after", "reads"),
+      "the read must actually be SCHEDULED here; a navigating caller schedules nothing at all, " \
+      "so on a surface that does not redirect the settle simply never fires"
+    assert_equal "$1164", r.dig("after", "text"), "and it paints the settled number in place"
+    assert_not r.dig("after", "hidden")
+  end
+
+  # PROPERTY 9 — and the marker anyway, for the user who DOES leave. Closing the
+  # survivor card navigates, so this is the normal exit, not an edge case. The
+  # destination is modelled as a genuinely fresh module instance: separate module
+  # state, same sessionStorage, with page A's timers destroyed the way an unload
+  # destroys them.
+  test "a mayNavigate settle survives a close-triggered navigation" do
+    r = run_module(<<~JS)
+      mod.onchainSettled({ mayNavigate: true, delayMs: 10000 });
+      const markerOnSpend = sessionStore.getItem('tm:onchain-settle-until');
+
+      advance(2000);                        // the user closes the card two seconds in
+      const readsBeforeUnload = fetched.length;
+      timers.forEach(t => { t.done = true; });   // ...and modal.onClose navigates: UNLOAD
+
+      // The destination page: a fresh module, the same sessionStorage.
+      const modB = await import(pathToFileURL(process.argv[1]).href + '?page=B' + RealDate.now());
+      const deferred = modB.settleOnLoadIfPending();
+      const onArrival = { text: pill.textContent, hidden: pill.classList.has('hidden'), reads: fetched.length };
+
+      advance(8001);                        // the REMAINDER of the original window
+      await settle(40);
+      const after = { text: pill.textContent, hidden: pill.classList.has('hidden'), reads: fetched.length };
+      console.log(JSON.stringify({ markerOnSpend, readsBeforeUnload, deferred, onArrival, after }));
+    JS
+
+    assert_not_nil r["markerOnSpend"],
+      "the marker must be written even though this caller also scheduled — the schedule is the " \
+      "half that dies at the close, and the close is how people leave this card"
+    assert_equal 0, r["readsBeforeUnload"], "nothing read before the user left"
+    assert_equal true, r["deferred"],
+      "the destination must inherit the window, or it does its own load-time read — the " \
+      "too-early read this whole seam exists to refuse"
+    assert_equal "", r.dig("onArrival", "text"), "the pill holds LOADING across the navigation"
+    assert r.dig("onArrival", "hidden")
+    assert_equal 0, r.dig("onArrival", "reads"), "and reads nothing on arrival"
+    assert_equal 1, r.dig("after", "reads"), "exactly one read, when the inherited window closes"
+    assert_equal "$1164", r.dig("after", "text"),
+      "the settled number lands at the destination — the settle was not lost by leaving"
+  end
+
+  # PROPERTY 10 — THE SUBTLE HALF. Once the in-page read has landed, the marker
+  # has been served and must be gone. Leave it and a user who closes the card
+  # LATER arrives at a page that consumes a spent marker, blanks a pill already
+  # showing the settled number, and holds it blank for another full window.
+  test "a landed in-page read retires the marker, so a later navigation does not re-blank" do
+    r = run_module(<<~JS)
+      mod.onchainSettled({ mayNavigate: true, delayMs: 10000 });
+      advance(10001);
+      await settle(40);
+      const settledInPlace = { text: pill.textContent, hidden: pill.classList.has('hidden') };
+      const markerAfterSettle = sessionStore.getItem('tm:onchain-settle-until');
+
+      // Only NOW does the user close the card, and onClose navigates.
+      timers.forEach(t => { t.done = true; });
+      const modB = await import(pathToFileURL(process.argv[1]).href + '?page=C' + RealDate.now());
+      const deferredAtDestination = modB.settleOnLoadIfPending();
+      const onArrival = { text: pill.textContent, hidden: pill.classList.has('hidden') };
+      console.log(JSON.stringify({ settledInPlace, markerAfterSettle, deferredAtDestination, onArrival }));
+    JS
+
+    assert_equal "$1164", r.dig("settledInPlace", "text"), "the in-page settle landed first"
+    assert_nil r["markerAfterSettle"],
+      "a landed read must retire the marker — it has been served, and a spent marker is a " \
+      "second settle window waiting to blank a pill that is already correct"
+    assert_equal false, r["deferredAtDestination"],
+      "so the destination hydrates normally instead of inheriting a window that is already over"
+    assert_equal "$1164", r.dig("onArrival", "text"),
+      "and the settled figure survives the navigation rather than blanking itself again"
+    assert_not r.dig("onArrival", "hidden")
+  end
+
+  # PROPERTY 10b — the OTHER side of that rule, which is why the clear is
+  # conditional. A read that did not land has served nothing, so the marker
+  # stays: the destination becomes a second chance at the settle. Clearing
+  # unconditionally would spend the marker on a failure and strand the navbar on
+  # the restored, stale figure.
+  test "a settle that never landed keeps its marker for the destination" do
+    r = run_module(<<~JS)
+      pill.textContent = '$1239';
+      globalThis.fetch = () => { fetched.push({ at: now }); return Promise.reject(new Error('offline')); };
+
+      mod.onchainSettled({ mayNavigate: true, delayMs: 10000 });
+      advance(10001); await settle(20);
+      advance(3001);  await settle(40);          // the retry fails too
+      const afterFailedSettle = { text: pill.textContent, reads: fetched.length };
+      const markerKept = sessionStore.getItem('tm:onchain-settle-until');
+      console.log(JSON.stringify({ afterFailedSettle, markerKept }));
+    JS
+
+    assert_equal 2, r.dig("afterFailedSettle", "reads"), "one read plus one retry, both failed"
+    assert_equal "$1239", r.dig("afterFailedSettle", "text"), "the stale figure is restored, as before"
+    assert_not_nil r["markerKept"],
+      "nothing landed, so nothing was served — the marker must survive so a navigation still " \
+      "gets a settle instead of trusting the number we just put back"
+  end
 end

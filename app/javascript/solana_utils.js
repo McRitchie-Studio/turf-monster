@@ -250,9 +250,28 @@ export function refreshBalance() {
 // does not survive unload. Scheduling in the caller would be a SILENT no-op on
 // exactly the flows this was built for. So a navigating caller leaves a marker
 // in sessionStorage and the DESTINATION page picks it up (see the layout's
-// hydrateNavbar). A caller that stays put (every entry flow) schedules directly.
+// hydrateNavbar). A caller that cannot navigate schedules directly.
+//
+// AND A THIRD KIND, which the either/or above could not express: a surface that
+// stays put but MAY be navigated away from — the survivor board, whose success
+// card arms no countdown yet navigates when the user closes it. It takes both
+// paths at once. See onchainSettled for the full shape table.
 var ONCHAIN_SETTLE_KEY = "tm:onchain-settle-until";
 export var ONCHAIN_SETTLE_MS = 10000;
+
+// Writing the marker and retiring it are SEPARATE concerns, because they are no
+// longer done by the same caller at the same moment. A stay-put-but-may-navigate
+// caller writes one for a navigation that might never happen (see onchainSettled),
+// and its own in-page read is what retires it (see settleRead).
+function writeOnchainSettleMarker(delay) {
+  try {
+    window.sessionStorage.setItem(ONCHAIN_SETTLE_KEY, String(Date.now() + delay));
+  } catch (_) {}
+}
+
+function clearOnchainSettleMarker() {
+  try { window.sessionStorage.removeItem(ONCHAIN_SETTLE_KEY); } catch (_) {}
+}
 
 // Put the balance pill back into the server's cache-cold "loading" shape:
 // hidden, with no dollar figure. Mirrors _navbar.html.erb's `hide_balance`
@@ -310,7 +329,23 @@ var SETTLE_RETRY_MS = 3000;
 // it counts as a failure the blanked pill stays blank, unretried, for good.
 function settleRead() {
   return refreshSession({ lockKey: SETTLE_LOCK_KEY }).then(function (data) {
-    return (data && (data.usdc != null || data.usdt != null)) ? data : null;
+    var landed = (data && (data.usdc != null || data.usdt != null)) ? data : null;
+    // THE READ LANDED, SO THE MARKER HAS DONE ITS JOB — retire it here.
+    //
+    // Only a mayNavigate caller can still hold one at this point: a navigating
+    // caller schedules no read at all, and settleOnLoadIfPending consumed its
+    // marker on the way in. That caller wrote the marker for a navigation that
+    // MIGHT happen. If the user then leaves late — closing the survivor card
+    // navigates, which is the normal way out of it — the destination would
+    // otherwise consume a marker whose window we have already served: blank a
+    // pill that is showing the settled number and hold it blank for another
+    // full window. Clearing on the read is what stops the two halves fighting.
+    //
+    // A read that did NOT land deliberately leaves the marker alone. The pill
+    // has been restored to the stale figure by then, so the destination is a
+    // second chance at the settle rather than a double-blank.
+    if (landed) clearOnchainSettleMarker();
+    return landed;
   });
 }
 
@@ -343,17 +378,31 @@ function scheduleOnchainSettle(delay) {
   });
 }
 
-// opts.navigating — true when the caller is about to assign window.location.
-// opts.delayMs    — override the settle window (default ONCHAIN_SETTLE_MS).
+// THREE SHAPES, because a surface is not simply navigating or not. The middle
+// one is real and was missing, and the cost of not having it was a settle that
+// never fired at all on the survivor board.
+//
+// opts.navigating  — the caller assigns window.location NOW. A setTimeout does
+//                    not survive unload, so leave the marker and schedule
+//                    nothing; the destination page runs the read.
+// opts.mayNavigate — the caller STAYS PUT, but the user may leave at any moment.
+//                    The survivor board is this shape: its success card sets no
+//                    lobbyUrl, so the engine's startCountdown() returns early and
+//                    the card just sits there — yet modal.onClose assigns
+//                    window.location, and closing the card is the normal way out
+//                    of it. Needs BOTH halves: schedule in-page so the pill
+//                    settles for the user who stays, AND leave the marker so the
+//                    settle is not lost for the user who goes. Exactly one of the
+//                    two ever serves the window — settleRead() retires the marker
+//                    the moment the in-page read lands.
+// neither          — a surface with no navigation at all (the faucet). Schedule.
+//
+// opts.delayMs     — override the settle window (default ONCHAIN_SETTLE_MS).
 export function onchainSettled(opts) {
   opts = opts || {};
   var delay = (opts.delayMs == null) ? ONCHAIN_SETTLE_MS : opts.delayMs;
-  if (opts.navigating) {
-    try {
-      window.sessionStorage.setItem(ONCHAIN_SETTLE_KEY, String(Date.now() + delay));
-    } catch (_) {}
-    return null;
-  }
+  if (opts.navigating || opts.mayNavigate) writeOnchainSettleMarker(delay);
+  if (opts.navigating) return null;
   return scheduleOnchainSettle(delay);
 }
 
