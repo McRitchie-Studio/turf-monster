@@ -7,7 +7,7 @@ Casual-agent index. Open a per-workflow file for the dirty details.
 > trust the code and update the file. Prose rots; line numbers drift on refactor —
 > re-confirm before relying on either.
 >
-> **Two files cite nothing at all.** Measured 2026-09-09, [live-scoring](live-scoring.md)
+> **Two workflow files cite nothing at all.** Measured 2026-09-09, [live-scoring](live-scoring.md)
 > and [submit-entry-decision-tree](submit-entry-decision-tree.md) parse to zero citations
 > each. They name symbols throughout and point at none of them, so every claim in those
 > two is unverified prose. Check them against the code before you rely on either.
@@ -16,8 +16,10 @@ Casual-agent index. Open a per-workflow file for the dirty details.
 > `test/docs/workflow_citation_docs_test.rb` holds a document to its citations only if
 > that document is listed in its `COVERAGE` — today
 > [web3-landing-to-entry](web3-landing-to-entry.md) and
-> [market-snapshot](market-snapshot.md). The rest are cited but unguarded, and each
-> guarded document's own preamble states which of its citations get the weaker check.
+> [market-snapshot](market-snapshot.md). Every other cited file here is unguarded — its
+> citations are real coordinates, but no test reads them. And a guarded file is not
+> uniformly guarded either: each one's own preamble states which of its citations get
+> the weaker of the two checks.
 
 ## User journeys
 
