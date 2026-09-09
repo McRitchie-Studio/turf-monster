@@ -457,4 +457,222 @@ class OnchainSettledJsTest < ActiveSupport::TestCase
       "nothing landed, so nothing was served — the marker must survive so a navigation still " \
       "gets a settle instead of trusting the number we just put back"
   end
+
+  # PROPERTY 10c — THE RETIRE IS SCOPED TO THE WINDOW IT SERVED, NOT TO THE KEY.
+  #
+  # Property 10 says a landed read retires the marker. This says WHICH marker,
+  # and it is the difference between a fix and a wider bug.
+  #
+  # The write and the retire are separated in time (see writeOnchainSettleMarker),
+  # so by the time a read lands the slot can hold a DIFFERENT spend's marker. A
+  # retire that deleted the KEY took that one with it.
+  #
+  # THE SEQUENCE IS ORDINARY. Spend, close the card — which navigates — spend
+  # again on the page you land on. Spend #1's read is now DEFERRED onto that
+  # second page and owns no marker at all; when it landed it wiped spend #2's.
+  # Spend #2 then settled NOWHERE: its in-page timer died at the next
+  # navigation, and the destination inherited nothing, so it hydrated normally
+  # and painted the PRE-SPEND figure with .hidden cleared, presented as the
+  # answer. That is the exact failure this seam exists to refuse, re-created on
+  # a surface this task never meant to touch.
+  test "a landed read retires only its own marker, not a later spend's" do
+    r = run_module(<<~JS)
+      // The chain catches up in STAGES, so the two spends are distinguishable:
+      // $1239 pre-spend, $1164 once spend #1 has settled at t=10s, $1100 once
+      // spend #2 has settled at t=14s. A fixture answering one number to
+      // everyone cannot tell which spend a read served — which is how a probe
+      // against the shipped stub showed nothing wrong here.
+      const T0 = now;
+      globalThis.fetch = () => {
+        const v = now < T0 + 10000 ? '1239.0' : (now < T0 + 14000 ? '1164.0' : '1100.0');
+        fetched.push({ at: now - T0, gave: v });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({
+          usdc: v, usdt: '0', tokens: 0, seeds: 0, level: 1, toward_next: 0, progress: 0
+        }) });
+      };
+
+      // PAGE A — spend #1. The user closes the card two seconds in, and
+      // modal.onClose assigns window.location: UNLOAD kills page A's timer.
+      mod.onchainSettled({ mayNavigate: true, delayMs: 10000 });
+      advance(2000);
+      timers.forEach(t => { t.done = true; });
+
+      // PAGE B — inherits spend #1's window. Note what it does NOT get: a
+      // marker of its own, because settleOnLoadIfPending consumed the one it
+      // arrived on.
+      const modB = await import(pathToFileURL(process.argv[1]).href + '?page=B' + RealDate.now());
+      const inherited = modB.settleOnLoadIfPending();
+
+      // ...and spend #2 happens ON page B, two seconds after landing.
+      advance(2000);
+      modB.onchainSettled({ mayNavigate: true, delayMs: 10000 });
+      const markerOfSpend2 = sessionStore.getItem('tm:onchain-settle-until');
+
+      // Spend #1's inherited read lands at t=10s. THE MOMENT UNDER TEST.
+      advance(6001);
+      await settle(40);
+      const markerAfterSpend1Read = sessionStore.getItem('tm:onchain-settle-until');
+      const afterSpend1Read = { text: pill.textContent, hidden: pill.classList.has('hidden') };
+
+      // PAGE C — the user closes spend #2's card at t=11s, before its own
+      // in-page read could fire. The marker is the only thing left carrying it.
+      advance(1000);
+      timers.forEach(t => { t.done = true; });
+      const modC = await import(pathToFileURL(process.argv[1]).href + '?page=C' + RealDate.now());
+      const deferredAtC = modC.settleOnLoadIfPending();
+      const onArrivalAtC = { text: pill.textContent, hidden: pill.classList.has('hidden') };
+
+      advance(5000);
+      await settle(40);
+      const final = { text: pill.textContent, hidden: pill.classList.has('hidden') };
+      console.log(JSON.stringify({ inherited, markerOfSpend2, markerAfterSpend1Read,
+                                   afterSpend1Read, deferredAtC, onArrivalAtC, final, reads: fetched }));
+    JS
+
+    assert_equal true, r["inherited"], "page B must inherit spend #1's window"
+    assert_not_nil r["markerOfSpend2"], "spend #2 arms its own marker on page B"
+    assert_equal "$1164", r.dig("afterSpend1Read", "text"),
+      "spend #1's deferred read lands and paints, exactly as before"
+
+    # THE ASSERTION THE DEFECT FAILS.
+    assert_equal r["markerOfSpend2"], r["markerAfterSpend1Read"],
+      "spend #1's read owns NO marker — it must retire nothing. Deleting the key here takes " \
+      "spend #2's window with it, and spend #2 then never settles anywhere"
+
+    assert_equal true, r["deferredAtC"],
+      "so the page the user lands on still inherits spend #2's window instead of hydrating " \
+      "normally and reading the chain early"
+    assert_equal "", r.dig("onArrivalAtC", "text"),
+      "and holds LOADING rather than presenting spend #2's pre-spend figure as the answer"
+    assert r.dig("onArrivalAtC", "hidden")
+    assert_equal "$1100", r.dig("final", "text"),
+      "the number that finally lands is the one AFTER spend #2 — $1164 here would be the " \
+      "pre-spend balance for the second spend, which is the whole bug"
+    assert_not r.dig("final", "hidden")
+  end
+
+  # PROPERTY 6' — A MARKER WITH ZERO MS LEFT IS STILL A MARKER.
+  #
+  # settleOnLoadIfPending tests `pendingMs == null`, not `!pendingMs`, and
+  # pendingOnchainSettleMs floors its answer at 0. Before mayNavigate existed
+  # that distinction was cosmetic: a navigating caller navigates immediately, so
+  # its marker always arrived with most of its window intact. mayNavigate makes
+  # a spent-but-surviving marker ORDINARY — the user closes the card long after
+  # the window elapsed — so the distinction became load-bearing and nothing
+  # pinned it.
+  #
+  # WHAT `!pendingMs` WOULD COST. Returning false hands the load back to the
+  # layout's ordinary hydrate, and that read is NOT equivalent: it runs on the
+  # default 'session' lock, contended by the level-up poller and both refresh
+  # buttons, and lockedFetch answers a contender with Promise.resolve(null). It
+  # has no retry. The settle path takes its own 'onchain-settle' key and retries
+  # once. So on the one load where the pill is showing a figure a failed settle
+  # restored, the weaker read is the one that would run.
+  test "a marker whose window has already elapsed still takes the load" do
+    r = run_module(<<~JS)
+      pill.textContent = '$1239';
+      globalThis.fetch = () => { fetched.push({ at: now }); return Promise.reject(new Error('offline')); };
+
+      // A mayNavigate spend whose settle fails outright, so the marker is
+      // deliberately KEPT (property 10b) and outlives its own window.
+      mod.onchainSettled({ mayNavigate: true, delayMs: 10000 });
+      advance(10001); await settle(20);
+      advance(3001);  await settle(40);        // the retry fails too; pill restored
+      const markerKept = sessionStore.getItem('tm:onchain-settle-until');
+      const beforeNav = { text: pill.textContent, reads: fetched.length };
+
+      // Only NOW does the user close the card. The window elapsed 3s ago, so
+      // the destination inherits a REMAINING of exactly 0.
+      timers.forEach(t => { t.done = true; });
+      globalThis.fetch = () => {
+        fetched.push({ at: now });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({
+          usdc: '1164.0', usdt: '0', tokens: 0, seeds: 0, level: 1, toward_next: 0, progress: 0
+        }) });
+      };
+      const modB = await import(pathToFileURL(process.argv[1]).href + '?page=B' + RealDate.now());
+      const deferred = modB.settleOnLoadIfPending();
+      const onArrival = { text: pill.textContent, hidden: pill.classList.has('hidden'), reads: fetched.length };
+
+      advance(1); await settle(40);
+      const after = { text: pill.textContent, hidden: pill.classList.has('hidden'), reads: fetched.length };
+      console.log(JSON.stringify({ markerKept, beforeNav, deferred, onArrival, after }));
+    JS
+
+    assert_not_nil r["markerKept"], "the failed settle kept its marker (property 10b)"
+    assert_equal "$1239", r.dig("beforeNav", "text"), "and restored the stale figure"
+
+    # THE ASSERTION THE MUTANT FAILS.
+    assert_equal true, r["deferred"],
+      "zero milliseconds remaining is not 'no marker pending' — a spend DID happen on the page " \
+      "that sent us here, so the settle must still own this load. `!pendingMs` reads a floored 0 " \
+      "as absent and hands the read to the contendable, un-retried hydrate instead"
+
+    assert_equal "", r.dig("onArrival", "text"),
+      "so the restored stale figure is cleared rather than trusted"
+    assert r.dig("onArrival", "hidden")
+    assert_equal r.dig("beforeNav", "reads"), r.dig("onArrival", "reads"),
+      "and nothing is read before the (zero-length) window closes"
+    assert_equal "$1164", r.dig("after", "text"), "the settle's own read lands immediately and paints"
+    assert_not r.dig("after", "hidden")
+    assert_equal r.dig("beforeNav", "reads") + 1, r.dig("after", "reads"), "exactly one read, not two"
+  end
+
+  # PROPERTY 10d — THE MARKER FROM THE PREVIOUS DEPLOY.
+  #
+  # Scoping the retire changed the marker's stored SHAPE, from "<until>" to
+  # "<until>:<id>", and a deploy does not swap every loaded bundle at once. A
+  # tab that loaded the old JS writes the old shape, and a back-navigation into
+  # a bfcached page runs that bundle again in the same tab. So both shapes are
+  # live at once for a while, and the new code owes them two things.
+  #
+  # ONE — it must still read the deadline. parseInt stops at the colon, which is
+  # why the id was appended rather than put in a second key or a JSON blob;
+  # nothing about that is obvious from the call site, so it is asserted here.
+  #
+  # TWO — it must not retire one. An id-less marker matches no settle's id, and
+  # a settle that wrote no marker of its own (the deferred read below) owns
+  # nothing to retire. Dropping that guard and leaning on the id comparison
+  # alone reads null === null as a match and deletes the marker — the same
+  # cross-spend wipe as property 10c, arriving by the other door.
+  test "a marker in the pre-deploy shape is honoured and never retired by a stranger" do
+    r = run_module(<<~JS)
+      const KEY = 'tm:onchain-settle-until';
+
+      // Spend #1's marker, in the shape the previous deploy's writer produced:
+      // a bare deadline. Seeded directly because this writer cannot make one.
+      sessionStore.setItem(KEY, String(now + 10000));
+      const inherited = mod.settleOnLoadIfPending();
+      const readsOnArrival = fetched.length;
+      const onArrival = { text: pill.textContent, hidden: pill.classList.has('hidden') };
+
+      // The old bundle runs again in this tab and arms a second spend the same
+      // old way, four seconds in.
+      advance(4000);
+      sessionStore.setItem(KEY, String(now + 10000));
+      const legacyMarkerOfSpend2 = sessionStore.getItem(KEY);
+
+      // Spend #1's deferred read lands. It owns no marker, so it retires none.
+      advance(6001);
+      await settle(40);
+      console.log(JSON.stringify({ inherited, readsOnArrival, onArrival, legacyMarkerOfSpend2,
+                                   markerAfter: sessionStore.getItem(KEY),
+                                   readsAfter: fetched.length, text: pill.textContent }));
+    JS
+
+    assert_equal true, r["inherited"],
+      "the pre-deploy shape must still hand its window over — the id is appended after a colon " \
+      "precisely so parseInt keeps reading the deadline out of both shapes"
+    assert_equal 0, r["readsOnArrival"], "and the inherited window is actually honoured"
+    assert_equal "", r.dig("onArrival", "text")
+    assert r.dig("onArrival", "hidden")
+    assert_equal 1, r["readsAfter"], "one read, when that window closes"
+    assert_equal "$1164", r["text"]
+
+    # THE ASSERTION THE MUTANT FAILS.
+    assert_equal r["legacyMarkerOfSpend2"], r["markerAfter"],
+      "an id-less marker belongs to no settle here, so nothing may retire it. Without the " \
+      "'wrote no marker, retire nothing' guard, null === null reads as a match and this read " \
+      "deletes the second spend's window"
+  end
 end

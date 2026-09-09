@@ -145,7 +145,7 @@ test.describe("on-chain settle window", () => {
   // would silently park the test until the settle had already finished, and the
   // during-the-window assertions would all read post-settle state.
 
-  test("a mayNavigate caller settles the pill in place", async ({ page }) => {
+  test("a mayNavigate caller arms BOTH halves and settles in place", async ({ page }) => {
     const reads = { count: 0 };
     await stubSessionRefresh(page, reads);
     await page.evaluate((key) => window.sessionStorage.removeItem(key), SETTLE_KEY);
@@ -159,6 +159,18 @@ test.describe("on-chain settle window", () => {
     const pill = page.locator(PILL).first();
     await expect(pill).toHaveClass(/hidden/);
     expect((await pill.textContent()).trim()).toBe("");
+
+    // AND THE MARKER, IN THE SAME BREATH. This assertion is what makes the test
+    // discriminate, and it was missing. An unknown option falls through to a
+    // plain schedule, so every assertion above passes against a module that has
+    // never heard of mayNavigate — the test would have been green on the very
+    // bug it was written for. Both halves armed at once is the thing neither
+    // other shape can do: navigating leaves the marker and schedules nothing,
+    // stay-put schedules and leaves no marker.
+    expect(
+      await page.evaluate((key) => window.sessionStorage.getItem(key), SETTLE_KEY)
+    ).not.toBeNull();
+
     await page.waitForTimeout(1500);
     expect(reads.count).toBe(before);          // and no read inside the window
 
@@ -196,27 +208,57 @@ test.describe("on-chain settle window", () => {
     expect(reads.count).toBe(beforeNav + 1);
   });
 
-  test("a landed in-page read retires the marker", async ({ page }) => {
+  // THE RETIRE IS SCOPED TO THE WINDOW IT SERVED (review of PR #645).
+  //
+  // The first version of this test asserted only that the marker was null after
+  // a settle, which a module that never wrote one passes trivially — it proved
+  // nothing. Worse, the implementation it was guarding retired the KEY, so a
+  // read finishing for spend #1 deleted spend #2's marker and spend #2 then
+  // settled nowhere: the navbar painted its PRE-SPEND balance with .hidden
+  // cleared, presented as the answer, and nothing corrected it.
+  //
+  // So this drives the two-spend sequence in a real browser. The deferred read
+  // is made the way a destination page makes one — settleOnLoadIfPending
+  // consumes the marker on the way in, so that settle owns none — and a second
+  // spend arms its own while the first read is still in flight.
+  test("a landed read retires only the window it served", async ({ page }) => {
     const reads = { count: 0 };
     await stubSessionRefresh(page, reads);
     await page.evaluate((key) => window.sessionStorage.removeItem(key), SETTLE_KEY);
     await page.waitForTimeout(1200);
+    const before = reads.count;
 
-    await page.evaluate(() => { window.onchainSettled({ mayNavigate: true, delayMs: 3000 }); });
-    await expect(page.locator(PILL).first()).toHaveText(/^\$1164$/, { timeout: 20000 });
+    // Spend #1, inherited. Its marker is consumed here, so this settle owns none.
+    await page.evaluate(
+      ([key, until]) => {
+        window.sessionStorage.setItem(key, String(until));
+        window.settleOnLoadIfPending();
+      },
+      [SETTLE_KEY, Date.now() + 3000]
+    );
 
-    // THE SUBTLE HALF, as a page.evaluate result against real sessionStorage
-    // after the real module ran a real fetch. The marker has been SERVED, so it
-    // must be gone: leave it and a user who closes the card later arrives at a
-    // page that consumes a spent marker, blanks a pill already showing the
-    // settled number, and holds it blank for another full window.
-    const marker = await page.evaluate((key) => window.sessionStorage.getItem(key), SETTLE_KEY);
-    expect(marker).toBeNull();
+    // Spend #2 lands on the same page while spend #1's read is still pending.
+    // Its window is long, so nothing but the retire can end it inside this test.
+    await page.evaluate(() => { window.onchainSettled({ mayNavigate: true, delayMs: 20000 }); });
+    const markerOfSpend2 = await page.evaluate((key) => window.sessionStorage.getItem(key), SETTLE_KEY);
+    expect(markerOfSpend2).not.toBeNull();
 
-    // So the next load hydrates NORMALLY rather than inheriting a spent window.
+    // Spend #1's read lands and paints...
+    await expect(page.locator(PILL).first()).toHaveText(/^\$1164$/, { timeout: 15000 });
+    expect(reads.count).toBe(before + 1);
+
+    // ...and must not have taken spend #2's window with it. Against real
+    // sessionStorage, after the real module ran a real fetch.
+    const markerAfter = await page.evaluate((key) => window.sessionStorage.getItem(key), SETTLE_KEY);
+    expect(markerAfter).toBe(markerOfSpend2);
+
+    // Which is what lets the page the user lands on still inherit that window,
+    // instead of hydrating normally and reading the chain early.
     const beforeNav = reads.count;
     await page.reload();
-    await expect(page.locator(PILL).first()).toHaveText(/^\$1164$/, { timeout: 20000 });
-    expect(reads.count).toBeGreaterThan(beforeNav);
+    const pill = page.locator(PILL).first();
+    await page.waitForTimeout(1500);
+    await expect(pill).toHaveClass(/hidden/);
+    expect(reads.count).toBe(beforeNav);
   });
 });
