@@ -185,13 +185,43 @@ class ErrorTextContrastTest < ActiveSupport::TestCase
     ([ a, b ].max + 0.05) / ([ a, b ].min + 0.05)
   end
 
-  # Paint a translucent colour over an opaque backdrop, in linear light. This is
-  # what the browser does, and it is the only way to know what an error sentence
-  # on a tinted panel actually contrasts against.
+  # Gamma-encoded sRGB triple (0..1) — the space alpha compositing happens in.
+  # A hex colour is read straight off its channel bytes rather than round-tripped
+  # through linear light and back: that round trip is not exact in binary
+  # floating point, and it moves a half-way channel (127.5) across the rounding
+  # boundary. Only oklch has to travel through linear, since that is the only
+  # route out of it.
+  def srgb_encoded(color)
+    case color
+    when /\A#(\h{6})\z/ then Regexp.last_match(1).scan(/../).map { |c| c.to_i(16) / 255.0 }
+    when /\A#(\h{3})\z/ then Regexp.last_match(1).chars.map { |c| (c * 2).to_i(16) / 255.0 }
+    else srgb_linear(color)&.map { |v| gamma_compress(v) }
+    end
+  end
+
+  def enc_to_hex(enc)
+    "#" + enc.map { |v| format("%02x", (v * 255).round.clamp(0, 255)) }.join
+  end
+
+  # Paint a translucent colour over an opaque backdrop, THE WAY A BROWSER DOES.
+  #
+  # Alpha compositing happens in GAMMA-ENCODED sRGB — the channel bytes as
+  # written — NOT in linear light. This guard blended in linear light until
+  # contrast-guard-composites-wrong, and the difference is not cosmetic: a
+  # linear blend reports a backdrop LIGHTER than the one rendered, which is the
+  # UNSAFE direction for a light surface. bg-red-500/20 over the light card
+  # scored 4.91:1 (a PASS) under the linear model where a browser measures
+  # 4.30:1 (a FAIL), so the guard could bless text a user cannot read.
+  #
+  # Do not "improve" this back into linear light because linear light is where
+  # luminance is computed. Both are true and they are different steps:
+  # compositing is how the browser mixes pixels, `relative_luminance` is how
+  # WCAG weighs the result. `test "composite() blends the way a browser does"`
+  # pins this against pixels read out of Chrome.
   def composite(tint, alpha, backdrop)
-    t = srgb_linear(tint)
-    b = srgb_linear(backdrop)
-    lin_to_hex(t.each_with_index.map { |v, i| v * alpha + b[i] * (1 - alpha) })
+    t = srgb_encoded(tint)
+    b = srgb_encoded(backdrop)
+    enc_to_hex(t.each_with_index.map { |v, i| v * alpha + b[i] * (1 - alpha) })
   end
 
   # Is this a RED text colour? Asked of the resolved colour, never of the class
@@ -409,6 +439,17 @@ class ErrorTextContrastTest < ActiveSupport::TestCase
 
   def rel(path) = Pathname(path).relative_path_from(Rails.root).to_s
 
+  # Compare two hex colours channel by channel, in 8-bit steps, so a failure
+  # reports WHICH channel drifted and by how much rather than "not equal".
+  def assert_channels_within(steps, expected, actual, message)
+    e = expected.delete("#").scan(/../).map { |c| c.to_i(16) }
+    a = actual.delete("#").scan(/../).map { |c| c.to_i(16) }
+    off = e.zip(a).map { |x, y| (x - y).abs }
+    assert off.max <= steps,
+           "#{message}\nexpected #{expected}, got #{actual} " \
+           "(channel drift R#{off[0]} G#{off[1]} B#{off[2]}, tolerance #{steps})"
+  end
+
   # Resolved RED text in scope, with the backdrop it truly sits on.
   def red_sites(scheme)
     guarded_sites.filter_map do |path, line, source, token|
@@ -551,10 +592,61 @@ class ErrorTextContrastTest < ActiveSupport::TestCase
 
   # ── controls for the backdrop model (the guard's second blind spot) ────────
 
+  # Every expected value in this test was MEASURED IN A BROWSER, not derived
+  # from a second implementation of the same arithmetic — re-deriving the model
+  # analytically is how you trade one wrong model for another. A translucent div
+  # was rendered over an opaque one in headless Chromium and the centre pixel was
+  # read out of the screenshot. Re-measure with:
+  #   node test/support/composite_browser_probe.js
+  test "composite() blends the way a browser does, pinned to pixels read out of Chrome" do
+    # THE DEFECT THIS PINS (contrast-guard-composites-wrong). composite() used to
+    # blend in LINEAR LIGHT. Browsers alpha-composite in GAMMA-ENCODED sRGB, so
+    # the old model reported a backdrop that was too light — and too light is the
+    # UNSAFE direction. bg-red-500/20 over the light card scored 4.91:1 and
+    # PASSED under the linear model where a browser measures 4.30:1, a FAIL. The
+    # guard could bless a combination that actually fails AA.
+    #
+    # WHY IT SURVIVED REVIEW: nothing pinned composite's OUTPUT. The one control
+    # that touched it asserted a single side of a threshold, which a passthrough
+    # satisfies too, so gutting composite() to ignore its backdrop left the suite
+    # green. An assertion on the VALUE is what makes the model falsifiable.
+    assert_equal "#fed5d7", composite("#fb2c36", 0.20, "#ffffff"),
+                 "bg-red-500/20 over the light card (#ffffff). Chrome renders #fed5d7, where " \
+                 "danger-ink is 4.30:1 and FAILS AA. The linear model gives #fee8e8 — 4.91:1, " \
+                 "a PASS. That gap is the guard blessing unreadable text."
+
+    # Chrome quantises alpha to 8 bits and rounds the premultiplied source and
+    # the destination terms separately, so its pixel can land one 8-bit step off
+    # a continuous blend. One step is the whole tolerance below; the linear model
+    # misses these by 61 and 24 steps, so it is nowhere near passing on a
+    # rounding technicality.
+    assert_channels_within 1, "#ff7f7f", composite("#ff0000", 0.5, "#ffffff"),
+                           "rgba(255,0,0,0.5) over white, the canonical case. Linear gives #ffbcbc."
+    assert_channels_within 1, "#4f3650", composite("#fb2c36", 0.10, "#3c3853"),
+                           "bg-red-500/10 over the dark card — the composite docs/UI_PATTERNS.md " \
+                           "quotes. Linear gives #673751, and that wrong hex reached the doc."
+
+    # THE FORM PRODUCTION ACTUALLY USES. Tailwind v4 keeps its palette in oklch,
+    # so a tint reaches composite() as an oklch string and never as hex:
+    # `bg-red-500/10` resolves to ["oklch(63.7% .237 25.331)", 0.1]. Pinning only
+    # hex leaves the branch that really runs unmeasured — the same hole this task
+    # exists to close — and a mutant that drops the gamma encoding from the oklch
+    # path survives a hex-only pin. Chrome renders these identically to their hex
+    # twins, which is also what licences resolve_bg reducing a color-mix() to
+    # [colour, alpha].
+    assert_channels_within 1, "#4f3650", composite("oklch(63.7% .237 25.331)", 0.10, "#3C3853"),
+                           "bg-red-500/10 over the dark card, in the oklch form Tailwind emits."
+    assert_channels_within 1, "#fed5d7", composite("oklch(63.7% .237 25.331)", 0.20, "#ffffff"),
+                           "bg-red-500/20 over the light card, in the oklch form Tailwind emits."
+  end
+
   test "a tinted panel is composited, so danger-ink on bg-red-500/10 is NOT read as if on the card" do
     # This is the case that nearly shipped: text-danger-ink inside the
     # leaderboard's old `bg-red-500/10` box measures 4.50:1 against the DARK
-    # card and passes, but 3.78:1 against the tint the user actually sees.
+    # card and passes, but 4.25:1 against the tint the user actually sees.
+    # (That second figure read 3.78:1 while composite() blended in linear light.
+    # The verdict never changed — both fail AA — but the number was a model
+    # artefact, and it reached docs/UI_PATTERNS.md before anyone noticed.)
     dark_card = surfaces(:dark)["--color-surface"]
     ink       = resolve("var(--color-danger-ink)", :dark)
     red500    = resolve("var(--color-red-500)", :dark)
