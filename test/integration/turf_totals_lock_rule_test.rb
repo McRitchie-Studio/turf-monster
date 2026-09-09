@@ -215,8 +215,19 @@ class TurfTotalsLockRuleTest < ActionDispatch::IntegrationTest
   # slate.first_game_starts_at || slate.starts_at` (contest.rb:686-693): an
   # explicit starts_at WINS, it is admin-permitted on create AND edit
   # (contests_controller.rb:2702, 2737), and NOTHING validates it against the
-  # slate. The two moments coincide only when an admin leaves starts_at blank —
-  # and measured against production on 2026-09-07, all 7 contests set it by hand.
+  # slate. The two moments coincide in TWO ways — an admin leaves starts_at
+  # blank and the derivation falls through to that kickoff, or an admin SETS
+  # starts_at to exactly that kickoff — and this measurement asks about
+  # NEITHER. It poses the third case, an explicit starts_at that is not the
+  # kickoff, which is the only one that splits them. Measured against production
+  # on 2026-09-07, all 7 contests set starts_at by hand.
+  #
+  # The two coinciding ways are measured separately, by "the contest lock
+  # coincides with the first kickoff in both documented ways" below. They are
+  # named here because every surface this file certifies carries a comment
+  # saying WHEN the equivalence holds, and a comment naming one of the two
+  # invites the next reader to check it against the World Cup rulebook's worked
+  # example — where starts_at IS the kickoff — and distrust the rest of it.
   #
   # WHY THIS REPLACED A GREP, because the old assertion looked harmless. It read
   # `assert_match(/first kickoff/i, lock_text)` against the lock-rules subtree,
@@ -245,6 +256,73 @@ class TurfTotalsLockRuleTest < ActionDispatch::IntegrationTest
                  "first kickoff, or the measurement below asks nothing"
 
     contest.locks_at != @slate.first_game_starts_at
+  end
+
+  # ── the coincidence, measured in BOTH shapes ──────────────────────────────
+  # The measurement above poses the case where the two moments DIVERGE. This one
+  # poses the two where they meet, because that is the half the comments beside
+  # every corrected lock surface had been getting wrong: they named a blank
+  # starts_at and stopped, when an admin who SETS starts_at to exactly the first
+  # kickoff reaches the same instant by the other road.
+  #
+  # THE SECOND CASE IS LEGAL, and `create!` is what proves it rather than
+  # asserting it — Contest validates name, slug and slate presence and NOTHING
+  # about starts_at (contest.rb:15-38), so a create! that returns is the
+  # admin write succeeding. If a validation is ever added, this raises here
+  # instead of quietly certifying a configuration the app has begun refusing.
+  def contests_locking_at_first_kickoff
+    kickoff = @slate.first_game_starts_at
+    assert kickoff, "measurement: the fixture slate needs a first kickoff to coincide with"
+
+    derived = Contest.create!(
+      name: "Blank Start Contest", slug: "blank-start-contest",
+      entry_fee_cents: 1900, status: "open", max_entries: 29,
+      contest_type: "standard", slate: @slate, starts_at: nil
+    )
+    stated = Contest.create!(
+      name: "Stated Start Contest", slug: "stated-start-contest",
+      entry_fee_cents: 1900, status: "open", max_entries: 29,
+      contest_type: "standard", slate: @slate, starts_at: kickoff
+    )
+
+    # CONTROL, and it is the entire difference between the two cases. Both read
+    # the STORED attribute, never the derivation: without them both rows could
+    # be blank and the second case would silently be the first one again,
+    # leaving "an admin SETS starts_at" certified by a contest where no admin
+    # set anything.
+    assert_nil derived.reload.starts_at,
+               "control: the derived case must leave starts_at blank, or it is not that case"
+    assert_equal kickoff, stated.reload.starts_at,
+                 "control: the stated case must hold the first kickoff as its OWN attribute, " \
+                 "or it is the blank case wearing a different name"
+
+    [derived, stated]
+  end
+
+  # The claim every one of those comments now makes, held to Contest itself
+  # rather than to its own sentence. A guard that only greps the prose would
+  # pass on the narrower wording this test exists to have replaced.
+  test "the contest lock coincides with the first kickoff in both documented ways" do
+    derived, stated = contests_locking_at_first_kickoff
+    kickoff = @slate.first_game_starts_at
+
+    assert_equal kickoff, derived.locks_at,
+                 "a blank starts_at must let Contest#locks_at fall through to the slate's " \
+                 "first kickoff — the first of the two ways the comments name"
+    assert_equal kickoff, stated.locks_at,
+                 "an explicit starts_at SET to the first kickoff must lock at that kickoff — " \
+                 "the second way, the one the worked example depicts, and the one a comment " \
+                 "naming only the blank case leaves out"
+
+    # The third case, CONSUMED rather than restated so this test cannot disagree
+    # with the surfaces about the same attribute. It is what keeps the pair
+    # above from being the whole story: if an explicit starts_at ever stopped
+    # winning over the slate, the moments would coincide ALWAYS, "coincide in
+    # two ways" would become a distinction without a difference, and every
+    # surface here would owe the kickoff wording back.
+    assert lock_moment_can_leave_first_kickoff?,
+           "an explicit starts_at that is NOT the first kickoff must still win over the " \
+           "slate, or the equivalence holds universally and the comments' third case is dead"
   end
 
   # The equivalence the surfaces used to state, in both shapes they carried it:
