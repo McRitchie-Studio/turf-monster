@@ -57,6 +57,7 @@ module OgHelper
   # the same private bucket, so nothing has to move to public storage.
   def contest_og_image_url(contest)
     return nil unless contest&.contest_image&.attached?
+    return nil unless contest.contest_image.variable?
 
     rails_storage_proxy_url(contest.contest_image.variant(:og_card))
   end

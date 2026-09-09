@@ -71,6 +71,25 @@ class OgHelperTest < ActionView::TestCase
                         "the redirect route hands back an expiring service url — the preview would break later"
   end
 
+  # REGRESSION (review, 2026-09-09): `.variant` raises InvariableError EAGERLY on
+  # a blob outside ActiveStorage.variable_content_types, so an attached?-only
+  # guard 500s contests#show for every visitor — and "/" when that contest is
+  # featured. attach_contest_banner (finalize) has no valid_image? gate, so an
+  # svg banner reaches the page. Falling through to nil is the pre-existing
+  # behavior: site-default card, broken hero image, page still served.
+  test "contest_og_image_url falls through when the banner cannot be varied" do
+    contest = contests(:one)
+    contest.contest_image.attach(
+      io: StringIO.new(%(<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"></svg>)),
+      filename: "banner.svg", content_type: "image/svg+xml"
+    )
+
+    assert_not contest.contest_image.variable?, "fixture must be a non-variable blob for this to bite"
+    assert_nothing_raised { contest_og_image_url(contest) }
+    assert_nil contest_og_image_url(contest),
+               "a non-variable banner must fall through to the site default, not raise on a public page"
+  end
+
   test "contest_og_image_url points at the og_card variant, not the raw banner" do
     contest = contests(:one)
     contest.contest_image.attach(
