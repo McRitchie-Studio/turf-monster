@@ -22,7 +22,7 @@ class Contest < ApplicationRecord
   # `background:` IS LOAD-BEARING BEYOND THE PADDING, which is easy to miss
   # because the option reads like it only colours the bars. The uploader allows
   # a transparent banner (`transparent: true`), and image_processing's MiniMagick
-  # resize_and_pad expands to `-thumbnail … -background … -gravity … -extent …`
+  # resize_and_pad expands to `-resize … -background … -gravity … -extent …`
   # — that -extent composites the scaled banner ONTO the background canvas, so
   # the same option that paints the bars is also what flattens the banner's own
   # transparent pixels. Drop it and it defaults to :transparent: the card keeps
@@ -31,7 +31,8 @@ class Contest < ApplicationRecord
   # against a half-transparent fixture; ContestOgCardTest is the guard, and no
   # separate alpha-flattening operation is needed (an `alpha: "remove"` after
   # the pad is a no-op here, and `alpha:` inside resize_and_pad raises
-  # ArgumentError — it is forwarded to thumbnail, which has no such keyword).
+  # ArgumentError — it is forwarded to the gem's `thumbnail` HELPER, whose only
+  # keyword is `sharpen:`; that helper emits `-resize`, not `-thumbnail`).
   #
   # `preprocessed: true` renders the card when the banner is attached, not on
   # the first unfurl. An unfurler gives a page a short budget and does not come

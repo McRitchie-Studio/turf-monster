@@ -21,10 +21,11 @@ require "mini_magick"
 # there is no separate alpha-flattening operation in the variant, and this file
 # must not send anyone looking for one. image_processing's MiniMagick
 # resize_and_pad (mini_magick.rb:90-95) expands to
-# `-thumbnail … -background … -gravity … -extent …`, and -extent composites the
+# `-resize … -background … -gravity … -extent …`, and -extent composites the
 # scaled banner ONTO that background canvas. Drop `background:` and it defaults
 # to :transparent, so the flattening goes with it. Adding an `alpha: "remove"`
-# INSIDE resize_and_pad does not help either — it is forwarded to thumbnail,
+# INSIDE resize_and_pad does not help either — it is forwarded to the gem's
+# `thumbnail` helper (which emits -resize, despite the name),
 # which has no such keyword, and raises ArgumentError.
 #
 # Measured 2026-09-09 by mutation: with `background:` removed from the variant,
