@@ -67,7 +67,7 @@
     Subscribe to the Turf Monster newsletter
   </label>
 
-  <p x-show="error" x-cloak x-text="error" class="text-xs mb-3" style="color:#f87171"></p>
+  <p x-show="error" x-cloak x-text="error" class="text-xs mb-3 text-danger-ink"></p>
 
   <button type="button" @click="subscribe()" :disabled="saving || !consent"
           class="btn btn-primary btn-lg w-full disabled:opacity-50 disabled:cursor-not-allowed">
