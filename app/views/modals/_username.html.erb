@@ -12,8 +12,11 @@
     1. POST update_username_account_path
        - custodial wallet → server co-signs, success: true → reload
        - phantom wallet   → needs_signature + serialized_tx + token
-    2. Phantom signs the partial TX, broadcasts, then we
-       POST confirm_username_account_path with the tx_signature
+    2. The wallet signs the partial TX and it reaches the chain; the
+       tx signature is POSTed to confirm_username_account_path.
+       Both halves now run through ONE SolanaStudio.walletOps.run, so a
+       phone with no injected wallet takes the redirect transport instead
+       of being refused. See shared/_username_rename_intent.
 %>
 <% if current_user.can_change_username? %>
   <%# On-chain rename via studio-engine's leveling-activity primitive
@@ -21,17 +24,26 @@
       Saved + spinner; TM owns the on-chain save as an app-supplied callback:
         submit_url    -> accounts#update_username (custodial co-sign, or a phantom
                          { status: "needs_step", challenge } partial-tx)
-        finalize_hook  window.tmUsernameFinalize (shared/_alpine_factories) does the
-                         Phantom signTransaction + broadcast + poll and returns the
-                         tx signature as the opaque `proof`
-        finalize_url  -> accounts#confirm_username (verifies on-chain, mirrors DB, seeds)
+        finalize_hook  window.tmUsernameFinalize (shared/_alpine_factories) hands the
+                         challenge to walletOps under the intent username_rename and
+                         returns the confirmed tx signature as the opaque `proof`
+        finalize_url  -> accounts#confirm_username (verifies on-chain, mirrors DB, seeds).
+                         ON THE REDIRECT TRANSPORT the engine modal died with the page,
+                         so the intent's complete() posts this itself and the user lands
+                         back on /account with no celebration.
         saved_event    studio:username-saved -> a TM listener runs the completeQuest /
                          quest-success choreography.
       leveling:false so the engine does NOT fire its own seeds celebration — TM's
       completeQuest / quest-success flow stays authoritative. The signing round-trip,
       keypair, TxVerifier, seed bonus, impersonation guard and enter-contest gate all
       stay server-side in TM (accounts_controller). %>
-  <% wallet_line = current_user.phantom_wallet? ? "Saving opens your Phantom wallet to sign." : "Changes are saved via your managed wallet." %>
+  <%# NAMES NO WALLET, and that is the change. The rename now runs through
+      walletOps, which reaches Phantom, Solflare or Backpack — and on a phone it
+      opens the wallet APP rather than an extension. Copy that says "Phantom" is
+      wrong for two of the three wallets and describes the wrong gesture on
+      mobile. `phantom_wallet?` still names the self-custodied BRANCH correctly;
+      only the sentence it picks has been widened. %>
+  <% wallet_line = current_user.phantom_wallet? ? "Saving opens your wallet to sign." : "Changes are saved via your managed wallet." %>
   <%= render "studio/modals/blocks/change_username",
         current_username: current_user.username,
         submit_url:       update_username_account_path,

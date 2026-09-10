@@ -1170,6 +1170,34 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_nil meta["entry_token_pda"]
   end
 
+  # THE SIGN CARD NAMES A CURRENCY AND ONLY THE SERVER KNOWS WHICH ONE. A board
+  # that offers no picker (the world-cup survivor board) posts no currency, so
+  # the "usdc" default is applied HERE and the client cannot name it. Before the
+  # echo, that board rendered "Approve the  transfer in your wallet..." with the
+  # token missing. This is the server half of that fix; the copy half is pinned
+  # in test/lib/contest_entry_intent_js_test.rb.
+  test "prepare_entry echoes the currency it priced so a picker-less board can name it" do
+    @user.update!(web3_solana_address: "Web3CurEcho#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_cur_echo", season_id: 1)
+    SeasonConfig.set_current!(1)
+
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
+
+    vault = FakeVault.new(tokens: [])
+    Solana::Vault.stub :new, vault do
+      # NO currency param — exactly what the survivor board sends.
+      post prepare_entry_contest_path(@contest), as: :json
+    end
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_equal "usdc", body["currency"],
+                 "the client sent no currency, so the response has to carry the one the " \
+                 "server defaulted to — otherwise the sign card has nothing to name"
+  end
+
   test "discard_prepared_entry expires an unsigned wallet request so retry can rebuild it" do
     @user.update!(web3_solana_address: "Web3Discard#{SecureRandom.hex(4)}")
     log_in_as_onchain(@user)

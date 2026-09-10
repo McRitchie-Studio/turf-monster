@@ -217,8 +217,16 @@
       <%# Banner — same shared crop modal as the contest editor (studio cropper).
           The editor saves immediately (the contest exists); here the contest
           doesn't exist yet, so the cropped blob is HELD in the hidden
-          contest_image input and submitted with the Create-Contest finalize
-          step. cropper_assets loads cropper.js + the cropPhotoModal factory. %>
+          contest_image input and rides the PREPARE post — #create stashes it as
+          an unattached blob and binds the signed id into the params_token, and
+          #finalize attaches it from a request carrying no file at all.
+
+          IT CANNOT RIDE FINALIZE, AND THAT IS THE WHOLE REASON THIS FLOW
+          CHANGED. On the redirect transport the page is DESTROYED while the
+          wallet signs; finalize runs on /auth/phantom/callback, a document that
+          never held this input. A File cannot be journalled and cannot survive
+          that, so a banner posted at finalize is a banner lost on every phone.
+          cropper_assets loads cropper.js + the cropPhotoModal factory. %>
       <%= render "studio/cropper_assets" %>
       <div class="mb-6" x-data="contestBannerCrop()"
            @crop-photo-confirmed.window="holdCrop($event.detail.blob)">
@@ -257,7 +265,13 @@
         // modal as the contest editor (studio cropper, dispatch mode). The
         // contest doesn't exist yet, so instead of submitting a form, holdCrop()
         // drops the cropped blob into the hidden contest_image input + shows a
-        // preview; the Create-Contest finalize step submits that file.
+        // preview; the PREPARE post carries that file, not the finalize step.
+        //
+        // The file has to leave the browser BEFORE the wallet hop, because the
+        // redirect transport destroys this page and finalize runs on the wallet
+        // callback document — which has no input, no blob, and no way to rebuild
+        // one. #create stashes it and binds the signed id to the params_token;
+        // #finalize attaches from the token.
         function contestBannerCrop() {
           var CROP = { aspectRatio: 5, maxWidth: 2000, maxHeight: 400, transparent: true, autoCropArea: 1, dispatch: true };
           return {

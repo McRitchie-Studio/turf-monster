@@ -126,13 +126,63 @@
         }.bind(this));
       },
 
+      // THIS FLOW STAYS INLINE-ONLY, DELIBERATELY. Written down here because
+      // /tasks/migrate-account-wallet-flows came to migrate it to walletOps and
+      // concluded it must not be, and the next reader deserves the reasons
+      // rather than the chance to rediscover them.
+      //
+      // 1. walletOps CANNOT EXPRESS THIS FLOW TODAY. Every hop it takes is a
+      //    TRANSACTION hop: requireWireTransaction refuses any intent whose
+      //    prepare() returns no base58 transaction, signingHop reaches only
+      //    beginSignTransaction / beginSignAndSendTransaction, and resume()
+      //    knows only the steps connect, signTransaction and
+      //    signAndSendTransaction. Prove-custody signs a MESSAGE and has no
+      //    transaction at all. The redirect provider does ship
+      //    beginSignMessage / completeSignMessage — sign-in uses them — but
+      //    walletOps never calls them, so the capability is real one layer down
+      //    and unreachable from an intent. Measured against solana-studio 0.9.2.
+      //
+      // 2. AND A GEM THAT GREW THAT HOP STILL COULD NOT CARRY THIS ONE. The
+      //    redirect transport works by writing the intent to localStorage —
+      //    runRedirect journals { op, ctx, state } verbatim under
+      //    wallet_dl_journal for ten minutes, because a destroyed page can leave
+      //    nothing else behind. The message this flow signs is built by
+      //    WalletExportsController.prove_message, which interpolates
+      //    "Token: (the URL token)" — and that token is the WHOLE auth boundary
+      //    for GET /wallet_exports/:token, the page rendering the decrypted
+      //    private key above. Journalling the message therefore parks a
+      //    key-bearing credential in localStorage. It is not the key, and it is
+      //    as good as the key.
+      //
+      // 3. AND THE FAR SIDE OF THE TRIP IS A PAGE WITH SESSION REPLAY ON.
+      //    complete() would run on /auth/phantom/callback and POST to this
+      //    page's own /complete — a URL containing that same token — from a
+      //    document where ApplicationHelper#session_replay_active? is TRUE,
+      //    because only WalletExportsController sets @suppress_session_replay.
+      //    That streams the token to LogRocket, which is the exact leak
+      //    harden_secret_response was added to close (Lazarus audit #2).
+      //
+      // TRACKED, NOT DROPPED: /tasks/wallet-export-mobile-transport carries the
+      // shape a real fix would need — a transport that never persists the
+      // challenge, e.g. a server-held pending-signature row reached by an opaque
+      // slug, the way contest entry uses ptx_slug. That is a solana-studio change
+      // plus a turf one, not a walletOps intent.
+      //
+      // WHAT THAT COSTS, stated plainly: a user on a phone browser cannot
+      //    complete step 2 here. They get requireInlineProvider's honest refusal
+      //    — open this page inside a wallet app's own browser — and inside that
+      //    browser a provider IS injected and this path works unchanged. The
+      //    remedy is real, unlike the extension-install advice this used to
+      //    give. Widening it needs a transport that never persists the
+      //    challenge, not a walletOps intent.
       proveCustody: async function () {
         this.status = 'signing';
         this.errorText = '';
         try {
           // Was: a Phantom-specific message telling a phone to install an
-          // extension it cannot install. requireProvider answers with the remedy
-          // that fits the device.
+          // extension it cannot install. requireInlineProvider answers with the
+          // remedy that fits the device — and, per the note above, refusing a
+          // redirect provider here is the POINT, not a gap.
           var provider = window.walletProvider.requireInlineProvider();
 
           var message = <%= raw @sign_message.to_json %>;

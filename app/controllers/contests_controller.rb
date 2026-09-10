@@ -1140,7 +1140,15 @@ class ContestsController < ApplicationController
         ptx_slug: ptx.slug,
         # Advisory for the client's copy only — the server decides the funding and
         # re-reads its own decision at confirm time.
-        token_funded: entry_token.present?
+        token_funded: entry_token.present?,
+        # SAME CONTRACT, FOR THE SAME REASON: the sign card names a currency, and
+        # the server is the only party that knows which one it priced. It applied
+        # the "usdc" default above, so a board that offers no picker sends no
+        # currency and cannot name one — that is how the world-cup survivor board
+        # came to render "Approve the  transfer in your wallet..." with the token
+        # missing and a double space. Echoing the decision means a call site can
+        # never disagree with the transfer it is about to ask for.
+        currency: currency
       }
     end
   rescue StandardError => e

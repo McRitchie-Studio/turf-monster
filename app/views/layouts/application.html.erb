@@ -113,7 +113,11 @@
         runs nothing at load. %>
     <%= render "shared/wallet_op_runner" %>
     <%= render "shared/contest_entry_intent" %>
+    <%# The other two intents, here for the same reason and rendered the same
+        way. All three are idempotent and all three no-op on a page without
+        wallet_ops.js. %>
     <%= render "shared/contest_create_intent" %>
+    <%= render "shared/username_rename_intent" %>
     <% if session_replay_active? %>
       <script src="https://cdn.logr-in.com/LogRocket.min.js" crossorigin="anonymous"></script>
       <script>

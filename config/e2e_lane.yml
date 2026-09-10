@@ -852,7 +852,72 @@
 # the codec's flagged serialize must not. That referee is the reason it is here
 # rather than one more node assertion, and it is the exact failure that would
 # otherwise land AFTER a user approves, with signed bytes nothing can post.
-total_specs: 281
+#
+# 281 -> 291 (stub-wallet-round-trip): ten specs in ONE new file,
+# e2e/stub_wallet_round_trip.spec.js, driven by ONE new harness,
+# e2e/stub-wallet.js. Six exercise the redirect transport end to end and FOUR are
+# the harness's OWN CONTROL.
+#
+# THE BASE MOVED UNDER THIS ENTRY WHILE IT WAS IN REVIEW, which is the third time
+# this file records that happening and the reason the line below says DERIVED
+# rather than counted. The branch was cut at 277 and derived 285;
+# /tasks/migrate-account-wallet-flows then merged and took accepted to 281. The
+# merged number is NOT 285 + 4 and it is NOT 281 + 8 — both are arithmetic across
+# a conflict, which is the documented way to get this wrong. It is what
+# bin/e2e-lane-derive counted on the MERGED tree: 291, of which 270 execute.
+# excluded stays 17 and allowed_skips stays 4 — neither side added a tagged or a
+# skipping spec, and both listers agree.
+#
+# WHY A WHOLE FILE FOR ONE FLOW. Three defects in the mobile wallet epic reached
+# a real phone before anything went red — the contest_entry intent unregistered
+# on the callback page, a provider detect() would not hand a phone, and a signing
+# deeplink with no redirect_link — and every test in the area missed all three
+# for the same structural reason: they CONSTRUCT the provider by hand, feed it
+# options they supply themselves, and never inspect what a wallet would RECEIVE.
+# solana-studio's own round-trip suite is the sharpest case: it passes
+# `redirectLink: 'https://a.test/cb'` to resume(), manufacturing the exact
+# parameter production omits.
+#
+# So the harness stands where Phantom stands. It intercepts the universal link,
+# judges it against Phantom's PUBLISHED parameter table (docs.phantom.com,
+# fetched 2026-09-09 — every expectation in e2e/stub-wallet.js carries its own
+# `source` and `confidence`), decrypts the payload with the dapp key the URL
+# carries, and answers by redirecting to the redirect_link the URL carries. A
+# malformed deeplink therefore does not merely fail an assertion — it strands the
+# trip, which is what a phone experiences.
+#
+# THE TWO CONTROL SPECS ARE NOT PADDING. Every other assertion here passes when
+# the app is correct, so none of them can show that the contract table is
+# READING. The controls feed the stub a signing link with no redirect_link and a
+# connect link carrying a signing envelope, and assert it names both. If they go
+# quiet, the harness has stopped biting and the six above are worth nothing.
+#
+# THE SAME LIMIT AS THE BLOCK ABOVE, restated because this file's whole subject
+# is a phone: chromium only, no webkit project, so "on a phone" is a UA swap on a
+# desktop engine. It proves the protocol, the wiring and the return leg. It does
+# not prove iOS Safari storage, an OS app switch, or that Phantom accepts these
+# URLs. Only a device does that.
+# Derived with bin/e2e-lane-derive --write, not incremented by hand.
+#
+# 291 -> 295 (migrate-remaining-entry-flows): the world cup survivor board,
+# create contest and the contest generator each onto ONE walletOps call site.
+#
+# THIS ENTRY IS THE FILE'S OWN WARNING, PAID IN FULL. The branch was cut at 277
+# and derived 281/260. /tasks/migrate-account-wallet-flows then landed on
+# accepted and independently derived 281/260 for a DIFFERENT set of specs. Same
+# two numbers, different specs, so git found NO CONFLICT and merged them
+# silently — and the lane came out under-declared by exactly this branch's four,
+# with both e2e_declared_set and e2e_executed_set still reporting green against
+# the base they were derived on. That is the failure this file has warned about
+# three times; it is the first time it actually happened, and it was caught in
+# review rather than by the gate.
+#
+# THE ONLY DEFENCE THAT WOULD HAVE WORKED IS THE ONE BELOW: re-derive on the
+# MERGED tree. No arithmetic across a conflict — not 281 + 4, not 291 + 4 — and
+# no reading either side's number as a starting point, because the whole defect
+# is that both sides' numbers looked plausible and neither was right.
+# Derived with bin/e2e-lane-derive --write ON THE MERGED TREE.
+total_specs: 295
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1157,7 +1222,7 @@ allowed_skips: 4
 # stays 17 and allowed_skips stays 4 — both listers agree, which is what proves
 # the new specs brought no runtime skip with them. Derived with
 # bin/e2e-lane-derive --write, not by arithmetic.
-executed: 260
+executed: 274
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

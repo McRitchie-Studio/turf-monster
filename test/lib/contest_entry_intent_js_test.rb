@@ -438,6 +438,57 @@ class ContestEntryIntentJsTest < ActiveSupport::TestCase
                  "the server built all have to name the same token"
   end
 
+  # THE CALL SITE THAT NAMES NO CURRENCY. Every test above hands prepare a ctx
+  # carrying one, which is exactly why nobody saw this: the world-cup survivor
+  # board passes only { contestId, csrfToken }, so `ctx.currency` was undefined
+  # and the old expression rendered "Approve the  transfer in your wallet..." —
+  # token missing, double-spaced — on EVERY non-token-funded survivor entry, on
+  # desktop as well as mobile. A copy assertion that always supplies the value it
+  # is asserting on cannot fail; these two supply nothing.
+
+  test "a board that passes no currency still names the one the server priced" do
+    paid = { "success" => true, "serialized_tx" => "AQID", "ptx_slug" => "ptx-1",
+             "entry_id" => 7, "entry_pda" => "PDA", "token_funded" => false,
+             "currency" => "usdc" }
+    out = run_js(<<~JS, body: paid)
+      (async function () {
+        var shown = [];
+        window.Alpine = { store: function () { return { show: function (t, b) { shown.push([t, b]); } }; } };
+        await window.tmPrepareContestEntry({ contestId: 12, csrfToken: 'T' });
+        return shown;
+      })()
+    JS
+
+    assert out["ok"], out["message"]
+    assert_equal [["Sign Transaction", "Approve the USDC transfer in your wallet..."]], out["value"],
+                 "the survivor board sends no currency, so the copy has to come from the " \
+                 "currency prepare_entry echoes back — the server is the only party that " \
+                 "knows which token it priced"
+  end
+
+  test "a sign card never asks the user to approve a nameless transfer" do
+    paid = { "success" => true, "serialized_tx" => "AQID", "ptx_slug" => "ptx-1",
+             "entry_id" => 7, "entry_pda" => "PDA", "token_funded" => false }
+    out = run_js(<<~JS, body: paid)
+      (async function () {
+        var shown = [];
+        window.Alpine = { store: function () { return { show: function (t, b) { shown.push([t, b]); } }; } };
+        await window.tmPrepareContestEntry({ contestId: 12, csrfToken: 'T' });
+        return shown;
+      })()
+    JS
+
+    assert out["ok"], out["message"]
+    body = out["value"].first.last
+    refute_includes body, "the  transfer",
+                    "neither the call site nor the server named a currency, and the copy " \
+                    "collapsed to \"Approve the  transfer in your wallet...\" — the reader " \
+                    "is being asked to approve a transfer of nothing"
+    assert_equal "Approve the entry transfer in your wallet...", body,
+                 "with no currency from either source the card must still read as a whole " \
+                 "sentence rather than degrade"
+  end
+
   test "the server's confirm leg is narrated, not left on the signing copy" do
     # confirm BLOCKS on send_and_confirm; unpainted, the card sits on the signing copy.
     out = run_js(<<~JS)

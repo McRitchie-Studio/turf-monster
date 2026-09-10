@@ -116,9 +116,19 @@ class WalletGuardInvariantTest < ActiveSupport::TestCase
     # contests/new and contests/generator through shared/_wallet_op_runner
     # (window.tmWalletOp), and the runner acquires the provider ONCE for all
     # three. So three call sites did not lose their guard; they stopped each
-    # holding a copy of it. Four views ask directly today: the turf-totals board
-    # (which forks on transport), the runner, the alpine factories and the
-    # wallet export.
+    # holding a copy of it.
+    #
+    # THAT IS A DIFFERENT MOVE FROM THE ONE THIS COMMENT USED TO DESCRIBE, and
+    # both happened. Converting a view to the stricter sibling does NOT move
+    # this total — a site that LEARNS the redirect transport moves BETWEEN the
+    # two guards, it does not stop calling one. Consolidating three call sites
+    # onto one runner DOES move it, because three views genuinely stopped
+    # asking. Only the second kind lowers this number, and it is the kind that
+    # happened here.
+    #
+    # MEASURED ON THE MERGED TREE, four views ask directly: the turf-totals
+    # board (which forks on transport), the runner, the alpine factories and
+    # the wallet export.
     guards = %w[
       walletProvider.requireProvider()
       walletProvider.requireInlineProvider()
@@ -155,9 +165,38 @@ class WalletGuardInvariantTest < ActiveSupport::TestCase
     inline = Dir.glob(VIEWS.join("**/*.erb")).count do |p|
       File.read(p).include?("walletProvider.requireInlineProvider()")
     end
-    assert_operator inline, :>=, 2,
-                    "the two views that still cannot drive a redirect provider — the alpine " \
-                    "factories and the wallet export — must ask for an INLINE provider; " \
-                    "found #{inline}."
+
+    # FLOOR LOWERED 3 → 1 ON PURPOSE, 2026-09-09, in TWO independent steps that
+    # merged together. This is the move this test's own comment asks for
+    # instead of deleting a check, and it has now reached the number that
+    # comment predicted it would stop at.
+    #
+    # STEP ONE, 3 → 2: shared/_alpine_factories GRADUATED. It held a slot
+    # because tmUsernameFinalize hand-rolled the on-chain arc for an injected
+    # wallet and could not drive a redirect provider — so refusing one was
+    # correct. That rename now runs through SolanaStudio.walletOps.run (the
+    # username_rename intent in shared/_username_rename_intent), which owns both
+    # transports, so the file forks on provider.transport and requireProvider()
+    # is the RIGHT guard there. It did not stop guarding; it moved to the other
+    # guard, and the total floor above is what holds that.
+    #
+    # STEP TWO, 2 → 1: the SURVIVOR BOARD graduated the same way, for the same
+    # reason, in /tasks/migrate-remaining-entry-flows. It is now taught the
+    # redirect transport through window.tmWalletOp rather than refusing one, so
+    # it too moved between the guards rather than dropping one.
+    #
+    # THE ONE THAT REMAINS IS NOT PENDING WORK OF THE SAME KIND, so this floor
+    # is expected to STOP here rather than keep sliding. The wallet export is a
+    # DELIBERATE PERMANENT no — it signs a MESSAGE, and walletOps has no
+    # signMessage hop; more to the point the message carries the export token,
+    # which is a bearer credential for the decrypted private key, and the
+    # redirect transport would journal it to localStorage. Reasons in full at
+    # /tasks/wallet-export-mobile-transport and in that view's own comment.
+    # A future reader finding this at 0 should treat it as a REGRESSION and
+    # look for a lost guard, not lower it again.
+    assert_operator inline, :>=, 1,
+                    "the wallet export is the one view that cannot drive a redirect " \
+                    "provider — it signs a bearer-credential message — and it must ask " \
+                    "for an INLINE provider; found #{inline}."
   end
 end

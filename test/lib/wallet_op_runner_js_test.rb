@@ -215,6 +215,33 @@ class WalletOpRunnerJsTest < ActiveSupport::TestCase
     assert_equal ["show"], result["cards"], "no error card belongs on a trip that left"
   end
 
+  test "a redirect hidden mid-app-switch strands nothing even before pagehide" do
+    # THE iOS CASE, AND THE ONLY TEST THAT REACHES THE `|| document.hidden` HALF
+    # OF THE GUARD. On iOS the app switch can be in flight — the document already
+    # hidden — while pagehide has NOT fired yet. Judging that trip on pagehide
+    # alone reports it stranded, so the user watches Phantom open and reads
+    # "Wallet Did Not Open" behind it, then returns to a page that has already
+    # released its own controls.
+    #
+    # Without this, deleting `|| document.hidden` from watchHandoff leaves the
+    # whole suite green: every other stranded test runs with hidden false, so the
+    # one line in this file written specifically for iOS was unguarded.
+    result = run_js(<<~JS, transport: "redirect", hidden: true)
+      var stranded = 0;
+      await window.tmWalletOp('contest_create', {}, { onStranded: function () { stranded += 1; } });
+      // NO firePageHide() — that is the whole point: the switch took, but the
+      // event this document would learn it from has not arrived.
+      timers.forEach(function (t) { t.fn(); });
+      return { stranded: stranded, cards: modal.cards.map(function (c) { return c[0]; }) };
+    JS
+
+    assert_equal 0, result["stranded"],
+                 "the document is hidden, so the OS did switch apps — releasing the caller " \
+                 "here re-enables buttons behind a wallet that is actively signing"
+    assert_equal ["show"], result["cards"],
+                 "and no error card belongs in front of a user whose wallet did open"
+  end
+
   test "an inline run arms no handoff watch at all" do
     # THE CONTROL, and it is load-bearing. An inline transport NEVER navigates —
     # so a watch armed here would fire on every desktop signature and tell a user
