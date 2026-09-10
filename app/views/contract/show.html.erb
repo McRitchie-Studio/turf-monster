@@ -30,7 +30,14 @@
   # Version pill — major.minor from the committed IDL's metadata (what the
   # app is pinned to), so it tracks the re-pinned IDL on every turf-vault
   # deploy while matching the page's "v0.NN" convention.
-  prog_version = (Solana::Config.idl_version rescue nil).then { |v| v ? "v#{v.split('.').first(2).join('.')}" : "v0.19" }
+  #
+  # When the IDL cannot say, the pill says so. The fallback used to be the
+  # literal "v0.19": a version claim made from an error path, and stale, since
+  # by 2026-09-10 the committed IDLs read 0.25.0. It is reachable. In dev and
+  # test a missing IDL lands here, and in production BYPASS_IDL_CHECK=true
+  # skips the boot check that otherwise guarantees the pinned IDL. The layout
+  # reads no IDL, so unlike the cluster pill's fallback this one would be SEEN.
+  prog_version = (Solana::Config.idl_version rescue nil).then { |v| v ? "v#{v.split('.').first(2).join('.')}" : "version unknown" }
 
   # ─── Hero stats (v0.19, embedded-IDL build) ───────────────────────
   binary_size          = 501_528            # bytes — `llvm-objdump --section-headers turf_vault.so`
@@ -251,8 +258,27 @@
 
   <header class="border-b border-subtle pb-6 mb-8">
     <div class="flex items-center gap-3 mb-2">
-      <span class="px-2 py-0.5 rounded text-xs font-mono bg-surface-alt text-secondary"><%= prog_version %></span>
-      <span class="px-2 py-0.5 rounded text-xs font-mono bg-surface-alt text-secondary"><%= Solana::Config::NETWORK rescue "devnet" %></span>
+      <span class="px-2 py-0.5 rounded text-xs font-mono bg-surface-alt text-secondary" data-test="contract-version-pill"><%= prog_version %></span>
+      <%# THE CLUSTER PILL NAMES NO CLUSTER FROM AN ERROR PATH. Its fallback used
+          to be the literal "devnet", a cluster claim nobody had earned; on a
+          mainnet build it would have been false.
+
+          The fallback fires only if Solana::Config itself fails to resolve.
+          NETWORK is a load-time constant (config.rb, OPSEC-012) that stops boot
+          in production when unset, empty or blank, and dev and test default it
+          to devnet. When it does fire, this template finishes, the layout then
+          reads Solana::Config.devnet? unrescued on the body tag and raises, and
+          the whole body is discarded. No reader ever sees this pill fall back.
+
+          Why reword rather than drop it: the page 500s either way, so dropping
+          it changes nothing a reader sees, but it would move the raise out of
+          the layout and up to this line, above the admin card. The card's
+          cluster caption and test/integration/contract_admin_state_fallbacks_test.rb
+          state, from measurement, that the card renders before the layout
+          raises. So the fallback keeps that order and uses the card's words.
+          The guard in that test file enumerates every NETWORK fallback under
+          app/views, this one included. %>
+      <span class="px-2 py-0.5 rounded text-xs font-mono bg-surface-alt text-secondary"><%= Solana::Config::NETWORK rescue "an unresolved cluster (this fallback is unreachable: it renders, then the layout reads NETWORK too and raises, so the whole body is discarded unseen)" %></span>
     </div>
     <h1 class="text-3xl sm:text-4xl font-extrabold text-heading mb-2">The Contract</h1>
     <p class="text-secondary text-base sm:text-lg max-w-3xl">
