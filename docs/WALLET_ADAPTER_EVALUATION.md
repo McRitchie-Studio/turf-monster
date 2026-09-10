@@ -116,7 +116,7 @@ wallet-transport risk tags and on deeplink text, then traced to commits.
 | Handoff watchdog armed before `prepare` finished | `/tasks/arm-handoff-watch-later`, turf PR 679 | Review of PR 674 |
 | Create and bundle intents said nothing during the cosign leg | same task, defect 2 | Review of PR 674 |
 | No celebration and a stale token count after a redirect entry | `/tasks/carry-entry-celebration-across-redirect` | **Real phone** (QA iPhone, **after** the stub landed) |
-| Card that cannot be dismissed after an abandoned handoff (bfcache restore) | `/tasks/frozen-wallet-overlay-traps-user` | Review; reproducible only on a phone today |
+| Card that cannot be dismissed after an abandoned handoff (bfcache restore) | `/tasks/frozen-wallet-overlay-traps-user` | Review; later reproduced in the browser tier by `e2e/wallet_handoff_bfcache_return.spec.js` |
 | Callback page shows one static line for about 18 s, naming Phantom | `/tasks/callback-page-narrates-the-wait` | Review of PR 679; timing from a QA iPhone |
 | Stub rejection spec raced a navigation, and its body-text assertion was vacuous | `/tasks/stub-wallet-rejection-race`, turf PR 684 (`fc837382`) | CI (a harness defect) |
 
@@ -157,10 +157,16 @@ a phone.
 - **iOS WebKit.** `playwright.config.js:106-116` declares two projects, and both
   run `chromium`. "iPhone" in the spec is a user-agent swap
   (`e2e/stub_wallet_round_trip.spec.js:26-31` says so).
-- **A bfcache restore.** Playwright launches Chromium with
+- **A bfcache restore, by default.** Playwright launches Chromium with
   `--disable-back-forward-cache` (`node_modules/playwright-core/lib/server/chromium/chromiumSwitches.js:59`,
-  playwright-core 1.58.2, the version `package-lock.json` resolves). So the
-  frozen-card trap cannot be reproduced in CI.
+  playwright-core 1.58.2, the version `package-lock.json` resolves), so the
+  stub specs never restore a page. One spec now opts in:
+  `e2e/wallet_handoff_bfcache_return.spec.js` drops that switch, runs the full
+  Chromium build (the headless shell refuses every page,
+  `BackForwardCacheDisabledForDelegate`), and closes turbo's Action Cable socket
+  first (Chromium will not cache a page holding a live WebSocket). It then
+  proves the restore was real before it asserts the fix. What it still cannot
+  show is whether iOS Safari caches the board with its socket open.
 - **The OS app switch**, iOS opening a universal link in a new tab, and whether
   Phantom accepts our URLs.
 - **Solflare and Backpack.** The stub routes `https://phantom.app/**` only

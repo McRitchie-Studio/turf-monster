@@ -41,7 +41,9 @@ class BoardEntryCallSiteJsTest < ActiveSupport::TestCase
   # `transport:` 'inline' | 'redirect'. `left:` whether the app switch took —
   # pagehide fires INSIDE run(), the only moment it can. `run_result:` the JS
   # expression the stubbed walletOps.run answers with.
-  def run_board(transport:, left: false, run_result: nil, fire_timers: true)
+  # `returns:` the user comes back to this page (a bfcache restore) after the
+  # grace window has run.
+  def run_board(transport:, left: false, run_result: nil, fire_timers: true, returns: false)
     run_result ||=
       if transport == "redirect"
         # What runRedirect really resolves with once it has navigated.
@@ -55,11 +57,16 @@ class BoardEntryCallSiteJsTest < ActiveSupport::TestCase
       global.window = global;
       global.console = { log: function () {}, warn: function () {}, error: function () {} };
       window.location = { origin: 'https://turf.test' };
-      global.document = { body: { dataset: { solanaCluster: 'devnet' } }, hidden: false };
+      global.document = { body: { dataset: { solanaCluster: 'devnet' } }, hidden: false,
+                          addEventListener: function () {}, removeEventListener: function () {} };
 
       var pageHideHandlers = [];
+      var pageShowHandlers = [];
       var unlistened = [];
-      global.addEventListener = function (name, cb) { if (name === 'pagehide') pageHideHandlers.push(cb); };
+      global.addEventListener = function (name, cb) {
+        if (name === 'pagehide') pageHideHandlers.push(cb);
+        if (name === 'pageshow') pageShowHandlers.push(cb);
+      };
       global.removeEventListener = function (name) { unlistened.push(name); };
 
       // The grace window is a real setTimeout in the runner. Captured, so the test
@@ -79,9 +86,9 @@ class BoardEntryCallSiteJsTest < ActiveSupport::TestCase
       } } };
 
       var modal = { cards: [], visible: true };
-      modal.show = function (t, b) { modal.cards.push(['show', t, b]); };
-      modal.error = function (b, t) { modal.cards.push(['error', t, b]); };
-      modal.success = function (sig, t) { modal.cards.push(['success', t, sig]); };
+      modal.show = function (t, b) { modal.cards.push(['show', t, b]); modal.state = 'processing'; };
+      modal.error = function (b, t) { modal.cards.push(['error', t, b]); modal.state = 'error'; };
+      modal.success = function (sig, t) { modal.cards.push(['success', t, sig]); modal.state = 'success'; };
       modal.setRecovery = function (label) { modal.cards.push(['recovery', label]); };
       modal.close = function () { modal.cards.push(['close']); };
 
@@ -129,6 +136,7 @@ class BoardEntryCallSiteJsTest < ActiveSupport::TestCase
         try { await board.confirmEntry(); } catch (e) { out.threw = e.message; }
         out.afterRun = { submitting: board.submitting, timers: timers.length };
         if (#{fire_timers}) timers.forEach(function (t) { t.fn(); });
+        if (#{returns}) pageShowHandlers.slice().forEach(function (cb) { cb({ persisted: true }); });
         out.submitting = board.submitting;
         out.delays = timers.map(function (t) { return t.ms; });
         out.ran = ran;
@@ -203,6 +211,20 @@ class BoardEntryCallSiteJsTest < ActiveSupport::TestCase
     assert_includes result["calls"], "resetHoldButtons", "the hold buttons stayed dead"
     assert_equal ["error", "Wallet Did Not Open"], result["cards"].last.first(2),
                  "the card must resolve to something the user can act on, not spin forever"
+  end
+
+  test "a user who came back from the wallet without an answer gets a live board back" do
+    # /tasks/frozen-wallet-overlay-traps-user, through THE caller it was found on.
+    # The hop took (pagehide), so nothing was stranded — then the user swiped
+    # back. The runner retires its card; what only this board can do is hand
+    # back the hold buttons and clear submitting, or the retry the user came
+    # back for is refused without a reload. That is the board's onStranded.
+    result = run_board(transport: "redirect", left: true, returns: true)
+
+    assert_equal %w[show close], result["cards"].map(&:first),
+                 "the non-dismissible handoff card must not come back with the page"
+    assert_equal false, result["submitting"], "submitting stayed true, so a retry would be refused"
+    assert_includes result["calls"], "resetHoldButtons", "the hold buttons stayed dead"
   end
 
   # --- the inline transport ------------------------------------------------

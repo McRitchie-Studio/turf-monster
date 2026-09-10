@@ -1692,12 +1692,12 @@ window.selectionBoard = function() {
             expectedAccount: sess.address || null,
             preparingBody: 'Building onchain transaction...',
             handoffBody: 'Handing this entry to your wallet app…',
-            // WHEN THE HOP NEVER HAPPENS. If the wallet app is not installed, or
-            // the user dismisses the app-switch prompt, this document stays
-            // alive. The runner paints "Wallet Did Not Open" on the card; what it
-            // cannot know is that this board's hold buttons are dead and
-            // submitting is still true, so a retry would be refused without a
-            // reload. Raised in review of PR 632.
+            // WHEN THIS PAGE WILL HEAR NOTHING MORE: the hop never happened (the
+            // runner paints "Wallet Did Not Open"), or the user came back from the
+            // wallet without an answer (the runner retires its card). Either way
+            // it cannot know this board's hold buttons are dead and submitting
+            // is still true, so a retry would be refused without a reload.
+            // PR 632 review; /tasks/frozen-wallet-overlay-traps-user.
             onStranded: function () {
               board.submitting = false;
               board.resetHoldButtons();

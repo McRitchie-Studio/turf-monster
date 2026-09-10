@@ -811,17 +811,20 @@
       // that promise, never sees it missing.
       window.tmUsernameRenameCaller = { onProgress: onProgress };
 
-      var left = false;
-      var onPageHide = function () { left = true; };
+      // THE HANDOFF WATCH IS THE RUNNER'S (window.tmWatchHandoff in
+      // shared/_wallet_op_runner), the same one every contest flow gets through
+      // tmWalletOp. Armed BEFORE run(), because the navigation it watches for
+      // happens inside it. It answers the two ways this page can be left
+      // holding a spinner: the hop never happened (no wallet app took the
+      // link), or the user came back from the wallet without an answer — which
+      // on this transport only ever lands on the callback page. This used to be
+      // a hand-rolled pagehide listener and a 1200ms guess that saw only the
+      // first, so an abandoned rename sat on "Opening your wallet app…" with
+      // Save disabled (/tasks/frozen-wallet-overlay-traps-user).
+      var watch = null;
       if (isRedirect) {
         onProgress("Opening your wallet app…");
-        // WHEN THE HOP NEVER HAPPENS. run() ends by handing the OS a universal
-        // link; if the wallet app is not installed nothing takes it and this
-        // document is still here, showing a label about a wallet that never
-        // opened. pagehide is the signal, not a timer alone: it fires when the
-        // hop DOES take, so its absence after the handoff is what tells us we
-        // are still here. The delay only has to outlast the OS prompt.
-        window.addEventListener('pagehide', onPageHide, { once: true });
+        watch = window.tmWatchHandoff();
       } else {
         onProgress("Approve in your wallet…");
       }
@@ -849,25 +852,31 @@
       });
 
       if (isRedirect) {
-        // Nothing below runs on the happy path — the document is gone and the
-        // rename finishes on the callback page. Reaching here means the hop did
-        // not take, and the honest move is to say so rather than leave a label
-        // spinning forever.
-        await new Promise(function (resolve) { setTimeout(resolve, 1200); });
-        window.removeEventListener('pagehide', onPageHide);
-        // document.hidden covers the iOS case where the app switch is in
-        // progress but pagehide has not fired yet.
-        if (!left && !document.hidden) {
-          throw new Error("Your wallet app did not open. Install it, or open this page inside your wallet app's own browser.");
-        }
-        // The hop DID take; this document is on its way out. Never resolve —
-        // returning here would make the engine POST a finalize with no proof.
-        return await new Promise(function () {});
+        // THE LINK IS WITH THE OS NOW. On the happy path this document is gone
+        // and the rename finishes on the callback page. This promise NEVER
+        // RESOLVES — resolving would make the engine POST a finalize with no
+        // proof — it only rejects, when this page is provably still here: the
+        // hop never took, or the user came back without an answer. Either
+        // rejection reaches the engine's catch, which shows it and re-enables
+        // Save, and the finally below clears the ledger.
+        return await new Promise(function (resolve, reject) {
+          watch.start(
+            function () {
+              reject(new Error("Your wallet app did not open. Install it, or open this page inside your wallet app's own browser."));
+            },
+            function () {
+              reject(new Error("No answer came back from your wallet. Tap Save to try again."));
+            }
+          );
+        });
       }
 
       // opaque proof; the engine POSTs { token, proof } to confirm_username
       return value && value.proof;
     } catch (e) {
+      // A run() that threw handed nothing off, so there is no hop to watch
+      // for — let go of the page rather than leak a listener per retry.
+      if (watch) watch.cancel();
       if (e && e.code === 4001) throw new Error("Signature rejected");
       // THE SECOND WAY OUT, which the gem cannot know about. walletOps names
       // both wallets — more than the old code did — but "switch accounts in
