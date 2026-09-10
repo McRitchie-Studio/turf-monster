@@ -101,6 +101,24 @@ window.tmCompleteContestCreate = async function (ctx, result, state) {
                     'Creating a contest needs a co-signature from the server, so it could not complete.');
   }
 
+  // THE LONGEST LEG, AND IT USED TO BE NARRATED (contests/new, pre-collapse:
+  // 'Broadcasting' — 'Server is validating and submitting the transaction…').
+  // #finalize BLOCKS on cosign_and_broadcast_create_contest, and unpainted the
+  // card still reads "approve the prize-pool USDC transfer in your wallet when
+  // it opens" — asking for an approval the admin has already given, while the
+  // server is mid-broadcast. walletOps.run offers NO progress hook between the
+  // signing hop and complete(), so the narration can only come from here.
+  //
+  // Painted AFTER the sign-only refusal above, so a wallet that broadcast is
+  // never told we are confirming something we will not post. Guarded, because
+  // complete() also runs on studio-engine's callback document, which has no
+  // Alpine store — copy is a courtesy and must never fail a contest.
+  try {
+    if (window.Alpine && Alpine.store('solanaModal')) {
+      Alpine.store('solanaModal').show('Confirming Onchain', 'Cosigning and submitting your contest to Solana...');
+    }
+  } catch (e) { /* copy is a courtesy; never let it fail a contest */ }
+
   var resp = await window.tmWalletFetch(ctx.finalizePath, {
     method: 'POST',
     headers: { 'X-CSRF-Token': ctx.csrfToken, 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -151,6 +169,18 @@ window.tmCompleteContestBundle = async function (ctx, result, state) {
     throw new Error('The wallet broadcast this bundle instead of signing it. ' +
                     'Provisioning needs a co-signature from the server, so it could not complete.');
   }
+
+  // THE SAME LEG, AND THE BUNDLE LOST MORE OF IT. contests/generator used to
+  // narrate five steps here — 'Broadcasting', 'Confirming', 'Saving' among them
+  // — and the collapse left one static card reading "approve the prize-pool USDC
+  // transfer in your wallet when it opens" for the whole of #finalize_bundle,
+  // which cosigns, broadcasts and provisions server-side. Same guard, same
+  // reason: complete() may be running on the callback document.
+  try {
+    if (window.Alpine && Alpine.store('solanaModal')) {
+      Alpine.store('solanaModal').show('Confirming Onchain', 'Cosigning and submitting this bundle to Solana...');
+    }
+  } catch (e) { /* copy is a courtesy; never let it fail a bundle */ }
 
   var resp = await window.tmWalletFetch(ctx.finalizePath, {
     method: 'POST',
