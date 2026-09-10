@@ -342,15 +342,20 @@ test.describe("the harness itself", () => {
   // dies at waitForURL with a timeout — and a timeout names nothing, burying the
   // violation the stub already recorded. These two feed the stub the requests
   // that used to do exactly that.
-  test("dead-ends a signing deeplink with no dapp_encryption_public_key", async ({ page, context }) => {
+  // CONNECT, NOT signTransaction, AND THE CHOICE IS THE WHOLE CONTROL. A signing
+  // hop with no dapp key never reaches seal(): its payload cannot decrypt either,
+  // so the "nothing to sign" guard below catches it first and this spec passes
+  // with the secret guard DELETED — measured, not assumed. Connect is the branch
+  // that seals immediately, so it is the one that isolates it.
+  test("dead-ends a connect deeplink with no dapp_encryption_public_key", async ({ page, context }) => {
     const wallet = await installStubWallet(context);
 
     // REACHABLE, not contrived: wallet_transport's query builder drops an empty
     // value silently, which is the same mechanism that lost redirect_link.
     await page.goto(
-      "https://phantom.app/ul/v1/signTransaction" +
-        "?redirect_link=https%3A%2F%2Fexample.test%2Fcb" +
-        "&nonce=11111111111111111111111111&payload=1111111111"
+      "https://phantom.app/ul/v1/connect" +
+        "?app_url=https%3A%2F%2Fexample.test" +
+        "&redirect_link=https%3A%2F%2Fexample.test%2Fcb"
     );
 
     expect(wallet.violations.join("\n")).toContain(
