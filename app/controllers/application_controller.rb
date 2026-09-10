@@ -148,16 +148,22 @@ class ApplicationController < ActionController::Base
   # Two session keys, doing two different jobs:
   #
   #   session[:wallet_setup]        — STATE. The authoritative WalletSetupPolicy
-  #                                   verdict, computed ONCE at sign-in (it can
-  #                                   cost a USDC balance RPC) and read for free
-  #                                   on every later render.
+  #                                   verdict, computed at sign-in (it can cost a
+  #                                   USDC balance RPC) and read for free on every
+  #                                   later render. Recomputed only when a
+  #                                   signed-in request changes a fact the policy
+  #                                   reads — today, one: a gift claimed on
+  #                                   MagicLinksController#link_continue.
   #   session[:wallet_setup_prompt] — ONE-SHOT. "Open the modal on the next
   #                                   render." Survives both auth shapes: the
   #                                   magic-link redirect AND the Google popup,
   #                                   whose opener reloads the page rather than
   #                                   redirecting (so flash would be a coin flip).
   #
-  # Called from every auth-success path right after set_app_session.
+  # Called from every auth-success path right after set_app_session (by way of
+  # record_onboarding_state!), and on its own from
+  # MagicLinksController#link_continue once a gift claim lands, because that
+  # claim can mint the wallet this verdict was computed without.
   def record_wallet_setup_state!(user, prompt: true)
     required = WalletSetupPolicy.required_for?(user)
     session[:wallet_setup] = required
@@ -308,6 +314,12 @@ class ApplicationController < ActionController::Base
     return false if current_user.phantom_wallet?
     return true unless current_user.managed_wallet?
 
+    # Trusts the verdict cached at sign-in. So anything that MINTS a managed
+    # wallet mid-session must re-record it (record_wallet_setup_state!): the line
+    # above stops short-circuiting the moment the wallet exists, and a verdict
+    # computed for a wallet-less account read TRUE. EntryGifts::Claim is the only
+    # mid-session minter today, and MagicLinksController#link_continue
+    # re-records after it.
     session[:wallet_setup] == true
   end
 
