@@ -82,7 +82,7 @@
                 ctaLabel: 'Browse Contests',
                 ctaHref: '<%= root_path %>'
               });
-              refreshBalanceDelayed();
+              onchainSettled();
             } else {
               $store.solanaModal.error(data.error || 'Faucet claim failed');
             }

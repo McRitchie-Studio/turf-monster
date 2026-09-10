@@ -54,6 +54,77 @@ Use `bin/tm restart` after changing `.env`, gems, migrations, or anything Sideki
 
 Agents should prefer `bin/tm up`.
 
+## Desk Stacks And Review Links
+
+A desk stack is a worktree stack: `bin/agent-worktree up turf-monster <task-slug>`
+on an allocated port in the `3100-3199` band. **A desk owns its own database.**
+`.env.agent-stack` sets `DATABASE_URL` to
+`turf_monster_development_<task_slug>`, and every desk gets a different one.
+
+### Hand back a review link with `bin/review-link`
+
+When work waits on Mr. McRitchie's review, hand him one click that signs him in
+and lands him on the page:
+
+```bash
+bin/review-link "/admin/style#host-modals"
+# http://localhost:3122/_studio/local_review?return_to=/admin/style%23host-modals
+```
+
+It reads the port from `.env.agent-stack`, proves the link round-trips against
+the running stack, and prints nothing if it does not. Put the result on a
+`Magic Link:` label above `Local Demo:`.
+
+That URL is reusable — every click mints its own fresh single-use token — so
+checking it costs the operator nothing.
+
+### Do not mint tokens in a console
+
+This is the trap, and it is quiet:
+
+```bash
+bin/rails runner 'puts Studio::Link.create_magic_link(email: "…").token'   # WRONG on a desk
+```
+
+**Nothing in `config/` or `bin/` loads `.env.agent-stack`.** A bare `bin/rails`
+in a worktree therefore falls through `config/database.yml` to the shared
+`turf_monster_development` and mints the row *there*. The desk server reads its
+own database, `Studio::LinksController#show` finds no such token, and the
+operator is bounced to `/signin` — holding a link that is alive, unexpired and
+unconsumed in a database nobody is serving. Nothing in the message says
+"database"; it reads as an expired link.
+
+Measured 2026-09-09: 26 review links were minted into the shared development
+database over three days, and exactly one was ever consumed.
+
+Two things make it hard to catch by hand:
+
+- A hand-minted `/l/<token>` is **single-use**. Opening it to check it burns it,
+  so the second look fails and looks like the bug.
+- The failure is indistinguishable from an expired link at the door.
+
+If you must mint by hand, source the desk env first and verify by `curl`, never
+by eye:
+
+```bash
+set -a; source .env.agent-stack; set +a
+bin/rails runner 'l = Studio::Link.create_magic_link(email: "alex@mcritchie.studio",
+  return_to: "/admin/style", ttl: 12.hours); puts "http://localhost:#{ENV.fetch("PORT")}/l/#{l.token}"'
+```
+
+`ENV.fetch("PORT")` is deliberate: without the `source` line it raises instead
+of printing a URL that cannot work.
+
+### Which database am I on?
+
+```bash
+bin/rails runner 'puts ActiveRecord::Base.connection_db_config.database'
+```
+
+On a desk that must print `turf_monster_development_<task_slug>`. If it prints
+`turf_monster_development`, the shell has not loaded `.env.agent-stack` and any
+row you write lands where the desk server will not look.
+
 ## Testing Notes
 
 Rails unit/integration tests run against the test database and use `Rails.cache` as `:null_store` by default. Tests that need cache reads must inject or stub a real store, usually `ActiveSupport::Cache::MemoryStore`, for the branch under test.
@@ -143,5 +214,10 @@ At minimum, `.env` needs:
 - `SOLANA_ADMIN_KEY`
 - `SOLANA_RPC_URL`
 - `MANAGED_WALLET_ENCRYPTION_KEY`
+
+`SOLANA_PUBLIC_RPC_URL` is optional and normally unset locally — it is the
+BROWSER-facing endpoint, and locally `SOLANA_RPC_URL` carries no credential, so
+the browser is handed the same URL. See "RPC endpoints — server vs browser" in
+`docs/SOLANA.md`.
 
 Use McRitchie Studio's agent credential docs for current 1Password item names. Do not print secret values in terminal output or handoff notes.

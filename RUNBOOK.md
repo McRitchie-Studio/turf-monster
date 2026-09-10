@@ -48,8 +48,13 @@ Troubleshooting guide for autonomous agents. Format: problem, diagnosis, fix.
   `.env.example`, then use the owning docs for provider-specific values:
   `docs/email-delivery.md` for mail, `docs/SOLANA.md` for Solana, and
   `docs/CDP_RAMP_INTEGRATION.md` for Coinbase CDP. Boot fails closed without
-  `MANAGED_WALLET_ENCRYPTION_KEY` (OPSEC-015), `SOLANA_PROGRAM_ID`
-  (OPSEC-012), or `EXPECTED_IDL_HASH` (OPSEC-014). Set missing values with
+  `MANAGED_WALLET_ENCRYPTION_KEY` (OPSEC-015), `EXPECTED_IDL_HASH`
+  (OPSEC-014), or any of the three Solana cluster vars —
+  `SOLANA_PROGRAM_ID`, `SOLANA_NETWORK`, `SOLANA_RPC_URL` (OPSEC-012 and
+  siblings). The Solana three raise during eager load, so the refusal names
+  the variable and arrives before the boot-time IDL and network-alignment
+  checks; it also fires during slug compile, where the same production eager
+  load runs. Set missing values with
   `heroku config:set KEY=value --app turf-monster-mainnet`.
 
 **Magic-link request succeeds but email never arrives**
@@ -72,10 +77,11 @@ Troubleshooting guide for autonomous agents. Format: problem, diagnosis, fix.
 **Rate limit (HTTP 429)**
 - Diagnosis: `Solana::Client` retries automatically but exhausts retries. Logs show `429 Too Many Requests`.
 - Fix: Check `SOLANA_RPC_URL`. Public RPC rate-limits aggressively. Switch to a provider RPC (QuickNode, Helius). Set via `heroku config:set SOLANA_RPC_URL=<provider_url> --app turf-monster-mainnet`.
+- If the 429s are CLIENT-side (browser console, Phantom flows, proof-of-reserves), the variable to change is `SOLANA_PUBLIC_RPC_URL`, not `SOLANA_RPC_URL`. The browser is deliberately never given the keyed server endpoint, so on mainnet it falls back to `https://api.mainnet-beta.solana.com` unless `SOLANA_PUBLIC_RPC_URL` is set. Point it at a provider key that is safe to publish — a domain-restricted or public-tier key. `Solana::Config.public_rpc_url` refuses to emit a credentialed value from either variable, so pasting the server key in does nothing but log a warning and fall back.
 
 **Timeout on RPC calls**
 - Diagnosis: `Net::OpenTimeout` or `Net::ReadTimeout`. RPC node is slow or down.
-- Fix: Try a different RPC endpoint. Check Solana network status at status.solana.com. The gem defaults to devnet public RPC if `SOLANA_RPC_URL` is unset.
+- Fix: Try a different RPC endpoint. Check Solana network status at status.solana.com. The `solana_studio` gem falls back to the devnet public RPC when no URL is passed, but production never reaches that fallback: `Solana::Config` raises during eager load when `SOLANA_RPC_URL` is unset (OPSEC-012).
 
 **Wrong network (mainnet vs devnet)**
 - Diagnosis: Transactions fail with "account not found" or wrong program ID.
@@ -89,7 +95,7 @@ Troubleshooting guide for autonomous agents. Format: problem, diagnosis, fix.
 
 **Balance shows $0 despite onchain funds**
 - Diagnosis: `display_balance` calls `fetch_user_usdc` which reads the user's Phantom wallet ATA balance. Returns 0 if ATA does not exist or RPC fails.
-- Fix: Check the user has a `solana_address` and `wallet_type: "phantom"`. Verify their ATA exists: `bin/rails runner "puts Solana::Client.new.get_token_account_balance('<user_ata>')"`. If ATA missing, user needs to receive USDC first (use `/faucet`).
+- Fix: Check the user has a `solana_address` and `wallet_type: "phantom"`. Verify their ATA exists: `bin/rails runner "puts Solana::Config.client.get_token_account_balance('<user_ata>')"`. If ATA missing, user needs to receive USDC first (use `/faucet`).
 
 ## Contest Lifecycle Bugs
 
@@ -116,7 +122,7 @@ Troubleshooting guide for autonomous agents. Format: problem, diagnosis, fix.
 
 **GeoIP lookup returns nil**
 - Diagnosis: `geocoder` gem cannot resolve the IP. Localhost (`127.0.0.1`) always returns nil.
-- Fix: GeoIP only works with real public IPs. In development, test with `Geocoder.search("<real_ip>")`. Check `GeoSetting` records at `/admin/geo`. Blocked states are stored as a list of state codes.
+- Fix: GeoIP only works with real public IPs. In development, test with `Geocoder.search("<real_ip>")`, or set `DEV_GEO_STATE` to stand somewhere real on loopback. Check `Studio::GeoSetting` at `/admin/geo` (the engine's manager since studio-engine 0.57). Blocked regions are stored as tokens — `US-WA`, not `WA`, because "CA" is California and Canada; the page still shows the bare code. Full guide: the gem's `docs/GEO.md`.
 
 ## Tailwind Classes Not Compiling
 

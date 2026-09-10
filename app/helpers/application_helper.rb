@@ -1,27 +1,36 @@
 module ApplicationHelper
-  # The contest a shared referral link should land on, resolved ONCE per request.
+  # The app's default contest target, resolved ONCE per request. THE ONE ENTRY
+  # POINT any view may use to reach SeasonConfig.main_contest — the referral
+  # card's share link, the age gate's watch CTA, the locked-username CTA, the
+  # next-quest links. Nothing in a render calls SeasonConfig.main_contest
+  # directly; that is the whole point of this method existing.
   #
-  # WHY THIS EXISTS AS A HELPER rather than being called inline. The referral card
-  # is rendered by two pages now, and only one of them has a controller that can
-  # preload anything: /account set @referral_share_contest, and the engine's
-  # ProfilesController — which renders the same card on /profile — cannot be made
-  # to. So the partial resolves its own default, which moved the call from a
-  # controller into a VIEW RENDER.
+  # WHY THE CALL LIVES IN A RENDER AT ALL. These cards are rendered by
+  # controllers that cannot preload for them. The referral card is on two pages
+  # and only one has a host controller — the engine's ProfilesController renders
+  # it on /profile and cannot be taught to set a host ivar. The modal cards are
+  # worse: layouts/application registers them inside `<template x-if>` blocks,
+  # and ERB inside a `<template>` renders SERVER-SIDE unconditionally, so the
+  # x-if gates the BROWSER and never the server. Those cards resolve on every
+  # authenticated page whether or not their modal is ever opened.
   #
-  # THAT MOVE IS WHAT NEEDS CONTAINING. SeasonConfig.main_contest reaches
+  # THAT IS WHAT NEEDS CONTAINING. SeasonConfig.main_contest reaches
   # SeasonConfig.current, which is a `find_or_create_by` — normally a SELECT, but
   # a code path that can INSERT, and a view render is the wrong place to have one
-  # at all. Memoising here keeps it to a single resolution per request whatever
-  # renders the card, and gives the call one named home instead of being loose in
-  # a template.
+  # at all. It also falls through to a Contest scan when the admin's pick is not
+  # open, so each call is up to three queries. Memoising here keeps the whole
+  # render to one resolution however many cards ask, and gives the call one named
+  # home instead of being loose in five templates. A memo local to any single
+  # caller would not help: most of them ask exactly once per render, so it would
+  # look like a fix while changing nothing.
   #
   # `defined?` rather than `||=`, so a legitimately nil result (no open contest —
   # the off-season) is cached instead of re-queried on every call. Same idiom as
   # ApplicationController#display_seeds_data.
-  def referral_share_contest
-    return @_referral_share_contest if defined?(@_referral_share_contest)
+  def main_contest_target
+    return @_main_contest_target if defined?(@_main_contest_target)
 
-    @_referral_share_contest = SeasonConfig.main_contest
+    @_main_contest_target = SeasonConfig.main_contest
   end
 
   # The current user's referral/invite URL landing on `target` (a same-origin
@@ -67,13 +76,31 @@ module ApplicationHelper
     "$#{sprintf('%.2f', amount)}"
   end
 
+  # `dollars` with the cents dropped when there are none — "$140", not "$140.00".
+  #
+  # FOR SCAN SURFACES, NOT LEDGERS. Every price the operator has ever set is a
+  # whole dollar (Contest::FORMATS is all `19_00` / `1_00`), so on a card the
+  # ".00" is three characters of noise on every figure, twice per card, and it
+  # is what pushed the money line onto two lines at the card's width. A
+  # transaction log is the opposite case — there the aligned cents ARE the
+  # information — so `dollars` keeps its fixed two places and the callers that
+  # want the short form ask for it by name.
+  #
+  # A FRACTIONAL AMOUNT STILL PRINTS IN FULL. What is noise is the zero, not the
+  # decimal point: $19.50 renders as "$19.50" here exactly as it does in a
+  # ledger. Comparing against `to_i` (rather than checking `% 1`) keeps that
+  # true for a Float, an Integer and a BigDecimal alike.
+  def dollars_short(amount)
+    amount.to_f == amount.to_i ? "$#{amount.to_i}" : dollars(amount)
+  end
+
   # The brand mark. Uses the lightweight 45KB icon (not the 1.3MB /logo.png) and
   # always sets explicit width/height so the box is reserved even before CSS
   # applies (no full-screen balloon on a cold load). `px` is that reserved size;
   # `classes` carry the Tailwind sizing + styling. The navbar logo stays inline
   # — it needs a scroll-responsive x-bind:class the helper can't express.
   def brand_logo(px:, classes: "")
-    tag.img(src: "/icon-192.png", alt: "Turf Totals", width: px, height: px,
+    tag.img(src: "/icon-192.png", alt: "Turf Monster", width: px, height: px,
             class: ["rounded-full", classes].join(" ").strip)
   end
 

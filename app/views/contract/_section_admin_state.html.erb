@@ -22,23 +22,113 @@
     is ready when Carl's Rails refactor lands.
   </p>
 
+  <%# THE CLUSTER, read ONCE for both captions that name it.
+
+      Hoisted rather than repeated so the Program ID caption and the Upgrade
+      authority caption can never disagree about which cluster this build is,
+      and so this card keeps exactly THREE rescue fallbacks. The count is load
+      bearing: test/integration/contract_admin_state_fallbacks_test.rb asserts
+      it, deliberately, so that a FOURTH fallback has to have its true cause
+      re-derived instead of being swept into a Solana::Config-shaped message.
+      A second copy of this rescue would also have silently repointed that
+      file's other guard, which reads the FIRST "Solana::Config::NETWORK rescue"
+      in this file and would then have stopped reading the Upgrade authority
+      caption at all.
+
+      The message is unchanged from the one that used to sit inline below, and
+      it is unreachable for the same measured reason: this partial renders,
+      this rescue fires, and then the layout reads Solana::Config.devnet? on
+      its body tag unrescued, raises, and the fully rendered body is discarded. %>
+  <% cluster = (Solana::Config::NETWORK rescue "an unresolved cluster (this fallback is unreachable: it renders, then the layout reads NETWORK too and raises, so the whole body is discarded unseen)") %>
+
   <dl class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
 
     <div class="bg-surface-alt border border-subtle rounded-lg p-4">
       <dt class="text-[10px] uppercase tracking-wider text-secondary font-semibold mb-1">Program ID</dt>
       <dd class="font-mono text-xs sm:text-sm text-heading break-all">
-        <%# Phase 2: read from Solana::Config::PROGRAM_ID at request time. %>
-        <%= (Solana::Config::PROGRAM_ID rescue "(SOLANA_PROGRAM_ID not set)") %>
+        <%# Phase 2: read from Solana::Config::PROGRAM_ID at request time.
+
+            THE FALLBACK IS A LOAD FAILURE, NOT A MISSING VAR. Scope: the
+            THREE RESCUED values, which live in TWO of this card's six cells.
+            This cell reads Solana::Config, and so do both halves of the
+            Upgrade authority cell below. The other four cells (Paused,
+            Registered currencies, Operator revenue, Treasury authority) are
+            Phase 2 placeholders bound for the vault-state preload named in the
+            header above, not for Solana::Config, and carry no rescue yet.
+
+            None of the three env vars behind the Config reads can reach a
+            RENDERED page unset. PROGRAM_ID and NETWORK are load-time constants
+            that raise during eager load in production (OPSEC-012; for NETWORK,
+            unset, empty and whitespace-only alike), so a missing value stops
+            boot instead of showing up here; dev and test resolve both to
+            devnet defaults and cannot raise at all; and squads_vault_pda never
+            raises in any environment. The only trigger left for these rescues
+            is Solana::Config itself failing to resolve.
+
+            AND THE THIRD IS NEVER SEEN - BUT IT DOES FIRE. The application
+            layout reads Solana::Config.devnet? on the body tag of EVERY render,
+            unrescued (layouts/application.html.erb, the data-solana-cluster
+            attribute), and devnet? reads NETWORK. ActionView renders the
+            template and its partials FIRST and the layout SECOND: in
+            template_renderer.rb the layout is stored as
+            view_flow.set(:layout, yield(layout)) and only then rendered. So the
+            true sequence is that this partial renders, the NETWORK rescue below
+            FIRES, and then the layout raises and the fully-rendered body is
+            DISCARDED. Measured both ways: instrumenting
+            render_partial.action_view during a failing request shows this
+            partial completing with exception nil and the layout carrying the
+            NameError, and rendering this partial standalone with NETWORK
+            removed returns 3,569 bytes with the fallback string in the output.
+
+            So the message below says unreachable, which is true of what a
+            reader can SEE, and it must not claim the partial never ran.
+
+            Each message names the state that actually produces it, plus what
+            is true of its own value, so a reader is not sent chasing a
+            variable that is fine. %>
+        <%= (Solana::Config::PROGRAM_ID rescue "(Solana::Config did not load; an unset SOLANA_PROGRAM_ID stops boot instead)") %>
       </dd>
-      <p class="text-[11px] text-muted mt-1">Same on devnet + mainnet builds &mdash; pinned via SOLANA_PROGRAM_ID.</p>
+      <%# THE PROGRAM ID IS PER CLUSTER. This caption used to read "Same on devnet
+          + mainnet builds", which is false, and it said so on the one page an
+          operator consults BEFORE proposing a program upgrade. Measured on the
+          committed IDLs, which are the app's own record of what it talks to:
+
+            config/turf_vault.idl.json          -> EQGFJAcABtDb6VXtiijTjZ6cE2UqdvhnqJvoharJbpMJ  (devnet)
+            config/turf_vault.mainnet.idl.json  -> DaFv83yokwTz8msP9CzJ13eazSGk15NuUTxjkfzJzxMM  (mainnet)
+
+          Solana::Config::IDL_PATH is keyed on NETWORK precisely BECAUSE the two
+          differ, and docs/SOLANA.md and RUNBOOK.md have always stated them as
+          different. The claim dated to this page's first commit, 23cdb09e.
+
+          WHAT THE CAPTION MAY CLAIM. Two facts, both provable here: the clusters
+          run different programs, and this build runs on <cluster>. It does NOT
+          claim the ID above belongs to that cluster -- nothing in Config enforces
+          that pairing (PROGRAM_ID is taken whole from the env in production), so
+          asserting it would be the same shape of unearned certainty this task is
+          removing.
+
+          data-test is here so the guard can scope to this one caption. An
+          assert_select or a body-wide match on the contract page also reads the
+          navbar, the footer and the meta tags. %>
+      <p class="text-[11px] text-muted mt-1" data-test="program-id-caption">Per cluster &mdash; devnet and mainnet run different programs. This build runs on <%= cluster %>, pinned via SOLANA_PROGRAM_ID.</p>
     </div>
 
     <div class="bg-surface-alt border border-subtle rounded-lg p-4">
       <dt class="text-[10px] uppercase tracking-wider text-secondary font-semibold mb-1">Upgrade authority</dt>
       <dd class="font-mono text-xs sm:text-sm text-heading break-all">
-        BW13kgfiG2koFn3WRkte21NW9TFygsD1ge2fNJdjH6kC
+        <%# Read from Solana::Config at request time. PER CLUSTER, LIKE the program ID
+            above: devnet and mainnet are different Squads, so this must never be a
+            literal. (This line used to read "unlike the program ID above", which
+            inherited the false invariance the caption above has now dropped.)
+
+            The message states the unset case as a CONDITION rather than a fact
+            about right now. The variable is absent on both deployed apps today,
+            but config.rb keeps the env override as the runbook escape hatch, so
+            the first legitimate use of that hatch must not make this line print
+            a false sentence. %>
+        <%= (Solana::Config.squads_vault_pda rescue "(Solana::Config did not load; with SOLANA_SQUADS_VAULT_PDA unset, as it is on both deployed apps, the cluster default is the live path)") %>
       </dd>
-      <p class="text-[11px] text-muted mt-1">Squads V4 2-of-3 vault PDA. Only the Squad can ship upgrades.</p>
+      <p class="text-[11px] text-muted mt-1">Squads V4 2-of-3 vault PDA on <%= cluster %> &mdash; each cluster has its own Squad. Only the Squad can ship upgrades.</p>
     </div>
 
     <div class="bg-surface-alt border border-subtle rounded-lg p-4">

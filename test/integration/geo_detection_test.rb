@@ -2,8 +2,12 @@ require "test_helper"
 
 # Integration coverage across the geo-detection I/O boundary (the ipinfo HTTP
 # lookup, mocked here at Geocoder.search). Proves that once a lookup succeeds,
-# the real detect_geo_state -> normalize_state_code -> GeoSetting blocklist
-# pipeline fires end-to-end through GET /geo/check.
+# the real detect_geo_state -> Studio::Geo normalization -> Studio::GeoSetting
+# blocklist pipeline fires end-to-end through GET /geo/check.
+#
+# ADOPTION SEAM (studio-engine >= 0.57): every piece below the request is the
+# ENGINE's now — detection, the policy, the probe. What this file proves is that
+# THIS app is wired to it: its route, its blocklist, its fail-closed rule.
 #
 # COMPLIANCE: the legal-state blocklist FAILS CLOSED. When the gate is enabled
 # but the lookup yields no subdivision (a VPN/proxy to an unknown IP, an ipinfo
@@ -17,8 +21,8 @@ class GeoDetectionTest < ActionDispatch::IntegrationTest
   GeoResult = Struct.new(:country_code, :state_code, :region_code, :region, keyword_init: true)
 
   setup do
-    @geo = GeoSetting.current
-    @geo.update!(enabled: true, banned_states: %w[WA ID MT])
+    @geo = Studio::GeoSetting.current
+    @geo.update!(enabled: true, banned_subdivisions: %w[WA ID MT])
   end
 
   test "a resolved ipinfo region normalizes to its 2-letter state code" do
@@ -118,7 +122,7 @@ class GeoDetectionTest < ActionDispatch::IntegrationTest
     # 2) Only minutes pass — far less than the 24h the buggy code trusted — and
     #    ipinfo now resolves Colorado. The before_action must re-detect, so the
     #    allowed-state user clears the gate. Under the bug this stayed :forbidden.
-    travel(ApplicationController::GEO_RETRY_TTL + 1.minute) do
+    travel(Studio.geo_retry_ttl + 1.minute) do
       Geocoder.stub :search, [colorado] do
         post toggle_selection_contest_path(contests(:one)),
           params: { matchup_id: slate_matchups(:m1).id }, as: :json
@@ -141,7 +145,9 @@ class GeoDetectionTest < ActionDispatch::IntegrationTest
     end
     assert_response :success
     assert_select "span.geo-badge", minimum: 1, text: /CO/
-    assert_select "span.geo-badge img[src=?]", "/state-flags/co.svg"
+    # The art ships in the gem now, so the src is an asset path (digested in a
+    # built environment). Match the file, not the fingerprint.
+    assert_select %(span.geo-badge img[src*="state-flags/co"]), minimum: 1
   end
 
   test "an anonymous visitor with an undetectable location sees the red ??" do

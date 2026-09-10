@@ -1,7 +1,7 @@
 module Admin
   class PendingTransactionsController < ApplicationController
     before_action :require_admin
-    before_action :set_pending_transaction, only: [:show, :confirm, :rebuild]
+    before_action :set_pending_transaction, only: [:show, :confirm, :rebuild, :broadcast]
 
     def index
       @pending = PendingTransaction.order(created_at: :desc)
@@ -23,41 +23,8 @@ module Admin
         #   2. Resolve the instruction + writable PDA from tx_type/target
         #   3. Assert the on-chain TX matches all of (program, instruction,
         #      cosigner-as-signer, target PDA writable)
-        cosigner = params[:cosigner_address]
-        raise "Cosigner address required" if cosigner.blank?
-        raise "Cosigner not in multisig set" unless Solana::Config::MULTISIG_SIGNERS.include?(cosigner)
-
-        instruction_name = instruction_for_tx_type(@tx.tx_type)
-        writable_pubkey  = writable_for_target(@tx)
-
-        Solana::TxVerifier.verify!(
-          signature: params[:tx_signature],
-          instruction_name: instruction_name,
-          signer_pubkey: cosigner,
-          writable_pubkey: writable_pubkey
-        )
-
-        @tx.update!(
-          status: "confirmed",
-          cosigner_address: cosigner,
-          tx_signature: params[:tx_signature]
-        )
-
-        # Flip the post-confirm DB state per tx_type. settle/cancel both target a
-        # Contest; the currency/sweep types have no Contest target and need no DB
-        # state change (the source of truth is the on-chain VaultState / ATAs).
-        case @tx.tx_type
-        when "settle_contest"
-          if @tx.target.is_a?(Contest)
-            @tx.target.update!(onchain_settled: true)
-            # The payout has now provably landed on-chain — only here do we
-            # tell winners they won (never at grade time). Idempotent + skips
-            # wallet-only winners; enqueues a background job per emailable winner.
-            @tx.target.notify_winners!
-          end
-        when "cancel_contest"
-          @tx.target.update!(onchain_cancelled: true) if @tx.target.is_a?(Contest)
-        end
+        cosigner = require_multisig_cosigner!
+        verify_and_record_cosign!(cosigner: cosigner, signature: params[:tx_signature])
 
         respond_to do |format|
           format.json { render json: { status: "confirmed", tx_signature: @tx.tx_signature } }
@@ -74,6 +41,42 @@ module Admin
         format.json { render json: { error: e.message }, status: :unprocessable_entity }
         format.html { redirect_to admin_pending_transactions_path, alert: "Confirmation failed: #{e.message}" }
       end
+    end
+
+    # Broadcast the cosigned wire SERVER-SIDE, then run the same OPSEC-010/011
+    # verification #confirm does and flip the DB state.
+    #
+    # The browser used to call connection.sendRawTransaction itself and then
+    # POST the resulting signature to #confirm. That failed on mainnet every
+    # single time (see Solana::Vault#simulate_and_broadcast for the three
+    # compounding causes) and the failure was reported to the operator as a
+    # blockhash guess, so a program error was indistinguishable from a
+    # throttled RPC. $140 of alpha-contest payouts sat unsent from June to
+    # September as a result.
+    #
+    # #confirm stays for the signature-first path (an operator who broadcast
+    # out-of-band still has a signature to record); this action is what the
+    # cosign page uses.
+    def broadcast
+      rescue_and_log(target: @tx) do
+        raise "Transaction is #{@tx.status}, not pending" unless @tx.pending?
+
+        cosigner = require_multisig_cosigner!
+        signed_tx = params[:signed_tx].to_s
+        raise "Signed transaction required" if signed_tx.blank?
+
+        # Raises with the PROGRAM's own error + logs when the simulation fails,
+        # and never reaches the chain in that case.
+        signature = Solana::Vault.new.simulate_and_broadcast(signed_tx)
+
+        verify_and_record_cosign!(cosigner: cosigner, signature: signature)
+
+        render json: { status: "confirmed", tx_signature: signature }
+      end
+    rescue Solana::TxVerifier::VerificationError => e
+      render json: { error: "Verification failed: #{e.message}" }, status: :unprocessable_entity
+    rescue StandardError => e
+      render json: { error: e.message }, status: :unprocessable_entity
     end
 
     def rebuild
@@ -126,6 +129,52 @@ module Admin
     def set_pending_transaction
       @tx = PendingTransaction.find_by(slug: params[:slug])
       return redirect_to admin_pending_transactions_path, alert: "Transaction not found" unless @tx
+    end
+
+    # OPSEC-010: the cosigner must be one of the vault's multisig signers before
+    # anything is broadcast or recorded. Shared by #confirm and #broadcast.
+    def require_multisig_cosigner!
+      cosigner = params[:cosigner_address]
+      raise "Cosigner address required" if cosigner.blank?
+      raise "Cosigner not in multisig set" unless Solana::Config::MULTISIG_SIGNERS.include?(cosigner)
+
+      cosigner
+    end
+
+    # OPSEC-010 / OPSEC-011: semantic-verify what actually landed on-chain, THEN
+    # flip DB state. This endpoint used to accept any string as a tx_signature
+    # and mark a contest settled without checking what (if anything) the chain
+    # had seen. Verification asserts all of program, instruction,
+    # cosigner-as-signer, and target PDA writable.
+    #
+    # Shared by #confirm (operator supplies the signature) and #broadcast (the
+    # server just produced it) so the two paths can never drift on what they
+    # verify or what they flip.
+    def verify_and_record_cosign!(cosigner:, signature:)
+      Solana::TxVerifier.verify!(
+        signature: signature,
+        instruction_name: instruction_for_tx_type(@tx.tx_type),
+        signer_pubkey: cosigner,
+        writable_pubkey: writable_for_target(@tx)
+      )
+
+      @tx.update!(status: "confirmed", cosigner_address: cosigner, tx_signature: signature)
+
+      # settle/cancel both target a Contest; the currency/sweep types have no
+      # Contest target and need no DB state change (the source of truth is the
+      # on-chain VaultState / ATAs).
+      case @tx.tx_type
+      when "settle_contest"
+        if @tx.target.is_a?(Contest)
+          @tx.target.update!(onchain_settled: true)
+          # The payout has now provably landed on-chain — only here do we tell
+          # winners they won (never at grade time). Idempotent + skips
+          # wallet-only winners; enqueues a background job per emailable winner.
+          @tx.target.notify_winners!
+        end
+      when "cancel_contest"
+        @tx.target.update!(onchain_cancelled: true) if @tx.target.is_a?(Contest)
+      end
     end
 
     # Map PendingTransaction#tx_type → Anchor instruction name. The instruction

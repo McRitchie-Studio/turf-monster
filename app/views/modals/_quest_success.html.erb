@@ -31,8 +31,9 @@
   <%# Next Quest: not-subscribed → the newsletter quest in-flow; subscribed →
       off to the contest where the chat/invite quests live. %>
   <% if current_user.subscribed_to_newsletter? %>
+    <% quest_target = main_contest_target %>
     <%= link_to "Next Quest",
-                (SeasonConfig.main_contest ? contest_path(SeasonConfig.main_contest) : contests_path),
+                (quest_target ? contest_path(quest_target) : contests_path),
                 class: "btn btn-primary btn-lg w-full", "@click": "$store.modals.close()" %>
   <% else %>
     <button type="button" @click="$store.modals.swap('newsletter-subscribe')"

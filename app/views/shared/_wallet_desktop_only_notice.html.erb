@@ -1,0 +1,68 @@
+<%# Desktop-only declaration for the admin wallet flows.
+
+    WHY IT PAINTS INSTEAD OF WAITING FOR A CLICK. Every one of these pages
+    ends in an irreversible on-chain action, and each makes the operator do
+    real work first: vault_state asks for a pause reason that gets logged
+    on-chain and then a confirm dialog naming the network; vault_init asks
+    for four pubkeys and a threshold; the treasury page asks which pending
+    transaction to co-sign. Learning "your device cannot do this" AFTER all
+    of that is the moment somebody starts hunting for a workaround. So the
+    page says it up front, and disables the buttons, and the click-time
+    throw stays as the backstop for anything that changes in between.
+
+    THE SENTENCE IS NOT WRITTEN HERE. It comes from
+    window.walletProvider.desktopOnlyMessage(), the same source the throw
+    uses, so the painted reason and the thrown reason can never drift.
+    The layout inlines that method into its stub, which is what answers at
+    parse time, and wallet_stub_parity_test.rb keeps the two agreeing.
+
+    HIDDEN BY DEFAULT, revealed only on a phone. A desktop operator sees
+    nothing new on the page. %>
+<div id="wallet-desktop-only-notice"
+     class="rounded-lg border border-amber-300 bg-amber-50/80 dark:border-amber-700/40 dark:bg-amber-950/30 px-4 py-3 mb-6"
+     hidden>
+  <p class="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400/90 mb-1">
+    Desktop only
+  </p>
+  <p class="text-sm text-secondary" data-desktop-only-message></p>
+</div>
+
+<script>
+  (function () {
+    function paintDesktopOnlyNotice() {
+      var wp = window.walletProvider;
+      if (!wp || typeof wp.isMobile !== 'function' || !wp.isMobile()) return;
+
+      var notice = document.getElementById('wallet-desktop-only-notice');
+      if (notice) {
+        var slot = notice.querySelector('[data-desktop-only-message]');
+        if (slot && typeof wp.desktopOnlyMessage === 'function') {
+          slot.textContent = wp.desktopOnlyMessage();
+        }
+        notice.hidden = false;
+      }
+
+      // DISABLED, NOT HIDDEN. The operator still needs to see that they
+      // reached the right page — hiding the controls turns "wrong device"
+      // into "wrong page", and they go looking for the one that works.
+      //
+      // `disabled` ALONE, no classes. studio-engine's button primitive already
+      // ships `.btn:disabled { cursor: not-allowed; opacity: .5 }`, so the
+      // opacity-50 / cursor-not-allowed this first added were duplicating a
+      // rule that was already firing — verified in the browser, not assumed:
+      // a bare disabled .btn computes opacity 0.5 on its own. Adding classes
+      // also leaves them behind if anything ever re-enables the button.
+      var buttons = document.querySelectorAll('[data-desktop-only-action]');
+      for (var i = 0; i < buttons.length; i++) buttons[i].disabled = true;
+    }
+
+    // The buttons are rendered BELOW this partial, so the query above finds
+    // nothing at parse time. Wait for the parsed document; run immediately
+    // when a Turbo navigation drops us in after that point.
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', paintDesktopOnlyNotice);
+    } else {
+      paintDesktopOnlyNotice();
+    }
+  })();
+</script>

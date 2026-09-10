@@ -45,10 +45,46 @@
 
     <% if user.solana_connected? %>
       <div class="mb-4">
-        <div class="flex items-center gap-2 flex-wrap">
-          <svg class="w-4 h-4 text-green-400 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-          </svg>
+        <%# THE CHECK IS A LIVE FACT NOW, NOT A DATABASE ROW.
+            It used to render off `user.solana_connected?` — which is only
+            "an address exists on this account" — so it stayed lit over a
+            Phantom the browser had lost. Phantom emits accountChanged ONLY to
+            sites it is connected to, so the app could show a confident check
+            while the wallet-switch reflex was structurally unable to fire.
+            That cost a full debugging round: the feature worked and looked
+            broken.
+
+            THE TWO WALLET KINDS ANSWER DIFFERENT QUESTIONS, so they are keyed
+            differently and deliberately:
+              managed — custodial, the SERVER signs. There is no browser signer
+                        and none is wanted, so "linked" IS the whole truth and
+                        the check is server-rendered, static, and green.
+              phantom — self-custody, the BROWSER signs. The check tracks
+                        $store.wallet.state, which is 'live' only when a
+                        provider is present, unlocked, connected, and on the
+                        wallet this account linked.
+            Keying both on the live signer would grey out every managed user
+            for a signer they are not supposed to have. %>
+        <div class="flex items-center gap-2 flex-wrap"
+             <%= "x-data" if user.wallet_kind == :phantom %>>
+          <% if user.wallet_kind == :phantom %>
+            <%# Server-renders in the honest UNKNOWN state (grey) and the store
+                resolves it within a tick. Rendering green-then-correcting would
+                flash a claim we cannot make yet. %>
+            <svg class="w-4 h-4 flex-shrink-0 transition-colors"
+                 :class="$store.wallet && $store.wallet.state === 'live' ? 'text-green-400' : 'text-muted'"
+                 x-bind:title="$store.wallet && $store.wallet.state === 'live'
+                   ? 'Wallet connected and ready to sign'
+                   : 'Wallet linked, but not connected in this browser right now'"
+                 fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"
+                 data-wallet-live-check>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+            </svg>
+          <% else %>
+            <svg class="w-4 h-4 text-green-400 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24" data-wallet-live-check>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+            </svg>
+          <% end %>
           <span class="text-body font-mono text-sm break-all"><%= user.solana_address %></span>
           <%# Badge keys on wallet_kind (phantom takes precedence), NOT
               managed_wallet? — every account gets an after_create managed

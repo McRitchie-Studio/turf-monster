@@ -1,0 +1,60 @@
+<%# locals: (example:, teams:, compact: false)
+
+    A STATIC twin of contests/_multi_week_team_card, for the rules page.
+
+    Why a twin and not the partial itself: the board card is a <button> wired to
+    Alpine's toggleSelection and keyed on a live SlateMatchup id. The rules page
+    has no contest, no cart and nothing to toggle — rendering the real one would
+    mean manufacturing matchup rows to draw a picture.
+
+    What is NOT duplicated is the part that would actually drift: every colour
+    here comes from TeamColorsHelper#team_card_palette, the same helper the board
+    uses, so re-tuning a team's brand re-colours this page in the same commit.
+    `team` may be nil (a slug the DB has never heard of) — the helper is nil-safe
+    and returns the neutral field, so the card still draws. %>
+<% team = teams[example.team_slug] %>
+<% pal  = team_card_palette(team) %>
+<div class="rounded-2xl border-2 shadow overflow-hidden <%= compact ? 'p-3' : 'p-5' %> text-center"
+     style="background: <%= pal[:gradient] %>; border-color: <%= pal[:border] %>; color: <%= pal[:fg] %>;">
+  <% if team&.location.present? %>
+    <p class="<%= compact ? 'text-[10px]' : 'text-sm' %> font-medium leading-tight truncate"
+       style="color: <%= pal[:location] %>"><%= team.location %></p>
+  <% end %>
+  <p class="font-extrabold leading-tight truncate <%= compact ? 'text-lg' : 'text-3xl' %>"
+     style="color: <%= pal[:accent] %>; text-shadow: <%= pal[:mascot_shadow] %>">
+    <%= team&.mascot || example.team_slug.titleize %>
+  </p>
+
+  <p class="<%= compact ? 'mt-1' : 'mt-2' %>">
+    <%# One decimal, NOT format_turf_score. The board's helper drops the decimal on
+        a whole number, so Baltimore read "1x" here while the prose two sections
+        down called the same value "x1.0" — review flagged the mismatch. The page
+        uses ONE notation throughout: suffix, one decimal. %>
+    <span class="font-mono font-bold <%= compact ? 'text-base' : 'text-2xl' %>" style="color: <%= pal[:fg] %>"><%= number_with_precision(example.turf_score, precision: 1) %>&times;</span>
+    <span class="<%= compact ? 'text-[10px]' : 'text-sm' %>" style="color: <%= pal[:fg_faint] %>">Turf Score</span>
+  </p>
+
+  <div class="<%= compact ? 'mt-2' : 'mt-3' %> flex items-center gap-2" aria-hidden="true">
+    <span class="h-px flex-1" style="background-color: <%= pal[:divider] %>"></span>
+    <span class="text-xs font-bold" style="color: <%= pal[:fg] %>">vs</span>
+    <span class="h-px flex-1" style="background-color: <%= pal[:divider] %>"></span>
+  </div>
+
+  <%# grid-template-columns inline, not a Tailwind grid-cols-N class: the column
+      count is computed, and Tailwind never sees a computed class name. %>
+  <div class="mt-2 grid" style="grid-template-columns: repeat(<%= [example.opponent_slugs.size, 1].max %>, minmax(0, 1fr))">
+    <% example.opponent_slugs.each_with_index do |slug, index| %>
+      <% opponent = teams[slug] %>
+      <div class="px-px lg:px-1 text-center"
+           style="<%= "border-left: 1px solid #{pal[:divider]};" if index.positive? %>">
+        <p class="text-[9px] uppercase tracking-wide leading-tight" style="color: <%= pal[:grey] %>">Week <%= index + 1 %></p>
+        <p class="mt-1 py-1 flex items-center justify-center gap-0.5 leading-none"
+           style="background: <%= opponent_label_halo(opponent, team) %>">
+          <span class="text-[10px] lg:text-sm"><%= opponent&.emoji %></span>
+          <span class="text-[10px] lg:text-sm font-semibold truncate"
+                style="color: <%= opponent_label_color(opponent, team) %>"><%= opponent&.short_name || slug.split("-").last.upcase %></span>
+        </p>
+      </div>
+    <% end %>
+  </div>
+</div>

@@ -74,7 +74,7 @@ class AccountsBuyUsdcButtonTest < ActionDispatch::IntegrationTest
     with_cdp_ramp do
       managed!
       log_in_as @user
-      GeoSetting.stub :blocked?, true do
+      Studio::GeoSetting.stub :blocked?, true do
         get_account
       end
       assert_response :success

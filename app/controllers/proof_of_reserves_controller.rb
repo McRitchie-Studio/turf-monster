@@ -12,7 +12,9 @@ class ProofOfReservesController < ApplicationController
     @vault = Solana::Vault.new
 
     @page_config = {
-      rpc_url:    Solana::Config::RPC_URL,
+      # This page is PUBLIC and renders the endpoint as visible text, so it
+      # gets the browser endpoint, never the server's keyed RPC_URL.
+      rpc_url:    Solana::Config.public_rpc_url,
       program_id: Solana::Config::PROGRAM_ID,
       usdc_mint:  Solana::Config::USDC_MINT,
       network:    Solana::Config::NETWORK,
