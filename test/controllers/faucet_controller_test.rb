@@ -104,4 +104,137 @@ class FaucetControllerTest < ActionDispatch::IntegrationTest
     json = JSON.parse(response.body)
     assert_match /between \$1 and \$500/, json["error"]
   end
+
+  # --- OPSEC-020 production guard ---
+  #
+  # Regression: QA Heroku apps set no RAILS_ENV, so they boot as Rails
+  # production. The guard used to ask Rails.env.production? directly, which
+  # answered TRUE on QA and refused every claim there — observed live on
+  # qa.turfmonster.media as POST /faucet -> 422 "Faucet is production-disabled",
+  # with zero faucet TransactionLog rows in the app's whole history. The guard
+  # now asks AppFlags.live_production?, which QA_ENV=true excludes.
+  #
+  # The whole point of this pair is that Rails.env is production in BOTH cases
+  # and only QA_ENV differs — a test that just ran in the test env would pass
+  # against the old code too.
+
+  # Every var Solana::Config REQUIRES in production is set alongside the
+  # Rails.env stub, because a production app cannot BOOT without them: the
+  # constants raise on absence (OPSEC-012 and siblings — SOLANA_PROGRAM_ID,
+  # SOLANA_NETWORK, and now SOLANA_RPC_URL). Config resolves them at LOAD time,
+  # so a request that loads it lazily inside this block would raise; without
+  # these the simulation models a production app that cannot exist.
+  #
+  # This is the trap that hides in CI: config/environments/test.rb sets
+  # `eager_load = ENV["CI"].present?`, so in CI everything is already loaded at
+  # boot and a missing var here is INVISIBLE, while locally (lazy autoload) it
+  # raises. The test below asserts this list against config.rb's own source, so
+  # a fourth required var cannot land without this helper learning about it.
+  #
+  # Values reproduce the live QA app (SOLANA_NETWORK=devnet), except the RPC,
+  # which is the hermetic black hole CI pins for e2e — nothing here should reach
+  # a network, and only the var's PRESENCE is load-bearing.
+  PRODUCTION_ENV_STUB = {
+    "SOLANA_NETWORK"    => "devnet",
+    "SOLANA_RPC_URL"    => "http://127.0.0.1:9",
+    "SOLANA_PROGRAM_ID" => "EQGFJAcABtDb6VXtiijTjZ6cE2UqdvhnqJvoharJbpMJ"
+  }.freeze
+
+  def with_production_env
+    originals = PRODUCTION_ENV_STUB.keys.to_h { |var| [var, ENV[var]] }
+    PRODUCTION_ENV_STUB.each { |var, value| ENV[var] = value }
+    Rails.stub(:env, ActiveSupport::StringInquirer.new("production")) { yield }
+  ensure
+    originals&.each { |var, value| value.nil? ? ENV.delete(var) : ENV[var] = value }
+  end
+
+  test "with_production_env sets every var Solana::Config requires in production" do
+    source   = Rails.root.join("app/services/solana/config.rb").read
+    # Scan CODE, not prose. This used to scan the whole file, and when
+    # SOLANA_NETWORK moved to the `.presence` idiom the count stayed at 3 only
+    # because a COMMENT quotes the retired `ENV.fetch(k) { raise }` form
+    # verbatim — the completeness guard was passing on a comment while measuring
+    # two real call sites. Strip full-line comments, and recognise BOTH idioms,
+    # so a var counts here only while it really is required in production.
+    code     = source.lines.grep_v(/^\s*#/).join
+    required = code.scan(/ENV\.fetch\("(\w+)"\) \{ raise|ENV\["(\w+)"\]\.presence\s*\|\|\s*raise/)
+                   .flatten.compact
+
+    assert_operator required.size, :>=, 3,
+                    "expected the production-required env vars to still be declared in config.rb " \
+                    "as raising ENV.fetch calls or `.presence || raise` — in CODE, not in a comment"
+
+    # The ambient env must be CLEARED first, or this measures the shell instead
+    # of the helper. Measured: dotenv loads .env in dev/test and it sets
+    # SOLANA_RPC_URL and SOLANA_PROGRAM_ID, so deleting a var from
+    # PRODUCTION_ENV_STUB left this test GREEN locally until the delete below was
+    # added. CI's unit job (.github/workflows/ci.yml) exports only
+    # SOLANA_ADMIN_KEY, so the two environments disagree about what is ambient —
+    # which is exactly why this test controls it rather than trusting it.
+    before = required.to_h { |var| [var, ENV.delete(var)] }
+
+    with_production_env do
+      required.each do |var|
+        assert ENV[var].present?,
+               "#{var} raises when unset in production but with_production_env does not set it — " \
+               "this simulation models a production app that cannot boot (add it to PRODUCTION_ENV_STUB)"
+      end
+    end
+
+    required.each do |var|
+      assert_nil ENV[var],
+                 "with_production_env must restore #{var} to what it found — a leak would silently re-point the rest of the suite"
+    end
+  ensure
+    before&.each { |var, value| value.nil? ? ENV.delete(var) : ENV[var] = value }
+  end
+
+  def with_qa_env(value)
+    original = ENV["QA_ENV"]
+    value.nil? ? ENV.delete("QA_ENV") : ENV["QA_ENV"] = value
+    yield
+  ensure
+    original.nil? ? ENV.delete("QA_ENV") : ENV["QA_ENV"] = original
+  end
+
+  test "claim is refused on live production (Rails production, QA_ENV unset)" do
+    log_in_as(@user)
+
+    with_production_env do
+      with_qa_env(nil) do
+        assert_no_difference "TransactionLog.count" do
+          post faucet_path, params: { amount: 50 }, as: :json
+        end
+      end
+    end
+
+    assert_response :unprocessable_entity
+    json = JSON.parse(response.body)
+    assert_equal false, json["success"]
+    assert_equal "Faucet is production-disabled", json["error"]
+  end
+
+  test "claim mints on a QA app (Rails production, QA_ENV=true)" do
+    log_in_as(@user)
+
+    mock_vault = Minitest::Mock.new
+    mock_vault.expect :ensure_ata, { ata: "fake_ata", created: false, signature: nil }, [String], mint: String
+    mock_vault.expect :mint_spl, { signature: "qa_tx_sig" }, [Integer], mint: String, to: String
+
+    with_production_env do
+      with_qa_env("true") do
+        Solana::Vault.stub :new, mock_vault do
+          assert_difference "TransactionLog.count", 1 do
+            post faucet_path, params: { amount: 50 }, as: :json
+          end
+        end
+      end
+    end
+
+    assert_response :success
+    json = JSON.parse(response.body)
+    assert_equal true, json["success"]
+    assert_equal "qa_tx_sig", json["tx"]
+    assert_equal "faucet", TransactionLog.last.transaction_type
+  end
 end

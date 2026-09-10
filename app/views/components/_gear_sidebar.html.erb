@@ -15,14 +15,41 @@
      end
    } %>
 
+<%# Free-entry chip — the count the navbar's ✨ badge used to pop in its own
+    popover. The badge now OPENS this sidebar instead, so the number had to land
+    somewhere the click arrives at. Same .legendary-badge treatment as the disc
+    (paint only; the pill geometry is here), so the two read as one prize.
+
+    Live via the entryTokenBadge factory, which subscribes to the window
+    'entry-tokens-updated' event updateNavTokens dispatches — NOT a page reload.
+    body_html renders TWICE (desktop + mobile panel below), so this mounts twice
+    as two independent Alpine scopes; both subscribe, both stay correct. That is
+    also why the count is not synced by querySelector in JS: a single-element
+    lookup would leave the other panel stale.
+
+    x-show hides it at zero, and the server pre-sets display:none in that case so
+    there is no pre-Alpine flash of a chip promising an entry the user lacks. %>
+<% free_entries = display_entry_token_count.to_i %>
 <% body_html = capture do %>
+  <div class="px-4 pt-4 pb-3 border-b border-subtle"
+       x-data="entryTokenBadge({ initialCount: <%= free_entries %> })"
+       x-show="count > 0"
+       <%= 'style="display: none;"'.html_safe unless free_entries.positive? %>
+       data-free-entry-chip="true">
+    <span class="legendary-badge inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-bold leading-none whitespace-nowrap">
+      <span aria-hidden="true" style="font-size: 14px; line-height: 1;">✨</span>
+      <span><span x-text="count"><%= free_entries %></span>
+        <span x-text="count === 1 ? 'Free Entry' : 'Free Entries'"><%= free_entries == 1 ? "Free Entry" : "Free Entries" %></span></span>
+    </span>
+  </div>
   <nav class="flex-1 min-h-0 overflow-y-auto py-2" aria-label="Settings links">
     <%= link_to account_path, class: link_class do %><%= emoji_swap.("🙂", "✏️") %><span>My Profile</span><% end %>
     <%= link_to my_contests_path, class: link_class do %><%= emoji_swap.("🏆", "⚔️") %><span>My Contests</span><% end %>
 
     <% nq = current_user.respond_to?(:next_quest) ? current_user.next_quest : nil %>
     <% if nq %>
-      <% quest_contest_path = SeasonConfig.main_contest ? contest_path(SeasonConfig.main_contest) : contests_path %>
+      <% quest_target = main_contest_target %>
+      <% quest_contest_path = quest_target ? contest_path(quest_target) : contests_path %>
       <% case nq
          when :join %>
         <%= link_to quest_contest_path, class: link_class do %><%= emoji_swap.("⚽️", "⚔️") %><span>Join contest</span><% end %>
@@ -38,6 +65,7 @@
     <% end %>
 
     <%= link_to help_how_to_play_path, class: link_class do %><%= emoji_swap.("🎮", "🤔") %><span>How to Play</span><% end %>
+    <%= link_to nfl_team_totals_path, class: link_class do %><%= emoji_swap.("🏈", "📊") %><span>NFL Totals</span><% end %>
     <%= link_to proof_of_reserves_path, class: link_class do %><%= emoji_swap.("🪎", "🏦") %><span>Proof of Reserves</span><% end %>
 
     <button type="button"
@@ -48,14 +76,29 @@
       <div class="border-t border-subtle my-2"></div>
       <div class="label-upper font-bold px-4 py-1 text-muted">Admin</div>
       <%= link_to admin_dashboard_path, class: link_class do %><%= emoji_swap.("💻", "🔬") %><span>Dashboard</span><% end %>
+      <%# Signatures — the treasury cosign queue. The count is what the operator
+          is actually being asked to sign (PendingTransaction.awaiting_signature),
+          NOT every pending row: 10 of production's 11 were dead enter_contest
+          transactions from June and July, and a badge that reads 11 when one
+          thing needs signing is a badge nobody reads twice. Gray at zero, bold
+          above — the weight is the signal, so it can be caught peripherally
+          without reading the number. %>
+      <% signature_count = pending_signature_count %>
+      <%= link_to admin_pending_transactions_path, class: link_class do %>
+        <%= emoji_swap.("✍️", "🖋️") %><span>Signatures</span>
+        <span class="ml-auto text-xs tabular-nums <%= signature_count.positive? ? "font-bold text-heading" : "font-normal text-muted" %>"
+              data-signature-count="<%= signature_count %>"><%= signature_count %></span>
+      <% end %>
       <%= link_to contests_path, class: link_class do %><%= emoji_swap.("✚", "✨") %><span>Contests</span><% end %>
       <%= link_to admin_users_path, class: link_class do %><%= emoji_swap.("👥", "🏟️") %><span>Users</span><% end %>
       <%= link_to admin_landing_pages_path, class: link_class do %><%= emoji_swap.("🪂", "🖼️") %><span>Landing Pages</span><% end %>
+      <%= link_to admin_entry_gifts_path, class: link_class do %><%= emoji_swap.("🎁", "✨") %><span>Send Free Entry</span><% end %>
+      <%= link_to admin_emails_path, class: link_class do %><%= emoji_swap.("✉️", "📮") %><span>Emails</span><% end %>
       <%= link_to admin_style_path, class: link_class do %><%= emoji_swap.("🎨", "🧩") %><span>Design System</span><% end %>
     <% end %>
 
     <div class="border-t border-subtle my-2"></div>
-    <%= link_to logout_path, class: muted_class, data: { turbo: false }, onclick: "try{localStorage.removeItem('pendingContestEntry')}catch(e){}" do %><%= emoji_swap.("👋🏻", "⏏️") %><span>Log out</span><% end %>
+    <%= link_to logout_path, class: muted_class, data: { turbo: false }, onclick: "window.wipeClientState && window.wipeClientState()" do %><%= emoji_swap.("👋🏻", "⏏️") %><span>Log out</span><% end %>
   </nav>
 <% end %>
 

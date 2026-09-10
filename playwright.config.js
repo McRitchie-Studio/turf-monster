@@ -1,5 +1,44 @@
 const { defineConfig } = require("@playwright/test");
 
+// THE ONRAMP RAILS ARE ON FOR THE E2E STACK — AND THE FLAG HAS TO BE SET IN TWO PLACES.
+//
+// e2e/financial.spec.js gates its Coinflow and Aeropay describes on these, and the specs'
+// own comment invites exactly this: "enable the flag on the e2e stack to exercise it."
+// Until now nothing did, so BOTH describes skipped whole — all four of their specs, on
+// every run, silently — until the executed-set gate started counting them. Two now run;
+// the other two still skip for want of a webhook signing key, and config/e2e_lane.yml
+// `allowed_skips` itemises which is which.
+//
+// TWO PROCESSES READ THIS FLAG FOR TWO DIFFERENT REASONS, and a run needs BOTH:
+//
+//   1. THE PLAYWRIGHT PROCESS — the `process.env` lines below. financial.spec.js:83,:173
+//      are `test.skip(process.env.ENABLE_COINFLOW !== "true", ...)`. This DISARMS THE SKIP.
+//   2. THE RAILS SERVER — `webServer.env` below, plus the matching exports in
+//      bin/e2e-parallel. app/views/tokens/buy.html.erb:12,:40 wrap the rails in
+//      `<% if AppFlags.coinflow? %>` / `AppFlags.aeropay?`, which read the SERVER's ENV
+//      (app/services/app_flags.rb:34,:47). This RENDERS THE BUTTONS the specs click.
+//
+// Set only #1 and the specs run a page with no rail on it: `expect(buyButton).toBeVisible()`
+// fails with "element(s) not found". That is not hypothetical — it is what the first cut of
+// this change did to `npm run test:parallel` while CI stayed GREEN. Playwright builds the
+// webServer's env as {...DEFAULT, ...process.env, ...options.env}
+// (node_modules/playwright/lib/plugins/webServerPlugin.js:88-92), so the CI lane inherited
+// #1 by accident and could not see the break; bin/e2e-parallel sets PW_BASE_URL, takes the
+// `undefined` webServer branch below, and launches its own servers (:152-156, :180-182),
+// inheriting nothing. webServer.env now STATES that inheritance instead of relying on it,
+// and test/lib/e2e_onramp_flag_parity_test.rb goes red if the two lanes drift apart again.
+//
+// SEED DATA — VERIFIED UNAFFECTED, not assumed. The webServer env is shared with
+// db:test:prepare and e2e/seed.rb (see the CAUTION on that block), so a flag added there
+// CAN change seeded rows. These two do not: grepped repo-wide, ENABLE_COINFLOW and
+// ENABLE_AEROPAY are read ONLY by AppFlags.coinflow?/aeropay? (consumed by buy.html.erb,
+// _buy_entry_token.html.erb and onramp_helper.rb) and by tests that stub ENV directly.
+// e2e/seed.rb contains no reference to either. Re-run that grep before adding a third flag.
+//
+// `||=` so a caller can still turn them off for a one-off run without editing this file.
+process.env.ENABLE_COINFLOW ||= "true";
+process.env.ENABLE_AEROPAY ||= "true";
+
 module.exports = defineConfig({
   testDir: "./e2e",
   timeout: 30_000,
@@ -24,10 +63,39 @@ module.exports = defineConfig({
     // process at its own isolated stack's port. Defaults to the canonical :3100.
     baseURL: process.env.PW_BASE_URL || "http://127.0.0.1:3100",
     headless: true,
-    // Smooth-load (engine 0.24) enables same-origin view transitions; under
-    // prefers-reduced-motion Turbo never starts the view transition at all,
-    // so e2e gets instant swaps.
-    reducedMotion: "reduce",
+    // REDUCED MOTION — SET WHERE IT ACTUALLY TAKES EFFECT.
+    //
+    // Intended all along: smooth-load (engine 0.24) enables same-origin view
+    // transitions, and under prefers-reduced-motion Turbo never starts one, so
+    // e2e gets instant swaps instead of racing a crossfade. The app also honors
+    // the query in nine of its own CSS blocks (app/assets/tailwind/application.css)
+    // and in three inline scripts.
+    //
+    // FOR MONTHS IT DID NOT REACH THE PAGE. Written as a bare `use.reducedMotion`
+    // it is INERT in this Playwright (1.58.2) — measured three ways in one run:
+    //
+    //     use: { reducedMotion: "reduce" }                      -> matches FALSE
+    //     projects[].use: { reducedMotion: "reduce" }           -> matches FALSE
+    //     use: { contextOptions: { reducedMotion: "reduce" } }  -> matches TRUE
+    //
+    // (browser.newContext({ reducedMotion }) and page.emulateMedia both apply it
+    // too, so the CAPABILITY was never in doubt — only this spelling of it.)
+    // So every spec ran at the browser default while the config said otherwise,
+    // and any spec written believing motion was off was measuring something else.
+    // The classic casualty: .legendary-badge pans its gradient forever, so a
+    // screenshot crop containing the disc differs on EVERY frame and an assertion
+    // built on one can never fail.
+    //
+    // DO NOT "simplify" this back to a bare `reducedMotion:` key. It reads as the
+    // same setting and silently stops working. e2e/reduced_motion.spec.js asserts
+    // matchMedia inside a real page, so that edit goes RED rather than quiet, and
+    // test/lib/playwright_config_contract_test.rb pins the spelling here.
+    //
+    // SPECS THAT TEST ANIMATION MUST OPT OUT, LOUDLY: `await allowMotion(page)`
+    // (e2e/helpers.js). Reduced motion is now the lane's real default, so a spec
+    // that needs a running timeline has to say so — see the glow spec in
+    // e2e/navbar_layout.spec.js.
+    contextOptions: { reducedMotion: "reduce" },
     // Capture a Playwright trace + screenshot when a test retries/fails so
     // CI-only failures (which don't reproduce locally — e.g. geo.spec.js:54)
     // are diagnosable from the uploaded test-results/ artifact. on-first-retry
@@ -96,7 +164,14 @@ module.exports = defineConfig({
           RAILS_ENV: "test",
           PLAYWRIGHT_SEED: "true",
           ENABLE_WEB3_ONLY_ONBOARDING: "true",
-          ENABLE_AGE_GATE: "true"
+          ENABLE_AGE_GATE: "true",
+          // The onramp rails, restated for the SERVER (see the block at the top of this
+          // file). Both already arrived here via the ...process.env spread; naming them
+          // makes this lane and bin/e2e-parallel's servers say the same thing out loud,
+          // which is what test/lib/e2e_onramp_flag_parity_test.rb checks. Verified
+          // seed-inert — e2e/seed.rb reads neither.
+          ENABLE_COINFLOW: "true",
+          ENABLE_AEROPAY: "true"
         },
       },
 });

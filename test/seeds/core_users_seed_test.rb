@@ -5,10 +5,12 @@ class CoreUsersSeedTest < ActiveSupport::TestCase
 
   test "core user seed adopts an existing wallet-created parked identity row" do
     users(:alex).update!(email: "fixture-admin@example.com")
-    wallet_user = User.create!(username: "mcritchie", web3_solana_address: ALEX_WALLET)
+    # `alex`, not `mcritchie`: the two traded owners on 2026-09-04, and this row
+    # is the HUMAN's — the one holding ALEX_WALLET.
+    wallet_user = User.create!(username: "alex", web3_solana_address: ALEX_WALLET)
 
     silence_warnings { load Rails.root.join("db/seeds/users.rb") }
-    seeded = seed_core_users!.fetch("mcritchie")
+    seeded = seed_core_users!.fetch("alex")
 
     assert_equal wallet_user.id, seeded.id
     seeded.reload

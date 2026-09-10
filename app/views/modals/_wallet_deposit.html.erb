@@ -19,9 +19,7 @@
      class="relative">
 
   <%# Top-right close × — host backdrop close still works too. %>
-  <button @click="$store.modals.close()"
-          class="absolute top-0 right-0 -mt-2 -mr-2 text-secondary hover:text-heading text-xl leading-none z-10"
-          aria-label="Close">&times;</button>
+  <%= render "studio/modals/blocks/close_x" %>
 
   <div class="text-center pt-1 mb-3">
     <h3 class="text-heading font-bold text-lg leading-tight">Top Up Your Wallet</h3>

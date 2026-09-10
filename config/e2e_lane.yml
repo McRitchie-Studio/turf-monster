@@ -28,13 +28,818 @@
 # purpose, in front of a reviewer.
 ---
 # Every `test(...)` committed under e2e/. DERIVED WITH THE RUNNER, never counted by hand:
-#   npx playwright test --list  ->  145 tests in 39 files
+#   npx playwright test --list  ->  149 tests in 39 files
 #
 # Deriving it mattered immediately: a grep for "@devnet" suggested 18 excluded specs and
 # the lister says 17. The lister is the model Playwright itself uses; a grep is a guess
 # about text.
-total_specs: 145
+#
+# 145 -> 149 (adopt-engine-geo-primitives): four specs in e2e/geo.spec.js for the geo
+# manager this app now RENDERS from studio-engine instead of owning — the countries tab,
+# the live badge preview on the visitor's own region, the summary that follows the editor,
+# and a square repainting the moment it is ticked. None of them is observable in the
+# response bytes: the page renders the same markup whether a click changes anything, which
+# is how it once shipped with a grid that recorded every click and moved nothing on screen.
+# This gate found the four immediately — 126 executed against a 122 contract.
+#
+# 149 -> 151 (polish-free-entry-badge): two specs in e2e/navbar_layout.spec.js, both for
+# things the navbar guard could not see before.
+#   · the Free Entry FACE of the balance slot. The one overflow guard stood that face DOWN
+#     (`feLabel.classList.remove("is-active")`) and measured only the amount, so the wider
+#     face was never asserted at any width — which is how it shipped starving the username
+#     to 15.6px, zero readable characters, from 768px through 1024px, with
+#     documentOverflow at 0 and nothing offscreen the whole time. Containment alone called
+#     that a pass; this spec also measures how much of the name a reader actually gets.
+#   · the level-up glow REPLAYED inside its own strip window, asserted on the painted
+#     pixels around the badge. The leftover timer from the first play used to cut the
+#     replay to 1340ms of a 4200ms animation.
+# Re-derived with the lister after adding them (`npx playwright test --list` -> 151 tests
+# in 39 files), never hand-incremented.
+#
+# 151 -> 153 (glow-typed-chat-prompts): two specs in e2e/quest_chat_prompts.spec.js for the
+# Quest 2 composer nudge — the typed placeholder deck surviving a second quest-chat-active
+# ping, and the rested line not wrapping the 375px composer. Both replace a source-grep
+# test that ran green against the broken AND the fixed component.
+#
+# ⚠️ THIS NUMBER IS WHY THE FILE CONFLICTS ON EVERY PARALLEL BRANCH, AND THE CONFLICT IS THE
+# FEATURE. glow-typed-chat-prompts and polish-free-entry-badge each added two specs off the
+# same base and each wrote `total_specs: 151` — the same TEXT for different SPECS. Git took
+# that agreed value silently (it sat OUTSIDE the conflict markers; only the prose around it
+# clashed), so the merge of two correct branches produced a ledger short by exactly the two
+# specs the other one added, and `bin/e2e-executed-set-check` would have gone red on
+# `accepted` measuring 132 against a declared 130. When you merge this file, RE-DERIVE with
+# the lister on the MERGED tree — never take either side, and never trust a clean merge of
+# these lines.
+# Re-derived here on the merged tree: `npx playwright test --list` -> 153 tests in 40 files.
+#
+# 153 -> 155 (redact-helius-key-from-browser): two specs in e2e/rpc_url_public.spec.js for
+# the browser-facing RPC endpoint, which that change moved off Solana::Config::RPC_URL (the
+# SERVER endpoint, carrying a provider api-key on mainnet) and onto
+# Solana::Config.public_rpc_url. Neither is observable in the response bytes:
+#   · the layout's data-solana-rpc-url handed to the REAL web3.js the page loaded. The
+#     attribute is present in the markup whatever its value, so `assert_match
+#     "data-solana-rpc-url"` passes on an EMPTY one — while web3.js throws "Endpoint URL
+#     must start with `http:` or `https:`" and every Phantom flow on the site (entry,
+#     contest create, cosign, off-ramp) is dead. Measured, not supposed: that is the exact
+#     error this spec produced when public_rpc_url was mutated to return "".
+#   · /proof-of-reserves printing its endpoint to the visitor as page text. The server
+#     ships that <span x-text="cfg.rpc_url"> EMPTY and Alpine fills it after mount, so the
+#     rendered value exists NOWHERE in the response — verified by reading the raw HTML: the
+#     span's inner text is "" on the wire and "https://api.devnet.solana.com" in the
+#     browser. This is the surface that leaked the key to UNAUTHENTICATED visitors, and no
+#     assert_select can ever see what it actually shows them.
+# Re-derived with the lister, never hand-incremented: `npx playwright test --list` -> 159
+# tests in 41 files.
+#
+# 155 -> 157 -> 159, TWO BRANCHES AT ONCE. This merge joins two in-flight branches that
+# each added two specs to e2e/navbar_layout.spec.js off the same base of 155:
+#
+#   · fade-mask-follows-face-swap (PR 391) — the username's overflow fade mask, which was
+#     decided ONCE in an Alpine init() and therefore never followed the box. Both specs
+#     assert on PAINTED PIXELS, not computed style, because the two are different claims:
+#     the broken build resolved no mask at all, and a build that resolved one over the
+#     WRONG BOX would read identically in getComputedStyle. Measured broken: the final
+#     column of the clipped edge carried 234/255 of ink at every width, byte-identical to
+#     the mask forced OFF.
+#   · hide-badge-for-zero-tokens (PR 393) — the zero-token state of the navbar's sparkle
+#     badge. `.hidden` rides that button and DID NOT HIDE IT: it ties `.inline-flex` on
+#     specificity inside `@layer utilities` and Tailwind emits `.hidden` first, so the
+#     later rule won and a user holding zero entry tokens kept a live 20x20 sparkle
+#     promising a free entry they did not have. The PAINT spec diffs a screenshot of the
+#     badge's own slot, hidden, against the same slot with the badge DELETED from the DOM,
+#     fenced by a negative control and a stability check — a spec and not a computed-style
+#     read on purpose, because `classList.contains("hidden")` was TRUE for the whole life
+#     of the bug. The BOX spec states the same fact in the box model and checks the surface
+#     path (updateNavTokens(2)) still works.
+#
+# ⚠️ THE TRAP IN THIS FILE FIRED A THIRD TIME, AND THIS RESOLUTION IS WHAT CAUGHT IT.
+# Both branches wrote the identical line `total_specs: 157` for DIFFERENT pairs of specs.
+# Git conflicted only on the PROSE around it — the numeric lines sat OUTSIDE the markers
+# and were taken silently — so a resolution that fixed the comments and trusted the number
+# would have declared 157 against a real 159, and `bin/e2e-executed-set-check` would have
+# gone red on `accepted` at 138-against-136. Re-deriving with the lister on the MERGED
+# tree is what caught it, exactly as the note left by the previous round instructed.
+# Do that, every time, on the merged tree. Do not take either side, and do not do the
+# arithmetic — run the lister.
+# 161 -> 171 on this MERGED tree. THREE branches added specs since the shared
+# base of 159, and no branch's own figure is right here.
+#   · web3-step-up-auth       +7  e2e/web3_step_up.spec.js  (measured 166 alone)
+#   · make-reduced-motion...  +2  e2e/reduced_motion.spec.js (measured 161 alone)
+#   · entry-badge-opens-...   +3  e2e/entry_badge_sidebar.spec.js (measured 162 alone)
+# The first two merged onto `accepted` together and landed 168; this branch was
+# built on 161 and landed 164. 164 and 168 are BOTH WRONG on the merge.
+#
+# What the three sets cover, kept because each says why a browser tier was owed:
+# the step-up seven pin the card a self-custody account meets when it signs in
+# with a web2 credential — that it OPENS, that dismissing HANDS OFF to the
+# onboarding chain rather than stranding every step the user still owed, that
+# the wallet picker ROUND-TRIPS back carrying its props, and that the card is a
+# one-shot. The reduced-motion two are the lane's own self-check: the config had
+# declared `reducedMotion: "reduce"` for months while matchMedia in every spec
+# said FALSE, so they assert the setting REACHES a real page rather than that
+# the config file contains the line. The entry-badge three cover what the
+# `ui-only` tiers cannot: the badge's CONTACT SHADOW, whose stylesheet read
+# correct while it painted nothing because the knob carrying it tied
+# .legendary-badge and lost on SOURCE ORDER (the spec neutralises the knob and
+# asserts the PIXELS move); the badge's CLICK, which opens the settings sidebar
+# and must STILL be open a beat later, where both spellings render identical
+# markup; and the sidebar CHIP, which mounts TWICE (the body renders into the
+# desktop and mobile panels) and tracks the count through a window event, so the
+# spec reads every mount.
+#
+# THE TRAP FIRED TWICE MORE TODAY, and the second shape is the one to remember.
+# Round five: the numeric lines DID conflict, but the derivation prose under
+# `executed` did NOT, so auto-merge silently took the other side's
+# "161 ... 144 collected ... = 140" whole while the markers drew the eye
+# elsewhere — resolving only what was marked would have left the file
+# self-contradictory and still green. Round six is this one. Re-derived with the
+# lister on THIS merged tree, never by arithmetic and never by taking a side:
+# `npx playwright test --list` -> 171 tests in 44 files.
+#
+# ROUND SEVEN is this one, and it carries +4 that none of the branches above
+# counted — 171 -> 175.
+#
+# +2 e2e/free_entry_web3.spec.js (hold-for-free-entry, carried on the branch):
+# the board's funding-aware hold CTA — Alpine swaps the copy on BOTH buttons as
+# the token count moves, and the shipped eligibilityBlocker stops blocking a
+# Phantom wallet that holds a token but no USDC. Neither is observable from
+# Ruby: the first is an Alpine binding, the second a browser-side function.
+#
+# +2 e2e/free_entry_spend_mirror.spec.js (added this round). The CTA specs
+# above assert the BINDING by setting tokensAvailable BY HAND, which is why
+# they could not catch
+# the label going stale after the token was spent — nothing in production ever
+# produced the 0. These two never assign it: they hydrate through
+# refreshSession() and let confirmEntry()'s own success branches compute the
+# drop, one per branch (`/enter` and phantom-direct).
+#
+# RE-DERIVED WITH THE LISTER ON THIS MERGED TREE, never by adding to either
+# side: `npx playwright test --list` -> 175 tests in 46 files.
+#
+# ROUND EIGHT, 175 -> 177 (graceful-wallet-session-switch): two specs in the new
+# e2e/wallet_session_switch.spec.js for what a Phantom ACCOUNT SWITCH does to an
+# authenticated session. Neither is reachable from Ruby, and neither is a
+# rephrasing of the wallet_setup specs this branch trimmed:
+#   · the switch raises the blocking wallet-change modal BEFORE any signature is
+#     requested, and the session it interrupts is still the one signed in. The
+#     bug was a silent session DROP on `accountChanged`, and a dropped session
+#     renders the same logged-out markup as a deliberate sign-out — the claim is
+#     about the ORDER of two browser events, which only a browser can witness.
+#   · a late Wallet Standard registration still binds the authenticated adapter,
+#     so the handoff survives a provider that announces itself after boot. This
+#     is the timing case the mock now reproduces (e2e/phantom-mock.js), invisible
+#     to any server-side assertion because nothing about it reaches the server.
+# Re-derived with the lister on this tree, never hand-incremented:
+# `npx playwright test --list` -> 177 tests in 47 files.
+#
+# ROUND NINE, 177 -> 178 (same task, one round later): a single spec in the new
+# e2e/wallet_changed_card_scope.spec.js asserting the wallet-changed card
+# CONTAINS ONLY ITSELF. It earns an e2e slot because the bug it covers is
+# invisible anywhere else: removing the card's subtitle block without a
+# `subtitle:` local made studio/modals/blocks/_card_header fall through to
+# `elsif block_given?` -> `<%%= yield %%>`, and a Rails partial's block_given?
+# reads TRUE off the LAYOUT's yield — so the entire page rendered INSIDE the
+# dialog (8 duplicated ids, the second copy under div[role=dialog]). The
+# injected content comes from the layout, so a partial rendered in isolation
+# cannot show it: every render/integration tier stayed green while a contest
+# page sat nested inside a modal on screen. Mutation-proven — drop the local and
+# the spec reddens with ten duplicate ids.
+# ROUND TEN, 178 -> 181 (consolidate-wallet-sign-in): three specs in the new
+# e2e/wallet_sign_in.spec.js for the one-approval sign-in path, which adopts the
+# Wallet Standard `solana:signIn` feature so connect + signMessage collapse into
+# a single wallet prompt.
+#
+# WHY A BROWSER TIER IS OWED, and it is the sharpest case in this file: BOTH
+# BRANCHES POST THE IDENTICAL FIVE PARAMS TO THE IDENTICAL ENDPOINT. The server
+# cannot tell a signIn from a connect+signMessage — same `message`, `signature`,
+# `pubkey`, same `/auth/solana/verify`. So no request test, no integration tier,
+# and no amount of response-byte reading can answer "which path ran", which is
+# the only question this change is about. Only a browser can witness it.
+#   · the provider CONTRACT — supportsSignIn() advertises, and signIn() returns
+#     an address, the exact bytes signed, and a 64-byte signature. These are
+#     browser-side functions on a provider that exists only in a page; there is
+#     no Ruby seam that can call them at all.
+#   · the CONSOLIDATED path establishing a real session, asserted through
+#     /account/session_state rather than the POST's 200 — a 200 is what the old
+#     path returns too.
+#   · the FALLBACK, driven by switching supportsSignIn() off at the provider
+#     exactly as a wallet that never implemented the feature would present. This
+#     one exists because the fallback is the branch that protects every wallet
+#     without signIn, and a green suite that only ever ran the new path would
+#     say nothing about it.
+#
+# NOTE ON THE TEST PROVIDER. The KeypairProvider in app/javascript/wallet_provider.js
+# now implements signIn deliberately. Without it every test provider would take
+# the fallback branch and the new code would NEVER EXECUTE IN CI — a feature
+# shipped with zero browser coverage while all three shards reported green, which
+# is the precise failure this whole ledger exists to make impossible.
+# (An earlier draft of this note credited e2e/keypair-provider.js. Wrong file:
+# that one is the devnet-nightly SOLANA_BOT_KEY harness and this change does not
+# touch it. Corrected in review — a ledger whose prose points at the wrong file
+# is the same class of stale-derivation problem the warnings above describe.)
+#
+# ROUND TEN, PART TWO, 181 -> 183 (same task, after a review bounce). Two more
+# specs in e2e/wallet_sign_in.spec.js pinning the try -> catch -> fallback
+# transition, which round ten's three specs did NOT reach: the fallback spec
+# there sets supportsSignIn = () => false up front and so never enters the try
+# block at all. The bug that exposed the hole: the catch was a catch-ALL, so a
+# user DECLINING the one-tap prompt (Phantom rejects with code 4001) was read as
+# "this wallet cannot signIn" and dropped into connect() + signMessage() — three
+# prompts for a decline, in the change whose purpose is one. It also silently
+# broke working decline handling in both callers, which render "Signature
+# rejected" off that rejection and can only do so if it propagates.
+#   · a rejected signIn PROPAGATES and connect() is never called (written first,
+#     confirmed failing against the broken build — rejected:false, connectCalls:1)
+#   · a signIn resolving a nonce-less message still FALLS BACK and signs in,
+#     which is the side the fix must not break by re-throwing everything
+# Both are e2e for the reason the round-ten note gives: the two branches post
+# identical params to an identical endpoint, so which one ran is invisible to
+# every server-side tier.
+#
+# Re-derived with the lister on this tree, never hand-incremented:
+# `npx playwright test --list` -> 183 tests in 49 files (same file count — the
+# two specs were appended to the existing wallet_sign_in.spec.js).
+#
+# 183 -> 184: e2e/phantom_debug_retry.spec.js. It exists because dor-check refused
+# a String-only cert on a browser-served script, and the three tries it took to
+# make it BITE are the point. Versions one and two passed against the KNOWN-BROKEN
+# guard: v1 injected its own registry `get` immediately, and v2 planted one via
+# addInitScript, which the layout then clobbers by ASSIGNING window.walletProvider
+# wholesale. Both were green and both were worthless; only the mutation check told
+# them apart. If you touch that spec, run it against the broken guard before
+# trusting the green.
+#
+# 184 -> 185: this PR's second Phantom-signature spec, appended to an EXISTING
+# spec file (50 files, unchanged). Second collision on this counter for this
+# branch — see the executed: note below for why the number is re-derived rather
+# than incremented.
+# 185 -> 187: e2e/wallet_disconnect.spec.js, a NEW file (50 -> 51 files) carrying
+# two specs — the signer-loss degrade (defects A+B) and the never-connected
+# account switch (defect C). DERIVED WITH THE RUNNER, not incremented:
+# `npx playwright test --list` -> 187 tests in 51 files.
+#
+#
+# 185 -> 188 (adopt-birthday-age-gate-flow): three specs in a NEW file,
+# e2e/birthday_age_gate.spec.js (50 -> 51 files), for the birthday -> age-gate
+# refusal handoff. They cover the seam no other tier reaches: the controller test
+# proves /age/verify answers `underage: true` and the component test proves the
+# card mounts with `gateId: 'age-gate'`, but the decision BETWEEN swapping cards
+# and painting a red line lives in the engine's fetch callback, and both tiers
+# stay green if it is wrong. One of the three is a negative: the submit button
+# must be ENABLED for an under-age date, which is what stops the deleted
+# client-side refusal (red card, disabled button, nowhere to go) coming back.
+# Re-derived with the lister, never hand-incremented:
+# `npx playwright test --list` -> 188 tests in 51 files.
+#
+# 188 -> 190: e2e/debug_net_default.spec.js. window.DEBUG_NET is RUNTIME state, so
+# only a browser that ran the module can say whether the logger armed itself; the
+# markup is identical either way.
+#
+# BOTH LANDED. Two branches each added a NEW spec file off the same base —
+# wallet_disconnect.spec.js (2) and birthday_age_gate.spec.js (3) — and each
+# wrote its own total for 51 files. Neither number survives the merge; the
+# union is 52 files. RE-DERIVED WITH THE LISTER after the merge, which is the
+# whole reason this counter is runtime and not arithmetic.
+# `npx playwright test --list` -> 190 tests in 52 files.
+#
+# 190 -> 192 (make-logout-definitive): e2e/logout_is_definitive.spec.js, a NEW
+# file (52 -> 53 files) carrying two specs — the whole-browser wipe and the
+# second-user inheritance check. Neither the unit nor the integration tier can
+# make that claim: one stubs the stores, the other never leaves the server.
+# DERIVED WITH THE LISTER after merging accepted (which brought slice 7's two
+# wallet_disconnect specs in), never incremented:
+# `npx playwright test --list` -> 192 tests in 53 files.
+#
+# 188 -> 193 (live-nfl-score-pipeline): specs in a NEW file,
+# e2e/nfl_live_scoreboard.spec.js, for the league-wide /live scoreboard. They
+# cover the one claim no Rails tier can make — that a scoring event recorded on
+# the SERVER reaches an ALREADY-OPEN browser over the websocket with no reload,
+# which is the entire reason the page exists. The integration tier can prove a
+# turbo stream was broadcast; only a real browser proves one arrived and moved
+# the score.
+#
+# ⚠️ THIRD COLLISION ON THIS COUNTER, AND THE FILE'S OWN WARNING PAID OFF. This
+# branch measured 190 off a base of 185; adopt-birthday-age-gate-flow measured
+# 188 off the SAME base. Neither number survives the merge and 190 + 3 is not a
+# derivation, it is arithmetic on a value that was never true on this tree. So
+# both routes were RE-RUN on the MERGED tree and made to agree:
+#
+#   npx playwright test --list                                    -> 196 tests in 52 files
+#   npx playwright test --list --grep "@devnet"                   ->  17 tests in  1 file
+#   npx playwright test --list --grep-invert "@devnet" --project=chromium
+#                                                                 -> 179 tests in 51 files
+#
+#   total_specs - excluded - allowed_skips  =  196 - 17 - 4  =  175
+#   collected   - allowed_skips             =  179      - 4  =  175   ✓ agree
+#
+# EIGHT specs: the last pass added the CONCLUDE button, whose final graphic is
+# its own branch in the banner — neutral slate, chequered flag, no points and no
+# team name, where every other banner carries all three. The integration tier
+# proves the broadcast goes out; only a browser proves that branch renders.
+#
+# SEVEN before that: a pass added the card's team-glow ring, whose RESET rule
+# (a second score restarts the window rather than stacking a second expiry) is
+# the kind of thing that is only ever wrong in production unless a test holds
+# it. It runs against a shortened window via window.NFL_GLOW_MS so it proves the
+# rule in seconds — at the real 45s the honest test takes 90s and would not have
+# been written at all.
+#
+# SIX before that: the review pass that added per-scoring-type animations
+# added one more, for the scoring team's own row — that a field goal gets the
+# field-goal motion, and that the changed score goes bold in the team's INK
+# colour and STAYS that way after the banner clears. It is its own block rather
+# than an assertion bolted onto the banner spec because it is a different claim
+# about a different element, and re-derived here rather than incremented.
+#
+# allowed_skips is UNCHANGED at 4: none of the six new specs skips. They are
+# public-page specs against /live with no provider flag and no wallet, so there
+# is no runtime condition under which they exit without executing.
+#
+# ⚠️ FOURTH COLLISION ON THIS COUNTER, and again neither side survived.
+# live-nfl-score-pipeline measured 196; make-logout-definitive measured 192 off
+# a different base. RE-DERIVED on the MERGED tree, both routes made to agree:
+#
+#   npx playwright test --list                                    -> 200 tests in 54 files
+#   npx playwright test --list --grep "@devnet"                   ->  17 tests in  1 file
+#   npx playwright test --list --grep-invert "@devnet" --project=chromium
+#                                                                 -> 183 tests in 53 files
+#
+#   total_specs - excluded - allowed_skips  =  200 - 17 - 4  =  179
+#   collected   - allowed_skips             =  183      - 4  =  179   ✓ agree
+# DERIVED — do not increment by hand. Run `bin/e2e-lane-derive --write` AFTER
+# merging accepted, and commit the result. Incrementing is what broke this four
+# times in one day: two branches each add a spec, both write the SAME new number
+# for DIFFERENT files, and identical text merges with NO conflict — so the lane
+# lands under-declared with nothing red. The `e2e_declared_set` CI job re-checks
+# this against the tree on every push, so a stale number now fails loudly instead
+# of merging quietly.
+#
+# FOURTH COLLISION ON THIS COUNTER TODAY, and the reason this one is worth
+# reading: the review of PR #425 re-derived it as 192/171 on the tree as it stood
+# THEN, and by the time the merge actually ran `accepted` had moved again. A
+# derived number has a shelf life measured in merges — which is why the rule is
+# derive on the tree in front of you, never copy a number from a review, a
+# sibling branch, or arithmetic. This very merge is the fifth: the number below
+# was re-derived by `bin/e2e-lane-derive --write` on the MERGED tree, not carried
+# over from either side of the conflict.
+# 203 -> 205 (contest-live-score-ranking): two specs appended to the EXISTING
+# e2e/nfl_live_scoreboard.spec.js — no new file — for the contest live page's
+# focus game. The page draws every game twice (a chip in the strip, the chosen
+# one at full size) and lets the reader pick which one the panel shows, and both
+# claims are invisible to a String assertion: which tile is visible is decided by
+# Alpine AFTER paint, and the interesting failure only exists after a websocket
+# message has torn out and rebuilt the DOM the choice was made in.
+#   · the panel follows the chip you click
+#   · a score lights BOTH renderings and does NOT steal your focus — the bug a
+#     querySelector would have caused (one lit, one grey) and the one Alpine
+#     state declared inside a broadcast target would have caused (focus reset to
+#     the default mid-play). It also asserts the viewer's own leaderboard row is
+#     still marked afterwards, which is only true if the page put the mark back:
+#     the broadcast sends ONE payload to every subscriber and cannot know whose
+#     entry it is.
+# Re-derived with bin/e2e-lane-derive --write on the tree AFTER merging accepted
+# (8 commits of it), never hand-incremented.
+#
+# SIXTH COLLISION ON THIS COUNTER. This branch derived 205 from a base of 203;
+# seed-nfl-player-database (PR #481) derived 210 from the SAME base of 203, and
+# the two numbers conflicted here during the review merge. Neither side is right
+# on the merged tree, and NEITHER IS THEIR ARITHMETIC: `210 + 2` and `205 + 7`
+# both look reasonable and both are guesses about a set only the lister can count.
+# Resolved the way the paragraph above prescribes — `bin/e2e-lane-derive --write`
+# run on the MERGED tree, with the number below taken from its output and from
+# neither side of the conflict. Both identities, on the merged tree:
+#   npx playwright test --list                                   -> 212 tests in 56 files
+#   npx playwright test --list --grep "@devnet"                  ->  17 tests in  1 file
+#   npx playwright test --list --grep-invert "@devnet" --project=chromium
+#                                                                -> 195 tests in 55 files
+#   212 - 17 - 4 = 191, and 195 collected - 4 runtime skips = 191   OK agree
+#
+# SEVENTH COLLISION, and the counter caught it again. defork-turf-modal-host added
+# ONE spec by EXTENDING e2e/wallet_setup.spec.js (56 files before and after — no new
+# file to declare), so on its own base of 212 the honest-looking number was 213. It
+# would have been WRONG: accepted had meanwhile landed two specs in
+# e2e/nfl_live_scoreboard.spec.js, and 213 written here would have under-declared the
+# lane by exactly those two — the silent merge this counter exists to make loud.
+# Derived with bin/e2e-lane-derive --write on the tree AFTER merging accepted (5
+# commits of it), from the lister and not from arithmetic on either side. Both
+# identities, on the merged tree:
+#   npx playwright test --list                                   -> 215 tests in 56 files
+#   npx playwright test --list --grep "@devnet"                  ->  17 tests in  1 file
+#   npx playwright test --list --grep-invert "@devnet" --project=chromium
+#                                                                -> 198 tests in 55 files
+#   215 - 17 - 4 = 194, and 198 collected - 4 runtime skips = 194   OK agree
+#
+# WHAT THE NEW SPEC BUYS. The defork moved this app's per-modal card width onto
+# studio-engine's CARD_WIDTHS seam, which is an inline <script>. Every other tier this
+# shape has renders to a String, and a String cannot observe a script RUNNING — the
+# engine host DOCUMENTS the seam with a worked example inside its own inline script,
+# so a markup grep for the registration matches the COMMENT and stays green with the
+# real registration deleted. That was measured on this task, not imagined. The spec
+# compares two browser-RESOLVED widths (the card's computed max-width against the
+# engine default's, applied to a probe on the same page), which is the only form that
+# can tell a working registry from one that silently resolves to the default.
+#
+# 216 -> 218 (adopt-engine-phantom-deeplink): two specs EXTENDING e2e/auth_modal.spec.js,
+# both inside a new "the Connect Wallet picker on a phone" describe. A file was not
+# added — auth_modal.spec.js was already the one spec that reaches the picker, and it
+# already asserted Phantom's desktop INSTALL row.
+#
+# WHAT THEY BUY, and why no cheaper tier can. The adoption deleted this app's
+# app/javascript/phantom_deeplink.js and renders the gem's partial instead
+# (solana_studio/_phantom_deeplink — studio-engine's at adoption, moved to
+# solana-studio by /tasks/turf-rides-gem-modals). The gem
+# picker decides what a PHONE sees from `typeof startPhantomDeepLink ===
+# 'function'` — `missingInstalls` and `showPhantomDeepLink` both read it, so they flip
+# together. Lose the render and the phone silently gets Phantom's browser-extension
+# INSTALL row, which cannot be completed on iOS Safari. The page ships IDENTICAL markup
+# either way: the guards are Alpine getters evaluated against navigator.userAgent, so no
+# server render and no source grep can tell the two apart.
+#   · one asserts the computed state — the "Open app" row visible, Phantom's install row
+#     absent from the DOM, Solflare's and Backpack's still there as the control.
+#   · one TAPS it and reads the resulting phantom.app hand-off URL, decoding the base58
+#     payload with the spec's own decoder. That is the shape the engine's partial
+#     records as having escaped eleven passing view tests AND a browser check of
+#     `typeof startPhantomDeepLink` that never CALLED it: B58_ALPHABET left at module
+#     scope, so the encoder read a free variable resolving to nothing at CALL TIME.
+#
+# Both were mutated: deleting the render turns the first RED on "Expected: visible /
+# Received: hidden" and the second RED on the click timing out against a hidden row.
+# Derived on the MERGED tree (origin/accepted was 3d5dfea, this branch's own base, so the
+# branch tree IS the merged tree), both identities: `npx playwright test --list` -> 218
+# tests in 56 files, `--grep "@devnet"` -> 17 in 1 file, `--grep-invert "@devnet"
+# --project=chromium` -> 201 collected.
+#
+# 218 -> 219 (same task, second pass): ONE more spec, extending
+# e2e/wallet_sign_in.spec.js — the mobile RETURN leg. The adoption also deleted
+# this app's copy of solana_sessions/phantom_callback, which was a TRUE SHADOW at
+# the identical virtual path, so while it existed the engine's copy was dead code
+# and no assertion anywhere could tell.
+#
+# WHY A BROWSER AND NOTHING CHEAPER. The deeplink_assets loader (solana-studio's
+# solana_studio/_deeplink_assets — the only copy, since /tasks/drop-engine-web3-modals
+# dropped studio-engine's in 0.66.2)
+# APPENDS a script element for tweetnacl — asynchronous — while the callback reads
+# `nacl` AT PARSE TIME and hard-fails with no retry. This app resolved that by
+# keeping its own BLOCKING tag and rendering deeplink_assets nowhere. A Rails test
+# can assert the tag carries no defer; it CANNOT assert nacl was defined when the
+# IIFE ran. The difference is one line of runtime text, and the spec reads it.
+# Mutation, with the server actually restarted: adding `defer` to that tag turns it
+# RED with Received: "TweetNaCl not loaded". The same spec pins the debug sink this
+# app opts back in to, and the OPSEC guarantee that the dapp x25519 secret's VALUE
+# never reaches it — against a REAL localStorage, where the existing Node-level test
+# uses a stubbed one.
+#
+# RE-DERIVED on this tree for /tasks/live-focus-game-ranking (+2, in two files:
+# the /live focus game, and the admin focus-rank drag board). Both identities,
+# with the runner:
+#   npx playwright test --list                                   -> 218 tests in 57 files
+#   npx playwright test --list --grep "@devnet"                  ->  17 tests in  1 file
+#   npx playwright test --list --grep-invert "@devnet" --project=chromium
+#                                                                -> 201 tests in 56 files
+#   218 - 17 - 4 = 197, and 201 collected - 4 runtime skips = 197   OK agree
+#
+# WHAT THE TWO NEW SPECS BUY.
+#
+# nfl_live_scoreboard (+1, the focus press): the panel's two halves are hidden by
+# two different rules in two different partials, and the Rails view test can prove
+# the MARKUP of both. What it cannot reach is the press — that Alpine state
+# declared on the page wrapper actually reaches a card inside a broadcast target,
+# that the pressed game leaves the grid and the one it replaced comes back, and
+# that the page travels up to the panel. That scroll is a thing no rendered String
+# has an opinion about, and it is the only visible consequence of a press that
+# would otherwise read as a game disappearing.
+#
+# admin_focus_ranks (+1, a whole new file, the week's drag-ordered focus list):
+# the reorder endpoint has an integration test and the board's wiring has a
+# component test, but both describe a page nobody has picked a card up on. A drag
+# is the only thing that exercises SortableJS binding to the engine's dropzone and
+# the studioBoard factory being present at all — a <script> rendered in the wrong
+# place yields a board that simply does not drag, with no server-side symptom
+# anywhere. Measured: removing the factory render turns this spec red, and so does
+# making the reorder endpoint a no-op, while every Rails test stays green.
+#
+# It asserts that the drag MOVED the game up and that a reload matches what the
+# browser ended up showing — deliberately NOT which slot SortableJS chose. That
+# pointer arithmetic is the library's, and pinning it here would make the spec a
+# metronome for a dependency rather than a test of this app.
+#
+# MERGED (this branch + accepted), re-derived on the merged tree with the tool
+# and both listers — NOT by adding the two sides' numbers, neither of which
+# describes this tree. 218 (mine) and 219 (theirs) each counted their own specs
+# and not the other's:
+#   npx playwright test --list                                   -> 221 tests in 57 files
+#   npx playwright test --list --grep "@devnet"                  ->  17 tests in  1 file
+#   npx playwright test --list --grep-invert "@devnet" --project=chromium
+#                                                                -> 204 tests in 56 files
+#   221 - 17 - 4 = 200, and 204 collected - 4 runtime skips = 200   OK agree
+#
+# 223 -> 225 (harden-strip-scroll-attribution): TWO specs in
+# e2e/nfl_live_scoreboard.spec.js, for two attribution gaps that only a browser
+# can see and that the strip's markup test cannot reach.
+#   · a drag whose every step is SMALLER than the handover tolerance. The
+#     comparison re-anchored on each scroll event, so the tolerance was spent
+#     afresh every few milliseconds and a slow finger was invisible however far
+#     it went -- 180px, two chips, with the rotation still armed. Verified RED
+#     against the pre-fix view.
+#   · a viewport WIDENING, which shrinks the largest reachable offset and makes
+#     the browser clamp scrollLeft back. 900px -> 1600px clamped 380px and read
+#     as the reader, standing the rotation down permanently (the flag lives on
+#     window, so no broadcast and no Turbo visit clears it). Verified RED too.
+# Re-derived with bin/e2e-lane-derive --write, never hand-incremented.
+#
+# 221 -> 223 (scroll-the-games-strip): TWO specs, both EXTENDING
+# e2e/nfl_live_scoreboard.spec.js — no file was added. Re-derived with
+# bin/e2e-lane-derive ON THE MERGED TREE after taking origin/accepted (2682b24,
+# which carried /tasks/live-focus-game-ranking's +2), NOT by adding the two
+# sides' numbers: this branch's own 220/199 was correct against the OLD base and
+# went stale the moment #497 merged. They cover the games strip becoming
+# hand-scrollable, and specifically the three ways that could regress invisibly.
+#
+# WHY A BROWSER AND NOTHING CHEAPER. The strip's Alpine component is rendered
+# INSIDE #contest_<id>_games, which Contest::LiveBroadcast#replace_games swaps
+# wholesale on every score — so a touchdown destroys and rebuilds it, and any
+# position or stand-down held on the component resets. The markup is IDENTICAL
+# before and after, so no view test and no source grep can see it: the only
+# witness is a live socket delivering a real Goal and a real scrollLeft read
+# afterwards. The spec drives the actual dev injector and waits on the container
+# being replaced, then asserts the reader's offset survived.
+#
+# IT CARRIES ITS OWN CONTROL, because the first cut of this spec did not and
+# passed for the wrong reason: it asserted "the strip did not move" inside a
+# 3s window while the rotation dwells 8s, so an untouched strip would not have
+# moved either. The spec now measures the window first — leaves the strip alone,
+# waits out the dwell, and requires it to travel — before any assertion that it
+# held. Mutated both ways: dropping the restore turns it RED at 0 instead of 700,
+# and neutering standDown() turns it RED on the drift after the dwell.
+#
+# THE SECOND SPEC IS THE VERTICAL-SCROLL REGRESSION, and it needs a browser for a
+# reason no cheaper tier reaches: it is about which element an EVENT reaches, not
+# about what is rendered. A `wheel` fires on whatever sits under the pointer and
+# bubbles whether or not that element scrolls, and this strip spans the top of
+# the live page — under the cursor on the way down to chat. While the handover
+# was bound to @wheel, reading the chat killed the rotation for the rest of the
+# session, with the strip itself never having moved (page scrollY 400, strip
+# scrollLeft 0, stood down anyway). The markup is identical either way; only a
+# real wheel over a real layout can tell. The view test pins the CONTRACT (no
+# bare @wheel="standDown()", shiftKey honoured); this pins the BEHAVIOUR.
+#
+# 225 -> 226 (turf-adopts-wallet-credential-slot): one spec in
+# e2e/auth_modal.spec.js for the auth modal's credential controls, and it needs a
+# browser for the sharpest possible reason: THE SERVER'S HTML IS BYTE-IDENTICAL
+# whether the card is live or dead. Alpine's x-bind rewrites an `undefined`
+# result to "" whenever the bound expression contains a DOT; "" misses
+# bindAttribute's [null, undefined, false] removal list, and `disabled` is a
+# boolean attribute, so Alpine emitted disabled="disabled" for a prop nobody set.
+# The attribute is applied at RUNTIME and never appears in the response bytes, so
+# every cheaper tier in this repo renders to a String that cannot see it — which
+# is exactly how it shipped: solana_utils.js reopened the modal after a 401 with
+# { step: 'credentials' } and nothing else, and a user whose session had just
+# expired met a card where nothing was tappable, with no console error.
+# The spec opens that real payload and asserts the four controls are ENABLED,
+# then reopens with submitting: 'google' and asserts they DISABLE — the control
+# case, without which the first half would pass just as happily against a modal
+# that had stopped binding `disabled` at all.
+#
+# 226 -> 228 on 2026-09-05: e2e/contests_rail.spec.js pins the /contests featured
+# rail (/tasks/redesign-contests-page-sections). Two specs, both browser-only by
+# nature: the right-edge fade is a MEASUREMENT (scrollWidth vs clientWidth vs
+# scrollLeft) that no rendered-HTML tier can settle, and it is asserted in the
+# falsifiable direction — at the END of the scroll nothing is off-screen, so a
+# fade still painted there is a lie; and the Coming Soon flag is driven in
+# through the REAL admin control on /contests/:slug/edit and back out as a
+# dimmed, sashed, re-sorted card, which is the only tier that proves the button
+# writes the column. The first spec also sweeps EVERY card title for the
+# one-line rule against a deliberately long fixture name, so that measurement
+# cannot go vacuous. Both specs seed their own contests (the dev seed ships
+# exactly one, and neither an overflowing rail nor an ordering is observable
+# with one card) and delete them by slug prefix in afterEach — the lane runs one
+# worker against one database, so a leftover contest is paid for by every later
+# spec that measures this page. Coverage ADDED; `quarantined` is untouched.
+# Re-derived with bin/e2e-lane-derive --write on a tree level with
+# origin/accepted (0 behind at derive time), never hand-incremented.
 
+# 228 -> 229 (server-side-cosign-broadcast): one spec in
+# e2e/cosign_fresh_transaction.spec.js for the treasury cosign flow, which no
+# server-side tier can witness. The response was never wrong — the page rendered
+# a perfectly valid transaction into `data-tx-serialized`. What broke it was
+# TIME: the blockhash inside those bytes aged from page render, so by the first
+# click it was usually dead, and clicking again re-sent the identical dead
+# bytes. Every String assertion passed the whole time, and $140 of alpha-contest
+# payouts sat unsent from June to September while the operator retried something
+# that could never land. The spec asserts what only a live browser produces —
+# the module's global actually installed, the live DOM carries no wire, and
+# invoking the flow POSTs to .../rebuild before anything is signed.
+# Re-derived with bin/e2e-lane-derive --write, never hand-incremented.
+
+#
+# 229 -> 233 on 2026-09-06: e2e/admin_free_entry_burn_confirm.spec.js pins the
+# CONFIRM DIALOG in front of the new /admin/free_entries burn controls
+# (/tasks/burn-free-entry-tokens). `button_to ... data: { turbo_confirm: }` is a
+# data attribute — server-side every tier can prove is that the string was
+# rendered, and whether Turbo actually intercepts the submit is a runtime fact
+# only a browser holds. It matters more here than on any other button on that
+# page: a mis-clicked Mint costs rent, a mis-clicked Burn destroys a user's
+# property with no undo. Four specs: dismiss sends nothing, accept sends exactly
+# one, "Burn all" names its count, and a holder with nothing spendable is
+# offered no control at all. Coverage ADDED; `quarantined` is untouched.
+#
+# 233 -> 237 (report-client-wallet-failures): four specs in
+# e2e/wallet_failure_report.spec.js, for a path that exists ONLY in a browser.
+# Wallet sign-in fails entirely client-side — caught, mapped, painted — so no
+# other tier can watch a real rejection end in a POST leaving the page. Two of
+# the four are the ones no server test can express at all: a 500 from the
+# reporting endpoint leaving the rendered error byte-identical (the fail-open
+# contract, proven by breaking it rather than by inspection), and a SUCCESSFUL
+# connect reporting nothing, so error_logs is not buried under the sign-ins it
+# is meant to make findable.
+#
+# One of them was INERT on first write and is worth recording: driven as the
+# admin, "a successful connect reports nothing" passed in 688ms having driven
+# nothing — global-setup.js pins the admin's wallet to the mock's own address,
+# so the `phantomLinked` wait it hangs on was already true before the click. It
+# now signs up a fresh account and ASSERTS the precondition first.
+#
+# 237 -> 238 (report-client-wallet-failures, second pass): a fifth spec, "a dead
+# network while reporting leaves the sign-in flow untouched". The four above
+# proved fail-open with a 500, which `fetch` RESOLVES — an HTTP error status is a
+# successful round trip — so the reporter's `.catch()` was never entered by any
+# of them. Measured by mutation 2026-09-07: deleting `.catch(function() {})`
+# outright left all four GREEN. Aborting the request rejects the promise and is
+# the only thing in the lane that exercises that guard.
+#
+# 238 -> 239 (nfl-turf-monster-rules-page): one spec, "turf monster rules page
+# loads @smoke", beside the turf-totals one it now sits next to. The navbar's
+# Rules link moved to /turf-monster-v1, so BOTH versioned rules pages are smoked
+# — the new destination, and the old route that must keep answering old links.
+#
+# THIS NUMBER SURVIVED A THREE-WAY CONFLICT and is the reason arithmetic is
+# banned here. Merging accepted put 234 (this branch, 233+1) against 237 (the
+# conflict hunk, 233+4); 234+4 = 238 was ALSO wrong, because accepted had moved
+# again while the branch sat in review. Only the lister run on the merged tree
+# gives 239. Re-run it, never add.
+#
+# 239 -> DERIVED (narrow-wallet-setup-diagnosis, #587): four specs in
+# e2e/wallet_sign_in.spec.js pin how NARROW the "Finish setting up your wallet
+# ... create or import one" diagnosis has to be. The catch that composes it
+# wrapped the whole connect + signMessage fallback, so it was also answering a
+# signMessage that failed AFTER connect() returned a public key, a user who
+# dismissed the account-selection sheet, and our own nonce endpoint falling over.
+# Only a run can say WHICH guard answered — the assertions compare sentences the
+# page EMITTED against each other rather than against a copy typed into the spec.
+#
+# + DERIVED (raw-message-is-ours, #590): the wallet-failure specs in
+# e2e/wallet_failure_report.spec.js, which pin that the reported pair ARRIVES
+# differing rather than byte-identical. The LAST of them was added during this
+# branch's rework and is the reason the count moved twice here: #587's second
+# substituting guard (`connected`) shipped without a report, and the only tier
+# that can see that is a run — a source scan sees a file that reports and cannot
+# tell WHICH guard it reports from. Reaching that guard also needed a new knob on
+# e2e/phantom-mock.js (`signMessageError`), because a wallet that fails connect()
+# never gets there.
+#
+# THIS LINE HAS NOW CONFLICTED THREE TIMES ACROSS TWO BRANCHES, AND NO SIDE'S
+# NUMBER HAS EVER SURVIVED. report-client-wallet-failures (237 vs 238), then
+# nfl-turf-monster-rules-page (242 vs 239), now #587 vs #590 (241 vs 243).
+# Every one of those pairs tempted an addition and every addition would have been
+# wrong, because each side counted a base the other had already moved past. The
+# only number that describes THIS tree is the one the lister produced after the
+# merge. Re-derived with bin/e2e-lane-derive --write on the MERGED tree. Re-run
+# it, never add.
+#
+# 246 -> DERIVED (level-up-reveals-stale-modal, #597): two specs in
+# e2e/level_up_stacked_modal.spec.js. One pins that a settled free entry leaves
+# nothing under the level-up celebration; the other that a level-up arriving
+# mid-signature never clobbers the prompt still waiting on the user. Both cover
+# ONE CARD PER FLOW in the layout's show(), where three stacked onchain-tx cards
+# used to make dismissing the celebration pop back to a settled transaction's
+# spinner.
+#
+# AND THIS LINE CONFLICTED A FOURTH TIME, which is the point the paragraph above
+# keeps making. This branch declared 248 (246+2); accepted, moved on by #593,
+# declared 247 (246+1). 248+1 = 249 happened to be right THIS TIME and was still
+# not derived — the lister on the merged tree is what wrote it. The arithmetic
+# agreeing once is not evidence it is the method; the three entries above are
+# three times it disagreed.
+# 247 -> 250 (signatures-nav-pending-badge): three specs in
+# e2e/signatures_nav_badge.spec.js for the admin Signatures badge. Its signal is
+# its WEIGHT — gray at zero, bold when something waits — so it can be caught
+# peripherally without reading the digit, and a rendered-markup assertion can
+# only confirm the class NAME is in the attribute. Tailwind compiles the
+# utilities it can see; a class that never reaches the build emits no rule while
+# every String assertion keeps passing. getComputedStyle is the only witness
+# that the distinction reaches a reader's eye. The specs state their premise
+# through /test/set_pending_signatures rather than hoping the seed leaves a
+# pending row, because it leaves none — the bold branch, which is the one that
+# matters, would otherwise never run.
+# Re-derived with bin/e2e-lane-derive --write AFTER merging accepted (11 behind
+# at the time), never hand-incremented. NOTE: modal-steps-stop-stacking (PR
+# #600) also adds four specs and is still at `submitted` — whichever of the two
+# merges second must re-derive, or the counter silently under-declares.
+#
+# AND A FIFTH TIME — resolved in REVIEW, not by the builder. #602
+# (signatures-nav-pending-badge) merged into accepted while this PR's merge was
+# in flight, moving the line 247 -> 250 and leaving this branch's 249 BELOW the
+# base, which fails e2e_declared_set outright. The branch was NOT bounced for it:
+# the base moved after the review claim, so there was nothing for the builder to
+# answer. Re-derived with bin/e2e-lane-derive --write on the MERGED tree, which
+# is the only thing this file has ever accepted. Note what the arithmetic would
+# have said: 249 + 3 = 252 and 250 + 2 = 252 AGREE here, and agreement still is
+# not derivation — the lister is what wrote the number below.
+#
+# 257 -> 261 (gate-admin-flows-desktop-only): four specs in
+# e2e/admin_desktop_only.spec.js for the four admin wallet flows now declaring
+# themselves DESKTOP-ONLY. Two of the three are only observable in a browser and
+# a UA away from the default: the notice ships HIDDEN in the response body and
+# is revealed by a script reading navigator, so no rendered-markup assertion can
+# tell "painted on a phone" from "never painted at all", and the disabled state
+# of the Co-sign buttons is set the same way. The third runs the flow on a
+# DESKTOP and proves it still reaches the server, which is what keeps a gate
+# that refuses everybody from satisfying the other two. The fourth covers the
+# contest lock/conclude flow, which is the one of the four admin flows with no
+# view of its own to paint into — its buttons live in app/views/contests/** —
+# so the click-time refusal is its ENTIRE declaration and this is the only tier
+# that can witness it. Derived with bin/e2e-lane-derive --write, not
+# incremented by hand.
+#
+# 261 -> 264 (survivor-settle-never-fires): three specs added to the EXISTING
+# e2e/onchain_settled_navbar.spec.js (66 files, unchanged) for onchainSettled's
+# new mayNavigate shape — arms both halves and settles in place, survives a
+# close-triggered navigation, and retires only the window it served. They cover
+# the seam no other tier reaches: the node tests execute the same module against
+# stubbed globals, so they prove the logic and nothing about the PAGE — not that
+# the importmap serves the new branch, not that window.onchainSettled takes the
+# option, not that the element it blanks is the pill the navbar renders. The
+# survivor board's call site is guarded by `typeof onchainSettled === 'function'`,
+# so each of those failures is SILENT, which is the same shape as the bug being
+# fixed. Derived with bin/e2e-lane-derive --write, not incremented by hand.
+#
+# EACH OF THE THREE DISCRIMINATES, measured against the pre-fix module on
+# 2026-09-09: with onchainSettled reverted, all three fail and the three
+# pre-existing specs still pass. That was not true of the first version — an
+# unknown option falls through to a plain schedule, so two of them passed
+# against the very bug they were written for. Both were re-aimed onto the
+# marker, which is the only thing the new shape does that no old shape does.
+#
+# 264 -> 265 (contest-banner-link-preview): one spec added in the NEW
+# e2e/og_image.spec.js for the contest link-preview card. It covers the seam no
+# lower tier reaches: the unit tiers assert the variant's TRANSFORMATION and the
+# integration tier asserts the TAG, and neither proves the URL in that tag
+# actually serves an image — the proxy route, the signed blob id and the
+# ImageMagick processor all sit between them. The spec fetches the og:image URL
+# back over HTTP and reads width/height out of the PNG IHDR, so a perfectly
+# formed tag pointing at a 404 fails here and passes everywhere else.
+# Re-derived with bin/e2e-lane-derive --write ON THE MERGED TREE, not by
+# arithmetic on the conflict this line has now hit a fourth time.
+#
+# 265 -> 266 (error-paragraphs-lack-live-regions): one spec added to the EXISTING
+# e2e/auth_modal.spec.js. That task made live regions of twelve error paragraphs,
+# five of which were `<template x-if="<error>">` and so did not exist until the
+# error did. The component tier pins that markup shape for all thirteen, but it
+# reads SOURCE: it cannot see whether Alpine really leaves the element mounted
+# once the modal's own step template has rendered. The spec reads the region
+# while it is still EMPTY and then watches it fill, which is the ordering no
+# source scan can reach. Re-derived with bin/e2e-lane-derive --write ON THE
+# MERGED TREE, after this line conflicted with #639's bump of the same counter.
+#
+# 266 -> 268 (gift-entry-by-email): two specs in e2e/entry_gift.spec.js for
+# gifting a free entry by email. The second is the one that needs a browser: the
+# server tiers already prove the click creates the account, mints the wallet and
+# redirects to the contest, but the thing the feature was ASKED for — that the
+# recipient lands IN the onboarding chain (first name → birthday) rather than on
+# a bare contest page — is walked by the layout's driver and the Alpine modal
+# host, so only a runtime can witness a card actually opening. The first drives
+# the operator's real send form, which is what makes the second's link the one a
+# real send produces rather than a fixture. Derived with bin/e2e-lane-derive
+# --write, not incremented by hand.
+# 268 -> 269 (free-entry-skips-wallet): one spec in e2e/entry_gift.spec.js for
+# the free-entry wallet bypass. The server tiers assert the two facts the client
+# READS — the chain's step list and session[:wallet_setup] — and cannot see what
+# the page DOES with them: the chain is walked by the layout's driver, the card
+# is opened by the Alpine modal host, and the hold-to-confirm block comes from
+# eligibilityBlocker in solana_utils.js, which checks walletSetupRequired BEFORE
+# tokensAvailable. The operator hit this card on TWO paths (the chain, and again
+# after a refresh) and both are runtime-only. Derived with bin/e2e-lane-derive
+# --write, not incremented by hand.
+#
+# 269 -> 276 (wire-contest-entry-walletops): the mobile entry path's specs, as
+# they land on the MERGED tree. Two NEW files —
+# e2e/contest_entry_callback_registration.spec.js, which loads
+# /auth/phantom/callback itself and asserts the contest_entry intent is
+# registered ON THAT DOCUMENT, and e2e/contest_entry_redirect_transport.spec.js
+# for the redirect handoff — plus a net addition in
+# e2e/wallet_require_provider.spec.js. The callback file exists because its
+# predecessor did not: a spec titled "the intent is registered by the name the
+# callback looks up" asserted at "/", a page that renders the board and so
+# registers the intent locally, and never visited the route in its own title.
+#
+# READ THE LIMIT OF THIS TIER BEFORE TRUSTING IT. playwright.config.js declares
+# chromium and devnet (also chromium) and NO webkit project, so every "on a
+# phone" spec here is a UA-string swap on a desktop engine. That is why a
+# PARSE-TIME ORDERING defect on the real callback document — complete() reaching
+# for a window.authedFetch that the deferred importmap module had not defined yet
+# — survived a green lane twice. This lane proves the wiring, not the device.
+# Derived with bin/e2e-lane-derive --write ON THE MERGED TREE, not by arithmetic.
+total_specs: 276
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -46,30 +851,300 @@ total_specs: 145
 # exclusion later is a red build rather than a quiet loss of coverage.
 excluded: 17
 
-# THE SPECS BEHIND A FEATURE FLAG THAT IS OFF IN THE DEFAULT CI RUN.
+# THE RUNTIME SKIPS THIS LANE TOLERATES — four, each with a NAMED reason.
 #
-# e2e/financial.spec.js gates the Coinflow and Aeropay payment rails on ENABLE_COINFLOW /
-# ENABLE_AEROPAY and skips when they are unset, which they are in CI. That is deliberate
-# and the file says so ("Gated on ENABLE_COINFLOW so the default CI run (flag off) skips
-# it"), and the money path is covered authoritatively by the Rails tests
-# (webhooks/aeropay_controller_test.rb + token_purchase_job_test.rb).
+# A runtime skip exits 0 and reports green; it is the one axis no source-level guard can
+# close. So the count is DECLARED. One more than this is RED and the gate names the
+# offending titles. Raising it is an edit to this line, in front of a reviewer, with a
+# reason — which is the whole point.
 #
-# IT WAS ALSO INVISIBLE, and that is why this line exists. THIS GATE'S FIRST REAL RUN found
-# them: 122 executed against a claimed 128, on a lane whose three shards ALL reported PASS.
-# Nothing in the repo declared how many specs the flags cost, and nothing would have
-# noticed the number growing. A runtime skip exits 0 and reports green; it is the one axis
-# no source-level guard can close.
+# THIS GATE'S FIRST REAL RUN found them: 122 executed against a claimed 128, on a lane
+# whose three shards ALL reported PASS. Nothing in the repo declared what the skips cost.
 #
-# So it is DECLARED. One more runtime skip than this is RED. Raising it is an edit to this
-# line, in front of a reviewer, with a reason — which is the whole point.
-flag_gated: 6
+# The four:
+#
+#   MISSING SECRET (2) — the webhook-signature specs, which need a real key to sign with.
+#     · e2e/financial.spec.js:140  COINFLOW_WEBHOOK_VALIDATION_KEY not set on the e2e stack
+#     · e2e/financial.spec.js:237  AEROPAY_WEBHOOK_SIGNING_KEY not set on the e2e stack
+#     Covered authoritatively by the Rails tests (webhooks/aeropay_controller_test.rb +
+#     token_purchase_job_test.rb), which sign with a fixture key.
+#
+#   QUARANTINED (2) — `test.fixme`, COVERED NOWHERE. Not a considered exclusion, an
+#   admission; re-homing these is backlog, not a config edit.
+#     · e2e/onchain.spec.js:121  onchain entry via Phantom with mocked devnet
+#     · e2e/onchain.spec.js:211  admin creates onchain contest
+#
+# WAS 6, AND WAS CALLED `flag_gated`. The other two were the ENABLE_COINFLOW /
+# ENABLE_AEROPAY buy-1 specs, which had never run in ANY lane. They now execute in both
+# (playwright.config.js sets the flags for the Playwright process AND for the server;
+# bin/e2e-parallel exports them at each launch subshell), so they left this allowance for
+# `executed`. NOTHING COUNTED HERE IS FLAG-GATED ANY MORE — the old name went on
+# describing the two specs that had LEFT, which is the same misleading label this lane
+# exists to catch. The key is the honest one now: an allowance for runtime skips,
+# whatever their reason.
+allowed_skips: 4
 
-# total_specs - excluded - flag_gated. What the lane MUST execute, asserted against the
+# total_specs - excluded - allowed_skips. What the lane MUST execute, asserted against the
 # runner's own report, so no source-level spelling on any axis can move it without moving
-# this line. Derived: 145 committed - 17 @devnet - 6 flag-gated = 122, and MEASURED at
-# exactly 122 on run 32343994804.
-executed: 122
-
+# this line. Derived: 175 committed - 17 @devnet - 4 allowed = 154.
+#
+# Every number here was re-derived with the runner, not adjusted by arithmetic on the last
+# one. On this MERGED tree: `npx playwright test --list` reports 175 tests in 46 files,
+# `--grep "@devnet"` 17 in 1 file, and `--grep-invert "@devnet" --project=chromium` 158
+# collected for the PR lane — 158 - 4 runtime skips = 154.
+#
+# allowed_skips STAYS AT 4, and every branch folded into this ledger was checked against it
+# separately. The seven step-up specs carry no runtime skip, and neither do the three
+# entry-badge specs, the two free-entry CTA specs, or the two spend-mirror specs
+# (158 collected - 154 executed = the same 4). make-reduced-motion-reach-specs added no
+# skip and removed none: reduced motion is now the lane's real default and the two specs
+# that need a running timeline opt out with `allowMotion(page)` (e2e/helpers.js), which
+# changes what a spec MEASURES, never whether it RUNS. A change that flips the lane's
+# motion environment is exactly the kind that gets "absorbed" by widening this allowance
+# instead — it must not be. The whole delta lands on `executed`.
+#
+# ⚠️ THE PROSE IS PART OF THE LEDGER. A round once derived 138 from 159 while the VALUE
+# below already read 140 — correct number, wrong working. A stale derivation is worse than
+# none: the next merge resolves this file by READING the sentence. When you re-run the
+# lister, rewrite these numbers with it, in the same edit.
+#
+# ⚠️ RE-DERIVE THIS ON EVERY MERGE, and do not take either side. See the worked example
+# on total_specs above: an earlier merge joined two branches that had each written 136 for a
+# DIFFERENT pair of specs, and the number came through the merge unconflicted.
+#
+# History: 143 and 147 on the two sides THIS merge joins — entry-badge-opens-sidebar
+# (which had itself already resolved 140-vs-141) against an `accepted` carrying
+# web3-step-up-auth + make-reduced-motion-reach-specs; the trap firing for the SIXTH
+# time. Round five was the first to come through the un-conflicted derivation PROSE
+# rather than the number; 138 before any of them;
+# 136 on each of the two branches the merge before that joins — fade-mask-follows-face-swap
+# and hide-badge-for-zero-tokens BOTH declared 136 for different pairs of specs, the trap
+# firing for the THIRD time; 134 on each of the two branches the merge before that joined
+# (redact-helius-key-from-browser and fade-mask-follows-face-swap), the second firing;
+# 132 (153 - 17 - 4) after glow-typed-chat-prompts merged with polish-free-entry-badge;
+# 130 (151 - 17 - 4) on each of THOSE two branches, the same trap one round earlier;
+# 128 (149 - 17 - 4) before either of them; 126 before that (the two payment specs still
+# skipping); and 122 against 145 committed before adopt-engine-geo-primitives added its
+# four geo specs.
+# 138 -> 150 across the three branches this ledger now carries: +7
+# web3_step_up.spec.js, +2 reduced_motion.spec.js, +3 entry_badge_sidebar.spec.js,
+# all twelve in the chromium lane and none carrying a runtime skip. The sides
+# declared 147 and 143; the merged tree is neither.
+# Re-derived with the runner on THIS merged tree, not by arithmetic on either:
+# `npx playwright test --list` reports 171 tests in 44 files, `--grep "@devnet"`
+# 17 in 1 file, and `--grep-invert "@devnet" --project=chromium` 154 collected
+# for the PR lane — 154 - 4 allowed skips = 150.
+#
+# 150 -> 154 on THIS merge (round seven). Two sources, and neither side's figure
+# is right: `accepted` moved to 171/150 while this branch sat at 161/140, and
+# this round then added 2 specs of its own on top of the branch's 2. Both are in
+# the chromium lane and neither carries a runtime skip, so allowed_skips HOLDS
+# AT 4 and the whole delta lands here. Re-derived with the runner on the merged
+# tree, not by arithmetic on either side: `npx playwright test --list` -> 175
+# tests in 46 files, `--grep "@devnet"` -> 17 in 1 file, and
+# `--grep-invert "@devnet" --project=chromium` -> 158 collected for the PR lane.
+# 175 - 17 - 4 = 154, and 158 collected - 4 runtime skips = 154. Both routes to
+# the number agree, which is the only reason to trust either.
+#
+# 154 -> 156 on round eight (graceful-wallet-session-switch). The two new
+# wallet_session_switch specs both run in the chromium lane and neither carries a
+# runtime skip, so allowed_skips HOLDS AT 4 and the whole delta lands here.
+# THE RUNTIME RECEIPT AGREES, which is the part worth recording: this branch's
+# first CI run went red at "156 executed against a contract of 154" — the gate
+# measuring the same 156 the lister derives below, from the runner's own report,
+# by a route that shares no code with the lister. Re-derived on this tree, not by
+# arithmetic on the line above: `npx playwright test --list` -> 177 tests in 47
+# files, `--grep "@devnet"` -> 17 in 1 file, and `--grep-invert "@devnet"
+# --project=chromium` -> 160 collected for the PR lane. 177 - 17 - 4 = 156, and
+# 160 collected - 4 runtime skips = 156.
+#
+# 156 -> 157 on round nine. The one new wallet_changed_card_scope spec runs in
+# the chromium lane and carries no runtime skip, so allowed_skips HOLDS AT 4 and
+# the whole delta lands here. Re-derived on this tree, not by arithmetic:
+# `npx playwright test --list` -> 178 tests in 48 files, `--grep "@devnet"` -> 17
+# in 1 file, `--grep-invert "@devnet" --project=chromium` -> 161 collected.
+# 178 - 17 - 4 = 157, and 161 collected - 4 runtime skips = 157. Both routes agree.
+#
+# 157 -> 160 on round ten (consolidate-wallet-sign-in). All three new
+# wallet_sign_in specs run in the chromium lane and none carries a runtime skip,
+# so allowed_skips HOLDS AT 4 and the whole delta lands here. The change adds no
+# skip and removes none: the fallback spec disables the feature at the PROVIDER
+# (`supportsSignIn = () => false`), which changes which branch a spec MEASURES,
+# never whether it RUNS — the same distinction make-reduced-motion-reach-specs
+# recorded above, and the same reason this allowance must not absorb it.
+# Re-derived on this tree, not by arithmetic on the line above:
+# `npx playwright test --list` -> 181 tests in 49 files, `--grep "@devnet"` -> 17
+# in 1 file, `--grep-invert "@devnet" --project=chromium` -> 164 collected.
+# 181 - 17 - 4 = 160, and 164 collected - 4 runtime skips = 160. Both routes
+# agree, which is the only reason to trust either.
+#
+# 160 -> 162 on round ten part two (the review bounce). Both new decline/fallback
+# specs run in the chromium lane and neither carries a runtime skip, so
+# allowed_skips HOLDS AT 4 and the whole delta lands here. Neither spec skips
+# anything: they override the provider's signIn to reject or to return a
+# non-conforming message, which changes what a spec MEASURES, never whether it
+# RUNS — the same distinction recorded for the round-ten fallback spec above.
+# Re-derived on this tree, not by arithmetic on the line above:
+# `npx playwright test --list` -> 183 tests in 49 files, `--grep "@devnet"` -> 17
+# in 1 file, `--grep-invert "@devnet" --project=chromium` -> 166 collected.
+# 183 - 17 - 4 = 162, and 166 collected - 4 runtime skips = 162. Both routes agree.
+# 162 -> 163. phantom_debug_retry runs in the chromium lane and carries no runtime
+# skip, so allowed_skips HOLDS AT 4 and the delta lands here. Re-derived on the
+# MERGED tree after this branch collided with the counter on `accepted` — never by
+# arithmetic, which is exactly what the collision would have corrupted:
+# `npx playwright test --list` -> 184 tests in 50 files, `--grep "@devnet"` -> 17
+# in 1 file, `--grep-invert "@devnet" --project=chromium` -> 167 collected.
+# 184 - 17 - 4 = 163, and 167 collected - 4 runtime skips = 163. Both routes agree.
+# 163 -> 164, re-derived on the MERGED tree for the SECOND time on this branch:
+# `accepted` moved under it twice while CI ran. Incrementing the old value would
+# have silently re-claimed a count another PR had already published, which is the
+# precise failure this lane exists to catch:
+# `npx playwright test --list` -> 185 tests in 50 files, `--grep "@devnet"` -> 17
+# in 1 file, `--grep-invert "@devnet" --project=chromium` -> 168 collected.
+# 185 - 17 - 4 = 164, and 168 collected - 4 runtime skips = 164. Both routes agree.
+# 164 -> 166: the two wallet_disconnect specs. Neither adds a runtime skip, so
+# the declared skip count below is unchanged. RE-DERIVED, both routes:
+# `npx playwright test --list` -> 187 in 51 files; `--grep "@devnet"` -> 17;
+# `--grep-invert "@devnet" --project=chromium` -> 170 collected.
+# 187 - 17 - 4 = 166, and 170 collected - 4 runtime skips = 166. Both agree.
+#
+# 164 -> 167 (adopt-birthday-age-gate-flow): the three new birthday/age-gate
+# specs run in the chromium lane and none carries a runtime skip, so
+# allowed_skips HOLDS AT 4 and the whole delta lands here. Derived, both routes:
+# `npx playwright test --list` -> 188 tests in 51 files, `--grep "@devnet"` -> 17
+# in 1 file, `--grep-invert "@devnet" --project=chromium` -> 171 collected.
+# 188 - 17 - 4 = 167, and 171 collected - 4 runtime skips = 167. Both routes agree.
+# 167 -> 169. Re-derived on the MERGED tree — THIRD collision on this counter today,
+# which is exactly why it is never incremented: adding deltas would silently
+# re-claim a count another PR already published.
+# `npx playwright test --list` -> 190 tests in 52 files, `--grep "@devnet"` -> 17
+# in 1 file, `--grep-invert "@devnet" --project=chromium` -> 173 collected.
+# 190 - 17 - 4 = 169, and 173 collected - 4 runtime skips = 169. Both routes agree.
+#
+#
+# BOTH LANDED — re-derived after the merge, both routes, see total_specs above.
+# `--grep "@devnet"` -> 17; `--grep-invert "@devnet" --project=chromium` -> 173.
+# 190 - 17 - 4 = 169, and 173 collected - 4 runtime skips = 169. Both routes agree.
+#
+# 169 -> 171: the two logout specs. Neither adds a runtime skip. Both routes:
+# `--grep "@devnet"` -> 17; `--grep-invert "@devnet" --project=chromium` -> 175.
+# 192 - 17 - 4 = 171, and 175 collected - 4 runtime skips = 171. Both agree.
+#
+# 167 -> 175 (live-nfl-score-pipeline): the eight /live scoreboard specs, all in
+# the chromium lane, none carrying a runtime skip — so allowed_skips HOLDS AT 4
+# again and the whole delta lands here. Derived on the MERGED tree, both routes:
+# `npx playwright test --list` -> 196 tests in 52 files, `--grep "@devnet"` -> 17
+# in 1 file, `--grep-invert "@devnet" --project=chromium` -> 179 collected.
+# 196 - 17 - 4 = 175, and 179 collected - 4 runtime skips = 175. Both routes agree.
+#
+# ⚠️ THIS KEY IS EASY TO MISS AND THE GATE CATCHES IT ANYWAY, WHICH IS THE POINT.
+# The first cut of this change raised `total_specs` to 193 and left `executed` at
+# 167. Nothing local complained: the lister agreed with total_specs, the three
+# playwright shards ran, and the number only came apart in CI, which measured
+# 172 executed against a contract of 167 and went red in six seconds. Raise BOTH
+# in the same commit — the check's own message says so, and it means it.
+#
+# Re-derived on the merged tree alongside total_specs above: 200 - 17 - 4 = 179,
+# and 183 collected - 4 runtime skips = 179. Both routes agree. Neither branch's
+# figure (175 / 171) was correct after the merge.
+#
+# Re-derived on THIS merged tree, both identities, after the fourth collision.
+# The review's 192/171 was correct when written and stale by the time it landed.
+# `--grep "@devnet"` -> 17; `--grep-invert "@devnet" --project=chromium` -> 186.
+# 203 - 17 - 4 = 182, and 186 collected - 4 runtime skips = 182. Both routes agree.
+# allowed_skips stays 4: had a new spec added a runtime skip the two identities
+# would disagree, and they agree.
+#
+# Re-derived on THIS merged tree after the sixth collision, alongside total_specs
+# above. Both sides' figures (184 / 189) were correct on their own base and wrong
+# here. allowed_skips stays 4 — it is the one HAND-declared field, and the two
+# identities still agree, which is what proves no new spec brought a runtime skip.
+# 212 - 17 - 4 = 191, and 195 collected - 4 runtime skips = 191. Both routes agree.
+#
+# 191 -> 194 (merge of accepted + defork-turf-modal-host): two specs from
+# focus-game-scorer-card and one from the modal-host defork. allowed_skips stays 4 —
+# the two identities still agree, which is what proves no new spec brought a runtime
+# skip with it.
+#
+# 195 -> 197 (adopt-engine-phantom-deeplink): the two phone-picker specs described
+# beside total_specs above. Both keys move in THIS commit — the check's own message
+# says so and means it. allowed_skips stays 4: neither spec carries a runtime skip,
+# and the two identities agreeing is what proves that rather than my saying so.
+# 218 - 17 - 4 = 197, and 201 collected - 4 runtime skips = 197. Both routes agree.
+#
+# 197 -> 198 (same task, second pass): the callback spec described beside
+# total_specs above. Re-derived with bin/e2e-lane-derive, which is the tool, not
+# arithmetic — it read 219 in the tree against a contract of 218 and said so.
+# allowed_skips stays 4; it carries no runtime skip.
+#
+# 195 -> 197 (/tasks/live-focus-game-ranking): one spec for the /live focus game
+# and one for the admin drag board. Re-derived with both listers on this tree
+# rather than incremented — 218 - 17 - 4 = 197, and 201 collected - 4 runtime
+# skips = 197. allowed_skips stays 4: the two identities still agree, which is
+# what proves neither new spec brought a runtime skip with it.
+#
+# MERGED: 197 (mine) / 198 (theirs) -> 200. Re-derived on the merged tree, both
+# identities above, with allowed_skips still 4 — the two routes agreeing is what
+# proves neither branch's specs brought a runtime skip.
+#
+# 202 -> 204 (harden-strip-scroll-attribution): the two strip-attribution specs
+# described beside total_specs above. allowed_skips stays 4; neither carries a
+# runtime skip. Re-derived with bin/e2e-lane-derive --write against a tree
+# already level with origin/accepted (0 behind at derive time).
+#
+# 200 -> 202 (scroll-the-games-strip): the two strip specs described beside
+# total_specs above. Re-derived with bin/e2e-lane-derive ON THE MERGED TREE, not
+# by arithmetic — this branch was cut when the contract read 216/195, reached
+# 220/199 against a base that then moved, and only the tool run after merging
+# 2682b24 describes this tree. allowed_skips stays 4; neither spec carries a
+# runtime skip.
+#
+#
+# 218 -> DERIVED (narrow-wallet-setup-diagnosis #587 + raw-message-is-ours #590):
+# the wallet sign-in specs and the wallet-failure specs described beside
+# total_specs above. Re-derived with bin/e2e-lane-derive --write ON THE MERGED
+# TREE, not by arithmetic on any of the three conflicts this line has hit.
+# allowed_skips stays 4: both listers agree, which is what proves none of the new
+# specs brought a runtime skip with it.
+#
+# 240 -> 243 (survivor-settle-never-fires): the three mayNavigate specs described
+# beside total_specs above. None is tagged @devnet and none skips, so excluded
+# stays 17 and allowed_skips stays 4 — both listers agree, which is what proves
+# the new specs brought no runtime skip with them. Re-derived with
+# bin/e2e-lane-derive --write, not by arithmetic.
+#
+# 243 -> 244 (contest-banner-link-preview): the og:image card spec described
+# beside total_specs above. It is not tagged @devnet and does not skip, so
+# excluded stays 17 and allowed_skips stays 4 — both listers agree, which is
+# what proves the new spec brought no runtime skip with it. Re-derived with
+# bin/e2e-lane-derive --write ON THE MERGED TREE, not by arithmetic.
+#
+# 244 -> 245 (error-paragraphs-lack-live-regions): the auth-modal live-region
+# spec described beside total_specs above. It is not tagged @devnet and does not
+# skip, so excluded stays 17 and allowed_skips stays 4. Re-derived with
+# bin/e2e-lane-derive --write ON THE MERGED TREE, not by arithmetic.
+#
+# 245 -> 247 (gift-entry-by-email): the two gift specs described beside
+# total_specs above. Neither is tagged @devnet and neither skips, so excluded
+# stays 17 and allowed_skips stays 4 — both listers agree, which is what proves
+# the new specs brought no runtime skip with them. Re-derived with
+# bin/e2e-lane-derive --write ON THE MERGED TREE, not by arithmetic on either
+# side of the conflict. THE BASE HAS MOVED UNDER A CORRECT RE-DERIVE TWICE ON
+# THIS TASK — 264/243 at the first review, 265/244 when it was resolved, 266/245
+# at the second review, 267/246 after that merge — so the only value worth
+# writing is the one the runner prints on the tree you are about to push.
+#
+# 247 -> 248 (free-entry-skips-wallet): the wallet-bypass spec described beside
+# total_specs above. Not tagged @devnet and does not skip, so excluded stays 17
+# and allowed_skips stays 4 — both listers agree. Re-derived with
+# bin/e2e-lane-derive --write, not by arithmetic.
+#
+# 248 -> 255 (wire-contest-entry-walletops): the mobile-entry specs described
+# beside total_specs above. None is tagged @devnet and none skips, so excluded
+# stays 17 and allowed_skips stays 4 — both listers agree, which is what proves
+# the new specs brought no runtime skip with them. Derived with
+# bin/e2e-lane-derive --write, not by arithmetic.
+executed: 255
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

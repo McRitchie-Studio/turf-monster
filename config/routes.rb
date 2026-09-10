@@ -56,6 +56,11 @@ Rails.application.routes.draw do
   get "wallet_probe" => "wallet_probe#show", as: :wallet_probe
   root "contests#world_cup"
 
+  # League-wide live NFL scoreboard. Public and read-only — the visual medium
+  # for the semi-live score feed, kept current between page loads by the
+  # "nfl_live" Turbo stream (Nfl::LiveBroadcast).
+  get "live", to: "live#index", as: :live
+
   # Prelaunch audit M14 (2026-05-24): dev-only tools — not drawn in production
   # so they don't leak surface area on the public-mainnet app. Drawn in dev +
   # test (so existing template URL helpers continue resolving in the test env).
@@ -63,9 +68,23 @@ Rails.application.routes.draw do
     get  "toast_test",       to: "toast_test#index"
     post "toast_test/flash", to: "toast_test#trigger_flash"
     get  "seeds_lab",        to: "seeds_lab#index", as: :seeds_lab
+
+    # Live-scoreboard score injectors. These write REAL Goal rows so the whole
+    # pipeline runs (score recompute -> contest re-score -> websocket -> toast);
+    # a broadcast-only fake would prove nothing about the UX it is here to show.
+    # Undrawn in production, and the controller re-checks the environment.
+    post "dev/live_scores/record",     to: "dev/live_scores#record",     as: :dev_live_scores_record
+    post "dev/live_scores/clear_game", to: "dev/live_scores#clear_game", as: :dev_live_scores_clear_game
+    post "dev/live_scores/conclude_game", to: "dev/live_scores#conclude_game", as: :dev_live_scores_conclude_game
   end
 
-  get "turf-totals-v1", to: "pages#turf_totals_v1", as: :turf_totals_v1
+  # Two versioned rules pages, one per SEASON — not one per brand. turf-totals-v1
+  # documents the World Cup format (logarithmic multiplier, x1-x3, goals);
+  # turf-monster-v1 documents the NFL format (linear multiplier, x1-x2, points
+  # scored, multi-week spans). The navbar's Rules link points at whichever
+  # season is being played; both stay routed so an old link never 404s.
+  get "turf-totals-v1",  to: "pages#turf_totals_v1",  as: :turf_totals_v1
+  get "turf-monster-v1", to: "pages#turf_monster_v1", as: :turf_monster_v1
   get "terms",          to: "pages#terms",          as: :terms
 
   # Site-legitimacy / trust pages. A real Privacy Policy, Terms of Service, and
@@ -77,8 +96,8 @@ Rails.application.routes.draw do
   get "contact", to: "pages#contact", as: :contact
 
   # Underwriting compliance pages (2026-06): responsible-gaming resources +
-  # the published state-eligibility list (rendered live from GeoSetting so it
-  # can never drift from the IP-geolocation enforcement). Linked from the
+  # the published state-eligibility list (rendered live from Studio::GeoSetting
+  # so it can never drift from the IP-geolocation enforcement). Linked from the
   # global footer next to the legal links.
   get "responsible-gaming", to: "pages#responsible_gaming", as: :responsible_gaming
   get "state-eligibility",  to: "pages#state_eligibility",  as: :state_eligibility
@@ -120,7 +139,26 @@ Rails.application.routes.draw do
   get "lp/:slug", to: "landing_pages#show", as: :landing_page
 
   # Phantom deep link callback — must be before Studio.routes to avoid
-  # matching OmniAuth's /auth/:provider/callback wildcard
+  # matching OmniAuth's /auth/:provider/callback wildcard.
+  #
+  # THIS LINE STAYS, and /tasks/adopt-engine-phantom-deeplink VERIFIED that
+  # rather than assuming it. The adoption deleted this app's fork of the
+  # callback VIEW so the engine's renders instead, but the ROUTE is still this
+  # app's, for two independent reasons:
+  #
+  #   1. The engine's own declaration sits behind `Studio.draw_auth_routes &&
+  #      Studio.auth_method?(:wallet)`, and config/initializers/studio.rb sets
+  #      draw_auth_routes = false (this app draws its own auth set). So the
+  #      engine never draws it here at all.
+  #   2. Even with that flag on it would lose. Studio.routes draws the OmniAuth
+  #      wildcard `auth/:provider/callback` UNCONDITIONALLY and EARLIER in the
+  #      same block, so a phantom callback drawn after it recognises as
+  #      omniauth_callbacks#create with provider "phantom".
+  #
+  # Deleting this line therefore does not hand the engine control; it 404s
+  # every mobile Phantom sign-in. The controller action is this app's too
+  # (SolanaSessionsController#phantom_callback, client-side only) — a host
+  # controller wins over the engine's, and only the view was adopted.
   get  "auth/phantom/callback", to: "solana_sessions#phantom_callback"
 
   # Unified auth — login + signup are one create-or-login flow, so they share a
@@ -152,6 +190,12 @@ Rails.application.routes.draw do
   # Solana wallet auth
   get  "auth/solana/nonce",  to: "solana_sessions#nonce"
   post "auth/solana/verify", to: "solana_sessions#verify"
+  # Client-side wallet failures (a rejected signature, a Phantom holding no
+  # keypair) are handled entirely in the browser and never reached the server —
+  # so error_logs never held one. This is the only way that surface reports.
+  # Unauthenticated because the failure happens BEFORE sign-in; throttled in
+  # config/initializers/rack_attack.rb. See SolanaSessionsController#report_failure.
+  post "auth/solana/report_failure", to: "solana_sessions#report_failure"
 
   # Wallet-login landing for a Google sign-in that collided with a wallet
   # account — see OmniauthCallbacksController#create.
@@ -265,6 +309,7 @@ Rails.application.routes.draw do
       # entry can be funded (token / USDC / web3 USDT). Read-only — never enters.
       post :check_funding
       post :prepare_entry
+      post :discard_prepared_entry
       post :stamp_entry_signature
       post :recover_pending_entry
       post :confirm_onchain_entry
@@ -311,6 +356,13 @@ Rails.application.routes.draw do
   resources :players, only: [:index]
   resources :games, only: [:index]
   get "nfl/team-totals", to: "nfl_team_totals#index", as: :nfl_team_totals
+
+  # NFL player database (Person + Athlete, seeded from nflverse). Distinct from
+  # `players` above, which carries soccer goal-scorer attribution.
+  # The show param is the PERSON slug ("josh-allen"), not the athlete slug
+  # ("josh-allen-athlete"), so the public URL reads as the player's name.
+  get "nfl-players",       to: "nfl_players#index", as: :nfl_players
+  get "nfl-players/:slug", to: "nfl_players#show",  as: :nfl_player
 
   # Entry-time age gate (ENABLE_AGE_GATE) — DOB verification before first entry.
   # ALSO prompted earlier, as a step in the post-auth onboarding chain; this
@@ -424,6 +476,25 @@ Rails.application.routes.draw do
     patch "dashboard/link_preview",       to: "dashboard#update_link_preview",       as: :dashboard_link_preview
     patch "dashboard/link_preview_image", to: "dashboard#update_link_preview_image", as: :dashboard_link_preview_image
 
+    # NFL week board — the operator's focus-game priority list for the /live
+    # scoreboard. Namespaced under `nfl` because the ranking is read through a
+    # sport's own policy (Live::FocusGame::POLICIES) and a soccer matchday
+    # board would be a sibling here, not a mode of this one.
+    #
+    # `:id` is the SEASON SLOT, "year-seasonType-week" ("2026-2-12"): the same
+    # triple Game.in_season_slot takes, the same set /live renders, and the
+    # scope focus_rank is unique within.
+    namespace :nfl do
+      # The week board is ONE drag-ordered list, so there is exactly one write:
+      # the new order. That is the studio/board primitive's own `reorder_url`
+      # contract — POST { slugs: [...], zone: "..." } — and the list covers the
+      # whole week, so a reorder always sends the complete set. No cross-column
+      # move endpoint, because there is no second column to cross into.
+      resources :weeks, only: [:index, :show] do
+        member { post :reorder }
+      end
+    end
+
     resources :outbound_requests, only: [:index, :show]
 
     # Error logs — read-only incident-triage browser over ErrorLog (engine model).
@@ -445,6 +516,7 @@ Rails.application.routes.draw do
       member do
         post :confirm
         post :rebuild
+        post :broadcast
       end
     end
 
@@ -463,6 +535,18 @@ Rails.application.routes.draw do
     get  "free_entries",                       to: "free_entries#index",    as: :free_entries
     post "free_entries/:user_slug/mint",       to: "free_entries#mint",     as: :mint_free_entries
     post "free_entries/mint_all",              to: "free_entries#mint_all", as: :mint_all_free_entries
+    # Claw-back. Scoped to ONE user by design — there is no burn_all counterpart
+    # to mint_all, because "destroy every unspent free entry on the platform" is
+    # a footgun no support workflow needs.
+    post "free_entries/:user_slug/burn",       to: "free_entries#burn",     as: :burn_free_entries
+
+    # Entry gifts — "send my friend a free entry". Distinct from free_entries
+    # above, which mints to EXISTING users by their earned level; this one is
+    # addressed to an EMAIL that may have no account yet, and carries the invite.
+    get  "entry_gifts",                        to: "entry_gifts#index",      as: :entry_gifts
+    post "entry_gifts",                        to: "entry_gifts#create"
+    post "entry_gifts/:id/resend",             to: "entry_gifts#resend",     as: :resend_entry_gift
+    post "entry_gifts/:id/retry_mint",         to: "entry_gifts#retry_mint", as: :retry_mint_entry_gift
 
     # Vault init (one-time mainnet setup — Phantom cosigns as INIT_AUTHORITY)
     get  "vault_init",                         to: "vault_init#show",       as: :vault_init
@@ -504,12 +588,6 @@ Rails.application.routes.draw do
   # Admin: Level badges preview gallery (1–10)
   get "admin/level_badges", to: "admin#level_badges", as: :admin_level_badges
 
-  # Admin: Modal gallery — grid of every modal partial / state variant
-  # rendered in isolated iframes (see AdminController::MODAL_VARIANTS).
-  get "admin/modals", to: "admin#modals", as: :admin_modals
-  get "admin/modals/preview/:modal_id", to: "admin#modal_preview", as: :admin_modal_preview
-  get "admin/modals/preview_crop", to: "admin#modal_preview_crop", as: :admin_modal_preview_crop
-
   # Admin: Mint USDC (devnet) + balance check
   post "admin/mint_usdc", to: "admin#mint_usdc", as: :admin_mint_usdc
   get "admin/usdc_balance", to: "admin#usdc_balance", as: :admin_usdc_balance
@@ -523,13 +601,13 @@ Rails.application.routes.draw do
   post "admin/transactions/:slug/deny", to: "transaction_logs#deny", as: :admin_transaction_deny
   post "admin/transactions/:slug/complete", to: "transaction_logs#complete", as: :admin_transaction_complete
 
-  # Geo check (public — used by hold-to-confirm validation)
-  get "geo/check", to: "geo_settings#check", as: :geo_check
-
-  # Admin: Geo Settings
-  get "admin/geo", to: "geo_settings#edit", as: :admin_geo
-  patch "admin/geo", to: "geo_settings#update", as: :admin_geo_update
-  post "admin/geo/toggle", to: "geo_settings#toggle_override", as: :admin_geo_toggle
+  # Geo — /geo/check (public, used by hold-to-confirm validation) and the
+  # /admin/geo manager are drawn by Studio.routes now, behind
+  # config.draw_geo_routes in config/initializers/studio.rb. The helper names are
+  # unchanged (geo_check_path, admin_geo_path, admin_geo_update_path,
+  # admin_geo_toggle_path), which is exactly why the engine's flag is opt-in:
+  # this app held all four, and drawing them alongside these would have raised
+  # `Invalid route name, already in use` at route-load.
 
   # Test-only endpoints — exercised by Playwright e2e specs to seed
   # OAuth mock payloads and force referral cache values without staging
@@ -538,14 +616,20 @@ Rails.application.routes.draw do
   # the controller stays unreachable in production.
   unless Rails.env.production?
     post "test/reseed",                   to: "test#reseed"
+    post "test/entry_gift_link",          to: "test#entry_gift_link"
     post "test/use_phantom_mock_admin",   to: "test#use_phantom_mock_admin"
     post "test/restore_canonical_admin",  to: "test#restore_canonical_admin"
     post "test/oauth_mock",               to: "test#set_oauth_mock"
     post "test/set_user_referral_counts", to: "test#set_user_referral_counts"
     post "test/create_active_entry",      to: "test#create_active_entry"
+    post "test/seed_contests",            to: "test#seed_contests"
+    post "test/clear_seeded_contests",    to: "test#clear_seeded_contests"
+    post "test/set_pending_signatures",   to: "test#set_pending_signatures"
     post "test/grant_managed_wallet",     to: "test#grant_managed_wallet"
     post "test/set_quest_state",          to: "test#set_quest_state"
+    post "test/grant_web3_wallet",        to: "test#grant_web3_wallet"
     post "test/magic_link_token",         to: "test#magic_link_token"
     get  "test/user_info/:slug",          to: "test#user_info"
+    post "test/warm_entry_tokens",        to: "test#warm_entry_tokens"
   end
 end

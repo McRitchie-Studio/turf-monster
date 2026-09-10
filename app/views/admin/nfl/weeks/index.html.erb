@@ -1,0 +1,64 @@
+<% content_for(:title, "NFL Weeks — Admin") %>
+
+<div class="max-w-screen-lg mx-auto py-8 px-4 space-y-6">
+  <div>
+    <h1 class="text-heading text-2xl font-bold mb-1">NFL Weeks</h1>
+    <p class="text-muted text-sm">
+      Set the order a week's games are preferred in. The
+      <%= link_to "live scoreboard", live_path, class: "text-primary hover:underline" %>
+      leads with the highest game that is actually eligible right now — being
+      played, or about to kick off — so the order is a tiebreak inside that set,
+      never an override of it. A week nobody has dragged sits in kickoff order,
+      which is what the board does anyway.
+    </p>
+  </div>
+
+  <% if @slots.empty? %>
+    <div class="card p-8 text-center">
+      <p class="text-sm text-muted">No NFL games are on file yet.</p>
+      <p class="text-xs text-muted mt-1">The score poller fills this in as games are scheduled.</p>
+    </div>
+  <% else %>
+    <div class="card overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-subtle text-muted text-[10px] uppercase tracking-wide">
+            <th class="text-left px-4 py-3">Week</th>
+            <th class="text-right px-3 py-3">Games</th>
+            <th class="text-right px-3 py-3" title="Whether an operator has dragged this week out of kickoff order">Order</th>
+            <th class="text-right px-4 py-3" title="Kickoff of the week's last game">Last kickoff</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% @slots.each do |row| %>
+            <% current = row[:slot] == @current_slot %>
+            <tr class="border-b border-subtle/40 hover:bg-inset transition">
+              <td class="px-4 py-3">
+                <%= link_to row[:label], admin_nfl_week_path(row[:id]),
+                      class: "text-heading font-semibold hover:underline" %>
+                <%# The week /live is showing right now — the one an operator
+                    opening this page on a Sunday came here for. %>
+                <% if current %>
+                  <span class="ml-2 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-red-400">
+                    <span class="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse"></span> On the board
+                  </span>
+                <% end %>
+              </td>
+              <td class="px-3 py-3 text-right tabular-nums text-secondary"><%= row[:games] %></td>
+              <td class="px-3 py-3 text-right text-xs <%= row[:custom_order] ? "text-heading font-semibold" : "text-muted" %>">
+                <%= row[:custom_order] ? "Custom" : "Kickoff" %>
+              </td>
+              <td class="px-4 py-3 text-right text-muted text-xs whitespace-nowrap">
+                <% if row[:last_kickoff] %>
+                  <time datetime="<%= row[:last_kickoff].utc.iso8601 %>"><%= row[:last_kickoff].utc.strftime("%b %-d, %Y") %></time>
+                <% else %>
+                  —
+                <% end %>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  <% end %>
+</div>

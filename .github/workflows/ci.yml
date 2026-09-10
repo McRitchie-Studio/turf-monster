@@ -6,10 +6,53 @@ on:
     # `release` too — the sweep's merge commit (what QA deploys and ship
     # fast-forwards to main) must earn its own CI verdict, not just the local
     # G3 gate. Guarded by test/lib/ci_workflow_triggers_test.rb.
-    branches: [ main, release ]
+    #
+    # `accepted` IS THE SAME ARGUMENT ONE RUNG EARLIER, and it was the hole here
+    # until 2026-08-18. Review merges several approved PRs onto `accepted`,
+    # producing a combination that is individually green and has never been
+    # executed together; nothing built it, so nothing could fail.
+    #
+    # THIS WAS NOT MERELY A MISSING VERDICT — IT SILENTLY DISARMED A GUARD.
+    # `bin/release prepare` refuses to promote a RED `accepted`
+    # (refuse_red_accepted!), and it read this repo's verdict as :none — which by
+    # design does NOT block, because refusing on an absent verdict would wedge the
+    # release lane on every race. So the guard passed over turf-monster in every
+    # release without ever having been CAPABLE of failing, while its success line
+    # named this repo as checked. Certified fleet-wide by
+    # Release::AcceptedCertification in mcritchie-studio, which refuses a promote
+    # naming any repo whose suite workflow cannot build this branch.
+    branches: [ main, release, accepted ]
+
+# NO `concurrency:` BLOCK — deliberately, and mcritchie-studio's ci.yml carries the
+# full argument. In short: a cancelled run's conclusion is `cancelled`, CiStatus folds
+# that as RED, and every reader here is SHA-addressed — so a run superseded by the next
+# merge is indistinguishable from a genuine failure, and the sweep's own `accepted`
+# guard would refuse to promote a perfectly healthy branch. Back-to-back pushes to
+# `accepted` are NORMAL. Cheaper CI is not worth a gate that cries wolf.
 
 jobs:
-  scan_ruby:
+  # THE STATIC LANE — brakeman, importmap audit and rubocop in ONE job.
+  #
+  # These were three jobs doing identical setup (checkout, await-gem-propagation, ruby) and
+  # then running one command each. Merged, the setup is paid once instead of three times.
+  # Ported from mcritchie-studio, where it was measured: 37s, 22s and 52s of actual work
+  # behind ~20s of setup APIECE.
+  #
+  # WHAT IT BUYS IS SLOTS, NOT SECONDS. The merged lane is LONGER than the slowest of the
+  # three was alone, and that is fine — it is nowhere near the critical path, which is the
+  # `playwright` shard. What it frees is two concurrency slots on a repo that runs eight
+  # jobs (scan×2, lint, test, playwright×3, e2e_executed_set) against a ~20-job account
+  # ceiling that two PRs in flight already approach.
+  #
+  # `if: always()` ON THE SECOND AND THIRD CHECKS is load-bearing. As separate jobs all
+  # three ran regardless of each other's verdict. In one job a failing step stops the rest
+  # by default — so a brakeman finding would hide every rubocop offence in the same run, and
+  # you would fix, push, and wait a full lane to meet the next one. With always() all three
+  # run and the job still reports RED if any failed, so a single run tells you everything
+  # that is wrong. It is not an opt-out: always() can only FORCE a step, never exclude one,
+  # which is why test/lib/ci_workflow_triggers_test.rb permits it and refuses every
+  # event-context condition.
+  static:
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -30,61 +73,39 @@ jobs:
       - name: Scan for common Rails security vulnerabilities using static analysis
         run: bin/brakeman --no-pager
 
-  scan_js:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      - name: Await RubyGems propagation for locked gems
-        run: .github/scripts/await-gem-propagation.sh
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: .ruby-version
-          rubygems: 3.5.11
-          bundler-cache: true
-
       - name: Scan for security vulnerabilities in JavaScript dependencies
+        if: always()
         run: bin/importmap audit
 
-  lint:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      - name: Await RubyGems propagation for locked gems
-        run: .github/scripts/await-gem-propagation.sh
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: .ruby-version
-          rubygems: 3.5.11
-          bundler-cache: true
-
       - name: Lint code for consistent style
+        if: always()
         run: bin/rubocop -f github
 
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
+    # NONE of these three is REQUIRED by the unit suite any more — see
+    # app/services/solana/keypair.rb. Under Rails.env.test? ONLY, Solana::Keypair
+    # falls back to fixed non-secret values for the admin signer and for
+    # secret_key_base, so the suite runs with no credentials at all. That is
+    # load-bearing: DEPENDABOT pull requests execute against the separate
+    # Dependabot secret store and cannot read repository secrets by design, so
+    # every dependency PR on this repo used to fail these same tests forever —
+    # no rebase or re-run could clear it. Proven by
+    # test/services/solana/keypair_admin_fallback_test.rb, which also asserts
+    # the fallbacks stay unreachable in every non-test environment.
+    #
+    # They are still supplied here so that ORDINARY (non-Dependabot) PRs
+    # exercise the real key material and the real credentials derivation rather
+    # than the fallback:
     # MANAGED_WALLET_ENCRYPTION_KEY: throwaway value so the v2 managed-wallet
     #   encryptor has a non-empty key (KeyGenerator). NOT the OPSEC-015 prod key.
-    # RAILS_MASTER_KEY: repo secret so credentials.secret_key_base decrypts —
-    #   the LEGACY keypair encryptor reads secret_key_base[0,32] directly and
-    #   raised "nil[]" without it (3 KeypairTest errors).
+    # RAILS_MASTER_KEY: repo secret so credentials.secret_key_base decrypts, so
+    #   the LEGACY keypair encryptor is exercised against a real secret_key_base.
     # SOLANA_ADMIN_KEY: a THROWAWAY base58 keypair (NOT the prod Alex Bot
-    #   signer). Solana::Keypair.admin raises "SOLANA_ADMIN_KEY env var
-    #   required" when absent, erroring the 7 vault tests that build
-    #   admin-signed TXs. No test asserts the pubkey, so any valid keypair
-    #   clears them; secret-stored so the value never lands in the repo.
+    #   signer). No test asserts the pubkey, so any valid keypair works;
+    #   secret-stored so the value never lands in the repo.
     env:
       MANAGED_WALLET_ENCRYPTION_KEY: ci-test-only-managed-wallet-key-not-a-real-secret
       RAILS_MASTER_KEY: ${{ secrets.RAILS_MASTER_KEY }}
@@ -142,7 +163,18 @@ jobs:
         # 45-minute job bound, so a step that blows through its retries still fails
         # long before it can take the whole job down with it.
         timeout-minutes: 25
-        run: .github/scripts/apt-retry curl libjemalloc2 libvips postgresql-client
+        # imagemagick IS THE PROCESSOR THIS APP ACTUALLY RENDERS WITH, and CI had
+        # the opposite stack from production until it was added here. Measured
+        # 2026-09-08: turf-monster-mainnet (heroku-26), turf-monster-qa
+        # (heroku-24) and the dev Mac all carry /usr/bin/magick and NO libvips,
+        # which is why config/application.rb pins variant_processor to
+        # :mini_magick. This runner installed libvips and nothing else, so the
+        # first variant the suite rendered died with `executable not found:
+        # "convert"` — a lane that had libvips could only ever have gone green by
+        # testing a processor production does not run. libvips stays: ruby-vips
+        # binds it at require time, and Active Storage's Vips.block_untrusted
+        # hardening only runs when that require succeeds.
+        run: .github/scripts/apt-retry curl imagemagick libjemalloc2 libvips postgresql-client
 
       - name: Await RubyGems propagation for locked gems
         run: .github/scripts/await-gem-propagation.sh
@@ -154,12 +186,72 @@ jobs:
           rubygems: 3.5.11
           bundler-cache: true
 
+      # THE SUITE READS THE COMPILED STYLESHEET, so it must exist before the suite runs.
+      # test/views/layer_scale_adoption_test.rb asserts that every --z-* layer tier a
+      # browser resolves comes from studio-engine and is defined exactly once — the only
+      # check that can speak to CASCADE ORDER, which is what the deleted layer-scale
+      # shim actually broke. No source scan can answer that question.
+      #
+      # THIS STEP IS A BELT: the line below usually builds the stylesheet itself. An
+      # earlier version of this comment claimed the opposite — that `bin/rails
+      # db:test:prepare test` never fires Rails' `test:prepare` hook — and backed it with
+      # a receipt for `bin/rails db:test:prepare`, the BARE form. That measured one
+      # command and drew a conclusion about a different one. The two share a prefix, so
+      # the substitution was invisible on the page.
+      #
+      # RE-MEASURED ON UBUNTU, on this job's runner image, each cell deleting
+      # app/assets/builds/tailwind.css first (probe run 34382943177, 2026-09-09):
+      #
+      #   bin/rails db:test:prepare                     -> tailwind.css ABSENT
+      #   bin/rails db:test:prepare test                -> PRESENT at 7s, with the suite
+      #                                                    still booting and no test
+      #                                                    output written yet
+      #   TEST=test/lib/ci_job_timeout_test.rb \
+      #     bin/rails db:test:prepare test              -> tailwind.css ABSENT
+      #
+      # WHY THE MIDDLE CELL BUILDS IT. rake's `test` task has no prerequisites — the true
+      # half of the old comment, and the half that made its conclusion look sound — but
+      # its BODY is `Rails::TestUnit::Runner.run_from_rake`, which is `system("rails",
+      # "test", *argv)`. It SHELLS OUT to the ARGLESS `rails test` COMMAND, and that
+      # command does invoke `test:prepare`, which tailwindcss-rails enhances with
+      # `tailwindcss:build`. The hook is reached through the task's body, never through
+      # the dependency graph, which is why reading the graph alone misleads.
+      #
+      # WHY THE STEP STAYS ANYWAY — the third cell. Both ENV["TEST"] and ENV["TESTOPTS"]
+      # reach that argv, from DIFFERENT layers: the rake task passes ENV["TEST"]
+      # (testing.rake, `run_from_rake("test", Array(ENV["TEST"]))`) and run_from_rake
+      # itself splices ENV["TESTOPTS"]. TestCommand then skips the prepare task as
+      # soon as an argument looks like a path or `-n`. Adding a filter to the line below
+      # therefore silences the hook while the command still READS the same. This step
+      # costs 7s here (run 34382258693, ATTEMPT 1 — cite the attempt: attempt 2 was
+      # cancelled with this step skipped, and both the API and the web UI open a run on
+      # its LATEST attempt). Of that 7s the compile itself is 3s ("Done in 3s", log line
+      # 1117); the rest is Rails boot. It is what guarantees the stylesheet for
+      # test/views/error_text_contrast_test.rb, which measures the colour of money-page
+      # error text out of the compiled file.
+      #
+      # Every link in that chain is asserted in test/lib/tailwind_test_prepare_hook_test.rb,
+      # so a gem upgrade that breaks one reddens a test instead of stranding this comment.
+      # The playwright job below builds explicitly for the same reason.
+      - name: Build Tailwind CSS for the suite
+        env:
+          RAILS_ENV: test
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432
+          REDIS_URL: redis://localhost:6379/0
+        run: bin/rails tailwindcss:build
+
       # `db:test:prepare test` — the SYSTEM tier is gone with the browser above. Keep
       # db:test:prepare FIRST: `test` is a real rails COMMAND, so a rails-command first arg
       # would parse the rest of the line as paths; a leading non-command routes the whole
-      # thing through RAKE, where each token is a task. It is also what fires Rails' own
-      # `test:prepare` hook (the one tailwindcss-rails enhances), and the hook is skipped
-      # the moment any argument looks like a path.
+      # thing through RAKE, where each token is a task.
+      #
+      # ROUTING THROUGH RAKE DOES NOT ESCAPE Rails' `test:prepare` hook, and this comment
+      # used to say it did. rake's `test` task carries no prerequisites, but its body
+      # shells out to an argless `rails test`, which runs the hook — so this line builds
+      # the Tailwind stylesheet itself, 7s in, measured on ubuntu. The explicit step above
+      # is the belt that survives adding a `TEST=` or `-n` filter here, which WOULD
+      # suppress the hook. Receipts and mechanism: the comment on that step. Assertions:
+      # test/lib/tailwind_test_prepare_hook_test.rb.
       - name: Run tests
         env:
           RAILS_ENV: test
@@ -188,7 +280,10 @@ jobs:
     # See the test job. Managed-wallet flows (signup) need the encryption
     # key; RAILS_MASTER_KEY lets credentials decrypt for the test server.
     # SOLANA_ADMIN_KEY (throwaway, see test job) — the test server boots the
-    # app, and admin-signed Solana paths call Solana::Keypair.admin.
+    # app, and admin-signed Solana paths call Solana::Keypair.admin. The server
+    # boots in RAILS_ENV=test, so it too would reach the test-env fallback if
+    # this were absent; it is supplied so ordinary PRs run against real key
+    # material.
     # SOLANA_RPC_URL: black-hole loopback so the e2e stack is HERMETIC.
     #   Without it the test server defaults to public devnet
     #   (https://api.devnet.solana.com) and every authenticated HTML request
@@ -312,6 +407,19 @@ jobs:
         run: |
           npm ci
           npx playwright install --with-deps chromium
+      # The shards boot the app (Playwright's webServer runs `bin/rails server
+      # -e test`), so any spec that renders an Active Storage variant needs the
+      # same processor the `test` job installs — e2e/og_image.spec.js fetches a
+      # contest's composed link-preview card. `playwright install --with-deps`
+      # brings Chromium's libraries, not the app's.
+      - name: Install ImageMagick for Active Storage variants
+        # Bounded at the STEP, like the `test` job's fetch: apt-retry's escalating
+        # budgets total ~22 minutes, so 25 sits above them and well under the
+        # 45-minute job bound (test/lib/ci_apt_step_timeout_test.rb enforces both
+        # the presence of this bound and its 30-minute ceiling).
+        timeout-minutes: 25
+        run: .github/scripts/apt-retry imagemagick
+
       - name: Seed test DB
         env:
           RAILS_ENV: test
@@ -382,6 +490,44 @@ jobs:
           name: screenshots-shard-${{ matrix.shard }}
           path: ${{ github.workspace }}/tmp/screenshots
           if-no-files-found: ignore
+
+  # The DECLARED side of the e2e contract, kept honest against the tree.
+  #
+  # `total_specs` is derivable, and was maintained by hand. Two branches that each
+  # add a spec write the SAME new value for DIFFERENT files; identical text merges
+  # with NO conflict, so the counter lands silently under-declared. That is not a
+  # hypothetical — it happened FOUR TIMES in one day, and once the number was
+  # CORRECT when the reviewer derived it and stale by the time the merge ran.
+  #
+  # Separate from e2e_executed_set on purpose. That job asserts what the lane
+  # EXECUTED, needs every shard's receipt, and so must wait for playwright. This
+  # one only reads the tree, needs no browser and no database, and runs in
+  # parallel in about a minute — so a stale counter is reported early instead of
+  # after the full e2e lane.
+  e2e_declared_set:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: .ruby-version
+          rubygems: 3.5.11
+          bundler-cache: false
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+
+      # No `playwright install` — `--list` collects specs and never launches a
+      # browser, so the browser download (and its cache) is pure cost here.
+      - name: Install the Playwright package
+        run: npm ci
+
+      - name: Assert the declared spec counter matches the tree
+        run: bin/e2e-lane-derive
 
   # THE EXECUTED-SET GATE. The `playwright` job above can prove its specs PASSED; it cannot
   # prove it RAN THEM ALL — no test lane can answer that about itself, and sharding sharpens

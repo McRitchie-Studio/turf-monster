@@ -16,12 +16,18 @@
 #   starting_sequence: integer  → first mint's sequence (for resume tests)
 #   tokens:            array    → seeds list_entry_tokens (drives has-tokens branches)
 class FakeVault
-  attr_reader :mint_calls, :transfer_calls, :enter_calls, :ensure_account_calls,
-              :fund_calls, :deposit_calls
+  # mint_wallets pairs with mint_calls: WHICH address each ref was minted to.
+  # Recording the ref alone let a test assert the payout happened without
+  # asserting it went to the right wallet — the gap that hid a ref keyed to a
+  # different address than the mint.
+  attr_reader :mint_calls, :mint_wallets, :transfer_calls, :enter_calls, :ensure_account_calls,
+              :fund_calls, :deposit_calls, :sync_balance_calls, :entry_token_list_calls, :broadcast_calls
 
   def initialize(fail_after: nil, starting_sequence: 0, tokens: [], signature_statuses: {},
-                 usdc_balance: nil, usdc_balance_raises: false, account_infos: {}, signatures: {},
-                 send_raises: nil, season: { season_id: 1 }, season_raises: nil, seasons: nil)
+                 usdc_balance: nil, usdc_balance_raises: false, account_infos: {},
+                 account_info_raises: false, signatures: {},
+                 send_raises: nil, season: { season_id: 1 }, season_raises: nil, seasons: nil,
+                 broadcast_raises: nil)
     @fail_after = fail_after
     @starting_sequence = starting_sequence
     @tokens = tokens
@@ -29,17 +35,40 @@ class FakeVault
     @usdc_balance = usdc_balance            # uiAmount dollars to return from get_token_account_balance
     @usdc_balance_raises = usdc_balance_raises
     @account_infos = account_infos          # pda_b58 => {"value" => ...} for get_account_info (PDA-exists check)
+    # An RPC FAULT on the existence check, which is a different fact from
+    # "absent" and must stay distinguishable. Contests::PendingReconciler
+    # DELETES a contest row on absence, so a reader that folds a rate limit
+    # into "absent" would destroy a funded contest. Seeds that fault.
+    @account_info_raises = account_info_raises
     @signatures = signatures                 # pda_b58 => [{ "signature" =>, "err" => }] for getSignaturesForAddress
     @send_raises = send_raises               # send_transaction fault (offramp send tests)
+    @broadcast_raises = broadcast_raises     # simulate_and_broadcast fault (cosign broadcast tests)
     @season = season
     @season_raises = season_raises
     @seasons = seasons || Array(season)
     @mint_calls = []
+    @mint_wallets = []
     @transfer_calls = []
     @enter_calls = []
     @ensure_account_calls = []
     @fund_calls = []
     @deposit_calls = []
+    @sync_balance_calls = []
+    @entry_token_list_calls = []
+    @burn_calls = []
+    @burn_wallets = []
+    @burn_fail_refs = Set.new
+    @broadcast_calls = []
+  end
+
+  # Admin::PendingTransactionsController#broadcast — the server-side send that
+  # replaced the browser's own sendRawTransaction. `broadcast_raises:` seeds a
+  # failure so a test can assert the REAL error reaches the operator instead of
+  # the old blanket "blockhash may have expired" guess.
+  def simulate_and_broadcast(signed_wire_base64)
+    @broadcast_calls << signed_wire_base64
+    raise @broadcast_raises if @broadcast_raises
+    "FAKE_SIG_broadcast"
   end
 
   # --- Solana RPC client stub (recovery flow) ---
@@ -53,6 +82,7 @@ class FakeVault
                                      usdc_balance: @usdc_balance,
                                      usdc_balance_raises: @usdc_balance_raises,
                                      account_infos: @account_infos,
+                                     account_info_raises: @account_info_raises,
                                      signatures: @signatures,
                                      send_raises: @send_raises)
   end
@@ -105,7 +135,20 @@ class FakeVault
   # the conflation Avi flagged as previously untested.
   attr_writer :wallet_balances, :wallet_balances_raises
 
-  def fetch_wallet_balances(_wallet_address, raise_on_read_error: false)
+  # WHICH address each balance read was issued for, in order — the same reason
+  # mint_wallets exists beside mint_calls. Recording only THAT a balance was
+  # read let a test assert a funding verdict without asserting it was computed
+  # from the right wallet, and the two disagree on exactly the account this
+  # recording was added for: a web3-only user whose web2 address is nil, where
+  # the funding gate and the navbar resolve different wallets
+  # (/tasks/funds-gate-ignores-web3-wallet). An EMPTY list is a first-class
+  # fact too — it says the verdict was reached without ever asking about money.
+  def balance_calls
+    @balance_calls ||= []
+  end
+
+  def fetch_wallet_balances(wallet_address, raise_on_read_error: false)
+    balance_calls << wallet_address
     if defined?(@wallet_balances_raises) && @wallet_balances_raises
       raise Solana::Client::RpcError, "simulated token-accounts RPC flake" if raise_on_read_error
 
@@ -114,21 +157,62 @@ class FakeVault
     defined?(@wallet_balances) ? @wallet_balances : { sol: 0.0, usdc: 0.0, usdt: 0.0 }
   end
 
-  # Recovery flow re-derives the entry PDA server-side before verifying the
-  # signature. The real Vault returns [pubkey_bytes, bump]; tests stub
-  # Solana::Keypair.encode_base58 to identity, so a deterministic value here
-  # is enough to exercise the derive → verify → confirm path.
-  def entry_pda(_contest_slug, _wallet_address, _entry_num)
-    ["epda-derived", 255]
-  end
-
   # --- Token minting (TokenPurchaseJob, dev_mint) ---
+
+  # Set to an exception to make every mint raise it. Distinct from `fail_after`,
+  # which simulates a mid-batch flake: this one lets a test choose the MESSAGE,
+  # because the grant service now branches on it — a benign already-in-use
+  # collision must not reach the operator's anomaly channel while a real fault
+  # must.
+  attr_accessor :raise_on_mint
 
   def mint_entry_token(wallet_address:, source:, source_ref:, **_opts)
     @mint_calls << source_ref
+    @mint_wallets << wallet_address
+    raise @raise_on_mint if @raise_on_mint
     raise StandardError, "simulated chain failure" if @fail_after && @mint_calls.length > @fail_after
     seq = @starting_sequence + @mint_calls.length - 1
     { signature: "sig_#{seq}_#{SecureRandom.hex(2)}", pda: "pda-seq-#{seq}", sequence: seq }
+  end
+
+  # Voids a token the way the program does — and REFUSES the way the program
+  # refuses. A double(-generous) burn that accepted an already-consumed token
+  # would certify a controller that never filters, and the operator would find
+  # out on chain.
+  #
+  # Mutates the seeded `tokens:` list in place so a burn is VISIBLE to the next
+  # #list_entry_tokens, exactly as it is on chain. Without that a test could
+  # "burn all" and then still be handed the same unspent tokens, which is the
+  # one thing this feature must never do.
+  attr_accessor :raise_on_burn
+  attr_reader :burn_calls, :burn_wallets
+
+  def burn_entry_token(wallet_address:, source_ref:)
+    @burn_calls   << source_ref
+    @burn_wallets << wallet_address
+    raise @raise_on_burn if @raise_on_burn
+    raise StandardError, "simulated burn failure" if @burn_fail_refs.include?(source_ref)
+
+    token = tokens_for(wallet_address).find { |t| t[:source_ref] == source_ref }
+    raise StandardError, "entry token not found for ref #{source_ref}" if token.nil?
+    # 6015 / 6045 on chain: already spent, or already burned.
+    raise StandardError, "EntryTokenAlreadyConsumed" if token[:consumed]
+
+    token[:consumed]    = true
+    token[:consumed_at] = Time.current.to_i
+    token[:burned]      = true
+    token[:source]      = token[:source].to_i | Solana::Vault::ENTRY_TOKEN_BURNED_FLAG
+
+    { signature: "burn_sig_#{@burn_calls.length}", pda: token[:pda] }
+  end
+
+  # Refs whose burn should fail, for the partial-failure path.
+  def fail_burn_for(*refs)
+    @burn_fail_refs.merge(refs.flatten)
+  end
+
+  def tokens_for(address)
+    @tokens.is_a?(Hash) ? (@tokens[address] || []) : @tokens
   end
 
   # `tokens:` is usually an Array applied to EVERY address. Pass a Hash
@@ -136,8 +220,10 @@ class FakeVault
   # wallets hold different tokens — e.g. a web3-owned token the web2 server-sign
   # path must NOT pick. An address missing from the Hash returns [].
   def list_entry_tokens(wallet, **_opts)
-    return (@tokens[wallet] || []).dup if @tokens.is_a?(Hash)
-    @tokens.dup
+    @entry_token_list_calls << wallet
+    # A NEW array (callers mutate/sort it) holding the SAME hashes (so a burn
+    # recorded above is visible to the next read, as on chain).
+    tokens_for(wallet).dup
   end
 
   def next_entry_token_sequence(_wallet)
@@ -190,6 +276,22 @@ class FakeVault
   # as the real Solana::Vault#build_enter_contest_direct: serialized_tx plus
   # the predicted entry PDA the user's TX will create.
   # v0.16: renamed from build_enter_contest_direct; now takes currency_idx (0=USDC).
+  # Token-funded Phantom entry (ContestsController#prepare_entry). Same return
+  # shape as #build_enter_contest — the caller only ever forwards serialized_tx
+  # and entry_pda — with the token PDA recorded so a test can assert WHICH token
+  # the server picked.
+  def build_enter_contest_with_token(wallet_address, contest_slug, entry_num, entry_token_pda_b58, season_id: nil)
+    @enter_calls << {
+      method: :build_enter_contest_with_token,
+      wallet: wallet_address, slug: contest_slug,
+      entry_number: entry_num, entry_token_pda: entry_token_pda_b58, season_id: season_id
+    }
+    {
+      serialized_tx: "FAKE_TOKEN_TX_#{contest_slug}_#{entry_num}",
+      entry_pda: "epda-#{contest_slug}-#{wallet_address[0, 4]}-#{entry_num}"
+    }
+  end
+
   def build_enter_contest(wallet_address, contest_slug, entry_num, currency_idx: 0, season_id: nil)
     @enter_calls << {
       method: :build_enter_contest,
@@ -259,9 +361,14 @@ class FakeVault
   # tx_rejected (422) rescue path without broadcasting.
   attr_writer :cosign_safe_raises
 
-  def assert_entry_cosign_safe!(signed_wire_base64, entry:, wallet_address:)
+  # `entry_token_pda:` mirrors the real guard: the EntryTokenAccount the server
+  # prepared this entry against (nil = the currency transfer). Recorded so a test
+  # can assert the controller handed the guard its OWN decision rather than
+  # anything the client sent.
+  def assert_entry_cosign_safe!(signed_wire_base64, entry:, wallet_address:, entry_token_pda: nil)
     @cosign_safe_calls ||= []
-    @cosign_safe_calls << { wire: signed_wire_base64, entry: entry, wallet_address: wallet_address }
+    @cosign_safe_calls << { wire: signed_wire_base64, entry: entry, wallet_address: wallet_address,
+                            entry_token_pda: entry_token_pda }
     raise Solana::Vault::UnsafeCosignError, @cosign_safe_raises if @cosign_safe_raises
     true
   end
@@ -270,9 +377,20 @@ class FakeVault
     @cosign_safe_calls ||= []
   end
 
-  # Used by ContestsController#confirm_onchain_entry. Real Vault returns
-  # [pda_bytes, bump] and the controller passes pda_bytes through
-  # Solana::Keypair.encode_base58. For tests, return a tuple whose first
+  # THE ONLY entry_pda, and it must stay that way. This class carried TWO
+  # definitions of it — this one and an earlier `["epda-derived", 255]` at the top
+  # of the file — and Ruby silently kept whichever came last. That is this one, so
+  # the other's comment taught a return value no caller has ever seen, in the
+  # double that stands in for the chain across every entry suite. Proved before it
+  # was deleted (2026-09-07): `source_location` reported this line, an
+  # unconditional `raise` in the dead body left 196 runs / 797 assertions green
+  # across the entry suites, and the same raise HERE failed them loudly.
+  # test/lib/test_double_shadowed_method_test.rb now refuses a second definition.
+  #
+  # Used by ContestsController#confirm_onchain_entry, and by the recovery flow,
+  # which re-derives the entry PDA server-side before verifying the signature.
+  # Real Vault returns [pda_bytes, bump] and the controller passes pda_bytes
+  # through Solana::Keypair.encode_base58. For tests, return a tuple whose first
   # element is already a string and stub Solana::Keypair.encode_base58 to
   # identity when calling confirm_onchain_entry.
   def entry_pda(contest_slug, wallet_address, entry_num)
@@ -291,6 +409,21 @@ class FakeVault
       info = @account_infos[pda]
       info.nil? || info["value"].nil?
     end
+  end
+
+  # Used by ContestsController#update and #lock — the DIRECT (admin-signed)
+  # lock-time broadcast, as opposed to #build_set_contest_lock_time's
+  # Phantom-signed wire. Recorded rather than no-op'd so a test can assert this
+  # instruction is NOT aimed at an unverified `pending` contest's PDA, which was
+  # never initialized on chain.
+  def set_contest_lock_time(contest_slug, lock_timestamp)
+    @set_lock_time_calls ||= []
+    @set_lock_time_calls << { slug: contest_slug, lock_timestamp: lock_timestamp }
+    "fake-set-lock-time-sig"
+  end
+
+  def set_lock_time_calls
+    @set_lock_time_calls ||= []
   end
 
   # Used by ContestsController#prepare_lock_time (Phantom-signed lock flow).
@@ -358,7 +491,8 @@ class FakeVault
 
   attr_writer :sync_balance_seeds
 
-  def sync_balance(_wallet)
+  def sync_balance(wallet)
+    @sync_balance_calls << wallet
     seeds = (@sync_balance_seeds || 0).to_i
     { balance_dollars: 0.0, seeds: seeds, level: User.level_for(seeds) }
   end
@@ -557,11 +691,12 @@ end
 # returns {"value" => [nil]} per the JSON-RPC spec.
 class FakeSolanaClient
   def initialize(statuses, usdc_balance: nil, usdc_balance_raises: false, account_infos: {},
-                 signatures: {}, send_raises: nil, transactions: {})
+                 account_info_raises: false, signatures: {}, send_raises: nil, transactions: {})
     @statuses = statuses || {}
     @usdc_balance = usdc_balance
     @usdc_balance_raises = usdc_balance_raises
     @account_infos = account_infos || {}
+    @account_info_raises = account_info_raises
     @signatures = signatures || {}
     @send_raises = send_raises          # exception (or message) raised by send_transaction
     @transactions = transactions || {}  # signature => get_transaction payload
@@ -607,6 +742,8 @@ class FakeSolanaClient
   # ContestsController#onchain_create_precheck reads dig("value") to decide
   # whether the contest PDA already exists on-chain.
   def get_account_info(pda_b58)
+    raise Solana::Client::RpcError, "simulated RPC failure" if @account_info_raises
+
     @account_infos[pda_b58]
   end
 

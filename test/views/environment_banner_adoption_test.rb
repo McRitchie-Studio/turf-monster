@@ -18,12 +18,25 @@ class EnvironmentBannerAdoptionTest < ActionDispatch::IntegrationTest
     assert_includes NAVBAR.read, %(render "studio/banners/environment")
   end
 
-  test "the navbar passes the preview and devnet locals" do
-    navbar = NAVBAR.read
+  # `preview:` is no longer FORWARDED to the engine partial — the whole bar stack
+  # is skipped in a preview render instead, which is a stronger version of the
+  # same guarantee. The property this has always protected is unchanged and is
+  # what is asserted: a preview copy paints no second banner, because a duplicate
+  # vt-pinned-header disables every view transition on /admin/navbar.
+  test "a preview render emits no environment banner at all" do
+    markup = NAVBAR.read.gsub(/<%#.*?%>/m, " ")  # prose must not satisfy this
+    guard  = markup.index("<% unless is_preview %>")
+    render = markup.index(%(render "studio/banners/environment"))
+    closer = markup.index("<% end %>", guard.to_i)
 
-    assert_includes navbar, "preview: is_preview",
-                    "a preview copy must not render a second banner (duplicate vt-pinned-header)"
-    assert_includes navbar, "devnet: Solana::Config.devnet?",
+    refute_nil guard,  "the bar stack must be gated on is_preview"
+    refute_nil render, "the navbar must still render the shared engine partial"
+    assert guard < render, "the banner render must sit INSIDE the is_preview guard"
+    assert render < closer, "the guard must still close after the banner render"
+  end
+
+  test "the navbar passes the devnet local" do
+    assert_includes NAVBAR.read.gsub(/<%#.*?%>/m, " "), "devnet: Solana::Config.devnet?",
                     "the cluster label is Turf-specific and only the host can supply it"
   end
 

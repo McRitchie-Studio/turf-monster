@@ -4,7 +4,8 @@ require "test_helper"
 # admin's pointer:
 #
 #   - GET /  (ContestsController#world_cup) — root redirect
-#   - GET /account (AccountsController#show) — @referral_share_contest
+#   - GET /account (AccountsController#show) — the referral card, which resolves
+#     its own target through ApplicationHelper#main_contest_target
 #   - GET /faucet  (FaucetController#show)   — @contest CTA
 class MainContestCallSitesTest < ActionDispatch::IntegrationTest
   setup do
@@ -17,9 +18,9 @@ class MainContestCallSitesTest < ActionDispatch::IntegrationTest
     SeasonConfig.set_main_contest!(nil)
   end
 
-  def build_contest(name, status:, created_at: Time.current)
+  def build_contest(name, status:, created_at: Time.current, coming_soon: false)
     Contest.create!(
-      name: name, status: status, contest_type: "small",
+      name: name, status: status, contest_type: "small", coming_soon: coming_soon,
       entry_fee_cents: 1900, max_entries: 5, slate: slates(:one),
       starts_at: 1.week.from_now, rank: 100, created_at: created_at
     )
@@ -57,6 +58,39 @@ class MainContestCallSitesTest < ActionDispatch::IntegrationTest
     # Already wiped in setup.
     get root_path
     assert_redirected_to contests_path
+  end
+
+  test "GET / passes over a coming-soon contest for an older playable one" do
+    playable = build_contest("Playable", status: :open, created_at: 30.days.ago)
+    soon     = build_contest("Coming Soon", status: :open, created_at: 1.minute.ago, coming_soon: true)
+
+    # `coming_soon` is independent of status, so this contest is `open` and was
+    # the newest open row — it used to win the redirect and drop the visitor on
+    # a page advertising a contest they cannot enter.
+    get root_path
+    assert_redirected_to contest_path(playable)
+    refute_equal contest_path(soon), response.location
+  end
+
+  test "GET / redirects to /contests when every contest is coming soon" do
+    build_contest("Soon A", status: :open, created_at: 2.days.ago, coming_soon: true)
+    build_contest("Soon B", status: :open, created_at: 1.day.ago, coming_soon: true)
+
+    # Nothing to spotlight, so the index is the landing rather than a contest
+    # the visitor can only read about.
+    get root_path
+    assert_redirected_to contests_path
+  end
+
+  test "GET / honors an admin pin even when the pinned contest is coming soon" do
+    pinned = build_contest("Pinned Soon", status: :open, created_at: 30.days.ago, coming_soon: true)
+    build_contest("Newer Open", status: :open, created_at: 1.day.ago)
+    SeasonConfig.set_main_contest!(pinned)
+
+    # The fallbacks skip coming soon; the pin does not. An admin choosing this
+    # contest at /admin/dashboard is advertising it deliberately.
+    get root_path
+    assert_redirected_to contest_path(pinned)
   end
 
   # --- /account referral widget ---

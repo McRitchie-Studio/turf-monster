@@ -284,6 +284,57 @@ class CiWorkflowTriggersTest < Minitest::Test
   # NOT read TESTOPTS, so an experiment run that way comes back clean and the hole hides.
   NARROWING_ENV_KEYS = %w[TEST TESTOPTS DEFAULT_TEST DEFAULT_TEST_EXCLUDE].freeze
 
+  # ==== THE STATIC LANE — three checks that must not hide each other ==================
+  #
+  # scan_ruby, scan_js and lint were three jobs paying identical setup to run one command
+  # each. Merging them into `static` freed two concurrency slots on a repo that runs eight
+  # jobs against a ~20-job ceiling. But merging is exactly how a check goes quietly missing,
+  # and how one failure starts masking two others — so both properties are asserted rather
+  # than trusted. Ported from mcritchie-studio with the lane itself.
+  STATIC_CHECKS = {
+    "brakeman" => %r{\bbin/brakeman\b},
+    "importmap audit" => %r{\bbin/importmap\s+audit\b},
+    "rubocop" => %r{\bbin/rubocop\b}
+  }.freeze
+
+  def test_integration_the_static_lane_still_runs_all_three_checks
+    job = jobs_of(File.read(CI_YML))["static"]
+    refute_nil job, "no `static` job in ci.yml — it holds brakeman, importmap audit and rubocop"
+
+    bodies = Array(job["steps"]).grep(Hash).filter_map { |step| step["run"] }.join("\n")
+    missing = STATIC_CHECKS.reject { |_name, pattern| bodies.match?(pattern) }.keys
+
+    assert_empty missing,
+                 "the `static` lane no longer runs #{missing.inspect}. Three jobs became one to " \
+                 "free concurrency slots; a check that fell out during that merge costs the same " \
+                 "slots and covers nothing. If a check legitimately moved, point STATIC_CHECKS " \
+                 "at its new home — do not delete the entry."
+  end
+
+  def test_integration_no_static_check_can_hide_the_ones_after_it
+    # THE COST OF MERGING, PAID. As separate jobs all three ran regardless of each other's
+    # verdict. In one job a failing step stops the rest by default, so a brakeman finding
+    # would hide every rubocop offence in the same run — fix, push, wait a full lane, meet
+    # the next one. `always()` restores the old behaviour: every check runs and the job
+    # still reports RED if any failed. It can only FORCE a step, never exclude one.
+    job = jobs_of(File.read(CI_YML))["static"]
+    refute_nil job, "no `static` job in ci.yml"
+
+    checks = Array(job["steps"]).grep(Hash).select do |step|
+      STATIC_CHECKS.values.any? { |pattern| step["run"].to_s.match?(pattern) }
+    end
+    assert_operator checks.length, :>=, 2, "expected several checks in the static lane"
+
+    unguarded = checks.drop(1).reject { |step| step["if"].to_s.strip == "always()" }
+
+    assert_empty unguarded.map { |step| step["name"] },
+                 "these `static` checks run only if every earlier check passed, so the FIRST " \
+                 "failure hides them: #{unguarded.map { |s| s['name'] }.inspect}. Give each check " \
+                 "after the first `if: always()` — the job still goes red, but one run tells you " \
+                 "everything that is wrong instead of one thing at a time."
+  end
+  # ====================================================================================
+
   def jobs_of(yaml_text)
     YAML.safe_load(yaml_text).fetch("jobs", {}).select { |_n, j| j.is_a?(Hash) }
   end
@@ -1198,6 +1249,45 @@ class CiWorkflowTriggersTest < Minitest::Test
   # It did repeat, one REPO over — this repo sharded its e2e lane with no receipt at all.
   EXECUTED_SET_COMMAND = %r{bin/e2e-executed-set-check\b}
 
+  # THE DECLARED-SET GATE, enrolled on the day it was wired — the same discipline the
+  # lane above records, applied to itself rather than only quoted.
+  #
+  # It needs its own pin because the generic every-job assertions cannot cover the case
+  # that actually happens. They walk the jobs that EXIST, so they catch a NEUTERED job —
+  # one that stops running its command, or grows an `if:` that opts it out. Nothing
+  # catches a REMOVED one: delete the `e2e_declared_set` job, or rename the script out
+  # from under it, and every test in this file still passes while the declared side of
+  # the e2e contract silently stops being checked. That is the failure this repo already
+  # paid for once, one file over.
+  DECLARED_SET_COMMAND = %r{bin/e2e-lane-derive\b}
+
+  def test_integration_the_declared_set_gate_is_wired
+    lanes = command_lanes(File.read(CI_YML), DECLARED_SET_COMMAND)
+
+    refute_empty lanes,
+                 "NO step in ci.yml runs bin/e2e-lane-derive. Without it `total_specs` goes back " \
+                 "to being a hand-maintained number, and the silent-merge collision it exists to " \
+                 "catch (two branches writing the SAME new value for DIFFERENT files, merging with " \
+                 "no conflict) returns unguarded. If the gate legitimately moved, re-point " \
+                 "DECLARED_SET_COMMAND — do not delete this."
+
+    lanes.each do |job_name, job, step|
+      # Unlike the executed-set gate this job reads only the TREE — no receipts, no shards —
+      # so it must NOT wait on playwright, and it must carry no condition at all. A gate that
+      # opts itself out on some runs is not a gate.
+      assert_nil job["if"],
+                 "#{lane_label(job_name)} carries `if: #{job["if"]}` — this gate reads the tree " \
+                 "and has no reason to skip any run."
+      assert_nil step["if"],
+                 "#{lane_label(job_name)}'s gate step carries `if: #{step["if"]}` — the gate " \
+                 "must not opt itself out."
+      assert_nil job["needs"],
+                 "#{lane_label(job_name)} declares `needs: #{job["needs"]}` — this gate reads only " \
+                 "the tree, so gating it behind another lane delays the report and couples it to " \
+                 "a failure it does not depend on."
+    end
+  end
+
   def test_integration_the_executed_set_gate_runs_UNCONDITIONALLY
     lanes = command_lanes(File.read(CI_YML), EXECUTED_SET_COMMAND)
 
@@ -1285,7 +1375,7 @@ class CiWorkflowTriggersTest < Minitest::Test
   end
   # ====================================================================================
 
-  def test_integration_ci_runs_on_pushes_to_both_shippable_tips
+  def test_integration_ci_runs_on_pushes_to_every_rung_of_the_ladder
     branches = push_branches(File.read(CI_YML))
 
     assert_includes branches, "main",
@@ -1294,6 +1384,17 @@ class CiWorkflowTriggersTest < Minitest::Test
                     "ci.yml must run on pushes to release. The sweep's merge commit is the " \
                     "artifact QA deploys and ship fast-forwards; without this trigger it is " \
                     "the one commit CI never runs, leaving the local G3 gate as its only verdict."
+    # `accepted` was missing here until 2026-08-18, and its absence did more than skip a
+    # build: it DISARMED A GUARD. bin/release prepare refuses to promote a RED `accepted`
+    # (refuse_red_accepted!), and with no run on this branch that verdict read :none —
+    # which deliberately does not block, so the guard passed over this repo in every
+    # release without ever having been capable of failing.
+    assert_includes branches, "accepted",
+                    "ci.yml must run on pushes to accepted. Review merges several approved PRs " \
+                    "onto it, producing a combination no CI run has executed — the same argument " \
+                    "that puts `release` here, one rung earlier and one rung cheaper to unwind. " \
+                    "Drop this trigger and bin/release prepare's accepted guard silently loses " \
+                    "the ability to fail at all."
   end
 
   def test_integration_ci_still_runs_on_pull_requests
