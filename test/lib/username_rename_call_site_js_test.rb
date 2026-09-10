@@ -51,7 +51,11 @@ class UsernameRenameCallSiteJsTest < ActiveSupport::TestCase
       var listeners = {};
       global.document = {
         body: { dataset: { walletAddress: 'LINKED_ADDR', solanaCluster: 'devnet' } },
-        get hidden() { return hidden; }
+        get hidden() { return hidden; },
+        // The csrf meta tag this document ships. The call site reads it to seed
+        // ctx.csrfToken for the callback document, which may be served without
+        // one of its own — see renameCsrfToken in shared/_username_rename_intent.
+        querySelector: function (sel) { return sel.indexOf('csrf') !== -1 ? { content: 'PAGE_CSRF' } : null; }
       };
       window.location = { origin: 'https://turf.test' };
       window.addEventListener = function (name, fn, o) { listeners[name] = fn; calls.push(['listen', name]); };
@@ -130,6 +134,10 @@ class UsernameRenameCallSiteJsTest < ActiveSupport::TestCase
     assert_equal "AQID", ctx["challenge"]
     assert_equal "TOK", ctx["token"]
     assert_equal "/account/confirm_username", ctx["finalizeUrl"]
+    # THE FALLBACK TOKEN, seeded here because only this document is certain to
+    # have one. The callback page prefers its own tag and reaches for this only
+    # when it has none — which is a real state, and one an e2e run found.
+    assert_equal "PAGE_CSRF", ctx["csrfToken"]
     assert_equal JSON.parse(ctx.to_json), ctx, "ctx is journalled verbatim — it must survive JSON"
   end
 
