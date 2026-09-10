@@ -897,6 +897,18 @@
 # desktop engine. It proves the protocol, the wiring and the return leg. It does
 # not prove iOS Safari storage, an OS app switch, or that Phantom accepts these
 # URLs. Only a device does that.
+#
+# 291 -> 293 (live-game-situation-panel): two specs appended to the EXISTING
+# e2e/nfl_live_scoreboard.spec.js — no new file — for the hero rail's status
+# wheel. The rail's TOP half now runs the same two-pane track its bottom half
+# does: at rest it says where the game is up to, and while a qualifying score is
+# on screen it rolls to the announcement and rolls back when the chain ends.
+# Neither direction is visible to a Rails tier. The render test can prove both
+# panes SHIP and that the announcement pane ships empty; only a browser can
+# prove the track actually turned, that the words arrived in the pane that came
+# into view, and that it returned on its own rather than stranding there. Both
+# specs assert the reveal on GEOMETRY as well as on the class, because a
+# transform typo leaves the class right and the pane parked off screen.
 # Derived with bin/e2e-lane-derive --write, not incremented by hand.
 total_specs: 293
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
@@ -1202,6 +1214,12 @@ allowed_skips: 4
 # beside total_specs above. None is tagged @devnet and none skips, so excluded
 # stays 17 and allowed_skips stays 4 — both listers agree, which is what proves
 # the new specs brought no runtime skip with them. Derived with
+# bin/e2e-lane-derive --write, not by arithmetic.
+#
+# 270 -> 272 (live-game-situation-panel): the two status-wheel specs described
+# beside total_specs above. Neither is tagged @devnet and neither skips, so
+# excluded stays 17 and allowed_skips stays 4 — both listers agree, which is
+# what proves the new specs brought no runtime skip with them. Derived with
 # bin/e2e-lane-derive --write, not by arithmetic.
 executed: 272
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose

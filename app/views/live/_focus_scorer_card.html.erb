@@ -52,8 +52,17 @@
       THE BLEED IS BOUGHT BY THE FRAME, NOT BY THIS ELEMENT. The events frame
       clips (the wheel is two panes on a rolling track and depends on it), so no
       amount of height here escapes it. What changed is where the clip line IS:
-      the frame now takes 62% of the rail and therefore starts ABOVE the rows'
-      seam, so a portrait that simply fills it already crosses the divider.
+      the frame keeps half the rail and REACHES UP past the rows' seam by a
+      fixed 1.25rem — `h-[calc(50%+1.25rem)] -mt-5` on the tile — so a portrait
+      that simply fills it already crosses the divider.
+
+      NOT BY MOVING THE SEAM. An earlier cut gave the frame 62% of the rail,
+      which bought the portrait its room out of the WORDS' half and re-centred
+      their four lines in a shorter box; the operator's verdict was that the
+      centring was right as it was. The calc keeps the floor exact at any tile
+      height where a percentage could not — percentage margins resolve against
+      the container's WIDTH, and this rail is wider than it is tall.
+      LiveFocusSituationRenderTest pins the height and the margin as a pair.
 
       NOT `transform: scale()`. Growing the drawn image about a bottom origin
       does push the head up, but it pushes the SHOULDERS up too — off the floor

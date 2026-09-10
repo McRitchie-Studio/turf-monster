@@ -103,14 +103,19 @@ module TeamColorsHelper
   # bar is one dark object split down the middle and the two abbreviations are
   # what carry the brands.
   #
-  # The halo comes along for the same reason the mascot's does: a team whose
-  # light and dark sit close in luminance (there are a few) would otherwise
-  # print its own abbreviation nearly invisibly on its own field.
+  # NO HALO HERE, deliberately. An earlier cut returned `mascot_shadow(light)`
+  # alongside, on the reasoning that a team whose light and dark sit close in
+  # luminance would print its abbreviation faintly on its own field — but
+  # nothing ever consumed it: both feed partials emit only `dark` and `light`,
+  # and NflBanner.line paints the abbreviations with colour and no textShadow.
+  # A key nobody reads is worse than a missing one, because the comment beside
+  # it reads as a protection the bar actually has. If a team turns out to need
+  # the halo, wire it through to the partials in the same change.
   def team_scoreline_palette(team)
     dark  = normalize_hex(team&.color_dark)  || normalize_hex(team&.card_background) || FALLBACK_PRIMARY
     light = normalize_hex(team&.color_light) || normalize_hex(team&.card_mascot) || LIGHT_FG
 
-    { dark: dark, light: light, shadow: mascot_shadow(light) }
+    { dark: dark, light: light }
   end
 
   # A subtle halo that keeps the mascot legible on the team gradient: a light
