@@ -177,9 +177,22 @@ window.survivorBoard = function() {
           // REDIRECT TRANSPORT ENDS HERE, and in a real browser this line is
           // never reached on it: run() handed the trip to the wallet app and
           // this document is gone. The callback page finishes the intent by
-          // name and paints its own result. The guard is for the case where
-          // the navigation is faked or deferred — a resolved `suspended` marker
-          // must not be read as a confirmed entry.
+          // name — and then NAVIGATES, painting nothing.
+          //
+          // THIS COMMENT USED TO SAY IT "paints its own result", and that claim
+          // is the belief that let a confirmed entry reach a phone with a blank
+          // screen behind it. studio-engine's callback view shows a spinner and
+          // assigns window.location; no component that could paint an entry has
+          // ever existed on that document.
+          //
+          // WHAT PAINTS IT NOW is shared/_celebration_relay, on the page the
+          // callback lands on. THIS BOARD GETS IT WITHOUT A LINE OF ITS OWN,
+          // because the stash lives in the shared contest_entry intent that
+          // tmWalletOp already routes through — not in a board.
+          //
+          // The guard below is for the case where the navigation is faked or
+          // deferred — a resolved `suspended` marker must not be read as a
+          // confirmed entry.
           if (!confirmData || confirmData.suspended) return;
 
           var txSig = confirmData.tx_signature;

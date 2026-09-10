@@ -6,9 +6,9 @@
 > `test/docs/workflow_citation_docs_test.rb` enforces both rules and checks every
 > number against the symbol its prose names — the symbol is the claim, the number
 > is bookkeeping. That check comes in two strengths, and it is worth knowing
-> which one you are reading. **129 of the 166 citations** below sit inside a
+> which one you are reading. **128 of the 166 citations** below sit inside a
 > definition, and there the prose must name that definition or the citation
-> reddens. The other **37** sit in code with no enclosing definition — a route
+> reddens. The other **38** sit in code with no enclosing definition — a route
 > entry, ERB markup, a callback in a class body — and there the guard asks only
 > that a code token quoted nearby appear in the cited lines, which proves the
 > words are present, not that the code is. **All 7 citations on
@@ -69,7 +69,7 @@ Phantom must be installed in the browser or available via mobile deep link.
      holding no entry — unless `show_board_for_existing_entry` opens it back
      up for `?add_entry=true` (`:71`).
    - The board partial mounts `x-data="selectionBoard()"` —
-     `app/views/contests/_turf_totals_board.html.erb:2073`. The factory is
+     `app/views/contests/_turf_totals_board.html.erb:2070`. The factory is
      defined inline as `window.selectionBoard = function()` (`:171`) because
      Alpine processes `x-data` before importmap modules load (see
      `docs/UI_PATTERNS.md` § Alpine + ERB Constraints).
@@ -94,41 +94,41 @@ Phantom must be installed in the browser or available via mobile deep link.
      than trusting its own optimistic mutation
      (`_turf_totals_board.html.erb:741`).
    - At `picks_required` selections the board blurs behind the cart —
-     `blurDismissed` gates the overlay (`:2084-2090`) — and the shared
-     `render 'studio/hold_button'` appears (`:2263`).
+     `blurDismissed` gates the overlay (`:2081-2087`) — and the shared
+     `render 'studio/hold_button'` appears (`:2260`).
 
 4. **Hold-to-Confirm fires.** The shared hold button dispatches the
    `hold-confirm-entry` window event; the board's `init()` listener routes it
    into `confirmEntry()` (`_turf_totals_board.html.erb:355-362`).
-   - `runHoldValidations()` (`:1519-1549`) hits `GET /geo/check` first
-     (`:1521`); a blocked state aborts into the `Location Restricted` redirect
-     modal (`:1525`). That route is drawn by the engine now, behind
+   - `runHoldValidations()` (`:1520-1550`) hits `GET /geo/check` first
+     (`:1522`); a blocked state aborts into the `Location Restricted` redirect
+     modal (`:1526`). That route is drawn by the engine now, behind
      `config.draw_geo_routes`, not by this app (`config/routes.rb:604-610`).
-   - `confirmEntry()` (`_turf_totals_board.html.erb:1566-2057`) short-circuits
-     to `showLoginModal()` when the session is a guest (`:1575-1579`), which
+   - `confirmEntry()` (`_turf_totals_board.html.erb:1567-2054`) short-circuits
+     to `showLoginModal()` when the session is a guest (`:1576-1580`), which
      opens the auth wizard at `step: 'credentials'` (`:935-948`) — the entry
      into step 5.
    - `Alpine.store('session').isGuest` is the canonical guest pivot, derived
      from `SessionContext#mode` (`studio-engine: app/models/session_context.rb`)
      and hydrated from the `session-context` JSON block on every render
-     (`app/views/layouts/application.html.erb:259`).
+     (`app/views/layouts/application.html.erb:264`).
 
 5. **Sign up via Phantom.** Choosing Solana in that wizard calls
    `openWalletConnect(ageAttested)`
    (`app/views/contests/_turf_totals_board.html.erb:1023-1028`), which swaps in
    solana-studio's wallet picker. The picker runs
-   `window.solanaConnectAndVerify` — `app/views/layouts/application.html.erb:353`.
-   - The nonce is fetched from `/auth/solana/nonce` (`:389`) →
+   `window.solanaConnectAndVerify` — `app/views/layouts/application.html.erb:358`.
+   - The nonce is fetched from `/auth/solana/nonce` (`:394`) →
      `SolanaSessionsController#nonce`
      (`app/controllers/solana_sessions_controller.rb:5-9`).
    - Two signing paths. A wallet that supports SIWS `signIn` is used directly;
      otherwise the message is built locally — domain, pubkey, statement,
      `Nonce:` — and signed with `provider.signMessage`
-     (`app/views/layouts/application.html.erb:557-558`).
+     (`app/views/layouts/application.html.erb:562-563`).
    - The `User-ID` binding that ties a signature to an account (OPSEC-005) rides
-     only on the wallet-LINK path (`opts.linkMode`), not on signup (`:447`).
+     only on the wallet-LINK path (`opts.linkMode`), not on signup (`:452`).
    - The signature is base58-encoded and POSTed to `/auth/solana/verify`
-     (`:737`) as `signatureB58` alongside the message and pubkey (`:822`).
+     (`:742`) as `signatureB58` alongside the message and pubkey (`:827`).
      An unreadable answer to that POST — an HTML body from a fault of ours,
      which usually arrives as a 302 followed to status 200 rather than a 500;
      see docs/AUTH.md — is
@@ -214,20 +214,20 @@ Phantom must be installed in the browser or available via mobile deep link.
 
 9. **Web3 entry: prepare + sign + confirm.** `confirmEntry()` branches on
    `sess.isWeb3 && this.contestOnchain`
-   (`_turf_totals_board.html.erb:1630`) and hands the whole trip to one
-   `window.tmWalletOp('contest_entry', …)` call (`:1677`). The runner
+   (`_turf_totals_board.html.erb:1631`) and hands the whole trip to one
+   `window.tmWalletOp('contest_entry', …)` call (`:1678`). The runner
    (`app/views/shared/_wallet_op_runner.html.erb`) supplies the return address,
    cluster and transport fork. The flow itself is the `contest_entry` intent,
    registered by name from the layout so the wallet's callback page can finish
    it.
    - **Wallet re-assert.** The board declares `expectedAccount: sess.address`
-     (`_turf_totals_board.html.erb:1692`), and solana-studio's `walletOps`
+     (`_turf_totals_board.html.erb:1693`), and solana-studio's `walletOps`
      refuses a different connected wallet before it signs. On the inline
      transport it connects before `prepare`, so no prepared transaction is
      minted for the wrong wallet.
    - **`POST /contests/:id/prepare_entry`** from the intent's
      `tmPrepareContestEntry`
-     (`app/views/shared/_contest_entry_intent.html.erb:189-191`) →
+     (`app/views/shared/_contest_entry_intent.html.erb:203-205`) →
      `ContestsController#prepare_entry`
      (`app/controllers/contests_controller.rb:1001-1156`).
      - Requires `onchain_session?` — a session with no live wallet signature
@@ -266,7 +266,7 @@ Phantom must be installed in the browser or available via mobile deep link.
      multi-signer "could be malicious" banner.
    - **`POST /contests/:id/confirm_onchain_entry`** with those wire bytes as
      `signed_tx`, from the intent's `tmCompleteContestEntry`
-     (`app/views/shared/_contest_entry_intent.html.erb:301-304`) →
+     (`app/views/shared/_contest_entry_intent.html.erb:335-338`) →
      `ContestsController#confirm_onchain_entry`
      (`app/controllers/contests_controller.rb:1341-1459`). The server owns
      everything from here — it cosigns with `Transaction.cosign_wire`, simulates,
@@ -305,8 +305,9 @@ Phantom must be installed in the browser or available via mobile deep link.
        `Solana::Vault#seeds_for_entry` to mirror the on-chain award (`:2085`)
        and refreshes the total through `sync_balance` (`:2091-2093`).
    - Modal closes; the seeds bar animates; `lobbyUrl` drives the countdown
-     redirect back to the contest page
-     (`_turf_totals_board.html.erb:1745`).
+     redirect back to the contest page. It is set by the shared painter both
+     transports reach, never by the board
+     (`app/views/shared/_contest_entry_intent.html.erb:486`).
 
 ## Data touched
 
@@ -362,9 +363,9 @@ Phantom must be installed in the browser or available via mobile deep link.
   Phantom signature.
 - **Wrong wallet connected.** `confirmEntry` declares the session address as
   `expectedAccount`
-  (`app/views/contests/_turf_totals_board.html.erb:1692`), and solana-studio's
+  (`app/views/contests/_turf_totals_board.html.erb:1693`), and solana-studio's
   `walletOps` refuses a different connected wallet with a sentence naming both.
-  The board adds "Or reconnect your wallet on the Account page." (`:1942-1943`).
+  The board adds "Or reconnect your wallet on the Account page." (`:1939-1940`).
   The user must reconnect the wallet that owns the account, or switch Phantom's
   active wallet.
 - **Refresh mid-flight (signed, handed to the server, awaiting confirmation).**

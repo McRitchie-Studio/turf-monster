@@ -290,9 +290,18 @@ window.tmCompleteUsernameRename = async function (ctx, result, state) {
   // studio:username-saved celebration (confetti, the seeds fanout, the
   // quest-success swap in shared/_alpine_factories) fires from the engine
   // modal, which no longer exists. A redirect rename gets the saved name and no
-  // party. Reproducing the celebration would mean carrying its payload across
-  // the journal and re-staging it on arrival, which is a separate piece of work
-  // and not one a rename should be blocked on.
+  // party.
+  //
+  // THE MECHANISM NOW EXISTS — this note used to end "a separate piece of work",
+  // and that work has since been done for the contest entry, which lost the same
+  // three acts on the same leg. shared/_celebration_relay is the primitive: a
+  // flow stashes its payload under its own KIND on the leg that cannot paint,
+  // registers a painter for that kind, and the landing page drains it once. See
+  // shared/_contest_entry_intent for a worked adoption, both halves of it.
+  //
+  // WHAT IS STILL TRUE is that a rename should not be blocked on it, so this leg
+  // is deliberately left as it is rather than changed in passing. Adopting it is
+  // two calls and one discriminator, not a rewrite.
   return { proof: sig, redirect: '/account' };
 };
 </script>
