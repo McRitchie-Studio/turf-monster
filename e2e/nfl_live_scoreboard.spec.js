@@ -560,26 +560,45 @@ test.describe("Contest live page", () => {
     // event can be built off screen, and the one parked below is legitimately
     // filled with the same content after a settle — asserting on the first
     // match would sometimes read the parked copy.
-    const card = frame.locator('[data-role="scorer-card"]:visible').first();
-    await expect(card.locator('[data-role="scorer-headline"]')).toHaveText("Touchdown!");
-    await expect(card.locator('[data-role="scorer-name"]')).toHaveText("Josh Allen");
+    // THE WORDS ARE IN THE STATUS HALF, which rolls over at the same moment.
+    // The two halves DIVIDE the announcement — what happened, then who did it —
+    // so this spec checks both or it is only half a reveal.
+    const statusPane = page.locator(
+      `[data-focus-slug="${gameSlug}"] [data-role="status-frame"] [data-role="status-event"]`
+    );
+    await expect(statusPane.locator('[data-role="status-headline"]')).toHaveText("Touchdown!");
+    await expect(statusPane.locator('[data-role="status-name"]')).toHaveText("Josh Allen");
+    await expect(statusPane.locator('[data-role="status-location"]')).not.toHaveText("");
 
-    // FOUR LINES, IN THE ORDER A BROADCAST SAYS THEM: the city, what happened,
-    // how, then who. The mascot line is GONE — the card used to name the team
-    // twice ("Buffalo", then "BILLS" in the accent) and spend the colour on the
-    // second naming; the accent moved onto the ACTION, which is what changed.
-    await expect(card.locator('[data-role="scorer-location"]')).not.toHaveText("");
-    await expect(card.locator('[data-role="scorer-mascot"]')).toHaveCount(0);
-    await expect(card.locator('[data-role="scorer-points"]')).toHaveCount(0);
-
-    // AND THE ACCENT IS ON THE HEADLINE. Asserted as "not the inherited
-    // colour": the exact hue is the team's and belongs to the fixture, but a
-    // headline still painting in the card's default white is the regression —
-    // the convention silently not applied.
-    const headlineColor = await card
-      .locator('[data-role="scorer-headline"]')
+    // AND THE ACCENT IS ON THE ACTION. Asserted as "not the inherited colour":
+    // the exact hue is the team's and belongs to the fixture, but a headline
+    // still painting in the pane's default white is the regression — the
+    // convention silently not applied.
+    const headlineColor = await statusPane
+      .locator('[data-role="status-headline"]')
       .evaluate((el) => el.style.color);
     expect(headlineColor).not.toBe("");
+
+    const card = frame.locator('[data-role="scorer-card"]:visible').first();
+    // THE PANE IS THE PORTRAIT ALONE. It used to repeat, beside the picture,
+    // the same four lines the status half above was already showing — the same
+    // announcement twice in one rail, in two sizes. The words stayed up there
+    // and the face got the whole pane.
+    await expect(card.locator('[data-role="scorer-headshot"]')).toHaveCount(1);
+    await expect(card.locator('[data-role="scorer-headline"]')).toHaveCount(0);
+    await expect(card.locator('[data-role="scorer-name"]')).toHaveCount(0);
+    await expect(card.locator('[data-role="scorer-points"]')).toHaveCount(0);
+
+    // CENTRED IN ITS PANE. With the words gone this pane holds one object, and
+    // the operator's verdict was that it belongs in the middle rather than
+    // shoved against the edge it no longer shares with anything. Measured
+    // against the pane's own centre, with a tolerance for the odd pixel.
+    const offCentre = await card.evaluate((c) => {
+      const img = c.querySelector('[data-role="scorer-headshot"]').getBoundingClientRect();
+      const pane = c.getBoundingClientRect();
+      return Math.abs((img.left + img.right) / 2 - (pane.left + pane.right) / 2);
+    });
+    expect(offCentre).toBeLessThan(6);
 
     // The card is genuinely on screen, not merely class-swapped: a transform
     // typo would leave it parked below the rail while the class said otherwise.

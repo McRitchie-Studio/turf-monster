@@ -131,6 +131,22 @@ class LiveFocusSituationRenderTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # THE TWO HALVES DIVIDE THE ANNOUNCEMENT, they do not duplicate it.
+  #
+  # The first cut gave the portrait pane its own copy of the city, the action,
+  # the play and the player — the same four lines this half shows, in a second
+  # size, eight inches apart. The operator's verdict was one copy: the words
+  # here, where there is room for them at a readable size, and the face below,
+  # where it can have the whole pane.
+  test "the portrait pane carries no words of its own" do
+    get live_path
+
+    %w[scorer-headline scorer-name scorer-detail scorer-location scorer-mascot].each do |gone|
+      assert_select "[data-role=scorer-card] [data-role=#{gone}]", { count: 0 },
+        "[data-role=#{gone}] belongs to the status half — a copy here is the duplicate"
+    end
+  end
+
   # The event pane is hidden from assistive tech until the page fills it in.
   # It is on screen only after a roll, and a screen reader announcing a blank
   # four-line block on every tile is noise on sixteen games at once.

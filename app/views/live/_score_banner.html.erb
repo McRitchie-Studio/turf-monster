@@ -76,8 +76,14 @@
       <%# max-w is a WIDTH cap on a landscape source, not a crop: object-contain
           fits the cutout inside the box, so a narrow phone gets a slightly
           smaller portrait rather than one overlapping the words. %>
+      <%# z-10 PUTS THE HEAD ABOVE THE SHIMMER. Both are absolutely positioned
+          and the shimmer comes later in the markup, so without a z-index the
+          highlight swept across the player's FACE — a white wash over a
+          photograph, which reads as a rendering fault rather than as polish.
+          The shimmer belongs on the banner's own surface; the portrait sits on
+          top of it. %>
       <img id="nfl-score-avatar" alt=""
-           class="absolute right-5 bottom-0 h-24 sm:h-28 w-auto max-w-[8.5rem] sm:max-w-[10rem]
+           class="absolute right-5 bottom-0 z-10 h-24 sm:h-28 w-auto max-w-[8.5rem] sm:max-w-[10rem]
                   object-contain object-bottom hidden">
     </div>
 
@@ -100,9 +106,22 @@
         rounded-b-xl is not decoration here. The banner stopped clipping when
         the portrait began breaking its top edge, so this bar is now responsible
         for its own bottom corners. %>
-    <div id="nfl-score-line" class="relative rounded-b-xl bg-black/25 px-4 py-2 text-xs font-bold">
+    <%# WHITE IS THE BAR'S INK, AND THE TEAM COLOURS ARE THE EXCEPTION.
+        The bar inherits the banner's foreground, which is the scoring team's
+        mascot colour — so every word on it printed in that one team's red: the
+        scores, the clock, the down. The bar is about the GAME, not about the
+        team that just scored, and only the two abbreviations belong to anybody.
+        `text-white` on the row beats the inherited colour; the inline colours
+        the painter writes onto the two abbreviations beat the class. %>
+    <div id="nfl-score-line" class="relative rounded-b-xl bg-black/25 px-4 py-2 text-xs font-bold text-white">
       <div id="nfl-score-tally-row" class="grid grid-cols-3 items-center gap-2">
-        <span id="nfl-score-situation" class="text-left truncate opacity-90"></span>
+        <%# THE DOWN LEADS AND THE SPOT FOLLOWS SMALLER. "4th & Inches" is the
+            fact; "at SEA 12" is where it is happening, and giving the two the
+            same weight made a nine-character phrase compete with the score. %>
+        <span id="nfl-score-situation" class="flex items-baseline gap-1 min-w-0">
+          <span id="nfl-score-down" class="truncate"></span>
+          <span id="nfl-score-spot" class="text-[0.65rem] font-semibold opacity-80 truncate"></span>
+        </span>
         <span id="nfl-score-tally" class="flex items-center justify-center gap-1.5 text-sm tabular-nums whitespace-nowrap">
           <span id="nfl-score-away-abbr"></span>
           <span id="nfl-score-away-pts"></span>
@@ -110,7 +129,7 @@
           <span id="nfl-score-home-pts"></span>
           <span id="nfl-score-home-abbr"></span>
         </span>
-        <span id="nfl-score-clock" class="text-right truncate tabular-nums opacity-90"></span>
+        <span id="nfl-score-clock" class="text-right truncate tabular-nums"></span>
       </div>
       <%# THE RANK SUMMARY'S LINE. It wears this same banner but has one
           sentence to say, not a scoreline — and it used to say it by writing
@@ -161,7 +180,8 @@
       this.text('nfl-score-home-pts', d.homeScore || '0');
       // Blank on anything that is not in progress, which is how a FINAL's bar
       // collapses to the score alone rather than freezing the last snap.
-      this.text('nfl-score-situation', d.situation || '');
+      this.text('nfl-score-down', d.downDistance || '');
+      this.text('nfl-score-spot', d.fieldSpot || '');
       this.text('nfl-score-clock', d.clock || '');
 
       this.mode('tally');
@@ -184,7 +204,8 @@
       this.text('nfl-score-home-abbr', '');
       this.text('nfl-score-away-pts', '');
       this.text('nfl-score-home-pts', '');
-      this.text('nfl-score-situation', '');
+      this.text('nfl-score-down', '');
+      this.text('nfl-score-spot', '');
       this.text('nfl-score-clock', '');
 
       this.text('nfl-score-note', message || '');

@@ -232,12 +232,18 @@ class Game < ApplicationRecord
     down_distance.presence
   end
 
-  # "3rd & 9 at NE 13" — the banner's one-line version of the two lines the
-  # rail stacks. It has a single row to spend and the two facts are read
-  # together, so they are joined rather than given a line each.
-  def situation_line
+  # "at NE 13" — where the down is being played, as its own phrase.
+  #
+  # NOT JOINED TO THE DOWN. The banner prints the two together but at different
+  # weights: "4th & Inches" is the fact and "at SEA 12" is where it is
+  # happening, and giving a nine-character location the same size as the down
+  # put it in competition with the score beside it. Two values, so the view can
+  # size them separately; the preposition rides the spot because it belongs to
+  # it grammatically and never appears without it.
+  def field_spot_label
     return nil unless live?
+    return nil if possession_text.blank?
 
-    [ down_distance_label, possession_text.presence ].compact.join(" at ").presence
+    "at #{possession_text}"
   end
 end

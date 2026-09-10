@@ -1165,26 +1165,11 @@
         initials.classList.toggle('hidden', !!(img && !img.classList.contains('hidden')));
       }
 
-      var headline = card.querySelector('[data-role="scorer-headline"]');
-      setText(headline, scorerHeadline(d));
-      setText(card.querySelector('[data-role="scorer-name"]'), d.scorer || '');
-      setText(card.querySelector('[data-role="scorer-detail"]'), scorerDetail(d));
-
-      // The team, named the way the TILE names it: the city quietly above, and
-      // the team's own accent below it. THE ACCENT IS ON THE ACTION NOW, not on
-      // a mascot line — the card used to name the team twice ("New England",
-      // then "PATRIOTS") and spend the colour on the second naming. One quiet
-      // city over one loud coloured line is the same convention; it is simply
-      // pointed at what happened. Colours still come from the feed node (the
-      // server's palette) rather than being guessed here.
-      var location = card.querySelector('[data-role="scorer-location"]');
-      setText(location, d.teamLocation || '');
-      if (location && d.locationColor && location.style.color !== d.locationColor) {
-        location.style.color = d.locationColor;
-      }
-      if (headline && d.accent && headline.style.color !== d.accent) {
-        headline.style.color = d.accent;
-      }
+      // NO TEXT IS WRITTEN HERE ANY MORE. This pane is the portrait alone; the
+      // words — the city, the action, the play and the player — are painted
+      // into the status half above by paintStatusEvent. The card used to carry
+      // its own copy of all four beside the picture, which put the same
+      // announcement on screen twice in one rail.
 
       card.classList.toggle('tt-scorer-td', d.scoringType === 'touchdown');
       if (card.getAttribute('aria-hidden') !== 'false') card.setAttribute('aria-hidden', 'false');

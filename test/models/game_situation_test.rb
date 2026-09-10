@@ -29,11 +29,13 @@ class GameSituationTest < ActiveSupport::TestCase
     assert_equal "TMB on TMB 13", @game.possession_line
   end
 
-  # The banner has ONE row to spend where the rail has three, and down-and-
-  # distance and field position are read together — so they are joined rather
-  # than given a line each.
-  test "the banner's one-line form joins the down to the field position" do
-    assert_equal "3rd & 9 at TMB 13", @game.situation_line
+  # THE BANNER PRINTS THE TWO AT DIFFERENT WEIGHTS, so they stay two values.
+  # "3rd & 9" is the fact; "at TMB 13" is where it is happening, and a
+  # nine-character location at the same size competed with the score beside it.
+  # The preposition rides the spot because it belongs to it grammatically and
+  # never appears without it.
+  test "the field spot is its own phrase, preposition included" do
+    assert_equal "at TMB 13", @game.field_spot_label
   end
 
   # ── NOT LIVE MEANS NOT SAID ───────────────────────────────────────────────
@@ -51,7 +53,7 @@ class GameSituationTest < ActiveSupport::TestCase
     assert_nil @game.period_clock_label
     assert_nil @game.down_distance_label
     assert_nil @game.possession_line
-    assert_nil @game.situation_line
+    assert_nil @game.field_spot_label
     assert_equal "3rd & 9", @game.down_distance, "the column is untouched — only the reading is guarded"
   end
 
@@ -123,6 +125,15 @@ class GameSituationTest < ActiveSupport::TestCase
     assert_equal "Q3 · 6:06", @game.period_clock_label
     assert_nil @game.down_distance_label
     assert_nil @game.possession_line
-    assert_nil @game.situation_line
+    assert_nil @game.field_spot_label
+  end
+
+  # A live game with a yard line but no down still says where the ball is — the
+  # spot does not depend on the down, and the banner prints whichever it has.
+  test "the field spot stands without a down" do
+    @game.update!(down_distance: nil)
+
+    assert_nil @game.down_distance_label
+    assert_equal "at TMB 13", @game.field_spot_label
   end
 end

@@ -232,8 +232,8 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
     score!(@played)
     get_live
 
-    assert_select "[data-role=scorer-name]" do |slots|
-      slots.each { |slot| assert_equal "", slot.text.strip, "the card must not name a scorer server-side" }
+    assert_select "[data-role=status-name]" do |slots|
+      slots.each { |slot| assert_equal "", slot.text.strip, "the rail must not name a scorer server-side" }
     end
     assert_select "[data-role=scorer-card] img[src]", { count: 0 },
       "no headshot should be committed to the markup"
@@ -253,13 +253,24 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
 
     # A missing slot would throw inside paintScorerCard and wedge the chain, the
     # same way a deleted helper once did to flushChain.
-    # scorer-mascot is deliberately absent: the card named the team twice (the
-    # city, then the MASCOT in the accent) and the accent moved onto the ACTION,
-    # which is the thing that changed. One naming, one coloured line.
-    %w[scorer-headshot scorer-initials scorer-headline scorer-name
-       scorer-detail scorer-location].each do |role|
+    # THE PANE IS THE PORTRAIT ALONE. It used to carry the city, the action, the
+    # play and the player beside the picture — the same four lines the status
+    # half above was already showing, in a second size. The words stayed up
+    # there; the face got the whole pane.
+    %w[scorer-headshot scorer-initials].each do |role|
       assert_select "[data-role=scorer-card] [data-role=#{role}]", { minimum: 1 },
-        "paintScorerCard writes into [data-role=#{role}]"
+        "paintCardFields writes into [data-role=#{role}]"
+    end
+
+    %w[scorer-headline scorer-name scorer-detail scorer-location scorer-mascot].each do |gone|
+      assert_select "[data-role=scorer-card] [data-role=#{gone}]", { count: 0 },
+        "[data-role=#{gone}] moved to the status half — a second copy here is the duplicate"
+    end
+
+    # And the words are where they moved to, so this is not merely a deletion.
+    %w[status-location status-headline status-detail status-name].each do |role|
+      assert_select "[data-role=status-event] [data-role=#{role}]", { minimum: 1 },
+        "paintStatusEvent writes into [data-role=#{role}]"
     end
   end
 
@@ -332,7 +343,7 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
     # emptiness on the container would fail on that dash and say nothing about
     # the slots, which are the things a repaint can leave stale.
     %w[nfl-score-emoji nfl-score-label nfl-score-team nfl-score-points
-       nfl-score-situation nfl-score-clock nfl-score-note
+       nfl-score-down nfl-score-spot nfl-score-clock nfl-score-note
        nfl-score-away-abbr nfl-score-away-pts
        nfl-score-home-pts nfl-score-home-abbr].each do |id|
       assert_select "##{id}" do |els|

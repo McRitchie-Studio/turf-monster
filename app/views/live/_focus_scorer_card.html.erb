@@ -1,91 +1,66 @@
-<%# THE SCORER REVEAL — who just scored, in the space the events list vacates.
-    Locals: none. Every value is written by the page's script at reveal time.
+<%# THE SCORER'S PORTRAIT — the face of whoever just scored, filling the space
+    the events list vacates. Locals: none. Every value is written by the page's
+    script at reveal time.
 
     IT IS THE SECOND PANE ON THE RAIL'S WHEEL. The frame clips to one pane; this
     fills the one below the events list, and the track rolls up to bring it into
     view. Because the panes are stacked rather than layered, the list and the
-    card can never be on screen together — which is what an earlier cross-fade
-    version got wrong, leaving the scorer's name readable through the list.
+    portrait can never be on screen together — which is what an earlier
+    cross-fade version got wrong, leaving the scorer's face readable through the
+    list of scores.
+
+    ── IT CARRIES NO WORDS, AND THAT IS THE POINT ────────────────────────────
+    It used to repeat, beside the picture, the same four lines the status half
+    above it was already showing: the city, the action, the play and the player,
+    twice in one rail, in two different sizes. The operator's verdict was to
+    keep one copy. The words belong ABOVE — that half is a fixed box built to
+    hold three or four lines at a readable size — and the face belongs here,
+    where it now has the whole pane and can be as large as the rail allows.
+
+    So the two halves divide the announcement rather than duplicating it: what
+    happened, then who did it.
 
     EMPTY AND HIDDEN AT REST. It is painted once per focus tile and stays out of
     the flow until a qualifying score fills it in. That is why it carries no
     server-rendered scorer: the tile is re-rendered by every broadcast, and a
     card holding the LAST score would flash on screen for one frame each time a
-    different game scored.
-
-    FOUR LINES, IN THE ORDER A BROADCAST SAYS THEM:
-      New England          who it was for
-      FIELD GOAL           what happened, in that team's own accent
-      50 yard field goal   how
-      Andy Borregales      who did it
-
-    IT USED TO SAY THE TEAM TWICE — a white headline, then the city, then the
-    MASCOT in the accent, then the player and the play: five lines to carry four
-    facts, with "New England" and "PATRIOTS" spending two of them on the same
-    one. Folding the mascot away and moving the accent onto the ACTION says the
-    team once and gives the colour to the thing that changed, which is the
-    convention the multi-week team card already uses (quiet city over a loud
-    coloured line) pointed at the event instead of at the name.
-
-    No points chip: the banner above already carries "+6", and repeating it here
-    spent width on the one fact the reader can also read off the score. %>
-<div class="tt-scorer-card h-full w-full flex items-stretch justify-center gap-3 px-2 py-1"
+    different game scored. %>
+<div class="tt-scorer-card h-full w-full flex items-stretch justify-center px-2 py-1"
      data-role="scorer-card"
      aria-hidden="true">
 
-  <%# FULL HEIGHT OF THE RAIL, AND NO DISC BEHIND IT.
+  <%# CENTRED, AND THE FULL HEIGHT OF THE PANE.
       ESPN's headshots are transparent cutouts — verified: the corners are
       srgba(0,0,0,0) and the mean alpha survives our resize to five decimals. So
       the player is composited straight onto the team gradient, the way a
       broadcast lower-third does it. An earlier cut put a `bg-surface-alt` circle
       behind the image, which the transparency dutifully revealed as a dark blob;
       the background was ours, not the feed's.
+
       The source is landscape (600x436), so `object-contain` with an auto width
       shows the whole cutout instead of `object-cover` cropping it into a disc.
       Bottom-aligned: the shoulders sit on the rail's floor and the head is what
-      rises into the card.
+      rises into the pane. Horizontally centred: with the words gone this pane
+      holds one object, and an object alone in a box belongs in the middle of it
+      rather than shoved against an edge it no longer shares with anything.
 
-      IT SHRINKS, AND BELOW A THRESHOLD IT GOES. `shrink-0` plus `max-w-none`
-      pinned it at a constant 154px, and the text column — the only flexible
-      thing left — was what gave: measured at 390px and 640px viewports the card
-      rendered ZERO characters of headline, mascot, name and detail and
-      overflowed its frame by 33px. The rail is `w-1/3` of the tile, so the
-      constraint is CARD width and a viewport breakpoint cannot see it; the
-      container query in live_page_styles is what drops the face and keeps the
-      words. The events list this replaces is perfectly legible on a phone, so
-      showing less than it does is a regression, not a trade-off. %>
-  <span class="tt-scorer-avatar relative h-full flex items-end justify-center self-stretch">
+      NO CONTAINER QUERY DROPPING IT ANY MORE. The old rules hid the face below
+      ~230px of rail because the WORDS beside it were being squeezed to nothing
+      and the words won that trade. There are no words here to lose, so a narrow
+      rail simply gets a smaller portrait — which is still the whole message
+      this pane carries. %>
+  <span class="tt-scorer-avatar relative h-full w-full flex items-end justify-center self-stretch">
     <img data-role="scorer-headshot"
          alt=""
          class="h-full w-auto max-w-full object-contain object-bottom hidden">
     <%# No cached headshot: nflverse had no espn_id, or the upload has not run
         for this player. THIS is where a disc belongs — initials need a ground to
-        sit on, and there is no cutout here to show one through. %>
+        sit on, and there is no cutout here to show one through. The words above
+        already name them, so this is a placeholder for a face, not a fallback
+        for the information. %>
     <span data-role="scorer-initials"
-          class="w-11 h-11 self-center rounded-full bg-surface-alt
-                 flex items-center justify-center text-sm font-bold text-white/70"></span>
+          class="w-16 h-16 self-center rounded-full bg-surface-alt
+                 flex items-center justify-center text-lg font-bold text-white/70"></span>
   </span>
-
-  <%# TWO GROUPS. The team and the action belong together — the city is the
-      quiet half of one two-line unit whose loud half is what happened — and the
-      play and the player are the detail under it. Tight inside each group,
-      spaced between them, so the eye reads two things rather than four.
-
-      THE TEAM SITS ABOVE THE ACTION, and the ACTION carries the colour. A score
-      belongs to a team first: that is what moves the number on the left and
-      what the reader has money on. Painting the accent onto the event rather
-      than onto a second naming of the team is what let the mascot line go. %>
-  <div class="min-w-0 flex-1 flex flex-col justify-center text-center gap-1.5">
-    <div class="leading-tight">
-      <p class="text-[11px] font-medium truncate" data-role="scorer-location"></p>
-      <p class="tt-scorer-headline font-black uppercase tracking-wide leading-none truncate"
-         data-role="scorer-headline"></p>
-    </div>
-
-    <div class="leading-tight">
-      <p class="text-white/70 text-xs truncate" data-role="scorer-detail"></p>
-      <p class="text-white font-semibold text-sm truncate" data-role="scorer-name"></p>
-    </div>
-  </div>
 
 </div>
