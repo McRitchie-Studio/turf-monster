@@ -404,7 +404,7 @@ written. Each flow's state is what matters.
 | Contest entry — world cup survivor | `app/views/contests/_world_cup_survivor_board.html.erb` | **migrated** — one `tmWalletOp('contest_entry')` (`/tasks/migrate-remaining-entry-flows`) |
 | Create contest | `app/views/contests/new.html.erb` | **migrated** — one `tmWalletOp('contest_create')` (`/tasks/migrate-remaining-entry-flows`) |
 | Contest generator | `app/views/contests/generator.html.erb` | **migrated** — one `tmWalletOp('contest_bundle')` (`/tasks/migrate-remaining-entry-flows`) |
-| Username rename | `app/views/shared/_alpine_factories.html.erb` | **migrated** — one `walletOps.run('username_rename')` (`/tasks/migrate-account-wallet-flows`); still spells out its own return address, cluster and `pagehide` watch rather than calling `tmWalletOp` |
+| Username rename | `app/views/shared/_alpine_factories.html.erb` | **migrated** — one `walletOps.run('username_rename')` (`/tasks/migrate-account-wallet-flows`); still spells out its own return address and cluster rather than calling `tmWalletOp`, whose card it cannot use. Its handoff watch is the runner's `window.tmWatchHandoff` (`/tasks/frozen-wallet-overlay-traps-user`) |
 | Sign-in | `app/views/layouts/application.html.erb` | *mobile path exists, Phantom only, still on the undocumented `signIn` deeplink* |
 
 **Wallet export is deliberately absent from this table.** It is not a flow
@@ -431,6 +431,22 @@ opened, and a create that genuinely FAILED had its real error card overwritten
 arms no timer at all: nothing was handed off, so nothing may claim the wallet
 failed to open. `contests/_turf_totals_board` arrived at this shape inline and
 now gets it from the runner like every other contest flow.
+
+**THE WATCH ALSO ARMS THE WAY BACK** (`/tasks/frozen-wallet-overlay-traps-user`).
+A hop that took used to end the watch, which left a trap: the user leaves for
+the wallet, comes back without acting, and the page returns still wearing the
+non-dismissible processing card, scroll-locked, with nothing watching. On the
+redirect transport the wallet's answer only ever lands on the callback page, so
+once the link has left, a user looking at this page again will get nothing more
+here. `start()` therefore also listens for the return: `pageshow` with
+`persisted` (a bfcache restore) or `visibilitychange` back to visible after the
+page was hidden (an app switch that never unloaded it). Either one retires a
+card still processing and calls the caller's `onStranded`, which re-enables its
+buttons. A return during `prepare` does not count — the link has not left yet —
+and the inline transport arms no watch at all, because its promise is still
+live. `e2e/wallet_handoff_bfcache_return.spec.js` drives a real Chromium bfcache
+restore; its header names the three switches that make one possible in this
+lane.
 
 **THE INLINE PATH IS NO LONGER A SECOND IMPLEMENTATION.** solana-studio 0.9.2
 (PR #41) closed the three gaps that forced one: the inline path now takes the

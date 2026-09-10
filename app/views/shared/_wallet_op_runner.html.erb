@@ -36,9 +36,12 @@
 
     ONE WALLET CALL SITE STILL DOES NOT, and it is worth naming rather than
     leaving to be discovered: the username rename in shared/_alpine_factories
-    runs walletOps.run('username_rename') with its own copy of the address book
-    and its own pagehide watch. It is the same shape this partial exists to
-    retire, left for its own change. %>
+    runs walletOps.run('username_rename') with its own copy of the address book.
+    Its card is the engine's leveling modal, not this runner's, so it cannot
+    call tmWalletOp as it stands. It does share the handoff watch, through
+    window.tmWatchHandoff below, since /tasks/frozen-wallet-overlay-traps-user.
+    The address book is the same shape this partial exists to retire, left for
+    its own change. %>
 <script>
 (function () {
   // The redirect return leg is studio-engine's callback view. Named once, here,
@@ -128,17 +131,77 @@
   // The shape is the one contests/_turf_totals_board arrived at by measurement
   // while it still carried an inline copy (it calls this now): listener before
   // the run, setTimeout after the await.
+  //
+  // AND WHEN THE USER COMES BACK WITHOUT AN ANSWER (/tasks/frozen-wallet-
+  // overlay-traps-user). A hop that TOOK used to end the watch, and that was
+  // half of a trap: the user taps, the wallet app opens, they change their mind
+  // and come back — and the page comes back with it, still wearing the
+  // non-dismissible processing card, scroll-locked, with nothing left watching.
+  // So start() also arms the way back, and a return counts only AFTER the
+  // handoff: on this transport the wallet's answer lands on the callback page,
+  // never here, so a user looking at this document again after the link left is
+  // one it will hear nothing more for. Before the handoff that is false —
+  // prepare is still running and will navigate — which is why the way back is
+  // armed in start() and not beside the pagehide listener.
+  //
+  //   pageshow, persisted  the page came back out of the bfcache: it was left
+  //                        (pagehide) and restored, e.g. a swipe back from the
+  //                        wallet's web page or from a callback in this tab.
+  //   visible after hidden the page was never unloaded at all. A universal link
+  //                        can open the wallet app with this document merely
+  //                        hidden behind it, and then nothing is restored, so
+  //                        no pageshow fires. Only visibility says they are back.
+  //
+  // studio-engine's own bfcache cleanup (closeAllDismissible) deliberately KEEPS
+  // a dismissible:false card, because on the inline transport the promise behind
+  // it is still live. That is right, and it is why the way back belongs here,
+  // where the transport is known, rather than in the engine.
+  //
+  // Exposed as window.tmWatchHandoff for the one caller that cannot use
+  // tmWalletOp itself — the username rename, whose card is the engine's
+  // leveling modal rather than this runner's.
   function watchHandoff() {
     var left = false;
+    var settled = false;
     var onPageHide = function () { left = true; };
+    var onPageShow = null;
+    var onVisibility = null;
     window.addEventListener('pagehide', onPageHide, { once: true });
 
+    function disarm() {
+      window.removeEventListener('pagehide', onPageHide);
+      if (onPageShow) window.removeEventListener('pageshow', onPageShow);
+      if (onVisibility) document.removeEventListener('visibilitychange', onVisibility);
+    }
+
     return {
-      // The handoff took: start counting down the grace window.
-      start: function (onStranded) {
+      // The handoff took: arm the way back, and count down the grace window.
+      // Exactly one of onStranded / onReturned fires, at most once.
+      start: function (onStranded, onReturned) {
+        // Already away if the switch beat this call — iOS can hide the page
+        // before the promise that handed off the link has even resolved.
+        var away = left || document.hidden;
+        function back() {
+          if (settled) return;
+          settled = true;
+          disarm();
+          if (typeof onReturned === 'function') onReturned();
+        }
+        onPageShow = function (e) { if (e && e.persisted) back(); };
+        onVisibility = function () {
+          if (document.hidden) { away = true; return; }
+          if (away) back();
+        };
+        window.addEventListener('pageshow', onPageShow);
+        document.addEventListener('visibilitychange', onVisibility);
+
         setTimeout(function () {
           window.removeEventListener('pagehide', onPageHide);
+          if (settled) return;
+          // The hop took. The way back stays armed for when the user returns.
           if (left || document.hidden) return;
+          settled = true;
+          disarm();
           onStranded();
         }, HANDOFF_GRACE_MS);
       },
@@ -147,15 +210,22 @@
       // is armed and the listener is released rather than left to accumulate one
       // more dead handler per retry.
       cancel: function () {
-        window.removeEventListener('pagehide', onPageHide);
+        settled = true;
+        disarm();
       }
     };
   }
+  window.tmWatchHandoff = watchHandoff;
 
   // ctx  — the intent's own arguments. JSON-serialisable, always: on the
   //        redirect transport this is written to localStorage verbatim.
   // opts — { provider, expectedAccount, preparingTitle, preparingBody,
   //          handoffTitle, handoffBody, onStranded }
+  //
+  // onStranded means "this page will hear nothing more — hand your controls
+  // back". It fires when the hop never happened (the card then says so) AND
+  // when the user came back from the wallet without an answer (the card is
+  // then retired). A caller answers both the same way: re-enable its buttons.
   //
   // Resolves with the intent's complete() value on the inline transport. On the
   // redirect transport nothing after this resolves in a real browser: the page
@@ -189,6 +259,18 @@
       if (typeof opts.onStranded === 'function') opts.onStranded();
     }
 
+    // THE WAY BACK. The user left for the wallet and returned to this page with
+    // no answer, which on this transport can only ever arrive elsewhere. The
+    // processing card is the trap — non-dismissible, scroll-locked — so it is
+    // RETIRED rather than turned into an error: nothing failed, the user simply
+    // came back, and they expect the board they left, scrollable and ready to
+    // try again. Only a card still processing is this runner's to retire.
+    function returned() {
+      var m = solanaModal();
+      if (m && m.visible && m.state === 'processing') m.close();
+      if (typeof opts.onStranded === 'function') opts.onStranded();
+    }
+
     return window.SolanaStudio.walletOps.run(name, ctx, {
       provider: provider,
       expectedAccount: opts.expectedAccount || null,
@@ -197,7 +279,7 @@
       cluster: document.body.dataset.solanaCluster
     }).then(function (result) {
       // THE LINK IS WITH THE OS NOW. Everything before this point was prepare.
-      if (watch) watch.start(stranded);
+      if (watch) watch.start(stranded, returned);
       return result;
     }, function (err) {
       // NOTHING WAS HANDED OFF, so nothing may later claim the wallet failed to

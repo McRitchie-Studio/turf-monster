@@ -1698,6 +1698,11 @@ window.selectionBoard = function() {
             // cannot know is that this board's hold buttons are dead and
             // submitting is still true, so a retry would be refused without a
             // reload. Raised in review of PR 632.
+            //
+            // AND WHEN THE USER COMES BACK WITHOUT AN ANSWER — swiping back from
+            // the wallet, or switching back to this tab. The runner retires its
+            // card and calls this same hook, because the board is in the same
+            // state and owes the same fix (/tasks/frozen-wallet-overlay-traps-user).
             onStranded: function () {
               board.submitting = false;
               board.resetHoldButtons();
