@@ -113,14 +113,27 @@
         team that just scored, and only the two abbreviations belong to anybody.
         `text-white` on the row beats the inherited colour; the inline colours
         the painter writes onto the two abbreviations beat the class. %>
-    <%# THE SEPARATOR IS THE TILE'S OWN. A hairline of the foreground at 0.14
-        alpha is what divides the two team rows on every game card
-        (`palette[:divider]`, TeamColorsHelper), and the score bar had nothing —
-        it changed colour and hoped that read as a boundary. Borrowing the rule
-        the reader already knows from the board is cheaper than inventing a
-        second convention, and it gives the bar an edge to sit under rather than
-        a seam that only exists where the two backgrounds happen to differ. %>
-    <div id="nfl-score-line" class="relative rounded-b-xl border-t border-white/[0.14] bg-black/25 px-4 py-2 text-xs font-bold text-white">
+    <%# THE SEPARATOR IS THE TILE'S OWN, AND SO IS THE MECHANISM. A hairline of
+        the foreground at 0.14 alpha is what divides the two team rows on every
+        game card, and the score bar had nothing — it changed colour and hoped
+        that read as a boundary.
+
+        INLINE, NOT A UTILITY CLASS, because the tile's divider is inline too:
+        `border-bottom: 1px solid #{palette[:divider]}` where `divider` is
+        `rgba(fg, 0.14)` (TeamColorsHelper). Borrowing the rule the reader
+        already knows from the board means borrowing how it is drawn.
+
+        The first cut used a Tailwind border utility with an arbitrary alpha in
+        brackets, and ErrorTextContrastTest caught it: that class is not in the
+        compiled stylesheet, so it painted NOTHING. It measured fine locally
+        only because a local `tailwindcss:build` had JIT-generated it into an
+        uncommitted stylesheet — a colour-shaped class that compiles to nothing
+        is a defect precisely because it fails invisibly rather than loudly.
+
+        The class is not NAMED here on purpose: that guard scans this file's raw
+        text, so quoting the offending token in a comment re-trips it. %>
+    <div id="nfl-score-line" class="relative rounded-b-xl bg-black/25 px-4 py-2 text-xs font-bold text-white"
+         style="border-top: 1px solid rgba(255, 255, 255, 0.14);">
       <div id="nfl-score-tally-row" class="grid grid-cols-3 items-center gap-2">
         <%# THE DOWN LEADS AND THE SPOT FOLLOWS SMALLER. "4th & Inches" is the
             fact; "at SEA 12" is where it is happening, and giving the two the
