@@ -112,6 +112,40 @@ class TokensControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
+  # THE PARAMETER WAS THE LAST THING HOLDING THE BRANCH UP, so its removal is
+  # asserted at the only place a caller could still reach it: the URL.
+  #
+  # `?preview_state=loading|ready|errored` forced this page into a static state
+  # for the /admin/modals gallery's preview iframes. Those three variant URLs
+  # were its only callers, and the gallery is gone. A query parameter has no
+  # compile-time caller, though, so "nothing references it" is not "nothing
+  # reaches it" — someone may hold the URL. What this pins is that the fallback
+  # is the ORDINARY no-session redirect and not an error: the branch used to
+  # suppress that redirect, so deleting it had to be shown to restore it rather
+  # than to 500 the bookmark.
+  test "processing ignores a stale preview_state and redirects when there is no session" do
+    log_in_as @jordan
+    %w[loading ready errored].each do |state|
+      get tokens_processing_path, params: { preview_state: state }
+      assert_redirected_to tokens_buy_path,
+                           "?preview_state=#{state} with no session_id must fall through to the " \
+                           "no-session redirect — a held bookmark degrades, it does not error"
+    end
+  end
+
+  # The other half: the parameter must not survive as a live input on the path
+  # that DOES render. A session_id hit renders the page, and the rendered Alpine
+  # factory takes two arguments now — a third would mean the branch came back.
+  test "processing renders no preview_state hook when a session is present" do
+    log_in_as @jordan
+    get tokens_processing_path, params: { session_id: "cs_test_processing", preview_state: "ready" }
+    assert_response :success
+    assert_no_match(/previewState/, response.body,
+                    "the retired gallery preview hook is back in the rendered page")
+    assert_match(/tokenProcessing\('cs_test_processing', ''\)/, response.body,
+                 "tokenProcessing should take exactly (sessionId, contestUrl)")
+  end
+
   test "status returns ready=false when no tokens for session" do
     log_in_as @jordan
     get tokens_status_path, params: { session_id: "cs_unknown" }

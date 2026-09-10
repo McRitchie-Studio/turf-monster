@@ -1,0 +1,241 @@
+<%# THE contest_entry INTENT — rendered from layouts/application, on EVERY page.
+    That is deliberate and it is the fix for the blocker below.
+
+    WHY NOT IN THE BOARD PARTIAL, where this started. The board renders only on
+    contests/show and contests/world_cup. A wallet returns to
+    /auth/phantom/callback, which renders studio-engine's view — this app ships no
+    local override — so the handler map on that document was EMPTY while the
+    registry itself was present. walletOps.resume() consumes the journal at take()
+    BEFORE the signTransaction hop reaches requireHandler, so the throw arrived
+    with nothing left to retry. The user approved the transaction in their wallet,
+    came back, and the entry was silently gone.
+
+    WHY NOT THE OTHER FIX, which review offered as the alternative: have the engine
+    callback render a host-supplied registration partial. That is the cleaner
+    separation and it is the right long-term shape — but it needs a studio-engine
+    change, a release, and ANOTHER gem floor on a chain already deep with
+    silent-failure notes. Days, while entries are lost. This costs the handlers'
+    JS on every page and gets every FUTURE intent working on the callback for free.
+
+    Registration is idempotent and guarded, so rendering it everywhere is safe: a
+    page without solana_studio/wallet_ops.js registers nothing and throws nothing. %>
+<script>
+// THE contest_entry INTENT — registered here, at page load, BY NAME.
+//
+// WHY BY NAME AND NOT AS A CLOSURE, which is the whole reason walletOps has this
+// shape: on the redirect transport the page is DESTROYED between preparing the
+// transaction and getting it back signed. A closure cannot survive that. The name
+// is the only thing that can be written into localStorage and looked up again by
+// whatever document the wallet returns to — which may not even be the same tab.
+//
+// WHAT CROSSES THE REDIRECT is a server-side SLUG, never transaction bytes.
+// prepare_entry mints a PreparedTransaction row and hands back ptx_slug; the
+// journal carries that plus the ids, and complete() posts them to
+// confirm_onchain_entry. The row is the durable half, and it already existed for
+// blockhash freshness — this flow just needed it to be the thing that travels.
+//
+// SIGN-ONLY, AND THIS IS NOT A PREFERENCE. prepare_entry returns a PARTIALLY
+// signed transaction whose admin slot is deliberately EMPTY. The user's wallet
+// signs its own slot and the SERVER cosigns and broadcasts (Transaction
+// #cosign_wire). A wallet that broadcast it directly would hand Solana a
+// transaction missing a required signature — and worse, we would never receive
+// the signed bytes the server needs, so the entry would fail with nothing to
+// retry. See /tasks/intent-declares-sign-only: walletOps currently PREFERS
+// signAndSendTransaction where a wallet has one, which is wrong for every
+// co-signed flow. It does not bite Phantom (its send-side deeplink is
+// deprecated, so signingHop already falls to signTransaction) and no other
+// wallet reaches redirect signing yet — but this comment is here so the next
+// reader does not "fix" the preference back.
+(function () {
+  var S = window.SolanaStudio;
+  // GUARDED like every optional capability in this app: a page that did not load
+  // solana_studio/wallet_ops.js simply has no registry, and the entry flow's
+  // inline path below is unaffected. An absent capability must not default to
+  // the permissive branch.
+  if (!S || !S.walletOps || typeof S.walletOps.define !== 'function') return;
+
+  S.walletOps.define('contest_entry', {
+    // SIGN-ONLY, DECLARED TO THE GEM rather than only to the reader. walletOps
+    // PREFERS signAndSendTransaction where a wallet has one (wallet_ops.js:208),
+    // which is wrong for every co-signed flow: prepare_entry returns a partially
+    // signed transaction whose admin slot is EMPTY, and the server cosigns and
+    // broadcasts. A wallet that broadcast it would hand Solana a transaction
+    // missing a required signature — and we would never receive the bytes the
+    // server must cosign, so the entry would fail with nothing to retry. The
+    // prose below said this; the flag is what MAKES it true (:137 copies it onto
+    // the intent). Latent until now only because Phantom deprecated its
+    // send-side deeplink, so signingHop already fell through to signTransaction.
+    signOnly: true,
+    // Runs BEFORE the wallet is reached on the redirect transport, so everything
+    // it returns must be JSON-serialisable — it is literally serialised.
+    prepare: function (ctx) {
+      return window.tmPrepareContestEntry(ctx);
+    },
+    // Runs on the callback document, in a page that never saw prepare().
+    // Everything it needs arrives through ctx (the caller's own arguments) and
+    // state (what prepare returned) — nothing from a closure.
+    complete: function (ctx, result, state) {
+      return window.tmCompleteContestEntry(ctx, result, state);
+    }
+  });
+})();
+
+// THE TWO HALVES OF contest_entry, split at the seam a page death runs through.
+//
+// Everything before the wallet is reached lives in prepare(); everything after
+// it answers lives in complete(). They share NOTHING but their arguments,
+// because on the redirect transport they execute in DIFFERENT DOCUMENTS.
+//
+// BASE58 IS THE WIRE FORMAT, and the conversions here are the price of that.
+// The server speaks base64 (serialized_tx in, signed_tx out); every wallet
+// deeplink protocol speaks base58. The gem's codec owns both directions, so the
+// encoding lives here rather than being re-derived at each end.
+
+// THE CALLBACK DOCUMENT DOES NOT HAVE window.authedFetch YET, and complete()
+// runs there. authedFetch ships only in the DEFERRED importmap module
+// solana_utils.js; studio-engine's phantom_callback view dispatches from a bare
+// inline script during body parse, and wallet_ops calls handler.complete
+// SYNCHRONOUSLY. So a direct window.authedFetch(...) throws a TypeError on the
+// one document that matters — after the user has already approved in Phantom,
+// and after resume() consumed the journal at take(), so there is nothing left to
+// retry. That is the original incident reproduced at the moment of highest cost.
+// Raised in review of PR 632; two of studio-engine's own callers on that same
+// page already defend with the `|| window.fetch` half of this.
+//
+// THE 401 NORMALISATION IS NOT OPTIONAL. authedFetch answers FALSY on a 401
+// (having surfaced the login modal); plain fetch answers a 401 Response. Both
+// call sites below branch on `if (!resp)`, so the fallback has to speak the same
+// dialect or an expired session reads as a successful prepare.
+window.tmEntryFetch = function (url, opts) {
+  if (typeof window.authedFetch === 'function') return window.authedFetch(url, opts);
+  return window.fetch(url, opts).then(function (resp) {
+    return resp && resp.status === 401 ? null : resp;
+  });
+};
+
+// Prepare: mint the server-side transaction and hand back ONLY what survives
+// serialisation. No Transaction object, no closure, no DOM — this return value
+// is written to localStorage verbatim.
+window.tmPrepareContestEntry = async function (ctx) {
+  console.log('[contest-entry] POST prepare_entry (fresh blockhash + priority fee), currency=' + ctx.currency);
+  var resp = await window.tmEntryFetch('/contests/' + ctx.contestId + '/prepare_entry', {
+    method: 'POST',
+    headers: { 'X-CSRF-Token': ctx.csrfToken, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({ currency: ctx.currency })
+  });
+  // authedFetch answers falsy on a 401 and has ALREADY surfaced the login modal.
+  // The inline flow returns here; a handler must THROW instead, because walletOps
+  // is awaiting a promise and a silent undefined would read as a prepared entry.
+  if (!resp) throw new Error('Your session expired — sign in and try again.');
+
+  var data = await resp.json();
+  console.log('[contest-entry] prepare_entry response:', { success: data.success, error: data.error, entry_pda: data.entry_pda, ptx_slug: data.ptx_slug, serialized_tx_len: data.serialized_tx ? data.serialized_tx.length : null });
+  if (!data.success) {
+    // CARRY THE PAYLOAD, do not flatten it to a string. A failed prepare is
+    // often not an error at all but a BLOCKER the user can clear — no funds, an
+    // unmet age gate, a missing first name, a wallet still to set up — and each
+    // one has its own panel behind the board's _handleBlockerResponse. That
+    // method belongs to the board's Alpine component and cannot be reached from
+    // here, so the payload rides the Error back to the caller's catch, which is
+    // in the component and routes it. Throwing a bare string is what collapsed
+    // every one of those blockers into raw text on a phone.
+    var prepareError = new Error(data.error || 'Failed to prepare entry');
+    prepareError.blockerData = data;
+    throw prepareError;
+  }
+
+  // THE OUTSTANDING PREPARED ROW, recorded where it is MINTED. prepare_entry
+  // creates a PreparedTransaction with a fresh blockhash; if the wallet never
+  // signs it, the board retires that row before offering "Try Again" so the
+  // retry gets fresh bytes and a fresh wallet request. The board used to hold
+  // the slug in a local because it ran the prepare POST itself — now this
+  // handler does, on BOTH transports, and walletOps does not hand `prepared`
+  // back when the signing hop rejects. So the record lives here, on window,
+  // where the board's catch can still find it. CLEARED at the top of complete():
+  // once signing has happened the attempt belongs to on-chain recovery, and
+  // retiring the row then would be wrong.
+  window.tmOutstandingEntryPrepare = { ptxSlug: data.ptx_slug, contestId: ctx.contestId };
+
+  // WHAT THE USER IS ABOUT TO BE ASKED, painted here because this is the only
+  // place token_funded exists — the SERVER decides it and echoes it back for
+  // exactly this copy, and naming a USDC transfer over an entry the user held
+  // "Hold for Free Entry" for would contradict the button they just pressed.
+  // walletOps has no hook between prepare and the signing hop, so no call site
+  // can paint it: prepare is the seam. Transport-neutral on purpose — the
+  // redirect user reads the same sentence as their wallet app takes over.
+  try {
+    if (window.Alpine && Alpine.store('solanaModal')) {
+      Alpine.store('solanaModal').show('Sign Transaction', data.token_funded
+        ? 'Approve your free entry in your wallet...'
+        : 'Approve the ' + String(ctx.currency || '').toUpperCase() + ' transfer in your wallet...');
+    }
+  } catch (e) { /* copy is a courtesy; never let it fail an entry */ }
+
+  var bytes = Uint8Array.from(atob(data.serialized_tx), function (c) { return c.charCodeAt(0); });
+  return {
+    transaction: window.SolanaStudio.walletTransport.base58.encode(bytes),
+    ptx_slug: data.ptx_slug,
+    entry_id: data.entry_id,
+    entry_pda: data.entry_pda,
+    token_funded: !!data.token_funded
+  };
+};
+
+// Complete: hand the wallet's signature to the server, which cosigns and
+// broadcasts. Runs in a document that never saw prepare().
+window.tmCompleteContestEntry = async function (ctx, result, state) {
+  // THE SIGNING HOP IS OVER — the prepared row is no longer retirable. Anything
+  // that fails from here belongs to on-chain recovery, not to a discard-and-
+  // retry, so the ledger prepare() wrote is cleared FIRST, before any branch
+  // below can throw past it.
+  window.tmOutstandingEntryPrepare = null;
+
+  // SIGN-ONLY IS A REQUIREMENT HERE, not a preference — see the intent's comment
+  // above. A wallet that broadcast instead of signing returns a signature and no
+  // transaction, and there is nothing to recover: the server never got the bytes
+  // it must cosign. Refuse loudly rather than post an empty body.
+  if (!result || !result.signedTransaction) {
+    throw new Error('The wallet broadcast this entry instead of signing it. ' +
+                    'This contest needs a co-signature from the server, so the entry could not complete.');
+  }
+
+  var signed = window.SolanaStudio.walletTransport.base58.decode(result.signedTransaction);
+  // Chunked, because String.fromCharCode.apply blows the argument stack on a
+  // full transaction — the same 0x8000 window the inline path uses.
+  var sb = '';
+  var chunk = 0x8000;
+  for (var i = 0; i < signed.length; i += chunk) {
+    sb += String.fromCharCode.apply(null, signed.subarray(i, i + chunk));
+  }
+
+  // THE LONGEST LEG, AND IT USED TO BE NARRATED (board, pre-collapse). confirm
+  // BLOCKS on send_and_confirm; unpainted the card still reads "Approve the ...
+  // transfer..." with nothing to approve. Guarded — complete() runs on the
+  // callback document too.
+  try {
+    if (window.Alpine && Alpine.store('solanaModal')) {
+      Alpine.store('solanaModal').show('Confirming Onchain', 'Cosigning and submitting to Solana...');
+    }
+  } catch (e) { /* copy is a courtesy; never let it fail an entry */ }
+  var resp = await window.tmEntryFetch('/contests/' + ctx.contestId + '/confirm_onchain_entry', {
+    method: 'POST',
+    headers: { 'X-CSRF-Token': ctx.csrfToken, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({ signed_tx: btoa(sb), entry_id: state.entry_id, entry_pda: state.entry_pda, ptx_slug: state.ptx_slug })
+  });
+  if (!resp) throw new Error('Your session expired before the entry was recorded.');
+
+  var data = await resp.json();
+  if (!data.success) {
+    // CARRY THE PAYLOAD, exactly as prepare does. confirm_onchain_entry answers
+    // with blocker codes of its own, and the inline call site used to route them
+    // through _handleBlockerResponse before it moved behind walletOps. Flatten
+    // this to a string and every one of those panels collapses into raw text —
+    // the same regression the prepare half was fixed for in PR 632.
+    var confirmError = new Error(data.error || 'Failed to confirm entry');
+    confirmError.blockerData = data;
+    throw confirmError;
+  }
+  console.log('[contest-entry] server cosigned + confirmed on-chain:', data.tx_signature);
+  return data;
+};
+</script>

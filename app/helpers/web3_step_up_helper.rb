@@ -16,11 +16,13 @@
 # the gem's words, and the next copy change arrives here by bumping the lock
 # rather than by editing this file.
 #
-# It is a HELPER rather than two literal render calls because the card is
-# registered TWICE: once in layouts/application (what a player meets) and once in
-# layouts/modal_preview (the /admin/modals preview harness, which keeps its own
-# registration list). Inlining the locals in both is how the two copies drifted
-# the first time.
+# It is a HELPER rather than a literal render call because the card was
+# registered TWICE — once in layouts/application (what a player meets) and once
+# in layouts/modal_preview, the admin preview harness, which kept its own
+# registration list. Inlining the locals in both is how the two copies drifted
+# the first time. The harness was deleted on 2026-09-09; the helper stays because
+# what it prevents is a SECOND inline copy, and the cost of keeping it is one
+# indirection.
 module Web3StepUpHelper
   # Locals for `render "solana_studio/modals/web3_step_up"`.
   #

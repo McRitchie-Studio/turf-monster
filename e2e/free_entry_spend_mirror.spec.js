@@ -295,3 +295,74 @@ test("a rejected Phantom token signature retries in place, then spends the token
   await expect.poll(() => tokensNow(page)).toBe(0);
   await expectLabels(page, "Hold to Confirm");
 });
+
+// THE INLINE TRANSACTION CODEC, AGAINST THE REAL @solana/web3.js.
+//
+// WHY THIS SPEC EXISTS AND WHAT ONLY IT CAN SAY. /tasks/collapse-inline-entry-
+// call-site retired the board's hand-rolled desktop entry and moved the
+// base58 <-> Transaction conversion onto the wallet provider, where walletOps
+// calls it (INLINE_TX_CODEC in app/javascript/wallet_provider.js). Its unit test
+// runs in node, where solanaWeb3 is a STUB: it can prove which bytes the codec
+// hands the library and which options it asks for, and it cannot prove the
+// library accepts either. That gap is the whole reason this is here.
+//
+// THE ASSERTION THAT MATTERS is the second one. Every transaction this codec
+// touches is CO-SIGNED — the server builds it with the admin signer slot
+// deliberately EMPTY and fills it after the wallet signs — so the codec asks for
+// requireAllSignatures:false and verifySignatures:false. A bare serialize()
+// throws on the missing signature, AFTER the user has approved, with signed
+// bytes nothing can post and nothing to retry from. Below, the real library is
+// asked BOTH ways on the SAME partially-signed transaction: bare must throw, the
+// codec must not. A stub cannot referee that, and a source read cannot see it.
+test("the inline codec round-trips a co-signed transaction through real web3.js", async ({
+  page,
+}) => {
+  await setupPhantomMock(page);
+  await loginViaPhantom(page);
+  await page.goto(CONTEST_PATH);
+  await page.waitForFunction(() => !!(window.walletProvider && window.solanaWeb3));
+  await page.evaluate((pk) => { window.__E2E_PHANTOM_PUBKEY__ = pk; }, MOCK_PUBKEY_B58);
+
+  const out = await page.evaluate(() => {
+    const provider = window.walletProvider.detect();
+    const me = new solanaWeb3.PublicKey(window.__E2E_PHANTOM_PUBKEY__);
+    // A SECOND REQUIRED SIGNER whose slot is never filled — the shape
+    // prepare_entry actually returns, where the server's admin signs later.
+    const admin = solanaWeb3.Keypair.generate();
+
+    const tx = new solanaWeb3.Transaction();
+    tx.add(solanaWeb3.SystemProgram.transfer({
+      fromPubkey: admin.publicKey, toPubkey: me, lamports: 1,
+    }));
+    tx.feePayer = me;
+    tx.recentBlockhash = solanaWeb3.Keypair.generate().publicKey.toBase58();
+
+    const wire = window.SolanaStudio.walletTransport.base58.encode(
+      tx.serialize({ requireAllSignatures: false, verifySignatures: false })
+    );
+
+    const back = provider.deserializeTransaction(wire);
+
+    // Ask the real library BOTH ways on the same object.
+    let bare = "did not throw";
+    try { back.serialize(); } catch (e) { bare = "threw"; }
+
+    return {
+      isTransaction: back instanceof solanaWeb3.Transaction,
+      blockhash: back.recentBlockhash,
+      expectedBlockhash: tx.recentBlockhash,
+      signerCount: back.signatures.length,
+      bare: bare,
+      reEncoded: provider.serializeTransaction(back),
+      wire: wire,
+    };
+  });
+
+  expect(out.isTransaction).toBe(true);
+  expect(out.blockhash).toBe(out.expectedBlockhash);
+  expect(out.signerCount).toBe(2);
+  // The real library refuses the bare call — so the codec's two flags are
+  // load-bearing here, not decoration on a transaction that never needed them.
+  expect(out.bare).toBe("threw");
+  expect(out.reEncoded).toBe(out.wire);
+});

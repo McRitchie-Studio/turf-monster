@@ -81,8 +81,34 @@ class StyleHostSectionTest < ActionDispatch::IntegrationTest
     # READS NO PROPS AT ALL: its endpoint is server-rendered into the x-data
     # from newsletter_unsubscribe_path, and its one production opener calls
     # open with an id and no second argument.
-    "unsubscribe-confirm"  => []
+    "unsubscribe-confirm"  => [],
+
+    # ─── batch 3, the heavy five (2026-09-09) ────────────────────────────────
+    # auth is carded TWICE — the credentials face and the funding face — because
+    # props.step drives eight faces from one id. This is the UNION of what both
+    # triggers pass, which is what the markup half compares against.
+    "auth"             => %w[step submitting],
+    "onramp-hub"       => %w[returnModal],
+    # NO PROPS. An earlier draft passed returnModal, which NOTHING reads: the
+    # card writes it as a literal when it swaps to the hub and never
+    # dereferences one. Half (b) below missed it because the string
+    # "props.returnModal" appears in an ERB COMMENT in that partial — a comment
+    # saying the prop is written elsewhere and not read here. The guard was
+    # satisfied by prose DENYING the thing it asserts, which is why (b) now
+    # strips comments before it looks.
+    "wallet-topup"     => []
   }.freeze
+
+  # Ids carded MORE THAN ONCE, and how many EXTRA cards each contributes beyond
+  # its first. Not a loophole — a second card must earn it by showing a face the
+  # first cannot reach with the same trigger.
+  EXTRA_FACES = { "auth" => 1 }.freeze
+
+  # Cards driven through the LEGACY PROXY rather than by opening an id with a
+  # props hash. modals/_onchain_tx reads zero props — every field comes off
+  # $store.solanaModal — so opening it with a props hash paints an EMPTY card.
+  # It has no TRIGGERS entry because there are no props to declare.
+  PROXY_DRIVEN = { "onchain-tx" => "Alpine.store('solanaModal').show(" }.freeze
 
   # One card's hidden reference prose, as style/_modal_specimen renders it.
   REFERENCE_SPAN = %r{<span x-ref="ref" class="hidden">.*?</span>}m
@@ -220,14 +246,42 @@ class StyleHostSectionTest < ActionDispatch::IntegrationTest
                  "including whether the id it opens is registered at all"
 
     # (b) THE CARDS. Half (a) can only see a card that renders a TRIGGER, and a
-    # card rendered with `openable: false` renders none — so an undeclared card
-    # would slip past (a) by being disabled. style/_modal_specimen prints
-    # exactly one hidden reference span per card, gated on nothing, so counting
-    # those counts cards whether or not they are clickable.
-    assert_equal TRIGGERS.size, decoded_section(@body).scan(REFERENCE_SPAN).size,
+    # DISABLED card renders none — so an undeclared card would slip past (a) by
+    # being disabled.
+    #
+    # THE SUPPRESSING LOCAL IS `disabled:`, NOT `openable:`, and this comment
+    # used to name the wrong one. Measured against the gem's
+    # style/_modal_specimen, which computes `clickable = !(disabled &&
+    # !openable)`: `openable: false` ALONE leaves a card fully clickable, so a
+    # card hidden from half (a) is one passing `disabled: true`. The two locals
+    # are only jointly suppressing — `disabled: true` WITH `openable: true`
+    # renders a trigger again, which is the gem's documented preview case and
+    # which no card in this section uses (cdp-ramp passes them as exact
+    # opposites of one predicate).
+    #
+    # style/_modal_specimen prints exactly one hidden reference span per card,
+    # gated on nothing, so counting those counts cards whether or not they are
+    # clickable.
+    #
+    # ONE CARD PER DECLARED ID WAS THE ASSUMPTION, and batch 3 broke it honestly
+    # in two ways, so the expected count is DERIVED rather than equal to
+    # TRIGGERS.size:
+    #   EXTRA_FACES — one id may be carded more than once when props select
+    #     genuinely different faces of it. `auth` is carded twice, credentials
+    #     and funding, because props.step drives eight faces from one id and the
+    #     funding face is chosen by a SERVER helper no prop can reach.
+    #   PROXY_DRIVEN — a card may render no `$store.modals.open` trigger at all.
+    #     onchain-tx reads zero props and is driven through $store.solanaModal,
+    #     so it has no id in TRIGGERS to be counted by.
+    # Both are declared above, so an UNdeclared extra card still lands here.
+    expected_cards = TRIGGERS.size + EXTRA_FACES.values.sum + PROXY_DRIVEN.size
+
+    assert_equal expected_cards, decoded_section(@body).scan(REFERENCE_SPAN).size,
                  "the section renders a different number of specimen cards than the " \
-                 "#{TRIGGERS.size} this test declares — half (a) above sees only cards that " \
-                 "render a trigger, so a disabled card added here is caught by this half alone"
+                 "#{expected_cards} this test declares (#{TRIGGERS.size} ids + " \
+                 "#{EXTRA_FACES.values.sum} extra face(s) + #{PROXY_DRIVEN.size} proxy-driven) — " \
+                 "half (a) above sees only cards that render a trigger, so a disabled card added " \
+                 "here is caught by this half alone"
   end
 
   test "no trigger drives the gem's page-scoped store" do
@@ -280,7 +334,15 @@ class StyleHostSectionTest < ActionDispatch::IntegrationTest
       # the page does.
       keys.each do |key|
         sources = PROP_SOURCES.map { |f| Rails.root.join(f.include?("%s") ? format(f, id.tr("-", "_")) : f) }
-        found   = sources.any? { |f| File.exist?(f) && File.read(f).include?("props.#{key}") }
+        found   = sources.any? do |f|
+          next false unless File.exist?(f)
+
+          # COMMENTS STRIPPED FIRST. A prop named only in prose is not read by
+          # anything, and _wallet_topup's header names props.returnModal purely
+          # to say it is NOT dereferenced there — which satisfied this guard
+          # while the trigger passed a prop nothing consumed.
+          File.read(f).gsub(/<%#.*?%>/m, "").include?("props.#{key}")
+        end
 
         assert found,
                "#{id} is opened with #{key}, but props.#{key} is read in none of " \
@@ -322,30 +384,109 @@ class StyleHostSectionTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # THE FILTER'S OWN GUARD, and the reason no id list and no count is written
+  # into this file or into style/host/_modals.html.erb.
+  #
+  # app_registration_sources exists to narrow registrations to this app's host,
+  # and NOTHING here proved it was still narrowing anything. Every other
+  # assertion in this file passes identically whether the filter bites or is a
+  # no-op, so the day the gem retires its last same-string specimen the filter
+  # goes inert and every sentence explaining it goes quietly false — which is
+  # exactly what happened to the four ids this file used to name.
+  #
+  # IF THIS GOES RED, THE ANSWER IS PROBABLY NOT TO FIX THE FILTER. It means the
+  # gem stopped registering any of this section's ids, so the hazard is gone:
+  # re-measure, then either delete the filter and its rationale together or
+  # record why it is kept. Deleting one and leaving the other is the failure
+  # mode this whole task existed to clean up.
+  test "the dsModals filter still has ids to filter, and they survive it" do
+    colliding = colliding_ids(@body)
+
+    refute_empty colliding,
+                 "no id this section triggers is ALSO registered by the gem's dsModals host on " \
+                 "this page, so app_registration_sources is filtering nothing — the comment " \
+                 "above it describes a hazard that no longer exists. Re-measure and either " \
+                 "retire the filter with its rationale or record why it stays"
+
+    colliding.each do |id|
+      dropped = modal_registration_sources(@body, id) - app_registration_sources(@body, id)
+
+      assert dropped.all? { |block| block.include?("dsModals") },
+             "the filter dropped a registration for #{id} that does NOT belong to the gem's " \
+             "page-scoped host — it must narrow to this app's host, never past it"
+
+      refute_empty app_registration_sources(@body, id),
+                   "#{id} is registered on BOTH hosts here and the filter dropped EVERY " \
+                   "registration — this app's own must survive, or every guard reading it " \
+                   "reports an empty panel on a card that works"
+    end
+  end
+
+  # THE NEWSLETTER CARDS' CLAIM ABOUT THE ENGINE, ASSERTED RATHER THAN WRITTEN.
+  #
+  # Three cards in this section used to say the engine owns no newsletter — one
+  # of them "and no endpoint", one "and no seeds" — and every half of it was
+  # false. The prose now states the opposite, which needs the same protection
+  # the collision census got: a measured sentence with nothing holding it is one
+  # gem release away from being a false one again.
+  #
+  # IT IS A REAL CONSUMER CONTRACT, not only prose insurance.
+  # config/initializers/studio.rb REPLACES the engine's newsletter row by
+  # matching `section[:key] == :newsletter` in Studio.default_profile_sections;
+  # if the engine dropped the newsletter the map would match nothing, no-op in
+  # silence, and this app's row would vanish from /profile.
+  test "the engine really does own the newsletter these cards say it owns" do
+    assert Studio::Newsletter.respond_to?(:serves?),
+           "the newsletter cards say the engine owns Studio::Newsletter; the resolved engine " \
+           "does not define it, so re-measure those cards before this reads as true"
+
+    assert_equal({ controller: "studio/profiles", action: "subscribe_newsletter" },
+                 Rails.application.routes.recognize_path("/profile/newsletter", method: :post),
+                 "the newsletter-email card names POST profile/newsletter as the engine's")
+
+    assert_equal({ controller: "studio/profiles", action: "unsubscribe_newsletter" },
+                 Rails.application.routes.recognize_path("/profile/newsletter", method: :delete),
+                 "the unsubscribe-confirm card names DELETE profile/newsletter as the engine's " \
+                 "endpoint, which is the exact half its old prose denied")
+  end
+
   private
+
+  # The ids this section triggers that the GEM also registers on this same page,
+  # derived rather than declared. A size difference can only come from the
+  # dsModals reject below, so it is precisely the collision set.
+  def colliding_ids(body)
+    TRIGGERS.keys.select do |id|
+      modal_registration_sources(body, id).size > app_registration_sources(body, id).size
+    end
+  end
 
   # Registrations on THIS APP'S host only.
   #
-  # WHY THE RAW HELPER IS NOT ENOUGH HERE, measured 2026-09-09. The guide renders
-  # the gem's own Modals section on the SAME page and BEFORE this one
-  # (style/index.html.erb renders "style/modals" then "style/host"), and four of
-  # the ids this section triggers — quest-success, unsubscribe-goodbye,
-  # wallet-deposit and network-guard — are ALSO specimen ids in that section,
-  # spelled identically. modal_registration_sources matches
-  # `<template x-if="[^"]*id === '<id>'`, and `[^"]*` happily spans
-  # `$store.dsModals.current().`, so the gem's page-scoped mirror satisfies a
-  # bare refute_empty. Delete this app's network-guard registration from
-  # layouts/application and the raw helper still returns one block: the guard
-  # would go green while the card opened an EMPTY panel, which is the precise
-  # failure the guard exists to catch.
+  # WHY THE RAW HELPER IS NOT ENOUGH HERE. The guide renders the gem's own
+  # Modals section on the SAME page and BEFORE this one (style/index.html.erb
+  # renders "style/modals" then "style/host"), and SOME of the ids this section
+  # triggers are ALSO specimen ids in that section, spelled identically.
+  # modal_registration_sources matches `<template x-if="[^"]*id === '<id>'`, and
+  # `[^"]*` happily spans `$store.dsModals.current().`, so the gem's page-scoped
+  # mirror satisfies a bare refute_empty. Delete this app's own registration for
+  # one of those ids from layouts/application and the raw helper still returns a
+  # block: the guard would go green while the card opened an EMPTY panel, which
+  # is the precise failure the guard exists to catch.
+  #
+  # WHICH IDS THOSE ARE IS DELIBERATELY NOT WRITTEN DOWN HERE, and that is the
+  # correction this comment carries. It used to name four — quest-success,
+  # unsubscribe-goodbye, wallet-deposit and network-guard — and every one of
+  # them stopped colliding the moment studio-engine retired the matching
+  # specimens. Nothing failed; the sentence simply went on reading as a live
+  # measurement. `colliding_ids` DERIVES the set from the rendered page and the
+  # test named "the dsModals filter still has ids to filter" asserts it is
+  # non-empty and prints it on failure, so the census maintains itself and the
+  # next retirement reddens a test instead of rotting a comment.
   #
   # The two hosts are separate Alpine stores, so the collision is harmless at
   # runtime and only ever a hazard to a test. Filtering on the OPENING TAG is
-  # what makes the assertion name the right host. Verified by deleting the
-  # network-guard registration from the layout: red here, green without the
-  # filter. (newsletter-success does not collide — the gem's is
-  # ds-newsletter-success, and the leading quote in the pattern keeps a
-  # substring from matching.)
+  # what makes the assertion name the right host.
   def app_registration_sources(body, id)
     modal_registration_sources(body, id).reject do |block|
       block[/\A<template x-if="[^"]*"/].to_s.include?("dsModals")
@@ -404,8 +545,72 @@ class StyleHostSectionTest < ActionDispatch::IntegrationTest
   # `seeds_earned` that reads as specimen drift while the markup is right. Every
   # prop the section passed before 2026-09-09 was camelCase, so nothing had ever
   # exercised it; modals/_newsletter_success reads props.seeds_earned.
+  # EVERY trigger for an id, unioned — not just the first.
+  #
+  # It read only the first match until 2026-09-09, which left a SECOND card for
+  # an already-declared id passing whatever it liked: measured, adding a bogus
+  # key to the tokens-picker trigger alone left this file green. auth is carded
+  # twice on purpose (credentials and funding faces), so "first trigger wins"
+  # silently exempted half of it. The TRIGGERS comment already called the
+  # declared set a union; this is the code catching up to the comment.
   def rendered_trigger_props(body, id)
-    args = triggerable_section(body)[/\$store\.modals\.open\('#{Regexp.escape(id)}'(?:,\s*\{(.*?)\})?\s*\)/m, 1]
-    args&.scan(/([a-zA-Z_]+):/)&.flatten&.sort
+    triggers = triggerable_section(body)
+               .scan(/\$store\.modals\.open\('#{Regexp.escape(id)}'(?:,\s*\{(.*?)\})?\s*\)/m)
+               .flatten.compact
+    return nil if triggers.empty?
+
+    triggers.flat_map { |args| args.scan(/([a-zA-Z_]+):/).flatten }.uniq.sort
+  end
+
+  test "the proxy-driven card drives the proxy, and is still registered" do
+    # THE TRAP: opening onchain-tx the way every other card is opened renders an
+    # EMPTY card. It reads zero props — message, errorMessage, ctaLabel,
+    # recoveryLabel and the rest all come off $store.solanaModal — so a props
+    # hash reaches nothing. The trigger looks like its neighbours and behaves
+    # nothing like them, which is exactly the kind of thing a reader copies.
+    section = decoded_section(@body)
+
+    PROXY_DRIVEN.each do |id, call|
+      assert_includes section, call,
+                      "#{id} is driven through the legacy proxy — its trigger must call " \
+                      "#{call}…, not $store.modals.open, which would paint an empty card"
+
+      refute_includes section, "$store.modals.open('#{id}'",
+                      "#{id} reads no props; opening it with a props hash renders an empty card"
+
+      # Registration is asserted for it like any other card — the proxy is a
+      # compatibility layer OVER $store.modals, so the id still has to be
+      # registered in turf's own layout host or the real host paints nothing.
+      refute_empty app_registration_sources(@body, id),
+                   "#{id} is triggered from the host section but turf's layout registers no " \
+                   "such modal — the host would open an EMPTY panel"
+    end
+  end
+
+  test "no card traps the page — every triggered card can be closed" do
+    # THE CLASS THIS GUARDS, and it shipped once. The on-chain card is opened
+    # through solanaModal.show(), which pins props.dismissible=false; the gem
+    # host gates BOTH escape and backdrop-click on that flag, and the processing
+    # arm renders no close control of its own. In the app that is right — an
+    # accidental click must not orphan a signed-but-unconfirmed transaction, and
+    # every production show() is followed by success() or error(), each of which
+    # flips the flag back. A SPECIMEN has nothing following it, so the card
+    # became the repo's first orphan show() and only a page reload escaped it.
+    #
+    # Asserted at the TRIGGER, because that is the only place a specimen can fix
+    # it: a trigger that pins dismissible false must re-arm it in the same
+    # expression. Written for the class rather than for onchain-tx, since the
+    # next proxy-driven card will reach for the same show().
+    section = decoded_section(@body)
+
+    section.scan(/@click="([^"]*solanaModal[^"]*)"/).flatten.each do |trigger|
+      next unless trigger.include?(".show(")
+
+      assert_match(/dismissible\s*=\s*true/, trigger,
+                   "a specimen opening the on-chain card with solanaModal.show() must re-arm " \
+                   "dismissible in the same trigger — show() pins it false, the processing arm " \
+                   "has no close control, and nothing follows a specimen to flip it back, so " \
+                   "the card traps the page until reload. Trigger was: #{trigger}")
+    end
   end
 end

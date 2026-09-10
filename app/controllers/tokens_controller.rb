@@ -418,13 +418,18 @@ class TokensController < ApplicationController
 
   def processing
     @session_id = params[:session_id].to_s
-    # Gallery preview (/admin/modals) renders this page in a forced state via
-    # ?preview_state=loading|ready|errored — no real session, so it must NOT
-    # redirect to /tokens/buy (which loaded a full app page in every preview
-    # iframe and stalled the gallery). Non-production only. The view's Alpine
-    # component short-circuits polling/window.close when previewState is set.
-    @preview_state = params[:preview_state].to_s.presence unless Rails.env.production?
-    redirect_to tokens_buy_path and return if @preview_state.blank? && @session_id.blank?
+    # A hit with no session_id is a stray navigation — send it to the buy page
+    # rather than render a card that has nothing to poll for.
+    #
+    # This guard used to carry a `?preview_state=loading|ready|errored` escape
+    # hatch so the /admin/modals gallery could iframe this page in a forced
+    # state. The gallery's three variant URLs were the branch's only callers,
+    # they went with PR #97, and the gallery itself is gone (route, view and
+    # action removed 2026-09-09) — so the parameter was reachable only by
+    # hand-typing it, and only outside production, which the branch already
+    # excluded. Removed 2026-09-09 with the fallback verified: a stale
+    # `?preview_state=` bookmark now lands on the redirect below, not an error.
+    redirect_to tokens_buy_path and return if @session_id.blank?
     # When checkout carried a contest, return the buyer there once tokens mint.
     @contest = Contest.find_by(slug: params[:contest].presence)
     # Fallback CTA for the standalone success card: send the buyer to

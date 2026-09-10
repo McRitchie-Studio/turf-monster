@@ -139,20 +139,26 @@ tweetnacl tag rather than the gem's async `solana_studio/_deeplink_assets`, and
 opts the callback's debug sink back on with
 `Studio.wallet_debug_sink = -> { !AppFlags.live_production? }`.
 
-**The two layouts load that tag on different terms, and the difference bites.**
-`layouts/application` loads tweetnacl on every page. `layouts/modal_preview` gates
-it per modal id, because loading web3.js and tweetnacl in all 49 gallery iframes
-stalled the page. Rendering the deep link is unconditional either way, so a
-preview card always publishes `window.startPhantomDeepLink` — and the gem
-picker paints its mobile Phantom row on that global merely EXISTING. A card that
-publishes the global without the tag therefore paints a row whose tap throws
-`nacl is not defined` synchronously, before the fetch, where nothing catches it.
-That is `/tasks/preview-gallery-deeplink-dead`. `phantom_deeplink_adoption_test`
-derives the ids that owe the tag from the preview layout's own registrations —
-the deep-link callers plus anything that reaches one through `swap`/`open` hops,
-failing closed on a target it cannot read — and fails when the gate is narrower.
-The derivation is scoped to that one layout by name: a THIRD layout rendering
-`shared/_alpine_factories` owes tweetnacl too, and nothing asserts it.
+**One layout loads that tag, unconditionally, and that is the whole guarantee
+now.** `layouts/application` loads tweetnacl on every page. Rendering the deep
+link is unconditional too, so every page publishes `window.startPhantomDeepLink`
+— and the gem picker paints its mobile Phantom row on that global merely
+EXISTING. A page that publishes the global WITHOUT the tag paints a row whose tap
+throws `nacl is not defined` synchronously, before the fetch, where nothing
+catches it.
+
+That used to be reachable. `layouts/modal_preview` gated the tag per modal id,
+because loading web3.js and tweetnacl in every gallery iframe stalled the page,
+and the gate was narrower than the set of cards that could put a caller on
+screen — `/tasks/preview-gallery-deeplink-dead`. `phantom_deeplink_adoption_test`
+carried a derivation for it: the deep-link callers plus anything reaching one
+through `swap`/`open` hops, failing closed on a target it could not read.
+`/tasks/retire-the-preview-harness` deleted that layout on 2026-09-09, which
+deleted the gate and with it the derivation — there is nothing left for a gate to
+be narrower than. What the test asserts instead is that the surviving tag is
+BLOCKING and that it reaches a RENDERED page, not merely that it appears in the
+layout source. A SECOND layout rendering `shared/_alpine_factories` would owe
+tweetnacl too, and nothing asserts that; add coverage with the layout.
 
 `Solana::SessionAuth#verify_solana_signature!` enforces:
 
@@ -717,7 +723,7 @@ address. One standard now covers both.
 | Read on render | `web3_step_up_required?` — helper, RPC-free, true for the whole session |
 | The modal | `solana_studio/modals/_web3_step_up` — solana-studio owns the card; this app passes its own subtext + help route via `Web3StepUpHelper#web3_step_up_locals` |
 | Brand memory | `users.web3_wallet_provider` + `web3_authenticated_at`, stamped by `User#record_web3_authentication!` |
-| Showroom | `/admin/style#modals` — both states, against the real partial. This app's own wording renders at `/admin/modals/preview/web3-step-up` |
+| Showroom | `/admin/style#modals` — both states, against the real partial, including this app's own wording (the card takes its locals from `Web3StepUpHelper` on every render). The separate `/admin/modals/preview/web3-step-up` seam was retired 2026-09-09 |
 
 Rules worth knowing:
 

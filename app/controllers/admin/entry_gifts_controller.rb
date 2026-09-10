@@ -31,7 +31,10 @@ module Admin
         recipient_email: params[:recipient_email],
         contest:         Contest.find_by(slug: params[:contest_slug].presence),
         note:            params[:note].to_s.strip.presence,
-        sender:          current_user
+        sender:          current_user,
+        # Frozen here, on purpose — see the column's migration. A later rename
+        # must not rewrite the greeting on an invite already in someone's inbox.
+        sender_username: current_user.username
       )
 
       # Bad form input is not an incident — bounce with a flash, don't 500.

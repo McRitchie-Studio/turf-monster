@@ -776,33 +776,111 @@
   // engine's levelingActionModal drives the form now.
 
   // finalize_hook — the OPAQUE second step for phantom / self-custodied wallets.
-  // The engine hands us the base64 partial-tx it received as `challenge`; we sign it
-  // in the wallet, broadcast, poll, and return the tx signature as the opaque
-  // `proof`. Same on-chain arc as the old _signAndBroadcast:
-  //   detect → connect → signTransaction → sendRawTransaction → pollConfirmation.
+  // The engine hands us the base64 partial-tx it received as `challenge`; we get
+  // it signed and onto the chain and return the tx signature as the opaque
+  // `proof`, which the engine POSTs to confirm_username.
+  //
+  // ONE CALL SITE, BOTH TRANSPORTS. What used to be here was the whole on-chain
+  // arc hand-rolled for an INJECTED wallet — detect, connect, atob,
+  // Transaction.from, signTransaction, serialize, sendRawTransaction,
+  // pollConfirmation — behind requireInlineProvider(), which on a phone throws
+  // "open this page inside your wallet app". That refusal was honest, and it was
+  // still a dead end: a mobile browser has no injected wallet, so a user who
+  // signed in through the Phantom deeplink could not rename at all.
+  //
+  // THE FLOW ITSELF IS NOT HERE. It is registered BY NAME at page load in
+  // shared/_username_rename_intent, because a closure cannot survive the page
+  // death the redirect transport runs through. What is left below is only the
+  // chrome the two transports do not share: what the modal says, and what to do
+  // when the hop that should destroy this page does not.
   window.tmUsernameFinalize = async function (challenge, opts) {
     opts = opts || {};
     var onProgress = (opts && opts.onProgress) || function () {};
     try {
-      // Guarded correctly before this change, but with copy that named Phantom
-      // and assumed an extension — on a phone that is advice nobody can take.
-      // requireProvider answers with the remedy that fits the device.
+      // requireProvider, NOT requireInlineProvider: this caller has now been
+      // taught the redirect transport, so it takes the provider a phone can
+      // actually reach and forks on provider.transport below.
       var provider = window.walletProvider.requireProvider();
-      onProgress("Approve in Phantom…");
-      await provider.connect();
-      var txBytes = Uint8Array.from(atob(challenge), function (c) { return c.charCodeAt(0); });
-      var tx = solanaWeb3.Transaction.from(txBytes);
-      var signed = await provider.signTransaction(tx);
-      var rpcUrl = document.body.dataset.solanaRpcUrl;
-      var conn = new solanaWeb3.Connection(rpcUrl, "confirmed");
-      var sig = await conn.sendRawTransaction(signed.serialize(), { skipPreflight: true, maxRetries: 3 });
-      onProgress("Confirming…");
-      // HTTP poll (no WebSocket "unknown" timeout) — same helper the entry flow uses.
-      await window.pollConfirmation(rpcUrl, sig);
-      return sig; // opaque proof; engine POSTs { token, proof } to confirm_username
+      var isRedirect = provider.transport === 'redirect';
+
+      // THE CALLER'S LEDGER — see shared/_username_rename_intent. Its PRESENCE
+      // is how complete() learns that the engine's leveling modal is still alive
+      // and will post the finalize itself; on the callback document this global
+      // is simply undefined and complete() posts it there instead. Set before
+      // run() so the inline path, which reaches complete() synchronously inside
+      // that promise, never sees it missing.
+      window.tmUsernameRenameCaller = { onProgress: onProgress };
+
+      var left = false;
+      var onPageHide = function () { left = true; };
+      if (isRedirect) {
+        onProgress("Opening your wallet app…");
+        // WHEN THE HOP NEVER HAPPENS. run() ends by handing the OS a universal
+        // link; if the wallet app is not installed nothing takes it and this
+        // document is still here, showing a label about a wallet that never
+        // opened. pagehide is the signal, not a timer alone: it fires when the
+        // hop DOES take, so its absence after the handoff is what tells us we
+        // are still here. The delay only has to outlast the OS prompt.
+        window.addEventListener('pagehide', onPageHide, { once: true });
+      } else {
+        onProgress("Approve in your wallet…");
+      }
+
+      // EXPECTED ACCOUNT IS UX, NOT SECURITY. build_set_username is built for
+      // this account's linked address and Anchor rejects a set_username signed
+      // by anyone else, with or without this. What DECLARING it buys is a
+      // sentence naming both wallets instead of a program error — and on the
+      // inline transport, a check that runs BEFORE the signing prompt, because
+      // walletOps connects first there.
+      var value = await window.SolanaStudio.walletOps.run('username_rename', {
+        challenge: challenge,
+        token: opts.token,
+        finalizeUrl: window.tmUsernameRenameFinalizeUrl,
+        // Carried for the callback document, which posts the finalize itself
+        // and may be served without a csrf meta tag of its own. It prefers its
+        // own; see renameCsrfToken in shared/_username_rename_intent.
+        csrfToken: (document.querySelector('meta[name="csrf-token"]') || {}).content || ''
+      }, {
+        provider: provider,
+        expectedAccount: (document.body.dataset.walletAddress || null),
+        appUrl: window.location.origin,
+        redirectLink: window.location.origin + '/auth/phantom/callback',
+        cluster: document.body.dataset.solanaCluster
+      });
+
+      if (isRedirect) {
+        // Nothing below runs on the happy path — the document is gone and the
+        // rename finishes on the callback page. Reaching here means the hop did
+        // not take, and the honest move is to say so rather than leave a label
+        // spinning forever.
+        await new Promise(function (resolve) { setTimeout(resolve, 1200); });
+        window.removeEventListener('pagehide', onPageHide);
+        // document.hidden covers the iOS case where the app switch is in
+        // progress but pagehide has not fired yet.
+        if (!left && !document.hidden) {
+          throw new Error("Your wallet app did not open. Install it, or open this page inside your wallet app's own browser.");
+        }
+        // The hop DID take; this document is on its way out. Never resolve —
+        // returning here would make the engine POST a finalize with no proof.
+        return await new Promise(function () {});
+      }
+
+      // opaque proof; the engine POSTs { token, proof } to confirm_username
+      return value && value.proof;
     } catch (e) {
       if (e && e.code === 4001) throw new Error("Signature rejected");
+      // THE SECOND WAY OUT, which the gem cannot know about. walletOps names
+      // both wallets — more than the old code did — but "switch accounts in
+      // your wallet" is only one of the two remedies, and it is the wrong one
+      // for a user whose LINKED address is the stale side.
+      if (e && e.wrongAccount) {
+        throw new Error(e.message + " Or reconnect your wallet on the Account page.");
+      }
       throw new Error((e && e.message) || "Could not save username");
+    } finally {
+      // The ledger belongs to ONE attempt. Left set, a later redirect rename
+      // resumed in this same tab would find it and skip its own finalize.
+      window.tmUsernameRenameCaller = null;
     }
   };
 
@@ -1023,9 +1101,15 @@
       init() {
         var self = this;
         var p = this.props;
-        // Gallery preview affordance: MODAL_VARIANTS is a static constant and
-        // can't carry a live ISO deadline, so demoCountdownMinutes synthesizes
-        // one at mount (0 → already expired, for the late-send preview).
+        // Review affordance: a caller that hands this card static props cannot
+        // carry a live ISO deadline, so demoCountdownMinutes synthesizes one at
+        // mount (0 -> already expired, for the late-send state). Written for the
+        // MODAL_VARIANTS catalogue, which was retired with /admin/modals on
+        // 2026-09-08, and driven from cdp_preview_smoke_test until the preview
+        // seam went on 2026-09-09. NO CALLER PASSES IT TODAY: it is reachable by
+        // hand from the style guide's own card, whose reference text says to
+        // drive the other steps by varying props, and from a console. Kept for
+        // that, not for a test.
         if (p.demoCountdownMinutes != null && !p.deadlineAt) {
           p.deadlineAt = new Date(Date.now() + p.demoCountdownMinutes * 60000).toISOString();
         }
@@ -1225,12 +1309,14 @@
   the engine's in studio-engine 0.66.2, and this app runs above that floor, so
   studio-engine hands it no studio/solana partial at all.
 
-  WHY IT LIVES IN THIS FILE rather than at each layout. TWO layouts mount the
-  shared Connect-Wallet picker (layouts/application and layouts/modal_preview)
-  and each keeps its own registration list, so anything written at the callsite
-  is written twice and is then free to drift. Both layouts already render this
-  partial, immediately inside the opening body tag, so one render here reaches
-  both. Same reasoning as WalletPickerHelper.
+  WHY IT LIVES IN THIS FILE rather than at each layout. Two layouts mounted the
+  shared Connect-Wallet picker until 2026-09-09 (layouts/application and
+  layouts/modal_preview) and each kept its own registration list, so anything
+  written at the callsite was written twice and free to drift. The preview layout
+  is gone; the reasoning is not, because it is about WHERE a callsite-written
+  thing goes wrong rather than about how many callsites there happen to be. A
+  render here, immediately inside the opening body tag, reaches every layout that
+  mounts the picker. Same reasoning as WalletPickerHelper.
 
   AND WHY NOT THE IMPORTMAP, which is where the fork loaded from. The shared
   picker suppresses Phantom's mobile INSTALL row and paints its deep-link row on
@@ -1249,22 +1335,27 @@
   wait; do not do one without the other.
 
   AND EACH LAYOUT OWES THAT TAG SEPARATELY — the trap this file sets, because
-  rendering here is unconditional while the tag is not. layouts/application
-  loads tweetnacl for every page; layouts/modal_preview gates it per modal id,
-  so a preview card gets the global from this line and nacl only if its id is on
-  that list. When the gate was narrower than this render, the shared picker
-  painted its mobile Phantom row (the getter only asks whether the global is a
-  function) and the tap threw "nacl is not defined" SYNCHRONOUSLY, before the
-  fetch, where the deep link's own catch could not see it. That was
-  /tasks/preview-gallery-deeplink-dead.
+  rendering here is unconditional while the tag need not be. layouts/application
+  loads tweetnacl for every page, so today every render of this partial has nacl
+  behind it. layouts/modal_preview did NOT: it gated the tag per modal id, so a
+  preview card got the global from this line and nacl only if its id was on that
+  list. When the gate was narrower than this render, the shared picker painted
+  its mobile Phantom row (the getter only asks whether the global is a function)
+  and the tap threw "nacl is not defined" SYNCHRONOUSLY, before the fetch, where
+  the deep link's own catch could not see it. That was
+  /tasks/preview-gallery-deeplink-dead, and the layout it happened in was deleted
+  by /tasks/retire-the-preview-harness on 2026-09-09.
 
-  WHAT THE TEST COVERS, AND WHAT IT DOES NOT — stated exactly, because the
-  earlier version of this note claimed more than was true and a reader who
-  believes it stops looking. phantom_deeplink_adoption_test derives the modals
-  that owe tweetnacl from the registrations in layouts/modal_preview and asserts
-  the gate there is no narrower, so a modal added to THAT layout cannot paint a
-  dead button. It is scoped to that one layout by name. A THIRD layout rendering
-  this partial owes tweetnacl too and NOTHING ASSERTS IT: no test enumerates
-  layouts. If you add one, add its own coverage with it.
+  WHAT THE TEST COVERS, AND WHAT IT DOES NOT — stated exactly, because an earlier
+  version of this note claimed more than was true and a reader who believes it
+  stops looking. phantom_deeplink_adoption_test asserts that the ONE layout
+  loading tweetnacl does so from a blocking tag, and reads that tag back off a
+  RENDERED page rather than only out of the layout source. It used to derive,
+  from the preview layout's own registrations, which of its cards could reach a
+  deep-link caller and demand the per-id gate cover all of them; that derivation
+  died with the gate, and nothing replaced it because there is no gate left to be
+  narrower than this render. A SECOND layout rendering this partial would owe
+  tweetnacl too and NOTHING ASSERTS IT: no test enumerates the layouts that
+  render this file. If you add one, add its own coverage with it.
 %>
 <%= render "solana_studio/phantom_deeplink" %>

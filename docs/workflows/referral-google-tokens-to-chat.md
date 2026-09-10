@@ -5,7 +5,9 @@
 > numbers drift, prose rots. When code moves, this file moves with it: re-confirm
 > citations on edit.
 
-**Trigger:** Visitor clicks a marketing link like `/landing/:slug` (or any URL with `?reference=…`) for a paid on-chain contest.
+**Trigger:** Visitor clicks a marketing link like `/lp/:slug` (or any URL with
+`?reference=…`) for a paid on-chain contest. There is no `/landing/:slug` route; older
+`/l/:slug` links still land, as the trigger note in [[web3-landing-to-entry]] explains.
 **Actors:** Visitor → Google OAuth → Rails (`LandingPagesController` / `OmniauthCallbacksController` / `TokensController` / `ContestsController` / `MessagesController`) → Stripe → Sidekiq (`TokenPurchaseJob`) → Solana RPC (managed-wallet `mint_entry_token` + `enter_contest_with_token`) → ActionCable.
 **Outcome:** `users` row with `reference = "<landing-slug>"`, a `stripe_purchases` row in status `minted` with 3 on-chain `EntryTokenAccount` PDAs (one consumed), an `entries` row in status `complete` with `onchain_tx_signature`, a `messages` row broadcast on `[contest, :messages]`.
 **Preconditions:** Contest is `open`, `onchain`, has `chat_enabled = true` (default — `db/schema.rb:66`), and is backed by a configured `SeasonConfig.current_season_id` (`contests_controller.rb:296`). Stripe enabled. Visitor not in a blocked geo state.
@@ -53,10 +55,10 @@
 - **Partial mint failure (1 of 3 tokens minted, RPC crashes)** — `TokenPurchaseJob` persists each signature before continuing (`token_purchase_job.rb:75`). On Sidekiq retry, loop resumes at `already_minted = signatures.length` (line 57-59). `mark_failed_unless_minted!` (line 99) never downgrades a `minted` row.
 - **User refreshes during the Stripe round-trip** — cart picks already POSTed to the server as cart-status `entries` + `selections` rows by `replaySelectionsToServer` (`_turf_totals_board.html.erb:475`). The processing-tab `BroadcastChannel` won't reach a closed contest tab, but the next contest visit reads cart rows back from the DB. On-chain mint completes regardless (job is async).
 - **`/tokens/status` polling times out (>45s)** — modal flips to `tokens-error` (`_turf_totals_board.html.erb:761-768`) with "Refresh in a moment" copy.
-- **`ContestsController#enter` race — contest full mid-flight** — `with_lock` at `contests_controller.rb:288` + `active_count >= @contest.max_entries` check at line 290 raises "Contest is full"; the response 422s and the modal surfaces the error.
+- **`ContestsController#enter` race — contest full mid-flight** — `with_lock` at `app/controllers/contests_controller.rb:821` runs `entry.assert_enterable!` (`:824`), whose `active_count >= contest.max_entries` check (`app/models/entry.rb:147`) raises "Contest is full"; the response 422s and the modal surfaces the error.
 - **Chat message rate-limit hit** — `MessagesController#posting_too_fast?` returns 429 (`messages_controller.rb:14`). User sees "You're posting too fast" in the composer.
 - **ActionCable broadcast failure** — `Message#broadcast_new_message` wraps in `rescue` and logs to `ErrorLog` (`message.rb:50-51`) so the controller request still returns `{ ok: true }`. Other subscribers miss the message; the poster sees it (Turbo Drive renders locally via the controller response — actually no, this isn't ideal; the local sender also waits on the broadcast). → Inspect `error_logs` for `Message` targets.
-- **Chargeback / refund post-mint** — `handle_dispute` / `handle_refund` in `webhooks/stripe_controller.rb:111-136` flag the user (`payment_risk_flag`) and freeze them (`freeze_for_payment_risk!`). Future buys + entries blocked; operator unfreezes via console.
+- **Chargeback / refund post-mint** — `handle_dispute` / `handle_refund` in `app/controllers/webhooks/stripe_controller.rb:111-136` flag the user (`payment_risk_flag`) and freeze them (`freeze_for_payment_risk!`). Future buys + entries blocked; operator unfreezes via console.
 
 ## Related workflows
 

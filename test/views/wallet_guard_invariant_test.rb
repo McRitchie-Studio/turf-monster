@@ -60,14 +60,30 @@ class WalletGuardInvariantTest < ActiveSupport::TestCase
                  offenders.join("\n  ")
   end
 
-  test "every layout inlining a walletProvider stub mirrors requireProvider" do
+  # DERIVED FROM THE CALLERS, not from a hardcoded list. A stub owes whatever
+  # the pre-hydration window can actually reach for, and that set grows: when
+  # _alpine_factories moved from requireProvider to requireInlineProvider, a
+  # list written by hand would have kept asserting the old name and passed while
+  # the preview threw "requireInlineProvider is not a function". Reading the
+  # call sites means adding a third guard updates this test for free.
+  test "every layout inlining a walletProvider stub mirrors what its callers ask for" do
+    factories = File.read(VIEWS.join("shared/_alpine_factories.html.erb"))
+    needed = %w[requireProvider requireInlineProvider].select do |m|
+      factories.include?("walletProvider.#{m}()")
+    end
+    assert_operator needed.size, :>=, 1,
+                    "no walletProvider guard is called pre-hydration any more — if that is " \
+                    "true then this test and the stubs it guards should go together"
+
     Dir.glob(Rails.root.join("app/views/layouts/*.erb")).each do |path|
       src = File.read(path)
       next unless src.include?("window.walletProvider = {")
-      assert_includes src, "requireProvider: function()",
-                      "#{File.basename(path)} stubs walletProvider without requireProvider, " \
-                      "and shared/alpine_factories calls it — the pre-hydration window there " \
-                      "throws \"requireProvider is not a function\"."
+      needed.each do |m|
+        assert_includes src, "#{m}: function()",
+                        "#{File.basename(path)} stubs walletProvider without #{m}, and " \
+                        "shared/_alpine_factories calls it — the pre-hydration window there " \
+                        "throws \"#{m} is not a function\"."
+      end
     end
   end
 
@@ -86,11 +102,61 @@ class WalletGuardInvariantTest < ActiveSupport::TestCase
     # Must still IGNORE the boolean-guard read, or the scan flags correct code.
     refute_match DEREFERENCE_SHAPE, "      if (!window.walletProvider.detect()) return;"
 
-    users = Dir.glob(VIEWS.join("**/*.erb")).count { |p| File.read(p).include?("walletProvider.requireProvider()") }
+    # THE GUARD IS NOW TWO FUNCTIONS, and both count. requireProvider() answers
+    # with whatever wallet the device has, INCLUDING a redirect provider — which
+    # is correct only for a caller that forks on provider.transport. Every other
+    # caller wants requireInlineProvider(), which refuses a redirect provider
+    # with the same device-appropriate message, because a redirect provider has
+    # no connect/signTransaction/signMessage and reaching for them reproduces
+    # the original incident one call site over. Views were converted to the
+    # stricter sibling; NONE was removed, so this total floor does not move — a
+    # site that LEARNS the redirect transport moves between the two guards, it
+    # does not stop calling one.
+    guards = %w[
+      walletProvider.requireProvider()
+      walletProvider.requireInlineProvider()
+    ]
+    users = Dir.glob(VIEWS.join("**/*.erb")).count do |p|
+      src = File.read(p)
+      guards.any? { |g| src.include?(g) }
+    end
 
     assert_operator users, :>=, 6,
                     "expected at least the six converted signing views to call " \
-                    "requireProvider(); found #{users}. If a call site was removed on " \
-                    "purpose, lower this floor deliberately rather than deleting the check."
+                    "requireProvider() or requireInlineProvider(); found #{users}. If a " \
+                    "call site was removed on purpose, lower this floor deliberately " \
+                    "rather than deleting the check."
+
+    # AND THE STRICTER ONE MUST ACTUALLY BE USED. Without this, converting every
+    # site back to the permissive guard would keep the count at six and hand a
+    # redirect provider to callers that cannot drive it — the defect this whole
+    # change exists to close.
+    inline = Dir.glob(VIEWS.join("**/*.erb")).count do |p|
+      File.read(p).include?("walletProvider.requireInlineProvider()")
+    end
+
+    # FLOOR LOWERED 3 → 2 ON PURPOSE, 2026-09-09, which is the move this test's
+    # own comment asks for instead of deleting a check.
+    #
+    # shared/_alpine_factories GRADUATED. It held the third slot because
+    # tmUsernameFinalize hand-rolled the on-chain arc for an injected wallet and
+    # could not drive a redirect provider — so refusing one was correct. That
+    # rename now runs through SolanaStudio.walletOps.run (the username_rename
+    # intent in shared/_username_rename_intent), which owns both transports, so
+    # the file forks on provider.transport and requireProvider() is the RIGHT
+    # guard there. It did not stop guarding; it moved to the other guard, and
+    # the >= 6 total above is what holds that.
+    #
+    # THE TWO THAT REMAIN ARE NOT PENDING WORK OF THE SAME KIND. The survivor
+    # board is tracked at /tasks/migrate-remaining-entry-flows. The wallet
+    # export is a DELIBERATE PERMANENT no — it signs a MESSAGE, and walletOps
+    # has no signMessage hop; more to the point the message carries the export
+    # token, which is a bearer credential for the decrypted private key, and the
+    # redirect transport would journal it to localStorage. Reasons in full at
+    # /tasks/wallet-export-mobile-transport and in that view's own comment.
+    # So this floor is expected to reach 1 and then STOP.
+    assert_operator inline, :>=, 2,
+                    "the views that cannot drive a redirect provider — the survivor board " \
+                    "and the wallet export — must ask for an INLINE provider; found #{inline}."
   end
 end

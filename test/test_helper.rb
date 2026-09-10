@@ -281,6 +281,42 @@ class ActionDispatch::IntegrationTest
   # point — the submit button, the skip link — then fail as "not present" on
   # markup that is present. Measured while adopting the first-name card, where it
   # cost three confusing failures before the slice itself was suspected.
+  # An ordinary page, rendered through layouts/application, whose body carries
+  # every modal card this app registers.
+  #
+  # THIS IS THE MODAL RENDER SEAM, and there is exactly one of it. Every
+  # registration in layouts/application is a server-rendered <template x-if>, so
+  # one request for any page on that layout carries the full markup of every
+  # card at once — which is what a component assertion actually needs.
+  #
+  # WHAT IT REPLACED, and why the replacement is stronger rather than merely
+  # equivalent. Assertions of this kind used to drive /admin/modals/preview,
+  # which rendered ONE card on layouts/modal_preview — a second layout keeping a
+  # SECOND registration list. Two lists for one set of cards is the drift this
+  # app has already paid for twice: six cards rendered empty for months because
+  # a modal reached one list and not the other, and a mutation that broke the
+  # REQUIRED first-name branch in layouts/application survived every assertion in
+  # first_name_entry_gate_test, because every one of them was reading the other
+  # layout (that file's own note records the surviving mutant). Retiring the
+  # second layout retired both hazards; asserting here asserts the layout a
+  # player is actually served.
+  #
+  # /about IS THE DEFAULT BECAUSE IT IS THE CHEAPEST — a static page needing no
+  # fixture, no session and no flag, whose layout is the same one every other
+  # page uses. Pass another path when the assertion needs page-specific state
+  # (the session payload, a contest board). Log in first when the card is
+  # registered behind `logged_in?`.
+  #
+  # SCOPE NEGATIVE ASSERTIONS TO THE CARD. This page carries ~34 registrations,
+  # so `assert_not_includes body, "btn btn-primary w-full"` is answering a
+  # question about the whole app. Slice with modal_registration_sources below
+  # and assert against that.
+  def modal_host_page(path = about_path)
+    get path
+    assert_response :success
+    response.body
+  end
+
   def modal_registration_sources(body, modal_id)
     opening = /<template x-if="[^"]*id === '#{Regexp.escape(modal_id)}'/
     body.to_enum(:scan, opening).map { Regexp.last_match.begin(0) }.map do |start|
