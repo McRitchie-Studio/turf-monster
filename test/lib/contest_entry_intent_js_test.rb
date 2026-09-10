@@ -270,4 +270,145 @@ class ContestEntryIntentJsTest < ActiveSupport::TestCase
     assert_equal "/contests/1/prepare_entry", out["calls"].first[1],
                  "the authed path must still be the one taken where it exists"
   end
+
+  # --- the outstanding prepared row ----------------------------------------
+  #
+  # WHY THE LEDGER EXISTS, and it is not bookkeeping for its own sake.
+  # prepare_entry MINTS a PreparedTransaction carrying a fresh blockhash. If the
+  # user dismisses the wallet prompt, the board retires that row before offering
+  # "Try Again", so the retry builds new bytes instead of racing an expiring
+  # blockhash. The board used to hold the slug in a local because it ran the
+  # prepare POST itself; now this handler does, on both transports — and
+  # walletOps does not hand `prepared` back when the signing hop rejects, so the
+  # slug is on neither the error nor a local. The window record is the seam, and
+  # its two edges are what these tests pin: SET when a row is minted, CLEARED the
+  # moment complete() begins, because after signing the attempt belongs to
+  # on-chain recovery and retiring the row then would be wrong.
+  #
+  # The e2e (free_entry_spend_mirror.spec.js) drives the whole recovery in a
+  # browser; these own the two edges, which no browser assertion can isolate.
+
+  test "prepare records the prepared row a rejected signature must retire" do
+    out = run_js(<<~JS)
+      (async function () {
+        var state = await window.tmPrepareContestEntry({ contestId: 12, csrfToken: 'T', currency: 'usdc' });
+        return { state: state, ledger: window.tmOutstandingEntryPrepare };
+      })()
+    JS
+
+    assert out["ok"], out["message"]
+    assert_equal({ "ptxSlug" => "ptx-1", "contestId" => 12 }, out["value"]["ledger"],
+                 "without this the board cannot retire the row it just spent, so a " \
+                 "dismissed wallet prompt strands a PreparedTransaction and the retry " \
+                 "races its blockhash")
+  end
+
+  test "a failed prepare records nothing to retire" do
+    out = run_js(<<~JS, body: { "success" => false, "error" => "Not enough USDC" })
+      (async function () {
+        try { await window.tmPrepareContestEntry({ contestId: 12, csrfToken: 'T', currency: 'usdc' }); }
+        catch (e) { /* the refusal is asserted elsewhere */ }
+        return { ledger: window.tmOutstandingEntryPrepare || null };
+      })()
+    JS
+
+    assert out["ok"], out["message"]
+    assert_nil out["value"]["ledger"],
+               "the server minted no row when it refused, so recording one would send the " \
+               "board to discard_prepared_entry with a slug that never existed"
+  end
+
+  test "complete clears the outstanding row before any branch can throw" do
+    # DRIVEN THROUGH THE THROWING BRANCH ON PURPOSE. A clear placed after the
+    # sign-only guard would leave the row recorded on exactly the path that
+    # reaches it — and the board would then offer a retry for an entry whose
+    # transaction a wallet had already broadcast.
+    out = run_js(<<~JS)
+      (async function () {
+        window.tmOutstandingEntryPrepare = { ptxSlug: 'ptx-1', contestId: 12 };
+        var threw = null;
+        try {
+          await window.tmCompleteContestEntry({ contestId: 12, csrfToken: 'T' },
+                                              { signedTransaction: null, signature: 'SIG' }, {});
+        } catch (e) { threw = e.message; }
+        return { threw: threw, ledger: window.tmOutstandingEntryPrepare };
+      })()
+    JS
+
+    assert out["ok"], out["message"]
+    assert_match(/broadcast this entry instead of signing/i, out["value"]["threw"],
+                 "the sign-only guard must still refuse a broadcast")
+    assert_nil out["value"]["ledger"],
+               "the signing hop is over once complete() runs — anything failing from here " \
+               "belongs to on-chain recovery, never to a discard-and-retry"
+  end
+
+  # --- blockers on the RETURN leg -------------------------------------------
+
+  test "complete carries the server's blocker payload on the error it throws" do
+    # THE PREPARE HALF OF THIS WAS FIXED IN PR 632 AND THE CONFIRM HALF WAS NOT,
+    # which only mattered once the inline call site moved behind walletOps: it
+    # used to route a failed confirm through _handleBlockerResponse itself. A
+    # flattened string here collapses every funds/age/first-name panel to raw
+    # text — the same regression, one hop later.
+    out = run_js(<<~JS, body: { "success" => false, "error" => "Entry token already spent", "code" => "no_funding" })
+      window.tmCompleteContestEntry({ contestId: 12, csrfToken: 'T' },
+                                    { signedTransaction: 'B58<1,2,3>' },
+                                    { entry_id: 7, entry_pda: 'PDA', ptx_slug: 'ptx-1' })
+    JS
+
+    refute out["ok"], "a server refusal must reject"
+    assert_equal "no_funding", out["blockerData"]["code"],
+                 "the payload must ride the Error — the board's catch is the only place " \
+                 "_handleBlockerResponse can be reached from"
+  end
+
+  # --- what the user is asked to approve ------------------------------------
+  #
+  # token_funded is the SERVER's decision, echoed back by prepare_entry for
+  # exactly this copy, and it is only knowable here — walletOps offers no hook
+  # between prepare and the signing hop, so no call site can paint it.
+
+  test "a token-funded entry never asks the user to approve a transfer" do
+    out = run_js(<<~JS)
+      (async function () {
+        var shown = [];
+        window.Alpine = { store: function () { return { show: function (t, b) { shown.push([t, b]); } }; } };
+        await window.tmPrepareContestEntry({ contestId: 12, csrfToken: 'T', currency: 'usdc' });
+        return shown;
+      })()
+    JS
+
+    assert out["ok"], out["message"]
+    assert_equal [["Sign Transaction", "Approve your free entry in your wallet..."]], out["value"],
+                 "the server built enter_contest_with_token, so naming a USDC transfer here " \
+                 "contradicts the Hold for Free Entry button the user just pressed"
+  end
+
+  test "a paid entry names the currency the caller actually chose" do
+    paid = { "success" => true, "serialized_tx" => "AQID", "ptx_slug" => "ptx-1",
+             "entry_id" => 7, "entry_pda" => "PDA", "token_funded" => false }
+    out = run_js(<<~JS, body: paid)
+      (async function () {
+        var shown = [];
+        window.Alpine = { store: function () { return { show: function (t, b) { shown.push([t, b]); } }; } };
+        await window.tmPrepareContestEntry({ contestId: 12, csrfToken: 'T', currency: 'usdt' });
+        return shown;
+      })()
+    JS
+
+    assert out["ok"], out["message"]
+    assert_equal [["Sign Transaction", "Approve the USDT transfer in your wallet..."]], out["value"],
+                 "the currency decided at the call site, the prompt copy, and the transfer " \
+                 "the server built all have to name the same token"
+  end
+
+  test "a document without Alpine still prepares an entry" do
+    # THE ABSENT-CAPABILITY RULE. Copy is a courtesy; an entry is not. This
+    # handler is registered on EVERY page, including the wallet callback.
+    out = run_js("window.tmPrepareContestEntry({ contestId: 12, csrfToken: 'T', currency: 'usdc' })")
+
+    assert out["ok"], out["message"]
+    assert_equal "B58<1,2,3>", out["value"]["transaction"]
+  end
 end
