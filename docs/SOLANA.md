@@ -1,6 +1,6 @@
 # Solana Integration
 
-"DeFi mullet" — Web2 UX front, Solana settlement back. **Read paths** rescue-and-log (balance/seeds display falls back to 0 on RPC error). **Money-mutating paths** (create_contest, enter, settle) are TX-first — the on-chain transaction confirms *before* the DB row is written/promoted — and fail closed: `Solana::Vault.ensure_program_id_live!` raises if `PROGRAM_ID` isn't on the RPC, and `Solana::Config.verify_idl!` refuses to boot/precompile in prod on IDL drift. The app does not transact against a missing or IDL-mismatched program.
+"DeFi mullet" — Web2 UX front, Solana settlement back. **Read paths** rescue-and-log (balance/seeds display falls back to 0 on RPC error). **Money-mutating paths** (create_contest, enter, settle) are TX-first — the on-chain transaction confirms *before* the DB row is promoted (create_contest does write a `pending` row first, as a write-ahead record, so a broadcast never lands with nothing pointing at it; it is promoted to `open` only after verification) — and fail closed: `Solana::Vault.ensure_program_id_live!` raises if `PROGRAM_ID` isn't on the RPC, and `Solana::Config.verify_idl!` refuses to boot/precompile in prod on IDL drift. The app does not transact against a missing or IDL-mismatched program.
 
 ## Architecture: self-custody (v0.16+)
 

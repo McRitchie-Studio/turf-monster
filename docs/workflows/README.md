@@ -2,31 +2,26 @@
 
 Casual-agent index. Open a per-workflow file for the dirty details.
 
-> **Code-first principle.** Most workflow files cite `path/to/file.rb:NN` so claims can be
+> **Code-first principle.** Every workflow file cites `path/to/file.rb:NN` so claims can be
 > verified against the current codebase. If a workflow file disagrees with the code,
 > trust the code and update the file. Prose rots; line numbers drift on refactor —
 > re-confirm before relying on either.
 >
-> **Two workflow files cite nothing at all.** Measured 2026-09-09, [live-scoring](live-scoring.md)
-> and [submit-entry-decision-tree](submit-entry-decision-tree.md) parse to zero citations
-> each. They name symbols throughout and point at none of them, so every claim in those
-> two is unverified prose. Check them against the code before you rely on either.
+> **Every citation here is checked, and every file gets the strong check.**
+> `test/docs/workflow_citation_docs_test.rb` reads every file in this directory and
+> proves, for every citation: the file it names exists, the line it names is inside
+> that file, the lines it names are not all blank — and that the citation lands on
+> the SYMBOL its prose names, which is what catches a number that merely moved.
+> Since 2026-09-09 every workflow file is in that test's `COVERAGE`; a new file is a
+> red test until it is swept and opted in (see [`_TEMPLATE.md`](_TEMPLATE.md)).
 >
-> **Every cited file here is checked — but not to the same depth.**
-> `test/docs/workflow_citation_docs_test.rb` reads EVERY file in this directory and
-> proves three things about every citation in it: the file it names exists, the line it
-> names is inside that file, and the lines it names are not all blank. So a coordinate
-> that points at nothing is now a red test, wherever it is written.
->
-> The stronger check — that a citation lands on the SYMBOL its prose names, which is what
-> catches a number that merely moved — still runs only on the documents listed in that
-> test's `COVERAGE`: today [web3-landing-to-entry](web3-landing-to-entry.md) and
-> [market-snapshot](market-snapshot.md). Turning it on everywhere is a citation sweep, not
-> a test change: measured 2026-09-09, 265 of the 323 citations in the other four cited
-> files would fail it. Until they are swept, read a number in those four as a real
-> coordinate that has been bounds-checked, not as a verified claim about the code at it.
-> And a `COVERAGE` file is not uniformly guarded either: each one's own preamble states
-> which of its citations get the weaker of the two checks.
+> **Strong is not uniform.** Where a cited line sits inside no definition the guard
+> can derive — a route, ERB markup, a `.js` or `.rake` file, a class-body callback —
+> the check falls back to asking that a code token the prose quotes appear in the
+> cited lines. That proves the words are there, not that the code is. Each file's own
+> preamble states how many of its citations get the weaker check, and the test holds
+> it to that number. And no check reads PROSE: a citation can land on the right
+> symbol beside a sentence that is no longer true.
 
 ## User journeys
 
