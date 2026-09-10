@@ -620,7 +620,7 @@ branch on `mode`: a wallet-less account reads `"web2"`.
 |-------|-------|
 | The flag | `AppFlags.web3_only_onboarding?` |
 | Wallet minting skipped | `User#generate_managed_wallet!` early-returns |
-| Who gets prompted | `WalletSetupPolicy` — one rule, both auth paths + the entry gate |
+| Who gets prompted | `WalletSetupPolicy` — one policy (Phantom → no wallet → free entry → USDC), both auth paths + the entry gate |
 | Recorded at sign-in | `record_wallet_setup_state!` → `session[:wallet_setup]` (state) + `session[:wallet_setup_prompt]` (one-shot auto-open) |
 | Read on render | `wallet_setup_required?` — RPC-free; feeds `walletSetupRequired` in the client session payload |
 | The modal | `app/views/modals/_wallet_setup.html.erb` (Phantom row + explainer video + Detailed Guide) |
@@ -629,6 +629,16 @@ branch on `mode`: a wallet-less account reads `"web2"`.
 
 Rules worth knowing:
 
+- **A user holding a FREE ENTRY is left alone.** A gifted player already has the
+  price of admission in hand and needs no funding rail, so nudging them at a
+  wallet is asking them to solve a problem they do not have — the whole point of
+  gifting an entry (operator call, 2026-09-09). Two shapes count, and the second
+  is the load-bearing one: a minted entry token, **or a claimed `EntryGift` whose
+  mint is still queued**. The verdict is computed ONCE at sign-in while the claim
+  is synchronous and `EntryGiftMintJob` is not, so at that instant a just-claimed
+  gift has no token yet; a token-only test reads false and re-arms the modal for
+  the whole session. Both halves fall away once the entry is spent, so the bypass
+  lasts exactly as long as the entry does.
 - **A grandfathered web2 user holding ≥ `WalletSetupPolicy::MIN_USDC` (19) USDC
   is left alone.** 19 USDC is exactly one paid entry (`Contest::FORMATS`), so
   they can still play on their custodial rails and are never interrupted.
