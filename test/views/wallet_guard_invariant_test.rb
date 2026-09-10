@@ -108,8 +108,17 @@ class WalletGuardInvariantTest < ActiveSupport::TestCase
     # caller wants requireInlineProvider(), which refuses a redirect provider
     # with the same device-appropriate message, because a redirect provider has
     # no connect/signTransaction/signMessage and reaching for them reproduces
-    # the original incident one call site over. Three views were converted to
-    # the stricter sibling; NONE was removed, so the floor does not move.
+    # the original incident one call site over.
+    #
+    # THE FLOOR MOVED FROM SIX TO FOUR, DELIBERATELY — which is what the old
+    # message asked the next reader to do rather than delete the check.
+    # /tasks/migrate-remaining-entry-flows routed the survivor board,
+    # contests/new and contests/generator through shared/_wallet_op_runner
+    # (window.tmWalletOp), and the runner acquires the provider ONCE for all
+    # three. So three call sites did not lose their guard; they stopped each
+    # holding a copy of it. Four views ask directly today: the turf-totals board
+    # (which forks on transport), the runner, the alpine factories and the
+    # wallet export.
     guards = %w[
       walletProvider.requireProvider()
       walletProvider.requireInlineProvider()
@@ -119,22 +128,36 @@ class WalletGuardInvariantTest < ActiveSupport::TestCase
       guards.any? { |g| src.include?(g) }
     end
 
-    assert_operator users, :>=, 6,
-                    "expected at least the six converted signing views to call " \
+    assert_operator users, :>=, 4,
+                    "expected at least the four signing views that still ask directly to call " \
                     "requireProvider() or requireInlineProvider(); found #{users}. If a " \
                     "call site was removed on purpose, lower this floor deliberately " \
                     "rather than deleting the check."
 
+    # AND THE RUNNER MUST BE ONE OF THEM. This is what makes the lowered floor
+    # honest rather than a weakening: the three flows that stopped asking did so
+    # because ONE place now asks on their behalf. Delete the guard there and
+    # three flows dereference whatever detect() returned — the original incident,
+    # reproduced three times from a single edit.
+    runner = VIEWS.join("shared/_wallet_op_runner.html.erb")
+    assert File.exist?(runner), "the shared wallet-op runner is missing — three flows have no guard at all"
+    assert_includes File.read(runner), "walletProvider.requireProvider()",
+                    "tmWalletOp is where the survivor board, contest create and bundle " \
+                    "provisioning get their provider; without the guard here all three " \
+                    "dereference whatever detect() answered"
+
     # AND THE STRICTER ONE MUST ACTUALLY BE USED. Without this, converting every
-    # site back to the permissive guard would keep the count at six and hand a
-    # redirect provider to callers that cannot drive it — the defect this whole
-    # change exists to close.
+    # remaining site back to the permissive guard would keep the count up and hand
+    # a redirect provider to callers that cannot drive it — the defect this whole
+    # change exists to close. TWO, not three: the survivor board was the third,
+    # and it no longer needs the stricter sibling because it is now TAUGHT the
+    # redirect transport rather than refusing it.
     inline = Dir.glob(VIEWS.join("**/*.erb")).count do |p|
       File.read(p).include?("walletProvider.requireInlineProvider()")
     end
-    assert_operator inline, :>=, 3,
-                    "the three views that cannot drive a redirect provider — the survivor " \
-                    "board, the alpine factories and the wallet export — must ask for an " \
-                    "INLINE provider; found #{inline}."
+    assert_operator inline, :>=, 2,
+                    "the two views that still cannot drive a redirect provider — the alpine " \
+                    "factories and the wallet export — must ask for an INLINE provider; " \
+                    "found #{inline}."
   end
 end
