@@ -183,7 +183,18 @@ window.tmCompleteContestEntry = async function (ctx, result, state) {
   if (!resp) throw new Error('Your session expired before the entry was recorded.');
 
   var data = await resp.json();
-  if (!data.success) throw new Error(data.error || 'Failed to confirm entry');
+  if (!data.success) {
+    // CARRY THE CODE, do not flatten the refusal to a sentence — the same rule
+    // prepare() follows for blockers, and for the same reason. `tx_rejected`
+    // (the server refusing to cosign a transaction that did not match the
+    // prepared entry) has a reassuring modal of its own at every board, and
+    // this is the only place the code exists: on the redirect transport the
+    // caller's catch runs on a document that never saw this response.
+    var confirmError = new Error(data.error || 'Failed to confirm entry');
+    confirmError.code = data.code || null;
+    confirmError.confirmData = data;
+    throw confirmError;
+  }
   console.log('[contest-entry] server cosigned + confirmed on-chain:', data.tx_signature);
   return data;
 };

@@ -1,0 +1,171 @@
+<%# THE contest_create AND contest_bundle INTENTS — rendered from
+    layouts/application, on EVERY page, for the same reason the entry intent is.
+
+    A wallet returns to /auth/phantom/callback, which renders studio-engine's
+    view. That document never rendered contests/new or contests/generator, so a
+    handler registered from either page would be ABSENT exactly where the resume
+    needs it — and walletOps.resume() consumes the journal at take() BEFORE the
+    signing hop reaches requireHandler, so the throw arrives with nothing left to
+    retry. That is how a contest-entry was lost on QA after the user had already
+    approved it; these two flows move real money the same way.
+
+    BOTH ARE SIGN-ONLY, AND THAT IS A PROPERTY OF THE TRANSACTION. #create and
+    #generate_bundle both build with `admin_signs: false` — the admin slot is
+    deliberately EMPTY — and the SERVER cosigns and broadcasts. A wallet that
+    broadcast one of these would hand Solana a transaction missing a required
+    signature, and the bytes the server must cosign would never come back: the
+    prize pool would not move and there would be nothing to retry. %>
+<script>
+(function () {
+  var S = window.SolanaStudio;
+  // GUARDED like every optional capability in this app: a page that did not load
+  // solana_studio/wallet_ops.js registers nothing and throws nothing.
+  if (!S || !S.walletOps || typeof S.walletOps.define !== 'function') return;
+
+  S.walletOps.define('contest_create', {
+    signOnly: true,
+    prepare: function (ctx) { return window.tmPrepareContestCreate(ctx); },
+    complete: function (ctx, result, state) { return window.tmCompleteContestCreate(ctx, result, state); }
+  });
+
+  S.walletOps.define('contest_bundle', {
+    signOnly: true,
+    prepare: function (ctx) { return window.tmPrepareContestBundle(ctx); },
+    complete: function (ctx, result, state) { return window.tmCompleteContestBundle(ctx, result, state); }
+  });
+})();
+
+// --- contest_create ------------------------------------------------------
+//
+// PREPARE READS THE DOM, AND THAT IS SAFE — this is the one thing about the two
+// halves worth stating plainly, because the opposite is true of complete().
+// prepare() ALWAYS runs on the document that started the flow, on BOTH
+// transports: the redirect path prepares first and navigates second, because
+// what it journals is prepare's return value. So the form, and the file input on
+// it, are reachable here. complete() is the half that may run somewhere else.
+//
+// WHICH IS WHY THE BANNER IS UPLOADED HERE. It used to ride the FINALIZE post as
+// a File, which cannot be written to a journal and cannot survive a page death —
+// on a phone the contest would have been created with its image silently
+// dropped. The image now goes up with the PREPARE post, and #create stashes it
+// against the signed params_token, so #finalize attaches it from the token on
+// every transport. One path, no branch.
+window.tmPrepareContestCreate = async function (ctx) {
+  var form = document.querySelector(ctx.formSelector);
+  // NAMED, because the cause is specific: prepare ran on a document with no
+  // form. Reported as "cannot read property 'action' of null" it reads as a
+  // wallet fault.
+  if (!form) throw new Error('The contest form is not on this page — reload and try again.');
+
+  // Multipart, WITH the banner: see the note above. The server strips it from
+  // the on-chain params and stashes the blob against the token it issues.
+  var prepareResp = await window.tmWalletFetch(form.action, {
+    method: 'POST',
+    headers: { 'X-CSRF-Token': ctx.csrfToken, 'Accept': 'application/json' },
+    body: new FormData(form)
+  });
+  if (!prepareResp) throw new Error('Your session expired — sign in and try again.');
+  var prepareData = await prepareResp.json();
+  if (!prepareData.success) throw new Error(prepareData.error || 'Failed to build transaction');
+
+  // FRESH BLOCKHASH IMMEDIATELY BEFORE THE SIGN. The blockhash baked at #create
+  // time goes stale while the operator reads the wallet prompt — and on the
+  // redirect transport that dwell is an app switch, not a glance, so this
+  // matters MORE here than it did on a desktop. The rebuild still goes through
+  // the server, so the exact message bytes stay bound to the signed
+  // params_token and no client-supplied form value is trusted.
+  var rebuildResp = await window.tmWalletFetch(ctx.rebuildPath, {
+    method: 'POST',
+    headers: { 'X-CSRF-Token': ctx.csrfToken, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({ params_token: prepareData.params_token })
+  });
+  if (!rebuildResp) throw new Error('Your session expired — sign in and try again.');
+  var rebuildData = await rebuildResp.json();
+  if (!rebuildData.success) throw new Error(rebuildData.error || 'Failed to refresh transaction');
+
+  // EVERYTHING RETURNED HERE IS WRITTEN TO localStorage VERBATIM on the redirect
+  // transport, so it is all strings — no Transaction, no File, no FormData.
+  return {
+    transaction: window.tmWireToBase58(rebuildData.serialized_tx),
+    params_token: prepareData.params_token,
+    contest_pda: prepareData.contest_pda
+  };
+};
+
+// Runs on a document that may never have seen the form — everything it needs
+// arrives through ctx (the caller's own arguments) and state (what prepare
+// returned).
+window.tmCompleteContestCreate = async function (ctx, result, state) {
+  if (!result || !result.signedTransaction) {
+    throw new Error('The wallet broadcast this contest instead of signing it. ' +
+                    'Creating a contest needs a co-signature from the server, so it could not complete.');
+  }
+
+  var resp = await window.tmWalletFetch(ctx.finalizePath, {
+    method: 'POST',
+    headers: { 'X-CSRF-Token': ctx.csrfToken, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({
+      signed_tx: window.tmBase58ToBase64(result.signedTransaction),
+      params_token: state.params_token,
+      contest_pda: state.contest_pda
+    })
+  });
+  if (!resp) throw new Error('Your session expired before the contest was saved.');
+
+  var data = await resp.json();
+  if (!data.success) throw new Error(data.error || 'Failed to save contest');
+  console.log('[contest-create] server cosigned + broadcast:', data.slug);
+  return data;
+};
+
+// --- contest_bundle ------------------------------------------------------
+//
+// The generator's one-click provisioning. Same shape as contest_create with a
+// narrower token: the bundle `key` selects the whole spec server-side, so
+// nothing about the contest is client-supplied and there is no form to read.
+window.tmPrepareContestBundle = async function (ctx) {
+  var resp = await window.tmWalletFetch(ctx.generatePath, {
+    method: 'POST',
+    headers: { 'X-CSRF-Token': ctx.csrfToken, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({ key: ctx.key })
+  });
+  if (!resp) throw new Error('Your session expired — sign in and try again.');
+  var data = await resp.json();
+  if (!data.success) throw new Error(data.error || 'Failed to build transaction');
+
+  return {
+    transaction: window.tmWireToBase58(data.serialized_tx),
+    params_token: data.params_token,
+    contest_pda: data.contest_pda
+  };
+};
+
+window.tmCompleteContestBundle = async function (ctx, result, state) {
+  // THE BUNDLE USED TO BROADCAST FROM THE BROWSER — sendRawTransaction against
+  // the page's RPC, then POST the resulting signature. That cannot work here:
+  // this half may be running on studio-engine's callback document, which loads
+  // no solanaWeb3 at all. So the SERVER broadcasts, which is also what every
+  // other money path in this app already does and what makes the co-signature
+  // possible in the first place.
+  if (!result || !result.signedTransaction) {
+    throw new Error('The wallet broadcast this bundle instead of signing it. ' +
+                    'Provisioning needs a co-signature from the server, so it could not complete.');
+  }
+
+  var resp = await window.tmWalletFetch(ctx.finalizePath, {
+    method: 'POST',
+    headers: { 'X-CSRF-Token': ctx.csrfToken, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({
+      signed_tx: window.tmBase58ToBase64(result.signedTransaction),
+      params_token: state.params_token,
+      contest_pda: state.contest_pda
+    })
+  });
+  if (!resp) throw new Error('Your session expired before the bundle was saved.');
+
+  var data = await resp.json();
+  if (!data.success) throw new Error(data.error || 'Failed to save bundle');
+  console.log('[bundle-generate] server cosigned + broadcast');
+  return data;
+};
+</script>

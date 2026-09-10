@@ -77,7 +77,13 @@
         function setBusy(t) { btn.disabled = true; btn.textContent = t; }
         function setIdle() { btn.disabled = false; btn.textContent = origLabel; }
 
-        if (!cfg.hasPhantom || !window.walletProvider || !window.walletProvider.isAvailable()) {
+        // detect(), NOT isAvailable(). isAvailable() asks whether a wallet is
+        // INJECTED into this page, which on iOS Safari and Android Chrome is
+        // always false — so this gate turned every phone away with "install
+        // Phantom" before the flow could start. detect() answers the question
+        // that matters: is there a wallet this page can REACH, by injection or
+        // by redirect.
+        if (!cfg.hasPhantom || !window.walletProvider || !window.walletProvider.detect()) {
           showWalletRequired();
           return;
         }
@@ -87,58 +93,43 @@
         }
 
         setBusy('Preparing on-chain TX…');
-        var m = modal();
-        m.show('Preparing Transaction', 'Building the on-chain create_contest instruction…');
 
         try {
-          var provider = window.walletProvider.requireProvider();
-          var connectResp = await provider.connect();
-          var pubkeyB58 = connectResp.publicKey.toBase58();
-          if (cfg.userWallet && pubkeyB58 !== cfg.userWallet) {
-            throw new Error('Wrong wallet connected. Switch to ' + cfg.userWallet.substring(0, 8) + '… in Phantom and try again.');
-          }
-
-          // Step 1 — server builds partially-signed TX from bundle spec
-          var prepareForm = new FormData();
-          prepareForm.append('key', key);
-          var prepareResp = await fetch(cfg.generateBundlePath, {
-            method: 'POST',
-            headers: { 'X-CSRF-Token': cfg.csrfToken, 'Accept': 'application/json' },
-            body: prepareForm
+          // ONE CALL SITE, EVERY TRANSPORT. The sequence this used to spell out
+          // by hand — connect, check the wallet, build, sign, BROADCAST FROM THE
+          // BROWSER, confirm, then persist — is the `contest_bundle` intent,
+          // registered BY NAME from shared/_contest_create_intent on every page.
+          //
+          // WHY BY NAME. On a phone there is no injected wallet: this page is
+          // DESTROYED while the wallet app signs, and the answer comes back on
+          // /auth/phantom/callback, a document that never rendered this button.
+          //
+          // AND WHY THE BROWSER NO LONGER BROADCASTS. The old flow sent the
+          // signed transaction to Solana itself (solanaWeb3.Connection →
+          // sendRawTransaction) and POSTed the resulting signature. The callback
+          // document loads no solanaWeb3, so that half had nowhere to run on a
+          // phone. #generate_bundle now builds with the admin slot EMPTY, like
+          // every other money path here, and #finalize_bundle cosigns and
+          // broadcasts server-side — which also puts the bundle behind the same
+          // cosign-safety check the create flow has and the bundle flow lacked.
+          var finalData = await window.tmWalletOp('contest_bundle', {
+            key: key,
+            csrfToken: cfg.csrfToken,
+            generatePath: cfg.generateBundlePath,
+            finalizePath: cfg.finalizeBundlePath
+          }, {
+            expectedAccount: cfg.userWallet || null,
+            preparingBody: 'Building the on-chain create_contest instruction — approve the prize-pool USDC transfer in your wallet when it opens.',
+            handoffBody: 'Handing this provision to your wallet app…',
+            onStranded: setIdle
           });
-          var prepareData = await prepareResp.json();
-          if (!prepareData.success) throw new Error(prepareData.error || 'Failed to build transaction');
 
-          m.show('Sign Transaction', 'Approve the prize-pool USDC transfer in Phantom…');
+          // REDIRECT TRANSPORT ENDS HERE — this document is gone and the
+          // callback page finishes the intent by name. The guard keeps a
+          // resolved `suspended` marker from reading as a provisioned bundle.
+          if (!finalData || finalData.suspended) return;
 
-          // Step 2 — Phantom signs, we broadcast + confirm
-          var txBytes = Uint8Array.from(atob(prepareData.serialized_tx), function(c) { return c.charCodeAt(0); });
-          var tx = solanaWeb3.Transaction.from(txBytes);
-          var signedTx = await provider.signTransaction(tx);
-
-          m.show('Broadcasting', 'Submitting to Solana…');
-          var connection = new solanaWeb3.Connection(document.body.dataset.solanaRpcUrl, 'confirmed');
-          var txSig = await connection.sendRawTransaction(signedTx.serialize(), { skipPreflight: true, maxRetries: 3 });
-
-          m.show('Confirming', 'Waiting for Solana confirmation…');
-          await connection.confirmTransaction(txSig, 'confirmed');
-
-          // Step 3 — server persists Contest + LandingPage
-          m.show('Saving', 'Creating the contest + landing page…');
-          var finalizeForm = new FormData();
-          finalizeForm.append('tx_signature', txSig);
-          finalizeForm.append('contest_pda', prepareData.contest_pda);
-          finalizeForm.append('params_token', prepareData.params_token);
-
-          var finalResp = await fetch(cfg.finalizeBundlePath, {
-            method: 'POST',
-            headers: { 'X-CSRF-Token': cfg.csrfToken, 'Accept': 'application/json' },
-            body: finalizeForm
-          });
-          var finalData = await finalResp.json();
-          if (!finalData.success) throw new Error(finalData.error || 'Failed to save bundle');
-
-          m.show('Done', 'Reloading…');
+          modal().show('Done', 'Reloading…');
           // The prize pool just left this wallet, and we are ABOUT TO NAVIGATE — so
           // hand the settle window to the destination page rather than scheduling it
           // here. A setTimeout does not survive the unload two lines down, which

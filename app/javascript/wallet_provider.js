@@ -63,6 +63,62 @@ function normalizeSignInOutput(out) {
 }
 
 
+// --- The inline transport's transaction codec ---------------------------
+//
+// TWO METHODS EVERY INLINE PROVIDER OWES walletOps, and the reason they live
+// HERE rather than in the gem is a dependency boundary. SolanaStudio.walletOps
+// hands every transport the SAME thing — base58 wire bytes — because that is
+// the only shape that survives a page death and can be written to the journal.
+// An injected wallet's signTransaction() takes a solanaWeb3.Transaction OBJECT.
+// Converting between them needs @solana/web3.js, which this app already loads
+// and the gem deliberately does not (its other consumers are plain Ruby).
+//
+// So the conversion belongs to the PROVIDER, for the same reason can() does:
+// the shape requirement is the provider's, not the flow's. One codec here
+// serves every intent; a per-flow hook would be these same three lines copied
+// into contest entry, contest create and bundle provisioning — which is the
+// per-call-site duplication walletOps exists to end.
+//
+// THE SERIALIZE OPTIONS ARE THE CO-SIGN CONTRACT, not defaults worth tidying.
+// Every transaction that goes out through here is PARTIALLY signed on purpose:
+// the admin slot is empty and the SERVER fills it before broadcasting. A plain
+// .serialize() asserts every required signature is present and THROWS on
+// exactly the transactions this app signs, so requireAllSignatures:false is
+// what lets the wallet's half reach the server at all. verifySignatures:false
+// keeps a wallet that reordered or re-encoded the message from failing here
+// instead of at the server's own cosign-safety check, which is the place that
+// can say what actually differed.
+function walletTransportBase58() {
+  var transport = window.SolanaStudio && window.SolanaStudio.walletTransport;
+  if (!transport || !transport.base58) {
+    // NAMED, because the cause is specific and off-screen: the page did not
+    // load solana_studio/wallet_transport. Reported as a bare
+    // "cannot read property 'base58' of undefined" it reads as a wallet fault.
+    throw new Error('solana_studio/wallet_transport is not loaded — this page cannot encode a transaction for a wallet');
+  }
+  return transport.base58;
+}
+
+function deserializeWireTransaction(wire) {
+  return solanaWeb3.Transaction.from(walletTransportBase58().decode(wire));
+}
+
+function serializeSignedTransaction(signed) {
+  return walletTransportBase58().encode(
+    signed.serialize({ requireAllSignatures: false, verifySignatures: false })
+  );
+}
+
+// Applied to every INLINE provider below and to none of the redirect ones: a
+// redirect provider never sees a Transaction object, so giving it these would
+// advertise a capability it cannot use.
+function withInlineTxCodec(provider) {
+  provider.deserializeTransaction = deserializeWireTransaction;
+  provider.serializeTransaction = serializeSignedTransaction;
+  return provider;
+}
+
+
 // --- PhantomProvider ---
 // Wraps window.phantom.solana. Delegates all calls to the browser extension.
 var PhantomProvider = {
@@ -126,6 +182,7 @@ var PhantomProvider = {
     return p ? p.publicKey : null;
   }
 };
+withInlineTxCodec(PhantomProvider);
 
 
 // --- KeypairProvider ---
@@ -234,6 +291,7 @@ var KeypairProvider = {
     return this._publicKeyObj || null;
   }
 };
+withInlineTxCodec(KeypairProvider);
 
 
 // --- Wallet Standard discovery (the multi-wallet hub) ---
@@ -285,7 +343,7 @@ function _makeWsAdapter(wallet) {
       toString: function() { return acct.address; }
     };
   }
-  return {
+  return withInlineTxCodec({
     name: wallet.name,
     icon: wallet.icon, // data: URI provided by the wallet — rendered in the hub
     _raw: wallet,
@@ -374,7 +432,7 @@ function _makeWsAdapter(wallet) {
       return (feat && feat.disconnect) ? feat.disconnect() : Promise.resolve();
     },
     get publicKey() { return account ? pubObj(account) : null; }
-  };
+  });
 }
 
 function _wsRegister(wallet) {
