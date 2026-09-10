@@ -490,15 +490,18 @@ rendered from the layout so every one of them exists on the callback document.
    token to LogRocket, the exact leak `harden_secret_response` closed
    (Lazarus audit #2).
 
-**The mobile remedy that does exist:** open the export page inside a wallet app's
-own browser, where a provider is injected and the inline path works unchanged.
-`requireInlineProvider` already says so.
+**The mobile path is the wallet app's own browser, and it is the only one.** Open
+the export page there: a provider is injected and the inline path works
+unchanged. `requireInlineProvider` throws `noWalletMessage`, which tells a phone
+user exactly that.
 
-**Tracked, not dropped:** `/tasks/wallet-export-mobile-transport` holds the shape
-a real fix needs — a transport that never persists the challenge, for example a
-server-held pending-signature row reached by an opaque slug, the way contest entry
-uses `ptx_slug`. That is a solana-studio change plus a turf one, not a walletOps
-intent.
+**Unsupported by design, not deferred:** on 2026-09-10 Mr. McRitchie decided to
+drop the mobile-browser transport for wallet export
+(`/tasks/wallet-export-mobile-transport` records it). The fix it would have
+needed — a transport that never persists the challenge, such as a server-held
+pending-signature row reached by an opaque slug the way contest entry uses
+`ptx_slug` — is declined, not queued. The three reasons above are why the
+decision is safe; read them before proposing a transport again.
 
 ### Desktop-only is a legitimate answer — SHIPPED (`gate-admin-flows-desktop-only`)
 

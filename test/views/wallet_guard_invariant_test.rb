@@ -188,14 +188,14 @@ class WalletGuardInvariantTest < ActiveSupport::TestCase
     # it too moved between the guards rather than dropping one.
     #
     # THE ONE THAT REMAINS IS NOT PENDING WORK OF THE SAME KIND, so this floor
-    # is expected to STOP here rather than keep sliding. The wallet export is a
-    # DELIBERATE PERMANENT no — it signs a MESSAGE, and walletOps has no
-    # signMessage hop; more to the point the message carries the export token,
-    # which is a bearer credential for the decrypted private key, and the
-    # redirect transport would journal it to localStorage. Reasons in full at
-    # /tasks/wallet-export-mobile-transport and in that view's own comment.
-    # A future reader finding this at 0 should treat it as a REGRESSION and
-    # look for a lost guard, not lower it again.
+    # is expected to STOP here rather than keep sliding. Wallet export on a
+    # phone browser is UNSUPPORTED BY DESIGN: Mr. McRitchie decided on
+    # 2026-09-10 to drop its mobile transport. It signs a MESSAGE, walletOps has
+    # no signMessage hop, and the message carries the export token (a bearer
+    # credential for the decrypted key) that the redirect transport would
+    # journal to localStorage. All three reasons are in that view's own comment
+    # and docs/WALLET_TRANSPORT_ARCHITECTURE.md. A reader finding this at 0
+    # should treat it as a REGRESSION and look for a lost guard, not lower it.
     assert_operator inline, :>=, 1,
                     "the wallet export is the one view that cannot drive a redirect " \
                     "provider — it signs a bearer-credential message — and it must ask " \

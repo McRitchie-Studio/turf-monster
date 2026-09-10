@@ -162,19 +162,19 @@
       //    That streams the token to LogRocket, which is the exact leak
       //    harden_secret_response was added to close (Lazarus audit #2).
       //
-      // TRACKED, NOT DROPPED: /tasks/wallet-export-mobile-transport carries the
-      // shape a real fix would need — a transport that never persists the
-      // challenge, e.g. a server-held pending-signature row reached by an opaque
-      // slug, the way contest entry uses ptx_slug. That is a solana-studio change
-      // plus a turf one, not a walletOps intent.
+      // UNSUPPORTED BY DESIGN ON A PHONE BROWSER: Mr. McRitchie decided on
+      // 2026-09-10 to drop the mobile-browser transport this flow would need
+      // (/tasks/wallet-export-mobile-transport records it). None is planned.
+      // The three reasons above are why that decision is safe; read them
+      // before proposing a transport here again.
       //
-      // WHAT THAT COSTS, stated plainly: a user on a phone browser cannot
-      //    complete step 2 here. They get requireInlineProvider's honest refusal
-      //    — open this page inside a wallet app's own browser — and inside that
-      //    browser a provider IS injected and this path works unchanged. The
-      //    remedy is real, unlike the extension-install advice this used to
-      //    give. Widening it needs a transport that never persists the
-      //    challenge, not a walletOps intent.
+      // THE MOBILE PATH, stated plainly: a user on a phone browser cannot
+      //    complete step 2 here. requireInlineProvider throws noWalletMessage,
+      //    which tells them to open this page inside a wallet app's own
+      //    browser — and inside that browser a provider IS injected and this
+      //    path works unchanged. The remedy is real, unlike the
+      //    extension-install advice this used to give, and it is the only
+      //    mobile path this page offers.
       proveCustody: async function () {
         this.status = 'signing';
         this.errorText = '';
