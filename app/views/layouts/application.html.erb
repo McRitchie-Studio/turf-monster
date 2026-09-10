@@ -108,6 +108,9 @@
         does not own — see the partial for the entry that was lost when this
         lived in the contest board. %>
     <%= render "shared/contest_entry_intent" %>
+    <%# The second intent, here for the same reason and rendered the same way.
+        Both are idempotent and both no-op on a page without wallet_ops.js. %>
+    <%= render "shared/username_rename_intent" %>
     <% if session_replay_active? %>
       <script src="https://cdn.logr-in.com/LogRocket.min.js" crossorigin="anonymous"></script>
       <script>

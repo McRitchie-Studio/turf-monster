@@ -1,0 +1,298 @@
+<%# THE username_rename INTENT — rendered from layouts/application, on EVERY page.
+
+    SAME PLACEMENT AS shared/_contest_entry_intent AND FOR THE SAME REASON. A
+    wallet returns to /auth/phantom/callback, which renders studio-engine's view.
+    walletOps.resume consumes the journal at take() BEFORE it looks the handler
+    up, so an intent registered only on the page that STARTED the rename would
+    arrive on the callback with nothing left to retry — the user approves the
+    transaction, comes back, and the rename is silently gone. Registering here
+    puts the handlers on every document, including the one the wallet picks.
+
+    Registration is idempotent and guarded: a page that did not load
+    solana_studio/wallet_ops.js registers nothing and throws nothing. %>
+<script>
+// THE username_rename INTENT — registered here, at page load, BY NAME.
+//
+// WHAT THIS FLOW IS. studio-engine's leveling-activity modal owns the username
+// input, the Save button and the POST to accounts#update_username. For a
+// phantom or self-custodied wallet that POST answers `needs_step` with an
+// opaque `challenge` — a base64 partial set_username transaction — and the
+// engine hands it to the app-supplied finalize_hook (window.tmUsernameFinalize,
+// in shared/_alpine_factories). The hook's job is to turn that challenge into
+// an opaque `proof`: the signature of the broadcast, confirmed on-chain. The
+// engine then POSTs { token, proof } to accounts#confirm_username, which
+// re-verifies the transaction with TxVerifier and mirrors the name to the DB.
+//
+// WHY IT IS AN INTENT AND NOT A CLOSURE. On the redirect transport the page is
+// DESTROYED between handing the transaction to the wallet and getting it back
+// signed. A closure cannot survive that, and neither can the engine modal that
+// was awaiting the hook — which is the second half of what these handlers do,
+// and the part that has no counterpart in the contest-entry flow. See
+// tmCompleteUsernameRename below.
+//
+// NOT signOnly, AND THAT IS THE ONE REAL DIFFERENCE FROM contest_entry. A
+// contest entry is CO-SIGNED: prepare_entry leaves the admin signer slot empty
+// and the server fills it, so a wallet that broadcast it would hand Solana a
+// transaction missing a required signature. build_set_username is not like
+// that — the user is its ONLY signer, so the transaction is complete the moment
+// the wallet signs it and a wallet that broadcasts it directly is doing
+// something correct and, on a phone, faster. Declaring signOnly here would
+// force a co-signing dance that has no second signer.
+//
+// THE PRICE OF THAT, and it is what tmCompleteUsernameRename is shaped around:
+// the send strategy is no longer knowable from the flow alone. walletOps
+// answers `app-broadcasts` on the inline transport ALWAYS (runInline ignores
+// signOnly entirely — signingHop, which reads it, is redirect-only), and on the
+// redirect transport answers whichever hop it took: `wallet-broadcasts` from
+// signAndSendTransaction, `app-broadcasts` from signTransaction. Phantom's
+// send-side deeplink is deprecated so Phantom falls to the latter today, but
+// Solflare and Backpack broadcast for themselves. complete() must therefore
+// handle BOTH, and does.
+(function () {
+  var S = window.SolanaStudio;
+  // GUARDED like every optional capability in this app: a page that did not
+  // load solana_studio/wallet_ops.js has no registry, and an absent capability
+  // must not default to the permissive branch.
+  if (!S || !S.walletOps || typeof S.walletOps.define !== 'function') return;
+
+  S.walletOps.define('username_rename', {
+    // Runs BEFORE the wallet is reached on the redirect transport, so
+    // everything it returns must be JSON-serialisable — it is literally
+    // serialised into localStorage.
+    prepare: function (ctx) {
+      return window.tmPrepareUsernameRename(ctx);
+    },
+    // Runs on the callback document, in a page that never saw prepare().
+    complete: function (ctx, result, state) {
+      return window.tmCompleteUsernameRename(ctx, result, state);
+    }
+  });
+})();
+
+// THE FINALIZE ENDPOINT, emitted from the ROUTE HELPER rather than written as a
+// string. modals/_username.html.erb hands the same helper to the engine as
+// `finalize_url` for the engine's own POST; this is the second emission of it,
+// for the transport where the engine is not there to post. Two emissions, one
+// source — rename the route and both move. A literal '/account/confirm_username'
+// here would survive the rename and 404 only on a phone.
+window.tmUsernameRenameFinalizeUrl = "<%= confirm_username_account_path %>";
+
+// THE CALLER'S LEDGER — how a handler learns whether anything upstream is still
+// alive to finish the flow.
+//
+// WHY THIS IS NEEDED HERE AND WAS NOT NEEDED FOR contest_entry. The entry flow
+// posts its own confirm and owns its own outcome, so complete() does the same
+// work on both transports. This flow does not: on the INLINE transport the
+// engine's leveling modal is still awaiting the hook's return value and will
+// POST finalize_url itself the moment it gets one — that is the engine's
+// contract, unchanged by this migration. On the REDIRECT transport that modal
+// died with its document, so if complete() does not post the finalize, nobody
+// does: the user signs, comes back, and the rename is confirmed on-chain but
+// never mirrored to the database.
+//
+// DOCUMENT IDENTITY IS THE DISCRIMINATOR, which is exactly what makes a plain
+// window global the right instrument rather than a hack. tmUsernameFinalize
+// sets this synchronously in the document it runs in. On the inline transport
+// complete() executes in THAT SAME document and finds it. On the redirect
+// transport complete() executes in a document that was freshly parsed after the
+// wallet returned, where every window global this file did not itself set is
+// undefined. There is no third case, and no timer or transport flag would
+// answer the question more directly than "is my caller's window still here".
+//
+// The same record carries the engine's onProgress callback, for the same
+// reason and with the same lifetime: it is a function, so it can never cross
+// the journal, and on the far side there is no modal for it to update anyway.
+window.tmUsernameRenameCaller = null;
+
+
+// THE CALLBACK DOCUMENT DOES NOT HAVE window.authedFetch YET, and complete()
+// runs there. authedFetch ships only in the DEFERRED importmap module
+// solana_utils.js, while studio-engine's phantom_callback view dispatches from
+// a bare inline script during body parse. A direct window.authedFetch(...)
+// therefore throws a TypeError on the one document that matters — after the
+// user has approved in their wallet, and after resume() consumed the journal.
+// Identical to shared/_contest_entry_intent's tmEntryFetch, including the 401
+// normalisation: authedFetch answers FALSY on a 401 having surfaced the login
+// modal, plain fetch answers a 401 Response, and the caller below branches on
+// `if (!resp)`.
+window.tmRenameFetch = function (url, opts) {
+  if (typeof window.authedFetch === 'function') return window.authedFetch(url, opts);
+  return window.fetch(url, opts).then(function (resp) {
+    return resp && resp.status === 401 ? null : resp;
+  });
+};
+
+// AND NEITHER IS window.pollConfirmation, WHICH IS THE SAME FILE. The old
+// hook called it directly; that call was safe only because the old hook could
+// never run anywhere but the page that started the rename. Moving the confirm
+// wait into complete() moves it onto the callback document, where
+// solana_utils.js has not executed — so this is the same class of defect as
+// the authedFetch one above, discovered by asking the same question of every
+// global these handlers touch.
+//
+// Delegates to the real implementation whenever it IS loaded, so the inline
+// transport keeps the polling behaviour it has today and there is only one
+// implementation to tune. The fallback is deliberately the narrow case
+// solana_utils' version reduces to for this flow: no observer, default
+// interval and ceiling. Pure fetch + JSON-RPC, no web3.js, so it is safe to
+// run during body parse.
+window.tmRenamePollConfirmation = function (rpcUrl, sig) {
+  if (typeof window.pollConfirmation === 'function') return window.pollConfirmation(rpcUrl, sig);
+
+  var intervalMs = 1500;
+  var deadline = Date.now() + 60000;
+
+  function attempt() {
+    if (Date.now() >= deadline) {
+      return Promise.reject(new Error(
+        'Confirmation timed out after 60s (the transaction may still land — check the explorer).'
+      ));
+    }
+    return window.fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'getSignatureStatuses',
+        params: [[sig], { searchTransactionHistory: true }]
+      })
+    }).then(function (resp) {
+      return resp && resp.ok ? resp.json() : null;
+    }).then(function (out) {
+      if (out && out.error) {
+        throw new Error('getSignatureStatuses RPC error: ' + JSON.stringify(out.error));
+      }
+      var st = out && out.result && out.result.value && out.result.value[0];
+      if (st) {
+        if (st.err) throw new Error('Transaction failed on-chain: ' + JSON.stringify(st.err));
+        if (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized') return st;
+      }
+      return new Promise(function (r) { setTimeout(r, intervalMs); }).then(attempt);
+    });
+  }
+  return attempt();
+};
+
+// THE RPC ENDPOINT, read from the DOM at the moment it is used rather than
+// journalled. data-solana-rpc-url is on <body> in layouts/application, so it is
+// present on BOTH documents this flow runs across and re-reading it costs
+// nothing. Journalling it instead would have written a URL into localStorage
+// for ten minutes to answer a question the page can always answer itself.
+function renameRpcUrl() {
+  return (document.body && document.body.dataset && document.body.dataset.solanaRpcUrl) || '';
+}
+
+// THE CSRF TOKEN — THIS DOCUMENT'S OWN FIRST, THE CALLER'S AS A FALLBACK.
+//
+// A Rails csrf_meta_tags token is session-bound rather than page-bound, and
+// studio-engine's layouts/studio/_head emits the tag on every document here, so
+// the callback page normally has a perfectly good one of its own. Reading it
+// LIVE is the better primary: nothing extra has to cross the redirect, and a
+// token rotated while the user was inside their wallet app still works.
+//
+// THE FALLBACK IS NOT DEFENSIVE PADDING — it was earned. The first cut of this
+// read the meta tag and nothing else, on the reasoning above, and
+// e2e/username_rename_callback_registration then posted the finalize with an
+// EMPTY token. The cause turned out to be the e2e server, which disables
+// forgery protection so `csrf_meta_tags` emits nothing at all (measured: the tag
+// is absent on `/` there too, not just on the callback). That is an environment
+// and not a defect — but it is the same shape as any document that ships without
+// the tag, and an empty header would 422 a rename that is already on-chain and
+// cannot be retried. So the caller's token rides in ctx the way
+// shared/_contest_entry_intent has always carried its own, and this reaches for
+// it only when the live tag has nothing to give.
+function renameCsrfToken(ctx) {
+  var meta = document.querySelector('meta[name="csrf-token"]');
+  return (meta && meta.content) || (ctx && ctx.csrfToken) || '';
+}
+
+// Prepare: convert the engine's opaque challenge into the ONE shape walletOps
+// hands every transport, and nothing else.
+//
+// NO SERVER ROUND TRIP HERE, unlike the contest-entry intent, and that absence
+// removes a whole class of problem this flow does not have to solve. The
+// challenge was minted by accounts#update_username BEFORE the engine modal
+// called the hook, so there is no record for prepare to mint and therefore no
+// outstanding-prepare ledger to retire on a rejected signature. A rename the
+// user abandons leaves nothing behind but an unused signed token that expires.
+window.tmPrepareUsernameRename = async function (ctx) {
+  var challenge = ctx && ctx.challenge;
+  if (!challenge) throw new Error('Could not save username');
+
+  // base64 (what the server speaks) to base58 (what every wallet deeplink
+  // protocol speaks, and the only shape that survives the journal).
+  var bytes = Uint8Array.from(atob(challenge), function (c) { return c.charCodeAt(0); });
+  return { transaction: window.SolanaStudio.walletTransport.base58.encode(bytes) };
+};
+
+// Complete: get the signed transaction onto the chain, wait for it, and — when
+// nothing upstream is left alive — finish the engine's half of the flow too.
+window.tmCompleteUsernameRename = async function (ctx, result, state) {
+  var caller = window.tmUsernameRenameCaller;
+  var onProgress = (caller && caller.onProgress) || function () {};
+  var sig;
+
+  // BOTH SEND STRATEGIES, and the branch is on what walletOps DECLARES rather
+  // than on which field happens to be populated. `sendStrategy` is the gem's
+  // own discriminator and it is set on every path out of run() and resume();
+  // sniffing for a signature instead would read a redirect signTransaction
+  // response that happened to carry one as a broadcast that never occurred.
+  if (result && result.sendStrategy === 'wallet-broadcasts') {
+    // The wallet already put this on the chain. There is nothing to send, and
+    // trying to send it again would be a duplicate-signature error where the
+    // honest answer is already in hand.
+    sig = result.signature;
+    if (!sig) {
+      throw new Error('Your wallet reported that it broadcast the rename but did not return a signature.');
+    }
+    onProgress('Confirming…');
+  } else {
+    // We hold signed wire bytes and the broadcast is ours. This is every
+    // desktop rename (runInline always answers app-broadcasts) and every
+    // Phantom mobile rename (its send-side deeplink is deprecated, so
+    // signingHop falls through to signTransaction).
+    if (!result || !result.signedTransaction) {
+      throw new Error('The wallet did not return a signed transaction, so the rename could not be broadcast.');
+    }
+    var signed = window.SolanaStudio.walletTransport.base58.decode(result.signedTransaction);
+    onProgress('Confirming…');
+    var conn = new solanaWeb3.Connection(renameRpcUrl(), 'confirmed');
+    sig = await conn.sendRawTransaction(signed, { skipPreflight: true, maxRetries: 3 });
+  }
+
+  await window.tmRenamePollConfirmation(renameRpcUrl(), sig);
+
+  // THE ENGINE'S HALF, run here ONLY when the engine cannot run it. See the
+  // tmUsernameRenameCaller note above: on the inline transport the leveling
+  // modal is still awaiting this promise and posts finalize_url itself with
+  // whatever proof we return, exactly as it did before this migration. Posting
+  // it here as well would confirm the same rename twice.
+  if (caller) return { proof: sig };
+
+  var resp = await window.tmRenameFetch(ctx.finalizeUrl, {
+    method: 'POST',
+    headers: { 'X-CSRF-Token': renameCsrfToken(ctx), 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({ token: ctx.token, proof: sig })
+  });
+  if (!resp) throw new Error('Your session expired before the new username was saved.');
+
+  var data = await resp.json();
+  if ((data && data.status) !== 'saved') {
+    throw new Error((data && data.message) || "Couldn't complete the step.");
+  }
+
+  // WHERE THE CALLBACK LANDS THE USER. studio-engine's phantom_callback view
+  // navigates to result.value.redirect, falling back to '/'. The account page
+  // is where the rename started and where the new name is visible, so it is
+  // the honest destination — and naming it here is the only way the callback
+  // can know, since it deliberately does not learn what the user was doing.
+  //
+  // WHAT IS LOST ON THIS TRANSPORT, stated rather than hidden: the
+  // studio:username-saved celebration (confetti, the seeds fanout, the
+  // quest-success swap in shared/_alpine_factories) fires from the engine
+  // modal, which no longer exists. A redirect rename gets the saved name and no
+  // party. Reproducing the celebration would mean carrying its payload across
+  // the journal and re-staging it on arrival, which is a separate piece of work
+  // and not one a rename should be blocked on.
+  return { proof: sig, redirect: '/account' };
+};
+</script>

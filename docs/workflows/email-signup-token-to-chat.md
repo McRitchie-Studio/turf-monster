@@ -15,14 +15,14 @@
 
 ## Sequence
 
-1. **Visitor lands on `/`** — `config/routes.rb:45` → `ContestsController#world_cup` (`app/controllers/contests_controller.rb:210`).
+1. **Visitor lands on `/`** — `config/routes.rb:57` → `ContestsController#world_cup` (`app/controllers/contests_controller.rb:568`).
    - Skipped from `:require_authentication` for logged-out browsing (`contests_controller.rb:4`).
    - Picks the contest in this order: `SeasonConfig.main_contest_explicit` → `SeasonConfig.main_contest` (open-only fallback, `app/models/season_config.rb:33-37`) → most recent `open/settled` contest (`contests_controller.rb:215-217`; `locked` dropped from the status enum).
    - 302s to `contest_path(@contest)` (`contests_controller.rb:219`).
 
 2. **Show page renders for logged-out visitor** — `ContestsController#show` (`contests_controller.rb:222`) → `app/views/contests/show.html.erb`.
-   - Hero banner + creator avatar + on-chain explorer link (`show.html.erb:11-41`).
-   - Inline matchup board partial `_turf_totals_board.html.erb` exposes a `link_to "buy", tokens_buy_path` only when logged in (`_turf_totals_board.html.erb:1292-1294`) — anonymous visitor sees the entry fee in dollars.
+   - Hero banner + creator avatar + on-chain explorer link — `app/views/contests/show.html.erb:26` renders `contests/_hero` (`app/views/contests/_hero.html.erb:19` is the explorer link, `:28` the creator avatar).
+   - Inline matchup board partial `app/views/contests/_turf_totals_board.html.erb` never links out to `/tokens/buy`: the buy affordance is the IN-MODAL entry-token picker, `showBuyEntryToken()` (`app/views/contests/_turf_totals_board.html.erb:1243`), so the buyer never visually leaves the contest. An anonymous visitor is routed through the auth modal first and resumed onto the picker afterwards (`app/views/contests/_turf_totals_board.html.erb:415-417`); the entry fee itself is handed to the board as `entryFeeCents` (`app/views/contests/_turf_totals_board.html.erb:142`).
 
 3. **Clicks "Sign in" in the navbar** — the logged-out CTA targets the unified `/signin` page. Legacy `GET /login` and `GET /signup` redirect there.
 
@@ -57,8 +57,8 @@
      - Find-or-create `StripePurchase` row (`token_purchase_job.rb:38-46`).
      - `Solana::Vault#mint_entry_token` once per quantity with `source: :stripe, source_ref: "stripe:#{session_id}:#{i}"` (`token_purchase_job.rb:67-72`).
      - Each successful signature is persisted to `purchase.mint_tx_signatures` **inside the loop** (`token_purchase_job.rb:73-76`) — partial-failure resume relies on this (`token_purchase_job.rb:54-66`).
-     - `purchase.mark_minted!(signatures)` (`token_purchase_job.rb:80`) + `TransactionLog.record!` audit row (`token_purchase_job.rb:83-91`).
-     - Failures call `mark_failed_unless_minted!` (H8 audit fix — `stripe_purchase.rb:79-83`) and re-raise so Sidekiq retries.
+     - `purchase.mark_minted!(signatures)` (`app/jobs/token_purchase_job.rb:138`) + `TransactionLog.record!` audit row (`app/jobs/token_purchase_job.rb:151-159`).
+     - Failures call `mark_failed_unless_minted!` (H8 audit fix — `app/models/concerns/mintable_purchase.rb:36-40`, mixed into `StripePurchase` at `app/models/stripe_purchase.rb:7`) and re-raise so Sidekiq retries.
    - Browser polls `/tokens/status` from the `processing` page (`tokens_controller.rb:98-108`) until `purchase.status == "minted"`, then renders the success card with the contest CTA.
 
 8. **Back to root → main contest** — user clicks the navbar "Turf Monster" home link → `GET /` → step 1 repeats → 302 to `contest_path(@contest)`.
@@ -73,14 +73,14 @@
 
 10. **Hold-to-Confirm fires `POST /contests/:id/enter`** — `ContestsController#enter` (`contests_controller.rb:261`).
     - Gated by `require_geo_allowed` + `require_unfrozen_account` (`contests_controller.rb:7-9`).
-    - Loads the cart entry (`contests_controller.rb:262`); web2/managed branch (`contests_controller.rb:311-335`):
+    - Loads the cart entry (`app/controllers/contests_controller.rb:704`); web2/managed funding branch runs inside `#enter`'s `@contest.with_lock` (`app/controllers/contests_controller.rb:821`, helper documented at `:1801-1812`):
       - `current_user.next_unconsumed_entry_token` reads on-chain (`user.rb:300-306`); raises `"No entry tokens. Buy at /tokens/buy"` if none (`contests_controller.rb:316`).
       - `Solana::Vault#enter_contest_with_token(wallet, contest.slug, entry_number, token[:pda], user_keypair:, season_id:)` — atomic Anchor instruction: creates entry PDA, consumes token, awards seeds (`contests_controller.rb:325-332`). The managed wallet's keypair (decrypted from DB) signs (`user.rb:232-235`).
     - `entry.confirm!(tx_signature:, onchain_entry_id:)` validates 6 selections, checks lock time, refuses duplicate selection combos, writes a `TransactionLog` `entry_fee` debit row, and flips `entries.status` → `active` (`app/models/entry.rb:62-110`).
     - All inside `@contest.with_lock { ... }` (`contests_controller.rb:288-349`).
     - JSON redirect to `contest_path(@contest)` (`contests_controller.rb:376`).
 
-11. **Land back on the contest show page** — now `@has_entry == true` (`contests_controller.rb:224`) so the seeds + share cards render (`show.html.erb:91-103`) and the leaderboard partial replaces the matchup board. The same page hosts the chat panel `app/views/contests/_chat_panel.html.erb`.
+11. **Land back on the contest show page** — now `@has_entry == true` so the seeds + share cards render (`app/views/contests/show.html.erb:34-57`) and the leaderboard partial replaces the matchup board. The same page hosts the chat panel `app/views/contests/_chat_panel.html.erb`.
 
 12. **Send a chat message** — composer in `_chat_panel.html.erb:30-` POSTs `contest_messages_path(contest)` → `MessagesController#create` (`app/controllers/messages_controller.rb:7-30`).
     - `before_action :set_contest` (`messages_controller.rb:50-53`) + `:require_chat_enabled` (`messages_controller.rb:55-58`, reads `contest.chat_enabled?` — a DB column predicate).
@@ -88,7 +88,7 @@
     - Per-user flood guard: ≤5 messages / 15s (`messages_controller.rb:62-67`).
     - `rescue_and_log(target: message, parent: @contest)` on save (`messages_controller.rb:24-27`).
     - `Message#after_create_commit :broadcast_new_message` (`app/models/message.rb:17, 43-52`) → Turbo `broadcast_prepend_to([contest, :messages], target: "contest_#{contest_id}_messages", partial: "messages/message")`.
-    - Subscription side: `_chat_panel.html.erb:16` declares `<%= turbo_stream_from contest, :messages %>` — every browser viewing the contest receives the prepend over ActionCable. No custom channel; only `app/channels/application_cable/{connection,channel}.rb` exist.
+    - Subscription side: `app/views/contests/_chat_panel.html.erb:41` declares `<%= turbo_stream_from contest, :messages %>` — every browser viewing the contest receives the prepend over ActionCable. No custom channel; only `app/channels/application_cable/{connection,channel}.rb` exist.
 
 ## Data touched
 
@@ -110,7 +110,7 @@
 - **Stripe webhook signature mismatch / bad JSON** — `head :bad_request` (`stripe_controller.rb:14-21`). No `StripePurchase` row, no mint; Stripe retries the delivery on its own schedule. Watch the `[tokens] webhook.bad_signature` log.
 - **Test-mode event in production** — `head :ok` + warning log (`stripe_controller.rb:29-32`); silently swallowed by design (OPSEC-033).
 - **`TokenPurchaseJob` crashes mid-mint** — already-persisted signatures in `stripe_purchases.mint_tx_signatures` set the resume offset on retry (`token_purchase_job.rb:54-66`). Sidekiq retries with the same `stripe_session_id`. Operator watches `/admin/jobs` for stuck Retries and Sentry for `class=...` rescue logs at `token_purchase_job.rb:93-100`.
-- **Post-mint step raises (e.g. `TransactionLog.record!` DB hiccup)** — `mark_failed_unless_minted!` refuses to downgrade a minted row (H8 audit; `stripe_purchase.rb:79-83`) so the audit stays accurate; job re-raises and Sidekiq retries the TX log write.
+- **Post-mint step raises (e.g. `TransactionLog.record!` DB hiccup)** — `mark_failed_unless_minted!` refuses to downgrade a minted row (H8 audit; `app/models/concerns/mintable_purchase.rb:36-40`) so the audit stays accurate; job re-raises and Sidekiq retries the TX log write.
 - **Contest is full at `enter`** — `with_lock` recount raises `"Contest is full"` (`contests_controller.rb:289-290`); the JSON 422 response surfaces via the board toast.
 - **Wallet has no unconsumed entry token at `enter`** — `contests_controller.rb:316` raises `"No entry tokens. Buy at /tokens/buy"`; client surfaces a CTA.
 - **Lock time passed mid-build** — `entry.confirm!` raises `"Contest has locked — entries closed"` (H7 audit; `entry.rb:70-72`).

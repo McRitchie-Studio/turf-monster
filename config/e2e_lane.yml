@@ -852,7 +852,7 @@
 # the codec's flagged serialize must not. That referee is the reason it is here
 # rather than one more node assertion, and it is the exact failure that would
 # otherwise land AFTER a user approves, with signed bytes nothing can post.
-total_specs: 277
+total_specs: 281
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1157,7 +1157,7 @@ allowed_skips: 4
 # stays 17 and allowed_skips stays 4 — both listers agree, which is what proves
 # the new specs brought no runtime skip with them. Derived with
 # bin/e2e-lane-derive --write, not by arithmetic.
-executed: 256
+executed: 260
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
