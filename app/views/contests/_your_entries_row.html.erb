@@ -10,8 +10,8 @@
 <div class="grid gap-0.5" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
   <% sorted_sels.each do |sel| %>
     <% t = sel.slate_matchup.team %>
-    <% c1 = t.color_primary || "#666" %>
-    <% c2 = t.color_secondary || c1 %>
+    <% c1 = t.card_background || "#666" %>
+    <% c2 = t.card_mascot || c1 %>
     <%# Two ranges drop the short_name to keep pills from truncating:
         - < 530px  (mobile, single-col card but viewport too narrow)
         - 768-1023px (md kicks the parent into 2 cols, so the card is half-

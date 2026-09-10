@@ -1,5 +1,5 @@
 # Shared mint-audit behavior for fiat token purchases (StripePurchase,
-# PaypalPurchase). The minted tokens themselves live on-chain as
+# PaypalPurchase, CoinflowPurchase). The minted tokens themselves live on-chain as
 # EntryTokenAccount PDAs in turf-vault; these rows are the chargeback /
 # refund forensics trail mapping a charge to its mint TX(s).
 module MintablePurchase

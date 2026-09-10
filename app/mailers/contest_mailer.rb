@@ -19,7 +19,7 @@ class ContestMailer < ApplicationMailer
     @payout  = dollars(entry.payout_cents / 100.0)
     @rank    = entry.rank
     @contest_url = contest_url(@contest)
-    @banner_url = email_banner_url("winnings-banner.png")
+    @banner_url = Studio::EmailCatalog.resolved_url(:contest_winnings)
     @banner_alt = "You Won!"
 
     mail(

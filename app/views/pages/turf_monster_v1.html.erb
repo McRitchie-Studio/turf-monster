@@ -1,0 +1,453 @@
+<%# The NFL-season rules page. Sibling of pages/turf_totals_v1 (World Cup), and
+    deliberately NOT a copy of it — the two sports price and score differently:
+
+      multiplier   NFL is LINEAR, 1 + (rank-1)/(N-1), topping out at x2.0.
+                   The World Cup curve is logarithmic and tops out at x3.0.
+                   (SlateMatchup.turf_score_for, sport: "nfl")
+      scoring unit NFL counts POINTS SCORED (Goal::SCORING_TYPE_POINTS: TD 6,
+                   FG 3, 2-pt 2, safety 2, PAT 1), not goals.
+      span         An NFL contest runs on a SPAN slate ("NFL 2026 Weeks 1-3"),
+                   so a team plays three games under ONE frozen multiplier and
+                   scores its SUMMED points (Selection#compute_points!).
+
+    Every number below is read from the live Weeks 1-3 slate, not invented. The
+    WEEKLY point totals in the scoring example are hypothetical results (those
+    games have not been played) and the page says so where they appear.
+
+    ENTRY COST LINKS OUT, ALWAYS. Operator rule: this page teaches game play,
+    and every mention of what an entry costs sends the reader to
+    getting_started_path — the Web3 onboarding guide that owns wallet setup and
+    funding. Do not explain USDC purchase here; link to the page that does. %>
+<% content_for :title, "Turf Monster v1 — How It Works" %>
+<% content_for :meta_description, "NFL pick'em: choose 6 teams, score their points across Weeks 1-3 multiplied by their Turf Score, and climb the leaderboard for cash prizes." %>
+
+<%# data-test hook: the tests scope their copy assertions to THIS subtree. The
+    surrounding layout ships site-wide meta that still advertises the World Cup
+    season, so a page-wide response.body scan would read the chrome, not the
+    page. %>
+<div class="max-w-3xl mx-auto py-8 px-2" data-test="turf-monster-rules">
+
+  <!-- ========== HERO ========== -->
+  <section class="text-center mb-14">
+    <div class="mb-4 flex items-center justify-center gap-3">
+      <span class="px-3 py-1 bg-primary-900/30 text-primary text-xs font-bold uppercase tracking-widest rounded-full border border-primary-700">NFL 2026</span>
+    </div>
+    <h1 class="text-4xl md:text-6xl font-extrabold text-heading mb-2">
+      Turf <span class="text-primary">Monster</span>
+      <span class="ml-2 px-2 py-0.5 bg-violet/20 text-violet text-sm md:text-base font-mono rounded-md align-middle border border-violet/30">v1</span>
+    </h1>
+    <p class="text-2xl md:text-3xl font-bold text-body mt-4 mb-3">Pick teams. Stack points. Get paid.</p>
+    <p class="text-secondary text-lg max-w-xl mx-auto mb-8">
+      Choose 6 NFL teams. Every point they score over three weeks counts &mdash; multiplied by that team&rsquo;s Turf Score. Lower-scoring teams carry a bigger multiplier, so a good underdog beats an obvious favorite.
+    </p>
+    <%= link_to "Start Playing", root_path, class: "btn btn-primary btn-lg shadow-lg shadow-primary/20 text-lg" %>
+  </section>
+
+  <!-- ========== HOW TO PLAY — the four steps ========== -->
+  <section class="mb-14">
+    <h2 class="text-2xl md:text-3xl font-bold text-heading mb-2 text-center">How to play</h2>
+    <p class="text-secondary text-center mb-8">Four steps. That&rsquo;s the whole game.</p>
+
+    <ol class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <li class="card p-6">
+        <div class="flex items-baseline gap-3 mb-2">
+          <span class="font-mono text-primary text-sm">01</span>
+          <h3 class="text-lg font-bold text-heading">Pick a contest</h3>
+        </div>
+        <p class="text-secondary text-sm leading-relaxed">
+          Open <%= link_to "Contests", contests_path, class: "text-primary hover:underline" %> and choose one. Each contest names the weeks it covers, how many players it holds, and the prizes on the line.
+        </p>
+      </li>
+
+      <li class="card p-6">
+        <div class="flex items-baseline gap-3 mb-2">
+          <span class="font-mono text-primary text-sm">02</span>
+          <h3 class="text-lg font-bold text-heading">Choose your teams</h3>
+        </div>
+        <%# CORRECTED 2026-09-08. This step read "Swap freely until the contest
+            locks at the first kickoff", and contradicted section 07 on its own
+            page in two ways at once.
+
+            "Swap freely" dropped the qualifier section 07 carries: a team whose
+            game has ALREADY kicked off is frozen while the contest is still
+            open and its lock still ahead.
+
+            "At the first kickoff" named the wrong moment. Contest.locks_at is
+            starts_at, then the slate first kickoff, then the slate start
+            (contest.rb lines 686 to 693): an explicit starts_at WINS, it is
+            admin-permitted on create AND edit, and nothing validates it against
+            the slate. The two moments coincide in TWO ways, not one: when an
+            admin leaves starts_at blank, so the derivation falls through to
+            that kickoff; and when an admin SETS starts_at to exactly that
+            kickoff, which nothing forbids. The second way is the one the World
+            Cup rulebook's worked example depicts, at a lock and a first kickoff
+            both 3pm. So a comment naming only the blank case loses an argument
+            with that example, and a reader who catches a comment in a
+            half-truth discards the rest of it. Any OTHER explicit starts_at
+            splits the two, and that is the case which makes "at the first
+            kickoff" false.
+
+            Both halves now agree with section 07, and
+            test/integration/turf_totals_lock_rule_test.rb holds this subtree to
+            the SAME two measurements section 07 answers to, so the two cannot
+            drift apart again. The data-test hook is what scopes those
+            assertions here; without it they read the whole page and pass on
+            section 07's copy. %>
+        <p class="text-secondary text-sm leading-relaxed" data-test="nfl-pick-step">
+          Tap 6 teams from the board. Each card shows the team&rsquo;s Turf Score and its opponents. Until the contest locks at its stated start time, you can swap any team whose game has not kicked off.
+        </p>
+      </li>
+
+      <li class="card p-6">
+        <div class="flex items-baseline gap-3 mb-2">
+          <span class="font-mono text-primary text-sm">03</span>
+          <h3 class="text-lg font-bold text-heading">Watch the leaderboard</h3>
+        </div>
+        <p class="text-secondary text-sm leading-relaxed">
+          Every point your teams score is added to your entry, and the contest leaderboard shows where you stand against everyone else.
+        </p>
+      </li>
+
+      <li class="card p-6">
+        <div class="flex items-baseline gap-3 mb-2">
+          <span class="font-mono text-primary text-sm">04</span>
+          <h3 class="text-lg font-bold text-heading">Win prizes</h3>
+        </div>
+        <%# NO TIMING PROMISE HERE, DELIBERATELY. An earlier draft of this card
+            said "no withdrawal request, no waiting on a payout queue" and all
+            three timing claims were false: nothing grades at the final whistle
+            (Contest#grade! is reached only from the admin controller and the QA
+            rehearsal driver — no cron in config/schedule.yml grades or settles),
+            and settlement IS a queue (Contest#settle_onchain! builds a
+            PARTIALLY-SIGNED transaction into PendingTransaction for 2-of-3
+            multisig cosigning, which an admin confirms; production was holding
+            settle pt#298 for two days when this was caught in review).
+            WHERE the money goes is true and is all this may claim: settle_onchain!
+            pays entry.user.solana_address. Nobody here knows the payout SLA, so
+            the page states none — do not reintroduce one without a measured
+            number and an owner. Guarded by pages_controller_test. %>
+        <p class="text-secondary text-sm leading-relaxed">
+          When the last game is over the standings are final, and payouts go to the wallet you entered from.
+        </p>
+      </li>
+    </ol>
+
+    <p class="text-muted text-sm text-center mt-6">
+      Entries are paid in USDC. New to that? The
+      <%= link_to "Getting Started guide", getting_started_path, class: "text-primary hover:underline" %>
+      walks you through a wallet and funding it, start to finish.
+    </p>
+  </section>
+
+  <hr class="border-subtle my-10">
+
+  <!-- ========== 01 — THE BASICS ========== -->
+  <section class="mb-12 md:mb-16">
+    <p class="text-primary font-mono text-sm mb-2">01</p>
+    <h2 class="text-2xl md:text-3xl font-bold text-heading mb-4">The Basics</h2>
+    <p class="text-secondary text-base md:text-lg leading-relaxed mb-8">
+      You are picking a team to put points on the board, not to win. Nobody has to beat anybody &mdash; a team that loses 38&ndash;35 scored 35 points, and every one of them counts for you. It is the scoreboard that counts, so a defensive or special-teams touchdown pays you exactly like any other. A contest that covers Weeks 1&ndash;3 counts all three of that team&rsquo;s games.
+    </p>
+
+    <%# The SAME card the board draws, minus the tap target — team gradient,
+        city over mascot in the team accent, the span multiplier, and the three
+        opponents each in their own brand colour. %>
+    <div class="max-w-xs mx-auto">
+      <%= render "pages/rules_team_card", example: TurfMonsterRules::FEATURE, teams: @teams %>
+      <p class="text-center text-muted text-xs mt-3 italic">A real card from the Weeks 1&ndash;3 board &mdash; three opponents, one multiplier</p>
+    </div>
+  </section>
+
+  <hr class="border-subtle my-10">
+
+  <!-- ========== 02 — YOUR ENTRY ========== -->
+  <section class="mb-12 md:mb-16">
+    <p class="text-primary font-mono text-sm mb-2">02</p>
+    <h2 class="text-2xl md:text-3xl font-bold text-heading mb-4">Your Entry</h2>
+    <p class="text-secondary text-base md:text-lg leading-relaxed mb-8">
+      An entry is <span class="text-heading font-semibold">6 teams</span>. Pick them from the board, then hold to confirm. You can enter the same contest up to 3 times with different lineups.
+    </p>
+
+    <div class="bg-surface-alt rounded-2xl border border-subtle p-4 sm:p-6">
+      <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <% TurfMonsterRules::LINEUP.each do |example| %>
+          <%= render "pages/rules_team_card", example: example, teams: @teams, compact: true %>
+        <% end %>
+      </div>
+      <p class="text-muted text-sm text-center mt-4">
+        Six real teams from the Weeks 1&ndash;3 board, favorites through longshots.
+      </p>
+    </div>
+  </section>
+
+  <hr class="border-subtle my-10">
+
+  <!-- ========== 03 — TURF SCORE ========== -->
+  <section class="mb-12 md:mb-16">
+    <p class="text-primary font-mono text-sm mb-2">03</p>
+    <h2 class="text-2xl md:text-3xl font-bold text-heading mb-4">Turf Score</h2>
+    <p class="text-secondary text-base md:text-lg leading-relaxed mb-8">
+      All 32 teams are ranked by how many points they are projected to score across the contest&rsquo;s weeks. Rank 1 is the highest projection and prices at <span class="text-violet font-mono font-bold">1.0&times;</span>; rank 32 prices at <span class="text-violet font-mono font-bold">2.0&times;</span>. In between, a rank is worth <span class="text-violet font-mono font-bold">1 + (rank &minus; 1) / 31, rounded to one decimal</span> &mdash; NFL scoring runs close to linear. The rounding is not a detail: it is the number that gets frozen onto your pick and paid, so ranks 1 and 2 both price at <span class="text-violet font-mono font-bold">1.0&times;</span>, and ranks 3, 4 and 5 all price at <span class="text-violet font-mono font-bold">1.1&times;</span>. Your points are <span class="text-heading font-semibold">points scored &times; Turf Score</span>.
+    </p>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+      <% TurfMonsterRules::CURVE.each do |row| %>
+        <% team = @teams[row[:team_slug]] %>
+        <div class="rounded-xl p-5 text-center bg-surface-alt border border-subtle">
+          <p class="text-sm text-muted mb-1">Rank #<%= row[:rank] %> &mdash; <%= team&.mascot || row[:team_slug].titleize %></p>
+          <%# One decimal, like every other multiplier on this page: these three
+              cards show a RANGE, and "1x / 1.5x / 2x" reads as three unrelated
+              numbers where "1.0x / 1.5x / 2.0x" reads as a scale. %>
+          <p class="text-3xl font-mono font-bold text-violet mb-1"><%= number_with_precision(TurfMonsterRules.turf_score_for_rank(row[:rank]), precision: 1) %>&times;</p>
+          <p class="text-secondary text-xs"><%= row[:note] %></p>
+        </div>
+      <% end %>
+    </div>
+
+    <div class="bg-surface-alt rounded-xl border border-violet/30 p-6">
+      <p class="text-heading font-semibold mb-3">What counts as a point</p>
+      <p class="text-secondary text-sm leading-relaxed">
+        The scoreboard does. Touchdown 6, field goal 3, extra point 1, two-point conversion 2, safety 2 &mdash; a team&rsquo;s final score is what you are credited with, and a defensive or special-teams touchdown counts the same as any other.
+      </p>
+    </div>
+  </section>
+
+  <hr class="border-subtle my-10">
+
+  <!-- ========== 04 — SCORING EXAMPLE ========== -->
+  <section class="mb-12 md:mb-16">
+    <p class="text-primary font-mono text-sm mb-2">04</p>
+    <h2 class="text-2xl md:text-3xl font-bold text-heading mb-4">Scoring Example</h2>
+    <p class="text-secondary text-base md:text-lg leading-relaxed mb-8">
+      <%# Every number AND both team names come from TurfMonsterRules.comparison.
+          The hand-written version pointed at "the bottom two rows" while naming
+          the first and fifth, so a reader who followed it compared the wrong
+          pair. Derived, the sentence cannot drift from the table under it.
+          "hypothetical" is load-bearing: these weekly results are invented, and
+          saying so in the lead beats a disclaimer under the table. %>
+      <% c = TurfMonsterRules.comparison %>
+      <% favorite = @teams[c.favorite.team_slug] %>
+      <% longshot = @teams[c.longshot.team_slug] %>
+      Here is that same lineup after three <span class="text-heading font-semibold">hypothetical</span> weeks.
+      <%= longshot&.location || c.longshot.team_slug.titleize %> put up <%= c.fewer_points %> fewer points than
+      <%= favorite&.location || c.favorite.team_slug.titleize %> and still finished <%= number_with_precision(c.points_ahead, precision: 1) %> ahead
+      &mdash; <%= number_with_precision(c.longshot.turf_score, precision: 1) %>&times; against <%= number_with_precision(c.favorite.turf_score, precision: 1) %>&times;.
+      That is the whole strategy.
+    </p>
+
+    <div class="card overflow-x-auto">
+      <%# data-test hook: pages_controller_test re-derives every row (weekly points
+          summed, times the Turf Score) so the example can never quietly go wrong. %>
+      <table class="w-full text-sm min-w-[34rem]" data-test="scoring-example">
+        <thead>
+          <tr class="border-b border-subtle">
+            <th class="px-4 py-3 text-left text-xs font-semibold text-muted uppercase tracking-wider">Team</th>
+            <th class="px-4 py-3 text-center text-xs font-semibold text-muted uppercase tracking-wider">Wk 1</th>
+            <th class="px-4 py-3 text-center text-xs font-semibold text-muted uppercase tracking-wider">Wk 2</th>
+            <th class="px-4 py-3 text-center text-xs font-semibold text-muted uppercase tracking-wider">Wk 3</th>
+            <th class="px-4 py-3 text-center text-xs font-semibold text-muted uppercase tracking-wider">Turf</th>
+            <th class="px-4 py-3 text-right text-xs font-semibold text-muted uppercase tracking-wider">Points</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-subtle">
+          <% TurfMonsterRules::LINEUP.each do |example| %>
+            <% team = @teams[example.team_slug] %>
+            <tr>
+              <td class="px-4 py-3 text-body whitespace-nowrap"><%= team&.emoji %> <%= team&.mascot || example.team_slug.titleize %></td>
+              <% example.weekly_points.each do |points| %>
+                <td class="px-4 py-3 text-center text-heading"><%= points %></td>
+              <% end %>
+              <td class="px-4 py-3 text-center font-mono text-violet"><%= number_with_precision(example.turf_score, precision: 1) %>&times;</td>
+              <td class="px-4 py-3 text-right font-mono text-primary font-bold"><%= number_with_precision(example.entry_points, precision: 1) %></td>
+            </tr>
+          <% end %>
+        </tbody>
+        <tfoot>
+          <tr class="border-t-2 border-violet/30 bg-surface-alt">
+            <td colspan="5" class="px-4 py-3 text-right text-heading font-semibold">Total Score</td>
+            <td class="px-4 py-3 text-right font-mono text-xl text-violet font-bold"><%= number_with_precision(TurfMonsterRules.lineup_total, precision: 1) %></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <p class="text-secondary text-sm mt-3">
+      The teams and Turf Scores are real, read from the Weeks 1&ndash;3 board. The weekly point totals are invented &mdash; those games have not been played.
+    </p>
+  </section>
+
+  <hr class="border-subtle my-10">
+
+  <!-- ========== 05 — LEADERBOARD ========== -->
+  <section class="mb-12 md:mb-16">
+    <p class="text-primary font-mono text-sm mb-2">05</p>
+    <h2 class="text-2xl md:text-3xl font-bold text-heading mb-4">The Leaderboard</h2>
+    <p class="text-secondary text-base md:text-lg leading-relaxed mb-8">
+      You do not have to wait for the last whistle to find out how you did. As scores come in your entry is re-scored, and the contest page shows where every entry stands and which of your six teams is carrying you.
+    </p>
+
+    <div class="bg-surface-alt rounded-xl border border-violet/30 p-6">
+      <p class="text-heading font-semibold mb-3">Over three weeks</p>
+      <p class="text-secondary text-sm leading-relaxed">
+        A Weeks 1&ndash;3 contest is a marathon, not a Sunday. A team that gets shut out in Week 1 has two more games to make it back, and the leaderboard rarely settles until the last one is over.
+      </p>
+    </div>
+  </section>
+
+  <hr class="border-subtle my-10">
+
+  <!-- ========== 06 — PRIZES ========== -->
+  <section class="mb-12 md:mb-16">
+    <p class="text-primary font-mono text-sm mb-2">06</p>
+    <h2 class="text-2xl md:text-3xl font-bold text-heading mb-4">Prizes</h2>
+    <p class="text-secondary text-base md:text-lg leading-relaxed mb-8">
+      Every contest posts its prizes before anyone enters, and the pool is funded up front rather than skimmed from the entry fees. The live Weeks 1&ndash;3 contest holds <%= TurfMonsterRules.example_max_entries %> entries and pays the top <%= TurfMonsterRules.example_payouts.size %>: <%= number_to_currency(TurfMonsterRules.example_payouts.first.last, precision: 0) %> for first, <%= number_to_currency(TurfMonsterRules.example_payouts.last.last, precision: 0) %> for second. Tied entries split the prizes for the places they cover, so a two-way tie for first splits first and second money down the middle.
+    </p>
+
+    <%# Places and amounts from Contest::FORMATS[medium] — the same table
+        Contest#payouts grades against — so a payout change in the app reaches
+        this page in the same commit. Review found these hard-typed while the
+        multipliers were derived. %>
+    <div class="card overflow-hidden mb-6">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-subtle">
+            <th class="px-4 py-3 text-left text-xs font-semibold text-muted uppercase tracking-wider">Place</th>
+            <th class="px-4 py-3 text-right text-xs font-semibold text-muted uppercase tracking-wider">Payout</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-subtle">
+          <% TurfMonsterRules.example_payouts.each_with_index do |(place, dollars), index| %>
+            <tr class="<%= "border-l-4 border-l-mint" if index.zero? %>">
+              <td class="px-4 py-3 <%= index.zero? ? "text-heading font-semibold" : "text-body" %>"><%= place.ordinalize %> Place</td>
+              <td class="px-4 py-3 text-right font-mono <%= index.zero? ? "text-primary font-bold text-lg" : "text-heading" %>"><%= number_to_currency(dollars) %></td>
+            </tr>
+          <% end %>
+        </tbody>
+        <tfoot>
+          <tr class="border-t-2 border-violet/30 bg-surface-alt">
+            <td class="px-4 py-3 text-heading font-semibold">Total prizes</td>
+            <td class="px-4 py-3 text-right font-mono text-primary font-bold"><%= number_to_currency(TurfMonsterRules.example_prize_pool) %></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <div class="bg-surface-alt rounded-xl border border-subtle p-6">
+      <p class="text-heading font-semibold mb-2">What an entry costs</p>
+      <p class="text-secondary text-sm leading-relaxed">
+        Entries are paid in USDC, a digital dollar, from a wallet you control. The
+        <%= link_to "Getting Started guide", getting_started_path, class: "text-primary hover:underline" %>
+        covers all of it &mdash; setting up a wallet, funding it, and confirming your first entry. Prizes are paid back to that same wallet.
+      </p>
+    </div>
+  </section>
+
+  <hr class="border-subtle my-10">
+
+  <%# data-test hook. The pre-lock swap sentence below is pinned by
+      test/integration/turf_totals_lock_rule_test.rb, which does not grep for a
+      wording: it MEASURES what Entry accepts on a contest whose stated start
+      trails a kickoff on its slate, then requires this copy to agree. The
+      measurement lives in the World Cup file because Contest and Entry are
+      sport-agnostic, so one measurement certifies both rulebooks.
+
+      The hook scopes that assertion to THIS section. Without it the assertion
+      reads the site-wide layout too and can pass on chrome. %>
+  <!-- ========== 07 — WHEN PICKS LOCK ========== -->
+  <section class="mb-12 md:mb-16" data-test="lock-rules">
+    <p class="text-primary font-mono text-sm mb-2">07</p>
+    <h2 class="text-2xl md:text-3xl font-bold text-heading mb-4">When Picks Lock</h2>
+    <p class="text-secondary text-base md:text-lg leading-relaxed mb-8">
+      A contest locks at its stated start time. Until then you can swap any team whose game has not kicked off. After it, the lineup is set for all three weeks; there are no waiver moves and no mid-contest substitutions.
+    </p>
+
+    <div class="bg-surface-alt rounded-xl border border-violet/30 p-6">
+      <p class="text-heading font-semibold mb-3">Why it locks all at once</p>
+      <p class="text-secondary text-sm leading-relaxed">
+        Everyone picks blind, from the same board, before a single snap. Nobody gets to watch Thursday night and then choose Sunday&rsquo;s teams.
+      </p>
+    </div>
+  </section>
+
+  <hr class="border-subtle my-10">
+
+  <!-- ========== 08 — QUICK REFERENCE ========== -->
+  <section class="mb-12 md:mb-16">
+    <p class="text-primary font-mono text-sm mb-2">08</p>
+    <h2 class="text-2xl md:text-3xl font-bold text-heading mb-4">Quick Reference</h2>
+
+    <%# TWO BANDS, LABELLED. Review's finding: this section reprinted ONE
+        contest's configuration with no qualifier, in the part of the page a
+        reader skims for THE RULES — and Contest::FORMATS carries five other live
+        formats with different sizes and payouts. The rules that hold for every
+        NFL contest are separated from the numbers that belong to this one, and
+        the second band's money is derived from FORMATS rather than typed. %>
+    <div class="card border-2 border-violet/50 p-6 shadow-lg shadow-violet/10">
+      <p class="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Every NFL contest</p>
+      <div class="grid grid-cols-2 gap-y-4 gap-x-6 text-sm">
+        <div class="text-secondary">Picks per entry</div>
+        <div class="font-mono text-heading text-right">6 teams</div>
+
+        <div class="text-secondary">Scoring</div>
+        <div class="text-right text-heading">Points &times; Turf Score</div>
+
+        <div class="text-secondary">Games per team</div>
+        <div class="text-right text-heading">All 3 (Weeks 1&ndash;3)</div>
+
+        <div class="text-secondary">Turf Score range</div>
+        <div class="font-mono text-violet text-right">1.0&times; &ndash; 2.0&times;</div>
+
+        <div class="text-secondary">Turf Score formula</div>
+        <div class="font-mono text-violet text-right">1 + (rank &minus; 1) / 31, to 1 dp</div>
+
+        <div class="text-secondary">Entries per user</div>
+        <div class="text-heading text-right">Up to 3</div>
+
+        <div class="text-secondary">Ties</div>
+        <div class="text-heading text-right">Split the places covered</div>
+
+        <%# This row sits in the EVERY NFL CONTEST band, so it states a rule,
+            not one contest's configuration. It read "First kickoff, Week 1",
+            which is the same false equivalence corrected in section 02 above
+            and is strictly worse here for being claimed as universal: an
+            explicit starts_at wins over the slate unvalidated. Hooked and held
+            to the measured lock moment. %>
+        <div class="text-secondary">Lock</div>
+        <div class="text-heading text-right" data-test="nfl-lock-quick-ref">Stated start time</div>
+
+        <div class="text-secondary">Entry</div>
+        <div class="text-right"><%= link_to "USDC — see Getting Started", getting_started_path, class: "text-primary hover:underline" %></div>
+      </div>
+
+      <div class="border-t border-subtle mt-6 pt-5">
+        <p class="text-xs font-semibold text-muted uppercase tracking-wider mb-1">This contest only</p>
+        <p class="text-secondary text-xs mb-3">The live Weeks 1&ndash;3 contest. Other contests set their own size and prizes &mdash; each one states them on its own page.</p>
+        <div class="grid grid-cols-2 gap-y-4 gap-x-6 text-sm">
+          <% TurfMonsterRules.example_payouts.each do |place, dollars| %>
+            <div class="text-secondary"><%= place.ordinalize %> place</div>
+            <div class="font-mono <%= place == 1 ? "text-primary font-bold" : "text-heading" %> text-right"><%= number_to_currency(dollars) %></div>
+          <% end %>
+
+          <div class="text-secondary">Total prizes</div>
+          <div class="font-mono text-primary font-bold text-right"><%= number_to_currency(TurfMonsterRules.example_prize_pool) %></div>
+
+          <div class="text-secondary">Contest size</div>
+          <div class="font-mono text-heading text-right"><%= TurfMonsterRules.example_max_entries %> entries</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="border-subtle my-10">
+
+  <!-- ========== FOOTER CTA ========== -->
+  <section class="text-center py-8">
+    <p class="text-2xl md:text-3xl font-bold text-heading mb-6">Ready to play?</p>
+    <%= link_to "Start Playing", root_path, class: "btn btn-primary btn-lg shadow-lg shadow-primary/20 text-lg" %>
+    <p class="text-muted text-sm mt-6">
+      Never used a crypto wallet? Start with the
+      <%= link_to "Getting Started guide", getting_started_path, class: "text-primary hover:underline" %>.
+    </p>
+  </section>
+
+</div>

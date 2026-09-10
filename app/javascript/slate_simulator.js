@@ -1,5 +1,5 @@
 // Slate Simulator — runs a 30s accelerated game simulation (10 ticks at 3s intervals)
-// Each tick: P(goal) = dk_goals_expectation / 10 for each team
+// Each tick: P(goal) = expected_score / 10 for each team
 //
 // Usage:
 //   import { simulateGame } from "slate_simulator"
@@ -11,8 +11,8 @@ const TICK_INTERVAL = 3000;
 
 export function simulateGame(gameData, callbacks = {}) {
   const { onGoal, onTick, onComplete } = callbacks;
-  const homeET = gameData.home?.dkGoalsExpectation || 1.5;
-  const awayET = gameData.away?.dkGoalsExpectation || 1.5;
+  const homeET = gameData.home?.expectedScore || 1.5;
+  const awayET = gameData.away?.expectedScore || 1.5;
   const homeProb = homeET / TICKS;
   const awayProb = awayET / TICKS;
   const homePlayers = gameData.home?.players || [];

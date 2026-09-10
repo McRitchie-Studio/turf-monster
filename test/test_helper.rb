@@ -43,9 +43,87 @@ Dir[File.expand_path("support/**/*.rb", __dir__)].each { |f| require f }
 
 OmniAuth.config.test_mode = true
 
+# --- LOCAL TEST PARALLELISM: single-process here, parallel in CI ---------------------
+#
+# Rails forks a worker per processor once a run crosses its 50-test threshold, and each
+# worker opens its own PG connection in an `after_fork_hook`. ON THIS MACHINE THAT FORK
+# SEGFAULTS, and the way it fails is the problem: the workers die, the parent never
+# learns, and it parks on the DRb channel it hands them work over, waiting for results
+# that can never arrive.
+#
+# MEASURED HERE, 2026-08-22 (/tasks/fix-parallel-test-deadlock). Four pre-existing test
+# files (~73 tests, over the threshold), no diff of any kind:
+#
+#   14 forked workers, ALL of them <defunct> within 15s
+#   pg-1.6.3-arm64-darwin/lib/pg/connection.rb:944 — [BUG] Segmentation fault,
+#     raised from active_record/test_databases.rb:15 (the after_fork_hook), i.e.
+#     BEFORE ANY TEST RAN
+#   parent alive, `sample` shows it blocked in drb.rb:1584 -> rb_f_select
+#   1.26s of CPU across 150s of wall clock — 0% busy, waiting on the dead
+#   the same lane with PARALLEL_WORKERS=1: 102 runs, 420 assertions, 0 failures, 6s
+#
+# Left alone it hangs FOREVER: the original sighting ran 41 minutes before a harness
+# timeout killed it. OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES was tried and does NOT
+# help — the segfault is inside libpq, not the ObjC runtime.
+#
+# THIS IS A MITIGATION, NOT A FIX. The fork-safety bug is upstream (pg + macOS) and is
+# still there; we route around it by not forking locally. Nothing is skipped and no
+# coverage is lost — the same tests run, in one process. CI is Linux, forks fine, and
+# keeps the parallel speedup, so this costs the pipeline nothing.
+#
+# mcritchie-studio's test_helper.rb carries the same guard, measured independently on
+# 2026-08-18 and landing on the SAME pg/connection.rb:944 — deliberately duplicated
+# rather than shared, because a test_helper cannot depend on the gem whose suite it
+# boots. Change one, change the other.
+#
+# PARALLEL_WORKERS_ALLOW_UNSAFE=1 restores the requested count for exactly one purpose:
+# re-running the measurement above after a Ruby, pg, or macOS bump. It is not a
+# performance switch. If it stops crashing, change the DEFAULT on the evidence and
+# delete this guard — do not leave the hatch as the way in.
+module TestParallelism
+  UNSAFE_OVERRIDE = "PARALLEL_WORKERS_ALLOW_UNSAFE"
+
+  def self.worker_count(env = ENV)
+    requested = env["PARALLEL_WORKERS"].to_s
+    return default_for(env) unless requested.match?(/\A\d+\z/)
+
+    count = Integer(requested)
+    return count if count <= 1 || env["CI"].present? || env[UNSAFE_OVERRIDE].to_s == "1"
+
+    warn <<~REASON
+      [test_helper] PARALLEL_WORKERS=#{count} ignored locally — running SINGLE-PROCESS instead.
+        Forking the suite here SEGFAULTS in pg (pg/connection.rb:944, in the after-fork
+        hook, before any test runs). The workers die, the parent keeps waiting on them
+        over DRb, and the run HANGS — 41 minutes, at 0% CPU, in the sighting that put
+        this guard here. This is an ENV limitation, NOT a problem with your diff.
+        Re-measuring after a Ruby/pg/macOS bump? #{UNSAFE_OVERRIDE}=1 restores #{count}.
+    REASON
+    1
+  end
+
+  def self.default_for(env)
+    env["CI"].present? ? :number_of_processors : 1
+  end
+end
+
+# NORMALIZE THE ENV, NOT JUST THE ARGUMENT. Rails' `parallelize` re-reads
+# PARALLEL_WORKERS and THAT READ WINS — ENV is the first branch of its `case`, ahead of
+# the `workers:` argument entirely (active_support/test_case.rb):
+#
+#     case
+#     when ENV["PARALLEL_WORKERS"] then workers = ENV["PARALLEL_WORKERS"].to_i
+#     when workers == :number_of_processors then ...
+#
+# So without this write-back the clamp is decorative: a run with PARALLEL_WORKERS=4
+# prints the warning and then forks four workers anyway. Left alone on the CI path,
+# where the value is `:number_of_processors` and forking is fine.
+TEST_WORKERS = TestParallelism.worker_count
+ENV["PARALLEL_WORKERS"] = TEST_WORKERS.to_s if TEST_WORKERS.is_a?(Integer)
+
 module ActiveSupport
   class TestCase
-    parallelize(workers: :number_of_processors)
+    # Single-process locally (the fork segfaults), parallel in CI — see TestParallelism.
+    parallelize(workers: TEST_WORKERS)
 
     # SimpleCov + Rails parallel testing: each test runs in a forked worker, and
     # unless each worker writes its resultset under a UNIQUE command_name they
@@ -61,7 +139,40 @@ module ActiveSupport
       parallelize_teardown { |_worker| SimpleCov.result }
     end
 
+    # ImageCache is defined in studio-engine, and the fixture loader does not
+    # infer an engine class from a host-app table name — without this it treats
+    # image_caches.yml as raw columns, which loses both the polymorphic `owner:`
+    # shorthand and the automatic timestamps.
+    set_fixture_class image_caches: ImageCache
+
     fixtures :all
+
+    # Give `user` a managed (custodial) wallet, whatever the onboarding flag says.
+    #
+    # Signup stopped minting one when web3-only onboarding became the DEFAULT
+    # (2026-08-15 — AppFlags.web3_only_onboarding?), and a large family of suites
+    # used to inherit their custodial wallet from that mint: wallet export,
+    # withdraw, cash-out, off-ramp, self-custody. None of them are about
+    # onboarding. They are about the rails that still serve every managed wallet
+    # ALREADY out there, and those users need to exist to be tested.
+    #
+    # The flag gates minting AT SIGNUP, so this turns it off for exactly the
+    # length of the mint and restores whatever was there — including "not set".
+    # Prefer this over stamping web2_solana_address by hand: generate_managed_wallet!
+    # also writes the encrypted key, without which solana_keypair returns nil and
+    # the signing half of those suites is silently untested.
+    def grant_managed_wallet!(user)
+      original = ENV["ENABLE_WEB3_ONLY_ONBOARDING"]
+      ENV["ENABLE_WEB3_ONLY_ONBOARDING"] = "false"
+      user.generate_managed_wallet!
+      user.reload
+    ensure
+      if original.nil?
+        ENV.delete("ENABLE_WEB3_ONLY_ONBOARDING")
+      else
+        ENV["ENABLE_WEB3_ONLY_ONBOARDING"] = original
+      end
+    end
   end
 end
 
@@ -87,6 +198,27 @@ class ActionDispatch::IntegrationTest
     # is hermetic against ambient .env. The age-gate tests opt back IN
     # explicitly via with_age_gate (test/controllers/contests_age_gate_test.rb).
     ENV.delete("ENABLE_AGE_GATE")
+  end
+
+  # Follow the redirect chain all the way to the page that actually RENDERS.
+  #
+  # A magic-link consume lands on the ROOT since 2026-08-15, and root is
+  # contests#world_cup — a redirector to the live board. So the render an auth
+  # test wants to assert on is two hops away, not one, and it would move again
+  # the day root's target changes. Following to the first non-redirect keeps
+  # these assertions about the LANDING PAGE instead of about the hop count.
+  #
+  # Safe for the one-shot session payloads these tests read (the onboarding
+  # chain, the wallet-setup prompt): a redirect renders nothing, so no
+  # intermediate hop can consume them on the way through.
+  def follow_redirects!(limit: 5)
+    limit.times do
+      break unless response.redirect?
+
+      follow_redirect!
+    end
+    assert_not response.redirect?, "still redirecting after #{limit} hops — is there a loop?"
+    response
   end
 
   # Passwordless: email auth is magic-link only. Logging in = mint a magic-link
@@ -126,7 +258,83 @@ class ActionDispatch::IntegrationTest
 
   # Log in via Solana wallet auth — sets session[:onchain] = true
   # Returns the Ed25519 signing key for use in subsequent signature proofs
-  def log_in_as_onchain(user)
+  # wallet_provider defaults to nil, which is what every existing caller already
+  # got — Solana::CurrentWallet.remember(session, nil) DELETES the brand key. Pass
+  # one when the test needs the key to EXIST: an assertion that it is cleared is
+  # otherwise asserting the absence of something that was never there, which is
+  # exactly how logout_is_definitive_test's wallet-brand check passed for the
+  # wrong reason until 2026-08-27.
+  # The RAW source of every <template> registration for one modal id, straight
+  # out of a response body.
+  #
+  # WHY RAW, AND NOT NOKOGIRI. Some assertions about a modal registration are
+  # about DELIMITERS — the classic one being a double quote inside the
+  # double-quoted x-data attribute, which closes it early and makes Alpine mount
+  # the whole component as a silent no-op that still renders markup. A parser has
+  # already resolved those by the time it hands back a node, and re-serializing a
+  # mangled attribute can hide exactly the damage being looked for.
+  #
+  # WHY IT COUNTS NESTING. A naive `<template ...>.*?</template>` is WRONG here
+  # and fails in the least helpful way: several engine cards contain an inner
+  # `<template x-if="error">`, so the lazy match stops at the INNER closing tag
+  # and silently returns a truncated card. Assertions about anything below that
+  # point — the submit button, the skip link — then fail as "not present" on
+  # markup that is present. Measured while adopting the first-name card, where it
+  # cost three confusing failures before the slice itself was suspected.
+  # An ordinary page, rendered through layouts/application, whose body carries
+  # every modal card this app registers.
+  #
+  # THIS IS THE MODAL RENDER SEAM, and there is exactly one of it. Every
+  # registration in layouts/application is a server-rendered <template x-if>, so
+  # one request for any page on that layout carries the full markup of every
+  # card at once — which is what a component assertion actually needs.
+  #
+  # WHAT IT REPLACED, and why the replacement is stronger rather than merely
+  # equivalent. Assertions of this kind used to drive /admin/modals/preview,
+  # which rendered ONE card on layouts/modal_preview — a second layout keeping a
+  # SECOND registration list. Two lists for one set of cards is the drift this
+  # app has already paid for twice: six cards rendered empty for months because
+  # a modal reached one list and not the other, and a mutation that broke the
+  # REQUIRED first-name branch in layouts/application survived every assertion in
+  # first_name_entry_gate_test, because every one of them was reading the other
+  # layout (that file's own note records the surviving mutant). Retiring the
+  # second layout retired both hazards; asserting here asserts the layout a
+  # player is actually served.
+  #
+  # /about IS THE DEFAULT BECAUSE IT IS THE CHEAPEST — a static page needing no
+  # fixture, no session and no flag, whose layout is the same one every other
+  # page uses. Pass another path when the assertion needs page-specific state
+  # (the session payload, a contest board). Log in first when the card is
+  # registered behind `logged_in?`.
+  #
+  # SCOPE NEGATIVE ASSERTIONS TO THE CARD. This page carries ~34 registrations,
+  # so `assert_not_includes body, "btn btn-primary w-full"` is answering a
+  # question about the whole app. Slice with modal_registration_sources below
+  # and assert against that.
+  def modal_host_page(path = about_path)
+    get path
+    assert_response :success
+    response.body
+  end
+
+  def modal_registration_sources(body, modal_id)
+    opening = /<template x-if="[^"]*id === '#{Regexp.escape(modal_id)}'/
+    body.to_enum(:scan, opening).map { Regexp.last_match.begin(0) }.map do |start|
+      depth = 0
+      pos = start
+      loop do
+        nxt = body.index(/<template\b|<\/template>/, pos)
+        break body[start..] unless nxt
+
+        tag = body[nxt, 10].start_with?("</template") ? :close : :open
+        pos = nxt + (tag == :close ? "</template>".length : "<template".length)
+        depth += (tag == :open ? 1 : -1)
+        break body[start...pos] if depth.zero?
+      end
+    end
+  end
+
+  def log_in_as_onchain(user, wallet_provider: nil)
     key = Ed25519::SigningKey.generate
     pubkey_b58 = Solana::Keypair.encode_base58(key.verify_key.to_bytes)
     user.update!(web3_solana_address: pubkey_b58)
@@ -138,25 +346,11 @@ class ActionDispatch::IntegrationTest
     message = "#{host} wants you to sign in with your Solana account:\n#{pubkey_b58}\n\nNonce: #{nonce}"
     sig_b58 = Solana::Keypair.encode_base58(key.sign(message))
 
-    post "/auth/solana/verify", params: { message: message, signature: sig_b58, pubkey: pubkey_b58 }, as: :json
+    params = { message: message, signature: sig_b58, pubkey: pubkey_b58 }
+    params[:wallet_provider] = wallet_provider if wallet_provider
+    post "/auth/solana/verify", params: params, as: :json
     assert_response :success, "Onchain login failed: #{response.body}"
 
     key
-  end
-
-  # Sign a contest entry message with the given key, returning params hash for POST /enter
-  def sign_entry_message(key, user, contest_name)
-    pubkey_b58 = Solana::Keypair.encode_base58(key.verify_key.to_bytes)
-
-    get "/auth/solana/nonce"
-    nonce = JSON.parse(response.body)["nonce"]
-
-    host = "www.example.com"
-    # OPSEC-005: signed message must embed `User-ID: <id>` so the server
-    # binds the signature to the active session's user.
-    message = "#{host} wants you to sign in with your Solana account:\n#{pubkey_b58}\n\nUser-ID: #{user.id}\n\nEnter contest: #{contest_name}\n\nNonce: #{nonce}"
-    sig_b58 = Solana::Keypair.encode_base58(key.sign(message))
-
-    { message: message, signature: sig_b58, pubkey: pubkey_b58 }
   end
 end

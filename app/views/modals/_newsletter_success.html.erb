@@ -4,7 +4,7 @@
     re-subscribe earns nothing, so the bar just reflects the current total). CTA
     sends the user to browse contests. Bottom Close link. SINGLE root. %>
 <div x-data="{ get props() { return ($store.modals.current() || {}).props || {} } }">
-  <%= render "modals/blocks/card_header",
+  <%= render "studio/modals/blocks/card_header",
         size: :lg,
         icon_emoji: "🌱",
         title: "Subscribed!",

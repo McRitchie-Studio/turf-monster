@@ -1,0 +1,616 @@
+[
+  {
+    "team_name": "Mexico",
+    "short_name": "MEX",
+    "opponent_short_name": "RSA",
+    "line": 1.5,
+    "over_odds": -165,
+    "under_odds": 100,
+    "all_lines": {
+      "0.5": { "over_odds": -1000, "under_odds": 390 },
+      "1.5": { "over_odds": -165, "under_odds": 100 },
+      "2.5": { "over_odds": 190, "under_odds": -340 },
+      "3.5": { "over_odds": 475, "under_odds": -1600 }
+    }
+  },
+  {
+    "team_name": "South Africa",
+    "short_name": "RSA",
+    "opponent_short_name": "MEX",
+    "line": 0.5,
+    "over_odds": -155,
+    "under_odds": -105,
+    "all_lines": {
+      "0.5": { "over_odds": -155, "under_odds": -105 },
+      "1.5": { "over_odds": 300, "under_odds": -650 }
+    }
+  },
+  {
+    "team_name": "South Korea",
+    "short_name": "KOR",
+    "opponent_short_name": "CZE",
+    "line": 1.5,
+    "over_odds": 150,
+    "under_odds": -255,
+    "all_lines": {
+      "0.5": { "over_odds": -330, "under_odds": 190 },
+      "1.5": { "over_odds": 150, "under_odds": -255 },
+      "2.5": { "over_odds": 475, "under_odds": -1600 }
+    }
+  },
+  {
+    "team_name": "Czech Republic",
+    "short_name": "CZE",
+    "opponent_short_name": "KOR",
+    "line": 1.5,
+    "over_odds": 160,
+    "under_odds": -265,
+    "all_lines": {
+      "0.5": { "over_odds": -310, "under_odds": 180 },
+      "1.5": { "over_odds": 160, "under_odds": -265 },
+      "2.5": { "over_odds": 500, "under_odds": -1800 }
+    }
+  },
+  {
+    "team_name": "Canada",
+    "short_name": "CAN",
+    "opponent_short_name": "BIH",
+    "line": 1.5,
+    "over_odds": 110,
+    "under_odds": -180,
+    "all_lines": {
+      "0.5": { "over_odds": -450, "under_odds": 240 },
+      "1.5": { "over_odds": 110, "under_odds": -180 },
+      "2.5": { "over_odds": 350, "under_odds": -900 }
+    }
+  },
+  {
+    "team_name": "Bosnia",
+    "short_name": "BIH",
+    "opponent_short_name": "CAN",
+    "line": 1.5,
+    "over_odds": 205,
+    "under_odds": -370,
+    "all_lines": {
+      "0.5": { "over_odds": -230, "under_odds": 140 },
+      "1.5": { "over_odds": 205, "under_odds": -370 },
+      "2.5": { "over_odds": 600, "under_odds": -4000 }
+    }
+  },
+  {
+    "team_name": "Paraguay",
+    "short_name": "PAR",
+    "opponent_short_name": "USA",
+    "line": 1.5,
+    "over_odds": 200,
+    "under_odds": -360,
+    "all_lines": {
+      "0.5": { "over_odds": -230, "under_odds": 140 },
+      "1.5": { "over_odds": 200, "under_odds": -360 },
+      "2.5": { "over_odds": 600, "under_odds": -3500 }
+    }
+  },
+  {
+    "team_name": "USA",
+    "short_name": "USA",
+    "opponent_short_name": "PAR",
+    "line": 1.5,
+    "over_odds": -110,
+    "under_odds": -145,
+    "all_lines": {
+      "0.5": { "over_odds": -575, "under_odds": 280 },
+      "1.5": { "over_odds": -110, "under_odds": -145 },
+      "2.5": { "over_odds": 290, "under_odds": -600 },
+      "3.5": { "over_odds": 650, "under_odds": -6000 }
+    }
+  },
+  {
+    "team_name": "Qatar",
+    "short_name": "QAT",
+    "opponent_short_name": "SUI",
+    "line": 0.5,
+    "over_odds": -120,
+    "under_odds": -135,
+    "all_lines": {
+      "0.5": { "over_odds": -120, "under_odds": -135 },
+      "1.5": { "over_odds": 390, "under_odds": -1000 }
+    }
+  },
+  {
+    "team_name": "Switzerland",
+    "short_name": "SUI",
+    "opponent_short_name": "QAT",
+    "line": 2.5,
+    "over_odds": 110,
+    "under_odds": -180,
+    "all_lines": {
+      "0.5": { "over_odds": -2500, "under_odds": 550 },
+      "1.5": { "over_odds": -280, "under_odds": 165 },
+      "2.5": { "over_odds": 110, "under_odds": -180 },
+      "3.5": { "over_odds": 275, "under_odds": -550 },
+      "4.5": { "over_odds": 550, "under_odds": -3000 }
+    }
+  },
+  {
+    "team_name": "Brazil",
+    "short_name": "BRA",
+    "opponent_short_name": "MAR",
+    "line": 1.5,
+    "over_odds": -160,
+    "under_odds": 100,
+    "all_lines": {
+      "0.5": { "over_odds": -1000, "under_odds": 380 },
+      "1.5": { "over_odds": -160, "under_odds": 100 },
+      "2.5": { "over_odds": 195, "under_odds": -350 },
+      "3.5": { "over_odds": 475, "under_odds": -1600 }
+    }
+  },
+  {
+    "team_name": "Morocco",
+    "short_name": "MAR",
+    "opponent_short_name": "BRA",
+    "line": 0.5,
+    "over_odds": -185,
+    "under_odds": 115,
+    "all_lines": {
+      "0.5": { "over_odds": -185, "under_odds": 115 },
+      "1.5": { "over_odds": 255, "under_odds": -500 },
+      "2.5": { "over_odds": 750, "under_odds": -20000 }
+    }
+  },
+  {
+    "team_name": "Haiti",
+    "short_name": "HAI",
+    "opponent_short_name": "SCO",
+    "line": 0.5,
+    "over_odds": -130,
+    "under_odds": -120,
+    "all_lines": {
+      "0.5": { "over_odds": -130, "under_odds": -120 },
+      "1.5": { "over_odds": 340, "under_odds": -800 }
+    }
+  },
+  {
+    "team_name": "Scotland",
+    "short_name": "SCO",
+    "opponent_short_name": "HAI",
+    "line": 2.5,
+    "over_odds": 140,
+    "under_odds": -235,
+    "all_lines": {
+      "0.5": { "over_odds": -1400, "under_odds": 450 },
+      "1.5": { "over_odds": -215, "under_odds": 130 },
+      "2.5": { "over_odds": 140, "under_odds": -235 },
+      "3.5": { "over_odds": 350, "under_odds": -800 },
+      "4.5": { "over_odds": 700, "under_odds": -8000 }
+    }
+  },
+  {
+    "team_name": "Curacao",
+    "short_name": "CUW",
+    "opponent_short_name": "GER",
+    "line": 0.5,
+    "over_odds": 225,
+    "under_odds": -425,
+    "all_lines": {
+      "0.5": { "over_odds": 225, "under_odds": -425 }
+    }
+  },
+  {
+    "team_name": "Germany",
+    "short_name": "GER",
+    "opponent_short_name": "CUW",
+    "line": 4.5,
+    "over_odds": 110,
+    "under_odds": -180,
+    "all_lines": {
+      "1.5": { "over_odds": -3500, "under_odds": 600 },
+      "2.5": { "over_odds": -550, "under_odds": 275 },
+      "3.5": { "over_odds": -200, "under_odds": 125 },
+      "4.5": { "over_odds": 110, "under_odds": -180 },
+      "5.5": { "over_odds": 225, "under_odds": -425 },
+      "6.5": { "over_odds": 425, "under_odds": -1200 },
+      "7.5": { "over_odds": 700, "under_odds": -8000 }
+    }
+  },
+  {
+    "team_name": "Japan",
+    "short_name": "JPN",
+    "opponent_short_name": "NED",
+    "line": 1.5,
+    "over_odds": 175,
+    "under_odds": -300,
+    "all_lines": {
+      "0.5": { "over_odds": -275, "under_odds": 160 },
+      "1.5": { "over_odds": 175, "under_odds": -300 },
+      "2.5": { "over_odds": 500, "under_odds": -2000 }
+    }
+  },
+  {
+    "team_name": "Netherlands",
+    "short_name": "NED",
+    "opponent_short_name": "JPN",
+    "line": 1.5,
+    "over_odds": -110,
+    "under_odds": -145,
+    "all_lines": {
+      "0.5": { "over_odds": -600, "under_odds": 290 },
+      "1.5": { "over_odds": -110, "under_odds": -145 },
+      "2.5": { "over_odds": 285, "under_odds": -600 },
+      "3.5": { "over_odds": 650, "under_odds": -6000 }
+    }
+  },
+  {
+    "team_name": "Ivory Coast",
+    "short_name": "CIV",
+    "opponent_short_name": "ECU",
+    "line": 1.5,
+    "over_odds": 215,
+    "under_odds": -390,
+    "all_lines": {
+      "0.5": { "over_odds": -235, "under_odds": 140 },
+      "1.5": { "over_odds": 215, "under_odds": -390 },
+      "2.5": { "over_odds": 650, "under_odds": -5000 }
+    }
+  },
+  {
+    "team_name": "Ecuador",
+    "short_name": "ECU",
+    "opponent_short_name": "CIV",
+    "line": 1.5,
+    "over_odds": 150,
+    "under_odds": -255,
+    "all_lines": {
+      "0.5": { "over_odds": -330, "under_odds": 190 },
+      "1.5": { "over_odds": 150, "under_odds": -255 },
+      "2.5": { "over_odds": 475, "under_odds": -1800 }
+    }
+  },
+  {
+    "team_name": "Sweden",
+    "short_name": "SWE",
+    "opponent_short_name": "TUN",
+    "line": 1.5,
+    "over_odds": 105,
+    "under_odds": -175,
+    "all_lines": {
+      "0.5": { "over_odds": -475, "under_odds": 250 },
+      "1.5": { "over_odds": 105, "under_odds": -175 },
+      "2.5": { "over_odds": 340, "under_odds": -800 }
+    }
+  },
+  {
+    "team_name": "Tunisia",
+    "short_name": "TUN",
+    "opponent_short_name": "SWE",
+    "line": 0.5,
+    "over_odds": -195,
+    "under_odds": 120,
+    "all_lines": {
+      "0.5": { "over_odds": -195, "under_odds": 120 },
+      "1.5": { "over_odds": 250, "under_odds": -475 },
+      "2.5": { "over_odds": 700, "under_odds": -20000 }
+    }
+  },
+  {
+    "team_name": "Cape Verde",
+    "short_name": "CPV",
+    "opponent_short_name": "ESP",
+    "line": 0.5,
+    "over_odds": 155,
+    "under_odds": -260,
+    "all_lines": {
+      "0.5": { "over_odds": 155, "under_odds": -260 },
+      "1.5": { "over_odds": 700, "under_odds": -8000 }
+    }
+  },
+  {
+    "team_name": "Spain",
+    "short_name": "ESP",
+    "opponent_short_name": "CPV",
+    "line": 3.5,
+    "over_odds": 105,
+    "under_odds": -170,
+    "all_lines": {
+      "1.5": { "over_odds": -900, "under_odds": 360 },
+      "2.5": { "over_odds": -235, "under_odds": 145 },
+      "3.5": { "over_odds": 105, "under_odds": -170 },
+      "4.5": { "over_odds": 235, "under_odds": -450 },
+      "5.5": { "over_odds": 475, "under_odds": -1600 }
+    }
+  },
+  {
+    "team_name": "Belgium",
+    "short_name": "BEL",
+    "opponent_short_name": "EGY",
+    "line": 1.5,
+    "over_odds": -175,
+    "under_odds": 110,
+    "all_lines": {
+      "0.5": { "over_odds": -1100, "under_odds": 400 },
+      "1.5": { "over_odds": -175, "under_odds": 110 },
+      "2.5": { "over_odds": 175, "under_odds": -300 },
+      "3.5": { "over_odds": 425, "under_odds": -1400 }
+    }
+  },
+  {
+    "team_name": "Egypt",
+    "short_name": "EGY",
+    "opponent_short_name": "BEL",
+    "line": 0.5,
+    "over_odds": -185,
+    "under_odds": 115,
+    "all_lines": {
+      "0.5": { "over_odds": -185, "under_odds": 115 },
+      "1.5": { "over_odds": 250, "under_odds": -475 },
+      "2.5": { "over_odds": 700, "under_odds": -10000 }
+    }
+  },
+  {
+    "team_name": "Saudi Arabia",
+    "short_name": "KSA",
+    "opponent_short_name": "URU",
+    "line": 0.5,
+    "over_odds": -165,
+    "under_odds": 105,
+    "all_lines": {
+      "0.5": { "over_odds": -165, "under_odds": 105 },
+      "1.5": { "over_odds": 280, "under_odds": -575 }
+    }
+  },
+  {
+    "team_name": "Uruguay",
+    "short_name": "URU",
+    "opponent_short_name": "KSA",
+    "line": 1.5,
+    "over_odds": -150,
+    "under_odds": -110,
+    "all_lines": {
+      "0.5": { "over_odds": -900, "under_odds": 360 },
+      "1.5": { "over_odds": -150, "under_odds": -110 },
+      "2.5": { "over_odds": 210, "under_odds": -380 },
+      "3.5": { "over_odds": 500, "under_odds": -2000 }
+    }
+  },
+  {
+    "team_name": "Iran",
+    "short_name": "IRN",
+    "opponent_short_name": "NZL",
+    "line": 1.5,
+    "over_odds": -115,
+    "under_odds": -145,
+    "all_lines": {
+      "0.5": { "over_odds": -600, "under_odds": 290 },
+      "1.5": { "over_odds": -115, "under_odds": -145 },
+      "2.5": { "over_odds": 280, "under_odds": -575 },
+      "3.5": { "over_odds": 650, "under_odds": -6000 }
+    }
+  },
+  {
+    "team_name": "New Zealand",
+    "short_name": "NZL",
+    "opponent_short_name": "IRN",
+    "line": 0.5,
+    "over_odds": -185,
+    "under_odds": 115,
+    "all_lines": {
+      "0.5": { "over_odds": -185, "under_odds": 115 },
+      "1.5": { "over_odds": 255, "under_odds": -500 },
+      "2.5": { "over_odds": 750, "under_odds": -20000 }
+    }
+  },
+  {
+    "team_name": "Austria",
+    "short_name": "AUT",
+    "opponent_short_name": "JOR",
+    "line": 2.5,
+    "over_odds": 125,
+    "under_odds": -200,
+    "all_lines": {
+      "0.5": { "over_odds": -2000, "under_odds": 500 },
+      "1.5": { "over_odds": -255, "under_odds": 150 },
+      "2.5": { "over_odds": 125, "under_odds": -200 },
+      "3.5": { "over_odds": 310, "under_odds": -650 },
+      "4.5": { "over_odds": 650, "under_odds": -5000 }
+    }
+  },
+  {
+    "team_name": "Jordan",
+    "short_name": "JOR",
+    "opponent_short_name": "AUT",
+    "line": 0.5,
+    "over_odds": -155,
+    "under_odds": -105,
+    "all_lines": {
+      "0.5": { "over_odds": -155, "under_odds": -105 },
+      "1.5": { "over_odds": 300, "under_odds": -650 }
+    }
+  },
+  {
+    "team_name": "France",
+    "short_name": "FRA",
+    "opponent_short_name": "SEN",
+    "line": 2.5,
+    "over_odds": 145,
+    "under_odds": -245,
+    "all_lines": {
+      "0.5": { "over_odds": -1600, "under_odds": 475 },
+      "1.5": { "over_odds": -210, "under_odds": 130 },
+      "2.5": { "over_odds": 145, "under_odds": -245 },
+      "3.5": { "over_odds": 370, "under_odds": -900 },
+      "4.5": { "over_odds": 750, "under_odds": -20000 }
+    }
+  },
+  {
+    "team_name": "Senegal",
+    "short_name": "SEN",
+    "opponent_short_name": "FRA",
+    "line": 0.5,
+    "over_odds": -155,
+    "under_odds": -105,
+    "all_lines": {
+      "0.5": { "over_odds": -155, "under_odds": -105 },
+      "1.5": { "over_odds": 300, "under_odds": -650 }
+    }
+  },
+  {
+    "team_name": "Iraq",
+    "short_name": "IRQ",
+    "opponent_short_name": "NOR",
+    "line": 0.5,
+    "over_odds": -130,
+    "under_odds": -120,
+    "all_lines": {
+      "0.5": { "over_odds": -130, "under_odds": -120 },
+      "1.5": { "over_odds": 350, "under_odds": -800 }
+    }
+  },
+  {
+    "team_name": "Norway",
+    "short_name": "NOR",
+    "opponent_short_name": "IRQ",
+    "line": 2.5,
+    "over_odds": 120,
+    "under_odds": -195,
+    "all_lines": {
+      "0.5": { "over_odds": -1800, "under_odds": 500 },
+      "1.5": { "over_odds": -255, "under_odds": 155 },
+      "2.5": { "over_odds": 120, "under_odds": -195 },
+      "3.5": { "over_odds": 300, "under_odds": -650 },
+      "4.5": { "over_odds": 600, "under_odds": -4000 }
+    }
+  },
+  {
+    "team_name": "Algeria",
+    "short_name": "ALG",
+    "opponent_short_name": "ARG",
+    "line": 0.5,
+    "over_odds": -125,
+    "under_odds": -125,
+    "all_lines": {
+      "0.5": { "over_odds": -125, "under_odds": -125 },
+      "1.5": { "over_odds": 370, "under_odds": -900 }
+    }
+  },
+  {
+    "team_name": "Argentina",
+    "short_name": "ARG",
+    "opponent_short_name": "ALG",
+    "line": 2.5,
+    "over_odds": 160,
+    "under_odds": -275,
+    "all_lines": {
+      "0.5": { "over_odds": -1400, "under_odds": 425 },
+      "1.5": { "over_odds": -190, "under_odds": 120 },
+      "2.5": { "over_odds": 160, "under_odds": -275 },
+      "3.5": { "over_odds": 400, "under_odds": -1100 }
+    }
+  },
+  {
+    "team_name": "DR Congo",
+    "short_name": "COD",
+    "opponent_short_name": "POR",
+    "line": 0.5,
+    "over_odds": -145,
+    "under_odds": -110,
+    "all_lines": {
+      "0.5": { "over_odds": -145, "under_odds": -110 },
+      "1.5": { "over_odds": 320, "under_odds": -750 }
+    }
+  },
+  {
+    "team_name": "Portugal",
+    "short_name": "POR",
+    "opponent_short_name": "COD",
+    "line": 2.5,
+    "over_odds": 110,
+    "under_odds": -180,
+    "all_lines": {
+      "0.5": { "over_odds": -3000, "under_odds": 550 },
+      "1.5": { "over_odds": -290, "under_odds": 170 },
+      "2.5": { "over_odds": 110, "under_odds": -180 },
+      "3.5": { "over_odds": 280, "under_odds": -575 },
+      "4.5": { "over_odds": 600, "under_odds": -3000 }
+    }
+  },
+  {
+    "team_name": "Croatia",
+    "short_name": "CRO",
+    "opponent_short_name": "ENG",
+    "line": 0.5,
+    "over_odds": -185,
+    "under_odds": 115,
+    "all_lines": {
+      "0.5": { "over_odds": -185, "under_odds": 115 },
+      "1.5": { "over_odds": 250, "under_odds": -475 },
+      "2.5": { "over_odds": 700, "under_odds": -20000 }
+    }
+  },
+  {
+    "team_name": "England",
+    "short_name": "ENG",
+    "opponent_short_name": "CRO",
+    "line": 1.5,
+    "over_odds": -140,
+    "under_odds": -115,
+    "all_lines": {
+      "0.5": { "over_odds": -800, "under_odds": 340 },
+      "1.5": { "over_odds": -140, "under_odds": -115 },
+      "2.5": { "over_odds": 225, "under_odds": -425 },
+      "3.5": { "over_odds": 550, "under_odds": -2500 }
+    }
+  },
+  {
+    "team_name": "Ghana",
+    "short_name": "GHA",
+    "opponent_short_name": "PAN",
+    "line": 1.5,
+    "over_odds": 100,
+    "under_odds": -160,
+    "all_lines": {
+      "0.5": { "over_odds": -500, "under_odds": 255 },
+      "1.5": { "over_odds": 100, "under_odds": -160 },
+      "2.5": { "over_odds": 310, "under_odds": -700 },
+      "3.5": { "over_odds": 700, "under_odds": -20000 }
+    }
+  },
+  {
+    "team_name": "Panama",
+    "short_name": "PAN",
+    "opponent_short_name": "GHA",
+    "line": 1.5,
+    "over_odds": 185,
+    "under_odds": -320,
+    "all_lines": {
+      "0.5": { "over_odds": -250, "under_odds": 150 },
+      "1.5": { "over_odds": 185, "under_odds": -320 },
+      "2.5": { "over_odds": 550, "under_odds": -2500 }
+    }
+  },
+  {
+    "team_name": "Uzbekistan",
+    "short_name": "UZB",
+    "opponent_short_name": "COL",
+    "line": 0.5,
+    "over_odds": -140,
+    "under_odds": -115,
+    "all_lines": {
+      "0.5": { "over_odds": -140, "under_odds": -115 },
+      "1.5": { "over_odds": 340, "under_odds": -750 }
+    }
+  },
+  {
+    "team_name": "Colombia",
+    "short_name": "COL",
+    "opponent_short_name": "UZB",
+    "line": 2.5,
+    "over_odds": 170,
+    "under_odds": -290,
+    "all_lines": {
+      "0.5": { "over_odds": -1200, "under_odds": 425 },
+      "1.5": { "over_odds": -185, "under_odds": 115 },
+      "2.5": { "over_odds": 170, "under_odds": -290 },
+      "3.5": { "over_odds": 425, "under_odds": -1200 }
+    }
+  }
+]

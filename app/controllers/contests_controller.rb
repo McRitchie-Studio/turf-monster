@@ -1,25 +1,75 @@
 class ContestsController < ApplicationController
-  include Solana::SessionAuth
+  # Solana::SessionAuth is NOT included any more. Its one export is
+  # verify_solana_signature!, and #enter's unreachable signature branch was this
+  # controller's only caller. `onchain_session?` — still used all over this file
+  # — comes from ApplicationController, not the concern, so the two are
+  # unrelated despite reading alike.
+  include DbSpanTracing
 
   skip_before_action :require_authentication, only: [:index, :show, :my, :world_cup, :leaderboard_poll, :live]
-  before_action :set_contest, only: [:show, :admin, :edit, :update, :update_banner, :toggle_selection, :enter, :check_funding, :clear_picks, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_entry, :stamp_entry_signature, :recover_pending_entry, :confirm_onchain_entry, :prepare_onchain_contest, :confirm_onchain_contest, :leaderboard_poll, :live, :pick, :grade_round]
+  # Observability for the latency tail (fix-turf-latency-tail): attribute the
+  # DB wall time on the two hot paths — "/" (world_cup redirect) and the contest
+  # show page — to connect vs execute. No-op-safe; DB_SPAN_TRACE=0 disables.
+  around_action :trace_db_span, only: [:world_cup, :show]
+  before_action :set_contest, only: [:show, :admin, :edit, :update, :update_banner, :toggle_selection, :enter, :check_funding, :clear_picks, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_entry, :discard_prepared_entry, :stamp_entry_signature, :recover_pending_entry, :confirm_onchain_entry, :prepare_onchain_contest, :confirm_onchain_contest, :leaderboard_poll, :live, :pick, :grade_round]
   before_action :require_admin, only: [:new, :create, :rebuild_create_tx, :finalize, :admin, :edit, :update, :update_banner, :generator, :generate_bundle, :finalize_bundle, :grade, :fill, :lock, :prepare_lock_time, :confirm_lock_time, :prepare_conclusion_time, :confirm_conclusion_time, :jump, :simulate_game, :simulate_batch, :reset, :close_onchain, :cancel_onchain, :prepare_onchain_contest, :confirm_onchain_contest, :grade_round]
   before_action :require_geo_allowed, only: [:toggle_selection, :enter, :prepare_entry]
   # B4 / OPSEC-048: frozen accounts can browse but cannot spend or enter.
   before_action :require_unfrozen_account, only: [:enter, :prepare_entry, :confirm_onchain_entry, :toggle_selection]
 
+  # The contests page is three bands, and each one answers a different question:
+  #
+  #   1. the featured rail  — what can I play right now?  (Contest.featured_order)
+  #   2. My Contests        — where do I stand?           (@my_contests)
+  #   3. All Contests       — the full list.              (@contests)
+  #
+  # All three read the SAME loaded array, so the page stays the handful of
+  # queries below however many bands render it.
   def index
     @contests = Contest.where(status: [:open, :settled])
                        .includes(:slate).with_attached_contest_image
                        .order(created_at: :desc).to_a
     # One grouped query for confirmed entry counts — avoids a per-card / per-row
-    # N+1 across the My Contests grid + All Contests table.
+    # N+1 across the featured rail + both tables.
     @entry_counts = Entry.confirmed.where(contest_id: @contests.map(&:id)).group(:contest_id).count
     # "My Contests" = contests the viewer has entered. Filter the already-loaded
     # list in Ruby so there's no extra Contest query.
     @entered_contest_ids = (logged_in? ? current_user.entries.confirmed.distinct.pluck(:contest_id) : []).to_set
+    # SETTLED CONTESTS STAY IN THIS LIST. My Contests is the band that reports
+    # how a contest ENDED — the Won / Complete badge and the amount won only
+    # exist for a finished contest — so it deliberately does not inherit the
+    # All Contests table's hide-settled default.
     @my_contests = @contests.select { |c| @entered_contest_ids.include?(c.id) }
+    @featured_contests = Contest.featured_order(@contests)
+    load_my_contest_totals
   end
+
+  # The two per-viewer numbers My Contests reports, each one grouped query over
+  # this viewer's own confirmed entries:
+  #
+  #   @my_entry_counts — how many entries I hold, which is what the card sash
+  #                      says ("Entered" at one, "3 Entries" above that). NOT
+  #                      @entry_counts, which is every entrant's.
+  #   @my_payout_cents — what I won, summed across those entries. Contest#grade!
+  #                      writes payout_cents and then flips the contest to
+  #                      settled in the same transaction, so a settled contest
+  #                      always has its final number here and an unsettled one
+  #                      always reads zero.
+  #
+  # Both default to empty for a signed-out reader, whose My Contests band does
+  # not render at all.
+  def load_my_contest_totals
+    unless logged_in?
+      @my_entry_counts = {}
+      @my_payout_cents = {}
+      return
+    end
+
+    mine = current_user.entries.confirmed.where(contest_id: @my_contests.map(&:id))
+    @my_entry_counts = mine.group(:contest_id).count
+    @my_payout_cents = mine.group(:contest_id).sum(:payout_cents)
+  end
+  private :load_my_contest_totals
 
   def my
     @contests = Contest.where(status: [:open, :settled]).order(created_at: :desc)
@@ -97,6 +147,30 @@ class ContestsController < ApplicationController
     payload = verify_bundle_payload(params[:params_token])
     raise "User mismatch — token was issued to a different user" unless payload[:user_id] == current_user.id
 
+    # THE MONEY MOVED BEFORE THIS ACTION WAS ENTERED, so — unlike #finalize —
+    # there is no post-broadcast line to sit behind. The CLIENT broadcasts and
+    # confirms the prize-pool transfer itself (contests/generator.html.erb:
+    # sendRawTransaction then confirmTransaction) and only POSTs here after. The
+    # whole body and both rescues are therefore already post-spend.
+    #
+    # Same staleness #finalize had, reachable end to end: this action renders
+    # `redirect: generator_contests_path`, the client assigns it to
+    # window.location.href, and #generator sets no @wallet_balances — so
+    # #display_balance takes its cache-first branch and serves the pre-spend
+    # number for the rest of the 60s TTL. Per contest_bundle.rb's header,
+    # finalize_phantom! is the only provisioning path that works on prod.
+    #
+    # PLACEMENT: as early as verified identity allows, so the success render
+    # and the StandardError rescue both inherit it. Not earlier — above these
+    # two lines the token is not yet known to be server-issued to THIS user,
+    # and busting on an unverified POST would let any request thrash a
+    # logged-in user's cache.
+    #
+    # Both keys, not just USDC: see #invalidate_wallet_balance_cache. The guard
+    # is redundant here (the line above already dereferenced current_user) and
+    # kept for symmetry with the other #invalidate_* call sites, which need it.
+    invalidate_wallet_balance_cache if logged_in?
+
     key = payload[:key]
     raise "Unknown bundle" unless ContestBundle::ALL.key?(key)
 
@@ -147,6 +221,19 @@ class ContestsController < ApplicationController
     contest = build_unpersisted_contest_from_params
     unless Contest.selectable_formats.key?(contest.contest_type)
       return render_create_error("Unknown or unavailable contest format")
+    end
+    # A requested span that could not be assembled (a gap, or a week with no
+    # slate) must REFUSE, not fall back to a shorter contest — the on-chain fees
+    # and prize pool are sized for the span the operator asked for.
+    if @span_slate_error.present?
+      return render_create_error(@span_slate_error)
+    end
+    # onchain_params falls back to `lock_timestamp: 0` when no start can be
+    # resolved, which would put a contest on chain that never locks. Weekly NFL
+    # slates carry no game times, so this is reachable from the form — refuse it
+    # rather than mint an unlockable contest.
+    if contest.turf_totals? && contest.starts_in_at.blank?
+      return render_create_error("Set a lock time — the selected slate has no scheduled game times.")
     end
     if (err = onchain_create_precheck(contest, current_user))
       return render_create_error(err)
@@ -212,30 +299,99 @@ class ContestsController < ApplicationController
     render_create_error(e.message)
   end
 
+  # WRITE-AHEAD, THEN BROADCAST, THEN PROMOTE. The order of the two writes in
+  # this method is a money invariant, so it is spelled out rather than left to
+  # be re-derived:
+  #
+  #   1. save the row   status `pending`, carrying the derived PDA
+  #   2. broadcast      the creator's prize-pool USDC moves into the vault
+  #   3. stamp          the signature, before anything that can raise
+  #   4. verify         the read-back (OPSEC-010)
+  #   5. promote        status `open`
+  #   6. attach         the banner, last, and unable to fail the request
+  #
+  # This mirrors the ENTRY path, which has written ahead since 2026-06-05: the
+  # row is created first, then the broadcast, then the signature is stamped on
+  # it (see #confirm_onchain_entry and the note at :675 — "a strand is then a
+  # recoverable row"). The Phantom CONTEST path was the last money path without
+  # that property, and it is the one where the USER's money moves.
+  #
+  # WHY IT MATTERS. Every step from 2 onward can raise, and every raise lands in
+  # the `rescue StandardError` below, which tells the user their contest failed.
+  # Before this change the row was written at the END, so that message was a lie
+  # whenever the broadcast had already succeeded: the prize pool was in the
+  # vault and NOTHING outside the request knew — `tx_signature` was a local
+  # variable, and Entries::OnchainReconciler is rooted in Contest rows, so a
+  # funded PDA with no row is unreachable, not merely unreconciled.
+  #
+  # The failure mode now INVERTS. A crash leaves a row with no money (sweepable:
+  # read the PDA, promote if funded, delete if not) instead of money with no row.
+  #
+  # `pending` + a signature means "broadcast, not yet verified" — a sweeper must
+  # re-verify rather than trust that stamp. `open` is the verified state.
   def finalize
     payload = verify_onchain_create_payload(params[:params_token])
     raise "User mismatch — token was issued to a different user" unless payload[:user_id] == current_user.id
 
     derived_pda_b58 = Solana::Keypair.encode_base58(Solana::Vault.new.contest_pda(payload[:slug]).first)
     raise "Contest PDA mismatch — slug=#{payload[:slug]}" unless params[:contest_pda] == derived_pda_b58
-    raise "A contest with that slug already exists" if Contest.exists?(slug: payload[:slug])
+    if (taken = slug_taken_message(payload[:slug]))
+      raise taken
+    end
     raise "Missing signed transaction" if params[:signed_tx].blank?
 
-    contest = build_contest_from_payload(payload)
+    # `draft` is never saved and never leaves this method — it exists only to
+    # compute `onchain_params` and the season check. It is deliberately NOT
+    # called `contest`: the rescue at the bottom asks `contest&.persisted?` to
+    # decide what to file the ErrorLog against, and a throwaway sharing that
+    # name is how that question starts returning an answer about the wrong
+    # object.
+    draft = build_contest_from_payload(payload)
     vault = Solana::Vault.new
-    ensure_onchain_season_ready!(contest.season_id, vault: vault)
+    ensure_onchain_season_ready!(draft.season_id, vault: vault)
 
     vault.assert_create_contest_cosign_safe!(
       params[:signed_tx],
       wallet_address: payload[:creator_pubkey],
       contest_slug: payload[:slug],
-      onchain_params: contest.onchain_params
+      onchain_params: draft.onchain_params
     )
 
+    # STEP 1 — the write-ahead row, before a single lamport moves. Everything
+    # this record needs is already known: `derived_pda_b58` was computed at the
+    # top of the method, and only the signature has to wait for the broadcast.
+    # Saving here also moves the column-level failures (`coming_soon` NOT NULL,
+    # slug format, the season default) to BEFORE the money instead of after it.
+    contest = build_pending_contest(payload, derived_pda_b58)
+    contest.save!
+
+    # STEP 2 — the creator's prize pool moves. Past this line the money is real
+    # whatever else happens.
     tx_signature = vault.cosign_and_broadcast_create_contest(params[:signed_tx])
 
-    # OPSEC-010: assert the broadcast tx is the create_contest IX targeting
-    # THIS PDA, signed by the original creator from the server-issued token.
+    # STEP 3 — record the signature IMMEDIATELY, before the read-back that can
+    # raise. It is the only off-chain evidence tying this request to the
+    # on-chain effect; losing it because an RPC flaked is avoidable for the cost
+    # of one UPDATE. The row stays `pending`: broadcast is not verification.
+    contest.update!(onchain_tx_signature: tx_signature)
+
+    # STEP 3b — the creator's navbar balance is now WRONG, so drop it here,
+    # immediately after the broadcast rather than beside the render. The pill is
+    # served cache-first on a 60s TTL, and every step below this one can raise:
+    # bust it at the render and a contest that took the money but failed its
+    # read-back leaves the creator looking at their pre-spend balance until the
+    # TTL lapses. That is the bug this fixes, measured on QA 2026-09-07 — a $45
+    # prize pool left the wallet and the navbar held $1284 until a manual
+    # refresh read the true $1239.
+    #
+    # Both keys, not just USDC: see #invalidate_wallet_balance_cache. Guarded
+    # like the call in #confirm_onchain_contest because #invalidate_*
+    # dereferences current_user for the key.
+    invalidate_wallet_balance_cache if logged_in?
+
+    # STEP 4 — OPSEC-010: assert the broadcast tx is the create_contest IX
+    # targeting THIS PDA, signed by the original creator from the server-issued
+    # token.
     verify_solana_transaction!(
       tx_signature,
       instruction: "create_contest",
@@ -243,9 +399,16 @@ class ContestsController < ApplicationController
       writable: derived_pda_b58
     )
 
-    contest = build_finalized_contest(payload, derived_pda_b58, tx_signature)
-    contest.contest_image.attach(params[:contest_image]) if params[:contest_image].present?
-    contest.save!
+    # STEP 5 — verified. Publish it.
+    contest.update!(status: :open)
+
+    # STEP 6 — the banner LAST, and unable to fail the request. This is an S3
+    # upload of a user-supplied file: the widest failure window in the method
+    # and the one least worth a contest over. Between the broadcast and the
+    # promote it could strand a funded contest at `pending`; after the promote
+    # the worst it can cost is a missing image on a contest that exists, is
+    # funded, and is live. Logged, never raised.
+    attach_contest_banner(contest)
 
     render json: { success: true, redirect: contest_path(contest), slug: contest.slug }
   rescue ActiveSupport::MessageVerifier::InvalidSignature
@@ -255,7 +418,22 @@ class ContestsController < ApplicationController
     render_create_error("Signed transaction did not match this contest request. Rebuild the transaction and try again.")
   rescue StandardError => e
     Rails.logger.error("[ContestsController#finalize] #{e.class}: #{e.message}")
-    capture_unlogged(e)
+    # `target:` is what makes this log FINDABLE. It does not decide whether a
+    # log exists — an earlier version of this comment said it did, and that was
+    # wrong. capture_unlogged calls create_error_log, which is
+    # `ErrorLog.capture!` (studio-engine error_handling.rb:180-182), and capture!
+    # ends in `create!`. A row is written unconditionally, target or no target;
+    # the trailing `log.save! if target || parent` only persists the ASSOCIATION
+    # that was just assigned.
+    #
+    # So the old defect was not a missing log. It was an ORPHANED one: written
+    # with target_type and target_id nil, and therefore invisible to
+    # `ErrorLog.where(target_type: "Contest", target_id: …)` — the query an
+    # operator actually runs when a contest goes wrong. It sat in the table
+    # indistinguishable from every other context-free row. Now a strand files
+    # against the exact row an operator has to repair, and
+    # Contests::PendingReconciler is what repairs it.
+    capture_unlogged(e, target: contest&.persisted? ? contest : nil)
     render_create_error(e.message)
   end
 
@@ -267,7 +445,14 @@ class ContestsController < ApplicationController
       @contest.update!(contest_update_params)
       # Mirror an edited lock time onto the chain (on-chain is master for
       # locking). nil starts_at sends 0 = clear the lock.
-      if @contest.saved_change_to_starts_at? && @contest.onchain?
+      #
+      # `onchain_verified?`, NOT `onchain?`: a stranded `pending` row carries a
+      # derived PDA that was never initialized (see Contest#onchain_verified?),
+      # and editing one used to broadcast set_contest_lock_time at that empty
+      # address. Admin-only and no money moves — the instruction fails with
+      # AccountNotInitialized — but it fails as an unexplained program error on
+      # a screen that gave no hint the contest was unverified.
+      if @contest.saved_change_to_starts_at? && @contest.onchain_verified?
         Solana::Vault.new.set_contest_lock_time(@contest.slug, @contest.starts_at&.to_i || 0)
       end
       redirect_to root_path, notice: "Contest updated."
@@ -355,7 +540,12 @@ class ContestsController < ApplicationController
         accepts_usdt: true
       )
 
-      invalidate_usdc_cache if logged_in?
+      # BOTH keys, not just USDC: see #invalidate_wallet_balance_cache. The
+      # create tx funds the prize pool from the creator's USDC ATA, so dropping
+      # USDC alone leaves the warm USDT twin rendered as the whole wallet total.
+      # (`accepts_usdt` above is a PRICE flag for future entrants — this
+      # transaction moves no USDT.)
+      invalidate_wallet_balance_cache if logged_in?
 
       render json: { success: true, tx: params[:tx_signature], pda: derived_pda_b58 }
     end
@@ -447,16 +637,31 @@ class ContestsController < ApplicationController
     end
   end
 
-  # Live "active contest" page — real-time leaderboard + chat + games for an
-  # in-progress contest, pushed over ActionCable (Contest::LiveBroadcast). New
-  # dedicated route for now; we'll fold it into #show's live state later.
-  # Turf Totals only for v1; Survivor + not-yet-live redirect to the show page.
+  # Live "active contest" page — real-time leaderboard + chat + games, pushed
+  # over ActionCable (Contest::LiveBroadcast). Dedicated route for now; we'll
+  # fold it into #show's live state later. Turf Totals only; a survivor contest
+  # redirects to the show page because it has no turf-totals board to draw.
+  #
+  # "not-yet-live redirects" used to be part of that sentence and is no longer
+  # true — see below.
+  # The live board, reachable in EVERY contest state.
+  #
+  # It used to redirect unless `@contest.live?` — that is `locked? && !settled?`,
+  # a window that excludes both halves an operator actually wants: before the
+  # lock (watching an empty board fill as the games start) and after the settle
+  # (reading the final result). During the first watched QA rehearsal the page
+  # built for watching redirected for the ENTIRE watchable run, because the
+  # contest was still open while its fixtures played.
+  #
+  # The NAV BUTTON stays conditional — there is no reason to point at a live
+  # board for a contest with nothing happening — but the URL always resolves.
+  # A link an operator has is a link that should work.
   def live
     return redirect_to contest_path(@contest) unless @contest.turf_totals?
-    return redirect_to contest_path(@contest), notice: "This contest isn't live yet." unless @contest.live?
 
     load_contest_board_data
     @games = @contest.games_by_phase
+    @focus_slug = default_focus_game_slug(@games)
   end
 
   def enter
@@ -469,6 +674,19 @@ class ContestsController < ApplicationController
     end
 
     return if render_age_gate_required
+
+    # Web3-only onboarding (AppFlags.web3_only_onboarding?) — the AUTHORITATIVE
+    # half of the client's 'wallet_setup_required' blocker. An account with no
+    # wallet at all cannot be entered on-chain in ANY contest, free included,
+    # so refuse here rather than fail deeper with an opaque Solana error. The
+    # wallet_setup flag tells the client to reopen the setup modal.
+    if current_user.wallet_kind == :none
+      return render json: {
+        success: false,
+        error: "Connect a Solana wallet to enter — entries are signed on-chain.",
+        wallet_setup: true
+      }, status: :unprocessable_entity
+    end
 
     # Self-custody guard (task #11 Stage 3). Runs FIRST so it catches
     # self-custodied users regardless of cart / contest state. The server
@@ -495,19 +713,86 @@ class ContestsController < ApplicationController
     # sendTransaction rows back to the specific entry instead of source:nil.
     Current.outbound_source = entry
 
-    # Onchain sessions MUST provide a wallet signature proof
+    # #enter is the WEB2 / managed server-signing path — it funds the entry with
+    # the custodial keypair. A web3 session does not belong here at all: it enters
+    # through prepare_entry -> confirm_onchain_entry, where the on-chain tx the
+    # wallet signs IS the ownership proof (the per-entry SIWS signMessage was
+    # removed 2026-05-24 for exactly that reason).
+    #
+    # This REPLACES a signature-verification branch that no client could reach.
+    # Both boards POST here with headers only and no body, so its
+    # `params[:signature].present?` was never true. It was not merely dead — it
+    # was a fail-CLOSED gate, so deleting it outright would have let a web3
+    # session walk into the server-signing path with no check at all. It used to
+    # still fail, but only incidentally: a phantom-only account has no
+    # web2_solana_address, so resolve_web2_entry_funding! raised "Managed wallet
+    # missing keypair" — an accident of another guard rather than a decision.
+    # THAT ACCIDENT IS NOW A DECISION, and it is the guard directly below this
+    # one; a player reached it before anyone converted it (QA, 2026-09-07).
+    #
+    # So: refuse explicitly, and name the path the caller should be on. Same
+    # shape as the self_custodied? guard above, which already routes rather than
+    # merely refusing. The dead branch also consumed the SESSION NONCE if it ever
+    # had fired (delete-before-verify), which would have broken a concurrent
+    # login in another tab — one more reason not to leave it lying there.
     if onchain_session?
-      raise "Wallet signature required" unless params[:signature].present?
+      return render json: {
+        success: false,
+        error: "Wallet sessions enter on-chain — use prepare_entry to build and sign the entry transaction.",
+        self_custodied: true
+      }, status: :unprocessable_entity
+    end
 
-      verify_solana_signature!(
-        message: params[:message],
-        signature_b58: params[:signature],
-        pubkey_b58: params[:pubkey],
-        session: session,
-        expected_user_id: current_user.id  # OPSEC-005
-      )
-
-      raise "Wallet mismatch" unless params[:pubkey] == current_user.web3_solana_address
+    # THE OTHER HALF OF THAT SAME QUESTION, and the half a real player hit
+    # (operator report, QA, 2026-09-07). The guard above turns away a session
+    # that CAN sign. This one turns away a session that CANNOT — a self-custody
+    # account whose current session was established by a WEB2 credential.
+    #
+    # Every earlier gate misses it, and each for its own honest reason:
+    # `onchain_session?` is false (they signed in with Google, not a wallet);
+    # `self_custodied?` is false (that column marks a deliberate EXPORT, not the
+    # mere holding of a wallet); and `wallet_kind` is :phantom, not :none, so the
+    # no-wallet refusal has nothing to say. So the request fell all the way
+    # through to #resolve_web2_entry_funding!, which raised "Managed wallet
+    # missing keypair (cannot sign entry)" — the accident the comment above
+    # already named, now arriving as a red card on a player's screen with the
+    # step-up card sitting underneath it saying the right thing.
+    #
+    # WHY IT ASKS Web3StepUpPolicy INSTEAD OF RE-DERIVING THE POPULATION. That
+    # policy is the one place that answers "does THIS SESSION owe a wallet
+    # signature", and the auth paths already act on its answer. A second copy of
+    # that rule here is how the entry path and the auth path end up disagreeing
+    # about the same account — the card telling a player to sign while the entry
+    # lets them through, or the reverse.
+    #
+    # AND WHY IT IS NOT THE POLICY ALONE. The policy's verdict is ADVISORY by
+    # construction: a COMBO account (managed + linked wallet) owes a step-up and
+    # can still enter, because #resolve_web2_entry_funding! deliberately signs
+    # and spends from the custodial address for exactly that account. What makes
+    # the refusal a REFUSAL here is the second clause — there is no keypair to
+    # sign with — which is the precondition of the raise, stated as a decision.
+    # The fee clauses keep it to entries that are actually signed: a free
+    # contest reaches no keypair at all, and walling one off would strand every
+    # wallet-only player behind a signature nothing was going to ask for.
+    #
+    # ROUTE, DON'T MERELY REFUSE — the standard both guards above already set.
+    # The blocker gives the board a reason to dispatch on (it opens the card in
+    # place), and arm_web3_step_up_for — the same arming the Google collision
+    # uses at the front door — makes the NEXT render open it too, for a player
+    # who reloads rather than reads a modal.
+    #
+    # THE CONDITION LIVES IN #entry_step_up_refusal, not here, because #enter is
+    # not the first gate this player meets: the hold-to-confirm button asks
+    # #check_funding first and aborts on its verdict, so the two have to agree
+    # about this account or the refusal below is unreachable — which is exactly
+    # how it was (/tasks/funds-gate-ignores-web3-wallet).
+    if (step_up = entry_step_up_refusal)
+      arm_web3_step_up_for(current_user)
+      return render json: {
+        success: false,
+        error: "Sign in with your wallet to enter — this account's entries are signed by the wallet itself.",
+        blocker: { reason: "web3_step_up_required", mode: "web3", data: step_up.to_h }
+      }, status: :unprocessable_entity
     end
 
     # Declared here so the durable-capture write + confirm! + respond_to below
@@ -525,7 +810,7 @@ class ContestsController < ApplicationController
       # read-only eligibility gate (selection count, lock time, started games,
       # sybil, per-user limit, contest-full) MUST run BEFORE it (entry.
       # assert_enterable! below). Incident 2026-06-08: the consume ran first and
-      # the gate-running confirm! raised AFTER the burn, stranding the user
+      # the gate-running confirm! raised AFTER the consume, stranding the user
       # (paid + entered on-chain, app showed `cart`). A reconciler can't heal a
       # genuine validation failure — re-running confirm! fails the same gate —
       # so the only correct fix is to validate BEFORE the irreversible side
@@ -621,6 +906,11 @@ class ContestsController < ApplicationController
   #                  method: "token"|"usdc"|"usdt"|null }. Fail-CLOSED — any read
   # failure returns { fundable: false, reason: "no_funding" } so the worst case
   # the user ever sees is the Top Up Wallet, never the 0x1 sim error.
+  #
+  # ONE POPULATION IS DELIBERATELY NOT ANSWERED HERE, and it is not an exception
+  # to fail-closed so much as a different question: an account whose only wallet
+  # is self-custody, on a session that never proved it, owes a SIGNATURE rather
+  # than money. See #entry_step_up_refusal at the top of the method body.
   def check_funding
     # Token presence + balances must be authoritative for THIS check, so drop
     # the 60s entry-tokens cache first — a just-consumed token must not read as
@@ -631,6 +921,21 @@ class ContestsController < ApplicationController
     # polling (waits for the token to confirm before returning to the board)
     # largely closes the Helius post-mint index-lag window; the check_funding/ip
     # throttle caps the getProgramAccounts amplification.
+    # NOT A MONEY QUESTION. An account whose ONLY wallet is self-custody, on a
+    # session that never proved it, has no web2 address for #entry_funding_status
+    # to price — so it returned [false, nil] WITHOUT EVER READING A BALANCE and
+    # the board opened Get USDC at a player holding $31 (the operator's report,
+    # qa 2026-09-07). Answering `fundable` here is what makes #enter's step-up
+    # refusal REACHABLE: confirmEntry only aborts the hold on a definitive
+    # { fundable: false }, so proceeding hands the player to the one gate that
+    # knows what to ask for. This does NOT price the web3 wallet — web2 entry
+    # server-signs from web2_solana_address, and funding an entry off a wallet
+    # the server cannot sign with would trade a false refusal for a doomed one.
+    #
+    # FIRST, so the population that owes a signature never pays for the
+    # getProgramAccounts the cache bust below forces.
+    return render json: { fundable: true, reason: nil, method: nil } if entry_step_up_refusal
+
     current_user.bust_entry_tokens_cache!
     fundable, method = entry_funding_status
     render json: { fundable: fundable, reason: (fundable ? nil : "no_funding"), method: method }
@@ -688,7 +993,7 @@ class ContestsController < ApplicationController
     entry_mint   = currency_idx == 1 ? Solana::Config::USDT_MINT : Solana::Config::USDC_MINT
 
     rescue_and_log(target: entry, parent: @contest) do
-      raise "Contest is not onchain" unless @contest.onchain?
+      raise "Contest is not onchain" unless @contest.onchain_verified?
       raise "Phantom wallet required" unless current_user.phantom_wallet?
 
       active_count = @contest.entries.where(status: [:active, :complete]).count
@@ -713,22 +1018,49 @@ class ContestsController < ApplicationController
       # v0.16: username is required at PDA creation (validate_username on chain
       # enforces >= 3 chars). Pass current_user.username through.
       vault.ensure_user_account(current_user.web3_solana_address, username: current_user.username)
-      # v0.16: the user's ATA for the SELECTED currency must exist before they
-      # can transfer from it. init_if_needed isn't used in the instruction so
-      # we create it here (USDC for currency_idx 0, USDT for 1).
-      vault.ensure_ata(current_user.web3_solana_address, mint: entry_mint)
 
-      # v0.16 collapsed `enter_contest` + `enter_contest_direct` into a
-      # single unified `enter_contest` instruction. currency_idx selects the
-      # vault's accepted_currencies slot (0 = USDC, 1 = USDT) — validated
-      # against @contest.accepts_usdt above.
-      result = vault.build_enter_contest(
-        current_user.web3_solana_address,
-        @contest.slug,
-        entry.entry_number,
-        currency_idx: currency_idx,
-        season_id: @contest.season_id
-      )
+      # FUNDING PRIORITY — entry token first, then the currency transfer. Same
+      # order the web2 path has used since the unified-funding spec (see
+      # #resolve_web2_entry_funding!); until this task the Phantom path skipped
+      # straight to the transfer, so a Phantom wallet holding a token was charged
+      # USDC anyway and the token sat unspent.
+      #
+      # Scoped to the SIGNER address, not #solana_address, for the reason the web2
+      # path scopes to its own: the wallet that signs the consume must OWN the
+      # token or the program refuses it (owner != signer). Here they coincide —
+      # Phantom signs and #web3_solana_address is what it signs as — and saying so
+      # explicitly keeps that from becoming a silent coincidence.
+      entry_token = current_user.next_unconsumed_entry_token_for(current_user.web3_solana_address)
+
+      result =
+        if entry_token
+          # The token IS the payment: no SPL transfer, so no ATA is needed and
+          # currency_idx carries no meaning on this wire.
+          vault.build_enter_contest_with_token(
+            current_user.web3_solana_address,
+            @contest.slug,
+            entry.entry_number,
+            entry_token[:pda],
+            season_id: @contest.season_id
+          )
+        else
+          # v0.16: the user's ATA for the SELECTED currency must exist before they
+          # can transfer from it. init_if_needed isn't used in the instruction so
+          # we create it here (USDC for currency_idx 0, USDT for 1).
+          vault.ensure_ata(current_user.web3_solana_address, mint: entry_mint)
+
+          # v0.16 collapsed `enter_contest` + `enter_contest_direct` into a
+          # single unified `enter_contest` instruction. currency_idx selects the
+          # vault's accepted_currencies slot (0 = USDC, 1 = USDT) — validated
+          # against @contest.accepts_usdt above.
+          vault.build_enter_contest(
+            current_user.web3_solana_address,
+            @contest.slug,
+            entry.entry_number,
+            currency_idx: currency_idx,
+            season_id: @contest.season_id
+          )
+        end
 
       # Persist a PendingTransaction so a refresh mid-flight (between Phantom's
       # sign and confirm_onchain_entry) leaves a server-side trail. In the
@@ -742,7 +1074,13 @@ class ContestsController < ApplicationController
         status: "pending",
         target: entry,
         initiator_address: current_user.web3_solana_address,
-        metadata: { entry_pda: result[:entry_pda], contest_slug: @contest.slug, currency_idx: currency_idx }.to_json
+        # entry_token_pda is the SERVER's record of what it prepared: the cosign
+        # guard and the broadcast verification both read it back rather than
+        # trusting the wire, so a client cannot present a token consume against
+        # an entry we priced in USDC (or the reverse).
+        metadata: { entry_pda: result[:entry_pda], contest_slug: @contest.slug, currency_idx: currency_idx,
+                    funding: (entry_token ? "token" : "transfer"),
+                    entry_token_pda: entry_token && entry_token[:pda] }.to_json
       )
 
       render json: {
@@ -750,11 +1088,56 @@ class ContestsController < ApplicationController
         serialized_tx: result[:serialized_tx],
         entry_id: entry.id,
         entry_pda: result[:entry_pda],
-        ptx_slug: ptx.slug
+        ptx_slug: ptx.slug,
+        # Advisory for the client's copy only — the server decides the funding and
+        # re-reads its own decision at confirm time.
+        token_funded: entry_token.present?
       }
     end
   rescue StandardError => e
     render_entry_error(e)
+  end
+
+  # Retire an entry transaction that never received the user's wallet
+  # signature. Phantom can dismiss or invalidate a pending request while the
+  # page remains open; expiring that unsigned server record lets the client
+  # prepare a fresh blockhash and retry in place. A row with a signature is
+  # deliberately immutable here because it may already have been broadcast
+  # and must go through recover_pending_entry instead.
+  def discard_prepared_entry
+    return render json: { error: "Missing ptx_slug" }, status: :unprocessable_entity if params[:ptx_slug].blank?
+
+    ptx = PendingTransaction.find_by(slug: params[:ptx_slug], tx_type: "enter_contest", target_type: "Entry")
+    return render json: { error: "Pending transaction not found" }, status: :not_found unless ptx
+
+    entry = ptx.target
+    authorized = current_user&.web3_solana_address.present? &&
+      ptx.initiator_address.present? &&
+      entry.is_a?(Entry) &&
+      entry.contest_id == @contest.id &&
+      entry.user_id == current_user&.id &&
+      ptx.initiator_address == current_user&.web3_solana_address
+    return render json: { error: "Not authorized" }, status: :forbidden unless authorized
+
+    # The guard belongs in the WHERE, not in Ruby. Reading tx_signature here and
+    # writing on the next line leaves a window: the signature broadcast can land
+    # and stamp the row in between, and this would then expire a transaction that
+    # actually SUCCEEDED — stranding a paid-for entry with no way back. Letting
+    # the database re-check the same condition it is updating under closes it,
+    # and the affected-row count IS the verdict: 1 means this request retired it,
+    # 0 means someone else got there first, which is not an error.
+    #
+    # update_all skips validations and Sluggable's before_save by design — the
+    # row already has its slug, and "expired" is a member of the status
+    # inclusion list this bypasses.
+    retired = PendingTransaction
+      .where(id: ptx.id, status: %w[pending submitted], tx_signature: [nil, ""])
+      .update_all(status: "expired", updated_at: Time.current) == 1
+
+    render json: { retired: retired }
+  rescue StandardError => e
+    capture_unlogged(e, parent: @contest)
+    render json: { retired: false, error: e.message }, status: :unprocessable_entity
   end
 
   # Stamp the on-chain signature onto the PendingTransaction created by
@@ -801,10 +1184,15 @@ class ContestsController < ApplicationController
     # asserting entry ownership explicitly keeps that invariant from becoming
     # silently load-bearing if another PT-creation path is ever added.
     return render json: { error: "Not authorized" }, status: :forbidden unless entry.user_id == current_user&.id
+    prepared_token_pda = prepared_entry_token_pda(ptx)
 
-    # Already-active entry → close the loop on the PT and short-circuit.
+    # Already-active entry → close the loop on the PT and short-circuit. The
+    # activation can commit before the live path reaches its token-cache bust;
+    # recovery therefore owes that invalidation too when the server record says
+    # this attempt consumed a token. The bust is idempotent.
     if entry.active?
       ptx.update!(status: "confirmed")
+      current_user.bust_entry_tokens_cache! if prepared_token_pda
       return render json: {
         status: "confirmed",
         redirect: contest_path(@contest),
@@ -855,8 +1243,18 @@ class ContestsController < ApplicationController
     # and the unique-signature index blocks replaying one tx across two rows.
     # (OPSEC-010 / Lazarus audit #1.)
     begin
-      verify_and_confirm_onchain_entry!(entry, ptx.tx_signature, vault: vault)
+      verify_and_confirm_onchain_entry!(entry, ptx.tx_signature,
+                                        entry_token_pda: prepared_token_pda,
+                                        vault: vault)
       ptx.update!(status: "confirmed")
+
+      # Same consume, same stale cache: this path credits an entry whose token
+      # `enter_contest_with_token` CONSUMED on-chain — not burned; only the
+      # separate `burn_entry_token` claw-back sets that — and it used to bust
+      # nothing at all, so a user who crashed mid-entry came back to a navbar
+      # badge and a "Hold for Free Entry" button still counting a spent token.
+      current_user.bust_entry_tokens_cache! if prepared_token_pda
+
       render json: {
         status: "confirmed",
         redirect: contest_path(@contest),
@@ -911,17 +1309,29 @@ class ContestsController < ApplicationController
 
       vault = Solana::Vault.new
 
+      # What did the SERVER prepare — a token consume or a currency transfer?
+      # Read it off the PendingTransaction #prepare_entry wrote, before anything
+      # is cosigned. The lookup is hoisted above the cosign (it used to sit after
+      # the broadcast, purely to stamp the signature) because the answer now gates
+      # the cosign itself; the same row is stamped below, unchanged.
+      ptx = PendingTransaction.where(target: entry, status: %w[pending submitted],
+                                     initiator_address: current_user.web3_solana_address)
+                              .order(:created_at).last
+      prepared_token_pda = prepared_entry_token_pda(ptx)
+
       # Audit C1 (admin blind-cosign): SEMANTICALLY validate the Phantom-signed
       # wire BEFORE the admin signs anything. Decodes the client's tx and asserts
-      # it is exactly the enter_contest we prepared — admin fee-payer, a single
-      # enter_contest IX bound to THIS entry's PDA, and only the durable-nonce
-      # advance / ComputeBudget hints alongside. Raises Solana::Vault::
+      # it is exactly the entry instruction we prepared — admin fee-payer, a single
+      # enter_contest (or enter_contest_with_token, when that is what we built)
+      # IX bound to THIS entry's PDA and to the token we chose, and only the
+      # durable-nonce advance / ComputeBudget hints alongside. Raises Solana::Vault::
       # UnsafeCosignError (rescued below) on anything else, so a crafted
       # SystemProgram.transfer{from: admin} / mint_entry_token / grant_seeds never
       # reaches the cosign. Validate-then-cosign: NO cosign, NO broadcast on reject.
       vault.assert_entry_cosign_safe!(params[:signed_tx],
                                       entry: entry,
-                                      wallet_address: current_user.web3_solana_address)
+                                      wallet_address: current_user.web3_solana_address,
+                                      entry_token_pda: prepared_token_pda)
 
       # Server-side: admin cosign (fills the empty admin slot in the
       # Phantom-signed wire tx) → simulateTransaction pre-flight → broadcast →
@@ -936,11 +1346,9 @@ class ContestsController < ApplicationController
       # that CARRIES the signature so recover_pending_entry credits the already-
       # paid entry. A blank PT here would read as "never broadcast" and let the
       # user re-enter and pay twice (assign_onchain_entry_number! probes the chain
-      # and would skip the already-paid PDA). Look up by target+initiator
-      # (prepare_entry created the row pre-broadcast, before any signature).
-      ptx = PendingTransaction.where(target: entry, status: %w[pending submitted],
-                                     initiator_address: current_user.web3_solana_address)
-                              .order(:created_at).last
+      # and would skip the already-paid PDA). The row was looked up above by
+      # target+initiator (prepare_entry creates it pre-broadcast, before any
+      # signature) because the cosign now reads the funding off it too.
       ptx&.update!(tx_signature: tx_signature, status: "submitted")
 
       # OPSEC-010 / Lazarus audit #1: server-derive the entry PDA, cross-check
@@ -949,20 +1357,33 @@ class ContestsController < ApplicationController
       # activate. Shared with the crash-recovery path so neither can drift.
       verify_and_confirm_onchain_entry!(entry, tx_signature,
                                         expected_entry_pda: params[:entry_pda],
+                                        entry_token_pda: prepared_token_pda,
                                         vault: vault)
 
       ptx&.update!(status: "confirmed")
 
-      # Confirmed (Phantom direct-USDC path) — announce the join in chat once.
+      # The on-chain EntryTokenAccount.consumed flag just flipped. Drop the 60s
+      # entry-tokens cache — BOTH layers, which is what #bust_entry_tokens_cache!
+      # now does — so the navbar badge, the next hold-to-confirm label and a
+      # follow-up entry all read the spent token as spent. The web2 path gets this
+      # from Vault#enter_contest_with_token, which the Phantom path never reaches
+      # (the consume rides the client's broadcast, not ours).
+      current_user.bust_entry_tokens_cache! if prepared_token_pda
+
+      # Confirmed (Phantom path, token or currency) — announce the join in chat once.
       announce_contest_join(entry)
 
       seeds = post_entry_seeds_payload(entry,
                                       path: "phantom-direct",
-                                      tx_signature: tx_signature)
+                                      tx_signature: tx_signature,
+                                      token_consumed: prepared_token_pda.present?)
       render json: {
         success: true,
         redirect: contest_path(@contest),
         tx_signature: tx_signature,
+        # Same flag the managed path returns: drives the navbar token punch
+        # (animateFreeEntryBadge) when the entry was paid for with a token.
+        token_consumed: prepared_token_pda.present?,
         **seeds
       }
     end
@@ -1104,7 +1525,7 @@ class ContestsController < ApplicationController
     rescue_and_log(target: @contest) do
       @contest.fill!(users: User.where(email: [
         "alex@mcritchie.studio", "mason@mcritchie.studio",
-        "mack@mcritchie.studio", "turf@mcritchie.studio"
+        "mack@mcritchie.studio", User::TURF_HOUSE_EMAIL
       ]))
       redirect_to @contest, notice: "Contest filled with #{@contest.entries.where(status: [:active, :complete]).count} entries!"
     end
@@ -1121,7 +1542,9 @@ class ContestsController < ApplicationController
     rescue_and_log(target: @contest) do
       seconds = params[:in_seconds].to_i.clamp(0, 3600)
       lock_at = Time.current + seconds.seconds
-      Solana::Vault.new.set_contest_lock_time(@contest.slug, lock_at.to_i) if @contest.onchain?
+      # `onchain_verified?` for the same reason as #update: a pending row's PDA
+      # was never initialized, so this instruction would target an empty address.
+      Solana::Vault.new.set_contest_lock_time(@contest.slug, lock_at.to_i) if @contest.onchain_verified?
       @contest.update!(starts_at: lock_at)
       notice = seconds.positive? ? "Lock scheduled — entries close in #{seconds}s." : "Contest locked — entries closed."
       redirect_to @contest, notice: notice
@@ -1139,7 +1562,7 @@ class ContestsController < ApplicationController
     return render json: { success: false, error: "Phantom session required" }, status: :forbidden unless onchain_session?
 
     rescue_and_log(target: @contest) do
-      raise "Contest is not onchain" unless @contest.onchain?
+      raise "Contest is not onchain" unless @contest.onchain_verified?
       raise "Phantom wallet required" unless current_user.phantom_wallet?
       raise "Contest already concluded — lock time can't change" if @contest.settled?
 
@@ -1188,7 +1611,7 @@ class ContestsController < ApplicationController
     return render json: { success: false, error: "Phantom session required" }, status: :forbidden unless onchain_session?
 
     rescue_and_log(target: @contest) do
-      raise "Contest is not onchain" unless @contest.onchain?
+      raise "Contest is not onchain" unless @contest.onchain_verified?
       raise "Phantom wallet required" unless current_user.phantom_wallet?
       raise "Contest already concluded — conclusion time can't change" if @contest.concluded?
 
@@ -1347,8 +1770,10 @@ class ContestsController < ApplicationController
   #   1. `Rails.logger.info "[entry][confirmed] path=… seeds_earned=… …"` so
   #      production debugging has a grep-able trail (pair with the
   #      `[state-fanout][seeds]` console line on the client).
-  #   2. invalidate_seeds_cache + invalidate_usdc_cache so the next page
-  #      render sees fresh chain state without waiting for the 60s TTL.
+  #   2. invalidate_seeds_cache + invalidate_wallet_balance_cache so the next
+  #      page render sees fresh chain state without waiting out the 60s TTL.
+  #      The balance drop takes BOTH currency keys because the pill renders
+  #      their SUM — see #invalidate_wallet_balance_cache.
   #
   # Returns `{ seeds_earned:, seeds_total:, seeds_level: }` for splat into
   # the JSON response.
@@ -1467,6 +1892,35 @@ class ContestsController < ApplicationController
     end
   end
 
+  # Does this session owe a WALLET SIGNATURE before a paid on-chain entry can be
+  # signed at all? Returns the Web3StepUpPolicy (so a caller can render its
+  # payload) or nil.
+  #
+  # ONE definition, TWO callers, deliberately: #enter refuses on it, and
+  # #check_funding declines to answer on it. They are the same gate a player
+  # walks a second apart — the pre-check fires at hold-START and #enter at
+  # hold-COMPLETE — and when only #enter knew this rule its refusal was
+  # unreachable, because the pre-check aborted the hold into Get USDC first.
+  # Two copies of a rule two gates share is how they end up disagreeing.
+  #
+  # Both narrowing clauses are load-bearing and each has a test that goes red
+  # without it (test/controllers/web3_step_up_entry_guard_test.rb):
+  #   - it ASKS Web3StepUpPolicy rather than re-deriving the population, so the
+  #     entry path and the auth path cannot drift into two answers; and
+  #   - it fires only when there is NO custodial keypair to sign with. A COMBO
+  #     account (managed + linked wallet) owes an advisory step-up and still
+  #     enters — #resolve_web2_entry_funding! deliberately signs and spends from
+  #     the wallet the server holds — and a FREE contest signs nothing at all.
+  # RPC-FREE (Web3StepUpPolicy reads columns and a session flag), so it is safe
+  # to ask on either path and costs nothing to ask twice.
+  def entry_step_up_refusal
+    return nil unless @contest&.onchain? && @contest.entry_fee_cents.to_i.positive?
+    return nil if current_user.blank? || current_user.managed_wallet?
+
+    policy = Web3StepUpPolicy.new(current_user, session_mode: wallet_context.mode)
+    policy.required? ? policy : nil
+  end
+
   # Authoritative funding capability for #check_funding — returns
   # [fundable_bool, method] where method is "token" | "usdc" | "usdt" | nil.
   # Mirrors the entry funding priority (#resolve_web2_entry_funding! for web2,
@@ -1480,6 +1934,12 @@ class ContestsController < ApplicationController
   #   - USDC: web3 always; web2 only behind the ENABLE_WEB2_USDC_ENTRY flag.
   #   - USDT: web3 only, and only on an accepts_usdt contest (web2 never holds
   #     USDT — payouts are USDC).
+  # ONE POPULATION NEVER REACHES HERE, and the omission is the point: an account
+  # whose only wallet is self-custody has no web2 address for this method to
+  # price, so it used to fall out at the `address.blank?` guard below as
+  # [false, nil] — a funding verdict reached without reading a balance, which
+  # the board showed as Get USDC. #check_funding now hands that account to
+  # #entry_step_up_refusal instead, because what it owes is a signature.
   def entry_funding_status
     fee_cents = @contest.entry_fee_cents.to_i
     return [true, nil] if fee_cents <= 0 # free contest — nothing to fund
@@ -1561,6 +2021,7 @@ class ContestsController < ApplicationController
     seeds_earned = 0
     seeds_total  = 0
     seeds_level  = 0
+    verified_seeds_total = nil
 
     if entry.onchain_tx_signature.present? && entry.entry_number.present?
       begin
@@ -1571,12 +2032,14 @@ class ContestsController < ApplicationController
       if current_user.solana_connected?
         begin
           onchain = Solana::Vault.new.sync_balance(current_user.solana_address)
-          seeds_total = onchain&.dig(:seeds) || 0
+          verified_seeds_total = onchain&.dig(:seeds)
+          seeds_total = verified_seeds_total || 0
         rescue => e
           Rails.logger.warn "Failed to read seeds after entry: #{e.message}"
         end
       end
       seeds_level = User.level_for(seeds_total)
+      LevelUpTokenMintJob.nudge(current_user, seeds_total: verified_seeds_total) if verified_seeds_total
     end
 
     tx_prefix = tx_signature.to_s.first(8)
@@ -1590,7 +2053,12 @@ class ContestsController < ApplicationController
 
     if current_user.solana_connected?
       invalidate_seeds_cache
-      invalidate_usdc_cache
+      # BOTH balance keys, not just USDC: see #invalidate_wallet_balance_cache.
+      # #confirm_onchain_entry reaches here after a spend that may have been
+      # USDT (#prepare_entry maps currency "usdt" to currency_idx 1 /
+      # Config::USDT_MINT), in which case the one-key drop cleared the key that
+      # did NOT move and kept the stale pre-spend balance that did.
+      invalidate_wallet_balance_cache
     end
 
     { seeds_earned: seeds_earned, seeds_total: seeds_total, seeds_level: seeds_level }
@@ -1629,6 +2097,32 @@ class ContestsController < ApplicationController
 
   # ── Phantom contest-create helpers ─────────────────────────────────────────
 
+  # The slug guard's message, which serves two readers with opposite needs.
+  #
+  # A slug held by a REAL contest is a naming collision, and "pick another" is
+  # the whole answer. A slug held by a `pending` row is a STRAND — a create
+  # whose broadcast never landed — and it CLEARS ITSELF: Contests::PendingReconciler
+  # deletes a pending row whose Contest PDA is absent on its next sweep, which
+  # releases the slug.
+  #
+  # Giving both readers the bare "already exists" is literally true and leaves
+  # the second one stuck: they have just been told their contest failed, and the
+  # app's next sentence says the thing that failed is in the way, with no
+  # indication that waiting fixes it. The phrase is kept in both branches so the
+  # refusal still reads the same to anything matching on it; only the strand
+  # branch adds the way out.
+  #
+  # Returns nil when the slug is free.
+  def slug_taken_message(slug)
+    existing = Contest.find_by(slug: slug)
+    return nil if existing.nil?
+    return "A contest with that slug already exists" unless existing.pending?
+
+    "A contest with that slug already exists, but it never finished being created — " \
+    "no payment was taken. It clears automatically within about 15 minutes; try again " \
+    "then, or use a different slug now."
+  end
+
   def render_create_error(msg)
     render json: { success: false, error: msg }, status: :unprocessable_entity
   end
@@ -1663,9 +2157,55 @@ class ContestsController < ApplicationController
       c.entry_fee_cents = config[:entry_fee_cents]
       c.max_entries     = config[:max_entries]
       c.status          = :open
+      # A multi-week contest is played on ONE span slate holding every week's
+      # games. Resolving it here means slate_id stays a plain scalar FK and the
+      # frozen per-team turf_score on that slate is what prices and settles.
+      span = resolve_span_slate(c)
+      c.slate_id = span.id if span
       c.starts_at       ||= default_start_for_slate(c.slate)
       c.season_id       ||= SeasonConfig.current_season_id
     end
+  end
+
+  # Resolve the operator's "N weeks from this anchor" into the ONE span slate the
+  # contest is played on, building it if it doesn't exist yet.
+  #
+  # Nfl::BuildSpanSlate RAISES on a gap or a missing week rather than returning a
+  # shorter span. That matters: a silently-truncated span was minted on-chain
+  # with three-week fees and a three-week prize pool, then scored as one week.
+  # `span_slate_error` carries the message so #create can refuse.
+  #
+  # A span of 1 returns nil, leaving the plain slate_id select untouched.
+  def resolve_span_slate(contest)
+    span = params.dig(:contest, :week_span).to_i
+    return nil if span <= 1
+
+    anchor = Slate.find_by(id: params.dig(:contest, :slate_id)) || contest.slate
+    return nil if anchor.nil? || anchor.week.blank?
+
+    # The COLUMN, via Slate#season_year, not a name regex. This is the entry point to
+    # the span lookup `slates-sport-year` converted to columns, so parsing the name here
+    # would leave the rename half-done — and the old `/\b(\d{4})\b/` was unbounded, so a
+    # slate named "Week 1234" read as year 1234. #season_year is bounded to 20xx and
+    # falls back to the name only when the column is null.
+    year = anchor.season_year || Time.current.year
+    weeks = (anchor.week...(anchor.week + span)).to_a
+
+    # THE SPAN FOLLOWS THE ANCHOR'S SEASON, and omitting that is not a
+    # defaulting nicety — it silently builds a DIFFERENT contest.
+    #
+    # Week numbers repeat within a year, so weeks [3,4] name two different sets
+    # of games depending on the season. Before slates carried `season_type`,
+    # this line was unreachable for a preseason anchor BY ACCIDENT: preseason
+    # slates had `week: nil`, and the guard above returns nil on a blank week.
+    # Giving them a real week removed that accident, so the season has to be
+    # asked for explicitly or the operator picks "Preseason Week 3", gets a span
+    # of REGULAR weeks 3-4 — unplayed games — and #create mints it on-chain
+    # while `c.slate_id = span.id` silently replaces the slate they chose.
+    Nfl::BuildSpanSlate.call(year: year, weeks: weeks, season_type: anchor.season_type)
+  rescue Nfl::BuildSpanSlate::Error => e
+    @span_slate_error = e.message
+    nil
   end
 
   # Reconstruct an unpersisted Contest from the signed create payload so its
@@ -1686,7 +2226,29 @@ class ContestsController < ApplicationController
     )
   end
 
-  def build_finalized_contest(payload, derived_pda_b58, tx_signature)
+  # The row #finalize writes AHEAD of the broadcast (step 1). It carries every
+  # field the finished contest needs except the one that cannot be known yet —
+  # the transaction signature — so the promote after verification is a status
+  # flip and nothing more, and every column-level failure happens BEFORE the
+  # creator's money moves.
+  #
+  # `status: :pending` is deliberate and is not a new state: `pending` is the
+  # contests.status column default and the first member of the enum, and until
+  # this method nothing ever left a row resting there. A `pending` contest is
+  # invisible to ContestsController#index and to ProofOfReservesController,
+  # both of which filter `status: [:open, :settled]` — so an unverified contest
+  # cannot appear in a listing or be counted as a reserve.
+  #
+  # `skip_onchain_callback = true` IS THE MOST IMPORTANT LINE IN THIS METHOD.
+  # Contest's after_create (contest.rb:70) fires the SERVER-FUNDED create path
+  # unless it is suppressed — a second `create_contest` broadcast paid from the
+  # HOUSE wallet. A write-ahead row saved without this would turn a fix for one
+  # stranded payment into a double spend. Two other guards happen to cover it
+  # (`onchain?` is true because the row carries the PDA, and `create_onchain!`
+  # returns early on the same test), but redundancy is not a reason to leave the
+  # intent implicit: this row opts out ON PURPOSE, and says so.
+  # Pinned by test/controllers/contests_finalize_write_ordering_test.rb.
+  def build_pending_contest(payload, derived_pda_b58)
     Contest.new(
       name:                       payload[:name],
       slug:                       payload[:slug],
@@ -1698,15 +2260,48 @@ class ContestsController < ApplicationController
       locks_at_timezone_selected: payload[:locks_at_timezone_selected],
       entry_fee_cents:            payload[:entry_fee_cents],
       max_entries:                payload[:max_entries],
-      status:                     :open,
+      status:                     :pending,
       user:                       current_user,
       onchain_contest_id:         derived_pda_b58,
-      onchain_tx_signature:       tx_signature,
       season_id:                  payload[:season_id],
-      # The create_contest TX just verified was built from onchain_params,
-      # which funds entry_fee_by_currency slot 1 (USDT) alongside slot 0.
+      # Purely presentational, and deliberately absent from
+      # #build_contest_from_payload above: that builder's contest exists only
+      # to compute onchain_params and the season check, and coming_soon reaches
+      # neither. This is the builder whose contest is SAVED, so this is where
+      # it has to land.
+      #
+      # `|| false` IS LOAD-BEARING, NOT DEFENSIVE TIDINESS. A token minted
+      # before this field shipped carries no `coming_soon` key at all, and the
+      # column is NOT NULL — an explicitly-assigned nil goes into the INSERT
+      # rather than falling back to the column default, so a legacy payload
+      # raises PG::NotNullViolation on save. That raise USED to happen after
+      # the broadcast and strand the creator's prize pool; since the
+      # write-ahead reordering it happens before the money moves and costs
+      # nothing but an error message. Keep the fallback anyway — a clean
+      # refusal beats a 500 either way.
+      # Pinned by test/controllers/contests_legacy_create_token_test.rb.
+      coming_soon:                payload[:coming_soon] || false,
+      # The create_contest TX about to be broadcast was built from
+      # onchain_params, which funds entry_fee_by_currency slot 1 (USDT)
+      # alongside slot 0.
       accepts_usdt:               true
     ).tap { |c| c.skip_onchain_callback = true }
+  end
+
+  # Step 6 of #finalize. A banner is cosmetic; the contest it hangs on is money.
+  # An S3 upload of a user-supplied file is the likeliest thing in the method to
+  # fail, so it runs last and swallows its own failure — the alternative is
+  # telling a user their contest failed when it is live, funded, and merely
+  # missing a picture. Logged against the contest so it is still diagnosable.
+  def attach_contest_banner(contest)
+    return if params[:contest_image].blank?
+
+    contest.contest_image.attach(params[:contest_image])
+  rescue StandardError => e
+    Rails.logger.error(
+      "[ContestsController#finalize] banner attach failed for slug=#{contest.slug}: #{e.class}: #{e.message}"
+    )
+    capture_unlogged(e, target: contest)
   end
 
   # Returns nil if it's safe to proceed, or an error message string explaining
@@ -1727,7 +2322,9 @@ class ContestsController < ApplicationController
 
     slug = contest.slug
     return "Slug is required" if slug.blank?
-    return "A contest with that slug already exists" if Contest.exists?(slug: slug)
+    if (taken = slug_taken_message(slug))
+      return taken
+    end
 
     vault   = Solana::Vault.new
     pda_b58 = Solana::Keypair.encode_base58(vault.contest_pda(slug).first)
@@ -1844,6 +2441,11 @@ class ContestsController < ApplicationController
       entry_fee_cents:            contest.entry_fee_cents,
       max_entries:                contest.max_entries,
       season_id:                  contest.season_id,
+      # The create form's Coming Soon toggle. It has to ride the SIGNED token
+      # like every other field: #finalize rebuilds the contest from this
+      # payload, not from params, so anything missing here is silently dropped
+      # between the operator ticking the box and the row being written.
+      coming_soon:                contest.coming_soon,
       user_id:                    creator.id,
       creator_pubkey:             creator.web3_solana_address
     }
@@ -1919,8 +2521,38 @@ class ContestsController < ApplicationController
   #   has no trustworthy client PDA — re-deriving is the whole point. A real
   #   PDA is always a non-empty base58 string, so `false` is an unambiguous
   #   "not provided" sentinel.
+  # `entry_token_pda:` — the EntryTokenAccount #prepare_entry chose for this
+  #   entry, read back from the PendingTransaction (never the client). Present
+  #   means the broadcast must prove an `enter_contest_with_token`; absent, the
+  #   `enter_contest` transfer. Verifying the WRONG instruction name would accept
+  #   a signature that never moved the funding this entry was priced with.
   # `vault:` — lets a caller reuse an already-instantiated Solana::Vault.
-  def verify_and_confirm_onchain_entry!(entry, tx_signature, expected_entry_pda: false, vault: Solana::Vault.new)
+  # The EntryTokenAccount #prepare_entry recorded for this attempt, or nil when it
+  # prepared a currency transfer. The PendingTransaction is the server's own note
+  # to itself, so this is the one trustworthy answer to "what funding did we
+  # price this entry with" at cosign / verify / recover time. A row from before
+  # this task carries no `funding` key at all, and reads nil — the USDC path,
+  # which is exactly what those attempts were.
+  # SHAPE NOTE: `metadata` is a jsonb column that every writer here fills with
+  # `.to_json`, so Postgres holds a JSON *string* scalar and reads come back as a
+  # String, not a Hash (this is why PendingTransaction#parsed_metadata parses at
+  # all). Accept both rather than betting on one — a row written as a real object
+  # would otherwise raise TypeError inside the entry's confirm path.
+  def prepared_entry_token_pda(ptx)
+    return nil if ptx.nil? || ptx.metadata.blank?
+
+    meta = ptx.metadata
+    meta = JSON.parse(meta) if meta.is_a?(String)
+    return nil unless meta.is_a?(Hash)
+
+    meta["entry_token_pda"].presence
+  rescue JSON::ParserError => e
+    Rails.logger.warn("[entry] unparseable PendingTransaction metadata ptx=#{ptx&.id}: #{e.message}")
+    nil
+  end
+
+  def verify_and_confirm_onchain_entry!(entry, tx_signature, expected_entry_pda: false,
+                                        entry_token_pda: nil, vault: Solana::Vault.new)
     derived_entry_pda = Solana::Keypair.encode_base58(
       vault.entry_pda(@contest.slug, current_user.web3_solana_address, entry.entry_number).first
     )
@@ -1928,7 +2560,7 @@ class ContestsController < ApplicationController
 
     verify_solana_transaction!(
       tx_signature,
-      instruction: "enter_contest",
+      instruction: entry_token_pda.present? ? "enter_contest_with_token" : "enter_contest",
       signer: current_user.web3_solana_address,
       writable: derived_entry_pda
     )
@@ -1937,8 +2569,25 @@ class ContestsController < ApplicationController
     derived_entry_pda
   end
 
+  # THE ONE CHOKE POINT FOR PER-CONTEST VISIBILITY, which is why the `pending`
+  # filter lives here and not on twenty call sites.
+  #
+  # Every per-contest action routes through this before_action — #show and
+  # #enter and #toggle_selection included, and #show skips authentication
+  # entirely. A `pending` row is a contest whose create_contest broadcast has
+  # not been verified: it may have no PDA at all, and Contests::PendingReconciler
+  # may be about to delete it. Served unfiltered it renders as a real contest at
+  # a guessable URL (the slug is derived from the name), offers a board to build
+  # a lineup on, and sends any entry attempt at an address that holds nothing.
+  #
+  # ADMINS STILL SEE IT, deliberately — a stranded row is exactly what an
+  # operator needs to open in order to repair it, and the reconciler's flagged
+  # rows are resolved by hand. So this is a visibility rule, not an existence
+  # rule: to everyone else a pending contest reads as not-found, which is what
+  # it is until the chain says otherwise.
   def set_contest
-    @contest = Contest.find_by(slug: params[:id])
+    scope = admin? ? Contest.all : Contest.where.not(status: :pending)
+    @contest = scope.find_by(slug: params[:id])
     return if @contest
 
     # Diagnostic — every "Contest not found" toast in the wild traces back
@@ -1984,6 +2633,18 @@ class ContestsController < ApplicationController
     end
     @cart_entry = @contest.entries.cart.find_by(user: current_user) if logged_in?
     @pending_recovery_ptx = find_pending_recovery_ptx
+  end
+
+  # Which game the live page opens on: whatever is being played, else whatever
+  # is next, else the last one finished. Same order the strip is laid out in, so
+  # the page opens on the chip at the far left rather than somewhere in the
+  # middle of a row the reader has to go looking through.
+  #
+  # After first paint the choice belongs to the reader (Alpine `focus`, declared
+  # outside every broadcast target so a score cannot reset it). This only picks
+  # the starting one.
+  def default_focus_game_slug(games)
+    (games[:active].first || games[:upcoming].first || games[:completed].first)&.slug
   end
 
   # World Cup Survivor uses rounds + off-chain picks, not slate matchups.
@@ -2038,11 +2699,19 @@ class ContestsController < ApplicationController
   end
 
   def contest_params
-    params.require(:contest).permit(:name, :slug, :slate_id, :contest_type, :season_id, :starts_at, :contest_image, :locks_at_date_selected, :locks_at_time_selected, :locks_at_timezone_selected)
+    params.require(:contest).permit(:name, :slug, :slate_id, :contest_type, :season_id, :starts_at, :contest_image, :coming_soon, :locks_at_date_selected, :locks_at_time_selected, :locks_at_timezone_selected)
   end
 
+  # Slates an operator may build a contest on. Weekly NFL slates carry a `week`
+  # but no starts_at (the projections feed has no kickoff times), so they'd been
+  # invisible to this form entirely — include them and order them by week after
+  # the dated slates. #create refuses a contest whose lock time can't be
+  # resolved, so a slate with no game times still can't produce a lock_timestamp
+  # of 0 on-chain.
   def contest_slate_options
-    Slate.where.not(name: "Default").where.not(starts_at: nil).order(:starts_at)
+    Slate.where.not(name: "Default")
+         .where("starts_at IS NOT NULL OR week IS NOT NULL")
+         .order(Arel.sql("starts_at ASC NULLS LAST"), :week)
   end
 
   def default_start_for_slate(slate)
@@ -2054,18 +2723,17 @@ class ContestsController < ApplicationController
   # since slate names are operator-controlled and consistent.
   #   "World Cup 2026 Group 1" → "fifa"
   #   "NFL 2026 Week 1"        → "nfl"
+  # Delegates to Slate#sport, which is the single home for this rule — the
+  # selector row needs the same classification to pick its 🏈 / ⚽ marker, and
+  # two copies of the regex would drift.
   def sport_for_slate(slate)
-    return "fifa" unless slate
-    name = slate.name.to_s.downcase
-    return "nfl"  if name.match?(/\bnfl\b|\bweek\s+\d/)
-    return "fifa" if name.include?("world cup") || name.include?("fifa") || name.include?("uefa") || name.include?("group")
-    "fifa"
+    slate&.sport || "fifa"
   end
 
   # :contest_image is intentionally NOT permitted here — the banner saves through
   # its own #update_banner action. Permitting it would let any future field on
   # the edit form submit an empty value and purge the existing attachment.
   def contest_update_params
-    params.require(:contest).permit(:name, :tagline, :rank, :starts_at, :locks_at_date_selected, :locks_at_time_selected, :locks_at_timezone_selected, :chat_enabled)
+    params.require(:contest).permit(:name, :tagline, :rank, :starts_at, :locks_at_date_selected, :locks_at_time_selected, :locks_at_timezone_selected, :chat_enabled, :coming_soon)
   end
 end

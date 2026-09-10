@@ -14,10 +14,13 @@ class MessagesChatSeedsTest < ActionDispatch::IntegrationTest
   end
 
   # A confirmed (active/complete) entry makes the user a chat participant
-  # (Contest#chat_participant?). An email signup also auto-generates a managed
-  # wallet, so user.solana_address is present for the grant.
+  # (Contest#chat_participant?). The managed wallet is minted explicitly so
+  # user.solana_address is present for the grant — signup stopped providing one
+  # when web3-only onboarding became the default (2026-08-15), and the wallet-less
+  # path is a DIFFERENT case this suite tests separately (the deferred stamp).
   def entrant_with_wallet
     user = User.create!(email: "chatter@mcritchie.studio")
+    grant_managed_wallet!(user)
     @contest.entries.create!(user: user, status: :active)
     user
   end

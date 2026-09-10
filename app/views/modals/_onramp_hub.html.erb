@@ -9,7 +9,11 @@
 
   Per-rail visibility is gated by onramp_rail_visible? (app/helpers/
   onramp_helper.rb): every rail shows locally, each gates on its own backend
-  flag in production.
+  flag in production. Coinbase is the exception, and gates in EVERY env on
+  cdp_ramp_modal_available? — the same predicate that registers the cdp-ramp
+  modal in the host layout. Its destination is a modal rather than a route, so
+  revealing it locally, or on a page whose layout rendered logged-out, ships a
+  button that swaps to a modal id the host never registered.
 
   FLAG-AWARE degrade (tokenFallback): the Coinbase rail buys USDC, which a web2
   kill-switch viewer (ENABLE_WEB2_USDC_ENTRY off) can NOT spend on an entry, so
@@ -18,8 +22,13 @@
   or from the tokens picker, would put a flag-off web2 user one click from a
   real-money USDC buy that dead-ends their entry. tokenFallback mirrors the
   wallet-topup getter exactly (web2 mode AND the flag off, read from
-  $store.session); web3 + flag-on web2 still see Coinbase. The Stripe entry-token
-  rail stays visible for the degraded audience, so the hub never empties.
+  $store.session); web3 + flag-on web2 still see Coinbase. The token-minting
+  rails (Coinflow, Aeropay, Stripe) are NOT hidden for the degraded audience, so
+  any one of them that is live keeps the hub useful. But none is guaranteed on:
+  each gates on its own backend flag in production (onramp_rail_visible?), and
+  Stripe is the dormant fallback (off by default). So with Coinbase hidden for
+  the degraded viewer and every token rail off, the hub CAN render empty for that
+  audience — hiding Coinbase does not, on its own, guarantee a non-empty hub.
 
   Back-navigation returns to wherever the hub was opened FROM, keyed on the
   props it was opened with:
@@ -41,14 +50,12 @@
      class="relative">
 
   <%# Top-right close. Backdrop close still works too. %>
-  <button @click="$store.modals.close()"
-          class="absolute top-0 right-0 -mt-2 -mr-2 text-secondary hover:text-heading text-xl leading-none z-10"
-          aria-label="Close">&times;</button>
+  <%= render "studio/modals/blocks/close_x" %>
 
   <div class="text-center pt-1 mb-3">
     <h3 class="text-heading font-bold text-lg leading-tight">Add Funds</h3>
   </div>
-  <p class="text-xs text-secondary mb-4 text-center">
+  <p class="text-xs text-body mb-4 text-center">
     Pick how you'd like to fund your entry. More options are on the way.
   </p>
 
@@ -63,65 +70,79 @@
           so this USDC-buy rail must not be a dead-end for them. See the header
           note. web3 + flag-on web2 always see it. %>
       <template x-if="!tokenFallback">
-        <button type="button" data-onramp-rail="coinbase"
-                @click="$store.modals.swap('cdp-ramp', { flow: 'buy', step: 'preflight' })"
-                class="w-full flex items-center gap-4 p-4 rounded-xl border border-strong hover:border-primary bg-inset transition text-left">
-          <span class="shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-white font-extrabold text-lg" style="background-color:#0052FF">C</span>
-          <span class="flex-1 min-w-0">
-            <span class="block text-heading font-semibold text-sm">Coinbase</span>
-            <span class="block text-xs text-secondary">Buy USDC with a card or bank</span>
-          </span>
-          <svg class="shrink-0 w-4 h-4 text-muted" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
-          </svg>
-        </button>
+        <%= render "studio/modals/blocks/rail_row",
+              on_click:   "$store.modals.swap('cdp-ramp', { flow: 'buy', step: 'preflight' })",
+              icon_label: "C", icon_bg: "#0052FF",
+              title:      "Coinbase",
+              subtitle:   "Buy USDC with a card or bank",
+              data:       { onramp_rail: "coinbase" } %>
       </template>
+    <% end %>
+
+    <% if onramp_rail_visible?(:coinflow) %>
+      <%# Coinflow — wired to the buy-1-entry hosted-checkout flow. Clones the
+          Coinbase rail card, but is NOT gated behind !tokenFallback: unlike the
+          Coinbase USDC buy, Coinflow mints a spendable ENTRY TOKEN directly, so
+          it's useful to the web2 kill-switch audience too (like the Stripe
+          token rail). tmCoinflowBuyOne() POSTs /tokens/coinflow_order then
+          redirects to Coinflow's hosted checkout. %>
+      <%= render "studio/modals/blocks/rail_row",
+            on_click:   "tmCoinflowBuyOne('single')",
+            icon_label: "CF", icon_bg: "#14B8A6",
+            title:      "Coinflow · $19",
+            subtitle:   "Buy 1 entry token with a card",
+            data:       { onramp_rail: "coinflow" } %>
+    <% end %>
+
+    <% if onramp_rail_visible?(:aeropay) %>
+      <%# Aeropay — wired to the buy-1-entry pay-by-bank flow. Clones the
+          Coinflow rail card, but is NOT gated behind !tokenFallback: Aeropay
+          mints a spendable ENTRY TOKEN directly (not USDC), so it's useful to
+          the web2 kill-switch audience too (like the Coinflow / Stripe token
+          rails). tmAeropayBuyOne() links a bank (Aerosync widget — stubbed) then
+          POSTs /tokens/aeropay_order. %>
+      <%= render "studio/modals/blocks/rail_row",
+            on_click:   "tmAeropayBuyOne('single')",
+            icon_label: "A", icon_bg: "#6D28D9",
+            title:      "Aeropay · $19",
+            subtitle:   "Buy 1 entry token from your bank",
+            data:       { onramp_rail: "aeropay" } %>
     <% end %>
 
     <% if onramp_rail_visible?(:paypal) %>
       <%# PayPal — placeholder. Visually complete, non-interactive, tagged
           "Soon". Wire it to the paypal_tokens flow when the rail goes live. %>
-      <div data-onramp-rail="paypal"
-           class="w-full flex items-center gap-4 p-4 rounded-xl border border-subtle bg-inset opacity-60">
-        <span class="shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-white font-extrabold text-lg" style="background-color:#003087">P</span>
-        <span class="flex-1 min-w-0">
-          <span class="block text-heading font-semibold text-sm">PayPal</span>
-          <span class="block text-xs text-secondary">Pay with your PayPal balance</span>
-        </span>
-        <span class="shrink-0 text-[10px] uppercase tracking-widest font-bold text-muted bg-surface border border-subtle rounded-full px-2 py-0.5">Soon</span>
-      </div>
+      <%# state: :soon — a DIV, not a disabled button: no focus stop, and the
+          badge REPLACES the chevron, because a chevron promises somewhere to go. %>
+      <%= render "studio/modals/blocks/rail_row",
+            state:      :soon,
+            icon_label: "P", icon_bg: "#003087",
+            title:      "PayPal",
+            subtitle:   "Pay with your PayPal balance",
+            data:       { onramp_rail: "paypal" } %>
     <% end %>
 
     <% if onramp_rail_visible?(:venmo) %>
       <%# Venmo — placeholder, same treatment as PayPal (shares the PayPal
           backend rail once live). %>
-      <div data-onramp-rail="venmo"
-           class="w-full flex items-center gap-4 p-4 rounded-xl border border-subtle bg-inset opacity-60">
-        <span class="shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-white font-extrabold text-lg" style="background-color:#008CFF">V</span>
-        <span class="flex-1 min-w-0">
-          <span class="block text-heading font-semibold text-sm">Venmo</span>
-          <span class="block text-xs text-secondary">Pay from your Venmo balance</span>
-        </span>
-        <span class="shrink-0 text-[10px] uppercase tracking-widest font-bold text-muted bg-surface border border-subtle rounded-full px-2 py-0.5">Soon</span>
-      </div>
+      <%= render "studio/modals/blocks/rail_row",
+            state:      :soon,
+            icon_label: "V", icon_bg: "#008CFF",
+            title:      "Venmo",
+            subtitle:   "Pay from your Venmo balance",
+            data:       { onramp_rail: "venmo" } %>
     <% end %>
 
     <% if onramp_rail_visible?(:stripe) %>
       <%# Stripe single token — wired back to the Get Entry Tokens picker,
           which IS the Stripe checkout flow. Mirrors the board showTokensPanel
           props so the picker mounts clean. %>
-      <button type="button" data-onramp-rail="stripe"
-              @click="$store.modals.swap('auth', { step: 'tokens-picker', mintedCount: 0, mintedBalance: 0, errorText: '', redirectUrl: '', txSignature: '' })"
-              class="w-full flex items-center gap-4 p-4 rounded-xl border border-strong hover:border-primary bg-inset transition text-left">
-        <span class="shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-white font-extrabold text-lg" style="background-color:#635BFF">S</span>
-        <span class="flex-1 min-w-0">
-          <span class="block text-heading font-semibold text-sm">Card &middot; $19</span>
-          <span class="block text-xs text-secondary">Buy one entry token with a card</span>
-        </span>
-        <svg class="shrink-0 w-4 h-4 text-muted" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
-        </svg>
-      </button>
+      <%= render "studio/modals/blocks/rail_row",
+            on_click:   "$store.modals.swap('auth', { step: 'tokens-picker', mintedCount: 0, mintedBalance: 0, errorText: '', redirectUrl: '', txSignature: '' })",
+            icon_label: "S", icon_bg: "#635BFF",
+            title:      "Card · $19",
+            subtitle:   "Buy one entry token with a card",
+            data:       { onramp_rail: "stripe" } %>
     <% end %>
   </div>
 
@@ -134,4 +155,9 @@
           class="block mx-auto mt-4 text-sm text-secondary hover:text-heading transition">
     &larr; Back
   </button>
+
+  <%# Defines window.tmCoinflowBuyOne for the Coinflow rail above. Inside the
+      single root div so the hub stays a single element under its x-if host. %>
+  <% if onramp_rail_visible?(:coinflow) %><%= render "tokens/coinflow_script" %><% end %>
+  <% if onramp_rail_visible?(:aeropay) %><%= render "tokens/aeropay_script" %><% end %>
 </div>

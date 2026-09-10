@@ -106,13 +106,13 @@ class Entry < ApplicationRecord
   # cosign+broadcast in #confirm_onchain_entry both call this as a PRE-FLIGHT
   # check (backend discipline #2: validate before irreversible side effects). A
   # failure here leaves the token UNCONSUMED and the entry in `cart` — nothing
-  # burned. `confirm!` / `confirm_onchain!` also invoke it as a serialized
+  # consumed. `confirm!` / `confirm_onchain!` also invoke it as a serialized
   # backstop so the two call sites can never drift and the post-broadcast path
   # stays safe.
   #
   # Incident 2026-06-08 (entry #133): the managed-token path consumed the token
   # on-chain and THEN ran confirm!, whose selection-count gate raised AFTER the
-  # irreversible burn — stranding the user (paid + entered on-chain, app showed
+  # irreversible consume — stranding the user (paid + entered on-chain, app showed
   # `cart`). A reconciler can't heal a genuine validation failure (re-running the
   # gate fails the same way); the only correct fix is to gate BEFORE the consume.
   #
@@ -221,6 +221,14 @@ class Entry < ApplicationRecord
 
   private
 
+  def release_slot_if_abandoned
+    return unless status_changed? && abandoned?
+    return if entry_number.nil?
+    return if onchain_tx_signature.present?
+
+    self.entry_number = nil
+  end
+
   def update_slug_with_id
     update_column(:slug, name_slug)
   end
@@ -262,6 +270,31 @@ class Entry < ApplicationRecord
 
     # Seeds (25 per entry) are awarded on-chain by the turf_vault Anchor program
   end
+
+  # RELEASE THE SLOT WHEN AN ENTRY IS ABANDONED.
+  #
+  # Two places decide what "taken" means and they used to disagree:
+  # #assign_onchain_entry_number! builds its `taken` list from
+  # cart/active/complete, deliberately ignoring abandoned rows, while
+  # index_entries_on_user_contest_entry_number is partial on `entry_number IS
+  # NOT NULL` and does not. So an abandoned row kept a number the allocator
+  # would hand out again, and the insert died on the index.
+  #
+  # The visible cost was a player locked out of a contest: reach the Phantom
+  # prompt (which stamps the number), tap "Clear picks" (which abandons the
+  # row), build picks again — and every attempt from then on raised a raw
+  # PG::UniqueViolation at them.
+  #
+  # Releasing here rather than in ContestsController#clear_picks is deliberate:
+  # clear_picks is one of the paths that abandons an entry, and a fix that
+  # lived there would leave the disagreement intact for every other one.
+  #
+  # THE EXCEPTION IS NOT OPTIONAL. An entry that carries an on-chain signature
+  # has a real ContestEntry PDA at that index whatever the database says.
+  # Releasing its number would let a later entry be built against an occupied
+  # PDA, which fails on-chain — a worse failure than the one being fixed, and
+  # one that costs a broadcast to discover.
+  before_save :release_slot_if_abandoned
 
   # Assign (or re-assign) this entry's on-chain slot to the lowest index whose
   # Entry PDA isn't already allocated for `wallet_address`, and isn't claimed by

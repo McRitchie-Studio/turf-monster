@@ -57,6 +57,36 @@ development:
 test:
   <<: *default
   database: turf_monster_test
+  # TEST_DATABASE_URL points the TEST env at a worktree's OWN isolated test DB.
+  #
+  # bin/agent-worktree already gives every desk its own test DB and writes it to
+  # .env.test.local as TEST_DATABASE_URL — and the comment it generates in that
+  # file states that THIS line reads it. This app never had the line, so the
+  # variable was set, believed, and ignored: every worktree's `bin/rails test`
+  # fell through to the shared `turf_monster_test` above. turf carries the most
+  # open worktrees in the ecosystem, so one suite's fixtures land inside
+  # another's run — counts drift and a seeded row turns up that nobody seeded,
+  # and the failure is in neither diff.
+  #
+  # The second half is quieter and worse. A worktree exports DATABASE_URL at its
+  # seeded DEVELOPMENT database, and DATABASE_URL is merged into whichever env is
+  # CURRENT — so under RAILS_ENV=test it lands on this block. Measured on this
+  # file before the line existed: the test env resolved to
+  # `turf_monster_development`. An explicit `url:` outranks DATABASE_URL and
+  # takes that back; without one the test env is a single stray export away from
+  # `db:test:prepare` PURGING a development database.
+  #
+  # KEEP THE ERB BARE — no default, no ENV.fetch. When TEST_DATABASE_URL is unset
+  # this renders empty, Rails treats an empty `url:` as absent, and the block
+  # falls back to `database:` above with the DATABASE_URL merge intact. Measured
+  # on this file, both fallback shapes still land on `turf_monster_test`: with no
+  # DATABASE_URL it resolves as a HashConfig, and with CI's DATABASE_URL set it
+  # resolves as a UrlConfig carrying that URL's credentials (user `postgres`,
+  # port 5432). That second shape is exactly what CI runs on (ci.yml sets
+  # DATABASE_URL and never sets TEST_DATABASE_URL), so hard-coding a default here
+  # would outrank it and silently cut CI off from its own postgres service.
+  # Both directions are asserted by test/lib/test_database_isolation_test.rb.
+  url: <%= ENV["TEST_DATABASE_URL"] %>
 
 # As with config/credentials.yml, you never want to store sensitive information,
 # like your database password, in your source code. If your source code is

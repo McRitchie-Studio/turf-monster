@@ -1,5 +1,5 @@
 <% content_for :title, "NFL Team Totals" %>
-<% content_for :meta_description, "Expected 2026 NFL team totals by week for Turf Totals." %>
+<% content_for :meta_description, "Expected 2026 NFL team totals by week for Turf Monster." %>
 
 <section class="mx-auto max-w-6xl px-4 py-8">
   <div class="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -96,8 +96,8 @@
                 <% team = projection.team %>
                 <div class="rounded-lg border border-subtle bg-surface-alt p-3">
                   <div class="flex items-center gap-2">
-                    <% if team.color_primary.present? %>
-                      <span class="h-8 w-1 rounded-full" style="background-color: <%= team.color_primary %>"></span>
+                    <% if team.card_background.present? %>
+                      <span class="h-8 w-1 rounded-full" style="background-color: <%= team.card_background %>"></span>
                     <% end %>
                     <span class="text-xl"><%= team.emoji %></span>
                     <div class="min-w-0">

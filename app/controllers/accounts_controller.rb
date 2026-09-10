@@ -32,12 +32,12 @@ class AccountsController < ApplicationController
     # $store.session from chain — and the Refresh Wallet button re-pulls
     # the same endpoint on demand.
     #
-    # Referral widget — share URL points at the canonical main contest
-    # (admin-set via /admin/dashboard). SeasonConfig.main_contest masks
-    # the explicit pick when it's settled/locked and falls back to the
-    # most recent open contest; nil if nothing is open at all (the widget
-    # then degrades to a root-path share URL).
-    @referral_share_contest = SeasonConfig.main_contest
+    # NO REFERRAL IVAR. The share widget resolves its own target through
+    # ApplicationHelper#main_contest_target, because /profile renders the same
+    # card from the engine's ProfilesController, which cannot set a host ivar.
+    # This action assigned @referral_share_contest long after the partial stopped
+    # reading it — a dead assignment that still paid for the SeasonConfig
+    # round-trip it no longer used.
   end
 
   # Fresh on-chain state (USDC, free-entry tokens, seeds + level) in a
@@ -55,23 +55,29 @@ class AccountsController < ApplicationController
   # fetches them explicitly and warms the navbar caches so subsequent renders
   # are warm.
   def session_refresh
-    perform_solana_preload if current_user&.solana_connected?
+    # fetch_navbar_hydrate does all the (blocking, off-render-path) on-chain
+    # reads AND warms the navbar caches — including the entry-tokens cache the
+    # navbar reads cache-first — so there's no separate perform_solana_preload
+    # pass to do here.
     hydrate = current_user&.solana_connected? ? fetch_navbar_hydrate(current_user) : {}
 
     seeds = hydrate[:seeds].to_i
     # When the wallet-balances read flaked (nil), emit null instead of 0 so
     # the client can recognise "unknown" and preserve whatever value the
-    # store last held. seeds + tokens default to 0 (acceptable temporary
-    # conservative mis-read).
+    # store last held. Tokens ride the same nil-means-flake contract now that
+    # they come from the hydrate fetch (updateNavTokens leaves the prior badge
+    # value on null instead of zeroing it). seeds defaults to 0.
     render json: {
       usdc:        hydrate[:usdc],
       usdt:        hydrate[:usdt],
       sol:         hydrate[:sol],
-      tokens:      (current_user&.entry_token_balance rescue 0),
+      tokens:      hydrate[:entry_token_count],
       seeds:       seeds,
       level:       User.level_for(seeds),
       toward_next: User.seeds_toward_next_level(seeds),
-      progress:    User.seeds_progress_percent(seeds)
+      progress:    User.seeds_progress_percent(seeds),
+      level_up_token_pending: current_user.present? &&
+        current_user.level > current_user.entry_tokens_granted_level
     }
   end
 
@@ -253,11 +259,67 @@ class AccountsController < ApplicationController
       # Check if Solana wallet belongs to another user
       existing = User.from_solana_wallet(pubkey_b58)
       if existing && existing.id != current_user.id
-        merge_users!(survivor: current_user, absorbed: existing)
+        # merge_users! keeps the LOWER id, so the survivor is NOT necessarily
+        # current_user — take the row it returns and write through THAT.
+        survivor = merge_users!(survivor: current_user, absorbed: existing)
+        # The merge copies only email / name / provider+uid across and then
+        # DESTROYS the absorbed row — including, on the no-swap ordering, the row
+        # that held the wallet. Without this the survivor is left with
+        # web3_solana_address nil while still carrying the brand stamp and an
+        # on-chain session: an account CLAIMING a wallet it does not have, which
+        # shuts both entry doors for a survivor that has a managed wallet
+        # (ContestsController#enter refuses, #prepare_entry raises).
+        #
+        # AFTER merge_users! returns, never inside it: the absorbed row still
+        # owns the address until the destroy inside that transaction, so an
+        # earlier write would collide on the uniqueness of the column.
+        survivor.update!(web3_solana_address: pubkey_b58)
+        # The survivor now holds the wallet this request just proved, so it earns
+        # the same brand stamp as the non-merge branch below. Through `survivor`
+        # and not `current_user`: on the swap ordering current_user IS the
+        # destroyed row, and record_web3_authentication! bails on it
+        # (`return false unless persisted?`) — so the durable stamp was being
+        # dropped there, silently, on roughly half of all orderings.
+        survivor.record_web3_authentication!(provider: params[:wallet_provider])
+        # The account now holds a web3 wallet — the wallet-setup nudge is
+        # satisfied, so drop it in the same breath as the link.
+        clear_wallet_setup_state!
+        # ...and this session just proved that wallet, so it IS an on-chain
+        # session. The merge branch returns early, so it needs its own call.
+        promote_to_onchain_session!(provider: params[:wallet_provider])
         return render json: { success: true, redirect: account_path, notice: "Accounts merged." }
       end
 
       current_user.update!(web3_solana_address: pubkey_b58)
+      # Same stamp as the wallet LOGIN path — linking is a signature too, and a
+      # user who links from /account and later signs in by email deserves the
+      # same one-click step-up as one who logged in with the wallet directly.
+      current_user.record_web3_authentication!(provider: params[:wallet_provider])
+      clear_wallet_setup_state!
+      # The DURABLE stamps above record that this ACCOUNT holds a wallet; this
+      # records that THIS SESSION can sign with it. Without it the session stays
+      # :web2 and an account whose only wallet is self-custody cannot enter at
+      # all — the board shows the web2 "Buy an Entry Token" wall instead of
+      # asking Phantom to sign. See ApplicationController#promote_to_onchain_session!.
+      promote_to_onchain_session!(provider: params[:wallet_provider])
+      # NO on-chain UserAccount is created here, deliberately. Creating one costs
+      # ~0.00182 SOL of ADMIN rent and is PERMANENT — nothing in turf-vault closes
+      # a UserAccount — while this endpoint is reachable by any signed-in user with
+      # a freshly generated keypair. Keypairs are free and the user holds the key,
+      # so `verify_solana_signature!` passes every time: an eager create here bills
+      # admin SOL per REQUEST rather than per user, bounded only by a 5/min/IP
+      # brute-force throttle (rack_attack.rb:48). That is OPSEC-044 exactly — the
+      # proactive EnsureAtaJob was removed from signup for this reason (user.rb:534)
+      # — and it is cheaper to abuse here, needing only a new keypair rather than a
+      # new account.
+      #
+      # The remedy is OPSEC-044's verbatim: create it lazily, from the paths that
+      # actually need it. They already do — entry.rb:302 before a contest entry,
+      # stripe_deposit_job.rb:51 before a deposit, contests_controller.rb:746 and
+      # :1550 in the entry preamble — which is precisely when a user starts earning
+      # seeds. A user who links a wallet and never plays has no seeds to grant, and
+      # Tokens::LevelUpGrant already models that cold read as first-class
+      # (:user_account_missing), loudly.
       render json: { success: true, redirect: account_path }
     end
   rescue Solana::AuthVerifier::VerificationError => e
@@ -300,9 +362,18 @@ class AccountsController < ApplicationController
   # On-chain username edit. Custodial (managed) wallets: the server co-signs
   # set_username immediately. Phantom wallets: returns a partial TX for the
   # wallet to co-sign, confirmed via #confirm_username.
+  #
+  # Wire contract is studio-engine's leveling-activity NEUTRAL contract (the modal
+  # is engine studio/modals/blocks/_change_username): the request posts { value },
+  # responses are { status: "saved" | "needs_step" | "error", ... }. The on-chain
+  # surface is UNCHANGED — set_username / build_set_username / the managed keypair /
+  # TxVerifier all still live here; the engine only ferries an OPAQUE challenge/proof
+  # to TM's finalize_hook (window.tmUsernameFinalize). No signing/keys leave TM.
   def update_username
     @user = current_user
-    new_username = params[:username].to_s.strip
+    # Engine posts { value }; accept the legacy { username } for one deploy so a
+    # page loaded before this ship still renames (retryable, no funds at risk).
+    new_username = (params[:value].presence || params[:username]).to_s.strip
     @user.username = new_username
 
     # Server-side mirror of the UI gate (modals/_username.html.erb +
@@ -310,11 +381,11 @@ class AccountsController < ApplicationController
     # can't bypass the "enter a contest first" lock.
     unless @user.can_change_username?
       reason = @user.solana_connected? ? "Enter a contest first to unlock username changes." : "No wallet on this account."
-      return render json: { success: false, error: reason }, status: :forbidden
+      return render json: { status: "error", message: reason }, status: :forbidden
     end
 
     unless @user.valid?
-      return render json: { success: false, error: @user.errors.full_messages.first }, status: :unprocessable_entity
+      return render json: { status: "error", message: @user.errors.full_messages.first }, status: :unprocessable_entity
     end
 
     # Self-custodied users (task #11) hold their own key — the server must
@@ -324,10 +395,12 @@ class AccountsController < ApplicationController
     # into during the export flow.
     if @user.phantom_wallet? || @user.self_custodied?
       # Phantom / self-custody: hand the client a partial set_username TX to co-sign.
+      # `challenge` is that base64 TX — an opaque blob the engine hands straight to
+      # TM's finalize_hook; the sign/broadcast happens entirely client-side in TM.
       result = Solana::Vault.new.build_set_username(@user.solana_address, new_username)
       render json: {
-        needs_signature: true,
-        serialized_tx: result[:serialized_tx],
+        status: "needs_step",
+        challenge: result[:serialized_tx],
         token: sign_username_payload(new_username)
       }
     else
@@ -336,15 +409,17 @@ class AccountsController < ApplicationController
         Solana::Vault.new.set_username(@user.solana_address, new_username, user_keypair: @user.solana_keypair)
         @user.save!
         seeds = grant_first_username_seeds(@user)
-        render json: { success: true, username: @user.username }.merge(seeds || {})
+        render json: { status: "saved", username: @user.username }.merge(seeds || {})
       end
     end
   rescue StandardError => e
-    render json: { success: false, error: e.message }, status: :unprocessable_entity
+    render json: { status: "error", message: e.message }, status: :unprocessable_entity
   end
 
   # Phantom username edit, step 2: the wallet co-signed + broadcast the
   # set_username TX; verify it on-chain (OPSEC-010), then mirror to the DB.
+  # The engine finalize step posts { token, proof }; `proof` is the tx signature
+  # TM's finalize_hook returned (legacy { tx_signature } accepted for one deploy).
   def confirm_username
     @user = current_user
     payload = verify_username_payload(params[:token])
@@ -355,7 +430,7 @@ class AccountsController < ApplicationController
       Solana::Vault.new.user_account_pda(@user.solana_address).first
     )
     Solana::TxVerifier.verify!(
-      signature: params[:tx_signature],
+      signature: (params[:proof].presence || params[:tx_signature]),
       instruction_name: "set_username",
       signer_pubkey: @user.solana_address,
       writable_pubkey: user_pda_b58
@@ -364,12 +439,12 @@ class AccountsController < ApplicationController
     rescue_and_log(target: @user) do
       @user.update!(username: new_username)
       seeds = grant_first_username_seeds(@user)
-      render json: { success: true, username: @user.username }.merge(seeds || {})
+      render json: { status: "saved", username: @user.username }.merge(seeds || {})
     end
   rescue ActiveSupport::MessageVerifier::InvalidSignature
-    render json: { success: false, error: "Rename expired — please try again." }, status: :unprocessable_entity
+    render json: { status: "error", message: "Rename expired — please try again." }, status: :unprocessable_entity
   rescue StandardError => e
-    render json: { success: false, error: e.message }, status: :unprocessable_entity
+    render json: { status: "error", message: e.message }, status: :unprocessable_entity
   end
 
   # POST /account/initiate_wallet_export

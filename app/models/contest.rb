@@ -4,8 +4,52 @@ class Contest < ApplicationRecord
   has_many :entries, dependent: :destroy
   has_many :messages, dependent: :destroy
   belongs_to :slate, optional: true
+
   belongs_to :user, optional: true
-  has_one_attached :contest_image
+  # ── The banner, and its link-preview rendition ──────────────────────────
+  #
+  # THE BANNER AND THE UNFURL CARD ARE DIFFERENT SHAPES, which is the whole
+  # reason this variant exists. Banners are cropped 5:1 by the admin uploader
+  # (imageUploadHost aspectRatio: 5, maxWidth 2000, maxHeight 400, transparency
+  # allowed) because they sit as a wide strip above a contest. Every unfurler —
+  # Discord, iMessage, Slack, X — renders og:image at roughly 1.91:1, so handing
+  # them the raw 5:1 strip letterboxes it into a sliver and drops a transparent
+  # banner onto whatever background the client happens to use.
+  #
+  # resize_and_pad scales the banner to fit and centres it on the brand navy,
+  # producing the 1200x630 card those clients expect.
+  #
+  # `background:` IS LOAD-BEARING BEYOND THE PADDING, which is easy to miss
+  # because the option reads like it only colours the bars. The uploader allows
+  # a transparent banner (`transparent: true`), and image_processing's MiniMagick
+  # resize_and_pad expands to `-resize … -background … -gravity … -extent …`
+  # — that -extent composites the scaled banner ONTO the background canvas, so
+  # the same option that paints the bars is also what flattens the banner's own
+  # transparent pixels. Drop it and it defaults to :transparent: the card keeps
+  # its alpha, and the subject renders on whatever each client composites
+  # against — white in one chat app, black in the next. Measured 2026-09-09
+  # against a half-transparent fixture; ContestOgCardTest is the guard, and no
+  # separate alpha-flattening operation is needed (an `alpha: "remove"` after
+  # the pad is a no-op here, and `alpha:` inside resize_and_pad raises
+  # ArgumentError — it is forwarded to the gem's `thumbnail` HELPER, whose only
+  # keyword is `sharpen:`; that helper emits `-resize`, not `-thumbnail`).
+  #
+  # `preprocessed: true` renders the card when the banner is attached, not on
+  # the first unfurl. An unfurler gives a page a short budget and does not come
+  # back on a timeout, so generating a 2000px composite inside that first
+  # request is how a share silently loses its image. Banners attached BEFORE
+  # this shipped have no stored card and are composed on demand at the proxy
+  # route the first time they are fetched — one slow fetch, then cached.
+  OG_CARD_SIZE       = [1200, 630].freeze
+  OG_CARD_BACKGROUND = "#1e1b35".freeze # --color-page, matches the theme-color meta
+
+  has_one_attached :contest_image do |attachable|
+    attachable.variant :og_card, preprocessed: true, format: :png,
+                                 resize_and_pad: [
+                                   *OG_CARD_SIZE,
+                                   { background: OG_CARD_BACKGROUND, gravity: "Center" }
+                                 ]
+  end
 
   # Name is repeatable + branded — NO uniqueness. Slug is the unique key.
   # 96-byte cap matches the future on-chain fixed `name` field (Part B / v0.21);
@@ -48,11 +92,14 @@ class Contest < ApplicationRecord
   #
   # PRIMARY PATH — Phantom-funded (default for the /contests/new UI):
   #   ContestsController#create builds a partially-signed `create_contest`
-  #   TX (admin pays SOL rent, creator slot left for Phantom). User signs
-  #   in their wallet → broadcast + confirm → ContestsController#finalize
-  #   creates the DB row with `skip_onchain_callback = true` and the
-  #   onchain_contest_id / onchain_tx_signature already populated.
-  #   See app/views/contests/new.html.erb + Solana::Vault#build_create_contest.
+  #   TX (admin pays SOL rent, creator slot left for Phantom). The user signs
+  #   in their wallet, then ContestsController#finalize WRITES THE ROW FIRST —
+  #   `status: :pending`, carrying the derived PDA, `skip_onchain_callback =
+  #   true` — broadcasts, stamps the signature, verifies, and only then
+  #   promotes the row to `open`. The row is therefore created BEFORE
+  #   onchain_tx_signature exists; `pending` means "written, not yet verified".
+  #   See app/views/contests/new.html.erb + Solana::Vault#build_create_contest,
+  #   and the ordering contract at the head of ContestsController#finalize.
   #
   # FALLBACK PATH — server-funded (Rails console / operator scripts):
   #   `Contest.create!(...)` without `skip_onchain_callback = true` fires
@@ -65,8 +112,18 @@ class Contest < ApplicationRecord
   # Opt-out via `skip_onchain_callback = true`:
   #   - The Phantom-funded UI flow sets this on save (Contest is already on-chain).
   #   - Test fixtures + Rails tests (Rails.env.test? auto-skips).
+  #
+  # THE HAZARD, because the two paths meet here and the cost is real money:
+  # a Phantom-funded row that reaches this callback WITHOUT the opt-out
+  # broadcasts a SECOND `create_contest` — the creator's prize pool from their
+  # wallet, then another from the HOUSE wallet. Three things happen to prevent
+  # it (the flag, `onchain?` being true once the PDA is set, and
+  # `create_onchain!`'s own `return if onchain?`), which is three more than the
+  # one a reader should have to find. Pinned by
+  # test/controllers/contests_finalize_write_ordering_test.rb.
   attr_accessor :skip_onchain_callback
   after_create :create_onchain_with_rollback!, unless: :skip_onchain_callback_active?
+
 
   # OPSEC-023: bind each contest to the active season at creation. turf-vault
   # v0.13.0 stores season_id on the Contest PDA and rejects any entry whose
@@ -75,23 +132,136 @@ class Contest < ApplicationRecord
 
   scope :ranked, -> { where.not(rank: nil).order(rank: :asc) }
 
+  # ── The featured rail's contents and order ───────────────────────────────
+  #
+  # The contests page leads with a horizontal rail of the contests a reader can
+  # act on. This method decides BOTH which contests are in it and what order
+  # they sit in, so the page and its tests read one definition.
+  #
+  # WHAT IS IN IT: the live board. A `settled` contest is finished — it belongs
+  # in My Contests (where its result is the point) and in the All Contests
+  # table, never in the rail that exists to advertise what is playable. A
+  # CANCELLED contest is excluded for the same reason and is NOT the same test:
+  # `cancelled?` reads the `onchain_cancelled` boolean, and a cancelled contest
+  # keeps `status: "open"` (contest.rb #cancelled?), so filtering on status
+  # alone would put a dead contest at the top of the page under a red badge.
+  #
+  # THE ORDER IS TWO BANDS, NOT ONE SORT KEY. Open first, coming-soon after,
+  # each band newest-to-oldest. Expressed as a tuple so the band always
+  # outranks the date: a coming-soon contest created this morning still sits
+  # below an open contest created last month, because the reader scanning left
+  # to right is looking for something to enter and everything enterable should
+  # come first.
+  #
+  # `-created_at.to_i` reverses the date WITHIN the band without a second sort
+  # pass. Whole seconds are enough: two contests created in the same second tie
+  # and fall back to sort_by's order, which is a stable no-op here — nothing
+  # downstream reads the order of a tie.
+  #
+  # Takes an ARRAY, not a relation, because the caller (ContestsController
+  # #index) has already loaded every open/settled contest with its slate and
+  # banner attached. Re-querying here would undo that and re-introduce the
+  # N+1 the single load exists to prevent.
+  def self.featured_order(contests)
+    contests
+      .reject { |contest| contest.settled? || contest.cancelled? }
+      .sort_by { |contest| [contest.coming_soon? ? 1 : 0, -contest.created_at.to_i] }
+  end
+
   def self.target
     ranked.find_by(status: :open)
   end
 
-  # The contest the app spotlights — the admin-set main contest, else its
-  # open-only fallback, else the newest open/settled (a freshly-graded contest
-  # still serves as a leaderboard landing until a newer one opens). Single source
-  # of truth for the root redirect (ContestsController#world_cup) and the
+  # The contest the app spotlights — the admin-set main contest, else the newest
+  # open contest, else the newest open/settled (a freshly-graded contest still
+  # serves as a leaderboard landing until a newer one opens). Single source of
+  # truth for the root redirect (ContestsController#world_cup) and the
   # magic-link sign-in landing (MagicLinksController).
+  #
+  # THE FALLBACKS SKIP COMING SOON; THE ADMIN PIN DOES NOT. `coming_soon` is a
+  # boolean independent of status, so a coming-soon contest IS `open` and can be
+  # the newest open row — which is how "/" came to land a visitor on a contest
+  # it was advertising rather than one they could enter. The two automatic rungs
+  # filter it out and fall through to the newest contest that is actually
+  # playable. The pin is left alone on purpose: an admin picking a specific
+  # contest at /admin/dashboard is deliberately advertising it, and that choice
+  # outranks this rule.
+  #
+  # THE FILTER BELONGS IN THE QUERY, NOT AFTER IT. Post-filtering the row a rung
+  # returned (`row unless row.coming_soon?`) reads the same and is not: it sends
+  # a coming-soon winner on to the NEXT RUNG instead of the next CONTEST, so a
+  # board whose newest open contest is coming soon would skip every remaining
+  # open contest and land on a settled one.
+  #
+  # Rung 2 no longer routes through SeasonConfig.main_contest. That call is only
+  # ever reached with the explicit pin nil, and a nil pin makes it resolve to
+  # exactly the query written here — so the indirection hid where the filter
+  # belongs without changing which contest came back.
   def self.featured
     SeasonConfig.main_contest_explicit ||
-      SeasonConfig.main_contest ||
-      where(status: [:open, :settled]).order(created_at: :desc).first
+      where(status: :open, coming_soon: false).order(created_at: :desc).first ||
+      where(status: [:open, :settled], coming_soon: false).order(created_at: :desc).first
   end
 
+  # ─── Multi-week span ────────────────────────────────────────────────
+  #
+  # A multi-week contest is played on ONE Slate that holds several games per team
+  # (see Nfl::BuildSpanSlate) — NOT on a set of weekly slates joined to the
+  # contest. That earlier shape is what forced the span multiplier to be
+  # recomputed live across slates, and a live multiplier drifted between pick
+  # time and settlement (measured 1.0x -> 3.0x). Now the slate stores a frozen
+  # per-team turf_score at rank time and everything reads it.
+  #
+  # `slate_id` therefore stays a plain scalar FK, and picks_required, locking,
+  # assert_enterable!, and Game#score_affected_contests! are all unchanged.
+
+  def multi_week?
+    slate&.multi_game_per_team? || false
+  end
+
+  def weeks_count
+    slate&.games_per_team.to_i
+  end
+
+  # "Week 3" / "Weeks 1-3" for headers and cards. Nil when the slate carries no
+  # week (World Cup), so callers fall back to the slate name.
+  def week_span_label
+    slate&.week_range_label
+  end
+
+  # The full pool of matchups. On a span slate this is every team's every game.
   def matchups
     slate.slate_matchups
+  end
+
+  # The PICKABLE rows — one per team. On a single-week slate that is just the
+  # matchups; on a span slate it is each team's first game, which anchors the
+  # Selection. A pick is a TEAM either way.
+  def pickable_matchups
+    return matchups unless multi_week?
+
+    slate.matchups_by_team.values.map(&:first)
+  end
+
+  # Every game a picked team plays in this contest — the scoring set behind one
+  # Selection. Single-week: that one matchup.
+  def matchups_for_team(team_slug)
+    slate ? slate.matchups_by_team[team_slug].to_a : []
+  end
+
+  # Whole-slate matchups grouped by team, for callers that need MANY teams at
+  # once (the leaderboard renders six picks per entry). One query, not one per
+  # pick per row.
+  def matchups_by_team
+    slate ? slate.matchups_by_team : {}
+  end
+
+  # The team's FROZEN multiplier — stored on its matchup rows at rank time, the
+  # same column Selection#compute_points! settles from and the slate page
+  # renders. Reading it (rather than recomputing) is what makes the price a
+  # player is shown the price they are paid.
+  def span_turf_score_for(team_slug)
+    matchups_for_team(team_slug).first&.turf_score
   end
 
   def picks_required
@@ -144,10 +314,19 @@ class Contest < ApplicationRecord
     "survivor_wc_free" => { entry_fee_cents: 0,     max_entries: 59, payouts: { 1 => 200_00 } },
 
     # Test scaffolding — $1 entry, gated behind ENABLE_TEST_SCAFFOLDING (AppFlags.test_scaffolding?).
-    # A low-stakes end-to-end rehearsal tier: 9 entries → $9 gross / $7 payout / $2 margin (22%).
+    # A low-stakes end-to-end rehearsal tier: 9 entries → $9 gross / $9 payout / $0 margin.
+    # BREAK-EVEN BY DESIGN (operator call, 2026-08-27): this tier exists to rehearse the full
+    # entry → onchain → grade → payout path with real money at pocket-change stakes, not to earn.
+    # A short fill loses money: grading pays only the ranks that EXIST (see max_paid_rank
+    # below), so 1 entry pays $5 (-$4), 2 pay $7 (-$5), and 3+ pay the full $9 — making
+    # THREE entries the worst case at -$6, not one. That is the accepted cost of the
+    # rehearsal, and the reason the tier stays flag-gated.
     # Hidden from the create UIs unless the flag is on; DISABLE before the public launch.
-    # FORMATS still lists it always so an existing micro contest resolves config + grades correctly.
-    "micro"            => { entry_fee_cents: 1_00, max_entries: 9, payouts: { 1 => 5_00, 2 => 1_00, 3 => 1_00 } }
+    # FORMATS still lists it always so an existing micro contest resolves config + grades
+    # correctly — which also FREEZES this payout table once a micro contest exists on-chain:
+    # payouts are re-derived from here at grade time, so editing them would settle against a
+    # prize_pool PDA funded at the old numbers (settle_contest.rs SettlementOverflow).
+    "micro"            => { entry_fee_cents: 1_00, max_entries: 9, payouts: { 1 => 5_00, 2 => 2_00, 3 => 2_00 } }
   }.freeze
 
   # Format keys hidden from the contest-create UIs unless ENABLE_TEST_SCAFFOLDING is on.
@@ -423,10 +602,54 @@ class Contest < ApplicationRecord
     onchain_contest_id.present?
   end
 
+  # `onchain?` ANSWERS A NARROWER QUESTION THAN IT USED TO, and the difference
+  # is a chain write.
+  #
+  # Before the write-ahead reordering (PR #551) `onchain_contest_id` was stamped
+  # only AFTER a create_contest broadcast succeeded, so "the column is set" and
+  # "a Contest PDA exists" were the same fact. #finalize now derives the PDA and
+  # saves it on a `pending` row BEFORE broadcasting, so a stranded row answers
+  # `onchain?` with true while the address it names holds nothing.
+  #
+  # This predicate is the post-#551 version of that question: the row carries a
+  # PDA AND the broadcast that would have created it was verified. Use it to
+  # gate anything that TOUCHES the chain — an instruction aimed at a PDA that
+  # was never initialized fails with AccountNotInitialized, which reads to an
+  # operator like a program bug rather than a contest that never got created.
+  #
+  # `onchain?` is deliberately left alone. It still guards the after_create
+  # server-funded callback (see #skip_onchain_callback_active? and
+  # #create_onchain!'s own `return if onchain?`), and those guards exist to stop
+  # a SECOND create_contest paid from the house wallet. Narrowing `onchain?`
+  # would remove one of the three protections against that double spend to fix
+  # a loud, admin-only, money-free failure — a bad trade in both directions.
+  def onchain_verified?
+    onchain? && !pending?
+  end
+
   # On-chain cancellation (cancel_contest, 2-of-3). A cancelled contest is
-  # terminal — entries are refunded to the creator and no new entry may be
-  # submitted. Aliased as #cancelled? for read sites that don't care it's an
-  # on-chain flag. Distinct from #settled? (the other terminal state).
+  # terminal: no new entry may be submitted.
+  #
+  # WHO GETS THE MONEY, read off the program rather than off sibling prose —
+  # this comment has been wrong before. cancel_contest's ONLY token transfer
+  # moves the prize-pool PDA's full live balance to the CREATOR's ATA
+  # (turf_vault cancel_contest.rs; the destination is constrained
+  # `token::authority == contest.creator`). The creator funded that pool at
+  # create_contest, so cancelling returns it to them.
+  # Rails side: Solana::Vault#build_cancel_contest (vault.rb:1141).
+  #
+  # ENTRANTS ARE NOT REFUNDED BY THIS FLOW, and entries are not what moves.
+  # Entry fees never reach the prize pool at all — enter_contest transfers the
+  # user's ATA straight to the operator-revenue ATA — so there is no entrant
+  # money in the account cancel drains, and no instruction pays an entrant back.
+  # Compensation is a manual mint_entry_token goodwill playbook with no code
+  # path (docs/workflows/submit-entry-decision-tree.md row 7); Terms promise an
+  # entry-fee refund only for a contest cancelled BEFORE it locks, on request by
+  # email (pages/terms.html.erb #refunds). So an entrant looking at "Cancelled"
+  # may still be owed something — see ContestsHelper#contest_live_state.
+  #
+  # Aliased as #cancelled? for read sites that don't care it's an on-chain flag.
+  # Distinct from #settled? (the other terminal state).
   def cancelled?
     onchain_cancelled?
   end
@@ -599,6 +822,7 @@ class Contest < ApplicationRecord
   end
 
   private
+
 
   # NEUTRALIZE Sluggable's auto-derive. Sluggable runs `before_save :set_slug`,
   # which by default does `self.slug = name_slug` on EVERY save — that re-couples

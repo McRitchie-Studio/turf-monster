@@ -29,10 +29,55 @@ module Solana
         return ok(message: "Transaction canceled.", toast: true)
       end
 
+      # A SELF-CUSTODY ACCOUNT ON A WEB2 SESSION, reaching a path that needs a
+      # custodial keypair it does not have. #resolve_web2_entry_funding! raises
+      # "Managed wallet missing keypair (cannot sign entry)" for exactly this
+      # shape, and until 2026-09-07 that RAISE STRING WAS THE USER-FACING COPY:
+      # a player who signed in with Google got a red card reading it, stacked
+      # over the web3 step-up card that was already telling them what to do.
+      #
+      # ContestsController#enter now refuses this before it ever attempts to
+      # sign, so this branch is the BACKSTOP rather than the fix — which is
+      # precisely why it belongs here. The message is the one thing an
+      # interpreter can always promise: whatever else drifts, no raise text
+      # reaches a modal. It maps to the same web3_step_up_required blocker the
+      # guard returns, so a player who arrives by either route lands on the same
+      # card. mode-free on purpose: the account's problem is that it has no
+      # managed wallet, which is true whichever session is asking.
+      if stripped.match?(/managed wallet missing keypair/i)
+        return ok(
+          message: "Sign in with your wallet to enter — this account's entries are signed by the wallet itself.",
+          blocker: { reason: "web3_step_up_required", mode: "web3", data: {} },
+          log: true
+        )
+      end
+
       # web2 — managed wallet can't fund the entry by ANY enabled method
       # (no entry token, and USDC entry off or insufficient). Server-side raise
       # from ContestsController#resolve_web2_entry_funding! when the flag is off
-      # / token-only. Maps to the no_funding blocker → board opens Top Up Wallet.
+      # / token-only. Maps to the no_funding blocker.
+      #
+      # WHERE THAT BLOCKER SENDS THE PLAYER, because this comment used to name a
+      # modal the board does not open. no_funding is answered by ONE client
+      # dispatcher, selectionBoard#showFundsNeeded (contests/_turf_totals_board,
+      # case 'no_funding'), and it forks once: a web2 session with
+      # ENABLE_WEB2_USDC_ENTRY off — the USDC kill-switch audience, who cannot pay
+      # an entry with USDC at all — is offered Buy an Entry Token
+      # (modals/_buy_entry_token); everyone else gets the Get USDC teaching card
+      # (modals/_buy_usdc). Even that fork lands on Get USDC when the server
+      # reports no entry-token rail available, so Get USDC is the destination
+      # whenever the token rails are dark.
+      #
+      # It is NOT Top Up Wallet (modals/_wallet_topup), which leads with the CDP
+      # onramp and has no legal clearance (operator, 2026-09-06). At head that
+      # modal has no entrance at all, and BOTH ways in are closed:
+      # selectionBoard#showWalletTopup has no caller, and the Add Funds hub's
+      # Back link swaps there only when props.returnModal is 'wallet-topup' — a
+      # prop written in exactly one place, modals/_wallet_topup itself, which
+      # makes that link a return path from itself rather than a way in. It
+      # regains an entrance the moment either condition changes: something calls
+      # showWalletTopup, or some other opener passes returnModal: 'wallet-topup'.
+      # Re-check both before naming it here again.
       if stripped.match?(/no entry tokens/i)
         return ok(
           message: stripped,
@@ -41,15 +86,20 @@ module Solana
       end
 
       # web2 / managed USDC entry underfunded. Two shapes reach here, both
-      # meaning "the managed wallet can't cover the USDC entry fee → Top Up":
+      # meaning "the managed wallet can't cover the USDC entry fee":
       #   1. the #resolve_web2_entry_funding! pre-check raise ("Not enough USDC
       #      …"), which validates the balance BEFORE the irreversible on-chain
       #      enter (the funding-preflight safety net, 2026-06-13); and
       #   2. the raw SPL token-program insufficient-funds error ("custom program
       #      error: 0x1") as a BACKSTOP, on the off chance a $0 entry still
       #      reaches the chain (race / flag flip).
-      # Map BOTH to no_funding/web2 so the board opens the Top Up Wallet instead
-      # of leaking the cryptic 0x1 sim error. web2-scoped: a raw 0x1 means an SPL
+      # Map BOTH to no_funding/web2 so the board routes them through
+      # showFundsNeeded — Get USDC (modals/_buy_usdc), or Buy an Entry Token
+      # (modals/_buy_entry_token) for the USDC kill-switch audience — instead of
+      # leaking the cryptic 0x1 sim error. Top Up Wallet is on neither branch and
+      # has no entrance at head; the two conditions that would give it one are
+      # spelled out at the no-entry-tokens branch above.
+      # web2-scoped: a raw 0x1 means an SPL
       # transfer, which only the managed USDC path performs; web3 underfunding
       # surfaces as Anchor 6002 / 0x1772 (handled below). The 0x1 boundary keeps
       # 0x1772 (6002) from matching here.
@@ -66,9 +116,13 @@ module Solana
 
       # InsufficientBalance (6002 / 0x1772). Raised by enter_contest when the
       # wallet's USDC/USDT ATA can't cover the entry fee. mode-aware: a web2 /
-      # managed USDC entry that underfunds maps to no_funding/web2 (Top Up
-      # Wallet, Coinbase-forward), NOT the web3 deposit/currency picker. web3
-      # (Phantom) keeps the insufficient_balance/web3 deposit modal.
+      # managed USDC entry that underfunds maps to no_funding/web2, which the
+      # board answers through showFundsNeeded — Get USDC (modals/_buy_usdc), or
+      # Buy an Entry Token (modals/_buy_entry_token) for the USDC kill-switch
+      # audience — NOT the web3 deposit/currency picker, and not Top Up Wallet,
+      # which has no entrance at head (both conditions at the no-entry-tokens
+      # branch above). web3 (Phantom) keeps the insufficient_balance/web3
+      # deposit modal.
       if stripped.match?(/0x1772|\b6002\b|insufficientbalance|insufficient (usdc|onchain|balance|funds)/i)
         if mode == "web2"
           return ok(

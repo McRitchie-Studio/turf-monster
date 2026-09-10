@@ -113,8 +113,8 @@ window.gameCard = function(data) {
       };
       requestAnimationFrame(progressFrame);
 
-      const homeET = this.gameData.home.dkGoalsExpectation || 1.5;
-      const awayET = this.gameData.away.dkGoalsExpectation || 1.5;
+      const homeET = this.gameData.home.expectedScore || 1.5;
+      const awayET = this.gameData.away.expectedScore || 1.5;
       const homeProb = homeET / TICKS;
       const awayProb = awayET / TICKS;
       const allHomePlayers = this.gameData.home.players || [];

@@ -1,7 +1,7 @@
 #!/bin/zsh
 # bin/setup-cdp-key — install the Coinbase CDP secret API key into turf-monster/.env
 #
-# Default (recommended) — pull the key straight from 1Password (agents vault):
+# Default (recommended) — pull the key straight from 1Password (agent vault):
 #   bin/setup-cdp-key
 #
 # Fallbacks (first-time setup before the key is in 1Password, or a different key):
@@ -10,8 +10,17 @@
 #
 # Then restart the dev stack:  bin/tm restart
 #
-# 1Password item: op://agents/Coinbase Developer Platform/{API key ID, Secret}
-# (op runs as the agent service account — see mcritchie-studio docs/agents/system/credentials.md.)
+# 1Password item:
+#   op://${MCR_OP_VAULT_AGENT:-agents-studio}/Coinbase Developer Platform/{API key ID, Secret}
+# (op runs as the agent service account — see mcritchie-studio docs/agents/modules/credentials.md.)
+#
+# THE VAULT NAME IS NOT A LITERAL, and that is the whole lesson of 2026-08-28.
+# It was `agents`, the vault was renamed `agents-studio`, and this script broke
+# fleet-wide with `"agents" isn't a vault in this account`. Hardcoding the NEW
+# name only re-arms the same trap, so the vault is read the way mcritchie-studio's
+# bin/lib/op_vaults.rb reads it — an override with a default. A machine whose
+# vaults are named differently sets MCR_OP_VAULT_AGENT instead of editing this file.
+# Guarded by test/lib/setup_cdp_key_vault_test.rb.
 #
 # The secret never appears in shell history or chat — it's piped via stdin to a
 # Ruby validator, never echoed. Ed25519 secrets are length-checked (64 bytes);
@@ -59,7 +68,7 @@ RUBY_INSTALL='
   puts "Run bin/tm restart to pick it up."
 '
 
-OP_ITEM="op://agents/Coinbase Developer Platform"
+OP_ITEM="op://${MCR_OP_VAULT_AGENT:-agents-studio}/Coinbase Developer Platform"
 
 case "${1:-}" in
   --clipboard)

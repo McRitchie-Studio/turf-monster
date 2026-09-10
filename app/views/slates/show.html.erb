@@ -18,19 +18,32 @@
     dkTotal: '#4BAF50'             // DK Expectation (green)
   };
 
-  var _fcMatchups = <%== @matchups.ranked.includes(:team, :opponent_team).map { |m|
+  <%# Charted per TEAM, not per matchup row — a three-week slate would otherwise
+      plot 96 points for 32 teams and rank each team three times. team_total is
+      the SUM across the team's games, which is what the curve is fitted on. %>
+  var _fcMatchups = <%== @team_rows.map { |row|
     {
-      rank: m.rank,
-      emoji: m.team.emoji,
-      team: m.team.name,
-      short: m.team.short_name,
-      opponent: m.opponent_team&.short_name,
-      turf_score: m.turf_score&.to_f,
-      team_total: m.dk_goals_expectation&.to_f
+      rank: row.rank,
+      emoji: row.team.emoji,
+      team: row.team.name,
+      short: row.team.short_name,
+      opponent: row.matchups.filter_map { |m| m.opponent_team&.short_name }.join(" / "),
+      turf_score: row.turf_score&.to_f,
+      team_total: row.expected_points
     }
   }.to_json %>;
 
   var _fcChart = null;
+
+  // Sport-aware multiplier curve, base PINNED at 1.0 (rank 1 always x1.0).
+  // fifa: log decay; nfl: linear (points run nearly linear by rank).
+  // Ruby mirror: SlateMatchup.turf_score_for.
+  var FC_SPORT = '<%= @slate.sport %>';
+  function _fcMult(rank, N, multScale) {
+    if (N <= 1) return 1.0;
+    var curve = FC_SPORT === 'nfl' ? (rank - 1) / (N - 1) : Math.log(rank) / Math.log(N);
+    return 1.0 + multScale * curve;
+  }
 
   function _fcCompute(A, lineExp, probExp, multBase, multScale, goalBase, goalScale) {
     var N = _fcMatchups.length;
@@ -39,11 +52,34 @@
       var rank = i + 1;
       return {
         emoji: m.emoji, team: m.team, opponent: m.opponent, rank: rank,
-        mult: Math.round((multBase + multScale * Math.log(rank) / lnN) * 100) / 100,
+        mult: Math.round(_fcMult(rank, N, multScale) * 100) / 100,
         goals: Math.round((goalBase + goalScale * Math.log(N / rank) / lnN) * 100) / 100,
         teamTotal: m.team_total
       };
     });
+  }
+
+  // NFL axis windows: shrink the DK axis to the data (visual fidelity), then
+  // derive the reversed Turf window LINEARLY from it so turf 1.0 maps to the
+  // same pixel as the DK maximum — both lines leave the same point, and the
+  // x2 top lands on the DK minimum's pixel. Returns null when the mapping is
+  // undefined (no DK data, or a flat DK line) — callers fall back to static
+  // windows.
+  function _fcNflAxisWindows(data, multScale) {
+    if (FC_SPORT !== 'nfl') return null;
+    var dkVals = data.map(function(d) { return d.teamTotal; }).filter(function(v) { return v !== null && v !== undefined; });
+    if (dkVals.length < 2) return null;
+    var dkMax = Math.max.apply(null, dkVals);
+    var dkMin = Math.min.apply(null, dkVals);
+    if (dkMax === dkMin) return null;
+    // ~one extra deviation of margin: the lines float inside the window
+    // (e.g. 50-85 / 0.8-2.2 on a 54-81 spread) instead of touching its edges.
+    var pad = Math.max(2, (dkMax - dkMin) * 0.13);
+    var y2Min = Math.floor(dkMin - pad);
+    var y2Max = Math.ceil(dkMax + pad);
+    var tMin = 1 - multScale * (y2Max - dkMax) / (dkMax - dkMin);
+    var tMax = tMin + multScale * (y2Max - y2Min) / (dkMax - dkMin);
+    return { y2Min: y2Min, y2Max: y2Max, tMin: tMin, tMax: tMax };
   }
 
   function _fcBuildChart(data) {
@@ -51,38 +87,44 @@
     if (!canvas) return;
     var existing = Chart.getChart(canvas);
     if (existing) existing.destroy();
+    var windows = _fcNflAxisWindows(data, _fcSliders.multScale);
 
     var isDark = document.documentElement.classList.contains('dark');
     var gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
     var textColor = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)';
 
+    var datasets = [
+      {
+        label: 'Turf Score',
+        data: data.map(function(d) { return d.mult; }),
+        borderColor: FC.mult,
+        backgroundColor: FC.mult + '14',
+        borderWidth: 2.5, pointRadius: 2, pointHoverRadius: 6, tension: 0.3, fill: false, yAxisID: 'y', order: 1
+      }
+    ];
+    // Goals are a soccer concept — on NFL slates the series is noise.
+    if (FC_SPORT !== 'nfl') {
+      datasets.push({
+        label: 'Goals Distribution',
+        data: data.map(function(d) { return d.goals; }),
+        borderColor: FC.goals,
+        backgroundColor: FC.goals + '14',
+        borderWidth: 2, borderDash: [6, 3], pointRadius: 2, pointHoverRadius: 6, tension: 0.3, fill: false, yAxisID: 'y', order: 2
+      });
+    }
+    datasets.push({
+      label: 'DK Expectation',
+      data: data.map(function(d) { return d.teamTotal; }),
+      borderColor: FC.dkTotal,
+      backgroundColor: FC.dkTotal + '14',
+      borderWidth: 1.5, borderDash: [6, 3], pointRadius: 2, pointHoverRadius: 6, tension: 0.3, fill: false, yAxisID: 'y2', spanGaps: true, order: 3
+    });
+
     _fcChart = new Chart(canvas, {
       type: 'line',
       data: {
         labels: data.map(function(d) { return d.emoji; }),
-        datasets: [
-          {
-            label: 'Turf Score',
-            data: data.map(function(d) { return d.mult; }),
-            borderColor: FC.mult,
-            backgroundColor: FC.mult + '14',
-            borderWidth: 2.5, pointRadius: 2, pointHoverRadius: 6, tension: 0.3, fill: false, yAxisID: 'y', order: 1
-          },
-          {
-            label: 'Goals Distribution',
-            data: data.map(function(d) { return d.goals; }),
-            borderColor: FC.goals,
-            backgroundColor: FC.goals + '14',
-            borderWidth: 2, borderDash: [6, 3], pointRadius: 2, pointHoverRadius: 6, tension: 0.3, fill: false, yAxisID: 'y', order: 2
-          },
-          {
-            label: 'DK Expectation',
-            data: data.map(function(d) { return d.teamTotal; }),
-            borderColor: FC.dkTotal,
-            backgroundColor: FC.dkTotal + '14',
-            borderWidth: 1.5, borderDash: [6, 3], pointRadius: 2, pointHoverRadius: 6, tension: 0.3, fill: false, yAxisID: 'y', spanGaps: true, order: 3
-          }
-        ]
+        datasets: datasets
       },
       options: {
         responsive: true, maintainAspectRatio: false,
@@ -114,8 +156,22 @@
         },
         scales: {
           x: { ticks: { color: textColor, font: { size: 14 }, maxRotation: 0, minRotation: 0, autoSkip: true, maxTicksLimit: 48 }, grid: { color: gridColor } },
-          y: { position: 'left', title: { display: true, text: 'Turf Score', color: textColor, font: { size: 11 } }, ticks: { color: textColor }, grid: { color: gridColor }, min: 0, max: 5 },
-          y2: { position: 'right', title: { display: true, text: 'DK Total', color: textColor, font: { size: 11 } }, ticks: { color: textColor }, grid: { drawOnChartArea: false }, min: 0, max: 5 }
+          // DK Total owns the LEFT axis and auto-scales to the data — an NFL
+          // span slate reads ~0-85 while a World Cup goals slate reads ~0-5.
+          // The old config bound DK Expectation to the 0-5 Turf axis, drawing
+          // an 81-point total off-chart while a hardcoded 0-5 "DK Total" axis
+          // mirrored uselessly on the right. Axis text wears the series green
+          // so the accurate scale reads as the green line's.
+          y2: windows
+            ? { position: 'left', title: { display: true, text: 'DK Total', color: FC.dkTotal, font: { size: 11 } }, ticks: { color: FC.dkTotal }, grid: { drawOnChartArea: false }, min: windows.y2Min, max: windows.y2Max }
+            : { position: 'left', title: { display: true, text: 'DK Total', color: FC.dkTotal, font: { size: 11 } }, ticks: { color: FC.dkTotal }, grid: { drawOnChartArea: false }, beginAtZero: true },
+          // NFL: reversed so x1.0 sits at the TOP — the Turf line then falls
+          // with rank alongside the DK Expectation line instead of crossing it,
+          // and the window derived by _fcNflAxisWindows anchors turf 1.0 to the
+          // DK maximum's pixel so both lines leave the same point.
+          y: windows
+            ? { position: 'right', reverse: true, title: { display: true, text: 'Turf Score', color: textColor, font: { size: 11 } }, ticks: { color: textColor }, grid: { color: gridColor }, min: windows.tMin, max: windows.tMax }
+            : { position: 'right', reverse: FC_SPORT === 'nfl', title: { display: true, text: 'Turf Score', color: textColor, font: { size: 11 } }, ticks: { color: textColor }, grid: { color: gridColor }, min: 0, max: 5 }
         }
       }
     });
@@ -141,9 +197,22 @@
     var data = _fcCompute(A, lineExp, probExp, multBase, multScale, goalBase, goalScale);
     _fcLastData = data;
     if (!_fcChart) { _fcBuildChart(data); return; }
-    _fcChart.data.datasets[0].data = data.map(function(d) { return d.mult; });
-    _fcChart.data.datasets[1].data = data.map(function(d) { return d.goals; });
-    _fcChart.data.datasets[2].data = data.map(function(d) { return d.teamTotal; });
+    // Label-keyed: NFL charts carry no Goals Distribution dataset, so index
+    // positions are not stable across sports.
+    _fcChart.data.datasets.forEach(function(ds) {
+      if (ds.label === 'Turf Score') ds.data = data.map(function(d) { return d.mult; });
+      else if (ds.label === 'Goals Distribution') ds.data = data.map(function(d) { return d.goals; });
+      else if (ds.label === 'DK Expectation') ds.data = data.map(function(d) { return d.teamTotal; });
+    });
+    // A scale change moves the turf window's bottom anchor (top stays pinned
+    // to the DK maximum), so the NFL axis windows recompute on every update.
+    var windows = _fcNflAxisWindows(data, multScale);
+    if (windows) {
+      _fcChart.options.scales.y.min = windows.tMin;
+      _fcChart.options.scales.y.max = windows.tMax;
+      _fcChart.options.scales.y2.min = windows.y2Min;
+      _fcChart.options.scales.y2.max = windows.y2Max;
+    }
     _fcChart.update('none');
     _fcUpdateRankList(A, lineExp, probExp, multBase, multScale);
   }
@@ -172,7 +241,7 @@
     items.forEach(function(item, i) {
       var rank = i + 1;
       var line = parseFloat(item.dataset.teamTotal);
-      var mult = (multBase + multScale * Math.log(rank) / lnN);
+      var mult = _fcMult(rank, N, multScale);
       item.querySelector('.turf-score-display').textContent = mult.toFixed(1) + 'x';
     });
   }
@@ -226,11 +295,14 @@
 
   <!-- Slate tab selector -->
   <% if @slates.size > 1 %>
-    <div class="flex gap-2 mb-6">
+    <%# flex-wrap + whitespace-nowrap: a plain `flex` row squeezed ~30 pills until
+        each one wrapped onto three lines. Let the ROW wrap instead and keep every
+        pill on one line. %>
+    <div class="flex flex-wrap gap-2 mb-6">
       <% @slates.each do |slate| %>
         <% active = slate.id == @slate.id %>
-        <%= link_to slate.name.sub("World Cup 2026 Group ", ""), slate_path(slate),
-          class: "px-4 py-2 rounded-full text-sm font-semibold transition-all #{active ? 'bg-primary text-white' : 'bg-surface-alt text-secondary hover:text-heading'}" %>
+        <%= link_to "#{slate.sport_emoji} #{slate.selector_label}", slate_path(slate),
+          class: "px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-all #{active ? 'bg-primary text-white' : 'bg-surface-alt text-secondary hover:text-heading'}" %>
       <% end %>
     </div>
   <% end %>
@@ -250,15 +322,15 @@
         <div class="mb-3">
           <span class="text-sm font-bold text-heading">Turf Score</span>
           <span class="text-muted text-sm"> = </span>
-          <span class="font-mono text-sm" style="color: var(--fc-mult)" x-text="multBase.toFixed(1)"></span>
+          <span class="font-mono text-sm" style="color: var(--fc-mult)">1.0</span>
           <span class="text-muted text-sm"> + </span>
           <span class="font-mono text-sm" style="color: var(--fc-mult)" x-text="multScale.toFixed(1)"></span>
-          <span class="text-muted text-sm"> &times; ln(rank) / ln(N)</span>
+          <span class="text-muted text-sm"> &times; <%= @slate.sport == "nfl" ? "(rank − 1) / (N − 1)" : "ln(rank) / ln(N)" %></span>
         </div>
+        <%# Base is pinned — rank 1 always prices x1.0; only the top end flexes. %>
         <div class="grid grid-cols-2 gap-4">
           <div>
-            <label class="text-xs text-muted block mb-1">Base <span class="font-mono" style="color: var(--fc-mult)" x-text="multBase.toFixed(1)"></span></label>
-            <input type="range" min="0" max="3" step="0.1" x-model.number="multBase" @input="refresh()" class="w-full" style="accent-color: var(--fc-mult);">
+            <label class="text-xs text-muted block mb-1">Base <span class="font-mono" style="color: var(--fc-mult)">1.0</span> <span class="text-muted">(pinned — rank 1 is always x1.0)</span></label>
           </div>
           <div>
             <label class="text-xs text-muted block mb-1">Scale <span class="font-mono" style="color: var(--fc-mult)" x-text="multScale.toFixed(1)"></span></label>
@@ -267,27 +339,30 @@
         </div>
       </div>
 
-      <!-- Goals Distribution -->
-      <div class="bg-surface border border-subtle rounded-lg p-4" style="border-left: 3px solid var(--fc-goals);">
-        <div class="mb-3">
-          <span class="text-sm font-bold text-heading">Goals Distribution</span>
-          <span class="text-muted text-sm"> = </span>
-          <span class="font-mono text-sm" style="color: var(--fc-goals)" x-text="goalBase.toFixed(1)"></span>
-          <span class="text-muted text-sm"> + </span>
-          <span class="font-mono text-sm" style="color: var(--fc-goals)" x-text="goalScale.toFixed(1)"></span>
-          <span class="text-muted text-sm"> &times; ln(N/rank) / ln(N)</span>
-        </div>
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="text-xs text-muted block mb-1">Base <span class="font-mono" style="color: var(--fc-goals)" x-text="goalBase.toFixed(1)"></span></label>
-            <input type="range" min="0" max="3" step="0.1" x-model.number="goalBase" @input="refresh()" class="w-full" style="accent-color: var(--fc-goals);">
+      <%# Goals are a soccer concept — the card hides on NFL slates. %>
+      <% unless @slate.sport == "nfl" %>
+        <!-- Goals Distribution -->
+        <div class="bg-surface border border-subtle rounded-lg p-4" style="border-left: 3px solid var(--fc-goals);">
+          <div class="mb-3">
+            <span class="text-sm font-bold text-heading">Goals Distribution</span>
+            <span class="text-muted text-sm"> = </span>
+            <span class="font-mono text-sm" style="color: var(--fc-goals)" x-text="goalBase.toFixed(1)"></span>
+            <span class="text-muted text-sm"> + </span>
+            <span class="font-mono text-sm" style="color: var(--fc-goals)" x-text="goalScale.toFixed(1)"></span>
+            <span class="text-muted text-sm"> &times; ln(N/rank) / ln(N)</span>
           </div>
-          <div>
-            <label class="text-xs text-muted block mb-1">Scale <span class="font-mono" style="color: var(--fc-goals)" x-text="goalScale.toFixed(1)"></span></label>
-            <input type="range" min="0" max="10" step="0.5" x-model.number="goalScale" @input="refresh()" class="w-full" style="accent-color: var(--fc-goals);">
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="text-xs text-muted block mb-1">Base <span class="font-mono" style="color: var(--fc-goals)" x-text="goalBase.toFixed(1)"></span></label>
+              <input type="range" min="0" max="3" step="0.1" x-model.number="goalBase" @input="refresh()" class="w-full" style="accent-color: var(--fc-goals);">
+            </div>
+            <div>
+              <label class="text-xs text-muted block mb-1">Scale <span class="font-mono" style="color: var(--fc-goals)" x-text="goalScale.toFixed(1)"></span></label>
+              <input type="range" min="0" max="10" step="0.5" x-model.number="goalScale" @input="refresh()" class="w-full" style="accent-color: var(--fc-goals);">
+            </div>
           </div>
         </div>
-      </div>
+      <% end %>
 
       <!-- DK Score -->
       <div class="bg-surface border border-subtle rounded-lg p-4" style="border-left: 3px solid var(--fc-dk-score);">
@@ -347,22 +422,29 @@
       </div>
 
       <div class="space-y-1" x-ref="sortableList">
-        <% @matchups.each_with_index do |matchup, i| %>
+        <%# One row per TEAM. A team's DK total is the SUM across every game it
+            plays in this slate, and that sum is what its rank and multiplier are
+            derived from. A one-week slate has one game per team, so this renders
+            exactly as it always did. The drag handle carries the team's FIRST
+            matchup id; update_rankings resolves it to the team and writes the
+            rank to all of that team's games. %>
+        <% @team_rows.each_with_index do |row, i| %>
           <div class="flex items-center gap-3 bg-surface rounded-lg px-4 py-3 border border-subtle cursor-grab active:cursor-grabbing sortable-item"
-               data-matchup-id="<%= matchup.id %>"
-               data-team-total="<%= matchup.dk_goals_expectation&.to_f %>">
-            <span class="font-mono text-muted text-sm w-8 text-right rank-number"><%= matchup.rank || i + 1 %></span>
-            <span class="text-lg"><%= matchup.team.emoji %></span>
-            <div class="flex-1 flex items-center gap-2">
-              <span class="text-heading font-semibold text-sm"><%= matchup.team.name %></span>
-              <% if matchup.opponent_team %>
-                <span class="text-muted text-xs">vs <%= matchup.opponent_team.short_name %></span>
+               data-matchup-id="<%= row.matchups.first.id %>"
+               data-team-total="<%= row.expected_points %>">
+            <span class="font-mono text-muted text-sm w-8 text-right rank-number"><%= row.rank || i + 1 %></span>
+            <span class="text-lg"><%= row.team.emoji %></span>
+            <div class="flex-1 flex items-center gap-2 flex-wrap">
+              <span class="text-heading font-semibold text-sm"><%= row.team.name %></span>
+              <% opponents = row.matchups.filter_map { |m| m.opponent_team&.short_name } %>
+              <% if opponents.any? %>
+                <span class="text-muted text-xs">vs <%= opponents.join(" / ") %></span>
               <% end %>
-              <% if matchup.dk_goals_expectation %>
-                <span class="text-muted text-xs">DK <%= sprintf('%.1f', matchup.dk_goals_expectation) %></span>
+              <% if row.expected_points.positive? %>
+                <span class="text-muted text-xs">DK <%= sprintf('%.1f', row.expected_points) %></span>
               <% end %>
             </div>
-            <span class="font-mono text-primary text-sm w-12 text-right turf-score-display"><%= matchup.turf_score ? sprintf('%.1f', matchup.turf_score) : '—' %>x</span>
+            <span class="font-mono text-primary text-sm w-12 text-right turf-score-display"><%= row.turf_score ? sprintf('%.1f', row.turf_score) : '—' %>x</span>
           </div>
         <% end %>
       </div>

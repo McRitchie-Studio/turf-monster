@@ -22,9 +22,21 @@ modal, never a silent no-op), built so the mechanism can be lifted into
 
 ## Current state (what exists today)
 
-`config/initializers/rack_attack.rb` (OPSEC-019, rack-attack 6.8.0). 17
+`config/initializers/rack_attack.rb` (OPSEC-019, rack-attack 6.8.0). **27**
 `throttle` blocks, no safelists/blocklists, a custom 429 responder, and a
 `throttle.rack_attack` WARN logger.
+
+**Re-derived from the file, 2026-09-07.** This table read `17` and listed
+seventeen rows while the initializer already held twenty-six — the three
+non-Stripe webhooks, the CDP and PayPal/Coinflow/Aeropay checkouts,
+`check_funding/ip` and `general/ip` had all landed without an entry here. A
+limits table that is short by a third is worse than none: the gaps read as
+"unthrottled", which is the one thing this page exists to answer. Re-derive it
+rather than extend it:
+
+```bash
+grep -n '^  throttle("' config/initializers/rack_attack.rb
+```
 
 | Bucket | Throttle | Limit | Key |
 |---|---|---|---|
@@ -32,6 +44,7 @@ modal, never a silent no-op), built so the mechanism can be lifted into
 | Auth | `login/email` | 5 / min | downcased email param |
 | Auth | `solana_nonce/ip` | 30 / min | ip |
 | Auth | `solana_verify/ip` | 10 / min | ip |
+| Auth | `solana_report_failure/ip` | 20 / min | ip (unauthenticated; writes an `error_logs` row per call) |
 | Auth | `link_solana/ip` | 5 / min | ip |
 | Auth | `signup/ip` | 5 / min | ip |
 | Auth | `magic_link/ip` | **5 / hour** | ip |
@@ -40,11 +53,20 @@ modal, never a silent no-op), built so the mechanism can be lifted into
 | Money | `faucet/ip` | 5 / hour | ip |
 | Money | `airdrop/ip` | 5 / hour | ip |
 | Money | `stripe_checkout/ip` | 10 / min | ip (covers `/tokens/stripe_checkout` + `/wallet/stripe_deposit`) |
+| Money | `paypal_checkout/ip` | 10 / min | ip (`/tokens/paypal_order` + `/tokens/paypal_capture`) |
+| Money | `coinflow_checkout/ip` | 10 / min | ip (`/tokens/coinflow_order`) |
+| Money | `aeropay_checkout/ip` | 10 / min | ip (`/tokens/aeropay_order`) |
+| Money | `cdp_sessions/user` | 10 / min | session user id (`/cdp/onramp_sessions` + `/cdp/offramp_sessions`) |
 | Money | `wallet_withdraw/ip` | 5 / min | ip |
 | Money | `webhooks/stripe` | 100 / min | ip |
+| Money | `webhooks/paypal` | 100 / min | ip |
+| Money | `webhooks/coinflow` | 100 / min | ip |
+| Money | `webhooks/aeropay` | 100 / min | ip |
 | Interactive | `chat_messages/ip` | 40 / min | ip (regex `/contests/:id/messages`) |
 | Interactive | `prepare_entry/ip` | 30 / min | ip (regex `/contests/:id/prepare_entry`) |
+| Interactive | `check_funding/ip` | 30 / min | ip (regex `/contests/:id/check_funding`) |
 | Interactive | `update_username/ip` | 10 / min | ip |
+| Interactive | `general/ip` | 90 / 60s | ip (tier-1 limiter — toggle_selection / enter / clear_picks) |
 
 Key facts that constrain the design:
 

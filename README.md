@@ -46,7 +46,7 @@ bin/tm up
 
 Seeds create 5 users, 48 World Cup teams plus 31 knockout-slot placeholders, 32 NFL teams, 38 NFL schedule venues, 104 World Cup matches (72 group-stage, 32 knockout), 256 NFL regular season games across 17 slates, and 85 players.
 
-**Required `.env` keys**: `RAILS_MASTER_KEY` (not optional — seed encrypts managed wallets via `secret_key_base`), `GOOGLE_CLIENT_ID`/`SECRET`, `AWS_ACCESS_KEY_ID`/`SECRET`, `SOLANA_ADMIN_KEY`, `SOLANA_RPC_URL`, `MANAGED_WALLET_ENCRYPTION_KEY`, and mail transport credentials for local email delivery. Current 1Password item names live in McRitchie Studio's credential docs.
+**Required `.env` keys**: `RAILS_MASTER_KEY` (not optional — seed encrypts managed wallets via `secret_key_base`), `GOOGLE_CLIENT_ID`/`SECRET`, `AWS_ACCESS_KEY_ID`/`SECRET`, `SOLANA_ADMIN_KEY`, `SOLANA_RPC_URL` (server-side; `SOLANA_PUBLIC_RPC_URL` is the optional browser-facing sibling), `MANAGED_WALLET_ENCRYPTION_KEY`, and mail transport credentials for local email delivery. Current 1Password item names live in McRitchie Studio's credential docs.
 
 ## Prerequisites (single-app path)
 
@@ -55,6 +55,14 @@ Seeds create 5 users, 48 World Cup teams plus 31 knockout-slot placeholders, 32 
 - Redis (Sidekiq queue)
 - Node.js **22.x** (keeps local dev, CI, and Heroku aligned; turf-vault needs at least Node 20.18.0)
 - Bundler 2.4+
+- **ImageMagick** (`brew install imagemagick`) — Active Storage variants render
+  through it, not libvips. `config/application.rb` pins
+  `active_storage.variant_processor = :mini_magick` because libvips is absent
+  from every machine this app runs on (measured on turf-monster-mainnet,
+  turf-monster-qa and the dev Macs, all of which carry `magick` and no `vips`).
+  Without it the contest link-preview card cannot render and
+  `test/models/contest_og_card_test.rb` fails with
+  `executable not found: "convert"`.
 
 ## Test
 
@@ -77,6 +85,24 @@ npm run test:headed             # with visible browser
 - **Phantom wallet** connect, self-custody USDC/USDT entry, and on-chain payouts
 - **Dark/light theme** toggle with green primary palette
 
+## Release flow
+
+Turf Monster integrates through the McRitchie Studio DevOps cycle on a
+three-rung branch ladder — **`accepted` → `release` → `main`**:
+
+- **Feature PRs target `accepted`.** Cut `feat/<slug>` from `accepted` and open
+  the PR into `accepted` — never against `release` or `main`. Review merges it to
+  `accepted` and moves the task to `reviewed`.
+- **The studio sweep promotes `accepted` → `release`.** `bin/release prepare`
+  opens one batch PR per repo and merges it, so the `release` tip earns its own
+  CI verdict.
+- **Ship fast-forwards `release` → `main` and deploys production** via
+  `bin/deploy` (see [Deploy](#deploy) below).
+
+`main` holds shipped integration; it is not a merge target. The full cycle lives
+in the hub —
+[`devops-cycle-design.md`](https://github.com/amcritchie/mcritchie-studio/blob/main/docs/agents/system/devops-cycle-design.md).
+
 ## Deploy
 
 ```bash
@@ -84,7 +110,7 @@ bin/deploy   # single mainnet target → turf-monster-mainnet (real funds, confi
 ```
 
 Migrations run in Heroku's release phase (Procfile `release:`), not the deploy
-script. `MAINNET_LAUNCH.md` is historical first-launch context; current deploys use `bin/deploy`. Platform: Heroku (heroku-24 stack) with buildpacks ordered `heroku/nodejs` then `heroku/ruby` so `package.json` pins Node 22 for asset builds. Required env vars include `RAILS_MASTER_KEY`, `RAILS_SERVE_STATIC_FILES=true`, `SOLANA_ADMIN_KEY`, `SOLANA_RPC_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and the active mail transport settings.
+script. `MAINNET_LAUNCH.md` is historical first-launch context; current deploys use `bin/deploy`. Platform: Heroku (heroku-24 stack) with buildpacks ordered `heroku/nodejs` then `heroku/ruby` so `package.json` pins Node 22 for asset builds. Required env vars include `RAILS_MASTER_KEY`, `RAILS_SERVE_STATIC_FILES=true`, `SOLANA_ADMIN_KEY`, `SOLANA_RPC_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and the active mail transport settings. Any app whose `SOLANA_RPC_URL` carries a provider api-key should also set `SOLANA_PUBLIC_RPC_URL` — see "RPC endpoints — server vs browser" in `docs/SOLANA.md`.
 
 After every deploy, run the smoke checklist in [`RUNBOOK.md`](RUNBOOK.md):
 release output, `/up`, the live contest URL, payment-provider gates, and a real

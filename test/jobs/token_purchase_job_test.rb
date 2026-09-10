@@ -278,7 +278,173 @@ class TokenPurchaseJobTest < ActiveJob::TestCase
     assert_equal "stripe:#{purchase.id}:0", vault.mint_calls.first
   end
 
+  # ── Coinflow (purchase_type: "coinflow") ────────────────────────────────
+
+  test "coinflow: mints 1 token against a captured CoinflowPurchase (buy-1)" do
+    purchase = create_coinflow_purchase(reference: "coinflow_job")
+    vault = FakeVault.new
+    Solana::Vault.stub :new, vault do
+      TokenPurchaseJob.perform_now(user_id: @user.id, pack_id: "single", wallet_address: @wallet,
+                                   purchase_type: "coinflow", coinflow_reference: "coinflow_job")
+    end
+
+    purchase.reload
+    assert_equal "minted", purchase.status
+    assert_equal 1, purchase.tx_signatures.length
+    # source_ref parity: "<provider>:<purchase_id>:<i>" — short, distinct, fits [u8;64].
+    assert_equal "coinflow:#{purchase.id}:0", vault.mint_calls.first
+    assert vault.mint_calls.all? { |r| r.bytesize <= 64 }
+    assert TransactionLog.where("metadata @> ?", { coinflow_reference: "coinflow_job" }.to_json).exists?
+  end
+
+  test "coinflow: skips when no CoinflowPurchase row exists — never creates one" do
+    vault = FakeVault.new
+    Solana::Vault.stub :new, vault do
+      TokenPurchaseJob.perform_now(user_id: @user.id, pack_id: "single", wallet_address: @wallet,
+                                   purchase_type: "coinflow", coinflow_reference: "coinflow_missing")
+    end
+    assert_equal 0, vault.mint_calls.length
+    assert_nil CoinflowPurchase.for_reference("coinflow_missing").first
+  end
+
+  test "coinflow: refunded purchase short-circuits — never mints over refunded money" do
+    purchase = create_coinflow_purchase(reference: "coinflow_refunded")
+    purchase.mark_refunded!(reason: "refund while queued")
+
+    vault = FakeVault.new
+    Solana::Vault.stub :new, vault do
+      TokenPurchaseJob.perform_now(user_id: @user.id, pack_id: "single", wallet_address: @wallet,
+                                   purchase_type: "coinflow", coinflow_reference: "coinflow_refunded")
+    end
+    assert_equal 0, vault.mint_calls.length
+    assert_equal "refunded", purchase.reload.status
+  end
+
+  test "coinflow: already-minted purchase no-ops (OPSEC-009)" do
+    purchase = create_coinflow_purchase(reference: "coinflow_noop")
+    purchase.mark_minted!(["sig_a"])
+    vault = FakeVault.new
+    Solana::Vault.stub :new, vault do
+      TokenPurchaseJob.perform_now(user_id: @user.id, pack_id: "single", wallet_address: @wallet,
+                                   purchase_type: "coinflow", coinflow_reference: "coinflow_noop")
+    end
+    assert_equal 0, vault.mint_calls.length
+    assert_equal ["sig_a"], purchase.reload.tx_signatures
+  end
+
+  test "coinflow: a failed row is restored to captured and resumes on retry" do
+    # Simulate a prior run that failed (status flipped to failed by the rescue).
+    # The retry must re-mark it captured and mint the one token.
+    purchase = create_coinflow_purchase(reference: "coinflow_resume")
+    purchase.update!(status: "failed")
+    vault = FakeVault.new
+    Solana::Vault.stub :new, vault do
+      TokenPurchaseJob.perform_now(user_id: @user.id, pack_id: "single", wallet_address: @wallet,
+                                   purchase_type: "coinflow", coinflow_reference: "coinflow_resume")
+    end
+    purchase.reload
+    assert_equal "minted", purchase.status
+    assert_equal 1, vault.mint_calls.length
+    assert_equal "coinflow:#{purchase.id}:0", vault.mint_calls.first
+  end
+
+  # ── Aeropay (purchase_type: "aeropay") ──────────────────────────────────
+
+  test "aeropay: mints 1 token against a captured AeropayPurchase (buy-1)" do
+    purchase = create_aeropay_purchase(reference: "aeropay_job")
+    vault = FakeVault.new
+    Solana::Vault.stub :new, vault do
+      TokenPurchaseJob.perform_now(user_id: @user.id, pack_id: "single", wallet_address: @wallet,
+                                   purchase_type: "aeropay", aeropay_reference: "aeropay_job")
+    end
+
+    purchase.reload
+    assert_equal "minted", purchase.status
+    assert_equal 1, purchase.tx_signatures.length
+    # source_ref parity: "<provider>:<purchase_id>:<i>" — short, distinct, fits [u8;64].
+    assert_equal "aeropay:#{purchase.id}:0", vault.mint_calls.first
+    assert vault.mint_calls.all? { |r| r.bytesize <= 64 }
+    assert TransactionLog.where("metadata @> ?", { aeropay_reference: "aeropay_job" }.to_json).exists?
+  end
+
+  test "aeropay: skips when no AeropayPurchase row exists — never creates one" do
+    vault = FakeVault.new
+    Solana::Vault.stub :new, vault do
+      TokenPurchaseJob.perform_now(user_id: @user.id, pack_id: "single", wallet_address: @wallet,
+                                   purchase_type: "aeropay", aeropay_reference: "aeropay_missing")
+    end
+    assert_equal 0, vault.mint_calls.length
+    assert_nil AeropayPurchase.for_reference("aeropay_missing").first
+  end
+
+  test "aeropay: refunded purchase short-circuits — never mints over refunded money" do
+    purchase = create_aeropay_purchase(reference: "aeropay_refunded")
+    purchase.mark_refunded!(reason: "refund while queued")
+
+    vault = FakeVault.new
+    Solana::Vault.stub :new, vault do
+      TokenPurchaseJob.perform_now(user_id: @user.id, pack_id: "single", wallet_address: @wallet,
+                                   purchase_type: "aeropay", aeropay_reference: "aeropay_refunded")
+    end
+    assert_equal 0, vault.mint_calls.length
+    assert_equal "refunded", purchase.reload.status
+  end
+
+  test "aeropay: already-minted purchase no-ops (OPSEC-009)" do
+    purchase = create_aeropay_purchase(reference: "aeropay_noop")
+    purchase.mark_minted!(["sig_a"])
+    vault = FakeVault.new
+    Solana::Vault.stub :new, vault do
+      TokenPurchaseJob.perform_now(user_id: @user.id, pack_id: "single", wallet_address: @wallet,
+                                   purchase_type: "aeropay", aeropay_reference: "aeropay_noop")
+    end
+    assert_equal 0, vault.mint_calls.length
+    assert_equal ["sig_a"], purchase.reload.tx_signatures
+  end
+
+  test "aeropay: a failed row is restored to captured and resumes on retry" do
+    purchase = create_aeropay_purchase(reference: "aeropay_resume")
+    purchase.update!(status: "failed")
+    vault = FakeVault.new
+    Solana::Vault.stub :new, vault do
+      TokenPurchaseJob.perform_now(user_id: @user.id, pack_id: "single", wallet_address: @wallet,
+                                   purchase_type: "aeropay", aeropay_reference: "aeropay_resume")
+    end
+    purchase.reload
+    assert_equal "minted", purchase.status
+    assert_equal 1, vault.mint_calls.length
+    assert_equal "aeropay:#{purchase.id}:0", vault.mint_calls.first
+  end
+
   private
+
+  def create_aeropay_purchase(reference:, pack_id: "single", quantity: 1, price_cents: 19_00)
+    AeropayPurchase.create!(
+      user: @user,
+      aeropay_reference: reference,
+      pack_id: pack_id,
+      quantity: quantity,
+      price_cents: price_cents,
+      wallet_address: @wallet,
+      status: "captured",
+      aeropay_transaction_id: "txn_#{SecureRandom.hex(3)}",
+      captured_at: Time.current
+    )
+  end
+
+  def create_coinflow_purchase(reference:, pack_id: "single", quantity: 1, price_cents: 19_00)
+    CoinflowPurchase.create!(
+      user: @user,
+      coinflow_reference: reference,
+      pack_id: pack_id,
+      quantity: quantity,
+      price_cents: price_cents,
+      wallet_address: @wallet,
+      status: "captured",
+      coinflow_payment_id: "PAY_#{SecureRandom.hex(3)}",
+      captured_at: Time.current
+    )
+  end
 
   def create_paypal_purchase(order_id:, pack_id: "single", quantity: 1, price_cents: 19_00)
     PaypalPurchase.create!(

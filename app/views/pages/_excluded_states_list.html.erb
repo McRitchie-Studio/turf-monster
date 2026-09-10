@@ -1,14 +1,11 @@
 <%# locals: (excluded_states:) %>
-<%# The published exclusion list — rendered from GeoSetting (the same source
-    IP-geolocation enforcement reads) by both /terms and /state-eligibility,
-    so the public policy can never drift from the gate. %>
-<%
-  state_names = GeoHelper::US_STATES.invert
-%>
+<%# The published exclusion list — rendered from Studio::GeoSetting (the same
+    source IP-geolocation enforcement reads) by both /terms and
+    /state-eligibility, so the public policy can never drift from the gate. %>
 <ul class="flex flex-wrap gap-2">
   <% excluded_states.each do |code| %>
     <li class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-alt border border-strong text-sm">
-      <span class="font-semibold text-heading"><%= state_names[code] || code %></span>
+      <span class="font-semibold text-heading"><%= Studio::Geo.subdivision_name(code) || code %></span>
       <span class="font-mono text-xs text-secondary"><%= code %></span>
     </li>
   <% end %>

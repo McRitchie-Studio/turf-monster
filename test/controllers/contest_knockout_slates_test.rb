@@ -33,23 +33,30 @@ class ContestKnockoutSlatesTest < ActionDispatch::IntegrationTest
 
   test "seeded final slate contests are enterable with every available matchup" do
     slate = Slate.find_by!(name: "World Cup 2026 Final")
-    contest = Contest.create!(
-      name: "World Cup Final Test",
-      slug: "world-cup-final-test",
-      slate: slate,
-      contest_type: "standard",
-      entry_fee_cents: 19_00,
-      max_entries: 29,
-      status: :open,
-      starts_at: slate.starts_at
-    )
-    entry = contest.entries.create!(user: users(:sam), status: :cart)
-    slate.slate_matchups.each { |matchup| entry.selections.create!(slate_matchup: matchup) }
 
-    entry.confirm!(tx_signature: "world-cup-final-paid")
+    # The knockout seed carries the REAL fixture kickoff (2026-07-19T19:00:00Z), so
+    # once that instant passed this test began entering a contest that had already
+    # locked. Enter from before kickoff — the open-contest state the test means to
+    # exercise — instead of depending on the wall clock.
+    travel_to slate.starts_at - 1.day do
+      contest = Contest.create!(
+        name: "World Cup Final Test",
+        slug: "world-cup-final-test",
+        slate: slate,
+        contest_type: "standard",
+        entry_fee_cents: 19_00,
+        max_entries: 29,
+        status: :open,
+        starts_at: slate.starts_at
+      )
+      entry = contest.entries.create!(user: users(:sam), status: :cart)
+      slate.slate_matchups.each { |matchup| entry.selections.create!(slate_matchup: matchup) }
 
-    assert_equal 2, contest.picks_required
-    assert entry.reload.active?
+      entry.confirm!(tx_signature: "world-cup-final-paid")
+
+      assert_equal 2, contest.picks_required
+      assert entry.reload.active?
+    end
   end
 
   private
@@ -60,8 +67,8 @@ class ContestKnockoutSlatesTest < ActionDispatch::IntegrationTest
         team.name = "Team #{code}"
         team.location = "Team #{code}"
         team.emoji = "🏳️"
-        team.color_primary = "#111827"
-        team.color_secondary = "#F9FAFB"
+        team.color_dark = "#111827"
+        team.color_light = "#F9FAFB"
         team.sport = "soccer"
         team.league = "fifa"
         team.division = "Test"

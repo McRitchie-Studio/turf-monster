@@ -64,3 +64,197 @@ test.describe("Admin Transaction Log", () => {
     await expect(page.locator("body")).toContainText("faucet");
   });
 });
+
+// Coinflow buy-1-entry rail. The hosted-checkout redirect and Coinflow's REST
+// API can't run in CI, so we stub at the Coinflow network boundary two ways:
+//   1. Browser side — page.route intercepts POST /tokens/coinflow_order and the
+//      hosted-checkout redirect, so no real Coinflow call leaves the box. This
+//      asserts OUR client wiring: button -> order endpoint -> redirect to link.
+//   2. Server side — we drive the Settled webhook directly with the shared
+//      secret and assert the endpoint authenticates + acks.
+// The settlement -> on-chain mint money path is covered authoritatively (with a
+// real DB row) by the Rails tests: test/controllers/webhooks/
+// coinflow_controller_test.rb + test/jobs/token_purchase_job_test.rb.
+//
+// Gated on ENABLE_COINFLOW so the default CI run (flag off) skips it; enable the
+// flag on the e2e stack to exercise it.
+test.describe("Coinflow entry-token buy", () => {
+  test.skip(
+    process.env.ENABLE_COINFLOW !== "true",
+    "ENABLE_COINFLOW is off — the Coinflow rail is hidden",
+  );
+
+  test("buy-1 button posts to the order endpoint and redirects to the hosted link", async ({ page }) => {
+    await loginAdmin(page);
+
+    const fakeLink = "https://sandbox-merchant.coinflow.cash/purchase-v2/e2e-fake";
+    let orderPosted = false;
+    let redirectHit = false;
+
+    // Stub the order endpoint (the Coinflow network boundary from the client's
+    // view): return a deterministic hosted-checkout link, no real Coinflow call.
+    await page.route("**/tokens/coinflow_order", async (route) => {
+      orderPosted = true;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ link: fakeLink, reference: "coinflow_e2e_fake" }),
+      });
+    });
+    // Catch the redirect so the browser never leaves the box.
+    //
+    // CONTEXT-level, not page-level, and that is the whole reason this spec failed the
+    // first time it was ever allowed to run. tokens/_coinflow_script.html.erb opens the
+    // hosted checkout in a POPUP —
+    //   var checkoutTab = window.open('', '_blank');
+    //   if (checkoutTab) { checkoutTab.location = d.link; ... }
+    //   else { window.location = d.link; }   // same-tab only when the popup is blocked
+    // — so the navigation happens on a DIFFERENT Page object. `page.route` sees only the
+    // original page and would never fire, while the order POST above (same page) passes:
+    // exactly the shape observed — orderPosted true, redirectHit false.
+    //
+    // Routing on the context covers both the popup and the same-tab fallback, so this
+    // asserts what the app actually does rather than what it used to.
+    await page.context().route("**/purchase-v2/**", async (route) => {
+      redirectHit = true;
+      await route.fulfill({ status: 200, contentType: "text/html", body: "<html><body>coinflow stub</body></html>" });
+    });
+
+    await page.goto("/tokens/buy");
+    // The rail now renders one card PER PACK plus the dev simulate button, so a
+    // bare [data-coinflow-buy] button locator matches N elements and trips
+    // Playwright strict mode. Pin the single-entry card by its own click target.
+    const buyButton = page.locator(
+      '[data-coinflow-buy] button[onclick*="tmCoinflowBuyOne(\'single\')"]',
+    );
+    await expect(buyButton).toBeVisible();
+    await buyButton.click();
+
+    // The client hit the order endpoint and followed the returned link.
+    await expect.poll(() => orderPosted).toBe(true);
+    await expect.poll(() => redirectHit).toBe(true);
+  });
+
+  test("Settled webhook authenticates with the shared secret and acks", async ({ request }) => {
+    const key = process.env.COINFLOW_WEBHOOK_VALIDATION_KEY;
+    test.skip(!key, "COINFLOW_WEBHOOK_VALIDATION_KEY not set on the e2e stack");
+
+    // Wrong secret → 401.
+    const bad = await request.post("/webhooks/coinflow", {
+      headers: { Authorization: "WRONG", "Content-Type": "application/json" },
+      data: { eventType: "Settled", id: "e2e_pay_bad", subtotal: { cents: 1900, currency: "USD" } },
+    });
+    expect(bad.status()).toBe(401);
+
+    // Correct secret → 200 ack (unmatched customer is a safe no-op).
+    const ok = await request.post("/webhooks/coinflow", {
+      headers: { Authorization: key, "Content-Type": "application/json" },
+      data: {
+        eventType: "Settled",
+        id: "e2e_pay_ok",
+        subtotal: { cents: 1900, currency: "USD" },
+        customerId: "tm_user_0",
+      },
+    });
+    expect(ok.status()).toBe(200);
+  });
+});
+
+// Aeropay bank-payment entry-token rail (Turf's Coinflow hedge). Aeropay's REST
+// API + Aerosync bank-link widget can't run in CI, so we stub at the boundary:
+// browser-side stubs POST /tokens/aeropay_order (asserts button -> bank-link ->
+// order-endpoint wiring), and the server side drives the transaction_completed
+// webhook with a valid HMAC signature and asserts the endpoint authenticates.
+// The settlement -> on-chain mint money path is covered authoritatively by the
+// Rails tests (webhooks/aeropay_controller_test.rb + token_purchase_job_test.rb).
+// Gated on ENABLE_AEROPAY so the default CI run (flag off) skips it.
+test.describe("Aeropay entry-token buy", () => {
+  test.skip(
+    process.env.ENABLE_AEROPAY !== "true",
+    "ENABLE_AEROPAY is off — the Aeropay rail is hidden",
+  );
+
+  test("buy-1 button links a bank then posts to the aeropay order endpoint", async ({ page }) => {
+    await loginAdmin(page);
+
+    let orderPosted = false;
+    // Stub the order endpoint (the Aeropay network boundary from the client's view).
+    //
+    // transaction_id IS LOAD-BEARING — without it this spec passes over the app's ERROR
+    // branch, which is the exact "green that did not test what you think" this lane exists
+    // to catch. The real endpoint renders { transaction_id:, reference:, status: }
+    // (tokens_controller.rb:341-344 — deposit["id"], the purchase reference, deposit
+    // status), and tokens/_aeropay_script.html.erb:55 is
+    //   if (!resp.ok || !d.transaction_id) { window.alert('Could not start...'); return; }
+    // so a stub missing the key alerts and returns. `orderPosted` would still be true —
+    // it is set in THIS handler, before the app has even read the body — so the old
+    // assertion held either way and the spec bit only as far as "a POST left the browser".
+    // The Coinflow stub 60 lines up already matched its contract ({link} vs !d.link); the
+    // asymmetry was accidental.
+    await page.route("**/tokens/aeropay_order", async (route) => {
+      orderPosted = true;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          transaction_id: "aeropay_e2e_fake_txn",
+          reference: "aeropay_e2e_fake",
+          status: "pending",
+        }),
+      });
+    });
+
+    // The success/failure branches differ ONLY in which alert fires (_aeropay_script:56
+    // vs :60), so capturing the dialog is what makes the stub above load-bearing: drop
+    // transaction_id and this assertion goes red instead of staying green. Playwright
+    // auto-dismisses dialogs when nothing is listening, which is why the error branch
+    // was invisible.
+    const dialogs = [];
+    page.on("dialog", async (dialog) => {
+      dialogs.push(dialog.message());
+      await dialog.accept();
+    });
+
+    await page.goto("/tokens/buy");
+    // Pin the buy button by its own click target. [data-aeropay-buy] (buy.html.erb:41)
+    // also contains "Simulate settlement (dev)" (:49) outside production, so `.first()`
+    // asserted position rather than identity — same trap the Coinflow spec documents.
+    const buyButton = page.locator(
+      '[data-aeropay-buy] button[onclick*="tmAeropayBuyOne(\'single\')"]',
+    );
+    await expect(buyButton).toBeVisible();
+    await buyButton.click();
+
+    await expect.poll(() => orderPosted).toBe(true);
+    // The app took the SUCCESS branch, not the alert-and-return one.
+    await expect
+      .poll(() => dialogs)
+      .toEqual(["Your bank deposit is processing. Your entry token mints once it clears."]);
+  });
+
+  test("transaction_completed webhook authenticates with the HMAC signature", async ({ request }) => {
+    const key = process.env.AEROPAY_WEBHOOK_SIGNING_KEY;
+    test.skip(!key, "AEROPAY_WEBHOOK_SIGNING_KEY not set on the e2e stack");
+    const crypto = require("crypto");
+
+    const body = JSON.stringify({
+      topic: "transaction_completed",
+      data: { id: "e2e_txn_ok", amount: "19.00", currency: "USD", customerId: "tm_user_0" },
+    });
+    const sig = crypto.createHmac("sha256", key).update(body).digest("hex");
+
+    // Wrong signature -> 401.
+    const bad = await request.post("/webhooks/aeropay", {
+      headers: { "X-Aeropay-Signature": "WRONG", "Content-Type": "application/json" },
+      data: body,
+    });
+    expect(bad.status()).toBe(401);
+
+    // Correct signature -> 200 ack (unmatched customer is a safe no-op).
+    const ok = await request.post("/webhooks/aeropay", {
+      headers: { "X-Aeropay-Signature": sig, "Content-Type": "application/json" },
+      data: body,
+    });
+    expect(ok.status()).toBe(200);
+  });
+});

@@ -231,43 +231,69 @@
                 class="absolute top-0 right-0 -mr-2 text-secondary hover:text-heading text-xl leading-none"
                 aria-label="Close">&times;</button>
       </div>
-      <%= render "modals/blocks/progress_pill", current: 1, total: 3 %>
-      <p class="text-xs text-secondary mb-4 text-center"
+      <%= render "studio/modals/blocks/progress_pill", current: 1, total: 3 %>
+      <p class="text-xs text-body mb-4 text-center"
          x-text="'Your ' + ((props && props.picksRequired) || 6) + ' picks are saved — sign in to submit your lineup.'"></p>
 
       <%# Legal-age attestation — gates Google / Solana / email below. %>
       <% if AppFlags.age_attestation? %>
         <div class="mb-4">
-          <%= render "shared/age_attestation" %>
+          <%= render "studio/modals/shared/age_attestation" %>
         </div>
       <% end %>
+
+      <%# THE FOUR CREDENTIAL CONTROLS BIND !!props.submitting, NOT THE BARE
+          DOTTED EXPRESSION, and the coercion is load-bearing rather than
+          decorative. Alpine's x-bind rewrites an undefined result to the empty
+          string whenever the bound expression contains a dot (alpine.js 3.16.1,
+          vendored in studio-engine). The empty string then misses
+          bindAttribute's null / undefined / false removal test, and disabled is
+          a boolean attribute, so Alpine emits disabled and the control paints
+          dead with no console error.
+
+          Two live paths reach an undefined props.submitting, and only one of
+          them is a call site. solana_utils.js reopens this modal at the
+          credentials step after a 401, and the props getter above returns an
+          empty object whenever current() is transiently null during an open or
+          close transition. Seeding keys at every opener fixes the first and
+          CANNOT fix the second, which is why the binding is hardened here as
+          well. The gem's own copy of this button does the same, so converging
+          on it keeps the two in agreement.
+
+          Docs: UI_PATTERNS.md, Alpine plus ERB Constraints item 10.
+          Cover: test/views/auth_submitting_coercion_test.rb. %>
 
       <!-- 1. Google OAuth — opens a popup; the closer page postMessages the result.
            loginGoogle() dispatches to the contest board when present, else runs
            the popup itself, so this works on non-board pages (navbar Sign in). -->
       <button @click="loginGoogle()"
-              :disabled="props.submitting"
+              :disabled="!!props.submitting"
               class="btn btn-neutral btn-lg w-full gap-3 mb-3 disabled:cursor-wait">
         <span x-show="props.submitting !== 'google'" class="inline-flex"><%= render "components/google_logo" %></span>
         <span x-show="props.submitting === 'google'" class="cta-spinner" aria-hidden="true"></span>
         <span x-text="props.submitting === 'google' ? 'Waiting for Google…' : 'Google'"></span>
       </button>
-      <template x-if="props.googleError">
-        <p class="text-red-400 text-xs -mt-2 mb-3" x-text="props.googleError"></p>
-      </template>
+      <%# LIVE REGION, NOT A CONDITIONAL INSERT. These three paragraphs were
+          each wrapped in a template x-if, so none existed until its error did,
+          and a live region inserted alongside its own content is not reliably
+          announced: assistive tech has to be observing the region before the
+          text lands in it. x-show keeps them mounted and empty from the moment
+          the modal opens, and only their visibility moves.
+          Guard: test/views/error_live_regions_test.rb %>
+      <p x-show="props.googleError" x-cloak role="alert" aria-live="assertive" aria-atomic="true"
+         class="text-danger-ink text-xs -mt-2 mb-3" x-text="props.googleError"></p>
 
       <!-- 2. Solana — progresses to the Connect Wallet picker modal. The board
            saves the cart + passes returnUrl so the lineup survives (see
            selectionBoard#openWalletConnect). -->
-      <button @click="openWalletHub()" :disabled="props.submitting"
+      <button @click="openWalletHub()" :disabled="!!props.submitting"
               class="btn btn-neutral btn-lg w-full gap-3 mb-3 disabled:cursor-wait">
         <img src="/solana-mark.svg" alt="" class="w-5 h-5" x-show="props.submitting !== 'wallet'">
         <span x-show="props.submitting === 'wallet'" class="cta-spinner" aria-hidden="true"></span>
         <span x-text="props.submitting === 'wallet' ? 'Connecting…' : 'Solana'"></span>
       </button>
-      <template x-if="props.phantomError">
-        <p class="text-red-400 text-xs -mt-2 mb-3" x-text="props.phantomError"></p>
-      </template>
+      <p x-show="props.phantomError" x-cloak role="alert" aria-live="assertive" aria-atomic="true"
+         class="text-danger-ink text-xs -mt-2 mb-3" x-text="props.phantomError"></p>
 
       <div class="relative my-4">
         <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-strong"></div></div>
@@ -285,15 +311,14 @@
               "email" via x-model (the form dispatches that value rather than
               natively posting); the emailValidator child scope does not define
               "email" or "props", so both bind upward to the modal's x-data. %>
-          <%= render "shared/email_field",
+          <%= render "studio/modals/shared/email_field",
                 name: nil, x_model: "email",
                 placeholder: "you@example.com", required: true,
-                disabled_expr: "props.submitting" %>
+                disabled_expr: "!!props.submitting", validator: true %>
         </div>
-        <template x-if="props.formError">
-          <p class="text-red-400 text-xs mb-3" x-text="props.formError"></p>
-        </template>
-        <button type="submit" :disabled="props.submitting"
+        <p x-show="props.formError" x-cloak role="alert" aria-live="assertive" aria-atomic="true"
+           class="text-danger-ink text-xs mb-3" x-text="props.formError"></p>
+        <button type="submit" :disabled="!!props.submitting"
                 class="btn btn-neutral btn-lg w-full gap-2 disabled:cursor-wait">
           <span x-show="props.submitting === 'magic-link'" class="cta-spinner" aria-hidden="true"></span>
           <span x-text="props.submitting === 'magic-link' ? 'Sending link…' : 'Email Link'"></span>
@@ -308,7 +333,7 @@
       link (resend stays a link, per the design call). %>
   <template x-if="props.step === 'magic-link-sent'">
     <div>
-      <%= render 'modals/blocks/card_header', icon_emoji: '📬', title: 'Check your inbox' do %>
+      <%= render 'studio/modals/blocks/card_header', icon_emoji: '📬', title: 'Check your inbox' do %>
         We emailed <span class="text-heading font-medium break-all" x-text="props.sentEmail"></span>
         a one-tap sign-in link. Check your email and
         <span class="text-heading font-semibold">Click the Magic Link</span> to continue.
@@ -327,7 +352,7 @@
       resend again once the cooldown clears (re-advancing re-runs the slide). %>
   <template x-if="props.step === 'magic-link-resent'">
     <div>
-      <%= render 'modals/blocks/card_header', icon_color: 'primary', title: 'Link Resent!' do %>
+      <%= render 'studio/modals/blocks/card_header', icon_color: 'primary', title: 'Link Resent!' do %>
         We just resent <span class="text-heading font-medium break-all" x-text="props.sentEmail"></span>
         a one-tap sign-in link. Check your email and
         <span class="text-heading font-semibold">Click the Magic Link</span> to continue.
@@ -360,11 +385,11 @@
       the null-bypass (gallery preview). %>
   <template x-if="props.step === 'redirect'">
     <div>
-      <%= render 'modals/blocks/card_header',
+      <%= render 'studio/modals/blocks/card_header',
             icon_emoji_key: "props.icon",
             title_key:      "props.title",
             subtitle_key:   "props.message" %>
-      <%= render 'modals/blocks/cta_redirect',
+      <%= render 'studio/modals/blocks/cta_redirect',
             href_key:         "props.url",
             label_key:        "props.cta || 'Go now'",
             duration_seconds: 5 %>

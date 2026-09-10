@@ -1,8 +1,11 @@
-# Fiat purchase (Stripe webhook / PayPal capture) → on-chain entry token mint
-# (turf-vault v0.9.0+). `purchase_type` picks the audit model: "stripe"
-# (legacy default — StripePurchase, keyed by stripe_session_id) or "paypal"
-# (PaypalPurchase, keyed by paypal_order_id; the row always exists before the
-# job is enqueued).
+# Fiat purchase (Stripe webhook / PayPal capture / Coinflow settlement /
+# Aeropay bank deposit) → on-chain entry token mint (turf-vault v0.9.0+).
+# `purchase_type` picks the audit model: "stripe" (legacy default —
+# StripePurchase, keyed by stripe_session_id), "paypal" (PaypalPurchase, keyed
+# by paypal_order_id), "coinflow" (CoinflowPurchase, keyed by coinflow_reference)
+# or "aeropay" (AeropayPurchase, keyed by aeropay_reference). For paypal,
+# coinflow and aeropay the row always exists (created pending, marked captured)
+# before the job is enqueued.
 #
 # Idempotency (OPSEC-009): per-mint incremental persistence so a partial
 # failure (e.g. 2 of 3 minted then crash) recovers on retry without
@@ -30,9 +33,16 @@
 class TokenPurchaseJob < ApplicationJob
   queue_as :default
 
-  def perform(user_id:, pack_id:, wallet_address:, stripe_session_id: nil, purchase_type: "stripe", paypal_order_id: nil)
+  def perform(user_id:, pack_id:, wallet_address:, stripe_session_id: nil, purchase_type: "stripe",
+              paypal_order_id: nil, coinflow_reference: nil, aeropay_reference: nil)
     paypal           = purchase_type == "paypal"
-    ref              = paypal ? paypal_order_id : stripe_session_id
+    coinflow         = purchase_type == "coinflow"
+    aeropay          = purchase_type == "aeropay"
+    ref              = if coinflow then coinflow_reference
+    elsif aeropay then aeropay_reference
+    elsif paypal then paypal_order_id
+    else stripe_session_id
+    end
     ref_short        = ref.to_s[0, 24]
     pack             = StripePurchase.pack(pack_id)
     quantity         = pack[:quantity]
@@ -45,8 +55,15 @@ class TokenPurchaseJob < ApplicationJob
     # the per-job cost amortizes to ~0 RPCs once the first job warms it.
     Solana::Vault.ensure_program_id_live! unless ENV["SKIP_PROGRAM_ID_LIVE_CHECK"] == "true"
 
-    purchase = paypal ? PaypalPurchase.for_order(paypal_order_id).first
-                      : StripePurchase.for_session(stripe_session_id).first
+    purchase = if coinflow
+                 CoinflowPurchase.for_reference(coinflow_reference).first
+    elsif aeropay
+                 AeropayPurchase.for_reference(aeropay_reference).first
+    elsif paypal
+                 PaypalPurchase.for_order(paypal_order_id).first
+    else
+                 StripePurchase.for_session(stripe_session_id).first
+    end
     # Terminal short-circuits: "minted" is the OPSEC-009 idempotency stop;
     # "refunded" means a refund webhook landed while this job sat in the
     # queue/retry window — never mint on-chain tokens over refunded money.
@@ -61,16 +78,18 @@ class TokenPurchaseJob < ApplicationJob
       return
     end
 
-    if paypal
-      # PaypalPurchase rows are created BEFORE the PayPal order exists (see
-      # TokensController#paypal_order) — a missing row means nothing to mint
-      # against, never something to create here.
+    if paypal || coinflow || aeropay
+      # PaypalPurchase / CoinflowPurchase / AeropayPurchase rows are created
+      # (pending, then captured) BEFORE the job is enqueued (see
+      # TokensController#paypal_order / #coinflow_order / #aeropay_order + the
+      # *::Fulfillment CAS) — a missing row means nothing to mint against, never
+      # something to create here.
       unless purchase
-        Rails.logger.warn "[tokens] job.skip paypal_purchase_not_found ref=#{ref_short}..."
+        Rails.logger.warn "[tokens] job.skip #{purchase_type}_purchase_not_found ref=#{ref_short}..."
         return
       end
-      # "captured" is PayPal's mint-eligible state; restore it on retry after
-      # a failed run (mirrors the stripe failed → pending recovery below).
+      # "captured" is the mint-eligible state for both rails; restore it on
+      # retry after a failed run (mirrors the stripe failed → pending recovery).
       purchase.update!(status: "captured") if purchase.status == "failed"
     else
       purchase ||= StripePurchase.create!(
@@ -120,9 +139,15 @@ class TokenPurchaseJob < ApplicationJob
     user.bust_entry_tokens_cache!
     Rails.logger.info "[tokens] job.minted purchase_id=#{purchase.id} signatures=#{signatures.length}"
 
-    metadata = paypal ?
-      { paypal_order_id: paypal_order_id, method: "paypal", quantity: quantity, all_signatures: signatures } :
-      { stripe_session_id: stripe_session_id, method: "stripe", quantity: quantity, all_signatures: signatures }
+    metadata = if coinflow
+                 { coinflow_reference: coinflow_reference, method: "coinflow", quantity: quantity, all_signatures: signatures }
+    elsif aeropay
+                 { aeropay_reference: aeropay_reference, method: "aeropay", quantity: quantity, all_signatures: signatures }
+    elsif paypal
+                 { paypal_order_id: paypal_order_id, method: "paypal", quantity: quantity, all_signatures: signatures }
+    else
+                 { stripe_session_id: stripe_session_id, method: "stripe", quantity: quantity, all_signatures: signatures }
+    end
     TransactionLog.record!(
       user: user,
       type: "token_purchase",

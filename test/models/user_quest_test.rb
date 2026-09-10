@@ -121,10 +121,16 @@ class UserQuestTest < ActiveSupport::TestCase
   test "mark_entered! flips contest_entered and unlocks can_change_username?" do
     # Entry#after_commit calls ReferralProgress.mark_entered! on the user's first
     # active/complete entry. Exercised here directly so the assertion never
-    # depends on after_commit timing under transactional tests. A managed wallet
-    # is auto-generated on create, so the user is solana_connected.
+    # depends on after_commit timing under transactional tests.
+    #
+    # can_change_username? is `solana_connected? && contest_entered?`, so the
+    # wallet is a PRECONDITION here, not the subject — and it has to be linked
+    # explicitly: signup stopped minting one when web3-only onboarding became the
+    # default (2026-08-15), and this test used to inherit its wallet from that
+    # mint. A linked Phantom address is what a 2026 player actually arrives with.
     user = User.create!(email: "gateflip@mcritchie.studio")
-    assert user.solana_connected?, "managed wallet auto-generated on signup"
+    user.update_columns(web3_solana_address: "PhantomGateFlip#{user.id}")
+    assert user.solana_connected?, "precondition: the rename gate needs a linked wallet"
     refute user.contest_entered?
     refute user.can_change_username?, "rename is locked until a contest is entered"
 

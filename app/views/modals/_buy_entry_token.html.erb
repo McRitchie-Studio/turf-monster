@@ -1,0 +1,73 @@
+<%#
+  Buy an Entry Token modal. NO LONGER the default funds-needed card: since
+  2026-09-05 showFundsNeeded sends the wall to modals/_buy_usdc, and this one is
+  reached only by the USDC KILL-SWITCH audience (web2 mode with
+  ENABLE_WEB2_USDC_ENTRY off), who cannot pay an entry with USDC at all — plus
+  the auth wizard's own pack-picker paths. showBuyEntryToken also falls through
+  to Get USDC when neither rail below is visible, so this card can never open
+  empty. One token buys exactly one contest entry.
+
+  Two stacked entry-token rails, composed from the ones the Add Funds hub already
+  ships (modals/_onramp_hub):
+    1. Coinflow, featured on top: the buy-1-entry hosted checkout. tmCoinflowBuyOne
+       POSTs /tokens/coinflow_order, opens Coinflow's hosted checkout, and on
+       Settled mints exactly one entry token. The new, fastest way.
+    2. Stripe, below: the proven pack picker. Swaps into the auth-wizard
+       tokens-picker step (the existing Stripe checkout flow).
+
+  Each rail self-gates via onramp_rail_visible?, so a flagged-off Coinflow rail
+  (ENABLE_COINFLOW off, the prod default while KYB is pending) never ships a dead
+  button; both rails always show in dev / test.
+
+  CRITICAL: rendered inside a host template x-if, so a SINGLE root element. x-data
+  is a double-quoted attribute, so single-quote everything inside the Alpine
+  expressions.
+%>
+<div x-data="{ get props() { return ($store.modals.current() || {}).props || {} } }"
+     class="relative">
+
+  <%# Top-right close. Backdrop close still works too. %>
+  <%= render "studio/modals/blocks/close_x" %>
+
+  <div class="text-center pt-1 mb-2">
+    <h3 class="text-heading font-bold text-lg leading-tight">Buy an Entry Token</h3>
+  </div>
+  <p class="text-xs text-body mb-4 text-center">
+    1 token = 1 contest entry. Your lineup is saved &mdash; pick how to pay.
+  </p>
+
+  <div class="space-y-3">
+    <% if onramp_rail_visible?(:coinflow) %>
+      <%# Coinflow: the featured buy-1-entry rail on top (the new paradigm).
+          Bordered primary to mark it the lead action. NOT gated on tokenFallback:
+          unlike a USDC buy, this mints a spendable entry token regardless of the
+          web2-USDC kill-switch. %>
+      <%= render "studio/modals/blocks/rail_row",
+            emphasis:   :primary,
+            on_click:   "tmCoinflowBuyOne('single')",
+            icon_label: "CF",
+            icon_bg:    "#14B8A6",
+            title:      "Coinflow · $19",
+            subtitle:   "Buy 1 entry with a card · fastest",
+            badge:      "New",
+            data:       { buy_rail: "coinflow" } %>
+    <% end %>
+
+    <% if onramp_rail_visible?(:stripe) %>
+      <%# Stripe: the proven pack picker below. Swaps into the existing auth-wizard
+          tokens-picker step (the Stripe checkout flow), mirroring the board
+          showTokensPanel props so the picker mounts clean. %>
+      <%= render "studio/modals/blocks/rail_row",
+            on_click:   "$store.modals.swap('auth', { step: 'tokens-picker', mintedCount: 0, mintedBalance: 0, errorText: '', redirectUrl: '', txSignature: '' })",
+            icon_label: "S",
+            icon_bg:    "#635BFF",
+            title:      "Card · $19",
+            subtitle:   "Buy an entry token with a card",
+            data:       { buy_rail: "stripe" } %>
+    <% end %>
+  </div>
+
+  <%# Defines window.tmCoinflowBuyOne for the Coinflow rail above. Inside the single
+      root div so the modal stays one element under its x-if host. Idempotent. %>
+  <% if onramp_rail_visible?(:coinflow) %><%= render "tokens/coinflow_script" %><% end %>
+</div>

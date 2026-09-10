@@ -66,17 +66,31 @@ class SessionsController < ApplicationController
     rescue => e
       Rails.logger.warn("[logout] cart clear failed: #{e.message}")
     end
-    clear_app_session
-    # clear_app_session (engine) deletes the user session key + sso_* fields
-    # but doesn't know about turf-monster's additional per-session state.
-    # Drop everything user-bound so a subsequent login in the same browser
-    # can't inherit stale phantom-auth flags, session-token bindings, or
-    # auth nonces from the prior user.
-    session.delete(:onchain)         # set by SolanaSessionsController#verify
-    session.delete(:session_token)   # OPSEC-045
-    session.delete(:solana_nonce)    # delete-before-verify replay guard
-    session.delete(:solana_nonce_at)
-    session.delete(:return_to)       # require_profile_completion redirect target
+    # ONE LINE INSTEAD OF TWO DENY-LISTS.
+    #
+    # This used to be `clear_app_session` (the engine's list of 3 + 7 sso_*
+    # keys) followed by five more deletes by hand — two of which, :onchain and
+    # :session_token, the engine had already deleted, because neither list could
+    # see the other. Two hand-maintained enumerations of one set is the same
+    # disease this whole audit is about, and it leaked: `wallet_setup`,
+    # `wallet_setup_prompt`, `web3_step_up_prompt`, `onboarding_prompt`,
+    # `onboarding_skipped_first_name`, `pending_google_link` and `oauth_popup`
+    # all SURVIVED logout, because nobody had added them to either list.
+    #
+    # `reset_session` is an ALLOW-list of nothing: it rotates the session id and
+    # drops every key, including the ones added next year by someone who never
+    # reads this file. It is what magic_links_controller#reset_prior_session!
+    # already does for a login by a DIFFERENT identity; logout has a strictly
+    # stronger claim to it.
+    #
+    # ORDER MATTERS: everything above this line reads `current_user` or
+    # `session[:true_admin_id]` (the impersonation audit row, the cart destroy),
+    # so the wipe goes last. If you add work to this action, add it ABOVE.
+    #
+    # Nothing needs to survive a logout today. If something ever does, re-set it
+    # explicitly BELOW this line so the exception is visible rather than implied
+    # by its absence from a list.
+    reset_session
     redirect_to signin_path, notice: "Logged out."
   end
 end

@@ -28,12 +28,26 @@ class AdminControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     reviewed = [admin_models_path, admin_users_path, admin_geo_path, admin_error_logs_path, contests_path, admin_landing_pages_path]
     flagged  = [new_contest_path, admin_seasons_path, admin_pending_transactions_path, "/admin/jobs",
-                slates_path, formula_report_slates_path, admin_formula_slates_path,
+                slates_path, formula_report_slates_path, nfl_report_slates_path, admin_formula_slates_path,
                 generator_contests_path, admin_transactions_path]
     reviewed.each { |path| assert_select "a[href=?][data-status=?]", path, "reviewed" }
     flagged.each  { |path| assert_select "a[href=?][data-status=?]", path, "flagged" }
 
     assert_select "span", text: "Not added to the gear"
+  end
+
+  test "hub links the NFL report beside the soccer formula report" do
+    log_in_as(@admin)
+    get admin_hub_path
+    assert_response :success
+    assert_select "a[href=?]", nfl_report_slates_path, text: /🏈 NFL Points Distribution/
+    # The two formula reports stay adjacent tiles: soccer first, NFL right after.
+    soccer_at = response.body.index(%(href="#{formula_report_slates_path}"))
+    nfl_at    = response.body.index(%(href="#{nfl_report_slates_path}"))
+    assert soccer_at && nfl_at, "both formula-report tiles must render"
+    assert soccer_at < nfl_at, "soccer formula tile must precede the NFL tile"
+    between = response.body[soccer_at...nfl_at]
+    assert_equal 1, between.scan('href="').count, "no other link between the two formula-report tiles"
   end
 
   test "hub redirects non-admins" do

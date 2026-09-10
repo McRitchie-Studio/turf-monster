@@ -1,0 +1,88 @@
+<%#
+  Shared client kickoff for the Aeropay "Buy 1 entry" bank-payment rail. Defines
+  the global window.tmAeropayBuyOne() once (idempotent reassignment on
+  re-render). Both the Add Funds hub rail (modals/_onramp_hub) and the
+  /tokens/buy card call it.
+
+  FLOW (differs from Coinflow's hosted redirect — Aeropay is BANK rails):
+    1. Link a bank account via the front-end Aerosync widget → a bankAccountId.
+    2. POST that + the pack to /tokens/aeropay_order (amount derives server-side
+       from the pack). The server creates the Aeropay deposit (POST
+       /v2/transaction).
+    3. On `transaction_completed`, /webhooks/aeropay mints exactly 1 entry token.
+
+  ⚠️ AEROSYNC WIDGET IS STUBBED — the widget needs REAL merchant creds to load,
+  which we do NOT have yet. tmAeropayLinkBank() below is the TODO seam: in
+  production it must open the real Aerosync widget and resolve the linked
+  bankAccountId; today it returns a dev placeholder so the buy → mint loop is
+  demoable end-to-end on the stack (paired with the dev simulate endpoint).
+  Replace tmAeropayLinkBank() with the real Aerosync integration when creds land.
+
+  Uses window.authedFetch so a session lapse / rate-limit surfaces the shared
+  modal (returns null → we stop). Parity with the Coinflow kickoff fetch.
+%>
+<script>
+  // ⚠️ STUB (Aerosync widget seam). Resolves a bankAccountId for the deposit.
+  // TODO(aeropay): open the real Aerosync widget here, exchange its aggregator
+  // token server-side (GET /v2/linkAccountFromAggregator → /v2/bankAccounts),
+  // and resolve the selected account. Requires live merchant creds to load.
+  window.tmAeropayLinkBank = async function () {
+    // Dev placeholder so the rail is exercisable without creds. In production
+    // this MUST come from the real widget — never a hard-coded id.
+    return 'aerosync_dev_placeholder_bank';
+  };
+
+  window.tmAeropayBuyOne = async function (pack) {
+    pack = pack || 'single';
+    try {
+      var bankAccountId = await window.tmAeropayLinkBank();
+      if (!bankAccountId) {
+        window.alert('Link a bank account to continue.');
+        return;
+      }
+      var meta = document.querySelector('meta[name="csrf-token"]');
+      var resp = await window.authedFetch('/tokens/aeropay_order', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': meta ? meta.content : ''
+        },
+        body: JSON.stringify({ pack: pack, bank_account_id: bankAccountId })
+      });
+      // null → authedFetch already surfaced the login / rate-limit modal.
+      if (!resp) { return; }
+      var d = await resp.json().catch(function () { return {}; });
+      if (!resp.ok || !d.transaction_id) {
+        window.alert(d.error || 'Could not start the Aeropay deposit — try again in a moment.');
+        return;
+      }
+      console.log('[tokens] aeropay.order reference=', d.reference, 'transaction=', d.transaction_id, 'status=', d.status);
+      window.alert('Your bank deposit is processing. Your entry token mints once it clears.');
+    } catch (e) {
+      window.alert('Could not start the Aeropay deposit — try again in a moment.');
+    }
+  };
+
+  // Dev-only: stands in for Aeropay's `transaction_completed` webhook
+  // (unreachable on localhost). POSTs the dev simulate endpoint, which drives
+  // the real fulfillment/mint path for the buyer's latest pending Aeropay
+  // purchase.
+  window.tmAeropaySimulateSettle = async function () {
+    try {
+      var meta = document.querySelector('meta[name="csrf-token"]');
+      var resp = await window.authedFetch('/tokens/aeropay_simulate_settle', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': meta ? meta.content : ''
+        }
+      });
+      if (!resp) return;
+      var d = await resp.json().catch(function () { return {}; });
+      window.alert(d.message || d.error || 'Simulated.');
+      if (d.simulated) setTimeout(function () { window.location.reload(); }, 1500);
+    } catch (e) {
+      window.alert('Could not simulate settlement — try again.');
+    }
+  };
+</script>

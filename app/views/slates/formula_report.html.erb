@@ -348,11 +348,22 @@
   if (window.Alpine) { _registerPlayground(); }
   else { document.addEventListener('alpine:init', _registerPlayground); }
 
-  // Rebuild charts on theme toggle so colors update
-  new MutationObserver(function() {
-    _buildFormulaCharts();
-    if (_pgCache && _pgCache.length) { _pgBuildChart(); }
-  }).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+  // Rebuild charts on theme toggle so colors update. The observer lives in a
+  // plain var outside Alpine (Chart.js proxy rule, docs/FORMULAS.md) and is
+  // disconnected on turbo:before-cache; the guard keeps re-runs of this
+  // script from stacking a second live observer.
+  var _themeObserver;
+  if (!_themeObserver) {
+    _themeObserver = new MutationObserver(function() {
+      _buildFormulaCharts();
+      if (_pgCache && _pgCache.length) { _pgBuildChart(); }
+    });
+    _themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    document.addEventListener('turbo:before-cache', function() {
+      if (_themeObserver) { _themeObserver.disconnect(); }
+      _themeObserver = null;
+    }, { once: true });
+  }
 </script>
 
 <div class="max-w-3xl mx-auto py-8 px-2">
@@ -361,6 +372,8 @@
     <%= link_to "← Slates", slates_path,
       class: "text-primary hover:text-primary-300 text-sm font-medium underline underline-offset-2" %>
   </div>
+
+  <%= render "report_tabs", active: :soccer %>
 
   <p class="text-secondary text-sm mb-8">
     The DK Score ranks slate matchups by expected offensive output. It combines the O/U team total line

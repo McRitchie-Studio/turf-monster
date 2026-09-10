@@ -92,7 +92,7 @@ class Survivor::GradeRoundTest < ActiveSupport::TestCase
   def make_team(slug)
     Team.create!(slug: slug, name: slug.titleize, short_name: slug[-3..].upcase,
                  location: slug.titleize, emoji: "🏳️",
-                 color_primary: "#111111", color_secondary: "#222222")
+                 color_dark: "#111111", color_light: "#222222")
   end
 
   def make_game(home, away, round: @round, home_score: nil, away_score: nil,

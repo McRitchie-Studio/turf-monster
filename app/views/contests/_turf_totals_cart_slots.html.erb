@@ -2,28 +2,33 @@
   <template x-for="i in <%= @contest.picks_required %>" :key="i">
     <div>
       <template x-if="selectionSlots[i-1]">
-        <div class="bg-surface-alt rounded-xl p-3 border border-primary-700 transition"
+        <%# Same team-color dress as the board cards: a team-hue gradient, the
+            mascot in the accent color, no emoji, and foreground text that flips
+            for light-forward teams (Saints, Steelers). %>
+        <div class="rounded-xl p-3 border transition overflow-hidden"
+             :style="{ background: selectionSlots[i-1].gradient, color: selectionSlots[i-1].fg, borderColor: selectionSlots[i-1].fgFaint }"
              :class="isShaking(selectionSlots[i-1].matchupId) ? 'shake' : ''">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <template x-if="selectionSlots[i-1].emoji">
-                <span class="text-lg" x-text="selectionSlots[i-1].emoji"></span>
-              </template>
-              <div>
-                <p class="text-heading font-semibold text-sm">
-                  <span x-text="selectionSlots[i-1].name"></span>
-                  <template x-if="selectionSlots[i-1].opName">
-                    <span class="text-muted font-normal text-xs ml-1">vs <span x-text="selectionSlots[i-1].opName"></span></span>
-                  </template>
-                </p>
-                <p class="text-xs mt-0.5">
-                  <span class="text-muted">Goals</span>
-                  <span class="text-primary font-mono ml-1" x-text="'x' + selectionSlots[i-1].turfScore"></span>
-                </p>
-              </div>
+          <div class="flex items-center justify-between gap-2">
+            <div class="min-w-0">
+              <p class="text-sm truncate">
+                <%# Short name ("Chargers"), not the full "Los Angeles Chargers" —
+                    a multi-week row already carries three opponents and the city
+                    pushes it onto a second line. %>
+                <span class="font-extrabold" :style="{ color: selectionSlots[i-1].accent, textShadow: selectionSlots[i-1].mascotShadow }" x-text="selectionSlots[i-1].shortName || selectionSlots[i-1].name"></span>
+                <template x-if="selectionSlots[i-1].opName">
+                  <span class="font-normal text-xs ml-1" :style="{ color: selectionSlots[i-1].fgSoft }">vs <span x-text="selectionSlots[i-1].opName"></span></span>
+                </template>
+              </p>
+              <p class="text-xs mt-0.5">
+                <%# The multiplier is points per goal, so "Points" — matching the
+                    "Points / Goal" label on the card. "Goals" mislabelled it. %>
+                <span :style="{ color: selectionSlots[i-1].fgFaint }">Points</span>
+                <span class="font-mono font-bold ml-1" :style="{ color: selectionSlots[i-1].fg }" x-text="'x' + selectionSlots[i-1].turfScore"></span>
+              </p>
             </div>
             <button @click="removeSelection(selectionSlots[i-1].matchupId)"
-                    class="text-muted hover:text-red-400 transition text-lg leading-none">&times;</button>
+                    class="opacity-70 hover:opacity-100 transition text-lg leading-none shrink-0"
+                    :style="{ color: selectionSlots[i-1].fg }">&times;</button>
           </div>
         </div>
       </template>

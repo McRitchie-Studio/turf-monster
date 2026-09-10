@@ -109,19 +109,48 @@ fi
 
 # 1) Prepare + seed each stack's DB, then boot its server.
 #
+# EACH STACK EXPORTS ITS DB TWICE, and both are load-bearing. config/database.yml's
+# test block carries an explicit `url: <%= ENV["TEST_DATABASE_URL"] %>` so a
+# worktree can hold its own test database, and an explicit `url:` OUTRANKS
+# DATABASE_URL. Inside a worktree, .env.test.local sets TEST_DATABASE_URL at the
+# DESK's database — so exporting DATABASE_URL alone leaves every shard resolving
+# to that one database. Measured: with DATABASE_URL=postgres:///turf_monster_e2e_shard_3
+# the test env still resolved to the desk's own DB. That is not merely a
+# collision — the line below is `db:drop db:create`, so N shards would race to
+# DROP the desk's database out from under anything using it. Exporting
+# TEST_DATABASE_URL per shard puts the shard's DB back on top of the seam that
+# now wins. (In CI there is no .env.test.local, so DATABASE_URL alone was enough
+# and still is.)
+#
 # Seeding (e2e/seed.rb) can touch Solana RPC; N concurrent seeds contend for it
 # and slow each stack's boot enough to blow the /up probe. So by DEFAULT we
 # SERIALIZE the prepare+seed (cheap, RPC-friendly) and only PARALLELIZE the
 # server boot. E2E_PARALLEL_SEED=1 restores the fully-parallel path (faster when
 # RPC isn't the bottleneck). Each server subshell `exec`s the server so $! is
 # the server PID.
+# ONRAMP FLAGS — every subshell below that boots Rails must export these.
+#
+# This lane sets PW_BASE_URL (below), which makes playwright.config.js take its
+# `webServer: undefined` branch — so Playwright starts NO server and these subshells
+# are the only thing launching Rails. They inherit nothing from the Playwright
+# process, and app/views/tokens/buy.html.erb:12,:40 gate the Coinflow and Aeropay
+# rails on AppFlags.coinflow?/aeropay?, read from THIS server's ENV. Without the
+# export the buttons never render and e2e/financial.spec.js fails on
+# `expect(buyButton).toBeVisible()` — which is exactly how this lane went red once
+# while CI stayed green (CI's webServer inherits process.env; this lane cannot).
+#
+# Kept on EVERY launch subshell, including the prepare/seed one that starts no
+# server, so the invariant is "any subshell that runs Rails here carries the same
+# env" and a fourth site cannot quietly skip it. Both flags are verified seed-inert
+# (e2e/seed.rb reads neither). Guarded by test/lib/e2e_onramp_flag_parity_test.rb.
 if [ "$PARALLEL_SEED" = 1 ]; then
   echo "▶ starting $N isolated test-env stacks — parallel seed (ports $BASE_PORT..$((BASE_PORT + N - 1)))…"
   for i in $(seq 0 $((N - 1))); do
     port=$((BASE_PORT + i))
     db="${DBPREFIX}_${i}"
     (
-      export DATABASE_URL="postgres:///${db}" RAILS_ENV=test
+      export DATABASE_URL="postgres:///${db}" TEST_DATABASE_URL="postgres:///${db}" RAILS_ENV=test
+      export ENABLE_COINFLOW=true ENABLE_AEROPAY=true  # onramp rails — see ONRAMP FLAGS above
       bin/rails db:drop db:create db:schema:load >"$LOGDIR/stack-$i.log" 2>&1
       bin/rails runner e2e/seed.rb >>"$LOGDIR/stack-$i.log" 2>&1
       exec bin/rails server -p "$port" -e test >>"$LOGDIR/server-$i.log" 2>&1
@@ -133,7 +162,8 @@ else
   for i in $(seq 0 $((N - 1))); do
     db="${DBPREFIX}_${i}"
     if ! (
-      export DATABASE_URL="postgres:///${db}" RAILS_ENV=test
+      export DATABASE_URL="postgres:///${db}" TEST_DATABASE_URL="postgres:///${db}" RAILS_ENV=test
+      export ENABLE_COINFLOW=true ENABLE_AEROPAY=true  # onramp rails — see ONRAMP FLAGS above
       bin/rails db:drop db:create db:schema:load >"$LOGDIR/stack-$i.log" 2>&1 &&
         bin/rails runner e2e/seed.rb >>"$LOGDIR/stack-$i.log" 2>&1
     ); then
@@ -147,7 +177,8 @@ else
     port=$((BASE_PORT + i))
     db="${DBPREFIX}_${i}"
     (
-      export DATABASE_URL="postgres:///${db}" RAILS_ENV=test
+      export DATABASE_URL="postgres:///${db}" TEST_DATABASE_URL="postgres:///${db}" RAILS_ENV=test
+      export ENABLE_COINFLOW=true ENABLE_AEROPAY=true  # onramp rails — see ONRAMP FLAGS above
       exec bin/rails server -p "$port" -e test >>"$LOGDIR/server-$i.log" 2>&1
     ) &
     SERVER_PIDS+=("$!")

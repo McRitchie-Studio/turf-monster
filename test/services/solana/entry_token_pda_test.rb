@@ -21,6 +21,21 @@ class Solana::EntryTokenPdaTest < ActiveSupport::TestCase
       "Ruby must hash the exact 64-byte buffer the program hashes"
   end
 
+  # Regression (Coinflow rail): mint_entry_token does
+  # `ENTRY_TOKEN_SOURCE.fetch(source)` on the Symbol source it receives from
+  # TokenPurchaseJob (`purchase_type.to_sym`). A rail whose purchase_type has no
+  # entry raises `KeyError: key not found` at mint time — invisible to the
+  # job/webhook suites because FakeVault stubs mint_entry_token. Every fiat rail
+  # that reaches TokenPurchaseJob MUST have a distinct source byte here.
+  test "every fiat rail's purchase_type maps to a distinct entry-token source byte" do
+    %i[stripe paypal coinflow aeropay].each do |rail|
+      assert Solana::Vault::ENTRY_TOKEN_SOURCE.key?(rail),
+        "ENTRY_TOKEN_SOURCE missing #{rail} — mint_entry_token(source: #{rail.inspect}) would KeyError"
+    end
+    bytes = %i[operator stripe moonpay paypal coinflow aeropay].map { |k| Solana::Vault::ENTRY_TOKEN_SOURCE[k] }
+    assert_equal bytes.length, bytes.uniq.length, "each rail's source byte must be distinct for on-chain forensics"
+  end
+
   test "padded_source_ref pads short refs to 64 and RAISES on > 64 (no silent truncation)" do
     assert_equal 64, @vault.send(:padded_source_ref, "short").bytesize
     assert_equal 64, @vault.send(:padded_source_ref, "x" * 64).bytesize, "exactly 64 is allowed"

@@ -1,0 +1,152 @@
+module Nfl
+  # Builds (or refreshes) the single Slate that a multi-week contest is played
+  # on — e.g. "NFL 2026 Weeks 1-3", holding every game those weeks contain.
+  #
+  # This is the convergence point for multi-week scoring. A Slate is a POOL OF
+  # GAMES, so one span slate holds three games per team, and ranking it stores a
+  # FROZEN per-team turf_score on every one of those rows. Scoring then reads the
+  # stored value instead of recomputing across a set of weekly slates, which is
+  # what let a pick be priced at 1.0x and settled at 3.0x.
+  #
+  # Refuses rather than truncates:
+  #   * a gap in the requested weeks (a "Weeks 1-3" that silently skipped week 2
+  #     would be sold as three weeks and scored as two)
+  #   * a year with no weekly slates at all
+  # Scoping every lookup by YEAR is what keeps a 2026 span from absorbing a 2025
+  # slate. Since `slates-sport-year` that scope is the `year` + `sport` COLUMNS, not a
+  # LIKE against the name.
+  class BuildSpanSlate
+    class Error < StandardError; end
+
+    def self.call(...)
+      new(...).call
+    end
+
+    def initialize(year:, weeks:, season_type: Slate::DEFAULT_SEASON_TYPE)
+      @year = year.to_i
+      @weeks = Array(weeks).map(&:to_i).uniq.sort
+      @season_type = season_type.to_i
+    end
+
+    def call
+      raise Error, "Need at least one week" if @weeks.empty?
+
+      sources = source_slates
+      slate = ensure_slate!
+
+      # A span slate is FROZEN once it backs any pick, and it is deterministic
+      # for a given (year, weeks) — so an already-built one is correct to reuse
+      # AS-IS. Rebuilding it would destroy_all its matchups (SlateMatchup
+      # has_many :selections, dependent: :destroy, so the wipe cascades to live
+      # Selections) and re-freeze would re-price a locked pick off refreshed
+      # source projections. A SECOND contest on the same span (a normal
+      # multi-tier GTM pattern) must not wipe or re-price the first's live
+      # entries — their USDC settlement is on-chain. Never destroy_all matchups
+      # that back existing Selections.
+      return slate.reload if slate.slate_matchups.joins(:selections).exists?
+
+      # Rebuild + freeze are one unit: a partial rebuild must not leave a
+      # half-wiped or unranked slate that a contest could then be priced on.
+      ActiveRecord::Base.transaction do
+        rebuild_matchups!(slate, sources)
+        freeze_rankings!(slate)
+      end
+
+      slate.reload
+    end
+
+    # The season qualifier is part of the NAME, not decoration: it is what the
+    # model derives season_type back out of, and what stops a preseason span and
+    # a regular span of the same weeks colliding on `find_or_create_by!(name:)`.
+    def self.slate_name(year, weeks, season_type = Slate::DEFAULT_SEASON_TYPE)
+      qualifier = season_type.to_i == Slate::PRESEASON_SEASON_TYPE ? "Preseason " : ""
+      span = weeks.size == 1 ? "Week #{weeks.first}" : "Weeks #{weeks.first}-#{weeks.last}"
+      "NFL #{year} #{qualifier}#{span}"
+    end
+
+    private
+
+    # The weekly slates the span is assembled from, scoped to THIS year and sport by
+    # COLUMN. Every requested week must exist — a missing one is an error, not a
+    # shorter contest.
+    def source_slates
+      # Sources must be SINGLE-week slates. A span slate is itself named
+      # "NFL 2026 Weeks 1-3" and carries week=1, so without this filter a REBUILD
+      # matched the span as its own source for week 1, wiped its rows, and then
+      # copied from the now-empty slate — silently returning a shorter span.
+      #
+      # Was `where("name LIKE ?", "NFL #{@year} %")`. Scoping by the `year` + `sport`
+      # COLUMNS is what `slates-sport-year` exists to enable — and it is what gives the
+      # [year, week] index a reader. A LIKE on the name could also be defeated by a
+      # renamed slate; the columns cannot. A weekly slate with a NULL year no longer
+      # matches, which surfaces as the same "no slate for week N" refusal this method
+      # already raises — fail-closed, not a silently shorter span.
+      # .order(:id) because index_by below keeps the LAST row per week, and admission
+      # widened from "name starts with NFL <year> " to any nfl row with year=<year> — so
+      # two same-week rows must resolve deterministically rather than by scan order.
+      # SEASON TYPE IS PART OF THE SCOPE. Week numbers repeat within a year --
+      # preseason week 3 and regular week 3 both exist -- so without it, asking
+      # for a preseason 3-4 span returned the REGULAR weeks: unplayed games,
+      # assembled into a contest, with nothing raising. That is the failure this
+      # column was added for.
+      candidates = Slate.where(week: @weeks, year: @year, sport: "nfl", season_type: @season_type).order(:id)
+                        .reject { |slate| slate.week_range.nil? || slate.week_range.size > 1 }
+
+      scoped = candidates.index_by(&:week)
+      missing = @weeks - scoped.keys
+
+      if missing.any?
+        season = @season_type == Slate::PRESEASON_SEASON_TYPE ? "preseason" : "regular season"
+        raise Error, "NFL #{@year} #{season} has no slate for " \
+                     "week#{'s' if missing.size > 1} #{missing.join(', ')}"
+      end
+
+      @weeks.map { |week| scoped.fetch(week) }
+    end
+
+    def ensure_slate!
+      name = self.class.slate_name(@year, @weeks, @season_type)
+      Slate.find_or_create_by!(name: name) do |slate|
+        slate.slug = name.parameterize
+        slate.week = @weeks.first
+        # sport/year are NOT set here on purpose: Slate's before_validation derives both
+        # from the name for every writer. A reviewer mutation proved these assignments
+        # were dead — deleting them left the suite green — so one derivation point beats
+        # two that can disagree.
+      end
+    end
+
+    # Rebuilt wholesale rather than merged, so a re-run after a projections
+    # refresh can't leave a stale game behind.
+    def rebuild_matchups!(slate, sources)
+      slate.slate_matchups.destroy_all
+
+      sources.each do |source|
+        source.slate_matchups.each do |matchup|
+          slate.slate_matchups.create!(
+            week: matchup.week || source.week,
+            team_slug: matchup.team_slug,
+            opponent_team_slug: matchup.opponent_team_slug,
+            game_slug: matchup.game_slug,
+            expected_score: matchup.expected_score,
+            status: matchup.status
+          )
+        end
+      end
+    end
+
+    # Store the span ranking on EVERY row of each team. This is the freeze: the
+    # multiplier a player is shown at pick time is the one settlement multiplies
+    # by, because both read this column.
+    def freeze_rankings!(slate)
+      rankings = slate.team_rankings
+
+      slate.slate_matchups.find_each do |matchup|
+        ranking = rankings[matchup.team_slug]
+        next if ranking.nil?
+
+        matchup.update!(rank: ranking[:rank], turf_score: ranking[:turf_score])
+      end
+    end
+  end
+end

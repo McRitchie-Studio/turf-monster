@@ -20,12 +20,14 @@
           <% end %>
         </div>
       </div>
-      <div class="ml-auto flex items-center gap-2">
-        <% if @team.color_primary.present? %>
-          <div class="w-8 h-8 rounded-full border border-white/20" style="background-color: <%= @team.color_primary %>"></div>
-        <% end %>
-        <% if @team.color_secondary.present? %>
-          <div class="w-8 h-8 rounded-full border border-white/20" style="background-color: <%= @team.color_secondary %>"></div>
+      <%# Brand palette by intrinsic lightness: 🌒 dark · 🌖 dark alt · 🔆 light ·
+          🔅 light alt · ✳️ alt · 🩶 grey. Slots show only when the team curates them. %>
+      <div class="ml-auto flex items-center gap-1.5">
+        <% [["🌒", @team.color_dark], ["🌖", @team.color_dark_alt], ["🔆", @team.color_light], ["🔅", @team.color_light_alt], ["✳️", @team.color_alt], ["🩶", @team.color_grey]].each do |emoji, hex| %>
+          <% if hex.present? %>
+            <div class="w-8 h-8 rounded-full border border-white/20 flex items-center justify-center text-[9px] leading-none"
+                 style="background-color: <%= hex %>" title="<%= emoji %> <%= hex %>"><span class="opacity-80"><%= emoji %></span></div>
+          <% end %>
         <% end %>
       </div>
     </div>
@@ -74,6 +76,22 @@
             </div>
           </div>
         <% end %>
+      </div>
+    </div>
+  <% end %>
+
+  <%# NFL roster from the seeded player database, grouped by position. Capped
+      at a preview here; the full roster lives on /nfl-players. %>
+  <%# Loaded once: .any?/.size/.first(12) on an Array beats three queries. %>
+  <% roster = @team.athletes.includes(:person, :team, :image_caches).in_roster_order.to_a %>
+  <% if roster.any? %>
+    <div class="mb-6">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-lg font-bold text-heading">Roster (<%= roster.size %>)</h3>
+        <%= link_to "View all →", nfl_players_path(team: @team.slug), class: "text-sm text-secondary hover:text-primary" %>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <%= render partial: "nfl_players/athlete_card", collection: roster.first(12), as: :athlete %>
       </div>
     </div>
   <% end %>

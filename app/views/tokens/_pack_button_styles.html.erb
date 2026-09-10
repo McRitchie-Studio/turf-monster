@@ -63,14 +63,85 @@
   .glow-pair-btn .orb-r.orb-big   { right: 40px;            top: 68%; }
 
   /* Hover: small orbs dive past the bottom + giant halos; big orbs rocket up and out */
-  .glow-pair-btn:hover { border-color: var(--orb-accent); }
-  .glow-pair-btn:hover .orb-l.orb-small { left: 96px;             top: 110%; filter: blur(24px); box-shadow: 0 0 44px 36px var(--orb1); transform: scale(1.4); }
-  .glow-pair-btn:hover .orb-l.orb-big   { left: -80px;            top: -64px; filter: blur(36px); transform: scale(1.3); }
-  .glow-pair-btn:hover .orb-c.orb-small { left: calc(50% - 12px); top: 110%; filter: blur(24px); box-shadow: 0 0 44px 36px var(--orb1); transform: scale(1.4); }
-  .glow-pair-btn:hover .orb-c.orb-big   { left: calc(50% - 50px); top: -80px; filter: blur(36px); transform: scale(1.3); }
-  .glow-pair-btn:hover .orb-r.orb-small { right: 96px;            top: 110%; filter: blur(24px); box-shadow: 0 0 44px 36px var(--orb1); transform: scale(1.4); }
-  .glow-pair-btn:hover .orb-r.orb-big   { right: -80px;           top: -64px; filter: blur(36px); transform: scale(1.3); }
+  /* :not(:disabled) on every hover rule. Without it a DISABLED card still fired
+     the full treatment on hover — solid accent border, orbs rocketing out — so
+     a dead card rendered LOUDER than a resting live one. That is precisely the
+     "looks clickable, does nothing" signal the disabled: variants were added to
+     kill; opacity-50 dims the card, but the hover motion and the accent border
+     shout over it the moment the pointer lands.
+     Scoping the CSS alone is not enough: the button also carries a Tailwind
+     `hover:border-primary` utility, which is why _pack_button.html.erb uses the
+     `enabled:` variant on it. Both layers, or the border still lights up. */
+  .glow-pair-btn:hover:not(:disabled) { border-color: var(--orb-accent); }
+  .glow-pair-btn:hover:not(:disabled) .orb-l.orb-small { left: 96px;             top: 110%; filter: blur(24px); box-shadow: 0 0 44px 36px var(--orb1); transform: scale(1.4); }
+  .glow-pair-btn:hover:not(:disabled) .orb-l.orb-big   { left: -80px;            top: -64px; filter: blur(36px); transform: scale(1.3); }
+  .glow-pair-btn:hover:not(:disabled) .orb-c.orb-small { left: calc(50% - 12px); top: 110%; filter: blur(24px); box-shadow: 0 0 44px 36px var(--orb1); transform: scale(1.4); }
+  .glow-pair-btn:hover:not(:disabled) .orb-c.orb-big   { left: calc(50% - 50px); top: -80px; filter: blur(36px); transform: scale(1.3); }
+  .glow-pair-btn:hover:not(:disabled) .orb-r.orb-small { right: 96px;            top: 110%; filter: blur(24px); box-shadow: 0 0 44px 36px var(--orb1); transform: scale(1.4); }
+  .glow-pair-btn:hover:not(:disabled) .orb-r.orb-big   { right: -80px;           top: -64px; filter: blur(36px); transform: scale(1.3); }
   .glow-pair-btn > .glow-content { position: relative; z-index: 20; }
 
   .glow-brand { --orb1: #4BAF50; --orb2: #f97316; --orb-accent: #f97316; }
+
+  /* Coinflow rail — same orb choreography, cooler hues so the two payment rails
+     read as siblings rather than the same button twice. Indigo/cyan echoes
+     Coinflow's own hosted checkout. */
+  .glow-coinflow { --orb1: #6366f1; --orb2: #22d3ee; --orb-accent: #818cf8; }
+
+  /* PayPal rail — the select-mode picker. Neutral blues, distinct from both the
+     brand green/orange and Coinflow's indigo/cyan. */
+  .glow-paypal { --orb1: #0070ba; --orb2: #64748b; --orb-accent: #38bdf8; }
+
+  /* Provider badge. SOLID fills with white text, deliberately — a translucent
+     tint plus light text composites against the card, so it inverts with the
+     theme: the first cut measured 8.00:1 on dark but 1.28:1 on light, and the
+     badge is the ONLY on-card tell of which rail takes the money. An opaque
+     fill contrasts identically in every theme, so there is no light variant to
+     forget. Same trap this repo already documented one file over
+     (modals/auth/_paypal_tokens: "bare text-yellow-300 on the light theme's
+     white card is near-invisible"). Ratios vs #fff: stripe 5.13:1,
+     coinflow 7.90:1, paypal 6.66:1 — all clear AA's 4.5:1.
+     The theme primary (#4BAF50) is NOT usable here: white on it is 2.78:1. */
+  .provider-badge {
+    display: inline-block; flex-shrink: 0;
+    padding: 4px 10px; border-radius: 9999px;
+    font-size: 10px; font-weight: 800;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    line-height: 1; color: #ffffff;
+    /* The pill's own fill is only ~2-3:1 against the card surface in dark
+       theme. Not a 1.4.11 failure — the pill carries its own white text, which
+       is what has to be readable — but the EDGE reads soft, so a hairline
+       inset ring gives it a definite boundary in both themes. */
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+  }
+  /* Savings accent. Was `bg-primary text-white`, which is white on #4BAF50 =
+     2.78:1 at 10px — failing AA in BOTH themes, not just light. That exact
+     figure is computed a few lines above as the reason the provider badge does
+     NOT use the theme primary; the same trap was sitting one line away on the
+     same card.
+     #1b5e20 is 7.87:1 against white — clears AA with room.
+     It is deliberately not #2e7d32 (the stripe provider badge), but do NOT rely
+     on the hue to tell them apart: measured against each other the two greens
+     are only ~1.5:1, which is not a visible difference. What separates a
+     savings accent from a provider badge here is SHAPE and POSITION — the badge
+     is a pill in the card's middle column, this is a small rounded tag riding
+     the subtitle ~380px away — plus the wording. Changing either colour will
+     not change that; changing the layout would.
+     The fill is opaque, so at rest the ratio is identical in both themes. It is
+     NOT immune to compositing: on a disabled card the parent's
+     disabled:opacity-50 drops it to ~3.75:1 dark / ~2.48:1 light. That is
+     WCAG-exempt (disabled controls) and intentional, but it is compositing —
+     "opaque" means no alpha of its own, not untouchable. */
+  .savings-pill {
+    display: inline-block; margin-left: 0.25rem;
+    padding: 2px 6px; border-radius: 0.25rem;
+    font-size: 10px; font-weight: 800;
+    letter-spacing: 0.05em; text-transform: uppercase;
+    line-height: 1.1;
+    background: #1b5e20; color: #ffffff;
+  }
+
+  .provider-badge-stripe   { background: #2e7d32; }
+  .provider-badge-coinflow { background: #4338ca; }
+  .provider-badge-paypal   { background: #005ea6; }
 </style>

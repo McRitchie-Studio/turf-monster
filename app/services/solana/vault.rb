@@ -29,6 +29,12 @@ module Solana
     # winners (spec §3.12, §10.1, §11 Q7).
     SETTLE_COMPUTE_UNIT_LIMIT = 400_000
 
+    # Single source of truth for the admin vault-state cache key. Read
+    # cache-first on the navbar preload path (ApplicationController) and
+    # fetch-with-race_condition_ttl in .cached_vault_state, so read-key and
+    # write-key can never drift.
+    VAULT_STATE_CACHE_KEY = "solana:vault_state"
+
     # ComputeBudget program id (deterministic).
     COMPUTE_BUDGET_PROGRAM_ID = Keypair.decode_base58("ComputeBudget111111111111111111111111111111")
 
@@ -77,7 +83,7 @@ module Solana
     # CHAT_MESSAGE = 3 added in v0.23 (send first contest-chat message quest).
     SEED_GRANT_KIND = { username: 0, newsletter: 1, invite: 2, chat: 3 }.freeze
 
-    def initialize(client: Solana::Client.new)
+    def initialize(client: Config.client)
       @client = client
       @program_id = Keypair.decode_base58(Config::PROGRAM_ID)
     end
@@ -99,9 +105,40 @@ module Solana
     # env / config takes effect on the next retry.
     PROGRAM_ID_LIVE_CACHE_KEY = "solana/program_id_live/v1".freeze
 
-    def self.ensure_program_id_live!(client: nil)
-      cache_key = "#{PROGRAM_ID_LIVE_CACHE_KEY}/#{Config::PROGRAM_ID}/#{Config::RPC_URL[0, 64]}"
-      return if Rails.cache.read(cache_key)
+    # RETURN VALUE IS A TRI-STATE, and the two non-raising outcomes are NOT the
+    # same fact:
+    #
+    #   :live       — a getAccountInfo call answered, and PROGRAM_ID is there.
+    #   :cached     — a call answered within the last 5 minutes and said :live.
+    #   :unverified — the check DID NOT RUN. The RPC errored and we swallowed it.
+    #
+    # The fail-open on :unverified is deliberate and load-bearing: TokenPurchaseJob
+    # calls this as a defensive pre-flight, and a transient 429 must not fail a
+    # purchase the mint itself would have surfaced properly. So this method still
+    # does not raise on transport errors, and the job still ignores the return
+    # value — nothing about its control flow changes.
+    #
+    # What changed is that the outcome is now REPORTABLE. `solana:health` used to
+    # infer "it didn't raise, so it passed" and print a green tick for a check
+    # that never executed — against a fully-rejecting endpoint it printed
+    # "✓ PROGRAM_ID exists on RPC" directly below "getGenesisHash failed". That is
+    # the worst possible lie to tell an operator mid key-rotation. A caller that
+    # needs to know the difference now can, without this becoming a raise.
+    #
+    # `force: true` skips the cache READ (never the write). `solana:health` uses
+    # it: the health check exists to prove the CURRENT endpoint answers, and a
+    # cache hit proves only that some endpoint answered up to five minutes ago.
+    # It replaces a `Rails.cache.delete_matched(...) rescue nil` in the rake —
+    # `delete_matched` raises on stores that do not support it (and the bare
+    # `rescue nil` ate that), leaving the stale entry in place and the tick green.
+    def self.ensure_program_id_live!(client: nil, force: false)
+      # Digest, not a prefix: the raw endpoint carries the provider api-key on
+      # mainnet, and a 64-char prefix of it was long enough to include part of
+      # that key in every Redis key and slow-log line. The digest still changes
+      # when the endpoint does, which is all the cache key needs.
+      rpc_fingerprint = Digest::SHA256.hexdigest(Config::RPC_URL.to_s)[0, 16]
+      cache_key = "#{PROGRAM_ID_LIVE_CACHE_KEY}/#{Config::PROGRAM_ID}/#{rpc_fingerprint}"
+      return :cached if !force && Rails.cache.read(cache_key)
 
       client ||= Solana::Client.new
       info = client.get_account_info(Config::PROGRAM_ID)
@@ -109,18 +146,25 @@ module Solana
       if live.nil?
         raise StaleEnvError,
               "Solana PROGRAM_ID=#{Config::PROGRAM_ID} does not exist on RPC " \
-              "#{Config::RPC_URL.to_s[0, 60]}#{'…' if Config::RPC_URL.to_s.length > 60}. " \
+              "#{Config.redact_rpc_url(Config::RPC_URL)}. " \
               "Sidekiq may have a stale env from before a devnet redeploy — " \
               "restart it. (Set SKIP_PROGRAM_ID_LIVE_CHECK=true to bypass.)"
       end
       Rails.cache.write(cache_key, true, expires_in: 5.minutes)
+      :live
     rescue StaleEnvError
       raise
     rescue => e
       # Transient RPC errors (429, network blip) shouldn't fail the job —
       # let the actual mint surface its own error. We only raise on the
       # definitive "account doesn't exist" response.
-      Rails.logger.warn "[solana] ensure_program_id_live! RPC error (skipping check): #{e.class}: #{e.message[0,120]}"
+      #
+      # `redact_message`, not raw `e.message`: InsecureRpcUrlError and
+      # URI::InvalidURIError both embed the full credentialed endpoint in their
+      # message, and truncating at 120 chars is not redaction.
+      Rails.logger.warn "[solana] ensure_program_id_live! RPC error (check did NOT run): " \
+                        "#{e.class}: #{Config.redact_message(e.message).truncate(160)}"
+      :unverified
     end
 
     # --- PDA helpers ---
@@ -560,7 +604,10 @@ module Solana
       return Current.vault_state if Current.vault_state_fetched
 
       Current.vault_state_fetched = true
-      Current.vault_state = Rails.cache.fetch("solana:vault_state", expires_in: 1.minute) do
+      # race_condition_ttl damps the every-60s stampede: when the entry expires
+      # under concurrent admin renders, the first reader bumps the expiry by
+      # this window while it regenerates instead of all firing read_vault_state.
+      Current.vault_state = Rails.cache.fetch(VAULT_STATE_CACHE_KEY, expires_in: 1.minute, race_condition_ttl: 5.seconds) do
         new.read_vault_state
       end
     rescue StandardError => e
@@ -1358,8 +1405,22 @@ module Solana
       { signature: signature, entry_pda: Keypair.encode_base58(e_pda) }
     end
 
-    # Build a partially-signed enter_contest_with_token TX (Phantom wallet).
-    # Admin signs as payer, Phantom signs as user.
+    # Build an enter_contest_with_token TX for Phantom co-sign — the token-funded
+    # twin of #build_enter_contest, and it follows that method's PHANTOM-FIRST
+    # contract exactly: returns a FULLY-UNSIGNED tx with BOTH the admin (payer)
+    # and user slots empty. Phantom signs FIRST, then the server fills the admin
+    # slot via #cosign_and_broadcast_entry and broadcasts.
+    #
+    # It used to go out through #build_partial_signed, which signs as the admin
+    # at BUILD time. That made every Phantom token entry die at confirm:
+    # Transaction.cosign_wire refuses to clobber a filled slot ("slot 0 … already
+    # holds a signature"), so the wire was never cosigned and never broadcast —
+    # money-safe, but a regression, since the same wallet could enter by paying
+    # USDC. #build_enter_contest was migrated off this shape on 2026-06-05 for
+    # precisely that reason; this builder is now on the same rail.
+    #
+    # additional_signers MUST be ordered admin FIRST (the gem's keyless build
+    # takes additional_signers.first as the fee payer), then the user wallet.
     def build_enter_contest_with_token(wallet_address, contest_slug, entry_num, entry_token_pda_b58,
                                        season_id: nil)
       wallet_bytes = Keypair.decode_base58(wallet_address)
@@ -1374,7 +1435,7 @@ module Solana
       data = Transaction.anchor_discriminator("enter_contest_with_token") +
              Borsh.encode_u32(entry_num)
 
-      serialized = build_partial_signed(
+      serialized = build_partial_unsigned(
         accounts: [
           { pubkey: Keypair.admin.public_key_bytes, is_signer: true,  is_writable: true  },
           { pubkey: wallet_bytes,                   is_signer: true,  is_writable: true  },
@@ -1387,7 +1448,7 @@ module Solana
           { pubkey: Transaction::SYSTEM_PROGRAM_ID, is_signer: false, is_writable: false }
         ],
         data: data,
-        additional_signers: [wallet_bytes]
+        additional_signers: [Keypair.admin.public_key_bytes, wallet_bytes]
       )
       { serialized_tx: serialized, entry_pda: Keypair.encode_base58(e_pda) }
     end
@@ -1647,12 +1708,29 @@ module Solana
     # ── Entry tokens (turf-vault v0.9.0+) ───────────────────────────────────
     # On-chain EntryTokenAccount PDAs per token. Source enum: 0=operator, 1=stripe, 2=moonpay.
 
-    # paypal (3) is Rails-side only for now — the deployed program stores the
-    # source byte unvalidated (turf-vault mint_entry_token.rs assigns it raw),
-    # so no program upgrade is needed; mirror it into state.rs's
-    # entry_token_source mod on the next turf-vault release.
-    ENTRY_TOKEN_SOURCE = { operator: 0, stripe: 1, moonpay: 2, paypal: 3 }.freeze
+    # paypal (3), coinflow (4) and aeropay (5) are Rails-side only for now — the
+    # deployed program stores the source byte unvalidated (turf-vault
+    # mint_entry_token.rs assigns it raw), so no program upgrade is needed;
+    # mirror them into state.rs's entry_token_source mod on the next turf-vault
+    # release. A rail whose purchase_type has no entry here KeyErrors at mint
+    # (mint_entry_token does ENTRY_TOKEN_SOURCE.fetch(source)) — see
+    # test/services/solana/entry_token_pda_test.rb.
+    ENTRY_TOKEN_SOURCE = { operator: 0, stripe: 1, moonpay: 2, paypal: 3, coinflow: 4, aeropay: 5 }.freeze
     ENTRY_TOKEN_LEN = 124 # bytes — 8 disc + 32 owner + 1 source + 64 source_ref + 1 consumed + 9 consumed_at + 8 created_at + 1 bump
+
+    # High bit of the on-chain `source` byte, set by burn_entry_token to
+    # tombstone a voucher an operator clawed back (turf-vault
+    # state.rs::entry_token_source::BURNED_FLAG). It rides in the spare bit of an
+    # EXISTING field because EntryTokenAccount is 124 bytes and fully packed —
+    # adding a real `burned` column would break deserialization of every token
+    # minted before the upgrade, and with it enter_contest_with_token for those
+    # holders.
+    #
+    # Consequence for THIS file: `source` off the wire is no longer a bare enum
+    # value. Every read must mask (see #decode_entry_token), or a burned Stripe
+    # token (1 | 0x80 = 129) reads as a source nothing recognizes.
+    ENTRY_TOKEN_BURNED_FLAG = 0x80
+    ENTRY_TOKEN_SOURCE_MASK = 0x7f
 
     def mint_entry_token(wallet_address:, source:, source_ref:)
       source_u8 = source.is_a?(Symbol) ? ENTRY_TOKEN_SOURCE.fetch(source) : source.to_i
@@ -1684,6 +1762,61 @@ module Solana
           { pubkey: wallet_bytes,                   is_signer: false, is_writable: false }, # user_wallet
           { pubkey: pda,                            is_signer: false, is_writable: true  }, # entry_token (init)
           { pubkey: Transaction::SYSTEM_PROGRAM_ID, is_signer: false, is_writable: false }
+        ],
+        data: data
+      )
+
+      signature = client.send_and_confirm(tx.serialize_base64)
+      invalidate_entry_tokens_cache(wallet_address)
+      { signature: signature, pda: Keypair.encode_base58(pda) }
+    end
+
+    # Void ONE unspent entry token — the operator claw-back counterpart to
+    # #mint_entry_token. 1-of-3 vault signer; the holder does NOT sign.
+    #
+    # Identified by `source_ref`, not by PDA, because the ref is what the caller
+    # actually has: #list_entry_tokens decodes it off each account, and the ref is
+    # what derives the address. Passing the ref lets this method recompute BOTH
+    # halves the program checks — the PDA it addresses and the source_ref_hash it
+    # sends — so the two can never disagree on the way out.
+    #
+    # TOMBSTONE, not close. The account survives with consumed = true and the
+    # burned flag set, so the on-chain token COUNT is unchanged — which is the
+    # whole point: `owed` on the admin free-entries page and
+    # Tokens::LevelUpGrant#missing_levels both derive from that count, so a burn
+    # that removed the account would immediately re-read as owed and be re-minted
+    # by the next "Mint all" or level-up sweep.
+    #
+    # NOT idempotent, deliberately. mint collides on `init` and can be retried
+    # blind; a re-burn instead fails the program's EntryTokenAlreadyBurned guard
+    # (6045 / 0x179d), because silently accepting one would overwrite consumed_at and
+    # destroy the record of when the burn happened. Callers that retry must
+    # re-read the list and skip tokens already carrying `burned: true`.
+    def burn_entry_token(wallet_address:, source_ref:)
+      admin = Keypair.admin
+
+      # The SAME two derivations mint does, from the same input — see
+      # #mint_entry_token. `padded_source_ref` raises rather than truncating past
+      # 64 bytes, so a ref that could not have been minted cannot be burned
+      # either.
+      ref_buffer = padded_source_ref(source_ref)
+      ref_hash   = Digest::SHA256.digest(ref_buffer)
+      pda, _ = Transaction.find_pda([b("entry_token"), ref_hash], @program_id)
+
+      data = Transaction.anchor_discriminator("burn_entry_token") +
+             ref_hash                  # source_ref_hash: [u8;32] (fixed array — raw bytes)
+
+      vault_pda, _ = vault_state_pda
+
+      tx = build_tx(admin)
+      tx.add_instruction(
+        program_id: @program_id,
+        accounts: [
+          # admin is writable because it is the fee payer, even though the
+          # instruction itself moves no lamports (a tombstone refunds no rent).
+          { pubkey: admin.public_key_bytes, is_signer: true,  is_writable: true  }, # admin
+          { pubkey: vault_pda,              is_signer: false, is_writable: false }, # vault_state
+          { pubkey: pda,                    is_signer: false, is_writable: true  }  # entry_token (mut)
         ],
         data: data
       )
@@ -1769,7 +1902,23 @@ module Solana
     end
 
     def list_entry_tokens(wallet_address, commitment: "confirmed")
-      Rails.cache.fetch(entry_tokens_cache_key(wallet_address), expires_in: 60.seconds) do
+      # race_condition_ttl bounds the thundering herd when the 60s entry-token
+      # cache expires under concurrent hydrate calls: the first reader bumps the
+      # expiry by this window while it regenerates, so the others serve the
+      # still-warm list instead of all firing the getProgramAccounts scan. It
+      # affects only PASSIVE 60s expiry — the write-time invalidation on
+      # mint/consume (invalidate_entry_tokens_cache, and User#bust_entry_tokens_cache!
+      # which now deletes this key too) DELETEs the key, which race_condition_ttl
+      # does not touch, so a consumed token is never served stale past a write.
+      #
+      # This list is NOT display-only, and a comment here once claimed it was.
+      # Entry funding reads it: User#next_unconsumed_entry_token_for resolves
+      # through #cached_entry_tokens (which wraps this fetch) or through this
+      # fetch directly for a scoped address. A stale entry therefore does not just
+      # mis-paint a badge — it re-picks a SPENT token and builds a doomed
+      # enter_contest_with_token (0x177f) instead of falling back to USDC. Every
+      # writer must invalidate, and must invalidate THIS key.
+      Rails.cache.fetch(entry_tokens_cache_key(wallet_address), expires_in: 60.seconds, race_condition_ttl: 5.seconds) do
         owner_b58 = wallet_address
         program_id_b58 = Keypair.encode_base58(@program_id)
         result = client.send(:call, "getProgramAccounts", [
@@ -1791,8 +1940,18 @@ module Solana
       Rails.cache.delete(entry_tokens_cache_key(wallet_address))
     end
 
-    def entry_tokens_cache_key(wallet_address)
+    # Class method so the navbar render path (ApplicationController) can build
+    # the key WITHOUT allocating a Vault instance — and so it's a single source
+    # of truth shared by the cache-first read (display_entry_token_count), the
+    # warm-on-hydrate write (list_entry_tokens), and the mint/consume
+    # invalidation (invalidate_entry_tokens_cache). Read-key ≡ write-key ≡
+    # invalidate-key, by construction.
+    def self.entry_tokens_cache_key(wallet_address)
       "entry_tokens:#{wallet_address}"
+    end
+
+    def entry_tokens_cache_key(wallet_address)
+      self.class.entry_tokens_cache_key(wallet_address)
     end
 
     # ── Seasons (turf-vault v0.11.0+) ────────────────────────────────────────
@@ -1985,6 +2144,15 @@ module Solana
     # 2 user_account, 3 vault_state, 4 contest, 5 contest_entry.
     ENTER_CONTEST_ENTRY_PDA_POSITION = 5
 
+    # Position of the entry_token (EntryTokenAccount PDA) inside the
+    # enter_contest_with_token instruction — see #build_enter_contest_with_token:
+    # 0 payer, 1 user, 2 user_account, 3 vault_state, 4 contest, 5 contest_entry,
+    # 6 entry_token. contest_entry sits at 5 in BOTH entry instructions, which is
+    # why ENTER_CONTEST_ENTRY_PDA_POSITION serves both; the guard's own tests pin
+    # that, so an account-order change fails loudly rather than validating the
+    # wrong slot.
+    ENTER_CONTEST_WITH_TOKEN_TOKEN_PDA_POSITION = 6
+
     # SystemInstruction::AdvanceNonceAccount discriminant (u32 LE 4). The ONLY
     # System instruction permitted in a cosignable entry — see SystemProgram
     # .advance_nonce_account in solana-studio.
@@ -2018,7 +2186,14 @@ module Solana
     #
     # Raises UnsafeCosignError (logged server-side via #cosign_reject!) on the
     # first failure. Returns true when the wire is safe to cosign + broadcast.
-    def assert_entry_cosign_safe!(signed_wire_base64, entry:, wallet_address:)
+    # `entry_token_pda:` — the EntryTokenAccount this entry was PREPARED against
+    # (base58), or nil for the USDC/USDT entry. It is what the SERVER chose in
+    # #prepare_entry, never anything the wire claims, and it selects which single
+    # instruction may be cosigned: with a token PDA only enter_contest_with_token
+    # bound to THAT account, without one only enter_contest. Each expectation
+    # admits exactly one discriminator, so a client cannot swap a paid entry for
+    # a token consume — or spend a token the server never picked — after the fact.
+    def assert_entry_cosign_safe!(signed_wire_base64, entry:, wallet_address:, entry_token_pda: nil)
       cosign_reject!(entry, wallet_address, "empty_wire: no signed_tx bytes") if signed_wire_base64.blank?
 
       msg =
@@ -2047,7 +2222,10 @@ module Solana
       end
       expected_entry_pda = entry_pda(entry.contest.slug, wallet_address, entry_num).first.b
 
-      enter_disc       = Transaction.anchor_discriminator("enter_contest").b
+      token_funded       = entry_token_pda.present?
+      expected_ix_name   = token_funded ? "enter_contest_with_token" : "enter_contest"
+      enter_disc         = Transaction.anchor_discriminator(expected_ix_name).b
+      expected_token_pda = token_funded ? Keypair.decode_base58(entry_token_pda).b : nil
       turf_vault       = @program_id.b
       system_program   = Transaction::SYSTEM_PROGRAM_ID.b   # 32 zero bytes
       compute_budget   = COMPUTE_BUDGET_PROGRAM_ID.b
@@ -2064,10 +2242,10 @@ module Solana
 
         case program_id
         when turf_vault
-          # (2) Only enter_contest, bound to THIS entry's PDA.
+          # (2) Only the PREPARED entry instruction, bound to THIS entry's PDA.
           unless ix[:data].byteslice(0, 8) == enter_disc
             cosign_reject!(entry, wallet_address,
-              "wrong_turf_vault_ix: ix #{i} disc=#{ix[:data].byteslice(0, 8).to_s.unpack1('H*')} != enter_contest")
+              "wrong_turf_vault_ix: ix #{i} disc=#{ix[:data].byteslice(0, 8).to_s.unpack1('H*')} != #{expected_ix_name}")
           end
           enter_count += 1
           slot = ix[:account_indices][ENTER_CONTEST_ENTRY_PDA_POSITION]
@@ -2075,6 +2253,19 @@ module Solana
           if ix_entry_pda != expected_entry_pda
             cosign_reject!(entry, wallet_address,
               "entry_pda_mismatch: ix #{i} entry account=#{b58(ix_entry_pda)} expected=#{b58(expected_entry_pda)}")
+          end
+          # (2b) Token-funded entry: the consume must hit the EXACT EntryTokenAccount
+          # the server picked. The program already refuses a token whose owner is not
+          # the signer, so this is the second lock rather than the only one — it stops
+          # a wire that swaps in a DIFFERENT token this same wallet owns (spending a
+          # voucher the server never selected, and never accounted for).
+          if token_funded
+            token_slot   = ix[:account_indices][ENTER_CONTEST_WITH_TOKEN_TOKEN_PDA_POSITION]
+            ix_token_pda = token_slot && account_keys[token_slot]
+            if ix_token_pda != expected_token_pda
+              cosign_reject!(entry, wallet_address,
+                "entry_token_pda_mismatch: ix #{i} token account=#{b58(ix_token_pda)} expected=#{b58(expected_token_pda)}")
+            end
           end
         when system_program
           # (3) Only the durable-nonce advance, targeting the configured nonce.
@@ -2105,7 +2296,7 @@ module Solana
       end
 
       unless enter_count == 1
-        cosign_reject!(entry, wallet_address, "enter_contest_count: found #{enter_count} enter_contest ixs, require exactly 1")
+        cosign_reject!(entry, wallet_address, "enter_contest_count: found #{enter_count} #{expected_ix_name} ixs, require exactly 1")
       end
 
       true
@@ -2226,6 +2417,47 @@ module Solana
       end
 
       client.send_and_confirm(patched_b64)
+    end
+
+    # Broadcast a FULLY-signed multisig wire on the operator's behalf: the admin
+    # slot was signed at build time (build_partial_signed), the cosigner's
+    # Phantom filled the remaining slot in the browser, and this sends it.
+    #
+    # THE BROWSER MUST NOT SEND THESE ITSELF. It did until 2026-09-05, and it
+    # failed every time on mainnet for three compounding reasons:
+    #
+    #   1. Config.public_rpc_url deliberately refuses to hand a CREDENTIALED
+    #      endpoint to a browser (it would leak the key), and
+    #      SOLANA_PUBLIC_RPC_URL was unset — so the page fell back to the free
+    #      public cluster RPC, which rate-limits browser traffic hard.
+    #   2. `new solanaWeb3.Connection(url)` takes the `finalized` commitment by
+    #      default, so sendRawTransaction preflighted a fresh blockhash against
+    #      a bank ~32 slots behind and rejected a VALID tx as BlockhashNotFound.
+    #   3. The wire came from a DOM attribute rendered with the page, so
+    #      clicking Co-sign again re-sent the SAME expired bytes forever.
+    #
+    # One catch-all modal blamed the blockhash for all three, which is how $140
+    # of alpha-contest payouts sat unsent from June to September while the
+    # operator retried a transaction that could never land.
+    #
+    # sig_verify:false + replace_recent_blockhash:true are the same settings
+    # #cosign_and_broadcast_entry uses, and for the same reason: we want the
+    # PROGRAM's verdict here, not a re-check of signatures or blockhash age.
+    # The send that follows still enforces both for real.
+    #
+    # Anchored on a plain recent blockhash, NOT the durable nonce — see the
+    # 2026-06-11 note in #build_enter_contest: Phantom injects Lighthouse guard
+    # instructions at positions we do not control, and a nonce tx is only
+    # recognized when advanceNonceAccount is instruction 0.
+    def simulate_and_broadcast(signed_wire_base64)
+      sim = client.simulate_transaction(signed_wire_base64, sig_verify: false,
+                                        replace_recent_blockhash: true)
+      if sim && sim["err"]
+        logs = Array(sim["logs"]).last(6).join("\n")
+        raise "Pre-flight simulation failed: #{sim['err'].inspect}#{logs.empty? ? '' : "\n#{logs}"}"
+      end
+
+      client.send_and_confirm(signed_wire_base64)
     end
 
     def cosign_and_broadcast_create_contest(signed_wire_base64)
@@ -2582,7 +2814,7 @@ module Solana
       data = Base64.decode64(account.dig("account", "data", 0))
       offset = 8
       owner_bytes, offset = Borsh.decode_pubkey(data, offset)
-      source = data[offset].ord; offset += 1
+      source_byte = data[offset].ord; offset += 1
       ref_slice = data[offset, 64]; offset += 64
       source_ref = ref_slice.bytes.take_while { |b| b != 0 }.pack("C*").force_encoding("UTF-8")
       consumed = data[offset].ord == 1; offset += 1
@@ -2591,10 +2823,20 @@ module Solana
       consumed_at = consumed_at_tag == 1 ? consumed_at_value : nil
       offset += 8
       created_at, offset = Borsh.decode_u64(data, offset)
+      # `source` carries the burn tombstone in its HIGH BIT (see
+      # ENTRY_TOKEN_BURNED_FLAG). Split it here, once, so no caller ever sees the
+      # raw byte: an unmasked read turns a burned Stripe token (1 | 0x80 = 129)
+      # into a source no lookup table has.
+      #
+      # A burned token is also `consumed: true` — that is what blocks the spend
+      # on chain — so anything counting UNCONSUMED tokens already excludes it and
+      # needs no change. `burned` exists to tell a claw-back apart from a genuine
+      # redemption, which only matters where the difference is shown or audited.
       {
         pda: account["pubkey"],
         owner: Keypair.encode_base58(owner_bytes),
-        source: source,
+        source: source_byte & ENTRY_TOKEN_SOURCE_MASK,
+        burned: (source_byte & ENTRY_TOKEN_BURNED_FLAG) != 0,
         source_ref: source_ref,
         consumed: consumed,
         consumed_at: consumed_at,

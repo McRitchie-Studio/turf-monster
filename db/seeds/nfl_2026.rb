@@ -85,6 +85,17 @@ nfl_team_metadata = {
 }
 nfl_team_metadata["WSH"] = nfl_team_metadata.fetch("WAS")
 
+# Four-color brand palette lives in Nfl::TeamPalette::PALETTE — the single place
+# to edit team colors, shared with the `nfl:recolor` post-deploy task. Merge it
+# onto the metadata so freshly-seeded teams get their colors here; existing rows
+# are recolored idempotently on reseed (and in prod via `bin/rails nfl:recolor`,
+# which touches ONLY color columns — never games, slates, or frozen turf_scores).
+Nfl::TeamPalette::PALETTE.each_key do |abbr|
+  next unless nfl_team_metadata.key?(abbr)
+
+  nfl_team_metadata[abbr].merge!(Nfl::TeamPalette.attributes_for(abbr))
+end
+
 nfl_home_arenas.merge(nfl_schedule_only_arenas).each do |slug, attributes|
   arena = Arena.find_or_initialize_by(slug: slug)
   arena.assign_attributes(attributes)
@@ -102,9 +113,13 @@ data.fetch("teams").each do |row|
     mascot: row.fetch("name"),
     location: metadata.fetch(:location),
     emoji: metadata.fetch(:emoji),
-    color_primary: metadata.fetch(:color_primary),
-    color_secondary: metadata.fetch(:color_secondary),
-    color_text_light: metadata.fetch(:color_text_light),
+    color_dark: metadata.fetch(:color_dark),
+    color_light: metadata.fetch(:color_light),
+    color_dark_alt: metadata[:color_dark_alt],
+    color_light_alt: metadata[:color_light_alt],
+    color_alt: metadata[:color_alt],
+    color_grey: metadata[:color_grey],
+    color_disposition: metadata.fetch(:color_disposition),
     sport: "football",
     league: "nfl",
     conference: metadata.fetch(:conference),
@@ -170,7 +185,7 @@ games_by_week.sort.each do |week, entries|
 
   sorted_matchups.each_with_index do |matchup, index|
     rank = index + 1
-    matchup.update!(rank: rank, turf_score: SlateMatchup.turf_score_for(rank, sorted_matchups.size))
+    matchup.update!(rank: rank, turf_score: SlateMatchup.turf_score_for(rank, sorted_matchups.size, sport: "nfl"))
   end
 
   puts "  Created slate: #{slate.name} (#{entries.size} games, #{slate.slate_matchups.count} matchups, starts #{first_game_at.utc.iso8601})"

@@ -87,6 +87,18 @@
       </div>
 
       <div class="mb-5">
+        <label for="contest_week_span" class="block text-sm text-secondary mb-2 font-medium">Weeks</label>
+        <%# Span is resolved server-side into consecutive weekly slates from the
+            selected anchor, so this can't produce a non-consecutive span. %>
+        <%= select_tag "contest[week_span]",
+              options_for_select([["1 week", 1], ["2 weeks", 2], ["3 weeks", 3]], params.dig(:contest, :week_span) || 1),
+              id: "contest_week_span", class: "input-field" %>
+        <p class="text-xs text-muted mt-1">
+          A multi-week contest runs forward from the selected slate. Six picks are made once and ride every week; all of them lock at the first week's kickoff.
+        </p>
+      </div>
+
+      <div class="mb-5">
         <label for="contest_season_id" class="block text-sm text-secondary mb-2 font-medium">Season</label>
         <% season_choices = Array(@season_options).map do |season|
              season_id = season[:season_id].to_i
@@ -247,7 +259,7 @@
         // drops the cropped blob into the hidden contest_image input + shows a
         // preview; the Create-Contest finalize step submits that file.
         function contestBannerCrop() {
-          var CROP = { aspectRatio: 4, maxWidth: 2000, maxHeight: 500, transparent: true, autoCropArea: 1, dispatch: true };
+          var CROP = { aspectRatio: 5, maxWidth: 2000, maxHeight: 400, transparent: true, autoCropArea: 1, dispatch: true };
           return {
             previewUrl: null,
             fileName: '',
@@ -284,6 +296,19 @@
           };
         }
       </script>
+
+      <%# Coming Soon — advertise the contest on the /contests rail but mark it
+          as not ready: the card sorts below the plain-open ones, dims, and
+          takes a "Coming Soon" sash. It changes nothing about the contest
+          itself; entry is not blocked. Mirrors the Enable-contest-chat
+          checkbox on /contests/:slug/edit. %>
+      <div class="mb-6">
+        <label class="flex items-center gap-2.5 cursor-pointer">
+          <%= f.check_box :coming_soon, class: "w-4 h-4", style: "accent-color: var(--color-primary)" %>
+          <span class="text-sm text-secondary font-medium">Coming soon</span>
+        </label>
+        <p class="text-xs text-muted mt-1">Shows on the contests page below the open contests, dimmed and sashed &ldquo;Coming Soon&rdquo;.</p>
+      </div>
 
       <div>
         <button type="submit" class="btn btn-primary btn-lg w-full" data-creating-label="Creating contest + on-chain TX…">
@@ -396,7 +421,7 @@
           modal.show('Preparing Transaction', 'Building the on-chain create_contest instruction…');
 
           try {
-            var provider = window.walletProvider.detect();
+            var provider = window.walletProvider.requireProvider();
             var connectResp = await provider.connect();
             var pubkeyB58 = connectResp.publicKey.toBase58();
             if (cfg.userWallet && pubkeyB58 !== cfg.userWallet) {
@@ -480,6 +505,11 @@
             if (!finalData.success) throw new Error(finalData.error || 'Failed to save contest');
 
             modal.show('Done', 'Redirecting to your new contest…');
+            // The prize pool just left this wallet, and we are ABOUT TO NAVIGATE — so
+            // hand the settle window to the destination page rather than scheduling it
+            // here. A setTimeout does not survive the unload two lines down, which
+            // would make this a silent no-op on the exact flow it exists for.
+            if (window.onchainSettled) window.onchainSettled({ navigating: true });
             window.location.href = finalData.redirect;
           } catch (err) {
             console.error('[contest-create] FAILED:', err);

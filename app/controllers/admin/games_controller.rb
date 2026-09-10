@@ -42,12 +42,11 @@ module Admin
     # POST /admin/games/:slug/complete
     def complete_game
       rescue_and_log(target: @game) do
-        @game.update!(status: "completed")
-        SlateMatchup.where(game_slug: @game.slug).update_all(status: "completed")
-        @game.score_affected_contests!
-        # complete_game bypasses the Goal callbacks, so trigger the live
-        # broadcast here (FINAL toast + leaderboard/games refresh).
-        Contest::LiveBroadcast.score_changed(@game, event: :game_completed)
+        # Game#conclude! owns the whole fan-out — status, matchup flip, contest
+        # re-score, and BOTH live broadcasts. This used to be four lines here
+        # that fired only the contest broadcast, so an admin concluding an NFL
+        # game left the league scoreboard showing it as still playing.
+        @game.conclude!
         render json: {
           success: true,
           game: game_json(@game.reload)

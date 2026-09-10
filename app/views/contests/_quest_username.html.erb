@@ -3,23 +3,11 @@
             Row 2 = description | "Change Username" CTA (pulses 3s). Mobile:
             stacked, arrow points down. sm+: 50/50 side-by-side, arrow points right.
     Opens the existing username modal; on first confirmed change the server
-    grants 25 seeds (from Season.quest_seeds) and username_rename_form.js fires
-    the tick-up, then advances the quest card in place to mission 2 (chat) — no
-    reload. No mb-* — direct grid child. %>
+    grants 25 seeds (from Season.quest_seeds) and the studio:username-saved
+    listener (shared/_alpine_factories) fires the tick-up, then advances the quest
+    card in place to mission 2 (chat) — no reload. No mb-* — direct grid child. %>
 <div x-data="{}" @click="$store.modals.open('username')"
      class="card shadow p-5 relative h-full cursor-pointer">
-  <style>
-    /* Pulse beat once every 3s (ring expands + fades, tiny pop), then rests. */
-    @keyframes questPulse {
-      0%        { transform: scale(1);    box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.5); }
-      10%       { transform: scale(1.03); box-shadow: 0 0 0 6px rgba(74, 222, 128, 0.25); }
-      22%       { transform: scale(1);    box-shadow: 0 0 0 10px rgba(74, 222, 128, 0); }
-      100%      { transform: scale(1);    box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
-    }
-    .quest-pulse { animation: questPulse 3s ease-out infinite; }
-    @media (prefers-reduced-motion: reduce) { .quest-pulse { animation: none; } }
-  </style>
-
   <%# Row 1 — header + quest badge %>
   <div class="flex items-center justify-between gap-3 mb-3">
     <h3 class="text-heading font-semibold text-sm">Change Your Username</h3>
@@ -32,7 +20,7 @@
       Your username is <span class="font-mono text-heading">@<%= current_user.username %></span> now. Pick a name that's right for you <span class="text-primary font-semibold sm:hidden">&darr;</span><span class="text-primary font-semibold hidden sm:inline">&rarr;</span>
     </p>
     <button type="button" @click.stop="$store.modals.open('username')"
-            class="btn btn-primary quest-pulse w-full h-full">
+            class="btn btn-primary pulse-cta w-full h-full" style="--pulse-cta-color: rgb(74 222 128)">
       Change Username
     </button>
   </div>

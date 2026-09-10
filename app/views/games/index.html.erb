@@ -13,8 +13,8 @@
           <div class="flex items-center justify-between gap-4">
             <!-- Home Team -->
             <div class="flex items-center gap-2 flex-1 min-w-0">
-              <% if game.home_team.color_primary.present? %>
-                <div class="w-1 h-8 rounded-full" style="background-color: <%= game.home_team.color_primary %>"></div>
+              <% if game.home_team.card_background.present? %>
+                <div class="w-1 h-8 rounded-full" style="background-color: <%= game.home_team.card_background %>"></div>
               <% end %>
               <span class="text-xl"><%= game.home_team.emoji %></span>
               <div class="min-w-0">
@@ -44,8 +44,8 @@
                 <p class="text-xs text-muted font-mono"><%= game.away_team.short_name %></p>
               </div>
               <span class="text-xl"><%= game.away_team.emoji %></span>
-              <% if game.away_team.color_primary.present? %>
-                <div class="w-1 h-8 rounded-full" style="background-color: <%= game.away_team.color_primary %>"></div>
+              <% if game.away_team.card_background.present? %>
+                <div class="w-1 h-8 rounded-full" style="background-color: <%= game.away_team.card_background %>"></div>
               <% end %>
             </div>
           </div>

@@ -5,7 +5,10 @@ class Cdp::OfframpSendsControllerTest < ActionDispatch::IntegrationTest
 
   setup do
     @user = users(:jordan)
-    @user.generate_managed_wallet!
+    # The off-ramp sends FROM a custodial wallet, so this user needs one.
+    # generate_managed_wallet! alone no longer provides it — web3-only onboarding
+    # (default ON since 2026-08-15) makes it a no-op.
+    grant_managed_wallet!(@user)
     @to_address = Solana::Keypair.generate.address
   end
 

@@ -76,8 +76,8 @@ class WorldCup2026KnockoutSeedTest < ActiveSupport::TestCase
       short_name: "3CEFHI",
       location: "World Cup bracket",
       emoji: "🏆",
-      color_primary: "#111827",
-      color_secondary: "#FACC15",
+      color_dark: "#111827",
+      color_light: "#FACC15",
       sport: "soccer",
       league: "fifa",
       division: "Knockout Slot",
@@ -109,8 +109,8 @@ class WorldCup2026KnockoutSeedTest < ActiveSupport::TestCase
       short_name: "W73",
       location: "World Cup bracket",
       emoji: "🏆",
-      color_primary: "#111827",
-      color_secondary: "#FACC15",
+      color_dark: "#111827",
+      color_light: "#FACC15",
       sport: "soccer",
       league: "fifa",
       division: "Knockout Slot",
@@ -121,8 +121,8 @@ class WorldCup2026KnockoutSeedTest < ActiveSupport::TestCase
       short_name: "W75",
       location: "World Cup bracket",
       emoji: "🏆",
-      color_primary: "#111827",
-      color_secondary: "#FACC15",
+      color_dark: "#111827",
+      color_light: "#FACC15",
       sport: "soccer",
       league: "fifa",
       division: "Knockout Slot",
@@ -171,8 +171,8 @@ class WorldCup2026KnockoutSeedTest < ActiveSupport::TestCase
         team.name = "Team #{code}"
         team.location = "Team #{code}"
         team.emoji = "🏳️"
-        team.color_primary = "#111827"
-        team.color_secondary = "#F9FAFB"
+        team.color_dark = "#111827"
+        team.color_light = "#F9FAFB"
         team.sport = "soccer"
         team.league = "fifa"
         team.division = "Test"

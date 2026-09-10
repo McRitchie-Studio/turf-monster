@@ -1,4 +1,7 @@
-<section x-data="cardListFilter({ selector: '[data-team-card]' })">
+<%# Friendly names for the raw league codes; anything unmapped shows upcased. %>
+<% league_labels = { "nfl" => "NFL", "fifa" => "World Cup" } %>
+<% leagues = @teams.map(&:league).compact.uniq.sort %>
+<section x-data="cardListFilter({ selector: '[data-team-card]', filters: { league: 'all' } })">
   <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
     <h2 class="text-2xl font-bold text-heading">Teams</h2>
     <div class="flex items-center gap-3 w-full sm:w-auto">
@@ -10,48 +13,99 @@
     </div>
   </div>
 
+  <%# League filter tabs — reuse cardListFilter's exact-match `filters` map, so
+      "NFL" hides the World Cup national teams. Only shown when more than one
+      league is present. %>
+  <% if leagues.size > 1 %>
+    <div class="flex flex-wrap gap-2 mb-6">
+      <button class="btn btn-sm" :class="filters.league === 'all' ? 'btn-primary' : 'btn-outline'" @click="filters.league = 'all'">All</button>
+      <% leagues.each do |lg| %>
+        <button class="btn btn-sm"
+                :class="filters.league === '<%= lg %>' ? 'btn-primary' : 'btn-outline'"
+                @click="filters.league = '<%= lg %>'">
+          <%= league_labels.fetch(lg, lg.upcase) %>
+        </button>
+      <% end %>
+    </div>
+  <% end %>
+
+  <p class="text-xs text-muted mb-4">
+    Each card wears its own field; the strip below lists its palette by family
+    (dark · light · alt · grey) — click any swatch to copy its hex.
+  </p>
+
   <% if @teams.empty? %>
     <%= render "components/empty_state", message: "No teams yet." %>
   <% else %>
     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
       <% @teams.each do |team| %>
-        <%= link_to team_path(team),
-              class: "block card-hover p-4",
-              data: {
-                team_card: true,
-                name: "#{team.name} #{team.short_name} #{team.location} #{team.league} #{team.division} #{team.home_arena&.name}".downcase
-              } do %>
-          <div class="flex items-center gap-2 mb-2">
-            <% if team.color_primary.present? %>
-              <div class="w-4 h-4 rounded-full flex-shrink-0 border border-white/20" style="background-color: <%= team.color_primary %>"></div>
+        <% pal = team_card_palette(team) %>
+        <%# Colors grouped into four families, each in priority order. %>
+        <% color_sections = [
+             ["Dark",  [team.color_dark, team.color_dark_alt]],
+             ["Alt",   [team.color_alt]],
+             ["Light", [team.color_light, team.color_light_alt]],
+             ["Grey",  [pal[:grey]]]
+           ] %>
+        <div class="rounded-2xl border-2 overflow-hidden transition hover:brightness-110"
+             style="background: <%= pal[:gradient] %>; border-color: <%= pal[:border] %>; color: <%= pal[:fg] %>;"
+             data-team-card
+             data-league="<%= team.league %>"
+             data-name="<%= "#{team.name} #{team.short_name} #{team.location} #{team.league} #{team.division} #{team.home_arena&.name}".downcase %>">
+          <%# The card wears the team's own colors via its disposition — a live
+              demo of the scheme: mascot = the accent, location = the location alt. %>
+          <%= link_to team_path(team), class: "block p-4" do %>
+            <div class="flex items-start gap-2">
+              <span class="text-xl flex-shrink-0"><%= team.emoji %></span>
+              <div class="min-w-0">
+                <p class="font-extrabold text-base leading-tight truncate"
+                   style="color: <%= pal[:accent] %>; text-shadow: <%= pal[:mascot_shadow] %>"><%= team.name %></p>
+                <% if team.short_name.present? %>
+                  <span class="text-xs font-mono" style="color: <%= pal[:fg_faint] %>"><%= team.short_name %></span>
+                <% end %>
+              </div>
+            </div>
+            <% if team.league.present? || team.division.present? || team.location.present? %>
+              <p class="text-xs mt-2 truncate" style="color: <%= pal[:location] %>">
+                <%= [team.league&.upcase, team.division, team.location].compact.join(" · ") %>
+              </p>
             <% end %>
-            <% if team.color_secondary.present? && team.color_secondary != team.color_primary %>
-              <div class="w-4 h-4 rounded-full flex-shrink-0 border border-white/20" style="background-color: <%= team.color_secondary %>"></div>
+            <% if team.home_arena.present? %>
+              <p class="text-xs mt-1 truncate" style="color: <%= pal[:fg_soft] %>"><%= team.home_arena.name %></p>
+            <% end %>
+          <% end %>
+          <%# The palette on a translucent-black strip so swatches read on any
+              field. Four sections (dark · light · alt · grey), priority order;
+              click any swatch to copy its hex. %>
+          <%# Palette on a translucent-black strip so swatches read on any field.
+              A 2-column grid — Dark | Alt over Light | Grey, each cell 50% wide —
+              of tight swatches; click any to copy its hex. %>
+          <div class="px-3 py-2.5 grid grid-cols-2 gap-x-3 gap-y-2"
+               style="background-color: rgba(0, 0, 0, 0.45)" x-data="{ copied: null }">
+            <% color_sections.each do |label, hexes| %>
+              <% swatches = hexes.select(&:present?).map(&:upcase).uniq %>
+              <div class="flex items-center gap-2">
+                <span class="text-[8px] uppercase tracking-wider text-white/40 flex-shrink-0" style="min-width: 2.25rem"><%= label %></span>
+                <div class="flex items-center gap-1.5 min-h-[1rem]">
+                  <% swatches.each do |hex| %>
+                    <button type="button"
+                            x-data="{ hover: false }"
+                            @mouseenter="hover = true" @mouseleave="hover = false"
+                            @click="navigator.clipboard.writeText('<%= hex %>'); copied = '<%= hex %>'; setTimeout(() => { if (copied === '<%= hex %>') copied = null }, 1100)"
+                            class="relative w-4 h-4 rounded-full border border-white/30 transition hover:scale-125 focus:outline-none focus:ring-1 focus:ring-white/60"
+                            style="background-color: <%= hex %>"
+                            aria-label="Copy <%= hex %>">
+                      <span x-show="hover || copied === '<%= hex %>'" x-cloak
+                            class="absolute bottom-full right-full mb-0.5 mr-0.5 px-1.5 py-0.5 rounded-md text-white text-[9px] font-mono leading-none whitespace-nowrap pointer-events-none z-20 shadow-lg"
+                            style="background-color: rgba(55, 58, 64, 0.97)"
+                            x-text="copied === '<%= hex %>' ? 'Copied!' : '<%= hex %>'"><%= hex %></span>
+                    </button>
+                  <% end %>
+                </div>
+              </div>
             <% end %>
           </div>
-          <div class="flex items-start gap-2">
-            <span class="text-xl flex-shrink-0"><%= team.emoji %></span>
-            <div class="min-w-0">
-              <p class="text-heading font-semibold text-sm truncate"><%= team.name %></p>
-              <% if team.short_name.present? %>
-                <span class="text-xs text-secondary font-mono"><%= team.short_name %></span>
-              <% end %>
-            </div>
-          </div>
-          <% if team.league.present? || team.division.present? || team.location.present? %>
-            <p class="text-xs text-muted mt-1 truncate">
-              <%= [team.league&.upcase, team.division, team.location].compact.join(" · ") %>
-            </p>
-          <% end %>
-          <% if team.home_arena.present? %>
-            <p class="text-xs text-muted mt-1 truncate"><%= team.home_arena.name %></p>
-          <% end %>
-          <% if team.players.any? %>
-            <div class="mt-2 pt-2 border-t border-subtle">
-              <p class="text-xs text-muted"><%= team.players.size %> players</p>
-            </div>
-          <% end %>
-        <% end %>
+        </div>
       <% end %>
     </div>
   <% end %>

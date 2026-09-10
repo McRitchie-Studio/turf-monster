@@ -3,8 +3,8 @@
     one CSS-grid cell (grid-area 1/1) so swapping crossfades cleanly in place
     instead of reflowing/jumping. @quest_step seeds the initial step; the
     'quest-advance' window event drives transitions and is dispatched by:
-    username_rename_form.js (-> chat), the chat panel's send() (-> newsletter),
-    and questNewsletterSuccess (-> invite). h-full gives all four steps the same
+    the studio:username-saved listener via completeQuest (-> chat), the chat panel's
+    send() (-> newsletter), and questNewsletterSuccess (-> invite). h-full gives all four steps the same
     height (grid parity with "Earn a Free Entry") so the crossfade has zero
     height jump. No mb-* — direct grid child. %>
 <div x-data="questCard({ step: '<%= @quest_step || :invite %>', done: { username: <%= !current_user.first_username_change? %>, chat: <%= !current_user.first_chat_message? %>, newsletter: <%= current_user.subscribed_to_newsletter? %> } })" class="quest-stack h-full">

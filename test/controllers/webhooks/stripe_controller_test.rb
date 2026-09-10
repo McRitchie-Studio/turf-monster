@@ -80,6 +80,37 @@ class Webhooks::StripeControllerTest < ActionDispatch::IntegrationTest
     assert_response :ok
   end
 
+  # Money-path integration (fix-stripe-deposit-double-transfer): a DUPLICATE
+  # deposit webhook drives StripeDepositJob twice end-to-end, through the real
+  # controller and job, but the claim-first ordering funds the user's USDC
+  # EXACTLY ONCE. Pre-fix (transfer-first) this moved money twice. Asserts the
+  # effect — fund_user invocation count — not a proxy.
+  test "duplicate deposit webhook funds the user EXACTLY ONCE (end-to-end)" do
+    sid = "cs_test_dep_dup_#{SecureRandom.hex(4)}"
+    event = checkout_event(sid: sid, kind: "deposit", amount_total: 2500)
+    result = validator_result(sid: sid, kind: "deposit", amount_total: 2500)
+    vault = FakeVault.new
+
+    Solana::Keypair.stub :from_encrypted, "fake-kp" do
+      Solana::Vault.stub :new, vault do
+        Stripe::Webhook.stub :construct_event, ->(*_a, **_k) { event } do
+          stub_validator(result) do
+            perform_enqueued_jobs do
+              post "/webhooks/stripe", params: "{}", headers: stripe_headers # delivery 1
+              post "/webhooks/stripe", params: "{}", headers: stripe_headers # delivery 2 (duplicate)
+            end
+          end
+        end
+      end
+    end
+    assert_response :ok
+
+    assert_equal 1, vault.fund_calls.length,
+                 "a duplicate deposit webhook must transfer USDC exactly once"
+    assert_equal 1, TransactionLog.where(stripe_session_id: sid).count
+    assert_equal "completed", TransactionLog.find_by(stripe_session_id: sid).status
+  end
+
   test "checkout.session.completed silently drops when validator rejects" do
     sid = "cs_test_rej_#{SecureRandom.hex(4)}"
     event = checkout_event(sid: sid, kind: "tokens", quantity: 1, amount_total: 1900)

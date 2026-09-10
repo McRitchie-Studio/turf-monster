@@ -5,7 +5,9 @@
 > numbers drift, prose rots. When code moves, this file moves with it: re-confirm
 > citations on edit.
 
-**Trigger:** Visitor clicks a marketing link like `/landing/:slug` (or any URL with `?reference=…`) for a paid on-chain contest.
+**Trigger:** Visitor clicks a marketing link like `/lp/:slug` (or any URL with
+`?reference=…`) for a paid on-chain contest. There is no `/landing/:slug` route; older
+`/l/:slug` links still land, as the trigger note in [[web3-landing-to-entry]] explains.
 **Actors:** Visitor → Google OAuth → Rails (`LandingPagesController` / `OmniauthCallbacksController` / `TokensController` / `ContestsController` / `MessagesController`) → Stripe → Sidekiq (`TokenPurchaseJob`) → Solana RPC (managed-wallet `mint_entry_token` + `enter_contest_with_token`) → ActionCable.
 **Outcome:** `users` row with `reference = "<landing-slug>"`, a `stripe_purchases` row in status `minted` with 3 on-chain `EntryTokenAccount` PDAs (one consumed), an `entries` row in status `complete` with `onchain_tx_signature`, a `messages` row broadcast on `[contest, :messages]`.
 **Preconditions:** Contest is `open`, `onchain`, has `chat_enabled = true` (default — `db/schema.rb:66`), and is backed by a configured `SeasonConfig.current_season_id` (`contests_controller.rb:296`). Stripe enabled. Visitor not in a blocked geo state.

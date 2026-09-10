@@ -44,6 +44,16 @@ class Rack::Attack
     req.ip if req.post? && req.path == "/auth/solana/verify"
   end
 
+  ### Throttle: client-side wallet-failure reports
+  # An UNAUTHENTICATED endpoint that writes an error_logs row per call, so it is
+  # a table-growth vector as well as a request one. 20/min is far above what a
+  # human retrying Connect can produce (each attempt costs a wallet prompt) and
+  # far below what a script needs to be worth running. Dropping a report past the
+  # limit is the correct trade: the row is diagnostic, never load-bearing.
+  throttle("solana_report_failure/ip", limit: 20, period: 1.minute) do |req|
+    req.ip if req.post? && req.path == "/auth/solana/report_failure"
+  end
+
   ### Throttle: account-linking wallet sig (logged-in)
   throttle("link_solana/ip", limit: 5, period: 1.minute) do |req|
     req.ip if req.post? && req.path == "/account/link_solana"
@@ -58,6 +68,14 @@ class Rack::Attack
 
   throttle("webhooks/paypal", limit: 100, period: 1.minute) do |req|
     req.ip if req.post? && req.path == "/webhooks/paypal"
+  end
+
+  throttle("webhooks/coinflow", limit: 100, period: 1.minute) do |req|
+    req.ip if req.post? && req.path == "/webhooks/coinflow"
+  end
+
+  throttle("webhooks/aeropay", limit: 100, period: 1.minute) do |req|
+    req.ip if req.post? && req.path == "/webhooks/aeropay"
   end
 
   ### Throttle: devnet faucet / airdrop — money-cost endpoints
@@ -100,6 +118,16 @@ class Rack::Attack
   ### Throttle: PayPal order/capture creation — fee bleed parity with stripe_checkout
   throttle("paypal_checkout/ip", limit: 10, period: 1.minute) do |req|
     req.ip if req.post? && (req.path == "/tokens/paypal_order" || req.path == "/tokens/paypal_capture")
+  end
+
+  ### Throttle: Coinflow checkout-link creation — fee bleed parity with paypal/stripe
+  throttle("coinflow_checkout/ip", limit: 10, period: 1.minute) do |req|
+    req.ip if req.post? && req.path == "/tokens/coinflow_order"
+  end
+
+  ### Throttle: Aeropay deposit creation — fee bleed parity with coinflow/paypal/stripe
+  throttle("aeropay_checkout/ip", limit: 10, period: 1.minute) do |req|
+    req.ip if req.post? && req.path == "/tokens/aeropay_order"
   end
 
   ### Throttle: email verification — outbound spam prevention

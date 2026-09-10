@@ -250,80 +250,95 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_match(/token_consumed=/, log)
   end
 
-  test "enter invalidates seeds and USDC caches on success for solana-connected user" do
-    log_in_as(@user)
-    contest = free_contest
+  # The MemoryStore stub is what makes this test MEAN anything. The test env runs
+  # `config.cache_store = :null_store`, so an unstubbed Rails.cache swallows every
+  # write and answers every read with nil — under which `assert_nil` passes whether
+  # or not the action invalidated a thing. This test asserted exactly that way
+  # until stale-usdt-balance-after-spend, which is how the entry path kept a
+  # one-key drop for as long as it did.
+  test "enter invalidates seeds and BOTH balance caches on success for solana-connected user" do
+    Rails.stub(:cache, ActiveSupport::Cache::MemoryStore.new) do
+      log_in_as(@user)
+      contest = free_contest
 
-    entry = contest.entries.create!(user: @user, status: :cart)
-    [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
+      entry = contest.entries.create!(user: @user, status: :cart)
+      [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
 
-    # Pre-populate both caches with sentinels so we can verify they got cleared.
-    Rails.cache.write("user_seeds:#{@user.id}", { seeds: 999 })
-    Rails.cache.write("usdc_balance:#{@user.id}", 999.0)
+      # Pre-populate all three caches with sentinels so we can verify they got
+      # cleared. USDT is non-zero on purpose: a zero twin makes the one-key drop
+      # produce a plausible-looking total instead of a visibly wrong one.
+      Rails.cache.write("user_seeds:#{@user.id}", { seeds: 999 })
+      Rails.cache.write("usdc_balance:#{@user.id}", 999.0)
+      Rails.cache.write("usdt_balance:#{@user.id}", 7.0)
 
-    post enter_contest_path(contest), headers: { "Accept" => "application/json" }
+      post enter_contest_path(contest), headers: { "Accept" => "application/json" }
 
-    assert_response :success
-    assert_nil Rails.cache.read("user_seeds:#{@user.id}"),
-               "seeds cache should be cleared after a successful entry"
-    assert_nil Rails.cache.read("usdc_balance:#{@user.id}"),
-               "USDC cache should be cleared after a successful entry"
+      assert_response :success
+      assert_nil Rails.cache.read("user_seeds:#{@user.id}"),
+                 "seeds cache should be cleared after a successful entry"
+      assert_nil Rails.cache.read("usdc_balance:#{@user.id}"),
+                 "USDC cache should be cleared after a successful entry"
+      assert_nil Rails.cache.read("usdt_balance:#{@user.id}"),
+                 "USDT cache should be cleared too — the navbar pill renders the SUM, so a " \
+                 "surviving USDT key is served as the entire wallet total"
+    end
   end
 
   # --- onchain session entry tests ---
+  #
+  # #enter is the WEB2 / managed server-signing path. A web3 session belongs on
+  # prepare_entry -> confirm_onchain_entry, where the on-chain transaction it
+  # signs IS the wallet-ownership proof.
+  #
+  # THREE TESTS WERE DELETED HERE, DELIBERATELY, and one of them passed:
+  # "enter accepts onchain session with valid signature" asserted that a web3
+  # session COULD enter through this path given a signed message. That behaviour
+  # is what this change removes, so the test had to go with it rather than be
+  # relabelled. The other two ("without signature", "with wrong wallet") asserted
+  # the failure modes of the same branch and are subsumed by the unconditional
+  # refusal below, which is strictly stronger: it does not depend on a client
+  # supplying — or omitting — anything.
+  #
+  # No client could reach the deleted branch: both boards POST /enter with
+  # headers only and no body.
 
-  test "enter rejects onchain session without signature" do
-    key = log_in_as_onchain(@user)
+  test "enter refuses an onchain session and points at prepare_entry" do
+    log_in_as_onchain(@user)
 
     entry = @contest.entries.create!(user: @user, status: :cart)
     [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
 
-    post enter_contest_path(@contest),
-      headers: { "Accept" => "application/json" }
+    post enter_contest_path(@contest), headers: { "Accept" => "application/json" }
 
     assert_response :unprocessable_entity
     json = JSON.parse(response.body)
-    assert_match(/Wallet signature required/, json["error"])
-    assert entry.reload.cart?
+    assert_match(/prepare_entry/, json["error"],
+                 "the refusal must name the path a web3 session should use")
+    assert entry.reload.cart?, "a refused entry must stay in the cart"
   end
 
-  test "enter accepts onchain session with valid signature" do
+  test "enter refuses an onchain session even when it carries a valid signature" do
     key = log_in_as_onchain(@user)
     contest = free_contest
 
     entry = contest.entries.create!(user: @user, status: :cart)
     [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
 
-    signed_params = sign_entry_message(key, @user, contest.name)
-
+    # A correctly signed message must NOT buy a web3 session through this path
+    # any more. This is the case that used to succeed.
+    message = "www.example.com wants you to sign in with your Solana account:\n" \
+              "#{@user.web3_solana_address}\n\nUser-ID: #{@user.id}\n\nEnter #{contest.name}"
     post enter_contest_path(contest),
-      params: signed_params,
-      as: :json
-
-    assert_response :success
-    json = JSON.parse(response.body)
-    assert json["success"]
-    assert entry.reload.active?
-  end
-
-  test "enter rejects onchain session with wrong wallet" do
-    key = log_in_as_onchain(@user)
-
-    entry = @contest.entries.create!(user: @user, status: :cart)
-    [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
-
-    # Sign with correct key but then change the user's wallet to something else
-    signed_params = sign_entry_message(key, @user, @contest.name)
-    @user.update!(web3_solana_address: "DifferentWalletAddress1111111111111111111111111")
-
-    post enter_contest_path(@contest),
-      params: signed_params,
-      as: :json
+         params: {
+           message: message,
+           signature: Solana::Keypair.encode_base58(key.sign(message)),
+           pubkey: @user.web3_solana_address
+         },
+         as: :json
 
     assert_response :unprocessable_entity
-    json = JSON.parse(response.body)
-    assert_match(/Wallet mismatch/, json["error"])
-    assert entry.reload.cart?
+    assert_match(/prepare_entry/, JSON.parse(response.body)["error"])
+    assert entry.reload.cart?, "a signature must not activate an entry on this path"
   end
 
   test "enter works for offchain session" do
@@ -987,8 +1002,8 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
   # assert_enterable! BEFORE vault.enter_contest_with_token — so the token stays
   # UNCONSUMED, the entry stays `cart`, and NO reconcile is scheduled (there is
   # nothing to recover; fail loudly). This is the primary fix for incident
-  # 2026-06-08, where the gate ran AFTER the irreversible burn.
-  test "enter validates selection count BEFORE consuming the token (short entry → nothing burned)" do
+  # 2026-06-08, where the gate ran AFTER the irreversible consume.
+  test "enter validates selection count BEFORE consuming the token (short entry → nothing consumed)" do
     @user.update!(
       web3_solana_address: nil,
       web2_solana_address: "ManagedAddr#{SecureRandom.hex(4)}",
@@ -1084,6 +1099,175 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "enter_contest", ptx.tx_type
     assert_equal entry, ptx.target
     assert_equal @user.web3_solana_address, ptx.initiator_address
+  end
+
+  # --- prepare_entry funding priority (Phantom spends a token, 2026-08-21) -----
+  #
+  # Until this task the Phantom path went straight to the currency transfer, so a
+  # wallet holding an entry token was charged USDC anyway and the token sat
+  # unspent — while the board's CTA told that user the entry was free. These pin
+  # the priority the web2 path has always had: token first, transfer otherwise.
+
+  test "prepare_entry spends an entry token the Phantom wallet holds" do
+    @user.update!(web3_solana_address: "Web3TokenPrep#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_token_prep", season_id: 1)
+    SeasonConfig.set_current!(1)
+
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
+
+    vault = FakeVault.new(tokens: [{ pda: "tpda_web3_1", consumed: false }])
+    Solana::Vault.stub :new, vault do
+      post prepare_entry_contest_path(@contest), as: :json
+    end
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert body["token_funded"], "the response must tell the client this entry is token-funded"
+
+    built = vault.enter_calls.last
+    assert_equal :build_enter_contest_with_token, built[:method],
+                 "a token-holding wallet must build the token instruction, not the transfer"
+    assert_equal "tpda_web3_1", built[:entry_token_pda]
+
+    # No ATA is created for a token entry — there is no transfer to fund.
+    assert_empty vault.ensure_ata_calls,
+                 "the token path moves no SPL, so it must not create a currency ATA"
+
+    # The server's own record of what it prepared. The cosign guard and the
+    # broadcast verification both read this back instead of trusting the client.
+    ptx  = PendingTransaction.find_by(slug: body["ptx_slug"])
+    meta = JSON.parse(ptx.metadata)
+    assert_equal "token", meta["funding"]
+    assert_equal "tpda_web3_1", meta["entry_token_pda"]
+  end
+
+  test "prepare_entry falls back to the currency transfer when the wallet holds no token" do
+    @user.update!(web3_solana_address: "Web3NoTokenPrep#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_notoken_prep", season_id: 1)
+    SeasonConfig.set_current!(1)
+
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
+
+    vault = FakeVault.new(tokens: [{ pda: "tpda_spent", consumed: true }])
+    Solana::Vault.stub :new, vault do
+      post prepare_entry_contest_path(@contest), as: :json
+    end
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_not body["token_funded"], "a CONSUMED token must not read as funding"
+
+    built = vault.enter_calls.last
+    assert_equal :build_enter_contest, built[:method]
+
+    ptx  = PendingTransaction.find_by(slug: body["ptx_slug"])
+    meta = JSON.parse(ptx.metadata)
+    assert_equal "transfer", meta["funding"]
+    assert_nil meta["entry_token_pda"]
+  end
+
+  test "discard_prepared_entry expires an unsigned wallet request so retry can rebuild it" do
+    @user.update!(web3_solana_address: "Web3Discard#{SecureRandom.hex(4)}")
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    ptx = PendingTransaction.create!(
+      tx_type: "enter_contest", serialized_tx: "unsigned-wire",
+      status: "pending", target: entry,
+      initiator_address: @user.web3_solana_address,
+      metadata: { funding: "token", entry_token_pda: "token-pda" }.to_json
+    )
+
+    post discard_prepared_entry_contest_path(@contest),
+      params: { ptx_slug: ptx.slug }, as: :json
+
+    assert_response :success
+    assert_equal({ "retired" => true }, JSON.parse(response.body))
+    assert_equal "expired", ptx.reload.status
+    assert entry.reload.cart?, "discarding an unsigned request must not consume the cart entry"
+  end
+
+  test "discard_prepared_entry never expires a transaction that may have been broadcast" do
+    @user.update!(web3_solana_address: "Web3KeepSigned#{SecureRandom.hex(4)}")
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    ptx = PendingTransaction.create!(
+      tx_type: "enter_contest", serialized_tx: "signed-wire",
+      status: "submitted", tx_signature: "chain-signature",
+      target: entry, initiator_address: @user.web3_solana_address,
+      metadata: { funding: "token", entry_token_pda: "token-pda" }.to_json
+    )
+
+    post discard_prepared_entry_contest_path(@contest),
+      params: { ptx_slug: ptx.slug }, as: :json
+
+    assert_response :success
+    assert_equal({ "retired" => false }, JSON.parse(response.body))
+    assert_equal "submitted", ptx.reload.status
+    assert_equal "chain-signature", ptx.tx_signature
+  end
+
+  # The retire guard moved from Ruby into the WHERE clause to close a race (a
+  # signature landing between the read and the write would otherwise expire a
+  # transaction that SUCCEEDED). `blank?` covered nil AND "", and SQL does not
+  # — so an empty-string signature is the case a naive `tx_signature: nil`
+  # predicate silently starts retiring.
+  test "an EMPTY-STRING signature is not retired either — blank? parity in SQL" do
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    ptx = PendingTransaction.create!(
+      tx_type: "enter_contest", serialized_tx: "signed-wire",
+      status: "submitted", tx_signature: "",
+      target: entry, initiator_address: @user.web3_solana_address,
+      metadata: { funding: "token", entry_token_pda: "token-pda" }.to_json
+    )
+
+    post discard_prepared_entry_contest_path(@contest),
+      params: { ptx_slug: ptx.slug }, as: :json
+
+    assert_response :success
+    assert_equal({ "retired" => true }, JSON.parse(response.body))
+    assert_equal "expired", ptx.reload.status
+  end
+
+  # The affected-row COUNT is the verdict, so a row someone else already moved
+  # reports false rather than claiming a retire that did not happen.
+  test "a PT already expired reports retired=false, not a second retire" do
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    ptx = PendingTransaction.create!(
+      tx_type: "enter_contest", serialized_tx: "signed-wire",
+      status: "expired",
+      target: entry, initiator_address: @user.web3_solana_address,
+      metadata: { funding: "token", entry_token_pda: "token-pda" }.to_json
+    )
+
+    post discard_prepared_entry_contest_path(@contest),
+      params: { ptx_slug: ptx.slug }, as: :json
+
+    assert_response :success
+    assert_equal({ "retired" => false }, JSON.parse(response.body))
+  end
+
+  test "discard_prepared_entry refuses another user's unsigned request" do
+    other = users(:jordan)
+    other.update!(web3_solana_address: "Web3DiscardOther#{SecureRandom.hex(4)}")
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: other, status: :cart)
+    ptx = PendingTransaction.create!(
+      tx_type: "enter_contest", serialized_tx: "unsigned-wire",
+      status: "pending", target: entry,
+      initiator_address: other.web3_solana_address
+    )
+
+    post discard_prepared_entry_contest_path(@contest),
+      params: { ptx_slug: ptx.slug }, as: :json
+
+    assert_response :forbidden
+    assert_equal "pending", ptx.reload.status
   end
 
   test "prepare_entry rejects an on-chain contest pinned to an unavailable season before signing" do
@@ -1257,6 +1441,7 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     )
 
     vault = FakeVault.new
+    vault.sync_balance_seeds = 100
     expected_pda = "epda-#{@contest.slug}-#{@user.web3_solana_address[0, 4]}-0"
 
     # encode_base58 here would normally turn pda bytes into a base58 string;
@@ -1266,9 +1451,11 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     Solana::Vault.stub :new, vault do
       Solana::Keypair.stub :encode_base58, ->(s) { s.is_a?(String) ? s : s.to_s } do
         Solana::TxVerifier.stub :verify!, true do
-          post confirm_onchain_entry_contest_path(@contest),
-            params: { signed_tx: "PHANTOM_SIGNED_WIRE_B64", entry_id: entry.id, entry_pda: expected_pda },
-            as: :json
+          assert_enqueued_with(job: LevelUpTokenMintJob, args: [{ user_id: @user.id }]) do
+            post confirm_onchain_entry_contest_path(@contest),
+              params: { signed_tx: "PHANTOM_SIGNED_WIRE_B64", entry_id: entry.id, entry_pda: expected_pda },
+              as: :json
+          end
         end
       end
     end
@@ -1284,6 +1471,238 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     ptx.reload
     assert_equal "confirmed", ptx.status
     assert_equal "fake-cosign-broadcast-sig", ptx.tx_signature
+  end
+
+  # --- confirm_onchain_entry funding expectations (2026-08-21) -----------------
+  #
+  # The funding is decided at prepare time and recorded on the PendingTransaction.
+  # Confirm must read its OWN note back — never the request — because that single
+  # fact drives two locks: which instruction the admin will cosign, and which
+  # instruction the broadcast has to prove. Verifying the wrong name would accept
+  # a signature that never moved the funding this entry was priced with.
+
+  def setup_web3_confirm_entry(address_prefix:, metadata:)
+    @user.update!(web3_solana_address: "#{address_prefix}#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_conf_funding", season_id: 1)
+    SeasonConfig.set_current!(1)
+
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: @user, status: :cart, entry_number: 0)
+    [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
+
+    expected_pda = "epda-#{@contest.slug}-#{@user.web3_solana_address[0, 4]}-0"
+    PendingTransaction.create!(
+      tx_type: "enter_contest", serialized_tx: "stx", status: "pending",
+      target: entry, initiator_address: @user.web3_solana_address,
+      metadata: { entry_pda: expected_pda }.merge(metadata).to_json
+    )
+    [entry, expected_pda]
+  end
+
+  test "confirm_onchain_entry cosigns and verifies the TOKEN instruction it prepared" do
+    entry, expected_pda = setup_web3_confirm_entry(
+      address_prefix: "Web3ConfToken",
+      metadata: { funding: "token", entry_token_pda: "tpda_web3_1" }
+    )
+
+    vault    = FakeVault.new
+    verified = []
+    Solana::Vault.stub :new, vault do
+      Solana::Keypair.stub :encode_base58, ->(v) { v.is_a?(String) ? v : v.to_s } do
+        Solana::TxVerifier.stub :verify!, ->(**kw) { verified << kw; true } do
+          post confirm_onchain_entry_contest_path(@contest),
+            params: { signed_tx: "PHANTOM_SIGNED_TOKEN_WIRE", entry_id: entry.id, entry_pda: expected_pda },
+            as: :json
+        end
+      end
+    end
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert body["success"]
+    assert body["token_consumed"], "a token-funded entry must report the consume (navbar badge punch)"
+
+    # The guard was handed the SERVER's decision, not a client value.
+    assert_equal "tpda_web3_1", vault.cosign_safe_calls.first[:entry_token_pda]
+    assert_equal "enter_contest_with_token", verified.first[:instruction_name]
+    assert entry.reload.active?
+  end
+
+  test "confirm_onchain_entry expects the TRANSFER instruction when no token was prepared" do
+    entry, expected_pda = setup_web3_confirm_entry(
+      address_prefix: "Web3ConfTransfer",
+      metadata: {}   # a row from before this task carries no funding key at all
+    )
+
+    vault    = FakeVault.new
+    verified = []
+    Solana::Vault.stub :new, vault do
+      Solana::Keypair.stub :encode_base58, ->(v) { v.is_a?(String) ? v : v.to_s } do
+        Solana::TxVerifier.stub :verify!, ->(**kw) { verified << kw; true } do
+          post confirm_onchain_entry_contest_path(@contest),
+            params: { signed_tx: "PHANTOM_SIGNED_USDC_WIRE", entry_id: entry.id, entry_pda: expected_pda },
+            as: :json
+        end
+      end
+    end
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_not body["token_consumed"]
+    assert_nil vault.cosign_safe_calls.first[:entry_token_pda],
+               "with no prepared token the guard must admit ONLY enter_contest"
+    assert_equal "enter_contest", verified.first[:instruction_name]
+  end
+
+  # --- the token cache must not outlive the token it describes ----------------
+  #
+  # These assert on the REAL cache key the navbar badge and the "Hold for Free
+  # Entry" CTA read (Solana::Vault.entry_tokens_cache_key), not on a mock call
+  # count — the previous bust DID get called, it just deleted a different key,
+  # so only observing the reader's key can tell the two apart. The test env runs
+  # :null_store, hence the injected MemoryStore.
+  def with_memory_cache(&block)
+    Rails.stub(:cache, ActiveSupport::Cache::MemoryStore.new, &block)
+  end
+
+  test "confirm_onchain_entry busts the entry-token cache the badge actually reads" do
+    entry, expected_pda = setup_web3_confirm_entry(
+      address_prefix: "Web3ConfBust",
+      metadata: { funding: "token", entry_token_pda: "tpda_bust_1" }
+    )
+    cache_key = Solana::Vault.entry_tokens_cache_key(@user.web3_solana_address)
+
+    with_memory_cache do
+      Rails.cache.write(cache_key, [{ pda: "tpda_bust_1", consumed: false }])
+
+      vault = FakeVault.new
+      Solana::Vault.stub :new, vault do
+        Solana::Keypair.stub :encode_base58, ->(v) { v.is_a?(String) ? v : v.to_s } do
+          Solana::TxVerifier.stub :verify!, true do
+            post confirm_onchain_entry_contest_path(@contest),
+              params: { signed_tx: "PHANTOM_SIGNED_TOKEN_WIRE", entry_id: entry.id, entry_pda: expected_pda },
+              as: :json
+          end
+        end
+      end
+
+      assert_response :success
+      assert_nil Rails.cache.read(cache_key),
+                 "the spent token must not survive in the layer the badge and the CTA read"
+    end
+  end
+
+  test "recover_pending_entry busts the entry-token cache after a token-funded recovery" do
+    @user.update!(web3_solana_address: "WalletRTok#{SecureRandom.hex(4)}")
+    log_in_as @user
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
+    ptx = PendingTransaction.create!(
+      tx_type: "enter_contest", serialized_tx: "stx",
+      status: "submitted", tx_signature: "sig-recover-token-1",
+      target: entry, initiator_address: @user.web3_solana_address,
+      metadata: { entry_pda: "epda-r1", funding: "token", entry_token_pda: "tpda_recover_1" }.to_json
+    )
+    cache_key = Solana::Vault.entry_tokens_cache_key(@user.web3_solana_address)
+
+    with_memory_cache do
+      Rails.cache.write(cache_key, [{ pda: "tpda_recover_1", consumed: false }])
+
+      vault = FakeVault.new(signature_statuses: {
+        "sig-recover-token-1" => { "err" => nil, "confirmationStatus" => "confirmed" }
+      })
+      Solana::Vault.stub :new, vault do
+        Solana::Keypair.stub :encode_base58, ->(s) { s.is_a?(String) ? s : s.to_s } do
+          Solana::TxVerifier.stub :verify!, true do
+            post recover_pending_entry_contest_path(@contest),
+              params: { ptx_slug: ptx.slug }, as: :json
+          end
+        end
+      end
+
+      assert_equal "confirmed", JSON.parse(response.body)["status"]
+      assert entry.reload.active?
+      assert_nil Rails.cache.read(cache_key),
+                 "crash recovery credits an entry whose token was consumed on-chain — it owes " \
+                 "the same cache bust as the live confirm path"
+    end
+  end
+
+  # The instruction this path PROVES, which is what the comment above the cache
+  # bust in #recover_pending_entry describes. Crash recovery credits an entry whose
+  # token was CONSUMED by `enter_contest_with_token`; it is not a burn, and
+  # `burn_entry_token` — the operator claw-back the holder never signs — must never
+  # be what a recovered entry verifies against. The sibling tests above stub
+  # `TxVerifier.verify!` with a bare `true`, so nothing else in this file notices
+  # which instruction the server actually demanded.
+  test "recover_pending_entry verifies a token consume, never a burn" do
+    @user.update!(web3_solana_address: "WalletRIx#{SecureRandom.hex(4)}")
+    log_in_as @user
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
+    ptx = PendingTransaction.create!(
+      tx_type: "enter_contest", serialized_tx: "stx",
+      status: "submitted", tx_signature: "sig-recover-ix-1",
+      target: entry, initiator_address: @user.web3_solana_address,
+      metadata: { entry_pda: "epda-ix1", funding: "token", entry_token_pda: "tpda_ix_1" }.to_json
+    )
+
+    verified = []
+    vault = FakeVault.new(signature_statuses: {
+      "sig-recover-ix-1" => { "err" => nil, "confirmationStatus" => "confirmed" }
+    })
+    Solana::Vault.stub :new, vault do
+      Solana::Keypair.stub :encode_base58, ->(s) { s.is_a?(String) ? s : s.to_s } do
+        Solana::TxVerifier.stub :verify!, ->(**kw) { verified << kw[:instruction_name]; true } do
+          post recover_pending_entry_contest_path(@contest),
+            params: { ptx_slug: ptx.slug }, as: :json
+        end
+      end
+    end
+
+    assert_equal "confirmed", JSON.parse(response.body)["status"]
+    assert_equal ["enter_contest_with_token"], verified,
+                 "a token-funded recovery must prove the consume instruction"
+    refute_includes verified, "burn_entry_token",
+                    "entering a contest consumes the token; burning it is a separate " \
+                    "operator instruction and no entry path may verify against it"
+  end
+
+  # CONTROL: the bust is conditional on the SERVER having prepared a token, and
+  # the harness can see a cache entry survive. Without this a bust-everything
+  # implementation would pass the two tests above for the wrong reason.
+  test "recover_pending_entry leaves the entry-token cache alone for a USDC recovery" do
+    @user.update!(web3_solana_address: "WalletRUsdc#{SecureRandom.hex(4)}")
+    log_in_as @user
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
+    ptx = PendingTransaction.create!(
+      tx_type: "enter_contest", serialized_tx: "stx",
+      status: "submitted", tx_signature: "sig-recover-usdc-1",
+      target: entry, initiator_address: @user.web3_solana_address,
+      metadata: { entry_pda: "epda-r2" }.to_json
+    )
+    cache_key = Solana::Vault.entry_tokens_cache_key(@user.web3_solana_address)
+
+    with_memory_cache do
+      Rails.cache.write(cache_key, [{ pda: "tpda_untouched_1", consumed: false }])
+
+      vault = FakeVault.new(signature_statuses: {
+        "sig-recover-usdc-1" => { "err" => nil, "confirmationStatus" => "confirmed" }
+      })
+      Solana::Vault.stub :new, vault do
+        Solana::Keypair.stub :encode_base58, ->(s) { s.is_a?(String) ? s : s.to_s } do
+          Solana::TxVerifier.stub :verify!, true do
+            post recover_pending_entry_contest_path(@contest),
+              params: { ptx_slug: ptx.slug }, as: :json
+          end
+        end
+      end
+
+      assert_equal "confirmed", JSON.parse(response.body)["status"]
+      assert_equal [{ pda: "tpda_untouched_1", consumed: false }], Rails.cache.read(cache_key),
+                   "no token was spent, so nothing about the wallet's tokens changed"
+    end
   end
 
   test "confirm_onchain_entry rejects a mismatched client-supplied entry_pda" do
@@ -1591,6 +2010,34 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "confirmed", body["status"]
     assert_equal "sig-was-here", body["tx_signature"]
     assert_equal "confirmed", ptx.reload.status
+  end
+
+  test "recover_pending_entry busts a spent token cache for an already-active entry" do
+    @user.update!(web3_solana_address: "WalletRActiveToken#{SecureRandom.hex(4)}")
+    log_in_as @user
+    entry = @contest.entries.create!(user: @user, status: :active, onchain_tx_signature: "sig-token-active")
+    ptx = PendingTransaction.create!(
+      tx_type: "enter_contest",
+      serialized_tx: "fake-stx",
+      status: "submitted",
+      tx_signature: "sig-token-active",
+      target: entry,
+      initiator_address: @user.web3_solana_address,
+      metadata: { funding: "token", entry_token_pda: "tpda_active_recovery" }.to_json
+    )
+    cache_key = Solana::Vault.entry_tokens_cache_key(@user.web3_solana_address)
+
+    with_memory_cache do
+      Rails.cache.write(cache_key, [{ pda: "tpda_active_recovery", consumed: false }])
+
+      post recover_pending_entry_contest_path(@contest),
+        params: { ptx_slug: ptx.slug }, as: :json
+
+      assert_response :success
+      assert_equal "confirmed", JSON.parse(response.body)["status"]
+      assert_nil Rails.cache.read(cache_key),
+                 "activation can land before the live-path bust; recovery still owes the invalidation"
+    end
   end
 
   test "recover_pending_entry marks PT failed when there is no tx_signature stamped" do
@@ -2058,17 +2505,41 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_match(/turbo-cable-stream-source/, response.body)
   end
 
-  test "live redirects to show when the contest is not yet live" do
+  # WAS: "live redirects to show when the contest is not yet live". It no longer
+  # does, deliberately. `live?` is `locked? && !settled?` — a window that excludes
+  # both halves an operator wants: the board filling before the lock, and the
+  # final result after the settle. During the first watched QA rehearsal that
+  # redirect made the page built for watching unreachable for the entire run,
+  # because the contest was still open while its fixtures played.
+  test "live renders BEFORE the contest locks, so an early link still works" do
     @contest.update!(starts_at: 1.hour.from_now)
+    refute @contest.reload.live?, "fixture must be un-live for this test to mean anything"
+
     get live_contest_path(@contest)
-    assert_redirected_to contest_path(@contest)
+
+    assert_response :success
+    assert_match(/turbo-cable-stream-source/, response.body)
   end
 
-  test "live redirects to show for a survivor contest" do
-    survivor = Contest.create!(name: "Survivor Live #{SecureRandom.hex(2)}",
+  test "live renders AFTER the contest settles, as the result view" do
+    @contest.update!(starts_at: 1.hour.ago, status: "settled")
+    refute @contest.reload.live?, "a settled contest is not `live?` — that is the point"
+
+    get live_contest_path(@contest)
+
+    assert_response :success
+  end
+
+  # The nav BUTTON stays conditional even though the URL does not — pointing at a
+  # live board for a contest with nothing happening is the clutter the gate was
+  # protecting against, and that half is worth keeping.
+  test "live still refuses a survivor contest, which has no turf-totals board" do
+    survivor = Contest.create!(name: "Survivor Gate #{SecureRandom.hex(2)}",
                                game_type: :world_cup_survivor, contest_type: "survivor_wc_free",
                                status: "open", starts_at: 1.hour.ago, rank: 8000 + rand(900))
+
     get live_contest_path(survivor)
+
     assert_redirected_to contest_path(survivor)
   end
 

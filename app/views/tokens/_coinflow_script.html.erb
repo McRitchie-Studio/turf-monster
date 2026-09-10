@@ -1,0 +1,71 @@
+<%#
+  Shared client kickoff for the Coinflow rail. Defines the global
+  window.tmCoinflowBuyOne() once (idempotent reassignment on re-render). Both
+  the Add Funds hub rail (modals/_onramp_hub, always the single) and the
+  /tokens/buy cards (one per pack) call it.
+
+  It POSTs the pack to /tokens/coinflow_order (amount derives server-side from
+  the pack), then redirects the browser to Coinflow's returned hosted-checkout
+  link. On `Settled`, /webhooks/coinflow mints the PACK's quantity — the name is
+  historical: it takes a pack id and buys that pack, not always one entry.
+
+  Uses window.authedFetch so a session lapse / rate-limit surfaces the shared
+  modal (returns null → we stop). Parity with the paypal createOrder fetch.
+%>
+<script>
+  window.tmCoinflowBuyOne = async function (pack) {
+    pack = pack || 'single';
+    // Open the checkout tab synchronously inside the click gesture so the popup
+    // blocker allows it, then point it at Coinflow's hosted link once the order
+    // call returns (opening AFTER the await would be blocked). The buy page
+    // stays put in this tab, so returning after checkout is natural.
+    var checkoutTab = window.open('', '_blank');
+    try {
+      var meta = document.querySelector('meta[name="csrf-token"]');
+      var resp = await window.authedFetch('/tokens/coinflow_order', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': meta ? meta.content : ''
+        },
+        body: JSON.stringify({ pack: pack })
+      });
+      // null → authedFetch already surfaced the login / rate-limit modal.
+      if (!resp) { if (checkoutTab) checkoutTab.close(); return; }
+      var d = await resp.json().catch(function () { return {}; });
+      if (!resp.ok || !d.link) {
+        if (checkoutTab) checkoutTab.close();
+        window.alert(d.error || 'Could not start Coinflow checkout — try again in a moment.');
+        return;
+      }
+      console.log('[tokens] coinflow.order reference=', d.reference);
+      if (checkoutTab) { checkoutTab.location = d.link; checkoutTab.focus(); }
+      else { window.location = d.link; } // popup blocked → same-tab fallback
+    } catch (e) {
+      if (checkoutTab) checkoutTab.close();
+      window.alert('Could not start Coinflow checkout — try again in a moment.');
+    }
+  };
+
+  // Dev-only: stands in for Coinflow's `Settled` webhook (unreachable on
+  // localhost). POSTs the dev simulate endpoint, which drives the real
+  // fulfillment/mint path for the buyer's latest pending Coinflow purchase.
+  window.tmCoinflowSimulateSettle = async function () {
+    try {
+      var meta = document.querySelector('meta[name="csrf-token"]');
+      var resp = await window.authedFetch('/tokens/coinflow_simulate_settle', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': meta ? meta.content : ''
+        }
+      });
+      if (!resp) return;
+      var d = await resp.json().catch(function () { return {}; });
+      window.alert(d.message || d.error || 'Simulated.');
+      if (d.simulated) setTimeout(function () { window.location.reload(); }, 1500);
+    } catch (e) {
+      window.alert('Could not simulate settlement — try again.');
+    }
+  };
+</script>

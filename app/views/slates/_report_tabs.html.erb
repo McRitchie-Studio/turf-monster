@@ -1,0 +1,9 @@
+<%# locals: (active:) %>
+<%# Link-tabs between the two formula reports. Pills mirror the slate
+    selector on slates/show: active bg-primary, inactive bg-surface-alt. %>
+<div class="flex flex-wrap gap-2 mb-6">
+  <%= link_to "⚽ DK Score — Soccer", formula_report_slates_path,
+    class: "px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-all #{active == :soccer ? 'bg-primary text-white' : 'bg-surface-alt text-secondary hover:text-heading'}" %>
+  <%= link_to "🏈 NFL Points Distribution", nfl_report_slates_path,
+    class: "px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-all #{active == :nfl ? 'bg-primary text-white' : 'bg-surface-alt text-secondary hover:text-heading'}" %>
+</div>

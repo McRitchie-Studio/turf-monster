@@ -45,8 +45,8 @@
                 <% end %>
                 <% if player.team.present? %>
                   <span class="flex items-center gap-1 text-xs text-secondary">
-                    <% if player.team.color_primary.present? %>
-                      <span class="inline-block w-2.5 h-2.5 rounded-full" style="background-color: <%= player.team.color_primary %>"></span>
+                    <% if player.team.card_background.present? %>
+                      <span class="inline-block w-2.5 h-2.5 rounded-full" style="background-color: <%= player.team.card_background %>"></span>
                     <% end %>
                     <span class="truncate"><%= player.team.emoji %> <%= player.team.short_name || player.team.name %></span>
                   </span>

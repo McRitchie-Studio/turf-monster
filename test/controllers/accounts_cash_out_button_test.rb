@@ -12,6 +12,7 @@ class AccountsCashOutButtonTest < ActionDispatch::IntegrationTest
       email: "co-#{SecureRandom.hex(2)}@example.test",
       email_verified_at: Time.current
     )
+    grant_managed_wallet!(@managed)
     assert @managed.reload.managed_wallet?
   end
 

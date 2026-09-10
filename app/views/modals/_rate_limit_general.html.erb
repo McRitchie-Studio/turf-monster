@@ -34,7 +34,7 @@
        },
        destroy() { if (this._timer) { clearInterval(this._timer); this._timer = null; } }
      }">
-  <%= render 'modals/blocks/card_header', icon_emoji: '✋', title: 'Easy there' do %>
+  <%= render 'studio/modals/blocks/card_header', icon_emoji: '✋', title: 'Easy there' do %>
     <span x-text="props.message || 'You are going a bit fast.'"></span>
     <span class="block mt-1">Try again in <span class="text-heading font-semibold" x-text="waitDisplay"></span>.</span>
   <% end %>

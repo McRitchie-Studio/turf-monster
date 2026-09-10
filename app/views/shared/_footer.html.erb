@@ -12,7 +12,7 @@
       <div class="max-w-xs space-y-3">
         <%= link_to root_path, class: "inline-flex items-center gap-2 group" do %>
           <%= brand_logo px: 32, classes: "w-8 h-8 shadow" %>
-          <span class="font-extrabold text-heading text-lg tracking-tight"><span class="dm-salmon">Turf</span><span class="text-primary">Totals</span></span>
+          <span class="font-extrabold text-heading text-lg tracking-tight"><span class="dm-salmon">Turf</span><span class="text-primary">Monster</span></span>
         <% end %>
         <p class="text-secondary text-sm leading-relaxed">
           Skill-based World Cup pick&rsquo;em contests. Pick up to 6 matchups, stack Turf Scores, and
@@ -27,7 +27,8 @@
           <div class="text-heading text-xs font-bold uppercase tracking-wider">Play</div>
           <ul class="space-y-1.5 text-sm">
             <li><%= link_to "Contests", contests_path, class: "text-secondary hover:text-primary transition" %></li>
-            <li><%= link_to "Rules", turf_totals_v1_path, class: "text-secondary hover:text-primary transition" %></li>
+            <li><%= link_to "Rules", turf_monster_v1_path, class: "text-secondary hover:text-primary transition" %></li>
+            <li><%= link_to "NFL Totals", nfl_team_totals_path, class: "text-secondary hover:text-primary transition" %></li>
             <li><%= link_to "How to Play", help_how_to_play_path, class: "text-secondary hover:text-primary transition" %></li>
             <li><%= link_to "Help Center", help_path, class: "text-secondary hover:text-primary transition" %></li>
           </ul>
@@ -60,7 +61,7 @@
     <div class="mt-10 pt-6 border-t border-subtle flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div class="text-secondary text-xs space-y-1">
         <p>
-          &copy; <%= Date.today.year %> McRitchie Studio. Turf Totals is a game of skill.
+          &copy; <%= Date.today.year %> McRitchie Studio. Turf Monster is a game of skill.
           <%= link_to "Play responsibly", responsible_gaming_path, class: "underline hover:text-primary" %>.
         </p>
         <%# Business mailing address goes here once the registered agent /

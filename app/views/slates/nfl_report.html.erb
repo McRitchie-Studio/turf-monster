@@ -1,0 +1,214 @@
+<% content_for :title, "NFL Points Distribution" %>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+
+<% if @nfl_distribution %>
+<script>
+  <%
+    nfl_n = @nfl_distribution.team_count
+    nfl_payload = {
+      teamCount: nfl_n,
+      actualLabel: "Actual (#{@nfl_distribution.seasons.min}–#{@nfl_distribution.seasons.max} avg)",
+      actual: @nfl_distribution.expected_points_by_rank,
+      linear: (1..nfl_n).map { |r| @nfl_distribution.fits[:linear].expected_points_for(r, nfl_n) },
+      log: (1..nfl_n).map { |r| @nfl_distribution.fits[:log].expected_points_for(r, nfl_n) }
+    }
+  %>
+  var _nflDist = <%== nfl_payload.to_json %>;
+
+  function _buildNflDistChart() {
+    var canvas = document.getElementById('chart-nfl-dist');
+    if (!canvas) return;
+    var existing = Chart.getChart(canvas);
+    if (existing) existing.destroy();
+
+    var isDark = document.documentElement.classList.contains('dark');
+    var gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+    var textColor = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)';
+    // Series colors validated per theme surface (dark wants darker steps).
+    var violet = isDark ? '#7C6FF0' : '#8E82FE';
+    var green = isDark ? '#3F9F44' : '#4BAF50';
+    var sky = isDark ? '#2098DB' : '#38BDF8';
+
+    var labels = [];
+    for (var r = 1; r <= _nflDist.teamCount; r++) { labels.push(r); }
+
+    new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: _nflDist.actualLabel,
+            data: _nflDist.actual,
+            borderColor: violet,
+            backgroundColor: 'rgba(142, 130, 254, 0.08)',
+            borderWidth: 2.5,
+            pointRadius: 2,
+            pointHoverRadius: 6,
+            tension: 0.3,
+            fill: true,
+            order: 1
+          },
+          {
+            label: 'Linear fit',
+            data: _nflDist.linear,
+            borderColor: green,
+            borderWidth: 2,
+            borderDash: [6, 3],
+            pointRadius: 0,
+            pointHoverRadius: 6,
+            tension: 0,
+            fill: false,
+            order: 2
+          },
+          {
+            label: 'Log fit (World Cup family)',
+            data: _nflDist.log,
+            borderColor: sky,
+            borderWidth: 2,
+            borderDash: [2, 3],
+            pointRadius: 0,
+            pointHoverRadius: 6,
+            tension: 0.3,
+            fill: false,
+            order: 3
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: {
+            labels: { color: textColor, font: { size: 11 }, usePointStyle: true, pointStyle: 'line' }
+          },
+          tooltip: {
+            backgroundColor: isDark ? 'rgba(20,18,40,0.95)' : 'rgba(255,255,255,0.95)',
+            titleColor: isDark ? '#fff' : '#111',
+            bodyColor: isDark ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.7)',
+            borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+            borderWidth: 1,
+            padding: 10,
+            callbacks: {
+              title: function(items) { return 'Rank #' + items[0].label; },
+              label: function(ctx) { return '  ' + ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2) + ' pts'; }
+            }
+          }
+        },
+        scales: {
+          x: {
+            title: { display: true, text: 'Weekly rank (1 = highest-scoring team)', color: textColor, font: { size: 11 } },
+            ticks: { color: textColor, font: { size: 11 }, maxRotation: 0 },
+            grid: { color: gridColor }
+          },
+          y: {
+            title: { display: true, text: 'Expected points', color: textColor, font: { size: 11 } },
+            ticks: { color: textColor },
+            grid: { color: gridColor },
+            beginAtZero: true
+          }
+        }
+      }
+    });
+  }
+
+  document.addEventListener('turbo:load', _buildNflDistChart);
+  document.addEventListener('DOMContentLoaded', _buildNflDistChart);
+  // Rebuild the chart on theme toggle so colors update. The observer lives in
+  // a plain var outside Alpine (Chart.js proxy rule, docs/FORMULAS.md) and is
+  // disconnected on turbo:before-cache; the guard keeps re-runs of this
+  // script from stacking a second live observer.
+  var _nflThemeObserver;
+  if (!_nflThemeObserver) {
+    _nflThemeObserver = new MutationObserver(function() {
+      _buildNflDistChart();
+    });
+    _nflThemeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    document.addEventListener('turbo:before-cache', function() {
+      if (_nflThemeObserver) { _nflThemeObserver.disconnect(); }
+      _nflThemeObserver = null;
+    }, { once: true });
+  }
+</script>
+<% end %>
+
+<div class="max-w-3xl mx-auto py-8 px-2">
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-heading">NFL Points Distribution</h1>
+    <%= link_to "← Slates", slates_path,
+      class: "text-primary hover:text-primary-300 text-sm font-medium underline underline-offset-2" %>
+  </div>
+
+  <%= render "report_tabs", active: :nfl %>
+
+  <% if @nfl_distribution %>
+    <% nfl = @nfl_distribution %>
+    <% nfl_linear = nfl.fits[:linear] %>
+    <% nfl_log = nfl.fits[:log] %>
+
+    <p class="text-secondary text-sm mb-4">
+      Expected points for each of the 32 teams in a full NFL week (no byes), ranked highest to lowest —
+      averaged from <%= nfl.full_weeks.length %> full weeks (<%= nfl.games_analyzed %> games) across
+      <%= nfl.seasons.join(", ") %>; <%= nfl.partial_weeks_skipped %> bye weeks were skipped so every
+      sample holds all 32 teams. League mean <%= nfl.mean_points %> points per team. The log curve reuses
+      the World Cup goals curve <em>family</em> — the World Cup's own constants are 0.2 + 4.3, shown here
+      only as the shape reference; the NFL coefficients are in the fit card below. NFL scoring by rank
+      runs nearly linear instead.
+    </p>
+
+    <div class="grid sm:grid-cols-2 gap-3 mb-4">
+      <% { linear: "Linear", log: "Log — World Cup family" }.each do |kind, label| %>
+        <% fit = nfl.fits.fetch(kind) %>
+        <% best = nfl.best_fit.kind == kind %>
+        <div class="bg-inset border border-subtle rounded-lg px-4 py-2">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="text-xs font-bold uppercase tracking-wider <%= best ? 'text-primary' : 'text-muted' %>"><%= label %></span>
+            <% if best %>
+              <span class="text-xs font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary text-white">Best fit</span>
+            <% end %>
+            <span class="text-muted text-xs font-mono">r² <%= fit.r_squared %> · rmse <%= fit.rmse %></span>
+          </div>
+          <div class="font-mono text-sm text-violet"><%= fit.formula(nfl.team_count) %></div>
+        </div>
+      <% end %>
+    </div>
+
+    <div class="bg-surface border border-subtle rounded-lg p-4 mb-6" style="height: 300px;">
+      <canvas id="chart-nfl-dist" style="width: 100%; height: 100%;"></canvas>
+    </div>
+
+    <div class="bg-surface border border-subtle rounded-lg overflow-hidden">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-subtle text-xs text-muted uppercase tracking-wider">
+            <th class="text-right px-2 py-2">#</th>
+            <th class="text-right px-3 py-2">Actual</th>
+            <th class="text-right px-3 py-2">Linear fit</th>
+            <th class="text-right px-4 py-2">Log fit</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% nfl.expected_points_by_rank.each_with_index do |actual, index| %>
+            <% rank = index + 1 %>
+            <tr class="border-b border-subtle last:border-0">
+              <td class="px-2 py-2 text-right text-muted font-mono text-xs"><%= rank %></td>
+              <td class="px-3 py-2 text-right font-mono font-bold text-violet"><%= sprintf('%.2f', actual) %></td>
+              <td class="px-3 py-2 text-right text-secondary font-mono"><%= sprintf('%.2f', nfl_linear.expected_points_for(rank, nfl.team_count)) %></td>
+              <td class="px-4 py-2 text-right text-secondary font-mono"><%= sprintf('%.2f', nfl_log.expected_points_for(rank, nfl.team_count)) %></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  <% else %>
+    <div class="bg-surface border border-subtle rounded-lg p-8 text-center">
+      <p class="text-heading font-medium mb-1">Historical dataset not available</p>
+      <p class="text-secondary text-sm">
+        Refresh it with <span class="font-mono text-violet">bin/rails nfl:fetch_historical_scores</span>,
+        then reload this page.
+      </p>
+    </div>
+  <% end %>
+</div>

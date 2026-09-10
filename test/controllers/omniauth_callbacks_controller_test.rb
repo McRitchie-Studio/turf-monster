@@ -25,8 +25,15 @@ class OmniauthCallbacksControllerTest < ActionDispatch::IntegrationTest
       follow_redirect!
     end
 
-    assert_redirected_to tokens_buy_path
+    # A brand-new Google signup lands on the app ROOT, not the entry-token
+    # upsell: web3-only onboarding (default ON since 2026-08-15) mints no
+    # custodial wallet, so /tokens/buy would sell an entry token this account
+    # cannot pay for. OmniauthCallbacksController drops the upsell whenever the
+    # chain still owes the wallet step, and the setup modal opens on the root
+    # page instead. With the switch off, the upsell returns.
+    assert_redirected_to root_path
     user = User.find_by(email: "googleuser@example.com")
+    assert_nil user.web2_solana_address, "web3-only onboarding mints no custodial wallet"
     assert_equal user.id, session[:turf_user_id]
     assert user.age_attested_at.present?, "new Google signup must be stamped age-attested"
   end

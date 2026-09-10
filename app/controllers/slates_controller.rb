@@ -11,38 +11,78 @@ class SlatesController < ApplicationController
   end
 
   def formula_report
-    # Pull real matchup data from the most recent slate
-    @slate = Slate.where("starts_at >= ?", Time.current).order(starts_at: :asc).first ||
-             Slate.order(starts_at: :desc, created_at: :desc).first
+    # Samples come from the most recent SOCCER slate whose matchups carry the
+    # seeded DK odds (Soccer::CacheTeamTotalOdds). Only rows with BOTH the
+    # line and the over odds join the sample — the report computes implied
+    # probability and v1/v2/v3 from them, and a partial row (every NFL
+    # matchup: line, no odds) is what 500'd this page before.
+    @slate = Slate.order(starts_at: :desc, created_at: :desc)
+                  .detect { |s| s.sport == "fifa" && s.slate_matchups.where.not(team_total_over_odds: nil).exists? }
 
     matchups = @slate&.slate_matchups&.includes(:team) || []
 
     @sample_matchups = matchups.filter_map do |m|
-      next unless m.dk_goals_expectation
-      line = m.dk_goals_expectation.to_f
+      next unless m.expected_score && m.team_total_over_odds
+
+      odds = m.team_total_over_odds
+      line = m.expected_score.to_f
+      prob = if odds < 0
+        odds.abs.to_f / (odds.abs + 100)
+      else
+        100.0 / (odds + 100)
+      end
 
       {
         team: m.team.name,
         emoji: m.team.emoji,
-        line: line
+        line: line,
+        over_odds: odds,
+        over_dec: nil,
+        prob: prob,
+        v1: (line + (prob - 0.5)).round(2),
+        v2: (line + (prob - 0.5) * 3).round(2),
+        v3: SlateMatchup.dk_score_for(line, odds)
       }
     end
   end
 
+  # NFL analog of the formula report, on its own tab. nil (empty state) when
+  # the historical dataset is missing (ArgumentError), corrupt
+  # (JSON::ParserError), or malformed (KeyError from the fetch reads).
+  def nfl_report
+    @nfl_distribution = begin
+      Nfl::PointsDistribution.call
+    rescue ArgumentError, JSON::ParserError, KeyError
+      nil
+    end
+  end
+
   def show
-    @slates = Slate.where.not(name: "Default").order(:created_at)
+    @slates = Slate.selector_ordered
     @matchups = @slate.slate_matchups.ranked.includes(:team, :opponent_team, :game)
+    # The page ranks TEAMS, not matchup rows: a team's standing is its summed
+    # expected points across every game it plays in this slate. A one-week slate
+    # yields one row per team exactly as before; a "Weeks 1-3" slate yields 32
+    # rows rather than 96.
+    @team_rows = @slate.team_rows
   end
 
   def update_rankings
     rescue_and_log(target: @slate) do
       if params[:matchup_ids].present?
+        # The dragged rows are TEAMS. Each posted id identifies a team via one of
+        # its matchups, and the rank it lands on is written to EVERY game that
+        # team plays in this slate — otherwise a multi-week team would be priced
+        # by whichever of its three rows happened to be the handle.
         n = params[:matchup_ids].size
         params[:matchup_ids].each_with_index do |id, index|
           matchup = @slate.slate_matchups.find_by(id: id)
           next unless matchup
+
           rank = index + 1
-          matchup.update!(rank: rank, turf_score: SlateMatchup.turf_score_for(rank, n))
+          @slate.slate_matchups.where(team_slug: matchup.team_slug).find_each do |team_matchup|
+            team_matchup.update!(rank: rank, turf_score: SlateMatchup.turf_score_for(rank, n, sport: @slate.sport))
+          end
         end
       end
       redirect_to slate_path(@slate), notice: "Rankings saved! Multipliers recalculated."
@@ -57,7 +97,11 @@ class SlatesController < ApplicationController
         params[:turf_scores].each do |entry|
           matchup = @slate.slate_matchups.find_by(id: entry[:id])
           next unless matchup
-          matchup.update!(turf_score: entry[:turf_score].to_f.round(1))
+
+          # Same as update_rankings: the edited row is a TEAM, so the multiplier
+          # applies to every game that team plays here.
+          @slate.slate_matchups.where(team_slug: matchup.team_slug)
+                .update_all(turf_score: entry[:turf_score].to_f.round(1))
         end
       end
       redirect_to slate_path(@slate), notice: "Turf Scores saved!"

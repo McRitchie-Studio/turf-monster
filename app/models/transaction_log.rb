@@ -7,12 +7,17 @@ class TransactionLog < ApplicationRecord
   validates :transaction_type, presence: true
   validates :amount_cents, presence: true, numericality: { greater_than: 0 }
   validates :direction, presence: true, inclusion: { in: %w[credit debit] }
-  validates :status, presence: true, inclusion: { in: %w[completed pending failed approved] }
+  # `needs_review` is the distinct terminal state Deposits::OnchainReconciler
+  # assigns to a stranded deposit whose on-chain transfer it could NOT confirm
+  # landed. It is never re-transferred; a human resolves it. Kept out of the
+  # `completed`/`failed` buckets so a stranded money-path row stays loud.
+  validates :status, presence: true, inclusion: { in: %w[completed pending failed approved needs_review] }
 
   scope :credits, -> { where(direction: "credit") }
   scope :debits, -> { where(direction: "debit") }
   scope :pending, -> { where(status: "pending") }
   scope :completed, -> { where(status: "completed") }
+  scope :needs_review, -> { where(status: "needs_review") }
   scope :by_type, ->(type) { where(transaction_type: type) }
 
   TYPES = %w[deposit withdrawal entry_fee payout admin_credit faucet token_purchase].freeze

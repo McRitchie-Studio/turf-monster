@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { login, attestAge } = require("./helpers");
+const { login, attestAge, OPERATOR_USERNAME } = require("./helpers");
 
 function selectableMatchupCards(page) {
   return page.locator(
@@ -41,11 +41,11 @@ test("guest clicking matchup card does not crash the page", async ({ page }) => 
 
 test("login with valid credentials", async ({ page }) => {
   await login(page, "alex@mcritchie.studio", "password");
-  // Username should appear in header nav. The human operator's username is
-  // `mcritchie` after the 2026-06-02 naming flip (the bare `alex` username now
-  // belongs to the server bot).
+  // Username should appear in header nav. The nav shows the USERNAME, not the
+  // display name, and the human operator's changed on 2026-09-04 — hence the
+  // shared constant rather than a literal here.
   await expect(
-    page.locator("[data-username-display]").filter({ hasText: "mcritchie" })
+    page.locator("[data-username-display]").filter({ hasText: OPERATOR_USERNAME })
   ).toBeVisible();
 });
 
@@ -129,7 +129,7 @@ test("selection persists after page reload", async ({ page }) => {
 // Six selections shows confirm button
 // ---------------------------------------------------------------------------
 
-test("selecting 6 matchups shows Hold to Confirm button", async ({ page }) => {
+test("selecting 6 matchups reveals the hold-to-confirm CTA", async ({ page }) => {
   await login(page, "alex@mcritchie.studio", "password");
 
   // Clear stale selections from prior tests
@@ -174,8 +174,12 @@ test("selecting 6 matchups shows Hold to Confirm button", async ({ page }) => {
   await cards.nth(5).click();
   await expect(page.locator("body")).toContainText("6 / 6");
 
-  // Hold to Confirm button should be visible (desktop + mobile = 2 elements, use first)
-  await expect(page.getByText("Hold to Confirm").first()).toBeVisible();
+  // The CTA is revealed (desktop + mobile = 2 elements, use first). Assert the
+  // BUTTON, not its copy: since hold-for-free-entry the idle label names the
+  // funding — a wallet holding an entry token reads "Hold for Free Entry" — and
+  // this test signs in as a real account whose token balance is environment
+  // data. What it owns is that the 6th pick reveals the CTA at all.
+  await expect(page.locator(".hold-btn").first()).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------

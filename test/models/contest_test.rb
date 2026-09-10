@@ -388,17 +388,53 @@ class ContestTest < ActiveSupport::TestCase
 
   # ── Test-scaffolding "micro" tier ($1 entry) — see AppFlags.test_scaffolding? ──
 
-  test "micro tier is $1 entry, 9 max entries, $5/$1/$1 payouts" do
+  test "micro tier is $1 entry, 9 max entries, $5/$2/$2 payouts" do
     config = Contest::FORMATS.fetch("micro")
     assert_equal 1_00, config[:entry_fee_cents]
     assert_equal 9,    config[:max_entries]
-    assert_equal({ 1 => 5_00, 2 => 1_00, 3 => 1_00 }, config[:payouts])
+    assert_equal({ 1 => 5_00, 2 => 2_00, 3 => 2_00 }, config[:payouts])
   end
 
-  test "a micro contest reports a $7 guaranteed prize" do
+  test "a micro contest reports a $9 guaranteed prize" do
     contest = Contest.new(contest_type: "micro")
-    assert_equal 7_00, contest.guaranteed_prize_cents
-    assert_equal({ 1 => 5_00, 2 => 1_00, 3 => 1_00 }, contest.payouts)
+    assert_equal 9_00, contest.guaranteed_prize_cents
+    assert_equal({ 1 => 5_00, 2 => 2_00, 3 => 2_00 }, contest.payouts)
+  end
+
+  # The $0 margin is the point, not an oversight: a full micro contest grosses
+  # exactly what it guarantees, so this tier rehearses the money path without
+  # earning on it. Pinned so a later "rounding" edit has to be deliberate.
+  test "a full micro contest breaks even" do
+    config = Contest::FORMATS.fetch("micro")
+    gross = config[:entry_fee_cents] * config[:max_entries]
+
+    assert_equal 9_00, gross
+    assert_equal gross, config[:payouts].values.sum
+  end
+
+  # The retuned payouts have to satisfy turf-vault's create_contest, which takes
+  # payout_amounts as a RUNTIME argument (no tier table on chain). Its constraints,
+  # from programs/turf_vault/src/instructions/create_contest.rs:
+  #   · sum(payout_amounts) == prize_pool   (:107, InvalidPayoutTiers)
+  #   · payout_amounts.len() <= 10          (Anchor max_len)
+  #   · at least one entry fee > 0 OR prize_pool > 0  (:130, FeeAndPrizeBothZero)
+  # and settle_contest:115 re-checks sum(payouts) <= contest.prize_pool.
+  # This is why the $5/$2/$2 retune needs NO program change or IDL re-pin.
+  test "the micro tier builds an on-chain payload turf-vault will accept" do
+    contest = Contest.new(
+      contest_type:     "micro",
+      season_id:        1,
+      entry_fee_cents:  Contest::FORMATS.fetch("micro")[:entry_fee_cents],
+      max_entries:      Contest::FORMATS.fetch("micro")[:max_entries]
+    )
+    params = contest.onchain_params
+
+    # USDC is 6-decimal: $5 / $2 / $2 → 5_000_000 / 2_000_000 / 2_000_000.
+    assert_equal [5_000_000, 2_000_000, 2_000_000], params[:payout_amounts]
+    assert_equal params[:payout_amounts].sum, params[:prize_pool], "create_contest requires sum == prize_pool"
+    assert_operator params[:payout_amounts].size, :<=, 10, "payout_amounts is max_len 10 on chain"
+    assert_operator params[:entry_fee_by_currency][0], :>, 0, "USDC slot must carry the $1 fee"
+    assert_equal 1_000_000, params[:entry_fee_by_currency][0]
   end
 
   test "selectable_formats hides the micro tier unless test scaffolding is on" do
