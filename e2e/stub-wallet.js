@@ -135,11 +135,15 @@ const CONTRACT = {
   },
   signMessage: {
     path: "/ul/v1/signMessage",
-    source: "VENDOR — docs.phantom.com/phantom-deeplinks/provider-methods/signmessage",
-    confidence: "medium (not re-fetched for this change; no flow here emits it today)",
+    source: "VENDOR — docs.phantom.com/phantom-deeplinks/provider-methods/signmessage, fetched 2026-09-09",
+    confidence: "high",
     required: ["dapp_encryption_public_key", "nonce", "redirect_link", "payload"],
     optional: [],
     forbidden: [],
+    // `display` is documented OPTIONAL ("utf8" or "hex", defaulting to utf8), so
+    // it is not required here. No flow in this app emits signMessage today — the
+    // entry is a transaction and sign-in still runs the legacy phantom_dl_* path
+    // — so this row is the contract waiting for the flow, not a live assertion.
     payloadRequired: ["message", "session"],
   },
 };

@@ -224,6 +224,62 @@ key, a **step cursor**, the persisted shared secret, the session token, and the
 pending intent. The callback's dispatch at `phantom_callback.html.erb:149`
 becomes a step-machine advance rather than a single `signIn` branch.
 
+### 7. Every hop must carry its own `redirect_link`
+
+**Found 2026-09-09, live on `accepted`, by the stub-wallet harness** — and it is
+the sharpest illustration in this document of why the harness exists.
+
+Phantom documents `redirect_link` as **required** on `connect` and on
+`signTransaction` alike (docs.phantom.com, provider-methods pages, fetched
+2026-09-09). It is the only thing that tells a wallet where to send the answer.
+A signing deeplink without one is not degraded — it is a dead end: the user
+approves the transaction inside their wallet, and nothing comes back.
+
+The two-hop machine above supplies it on hop one and dropped it on hop two.
+`walletOps.resume` builds the signing hop as
+
+```js
+signingHop(provider, connected.journal, {
+  redirectLink: opts.redirectLink || journal.redirectLink
+})
+```
+
+and **neither side of that `||` exists in production**. `studio-engine`'s
+`solana_sessions/phantom_callback.html.erb` — the page a wallet returns to —
+calls `walletOps.resume(params, { navigate })` and passes no `redirectLink`;
+`solana-studio`'s `redirect_provider.beginConnect` journals `dappSecretKey`,
+`dappPublicKey` and `intent`, and no redirect link. `walletTransport`'s query
+builder drops `undefined` values silently, so the parameter simply vanished.
+Measured against solana-studio 0.9.2 + studio-engine 0.74.6: hop two's query
+string was `[dapp_encryption_public_key, nonce, payload]`.
+
+**Nothing caught it because the tests supplied the missing parameter
+themselves.** solana-studio's own round-trip suite passes
+`redirectLink: 'https://a.test/cb'` to `resume()`; this app's integration round
+trip did the same and then stripped the query string at `?` before comparing the
+hops. Both were green over a deeplink Phantom would have refused. That is the
+class of defect `e2e/stub-wallet.js` exists to close: it judges the URL a wallet
+RECEIVES against the vendor's own parameter table, and it answers only by
+redirecting to the `redirect_link` the URL carries — so a missing one strands the
+trip instead of failing an assertion.
+
+**Where the value comes from now.** `app/views/shared/_contest_entry_intent.html.erb`
+wraps `walletOps.resume` and defaults `redirectLink` to
+`window.location.origin + window.location.pathname` — **the URL the document is
+on**. `resume()` only runs with a pending journal, which only happens on a
+document a wallet redirected to, so that value *is* the `redirect_link` that
+worked one hop earlier. Not a configured path, not a re-derived route, and
+correct by construction for a host that mounts the callback anywhere else.
+
+**It is a default, not an override**, and it is meant to be retired. The real fix
+is one line in `solana-studio`'s `beginConnect` — journal the redirect link so
+`resume`'s existing `|| journal.redirectLink` resolves — which is a gem change, a
+release, and another floor on the chain in the Gemfile.
+`test/integration/phantom_callback_redirect_link_test.rb` carries the retirement
+trigger: it asserts, against the DELIVERED callback document, that studio-engine
+still calls `resume` without a redirect link, and names what to delete when that
+stops being true.
+
 ---
 
 ## Per-wallet adapters
