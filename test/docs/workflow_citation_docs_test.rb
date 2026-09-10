@@ -709,6 +709,7 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # behaviour predicates below come back false; on 0.9.3, 0.10.0 and 0.11.0,
   # both come back true. So the predicates read the code, not the lockfile.
   SECTION_SEVEN_DOC = "docs/WALLET_TRANSPORT_ARCHITECTURE.md"
+  SECTION_SEVEN_ARRIVAL = Gem::Version.new("0.9.3")
 
   test "section 7 dates the redirect_link fix by its release, and the resolved gem still carries it" do
     text = section_text(SECTION_SEVEN_DOC, "### 7. ")
@@ -717,9 +718,15 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
 
     arrival = flat[/Both arrived in (\d+\.\d+\.\d+)/, 1]
     said_floor = flat[/The Gemfile floor is >= (\d+\.\d+\.\d+)/, 1]
+    retirement = flat[/until the floor reaches (\d+\.\d+\.\d+)/, 1]
     assert arrival, "§7 must date the fix by the release that shipped it, written **Both arrived in X.Y.Z**"
     assert said_floor, "§7 must state the Gemfile floor, written The Gemfile floor is `>= X.Y.Z`"
+    assert retirement, "§7 must name the floor that retires the turf-side default"
     arrival = Gem::Version.new(arrival)
+    assert_equal SECTION_SEVEN_ARRIVAL, arrival,
+                 "§7 moved the fix from its verified first release, #{SECTION_SEVEN_ARRIVAL}, to #{arrival}"
+    assert_equal arrival, Gem::Version.new(retirement),
+                 "§7 says the turf-side default retires at #{retirement}, but dates the gem fix to #{arrival}"
 
     # The relation is asserted FIRST, so the day someone raises the pin the red
     # names the default to retire, not merely the sentence to edit.
