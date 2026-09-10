@@ -64,19 +64,18 @@ require "prism"
 #
 # ITS LIMITS, STATED PLAINLY.
 #
-#   1. IT GUARDS THE WHOLE DIRECTORY — BUT NOT WITH EVERY CHECK. Since
-#      2026-09-09 the three checks that need no per-document metadata (the cited
-#      file exists, the cited line is inside it, the cited lines are not all
-#      blank) run over WORKFLOW_DOCS, a GLOB of docs/workflows/. The SYMBOL check
-#      — the one with teeth — still runs only over COVERAGE, and that is a
-#      measured decision, not an oversight: turning it on directory-wide fails
-#      265 of the 323 citations in the four documents the glob newly reached
+#   1. IT GUARDS THE WHOLE DIRECTORY, WITH EVERY CHECK — since the sweep that
+#      closed the split (sweep-workflow-symbol-citations, 2026-09-09). The history
+#      is worth keeping, because it is the measurement that justified the cost.
+#      The glob (WORKFLOW_DOCS) first carried only the three checks that need no
+#      per-document metadata: the cited file exists, the cited line is inside it,
+#      the cited lines are not all blank. The SYMBOL check — the one with teeth —
+#      ran only over COVERAGE, because turning it on directory-wide failed 265 of
+#      the 323 citations in the four documents the glob had newly reached
 #      (admin-contest-setup 104, email-signup-token-to-chat 68,
-#      referral-google-tokens-to-chat 51, slate-build 42 — measured 2026-09-09
-#      by this file's own parser). That is a citation sweep of four documents,
-#      the same sweep web3-landing-to-entry paid for, and it is what opting a
-#      document into COVERAGE costs. Read the split as: a wrong COORDINATE is
-#      caught everywhere; a wrong SYMBOL is caught only in COVERAGE.
+#      referral-google-tokens-to-chat 51, slate-build 42 — measured by this
+#      file's own parser). A wrong COORDINATE was caught everywhere; a wrong
+#      SYMBOL only in COVERAGE.
 #      WHAT THE WIDENING ITSELF CAUGHT, the day it landed: 18 stale citations in
 #      three documents nothing had ever checked — 3 past end-of-file (including
 #      admin-contest-setup.md's `admin_controller.rb:353` into a 77-line file,
@@ -87,17 +86,32 @@ require "prism"
 #      the 7 was not merely mis-numbered but false: the board was said to expose
 #      a `link_to "buy", tokens_buy_path` it has never had since the picker went
 #      in-modal.
-#      WORSE THAN UNCHECKED, TWO DOCUMENTS ARE UNCITED. live-scoring.md and
-#      submit-entry-decision-tree.md parse to ZERO citations each, in a directory
-#      whose _TEMPLATE.md says to "Cite file:line for EVERY step". They name
-#      symbols throughout — Nfl::LiveScores::PollCycle, Live::FocusGame,
-#      ContestsController#prepare_entry — and point at none of them. A GLOB
-#      CANNOT REACH THAT, and neither can a floor. Every check here starts from a
-#      parsed citation, so a document with no citations is not weakly guarded, it
-#      is invisible — widening the glob did not change that one bit. What holds
-#      it is UNCITED_DOCS below, which names the set and asserts it EXACTLY, so a
-#      third document going uncited is red rather than silent. Those two need
-#      citing first, then guarding.
+#      WHAT THE SWEEP PAID, document by document, re-derived against `accepted`
+#      and opted in: referral-google-tokens-to-chat (57 citations in, 49 failing;
+#      139 out), email-signup-token-to-chat (103 in, 64 failing; 179 out),
+#      slate-build (48 in, 42 failing; 63 out), admin-contest-setup (121 in, 89
+#      failing; 219 out). The counts rose because the sweep cited claims the
+#      documents had been making with no number beside them. THE TWO UNCITED
+#      DOCUMENTS were cited in the same pass — live-scoring (72) and
+#      submit-entry-decision-tree (70) — because every check here starts from a
+#      parsed citation, so a document with none was not weakly guarded, it was
+#      invisible, and no glob or floor could reach it.
+#      WHAT ONLY READING THE CODE CAUGHT, and limit 2 below is why it matters:
+#      sentences that were false, not merely mis-numbered — contest creation
+#      described as writing its DB row only AFTER the chain confirmed (it now
+#      writes a write-ahead `pending` row BEFORE the prize pool moves) and as a
+#      client-side `connection.sendRawTransaction` broadcast (the server cosigns
+#      and broadcasts); a `tokens-submitted` modal step that does not exist; a
+#      cart snapshot said to be in sessionStorage that has always been in
+#      localStorage; a mint `source_ref` keyed on the Stripe session id that is
+#      keyed on the purchase row; `#enter` described as verifying a wallet
+#      signature for a Phantom session it now refuses; the root redirect's
+#      main-contest chain naming a resolver (`SeasonConfig.main_contest`) it does
+#      not call.
+#      KEEPING IT CLOSED is the "every workflow document opts into COVERAGE"
+#      test below: a new document is red until it is measured and opted in, or
+#      deliberately named in UNCITED_DOCS — which is the only honest way for the
+#      split to re-open.
 #   2. IT CANNOT CHECK PROSE. It proves a citation lands on the symbol the prose
 #      names. It cannot prove the sentence about that symbol is true, and the
 #      same sweep found sentences that were: the document described a client-side
@@ -216,6 +230,19 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
     "docs/workflows/admin-contest-setup.md" => {
       min_citations: 190, min_path: 105, min_bare: 80,
       fallback_only_files: %w[app/views/layouts/application.html.erb]
+    },
+    # The two documents that were UNCITED until 2026-09-09 (see UNCITED_DOCS).
+    # Both name a fallback-only file for the same mechanical reason
+    # market-snapshot does: `definitions` reads only `.rb` and inline JS in
+    # `.erb`, so an extensionless script and a `.js` module can never anchor on
+    # a symbol, whatever their prose says.
+    "docs/workflows/live-scoring.md" => {
+      min_citations: 60, min_path: 30, min_bare: 28,
+      fallback_only_files: %w[bin/nfl-live-poll]
+    },
+    "docs/workflows/submit-entry-decision-tree.md" => {
+      min_citations: 60, min_path: 26, min_bare: 30,
+      fallback_only_files: %w[app/javascript/solana_utils.js]
     }
   }.freeze
 
@@ -230,14 +257,15 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # workflow file is guarded the moment it is written rather than when someone
   # remembers to add it here.
   #
-  # WHY THE SPLIT IS HERE AND NOT AT "GUARD EVERYTHING". The symbol check is the
-  # one with teeth and the one that cannot be widened for free: it asks that the
-  # prose beside a citation NAME the definition the number lands in, and the four
-  # unswept documents hold 323 citations that no one has ever swept against it.
-  # Turning it on for them is a citation sweep, not a test change — the same
-  # sweep web3-landing-to-entry paid for (113 citations in, 14 landing on the
-  # code they named). So it stays keyed to COVERAGE, and this constant carries
-  # the checks whose remedy is one number rather than a document read end to end.
+  # THE SPLIT THIS ONCE CARRIED IS CLOSED. The symbol check could not be widened
+  # for free — it asks that the prose beside a citation NAME the definition the
+  # number lands in, and the four documents the glob first reached held 323
+  # citations nobody had swept against it. Paying that sweep put every workflow
+  # document into COVERAGE (limit 1 above has the numbers), so the symbol check
+  # now reaches every citation this glob parses. The glob still earns its keep
+  # twice: it is what the three universal checks iterate, and it is what the
+  # COVERAGE-completeness test compares COVERAGE against, so a new document
+  # cannot slip past the symbol check by being unmentioned.
   WORKFLOW_DOCS = Dir[Rails.root.join("docs/workflows/*.md")]
                   .map { |p| Pathname.new(p).relative_path_from(Rails.root).to_s }
                   .reject { |p| File.basename(p).start_with?("_") || File.basename(p) == "README.md" }
@@ -247,24 +275,29 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # directory-wide glob cannot see them — every check here starts from a parsed
   # citation, so a document that cites nothing is not weakly guarded, it is
   # invisible — and naming them is the only way the count stays honest. The
-  # assertion is EQUALITY, both directions: a third document going uncited is a
-  # regression, and citing one of these two without striking it from this list
-  # leaves a false claim in the README that points at it.
-  UNCITED_DOCS = %w[
-    docs/workflows/live-scoring.md
-    docs/workflows/submit-entry-decision-tree.md
-  ].freeze
+  # assertion is EQUALITY, both directions: a document going uncited is a
+  # regression, and citing one listed here without striking it leaves a false
+  # claim in the README that points at it.
+  #
+  # EMPTY SINCE 2026-09-09, and deliberately kept rather than deleted. It held
+  # live-scoring.md and submit-entry-decision-tree.md until the sweep cited both.
+  # An empty list asserted EXACTLY is still a claim — "no workflow document is
+  # uncited" — and it is the one sanctioned way to exempt a document from the
+  # COVERAGE-completeness test: name it here, and say so in the README.
+  UNCITED_DOCS = [].freeze
 
-  # The floor for the directory-wide parse, set below the 542 citations
-  # WORKFLOW_DOCS held when it was written (measured 2026-09-09 by this file's
-  # own parser: web3-landing-to-entry 164, market-snapshot 55, and the four
-  # documents this widening reached — admin-contest-setup 122, email-signup-
-  # token-to-chat 98, referral-google-tokens-to-chat 55, slate-build 48). Same
-  # reasoning as the per-document floors: a glob that stops matching — the
+  # The floor for the directory-wide parse, set below the 961 citations
+  # WORKFLOW_DOCS held after the sweep (measured 2026-09-09 by this file's own
+  # parser: admin-contest-setup 219, email-signup-token-to-chat 179,
+  # web3-landing-to-entry 164, referral-google-tokens-to-chat 139, live-scoring
+  # 72, submit-entry-decision-tree 70, slate-build 63, market-snapshot 55). It
+  # was 500 against 542 before the sweep; raised deliberately, because a floor
+  # left far below the real count stops catching a regex that half-matches.
+  # Same reasoning as the per-document floors: a glob that stops matching — the
   # directory renamed, the citation style changed — passes every check above
   # having proved nothing, and this is what makes that a red test instead of a
   # quiet one.
-  MIN_DIRECTORY_CITATIONS = 500
+  MIN_DIRECTORY_CITATIONS = 850
 
   # Tokens too common to anchor anything. A citation that only matches one of
   # these has not been verified by the literal branch.
@@ -370,7 +403,7 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # the extension changed, a doc dropped its citations — and every check above it
   # would then pass having read nothing. This floor is what makes that red.
   test "the directory-wide parse still reaches every workflow document" do
-    assert_operator WORKFLOW_DOCS.size, :>=, 7,
+    assert_operator WORKFLOW_DOCS.size, :>=, 8,
                     "the docs/workflows glob resolved #{WORKFLOW_DOCS.size} document(s): #{WORKFLOW_DOCS.inspect}"
     assert_operator all_citations.size, :>=, MIN_DIRECTORY_CITATIONS,
                     "parsed #{all_citations.size} citations across docs/workflows; the regex or the glob " \
@@ -379,6 +412,22 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
       assert_includes WORKFLOW_DOCS, doc,
                       "#{doc} carries per-document claims but the directory glob does not reach it"
     end
+  end
+
+  # THE OTHER DIRECTION OF THE ONE ABOVE, AND THE TEST THAT KEEPS THE SPLIT
+  # CLOSED. The loop above asserts every COVERAGE document is reached by the
+  # glob; this asserts every globbed document is in COVERAGE (or deliberately
+  # named in UNCITED_DOCS). Without it the split re-opens silently the day a
+  # new workflow document is written: the three universal checks would guard
+  # its coordinates, and nothing would check a single one of its symbols.
+  test "every workflow document opts into COVERAGE" do
+    unswept = WORKFLOW_DOCS - GUARDED_DOCS - UNCITED_DOCS
+    assert_empty unswept,
+                 "these docs/workflows/ documents are not in COVERAGE, so the SYMBOL check never " \
+                 "reads them — only the three coordinate checks do. Opt each one in: make every " \
+                 "citation land inside the definition its prose names, state the split in its " \
+                 "preamble as **N of the M citations** / the other **K**, and add it to COVERAGE " \
+                 "with floors measured just below its own counts."
   end
 
   # A document with no citations is INVISIBLE to every check here — each one

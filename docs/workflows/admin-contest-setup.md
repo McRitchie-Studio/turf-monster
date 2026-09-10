@@ -5,14 +5,14 @@
 > resets at each `##` heading. The number is bookkeeping; the SYMBOL beside it is
 > the claim, and `test/docs/workflow_citation_docs_test.rb` reddens when a
 > citation stops landing inside the definition its prose names.
-> That symbol check reaches **182 of the 217 citations** here. The other **35**
+> That symbol check reaches **183 of the 219 citations** here. The other **36**
 > sit in code with no enclosing definition the guard can derive: six
-> `config/routes.rb` entries, ERB markup and form fields, class-body `before_action`
-> / `include` / `after_create` declarations, two constants, and two lines of
-> `docs/SOLANA.md` prose. Those ride the weaker LITERAL fallback: it proves the
+> `config/routes.rb` entries, one `config/schedule.yml` job, ERB markup and form
+> fields, class-body `before_action` / `include` / `after_create` declarations, two
+> constants, and two lines of `docs/SOLANA.md` prose. Those ride the weaker LITERAL fallback: it proves the
 > words the prose quotes are present in the cited lines, not that the code is.
 > **All 6 citations on `app/views/layouts/application.html.erb`** — the entire
-> Phantom connect-and-sign surface — are in that 35, and the cause is mechanical
+> Phantom connect-and-sign surface — are in that 36, and the cause is mechanical
 > rather than editorial: the helper is written
 > `window.solanaConnectAndVerify = async function(walletName, opts)`, a shape the
 > guard's brace-balance parser does not read as a definition, so no line in its
@@ -161,7 +161,7 @@ Two-stage hold-to-confirm followed by the Phantom direct-entry signing flow:
 
 - **Wrong wallet connected** — on the CREATION form the client throws `Wrong wallet connected` before signing (`app/views/contests/new.html.erb:427-429`). On the ENTRY path there is no client-side equivalent; `Solana::Vault#assert_entry_cosign_safe!` (`app/services/solana/vault.rb:2196-2303`) derives the expected entry PDA from the session's wallet (`:2223`) and refuses to cosign a wire that does not match, so a wallet swap fails server-side instead.
 - **Insufficient USDC for prize pool** — `ContestsController#onchain_create_precheck` calls `#insufficient_usdc_error` (`app/controllers/contests_controller.rb:2343`, defined at `:2386-2426`); the client modal offers a "Mint $500 Test USDC" recovery button from `showInsufficientUsdcModal` (`app/views/contests/new.html.erb:358-367`) which hits `POST /faucet` from `mintTestUsdcAndRetry` (`:369-394`). `FaucetController#claim` is production-disabled per OPSEC-020 (`app/controllers/faucet_controller.rb:32`).
-- **On-chain Contest PDA already exists** — `ContestsController#onchain_create_precheck` refuses (`app/controllers/contests_controller.rb:2330-2337`). Common after a finalize that broadcast successfully but failed at `verify_solana_transaction!` — which now leaves a `pending` DB row carrying the PDA and the signature, saved by `ContestsController#finalize` (`:365-376`), so the stranded contest is findable rather than invisible. The admin must pick a different slug or resolve the pending row.
+- **On-chain Contest PDA already exists** — `ContestsController#onchain_create_precheck` refuses (`app/controllers/contests_controller.rb:2330-2337`). Common after a finalize that broadcast successfully but failed at `verify_solana_transaction!` — which now leaves a `pending` DB row carrying the PDA and the signature, saved by `ContestsController#finalize` (`:365-376`), so the stranded contest is findable rather than invisible. `PendingContestReconcilerJob#perform` (`app/jobs/pending_contest_reconciler_job.rb:16-19`) sweeps stranded `pending` rows every 15 minutes (`config/schedule.yml:73-84`) with a read-only existence check of the derived PDA — present → `open`, absent → the squatting row is deleted — but a row that already carries a broadcast signature is flagged for a human rather than healed, so this exact case still needs the admin to pick a different slug or resolve the row by hand.
 - **No active season** — `ContestsController#enter` raises (`app/controllers/contests_controller.rb:829-831`). User-visible alert: "No active season configured. Set one at /admin/seasons before users can enter on-chain contests." → the admin loops back to 2b.
 - **Sign-then-refresh during entry** — the `PendingTransaction` is left `pending` or `submitted`. The board polls `POST /contests/:id/recover_pending_entry` (`ContestsController#recover_pending_entry` — `app/controllers/contests_controller.rb:1173-1271`), which either promotes the entry, keeps polling, or fails and releases it.
 - **IDL hash drift after a turf-vault upgrade** — `Solana::Config.verify_idl!` refuses to boot and to precompile in production (`docs/SOLANA.md:149`). Borsh decoding would silently corrupt every account read otherwise. The operator must re-pin `EXPECTED_IDL_HASH` from the freshly **built** IDL — NOT `anchor idl fetch`, which returns the stale pre-upgrade IDL because a Squad upgrade runs only the BPF `upgrade` instruction (`docs/SOLANA.md:131`) — before pushing. See the `feedback_post_deploy_idl_pin` memory.
