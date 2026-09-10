@@ -1,6 +1,9 @@
 <%#
-  Hero stats — 4 numbers. v0.19, embedded-IDL build.
-    locals: perm_sol, float_sol, buffer_sol, binary_size, v015_perm_sol
+  Hero stats — 4 numbers, read off the deployed mainnet program. The
+  `measured` record in show.html.erb says which version, slot and date;
+  the line under the grid prints it, because the numbers are presented as
+  facts (the version pill above reads the committed IDL, not this record).
+    locals: perm_sol, float_sol, buffer_sol, binary_size, v015_perm_sol, measured
 %>
 <section class="mb-8">
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
@@ -50,4 +53,13 @@
     </div>
 
   </div>
+  <p class="text-[11px] sm:text-xs text-muted mt-3 leading-snug break-words"
+     data-test="contract-measured-on"
+     data-version="<%= measured[:version] %>"
+     data-idl-sha256="<%= measured[:idl_sha256] %>">
+    Measured on turf-vault v<%= measured[:version] %>, as deployed on <%= measured[:cluster] %>,
+    at slot <%= number_with_delimiter(measured[:slot]) %> (<%= measured[:date] %>).
+    Program sha256 <code class="font-mono text-secondary"><%= measured[:program_sha256] %></code>
+    &mdash; check it with <code class="font-mono text-secondary">solana program dump</code> and <code class="font-mono text-secondary">shasum -a 256</code>.
+  </p>
 </section>

@@ -131,24 +131,47 @@ Use `turf-vault/scripts/squad-upgrade.js` — it builds a buffer, sets the buffe
 **Post-deploy IDL re-pin (mandatory)**: After every Squad upgrade, turf-monster MUST re-pin `EXPECTED_IDL_HASH` from the **freshly built** IDL — NOT `anchor idl fetch`. Squad upgrades run only the BPF `upgrade` instruction; they do NOT update the on-chain IDL account. `anchor idl fetch` therefore returns the stale pre-upgrade IDL.
 
 ```bash
-# After deploying turf-vault:
+# After deploying turf-vault, re-pin the IDL file of the CLUSTER YOU UPGRADED.
+# Each cluster commits its own file (they differ only in `address`):
+#   mainnet -> config/turf_vault.mainnet.idl.json  (build with --features mainnet)
+#   devnet  -> config/turf_vault.idl.json          (default build)
 cp /Users/alex/projects/turf-vault/target/idl/turf_vault.json \
-   /Users/alex/projects/turf-monster/config/turf_vault.idl.json
+   /Users/alex/projects/turf-monster/config/turf_vault.mainnet.idl.json
 cd /Users/alex/projects/turf-monster
-shasum -a 256 config/turf_vault.idl.json   # → this is the new EXPECTED_IDL_HASH
+jq -r .address config/turf_vault.mainnet.idl.json   # must be that cluster's program ID
+shasum -a 256 config/turf_vault.mainnet.idl.json    # → the new EXPECTED_IDL_HASH
 
-# Set EXPECTED_IDL_HASH on Heroku BEFORE git push (assets:precompile runs verify_idl!):
-heroku config:set EXPECTED_IDL_HASH=<sha> -a turf-monster-mainnet
-
-# Then commit + deploy
-git add config/turf_vault.idl.json
+# Commit, then deploy. bin/deploy reads the app's SOLANA_NETWORK to pick the file,
+# widens EXPECTED_IDL_HASH to {old,new}, pushes, then tightens it to {new}, so
+# both slugs verify across the release with no manual heroku config:set.
+git add config/turf_vault.mainnet.idl.json
 git commit -m "Re-pin IDL after turf-vault vX.Y.Z deploy"
 bin/deploy
 ```
 
 `Solana::Config.verify_idl!` will refuse to boot — and to precompile assets — in production when the file's SHA256 ≠ `EXPECTED_IDL_HASH`. Running prod against a drifted IDL silently corrupts every Borsh decode.
 
-**Also refresh the `/contract` page**: if the deploy changed the instruction set, byte sizes, auth roles, or any Rails call site, update the hand-maintained data in `app/views/contract/show.html.erb` (the public `/contract` transparency page; admin sections include the web2/web3 caller map). Its version pill + network auto-track the re-pinned IDL (`Solana::Config.idl_version` / `NETWORK`), but the per-instruction byte/caller data does not. Re-measure bytes with a debug-info rebuild (`CARGO_PROFILE_RELEASE_DEBUG=2 … cargo-build-sbf` → `llvm-objdump --syms | rustfilt`, dedup by address, bucket by instruction module).
+**Also refresh the `/contract` page — after every mainnet upgrade.** `app/views/contract/show.html.erb` (the public `/contract` transparency page) hand-maintains figures a new binary changes. Its version pill, cluster pill, and instruction and error counts read the committed IDL and `NETWORK`, so they track the re-pin; the figures below do not. `test/views/contract_measurements_test.rb` pins the page's `measured` record to `config/turf_vault.mainnet.idl.json` by version **and** sha256, so re-pinning that file turns it red until you redo step 1.
+
+1. **Binary, ELF sections, rent — from the deployed program, not a local build.** Anchor builds are not byte-reproducible, so measure the bytes that are executing. Public RPC, no credential:
+
+   ```bash
+   RPC=https://api.mainnet-beta.solana.com
+   solana program show DaFv83yokwTz8msP9CzJ13eazSGk15NuUTxjkfzJzxMM --url $RPC   # ProgramData address, data length
+   solana program dump DaFv83yokwTz8msP9CzJ13eazSGk15NuUTxjkfzJzxMM mainnet.so --url $RPC
+   shasum -a 256 mainnet.so           # program_sha256; must equal turf-vault docs/CURRENT_DEPLOYMENT.md
+   LLVM=~/.cache/solana/v1.52/platform-tools/llvm/bin   # any platform-tools version with llvm-objdump
+   $LLVM/llvm-objdump --section-headers mainnet.so      # section bytes
+   $LLVM/llvm-readelf --file-header mainnet.so          # ELF length = e_shoff + e_shnum * 64
+   # Space and lamports of the ProgramData and Program accounts, with the slot read at:
+   curl -s $RPC -X POST -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,
+     "method":"getMultipleAccounts","params":[["<program id>","<ProgramData address>"],
+     {"encoding":"base64","commitment":"finalized","dataSlice":{"offset":0,"length":0}}]}'
+   ```
+
+   The dump is the whole program region, so it is the account's space minus the 45-byte header; the ELF is often shorter, with zero slack after it. Put the ELF length in `binary_size` and the ProgramData account's space in `programdata_space` (rent is charged on space, and `(space + 128) × 6960` must equal its lamports). Then update `measured` (version, slot, date, `idl_sha256` of the re-pinned mainnet IDL, `program_sha256`).
+2. **Per-instruction bytes and `.text` buckets — from a debug-info rebuild** of the deployed tag with `--features mainnet` (`CARGO_PROFILE_RELEASE_DEBUG=2 … cargo-build-sbf` → `llvm-objdump --syms | rustfilt`, dedup by address, bucket by instruction module): the deployed binary is stripped, so it cannot attribute them. Update `attributed_on` when you do. Until then the page labels them with the build they came from (`v0.19` as of 2026-09-10).
+3. **Auth roles and Rails call sites** — re-audit the admin playbook's web2/web3 caller map. The playbook names any committed-IDL instruction it does not cover yet.
 
 ### Multisig Settlement Flow
 1. `Contest#grade!` scores entries and calls `settle_onchain!`
