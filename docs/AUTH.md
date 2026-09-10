@@ -629,16 +629,17 @@ branch on `mode`: a wallet-less account reads `"web2"`.
 
 Rules worth knowing:
 
-- **A user holding a FREE ENTRY is left alone.** A gifted player already has the
-  price of admission in hand and needs no funding rail, so nudging them at a
-  wallet is asking them to solve a problem they do not have — the whole point of
-  gifting an entry (operator call, 2026-09-09). Two shapes count, and the second
-  is the load-bearing one: a minted entry token, **or a claimed `EntryGift` whose
-  mint is still queued**. The verdict is computed ONCE at sign-in while the claim
-  is synchronous and `EntryGiftMintJob` is not, so at that instant a just-claimed
-  gift has no token yet; a token-only test reads false and re-arms the modal for
-  the whole session. Both halves fall away once the entry is spent, so the bypass
-  lasts exactly as long as the entry does.
+- **A user holding a FREE ENTRY is left alone — once they have a wallet.** A
+  gifted player already has the price of admission and needs no funding rail
+  (operator call, 2026-09-09). Rule 2 still comes first, and claiming the gift is
+  what clears it: `EntryGifts::Claim` mints the managed wallet (`reason: :gift`)
+  even under web3-only onboarding, and the magic-link paths claim BEFORE they
+  record the verdict. Two shapes then count: a minted entry token, **or a claimed
+  `EntryGift` whose mint is still expected** (`mint_error` blank, so an admin
+  claimant's unpayable gift buys no bypass — OPSEC-044). The verdict is computed
+  once at sign-in and the claim is synchronous while `EntryGiftMintJob` is not,
+  so a token-only test would read false and re-arm the modal for the whole
+  session. Both halves fall away once the entry is spent.
 - **A grandfathered web2 user holding ≥ `WalletSetupPolicy::MIN_USDC` (19) USDC
   is left alone.** 19 USDC is exactly one paid entry (`Contest::FORMATS`), so
   they can still play on their custodial rails and are never interrupted.
