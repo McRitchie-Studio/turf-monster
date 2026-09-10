@@ -27,8 +27,9 @@
         pack buttons. Previously only loaded by tokens/buy.html.erb and
         the contest board, which left the picker plain whenever the
         auth modal opened from anywhere else (post-signup, navbar buy
-        CTA, /admin/modals gallery iframe). Co-locating with the tokens
-        flow makes it self-contained. The inline script is guarded by
+        CTA, and the /admin/modals gallery iframe, which was retired on
+        2026-09-09). Co-locating with the tokens flow makes it
+        self-contained. The inline script is guarded by
         `if (!window.tokenCheckoutSubmit)` so the remount-on-every-open
         is a cheap no-op after the first run. %>
     <%= render "tokens/pack_button_styles" %>

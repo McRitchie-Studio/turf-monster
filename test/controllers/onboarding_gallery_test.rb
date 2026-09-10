@@ -3,7 +3,7 @@ require "test_helper"
 # The onboarding modal's rendered states, read off the layout that renders them.
 #
 # THE SEAM MOVED, TWICE. These assertions were written against /admin/modals and
-# its FLOWS section; the gallery went on 2026-09-08, leaving them driving
+# its FLOWS section; the gallery went on 2026-09-09, leaving them driving
 # /admin/modals/preview, whose layout kept a SECOND registration of the same
 # engine partial. That seam went on 2026-09-09. What they ask has not changed —
 # only the page they ask it of, which is now layouts/application, the one a
@@ -228,7 +228,7 @@ class OnboardingGalleryTest < ActionDispatch::IntegrationTest
     #
     # SCOPED TO THE CHAIN, and the whole-manifest version it once deferred to is
     # gone: test/controllers/modal_gallery_manifest_test.rb was deleted with the
-    # gallery on 2026-09-08, because a manifest test needs a manifest and
+    # gallery on 2026-09-09, because a manifest test needs a manifest and
     # MODAL_VARIANTS was the manifest. This stays chain-scoped because the
     # onboarding chain is what it was written to regress.
     #
