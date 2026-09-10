@@ -212,6 +212,10 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
     "docs/workflows/slate-build.md" => {
       min_citations: 55, min_path: 30, min_bare: 20,
       fallback_only_files: []
+    },
+    "docs/workflows/admin-contest-setup.md" => {
+      min_citations: 190, min_path: 105, min_bare: 80,
+      fallback_only_files: %w[app/views/layouts/application.html.erb]
     }
   }.freeze
 
