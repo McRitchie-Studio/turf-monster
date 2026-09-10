@@ -107,9 +107,16 @@
     <%# Registered on EVERY page, because the wallet returns to a page this app
         does not own — see the partial for the entry that was lost when this
         lived in the contest board. %>
+    <%# The HOW half of every on-chain flow — the return address, the cluster,
+        the 401-normalising fetch, and the handoff-never-happened watch. FIRST,
+        because the intents below use its fetch helper. It defines functions and
+        runs nothing at load. %>
+    <%= render "shared/wallet_op_runner" %>
     <%= render "shared/contest_entry_intent" %>
-    <%# The second intent, here for the same reason and rendered the same way.
-        Both are idempotent and both no-op on a page without wallet_ops.js. %>
+    <%# The other two intents, here for the same reason and rendered the same
+        way. All three are idempotent and all three no-op on a page without
+        wallet_ops.js. %>
+    <%= render "shared/contest_create_intent" %>
     <%= render "shared/username_rename_intent" %>
     <% if session_replay_active? %>
       <script src="https://cdn.logr-in.com/LogRocket.min.js" crossorigin="anonymous"></script>

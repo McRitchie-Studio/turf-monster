@@ -898,7 +898,26 @@
 # not prove iOS Safari storage, an OS app switch, or that Phantom accepts these
 # URLs. Only a device does that.
 # Derived with bin/e2e-lane-derive --write, not incremented by hand.
-total_specs: 291
+#
+# 291 -> 295 (migrate-remaining-entry-flows): the world cup survivor board,
+# create contest and the contest generator each onto ONE walletOps call site.
+#
+# THIS ENTRY IS THE FILE'S OWN WARNING, PAID IN FULL. The branch was cut at 277
+# and derived 281/260. /tasks/migrate-account-wallet-flows then landed on
+# accepted and independently derived 281/260 for a DIFFERENT set of specs. Same
+# two numbers, different specs, so git found NO CONFLICT and merged them
+# silently — and the lane came out under-declared by exactly this branch's four,
+# with both e2e_declared_set and e2e_executed_set still reporting green against
+# the base they were derived on. That is the failure this file has warned about
+# three times; it is the first time it actually happened, and it was caught in
+# review rather than by the gate.
+#
+# THE ONLY DEFENCE THAT WOULD HAVE WORKED IS THE ONE BELOW: re-derive on the
+# MERGED tree. No arithmetic across a conflict — not 281 + 4, not 291 + 4 — and
+# no reading either side's number as a starting point, because the whole defect
+# is that both sides' numbers looked plausible and neither was right.
+# Derived with bin/e2e-lane-derive --write ON THE MERGED TREE.
+total_specs: 295
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1203,7 +1222,7 @@ allowed_skips: 4
 # stays 17 and allowed_skips stays 4 — both listers agree, which is what proves
 # the new specs brought no runtime skip with them. Derived with
 # bin/e2e-lane-derive --write, not by arithmetic.
-executed: 270
+executed: 274
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
