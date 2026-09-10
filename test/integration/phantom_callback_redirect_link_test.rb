@@ -9,6 +9,14 @@ require "test_helper"
 # arrive in the SAME document, in the right ORDER, on the route a wallet is
 # handed as redirect_link. That composition spans a gem boundary, and this repo's
 # Gemfile records several rounds of it failing silently.
+#
+# ORDER MEANS TWO COMPARISONS, NOT ONE, and for a while this file only made the
+# first. `wallet_ops.js` must load before the wrapper (or there is no `resume` to
+# wrap) AND the wrapper must install before studio-engine's callback script CALLS
+# `resume` (or the call goes out unwrapped and hop two loses its redirect_link).
+# Only the first was asserted, so moving the host partial below the engine's
+# `yield` kept both old assertions green while restoring the defect in full.
+# Raised in review of PR #673.
 class PhantomCallbackRedirectLinkTest < ActionDispatch::IntegrationTest
   # The exact route the board hands Phantom as redirect_link
   # (app/views/contests/_turf_totals_board.html.erb).
@@ -30,6 +38,31 @@ class PhantomCallbackRedirectLinkTest < ActionDispatch::IntegrationTest
                        "will have nowhere to return the signed bytes"
     assert ops_at < wrapper_at,
            "wallet_ops.js must load BEFORE the wrapper, or there is no resume to wrap"
+  end
+
+  test "the wrapper installs BEFORE the engine's callback script calls resume" do
+    # THE SECOND COMPARISON, and the one the header's claim actually rests on.
+    # studio-engine's phantom_callback view dispatches from a bare inline script
+    # during body parse — `studio.walletOps.resume(params, {...})` — so a host
+    # partial rendered below its `yield` would install the default AFTER the call
+    # it exists to fix. Both assertions above stay green through that move; this
+    # one does not.
+    #
+    # ANCHORED ON THE ENGINE'S OWN TEXT, not on a bare "walletOps.resume": this
+    # app's partial mentions `walletOps.resume()` in its own header comment, and
+    # that comment is delivered too — an index on the loose string finds the
+    # comment at the top of the document and the comparison passes vacuously.
+    wrapper_at = @body.index("tmRedirectLinkDefaulted")
+    engine_call_at = @body.index("studio.walletOps.resume(params")
+
+    assert engine_call_at,
+           "studio-engine's callback no longer dispatches through walletOps.resume(params, …) — " \
+           "if it now passes its own redirect_link, this whole wrapper is retirable: delete it " \
+           "from app/views/shared/_contest_entry_intent.html.erb and this file with it"
+    assert wrapper_at < engine_call_at,
+           "the redirect_link default installs AFTER the engine already called resume — " \
+           "hop two goes out with no redirect_link and the wallet has nowhere to answer. " \
+           "The host partial must render ABOVE the engine's yield."
   end
 
   test "the intent's handlers reach this document too" do

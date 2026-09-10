@@ -337,6 +337,48 @@ test.describe("the harness itself", () => {
     await expect(page.locator("[data-stub-wallet-dead-end]")).toBeVisible();
   });
 
+  // THE OTHER HALF OF "IT SAYS SO": it must say so WITHOUT THROWING. A throw
+  // inside a Playwright route handler leaves the request unfulfilled, so the trip
+  // dies at waitForURL with a timeout — and a timeout names nothing, burying the
+  // violation the stub already recorded. These two feed the stub the requests
+  // that used to do exactly that.
+  test("dead-ends a signing deeplink with no dapp_encryption_public_key", async ({ page, context }) => {
+    const wallet = await installStubWallet(context);
+
+    // REACHABLE, not contrived: wallet_transport's query builder drops an empty
+    // value silently, which is the same mechanism that lost redirect_link.
+    await page.goto(
+      "https://phantom.app/ul/v1/signTransaction" +
+        "?redirect_link=https%3A%2F%2Fexample.test%2Fcb" +
+        "&nonce=11111111111111111111111111&payload=1111111111"
+    );
+
+    expect(wallet.violations.join("\n")).toContain(
+      'missing required query parameter "dapp_encryption_public_key"'
+    );
+    // THE POINT OF THIS CONTROL. Without the guard the handler throws at seal(),
+    // the request is never fulfilled, and this locator never appears — the spec
+    // fails on a timeout instead of on the sentence above.
+    await expect(page.locator("[data-stub-wallet-dead-end]")).toBeVisible();
+  });
+
+  test("dead-ends a signing deeplink whose payload will not open", async ({ page, context }) => {
+    const wallet = await installStubWallet(context);
+
+    // A well-formed 32-byte dapp key, so a shared secret DOES derive — and a
+    // payload that cannot be opened under it, so there is nothing to sign.
+    await page.goto(
+      "https://phantom.app/ul/v1/signTransaction" +
+        "?dapp_encryption_public_key=6dNVEJ4bJvLNAqCRcuHVaAqhrM7hkNJEbTLwjJzZSPBw" +
+        "&redirect_link=https%3A%2F%2Fexample.test%2Fcb" +
+        "&nonce=11111111111111111111111111&payload=1111111111"
+    );
+
+    expect(wallet.violations.join("\n")).toContain("payload");
+    // Without the guard this is decodeBase58(undefined) inside the handler.
+    await expect(page.locator("[data-stub-wallet-dead-end]")).toBeVisible();
+  });
+
   test("names a connect deeplink that carries a signing envelope", async ({ page, context }) => {
     const wallet = await installStubWallet(context);
 

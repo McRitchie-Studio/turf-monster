@@ -365,6 +365,25 @@ async function installStubWallet(context, opts = {}) {
       });
     }
 
+    // A WALLET THAT CANNOT ANSWER STOPS HERE RATHER THAN THROWING. Everything
+    // below needs a shared secret — seal() derives every ciphertext from it —
+    // and the checks in step 2 leave it null whenever dapp_encryption_public_key
+    // was absent, non-base58, or not 32 bytes. Falling through would throw
+    // INSIDE the Playwright route handler, which leaves the request unfulfilled;
+    // the trip then dies at waitForURL with a timeout that names nothing and
+    // BURIES the violation already recorded above. That is exactly the
+    // anti-pattern the payload wrapper in step 3 exists to avoid, and it is
+    // reachable the same way escape 3 was: wallet_transport's query builder
+    // drops an empty value silently, so the parameter simply is not there.
+    //
+    // The violation stands either way — this only decides whether the spec reads
+    // the finding or a timeout. Placed AFTER the errorCode branch on purpose: an
+    // explicit error answer carries no ciphertext, so it needs no secret.
+    if (!secret) {
+      return deadEnd(route,
+        `${method} carried no usable dapp_encryption_public_key — this wallet has no shared secret to answer under`);
+    }
+
     if (method === "connect") {
       const body = (override && override.data) || { public_key: userPublicKey, session: sessionToken };
       const sealed = seal(body, secret);
@@ -387,8 +406,18 @@ async function installStubWallet(context, opts = {}) {
       // base58 alphabet (0/O/I/l are excluded), so the handler's decode threw
       // "Invalid base58 character" on the callback page. A wallet answers bytes;
       // a stub that answers anything else is testing a different protocol.
+      // AND NOTHING TO SIGN IS A DEAD END, not a decode of undefined. The
+      // contract check above already recorded the violation ("decrypted payload
+      // has no transaction"); without this, decodeBase58(undefined) throws out
+      // of the route handler and that finding never reaches the report.
+      const supplied = override && override.data && override.data.transaction;
+      if (!supplied && !(hop.payload && hop.payload.transaction)) {
+        return deadEnd(route,
+          "signTransaction carried no transaction in its payload — this wallet has nothing to sign");
+      }
+
       let signed;
-      if (override && override.data && override.data.transaction) {
+      if (supplied) {
         signed = override.data.transaction;
       } else {
         const sent = decodeBase58(hop.payload ? hop.payload.transaction : "");
