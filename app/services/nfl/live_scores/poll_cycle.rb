@@ -205,11 +205,30 @@ module Nfl
           home_team_slug: home.slug, away_team_slug: away.slug,
           season_year: row.season_year, season_type: row.season_type, week: row.week,
           kickoff_at: row.kickoff_at, status: status_for(game, row),
-          period: row.period, clock: row.clock, status_detail: row.detail
+          period: row.period, clock: row.clock, status_detail: row.detail,
+          # THE SITUATION IS WRITTEN THROUGH EVEN WHEN IT IS NIL, and that is
+          # the point of assigning it here rather than behind an `if`. ESPN
+          # drops the block the moment a game ends, so a conditional write
+          # would leave the last snap of the fourth quarter — "4th & Goal",
+          # "NE 3" — frozen on a card that has said FINAL for an hour.
+          down_distance: row.down_distance,
+          possession_text: row.possession_text,
+          possession_team_slug: possession_slug_for(row)
         )
         game.slug = slug_for(row, home, away) if game.slug.blank?
         game.save!
         game
+      end
+
+      # ESPN names the possessing team by abbreviation; the app names teams by
+      # slug. Falls back to nil rather than to the raw abbreviation when the map
+      # has no entry — an unmapped slug on the card would resolve to no team and
+      # render an uncoloured, unnamed possession line, which says less than
+      # showing no possession at all.
+      def possession_slug_for(row)
+        return nil if row.possession_abbr.blank?
+
+        Espn::TeamMap.team_for(row.possession_abbr)&.slug
       end
 
       # Lookup order matters and is shared by `process` and `upsert_game`:

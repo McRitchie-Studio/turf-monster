@@ -542,23 +542,91 @@ class NflLiveScoresPollTest < ActionDispatch::IntegrationTest
     assert_equal %w[P2 P3], ids.sort
   end
 
+  # ── THE SITUATION ────────────────────────────────────────────────────────
+
+  test "persists the down, the field position and who has the ball" do
+    client = StubClient.new(scoreboard: scoreboard(home: 10, away: 7, situation: {
+      "down" => 3, "distance" => 9, "possession" => "2",
+      "downDistanceText" => "3rd & 9", "possessionText" => "TMB 13"
+    }))
+
+    Nfl::LiveScores::PollCycle.call(slot: @slot, client: client)
+
+    game = Game.find_by(external_id: "EV1")
+    assert_equal "3rd & 9", game.down_distance
+    assert_equal "TMB 13", game.possession_text
+    assert_equal "team-b", game.possession_team_slug, "possession id 2 is the away competitor"
+    assert_equal "TMB on TMB 13", game.possession_line
+  end
+
+  # THE NIL IS WRITTEN THROUGH, and this is the test that matters.
+  #
+  # ESPN drops the situation block the moment a game ends. Assigning it only
+  # when present — the obvious `if row.down_distance` — would leave the last
+  # snap of the fourth quarter frozen in the columns, and a card that has said
+  # FINAL for an hour would still be announcing "4th & Goal" from the game's
+  # last drive. The clearing is the whole reason the assignment is unconditional.
+  test "a cycle with no situation clears the one it stored last" do
+    stored = StubClient.new(scoreboard: scoreboard(home: 10, away: 7, situation: {
+      "possession" => "2", "downDistanceText" => "4th & Goal", "possessionText" => "TMA 3"
+    }))
+    Nfl::LiveScores::PollCycle.call(slot: @slot, client: stored)
+    assert_equal "4th & Goal", Game.find_by(external_id: "EV1").down_distance
+
+    dropped = StubClient.new(scoreboard: scoreboard(home: 10, away: 7, state: "post", completed: true))
+    Nfl::LiveScores::PollCycle.call(slot: @slot, client: dropped)
+
+    game = Game.find_by(external_id: "EV1")
+    assert_nil game.down_distance
+    assert_nil game.possession_text
+    assert_nil game.possession_team_slug
+  end
+
+  # AN UNMAPPED ABBREVIATION IS NOT A SLUG. TeamMap looks inside Team.nfl, so a
+  # team we do not carry resolves to nothing — and storing the raw abbreviation
+  # instead would put a value in the column that joins to no team, rendering an
+  # uncoloured, unnamed possession line. Saying nothing is the honest answer,
+  # and the yard line still stands on its own.
+  test "possession by a team we do not carry stores no slug" do
+    client = StubClient.new(scoreboard: scoreboard(home: 10, away: 7, situation: {
+      "possession" => "9", "downDistanceText" => "1st & 10", "possessionText" => "TMA 40"
+    }).tap { |sb|
+      sb["events"][0]["competitions"][0]["competitors"] << {
+        "id" => "9", "homeAway" => "home", "score" => "0", "team" => { "abbreviation" => "ZZZ" }
+      }
+    })
+
+    Nfl::LiveScores::PollCycle.call(slot: @slot, client: client)
+
+    game = Game.find_by(external_id: "EV1")
+    assert_nil game.possession_team_slug
+    assert_equal "1st & 10", game.down_distance, "the rest of the situation still lands"
+    assert_equal "TMA 40", game.possession_line, "the yard line stands on its own"
+  end
+
   private
 
-  def scoreboard(home:, away:, state: "in", completed: false)
+  def scoreboard(home:, away:, state: "in", completed: false, situation: :none)
+    competition = {
+      "status" => { "period" => 3, "displayClock" => "8:42",
+                    "type" => { "state" => state, "completed" => completed, "shortDetail" => "Q3 8:42" } },
+      "competitors" => [
+        { "id" => "1", "homeAway" => "home", "score" => home.to_s, "team" => { "abbreviation" => "TMA" } },
+        { "id" => "2", "homeAway" => "away", "score" => away.to_s, "team" => { "abbreviation" => "TMB" } }
+      ]
+    }
+    # `:none` is the feed OMITTING the block, which is what a scheduled or
+    # finished game actually sends — distinct from sending one with blank
+    # fields, and the two have to be reachable separately.
+    competition["situation"] = situation unless situation == :none
+
     {
       "events" => [{
         "id" => "EV1",
         "date" => "2026-08-27T23:00Z",
         "season" => { "year" => 2026, "type" => 1 },
         "week" => { "number" => 4 },
-        "competitions" => [{
-          "status" => { "period" => 3, "displayClock" => "8:42",
-                        "type" => { "state" => state, "completed" => completed, "shortDetail" => "Q3 8:42" } },
-          "competitors" => [
-            { "homeAway" => "home", "score" => home.to_s, "team" => { "abbreviation" => "TMA" } },
-            { "homeAway" => "away", "score" => away.to_s, "team" => { "abbreviation" => "TMB" } }
-          ]
-        }]
+        "competitions" => [competition]
       }]
     }
   end
