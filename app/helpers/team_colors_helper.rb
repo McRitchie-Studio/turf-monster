@@ -91,6 +91,33 @@ module TeamColorsHelper
     { bg: bg, fg: fg, shade: rgba(light, 0.4), shadow: mascot_shadow(fg) }
   end
 
+  # THE SCORE LINE'S TWO COLOURS — a team's own dark for its half of the blend,
+  # its own light for the abbreviation printed on that half.
+  #
+  # RAW color_dark / color_light, NOT card_background / card_mascot, and the
+  # difference matters for exactly the teams the disposition exists for. Those
+  # two SWAP for a light-disposition team (Saints, Steelers): their card is gold
+  # with near-black ink, which is right for a card and wrong for one half of a
+  # two-team blend, where a gold band beside an opponent's navy reads as the
+  # brighter, more important half. Every team's dark is its dark here, so the
+  # bar is one dark object split down the middle and the two abbreviations are
+  # what carry the brands.
+  #
+  # NO HALO HERE, deliberately. An earlier cut returned `mascot_shadow(light)`
+  # alongside, on the reasoning that a team whose light and dark sit close in
+  # luminance would print its abbreviation faintly on its own field — but
+  # nothing ever consumed it: both feed partials emit only `dark` and `light`,
+  # and NflBanner.line paints the abbreviations with colour and no textShadow.
+  # A key nobody reads is worse than a missing one, because the comment beside
+  # it reads as a protection the bar actually has. If a team turns out to need
+  # the halo, wire it through to the partials in the same change.
+  def team_scoreline_palette(team)
+    dark  = normalize_hex(team&.color_dark)  || normalize_hex(team&.card_background) || FALLBACK_PRIMARY
+    light = normalize_hex(team&.color_light) || normalize_hex(team&.card_mascot) || LIGHT_FG
+
+    { dark: dark, light: light }
+  end
+
   # A subtle halo that keeps the mascot legible on the team gradient: a light
   # halo behind an essentially-black mascot, a dark halo behind everything else.
   # Held at 0.5 alpha so it reads as a soft glow, not a hard sticker outline.

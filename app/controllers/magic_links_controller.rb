@@ -377,8 +377,31 @@ class MagicLinksController < ApplicationController
   # entry_gift_flow_test.rb's ":continue" pair.
   #
   # CLAIM, THEN DELEGATE. `super` keeps every property this path exists for —
-  # the session is left exactly as it stands, no re-auth, no onboarding beat.
-  # The claim is additive.
+  # the identity is left exactly as it stands, no re-auth, no onboarding beat.
+  # The claim is additive, and so is the one session fact it corrects (below).
+  #
+  # THE CLAIM MAKES THE CACHED WALLET VERDICT STALE, so it is re-recorded here.
+  # Signing in cached WalletSetupPolicy's answer in session[:wallet_setup], and
+  # for an account with no wallet that answer is TRUE. The claim then mints the
+  # account's managed wallet (EntryGifts::Claim#ensure_wallet!), which ends
+  # wallet_setup_required?'s no-wallet short-circuit and sends it to the cached
+  # TRUE. Left alone, the page kept sending walletSetupRequired: true, so the
+  # board's entry gate (eligibilityBlocker) refused every hold and reopened the
+  # wallet-setup card for the rest of the session, to a player holding the very
+  # entry that exists to spare them that card. (ContestsController#enter never
+  # refused them: its wallet check asks wallet_kind == :none, and the claim just
+  # made that false. The block was the client's, and it was total, because the
+  # hold never reaches the server.) The two :authenticate shapes cannot hit
+  # this: they claim BEFORE record_onboarding_state! reads anything.
+  #
+  # ONLY THE WALLET STATE, never record_onboarding_state! whole. That method
+  # also arms the onboarding chain and the web3 step-up card, which are what we
+  # ASK a user at sign-in, and nobody signed in here. The wallet verdict is
+  # what we ENFORCE, and it is the only thing the claim changed. prompt: false
+  # for the same reason: the gate stays correct without opening a card.
+  #
+  # Scoped to a claim that LANDED. A plain re-click claims nothing, changes no
+  # fact the policy reads, and stays free of the policy's balance read.
   #
   # AND IT DOES ANNOUNCE THE GIFT. The engine's silence on :continue is about
   # IDENTITY — it exists so a re-click on your own live link does not cost you
@@ -402,6 +425,7 @@ class MagicLinksController < ApplicationController
   # as invisible as it was before.
   def link_continue(result, outcome)
     claim_entry_gift!(current_user)
+    record_wallet_setup_state!(current_user, prompt: false) if @entry_gift_claim&.claimed?
     if (toast = entry_gift_toast)
       flash[:auth_toast] = toast
     end

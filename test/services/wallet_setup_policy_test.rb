@@ -36,9 +36,10 @@ class WalletSetupPolicyTest < ActiveSupport::TestCase
     end
   end
 
-  # THE ONE THAT MATTERS. The verdict is computed ONCE at sign-in, and at that
-  # instant a just-claimed gift has NO token yet — the claim is synchronous, the
-  # mint is a queued job. A token-only bypass reads false here, arms the modal
+  # THE ONE THAT MATTERS. The stored verdict is written straight after a claim
+  # (at sign-in, or on the signed-in path's re-record), and at that instant a
+  # just-claimed gift has NO token yet — the claim is synchronous, the mint is
+  # a queued job. A token-only bypass reads false here, arms the modal
   # for the whole session, and reproduces the reported bug exactly.
   test "a claimed gift whose mint is still queued needs no wallet setup" do
     user = managed_user

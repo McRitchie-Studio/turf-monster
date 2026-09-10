@@ -25,12 +25,45 @@
           note: "Open-source Anchor program (Solana)" %>
   <% end %>
 
-  <%# Program-ID / authority callout — links to the contract page. %>
+  <%# Program-ID / authority callout. Links to the contract page.
+
+      THE PROGRAM ID BELOW IS PINNED TO MAINNET ON EVERY CLUSTER, ON PURPOSE.
+      QA runs devnet, so on turf-monster-qa this line names a program QA does
+      not talk to. That is deliberate; do not "fix" it to per-cluster.
+
+      Why: this page makes claims about the LIVE product to external
+      reviewers. It is the page cited in the Phantom / Blowfish de-list
+      appeal. For that reader an address that changes by environment is worse
+      than a constant one, so every copy of the page names the live program.
+      Decided by Mr. McRitchie on 2026-09-10 (task
+      transparency-pins-mainnet-program, option b).
+
+      Do not reason from the admin card. The card in
+      app/views/contract/_section_admin_state.html.erb renders the program ID
+      and upgrade authority PER CLUSTER, and that is right there: its reader is
+      an operator about to propose an upgrade, who needs the truth about the
+      running build. This page's reader is outside the company and needs the
+      live product. Same data, opposite reader, opposite answer.
+
+      Why a literal and not a constant: a sweep for hard-coded program IDs
+      will grep app source for this address, as the Squads PDA guard in
+      test/integration/contract_upgrade_authority_test.rb does for its
+      addresses, and that guard exempts app/services/solana/config.rb as the
+      home of its literals. A constant there would hide this pin from exactly
+      that sweep. Here, the sweep lands a few lines below this reason.
+
+      Guarded by test/views/transparency_program_id_test.rb. It renders this
+      page as a devnet build and as a mainnet build, requires this address
+      both times, and reads the expected address from
+      config/turf_vault.mainnet.idl.json, so a mainnet redeploy to a new
+      address turns it red instead of leaving this pin stale.
+
+      The Squads sentence names no address and holds on both clusters. %>
   <%= link_to contract_path, class: "card card-hover block p-5 space-y-2 group" do %>
     <div class="text-xs font-bold uppercase tracking-wider text-muted">Program & Authority</div>
     <p class="text-sm text-secondary leading-relaxed">
       Program ID
-      <code class="font-mono text-xs break-all text-heading">DaFv83yokwTz8msP9CzJ13eazSGk15NuUTxjkfzJzxMM</code>.
+      <code class="font-mono text-xs break-all text-heading" data-test="transparency-program-id">DaFv83yokwTz8msP9CzJ13eazSGk15NuUTxjkfzJzxMM</code>.
       The upgrade authority is a <strong class="text-heading">Squads V4 2-of-3 multisig</strong> &mdash;
       no single key can alter or redeploy the program.
     </p>

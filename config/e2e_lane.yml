@@ -897,6 +897,18 @@
 # desktop engine. It proves the protocol, the wiring and the return leg. It does
 # not prove iOS Safari storage, an OS app switch, or that Phantom accepts these
 # URLs. Only a device does that.
+#
+# 291 -> 293 (live-game-situation-panel): two specs appended to the EXISTING
+# e2e/nfl_live_scoreboard.spec.js — no new file — for the hero rail's status
+# wheel. The rail's TOP half now runs the same two-pane track its bottom half
+# does: at rest it says where the game is up to, and while a qualifying score is
+# on screen it rolls to the announcement and rolls back when the chain ends.
+# Neither direction is visible to a Rails tier. The render test can prove both
+# panes SHIP and that the announcement pane ships empty; only a browser can
+# prove the track actually turned, that the words arrived in the pane that came
+# into view, and that it returned on its own rather than stranding there. Both
+# specs assert the reveal on GEOMETRY as well as on the class, because a
+# transform typo leaves the class right and the pane parked off screen.
 # Derived with bin/e2e-lane-derive --write, not incremented by hand.
 #
 # 291 -> 295 (migrate-remaining-entry-flows): the world cup survivor board,
@@ -917,7 +929,14 @@
 # no reading either side's number as a starting point, because the whole defect
 # is that both sides' numbers looked plausible and neither was right.
 # Derived with bin/e2e-lane-derive --write ON THE MERGED TREE.
-total_specs: 295
+#
+# 295 -> 297 on merging accepted into live-game-situation-panel. That branch
+# (291 -> 293, above) and migrate-remaining-entry-flows (291 -> 295, above) were
+# both cut at 291 and each derived its own number on its own tree - the exact
+# shape the entry above warns about. 297 is what the lister printed on the
+# MERGED tree, taken as printed: not 293 + 4, not 295 + 2.
+# Derived with bin/e2e-lane-derive --write ON THE MERGED TREE.
+total_specs: 297
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1222,7 +1241,20 @@ allowed_skips: 4
 # stays 17 and allowed_skips stays 4 — both listers agree, which is what proves
 # the new specs brought no runtime skip with them. Derived with
 # bin/e2e-lane-derive --write, not by arithmetic.
-executed: 274
+#
+# 270 -> 272 (live-game-situation-panel): the two status-wheel specs described
+# beside total_specs above. Neither is tagged @devnet and neither skips, so
+# excluded stays 17 and allowed_skips stays 4 — both listers agree, which is
+# what proves the new specs brought no runtime skip with them. Derived with
+# bin/e2e-lane-derive --write, not by arithmetic.
+#
+# 274 -> 276 on merging accepted into live-game-situation-panel: the executed
+# side of the merge described beside total_specs. accepted had already carried
+# migrate-remaining-entry-flows to 274; this branch's two status-wheel specs land
+# on top. The lister re-derived excluded as 17 on the merged tree and
+# allowed_skips stays 4, so both listers agree. Derived with
+# bin/e2e-lane-derive --write ON THE MERGED TREE.
+executed: 276
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

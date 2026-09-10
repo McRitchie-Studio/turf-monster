@@ -172,8 +172,18 @@
       banner.style.background = isFinal ? '#1e293b' : (d.teamBg || '#1e293b');
       banner.style.color      = isFinal ? '#e2e8f0' : (d.teamFg || '#e2e8f0');
       document.getElementById('nfl-score-emoji').textContent  = isFinal ? '🏁' : (d.teamEmoji || '🏈');
-      document.getElementById('nfl-score-label').textContent  = isFinal ? 'Final' : (d.label || 'Score');
-      document.getElementById('nfl-score-team').textContent   = isFinal ? '' : (d.teamName || d.team || '');
+      // THE NAME BLOCK, in the team-card convention — the city quietly above,
+      // the ACTION below it in the team's own accent. The city, not the full
+      // name: the banner is already wearing the team's colours, so "New
+      // England" names it and "New England Patriots" repeats it. Falls back to
+      // the full name for a feed that carries no location.
+      NflBanner.name(
+        isFinal ? '' : (d.teamLocation || d.teamName || d.team || ''),
+        isFinal ? 'Final' : (d.label || 'Score'),
+        isFinal ? '' : d.locationColor,
+        isFinal ? '' : d.accent,
+        isFinal ? '' : d.accentShadow
+      );
       // THE FACE, OR THE NUMBER — never both. The avatar carries more than "+6"
       // ever did, and the points stay as the fallback for the league board,
       // whose feed carries no scorer.
@@ -203,8 +213,7 @@
       if (points) {
         points.textContent = (isFinal || !d.points || face) ? '' : ('+' + d.points);
       }
-      document.getElementById('nfl-score-line').textContent =
-        (d.awayTeam || '') + ' ' + (d.awayScore || '0') + '  –  ' + (d.homeScore || '0') + ' ' + (d.homeTeam || '');
+      NflBanner.line(d);
 
       overlay.classList.remove('hidden');
       restart(banner, BANNER_CLASSES, isFinal ? 'nfl-b-final' : (ANIM[d.scoringType] || FALLBACK).banner);
@@ -715,12 +724,17 @@
       }
 
       document.getElementById('nfl-score-emoji').textContent  = crowned ? '👑' : '📈';
-      document.getElementById('nfl-score-label').textContent  = 'Now ' + ordinal(rank);
-      document.getElementById('nfl-score-team').textContent   = body;
+      // NO TEAM COLOURS HERE — this banner belongs to the reader, not to a
+      // team, and the name painter is what clears the accent and the halo the
+      // last score left on the label.
+      NflBanner.name(body, 'Now ' + ordinal(rank), '', '', '');
       document.getElementById('nfl-score-points').textContent = '▲' + places;
-      document.getElementById('nfl-score-line').textContent   = crowned
+      // ITS OWN SLOT, not the scoreline's textContent. The bar is a three-column
+      // structure now, and writing a string onto its container deleted the whole
+      // thing — leaving the next score's tally with nowhere to be painted.
+      NflBanner.note(crowned
         ? 'You lead the contest'
-        : 'You are up ' + places + ' place' + (places === 1 ? '' : 's') + ' on the board';
+        : 'You are up ' + places + ' place' + (places === 1 ? '' : 's') + ' on the board');
 
       overlay.classList.remove('hidden');
       restart(banner, BANNER_CLASSES, 'nfl-b-rank');
@@ -837,12 +851,108 @@
       wheelPane = 'a';
     }
 
-    function applyScorer() {
+    // ── THE STATUS WHEEL ────────────────────────────────────────────────────
+    //
+    // The rail's TOP half runs the same two-state wheel its bottom half does. At
+    // rest it says where the game is up to — quarter, clock, down, possession —
+    // and while a qualifying score is on screen it rolls to the announcement,
+    // then rolls back when the chain ends. Same event, same lifetime, opposite
+    // halves of one card, so the whole rail is either telling you about the game
+    // or telling you about the play and never half of each.
+    //
+    // ONE pane per state, not the event wheel's alternating pair. That wheel
+    // needs a spare pane because a card cannot roll into view until its HEADSHOT
+    // has decoded; these are four lines of text, so a second event inside one
+    // chain repaints in place and plays the entrance nudge instead.
+    function statusFrameOf(tile) {
+      return tile ? tile.querySelector('[data-role="status-frame"]') : null;
+    }
+
+    function paintStatusEvent(frame, d) {
+      var pane = frame && frame.querySelector('[data-role="status-event"]');
+      if (!pane) return;
+
+      var headline = pane.querySelector('[data-role="status-headline"]');
+      var location = pane.querySelector('[data-role="status-location"]');
+      setText(location, d.teamLocation || '');
+      setText(headline, scorerHeadline(d));
+      setText(pane.querySelector('[data-role="status-detail"]'), scorerDetail(d));
+      setText(pane.querySelector('[data-role="status-name"]'), d.scorer || '');
+      if (location && d.locationColor && location.style.color !== d.locationColor) {
+        location.style.color = d.locationColor;
+      }
+      if (headline && d.accent && headline.style.color !== d.accent) {
+        headline.style.color = d.accent;
+      }
+
+      // A SECOND EVENT UNDER AN ALREADY-OPEN PANE has to announce itself. The
+      // wheel is the motion for the FIRST one; without this the next touchdown
+      // in a chain simply swaps the words under a pane that never moved, which
+      // reads as a rendering glitch rather than as another score. Only when the
+      // pane is up and the stamp actually changed — a repaint from a broadcast
+      // restore is the same event and must not replay.
+      if (pane.dataset.stamp && pane.dataset.stamp !== d.stamp &&
+          frame.classList.contains('tt-status-revealing')) {
+        restart(pane, ['tt-scorer-enter'], 'tt-scorer-enter');
+      }
+      pane.dataset.stamp = d.stamp;
+      if (pane.getAttribute('aria-hidden') !== 'false') pane.setAttribute('aria-hidden', 'false');
+    }
+
+    // ROLL, OR SNAP. A real event rolls — that is the reveal. A BROADCAST hands
+    // back a brand-new frame parked at rest, and re-rolling it would replay the
+    // reveal on every unrelated score in the contest: four wheels turning for a
+    // goal in a game nobody is watching. Restoring snaps with the transition
+    // off, which is the same distinction restoreWheel draws below it.
+    function revealStatus(frame, animate) {
+      if (frame.classList.contains('tt-status-revealing')) return;
+
+      var track = frame.querySelector('.tt-status-track');
+      if (animate || !track) {
+        frame.classList.add('tt-status-revealing');
+        return;
+      }
+      track.style.transition = 'none';
+      frame.classList.add('tt-status-revealing');
+      void track.offsetWidth;              // commit the jump before re-arming
+      track.style.transition = '';
+    }
+
+    function applyStatus(animate) {
+      if (!focus) return;
+
+      var frames = focus.querySelectorAll('[data-role="status-frame"]');
+      var tile = scorerShowing ? visibleFocusTile() : null;
+      var live = (tile && tile.dataset.focusSlug === scorerShowing.gameSlug)
+        ? statusFrameOf(tile) : null;
+
+      // Both directions, for the same reason applyScorer sweeps every frame: a
+      // pane left revealed on a tile that is no longer focused would be showing
+      // a stale announcement the moment that game came back into view.
+      Array.prototype.forEach.call(frames, function (frame) {
+        if (frame === live) return;
+        frame.classList.remove('tt-status-revealing');
+        var pane = frame.querySelector('[data-role="status-event"]');
+        if (pane && pane.getAttribute('aria-hidden') !== 'true') pane.setAttribute('aria-hidden', 'true');
+      });
+
+      if (!live) return;
+      paintStatusEvent(live, scorerShowing);
+      revealStatus(live, animate);
+    }
+
+    function applyScorer(animate) {
       // Re-apply after a broadcast, and take the card down from any tile that
       // should no longer be wearing one. Both directions matter: the panel is
       // replaced wholesale, so a card left set on a stale frame would reappear
       // the moment that game came back into focus.
       if (!focus) return;
+
+      // THE TOP HALF IS DRIVEN FROM HERE, not from inside the sweep below,
+      // because this function has three early returns and the status wheel has
+      // to run on all of them: a chain ending, a tile losing focus and a
+      // broadcast arriving all have to roll the announcement back off.
+      applyStatus(animate);
       var frames = focus.querySelectorAll('[data-role="event-feed-frame"]');
       var tile = scorerShowing ? visibleFocusTile() : null;
       var live = (tile && tile.dataset.focusSlug === scorerShowing.gameSlug)
@@ -1055,23 +1165,11 @@
         initials.classList.toggle('hidden', !!(img && !img.classList.contains('hidden')));
       }
 
-      setText(card.querySelector('[data-role="scorer-headline"]'), scorerHeadline(d));
-      setText(card.querySelector('[data-role="scorer-name"]'), d.scorer || '');
-      setText(card.querySelector('[data-role="scorer-detail"]'), scorerDetail(d));
-
-      // The team, named the way the TILE names it: location quietly above, the
-      // mascot below in the team's own accent. Colours come from the feed node
-      // (the server's palette) rather than being guessed here.
-      var location = card.querySelector('[data-role="scorer-location"]');
-      var mascot = card.querySelector('[data-role="scorer-mascot"]');
-      setText(location, d.teamLocation || '');
-      setText(mascot, (d.teamMascot || '').toUpperCase());
-      if (location && d.locationColor && location.style.color !== d.locationColor) {
-        location.style.color = d.locationColor;
-      }
-      if (mascot && d.accent && mascot.style.color !== d.accent) {
-        mascot.style.color = d.accent;
-      }
+      // NO TEXT IS WRITTEN HERE ANY MORE. This pane is the portrait alone; the
+      // words — the city, the action, the play and the player — are painted
+      // into the status half above by paintStatusEvent. The card used to carry
+      // its own copy of all four beside the picture, which put the same
+      // announcement on screen twice in one rail.
 
       card.classList.toggle('tt-scorer-td', d.scoringType === 'touchdown');
       if (card.getAttribute('aria-hidden') !== 'false') card.setAttribute('aria-hidden', 'false');
@@ -1092,7 +1190,7 @@
 
       if (!qualifies || !tile || tile.dataset.focusSlug !== d.gameSlug) {
         scorerShowing = null;
-        applyScorer();
+        applyScorer(true);
         return;
       }
 
@@ -1120,7 +1218,7 @@
           frame.classList.add('tt-revealing');
         }
       }
-      applyScorer();
+      applyScorer(true);
     }
 
     // ── THE FEED ────────────────────────────────────────────────────────────
