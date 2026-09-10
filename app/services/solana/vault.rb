@@ -2153,9 +2153,10 @@ module Solana
     # wrong slot.
     ENTER_CONTEST_WITH_TOKEN_TOKEN_PDA_POSITION = 6
 
-    # SystemInstruction::AdvanceNonceAccount discriminant (u32 LE 4). The ONLY
-    # System instruction permitted in a cosignable entry — see SystemProgram
-    # .advance_nonce_account in solana-studio.
+    # SystemInstruction::AdvanceNonceAccount discriminant (u32 LE 4) — see
+    # SystemProgram.advance_nonce_account in solana-studio. Named so the cosign
+    # guards can say WHY they refuse it: NO System instruction is permitted in a
+    # cosigned entry or create wire, this one included (see #system_ix_reject!).
     SYSTEM_ADVANCE_NONCE_DATA = [4].pack("V").freeze
 
     # SEMANTIC allowlist validation of a Phantom-signed entry wire BEFORE the
@@ -2175,12 +2176,15 @@ module Solana
     #      other instruction on our PROGRAM_ID). Its contest_entry account must
     #      equal the server-derived entry_pda(contest, wallet, entry_num) for THIS
     #      entry (defense-in-depth; mirrors verify_and_confirm_onchain_entry!).
-    #   3. System Program: ONLY advanceNonceAccount (data == u32 LE 4), and only
-    #      when a durable nonce is configured AND the advance targets the
-    #      configured SOLANA_DURABLE_NONCE_PUBKEY. A System transfer (opcode 2) or
-    #      anything else → reject. (No entry the server builds carries this ix any
-    #      more: #build_enter_contest and #build_enter_contest_with_token anchor on
-    #      a recent blockhash. The allowance predates the 2026-06-11 move off it.)
+    #   3. System Program: NOTHING. A System transfer (opcode 2) is the C1 attack;
+    #      an advanceNonceAccount is refused too. No wire that reaches this guard
+    #      carries one — #build_enter_contest (dn = nil) and
+    #      #build_enter_contest_with_token anchor on a recent blockhash since
+    #      2026-06-11 — and the durable nonce's authority is the admin, the very
+    #      key this guard decides whether to sign with. Admitting an advance let a
+    #      user append one to their own entry and have the admin cosign advance
+    #      the OPERATOR's nonce, stranding any operator tx anchored on it
+    #      (reject-vestigial-nonce-cosign-advance).
     #   4. ComputeBudget: allowed (priority-fee / CU-limit hints; no authority risk).
     #   5. Any other program id or instruction → reject.
     #
@@ -2230,8 +2234,6 @@ module Solana
       system_program   = Transaction::SYSTEM_PROGRAM_ID.b   # 32 zero bytes
       compute_budget   = COMPUTE_BUDGET_PROGRAM_ID.b
       lighthouse       = LIGHTHOUSE_PROGRAM_ID.b
-      dn               = durable_nonce_config
-      configured_nonce = dn && Keypair.decode_base58(dn.fetch(:pubkey)).b
 
       enter_count = 0
 
@@ -2268,20 +2270,8 @@ module Solana
             end
           end
         when system_program
-          # (3) Only the durable-nonce advance, targeting the configured nonce.
-          unless ix[:data] == SYSTEM_ADVANCE_NONCE_DATA
-            cosign_reject!(entry, wallet_address,
-              "system_not_advance: ix #{i} data=#{ix[:data].to_s.unpack1('H*')} (only advanceNonceAccount allowed)")
-          end
-          if configured_nonce.nil?
-            cosign_reject!(entry, wallet_address, "advance_without_config: advanceNonceAccount but no durable nonce configured")
-          end
-          nonce_slot = ix[:account_indices][0]
-          nonce_acct = nonce_slot && account_keys[nonce_slot]
-          if nonce_acct != configured_nonce
-            cosign_reject!(entry, wallet_address,
-              "wrong_nonce_account: ix #{i} nonce=#{b58(nonce_acct)} expected=#{dn.fetch(:pubkey)}")
-          end
+          # (3) No System instruction, ever — not a transfer, not a nonce advance.
+          system_ix_reject!(entry, wallet_address, ix, i)
         when compute_budget
           # (4) Priority-fee / CU-limit hints — allowed, carry no authority risk.
         when lighthouse
@@ -2338,8 +2328,6 @@ module Solana
       system_program   = Transaction::SYSTEM_PROGRAM_ID.b
       compute_budget   = COMPUTE_BUDGET_PROGRAM_ID.b
       lighthouse       = LIGHTHOUSE_PROGRAM_ID.b
-      dn               = durable_nonce_config
-      configured_nonce = dn && Keypair.decode_base58(dn.fetch(:pubkey)).b
 
       create_count = 0
 
@@ -2364,19 +2352,11 @@ module Solana
           end
           create_count += 1
         when system_program
-          unless ix[:data] == SYSTEM_ADVANCE_NONCE_DATA
-            cosign_reject!(context, wallet_address,
-              "system_not_advance: ix #{i} data=#{ix[:data].to_s.unpack1('H*')} (only advanceNonceAccount allowed)")
-          end
-          if configured_nonce.nil?
-            cosign_reject!(context, wallet_address, "advance_without_config: advanceNonceAccount but no durable nonce configured")
-          end
-          nonce_slot = ix[:account_indices][0]
-          nonce_acct = nonce_slot && account_keys[nonce_slot]
-          if nonce_acct != configured_nonce
-            cosign_reject!(context, wallet_address,
-              "wrong_nonce_account: ix #{i} nonce=#{b58(nonce_acct)} expected=#{dn.fetch(:pubkey)}")
-          end
+          # No System instruction, ever — every guarded create is built with
+          # admin_signs: false, which passes durable_nonce: nil. The one builder
+          # that anchors on the nonce (admin_signs: true, #prepare_onchain_contest)
+          # is signed by the server FIRST and never reaches this guard.
+          system_ix_reject!(context, wallet_address, ix, i)
         when compute_budget
           # Priority-fee / CU-limit hints — allowed, carry no authority risk.
         when lighthouse
@@ -2540,6 +2520,18 @@ module Solana
       entry_id = entry.respond_to?(:id) ? entry.id : entry.inspect
       Rails.logger.warn("[cosign][rejected] entry_id=#{entry_id} wallet=#{wallet_address} reason=#{reason}")
       raise UnsafeCosignError, reason
+    end
+
+    # Both cosign guards refuse EVERY System Program instruction. The reason
+    # names the one worth telling apart in the logs: an advanceNonceAccount is
+    # an attempt to spend the admin's authority over the operator nonce.
+    def system_ix_reject!(entry, wallet_address, ix, index)
+      if ix[:data] == SYSTEM_ADVANCE_NONCE_DATA
+        cosign_reject!(entry, wallet_address,
+          "advance_nonce_rejected: ix #{index} advanceNonceAccount (no cosigned wire may advance a nonce)")
+      end
+      cosign_reject!(entry, wallet_address,
+        "system_program_ix: ix #{index} data=#{ix[:data].to_s.unpack1('H*')} (no System instruction is cosigned)")
     end
 
     # Short base58 for log lines; nil-safe.

@@ -1380,8 +1380,8 @@ class ContestsController < ApplicationController
       # wire BEFORE the admin signs anything. Decodes the client's tx and asserts
       # it is exactly the entry instruction we prepared — admin fee-payer, a single
       # enter_contest (or enter_contest_with_token, when that is what we built)
-      # IX bound to THIS entry's PDA and to the token we chose, and only the
-      # durable-nonce advance / ComputeBudget hints alongside. Raises Solana::Vault::
+      # IX bound to THIS entry's PDA and to the token we chose, and only
+      # ComputeBudget / Lighthouse alongside (NO System ix). Raises Solana::Vault::
       # UnsafeCosignError (rescued below) on anything else, so a crafted
       # SystemProgram.transfer{from: admin} / mint_entry_token / grant_seeds never
       # reaches the cosign. Validate-then-cosign: NO cosign, NO broadcast on reject.

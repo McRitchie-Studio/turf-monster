@@ -8,8 +8,8 @@ require "test_helper"
 # Vault#assert_entry_cosign_safe! / #assert_create_contest_cosign_safe! now
 # DECODE the Phantom-signed wire and semantically allowlist it BEFORE any admin
 # signature: admin fee-payer, exactly one expected turf-vault IX bound to THIS
-# server-issued payload, and only the durable-nonce advance / ComputeBudget hints
-# alongside. Byte-equality is intentionally NOT used — the client round-trips the
+# server-issued payload, and only ComputeBudget hints and Phantom's Lighthouse
+# assertions alongside -- never a System instruction, not even a nonce advance. Byte-equality is intentionally NOT used — the client round-trips the
 # tx through web3.js, which may re-encode the message bytes — so these tests
 # exercise legit builds via the public builders.
 class Solana::VaultCosignValidationTest < ActiveSupport::TestCase
@@ -237,7 +237,7 @@ class Solana::VaultCosignValidationTest < ActiveSupport::TestCase
     err = assert_raises(Solana::Vault::UnsafeCosignError) do
       vault.assert_entry_cosign_safe!(tx.serialize_base64, entry: entry_for(entry_number: 0), wallet_address: WALLET)
     end
-    assert_match(/system_not_advance/, err.message)
+    assert_match(/system_program_ix/, err.message)
   end
 
   test "admin-fee-payer SystemProgram.transfer is rejected for create_contest cosign" do
@@ -265,7 +265,7 @@ class Solana::VaultCosignValidationTest < ActiveSupport::TestCase
         onchain_params: create_params
       )
     end
-    assert_match(/system_not_advance/, err.message)
+    assert_match(/system_program_ix/, err.message)
   end
 
   test "create_contest signed wire bound to different payload is rejected" do
@@ -351,6 +351,112 @@ class Solana::VaultCosignValidationTest < ActiveSupport::TestCase
     err = assert_raises(Solana::Vault::UnsafeCosignError) do
       vault.assert_entry_cosign_safe!(tx.serialize_base64, entry: entry_for(entry_number: 0), wallet_address: WALLET)
     end
-    assert_match(/advance_without_config/, err.message)
+    assert_match(/advance_nonce_rejected/, err.message)
+  end
+
+  # --- reject-vestigial-nonce-cosign-advance -----------------------------------
+  #
+  # THE HOLE. Both guards admitted a System advanceNonceAccount as long as it
+  # targeted the CONFIGURED SOLANA_DURABLE_NONCE_PUBKEY, at ANY position. No
+  # wire that reaches either guard carries one: build_enter_contest sets dn = nil,
+  # build_enter_contest_with_token passes no nonce, and every guarded create is
+  # built with admin_signs: false (durable_nonce: nil). The nonce's authority is
+  # the admin -- the very key these guards decide whether to sign with. So a user
+  # could append an advance of the OPERATOR's nonce to their own entry or create,
+  # and the admin cosign would authorize it, stranding any operator tx anchored
+  # on the old nonce value. Griefing, not theft -- but it is signature authority
+  # on the money path that no builder asks for.
+  #
+  # Each case below runs WITH the nonce configured (the only state in which the
+  # old guard admitted it) and pairs the rejected wire with the SAME wire minus
+  # the advance, which must still pass -- so a rejection can only be about the
+  # advance, never about a malformed test wire.
+
+  def configured_nonce = @configured_nonce ||= Solana::Keypair.generate.to_base58
+
+  def operator_advance_ix
+    adv = Solana::SystemProgram.advance_nonce_account(nonce: configured_nonce, authority: Solana::Keypair.admin.address)
+    { program_id: adv[:program_id], accounts: adv[:accounts], data: adv[:data] }
+  end
+
+  # A Phantom-first shaped wire (no local signer; admin reserved as fee payer,
+  # the creator/entrant second) carrying `program_ix`, with the operator-nonce
+  # advance at `advance_at` (:first, :last) or absent (nil).
+  def wire(program_ix, advance_at: nil)
+    tx = Solana::Transaction.new
+    tx.set_recent_blockhash(Solana::Keypair.generate.to_base58)
+    tx.add_instruction(**operator_advance_ix) if advance_at == :first
+    tx.add_instruction(**program_ix)
+    tx.add_instruction(**operator_advance_ix) if advance_at == :last
+    tx.serialize_partial_base64(additional_signers: [Solana::Keypair.admin.public_key_bytes,
+                                                     Solana::Keypair.decode_base58(WALLET)])
+  end
+
+  def enter_contest_ix(vault)
+    accounts = Array.new(Solana::Vault::ENTER_CONTEST_ENTRY_PDA_POSITION) do
+      { pubkey: Solana::Keypair.generate.public_key_bytes, is_signer: false, is_writable: false }
+    end
+    accounts << { pubkey: vault.entry_pda(SLUG, WALLET, 0).first, is_signer: false, is_writable: true }
+    { program_id: Solana::Keypair.decode_base58(Solana::Config::PROGRAM_ID), accounts: accounts,
+      data: Solana::Transaction.anchor_discriminator("enter_contest") + ("\x00".b * 8) }
+  end
+
+  def create_contest_ix(vault)
+    spec = vault.create_contest_instruction(WALLET, SLUG, **create_params)
+    { program_id: Solana::Keypair.decode_base58(Solana::Config::PROGRAM_ID), accounts: spec[:accounts], data: spec[:data] }
+  end
+
+  def entry_guard(vault, wire_b64)
+    vault.assert_entry_cosign_safe!(wire_b64, entry: entry_for(entry_number: 0), wallet_address: WALLET)
+  end
+
+  def create_guard(vault, wire_b64)
+    vault.assert_create_contest_cosign_safe!(wire_b64, wallet_address: WALLET, contest_slug: SLUG,
+                                                       onchain_params: create_params)
+  end
+
+  %i[first last].each do |position|
+    test "REGRESSION: an entry wire advancing the CONFIGURED operator nonce (#{position}) is refused" do
+      vault = Solana::Vault.new(client: fake_client)
+      with_durable_nonce_env(configured_nonce) do
+        ix = enter_contest_ix(vault)
+        assert entry_guard(vault, wire(ix)), "control: the same entry wire without the advance must pass"
+
+        err = assert_raises(Solana::Vault::UnsafeCosignError) { entry_guard(vault, wire(ix, advance_at: position)) }
+        assert_match(/advance_nonce_rejected/, err.message)
+      end
+    end
+
+    test "REGRESSION: a create wire advancing the CONFIGURED operator nonce (#{position}) is refused" do
+      vault = Solana::Vault.new(client: fake_client)
+      with_durable_nonce_env(configured_nonce) do
+        ix = create_contest_ix(vault)
+        assert create_guard(vault, wire(ix)), "control: the same create wire without the advance must pass"
+
+        err = assert_raises(Solana::Vault::UnsafeCosignError) { create_guard(vault, wire(ix, advance_at: position)) }
+        assert_match(/advance_nonce_rejected/, err.message)
+      end
+    end
+  end
+
+  # CONTROL: every shape a guarded flow's BUILDER actually produces still passes
+  # with the nonce configured -- the production-shaped state. If any of these
+  # carried an advance, tightening the guard would break it. Once the guard
+  # refuses every System instruction, these passing IS the proof that no builder
+  # feeding a guard emits one.
+  test "control: every guarded builder's wire passes with the durable nonce configured" do
+    vault = Solana::Vault.new(client: fake_client)
+    token_pda = Solana::Keypair.generate.to_base58
+    with_durable_nonce_env(configured_nonce) do
+      entry = vault.build_enter_contest(WALLET, SLUG, 0, currency_idx: 0, season_id: 1)
+      assert entry_guard(vault, entry[:serialized_tx])
+
+      token = vault.build_enter_contest_with_token(WALLET, SLUG, 0, token_pda, season_id: 1)
+      assert vault.assert_entry_cosign_safe!(token[:serialized_tx], entry: entry_for(entry_number: 0),
+                                                                      wallet_address: WALLET, entry_token_pda: token_pda)
+
+      create = vault.build_create_contest(WALLET, SLUG, **create_params, admin_signs: false)
+      assert create_guard(vault, create[:serialized_tx])
+    end
   end
 end
