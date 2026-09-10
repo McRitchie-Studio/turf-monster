@@ -330,7 +330,7 @@
         </button>
         <p class="text-xs text-muted text-center mt-2">
           You sign the on-chain Contest PDA creation with your Phantom wallet. The prize pool USDC transfers from your wallet to the vault.
-          The contest row is saved as pending before the transaction broadcasts, and opens only after the transaction verifies.
+          The contest row is saved as pending before the transaction broadcasts, and opens after the transaction verifies.
           If a step fails, the pending row stays: a sweep every 15 minutes opens it once the Contest PDA exists, and otherwise deletes it or flags it for manual review.
         </p>
       </div>
