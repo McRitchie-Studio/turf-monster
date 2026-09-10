@@ -86,7 +86,12 @@ class ContestEntryIntentJsTest < ActiveSupport::TestCase
         // blockerData rides the Error so the board's catch can route a failed
         // prepare to the right panel — carry it out of node too, or the test
         // below can only see the flattened string this change exists to avoid.
-        catch (e) { RESULT = { ok: false, message: e.message, blockerData: e.blockerData || null }; }
+        // `code` rides the same way and for the same reason: the survivor board
+        // routes a 'tx_rejected' refusal to its own reassuring modal, and on the
+        // redirect transport its catch runs on a document that never saw the
+        // response. Carry it out of node too, or the test below can only see the
+        // flattened string.
+        catch (e) { RESULT = { ok: false, message: e.message, blockerData: e.blockerData || null, code: e.code || null, confirmData: e.confirmData || null }; }
         RESULT.calls = calls;
         process.stdout.write(JSON.stringify(RESULT));
       })();
@@ -190,6 +195,36 @@ class ContestEntryIntentJsTest < ActiveSupport::TestCase
 
     refute result["ok"]
     assert_equal "Entry already recorded", result["message"]
+  end
+
+  # A REFUSED COSIGN IS NOT A GENERIC ERROR EITHER. The server returns
+  # code 'tx_rejected' (422) when the submitted transaction did not match the
+  # prepared entry, and both boards answer it with a reassuring modal rather than
+  # a red error card. That code exists ONLY on this response, and on the redirect
+  # transport the board's catch runs on a document that never saw it — so the
+  # code has to ride the Error, exactly as blockerData does on the way in.
+  test "complete carries the server's refusal CODE on the error it throws" do
+    result = run_js("window.tmCompleteContestEntry({ contestId: 1, csrfToken: 'T' }, " \
+                    "{ signedTransaction: 'B58<1>' }, { ptx_slug: 'p' })",
+                    body: { "success" => false, "error" => "We could not co-sign that entry",
+                            "code" => "tx_rejected" })
+
+    refute result["ok"]
+    assert_equal "tx_rejected", result["code"],
+                 "the board branches on this code to open the cosign-rejected modal; flattened to a " \
+                 "message it shows a raw error instead, on a flow where the user did nothing wrong"
+    assert_equal "tx_rejected", result.dig("confirmData", "code"),
+                 "the WHOLE payload travels, not just the code — the same rule prepare's blockers follow"
+  end
+
+  # A success carries no code, so a board that branches on one cannot misread a
+  # completed entry as a refusal.
+  test "a successful complete carries no refusal code" do
+    result = run_js("window.tmCompleteContestEntry({ contestId: 1, csrfToken: 'T' }, " \
+                    "{ signedTransaction: 'B58<1>' }, { ptx_slug: 'p' })")
+
+    assert result["ok"]
+    assert_equal "SIG", result.dig("value", "tx_signature")
   end
 
   # --- a failed prepare is often a BLOCKER, not an error ---------------------

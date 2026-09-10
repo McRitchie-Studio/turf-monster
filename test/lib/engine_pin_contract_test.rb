@@ -423,15 +423,35 @@ class EnginePinContractTest < ActiveSupport::TestCase
   # the step-up card and the whole mobile Phantom leg would each have rendered as
   # an EMPTY modal. That is why the Gemfile pin is three segments now, and why
   # this assertion reads the RESOLVED version rather than the pin string.
-  # 0.9.0 — the picker's mobile handoff rows (mobileHandoffs + openInWallet). The
+  # 0.9.2 — THE INLINE TRANSACTION CONTRACT, and it is the floor that moved this
+  #         constant. This app now runs its on-chain flows through ONE
+  #         walletOps.run per call site on BOTH transports, which is only
+  #         possible because 0.9.2 taught the INLINE path to take base58 wire
+  #         bytes and convert them through the provider's own
+  #         deserializeTransaction / serializeTransaction. Below it, runInline
+  #         hands `prepared.transaction` — a base58 STRING — straight to an
+  #         injected wallet's signTransaction, which throws
+  #         "t.serialize is not a function" from inside the extension's code, on
+  #         every desktop signature in contest entry, contest create and bundle
+  #         provisioning. `expectedAccount` arrived in the same release and is
+  #         the SILENT half: below 0.9.2 the option is simply not read, so the
+  #         wrong-wallet guard every call site now declares vanishes with nothing
+  #         raised or logged. DERIVED, not read off a changelog: unpacking the
+  #         published gems, 0.8.0, 0.9.0 and 0.9.1 contain ZERO occurrences of
+  #         requireInlineCodec and of expectedAccount, and 0.9.2 contains both;
+  #         in the gem repo the EARLIEST tag containing the commit that adds them
+  #         (33b2f75, "Unify walletOps\' two transports on one transaction
+  #         contract") is v0.9.2. Stated as the EARLIEST containing version
+  #         because a LIST of versions goes stale on the next release while
+  #         "earliest" is a fact about the code.
+  # 0.9.0 — the picker\'s mobile handoff rows (mobileHandoffs + openInWallet). The
   #         redirect TRANSPORT itself arrived in 0.8.0 and fails LOUDLY below that
   #         (SolanaStudio.walletOps undefined, walletOps.run throws on the first
-  #         hold-to-confirm). 0.9.0 is the floor that moved this constant because
-  #         it fails SILENTLY: this app now loads the registry those getters read,
-  #         and below 0.9.0 the picker never asks it, so Solflare and Backpack
-  #         fall back to their DESKTOP EXTENSION download rows on a phone with
-  #         nothing raised, logged, or failed.
-  SOLANA_STUDIO_MINIMUM = Gem::Version.new("0.9.0")
+  #         hold-to-confirm). It failed SILENTLY below 0.9.0: this app loads the
+  #         registry those getters read, and below 0.9.0 the picker never asks it,
+  #         so Solflare and Backpack fall back to their DESKTOP EXTENSION download
+  #         rows on a phone with nothing raised, logged, or failed.
+  SOLANA_STUDIO_MINIMUM = Gem::Version.new("0.9.2")
 
   test "the resolved solana-studio is at or above the floor this app renders from" do
     resolved = Gem::Version.new(Gem.loaded_specs.fetch("solana-studio").version.to_s)

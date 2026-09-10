@@ -1654,21 +1654,24 @@ window.selectionBoard = function() {
           // place, which a redirect provider cannot do — so it forks here and
           // hands off to walletOps, which owns the hops and the journal.
           //
-          // WHY THE INLINE PATH BELOW IS LEFT ALONE, stated because the design
-          // doc promises ONE call site and this is visibly two. Three gaps in
-          // walletOps block the unification, each filed with evidence at
-          // /tasks/walletops-blocks-inline-unification: the inline provider
-          // needs a Transaction OBJECT while the redirect protocol needs base58
-          // wire bytes and one prepare() cannot return both; there is no
-          // post-connect hook, so the wrong-wallet check has nowhere to live on
-          // the redirect side (UX only — Anchor is the real ownership proof);
-          // and walletOps prefers signAndSendTransaction, which is wrong for a
-          // co-signed entry (/tasks/intent-declares-sign-only).
+          // WHY THE INLINE PATH BELOW IS STILL HERE, and this comment has been
+          // CORRECTED: the three gaps it used to cite as blockers are FIXED.
+          // /tasks/walletops-blocks-inline-unification shipped in solana-studio
+          // 0.9.2 — the inline path now takes the same base58 wire bytes as the
+          // redirect one and converts them through the provider's own codec,
+          // expectedAccount gives the wrong-wallet check a home on both
+          // transports, and an intent declares signOnly so a co-signed
+          // transaction is never handed to a wallet's broadcaster.
           //
-          // Converting the inline path anyway would have meant reordering
-          // connect-before-prepare in the flow that takes payment, to satisfy an
-          // abstraction that cannot yet carry it. The duplication is deliberate,
-          // it is TRACKED, and retiring it is a task rather than a hope.
+          // So the duplication below is no longer BLOCKED, only unretired. The
+          // three sibling flows — world-cup survivor entry, contest create and
+          // bundle provisioning — migrated to a single walletOps.run in
+          // /tasks/migrate-remaining-entry-flows, and this board is the last
+          // fork left. It was held back deliberately rather than swept along:
+          // it is the highest-traffic money path in the app and it carries
+          // blocker routing (_handleBlockerResponse), funding pre-checks and
+          // seeds fanout that the others do not, so it earns its own task and
+          // its own e2e pass. Collapsing it is /tasks/collapse-turf-board-fork.
           if (provider.transport === 'redirect') {
             Alpine.store('solanaModal').show('Opening Your Wallet', 'Handing this entry to your wallet app…');
 

@@ -19,6 +19,12 @@ require "json"
 # methods is PARTIALLY signed on purpose — the admin slot is empty and the
 # server fills it — so a plain .serialize() asserts every required signature is
 # present and throws on precisely the transactions this app signs.
+# SUPERSEDES test/integration/contest_create_js_test.rb, deleted with this
+# change. That file asserted that the STRING
+# "signedTx.serialize({ requireAllSignatures: false, verifySignatures: false })"
+# appeared in contests/new.html.erb — which proved the text shipped and could
+# never observe a branch. The serialization moved into the provider codec, and
+# the question it was reaching for is answered behaviourally below.
 class WalletProviderTxCodecJsTest < ActiveSupport::TestCase
   SOURCE = Rails.root.join("app/javascript/wallet_provider.js")
 

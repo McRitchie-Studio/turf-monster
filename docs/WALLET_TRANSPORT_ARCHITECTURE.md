@@ -1,8 +1,10 @@
 # Wallet Transport Architecture
 
-**Status:** Design — gem primitives merged (solana-studio PR #35), not yet wired
-into turf-monster
-**Written:** 2026-09-07
+**Status:** Partly built. Phase 1 shipped (contest entry rides the redirect
+transport); phase 2 is four flows, three of them migrated —
+`/tasks/migrate-remaining-entry-flows`. The design below still describes the
+target; the **Scope** table records what has actually landed.
+**Written:** 2026-09-07 · **Last corrected:** 2026-09-09
 **Task:** https://mcritchie.studio/tasks/wallet-transport-architecture-doc
 **Spans:** turf-monster · solana-studio · studio-engine
 
@@ -253,11 +255,14 @@ change, and this table is a snapshot taken 2026-09-07.
 Tier 3 is the safety net. A wallet with no adapter still gets a working path by
 being handed into its own browser, where the inline transport already works.
 
-**Interim mitigation, available immediately:** guard `detect()` at the four
-unguarded call sites — `_turf_totals_board:1631`, `_world_cup_survivor_board:142`,
-`contests/new:424`, `generator:94`, the four that dereference the result without a
-null check — and tell mobile users to open the page in their wallet's browser. That is tier 1 by hand, needs no new architecture, and stops the crash
-while tier 2 is built.
+**Interim mitigation — SUPERSEDED, kept for the reasoning.** The first answer
+was to guard `detect()` at the four unguarded call sites and tell mobile users to
+open the page in their wallet's browser: tier 1 by hand, no new architecture,
+crash stopped. All four have since been given a real mobile path instead (three
+migrated, one forked), so nothing is left holding the guard. The lesson that
+outlived it: `requireInlineProvider()` is the honest refusal for a caller that
+has NOT been taught the redirect transport, and it is a DEAD END rather than a
+fix — the world-cup board sat behind one and turned every phone away politely.
 
 ---
 
@@ -267,15 +272,50 @@ Enumerated from every `connect` / `signTransaction` call site.
 
 ### Must work on all platforms
 
-| Flow | Location |
-|---|---|
-| Contest entry — turf totals | `app/views/contests/_turf_totals_board.html.erb:1631` |
-| Contest entry — world cup survivor | `app/views/contests/_world_cup_survivor_board.html.erb:142` |
-| Create contest | `app/views/contests/new.html.erb:424` |
-| Contest generator | `app/views/contests/generator.html.erb:94` |
-| Username rename | `app/views/shared/_alpine_factories.html.erb:787` |
-| Wallet export | `app/views/wallet_exports/show.html.erb:132` |
-| Sign-in | `app/views/layouts/application.html.erb:244` — *mobile path exists, Phantom only* |
+Line numbers are deliberately omitted: they were wrong within a day of being
+written. Each flow's state is what matters.
+
+| Flow | Location | State |
+|---|---|---|
+| Contest entry — turf totals | `app/views/contests/_turf_totals_board.html.erb` | **redirect path shipped, inline path not yet collapsed** — the last two-path fork; `/tasks/collapse-turf-board-fork` |
+| Contest entry — world cup survivor | `app/views/contests/_world_cup_survivor_board.html.erb` | **migrated** — one `tmWalletOp('contest_entry')` |
+| Create contest | `app/views/contests/new.html.erb` | **migrated** — one `tmWalletOp('contest_create')` |
+| Contest generator | `app/views/contests/generator.html.erb` | **migrated** — one `tmWalletOp('contest_bundle')` |
+| Username rename | `app/views/shared/_alpine_factories.html.erb` | not started |
+| Wallet export | `app/views/wallet_exports/show.html.erb` | not started |
+| Sign-in | `app/views/layouts/application.html.erb` | *mobile path exists, Phantom only, still on the undocumented `signIn` deeplink* |
+
+**ONE CALL SITE IS NOW LITERALLY ONE LINE**, and the four things that used to be
+retyped around it live in `app/views/shared/_wallet_op_runner.html.erb`
+(`window.tmWalletOp`): the callback return address, the app identity, the
+cluster, and the watch for a handoff to the wallet app that never happens. Each
+of those was a defect in this epic; the return address lost a real user's entry
+on QA after they had approved it.
+
+**THE INLINE PATH IS NO LONGER A SECOND IMPLEMENTATION.** solana-studio 0.9.2
+(PR #41) closed the three gaps that forced one: the inline path now takes the
+same base58 wire bytes and converts them through the provider's own
+`deserializeTransaction` / `serializeTransaction`
+(`app/javascript/wallet_provider.js`), `expectedAccount` gives the wrong-wallet
+check a home on both transports, and an intent declares `signOnly` so a
+co-signed transaction is never handed to a wallet's broadcaster. That is a
+PATCH-level floor — `gem "solana-studio", "~> 0.9", ">= 0.9.2"` — and below it
+the inline path throws from inside the wallet extension while `expectedAccount`
+is ignored in silence.
+
+**TWO SERVER CHANGES MADE THE LAST TWO FLOWS POSSIBLE**, and both are cases of
+something the resume needed not surviving the page death:
+
+- **The contest banner.** It used to ride the FINALIZE post as a File, which
+  cannot be journalled. `#create` now stashes it as an unattached blob and binds
+  the signed id to the `params_token`, so `#finalize` attaches it from a request
+  carrying no file.
+- **The bundle broadcast.** `contests/generator` used to `sendRawTransaction`
+  in the BROWSER and POST only the signature — impossible on the callback
+  document, which loads no solanaWeb3. `#generate_bundle` now builds with
+  `admin_signs: false` and `#finalize_bundle` cosigns and broadcasts, which also
+  puts the bundle behind `assert_create_contest_cosign_safe!` for the first
+  time.
 
 ### Desktop-only is a legitimate answer — SHIPPED (`gate-admin-flows-desktop-only`)
 
@@ -357,7 +397,9 @@ cheapest insurance in the design.
 |---|---|---|
 | **0** *(optional, ~1 day)* | Guard `detect()`; capability-gated messaging; tier-3 handoff copy | Stops the crash today |
 | **1** | Encryption core + `walletOps` + all three adapters, wired to **contest entry only** | The transport abstraction, end to end, on the flow that is bleeding |
-| **2** | Migrate the remaining five user-facing flows; ~~admin flows get desktop-only messaging~~ (**done** — `gate-admin-flows-desktop-only`) | Mobile parity |
+| **2** | Migrate the remaining user-facing flows; ~~admin flows get desktop-only messaging~~ (**done** — `gate-admin-flows-desktop-only`) | Mobile parity |
+| **2a** | ~~World cup survivor entry, create contest, contest generator~~ (**done** — `migrate-remaining-entry-flows`) | Three flows on one call site |
+| **2b** | Turf-totals fork collapsed (`collapse-turf-board-fork`); username rename; wallet export; retire the undocumented `signIn` deeplink | The rest of phase 2 |
 | **3** *(optional)* | Android Mobile Wallet Adapter | Better Android UX — no page destruction |
 
 Phase 1 covering all three wallets was chosen deliberately: they share the
