@@ -42,7 +42,7 @@ class UserMailer < ApplicationMailer
     # the layered artwork is ever unregistered.
     @banner_url = Studio::EmailCatalog.resolved_url(:magic_link)
     @banner_alt = @banner&.header.presence || "Your Magic Link"
-    mail(to: email, subject: "🐊🪄 Turf Totals Sign-in Link")
+    mail(to: email, subject: "🐊🪄 Turf Monster Sign-in Link")
   end
 
   # Self-custody wallet export (task #11). Token is a signed payload from

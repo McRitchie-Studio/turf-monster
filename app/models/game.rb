@@ -28,6 +28,34 @@ class Game < ApplicationRecord
     where(season_year: year, season_type: season_type, week: week).order(:kickoff_at)
   }
 
+  # THE OPERATOR'S ORDER for the live board, read by Live::FocusGame as the
+  # tiebreak inside whichever set of games is eligible at that moment.
+  #
+  # A POSITION IN ONE LIST, 1 upward, covering every game in the week — set by
+  # dragging at /admin/nfl/weeks. Nil is the untouched state and it is not a
+  # lesser one: the ladder falls back to kickoff order, which is exactly the
+  # order the board seeds the list in, so a week nobody has dragged behaves
+  # identically to one dragged into chronological order.
+  #
+  # Uniqueness is the DATABASE's (index_games_on_focus_rank_per_slot), not a
+  # validation's: two operators dragging in two tabs is exactly the race a
+  # model-level uniqueness check loses. Admin::Nfl::WeeksController clears the
+  # slot's ranks and rewrites the whole list in one transaction, so it never
+  # asks the index to arbitrate a partial update.
+  validates :focus_rank, numericality: { only_integer: true, greater_than: 0 }, allow_nil: true
+
+  scope :focus_ranked, -> { where.not(focus_rank: nil).order(:focus_rank) }
+
+  # The week in board order: the operator's list when there is one, kickoff
+  # order when there is not. ONE expression, so the admin board, the live board
+  # and the ladder cannot disagree about what "first" means.
+  #
+  # `reorder`, NOT `order` — `in_season_slot` already carries `.order(:kickoff_at)`,
+  # and appending to it leaves kickoff as the primary sort. The dragged order
+  # would then be stored correctly and simply never rendered, which looks
+  # exactly like a save that did not land.
+  scope :in_focus_order, -> { reorder(Arel.sql("focus_rank ASC NULLS LAST, kickoff_at ASC NULLS LAST")) }
+
   # Recount goals and update home_score / away_score from Goal records.
   #
   # SUM, not COUNT. A count says every scoring event is worth one point, which

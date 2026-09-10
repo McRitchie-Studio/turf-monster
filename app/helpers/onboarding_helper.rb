@@ -28,4 +28,49 @@ module OnboardingHelper
   def first_name_placeholder_names
     QB_FIRST_NAMES
   end
+
+  # --- the engine card's copy, and the locals both layouts pass it ------------
+
+  # THE SUBTEXT IS TURF'S OWN, NOT THE GEM'S DEFAULT, and that is deliberate.
+  # studio-engine's first-name card defaults to a SHORTER line ("...we use it to
+  # address you in emails."). Turf has always named what the emails are about,
+  # and the entry-gate variant has always said WHY it is asking now. Letting the
+  # gem default win would have quietly dropped both clauses in an adoption whose
+  # whole job was to change nothing a user sees, so both strings are carried
+  # across verbatim from the deleted app/views/modals/_onboarding.html.erb.
+  FIRST_NAME_SUBTEXT_CHAIN =
+    "Just your first name — we use it to address you in emails about your contests and payouts.".freeze
+  FIRST_NAME_SUBTEXT_REQUIRED =
+    "One last thing before your entry — just your first name, so we can address you " \
+    "in emails about your contests and payouts.".freeze
+
+  # Locals for studio/modals/onboarding/first_name, shared by every host
+  # registration of that card — which today is the two in layouts/application
+  # (skippable and required), and until 2026-09-09 was also the pair in
+  # layouts/modal_preview. Those were SEPARATE lists by design, so a value
+  # written inline was written twice and free to drift; the same is true of the
+  # two branches below, which is why the helper still earns its place with one
+  # layout left. Same seam web3_step_up_locals provides for that card, and an
+  # inline copy is exactly where the wallet card drifted before.
+  #
+  # `required` hides both skip affordances. The gem resolves it at RENDER time
+  # rather than from the Alpine store, which is why the layouts register two
+  # branches keyed on the caller's prop instead of one card — see the
+  # registration comment in layouts/application.html.erb.
+  #
+  # NOT PASSED, because each gem default is already character-identical to the
+  # markup this replaced: heading ("What should we call you?"), max_length
+  # (Studio::FULL_NAME_MAX_LENGTH), submit_path, skip_path, the field id and
+  # done_event. onboarding_gallery_test pins the rendered heading so a future gem
+  # default cannot move turf's copy in silence.
+  def first_name_modal_locals(required: false)
+    {
+      required: required,
+      # Step 1 of the chain: first name (1) -> age (2) -> wallet (3), per the
+      # operator's call on 2026-08-19. The other two cards render 2 and 3 of 3.
+      progress: [ 1, 3 ],
+      placeholder_names: first_name_placeholder_names,
+      subtext: required ? FIRST_NAME_SUBTEXT_REQUIRED : FIRST_NAME_SUBTEXT_CHAIN
+    }
+  end
 end

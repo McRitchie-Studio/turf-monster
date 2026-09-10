@@ -139,7 +139,7 @@ window.survivorBoard = function() {
 
       try {
         if (useOnchainFlow) {
-          var provider = window.walletProvider.detect();
+          var provider = window.walletProvider.requireInlineProvider();
           modal.show('Preparing Transaction', 'Building on-chain transaction…');
           var connectResp = await provider.connect();
           var pubkeyB58 = connectResp.publicKey.toBase58();
@@ -228,7 +228,15 @@ window.survivorBoard = function() {
 
           modal.success(txSig, "You're in! Good luck.");
           modal.onClose = function() { window.location.href = confirmData.redirect || window.location.pathname; };
-          if (typeof refreshBalanceDelayed === 'function') refreshBalanceDelayed();
+          // mayNavigate, NOT navigating. This card does not auto-redirect: it
+          // sets no lobbyUrl, so the engine success card's startCountdown()
+          // returns early and nothing is armed. The user leaves by CLOSING it —
+          // the onClose above — which may be in one second or never. A bare
+          // navigating call marks and schedules nothing, so the navbar held the
+          // PRE-SPEND figure for as long as the card stayed open; a bare
+          // stay-put call schedules a timer the close then destroys. This
+          // surface needs both halves.
+          if (typeof onchainSettled === 'function') onchainSettled({ mayNavigate: true });
         } else {
           modal.show('Submitting Entry', 'Processing your entry…');
           var enterResp = await window.authedFetch('/contests/' + this.contestId + '/enter', {
@@ -249,13 +257,29 @@ window.survivorBoard = function() {
             if (data.tx_signature) {
               modal.success(data.tx_signature, "You're in! Good luck.");
               modal.onClose = function() { window.location.href = data.redirect || window.location.pathname; };
-              if (typeof refreshBalanceDelayed === 'function') refreshBalanceDelayed();
+              // Same shape as the on-chain branch above — stays put, closes to
+              // a navigation. See the note there.
+              if (typeof onchainSettled === 'function') onchainSettled({ mayNavigate: true });
             } else {
               modal.close();
               window.location.href = data.redirect || window.location.pathname;
             }
           } else {
-            modal.error(data.error || 'Something went wrong');
+            // TITLE THE FAILED STATE — error() leaves the title alone when it
+            // is not given one, so this card kept reading 'Submitting Entry'
+            // over a red error body. Same one-line defect, same fix, as the
+            // turf-totals board, where it is covered by a render assertion.
+            //
+            // AND NO BLOCKER ROUTING HERE, deliberately. This board has no
+            // _handleBlockerResponse at all (see the inline tx_rejected case
+            // above), so EVERY structured blocker the entry endpoints return —
+            // no_funding, wallet_setup_required, age_required, and now
+            // web3_step_up_required — lands on this generic card. That gap is
+            // real and wider than any one reason; routing a single reason
+            // through here would only make the rest look deliberate. What the
+            // user gets meanwhile is the server's own actionable sentence,
+            // which for the step-up refusal already names the way out.
+            modal.error(data.error || 'Something went wrong', 'Entry Failed');
             this.submitting = false;
           }
         }

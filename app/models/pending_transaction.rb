@@ -24,6 +24,13 @@ class PendingTransaction < ApplicationRecord
   scope :pending, -> { where(status: "pending") }
   scope :confirmed, -> { where(status: "confirmed") }
 
+  # What the operator is actually being asked to sign — `pending` minus the rows
+  # marked stale. This is the ONLY count the Signatures badge should ever show:
+  # `pending` alone was 11 on production the day the badge was built, and 10 of
+  # those were dead `enter_contest` rows from June and July. A badge that cries
+  # wolf on its first day never gets looked at again.
+  scope :awaiting_signature, -> { pending.where(stale: false) }
+
   def name_slug
     id ? "ptx-#{id}" : "ptx-tmp-#{SecureRandom.hex(8)}"
   end

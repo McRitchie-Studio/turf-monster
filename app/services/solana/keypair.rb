@@ -18,10 +18,43 @@ module Solana
   class Keypair
     ENCRYPTION_VERSION = "v2".freeze
 
-    # Load admin keypair from SOLANA_ADMIN_KEY env var (base58)
+    # --- test-only, deliberately NON-SECRET fallbacks ---------------------------
+    # Both of the credentials this class needs (SOLANA_ADMIN_KEY, and the
+    # RAILS_MASTER_KEY that decrypts credentials.secret_key_base) are GitHub
+    # *repository* secrets. Dependabot pull requests run against the separate
+    # Dependabot secret store and cannot see repository secrets by design, so
+    # every dependency PR on this repo failed the same Solana unit tests
+    # permanently -- no rebase or re-run could ever clear it.
+    #
+    # The deeper defect is that these are UNIT tests: they assemble and encrypt,
+    # they never touch the network or a funded account. Needing a production
+    # credential to run them is the bug; the Dependabot breakage is just how it
+    # surfaced. Both constants below are fixed, published, worthless values used
+    # ONLY when Rails.env.test?. Neither is ever reachable in any other
+    # environment -- see .admin and .legacy_secret_key_base.
+    TEST_ADMIN_SEED = Digest::SHA256.digest("turf-monster test-only admin keypair").freeze
+    TEST_SECRET_KEY_BASE = "turf-monster-test-only-secret-key-base-not-a-real-secret".freeze
+
+    # Load admin keypair from SOLANA_ADMIN_KEY env var (base58).
+    #
+    # OUTSIDE TEST THE ENV VAR IS MANDATORY AND ITS ABSENCE IS A HARD RAISE.
+    # This is the Alex Bot signer: 1-of-3 on the vault multisig, the fee payer
+    # and signer for create_contest / enter_contest / mint_entry_token. A
+    # signing path that quietly substituted a throwaway key would build
+    # transactions that are rejected on-chain (or, worse, anchored to an
+    # address nobody controls) -- far worse than a red CI. The guard stays.
+    #
+    # Under Rails.env.test? ONLY, and only when the env var is absent, fall back
+    # to a deterministic non-secret keypair. The tests that reach here exercise
+    # transaction ASSEMBLY -- they need a syntactically valid ed25519 signer,
+    # not a funded or privileged one, and none of them asserts this pubkey.
+    # Rails.env is the discriminator on purpose: a marker like ENV["CI"] can be
+    # set anywhere, including on a production dyno.
     def self.admin
       @admin ||= if ENV["SOLANA_ADMIN_KEY"].present?
         from_base58(ENV["SOLANA_ADMIN_KEY"])
+      elsif Rails.env.test?
+        from_bytes(TEST_ADMIN_SEED)
       else
         raise "SOLANA_ADMIN_KEY env var required"
       end
@@ -84,7 +117,7 @@ module Solana
     def self.current_encryptor
       @current_encryptor ||= begin
         material = ENV["MANAGED_WALLET_ENCRYPTION_KEY"].presence ||
-                   Rails.application.credentials.secret_key_base
+                   legacy_secret_key_base
         key = ActiveSupport::KeyGenerator.new(material).generate_key("turf-monster managed wallet v2", 32)
         ActiveSupport::MessageEncryptor.new(key)
       end
@@ -96,9 +129,32 @@ module Solana
     # pre-migration ciphertexts still decrypt. Never encrypt new data here.
     def self.legacy_encryptor
       @legacy_encryptor ||= ActiveSupport::MessageEncryptor.new(
-        Rails.application.credentials.secret_key_base[0, 32]
+        legacy_secret_key_base[0, 32]
       )
     end
     private_class_method :legacy_encryptor
+
+    # The secret_key_base both encryptors key off when no dedicated
+    # MANAGED_WALLET_ENCRYPTION_KEY is supplied.
+    #
+    # OUTSIDE TEST THIS IS MANDATORY AND ITS ABSENCE IS A HARD RAISE. These
+    # ciphertexts are users' managed-wallet PRIVATE KEYS; deriving from the
+    # wrong material would not fail loudly, it would fail to decrypt real
+    # wallets -- or, on the encrypt side, seal them under a key we then throw
+    # away. Previously this read `.secret_key_base[0, 32]` with no guard at
+    # all, so a missing RAILS_MASTER_KEY surfaced as `undefined method [] for
+    # nil` rather than as the credential error it is.
+    #
+    # Under Rails.env.test? ONLY, fall back to a fixed non-secret string so the
+    # legacy-compatibility tests run without RAILS_MASTER_KEY.
+    def self.legacy_secret_key_base
+      material = Rails.application.credentials.secret_key_base.presence
+      return material if material
+      return TEST_SECRET_KEY_BASE if Rails.env.test?
+
+      raise "RAILS_MASTER_KEY required: credentials.secret_key_base is unavailable, " \
+            "so managed-wallet keys can be neither encrypted nor decrypted"
+    end
+    private_class_method :legacy_secret_key_base
   end
 end

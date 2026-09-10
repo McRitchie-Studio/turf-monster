@@ -6,7 +6,7 @@ class OmniauthCallbacksController < ApplicationController
 
   # Popup entrypoint: flags the session so the callback renders the
   # window-closer page, then renders an auto-submitting POST form into
-  # OmniAuth's request phase. Reached via window.open from the Turf Totals auth
+  # OmniAuth's request phase. Reached via window.open from the Turf Monster auth
   # modal. OmniAuth request phase must stay POST-only for CSRF protection.
   def popup
     session[:oauth_popup] = true

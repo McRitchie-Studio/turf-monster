@@ -114,4 +114,45 @@ class PendingTransactionTest < ActiveSupport::TestCase
     assert build_ptx(tx_signature: nil).save, "first nil-signature row saves"
     assert build_ptx(tx_signature: nil).save, "second nil-signature row coexists"
   end
+
+  # --- awaiting_signature: what the Signatures badge counts ---
+
+  def ptx(status: "pending", stale: false)
+    PendingTransaction.create!(
+      tx_type: "settle_contest", serialized_tx: "WIRE-#{SecureRandom.hex(4)}",
+      status: status, stale: stale, initiator_address: "init", metadata: {}.to_json
+    )
+  end
+
+  test "awaiting_signature counts a pending row that is not stale" do
+    t = ptx
+    assert_includes PendingTransaction.awaiting_signature, t
+  end
+
+  # The whole reason the column exists. Production held 11 pending rows and 10
+  # were dead enter_contest transactions from June and July — a badge counting
+  # plain `pending` would have read 11 on the day it shipped.
+  test "awaiting_signature excludes a pending row marked stale" do
+    t = ptx(stale: true)
+    assert_not_includes PendingTransaction.awaiting_signature, t
+    assert_includes PendingTransaction.pending, t, "stale must not change what `pending` means"
+  end
+
+  test "awaiting_signature excludes rows that are not pending" do
+    %w[submitted confirmed expired failed].each do |status|
+      t = ptx(status: status)
+      assert_not_includes PendingTransaction.awaiting_signature, t, "#{status} should not await a signature"
+    end
+  end
+
+  test "stale defaults to false so existing rows keep counting" do
+    assert_equal false, ptx.reload.stale
+  end
+
+  test "awaiting_signature is a subset of pending" do
+    ptx
+    ptx(stale: true)
+    ptx(status: "confirmed")
+    assert_operator PendingTransaction.awaiting_signature.count, :<=, PendingTransaction.pending.count
+  end
 end

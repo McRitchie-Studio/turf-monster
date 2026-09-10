@@ -168,4 +168,77 @@ class TeamColorsHelperTest < ActionView::TestCase
     assert_equal TeamColorsHelper::LIGHT_FG, pal[:fg]
     assert_match(/\A#[0-9a-f]{6}\z/, pal[:accent])
   end
+
+  # --- opponent_label_halo -------------------------------------------------
+  #
+  # The rim exists because 275 of the 992 (host, opponent) pairings put the
+  # opponent's short name under 3:1 against the field it sits on, bottoming out
+  # at 1.04:1 — two colours of the same luminance, differing only in hue, which
+  # is the one difference an edge cannot be made from.
+
+  def opponent(**overrides)
+    TeamDouble.new({ color_dark: "#311d00", color_light: "#ff3c00", color_disposition: "dark" }.merge(overrides))
+  end
+
+  test "on a dark card the rim is the opponent's dark, behind their light label" do
+    host = dark_team
+    opp  = opponent
+
+    assert_equal "#ff3c00", opponent_label_color(opp, host)
+    assert_equal "#311d00", opponent_rim_color(opp, host)
+    assert_includes opponent_label_halo(opp, host), rgba("#311d00", 0.85)
+    assert_includes opponent_label_halo(opp, host), "radial-gradient"
+  end
+
+  # THE CORRECTION THAT MAKES THIS WORK. opponent_label_color flips to the
+  # opponent's DARK on a light (gold) field. A rim hardcoded to color_dark
+  # would then paint dark-on-dark — the same colour as the text — and vanish
+  # exactly where the flip put the label most at risk.
+  test "on a gold card the rim flips to the opponent's light, behind their dark label" do
+    host = light_team
+    opp  = opponent
+
+    assert_equal "#311d00", opponent_label_color(opp, host), "the label flips dark on a light field"
+    assert_equal "#ff3c00", opponent_rim_color(opp, host), "so the rim must flip the other way"
+    refute_equal opponent_label_color(opp, host), opponent_rim_color(opp, host),
+                 "a rim the same colour as the label is not a rim"
+  end
+
+  test "the rim always separates from the label it outlines" do
+    [dark_team, light_team].each do |host|
+      [opponent, opponent(color_dark: "#002244", color_light: "#c60c30"), light_team].each do |opp|
+        label = relative_luminance(opponent_label_color(opp, host))
+        rim   = relative_luminance(opponent_rim_color(opp, host))
+
+        assert_operator (rim - label).abs, :>=, RIM_MIN_SEPARATION,
+                        "rim and label must differ in luminance or the outline is invisible"
+      end
+    end
+  end
+
+  test "a team whose two families are indistinguishable falls back to a neutral tint" do
+    flat = TeamDouble.new(color_dark: "#808080", color_light: "#808080", color_disposition: "dark")
+
+    assert_equal "#000000", opponent_halo_color(flat, dark_team)
+    assert_includes opponent_label_halo(flat, dark_team), rgba("#000000", 0.85)
+  end
+
+  # A near-black label cannot be lifted by a darker tint — it takes the light
+  # one, the same flip mascot_shadow makes.
+  test "a near-black label with no usable family takes a light tint" do
+    inky = TeamDouble.new(color_dark: "#050505", color_light: "#050505", color_disposition: "dark")
+
+    assert_equal LIGHT_FG, opponent_halo_color(inky, dark_team)
+  end
+
+  test "the halo fades to a transparent tint, never through transparent black" do
+    halo = opponent_label_halo(opponent, dark_team)
+
+    assert_includes halo, rgba("#311d00", 0), "the last stop must keep the tint's own rgb"
+    refute_includes halo, "transparent", "the transparent keyword fringes grey on a coloured tint"
+  end
+
+  test "no opponent means no shadow" do
+    assert_equal "none", opponent_label_halo(nil, dark_team)
+  end
 end

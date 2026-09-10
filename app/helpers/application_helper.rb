@@ -76,13 +76,31 @@ module ApplicationHelper
     "$#{sprintf('%.2f', amount)}"
   end
 
+  # `dollars` with the cents dropped when there are none — "$140", not "$140.00".
+  #
+  # FOR SCAN SURFACES, NOT LEDGERS. Every price the operator has ever set is a
+  # whole dollar (Contest::FORMATS is all `19_00` / `1_00`), so on a card the
+  # ".00" is three characters of noise on every figure, twice per card, and it
+  # is what pushed the money line onto two lines at the card's width. A
+  # transaction log is the opposite case — there the aligned cents ARE the
+  # information — so `dollars` keeps its fixed two places and the callers that
+  # want the short form ask for it by name.
+  #
+  # A FRACTIONAL AMOUNT STILL PRINTS IN FULL. What is noise is the zero, not the
+  # decimal point: $19.50 renders as "$19.50" here exactly as it does in a
+  # ledger. Comparing against `to_i` (rather than checking `% 1`) keeps that
+  # true for a Float, an Integer and a BigDecimal alike.
+  def dollars_short(amount)
+    amount.to_f == amount.to_i ? "$#{amount.to_i}" : dollars(amount)
+  end
+
   # The brand mark. Uses the lightweight 45KB icon (not the 1.3MB /logo.png) and
   # always sets explicit width/height so the box is reserved even before CSS
   # applies (no full-screen balloon on a cold load). `px` is that reserved size;
   # `classes` carry the Tailwind sizing + styling. The navbar logo stays inline
   # — it needs a scroll-responsive x-bind:class the helper can't express.
   def brand_logo(px:, classes: "")
-    tag.img(src: "/icon-192.png", alt: "Turf Totals", width: px, height: px,
+    tag.img(src: "/icon-192.png", alt: "Turf Monster", width: px, height: px,
             class: ["rounded-full", classes].join(" ").strip)
   end
 

@@ -69,3 +69,30 @@ level_up_token_mint:
     starve the queue, and a user the sweep cannot evaluate raises an ErrorLog
     rather than being skipped silently.
   queue: default
+
+pending_contest_reconciler:
+  cron: "*/15 * * * *"   # every 15 minutes
+  class: PendingContestReconcilerJob
+  active_job: true
+  description: >-
+    Reconcile stranded pending Contest rows (a crash between finalize's
+    write-ahead save and its promote). READ-ONLY on-chain existence check of the
+    derived Contest PDA: present -> open; absent -> delete the squatting row;
+    RPC fault -> left pending for the next sweep. A row whose PDA does not match
+    its slug, or one carrying a broadcast signature, is flagged for a human
+    instead. NEVER signs or broadcasts. 10-minute threshold leaves an in-flight
+    finalize untouched.
+  queue: default
+email_delivery_resend:
+  cron: "*/20 * * * *"   # every 20 minutes
+  class: EmailDeliveryResendJob
+  active_job: true
+  description: >-
+    Re-enqueue EmailDelivery rows left unsent between 30 minutes and 7 days ago,
+    at most 100 per tick, oldest first. Covers the gap Sidekiq cannot: a row
+    left sent=false with no job anywhere, which is how a winner was paid $100 on
+    2026-09-07 and never told. Bounded in three dimensions on purpose — younger
+    rows are still in flight, older ones need a human, and a backlog drains
+    across ticks. No-ops entirely where LOCAL_EMAIL_CAPTURE is on, since nothing
+    there can ever reach sent and the sweep would loop forever.
+  queue: default

@@ -17,14 +17,16 @@
 
   PILL PLACEMENT. The pill sits ABOVE the engine card rather than inside it. The
   engine block has no yield slot, and this is where the chain's other two steps
-  already put theirs (modals/_onboarding at 1 of 3, modals/_wallet_setup at 3 of
+  already put theirs (the engine's studio/modals/onboarding/first_name at 1 of 3,
+  which this app renders for step 1, and modals/_wallet_setup at 3 of
   3, both at card top level) — so step 2 now matches its siblings instead of
   being the one that tucked the pill under the title.
 
   Single root element (template-x-if mount rule).
 %>
 <div>
-  <%# Step 2 of the onboarding chain — see the note in modals/_onboarding.
+  <%# Step 2 of the onboarding chain — see the chain notes on the first-name
+      registrations in layouts/application.
       SHOWN UNCONDITIONALLY, including when the entry gate opens this card on its
       own for a user who never walked the chain. That is the operator's call and
       the simpler rule; if a standalone DOB prompt claiming "2 of 3" ever reads

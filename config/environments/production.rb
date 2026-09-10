@@ -46,8 +46,11 @@ Rails.application.configure do
   # APP_HOST is the canonical public hostname for this deployment. APP_HOST_ALIASES
   # keeps legacy domains accepted while provider allowlists are updated.
   # Drives: ActionCable origin allowlist, mailer/OAuth-callback default_url_options,
-  # and the host-authorization allowlist below.
-  app_host = ENV.fetch("APP_HOST", "turfmonster.media")
+  # the host-authorization allowlist below, and — through the same ENV var and the
+  # same default constant — the ROUTE SET's default_url_options, which is what
+  # out-of-request URL helpers (Turbo broadcasts, jobs) read
+  # (config/initializers/route_default_url_options.rb).
+  app_host = ENV.fetch("APP_HOST", TurfMonster::HostConfig::DEFAULT_APP_HOST)
   app_host_aliases = TurfMonster::HostConfig.aliases(ENV.fetch("APP_HOST_ALIASES", ""))
   app_hosts = TurfMonster::HostConfig.public_hosts(app_host:, aliases: app_host_aliases)
 

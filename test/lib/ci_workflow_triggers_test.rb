@@ -1249,6 +1249,45 @@ class CiWorkflowTriggersTest < Minitest::Test
   # It did repeat, one REPO over — this repo sharded its e2e lane with no receipt at all.
   EXECUTED_SET_COMMAND = %r{bin/e2e-executed-set-check\b}
 
+  # THE DECLARED-SET GATE, enrolled on the day it was wired — the same discipline the
+  # lane above records, applied to itself rather than only quoted.
+  #
+  # It needs its own pin because the generic every-job assertions cannot cover the case
+  # that actually happens. They walk the jobs that EXIST, so they catch a NEUTERED job —
+  # one that stops running its command, or grows an `if:` that opts it out. Nothing
+  # catches a REMOVED one: delete the `e2e_declared_set` job, or rename the script out
+  # from under it, and every test in this file still passes while the declared side of
+  # the e2e contract silently stops being checked. That is the failure this repo already
+  # paid for once, one file over.
+  DECLARED_SET_COMMAND = %r{bin/e2e-lane-derive\b}
+
+  def test_integration_the_declared_set_gate_is_wired
+    lanes = command_lanes(File.read(CI_YML), DECLARED_SET_COMMAND)
+
+    refute_empty lanes,
+                 "NO step in ci.yml runs bin/e2e-lane-derive. Without it `total_specs` goes back " \
+                 "to being a hand-maintained number, and the silent-merge collision it exists to " \
+                 "catch (two branches writing the SAME new value for DIFFERENT files, merging with " \
+                 "no conflict) returns unguarded. If the gate legitimately moved, re-point " \
+                 "DECLARED_SET_COMMAND — do not delete this."
+
+    lanes.each do |job_name, job, step|
+      # Unlike the executed-set gate this job reads only the TREE — no receipts, no shards —
+      # so it must NOT wait on playwright, and it must carry no condition at all. A gate that
+      # opts itself out on some runs is not a gate.
+      assert_nil job["if"],
+                 "#{lane_label(job_name)} carries `if: #{job["if"]}` — this gate reads the tree " \
+                 "and has no reason to skip any run."
+      assert_nil step["if"],
+                 "#{lane_label(job_name)}'s gate step carries `if: #{step["if"]}` — the gate " \
+                 "must not opt itself out."
+      assert_nil job["needs"],
+                 "#{lane_label(job_name)} declares `needs: #{job["needs"]}` — this gate reads only " \
+                 "the tree, so gating it behind another lane delays the report and couples it to " \
+                 "a failure it does not depend on."
+    end
+  end
+
   def test_integration_the_executed_set_gate_runs_UNCONDITIONALLY
     lanes = command_lanes(File.read(CI_YML), EXECUTED_SET_COMMAND)
 

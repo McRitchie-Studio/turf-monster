@@ -91,7 +91,7 @@
         m.show('Preparing Transaction', 'Building the on-chain create_contest instruction…');
 
         try {
-          var provider = window.walletProvider.detect();
+          var provider = window.walletProvider.requireProvider();
           var connectResp = await provider.connect();
           var pubkeyB58 = connectResp.publicKey.toBase58();
           if (cfg.userWallet && pubkeyB58 !== cfg.userWallet) {
@@ -139,6 +139,11 @@
           if (!finalData.success) throw new Error(finalData.error || 'Failed to save bundle');
 
           m.show('Done', 'Reloading…');
+          // The prize pool just left this wallet, and we are ABOUT TO NAVIGATE — so
+          // hand the settle window to the destination page rather than scheduling it
+          // here. A setTimeout does not survive the unload two lines down, which
+          // would make this a silent no-op on the exact flow it exists for.
+          if (window.onchainSettled) window.onchainSettled({ navigating: true });
           window.location.href = finalData.redirect;
         } catch (err) {
           console.error('[bundle generate]', err);

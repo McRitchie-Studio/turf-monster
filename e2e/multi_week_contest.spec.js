@@ -19,17 +19,27 @@ test.describe("multi-week contest board", () => {
     await expect(page.getByRole("button", { name: /Advantage/ })).toHaveCount(0);
   });
 
-  test("each team card shows one labelled section per week", async ({ page }) => {
+  test("each team card dates its three opponent columns", async ({ page }) => {
     await page.goto("/contests/nfl-weeks-15-17");
 
     // A pick card is a TEAM with its three opponents. The aria-label carries the
-    // whole span, which is also what a screen reader announces.
-    const teamCard = page.locator('button[aria-label*="week 15:"]').first();
+    // whole span, which is also what a screen reader announces — and it keeps
+    // the week number the visible column no longer prints.
+    const teamCard = page.locator('button[aria-label*="Week 15"]').first();
     await expect(teamCard).toBeVisible();
 
-    for (const week of ["Week 15", "Week 16", "Week 17"]) {
-      await expect(teamCard.getByText(week, { exact: true })).toBeVisible();
+    // The columns read the DAY each game is played, not "Week 15". Asserted as
+    // a shape ("Dec 20") rather than three literal dates: the label is derived
+    // from the seeded schedule, and pinning the dates here would make a
+    // schedule reseed look like a UI regression.
+    const labels = teamCard.locator("p.tm-opponent-week");
+    await expect(labels).toHaveCount(3);
+    for (const text of await labels.allInnerTexts()) {
+      expect(text.trim()).toMatch(/^[A-Za-z]{3} \d{1,2}$/);
     }
+
+    // The week itself survives, in the description rather than on the face.
+    await expect(teamCard).toHaveAttribute("aria-label", /Week 15 · [A-Za-z]{3} \d{1,2}:/);
 
     // One span multiplier per card, rendered "N× Point(s)" — not per week.
     await expect(teamCard.getByText(/Points?/).first()).toBeVisible();
@@ -38,7 +48,7 @@ test.describe("multi-week contest board", () => {
   test("selecting a team puts its mascot and span multiplier in the cart", async ({ page }) => {
     await page.goto("/contests/nfl-weeks-15-17");
 
-    const teamCard = page.locator('button[aria-label*="week 15:"]').first();
+    const teamCard = page.locator('button[aria-label*="Week 15"]').first();
     const teamName = await teamCard.locator(".team-name").innerText();
     await teamCard.click();
 

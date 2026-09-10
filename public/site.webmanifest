@@ -1,6 +1,6 @@
 {
-  "name": "Turf Totals",
-  "short_name": "Turf Totals",
+  "name": "Turf Monster",
+  "short_name": "Turf Monster",
   "description": "Solana-powered World Cup pick'em contests. Pick 6 matchups, stack Turf Scores, win on-chain.",
   "start_url": "/",
   "scope": "/",

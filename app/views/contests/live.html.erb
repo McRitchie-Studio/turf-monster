@@ -1,136 +1,397 @@
-<% content_for(:title) { "#{@contest.name} — Live" } %>
-<div class="max-w-5xl mx-auto px-4 py-6">
-  <%# Single live stream for all real-time read updates (leaderboard / games /
-      goal-feed). Chat keeps its own [@contest, :messages] subscription inside
-      the chat panel — don't duplicate it here. %>
+<%# The tab title reads the state too — a settled contest sitting in a browser
+    tab labelled "Live" is the same lie in a smaller place. %>
+<% content_for(:title) { "#{@contest.name} — #{contest_live_badge(@contest)[:label]}" } %>
+<%
+  # The viewer's own entry slugs, for the sticky "this one is mine" post on the
+  # ranking. Read off the controller's eager-loaded @entries, and empty for a
+  # signed-out reader, which is correct — the live page is public.
+  viewer_entry_slugs = current_user ? Array(@entries).select { |e| e.user_id == current_user.id }.map(&:slug) : []
+%>
+<%# max-w-7xl, not 5xl: this page is now two real columns, and the right-hand one
+    has to hold six pick pills on one line. At 5xl each column came to 488px and
+    the pills fell back to a 3x2 grid; at 7xl they are 616px and the row fits. %>
+<%# THE FOCUS LIVES HERE, on the outermost element, and that placement is the
+    whole trick. Contest::LiveBroadcast replaces the strip and the focus panel on
+    every score; Alpine state declared inside either one would be reset by the
+    next touchdown, so the reader's chosen game would silently jump back to the
+    default mid-play. Declared out here, it survives every replacement, and the
+    fresh chips read it as Alpine initialises them. %>
+<div class="max-w-7xl mx-auto px-4 py-6" x-data="{ focus: '<%= @focus_slug %>' }">
+  <%# Single live stream for all real-time read updates (strip / focus /
+      leaderboard / goal-feed). Chat keeps its own [@contest, :messages]
+      subscription inside the chat panel — don't duplicate it here.
+      
+      SUBSCRIBED IN EVERY STATE, DELIBERATELY. Contest::LiveBroadcast filters at
+      SEND time (`status: [:open]` + `live?`), so this stream is dormant before
+      the lock rather than broken — and a viewer who had the page open when the
+      contest kicked off starts receiving without reloading. Subscribing only
+      when live would trade a harmless idle socket for a board that silently
+      never starts. The BADGE says which of those states you are in. %>
   <%= turbo_stream_from @contest, :live %>
 
-  <%# Active-games carousel factory. Defined inline (not importmap) so it exists
-      before Alpine processes x-data — including on broadcast-replaced games
-      content. Dwell 10s → smooth-scroll one full content-width (lands back on an
-      identical first row via cloned cards) → snap to 0 → dwell. Only rotates
-      when the row overflows; honors prefers-reduced-motion. %>
+  <%# The scoring vocabulary, shared verbatim with /live — same keyframes, same
+      class names, so a touchdown reads the same on both boards. %>
+  <%= render "live/score_animations" %>
+  <%= render "contests/live_page_styles" %>
+
+  <%# WHAT IS MINE, parked OUTSIDE every broadcast target on purpose.
+      Contest::LiveBroadcast sends ONE payload to every subscriber, so nothing it
+      replaces can carry a viewer-specific mark: a highlight rendered inside the
+      leaderboard is correct until the first score and gone forever after it. The
+      answer lives out here, where no stream can reach it, and the script below
+      re-applies it to whatever markup the latest broadcast left behind. %>
+  <div id="contest_<%= @contest.id %>_viewer" class="hidden" aria-hidden="true"
+       data-entry-slugs="<%= viewer_entry_slugs.join(",") %>"></div>
+
+  <%# Strip carousel factory. Defined inline (not importmap) so it exists before
+      Alpine processes x-data — including on broadcast-replaced strip content.
+      Dwell 8s → smooth-scroll one full content-width (lands back on an identical
+      first row via cloned chips) → snap to 0 → dwell. Only rotates when the row
+      overflows; honors prefers-reduced-motion; pauses under the pointer, because
+      the chips are buttons and a moving button is a missed click. %>
   <script>
+    // WHAT THE READER DID, KEPT OUTSIDE THE THING THAT GETS REPLACED.
+    //
+    // Contest::LiveBroadcast#replace_games swaps the innerHTML of
+    // #contest_<id>_games on EVERY score, and this component's x-data lives
+    // inside that container. So the component object is destroyed and rebuilt
+    // whenever anyone scores: every field on it goes back to its initial value.
+    // A scroll offset or a stand-down flag stored on the component would be
+    // forgotten by the very event this page exists to show.
+    //
+    // The strip partial's header comment already names this trap — it is why
+    // the FOCUS selection lives on a wrapper outside the target. The reader's
+    // position and their stand-down are the same kind of state, so they live
+    // out here, on an object no DOM replacement can reach. Not an Alpine store:
+    // this script runs before Alpine boots, and plain state needs no framework.
+    // KEYED BY CONTEST, because `window` outlives a Turbo visit. Turbo swaps the
+    // body and re-runs this script rather than reloading the page, so a bare
+    // `|| {}` would carry one contest's offset onto another contest's strip —
+    // a different slate, a different width, and a position that means nothing.
+    // Same contest keeps its place; a different one starts clean.
+    window.gamesStripMemory =
+      (window.gamesStripMemory && window.gamesStripMemory.contest === <%= @contest.id.to_json.html_safe %>)
+        ? window.gamesStripMemory
+        : { contest: <%= @contest.id.to_json.html_safe %>, scroll: 0, stoodDown: false };
+
     window.gamesCarousel = function () {
       return {
         _timer: null,
+        _raf: null,
+        _paused: false,
+        _stood_down: false,
+        _origWidth: 0,
+        _written: 0,      // OUR OWN last write — never a seen position; see _anchor()
+
         init() {
-          if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+          // Pick up where the last instance left off. On a first render this is
+          // the default (0 / false); after a broadcast it is what the reader was
+          // actually looking at a moment ago.
+          this._stood_down = window.gamesStripMemory.stoodDown;
+
+          // Reduced motion stops the ROTATION, never the scrolling. A reader who
+          // asked for less movement still gets to reach every game by hand — the
+          // viewport is scrollable in markup, so there is nothing to set up here.
+          if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            this._stood_down = true;
+          }
+
+          // Restore the offset even when stood down (especially then) — a reader
+          // who parked the strip keeps their place across the score that lands.
           this.$nextTick(() => this.setup());
         },
+
         setup() {
           var vp = this.$refs.viewport, track = this.$refs.track;
           if (!vp || !track) return;
-          if (track.scrollWidth <= vp.clientWidth + 4) return; // fits — no rotation
+          if (track.scrollWidth <= vp.clientWidth + 4) {
+            // Fits — no rotation, and no clones to scroll through. The reader's
+            // remembered offset cannot survive a strip that no longer overflows,
+            // so drop it rather than restore a position that no longer exists.
+            window.gamesStripMemory.scroll = 0;
+            return;
+          }
           this._origWidth = track.scrollWidth;
           // Clone the originals so scrolling one content-width lands on an
           // identical first row before we snap back to 0 (seamless loop).
           Array.prototype.slice.call(track.children).forEach(function (c) {
             track.appendChild(c.cloneNode(true));
           });
+
+          // Put the strip back where it was. Clamped, because a score can change
+          // how many chips there are: a remembered offset from a wider strip
+          // would otherwise scroll past the end and read as a jump to the edge.
+          var want = Math.min(window.gamesStripMemory.scroll, vp.scrollWidth - vp.clientWidth);
+          this._writeScroll(vp, want > 0 ? want : 0);
+
+          if (!this._stood_down) this._dwellThenScroll();
+        },
+
+        // Every programmatic write goes through here so remember() can tell the
+        // rotation's own movement apart from a reader's. Read back rather than
+        // trusting the assignment: the browser clamps to the scrollable range and
+        // rounds to device pixels, so what lands is not always what we asked for.
+        _writeScroll(vp, x) {
+          vp.scrollLeft = x;
+          this._written = vp.scrollLeft;
+        },
+
+        // THE ONE SIGNAL THAT MEANS A PERSON MOVED THE STRIP.
+        //
+        // Not the input event. A wheel fires on whatever sits under the pointer
+        // and bubbles whether or not that element scrolls, and this strip runs
+        // full width across the top of the page — directly under the cursor on
+        // the way down to chat. Standing down on `wheel` therefore killed the
+        // rotation for the rest of the session on a plain VERTICAL page scroll,
+        // with the strip itself never having moved. Nor is the axis a fix:
+        // Chrome implements shift+wheel horizontal scrolling by setting deltaY
+        // with shiftKey, so a `deltaX !== 0` guard would miss a mouse user
+        // scrolling this strip sideways — the exact reader we mean to yield to.
+        //
+        // A `scroll` event, by contrast, fires only when this element's own
+        // offset actually changed. All that remains is attribution, and the
+        // component knows what it wrote: anything else is the reader. That also
+        // covers a drag, a swipe and an arrow key without a listener each.
+        remember() {
+          var vp = this.$refs.viewport;
+          if (!vp) return;
+          if (!this._stood_down && this._movedByReader(vp)) {
+            this.standDown();
+            return;                     // standDown() records the position itself
+          }
+          window.gamesStripMemory.scroll = vp.scrollLeft;
+        },
+
+        // WHERE THE ROTATION LEFT THE STRIP, IN TODAY'S GEOMETRY.
+        //
+        // Attribution compares the live offset against the last value this
+        // component WROTE, never against the last value it merely SAW. Those
+        // stop being the same number the moment a reader is moving the strip,
+        // and taking the second one re-anchored the comparison to the reader on
+        // every event: each step was then measured against the step before it
+        // rather than against the rotation, so the tolerance was spent afresh
+        // every few milliseconds and never ran out. A slow drag stayed inside
+        // it forever. Measured at 120 events of 1.5px: the strip travelled
+        // 240px, two whole chips, with the handover never firing -- and the
+        // rotation still due to resume and drag the strip off the game the
+        // reader had parked on, which is the one thing this feature exists to
+        // prevent. Anchoring on our own last write makes the tolerance a TOTAL
+        // budget instead of a per-event one, which is the only reading under
+        // which a fixed number of pixels means anything at all.
+        //
+        // CLAMPED, because the browser moves scrollLeft on its own whenever the
+        // scrollable range shrinks under it. Widen the window and clientWidth
+        // grows, the maximum offset falls, and a strip parked at the end gets
+        // dragged back with it -- measured, 900px to 1600px pulled a strip
+        // parked at 4826 down to 4446, a 380px jump that read as the reader and
+        // stood the rotation down for the rest of the session (permanently: the
+        // flag lives on window, so it outlives both a broadcast and a Turbo
+        // visit). That jump is not the reader. It is our OWN last position,
+        // still at the end of a strip that got shorter, so the anchor follows
+        // it there. Asked of the geometry at compare time rather than through a
+        // resize listener, which would be a fourth input heuristic racing the
+        // scroll event it causes.
+        _anchor(vp) {
+          var max = vp.scrollWidth - vp.clientWidth;
+          if (max < 0) max = 0;
+          if (this._written > max) this._written = max;
+          return this._written;
+        },
+
+        // Tolerance, not equality: sub-pixel rounding on a device-pixel grid
+        // makes an exact comparison read the rotation's own writes as a reader.
+        _movedByReader(vp) {
+          return Math.abs(vp.scrollLeft - this._anchor(vp)) > 2;
+        },
+
+        // A horizontal wheel, caught at the input rather than waiting for the
+        // scroll it causes. Only for the case remember() can genuinely miss: a
+        // compositor scroll can land mid frame, AFTER the scroll steps that
+        // would have reported it, and the rotation then writes over the reader's
+        // position before it was ever read -- so the attribution above sees only
+        // our own value. shiftKey is honoured because that is how a mouse
+        // scrolls sideways.
+        //
+        // DOMINANT AXIS, not "any deltaX at all". A trackpad emits a fraction of a
+        // pixel of sideways drift on a nominally VERTICAL scroll, largest at the
+        // start of the gesture — the notch that lands on this strip on the way
+        // down the page. `deltaX !== 0` read that as horizontal intent and stood
+        // the rotation down for the session: the bug above, smaller trigger,
+        // measured lethal at deltaX 0.4 and unrecoverable short of a reload.
+        wheelAcross(e) {
+          if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.shiftKey) this.standDown();
+        },
+
+        // THE READER TAKES THE WHEEL, PERMANENTLY.
+        //
+        // Any real interaction — wheel, drag, swipe, arrow key — hands the strip
+        // over for good. Not a pause: `resume()` refuses once this is set, so
+        // moving the pointer away does not start the strip moving under someone
+        // who is reading it. The existing hover-pause is the precedent; this is
+        // the same argument carried to its end, because a reader who scrolled has
+        // told us where they want to be far more clearly than a hover does.
+        standDown() {
+          if (this._stood_down) return;
+          this._stood_down = true;
+          window.gamesStripMemory.stoodDown = true;
+          this.remember();
+          this._halt();
+        },
+
+        // Alpine calls this when the node goes away — which, on this page, is
+        // every single score. Without it the rAF chain below outlives the element
+        // it animates and keeps requesting frames forever, one orphaned loop per
+        // score. The old transform version survived the omission by luck: a
+        // detached node never fires transitionend, so that chain died by itself.
+        destroy() { this._halt(); },
+
+        _halt() {
+          if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+          if (this._raf) { cancelAnimationFrame(this._raf); this._raf = null; }
+        },
+
+        // Hover still pauses, and it still freezes WHERE IT IS — scrollLeft is
+        // already the live position, so unlike the old transform version there is
+        // nothing to read back and pin. Stopping the animation is the whole job.
+        pause() {
+          if (this._paused || this._stood_down) return;
+          this._paused = true;
+          this._halt();
+        },
+
+        resume() {
+          if (!this._paused || this._stood_down) return;
+          this._paused = false;
+          if (!this._origWidth) return;
           this._dwellThenScroll();
         },
+
         _dwellThenScroll() {
           var self = this;
-          this._timer = setTimeout(function () { self._scroll(); }, 10000);
+          this._timer = setTimeout(function () { self._scroll(); }, 8000);
         },
+
+        // SCROLLLEFT, NOT TRANSFORM — one owner of the position.
+        //
+        // The strip used to travel by animating `transform` while the viewport
+        // clipped with overflow-hidden. That made hand-scrolling impossible: the
+        // two mechanisms describe the same movement in different coordinates, so a
+        // reader's scroll and the rotation would fight, and whichever wrote last
+        // would snap the strip out from under the other. Driving the native scroll
+        // position instead means the rotation and the reader are doing the same
+        // thing to the same number, and handing over costs nothing.
+        //
+        // rAF rather than scroll-behavior:smooth because the duration is ours to
+        // choose: ~90 px/s, matching what the transform version travelled at.
         _scroll() {
-          var track = this.$refs.track, self = this;
-          var dur = Math.max(2500, (this._origWidth / 90) * 1000); // ~90 px/s
-          track.style.transition = 'transform ' + dur + 'ms linear';
-          track.style.transform = 'translateX(-' + this._origWidth + 'px)';
-          track.addEventListener('transitionend', function onEnd() {
-            track.removeEventListener('transitionend', onEnd);
-            self._reset();
-          });
+          var vp = this.$refs.viewport, self = this;
+          if (this._paused || this._stood_down || !vp) return;
+
+          var from = vp.scrollLeft;
+          var distance = this._origWidth - from;
+          if (distance <= 0) return this._reset();
+
+          var dur = Math.max(2500, (distance / 90) * 1000);
+          var t0 = null;
+
+          var step = function (now) {
+            if (self._paused || self._stood_down) return;
+            // Belt and braces with destroy(): if this element has left the
+            // document the loop stops on its own, so a missed teardown costs one
+            // frame rather than an immortal 60fps loop.
+            if (!vp.isConnected) { self._raf = null; return; }
+            if (t0 === null) t0 = now;
+            var progress = Math.min(1, (now - t0) / dur);
+            self._writeScroll(vp, from + distance * progress);
+            if (progress < 1) {
+              self._raf = requestAnimationFrame(step);
+            } else {
+              self._raf = null;
+              self._reset();
+            }
+          };
+          this._raf = requestAnimationFrame(step);
         },
+
+        // Snap back to the identical first row. Instant by definition — the clone
+        // under the viewport is pixel-identical to the original, so the jump is
+        // invisible and the loop reads as continuous.
         _reset() {
-          var track = this.$refs.track;
-          track.style.transition = 'none';
-          track.style.transform = 'translateX(0)';
-          void track.offsetWidth; // reflow so the next transition animates
+          var vp = this.$refs.viewport;
+          if (!vp || this._stood_down) return;
+          this._writeScroll(vp, 0);
+          window.gamesStripMemory.scroll = 0;
           this._dwellThenScroll();
-        },
-        destroy() { if (this._timer) clearTimeout(this._timer); }
+        }
       };
     };
-  </script>
+</script>
 
   <%# Header %>
-  <div class="mb-6 flex items-start justify-between gap-3">
+  <div class="mb-5 flex items-start justify-between gap-3">
     <div class="min-w-0">
       <% if @contest.slate %>
         <p class="text-sm text-secondary font-medium"><%= @contest.slate.name %></p>
       <% end %>
       <h1 class="text-2xl md:text-3xl font-extrabold text-heading flex items-center gap-2 flex-wrap">
         <%= @contest.name %>
-        <span class="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-red-400">
-          <span class="h-2 w-2 rounded-full bg-red-500 animate-pulse"></span> Live
+        <% badge = contest_live_badge(@contest) %>
+        <span class="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider <%= badge[:classes] %>"
+              data-test="live-state" data-state="<%= contest_live_state(@contest) %>">
+          <span class="h-2 w-2 rounded-full <%= badge[:dot] %>"></span> <%= badge[:label] %>
         </span>
       </h1>
     </div>
     <%= link_to "← Contest", contest_path(@contest), class: "btn btn-outline btn-sm flex-shrink-0" %>
   </div>
 
-  <%# Games — wrapper owns the id; Contest::LiveBroadcast updates its inner HTML. %>
+  <%# The league board's own score injectors, scoped to THIS contest's games.
+      Self-gated on Rails.env.local? inside the partial, so it draws nowhere but
+      a developer's machine. The contest page had none, which meant the only way
+      to exercise a live score here was to open /live in another tab and score a
+      game this contest happens to contain. %>
+  <%= render "live/dev_score_tools", games: @contest.games_by_phase.values.flatten %>
+
+  <%# THE CENTREPIECE, first and full width. The game you are watching is the
+      reason the page is open, so it gets the whole row and the large type; the
+      strip that CHOOSES it sits underneath, and the two columns of standings and
+      talk sit under that. Wrapper owns the id; the broadcaster updates its inner
+      HTML on every score. %>
+  <div id="contest_<%= @contest.id %>_focus" class="mb-4">
+    <%= render "contests/live_focus", **@games, contest: @contest, focus_slug: @focus_slug %>
+  </div>
+
+  <%# The strip, full width, directly under the game it drives. %>
   <div id="contest_<%= @contest.id %>_games">
     <%= render "contests/live_games", **@games, contest: @contest %>
   </div>
 
-  <%# Leaderboard + Chat — mirrors the show page (2 cols desktop, tabs mobile). %>
-  <div x-data="{ tab: 'leaderboard' }" class="mb-8">
-    <div class="flex gap-1 mb-4 md:hidden bg-surface-alt rounded-lg p-1">
-      <button type="button" @click="tab = 'leaderboard'"
-              :class="tab === 'leaderboard' ? 'bg-primary text-white' : 'text-secondary hover:text-heading'"
-              class="flex-1 py-2 rounded-md text-sm font-semibold transition">Leaderboard</button>
-      <button type="button" @click="tab = 'chat'"
-              :class="tab === 'chat' ? 'bg-primary text-white' : 'text-secondary hover:text-heading'"
-              class="flex-1 py-2 rounded-md text-sm font-semibold transition">Chat</button>
+  <%# Standings on the right, talk on the left. DOM order puts the ranking first
+      so a single-column phone reads what matters before the chatter; at lg the
+      explicit columns put it back on the right. %>
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start mb-8">
+    <div id="contest_<%= @contest.id %>_leaderboard" class="lg:col-start-2 lg:row-start-1">
+      <%= render "contests/turf_totals_leaderboard", compact: true, viewer: current_user %>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:items-start">
-      <%# Wrapper owns the id; the broadcaster updates its inner HTML (the compact
-          leaderboard partial), so the wrapper + id survive every re-rank. %>
-      <div id="contest_<%= @contest.id %>_leaderboard" :class="tab === 'leaderboard' ? '' : 'hidden'" class="md:block">
-        <%= render "contests/turf_totals_leaderboard", compact: true, viewer: current_user %>
-      </div>
-      <div x-cloak :class="tab === 'chat' ? '' : 'hidden'" class="md:block">
-        <%= render "contests/chat_panel", contest: @contest %>
-      </div>
+    <div class="lg:col-start-1 lg:row-start-1">
+      <%= render "contests/chat_panel", contest: @contest %>
     </div>
   </div>
 
   <%# Hidden goal feed — broadcast_append_to drops data-only nodes here; the
-      observer below turns each into a toast, then removes it. %>
+      observer below turns each into a toast + the scoring animation, then
+      removes it. %>
   <div id="contest_<%= @contest.id %>_goal_feed" class="hidden" aria-hidden="true"></div>
+
+  <%# THE SCREEN-READER ANNOUNCEMENT. Everything the live page says about a score
+      and a re-rank is visual — a colour, a badge, a row that slides. Without this
+      a non-sighted reader is told nothing at all when the contest moves. %>
+  <div id="contest_<%= @contest.id %>_announcer" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
 </div>
 
-<script>
-  (function () {
-    var feed = document.getElementById('contest_<%= @contest.id %>_goal_feed');
-    if (!feed || feed.dataset.observed) return;  // guard double-attach across Turbo visits
-    feed.dataset.observed = '1';
+<%# The same scoring banner the league board raises, from the same partial. It
+    is fixed-position, so it sits outside the page wrapper. %>
+<%= render "live/score_banner" %>
 
-    function fire(node) {
-      if (node.nodeType !== 1) return;
-      var d = node.dataset;
-      var matchup = ((d.homeTeam || '') + ' ' + (d.homeScore || '0') + '–' + (d.awayScore || '0') + ' ' + (d.awayTeam || '')).trim();
-      var detail;
-      if (d.event === 'final') {
-        detail = { type: 'notice', title: 'Full time', message: matchup, duration: 4000 };
-      } else {
-        var title = (((d.teamEmoji ? d.teamEmoji + ' ' : '') + (d.team || 'Goal')) + ' scored!').trim();
-        var msg = (d.player ? d.player + ' · ' : '') + matchup;
-        detail = { type: 'notice', title: title, message: msg, duration: 3500 };
-      }
-      try { window.dispatchEvent(new CustomEvent('toast', { detail: detail })); } catch (_) {}
-      node.remove();
-    }
-
-    // Drain anything already present (broadcast could land before attach).
-    Array.prototype.slice.call(feed.children).forEach(fire);
-    new MutationObserver(function (muts) {
-      muts.forEach(function (m) { Array.prototype.slice.call(m.addedNodes).forEach(fire); });
-    }).observe(feed, { childList: true });
-  })();
-</script>
+<%= render "contests/live_script", contest: @contest %>

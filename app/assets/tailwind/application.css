@@ -120,19 +120,78 @@
   .tm-sidebar-pushed .tm-pair-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); }
 }
 
-/* The mobile entry slip is a fixed bottom bar at z-index:9999 so it can sit
-   above contest cards. The gear menu must cover it while open. */
-.tm-gear-sidebar-layer { z-index: 10000; }
+/* Sidebar-open label hold: 1120-1343.98px keeps the SMALL opponent labels.
 
-/* Toast z-index defaults from studio-engine (60/55) sit below our
-   sticky navbar (z-[110] from layouts/_navbar.html.erb) and the modal
-   backdrop (z-[120]). Override via the engine's CSS custom properties
-   so toasts (200/199) surface above everything — including any open
-   modal — no !important needed since studio-engine 0.4.10. */
-:root {
-  --studio-toast-z: 200;
-  --studio-toast-blur-z: 199;
+   This is the second half of the rule above, and the two are complementary by
+   construction — that one caps at 1119.98px, this one opens at 1120px, the exact
+   width where the 2-up fallback ends and four cards go back across the pushed
+   column at ~180px each.
+
+   THE BUG. contests/_multi_week_team_card steps its opponent labels up at `lg`
+   (week 9px -> 10px, abbreviation and emoji 10px -> text-sm/14px, cell padding
+   1px -> 0.25rem, row gap 2px -> 4px) on a premise it states in its own comment:
+   the card "only reaches ~236px at 1024px". That premise is TRUE with the
+   sidebar CLOSED and FALSE with it OPEN. With the sidebar open the labels step
+   up at 1024 while the pushed card is at its NARROWEST, and from 1120 the
+   result is a card that is 180px wide wearing 14px abbreviations: measured
+   cart-open at 1120, ALL 32 opponent abbreviations clipped and every "Week n"
+   label wrapped to two lines. One pixel down, at 1119, the fallback above is
+   still in force and the same board reads "Commanders" and "SEA / PIT / JAX"
+   in full. It is clean again from 1344, where the push cascade steps
+   20rem -> 15rem and the card regains ~240px.
+
+   PRE-EXISTING, not introduced by the fallback rule above: deleting that rule
+   from the CSSOM and re-measuring gives identical numbers at every width from
+   1120 up.
+
+   THE FIX is the principle _multi_week_team_card already states and then
+   contradicts: size those labels on the CARD, not the viewport. There is no
+   card-width media query, so the nearest honest proxy is "is the sidebar
+   pushing this column" — .tm-sidebar-pushed on the ancestor — across the band
+   where the push makes the card too narrow for the large variant. Every
+   declaration here restores the small variant EXACTLY (including line-height:
+   inherit, which undoes text-sm's 1.25rem so the row's own leading-none is felt
+   again); nothing here invents a third size.
+
+   Unlayered and class-scoped for the same reason as the rule above: author CSS
+   outside @layer utilities outranks any layered Tailwind variant regardless of
+   specificity or source order, so `lg:text-sm` cannot win this back, and it
+   applies ONLY while the sidebar is open. */
+@media (min-width: 1120px) and (max-width: 1343.98px) {
+  .tm-sidebar-pushed .tm-opponent-cell      { padding-left: 1px; padding-right: 1px; }
+  .tm-sidebar-pushed .tm-opponent-week      { font-size: 9px; }
+  .tm-sidebar-pushed .tm-opponent-row       { gap: 0.125rem; }
+  .tm-sidebar-pushed .tm-opponent-row span  { font-size: 10px; line-height: inherit; }
 }
+
+/* The layer scale comes from the ENGINE — engine.css `-- Layer scale`, imported
+   at the top of this file. The ADOPTION SHIM that used to sit here is deleted.
+   It mirrored three engine-owned things: the tier :root, a copy of the
+   modal-open lift that raises the environment bars over a backdrop, and the
+   --studio-toast-z / --studio-toast-blur-z override seams. All three first
+   shipped in engine 0.63.0, which is why the FLOOR moved there and the pin now
+   reads ~> 0.63. The RESOLVED version (0.65.0) is not the reason: a two-segment
+   ~> admits anything under 1.0, so the old ~> 0.62 already allowed it.
+
+   IT HAD TO GO RATHER THAN LINGER HARMLESSLY. The engine build is imported
+   ABOVE and the shim's :root came AFTER it — equal specificity, later source
+   order wins — so THE SHIM OUTRANKED THE ENGINE. Leaving it meant this app kept
+   a frozen private copy of the scale while believing it shared one, and the next
+   engine layer change would silently not reach us. Nothing would have failed.
+
+   THE OTHER TWO HALVES WERE CHECKED BEFORE DELETING, not assumed. The engine's
+   lift covers both the bar-stack class this app's navbar emits and the
+   app-banner class it does not, and carries the tier fallback this copy lacked;
+   the engine's own layouts/studio/_flash defaults both toast seams to the toast
+   tier. So no resolved value moves — only the owner.
+
+   test/lib/engine_pin_contract_test.rb now REFUSES a re-introduced shim, in any
+   source CSS file this app ships, once the resolved gem defines the tiers. */
+
+/* The gear menu is a full-cover drawer: above the docked entry slip and the
+   navbar, BELOW a modal. It used to be a bare 10000 — which also tied it exactly
+   with the engine's own link sidebar, two unrelated drawers on one number. */
+.tm-gear-sidebar-layer { z-index: var(--z-drawer, 150); }
 
 /* Navbar gear-sidebar emoji hover slide (components/_gear_sidebar via the
    emoji_swap helper). Both emoji are stacked in a fixed gutter; on row hover the
@@ -677,6 +736,12 @@
      queries to simulate a breakpoint. */
   .nav-shell {
     --nav-ramp: 144px;
+    /* How far the collapse may travel in ONE animation frame, as header
+       height. Position-linked progress alone puts the WHOLE collapse in a
+       single frame on a flick — measured 39px on QA, the full 178 -> 139.
+       navCollapse() converts this to --nav-p units off --nav-ramp's 3x
+       relation to the collapse total, so one number covers every band. */
+    --nav-max-step: 5px;
     --nav-pad: calc(1.5rem - 1rem * var(--nav-p));                    /* py-6 -> py-2  */
     --nav-logo-size: calc(3rem - 1rem * var(--nav-p));                /* 48px  -> 32px */
     --nav-title-size: calc(1.875rem - 0.625rem * var(--nav-p));       /* 3xl   -> xl   */
@@ -950,7 +1015,49 @@
   );
 }
 
+/* Prize-pot shimmer (contests/_contest_header Row 2).
+   A single light sweep across the dollar figure, then a long hold — the whole
+   cycle is 10s and the sweep occupies the first ~1.2s of it, so the number
+   catches the eye periodically instead of animating continuously.
+
+   The sweep has to travel across the GLYPHS, not a box behind them, so the
+   element paints two background layers clipped to the text: a static
+   currentColor fill underneath (this is what keeps the digits their theme
+   green) and the moving highlight on top. `-webkit-text-fill-color:
+   transparent` — not `color: transparent` — is what lets the fill layer's
+   `currentColor` still resolve to the real text color. */
+@keyframes prize-shimmer {
+  0%        { background-position: 170% 0, 0 0; }
+  12%, 100% { background-position: -70% 0, 0 0; }
+}
+.prize-shimmer {
+  background-image:
+    linear-gradient(100deg, transparent 44%, rgb(255 255 255 / 0.9) 50%, transparent 56%),
+    linear-gradient(currentColor, currentColor);
+  background-size: 220% 100%, 100% 100%;
+  background-position: 170% 0, 0 0;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: prize-shimmer 10s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .prize-shimmer {
+    animation: none;
+    background-image: none;
+    -webkit-text-fill-color: currentColor;
+  }
+}
+
 /* === Modal host (studio/modals/_host.html.erb) =========================
+   THE HOST IS NOT IN THIS APP. Since 2026-08-28 (defork-turf-modal-host) the
+   partial named throughout this block resolves from the studio-engine GEM, not
+   from app/views — this app deleted its fork of it. The virtual path below is
+   still how you render it; the file is in the gem. The engine host also ships
+   an inline \3c style> block defining the SAME keyframe and class names as this
+   block (verified name-for-name 2026-08-28, values not diffed), so these rules
+   are a duplicate rather than the only definition.
    Promoted from the local override partial's inline \3c style> block
    2026-05-24 — these rules are page-static and were being emitted on
    every HTML response. */
@@ -1237,8 +1344,9 @@ body.modal-open { overflow: hidden; }
 
 /* Level-up glow — window.armFreeEntryGlow() pulses the badge three times when
    a SEEDS_PER_LEVEL crossing mints a free entry, so the celebration points at
-   WHERE the token landed. The navbar sits at z-[110], below the modal
-   backdrop; toast feedback remains the only layer above an open modal.
+   WHERE the token landed. The navbar sits at --z-nav, below --z-modal; toast
+   feedback (--z-toast) and the QA bars (--z-banner) are what surface above an
+   open modal.
    ALWAYS the modern slash form rgb(var(...) / A) — a space-separated
    "R G B" var is silently dropped by the legacy rgba(var(...), A) form. */
 .free-entry-glow { animation: free-entry-glow 1.4s ease-out 3; }
@@ -1537,10 +1645,13 @@ html.dark { --rx-fill: 0 0 0; }
 }
 
 /* Picker — position:fixed (set by openReactionPicker) so the message-list
-   overflow can't clip it; hidden until .is-open. */
+   overflow can't clip it; hidden until .is-open. `fixed` is what escapes the
+   clip, so the tier only has to beat the message list: --z-dropdown, like every
+   other anchored popover. The bare 130 it carried put it over an open modal,
+   tied with two unrelated layers on the same number. */
 .chat-reaction-picker {
   position: fixed;
-  z-index: 130;
+  z-index: var(--z-dropdown, 50);
   display: none;
   flex-wrap: wrap;
   gap: 2px;
@@ -1693,6 +1804,191 @@ html.dark { --rx-fill: 0 0 0; }
   .holo-card.is-releasing { animation: none; }
   .holo-border::before,
   .holo-border-glow::before { animation: none; }
+}
+
+/* ── The contest card sash ────────────────────────────────────────────────
+   A ribbon clipped into a contest card's top-right corner: "Entered",
+   "3 Entries", or "Coming Soon".
+
+   HOW THE CLIP WORKS, because it is not obvious from the numbers. .tt-sash is
+   a 132px square pinned to the card's corner with its own overflow hidden; the
+   span inside is far WIDER than that square (186px) and rotated 45°, so its
+   two ends run past the square's edges and are cut off by it. That is what
+   produces the mitred ribbon look with no clip-path and no SVG. Change the
+   square's size and the span's width/offsets have to move with it or the ends
+   stop being cut and hang off the card as a rotated rectangle.
+
+   The card itself must be `relative overflow-hidden` (contests/_contest_card):
+   relative anchors this square, and the card's own overflow is a second clip
+   that keeps the ribbon inside its rounded corner.
+
+   z-index 2 lifts it above the coming-soon dim layer, which is the point — the
+   card is pushed back and the one label saying why is not.
+
+   COLOURS ARE LITERAL HEX, DELIBERATELY. The brand palette is a JS config, and
+   its brand hues compile to literal values rather than to --color-* custom
+   properties (verified in app/assets/builds/tailwind.css: text-mint resolves to
+   #06d6a0, text-violet to #8e82fe). A var() here would resolve to nothing and
+   the ribbon would render transparent. These two are the palette's mint-500 and
+   violet DEFAULT.
+
+   Navy (#1A1535) is the text on both fills rather than white: on mint-500 white
+   measures 2.56:1 — below AA and the same trap the bg-primary guard at the foot
+   of this file exists for — while navy measures 9.34:1. Neither colour is a
+   theme token, so that figure holds in the light theme too. */
+.tt-sash {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 132px;
+  height: 132px;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 2;
+}
+.tt-sash > span {
+  position: absolute;
+  top: 26px;
+  right: -44px;
+  display: block;
+  width: 186px;
+  padding: 5px 0;
+  transform: rotate(45deg);
+  text-align: center;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #1A1535;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.45);
+}
+.tt-sash-entered > span { background: #06D6A0; }
+.tt-sash-soon > span { background: #8E82FE; }
+
+/* ── The featured contest rail ────────────────────────────────────────────
+   The horizontal strip of open + coming-soon cards at the top of /contests.
+   Same treatment .tt-games-strip gets on the live page, for the same reasons:
+   a scrollbar under a single row of cards reads as chrome rather than as an
+   affordance, and `overscroll-behavior-x: contain` stops a horizontal fling at
+   the end of the strip from turning into a browser back-navigation — one flick
+   away on a trackpad, and it would throw the reader off the page.
+
+   The right-edge fade that advertises the overflow is NOT here either, and it
+   is not a sibling element: the contestRail Alpine component binds a
+   `mask-image` onto this box directly, tapering the CONTENT to transparent
+   rather than painting a gradient that would have to know the page's
+   background colour. It lives in JS because whether there is more to scroll is
+   a measurement, not a style — a rail whose cards all fit is left unmasked. */
+.tt-contest-rail {
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.tt-contest-rail::-webkit-scrollbar { display: none; }
+
+/* ── The contest card's hover response ────────────────────────────────────
+   A LIVE contest's card lifts and pushes into its own banner, and the bubbles
+   below rise around it. A COMING SOON one does none of it — it does not
+   carry this class at all, and contests/_contest_card gives it the inert
+   `.card` where a live contest gets `.card-hover .tt-contest-card`. That pair
+   is the whole point: the rail mixes both bands, the dim layer alone said
+   "later" only once the eye had already reached the card, and a surface that
+   answers the cursor is the fastest way to say which ones are playable now.
+
+   NO COLOURED GLOW HERE — the operator looked at one and said no (2026-09-06).
+   A green drop-shadow under a lifted card pooled on the page background and
+   read as a second light source competing with the bubbles, which are the
+   effect. `.card-hover` (the engine's, studio_engine/engine.css) already tints
+   the border and lays a soft neutral shadow on hover; this class adds MOTION
+   and nothing else, and the carbonation carries the colour. If a glow is ever
+   wanted back, it belongs on `:hover` below and it should be argued for, not
+   restored by reflex.
+
+   The banner push is a scale on the image, clipped by the card's existing
+   `overflow-hidden`. 1.05 is deliberately small: the banner is a 5:1 crop
+   already showing a slice of the art, and a bigger push crops it further at
+   exactly the moment the reader is looking at it. */
+.tt-contest-card {
+  transition: transform 200ms ease;
+}
+.tt-contest-card:hover {
+  transform: translateY(-4px);
+}
+.tt-contest-card-banner {
+  transition: transform 450ms ease;
+}
+.tt-contest-card:hover .tt-contest-card-banner {
+  transform: scale(1.05);
+}
+
+/* Motion off: the lift and the banner push both stop. The card still ANSWERS
+   the cursor — `.card-hover`'s border tint and shadow are not motion and are
+   untouched here — so the affordance survives for the reader who asked for
+   less movement. The engine's own `!important` guard stops the bubbles. */
+@media (prefers-reduced-motion: reduce) {
+  .tt-contest-card,
+  .tt-contest-card-banner { transition: none; }
+  .tt-contest-card:hover { transform: none; }
+  .tt-contest-card:hover .tt-contest-card-banner { transform: none; }
+}
+
+/* ── The card's carbonation ───────────────────────────────────────────────
+   The hold button's fizz (studio/_fizz_layer + engine-motion.css), driven by a
+   contest card's hover instead of a button's. THREE RULES, and everything else
+   — the bubble's size, colour slot, glow, drift keyframes, the whole scatter —
+   is the engine's, unforked. `.hold-stack` on the rail's card wrapper is what
+   brings those in; contests/index renders the layer as its direct child.
+
+   1. DISPLAY. `.hold-stack` sets `display: block`, and this wrapper is a flex
+      box holding the card. Both rules are unlayered, so a Tailwind `flex`
+      utility on the element CANNOT win this — @layer utilities loses to
+      unlayered CSS whatever the source order — and the wrapper would silently
+      go block. Set here, where it is a decision rather than a collision.
+
+   2. AT REST, NOTHING. The engine simmers its bubbles continuously, which is
+      right for one button and wrong for a rail of eight cards: a page that
+      bubbles at nobody is noise, and the operator asked for this ON HOVER.
+      `animation: none` at opacity 0 is the off state.
+
+   3. ON HOVER, A FULL BOIL — the engine's own boil, copied as a value rather
+      than re-derived: fizz-boil at 0.62x the bubble's duration and 0.35x its
+      delay, the same numbers .hold-stack's hover rule uses. The per-bubble
+      delay is what makes the carbonation BUILD over the first half-second
+      instead of switching on all at once.
+
+   REDUCED MOTION IS ALREADY HANDLED, and not by omission: engine-motion.css
+   ends with an `!important` off-switch on `.hold-stack .fizz-bit`, written
+   precisely because a state rule like the hover below outranks any selector
+   that guard could otherwise write. It beats rule 3. Do not add a second one
+   here — a duplicate would drift, and this one is load-bearing. */
+.tt-contest-stack {
+  display: flex;
+}
+
+/* THE LAYER IS BIGGER THAN THE CARD, and that is the whole trick. The engine
+   places its bubbles in a 3x2 grid of ZONES measured in PERCENTAGES of the
+   layer — the top band at 2-14%, the bottom at 86-98%, the side spray in the
+   outer 5% — which lands them just inside the edges of a 48px button. Pinned to
+   `inset: 0` on a ~300px card those same bands sit 6-42px INSIDE an opaque
+   surface, and a bubble that drifts 12-36px never gets out from behind it: the
+   effect renders, runs, and is invisible. Pushing the layer out past the card
+   straddles each band ACROSS the edge it belongs to, so the bands start where
+   they can escape. Measured on a live 384x290 card, counting bubbles whose
+   start or end point falls outside it: 15 of 30 at inset 0, 28 of 30 at this
+   one — and the half that failed was the whole TOP edge, which is why the
+   effect read as bubbles pooling under the card rather than around it.
+   Horizontal is held under the rail's 16px gap, so a card's spray stays nearer
+   its own card than its neighbour's. */
+.tt-contest-stack > .hold-fizz {
+  inset: -20px -22px;
+}
+
+.tt-contest-stack .fizz-bit {
+  animation: none;
+  opacity: 0;
+}
+.tt-contest-stack:hover .fizz-bit {
+  animation: fizz-boil calc(var(--ft, 1.8s) * 0.62) linear calc(var(--fd, 0s) * 0.35) infinite;
 }
 
 /* ── Accessibility guard: small white text on bg-primary ─────────────────────

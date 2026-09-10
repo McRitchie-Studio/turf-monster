@@ -10,7 +10,6 @@
     <%= render "hub_tile", name: "Theme",         url: admin_theme_path %>
     <%= render "hub_tile", name: "Emails",        url: admin_emails_path %>
     <%= render "hub_tile", name: "Navbar",        url: admin_navbar_path %>
-    <%= render "hub_tile", name: "Modals",        url: admin_modals_path %>
     <%= render "hub_tile", name: "Level Badges",  url: admin_level_badges_path %>
     <% unless Rails.env.production? %>
       <%= render "hub_tile", name: "Toast Test", url: toast_test_path %>
@@ -24,6 +23,8 @@
     <%= render "hub_tile", name: "NFL Team Totals", url: nfl_team_totals_path,
           note: "2026 baseline expected points by team and week" %>
     <%= render "hub_tile", name: "Goal Console", url: admin_scoring_path, note: "Record goals live on game day (team + minute)" %>
+    <%= render "hub_tile", name: "🏈 NFL Weeks", url: admin_nfl_weeks_path,
+          note: "Drag a week's games into the order the live board prefers" %>
   <% end %>
 
   <%= render layout: "hub_section", locals: { title: "Admin" } do %>
@@ -33,6 +34,8 @@
           note: "Ten-row QA snapshots for users, teams, and arenas" %>
     <%= render "hub_tile", name: "Users",        url: admin_users_path, status: :reviewed %>
     <%= render "hub_tile", name: "Free Entries", url: admin_free_entries_path %>
+    <%= render "hub_tile", name: "Entry Gifts",  url: admin_entry_gifts_path,
+          note: "Send a friend a paid-for entry by email" %>
     <%= render "hub_tile", name: "Currencies",   url: admin_currencies_path, note: "On-chain accepted_currencies (register / deactivate / sweep)" %>
     <% unless Rails.env.production? %>
       <%= render "hub_tile", name: "Faucet",     url: faucet_path %>

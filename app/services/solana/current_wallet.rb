@@ -24,9 +24,13 @@ module Solana
   #   ApplicationController#set_app_session   -> CLEARED. Every login starts with
   #     no current wallet, so a Phantom session cannot leak its brand into a later
   #     email or Google login on the same browser.
-  #   SolanaSessionsController#verify         -> SET. This is the only path that
-  #     proves a wallet by signature, and it covers BOTH first auth and a wallet
-  #     SWITCH, because a switch re-auths through the same endpoint.
+  #   ApplicationController#promote_to_onchain_session! -> SET. Every path that
+  #     proves a wallet by signature calls it: SolanaSessionsController#verify
+  #     (wallet LOGIN, which also covers a wallet SWITCH, since a switch re-auths
+  #     through the same endpoint) and AccountsController#link_solana (wallet
+  #     LINK, both its plain and merge branches). It used to say "verify is the
+  #     only path", and link_solana quietly was not one — a Google account that
+  #     linked Phantom kept a brandless :web2 session it could not enter with.
   #   ApplicationController#clear_app_session -> CLEARED, on logout.
   #
   # An unknown or absent brand is not an error. It resolves to WalletProvider's
