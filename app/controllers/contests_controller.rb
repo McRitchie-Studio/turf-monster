@@ -124,10 +124,17 @@ class ContestsController < ApplicationController
     end
 
     vault  = Solana::Vault.new
+    # ADMIN SLOT EMPTY, like #create and every other money path here. It used to
+    # be admin-signed so the BROWSER could broadcast — which is exactly the half
+    # that cannot run on the redirect transport, where the finalize POST is made
+    # by studio-engine's callback document and no solanaWeb3 is loaded. The
+    # server broadcasts now (see #finalize_bundle), so the wallet's job is to
+    # SIGN and hand the bytes back.
     result = vault.build_create_contest(
       current_user.web3_solana_address,
       contest.slug,
-      **contest.onchain_params
+      **contest.onchain_params,
+      admin_signs: false
     )
 
     render json: {
@@ -143,33 +150,41 @@ class ContestsController < ApplicationController
     render_create_error(e.message)
   end
 
+  # WRITE-AHEAD IS NOT AVAILABLE HERE, so the order is stated instead:
+  #
+  #   1. verify the token, the PDA, and that the signed wire IS this bundle's
+  #      create_contest — before a lamport moves
+  #   2. cosign + broadcast   the operator's prize-pool USDC moves into the vault
+  #   3. log the signature    immediately, at ERROR level, before anything that
+  #                           can raise — it is the only off-chain evidence
+  #                           tying this request to the on-chain effect
+  #   4. verify the read-back (OPSEC-010)
+  #   5. persist              Contest + LandingPage, carrying that signature
+  #
+  # THE SERVER BROADCASTS NOW. It used to be the BROWSER: contests/generator
+  # called sendRawTransaction then confirmTransaction itself and POSTed only the
+  # resulting signature, so every line of this action was already post-spend.
+  # That cannot work on the redirect transport — the document that would have
+  # broadcast is destroyed while the wallet signs, and studio-engine's callback
+  # page loads no solanaWeb3 — so #generate_bundle now leaves the admin slot
+  # EMPTY and the cosign happens here, exactly as it does in #finalize.
+  #
+  # WHAT THAT BUYS BESIDES MOBILE: this path now runs
+  # assert_create_contest_cosign_safe!, which it never did. The server used to
+  # co-sign nothing and verify the signature after the fact; now a wire that is
+  # not this bundle's create_contest is refused BEFORE the broadcast.
+  #
+  # WHAT IT STILL COSTS, said plainly rather than left to be discovered: steps 4
+  # and 5 can raise after the money has moved, which strands a funded PDA with no
+  # Contest row. That window existed before this change too (the client
+  # broadcast, then POSTed). The ERROR log at step 3 is what makes such a strand
+  # findable by slug and signature; the flow is idempotent by slug, so re-running
+  # the provision after a strand reconciles rather than double-charges — the PDA
+  # already exists and the second create_contest fails before spending anything.
   def finalize_bundle
     payload = verify_bundle_payload(params[:params_token])
     raise "User mismatch — token was issued to a different user" unless payload[:user_id] == current_user.id
-
-    # THE MONEY MOVED BEFORE THIS ACTION WAS ENTERED, so — unlike #finalize —
-    # there is no post-broadcast line to sit behind. The CLIENT broadcasts and
-    # confirms the prize-pool transfer itself (contests/generator.html.erb:
-    # sendRawTransaction then confirmTransaction) and only POSTs here after. The
-    # whole body and both rescues are therefore already post-spend.
-    #
-    # Same staleness #finalize had, reachable end to end: this action renders
-    # `redirect: generator_contests_path`, the client assigns it to
-    # window.location.href, and #generator sets no @wallet_balances — so
-    # #display_balance takes its cache-first branch and serves the pre-spend
-    # number for the rest of the 60s TTL. Per contest_bundle.rb's header,
-    # finalize_phantom! is the only provisioning path that works on prod.
-    #
-    # PLACEMENT: as early as verified identity allows, so the success render
-    # and the StandardError rescue both inherit it. Not earlier — above these
-    # two lines the token is not yet known to be server-issued to THIS user,
-    # and busting on an unverified POST would let any request thrash a
-    # logged-in user's cache.
-    #
-    # Both keys, not just USDC: see #invalidate_wallet_balance_cache. The guard
-    # is redundant here (the line above already dereferenced current_user) and
-    # kept for symmetry with the other #invalidate_* call sites, which need it.
-    invalidate_wallet_balance_cache if logged_in?
+    raise "Missing signed transaction" if params[:signed_tx].blank?
 
     key = payload[:key]
     raise "Unknown bundle" unless ContestBundle::ALL.key?(key)
@@ -180,14 +195,45 @@ class ContestsController < ApplicationController
     derived_pda_b58 = Solana::Keypair.encode_base58(vault.contest_pda(payload[:slug]).first)
     raise "Contest PDA mismatch — slug=#{payload[:slug]}" unless params[:contest_pda] == derived_pda_b58
 
+    # The spec is the server's, not the client's: `key` selects it from
+    # ContestBundle::ALL, so rebuilding the draft here re-derives exactly the
+    # on-chain params #generate_bundle built the transaction from. A slate whose
+    # first kickoff moved in between changes lock_timestamp and this refuses,
+    # which is the right answer — the operator rebuilds rather than funding a
+    # contest that locks at a time nobody chose.
+    draft = ContestBundle.build_unpersisted_contest(key, current_user)
+    vault.assert_create_contest_cosign_safe!(
+      params[:signed_tx],
+      wallet_address: payload[:creator_pubkey],
+      contest_slug: payload[:slug],
+      onchain_params: draft.onchain_params
+    )
+
+    tx_signature = vault.cosign_and_broadcast_create_contest(params[:signed_tx])
+    # ERROR level deliberately, on a success path: this line is the only record
+    # of the on-chain effect until step 5 writes the row, and a strand between
+    # them has to be findable in the same place an operator already looks.
+    Rails.logger.error(
+      "[ContestsController#finalize_bundle] BROADCAST key=#{key} slug=#{payload[:slug]} " \
+      "pda=#{derived_pda_b58} sig=#{tx_signature}"
+    )
+
+    # The operator's navbar balance is now WRONG. Busted here, immediately after
+    # the broadcast rather than beside the render, because every step below can
+    # raise — bust it at the render and a provision that took the money but
+    # failed its read-back leaves the operator looking at a pre-spend balance
+    # until the 60s TTL lapses. Both keys, not just USDC: see
+    # #invalidate_wallet_balance_cache. Guarded like every other call site.
+    invalidate_wallet_balance_cache if logged_in?
+
     verify_solana_transaction!(
-      params[:tx_signature],
+      tx_signature,
       instruction: "create_contest",
       signer: payload[:creator_pubkey],
       writable: derived_pda_b58
     )
 
-    result = ContestBundle.finalize_phantom!(key, current_user, derived_pda_b58, params[:tx_signature],
+    result = ContestBundle.finalize_phantom!(key, current_user, derived_pda_b58, tx_signature,
                                              season_id: payload[:season_id])
     render json: {
       success:  true,
@@ -197,6 +243,9 @@ class ContestsController < ApplicationController
     }
   rescue ActiveSupport::MessageVerifier::InvalidSignature
     render_create_error("Invalid or expired bundle token — restart the provision flow.")
+  rescue Solana::Vault::UnsafeCosignError => e
+    Rails.logger.warn("[ContestsController#finalize_bundle] rejected create_contest cosign: #{e.message}")
+    render_create_error("Signed transaction did not match this bundle. Restart the provision flow and try again.")
   rescue StandardError => e
     Rails.logger.error("[ContestsController#finalize_bundle] #{e.class}: #{e.message}")
     capture_unlogged(e)
@@ -252,7 +301,7 @@ class ContestsController < ApplicationController
       serialized_tx: result[:serialized_tx],
       contest_pda:   result[:contest_pda],
       slug:          contest.slug,
-      params_token:  sign_onchain_create_payload(contest, current_user)
+      params_token:  sign_onchain_create_payload(contest, current_user, stash_contest_banner)
     }
   rescue StandardError => e
     Rails.logger.error("[ContestsController#create] #{e.class}: #{e.message}")
@@ -408,7 +457,7 @@ class ContestsController < ApplicationController
     # promote it could strand a funded contest at `pending`; after the promote
     # the worst it can cost is a missing image on a contest that exists, is
     # funded, and is live. Logged, never raised.
-    attach_contest_banner(contest)
+    attach_contest_banner(contest, payload[:contest_image_id])
 
     render json: { success: true, redirect: contest_path(contest), slug: contest.slug }
   rescue ActiveSupport::MessageVerifier::InvalidSignature
@@ -1091,7 +1140,15 @@ class ContestsController < ApplicationController
         ptx_slug: ptx.slug,
         # Advisory for the client's copy only — the server decides the funding and
         # re-reads its own decision at confirm time.
-        token_funded: entry_token.present?
+        token_funded: entry_token.present?,
+        # SAME CONTRACT, FOR THE SAME REASON: the sign card names a currency, and
+        # the server is the only party that knows which one it priced. It applied
+        # the "usdc" default above, so a board that offers no picker sends no
+        # currency and cannot name one — that is how the world-cup survivor board
+        # came to render "Approve the  transfer in your wallet..." with the token
+        # missing and a double space. Echoing the decision means a call site can
+        # never disagree with the transfer it is about to ask for.
+        currency: currency
       }
     end
   rescue StandardError => e
@@ -2293,10 +2350,50 @@ class ContestsController < ApplicationController
   # fail, so it runs last and swallows its own failure — the alternative is
   # telling a user their contest failed when it is live, funded, and merely
   # missing a picture. Logged against the contest so it is still diagnosable.
-  def attach_contest_banner(contest)
-    return if params[:contest_image].blank?
+  # Upload the create form's banner NOW, unattached, and hand back its signed id
+  # for the params_token. Returns nil when no file was sent.
+  #
+  # NEVER FATAL. A contest whose image failed to upload is a contest with no
+  # image; refusing to build the transaction over it would cost the operator the
+  # whole flow for the least important field on the form. Logged, never raised —
+  # the same rule the attach side has always followed.
+  def stash_contest_banner
+    file = params.dig(:contest, :contest_image)
+    return nil if file.blank? || !file.respond_to?(:tempfile)
 
-    contest.contest_image.attach(params[:contest_image])
+    ActiveStorage::Blob.create_and_upload!(
+      io: file.tempfile,
+      filename: file.original_filename,
+      content_type: file.content_type
+    ).signed_id
+  rescue StandardError => e
+    Rails.logger.error("[ContestsController#create] banner stash failed: #{e.class}: #{e.message}")
+    capture_unlogged(e)
+    nil
+  end
+
+  # THE BANNER NOW ARRIVES AT PREPARE TIME, and the reason is a page death.
+  #
+  # It used to ride the FINALIZE post as an uploaded File. On the redirect
+  # transport — every ordinary mobile browser — the document that held that File
+  # is DESTROYED while the wallet signs, and the finalize POST is made by
+  # studio-engine's callback page, which has no form and no file input. A File
+  # cannot be written to the wallet journal, so the image would have vanished
+  # with no error anywhere: a contest created, funded, and silently unbranded.
+  #
+  # So #create stashes the upload as an unattached blob and binds its signed id
+  # to the params_token, and this attaches from whichever source is present.
+  # `params[:contest_image]` is still honoured FIRST so a caller that posts the
+  # file directly keeps working.
+  #
+  # A stash whose flow is then abandoned leaves an unattached blob, which is
+  # exactly what `ActiveStorage::Blob.unattached` and the framework's purge task
+  # exist to sweep.
+  def attach_contest_banner(contest, stashed_signed_id = nil)
+    source = params[:contest_image].presence || stashed_signed_id.presence
+    return if source.blank?
+
+    contest.contest_image.attach(source)
   rescue StandardError => e
     Rails.logger.error(
       "[ContestsController#finalize] banner attach failed for slug=#{contest.slug}: #{e.class}: #{e.message}"
@@ -2428,8 +2525,13 @@ class ContestsController < ApplicationController
   # Signed payload used to round-trip form params from #create → Phantom → #finalize
   # without trusting the client's re-posted values. JSON serialization downgrades
   # symbol keys to strings — #verify wraps the result in HashWithIndifferentAccess.
-  def sign_onchain_create_payload(contest, creator)
+  # `banner_signed_id` is an ActiveStorage signed id, or nil. It rides the SIGNED
+  # token for the same reason every other field does: #finalize rebuilds from the
+  # payload, not from params, so anything not in here is silently dropped between
+  # the operator picking a file and the row being written.
+  def sign_onchain_create_payload(contest, creator, banner_signed_id = nil)
     payload = {
+      contest_image_id:           banner_signed_id,
       slug:                       contest.slug,
       name:                       contest.name,
       slate_id:                   contest.slate_id,

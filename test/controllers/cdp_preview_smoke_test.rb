@@ -6,7 +6,7 @@ require "test_helper"
 #
 # WAS TWO SMOKES, THEN DROVE A PREVIEW. The sibling asserted /admin/modals
 # LISTED the "CDP ramp (Coinbase)" variant group and went with the gallery on
-# 2026-09-08. This one drove /admin/modals/preview/cdp-ramp until that seam was
+# 2026-09-09. This one drove /admin/modals/preview/cdp-ramp until that seam was
 # retired too, and it now asks the identical question of layouts/application —
 # the layout that actually renders this card to a player, rather than a second
 # layout keeping a second registration list.

@@ -90,8 +90,9 @@ require "prism"
 #      and opted in: referral-google-tokens-to-chat (57 citations in, 49 failing;
 #      139 out), email-signup-token-to-chat (103 in, 64 failing; 179 out),
 #      slate-build (48 in, 42 failing; 63 out), admin-contest-setup (121 in, 89
-#      failing; 219 out). The counts rose because the sweep cited claims the
-#      documents had been making with no number beside them. THE TWO UNCITED
+#      failing; 230 out, re-derived across a mid-task merge of `accepted`).
+#      The counts rose because the sweep cited claims the documents had been
+#      making with no number beside them. THE TWO UNCITED
 #      DOCUMENTS were cited in the same pass — live-scoring (72) and
 #      submit-entry-decision-tree (70) — because every check here starts from a
 #      parsed citation, so a document with none was not weakly guarded, it was
@@ -229,7 +230,10 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
     },
     "docs/workflows/admin-contest-setup.md" => {
       min_citations: 190, min_path: 105, min_bare: 80,
-      fallback_only_files: %w[app/views/layouts/application.html.erb]
+      fallback_only_files: %w[
+        app/views/layouts/application.html.erb
+        app/views/shared/_contest_create_intent.html.erb
+      ]
     },
     # The two documents that were UNCITED until 2026-09-09 (see UNCITED_DOCS).
     # Both name a fallback-only file for the same mechanical reason
@@ -286,9 +290,9 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # COVERAGE-completeness test: name it here, and say so in the README.
   UNCITED_DOCS = [].freeze
 
-  # The floor for the directory-wide parse, set below the 961 citations
-  # WORKFLOW_DOCS held after the sweep (measured 2026-09-09 by this file's own
-  # parser: admin-contest-setup 219, email-signup-token-to-chat 179,
+  # The floor for the directory-wide parse, set below the 972 citations
+  # WORKFLOW_DOCS held after the sweep (measured 2026-09-10 by this file's own
+  # parser: admin-contest-setup 230, email-signup-token-to-chat 179,
   # web3-landing-to-entry 164, referral-google-tokens-to-chat 139, live-scoring
   # 72, submit-entry-decision-tree 70, slate-build 63, market-snapshot 55). It
   # was 500 against 542 before the sweep; raised deliberately, because a floor

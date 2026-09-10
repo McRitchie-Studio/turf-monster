@@ -107,9 +107,16 @@
     <%# Registered on EVERY page, because the wallet returns to a page this app
         does not own — see the partial for the entry that was lost when this
         lived in the contest board. %>
+    <%# The HOW half of every on-chain flow — the return address, the cluster,
+        the 401-normalising fetch, and the handoff-never-happened watch. FIRST,
+        because the intents below use its fetch helper. It defines functions and
+        runs nothing at load. %>
+    <%= render "shared/wallet_op_runner" %>
     <%= render "shared/contest_entry_intent" %>
-    <%# The second intent, here for the same reason and rendered the same way.
-        Both are idempotent and both no-op on a page without wallet_ops.js. %>
+    <%# The other two intents, here for the same reason and rendered the same
+        way. All three are idempotent and all three no-op on a page without
+        wallet_ops.js. %>
+    <%= render "shared/contest_create_intent" %>
     <%= render "shared/username_rename_intent" %>
     <% if session_replay_active? %>
       <script src="https://cdn.logr-in.com/LogRocket.min.js" crossorigin="anonymous"></script>
@@ -2129,10 +2136,38 @@
       <% end %>
 
 
-      <%# Template reference modals — registered in non-production only so
-          they don't add JS surface area to prod. Surfaced at the top of
-          /admin/modals as "Templates" so new modal work has copy-paste
-          starting points. %>
+      <%# Template reference modals — the copy-from archetypes under
+          studio/modals/templates/, registered in non-production only so they
+          don't add JS surface area to prod.
+
+          NOTHING IN THIS APP OPENS ONE. No trigger, no link, and no call
+          anywhere that hands a template- id to modals.open — the only hits
+          for these ids are the five registrations below, the one defork
+          test that asserts a registration is still here, and the
+          retired-gallery docs guard, which borrows template-form to prove its
+          section slice stops short of the engine's cards. They are reachable
+          only by opening the id on this host by hand. Their REVIEW surface is
+          elsewhere and needs none of this — the engine's living style guide
+          cards all five in its own Templates section at /admin/style#modals
+          (studio-engine app/views/style/_modals.html.erb), and it opens them
+          on the guide's page-scoped dsModals host rather than on this one.
+
+          THE SENTENCE THIS REPLACES WAS TRUE WHEN IT WAS WRITTEN, and saying
+          so matters because a first pass at this comment claimed the
+          opposite. It said these were surfaced at the top of /admin/modals as
+          Templates. They were, with one correction. The gallery's variant
+          manifest — deleted with the page, so this is history rather than a
+          live citation — opened with five rows whose group was Templates, and
+          admin/modals.html.erb grouped that array by its group key and
+          rendered the groups in array order, which put Templates first in the
+          CATALOGUE — not first on the page, because the Flows section rendered
+          above the catalogue, exactly as its own comment said. Commit 036c6c3f
+          dropped those five rows on 2026-09-06 as a TRUE port (the engine
+          owns and cards the partials), and the gallery itself was retired on
+          2026-09-09. The claim went STALE on 2026-09-06; it was never false.
+
+          What these registrations buy is a real host to open an archetype on
+          while copying from it. %>
       <% unless Rails.env.production? %>
         <template x-if="$store.modals.current().id === 'template-form'">
           <%= render "studio/modals/templates/form" %>

@@ -1,0 +1,209 @@
+<%# THE ONE CALL SITE, made literally one line at each flow.
+
+    WHY THIS PARTIAL EXISTS. SolanaStudio.walletOps.run() already collapses the
+    two transports into one entry point — that is what /tasks/walletops-blocks-
+    inline-unification landed. What it does NOT collapse is the four things every
+    caller must get right AROUND the call, and each of them has cost a real user
+    an entry in this epic:
+
+      1. THE RETURN ADDRESS. redirectLink is where the wallet comes back to. A
+         call site that omits it hands the wallet a trip with no way home. That
+         defect shipped once and lost an approved entry on QA.
+      2. THE APP IDENTITY + CLUSTER. appUrl and cluster are read off the same two
+         places on every page, and a site that reads them differently signs
+         against a different chain than the one the server prepared for.
+      3. THE HANDOFF THAT NEVER HAPPENS. run() ends by handing the OS a universal
+         link. If the wallet is not installed, or the user dismisses the app
+         switch, THIS document stays alive holding a modal that will never
+         resolve and buttons that never come back.
+      4. THE TRANSPORT FORK ITSELF. Only 1-3 differ by transport, so the fork is
+         real — but it belongs in ONE place, not re-decided at every flow.
+
+    So each flow says WHAT it wants signed and this says HOW a wallet is reached.
+    Rendered from layouts/application for the same reason the intents are: the
+    inline path resolves on the page that started it, but nothing here may assume
+    which page that is.
+
+    NOT A WRAPPER AROUND walletOps' DECISIONS. It chooses no signing method,
+    touches no journal, and adds no state. Everything below the modal copy is
+    arguments.
+
+    ONE CALL SITE STILL DOES NOT USE THIS, and it is worth naming rather than
+    leaving to be discovered: contests/_turf_totals_board collapsed onto a single
+    walletOps.run in /tasks/collapse-inline-entry-call-site, which landed in
+    parallel with this partial, and it still spells out its own redirectLink,
+    appUrl, cluster and pagehide watch inline. That is the same address book
+    written twice — and a missing redirectLink at a hand-rolled call site is the
+    defect that lost a real user's entry on QA. Routing it through here is
+    /tasks/route-board-through-runner; it was left alone here because that board
+    is the app's highest-traffic money path and its just-landed tests read its
+    source directly. %>
+<script>
+(function () {
+  // The redirect return leg is studio-engine's callback view. Named once, here,
+  // rather than retyped per flow — see reason 1 above.
+  var CALLBACK_PATH = '/auth/phantom/callback';
+
+  // Long enough to outlast the OS app-switch prompt, short enough that a user
+  // who dismissed it is not left staring at a dead modal. Matches the value the
+  // turf-totals board arrived at by measurement.
+  var HANDOFF_GRACE_MS = 2500;
+
+  // THE 401 NORMALISATION IS NOT OPTIONAL, and it is why this wrapper exists at
+  // all. window.authedFetch answers FALSY on a 401 (having already surfaced the
+  // login modal); plain window.fetch answers a 401 Response. A handler that
+  // branches on `if (!resp)` therefore reads an expired session as a SUCCESSFUL
+  // response unless the fallback speaks the same dialect.
+  //
+  // AND THE CALLBACK DOCUMENT HAS NO authedFetch. It ships only in the DEFERRED
+  // importmap module solana_utils.js, while studio-engine's phantom_callback
+  // dispatches from a bare inline script during body parse — so a handler's
+  // complete() calling window.authedFetch directly throws a TypeError on the one
+  // document that matters, AFTER the user has approved in their wallet and after
+  // resume() consumed the journal. That is the original lost-entry incident
+  // reproduced at the moment of highest cost.
+  //
+  // shared/_contest_entry_intent carries its own copy of these nine lines rather
+  // than calling this one, deliberately: test/integration/contest_entry_redirect_
+  // round_trip_test.rb rebuilds three JS worlds from THAT PARTIAL ALONE, and a
+  // cross-partial call would make the entry handlers untestable in that isolation.
+  window.tmWalletFetch = function (url, opts) {
+    if (typeof window.authedFetch === 'function') return window.authedFetch(url, opts);
+    return window.fetch(url, opts).then(function (resp) {
+      return resp && resp.status === 401 ? null : resp;
+    });
+  };
+
+  // THE TWO WIRE CONVERSIONS, in one place. The SERVER speaks base64
+  // (serialized_tx out, signed_tx in) and every wallet deeplink protocol speaks
+  // base58, so both directions are needed by every intent. The gem's codec owns
+  // the base58 half; the chunking on the way back is not optional — 
+  // String.fromCharCode.apply blows the argument stack on a full transaction, so
+  // the 0x8000 window is what keeps a large contest-create from throwing.
+  window.tmWireToBase58 = function (base64) {
+    var bytes = Uint8Array.from(atob(base64), function (c) { return c.charCodeAt(0); });
+    return window.SolanaStudio.walletTransport.base58.encode(bytes);
+  };
+
+  window.tmBase58ToBase64 = function (base58) {
+    var bytes = window.SolanaStudio.walletTransport.base58.decode(base58);
+    var binary = '';
+    var chunk = 0x8000;
+    for (var i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    }
+    return btoa(binary);
+  };
+
+  function solanaModal() {
+    try { return window.Alpine && Alpine.store('solanaModal'); } catch (e) { return null; }
+  }
+
+  // WHEN THE HOP NEVER HAPPENS. pagehide is the SIGNAL, not the timer: it fires
+  // when the app switch DOES take, so its absence after the grace window is what
+  // tells us this document is still here. document.hidden covers the iOS case
+  // where the switch is in flight but pagehide has not fired yet.
+  //
+  // THE TWO HALVES ARM AT DIFFERENT MOMENTS, and that is the whole reason this
+  // hands back a handle instead of doing both at once.
+  //
+  //   THE LISTENER arms BEFORE run(), because the navigation it watches for
+  //   happens INSIDE run(). Attached afterwards it would be registered after the
+  //   event it exists to catch.
+  //
+  //   THE TIMER arms only once run() has RESOLVED, because that is the first
+  //   moment the OS has actually been handed the universal link. runRedirect
+  //   AWAITS prepare() and navigates second — so a timer started before the call
+  //   is not measuring the app switch at all, it is racing prepare's network
+  //   round trips. Contest creation is the worst case: its prepare is a
+  //   multipart banner upload plus a rebuild POST, and 2.5s does not cover both
+  //   plus an app switch. Two failures fell out of that, and neither is exotic:
+  //   a SLOW BUT WORKING create painted "Your wallet app did not open" moments
+  //   before Phantom opened, and a create that FAILED had its real error card
+  //   overwritten by this one 2.5s later, every single time, so the user never
+  //   saw the cause. Raised in review of PR 674.
+  //
+  // The shape is the one contests/_turf_totals_board already arrived at by
+  // measurement: listener before the run, setTimeout after the await.
+  function watchHandoff() {
+    var left = false;
+    var onPageHide = function () { left = true; };
+    window.addEventListener('pagehide', onPageHide, { once: true });
+
+    return {
+      // The handoff took: start counting down the grace window.
+      start: function (onStranded) {
+        setTimeout(function () {
+          window.removeEventListener('pagehide', onPageHide);
+          if (left || document.hidden) return;
+          onStranded();
+        }, HANDOFF_GRACE_MS);
+      },
+      // The trip never reached the wallet — prepare threw, the journal refused,
+      // the wrong account connected. There is no handoff to wait on, so nothing
+      // is armed and the listener is released rather than left to accumulate one
+      // more dead handler per retry.
+      cancel: function () {
+        window.removeEventListener('pagehide', onPageHide);
+      }
+    };
+  }
+
+  // ctx  — the intent's own arguments. JSON-serialisable, always: on the
+  //        redirect transport this is written to localStorage verbatim.
+  // opts — { provider, expectedAccount, preparing, handoff, onStranded }
+  //
+  // Resolves with the intent's complete() value on the inline transport. On the
+  // redirect transport nothing after this resolves in a real browser: the page
+  // is gone and the callback finishes the intent by NAME.
+  window.tmWalletOp = function (name, ctx, opts) {
+    opts = opts || {};
+    var provider = opts.provider || window.walletProvider.requireProvider();
+    var modal = solanaModal();
+    var redirect = provider.transport === 'redirect';
+
+    if (modal) {
+      if (redirect) {
+        modal.show(opts.handoffTitle || 'Opening Your Wallet',
+                   opts.handoffBody || 'Handing this over to your wallet app…');
+      } else {
+        modal.show(opts.preparingTitle || 'Preparing Transaction',
+                   opts.preparingBody || 'Building the transaction — approve it in your wallet when it opens.');
+      }
+    }
+
+    // Armed here, STARTED after the run — see watchHandoff. An inline transport
+    // never navigates, so it gets no watch at all.
+    var watch = redirect ? watchHandoff() : null;
+
+    function stranded() {
+      var m = solanaModal();
+      if (m && m.visible) {
+        m.error('Your wallet app did not open. Make sure it is installed on this device, then try again.',
+                'Wallet Did Not Open');
+      }
+      if (typeof opts.onStranded === 'function') opts.onStranded();
+    }
+
+    return window.SolanaStudio.walletOps.run(name, ctx, {
+      provider: provider,
+      expectedAccount: opts.expectedAccount || null,
+      appUrl: window.location.origin,
+      redirectLink: window.location.origin + CALLBACK_PATH,
+      cluster: document.body.dataset.solanaCluster
+    }).then(function (result) {
+      // THE LINK IS WITH THE OS NOW. Everything before this point was prepare.
+      if (watch) watch.start(stranded);
+      return result;
+    }, function (err) {
+      // NOTHING WAS HANDED OFF, so nothing may later claim the wallet failed to
+      // open. The caller's catch is about to paint the REAL cause, and a
+      // watchdog left running would replace that message 2.5 seconds later —
+      // deterministically, not as a race. Rethrown untouched: this branch adds
+      // no diagnosis, it only declines to invent one.
+      if (watch) watch.cancel();
+      throw err;
+    });
+  };
+})();
+</script>
