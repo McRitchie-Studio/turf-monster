@@ -936,7 +936,7 @@
 # shape the entry above warns about. 297 is what the lister printed on the
 # MERGED tree, taken as printed: not 293 + 4, not 295 + 2.
 # Derived with bin/e2e-lane-derive --write ON THE MERGED TREE.
-total_specs: 298
+total_specs: 300
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1254,7 +1254,7 @@ allowed_skips: 4
 # on top. The lister re-derived excluded as 17 on the merged tree and
 # allowed_skips stays 4, so both listers agree. Derived with
 # bin/e2e-lane-derive --write ON THE MERGED TREE.
-executed: 277
+executed: 279
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
