@@ -247,6 +247,17 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
     "docs/workflows/submit-entry-decision-tree.md" => {
       min_citations: 60, min_path: 26, min_bare: 30,
       fallback_only_files: %w[app/javascript/solana_utils.js]
+    },
+    # The two WALLET documents (see WALLET_DOCS). Their floors are small because
+    # most of what they cite lives in GEMS, and a gem fact is a GEM_REF — file and
+    # symbol, no line — so it is counted by MIN_WALLET_GEM_REFS, not here.
+    "docs/WALLET_TRANSPORT_ARCHITECTURE.md" => {
+      min_citations: 3, min_path: 3, min_bare: 0,
+      fallback_only_files: []
+    },
+    "docs/WALLET_ADAPTER_EVALUATION.md" => {
+      min_citations: 20, min_path: 16, min_bare: 4,
+      fallback_only_files: []
     }
   }.freeze
 
@@ -274,6 +285,43 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
                   .map { |p| Pathname.new(p).relative_path_from(Rails.root).to_s }
                   .reject { |p| File.basename(p).start_with?("_") || File.basename(p) == "README.md" }
                   .sort.freeze
+
+  # THE WALLET DOCUMENTS, brought under this guard on 2026-09-10
+  # (/tasks/guard-the-wallet-docs). They carry the safety argument for the page
+  # that renders a DECRYPTED PRIVATE KEY — why wallet export must never cross the
+  # redirect — and until this list nothing read a word of them. Typed, not
+  # globbed: they sit in docs/ beside documents nobody has swept, and a glob
+  # wide enough to reach them would reach those too.
+  #
+  # MEASURED the day they came in, by this file's own parser: 49 citations, 11 of
+  # them landing on what they named. 22 were line numbers into GEM files, and
+  # 14 of those no longer landed on what they named in the gems the lock
+  # resolved that day (read by hand; the parse could not see them); 7 were bare `:NN`
+  # with no file context; 5 named a file the parser could not resolve; 1 pointed
+  # into node_modules; 3 landed on the wrong file or on no quoted word. The same
+  # pass found what NO citation check can see — limit 2 above — in §7 of the
+  # transport document, which had gone stale TWICE by naming the solana-studio
+  # version Gemfile.lock resolved. That claim is now held by the §7 test below.
+  #
+  # Both blind spots are INHERITED, not fixed, and each preamble says so: a
+  # citation inside a markdown table anchors on the WHOLE table
+  # (/tasks/table-row-anchors-siblings), so every table row in these documents
+  # names its own symbol; and a citation that lands can still sit beside a false
+  # sentence.
+  WALLET_DOCS = %w[
+    docs/WALLET_TRANSPORT_ARCHITECTURE.md
+    docs/WALLET_ADAPTER_EVALUATION.md
+  ].freeze
+
+  # What the parse reads: every workflow document plus the wallet documents.
+  SCANNED_DOCS = (WORKFLOW_DOCS + WALLET_DOCS).freeze
+
+  # Paths a citation may name that are NOT this repo's code and are not present
+  # in CI: node_modules is installed by npm, never committed, so a citation into
+  # it is true or false depending on the machine. Such a citation is skipped, and
+  # the document pins the package version in its sentence and says so in its
+  # preamble.
+  EXTERNAL_PREFIXES = %w[node_modules/].freeze
 
   # Documents that parse to ZERO citations, named so the hole is loud. A
   # directory-wide glob cannot see them — every check here starts from a parsed
@@ -409,12 +457,20 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   test "the directory-wide parse still reaches every workflow document" do
     assert_operator WORKFLOW_DOCS.size, :>=, 8,
                     "the docs/workflows glob resolved #{WORKFLOW_DOCS.size} document(s): #{WORKFLOW_DOCS.inspect}"
-    assert_operator all_citations.size, :>=, MIN_DIRECTORY_CITATIONS,
-                    "parsed #{all_citations.size} citations across docs/workflows; the regex or the glob " \
+    workflow = all_citations.count { |c| WORKFLOW_DOCS.include?(c[:doc]) }
+    assert_operator workflow, :>=, MIN_DIRECTORY_CITATIONS,
+                    "parsed #{workflow} citations across docs/workflows; the regex or the glob " \
                     "likely stopped matching"
     GUARDED_DOCS.each do |doc|
-      assert_includes WORKFLOW_DOCS, doc,
-                      "#{doc} carries per-document claims but the directory glob does not reach it"
+      assert_includes SCANNED_DOCS, doc,
+                      "#{doc} carries per-document claims but the parse does not reach it"
+    end
+    # A typed list fails differently from a glob: a renamed file leaves the
+    # name here pointing at nothing, and the parse then reads nothing of it.
+    WALLET_DOCS.each do |doc|
+      assert File.exist?(abs(doc)), "#{doc} is in WALLET_DOCS but does not exist — it moved, and " \
+                                    "this guard silently stopped reading it"
+      assert_includes GUARDED_DOCS, doc, "#{doc} is scanned but not in COVERAGE, so the SYMBOL check never reads it"
     end
   end
 
@@ -552,6 +608,142 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
     end
   end
 
+  # ------------------------------------------------- the wallet documents' gems
+
+  # A GEM FACT NAMES A SYMBOL, NOT A LINE — limit 4's rule, which the wallet
+  # documents broke 22 times with `wallet_transport.js:310-319`-style numbers
+  # into solana-studio and studio-engine. 14 had rotted by the day they were
+  # checked, because the gems moved under them. The form they use now carries the
+  # symbol INSIDE the reference, so the claim cannot drift from the thing it
+  # names: `solana-studio: app/assets/.../wallet_transport.js#requireField`, or
+  # several at once, `...#codec,PROFILES,requireField`.
+  GEM_REF = /`(solana-studio|studio-engine):\s*([\w.\/-]+\.(?:rb|js|erb))#([\w$!?]+(?:,[\w$!?]+)*)`/
+  # Below the 19 symbol references the wallet documents carried when they came
+  # in, for the reason every floor here exists: a reference style that stops
+  # matching must go red, not pass having read nothing.
+  MIN_WALLET_GEM_REFS = 15
+
+  test "a wallet document's gem references name symbols the resolved gem defines" do
+    refs = gem_references.select { |r| WALLET_DOCS.include?(r[:doc]) }
+    assert_operator refs.size, :>=, MIN_WALLET_GEM_REFS,
+                    "parsed #{refs.size} gem references in the wallet documents; GEM_REF likely stopped matching"
+    broken = refs.reject { |r| gem_defines?(r[:gem], r[:path], r[:symbol]) }
+    assert_empty broken.map { |r|
+      "#{r[:doc]}:#{r[:line]} #{r[:gem]} #{Gem.loaded_specs[r[:gem]]&.version}: #{r[:path]} should define #{r[:symbol]}"
+    }, "a gem reference names a file or symbol the RESOLVED gem does not define — the gem moved " \
+       "under the document, or the document named the wrong thing"
+  end
+
+  # The check above is vacuously green on a correct document, so this proves it
+  # bites: a defined symbol passes, and an undefined one, a mere CALL, and a
+  # missing file each fail.
+  test "the gem-symbol check rejects what the resolved gem does not define" do
+    file = "app/assets/javascripts/solana_studio/wallet_transport.js"
+    assert gem_defines?("solana-studio", file, "requireField"), "the check rejected a symbol the gem defines — it is over-tight"
+    refute gem_defines?("solana-studio", file, "requireFieldNowhere"), "the check passed a symbol the gem never names"
+    refute gem_defines?("solana-studio", file, "encodeURIComponent"), "the check passed a CALL as a definition"
+    refute gem_defines?("solana-studio", "app/assets/javascripts/solana_studio/no_such_file.js", "requireField"),
+           "the check passed a file the gem does not ship"
+  end
+
+  # ------------------------------------------------ what the lock resolves
+
+  # NAMING THE LOCKED VERSION IS THE DEFECT, NOT THE NUMBER. §7 of the transport
+  # document said "solana-studio 0.9.3, which Gemfile.lock resolves" — true when
+  # written, false one lock bump later, and read in the present tense by every
+  # agent about to reason about a private key. It had gone stale once before for
+  # the same reason. A sentence like that is false the day the lock moves and
+  # nothing marks it, so these documents may name a FLOOR (the Gemfile's, checked
+  # below) or the release a behaviour ARRIVED in, and never what the lock holds.
+  # A regex over prose catches only the phrasings it knows; the control below
+  # names them, and the two sentences that actually went stale are among them.
+  LOCKED_GEMS = %w[solana-studio studio-engine].freeze
+
+  STALE_LOCK_CLAIMS = [
+    "Since then\nsolana-studio **0.9.3**, which `Gemfile.lock` resolves, journals `redirectLink`",
+    "installed gem the lock resolves (solana-studio **0.9.3**, studio-engine\n**0.74.7**).",
+    "solana-studio **0.10.0**, tagged 2026-09-10\n00:28 MDT and not yet in our lock, takes the same four files",
+    "the lock now resolves studio-engine 0.74.9"
+  ].freeze
+
+  DATED_VERSION_SENTENCES = [
+    "Both arrived in **0.9.3**: one commit adds both",
+    "The Gemfile floor is `>= 0.9.2`, one patch below that release",
+    "the gems the lock held when this was written (solana-studio 0.9.3, studio-engine\n0.74.7)",
+    "tagged 2026-09-10 00:28 MDT (our lock reached it after this was written)"
+  ].freeze
+
+  test "no wallet document says what the lock resolves" do
+    claims = WALLET_DOCS.flat_map { |doc| lock_claims(File.read(abs(doc))).map { |c| c.merge(doc: doc) } }
+    assert_empty claims.map { |c|
+      "#{c[:doc]}: \"#{c[:text]}\" names #{c[:gem]} #{c[:version]} as locked; " \
+        "Gemfile.lock resolves #{Gem.loaded_specs[c[:gem]]&.version} today"
+    }, "a wallet document names the version the lock resolves. That sentence goes false on the next " \
+       "bundle update and nothing marks it. Name the Gemfile's floor or the release the behaviour " \
+       "arrived in instead"
+  end
+
+  test "the lock-claim check catches the sentences that went stale, and only those" do
+    STALE_LOCK_CLAIMS.each do |sentence|
+      refute_empty lock_claims(sentence), "the lock-claim check missed: #{sentence.inspect}"
+    end
+    DATED_VERSION_SENTENCES.each do |sentence|
+      assert_empty lock_claims(sentence), "the lock-claim check flagged a dated or floor sentence: #{sentence.inspect}"
+    end
+  end
+
+  # §7's version claim, clause by clause. The paragraph dates the gem half of
+  # the redirect_link fix by the release that shipped it, names the Gemfile
+  # floor, and says the turf-side default stays because the floor is below that
+  # release. Each clause is re-derived here rather than trusted:
+  #
+  #   * the floor it names is the Gemfile's floor, to the patch;
+  #   * that floor is still BELOW the release it names — the day it is not, the
+  #     turf-side default is dead weight, and this goes red naming it;
+  #   * the RESOLVED gem still does both things §7 says it does. A lock bump that
+  #     drops either one reddens here, not in a wallet on a phone. This is the gem
+  #     half of the retirement trigger;
+  #     test/integration/phantom_callback_redirect_link_test.rb holds the engine half.
+  #
+  # Measured 2026-09-10: on the installed solana-studio 0.9.2 tree, both
+  # behaviour predicates below come back false; on 0.9.3, 0.10.0 and 0.11.0,
+  # both come back true. So the predicates read the code, not the lockfile.
+  SECTION_SEVEN_DOC = "docs/WALLET_TRANSPORT_ARCHITECTURE.md"
+
+  test "section 7 dates the redirect_link fix by its release, and the resolved gem still carries it" do
+    text = section_text(SECTION_SEVEN_DOC, "### 7. ")
+    assert text, "#{SECTION_SEVEN_DOC} has no \"### 7. \" section any more — the §7 claim moved or was deleted"
+    flat = flatten_prose(text)
+
+    arrival = flat[/Both arrived in (\d+\.\d+\.\d+)/, 1]
+    said_floor = flat[/The Gemfile floor is >= (\d+\.\d+\.\d+)/, 1]
+    assert arrival, "§7 must date the fix by the release that shipped it, written **Both arrived in X.Y.Z**"
+    assert said_floor, "§7 must state the Gemfile floor, written The Gemfile floor is `>= X.Y.Z`"
+    arrival = Gem::Version.new(arrival)
+
+    # The relation is asserted FIRST, so the day someone raises the pin the red
+    # names the default to retire, not merely the sentence to edit.
+    floor = gemfile_floor("solana-studio")
+    assert_operator floor, :<, arrival,
+                    "the Gemfile floor (#{floor}) has reached #{arrival}, the release that journals " \
+                    "redirectLink. The turf-side default — the walletOps.resume wrapper in " \
+                    "app/views/shared/_contest_entry_intent.html.erb — is dead weight now: retire it, " \
+                    "and rewrite §7, which says it stays until this day"
+    assert_equal floor, Gem::Version.new(said_floor),
+                 "§7 says the Gemfile floor is >= #{said_floor}; the Gemfile's solana-studio requirement " \
+                 "floors at #{floor}. Move the sentence with the pin"
+
+    resolved = Gem.loaded_specs.fetch("solana-studio").version
+    assert_operator resolved, :>=, arrival,
+                    "Gemfile.lock resolves solana-studio #{resolved}, below the #{arrival} §7 says the fix arrived in"
+    assert journals_redirect_link?(gem_file("solana-studio", "app/assets/javascripts/solana_studio/redirect_provider.js")),
+           "solana-studio #{resolved}: beginConnect no longer journals redirectLink, so hop two can leave " \
+           "without a redirect_link again, and §7's \"the gem half is fixed\" is false"
+    assert refuses_missing_redirect_link?(gem_file("solana-studio", "app/assets/javascripts/solana_studio/wallet_transport.js")),
+           "solana-studio #{resolved}: the connect and method URL builders no longer both refuse a " \
+           "request without redirect_link, which §7 says they do"
+  end
+
   # ---------------------------------------------------------------- machinery
 
   # A citation whose cited lines are all blank. `body.any?` keeps an out-of-range
@@ -607,7 +799,7 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   def citations = all_citations.select { |c| GUARDED_DOCS.include?(c[:doc]) }
 
   def all_citations
-    @all_citations ||= WORKFLOW_DOCS.flat_map do |doc|
+    @all_citations ||= SCANNED_DOCS.flat_map do |doc|
       lines = File.readlines(abs(doc), chomp: true)
       basenames = {}
       lines.each do |l|
@@ -620,8 +812,20 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
         context = nil if line.start_with?("## ")
         line.scan(CITE) do
           head, nums = $1, $2
+          # Not this repo's code (EXTERNAL_PREFIXES): skip it, and let no bare
+          # `:NN` after it inherit a file it cannot read.
+          if EXTERNAL_PREFIXES.any? { |pre| head.start_with?(pre) }
+            context = nil
+            next
+          end
           kind = head.empty? ? :bare : :path
-          path = kind == :bare ? context : (head.include?("/") ? head : basenames[head])
+          # A slash-less head is a basename cited elsewhere with its path, or a
+          # file at the repo root (`playwright.config.js`) that has no path.
+          path =
+            if kind == :bare then context
+            elsif head.include?("/") then head
+            else basenames[head] || (File.file?(abs(head)) ? head : nil)
+            end
           context = path if kind == :path && path
           out << {
             doc: doc, line: i + 1, raw: "#{head}:#{nums}", kind: kind, path: path,
@@ -801,5 +1005,119 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   def innermost(defs, line)
     defs.select { |d| d[:first] <= line && line <= d[:last] }
         .min_by { |d| d[:last] - d[:first] }
+  end
+
+  # --- the wallet documents: gems, the lock, and §7 --------------------------
+
+  # Markdown emphasis, code spans, blockquote markers and hard wraps are
+  # typography; a claim must not escape a check by being bolded, quoted, or by
+  # landing on a line break.
+  def flatten_prose(text) = text.gsub(/^[ \t]*>[ \t]?/, "").gsub(/[*`]/, "").gsub(/\s+/, " ")
+
+  # The body of the section whose heading starts with `prefix`, up to the next
+  # heading of the same or a higher level.
+  def section_text(doc, prefix)
+    lines = doc_lines(doc)
+    start = lines.index { |l| l.start_with?(prefix) }
+    return nil unless start
+    level = prefix[/\A#+/].size
+    fin = ((start + 1)...lines.size).find { |i| lines[i][/\A#+(?=\s)/].to_s.size.between?(1, level) }
+    lines[start...(fin || lines.size)].join("\n")
+  end
+
+  # Every sentence shape that says which version a locked gem RESOLVES to, in
+  # the present tense. The shapes are the ones the wallet documents actually
+  # used; STALE_LOCK_CLAIMS is their control.
+  def lock_claims(text)
+    flat = flatten_prose(text)
+    gem  = "(#{LOCKED_GEMS.map { |g| Regexp.escape(g) }.join('|')})"
+    ver  = '(\d+\.\d+\.\d+)'
+    lock = '(?:Gemfile\.lock|the lock(?:file)?|our lock(?:file)?)'
+    now  = "(?:now |already |still |currently )?"
+    out = []
+    flat.scan(/#{gem} #{ver},? which #{lock} #{now}resolves\b/) do
+      out << { gem: $1, version: $2, text: $& }
+    end
+    flat.scan(/#{lock} #{now}resolves\b([^)]{0,80})/) do
+      said = $&
+      $1.scan(/#{gem} #{ver}/) { |g, v| out << { gem: g, version: v, text: said } }
+    end
+    flat.scan(/#{gem} #{ver}[^.]{0,100}? not yet in (?:our|the) lock/) do
+      out << { gem: $1, version: $2, text: $& }
+    end
+    out.uniq { |c| [c[:gem], c[:version], c[:text]] }
+  end
+
+  # The least version the Gemfile's requirement list for `name` admits, read
+  # from the declaration with its comment stripped (the solana-studio line
+  # carries a long floor note that must not vote).
+  def gemfile_floor(name)
+    decl = Rails.root.join("Gemfile").read[/^\s*gem\s+["']#{Regexp.escape(name)}["'].*$/]
+    assert decl, "no gem #{name.inspect} line in the Gemfile"
+    reqs = decl.sub(/#.*/, "").scan(/["']([^"']+)["']/).flatten.drop(1)
+    Gem::Requirement.new(reqs).requirements.filter_map { |op, v| v if %w[>= ~> =].include?(op) }.max
+  end
+
+  def gem_file(gem, path)
+    File.read(File.join(Gem.loaded_specs.fetch(gem).full_gem_path, path))
+  end
+
+  def gem_references
+    @gem_references ||= SCANNED_DOCS.flat_map do |doc|
+      doc_lines(doc).each_with_index.flat_map do |line, i|
+        line.scan(GEM_REF).flat_map do |gem, path, symbols|
+          symbols.split(",").map { |sym| { doc: doc, line: i + 1, gem: gem, path: path, symbol: sym } }
+        end
+      end
+    end
+  end
+
+  # Whether the RESOLVED gem's file DEFINES `symbol` — a definition, not a
+  # mention: Ruby def/class/module; JS `function name(`, `var name =`, a
+  # `name: function` member, or a `name(args) {` / `get name() {` shorthand.
+  def gem_defines?(gem, path, symbol)
+    spec = Gem.loaded_specs[gem]
+    file = spec && File.join(spec.full_gem_path, path)
+    return false unless file && File.file?(file)
+    s = Regexp.escape(symbol)
+    src = File.read(file)
+    if path.end_with?(".rb")
+      src.match?(/\b(?:def|class|module)\s+(?:self\.)?#{s}(?![\w!?])/)
+    else
+      src.match?(/^\s*(?:(?:async\s+)?function\s+#{s}\s*\(|(?:var|let|const)\s+#{s}\s*=|(?:async\s+|get\s+)?#{s}\s*\([^)]*\)\s*\{|#{s}\s*:\s*(?:async\s+)?function\b)/)
+    end
+  end
+
+  # The text of a JS `name: function (...) {` member or `function name(...) {`,
+  # found by brace balance like erb_js_definitions above.
+  def js_member_body(src, name)
+    n = Regexp.escape(name)
+    lines = src.lines
+    start = lines.index { |l| l.match?(/^\s*(?:#{n}\s*:\s*(?:async\s+)?function\b|(?:async\s+)?function\s+#{n}\s*\()/) }
+    return nil unless start
+    depth = 0
+    (start...lines.size).each do |j|
+      depth += lines[j].count("{") - lines[j].count("}")
+      return lines[start..j].join if depth <= 0
+    end
+    nil
+  end
+
+  # §7, clause one: beginConnect writes redirectLink into the JOURNAL it returns,
+  # not merely into the URL it builds — the journal is what survives the page
+  # death and reaches hop two.
+  def journals_redirect_link?(redirect_provider_src)
+    body = js_member_body(redirect_provider_src, "beginConnect").to_s
+    journal = body[/journal:\s*newJournal\((.*?)\}\s*\)/m, 1]
+    journal.to_s.match?(/\bredirectLink\s*:/)
+  end
+
+  # §7, clause two: BOTH URL builders refuse a request with no redirect_link.
+  def refuses_missing_redirect_link?(wallet_transport_src)
+    wallet_transport_src.match?(/function requireField\s*\(/) &&
+      %w[connect method].all? do |member|
+        js_member_body(wallet_transport_src, member).to_s
+          .match?(/requireField\([^;]*redirectLink[^;]*'redirect_link'/)
+      end
   end
 end
