@@ -11,9 +11,10 @@ redirect" below. Sign-in still rides the undocumented Phantom `signIn` deeplink.
 The design below describes the target; the **Scope** table records what has
 actually landed.
 **Written:** 2026-09-07 · **Last corrected:** 2026-09-10
-**Adapter decision (2026-09-10):** keep this protocol and narrow it rather than
-adopt a maintained adapter; the evidence, and what would re-open the question,
-are in [WALLET_ADAPTER_EVALUATION.md](WALLET_ADAPTER_EVALUATION.md).
+**Adapter recommendation (2026-09-10, awaiting Mr. McRitchie's ratification):**
+keep this protocol and narrow it rather than adopt a maintained adapter; the
+evidence, and what would re-open the question, are in
+[WALLET_ADAPTER_EVALUATION.md](WALLET_ADAPTER_EVALUATION.md).
 **Task:** https://mcritchie.studio/tasks/wallet-transport-architecture-doc
 **Spans:** turf-monster · solana-studio · studio-engine
 
@@ -580,7 +581,7 @@ cheapest insurance in the design.
 | **2** | Migrate the remaining user-facing flows; ~~admin flows get desktop-only messaging~~ (**done** — `gate-admin-flows-desktop-only`) | Mobile parity |
 | **2a** | ~~Turf-totals fork collapsed~~ (**done** — `collapse-inline-entry-call-site`); ~~world cup survivor entry, create contest, contest generator~~ (**done** — `migrate-remaining-entry-flows`) | Every contest flow on one call site |
 | **2b** | ~~Username rename~~ (**done** — `migrate-account-wallet-flows`); wallet export ruled **permanently out** (signs a key-bearing message — see above); retire the undocumented `signIn` deeplink | The rest of phase 2 |
-| **3** *(optional)* | Android Mobile Wallet Adapter — evaluated 2026-09-10, deferred until Android's share is measured ([WALLET_ADAPTER_EVALUATION.md](WALLET_ADAPTER_EVALUATION.md)) | Better Android UX — no page destruction |
+| **3** *(optional)* | Android Mobile Wallet Adapter — evaluated 2026-09-10; deferral until Android's share is measured is recommended, pending ratification ([WALLET_ADAPTER_EVALUATION.md](WALLET_ADAPTER_EVALUATION.md)) | Better Android UX — no page destruction |
 
 Phase 1 covering all three wallets was chosen deliberately: they share the
 encryption core, so adapters two and three are largely a base URL and a method
