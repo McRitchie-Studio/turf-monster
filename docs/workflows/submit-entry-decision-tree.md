@@ -109,24 +109,24 @@ the no-token branch as an unconditional `enter_contest` USDC transfer; that bran
 is `enter_contest_with_usdc`, gated behind a flag, and with the flag off the path
 raises "No entry tokens" instead.
 
-| Branch | Where, in `ContestsController#enter` (`app/controllers/contests_controller.rb:716-938`) unless named |
+| Branch | Where — each row names its owner; `ContestsController#enter` is `app/controllers/contests_controller.rb:716-938` |
 |---|---|
-| contest cancelled → 422 | `:720-723` |
-| self-custodied → 422 + `self_custodied` | `:745-751` |
-| cart entry; survivor auto-creates | `:753-756` |
-| `onchain_session?` → 422 "use prepare_entry" | `:787-793` |
-| self-custody account in a web2 session → `web3_step_up_required` | `:838-844` |
-| `@contest.with_lock` | `:870` |
-| `assert_enterable!` pre-flight — `Entry#assert_enterable!` | `:873`; definition `app/models/entry.rb:125-159` |
-| season configured? | `app/controllers/contests_controller.rb:878-880` |
-| paid contest with no on-chain PDA → refuse | `:887-889` |
+| contest cancelled → 422 | `#enter` at `:720-723` |
+| self-custodied → 422 + `self_custodied` | `#enter` at `:745-751` |
+| cart entry; survivor auto-creates | `#enter` at `:753-756` |
+| `onchain_session?` → 422 "use prepare_entry" | `#enter` at `:787-793` |
+| self-custody account in a web2 session → `web3_step_up_required` | `#enter` at `:838-844` |
+| `@contest.with_lock` | `#enter` at `:870` |
+| `assert_enterable!` pre-flight — `Entry#assert_enterable!` | `#enter` at `:873`; definition `app/models/entry.rb:125-159` |
+| season configured? | `#enter` at `app/controllers/contests_controller.rb:878-880` |
+| paid contest with no on-chain PDA → refuse | `#enter` at `:887-889` |
 | payment branch — `ContestsController#resolve_web2_entry_funding!` | `:1878-1950` |
-| token → `Solana::Vault#enter_contest_with_token` | `:1894-1906` |
-| no token, `AppFlags.web2_usdc_entry?` → `Solana::Vault#enter_contest_with_usdc` | `:1907-1946` |
-| neither → "No entry tokens" | `:1948` |
-| durable capture, OUTSIDE the lock | `:907` |
+| token → `Solana::Vault#enter_contest_with_token` | `#resolve_web2_entry_funding!` at `:1894-1906` |
+| no token, `AppFlags.web2_usdc_entry?` → `Solana::Vault#enter_contest_with_usdc` | `#resolve_web2_entry_funding!` at `:1907-1946` |
+| neither → "No entry tokens" | `#resolve_web2_entry_funding!` at `:1948` |
+| durable capture, OUTSIDE the lock | `#enter` at `:907` |
 | `ContestsController#finalize_managed_entry!` → `Entry#confirm!` | `:2049-2075` |
-| transient failure after the spend → `Entries::OnchainReconcileJob.perform_later` | `:2074` |
+| transient failure after the spend → `Entries::OnchainReconcileJob.perform_later` | `#finalize_managed_entry!` at `:2074` |
 
 **Why the gate ordering is sacred:** incident 2026-06-08 — the consume ran
 before a validation gate; the gate then failed and the user was paid-on-chain
@@ -156,16 +156,16 @@ prepare_entry
     → returns serialized_tx + ptx_slug to the client
 ```
 
-| Branch | Where, in `ContestsController#prepare_entry` (`app/controllers/contests_controller.rb:1001-1156`) unless named |
+| Branch | Where — each row names its owner; `ContestsController#prepare_entry` is `app/controllers/contests_controller.rb:1001-1156` |
 |---|---|
-| not an `onchain_session?` → 403 | `:1024` |
-| full / wrong pick count / started game | `:1049-1054` |
-| `Entry#assign_onchain_entry_number!` | `:1064`; definition `app/models/entry.rb:307-322` |
-| `Solana::Vault#ensure_user_account` | `app/controllers/contests_controller.rb:1069` |
+| not an `onchain_session?` → 403 | `#prepare_entry` at `:1024` |
+| full / wrong pick count / started game | `#prepare_entry` at `:1049-1054` |
+| `Entry#assign_onchain_entry_number!` | `#prepare_entry` at `:1064`; definition `app/models/entry.rb:307-322` |
+| `Solana::Vault#ensure_user_account` | `#prepare_entry` at `app/controllers/contests_controller.rb:1069` |
 | username codes 6020-6022 → friendly message, in `Solana::ErrorInterpreter.interpret` | `app/services/solana/error_interpreter.rb:184-196` |
-| ATA for the SELECTED currency — `Solana::Vault#ensure_ata` | `app/controllers/contests_controller.rb:1099` |
+| ATA for the SELECTED currency — `Solana::Vault#ensure_ata` | `#prepare_entry` at `app/controllers/contests_controller.rb:1099` |
 | unsigned tx on a FRESH blockhash — `Solana::Vault#build_enter_contest` sets no durable nonce | `app/services/solana/vault.rb:1331-1345` |
-| `PendingTransaction` created, no signature | `app/controllers/contests_controller.rb:1120-1132` |
+| `PendingTransaction` created, no signature | `#prepare_entry` at `app/controllers/contests_controller.rb:1120-1132` |
 
 ### 3b. Phantom signs (client)
 
@@ -206,14 +206,14 @@ confirm_onchain_entry
 └─ PT confirmed, chat announce, seeds fanout, success modal
 ```
 
-| Branch | Where, in `ContestsController#confirm_onchain_entry` (`app/controllers/contests_controller.rb:1341-1459`) unless named |
+| Branch | Where — each row names its owner; `ContestsController#confirm_onchain_entry` is `app/controllers/contests_controller.rb:1341-1459` |
 |---|---|
-| `assert_enterable!` PRE-FLIGHT | `:1365` |
-| C1 cosign guard — `Solana::Vault#assert_entry_cosign_safe!` | `:1388`; definition `app/services/solana/vault.rb:2200-2293` |
-| cosign + simulate + broadcast — `Solana::Vault#cosign_and_broadcast_entry` | `app/controllers/contests_controller.rb:1397`; definition `app/services/solana/vault.rb:2400-2420` |
-| PT stamped with `tx_signature` immediately | `app/controllers/contests_controller.rb:1409` |
-| `ContestsController#verify_and_confirm_onchain_entry!` | `:1415-1418`; definition `:2656-2672` |
-| PT confirmed | `:1420` |
+| `assert_enterable!` PRE-FLIGHT | `#confirm_onchain_entry` at `:1365` |
+| C1 cosign guard — `Solana::Vault#assert_entry_cosign_safe!` | `#confirm_onchain_entry` at `:1388`; definition `app/services/solana/vault.rb:2200-2293` |
+| cosign + simulate + broadcast — `Solana::Vault#cosign_and_broadcast_entry` | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1397`; definition `app/services/solana/vault.rb:2400-2420` |
+| PT stamped with `tx_signature` immediately | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1409` |
+| `ContestsController#verify_and_confirm_onchain_entry!` | `#confirm_onchain_entry` at `:1415-1418`; definition `:2656-2672` |
+| PT confirmed | `#confirm_onchain_entry` at `:1420` |
 
 ## 4. Can funds be taken without an entry? (the full inventory)
 

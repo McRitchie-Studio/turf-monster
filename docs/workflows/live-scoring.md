@@ -88,12 +88,12 @@ Which game the board OPENS on is decided by `Live::FocusGame.pick`
 rung that answers wins. `Live::FocusGame.call` (`:77-79`) is the thin wrapper the
 views use, returning the slug:
 
-| Rung | When | Picks | Where, inside `Live::FocusGame.pick` |
+| Rung | When | Picks | Where |
 |---|---|---|---|
-| 1 · LIVE | a game is being played | the best-ranked one, via `Live::FocusGame.best_ranked` | `app/services/live/focus_game.rb:90`, definition `:111-113` |
-| 2 · IMMINENT | none is, and the next kickoff is inside the lead-in | the best-ranked game in that kickoff's wave, via `Live::FocusGame.imminent` | `:91`, definition `:115-124` |
-| 3 · HOLDOVER | neither | the game that finished most recently, via `Live::FocusGame.last_finished` | `:92`, definition `:126-128` |
-| 4 · FALLBACK | nothing has finished either | the soonest upcoming game | `:93` |
+| 1 · LIVE | a game is being played | the best-ranked one, via `Live::FocusGame.best_ranked` | `Live::FocusGame.pick` at `app/services/live/focus_game.rb:90`, definition `:111-113` |
+| 2 · IMMINENT | none is, and the next kickoff is inside the lead-in | the best-ranked game in that kickoff's wave, via `Live::FocusGame.imminent` | `Live::FocusGame.pick` at `:91`, definition `:115-124` |
+| 3 · HOLDOVER | neither | the game that finished most recently, via `Live::FocusGame.last_finished` | `Live::FocusGame.pick` at `:92`, definition `:126-128` |
+| 4 · FALLBACK | nothing has finished either | the soonest upcoming game | `Live::FocusGame.pick` at `:93` |
 
 "Being played" is `Live::FocusGame.phase` (`:104-109`), which counts a PASSED KICKOFF
 as started — the poller flips `status` on its own cycle, so a board keyed on `status`
