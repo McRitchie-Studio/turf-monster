@@ -348,8 +348,16 @@
                data-role="event-feed-frame" data-fade-top="0" data-fade-bottom="1">
             <div class="tt-event-track absolute inset-x-0 top-0 h-[300%] flex flex-col">
 
-              <%# PANE 1 — the running list of scores. %>
-              <div class="relative h-1/3 flex flex-col justify-center py-1.5">
+              <%# PANE 1 — the running list of scores.
+                  ONLY THE PORTRAIT GETS THE OVERLAP. The frame reaches 1.25rem
+                  above the rows' seam so the head can cross it; this pane rides
+                  the same frame, so without paying that reach back the LIST
+                  crossed it too and hung "Field Goal +3" over the clock. A
+                  picture breaking a boundary reads as depth; a list doing it
+                  reads as a layout fault. Padding, not a shorter pane: the
+                  panes are thirds of the track and the wheel's arithmetic
+                  depends on them staying equal. %>
+              <div class="relative h-1/3 flex flex-col justify-center pt-5 pb-1.5">
                 <div class="tt-event-feed min-h-0 overflow-y-auto space-y-1 pointer-events-auto"
                      data-test="live-focus-events">
               <% plays.each do |play| %>
@@ -376,7 +384,10 @@
                 scroll to; the page's script sets data-fade-top / -bottom on the
                 wrapper. At the top of the list there is no top fade, which is
                 how the list SAYS it is at the top. %>
-            <span class="tt-fade tt-fade-top pointer-events-none absolute inset-x-0 top-0 h-6"
+            <%# top-5, matching the pane's own reach-back: the fade says "there
+                is more above" and has to sit at the top of the LIST, not at the
+                top of a frame the list no longer starts at. %>
+            <span class="tt-fade tt-fade-top pointer-events-none absolute inset-x-0 top-5 h-6"
                   style="background: radial-gradient(ellipse at 50% 0%, rgba(8, 10, 16, 0.95) 0%, rgba(8, 10, 16, 0) 72%)"></span>
             <span class="tt-fade tt-fade-bottom pointer-events-none absolute inset-x-0 bottom-0 h-8"
                   style="background: radial-gradient(ellipse at 50% 100%, rgba(8, 10, 16, 0.95) 0%, rgba(8, 10, 16, 0) 72%)"></span>

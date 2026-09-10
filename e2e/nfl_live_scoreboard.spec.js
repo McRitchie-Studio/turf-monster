@@ -799,6 +799,18 @@ test.describe("Contest live page", () => {
     await expect(frame).not.toHaveClass(/tt-revealing/, { timeout: 20000 });
     await expect(frame.locator('[data-role="scorer-card"]').first()).toHaveAttribute("aria-hidden", "true");
 
+    // AND IT CAME BACK BELOW THE SEAM. The frame reaches above the line where
+    // the two team rows meet so the PORTRAIT can cross it; the list rides the
+    // same frame and must not. Measured here rather than asserted as a class,
+    // because "pt-5" is only a proxy for where the rows actually land.
+    const listCrossesSeam = await page.evaluate((slug) => {
+      const tile = document.querySelector(`[data-focus-slug="${slug}"]`);
+      const rows = tile.querySelector('[data-role="team-rows"]').getBoundingClientRect();
+      const feed = tile.querySelector('[data-test="live-focus-events"]').getBoundingClientRect();
+      return rows.top + rows.height / 2 - feed.top;
+    }, gameSlug);
+    expect(listCrossesSeam).toBeLessThan(2);
+
     // THE LIST IS BACK IN THE WINDOW — measured as POSITION, not as content.
     //
     // The first version of this assertion divided the overlap by the FRAME's

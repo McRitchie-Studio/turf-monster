@@ -190,6 +190,28 @@ class LiveFocusSituationRenderTest < ActionDispatch::IntegrationTest
       "and is that much taller, so its floor is still the card's edge"
   end
 
+  # ONLY THE PORTRAIT GETS THE OVERLAP.
+  #
+  # The frame reaches above the rows' seam so the head can cross it — and the
+  # events list rides that same frame, so without paying the reach back the LIST
+  # crossed it too and hung "Field Goal +3" over the clock. A picture breaking a
+  # boundary reads as depth; a list doing it reads as a layout fault.
+  #
+  # Padding on the pane, not a shorter pane: the panes are thirds of a 300%
+  # track and the wheel's arithmetic depends on them staying equal.
+  test "the events list pays back the frame's reach so only the portrait bleeds" do
+    score!(@live)
+    get live_path
+
+    frame = css_select("[data-focus-slug='#{@live.slug}'] [data-role='event-feed-frame']").first
+    list  = frame.css("[data-test='live-focus-events']").first.parent
+
+    assert_includes list["class"].split, "pt-5",
+      "the list starts at the seam, not at the top of a frame that reaches past it"
+    assert_includes frame.css(".tt-fade-top").first["class"].split, "top-5",
+      "and its fade follows it — the fade marks the top of the LIST"
+  end
+
   # The event pane is hidden from assistive tech until the page fills it in.
   # It is on screen only after a roll, and a screen reader announcing a blank
   # four-line block on every tile is noise on sixteen games at once.
