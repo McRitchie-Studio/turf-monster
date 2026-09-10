@@ -134,8 +134,15 @@
       }
       // A caller that DID supply one outranks us — this is a default, not an
       // override, so a host or a later gem that starts passing its own wins.
-      if (!withLink.redirectLink) {
-        withLink.redirectLink = window.location.origin + window.location.pathname;
+      //
+      // GUARDED ON location TOO. Every browser has one, so this branch is
+      // unreachable in production — but the redirect transport is also driven in
+      // node by three test tiers, and a wrapper that THREW on a world without a
+      // location would turn a missing default into a broken round trip. An
+      // absent capability must not fail louder than the thing it was optional for.
+      var loc = window.location;
+      if (!withLink.redirectLink && loc && loc.origin) {
+        withLink.redirectLink = loc.origin + (loc.pathname || '');
       }
       return innerResume.call(S.walletOps, params, withLink);
     };
