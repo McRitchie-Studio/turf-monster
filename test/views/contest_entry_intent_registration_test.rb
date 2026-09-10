@@ -75,36 +75,13 @@ class ContestEntryIntentRegistrationTest < ActiveSupport::TestCase
     assert_nil result["threw"], "a missing registry must be a no-op, never an exception"
   end
 
-  test "the redirect branch forks on transport and leaves the inline path alone" do
-    # Asserted on the SOURCE here, deliberately and with its limits stated: the
-    # branch lives inside an Alpine method that cannot be lifted out without its
-    # component. What this pins is the FORK EXISTING and being keyed on the
-    # provider's own transport field rather than on a user-agent sniff — which is
-    # the mistake that would send a desktop user inside a wallet's in-app browser
-    # down the redirect path. The behaviour is owned by e2e.
-    src = File.read(BOARD)
-
-    assert_includes src, "provider.transport === 'redirect'",
-                     "the fork must ask the PROVIDER what it is, not guess from the device"
-    assert_includes src, "walletOps.run('contest_entry'",
-                     "the redirect branch must run the intent by the name registered above"
-    refute_match(/if\s*\(\s*.*isMobile\(\)\s*\)\s*\{[^}]*walletOps\.run/m, src,
-                 "transport, not device, decides this fork")
-  end
-
-  test "the redirect branch returns rather than falling into the inline path" do
-    # Without the return, a mobile entry would navigate to the wallet AND keep
-    # executing the inline flow in a document that is on its way out — a second
-    # prepare_entry, a second prepared-transaction row, and a race nobody can see.
-    # BRACE-MATCHED, not regex-matched. A non-greedy /.*?\}/ drifts to the first
-    # brace that happens to close, and then finds SOME later `return;` inside a
-    # span that is not the branch — which is exactly how the first version of
-    # this test passed while the return was deleted. Mutation testing caught it.
-    src = File.read(BOARD)
-    start = src.index("if (provider.transport === 'redirect') {")
-    assert start, "could not find the redirect branch"
-
-    open_brace = src.index("{", start)
+  # Brace-match a block opened at `from`, and answer with its body. REGEX WILL
+  # NOT DO IT: a non-greedy /.*?\}/ drifts to the first brace that happens to
+  # close, so an assertion made against it can hold over a span that is not the
+  # branch at all — which is exactly how an earlier version of the `return;`
+  # test below passed while the return was deleted. Mutation testing caught it.
+  def brace_matched(src, from)
+    open_brace = src.index("{", from)
     depth = 0
     finish = nil
     (open_brace...src.length).each do |i|
@@ -114,19 +91,105 @@ class ContestEntryIntentRegistrationTest < ActiveSupport::TestCase
       end
       break if finish
     end
-    assert finish, "could not brace-match the redirect branch"
-    branch = src[open_brace..finish]
+    assert finish, "could not brace-match the block at #{from}"
+    src[open_brace..finish]
+  end
+
+  # The post-run transport guard: the `if (isRedirect) { … return; }` that
+  # follows the single walletOps.run, not the modal-copy fork that precedes it.
+  def post_run_redirect_branch(src)
+    run_at = src.index("walletOps.run('contest_entry'")
+    assert run_at, "the entry call site moved"
+    guard_at = src.index("if (isRedirect) {", run_at)
+    assert guard_at, "the redirect guard after the call site is gone — a mobile entry now " \
+                     "falls into the inline return leg in a document on its way out"
+    brace_matched(src, guard_at)
+  end
+
+  # THE HEADLINE PROPERTY OF /tasks/collapse-inline-entry-call-site, and the
+  # reason walletOps exists at all: ONE call site for both transports. Until this
+  # landed the board ran walletOps for a phone and a hand-rolled copy of the same
+  # flow for a laptop — prepare POST, atob, Transaction.from, signTransaction,
+  # serialize, chunked btoa, confirm POST — and only the laptop copy was ever
+  # exercised, which is how the mobile half rotted unseen in the first place.
+  test "contest entry reaches the wallet through exactly one call site" do
+    src = File.read(BOARD)
+
+    assert_equal 1, src.scan("walletOps.run(").length,
+                 "a second walletOps.run in this board is a second call site by another " \
+                 "name — the transports may differ in what the modal says, never in how " \
+                 "the transaction is prepared, signed, or posted"
+
+    # The hand-rolled half, named by the calls only it could make. Each of these
+    # is now the gem's or the provider's, and finding one here again means the
+    # desktop path forked back off on its own.
+    { "provider.signTransaction(" => "signing belongs to walletOps, through the intent",
+      "solanaWeb3.Transaction.from" => "deserializing belongs to the provider's codec " \
+                                       "(INLINE_TX_CODEC in app/javascript/wallet_provider.js)",
+      "requireAllSignatures" => "the co-signing serialize options belong to that same codec, " \
+                                "in ONE place — a second copy is how one of them gets dropped",
+      "/confirm_onchain_entry'" => "posting the signed bytes belongs to the intent's complete()",
+      "/prepare_entry'" => "minting the transaction belongs to the intent's prepare()" }
+      .each do |fragment, why|
+        assert_not_includes src, fragment,
+                            "the board still does this itself: #{why}"
+      end
+  end
+
+  test "the fork asks the provider what it is, never the device" do
+    # Asserted on the SOURCE here, deliberately and with its limits stated: the
+    # branch lives inside an Alpine method that cannot be lifted out without its
+    # component. What this pins is the fork being keyed on the provider's own
+    # transport field rather than on a user-agent sniff — the mistake that would
+    # send a desktop user inside a wallet's in-app browser down the redirect
+    # path, and a phone inside one down a path with no injected wallet. The
+    # behaviour is owned by e2e.
+    src = File.read(BOARD)
+
+    assert_includes src, "provider.transport === 'redirect'",
+                     "the fork must ask the PROVIDER what it is, not guess from the device"
+    assert_includes src, "walletOps.run('contest_entry'",
+                     "the entry must run the intent by the name registered above"
+    refute_match(/isMobile\(\)[^;]*\?[^;]*walletOps\.run/m, src,
+                 "transport, not device, decides this fork")
+    refute_match(/if\s*\(\s*.*isMobile\(\)\s*\)\s*\{[^}]*walletOps\.run/m, src,
+                 "transport, not device, decides this fork")
+  end
+
+  test "a wrong wallet keeps the remedy the gem's sentence cannot name" do
+    # The CHECK moved to the gem (expectedAccount), and its sentence names both
+    # wallets — better than the hand-rolled comparison it replaced. But it can
+    # only offer ONE remedy, "switch accounts in your wallet", which is the wrong
+    # one for a user whose LINKED address is the stale side. Dropping the Account
+    # page from the copy would be a silent regression on exactly that user.
+    src = File.read(BOARD)
+
+    assert_includes src, "err.wrongAccount",
+                    "the board must recognise the gem's tagged refusal — the message is " \
+                    "user-facing prose, so matching on its wording instead would break " \
+                    "the moment the gem rewords it"
+    assert_includes src, "Or reconnect your wallet on the Account page.",
+                    "the second remedy is this app's to offer; the gem does not know " \
+                    "where a wallet gets relinked"
+  end
+
+  test "the redirect transport returns rather than running the inline return leg" do
+    # Without the return, a mobile entry navigates to the wallet AND keeps
+    # executing — painting an Entry Confirmed card off a promise that resolved
+    # only because the hop had not happened yet, in a document on its way out.
+    src = File.read(BOARD)
+    branch = post_run_redirect_branch(src)
 
     # The LAST statement in the block must be the return — not merely present
     # somewhere inside it, which a nested callback could satisfy.
     tail = branch.rstrip.sub(/\}\z/, "").rstrip
     assert tail.end_with?("return;"),
-           "the redirect branch must END in `return;` — without it a mobile entry " \
-           "navigates to the wallet AND keeps running the inline flow in a document " \
-           "on its way out, minting a second prepared-transaction row nobody can see"
+           "the redirect guard must END in `return;` — without it a mobile entry " \
+           "navigates to the wallet AND falls into the inline return leg, painting a " \
+           "success card for an entry no server has confirmed"
   end
 
-  # --- what the redirect branch owes when the hop does NOT happen ------------
+  # --- what the redirect transport owes when the hop does NOT happen ---------
   #
   # ASSERTED ON SOURCE, with the same limits the fork test above states: these
   # live inside an Alpine method that cannot be lifted out without its
@@ -136,12 +199,15 @@ class ContestEntryIntentRegistrationTest < ActiveSupport::TestCase
 
   test "a hop that never happens restores the button and names the failure" do
     src = File.read(BOARD)
-    start = src.index("if (provider.transport === 'redirect') {")
-    assert start, "the redirect fork moved"
-    branch = src[start, 3000]
-
-    assert_includes branch, "pagehide",
-                    "pagehide firing is the only honest signal that the hop took"
+    branch = post_run_redirect_branch(src)
+    # The listener is ARMED before the call site (it has to be — the hop can take
+    # the page during run()) and DISARMED inside the guard after it, so the two
+    # halves are asserted at the two places they now live.
+    assert_includes src, "window.addEventListener('pagehide', onPageHide",
+                    "pagehide firing is the only honest signal that the hop took, and it " \
+                    "must be armed before run() — the page can be gone by the time it returns"
+    assert_includes branch, "removeEventListener('pagehide', onPageHide)",
+                    "an armed listener the guard never disarms leaks into the next attempt"
     assert_includes branch, "board.resetHoldButtons()",
                     "a declined universal link left the hold buttons dead"
     assert_includes branch, "board.submitting = false",

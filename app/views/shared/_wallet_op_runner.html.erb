@@ -26,7 +26,18 @@
 
     NOT A WRAPPER AROUND walletOps' DECISIONS. It chooses no signing method,
     touches no journal, and adds no state. Everything below the modal copy is
-    arguments. %>
+    arguments.
+
+    ONE CALL SITE STILL DOES NOT USE THIS, and it is worth naming rather than
+    leaving to be discovered: contests/_turf_totals_board collapsed onto a single
+    walletOps.run in /tasks/collapse-inline-entry-call-site, which landed in
+    parallel with this partial, and it still spells out its own redirectLink,
+    appUrl, cluster and pagehide watch inline. That is the same address book
+    written twice — and a missing redirectLink at a hand-rolled call site is the
+    defect that lost a real user's entry on QA. Routing it through here is
+    /tasks/route-board-through-runner; it was left alone here because that board
+    is the app's highest-traffic money path and its just-landed tests read its
+    source directly. %>
 <script>
 (function () {
   // The redirect return leg is studio-engine's callback view. Named once, here,

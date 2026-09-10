@@ -1,9 +1,11 @@
 # Wallet Transport Architecture
 
-**Status:** Partly built. Phase 1 shipped (contest entry rides the redirect
-transport); phase 2 is four flows, three of them migrated —
-`/tasks/migrate-remaining-entry-flows`. The design below still describes the
-target; the **Scope** table records what has actually landed.
+**Status:** Partly built. Contest entry (both boards), contest create and bundle
+provisioning each ride ONE call site for both transports
+(`/tasks/collapse-inline-entry-call-site`, `/tasks/migrate-remaining-entry-flows`,
+solana-studio 0.9.2). The account-side flows are still hand-rolled —
+`/tasks/migrate-account-wallet-flows`. The design below describes the target; the
+**Scope** table records what has actually landed.
 **Written:** 2026-09-07 · **Last corrected:** 2026-09-09
 **Task:** https://mcritchie.studio/tasks/wallet-transport-architecture-doc
 **Spans:** turf-monster · solana-studio · studio-engine
@@ -144,8 +146,24 @@ walletOps.define('contest_entry', {
 walletOps.run('contest_entry', { contestId, currency });
 ```
 
-- **inline transport** — `run` executes prepare → sign → send → complete as one
-  async function, exactly as the code does today.
+- **inline transport** — `run` executes connect → prepare → sign → complete as
+  one async function. **Connect comes FIRST, and the order is the point:**
+  `prepare` is a server round trip that MINTS something (here, a prepared
+  transaction row with a fresh blockhash), so running it before the wallet has
+  said who it is spends a real record to discover the wrong account is
+  connected. That is what `run(..., { expectedAccount })` protects.
+- **`run` never sends.** Signing and broadcasting are different
+  responsibilities, and for a CO-SIGNED transaction — the entry's shape, with the
+  admin signer slot deliberately empty — the wallet must not broadcast at all.
+  `complete` is told which happened (`sendStrategy`) and owns the RPC. An intent
+  whose transaction cannot be wallet-broadcast declares `signOnly: true`; note
+  that the inline path signs-only regardless, so a flow that WANTS the wallet to
+  send sees that only on the redirect transport.
+- **the transaction is base58 wire bytes on every transport**, because a
+  `solanaWeb3.Transaction` cannot be written to the journal and so cannot survive
+  a page death. The inline provider converts, in both directions, through a codec
+  the gem requires by name (`deserializeTransaction` / `serializeTransaction` —
+  `INLINE_TX_CODEC` in `app/javascript/wallet_provider.js`).
 - **redirect transport** — `run` executes prepare, journals the intent, and
   redirects. The callback page reads the journal, looks the op up **by name**,
   and calls `complete`.
@@ -258,8 +276,8 @@ being handed into its own browser, where the inline transport already works.
 **Interim mitigation — SUPERSEDED, kept for the reasoning.** The first answer
 was to guard `detect()` at the four unguarded call sites and tell mobile users to
 open the page in their wallet's browser: tier 1 by hand, no new architecture,
-crash stopped. All four have since been given a real mobile path instead (three
-migrated, one forked), so nothing is left holding the guard. The lesson that
+crash stopped. All four have since been given a real mobile path
+instead, so nothing is left holding the guard. The lesson that
 outlived it: `requireInlineProvider()` is the honest refusal for a caller that
 has NOT been taught the redirect transport, and it is a DEAD END rather than a
 fix — the world-cup board sat behind one and turned every phone away politely.
@@ -277,7 +295,7 @@ written. Each flow's state is what matters.
 
 | Flow | Location | State |
 |---|---|---|
-| Contest entry — turf totals | `app/views/contests/_turf_totals_board.html.erb` | **redirect path shipped, inline path not yet collapsed** — the last two-path fork; `/tasks/collapse-turf-board-fork` |
+| Contest entry — turf totals | `app/views/contests/_turf_totals_board.html.erb` | **migrated** — one `walletOps.run('contest_entry')` (`/tasks/collapse-inline-entry-call-site`) |
 | Contest entry — world cup survivor | `app/views/contests/_world_cup_survivor_board.html.erb` | **migrated** — one `tmWalletOp('contest_entry')` |
 | Create contest | `app/views/contests/new.html.erb` | **migrated** — one `tmWalletOp('contest_create')` |
 | Contest generator | `app/views/contests/generator.html.erb` | **migrated** — one `tmWalletOp('contest_bundle')` |
@@ -398,8 +416,8 @@ cheapest insurance in the design.
 | **0** *(optional, ~1 day)* | Guard `detect()`; capability-gated messaging; tier-3 handoff copy | Stops the crash today |
 | **1** | Encryption core + `walletOps` + all three adapters, wired to **contest entry only** | The transport abstraction, end to end, on the flow that is bleeding |
 | **2** | Migrate the remaining user-facing flows; ~~admin flows get desktop-only messaging~~ (**done** — `gate-admin-flows-desktop-only`) | Mobile parity |
-| **2a** | ~~World cup survivor entry, create contest, contest generator~~ (**done** — `migrate-remaining-entry-flows`) | Three flows on one call site |
-| **2b** | Turf-totals fork collapsed (`collapse-turf-board-fork`); username rename; wallet export; retire the undocumented `signIn` deeplink | The rest of phase 2 |
+| **2a** | ~~Turf-totals fork collapsed~~ (**done** — `collapse-inline-entry-call-site`); ~~world cup survivor entry, create contest, contest generator~~ (**done** — `migrate-remaining-entry-flows`) | Every contest flow on one call site |
+| **2b** | Username rename; wallet export (`migrate-account-wallet-flows`); retire the undocumented `signIn` deeplink | The rest of phase 2 |
 | **3** *(optional)* | Android Mobile Wallet Adapter | Better Android UX — no page destruction |
 
 Phase 1 covering all three wallets was chosen deliberately: they share the

@@ -69,7 +69,7 @@ Phantom must be installed in the browser or available via mobile deep link.
      holding no entry — unless `show_board_for_existing_entry` opens it back
      up for `?add_entry=true` (`:71`).
    - The board partial mounts `x-data="selectionBoard()"` —
-     `app/views/contests/_turf_totals_board.html.erb:2158`. The factory is
+     `app/views/contests/_turf_totals_board.html.erb:2088`. The factory is
      defined inline as `window.selectionBoard = function()` (`:171`) because
      Alpine processes `x-data` before importmap modules load (see
      `docs/UI_PATTERNS.md` § Alpine + ERB Constraints).
@@ -94,8 +94,8 @@ Phantom must be installed in the browser or available via mobile deep link.
      than trusting its own optimistic mutation
      (`_turf_totals_board.html.erb:741`).
    - At `picks_required` selections the board blurs behind the cart —
-     `blurDismissed` gates the overlay (`:2169-2175`) — and the shared
-     `render 'studio/hold_button'` appears (`:2348`).
+     `blurDismissed` gates the overlay (`:2099-2105`) — and the shared
+     `render 'studio/hold_button'` appears (`:2278`).
 
 4. **Hold-to-Confirm fires.** The shared hold button dispatches the
    `hold-confirm-entry` window event; the board's `init()` listener routes it
