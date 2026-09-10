@@ -242,7 +242,9 @@ class WalletFailureReporterWiringTest < ActionDispatch::IntegrationTest
                     "Below that floor those two stages report nothing, while this file and " \
                     "docs/AUTH.md's call-site table both say they are wired — the contradiction " \
                     "this guard exists to make loud. Either raise the resolve, or mark both rows " \
-                    "unwired in BOTH places. Note the Gemfile pin `~> 0.6` still ADMITS 0.6.x, " \
-                    "so this test is the only thing refusing that resolve."
+                    "unwired in BOTH places. This guard is a BACKSTOP, not the only refusal: " \
+                    "the Gemfile pin (`~> 0.9`, `>= 0.9.2`) and engine_pin_contract_test's " \
+                    "SOLANA_STUDIO_MINIMUM both refuse a 0.6.x resolve already. What this one " \
+                    "adds is the floor THIS ledger needs, which outlives a loosened pin."
   end
 end

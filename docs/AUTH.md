@@ -325,10 +325,14 @@ hold nothing. Then the correction itself shipped with the version wrong. The
 hand-maintained rows were wrong twice running; the floor is what stops a third.
 
 The version above is the EARLIEST tag containing the commit that wired them
-(`06bda3b`), not a tag that happens to carry it. **One gap stays open, and it is
-open knowingly:** the Gemfile pin is still `~> 0.6`, which ADMITS 0.6.x — where
-both rows are false. The resolver will not refuse that; the floor test is the
-only thing that does. Re-derive by hand with `grep reportWalletFailure "$(bundle
+(`06bda3b`), not a tag that happens to carry it. **The gap this paragraph used
+to describe is CLOSED, and closing it is why the sentence changed:** the Gemfile
+pin (`Gemfile:165`) reads `"~> 0.9", ">= 0.9.2"`, so the resolver itself refuses
+0.6.x, and `test/lib/engine_pin_contract_test.rb`'s `SOLANA_STUDIO_MINIMUM`
+asserts the resolve against 0.9.2 as well. The floor test below is therefore a
+BACKSTOP, not the only guard: it states the floor THIS ledger needs — 0.7.0 —
+which is the claim that survives a pin someone loosens later. Re-derive by hand
+with `grep reportWalletFailure "$(bundle
 show solana-studio)"/app/views/solana_studio/modals/_wallet_connect.html.erb`.
 
 The two layout stages are not a substitute for the surfaces and the surfaces are
