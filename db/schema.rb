@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_09_180000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_10_030000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -312,12 +312,15 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_09_180000) do
     t.string "away_team_slug", null: false
     t.string "clock"
     t.datetime "created_at", null: false
+    t.string "down_distance"
     t.string "external_id"
     t.integer "focus_rank"
     t.integer "home_score"
     t.string "home_team_slug", null: false
     t.datetime "kickoff_at"
     t.integer "period"
+    t.string "possession_team_slug"
+    t.string "possession_text"
     t.integer "season_type"
     t.integer "season_year"
     t.string "slug", null: false
