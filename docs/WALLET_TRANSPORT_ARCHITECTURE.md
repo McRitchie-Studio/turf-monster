@@ -348,8 +348,13 @@ so both exist on the callback document.
 
 **The mobile remedy that does exist:** open the export page inside a wallet app's
 own browser, where a provider is injected and the inline path works unchanged.
-`requireInlineProvider` already says so. Widening this needs a transport that
-never persists the challenge — not a walletOps intent.
+`requireInlineProvider` already says so.
+
+**Tracked, not dropped:** `/tasks/wallet-export-mobile-transport` holds the shape
+a real fix needs — a transport that never persists the challenge, for example a
+server-held pending-signature row reached by an opaque slug, the way contest entry
+uses `ptx_slug`. That is a solana-studio change plus a turf one, not a walletOps
+intent.
 
 ### Desktop-only is a legitimate answer — SHIPPED (`gate-admin-flows-desktop-only`)
 

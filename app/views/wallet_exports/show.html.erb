@@ -162,6 +162,12 @@
       //    That streams the token to LogRocket, which is the exact leak
       //    harden_secret_response was added to close (Lazarus audit #2).
       //
+      // TRACKED, NOT DROPPED: /tasks/wallet-export-mobile-transport carries the
+      // shape a real fix would need — a transport that never persists the
+      // challenge, e.g. a server-held pending-signature row reached by an opaque
+      // slug, the way contest entry uses ptx_slug. That is a solana-studio change
+      // plus a turf one, not a walletOps intent.
+      //
       // WHAT THAT COSTS, stated plainly: a user on a phone browser cannot
       //    complete step 2 here. They get requireInlineProvider's honest refusal
       //    — open this page inside a wallet app's own browser — and inside that
