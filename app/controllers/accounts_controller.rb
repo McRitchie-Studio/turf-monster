@@ -32,12 +32,12 @@ class AccountsController < ApplicationController
     # $store.session from chain — and the Refresh Wallet button re-pulls
     # the same endpoint on demand.
     #
-    # Referral widget — share URL points at the canonical main contest
-    # (admin-set via /admin/dashboard). SeasonConfig.main_contest masks
-    # the explicit pick when it's settled/locked and falls back to the
-    # most recent open contest; nil if nothing is open at all (the widget
-    # then degrades to a root-path share URL).
-    @referral_share_contest = SeasonConfig.main_contest
+    # NO REFERRAL IVAR. The share widget resolves its own target through
+    # ApplicationHelper#main_contest_target, because /profile renders the same
+    # card from the engine's ProfilesController, which cannot set a host ivar.
+    # This action assigned @referral_share_contest long after the partial stopped
+    # reading it — a dead assignment that still paid for the SeasonConfig
+    # round-trip it no longer used.
   end
 
   # Fresh on-chain state (USDC, free-entry tokens, seeds + level) in a
@@ -75,7 +75,9 @@ class AccountsController < ApplicationController
       seeds:       seeds,
       level:       User.level_for(seeds),
       toward_next: User.seeds_toward_next_level(seeds),
-      progress:    User.seeds_progress_percent(seeds)
+      progress:    User.seeds_progress_percent(seeds),
+      level_up_token_pending: current_user.present? &&
+        current_user.level > current_user.entry_tokens_granted_level
     }
   end
 
@@ -257,15 +259,67 @@ class AccountsController < ApplicationController
       # Check if Solana wallet belongs to another user
       existing = User.from_solana_wallet(pubkey_b58)
       if existing && existing.id != current_user.id
-        merge_users!(survivor: current_user, absorbed: existing)
+        # merge_users! keeps the LOWER id, so the survivor is NOT necessarily
+        # current_user — take the row it returns and write through THAT.
+        survivor = merge_users!(survivor: current_user, absorbed: existing)
+        # The merge copies only email / name / provider+uid across and then
+        # DESTROYS the absorbed row — including, on the no-swap ordering, the row
+        # that held the wallet. Without this the survivor is left with
+        # web3_solana_address nil while still carrying the brand stamp and an
+        # on-chain session: an account CLAIMING a wallet it does not have, which
+        # shuts both entry doors for a survivor that has a managed wallet
+        # (ContestsController#enter refuses, #prepare_entry raises).
+        #
+        # AFTER merge_users! returns, never inside it: the absorbed row still
+        # owns the address until the destroy inside that transaction, so an
+        # earlier write would collide on the uniqueness of the column.
+        survivor.update!(web3_solana_address: pubkey_b58)
+        # The survivor now holds the wallet this request just proved, so it earns
+        # the same brand stamp as the non-merge branch below. Through `survivor`
+        # and not `current_user`: on the swap ordering current_user IS the
+        # destroyed row, and record_web3_authentication! bails on it
+        # (`return false unless persisted?`) — so the durable stamp was being
+        # dropped there, silently, on roughly half of all orderings.
+        survivor.record_web3_authentication!(provider: params[:wallet_provider])
         # The account now holds a web3 wallet — the wallet-setup nudge is
         # satisfied, so drop it in the same breath as the link.
         clear_wallet_setup_state!
+        # ...and this session just proved that wallet, so it IS an on-chain
+        # session. The merge branch returns early, so it needs its own call.
+        promote_to_onchain_session!(provider: params[:wallet_provider])
         return render json: { success: true, redirect: account_path, notice: "Accounts merged." }
       end
 
       current_user.update!(web3_solana_address: pubkey_b58)
+      # Same stamp as the wallet LOGIN path — linking is a signature too, and a
+      # user who links from /account and later signs in by email deserves the
+      # same one-click step-up as one who logged in with the wallet directly.
+      current_user.record_web3_authentication!(provider: params[:wallet_provider])
       clear_wallet_setup_state!
+      # The DURABLE stamps above record that this ACCOUNT holds a wallet; this
+      # records that THIS SESSION can sign with it. Without it the session stays
+      # :web2 and an account whose only wallet is self-custody cannot enter at
+      # all — the board shows the web2 "Buy an Entry Token" wall instead of
+      # asking Phantom to sign. See ApplicationController#promote_to_onchain_session!.
+      promote_to_onchain_session!(provider: params[:wallet_provider])
+      # NO on-chain UserAccount is created here, deliberately. Creating one costs
+      # ~0.00182 SOL of ADMIN rent and is PERMANENT — nothing in turf-vault closes
+      # a UserAccount — while this endpoint is reachable by any signed-in user with
+      # a freshly generated keypair. Keypairs are free and the user holds the key,
+      # so `verify_solana_signature!` passes every time: an eager create here bills
+      # admin SOL per REQUEST rather than per user, bounded only by a 5/min/IP
+      # brute-force throttle (rack_attack.rb:48). That is OPSEC-044 exactly — the
+      # proactive EnsureAtaJob was removed from signup for this reason (user.rb:534)
+      # — and it is cheaper to abuse here, needing only a new keypair rather than a
+      # new account.
+      #
+      # The remedy is OPSEC-044's verbatim: create it lazily, from the paths that
+      # actually need it. They already do — entry.rb:302 before a contest entry,
+      # stripe_deposit_job.rb:51 before a deposit, contests_controller.rb:746 and
+      # :1550 in the entry preamble — which is precisely when a user starts earning
+      # seeds. A user who links a wallet and never plays has no seeds to grant, and
+      # Tokens::LevelUpGrant already models that cold read as first-class
+      # (:user_account_missing), loudly.
       render json: { success: true, redirect: account_path }
     end
   rescue Solana::AuthVerifier::VerificationError => e

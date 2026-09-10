@@ -1,0 +1,77 @@
+<%# The compact contest table, shared by the two table bands on /contests.
+    The whole row is click-through (CSP allows inline handlers); the name stays
+    a real link for keyboard access, with stopPropagation so it doesn't
+    double-fire.
+
+    Locals:
+      contests             the rows, in the order they should render.
+      entry_counts         contest_id => field size (every entrant's entries).
+      entered_contest_ids  Set of ids this viewer has entered.
+      payouts              contest_id => this viewer's payout_cents, or NIL.
+      hide_settled         whether settled rows hide behind the page's
+                           showSettled toggle.
+
+    `payouts` IS THE BAND SWITCH, and nil is a meaning rather than an absence.
+    Nil says "this table is nobody's ledger" — the All Contests band — so a
+    settled row keeps the plain "Settled" badge and the Prizes cell keeps the
+    guaranteed pool. A hash says "this is My Contests", and the helpers then
+    tell a settled contest apart into Won and Complete and swap the Prizes cell
+    to what this viewer actually took home. See ContestsHelper
+    #contest_status_badge / #contest_prize_cell for the full reading.
+
+    `hide_settled` splits the same way and for a related reason: All Contests
+    hides settled rows behind the admin toggle (they are noise in a list of
+    what to play), while My Contests must always show them, because a finished
+    contest's RESULT is the only thing that band exists to report. %>
+<% payouts = local_assigns[:payouts] %>
+<% hide_settled = local_assigns.fetch(:hide_settled, false) %>
+<div class="card overflow-x-auto">
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="border-b border-subtle">
+        <th class="px-4 py-3 text-left text-xs font-semibold text-muted uppercase tracking-wider">Contest</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-muted uppercase tracking-wider">Status</th>
+        <th class="px-4 py-3 text-right text-xs font-semibold text-muted uppercase tracking-wider">Entry</th>
+        <th class="px-4 py-3 text-right text-xs font-semibold text-muted uppercase tracking-wider">Prizes</th>
+        <th class="px-4 py-3 text-center text-xs font-semibold text-muted uppercase tracking-wider">Entries</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-muted uppercase tracking-wider">Starts</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-subtle">
+      <% contests.each do |contest| %>
+        <% payout = payouts && (payouts[contest.id] || 0) %>
+        <% badge = contest_status_badge(contest, payout_cents: payout) %>
+        <% prize = contest_prize_cell(contest, payout_cents: payout) %>
+        <%# A settled row carries x-show + x-cloak so it stays hidden for
+            everyone until an admin flips the toggle. The whole <tr> is the
+            x-show root (a single element), so no parser/template issues. %>
+        <tr class="hover:bg-surface-alt transition cursor-pointer" onclick="window.location='<%= contest_path(contest) %>'"
+            data-contest-row="<%= contest.slug %>"
+            <%== (hide_settled && contest.settled?) ? 'x-show="showSettled" x-cloak' : '' %>>
+          <td class="px-4 py-3">
+            <div class="flex items-center gap-2 flex-wrap">
+              <%= link_to contest.name, contest_path(contest), class: "font-semibold text-heading hover:text-primary transition", onclick: "event.stopPropagation()" %>
+              <%# Only worth saying in a table where SOME rows are entered. In
+                  My Contests every row is, so the chip would be pure noise. %>
+              <% if payouts.nil? && entered_contest_ids.include?(contest.id) %>
+                <span class="badge text-[10px] bg-primary/15 text-primary border border-primary/30">Entered</span>
+              <% end %>
+            </div>
+            <% if contest.slate %>
+              <p class="text-xs text-muted mt-0.5"><%= contest.slate.name %></p>
+            <% end %>
+          </td>
+          <td class="px-4 py-3">
+            <span class="badge text-[10px] whitespace-nowrap <%= badge[:classes] %>" data-contest-badge><%= badge[:label] %></span>
+          </td>
+          <td class="px-4 py-3 text-right font-mono text-secondary whitespace-nowrap"><%= dollars(contest.entry_fee_dollars) %></td>
+          <td class="px-4 py-3 text-right font-mono whitespace-nowrap <%= prize[:classes] %>" data-contest-prize><%= dollars(prize[:amount]) %></td>
+          <td class="px-4 py-3 text-center font-mono text-secondary whitespace-nowrap">
+            <%= entry_counts[contest.id] || 0 %><span class="text-muted">/<%= contest.max_entries %></span>
+          </td>
+          <td class="px-4 py-3 text-muted text-xs whitespace-nowrap"><%= contest.starts_at ? contest.starts_at.strftime("%b %-d, %Y") : "TBD" %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+</div>

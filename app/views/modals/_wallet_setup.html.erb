@@ -298,9 +298,27 @@
              this.connecting = false;
            }
          } catch (e) {
-           var msg = (e && e.code === 4001) ? 'Signature rejected' : ((e && e.message) || 'Connection failed');
+           // The WALLET string, captured before the mapper runs. It rides
+           // alongside what the user is shown because a mis-mapping is invisible
+           // in the mapped half alone -- app/javascript/solana_errors.js.
+           var raw = (e && e.message) || '';
+           var msg = (e && e.code === 4001) ? 'Signature rejected' : (raw || 'Connection failed');
            if (typeof parseSolanaError === 'function') msg = parseSolanaError(msg);
            this.error = msg; this.connecting = false;
+           // AFTER both assignments above, and never awaited. This line is
+           // observation: it may not delay, block or alter the line the user has
+           // just been given. The reporter swallows its own faults; the typeof
+           // guard covers a page where it never loaded.
+           //
+           // EXCEPT WHEN THE LAYOUT ALREADY REPORTED IT. solanaConnectAndVerify
+           // substitutes its own setup sentence for an unusable wallet's message
+           // and reports the pair from in there, where the wallet's words still
+           // exist. Reporting again from out here would add a second row whose
+           // `raw` and `mapped` are both OUR sentence — the exact useless shape
+           // that fix removes, and the row an operator would meet first.
+           if (typeof window.reportWalletFailure === 'function' && !(e && e.walletFailureReported)) {
+             window.reportWalletFailure('wallet_setup_connect', 'Phantom', raw, msg);
+           }
          }
        },
        // Ask the player for sound. Spoken over postMessage rather than through
@@ -343,12 +361,19 @@
       painting an empty icon. %>
   <%= render "studio/modals/blocks/wallet_brand_sprite" %>
 
-  <div class="relative mb-3 -mt-2">
+  <%# Dismissible: closing leaves the user browsing with picks intact.
+
+      ADOPTED THE ENGINE MARK (2026-09-05). This card drew its own × for eight
+      months while blocks/_close_x homed the identical mark for eight other
+      modals — the drift the primitive exists to end. It moves to the CARD's
+      corner here rather than the title row's, which is where the other eight
+      put it and where the primitive's own -mt-2 assumes it is: anchored to this
+      partial's single `relative` root, not to a nested wrapper. The title row
+      keeps its own spacing and loses only the button it should not have owned. %>
+  <%= render "studio/modals/blocks/close_x" %>
+
+  <div class="mb-3 -mt-2">
     <h3 class="text-heading font-bold text-lg leading-tight text-center pt-1">Set up your wallet</h3>
-    <%# Dismissible: closing leaves the user browsing with picks intact. %>
-    <button @click="$store.modals.close()"
-            class="absolute top-0 right-0 -mr-2 text-secondary hover:text-heading text-xl leading-none"
-            aria-label="Close">&times;</button>
   </div>
   <%# Position in the ONBOARDING CHAIN: first name (1) -> age (2) -> wallet (3),
       per the operator's call on 2026-08-19.
@@ -404,7 +429,33 @@
       </p>
     </div>
   </template>
-  <template x-if="!phantomPresent">
+  <%# Not installed, ON A PHONE — one row, and it is the deep link. There is no
+      extension to install here and no probe to run, so the desktop install row
+      below would be a dead end; Phantom's universal link handles both states
+      by itself (app installed opens it, app absent falls through to Phantom's
+      install page). %>
+  <template x-if="!phantomPresent && isMobile">
+    <div>
+      <button type="button" @click="deepLink()"
+              style="--studio-team-glow-color: #AB9FF2; --studio-team-glow-thickness: 3px; --studio-team-glow-bloom: 8px"
+              class="studio-team-glow w-full flex items-center gap-3 p-3 rounded-xl bg-surface-alt border border-strong hover:bg-surface transition text-left">
+        <svg class="w-9 h-9" aria-hidden="true"><use href="#se-wallet-phantom"></use></svg>
+        <span class="font-semibold text-heading">Phantom</span>
+        <span class="ml-auto flex items-center gap-2">
+          <span class="text-xs text-muted uppercase tracking-wide">Open app</span>
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-muted">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+          </svg>
+        </span>
+      </button>
+      <p class="text-[11px] text-muted mt-1.5 px-1">
+        Opens the Phantom app to sign. Don’t have it? Phantom will offer to
+        install it.
+      </p>
+    </div>
+  </template>
+  <%# Not installed, on a desktop browser — the install row with its probe. %>
+  <template x-if="!phantomPresent && !isMobile">
     <div>
       <%# Not installed. The row wears the glow ring because it is the one
           target on this card. Once the user leaves for the install page a
@@ -430,25 +481,39 @@
           </svg>
         </span>
       </a>
-      <p x-show="installClicked" x-cloak class="text-[11px] text-muted mt-1.5 px-1">
-        Finish downloading the Phantom wallet extension.
+      <p x-show="installClicked" x-cloak role="status" aria-live="polite"
+         class="text-[11px] text-muted mt-1.5 px-1">
+        Finish setting up Phantom in the new tab, then return here. We’ll detect it automatically.
       </p>
     </div>
   </template>
 
-  <%# Mobile has no extension to install — deep-link into the Phantom app. %>
-  <button x-show="isMobile" x-cloak type="button" @click="deepLink()"
-          class="mt-2 w-full flex items-center gap-3 p-3 rounded-xl bg-surface-alt border border-strong hover:bg-surface transition text-left">
-    <img src="/phantom-white.png" alt="" class="w-9 h-9 rounded-lg bg-violet p-1.5">
-    <span class="font-semibold text-heading">Open in Phantom app</span>
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="ml-auto w-4 h-4 text-muted">
-      <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-    </svg>
-  </button>
+  <%# A LIVE REGION THAT IS ACTUALLY LIVE, so a screen reader is told the
+      connect failed. This was a <template x-if="error"> until 2026-09-07: the
+      paragraph did not exist until the error did, and a live region INSERTED
+      alongside its own content is not reliably announced — assistive tech has to
+      be watching the region before the text lands in it. Adding aria-live to the
+      old markup would have been the nominal fix that changes nothing.
 
-  <template x-if="error">
-    <p class="text-red-400 text-sm mt-3 text-center" x-text="error"></p>
-  </template>
+      So the paragraph is permanent and only its VISIBILITY moves — the same
+      x-show + x-cloak shape the install hint above it already uses. `alert`
+      rather than `status` because this interrupts a user who is waiting on a
+      click they just made, and it carries no other content to talk over. %>
+  <%# COLOUR: text-danger-ink, never a static red. This paragraph sits on the
+      modal card, which is bg-surface, and bg-surface is PURE WHITE in light
+      mode. Measured against this app's own resolved theme vars, no static red
+      clears WCAG AA 4.5:1 on both cards: text-red-400 is 2.89:1 on the light
+      card and 3.86:1 on the dark one, so it failed BOTH, and worst at the exact
+      moment this sentence matters most. danger-ink is derived per theme by
+      studio-engine's ThemeResolver to clear 4.5:1 on every theme surface, and
+      resolves here to BA3535 light and F48484 dark.
+
+      The guard is test/views/error_text_contrast_test.rb. It resolves the
+      class through the COMPILED stylesheet to a real colour and measures the
+      ratio, so swapping in a different light red fails it too. %>
+  <p x-show="error" x-cloak role="alert" aria-live="assertive" aria-atomic="true"
+     data-test="wallet-setup-error"
+     class="text-danger-ink text-sm mt-3 text-center" x-text="error"></p>
 
   <%# === NEW TO SOLANA ======================================================
       The teaching half: someone walking the whole install on screen. This was
@@ -557,16 +622,16 @@
           rail is a real option here, one step later, and a control that vanishes
           teaches nothing about why.
 
-      walletConnected is User#solana_connected? — the SAME predicate those rails
+      walletHasAddress is User#solana_connected? — the SAME predicate those rails
       guard on. Not `mode`, which reads 'web2' for a wallet-less account and
       would show the button to precisely the people it refuses. %>
-  <template x-if="$store.session.walletConnected">
+  <template x-if="$store.session.walletHasAddress">
     <button type="button" @click="$store.modals.swap('buy-entry-token', {})" :disabled="connecting"
             class="mt-2 w-full text-center text-xs text-muted hover:text-secondary disabled:opacity-50">
       Rather pay by card? <span class="underline">Buy an entry token</span>
     </button>
   </template>
-  <template x-if="!$store.session.walletConnected">
+  <template x-if="!$store.session.walletHasAddress">
     <p class="mt-2 w-full text-center text-xs text-muted">
       Rather pay by card? Link a wallet first &mdash; an entry token needs
       somewhere to land.

@@ -1,0 +1,428 @@
+require "test_helper"
+
+# [component] The Phantom MOBILE deep link, after this app stopped carrying its
+# own copy of it.
+#
+# WHAT THIS REPLACED. turf-monster owned both halves of the mobile round trip —
+# app/javascript/phantom_deeplink.js (the hand-off out to the Phantom app) and
+# app/views/solana_sessions/phantom_callback.html.erb (the return leg) — and
+# studio-engine took both, PROMOTED OUT OF THIS APP, which is why the diff was
+# small. The two have SPLIT since: /tasks/turf-rides-gem-modals moved the deep
+# link to solana-studio, and /tasks/drop-engine-web3-modals dropped the engine's
+# copy in 0.66.2. This app runs above that floor, so the deep link comes from
+# solana-studio and only the callback still comes from the engine. What this app
+# keeps is the ROUTE, the controller action, and the blocking tweetnacl tag.
+#
+# THE TWO HALVES FAILED DIFFERENTLY, which is why they are asserted differently:
+#
+#   the deep link  was a JS MODULE, so there was no competing view path and no
+#                  shadow — the engine partial was simply never rendered. Its
+#                  ghost is a file on disk plus two loader lines.
+#   the callback   was a TRUE SHADOW at the identical virtual path, winning
+#                  resolution outright and leaving the engine's copy inert.
+#
+# THE CONTRACT THIS APP OWES THE PICKER, and the reason this file is not
+# optional: solana_studio/modals/_wallet_connect suppresses Phantom's mobile INSTALL row
+# on `self.isMobile && self.canDeepLink && i.name === 'Phantom'`, and canDeepLink
+# is `typeof startPhantomDeepLink === 'function'`. Whether that global exists on
+# the page therefore decides what a phone SEES, not merely what a tap does.
+#
+# WHAT LOSING IT ACTUALLY DOES, measured in a browser on 2026-08-30 rather than
+# reasoned about — because the reasoning in circulation was BACKWARDS and this
+# app's own comments carried it. Both getters read canDeepLink, so both flip
+# together: `missingInstalls` stops filtering Phantom and `showPhantomDeepLink`
+# goes false. A phone is therefore left with Phantom's INSTALL row, NOT with "no
+# Phantom path at all". That is still a regression — you cannot install a browser
+# extension on iOS Safari, so the row is a dead end and it is precisely the bug
+# wallet_picker_single_phantom_test was written to kill — but it is a visible dead
+# end rather than an empty list, and a reader hunting an empty list will not find
+# it. Control run, iPhone 13 viewport, one variable changed:
+#
+#   global present   deep-link row VISIBLE   install rows: Solflare, Backpack
+#   global deleted   deep-link row HIDDEN    install rows: Phantom, Solflare, Backpack
+#
+# ONE RENDER SITE SINCE 2026-09-09. layouts/application and layouts/modal_preview
+# kept SEPARATE registration lists and both mounted the picker, so both needed
+# the global; the preview layout was deleted with the /admin/modals/preview seam.
+# One render in shared/_alpine_factories still covers whatever mounts the picker,
+# and these tests check the RENDERED page rather than that arrangement, so a
+# future second layout fails here.
+# TWO FLOORS, AND THE MIGRATION MOVED ONLY PART OF ONE. Since
+# /tasks/turf-rides-gem-modals the deep link is `solana_studio/_phantom_deeplink`
+# and its floor is solana-studio 0.5.3, where it first exists.
+#
+# THE STUDIO-ENGINE 0.64.0 FLOOR SURVIVES THAT MOVE INTACT, which is the thing to
+# get right before anyone tries to lower it: the `solana_sessions/phantom_callback`
+# template, `Studio.wallet_debug_sink` and `Studio.wallet_sign_in_statement` all
+# first exist in studio-engine 0.64.0 and NONE of them moved. The deep link and
+# the callback are a MATCHED SIGNING PAIR — each reads
+# Studio.wallet_sign_in_statement, unparameterized, and the callback rebuilds the
+# signed message to verify it — so the gem partial now depends on studio-engine
+# at RENDER time. Verified byte-level 2026-09-01 in the published artifacts: the
+# gem's copy reads the helper exactly once, and phantom_callback reads it
+# identically.
+#
+# Historical note: This file used to record that the pin UNDERSTATED that —
+# `~> 0.63` with MINIMUM at 0.63.0 — and point at /tasks/raise-engine-pin-to-0-64
+# as the change that would close it. That task landed, and the pin and MINIMUM
+# have both moved well past 0.64 since.
+#
+# WHAT IS STILL TRUE, and the only part this file rests on, is that 0.64.0 is
+# where the deep-link pair first exists — so it remains a floor for THIS surface,
+# one the app's actual floor now sits above. The CURRENT pin and MINIMUM are
+# deliberately not restated here: this paragraph named `~> 0.64` and MINIMUM
+# 0.64.0 long after PR #581 replaced both, and every restatement is one more copy
+# to go stale. test/lib/engine_pin_contract_test.rb owns them and asserts them
+# against each other and against the Gemfile's floor note.
+#
+# The sharpest consequence is worth keeping in view here, because it is NOT what
+# this file's own tests catch: `config/initializers/studio.rb` SETS
+# `config.wallet_debug_sink`, so a bundle that walks back to 0.63 raises
+# NoMethodError inside `Studio.configure` and the app never boots. The tests
+# below would fail on such a bundle too, but the boot does first.
+#
+class PhantomDeeplinkAdoptionTest < ActionDispatch::IntegrationTest
+  # The literal this app's users have been signing since long before the
+  # promotion. HARDCODED on purpose: deriving it from Studio.wallet_sign_in_statement
+  # would assert the helper equals itself, and the whole question is whether
+  # moving to the engine changed one signed byte. It did not — Studio.app_name is
+  # "Turf Monster" and the engine builds "Sign in to #{app_name}".
+  SIGNED_STATEMENT = "Sign in to Turf Monster".freeze
+
+  # ── The fork is gone, proved by RESOLUTION ────────────────────────────
+
+  test "the deep link renders from outside this app" do
+    assert_not ResolvedPhantomDeeplink.shadowed_by_app?,
+      "solana_studio/phantom_deeplink resolved to #{ResolvedPhantomDeeplink.identifier}, " \
+      "inside this app's app/views — the deep link has been re-forked as a shadow"
+  end
+
+  test "the callback renders from outside this app" do
+    # THE ONE THAT WAS ACTUALLY SHADOWED. Same virtual path in both places, host
+    # wins, so for as long as the app's copy existed the engine's was dead code
+    # and no markup assertion anywhere could tell.
+    assert_not ResolvedPhantomDeeplink.callback_shadowed_by_app?,
+      "solana_sessions/phantom_callback resolved to " \
+      "#{ResolvedPhantomDeeplink.callback_identifier}, inside this app's " \
+      "app/views — the callback fork is back and the engine's copy is inert again"
+  end
+
+  test "both forks are gone from disk" do
+    # A render assertion cannot answer this for the callback: the fork and the
+    # engine template produce near-identical markup, which is exactly what let
+    # the copy survive unnoticed.
+    assert_not File.exist?(ResolvedPhantomDeeplink::FORK_JS),
+      "#{ResolvedPhantomDeeplink::FORK_JS} is back — the engine owns the deep link now"
+    assert_not File.exist?(ResolvedPhantomDeeplink::FORK_VIEW),
+      "#{ResolvedPhantomDeeplink::FORK_VIEW} is back — it would shadow the engine's " \
+      "callback at the identical virtual path and win silently"
+  end
+
+  test "the fork's two loader lines are gone, so nothing re-defines the global" do
+    # The fork loaded as an importmap module that ASSIGNED window.startPhantomDeepLink.
+    # Leaving either line behind is not merely untidy: the module would load after
+    # the engine's parse-time script and overwrite it with the un-promoted version,
+    # restoring the base58 dependency the engine deliberately inlined away.
+    refute_match(/^pin ["']phantom_deeplink["']/,
+                 Rails.root.join("config/importmap.rb").read,
+                 "config/importmap.rb still pins the deleted module")
+    refute_match(/^import ["']phantom_deeplink["']/,
+                 Rails.root.join("app/javascript/application.js").read,
+                 "application.js still imports the deleted module")
+  end
+
+  test "base58 stays, because the deep link was not its only reader" do
+    # Only the DEEP LINK's dependency on it moved — the engine inlined its own
+    # copy so the partial has exactly one dependency (nacl). wallet_provider.js
+    # and solana_stores.js still call window.encodeBase58, so deleting base58.js
+    # alongside the deep link would break wallet signing on DESKTOP.
+    assert File.exist?(Rails.root.join("app/javascript/base58.js")),
+      "base58.js was deleted with the deep link, but it has other readers"
+    assert_match(/^import ["']base58["']/, Rails.root.join("app/javascript/application.js").read,
+                 "base58 left the importmap — window.encodeBase58 is gone and " \
+                 "wallet_provider.js:175 throws on the first address encode")
+  end
+
+  # ── The stripper, proved before anything is asserted through it ───────
+
+  test "the stripper leaves the code behind and takes the prose" do
+    # THE CONTROL FOR EVERY ASSERTION BELOW. A stripper that ate the file would
+    # make `refute_match` vacuously true and `assert_match` loudly false — but a
+    # stripper that ate only SOME of it fails in one direction and is invisible.
+    raw     = ResolvedPhantomDeeplink.source
+    stripped = ResolvedPhantomDeeplink.deeplink_code
+
+    assert_operator raw.length, :>, 4000, "the resolved partial is far smaller than expected"
+    assert_operator stripped.length, :>, 1500,
+      "the stripper left #{stripped.length} of #{raw.length} bytes — it ate the code, " \
+      "and every assertion reading it is now vacuous"
+    assert_operator stripped.length, :<, raw.length,
+      "the stripper removed nothing — the prose is still in the string being asserted on"
+
+    # It took the two things it exists to take.
+    refute_match(/PROMOTED from turf-monster/, stripped, "an ERB comment survived the strip")
+    refute_match(%r{^\s*// Phantom deep link protocol}, stripped, "a JS line comment survived the strip")
+    # And the prose it removed really did name the function, which is the whole
+    # reason a bare-name assertion cannot be trusted here.
+    #
+    # THE REMOVED TEXT IS COLLECTED, NOT SUBTRACTED. `raw.gsub(stripped, "")` looks
+    # like the removed prose and is not: the stripper cuts INTERIOR spans, so the
+    # stripped text is nowhere a contiguous substring of raw, gsub matches nothing,
+    # and the assertion silently degrades to "raw mentions the name" — which is
+    # true no matter what the stripper did. Gather the spans instead.
+    prose = raw.scan(/<%#.*?%>/m).join("\n") + raw.scan(%r{^\s*//.*$}).join("\n")
+    assert_match(/startPhantomDeepLink/, prose,
+                 "the removed prose never mentioned startPhantomDeepLink, so the strip " \
+                 "is guarding against a danger that does not exist here — re-check it")
+    assert_operator prose.length, :>, 500,
+                 "the stripper claims to have removed #{raw.length - stripped.length} bytes " \
+                 "but only #{prose.length} bytes of comment can be found — the two are " \
+                 "measuring different things"
+  end
+
+  # ── The function is DEFINED, not merely named ─────────────────────────
+
+  test "the resolved partial defines the function in definition form" do
+    code = ResolvedPhantomDeeplink.deeplink_code
+
+    assert_match(/function\s+startPhantomDeepLink\s*\(\s*linkMode\s*,\s*currentUserId\s*\)/, code,
+                 "the deep link's definition is gone, or its arity changed — the picker " \
+                 "passes (linkMode, currentUserId) and the User-ID binding needs both")
+    assert_match(/window\.startPhantomDeepLink\s*=\s*startPhantomDeepLink\s*;/, code,
+                 "the function is defined but never published on window, so the picker's " \
+                 "canDeepLink getter reads undefined and the phone loses Phantom entirely")
+  end
+
+  # ── What the BROWSER actually receives, on both layouts ───────────────
+
+  test "every layout that mounts the picker ships the global exactly once" do
+    each_picker_render do |label, body|
+      hits = body.scan(/window\.startPhantomDeepLink\s*=\s*startPhantomDeepLink\s*;/)
+      assert_equal 1, hits.length,
+        "#{label}: found #{hits.length} definitions of window.startPhantomDeepLink. " \
+        "Zero means this layout's picker offers a phone no Phantom row at all; two " \
+        "means the deleted importmap module is loading again and overwriting the engine's."
+    end
+  end
+
+  test "the picker's canDeepLink gate and its precondition ship on the same page" do
+    # THE CROSS-REPO CONTRACT, asserted where it actually binds: on one rendered
+    # page, at the same moment. Reading the two halves out of two different files
+    # would pass with them on two different pages.
+    each_picker_render do |label, body|
+      x_data = picker_x_data(body)
+      assert x_data.present?, "#{label}: could not locate the picker's x-data"
+      assert_match(/typeof\s+startPhantomDeepLink\s*===\s*.function./, x_data,
+                   "#{label}: the picker no longer gates on the deep link existing — " \
+                   "re-derive what suppresses Phantom's mobile install row before " \
+                   "trusting the assertion below")
+      assert_match(/window\.startPhantomDeepLink\s*=\s*startPhantomDeepLink\s*;/, body,
+                   "#{label}: the picker asks for startPhantomDeepLink and this page " \
+                   "does not define it — so both of its getters flip together and a " \
+                   "phone falls back to Phantom's browser-extension INSTALL row, which " \
+                   "cannot be completed on iOS Safari")
+    end
+  end
+
+  # ── The three things that must not drift (traced to the verifier) ─────
+
+  test "the signed statement is byte-for-byte what this app signed before the promotion" do
+    assert_equal SIGNED_STATEMENT, Studio.wallet_sign_in_statement,
+      "the SIWS statement changed. The server does not verify it, so nothing fails " \
+      "loudly — but it is what the human reads inside Phantom, and the callback " \
+      "rebuilds it to post for verification, so a drift between the two halves " \
+      "fails every mobile sign-in."
+  end
+
+  test "the deep link and the callback carry the SAME statement, rendered" do
+    # They cannot drift only because both read Studio.wallet_sign_in_statement.
+    # Asserting that in SOURCE would pass on a page where one of them failed to
+    # render; assert it on the two pages a phone actually loads.
+    assert_includes about_page, SIGNED_STATEMENT.to_json,
+      "the deep link page does not carry the statement it will ask Phantom to sign"
+    assert_includes callback_page, SIGNED_STATEMENT.to_json,
+      "the callback does not carry the statement it rebuilds for verification — " \
+      "every mobile sign-in would fail the signature check"
+  end
+
+  test "the User-ID binding line survives, unreformatted" do
+    # OPSEC-005 does a SUBSTRING match on "User-ID: <id>" in
+    # Solana::SessionAuth#verify_solana_signature!. Reformatting or translating
+    # it does not fail a test elsewhere; it fails wallet LINKING in production.
+    assert_match(/statement\s*\+\s*.\\nUser-ID: .\s*\+\s*currentUserId/,
+                 ResolvedPhantomDeeplink.deeplink_code,
+                 "the User-ID binding line changed shape — the server matches it as a substring")
+    assert_match(/statementLine\s*\+=\s*.\\nUser-ID: .\s*\+\s*storedUserId/,
+                 ResolvedPhantomDeeplink.callback_code,
+                 "the callback rebuilds the binding line differently from the deep link " \
+                 "that signed it, so a linked-wallet signature can never verify")
+  end
+
+  test "the domain is taken from the browser, not configured" do
+    # OPSEC-018: the server checks it against request.host_with_port. A configured
+    # value would be an app override of a signed field, and it breaks sign-in.
+    assert_match(/domain:\s*window\.location\.host/, ResolvedPhantomDeeplink.deeplink_code,
+                 "domain is no longer read from window.location.host")
+  end
+
+  # ── The nacl race, decided rather than inherited ──────────────────────
+
+  test "this app loads nacl from a blocking tag and renders no async loader" do
+    # THE DECISION /tasks/adopt-engine-phantom-deeplink made. The async loader
+    # APPENDS a script element, and the callback's IIFE reads nacl AT PARSE TIME
+    # and hard-fails with no retry. Rendering it here would race it. A blocking
+    # tag cannot.
+    #
+    # BOTH PATHS ARE BANNED, and that is not belt-and-braces. The loader shipped
+    # as studio/solana/_deeplink_assets in studio-engine and, since
+    # /tasks/turf-rides-gem-modals, ALSO as solana_studio/_deeplink_assets in
+    # solana-studio. Both gems shipped one until /tasks/drop-engine-web3-modals
+    # deleted the engine's in 0.66.2, so a ban naming only one path would leave the other
+    # free to be adopted — the identical race, through a path this guard was not
+    # watching.
+    banned = %r{["'](?:studio/solana|solana_studio)/deeplink_assets["']}
+    offenders = Dir[Rails.root.join("app/views/**/*.erb").to_s].select do |path|
+      File.read(path).gsub(/<%#.*?%>/m, "").match?(banned)
+    end
+    assert_empty offenders.map { |p| p.delete_prefix("#{Rails.root}/") },
+      "these views render an ASYNC nacl loader. The callback reads nacl " \
+      "at parse time and fails outright when it loses the race. Adopt it only " \
+      "together with a callback that waits."
+
+    tag = File.read(Rails.root.join("app/views/layouts/application.html.erb"))
+            .gsub(/<%#.*?%>/m, "")[%r{<script[^>]*tweetnacl[^>]*>}]
+    assert tag.present?, "the layout no longer loads tweetnacl at all — every mobile sign-in fails"
+    refute_match(/\bdefer\b|\basync\b/, tag,
+                 "tweetnacl is loaded #{tag} — deferring it reintroduces exactly the race " \
+                 "this app avoided by NOT adopting either deeplink_assets loader")
+
+    # AND ON THE RENDERED PAGE, which is where this file's retired half used to
+    # meet reality and is the half worth keeping.
+    #
+    # WHAT WAS RETIRED, and why nothing had to be rebuilt to replace it. Until
+    # 2026-09-09 layouts/modal_preview gated tweetnacl on @modal_id, and four
+    # tests here derived which of its cards could put a deep-link caller on
+    # screen — by walking the swap graph out of that layout's own registrations
+    # — then demanded the gate cover every one of them. They existed because the
+    # gate was NARROWER than the set: on a phone the picker's Phantom row painted
+    # on a card whose page had no nacl, and the tap threw "nacl is not defined"
+    # synchronously, before the fetch, where the deep link's own catch could
+    # never see it. A dead button that reported nothing.
+    #
+    # Deleting that layout deleted the gate. The one layout left loads tweetnacl
+    # for EVERY page unconditionally, so no card can be on a page without it and
+    # the derivation has nothing left to discriminate between. The property those
+    # four tests bought is now bought by this one line.
+    #
+    # ASSERTED ON THE RENDER, NOT ONLY THE SOURCE, for the reason the retired
+    # tests recorded: a tag read out of the layout file passes on a page that
+    # never renders it. Reading it back off a real response is the only form that
+    # cannot.
+    rendered = nacl_tag(about_page)
+    assert rendered.present?,
+           "the rendered page carries no tweetnacl tag. The picker paints its mobile Phantom " \
+           "row on window.startPhantomDeepLink EXISTING, and the deep link's first act is " \
+           "nacl.box.keyPair() — so a page that mounts the picker without nacl hands a phone a " \
+           "dead button whose tap throws before the fetch."
+    refute_match(/\bdefer\b|\basync\b/, rendered,
+                 "tweetnacl reaches the page as #{rendered} — deferring it reintroduces the race")
+  end
+
+  # ── The route this app KEEPS ──────────────────────────────────────────
+
+  test "the callback route is still this app's, and reaches the callback action" do
+    # THE TRAP IN THE ADOPTION NOTE, which said the engine now draws this route
+    # so turf's declaration had become a duplicate. It is not, twice over:
+    # the engine's copy sits behind Studio.draw_auth_routes (false here), and
+    # Studio.routes draws the OmniAuth wildcard auth/:provider/callback
+    # UNCONDITIONALLY and EARLIER, so a phantom callback drawn after it would
+    # recognise as omniauth_callbacks#create with provider "phantom".
+    #
+    # Deleting the app's line therefore 404s every mobile sign-in. This asserts
+    # RECOGNITION rather than the presence of a line in routes.rb, so it fails on
+    # the wildcard capturing it too — which a source grep would not see.
+    assert_recognizes({ controller: "solana_sessions", action: "phantom_callback" },
+                      "/auth/phantom/callback")
+  end
+
+  # ── The debug sink this app opts back in to ───────────────────────────
+
+  test "the debug sink is opted in through a predicate that survives a QA dyno" do
+    # The engine defaults this OFF because the sink sits beside a signing key.
+    # Restoring it is this app's call, and Rails.env.production? is the wrong
+    # predicate: a Heroku QA dyno runs RAILS_ENV=production, so an env test
+    # would take QA's debugging away while looking correct.
+    AppFlags.stub :live_production?, true do
+      assert_not Studio.wallet_debug_sink?, "the sink renders on a real production deploy"
+    end
+    AppFlags.stub :live_production?, false do
+      assert Studio.wallet_debug_sink?, "QA and development lost the sink"
+    end
+  end
+
+  # ── The render site itself, which resolution alone cannot defend ──────
+
+  # THE GAP THIS CLOSES. It was open during wave 2 only: studio-engine and
+  # solana-studio BOTH shipped a _phantom_deeplink until /tasks/drop-engine-web3-modals
+  # deleted the engine's in 0.66.2. That window has since closed; the reasoning
+  # below is why this guard was written and why it stays. While both existed,
+  # every other test in this file passed
+  # against EITHER of them: `shadowed_by_app?` only asks whether the template is
+  # outside app/views (both gems are), and the rendered-page assertions only ask
+  # whether startPhantomDeepLink reached the page (both would put it there).
+  #
+  # So a revert of the render line in shared/_alpine_factories to the engine path
+  # was INVISIBLE to this whole file while both copies existed — green everywhere
+  # else, until the drop landed, the render resolved to nothing, and every mobile
+  # Phantom sign-in died with no error anywhere. Silent both times.
+  #
+  # THE GUARD OUTLIVES THE WINDOW, which is why it is still here. Above the 0.66.2
+  # floor that revert resolves to nothing immediately, so it fails loudly rather
+  # than silently — but loudness is a property of the CURRENT BUNDLE, not of this app,
+  # and a re-added engine copy restores the silence exactly. This names the path
+  # this app must render rather than trusting the gem set to stay disjoint.
+  #
+  # This asserts the path this app actually names. Sibling of the picker's
+  # "every layout that registers the picker renders the GEM partial".
+  test "the deep link is rendered from the GEM path, not the engine's" do
+    factories = Rails.root.join("app/views/shared/_alpine_factories.html.erb")
+    body      = factories.read.gsub(/<%#.*?%>/m, "")
+
+    assert_includes body, %(render "solana_studio/phantom_deeplink"),
+      "shared/_alpine_factories no longer renders solana_studio/phantom_deeplink. " \
+      "solana-studio owns the deep link and studio-engine dropped its copy in " \
+      "0.66.2, so the mobile leg has nothing left to fall back to."
+
+    assert_not_includes body, %(render "studio/solana/phantom_deeplink"),
+      "shared/_alpine_factories renders the ENGINE deep link again — solana-studio " \
+      "owns it, and /tasks/drop-engine-web3-modals deleted the engine copy in 0.66.2"
+  end
+
+  private
+
+  def each_picker_render
+    yield "layouts/application (/about)", about_page
+  end
+
+  def about_page
+    @about_page ||= modal_host_page
+  end
+
+  def callback_page
+    @callback_page ||= begin
+      get "/auth/phantom/callback"
+      assert_response :success
+      response.body
+    end
+  end
+
+  # The picker's own x-data, located by a member only IT declares. The page
+  # carries many x-data attributes; a first-match read would grab another one.
+  def picker_x_data(body)
+    body[/<div x-data="([^"]*canDeepLink[^"]*)"/m, 1]
+  end
+
+  def nacl_tag(body)
+    body[%r{<script[^>]*tweetnacl[^>]*>}]
+  end
+end

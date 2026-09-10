@@ -23,7 +23,7 @@ class ApplicationController < ActionController::Base
   before_action :touch_last_seen
   before_action :require_profile_completion
   before_action :preload_navbar_solana_data
-  helper_method :display_balance, :display_seeds_data, :display_entry_token_count, :onchain_session?, :wallet_context, :client_session_payload, :true_user, :impersonating?
+  helper_method :display_balance, :display_seeds_data, :display_entry_token_count, :onchain_session?, :wallet_context, :client_session_payload, :true_user, :impersonating?, :current_wallet, :pending_signature_count
 
   # OPSEC-045: extend the engine's set_app_session to also bind a per-user
   # session_token in the cookie. The verify_session_token before_action
@@ -36,7 +36,7 @@ class ApplicationController < ActionController::Base
     # The onchain-session flag is a Phantom-wallet-signature privilege. Reset
     # it on every login so a stale flag from an earlier Phantom session can't
     # leak into a later email/Google login (which would make ContestsController
-    # #enter demand a wallet signature). SolanaSessionsController#verify calls
+    # #enter REFUSE the entry and route it to the on-chain path). SolanaSessionsController#verify calls
     # set_app_session and then re-grants the flag for genuine wallet auth.
     session.delete(:onchain)
     # OPSEC-046: a fresh login must never inherit a prior impersonation — e.g. a
@@ -45,12 +45,43 @@ class ApplicationController < ActionController::Base
     session.delete(:impersonated_user_id)
     session.delete(:true_admin_id)
     session.delete(:impersonation_started_at)
+    # Same seam and same reasoning as :onchain directly above: the CURRENT wallet
+    # is a fact about a live signature, so a fresh login starts without one and
+    # SolanaSessionsController#verify re-grants it for genuine wallet auth.
+    #
+    # HONESTLY LABELLED: this line is DEFENCE IN DEPTH, not a load-bearing guard,
+    # and no test bites on it today. Three candidate paths were built and all
+    # three proved it redundant — magic-link login calls reset_session (the key
+    # dies with the session); Google reaches here only from a logged-out browser,
+    # where logout has already cleared it; and switching to an unrecognised
+    # brand is handled by CurrentWallet.remember, which deletes the key itself
+    # rather than storing a value that could never match.
+    #
+    # Kept anyway, deliberately: every other piece of per-session state at this
+    # seam is cleared here, and leaving this one key out would make it the single
+    # exception for a reader to trip over — and the first login path added that
+    # neither resets the session nor routes through `remember` would leak. If you
+    # can build the path that makes it bite, promote it to a real test.
+    Solana::CurrentWallet.forget(session)
   end
 
   # Clear the onchain flag on logout too, alongside the engine's session wipe.
   def clear_app_session
     super
     session.delete(:onchain)
+    Solana::CurrentWallet.forget(session)
+  end
+
+  # The wallet this session is signed in with, and what to paint for it — always
+  # a value object, never nil (Solana::CurrentWallet resolves an unknown or
+  # absent brand to the neutral default).
+  def current_wallet
+    # `session` delegates to @_request, which is nil on a bare controller
+    # instance — and #client_session_payload (a request-free method by design,
+    # unit-tested as one) reads this now. Resolve against an empty session
+    # rather than raising: CurrentWallet already treats an absent brand as the
+    # neutral default, so "no request" and "no brand yet" are the same answer.
+    @current_wallet ||= Solana::CurrentWallet.from_session(request ? session : {})
   end
 
   # Format-aware override of Studio::ErrorHandling#require_authentication.
@@ -140,6 +171,11 @@ class ApplicationController < ActionController::Base
     session.delete(:wallet_setup)
     session.delete(:wallet_setup_prompt)
     session.delete(:onboarding_prompt)
+    # A wallet signature IS the step-up. Dropping the armed prompt here (rather
+    # than letting the layout consume it) is what stops the modal flashing on the
+    # page a successful wallet login lands on — the prompt was armed by the
+    # earlier web2 auth in this same browser session.
+    session.delete(:web3_step_up_prompt)
   end
 
   # ── The post-auth onboarding chain (2026-08) ───────────────────────────────
@@ -158,6 +194,7 @@ class ApplicationController < ActionController::Base
   # about to be shown instead of re-deriving it from a boolean.
   def record_onboarding_state!(user)
     record_wallet_setup_state!(user, prompt: false)
+    record_web3_step_up_state!(user)
     steps = onboarding_steps_for(user)
     # One-shot, and it carries the STEPS rather than a bare boolean so the
     # client walks exactly what the server resolved. Rides the session (not the
@@ -166,6 +203,76 @@ class ApplicationController < ActionController::Base
     session[:onboarding_prompt] = steps.map(&:to_s) if steps.any?
     steps
   end
+
+  # ── The web3 step-up prompt (2026-08) ──────────────────────────────────────
+  #
+  # Armed at the same auth-success seam as the onboarding chain, and for the
+  # same reason it rides the SESSION rather than the flash: the Google popup
+  # never redirects — its OPENER reloads — so a flash would be consumed by
+  # whichever render landed first.
+  #
+  # This is NOT a chain step, and keeping it out of OnboardingFlow is deliberate.
+  # That service answers "what is this ACCOUNT still missing" and its cards carry
+  # a 1-of-3 progress pill; a step-up asks "what does this SESSION still owe",
+  # of a user whose account is already complete. Folding it in would put a
+  # returning wallet owner at "step 1 of 3" of an onboarding they finished
+  # months ago. It opens FIRST and hands off to the chain on dismissal — see the
+  # driver in layouts/application.html.erb.
+  #
+  # A fresh SessionContext, not the memoized #wallet_context: this runs
+  # immediately after set_app_session swapped the session's identity, and the
+  # memo may already hold the PREVIOUS viewer from earlier in the request.
+  def record_web3_step_up_state!(user)
+    session.delete(:web3_step_up_prompt)
+    mode   = SessionContext.new(user: user, onchain_session: onchain_session?).mode
+    policy = Web3StepUpPolicy.new(user, session_mode: mode)
+    return false unless policy.required?
+
+    # Carries the remembered wallet with it so the render does not have to
+    # re-derive it — the same shape the modal reads as props.
+    session[:web3_step_up_prompt] = policy.to_h.transform_keys(&:to_s)
+    true
+  end
+
+  # Arm the step-up card for a user who is NOT (yet) signed in.
+  #
+  # The Google-collision case: a self-custody account presented a Google identity
+  # at the front door. There is no session to inspect — the request is
+  # unauthenticated by definition — so the session-mode question
+  # record_web3_step_up_state! asks does not apply, and the answer it would
+  # return (:guest, therefore "required") would be right for the wrong reason.
+  # State the fact directly instead: this account is self-custodied and a web2
+  # credential just tried to speak for it.
+  #
+  # Returns false and arms nothing for an account with no wallet, so a caller
+  # cannot accidentally show the card to a user it makes no sense to.
+  def arm_web3_step_up_for(user)
+    return false unless user.respond_to?(:phantom_wallet?) && user&.phantom_wallet?
+
+    policy = Web3StepUpPolicy.new(user, session_mode: :web2)
+    session[:web3_step_up_prompt] = policy.to_h.transform_keys(&:to_s)
+    true
+  end
+
+  # One-shot read: the step-up payload for the render right after a web2 auth
+  # success, else nil. Deleting on read is what stops the modal re-opening on
+  # every later page view of a session that chose to dismiss it.
+  def consume_web3_step_up_prompt
+    payload = session.delete(:web3_step_up_prompt)
+    return nil if payload.blank?
+
+    payload.symbolize_keys.slice(:provider, :providerLabel, :walletHint)
+  end
+  helper_method :consume_web3_step_up_prompt
+
+  # Render-path predicate for the ADVISORY banner/CTA case: this session is web2
+  # but the account is self-custodied. RPC-free (see Web3StepUpPolicy), so it is
+  # safe to ask on any render — unlike the one-shot above, this stays true for
+  # the whole session and is what a "Sign with your wallet" affordance keys on.
+  def web3_step_up_required?
+    Web3StepUpPolicy.required_for?(current_user, session_mode: wallet_context.mode)
+  end
+  helper_method :web3_step_up_required?
 
   def onboarding_steps_for(user)
     OnboardingFlow.steps_for(
@@ -353,6 +460,10 @@ class ApplicationController < ActionController::Base
     return if user_token.present? && user_token == cookie_token
 
     Rails.logger.info("[opsec-045] session_token mismatch user_id=#{true_user.id} — forcing re-login")
+    # RECORDED BEFORE THE IVARS ARE CLEARED — one line down there is no
+    # true_user left to key the row on, and WHO was logged out is the whole
+    # value of the row.
+    record_session_token_mismatch(true_user, cookie_token: cookie_token)
     @current_user = nil
     @true_user = nil
     @impersonating = false
@@ -363,14 +474,81 @@ class ApplicationController < ActionController::Base
     end
   end
 
+  # OPSEC-045'S DURABLE TRACE, ADDED 2026-09-09.
+  #
+  # THE HOLE. The forced logout above left a `Rails.logger.info` line and
+  # nothing else. Rails logs are not a triage surface here — error_logs is,
+  # which is where every other user-facing failure in this app lands and where
+  # an operator actually looks. So the one event that ends a user's session
+  # against their will was the one event that could not be found afterwards.
+  # That mattered beyond tidiness: a `session_token` mismatch answers a
+  # non-HTML request with a 302 to /signin, which `fetch` FOLLOWS to an HTML
+  # body at status 200 — the exact shape `window.solanaConnectAndVerify`'s
+  # verify guard substitutes a server sentence for. Without a row, "our server
+  # could not finish sign-in" is all anyone can ever know about it; with one,
+  # the cause is named and attributed to a user.
+  #
+  # WHY A RAISE. Identical to SolanaSessionsController#record_client_wallet_failure,
+  # and for the same reason: `rescue_and_log` is this app's ONE persistence path
+  # for a logged failure — it captures, attaches target/parent by the shared slug
+  # rules, and fans out to Sentry — but it is built to CATCH a raise, and nothing
+  # here has thrown. Raising one line deep is what puts this event on that shared
+  # path instead of a hand-rolled second one that would drift from it, and it is
+  # what gives the row a real backtrace. `rescue_and_log` re-raises by contract;
+  # the re-raise is caught and dropped right here.
+  #
+  # IT MAY NOT BLOCK THE LOGOUT. A forced logout is a SECURITY act and completes
+  # whether or not it was written down, so the recorder swallows its own faults
+  # into the Rails log — a logger that can veto the thing it observes is worse
+  # than no logger. This is the same fail-open contract report_failure carries.
+  #
+  # NEITHER TOKEN IS RECORDED. Both are session credentials; the row says only
+  # whether the cookie carried one at all, which is the whole diagnostic
+  # difference (absent = a session predating the binding; stale = a rotation, a
+  # revoked sibling session, or a stolen cookie meeting one).
+  def record_session_token_mismatch(user, cookie_token:)
+    rescue_and_log(target: user) do
+      raise SessionTokenMismatch,
+            "OPSEC-045 forced logout: session_token mismatch for user_id=#{user.id} " \
+            "(cookie token #{cookie_token.present? ? 'present but stale' : 'absent'})"
+    end
+  rescue SessionTokenMismatch
+    nil
+  rescue StandardError => e
+    Rails.logger.error("[opsec-045] mismatch record dropped: #{e.class}: #{e.message}")
+  end
+
   # True when the current session was authenticated via Solana wallet signature
-  # (not email/password). Set by SolanaSessionsController#verify. Forced false
+  # (not email/password). Set by #promote_to_onchain_session!. Forced false
   # while impersonating (OPSEC-046): an admin can't produce the target's Phantom
   # signature, and this stops the admin's real :onchain flag from leaking into
   # the impersonated view — forcing the web2/managed server-sign path for entries.
   def onchain_session?
     return false if impersonating?
     session[:onchain] == true
+  end
+
+  # The SESSION half of proving wallet ownership — the two writes that turn a
+  # verified signature into a :web3 SessionContext. Call it from EVERY path that
+  # verifies a live wallet signature for the current user.
+  #
+  # It lives here, called by both, because the halves used to drift: the wallet
+  # LOGIN path (SolanaSessionsController#verify) wrote them and the wallet LINK
+  # path (AccountsController#link_solana) did not, so a Google account that
+  # linked Phantom kept a :web2 session. For an account whose ONLY wallet is
+  # self-custody that is a dead end, not a downgrade — web2 entry server-signs
+  # from #web2_solana_address, which such an account does not have — so the
+  # board offered "Buy an Entry Token" to a user holding enough USDC to enter.
+  #
+  # This does NOT loosen the doctrine in SessionContext, it satisfies it: :web3
+  # means "authenticated via a live wallet signature THIS session", and a link
+  # is exactly that (OPSEC-005 binds the signed message to current_user.id).
+  # Impersonation is unaffected — #onchain_session? force-returns false there.
+  def promote_to_onchain_session!(provider: nil)
+    session[:onchain] = true
+    # Which wallet signed, so a later step-up asks the one that can sign NOW.
+    # Untrusted client string — Solana::WalletProvider drops anything unknown.
+    Solana::CurrentWallet.remember(session, provider)
   end
 
   # Canonical auth + wallet state for this request — the single source of truth
@@ -389,8 +567,27 @@ class ApplicationController < ActionController::Base
   # "unknown" state): the client's eligibility check recognises null and fails
   # OPEN (let the server-side enter enforce) instead of zero-blocking a user
   # who actually has funds/tokens. The store initializer coerces a null
-  # tokensAvailable to 0, and entry funding re-derives tokens live server-side,
-  # so a cold/null token hint can never mis-fund.
+  # tokensAvailable to 0, and entry funding is decided SERVER-SIDE (both paths go
+  # through User#next_unconsumed_entry_token_for, scoped to the address that will
+  # actually SIGN the consume), so a cold/null token hint can never mis-fund — it
+  # can only mis-label. #display_entry_token_count scopes the hint to the wallet
+  # that can sign in this session, matching the authoritative entry path.
+  # How many treasury transactions are actually waiting on a co-signature —
+  # the number behind the Signatures badge in the admin nav.
+  #
+  # `awaiting_signature` and not `pending`: production held 11 pending rows the
+  # day this shipped and 10 were dead `enter_contest` transactions from June and
+  # July. A badge that reads 11 when one thing needs signing teaches the operator
+  # to ignore it, which is worse than having no badge.
+  #
+  # Non-admins never pay for the query, and the result is memoized so rendering
+  # the sidebar twice (desktop + mobile panel) hits the database once.
+  def pending_signature_count
+    return 0 unless current_user&.admin?
+
+    @pending_signature_count ||= PendingTransaction.awaiting_signature.count
+  end
+
   def client_session_payload
     wallet_context.to_h.merge(
       usdcCents:       wallet_field_cents(:usdc),
@@ -401,6 +598,15 @@ class ApplicationController < ActionController::Base
       # then USDC). Static per render (the flag can't change mid-session), so
       # refreshSession/refreshBalance never touch it.
       web2UsdcEntry:   AppFlags.web2_usdc_entry?,
+      # Whether the Buy an Entry Token modal has ANY rail to show. Both of its
+      # rails are server-gated (ENABLE_COINFLOW, and PAYMENT_PROVIDER +
+      # STRIPE_CHECKOUT_DISABLED for Stripe), and in production on 2026-09-05 both
+      # were off — so the modal rendered its "pick how to pay" line over an empty
+      # box and the entry wall became a dead end. The gate lives in ERB, which the
+      # board cannot see, so the answer has to travel: selectionBoard#showBuyEntryToken
+      # falls through to the USDC card when this is false. Static per render.
+      entryTokenRailsAvailable:
+        helpers.onramp_rail_visible?(:coinflow) || helpers.onramp_rail_visible?(:stripe),
       # Entry-time age gate (ENABLE_AGE_GATE). eligibilityBlocker reads these
       # synchronously at hold-time and pops the DOB modal BEFORE the tokens /
       # balance check when the gate is on and this user hasn't verified yet.
@@ -431,7 +637,17 @@ class ApplicationController < ActionController::Base
       # THE SAME PREDICATE the rails enforce, not a proxy for it. `mode` looks
       # like it would do — but a wallet-less account reads mode "web2", so
       # branching on that would show the link to exactly the people it refuses.
-      walletConnected: current_user&.solana_connected? || false
+      # RENAMED from `walletConnected` (2026-08-25). The old name read like
+      # live browser connectivity and is nothing of the sort — it is
+      # User#solana_connected?, "does this account have an address at all".
+      # It was about to sit beside $store.wallet.signerAvailable, which DOES
+      # mean live, and the two would have been indistinguishable by name.
+      walletHasAddress: current_user&.solana_connected? || false,
+      # WHICH BRAND SIGNED INTO **THIS SESSION** — Solana::CurrentWallet, not
+      # User#web3_wallet_provider. The column is the durable account fact and is
+      # stale for someone who owns two wallets and signed in with the second;
+      # the adapter the watcher must resolve is the one that can sign NOW.
+      walletBrand: current_wallet&.key.to_s
     )
   end
 
@@ -513,6 +729,7 @@ class ApplicationController < ActionController::Base
   # nil for balances / 0 for seeds, never raises).
   def fetch_navbar_hydrate(user)
     address = user.solana_address
+    token_address = entry_token_wallet_address(user)
 
     balances_thread = Thread.new do
       Rails.application.executor.wrap do
@@ -539,7 +756,8 @@ class ApplicationController < ActionController::Base
     # badge value instead of zeroing it.
     tokens_thread = Thread.new do
       Rails.application.executor.wrap do
-        Solana::Vault.new.list_entry_tokens(address).count { |t| !t[:consumed] }
+        token_address.present? ?
+          Solana::Vault.new.list_entry_tokens(token_address).count { |t| !t[:consumed] } : 0
       rescue => e
         Rails.logger.warn("[hydrate] list_entry_tokens failed: #{e.message}")
         nil
@@ -558,7 +776,7 @@ class ApplicationController < ActionController::Base
       Rails.cache.write(seeds_cache_key(user), seeds_payload(seeds), expires_in: 60.seconds)
       # Sync the denormalized seeds/level cache on the users row (admin list
       # display + sort) from this fresh on-chain read — write-on-change only.
-      user.update_level_from_seeds!(seeds)
+      LevelUpTokenMintJob.nudge(user, seeds_total: seeds)
     end
 
     {
@@ -580,6 +798,38 @@ class ApplicationController < ActionController::Base
 
   def invalidate_usdc_cache(user = current_user)
     Rails.cache.delete(usdc_cache_key(user))
+  end
+
+  # Both halves of the navbar pill, for a path that just MOVED the user's money.
+  #
+  # #display_balance renders usdc + usdt COMBINED, and #combined_balance returns
+  # nil — the "loading" state the client then fills via refreshBalance — only
+  # when BOTH reads are nil; a nil beside a live value counts as zero. So
+  # dropping the USDC key alone, while its USDT twin stays warm (they are
+  # written together at the same 60s TTL, so it nearly always is), does not
+  # produce "loading". It produces the USDT balance PRESENTED AS THE TOTAL:
+  # a confidently wrong number, which is worse than the stale one it replaced.
+  #
+  # Use this wherever an action has already moved money — EITHER currency. The
+  # pill renders a SUM, so which mint moved does not narrow the drop: spend USDC
+  # and the warm USDT twin becomes the total; spend USDT and the stale pre-spend
+  # USDT survives as the total while the untouched USDC key is cleared for
+  # nothing. Both are one wrong number.
+  #
+  # SCOPE, so nobody reads more into this than it does: both keys are written
+  # with `expires_in: 60.seconds`, so a missed drop self-heals within a minute.
+  # This closes a sub-minute stale window. It is an optimisation, not a
+  # correctness guarantee, and no caller should be argued for on stronger terms.
+  #
+  # An earlier revision of this comment said #invalidate_usdc_cache "stays for
+  # the callers that only ever want the one key". That was wrong: no caller of a
+  # COMBINED pill ever wants one key. What actually remains on the one-key drop
+  # is the devnet faucet/mint tooling (users#add_funds, faucet#create,
+  # wallets#faucet, admin#mint_usdc) — all `AppFlags.live_production?`-guarded,
+  # so a corrupted total there is a dev-tooling wart, not a money-path defect.
+  def invalidate_wallet_balance_cache(user = current_user)
+    Rails.cache.delete(usdc_cache_key(user))
+    Rails.cache.delete(usdt_cache_key(user))
   end
 
   # Navbar seeds bar — on-chain seed count for the logged-in user.
@@ -634,24 +884,43 @@ class ApplicationController < ActionController::Base
   #   - 0 for guests / non-wallet users (definitive)
   #
   # Reads the SAME key Solana::Vault#list_entry_tokens writes and mint/consume
-  # invalidate (entry_tokens:<address>), so no third cache key is introduced
-  # and the badge stays correct post-action. The count is DISPLAY-ONLY — entry
-  # funding re-derives tokens live (User#next_unconsumed_entry_token_for), so a
-  # stale/nil navbar count can never mis-fund.
+  # invalidate (entry_tokens:<address>) — including User#bust_entry_tokens_cache!,
+  # which used to clear only its own outer key and left this one serving a spent
+  # token for 60s. The count is DISPLAY-ONLY: entry funding is decided
+  # server-side (User#next_unconsumed_entry_token_for), so a stale/nil navbar
+  # count can never mis-fund.
+  #
+  # The address follows the SESSION signer, not User#solana_address's account-
+  # level web3 preference. A combo account in a web2 session can consume only a
+  # token owned by its managed wallet; a web3 session can consume only a token
+  # owned by its Phantom wallet. Keeping the badge, client payload and hydrate on
+  # that same address prevents the CTA from promising a token the entry path
+  # cannot spend.
   #
   # Per-request memoized: the navbar + entry-token badge partials both ask for
   # this in the same render.
   def display_entry_token_count
     return @display_entry_token_count if defined?(@display_entry_token_count)
 
+    address = entry_token_wallet_address
     @display_entry_token_count =
-      if current_user&.solana_connected?
+      if address.present?
         # Cache-only read: warm → count, cold → nil ("loading"). No RPC.
-        tokens = Rails.cache.read(Solana::Vault.entry_tokens_cache_key(current_user.solana_address))
+        tokens = Rails.cache.read(Solana::Vault.entry_tokens_cache_key(address))
         tokens.nil? ? nil : tokens.count { |t| !t[:consumed] }
       else
         0
       end
+  end
+
+  # Wallet whose key can authorize an entry-token consume in this session.
+  # This is deliberately narrower than User#solana_address, which describes the
+  # account and prefers web3 even when the current session authenticated by
+  # email/Google and therefore must use the managed signer.
+  def entry_token_wallet_address(user = current_user)
+    return nil unless user
+
+    onchain_session? ? user.web3_solana_address : user.web2_solana_address
   end
 
   # Warms the navbar's on-chain values cache-first so the view phase has zero
@@ -684,6 +953,7 @@ class ApplicationController < ActionController::Base
 
     t_total        = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     wallet_address = current_user.solana_address
+    token_address  = entry_token_wallet_address
     is_admin       = current_user.admin?
 
     # NOTE (async-navbar-balance): NONE of the navbar's on-chain reads issue an
@@ -704,7 +974,8 @@ class ApplicationController < ActionController::Base
     # here ONLY when the list cache is already warm, so User#entry_token_balance
     # (/account, /wallet) stays RPC-free too, and leave it UNSET on a cold cache
     # so nothing lazily re-fetches on the render path.
-    if (cached_tokens = Rails.cache.read(Solana::Vault.entry_tokens_cache_key(wallet_address)))
+    if token_address.present? &&
+       (cached_tokens = Rails.cache.read(Solana::Vault.entry_tokens_cache_key(token_address)))
       current_user.instance_variable_set(:@entry_token_balance, cached_tokens.count { |tk| !tk[:consumed] })
     end
 

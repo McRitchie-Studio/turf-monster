@@ -57,7 +57,7 @@ async function signUpFreshEmail(page) {
   if (await appears(skip)) await skip.click();
 
   // Step 2 — the DOB gate (ENABLE_AGE_GATE is on for this lane).
-  const ageHeading = page.getByRole("heading", { name: /Verify your age/i });
+  const ageHeading = page.getByRole("heading", { name: /Your birthday/i });
   if (await appears(ageHeading)) {
     await page.evaluate(() => {
       const els = document.querySelectorAll("[x-data]");
@@ -106,6 +106,54 @@ async function satisfyFirstNameGate(page) {
 test("the wallet step renders the Phantom row and the teaching block @smoke", async ({ page }) => {
   // The helper walks the chain and already asserts the card is up.
   await signUpFreshEmail(page);
+
+  // A modal is the active task. All persistent page chrome must sit behind it,
+  // while transient toasts remain free to report above it.
+  //
+  // ALL THREE ARE COMPUTED z-index READS NOW. The toast one used to read the app's
+  // own --studio-toast-z custom property, which measured the FIRST LINK of a chain
+  // rather than its result. The engine declares
+  //   #toast-container { z-index: var(--studio-toast-z, var(--z-toast, 400)); }
+  // a LAYERED fallback, and this app no longer sets that seam — the layer-scale
+  // adoption shim that set it was deleted. An unset custom property reads as "",
+  // and Number("") is 0, so this failed on a value meaning "nobody set this" while
+  // the rendered page was entirely correct: the chain falls through to the engine's
+  // tier. Reading the COMPUTED value resolves the whole chain, is what the player
+  // actually experiences, and survives a rename of the seam.
+  //
+  // COMPARED AGAINST THE MODAL, deliberately, and never against the banner tier.
+  // The invariant here is "a toast fired from an open modal is visible". Where
+  // toasts sit relative to the environment banner is a separate question the engine
+  // owns and is actively re-tiering; pinning it here would red-seal that work.
+  const layers = await page.evaluate(() => {
+    const navbar = document.querySelector("[data-navbar-root]");
+    const modal = document.querySelector("[role='dialog'].modal-backdrop-mount");
+    const toast = document.querySelector("#toast-container");
+    const z = (el) => (el ? Number(getComputedStyle(el).zIndex) : null);
+    return {
+      found: { navbar: !!navbar, modal: !!modal, toast: !!toast },
+      navbar: z(navbar),
+      modal: z(modal),
+      toast: z(toast),
+    };
+  });
+
+  // A COMPUTED READ PASSES VACUOUSLY WHEN THE SELECTOR MISSES, so prove the
+  // elements were found and that each carries a real number before comparing.
+  // `z-index: auto` is the other silent shape: it reads as NaN, every comparison
+  // against NaN is false, and the failure then looks like an ordinary ordering bug
+  // while actually meaning "this layer has no stacking level at all".
+  expect(layers.found, "a layer element was missing, so the comparisons below would be vacuous").toEqual({
+    navbar: true,
+    modal: true,
+    toast: true,
+  });
+  for (const name of ["navbar", "modal", "toast"]) {
+    expect(Number.isFinite(layers[name]), `${name} has no numeric z-index (got ${layers[name]})`).toBe(true);
+  }
+
+  expect(layers.modal, "the modal must cover the sticky navbar").toBeGreaterThan(layers.navbar);
+  expect(layers.toast, "toasts must still report above the modal").toBeGreaterThan(layers.modal);
 
   // The Phantom row. On a headless browser no wallet is injected, so this is
   // the INSTALL branch — the state a brand-new player sees.
@@ -234,11 +282,11 @@ test("with Phantom present the row shows Installed and says what signing does", 
 });
 
 test("leaving to install puts the row in a waiting state that watches, not reloads", async ({ page }) => {
-  // The operator's design: no instruction to follow. Clicking Install arms a
-  // spinner, and the row updates on its own — via the 1s ping when the provider
-  // can appear in THIS document, and via a hidden probe frame when it cannot
-  // (Chrome injects a new extension only into documents created after the
-  // install, so this tab will never have one).
+  // Clicking Install arms a spinner and a return cue. The row updates on its
+  // own — via the 1s ping when the provider can appear in THIS document, and
+  // via a hidden probe frame when it cannot (Chrome injects a new extension
+  // only into documents created after the install, so this tab will never have
+  // one).
   //
   // What this test pins is the half the operator asked for on 2026-08-18: the
   // page they are reading does not move.
@@ -256,10 +304,13 @@ test("leaving to install puts the row in a waiting state that watches, not reloa
   ]);
   if (installTab) await installTab.close().catch(() => {});
 
-  // Waiting state: spinner + Waiting…, and NO instruction to press anything.
+  // Waiting state: spinner + Waiting…, then one explicit direction to finish
+  // setup in Phantom's tab and come back to this preserved contest.
   await expect(row.locator(".cta-spinner")).toBeVisible();
   await expect(row).toContainText(/waiting/i);
-  await expect(page.getByText(/Finish downloading the Phantom wallet extension/i)).toBeVisible();
+  const returnCue = page.getByRole("status");
+  await expect(returnCue).toContainText(/Finish setting up Phantom in the new tab, then return here/i);
+  await expect(returnCue).toContainText(/detect it automatically/i);
   await expect(page.getByText("Reload page")).toBeHidden();
 
   // The probe frame really loads OUR probe page. This is the assertion that
@@ -450,4 +501,85 @@ test("the free-contest path is gated too (entry is on-chain either way)", async 
   );
   expect(blocker).not.toBeNull();
   expect(blocker.reason).toBe("wallet_setup_required");
+});
+
+// THE CARD-WIDTH REGISTRY, PROVEN IN A BROWSER (defork-turf-modal-host, 2026-08-28).
+//
+// WHY THIS SPEC EXISTS AT ALL. This app stopped forking studio-engine's modal host
+// and moved its one per-modal width onto the engine's CARD_WIDTHS seam, which is an
+// inline <script> in app/views/shared/_modal_card_widths.html.erb. Every other tier
+// this shape has renders to a String, and a String assertion cannot observe a script
+// RUNNING — the engine host even documents the seam with a worked
+// `// window.StudioModals.CARD_WIDTHS = { 'wallet-setup': 'max-w-md' };` example
+// inside its own inline script, so a markup grep for the registration finds the
+// COMMENT and stays green with the real registration deleted. That was measured, not
+// imagined: it is the mutation that survived while this task was being built.
+//
+// SO ASSERT ONLY WHAT A LIVE BROWSER CAN PRODUCE. Three things below, none of them
+// visible in the response bytes:
+//   1. the registry OBJECT exists on window — the inline script executed,
+//   2. the card's COMPUTED max-width resolves to real pixels, and
+//   3. those pixels are strictly MORE than the engine default's, resolved on this
+//      same page by letting the browser apply the default class to a probe.
+//
+// (3) is the assertion that matters. "max-w-md is present" would pass just as
+// happily if the engine default were also max-w-md, and a registry that silently
+// resolves to the default is this seam's actual failure mode. Comparing two
+// browser-resolved widths is the only form that can tell those apart. It also
+// catches a Tailwind build that never compiled one of the classes, which markup
+// cannot see either: an uncompiled class computes to "none", not to a width.
+test("the card-width registry runs in the browser and makes this card wider than the default", async ({ page }) => {
+  await signUpFreshEmail(page);
+
+  const dialog = page.locator('[role="dialog"]');
+  await expect(dialog).toBeVisible();
+
+  // Wait on an OBSERVABLE, never a timer: Alpine has bound a width class onto the
+  // card, and the mount animation has finished so the spring's scale transform is
+  // back to identity and a measured box is the real box.
+  await page.waitForFunction(() => {
+    const card = document.querySelector('[role="dialog"] div');
+    if (!card || !/max-w-/.test(card.className)) return false;
+    const anims = card.getAnimations();
+    return anims.length > 0 && anims.every((a) => a.playState === "finished");
+  });
+
+  const measured = await page.evaluate(() => {
+    const sm = window.StudioModals || {};
+    const card = document.querySelector('[role="dialog"] div');
+    // Let the BROWSER resolve a Tailwind class to pixels. A class the build never
+    // compiled computes to "none" here, which is the silent half of this failure.
+    const resolve = (cls) => {
+      const probe = document.createElement("div");
+      probe.className = cls;
+      document.body.appendChild(probe);
+      const value = getComputedStyle(probe).maxWidth;
+      probe.remove();
+      return value;
+    };
+    return {
+      registered: sm.CARD_WIDTHS ? sm.CARD_WIDTHS["wallet-setup"] : null,
+      fallback: sm.DEFAULT_CARD_WIDTH || null,
+      cardWidths: (card.className.match(/max-w-[\w-]+/g) || []),
+      cardMaxWidth: getComputedStyle(card).maxWidth,
+      defaultMaxWidth: sm.DEFAULT_CARD_WIDTH ? resolve(sm.DEFAULT_CARD_WIDTH) : null,
+    };
+  });
+
+  // 1. The inline <script> RAN. Nothing in the markup can establish this.
+  expect(measured.registered, "window.StudioModals.CARD_WIDTHS carries no wallet-setup entry — the registry script never ran on this page, so the card is silently at the engine default").toBeTruthy();
+  expect(measured.fallback).toBeTruthy();
+  expect(measured.registered).not.toBe(measured.fallback);
+
+  // 2. Exactly ONE max-w-* lands on the card. Two would leave the winner to
+  //    stylesheet source order, which is not something a view gets to decide.
+  expect(measured.cardWidths).toHaveLength(1);
+
+  // 3. Both classes resolve to real pixels, and this card is WIDER than the default.
+  const px = (v) => (/^\d/.test(String(v)) ? parseFloat(v) : NaN);
+  const cardPx = px(measured.cardMaxWidth);
+  const defaultPx = px(measured.defaultMaxWidth);
+  expect(cardPx, `the card's max-width computed to ${measured.cardMaxWidth} — the ${measured.registered} class is not in the compiled stylesheet`).toBeGreaterThan(0);
+  expect(defaultPx, `the engine default ${measured.fallback} computed to ${measured.defaultMaxWidth} — not in the compiled stylesheet`).toBeGreaterThan(0);
+  expect(cardPx, `wallet-setup resolved to ${measured.cardMaxWidth}, the engine default to ${measured.defaultMaxWidth} — the registry is doing nothing`).toBeGreaterThan(defaultPx);
 });

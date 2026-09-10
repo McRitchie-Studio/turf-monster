@@ -7,6 +7,9 @@
 #
 # Off by default everywhere — including production — unless the operator sets
 # ENABLE_TEST_SCAFFOLDING=true. To disable before launch, unset the env var.
+# Production BOOTS with it on (since 2026-08-27) so the $1 micro tier can be
+# rehearsed on mainnet; the boot logs at ERROR + Sentry rather than raising.
+# See config/initializers/test_scaffolding_guard.rb for what that costs.
 #
 # cdp_ramp? gates the Coinbase CDP Onramp/Offramp integration (buy USDC /
 # cash out via the Coinbase-hosted widget) — routes, controllers, and all UI
@@ -48,9 +51,11 @@ module AppFlags
   end
 
   # True for stable QA apps that run Rails in production mode but must still
-  # identify themselves as non-production review targets.
+  # identify themselves as non-production review targets. Delegates to the
+  # engine so every QA_ENV reader shares ONE truthiness (the EnvironmentBanner
+  # allow-list) — this was the third, stricter vocabulary for the same flag.
   def self.qa_environment?
-    ENV["QA_ENV"].to_s.strip.downcase == "true"
+    Studio.qa_environment?
   end
 
   # True only on a REAL production deployment: Rails.env is production AND
@@ -73,7 +78,9 @@ module AppFlags
   end
 
   # True when the legal-age attestation checkbox gates account creation
-  # (signin page, auth modal, wallet-connect modal — shared/_age_attestation).
+  # (signin page, auth modal, wallet-connect modal). The checkbox itself is
+  # the ENGINE partial studio/modals/shared/_age_attestation, which does NOT
+  # self-gate — each of those three callsites wraps its render in this flag.
   # Parked OFF for the first contest (operator call, 2026-06-10); set
   # ENABLE_AGE_ATTESTATION=true to restore the full gate. While off the
   # checkbox doesn't render, every client/server gate passes, and —

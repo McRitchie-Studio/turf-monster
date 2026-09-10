@@ -28,7 +28,7 @@
     <title><%= page_title %></title>
     <meta name="description" content="<%= meta_description %>">
 
-    <%# Favicons + PWA icons (Turf Totals green monster mark) %>
+    <%# Favicons + PWA icons (Turf Monster green monster mark) %>
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="icon" type="image/png" href="/favicon.png">
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
@@ -48,20 +48,79 @@
 
     <%# SRI-pinned (audit H2): exact versions + integrity so a poisoned CDN/package
         can't swap the signing-path crypto. web3.js @1 currently resolves to 1.98.4;
-        pinning freezes that (re-pin + recompute the sha384 on any intentional bump). %>
+        pinning freezes that (re-pin + recompute the sha384 on any intentional bump).
+
+        THE TWEETNACL TAG IS LOAD-BEARING, and BLOCKING is the load-bearing part.
+        Both halves of the Phantom mobile round trip need window.nacl, and they
+        come from DIFFERENT gems: the deep link from solana-studio
+        (solana_studio/_phantom_deeplink, moved off studio-engine by
+        /tasks/turf-rides-gem-modals) and the callback view from studio-engine
+        (solana_sessions/phantom_callback, which never moved).
+        The deep link reads it on a user tap (safe either way) but the callback
+        view's IIFE reads it AT PARSE TIME and hard-fails with no retry. A
+        blocking tag here means nacl is already defined when that runs.
+
+        So this app deliberately renders NO deeplink_assets loader. solana-studio
+        ships the only one (solana_studio/_deeplink_assets) and it APPENDS a
+        script element, which is asynchronous, so the callback would race it.
+        studio-engine shipped a second copy until /tasks/drop-engine-web3-modals
+        dropped it in 0.66.2. That is ABOVE this app's 0.64.0 engine floor, not
+        below it, so a resolver sitting at the floor still sees the engine's copy
+        — which is why phantom_deeplink_adoption_test bans BOTH paths rather
+        than just solana-studio's. Same integrity value, same
+        URL, different timing. Swap to it only together with a callback that
+        waits for nacl instead of failing. %>
     <script src="https://unpkg.com/@solana/web3.js@1.98.4/lib/index.iife.min.js"
             integrity="sha384-I45YF+S0YGWIolUyTksLk9TNtTqaDgZg8e6T1OoBoJvvFmphqYNIPZw3Kl0TkZNN"
             crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"
             integrity="sha384-05+sicyRJQ56XpL4U9HJ8YbtSzFDvAg7apPKOGV6A0JsAJKFM68jp5oLnUjG5mEp"
             crossorigin="anonymous"></script>
+
+    <%# THE REDIRECT TRANSPORT — the second way to reach a wallet.
+        `walletProvider` models only an INJECTED provider, which no ordinary
+        mobile browser has: on iOS Safari and Android Chrome detect() returns
+        null, and before /tasks/guard-wallet-detect-mobile that null reached
+        `.connect()` and printed a JavaScript error into a transaction modal.
+        These four files are the other transport — the one that hands off to the
+        wallet app by URL and resumes when it returns.
+
+        ORDER IS LOAD-BEARING, and it is a dependency chain, not a preference:
+        nacl above is read by the codec in wallet_transport; redirect_provider
+        and wallet_ops both read SolanaStudio.walletTransport; wallet_ops also
+        reaches for walletJournal. Each reads the one before it AT CALL TIME, so
+        a wrong order fails on the first tap rather than at load — the worst
+        place to find it.
+
+        NACL STAYS BLOCKING AND ABOVE THEM for the reason its own tag records:
+        the deep link reads it on a user tap (safe either way) but the callback
+        view's IIFE reads it AT PARSE TIME and hard-fails with no retry.
+
+        Served through sprockets from solana-studio, which declares all four in
+        config.assets.precompile (lib/solana_studio/engine.rb) — a gem-shipped
+        asset not named there 404s in production with no local warning. %>
+    <%= javascript_include_tag "solana_studio/wallet_transport" %>
+    <%= javascript_include_tag "solana_studio/redirect_provider" %>
+    <%= javascript_include_tag "solana_studio/wallet_journal" %>
+    <%= javascript_include_tag "solana_studio/wallet_ops" %>
+
+    <%# Registered on EVERY page, because the wallet returns to a page this app
+        does not own — see the partial for the entry that was lost when this
+        lived in the contest board. %>
+    <%= render "shared/contest_entry_intent" %>
     <% if session_replay_active? %>
       <script src="https://cdn.logr-in.com/LogRocket.min.js" crossorigin="anonymous"></script>
       <script>
         // LogRocket records DOM + network in prod. Sanitize before anything leaves the
-        // browser (audit LR-1): never ship the CSRF token, the api-keyed Helius RPC URL,
-        // or auth/account/wallet request+response bodies (SIWS sigs, emails, tokens) to
-        // the third-party recorder. Defensive (try/catch) so a field-shape change can
+        // browser (audit LR-1): never ship the CSRF token, an api-keyed RPC URL, or
+        // auth/account/wallet request+response bodies (SIWS sigs, emails, tokens) to the
+        // third-party recorder.
+        //
+        // The api-key rule is now DEFENCE IN DEPTH rather than the primary guard: since
+        // redact-helius-key-from-browser the client is handed a credential-free endpoint
+        // (Solana::Config.public_rpc_url), so no keyed URL should reach a client request
+        // at all. Keep the rule — it costs nothing and covers any future rail that
+        // reintroduces one. Defensive (try/catch) so a field-shape change can
         // only under-record, never throw or break init.
         window.LogRocket && window.LogRocket.init('jodsqq/mcritchie-studio', {
           dom: { inputSanitizer: true },
@@ -111,6 +170,26 @@
             var _navHydrating = false;
             function hydrateNavbar() {
               if (_navHydrating) return;             // de-dupe initial + turbo:load
+              // A SPEND JUST HAPPENED ON THE PAGE THAT SENT US HERE.
+              //
+              // This load-time hydrate is the read that painted the stale
+              // number: contest creation navigates, so the marker its caller
+              // left is consumed HERE (a setTimeout could not have survived the
+              // unload). Reading now would very likely return the pre-spend
+              // balance, so do not read and do not paint — hold the loading
+              // state and let onchainSettled paint once, when it has settled.
+              // ONE line of glue on purpose: the decision itself is
+              // settleOnLoadIfPending() in solana_utils.js, where a unit test
+              // can execute it. Inline layout script is unreachable by tests.
+              // Claim the re-entry guard for the WHOLE settle window. This
+              // handler fires on DOMContentLoaded AND turbo:load; without the
+              // claim the second call skips the (now consumed) marker and does
+              // the early read, undoing the defer a millisecond later.
+              if (window.settleOnLoadIfPending &&
+                  window.settleOnLoadIfPending(function () { _navHydrating = false; })) {
+                _navHydrating = true;
+                return;
+              }
               _navHydrating = true;
               if (window.showNavSpinner) window.showNavSpinner();
               refreshSession().finally(function() {
@@ -204,6 +283,55 @@
           // register via Wallet Standard. The hub reads this at click time.
           available: function() {
             return [];
+          },
+          // MIRRORED FROM THE MODULE, and it has to be. Alpine evaluates x-data
+          // before importmap modules execute, so a click landing in that window
+          // reaches THIS object — and a stub missing the method would throw
+          // "requireProvider is not a function", which is the same class of
+          // unreadable failure this pair of methods exists to remove. The stub's
+          // detect() always returns null, so the honest message is the only
+          // answer it can give, and it is the right one.
+          requireProvider: function() {
+            var provider = this.detect();
+            if (provider) return provider;
+            throw new Error(this.noWalletMessage());
+          },
+          // MIRRORED BECAUSE A PRE-HYDRATION CALLER ALREADY REACHES FOR IT.
+          // shared/_alpine_factories asks for requireInlineProvider(), and this
+          // stub is what answers during the window before importmap modules
+          // execute — so a stub without it throws "requireInlineProvider is not
+          // a function", the same unreadable failure the pair above exists to
+          // remove. The stub's detect() always answers null, so the honest
+          // message is the only answer it can give, and it is the right one.
+          requireInlineProvider: function() {
+            var provider = this.detect();
+            if (provider && provider.transport !== 'redirect') return provider;
+            throw new Error(this.noWalletMessage());
+          },
+          noWalletMessage: function() {
+            if (this.isMobile()) {
+              return "This browser cannot reach a wallet. Open this page inside your " +
+                     "wallet app's own browser — Phantom, Solflare, and Backpack each " +
+                     "have one — then try again.";
+            }
+            return "No wallet detected. Install or unlock a Solana wallet extension, " +
+                   "then refresh this page.";
+          },
+          // MIRRORED FOR THE SAME REASON, and this pair needs it MORE than the
+          // one above. The admin desktop-only notice PAINTS at parse time, from
+          // an inline script in the page body — so the object answering it is
+          // always THIS one, never the module. A stub without these two throws
+          // "desktopOnlyMessage is not a function" while painting the very
+          // element whose job is to keep a phone from hitting an error.
+          // test/integration/wallet_stub_parity_test.rb runs both objects and
+          // compares what they SAY, so a divergence here goes red.
+          desktopOnlyMessage: function() {
+            return "This operation is desktop only. Open the page on a desktop " +
+                   "browser with your wallet extension — a phone cannot reach a " +
+                   "signer wallet.";
+          },
+          requireDesktop: function() {
+            if (this.isMobile()) throw new Error(this.desktopOnlyMessage());
           }
         };
 
@@ -216,23 +344,506 @@
           opts = opts || {};
           var provider = walletName ? window.walletProvider.get(walletName) : window.walletProvider.detect();
           if (!provider) throw new Error('Wallet not available');
-          var resp = await provider.connect();
-          var pubkeyB58 = resp.publicKey.toBase58();
-          var data = await (await fetch('/auth/solana/nonce')).json();
+          // Fire the nonce fetch IMMEDIATELY. It takes no parameters and does not
+          // depend on the wallet, so starting it here lets the round trip overlap
+          // whatever comes next.
+          //
+          // TAGGED REJECTION. This is a fetch of OUR OWN server, and its failure
+          // must never be read as a broken wallet. The tag is what makes the
+          // fallback path's single catch able to tell the two apart, and that is
+          // what buys back the overlap: the `await` can sit BELOW
+          // provider.connect(), where the round trip runs against the human at
+          // the wallet prompt, instead of being hoisted above the try purely so
+          // the catch could not misread it. Correctness by evidence rather than
+          // by keeping the statement out of reach.
+          //
+          // SIDE EFFECT, deliberate and recorded: the server's NONCE_MAX_AGE
+          // (300s) clock starts here, before the wallet sheet opens, so those
+          // five minutes cover human think-time at the prompt. It fails CLOSED —
+          // a user who dwells past five minutes gets a clean "Nonce expired" and
+          // retries — which is why the trade is worth a saved round trip.
+          //
+          // OUR SERVER'S OWN SENTENCE, COMPOSED ONCE. Measured 2026-09-08 on the
+          // code this replaces: a nonce fetch that 500s with an HTML body makes
+          // r.json() reject with "Unexpected token '<', \"<!DOCTYPE \"... is not
+          // valid JSON", parseSolanaError's /^unexpected/i branch reads that as a
+          // TRANSACTION failure, and the user is told to check their wallet
+          // connection and their USDC balance. An outage of ours, read back to a
+          // paying user as their wallet being short of funds.
+          //
+          // SURVIVES THE MAPPER, which is the whole reason it can be substituted
+          // rather than rethrown — parseSolanaError passes unrecognised messages
+          // through untouched, and test/views/nonce_server_failure_copy_test.rb
+          // runs this literal past every regex the mapper tests a message against.
+          var nonceServerCopy = 'Our server could not start sign-in \u2014 the problem is on our side, not your wallet. Please try again in a moment.';
+          var noncePromise = fetch('/auth/solana/nonce')
+            .then(function(r) {
+              // A BODY WE CANNOT READ IS OUR SERVER FAILING, AND THIS IS THE ONE
+              // PLACE THAT KNOWS IT. Below, in the single .catch, an offline
+              // TypeError and an unreadable 500 body are the same rejection and
+              // cannot be told apart; here they are already separated by WHICH
+              // step threw. So the substitution belongs here — inside r.json() —
+              // and the network failure keeps its own words on the way past.
+              //
+              // BOTH WALLET PATHS, FROM ONE PLACE. The signIn branch awaits this
+              // promise ABOVE its try (the nonce is an INPUT to signIn), so no
+              // catch in this function ever sees its rejection — it propagates
+              // straight to the surface. A substitution at the nonceFetchFailed
+              // guard alone would therefore have left every signIn-capable wallet,
+              // Phantom included, still reading the balance advice. Measured on
+              // both paths, 2026-09-08.
+              return r.json().catch(function() {
+                var serverError = new Error(nonceServerCopy);
+                // NOT REPORTED — the one substitution in this file that owes no
+                // report, and it owes none for the reason docs/AUTH.md already
+                // gives for a server REJECTION: report-client-wallet-failures
+                // exists for failures that leave NO server-side trace, because
+                // they happen entirely in the browser. This one is a 500 OF OURS;
+                // the exception, its backtrace and the request are already in the
+                // server's own log, and the POST would go to the very server that
+                // just failed. The string being replaced is V8's complaint about
+                // our error page, not a wallet's words, so nothing diagnostic
+                // dies here.
+                //
+                // TAGGED ANYWAY, so no SURFACE reports it either. Without the tag
+                // the wallet-setup modal's catch would file a row carrying our
+                // sentence in BOTH halves — the raw == mapped shape docs/AUTH.md
+                // names as an anomaly worth chasing — for a fault that is fully
+                // recorded server-side.
+                serverError.walletFailureReported = true;
+                throw serverError;
+              });
+            })
+            .catch(function(e) {
+              // Tag the error the fetch actually produced rather than wrapping
+              // it: a wrapper would drop `TypeError: Failed to fetch` — the one
+              // string that says "offline" — and replace it with our own guess.
+              // The substituted server sentence above arrives here as an object
+              // too, so it picks up the same tag and the fallback's guard goes on
+              // rethrowing a nonce failure untouched, whichever shape it took.
+              if (e && typeof e === 'object') { e.nonceFetchFailed = true; throw e; }
+              var wrapped = new Error(String(e));
+              wrapped.nonceFetchFailed = true;
+              throw wrapped;
+            });
+          // Now that the fallback awaits this BELOW connect(), a connect() that
+          // rejects first leaves the rejection unawaited — a console
+          // "Uncaught (in promise)" on a path that already reported its real
+          // error. Attaching a no-op handler marks it handled; the promise
+          // itself is untouched, so the await below still rejects normally.
+          noncePromise.catch(function() {});
+
           var domain = window.location.host;
           var userIdLine = (opts.linkMode && opts.currentUserId) ? ('User-ID: ' + opts.currentUserId + '\n\n') : '';
-          var message = domain + ' wants you to sign in with your Solana account:\n' + pubkeyB58 + '\n\n' + userIdLine + 'Sign in to Turf Monster\n\nNonce: ' + data.nonce;
-          var signed = await provider.signMessage(new TextEncoder().encode(message), 'utf8');
-          var signatureB58 = encodeBase58(signed.signature);
+          var pubkeyB58, message, signatureB58;
+
+          // ONE approval when the wallet implements solana:signIn — it connects and
+          // signs in a single prompt. Everything else keeps the two-step path.
+          var useSignIn = typeof provider.supportsSignIn === 'function' && provider.supportsSignIn();
+
+          if (useSignIn) {
+            // AWAITED ABOVE THE TRY HERE, AND THAT IS NOT THE FALLBACK'S BUG.
+            // signIn() takes the nonce as an INPUT, so there is no prompt for the
+            // fetch to overlap on this path — it must land first either way. Out
+            // here it also stays out of the catch below, which decides whether
+            // the wallet is INCAPABLE of signIn and falls back: a server blip
+            // swallowed there would demote a perfectly good signIn wallet to the
+            // two-prompt path. The fallback awaits BELOW its connect() because
+            // there the fetch has a human-gated prompt to run against, and its
+            // catch tells a nonce failure apart by tag rather than by distance.
+            var nonceData = await noncePromise;
+            try {
+              // SIWS `statement` is a SINGLE LINE per the spec's grammar, so the
+              // link-mode binding rides inline here rather than as its own
+              // paragraph the way the fallback message writes it. The server checks
+              // `message.include?("User-ID: <id>")`, which both shapes satisfy.
+              var statement = userIdLine
+                ? 'Sign in to Turf Monster (User-ID: ' + opts.currentUserId + ')'
+                : 'Sign in to Turf Monster';
+
+              var out = await provider.signIn({ domain: domain, statement: statement, nonce: nonceData.nonce });
+              pubkeyB58 = out.address;
+              // The bytes the WALLET signed — never a rebuilt string. A wallet may
+              // add URI / Version / Chain ID / Issued At lines of its own, and a
+              // reconstruction would not match the signature.
+              message = new TextDecoder().decode(out.signedMessage);
+              signatureB58 = encodeBase58(out.signature);
+
+              // Did the wallet honour what we asked for? A message missing our nonce
+              // — or, in link mode, the User-ID binding OPSEC-005 requires — gets
+              // rejected server-side as a bad signature, which reads to the user as
+              // "sign-in is broken" rather than "this wallet composes messages its
+              // own way". Catch it here and spend a second prompt instead of failing.
+              // The DOMAIN is the third thing the server asserts and the one most
+              // easily lost: AuthVerifier requires the message to OPEN with
+              // `request.host_with_port + " "` (OPSEC-018). A wallet that rewrites
+              // or port-strips the domain token produces a hard 401 with no
+              // fallback — and spends the nonce on the way. Production is safe (no
+              // port in the host); a dev/QA stack on localhost:31xx is where it
+              // bites, which is exactly where this gets exercised.
+              if (message.indexOf(domain + ' ') !== 0) {
+                throw new Error('wallet rewrote the domain');
+              }
+              if (message.indexOf('Nonce: ' + nonceData.nonce) === -1) {
+                throw new Error('wallet omitted the nonce');
+              }
+              if (userIdLine && message.indexOf('User-ID: ' + opts.currentUserId) === -1) {
+                throw new Error('wallet omitted the User-ID binding');
+              }
+            } catch (e) {
+              // A DECLINE IS NOT AN INCAPABILITY. The fallback exists for wallets
+              // that CANNOT do signIn, never for a human who WILL NOT — swallowing
+              // the rejection here drops into connect() + signMessage() below and
+              // asks a user who just said no twice more, in the change whose whole
+              // purpose is to ask once. It also silently breaks working decline
+              // handling: solana-studio's wallet picker and modals/_wallet_setup both
+              // render "Signature rejected" off this rejection, and can only do so
+              // if it propagates.
+              //
+              // Matched the way app/javascript/cosign.js does it — reject TEXT or
+              // .code, never .code alone, because Wallet Standard wallets do not
+              // reliably set it. The three guard throws above carry neither, so a
+              // genuinely non-conforming wallet still falls through to the fallback.
+              var rejMsg = (e && e.message) ? e.message : String(e);
+              if (/user rejected/i.test(rejMsg) || /user declined/i.test(rejMsg) || (e && e.code === 4001)) {
+                throw e;
+              }
+              // SWALLOWED HERE, AND NOT REPORTED HERE — the reasoning, so it is
+              // not re-derived. This rejection is not yet a user-facing failure:
+              // the fallback below either SUCCEEDS, in which case the user signed
+              // in and a row would be noise on a triage surface (see the
+              // over-reporting guard in e2e/wallet_failure_report.spec.js), or it
+              // fails too and reports its own rejection with the wallet's words
+              // intact. An extension holding no keypair fails both calls with the
+              // same generic string, which is the case the reporting exists for.
+              // What is genuinely lost is a signIn rejection that differs from the
+              // fallback's; that stays in the console, deliberately, rather than
+              // buying it with a row per successful two-prompt sign-in.
+              console.warn('[siws] signIn unusable, falling back to connect + signMessage:', rejMsg);
+              useSignIn = false;
+            }
+          }
+
+          if (!useSignIn) {
+            // THE CATCH BELOW HAS EXACTLY ONE DIAGNOSIS, AND THIS IS ITS SCOPE.
+            // `connected` flips the instant connect() hands back a publicKey. At
+            // that moment the wallet has PROVEN it holds a keypair, so nothing
+            // that fails afterwards — a signMessage rejection, our own nonce
+            // fetch — can be a wallet with no wallet in it. Declared out here
+            // because the catch has to read it, and `var` in the try would be
+            // hoisted-but-unassigned on the paths that matter.
+            var connected = false;
+            try {
+              var resp = await provider.connect();
+              pubkeyB58 = resp.publicKey.toBase58();
+              connected = true;
+              // AWAITED HERE, BELOW connect(), ON PURPOSE. The fetch was fired at
+              // the top of this function; blocking on it only now means the round
+              // trip runs while the wallet sheet is open and the human is reading
+              // it, rather than before the sheet exists. The tagged rejection
+              // above is what makes that safe — see the first guard in the catch.
+              var data = await noncePromise;
+              // Byte-identical to the message this flow has always signed.
+              message = domain + ' wants you to sign in with your Solana account:\n' + pubkeyB58 + '\n\n' + userIdLine + 'Sign in to Turf Monster\n\nNonce: ' + data.nonce;
+              var signed = await provider.signMessage(new TextEncoder().encode(message), 'utf8');
+              signatureB58 = encodeBase58(signed.signature);
+            } catch (e) {
+              // AN INSTALLED WALLET WITH NO WALLET IN IT. Hit on production
+              // 2026-09-06: the Phantom extension is present — so the picker
+              // paints "Installed" and supportsSignIn() is true — but it holds no
+              // keypair, and Phantom is sitting on its own "create a new wallet or
+              // import an existing one" onboarding. With nothing to sign, signIn()
+              // rejects with Phantom's generic "Unexpected error" and this fallback
+              // rejects the same way.
+              //
+              // That string used to travel to parseSolanaError, whose generic
+              // branch reads it as a TRANSACTION failure and answers "Wallet
+              // couldn't process the transaction. Check wallet connection and USDC
+              // balance." — balance advice, in a connect modal, for a user who
+              // attempted no transaction and may hold no wallet at all.
+              //
+              // Rethrow in the vocabulary of the thing that actually failed.
+              // parseSolanaError's final line passes unrecognised messages through
+              // untouched, so this reaches the picker verbatim without changing the
+              // shared mapper, whose transaction wording is correct for the entry
+              // paths that own it.
+              //
+              // A DECLINE IS NOT AN INCAPABILITY — the same rule the signIn guard
+              // above states. A human who said no keeps reading "Signature
+              // rejected"; only a wallet that could not answer gets the setup copy.
+              //
+              // THE FOUR GUARDS BELOW ARE THE WHOLE OF THIS FIX. Each one names a
+              // failure that is DEMONSTRABLY not "an installed wallet with no
+              // wallet in it". THREE RETHROW THE ORIGINAL UNTOUCHED; ONE CANNOT.
+              //
+              // An untouched rethrow is honest only while parseSolanaError leaves
+              // the string alone, and it does NOT do that universally. Its generic
+              // branch (app/javascript/solana_errors.js) rewrites both
+              // `Unexpected error` and anything matching /^unexpected/i into
+              // "Wallet couldn't process the transaction. Check wallet connection
+              // and USDC balance." Every surface maps before painting -- see
+              // modals/_wallet_setup.html.erb and solana-studio's
+              // _wallet_connect.html.erb -- so rethrowing that particular string
+              // hands balance advice to someone who attempted no transaction.
+              // The `connected` guard below therefore substitutes its own
+              // sentence; the other three rethrow strings that genuinely survive
+              // the mapper, which the e2e spec pins against the page's OWN mapper
+              // rather than a copy.
+              //
+              // THAT LEFT ONE HOLE OPEN UNTIL 2026-09-08, AND IT IS NOW CLOSED
+              // UPSTREAM OF HERE. A nonce fetch that failed with an HTML body
+              // made r.json() reject with "Unexpected token '<' ... is not valid
+              // JSON", which matches that same /^unexpected/i branch, so the
+              // commonest server-failure shape still landed on the transaction
+              // sentence. The substitution for it lives in the nonce fetch
+              // itself (see nonceServerCopy above), NOT in this guard: the signIn
+              // branch awaits that promise above its own try, so a guard here
+              // could never have covered it, and only the fetch knows whether the
+              // request failed to arrive or came back unreadable. The mapper is
+              // untouched -- its transaction wording still belongs to the entry
+              // paths that own it. See docs/AUTH.md and
+              // test/views/nonce_server_failure_copy_test.rb.
+
+              // OUR OWN SERVER, FIRST. /auth/solana/nonce failing is an offline
+              // moment or a blip on our side. Telling that user to create a
+              // wallet is the same confidently-wrong diagnosis this whole task
+              // exists to remove, pointed at a different innocent party. Either
+              // shape arrives tagged, so this rethrow stays exactly as it was:
+              // a network failure carries its own words, and a server fault
+              // carries the sentence composed for it.
+              if (e && e.nonceFetchFailed) throw e;
+
+              var em = (e && e.message) ? e.message : String(e);
+              if (/user rejected/i.test(em) || /user declined/i.test(em) || (e && e.code === 4001)) throw e;
+
+              // provider.name is a lowercase SLUG on the legacy provider ('phantom',
+              // wallet_provider.js:69) but a display name on the Wallet Standard
+              // adapter (:289), so capitalise it. Nothing sets label/displayName.
+              //
+              // HOISTED ABOVE BOTH SUBSTITUTING GUARDS. Each of them now reports
+              // before it replaces the wallet's string, and a report names the
+              // brand, so this has to be in hand before the FIRST of them runs.
+              var brand = (provider && (provider.label || provider.displayName)) ||
+                          (provider && provider.name ? provider.name.charAt(0).toUpperCase() + provider.name.slice(1) : '') ||
+                          'your wallet';
+
+              // CONNECT ALREADY ANSWERED. A publicKey came back, so a keypair
+              // exists; whatever rejected afterwards (signMessage, most often
+              // with Phantom's same generic "Unexpected error") is a signing
+              // failure, and "create or import one" is flatly false advice for
+              // someone whose wallet just identified itself.
+              //
+              // SUBSTITUTED, NOT RETHROWN -- the one guard here that cannot pass
+              // its error through, for the reason stated above: "Unexpected
+              // error" is the string this path carries most often, and it is
+              // exactly what the mapper turns into balance advice. This sentence
+              // survives parseSolanaError untouched and says only what is known
+              // -- the wallet identified itself and then did not sign. The
+              // wallet's own string is generic here and the substitution costs it
+              // from error_logs, the same trade the setup copy above already
+              // makes; docs/AUTH.md carries that consequence into triage.
+              //
+              // REPORTED BEFORE IT SUBSTITUTES, for exactly the reason the setup
+              // copy below is — the long note there is the argument, and it
+              // applies here unchanged the moment this guard replaces a string.
+              // `em` still holds what the wallet actually said, which on this
+              // path is Phantom's generic "Unexpected error" far more often than
+              // anything else; the sentence below is what the user reads. A
+              // report made downstream of this throw would carry OUR words in
+              // both halves, which is the byte-identical row this task exists to
+              // remove — the defect simply relocated to a newer guard.
+              //
+              // ITS OWN STAGE, NOT connect_verify_fallback. That stage means the
+              // wallet could not answer connect() at all; here connect() ANSWERED
+              // and signMessage refused. The two need different responses from an
+              // operator, so they get different filters (Solana::ClientFailureReport::STAGES).
+              if (connected) {
+                var signFailCopy = 'Your wallet connected but could not sign you in. Signing in moves no funds \u2014 try again.';
+                if (typeof window.reportWalletFailure === 'function') {
+                  window.reportWalletFailure('connect_verify_signature', brand, em, signFailCopy);
+                }
+                var signFailError = new Error(signFailCopy);
+                signFailError.walletFailureReported = true;
+                throw signFailError;
+              }
+
+              // THE WALLET ANSWERED WITH NOTHING. wallet_provider.js tags the
+              // Wallet Standard rejections that prove a wallet is there and
+              // simply authorized no account — a dismissed account-selection
+              // sheet, or every account deselected. Opaque, but true; the setup
+              // copy would be readable and false.
+              if (e && e.walletAnswered) throw e;
+
+              // ── THE WALLET'S OWN WORDS DIE ON THE NEXT LINE, SO THEY ARE
+              //    REPORTED ON THIS ONE ────────────────────────────────────────
+              //
+              // The substitution below is the ONE place in this app that throws
+              // away a wallet's error string on purpose, and it is the reason
+              // report-client-wallet-failures captured almost nothing for the
+              // class it was built for. Downstream, every catch sees only the
+              // sentence composed here; parseSolanaError has no rule for it, so
+              // it passes through unchanged and the report arrives with
+              // `raw_message` and `mapped_message` BYTE-IDENTICAL. The pair is
+              // the whole diagnostic value of the call — `raw` is what makes a
+              // MIS-mapping visible — and for the 2026-09-06 incident that
+              // motivated the reporting work (an empty Phantom, a user told to
+              // check their USDC balance seven times) the raw string WAS the
+              // mapped string. Only a `4001` decline, rethrown untouched by the
+              // guard above, ever carried a genuine wallet string.
+              //
+              // So the report is made HERE, where `em` still holds what the
+              // wallet actually said, rather than at a surface that can only see
+              // what we replaced it with. This is the fourth call site named
+              // during the original build and deferred then; the three surface
+              // call sites stay exactly as they are for every OTHER rejection,
+              // which reaches them intact.
+              //
+              // `mapped` is the sentence the user will read, not a guess at it:
+              // this rethrow is the only thing the surface has to work from, and
+              // parseSolanaError's pass-through leaving it untouched is pinned by
+              // test/views/wallet_connect_error_copy_test.rb. A change that broke
+              // that coupling would redden there before it could lie here.
+              //
+              // FIRE AND FORGET, like every other call site — `typeof` guard,
+              // no await, and the reporter swallows its own faults
+              // (app/javascript/solana_errors.js). Observation may not delay,
+              // block or alter the failure a user is about to be handed.
+              var setupCopy = 'Finish setting up your wallet in ' + brand + ' \u2014 create or import one, then try again.';
+              if (typeof window.reportWalletFailure === 'function') {
+                window.reportWalletFailure('connect_verify_fallback', brand, em, setupCopy);
+              }
+              // TAGGED SO THE SURFACE DOES NOT REPORT IT AGAIN. Without this the
+              // same failure lands twice: once with the wallet's words, and once
+              // with ours in both halves — and the useless row is the one an
+              // operator meets first. The tag is a plain property for the same
+              // reason wallet_provider.js gives for its own: an `instanceof` does
+              // not survive script boundaries and a sentinel inside the message
+              // would be read by a human.
+              var setupError = new Error(setupCopy);
+              setupError.walletFailureReported = true;
+              throw setupError;
+            }
+          }
           var verifyUrl = opts.linkMode ? '/account/link_solana' : '/auth/solana/verify';
           // Legal-age attestation (signup compliance): undefined keys are
           // dropped by JSON.stringify, so login/link calls stay unchanged.
           var ageAttestation = (!opts.linkMode && opts.ageAttested) ? '1' : undefined;
-          return await (await fetch(verifyUrl, {
+          // Which wallet brand actually signed. Read off the PROVIDER rather
+          // than the walletName argument, because the standalone Solana button
+          // passes nothing and lets detect() choose — in that case the argument
+          // is undefined and the provider still knows its own name. The server
+          // normalises it (Solana::WalletProvider) and ignores anything off the
+          // registry, so the test-only 'keypair' provider stamps nothing.
+          var walletProviderName = (provider && provider.name) || walletName || undefined;
+
+          // THE NONCE LEG'S DEFECT, ONE FETCH LATER, AND WORSE. Until 2026-09-09
+          // this was a bare `return await (await fetch(...)).json()` sitting
+          // outside BOTH try blocks. A reply that carries a rendered PAGE makes
+          // `.json()` reject with V8's
+          // "Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON";
+          // parseSolanaError's /^unexpected/i branch reads that as a TRANSACTION
+          // failure and answers "check wallet connection and USDC balance".
+          //
+          // WHICH FAULTS ACTUALLY SEND AN UNREADABLE BODY — NOT "any unhandled
+          // exception". That was this comment's claim until 2026-09-09 and it is
+          // FALSE on both endpoints: SolanaSessionsController#verify and
+          // AccountsController#link_solana each END in a generic
+          // `rescue StandardError` that renders JSON 422, which parses fine. An
+          // exception raised INSIDE either action is therefore not this case at
+          // all. THREE things do send HTML, and TWO OF THEM ARRIVE AT STATUS 200:
+          //
+          //   * THE ENGINE CATCH-ALL. Studio::ErrorHandling registers
+          //     `rescue_from StandardError`, so anything the actions' own rescues
+          //     do not claim — a raise in one of the before_actions this POST
+          //     runs, or in /auth/solana/nonce, which has no local rescue —
+          //     reaches handle_unexpected_error. In production that answers
+          //     through `respond_to`, and this fetch sends no Accept header, so
+          //     it takes `format.html`: a 302 to root, which fetch FOLLOWS to an
+          //     HTML body at status 200;
+          //   * THE OPSEC-045 FORCED LOGOUT. A session_token mismatch in
+          //     ApplicationController#verify_session_token answers the same way —
+          //     a 302 to /signin, followed to an HTML body at status 200.
+          //     Measured end to end 2026-09-09;
+          //   * A FAULT OUTSIDE rescue_from's REACH — middleware, routing — which
+          //     ActionDispatch::PublicExceptions renders as the 500 error page.
+          //
+          // `r.ok` is TRUE on the first two. That is the whole argument for why
+          // the substitution below sits inside `.json()` and can never become an
+          // `!r.ok` gate — such a gate would not fire at all on the two shapes
+          // this app actually produces most.
+          //
+          // WORSE THAN THE NONCE CASE BECAUSE OF WHEN IT FIRES. The nonce fetch
+          // happens BEFORE the user signs. This one happens AFTER the signature
+          // succeeded — so on a real-money product a user signs, our server
+          // faults, and we tell them they are short of funds at the exact moment
+          // they have most reason to think something was taken. The one step that
+          // proved their wallet fine is the step that precedes the accusation.
+          //
+          // ONE SITE, BOTH PATHS — and unlike the nonce leg, that is free here.
+          // The signIn branch and the connect + signMessage fallback both fall
+          // through to this line; neither wraps it. So a substitution here covers
+          // every wallet, and no guard-local variant is needed.
+          var verifyServerCopy = 'Your signature went through, but our server could not finish sign-in \u2014 the problem is on our side, not your wallet. Signing in moves no funds. Please try again in a moment.';
+          // NO `Accept: application/json` HERE, AND THAT IS THE DELIBERATE
+          // CHOICE, NOT AN OVERSIGHT. Two sibling call sites in this file send
+          // it (postMagicLink below, and the nonce fetch takes the default), so
+          // adding it here reads as a tidy-up. It would DISARM the guard on the
+          // next line. Measured 2026-09-09 against ActionDispatch::PublicExceptions:
+          // with no Accept header — or `*/*`, or `text/html` — a 500 comes back
+          // as the rendered error PAGE, which is the body `.json()` rejects on;
+          // with `Accept: application/json` the same 500 comes back as
+          // {"status":500,"error":"Internal Server Error"}, which PARSES. The
+          // helper would then resolve that object, the substitution would never
+          // run, and the user would read a bare "Internal Server Error" instead
+          // of a sentence telling them their signature moved no funds — while
+          // every assertion about the guard stayed green, because the guard is
+          // simply never reached.
+          //
+          // So the absence of this header is load-bearing and is pinned as such:
+          // test/views/verify_server_failure_copy_test.rb drives the RENDERED
+          // helper against a server that answers by Accept the way Rails does,
+          // and reddens the moment this header appears. If a future change wants
+          // the header, it has to re-aim the guard in the same diff — a JSON
+          // error body needs a STATUS test, which the note below explains this
+          // endpoint cannot have naively (401/422 carry bodies the user must read).
+          var verifyResponse = await fetch(verifyUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.content || '' },
-            body: JSON.stringify({ message: message, signature: signatureB58, pubkey: pubkeyB58, age_attestation: ageAttestation })
-          })).json();
+            body: JSON.stringify({ message: message, signature: signatureB58, pubkey: pubkeyB58, age_attestation: ageAttestation, wallet_provider: walletProviderName })
+          });
+          // SUBSTITUTED INSIDE r.json(), FOR THE SAME REASON THE NONCE LEG IS,
+          // AND DELIBERATELY NOT AT `!r.ok`. docs/AUTH.md used to note that
+          // "nothing checks r.ok" as though the check were the fix. It is not:
+          // this endpoint answers 401 and 422 with a JSON body the user MUST
+          // read — an expired nonce, a bad signature, the age attestation
+          // (SolanaSessionsController#verify renders all three) — and the modal
+          // paints `result.error` from it. A throw on !r.ok would replace those
+          // precise, actionable sentences with this generic one, which is the
+          // same class of confidently-wrong diagnosis pointed at a new party.
+          // Only an UNREADABLE body is unambiguously our fault, and `.json()`
+          // rejecting is exactly the signal that says so.
+          //
+          // AND THE OFFLINE USER STAYS OUT OF IT. Wrapping the fetch itself —
+          // the obvious simplification — makes `TypeError: Failed to fetch` and
+          // an unreadable 500 body the same rejection, and relabels a genuinely
+          // offline user as our outage. Here they are already separated by WHICH
+          // step threw, so a request that never reached us keeps its own words
+          // and stays reportable. Mutated both ways in
+          // test/views/verify_server_failure_copy_test.rb.
+          //
+          // NOT REPORTED, tagged so no surface reports it either — the reasoning
+          // is the nonce leg's, unchanged: this is a 500 OF OURS, already carrying
+          // its exception and backtrace in the server's own log, and the report
+          // POST would go to the very server that just failed. The string being
+          // replaced is V8's complaint about our error page, not a wallet's
+          // words, so nothing diagnostic dies here. Without the tag the
+          // wallet-setup modal's catch files a row with our sentence in BOTH
+          // halves — the raw == mapped shape docs/AUTH.md names as an anomaly.
+          return await verifyResponse.json().catch(function() {
+            var serverError = new Error(verifyServerCopy);
+            serverError.walletFailureReported = true;
+            throw serverError;
+          });
         };
 
         // Shared magic-link request. Form-encoded (so the rack-attack per-email
@@ -391,6 +1002,10 @@
             // web2 eligibility gate ignores USDC and blocks token-only. Static
             // per render — set once from #session-context, never refreshed.
             web2UsdcEntry: true,
+            // Whether the entry-token modal has any rail to show. Defaults
+            // TRUE so a page that never received #session-context behaves as it
+            // always did; the server answer below is what turns it off.
+            entryTokenRailsAvailable: true,
             // Entry-time age gate (ENABLE_AGE_GATE). ageGateRequired = feature
             // on; ageVerified = this user already confirmed DOB. eligibilityBlocker
             // pops the DOB modal at hold-time when required && !verified.
@@ -411,7 +1026,12 @@
             // the same predicate the entry-token rails guard on. The
             // wallet-setup modal's card-payment link reads it; do NOT substitute
             // `mode`, which reads 'web2' for a wallet-less account.
-            walletConnected: false,
+            walletHasAddress: false,
+            // The wallet brand that signed into THIS session (session[:wallet_brand]
+            // via Solana::CurrentWallet), not the durable account column. The
+            // watcher resolves its adapter from this so a two-wallet owner gets
+            // the one that can actually sign now.
+            walletBrand: '',
             get isGuest() { return this.mode === 'guest'; },
             get isWeb2() { return this.mode === 'web2'; },
             get isWeb3() { return this.mode === 'web3'; },
@@ -429,11 +1049,13 @@
               if (ctx.usdtCents       !== undefined) this.usdtCents       = (ctx.usdtCents       == null) ? null : (ctx.usdtCents       | 0);
               if (ctx.tokensAvailable !== undefined) this.tokensAvailable = (ctx.tokensAvailable == null) ? 0    : (ctx.tokensAvailable | 0);
               if (ctx.web2UsdcEntry   !== undefined) this.web2UsdcEntry   = !!ctx.web2UsdcEntry;
+              if (ctx.entryTokenRailsAvailable !== undefined) this.entryTokenRailsAvailable = !!ctx.entryTokenRailsAvailable;
               if (ctx.ageGateRequired !== undefined) this.ageGateRequired = !!ctx.ageGateRequired;
               if (ctx.ageVerified     !== undefined) this.ageVerified     = !!ctx.ageVerified;
               if (ctx.walletSetupRequired !== undefined) this.walletSetupRequired = !!ctx.walletSetupRequired;
               if (ctx.firstNameRequired   !== undefined) this.firstNameRequired   = !!ctx.firstNameRequired;
-              if (ctx.walletConnected     !== undefined) this.walletConnected     = !!ctx.walletConnected;
+              if (ctx.walletHasAddress    !== undefined) this.walletHasAddress    = !!ctx.walletHasAddress;
+              if (ctx.walletBrand         !== undefined) this.walletBrand         = ctx.walletBrand || '';
             }
           });
           (function() {
@@ -451,15 +1073,38 @@
           // the newsletter-success celebration), else open fresh.
           window.addEventListener('navbar-seeds-update', function(e) {
             if (!e || !e.detail || !e.detail.levelUp) return;
+            // Claim the seeds bar for the length of the level-up animation.
+            // A delayed onchainSettled() reload landing mid-flight would snap
+            // the bar back to a value the animation is still travelling toward,
+            // or re-fire this milestone. seeds_bar.js clears levelingUp at 3000ms.
+            if (window.markSeedsAnimating) window.markSeedsAnimating(3000);
             var props = { level: e.detail.newLevel };
+            // The server enqueued the mint from the same fresh seed snapshot.
+            // Rehydrate with bounded backoff so the badge surfaces the token
+            // as soon as the admin-signed transaction lands, without reload.
+            try { window.refreshLevelUpToken && window.refreshLevelUpToken(); }
+            catch (err) { console.warn('[free-entry] token refresh failed', err); }
             setTimeout(function() {
               try {
                 var m = Alpine.store('modals');
                 if (!m) return;
                 var cur = m.current && m.current();
                 // Swap over a dismissible modal (e.g. newsletter-success), but
-                // never clobber an in-flight non-dismissible one (the onchain-tx
-                // entry modal mid-broadcast) — open on top of that instead.
+                // never clobber a non-dismissible one — open on top of that
+                // instead. A card that forbids dismissal is guarding something
+                // the user still has to finish, and taking the screen away from
+                // it loses a prompt they have to act on.
+                //
+                // WHICH CARD, precisely — the note here used to name the wrong
+                // one. This event's only producer of levelUp is the seeds
+                // fanout (state_fanout.js), dispatched two seconds after an
+                // ENTRY succeeds, and that response's own success() or
+                // resolveEntry() has already run in the same tick. So the entry
+                // card is normally SUCCESS and dismissible by the time this
+                // reads it, and this takes the swap branch. The guard still
+                // earns its keep where that is not true: an entry that awards
+                // seeds and then throws before success(), or any other on-chain
+                // flow holding a processing card when the beat lands.
                 if (cur && cur.id && !(cur.props && cur.props.dismissible === false)) {
                   m.swap('free-entry-earned', props);
                 } else {
@@ -498,6 +1143,30 @@
             var c = Alpine.store('modals').current();
             return (c && c.id === 'onchain-tx') ? c : null;
           };
+          // The live 'onchain-tx' entry ANYWHERE on the stack, or null. There is
+          // at most one, and show() below is what keeps that true. Entries on
+          // their way out are excluded: close() flips _closing immediately and
+          // splices only after the exit animation, and a card inside that window
+          // is gone as far as a new flow is concerned. That is the same line the
+          // engine's own isLive() draws; this walks the stack directly because it
+          // needs the ENTRY, not a boolean.
+          //
+          // THE `_closing` CLAUSE IS DELIBERATELY UNPINNED. Review mutated it
+          // away (2026-09-07) and both specs in level_up_stacked_modal.spec.js
+          // stayed green, so no test bites if it is deleted. It is kept because
+          // it is correct, not because a test defends it: patching a card inside
+          // its exit window writes props onto an entry about to be spliced, so
+          // the step would be lost. Pinning it needs a show() landing between
+          // close() and that splice — reachable only by driving the store from
+          // the spec, which tests this helper's shape rather than a journey a
+          // user can walk. Left as a known gap rather than a racy spec.
+          var _liveTx = function() {
+            var stack = Alpine.store('modals').stack;
+            for (var i = stack.length - 1; i >= 0; i--) {
+              if (stack[i].id === 'onchain-tx' && !stack[i]._closing) return stack[i];
+            }
+            return null;
+          };
           var _propRead = function(key, fallback) {
             var c = _onCurrent();
             return c ? (c.props[key] !== undefined ? c.props[key] : fallback) : fallback;
@@ -516,7 +1185,7 @@
               // dismissible: false suppresses click-outside + escape while
               // a Phantom signature / RPC confirm is pending — success()/
               // error() flip it to true.
-              Alpine.store('modals').open('onchain-tx', {
+              var props = {
                 dismissible:     false,
                 state:           'processing',
                 title:           title,
@@ -541,7 +1210,32 @@
                 // confetti on success — resolved in success() per variant
                 // (entry: on, generic: off unless opts.confetti:true).
                 confetti:        true
-              });
+              };
+              // ONE CARD PER FLOW. show() is how this store spells a STEP
+              // TRANSITION, not a new dialog: a single contest entry calls it
+              // three times (Preparing Transaction, then Sign Transaction, then
+              // Confirming Onchain) and modals.open() PUSHES, so the flow used to
+              // leave THREE stacked onchain-tx cards. Everything that follows —
+              // success(), error(), every field setter — goes through
+              // _onCurrent(), which reaches only the TOP one, so the cards
+              // underneath kept state 'processing' and dismissible:false for the
+              // life of the page. They were invisible (the host renders only
+              // current()) until something landed on top and was dismissed:
+              // closing the level-up celebration popped back to "Approve your
+              // free entry in your wallet..." for a transaction that had settled
+              // seconds earlier. Reusing the live entry keeps success() pointed
+              // at the only card there is.
+              //
+              // Patched in place rather than through swap()/advance() on purpose:
+              // both defer the new props by one animation frame, so a success()
+              // arriving inside that window would be overwritten by processing
+              // props landing late — a settled entry re-showing a spinner.
+              var live = _liveTx();
+              if (live) {
+                Object.assign(live.props, props);
+                return;
+              }
+              Alpine.store('modals').open('onchain-tx', props);
             },
             // opts (optional): { variant: 'entry'|'generic', title,
             // subtitle, ctaLabel, ctaHref } for the generic success card.
@@ -685,8 +1379,8 @@
           // go straight to their redirect (tokens/buy, or back to the contest).
         });
         // Alpine.store('modals') + window.StudioModals.holdAtLeast both
-        // live in studio-engine's studio/modals/host partial now — see
-        // <%%= render "studio/modals/host" %> below.
+        // live in studio-engine's studio/modals/host partial now, which this
+        // layout renders below.
 
         // Cross-tab session broadcast — same shape as the tt-tokens channel
         // used by the token-purchase return path. Tabs broadcast on every
@@ -781,12 +1475,23 @@
                                session store's address would be equivalent
                                (both are request-time snapshots) so the
                                migration would be purely cosmetic
+        - data-wallet-provider: authenticated self-custody wallet brand; lets
+                               the watcher bind the same Wallet Standard
+                               adapter that signed instead of a generic first
+                               detected provider
         - data-app-environment: deploy environment for client-side network-intent copy.
                                QA Heroku runs Rails.env=production, so this
                                must use QA_ENV instead of Rails.env directly.
         - data-solana-cluster: a build-time constant, used as a small inline
                                default by the solanaModal store init
-        - data-solana-rpc-url: env-driven (SOLANA_RPC_URL via Solana::Config).
+        - data-solana-rpc-url: the BROWSER's RPC endpoint —
+                               Solana::Config.public_rpc_url, NOT the server's
+                               SOLANA_RPC_URL. On mainnet the server endpoint
+                               carries a provider api-key, and this attribute
+                               is read by every visitor; public_rpc_url resolves
+                               SOLANA_PUBLIC_RPC_URL -> a credential-free
+                               SOLANA_RPC_URL -> the cluster's public endpoint,
+                               and refuses to emit anything credentialed.
                                Read by inline TX flows that need a Connection;
                                replaces the previous solanaWeb3.clusterApiUrl('devnet')
                                hardcode that would silently broadcast to the
@@ -794,12 +1499,18 @@
         loggedIn is NO LONGER on the body — the one reader (invite-link
         handler above) now consumes #session-context JSON directly. %>
   <% client_app_environment = AppFlags.qa_environment? ? "qa" : Rails.env.to_s %>
-  <body x-data class="bg-page text-body min-h-screen" :class="{ 'dev-mode': $store.devMode }" data-user-id="<%= current_user&.id %>" data-wallet-address="<%= current_user&.solana_address %>" data-app-environment="<%= client_app_environment %>" data-solana-cluster="<%= Solana::Config.devnet? ? 'devnet' : 'mainnet-beta' %>" data-solana-rpc-url="<%= Solana::Config::RPC_URL %>">
+  <body x-data class="bg-page text-body min-h-screen" :class="{ 'dev-mode': $store.devMode }" data-user-id="<%= current_user&.id %>" data-wallet-address="<%= current_user&.solana_address %>" data-wallet-provider="<%= current_user&.web3_wallet_provider %>" data-app-environment="<%= client_app_environment %>" data-solana-cluster="<%= Solana::Config.devnet? ? 'devnet' : 'mainnet-beta' %>" data-solana-rpc-url="<%= Solana::Config.public_rpc_url %>">
     <%# Single source of truth for Alpine x-data factory functions.
         Inlined here (synchronous parse-time script) because importmap
         modules load AFTER Alpine processes x-data. See the partial's
         header for the full diagnostic. %>
     <%= render "shared/alpine_factories" %>
+    <%# window.birthdayModal — the engine factory backing the birthday + age-gate
+        pair. MUST be at layout level: the factory cannot ship inside the card,
+        because the modal host clones the card through a <template x-if> and a
+        cloned <script> never runs. Replaced this app's own ageVerifyModal, which
+        was deleted with modals/_age_verify on 2026-08-26. %>
+    <%= render "studio/birthday_assets" %>
     <%# Keeps Alpine's GENERATED nodes out of Turbo's page cache, so a Back
         navigation renders one set of them instead of two. See the partial. %>
     <%= render "shared/alpine_turbo_cache_reset" %>
@@ -853,8 +1564,9 @@
     <%# The CHAIN (2026-08): the server resolves which steps are still
         outstanding (OnboardingFlow) and emits them in order; the driver below
         walks them. Steps: first_name is the `onboarding` modal, then age is
-        `age-verify`, then wallet is `wallet-setup`. (A `welcome` step led the
-        chain until 2026-08-15; it is retired, and nothing emits it.)
+        `birthday` (renamed from `age-verify` on 2026-08-26 when this app adopted
+        the engine's card), then wallet is `wallet-setup`. (A `welcome` step led
+        the chain until 2026-08-15; it is retired, and nothing emits it.)
 
         __walletSetupPrompt keeps its old name and its old condition (the chain
         ends in the wallet step) but a NARROWER job. It no longer defers the
@@ -863,6 +1575,18 @@
         the known cosmetic stack the driver note below describes. What still
         reads it is the board's saved-cart auto-enter, which re-saves the lineup
         instead of replaying an entry that cannot clear the wallet gate. %>
+    <%# The WEB3 STEP-UP one-shot. Emitted BEFORE the chain data because it
+        opens before the chain: a self-custody account that just authenticated
+        with a web2 credential is asked to sign first, and the chain (if it owes
+        anything at all) follows on dismissal. Rides the session for the same
+        reason the chain does — the Google popup reloads its opener rather than
+        redirecting, so a flash would be consumed by whichever render won. %>
+    <% web3_step_up = consume_web3_step_up_prompt %>
+    <% if web3_step_up.present? %>
+      <script type="application/json" id="web3-step-up-data">
+        <%= raw(web3_step_up.to_json) %>
+      </script>
+    <% end %>
     <% onboarding_steps = consume_onboarding_prompt %>
     <% if onboarding_steps.present? %>
       <%# STEPS ONLY. The username used to ride along for the retired welcome
@@ -923,7 +1647,7 @@
           if (next === 'first_name') {
             open('onboarding', {});
           } else if (next === 'age') {
-            open('age-verify', {});
+            open('birthday', {});
           } else if (next === 'wallet') {
             open('wallet-setup', { returnUrl: window.location.href });
           }
@@ -934,6 +1658,32 @@
         // the note above: this runs inside the dispatching modal's finish(),
         // before its close(), so anything that opens a card here loses it.
         window.addEventListener('onboarding-step-done', function (e) {
+          // THE SAVE/SKIP BRANCH. This is the one behaviour of turf's deleted
+          // local card that did NOT graduate into the gem, and it is deliberate
+          // on both sides. That card cleared $store.session.firstNameRequired
+          // and dispatched 'first-name-saved' from save() ONLY. The engine's
+          // card fires ONE event for both outcomes and distinguishes them with
+          // detail.saved (studio-engine 0.72.0) — it does not resume anything
+          // itself, because a shared primitive cannot know that this app has a
+          // contest entry parked behind the question.
+          //
+          // FIRING THIS AFTER A SKIP IS THE BUG THIS BRANCH EXISTS TO PREVENT.
+          // The board's 'first-name-saved' listener resumes the entry its gate
+          // interrupted, and confirmEntry re-runs eligibilityBlocker against
+          // $store.session.firstNameRequired — the flag cleared just below. So
+          // an unbranched re-dispatch would clear the gate and resume the entry
+          // for a user who had just declined to give a name, waving the entry
+          // past the exact validation that had stopped it.
+          //
+          // ORDER IS UNCHANGED from the deleted card, which mattered enough to
+          // be worth keeping: the gem dispatches this event and THEN closes,
+          // and the board defers its confirmEntry to a microtask, so the close
+          // still lands before the resume can open anything on top of it.
+          if (e && e.detail && e.detail.saved) {
+            var sess = window.Alpine && Alpine.store && Alpine.store('session');
+            if (sess) sess.firstNameRequired = false;
+            window.dispatchEvent(new CustomEvent('first-name-saved'));
+          }
           var next = (e && e.detail && e.detail.next) || [];
           next = next.filter(function (s) { return s !== 'first_name'; });
           if (next.length) setTimeout(function () { openStep(next); }, HANDOFF_MS);
@@ -953,8 +1703,39 @@
           }
         });
 
+        // ── Web3 step-up, which runs BEFORE the chain ──────────────────────
+        // Held rather than raced. Both cards auto-open on the same render, and
+        // the driver's own note above records what happens when two things open
+        // a modal in the same window: one closes the other and a card is lost.
+        // So the chain does not merely open second — it does not START until
+        // this card reports done, and the payload it needs stays in the DOM
+        // until then.
+        var stepUpPending = !!document.getElementById('web3-step-up-data');
+
+        function startStepUp() {
+          var el = document.getElementById('web3-step-up-data');
+          if (!el) return;
+          var props;
+          try { props = JSON.parse(el.textContent); } catch (e) { props = {}; }
+          el.remove(); // one-shot: a later turbo:load must not replay it
+          open('web3-step-up', props || {});
+        }
+
+        // Dismissal (the x, Not now, or the picker handing back a no) releases
+        // the chain. A SUCCESSFUL signature never reaches here — that path
+        // reloads the page, and the server has already dropped both prompts.
+        window.addEventListener('web3-step-up-dismissed', function () {
+          if (!stepUpPending) return;
+          stepUpPending = false;
+          setTimeout(startChain, HANDOFF_MS);
+        });
+
         function startChain() {
           if (started) return;
+          // Do NOT consume the chain data while the step-up still owns the
+          // screen — returning before el.remove() is what lets this same
+          // function run again, for real, once the card is dismissed.
+          if (stepUpPending) return;
           var el = document.getElementById('onboarding-chain-data');
           if (!el) return;
           var data;
@@ -966,9 +1747,10 @@
           openStep(data.steps || []);
         }
 
-        document.addEventListener('turbo:load', startChain);
-        if (document.readyState !== 'loading') startChain();
-        else document.addEventListener('DOMContentLoaded', startChain);
+        function start() { startStepUp(); startChain(); }
+        document.addEventListener('turbo:load', start);
+        if (document.readyState !== 'loading') start();
+        else document.addEventListener('DOMContentLoaded', start);
       })();
 
       // CONNECT-HANDOFF REOPEN only. The wallet modal reloads the page once, and
@@ -1054,10 +1836,26 @@
     <%= render "shared/footer" %>
 
     <%= render "shared/solana_errors" %>
+    <%# Per-modal card widths. MUST render ABOVE the host: the host merges this
+        map at the top of its own inline script, and a deferred module would
+        arrive after it. See the partial header. %>
+    <%= render "shared/modal_card_widths" %>
     <%# Generic modal host from studio-engine. Owns Alpine.store('modals'),
         the StudioModals.holdAtLeast helper, the backdrop / scroll lock /
-        escape / click-outside / ARIA / transitions, and renders this app's
-        content partials by id (registered in the block below). %>
+        escape / click-outside / ARIA / transitions, its own mount and unmount
+        keyframes, and renders this app's content partials by id.
+
+        TWO REGISTRATION SEAMS, and the choice between them matters. Cards
+        registered in the block below are per-CALLSITE: the block belongs to
+        THIS layout, so a second layout mounting the host would keep its own list
+        and a card added to only one would render EMPTY in the other. That is not
+        hypothetical — layouts/modal_preview was exactly that second list until
+        it was deleted on 2026-09-09, and it is why the age-verify card drew
+        blank for months. This is now the only mount, and keeping it the only one
+        is the cheapest way to keep that failure retired. A card that belongs to
+        the APP rather than to a page goes in app/views/modals/_host_extras
+        instead, which the host renders on every path through it.
+        cosign-rejected lives there. %>
     <%= render "studio/modals/host" do %>
       <%# Email-change-pending — opened on the /account page after a held
           email change (AccountsController#update). Informational handoff:
@@ -1076,29 +1874,96 @@
         <%= render "modals/auth" %>
       </template>
       <%# Entry-time age gate (ENABLE_AGE_GATE) — DOB verification, fires in the
-          hold-to-confirm flow before the Get Entry Tokens modal. %>
-      <template x-if="$store.modals.current().id === 'age-verify'">
-        <%= render "modals/age_verify" %>
+          hold-to-confirm flow before the Get Entry Tokens modal.
+
+          REGISTER BOTH OR NEITHER. The birthday card hands a refusal off by
+          swapping to 'age-gate'; an unregistered id renders an EMPTY card, which
+          reads as a styling bug rather than a missing partial — the exact failure
+          this app already shipped once, when a second registration list existed
+          for the age-verify card to be missing from. %>
+      <template x-if="$store.modals.current().id === 'birthday'">
+        <%= render "modals/birthday" %>
       </template>
-      <%# Multi-wallet "Connect Wallet" picker (reown-style). Opened directly
-          from the standalone Solana button, or swapped-into from the auth
-          modal's Solana button (board#openWalletConnect saves the cart first
-          and passes returnUrl). %>
+      <template x-if="$store.modals.current().id === 'age-gate'">
+        <%= render "studio/modals/blocks/age_gate", **age_gate_modal_locals %>
+      </template>
+      <%# Multi-wallet "Connect Wallet" picker — SOLANA-STUDIO OWNS IT
+          (solana_studio/modals/_wallet_connect). Opened
+          directly from the standalone Solana button, or swapped-into from the
+          auth modal's Solana button (board#openWalletConnect saves the cart
+          first and passes returnUrl). This app's 226-line fork was deleted in
+          /tasks/adopt-turf-engine-picker, which adopted studio-engine's copy;
+          /tasks/turf-rides-gem-modals then moved the picker on to solana-studio,
+          and /tasks/drop-engine-web3-modals dropped the engine's in 0.66.2.
+          Everything turf adds now arrives through WalletPickerHelper as the gem
+          picker's extra_data hooks plus the legal-age slot. THE HELPER IS WHY,
+          and it outlived the second consumer it was written for: it also fed
+          layouts/modal_preview, which kept its own registration list, so a
+          picker adopted in one layout and forked in the other would have gone on
+          rendering the old copy. Locals in a helper cannot fork that way — which
+          is the reason to keep them there for the next second consumer. %>
       <template x-if="$store.modals.current().id === 'wallet-connect'">
-        <%= render "modals/wallet_connect" %>
+        <%= render "solana_studio/modals/wallet_connect", **wallet_connect_modal_locals %>
       </template>
       <%# "Set up your wallet" — the web3-only onboarding step. Auto-opens on the
           render right after auth success (session prompt, below) and on demand
           from the entry gate's 'wallet_setup_required' blocker. Registered
           ungated so the entry gate can always reach it. %>
-      <%# Onboarding chain step 1 — the first-name capture, and the whole modal
-          (the welcome step and its step machine were retired 2026-08-15).
-          Registered ungated so the chain driver can always reach it. %>
-      <template x-if="$store.modals.current().id === 'onboarding'">
-        <%= render "modals/onboarding" %>
+      <%# Onboarding chain step 1 — the first-name capture. The CARD is the
+          engine's now (studio/modals/onboarding/first_name); turf's local copy
+          was deleted when this app adopted it. Registered ungated so both
+          callers can always reach it.
+
+          TWO REGISTRATIONS, ONE MODAL ID — forced by the gem, not chosen. The
+          gem resolves `required` at RENDER time: it OMITS the "Skip for now"
+          button rather than hiding it, and resolves the dismiss action and
+          label server-side. That is deliberate on the gem's part — a skip
+          affordance hidden with x-show is still in the DOM, and still
+          clickable, for as long as Alpine has not mounted.
+
+          turf's two callers, though, pick their mode at RUNTIME: the chain
+          driver above opens this id with no props, and the entry gate opens the
+          SAME id with { required: true } (see showFirstNameModal in
+          contests/_turf_totals_board). One registration would therefore bake a
+          single mode for both — and the mode it would bake is the skippable
+          one, putting a Skip link on the entry gate that promises a way past a
+          wall the hold will not move.
+
+          So the caller's prop picks the branch, and the branch picks the
+          render. Both keep the same field id on purpose: template content is
+          inert and never in the document, so only the mounted clone exists and
+          a lookup for that field still resolves to exactly one element.
+
+          Locals come from first_name_modal_locals rather than inline, so the two
+          registrations above cannot drift apart from each other — nor from any
+          future second list, which is what the helper was written for when
+          layouts/modal_preview kept one. %>
+      <template x-if="$store.modals.current().id === 'onboarding' && !($store.modals.current().props || {}).required">
+        <%= render "studio/modals/onboarding/first_name", **first_name_modal_locals %>
+      </template>
+      <template x-if="$store.modals.current().id === 'onboarding' && !!($store.modals.current().props || {}).required">
+        <%= render "studio/modals/onboarding/first_name", **first_name_modal_locals(required: true) %>
       </template>
       <template x-if="$store.modals.current().id === 'wallet-setup'">
         <%= render "modals/wallet_setup" %>
+      </template>
+      <%# Web3 step-up — a self-custody account signed in with a web2 credential
+          (magic link / email / Google), so the session cannot sign on-chain.
+          Auto-opens BEFORE the onboarding chain from the one-shot session
+          prompt below, and hands off to that chain when dismissed.
+
+          solana-studio OWNS THIS CARD. It was lifted out of this app into
+          studio-engine on 2026-08-21 while this app kept rendering its own copy
+          for months afterwards — two files, one card, free to drift — and moved
+          on to solana-studio (solana_studio/modals/_web3_step_up) on 2026-09-01.
+          What stays HERE is what the shared card deliberately does not
+          take: Web3StepUpPolicy decides WHO sees it, and Web3StepUpHelper keeps
+          this app's own words and its own help route. Those locals live in the
+          helper, not inline, because a second registration used to exist to
+          differ from them (layouts/modal_preview, deleted 2026-09-09) and a
+          third could. %>
+      <template x-if="$store.modals.current().id === 'web3-step-up'">
+        <%= render "solana_studio/modals/web3_step_up", **web3_step_up_locals %>
       </template>
       <template x-if="$store.modals.current().id === 'wallet-changed'">
         <%= render "modals/wallet_changed" %>
@@ -1127,27 +1992,55 @@
       <template x-if="$store.modals.current().id === 'onramp-hub'">
         <%= render "modals/onramp_hub" %>
       </template>
-      <%# Top Up Wallet — the Coinbase-forward FIRST funds modal at the entry
-          blocker (selectionBoard#showWalletTopup), replacing the pack picker at
-          that trigger. Primary CTA buys USDC via cdp-ramp; the web2 kill-switch
-          (ENABLE_WEB2_USDC_ENTRY off) degrades it client-side to the entry-token
-          rail (tokenFallback). Registered ungated alongside onramp-hub (which it
-          links into) for the same reason: it can appear right after an in-session
-          signup where the server-rendered logged_in? was still false. The
-          Coinbase CTA hands off to cdp-ramp (registered under logged_in? +
-          ENABLE_CDP_RAMP below). %>
+      <%# Top Up Wallet — the Coinbase-forward funds modal. It is NO LONGER the
+          entry blocker's answer: the funds wall routes to Get USDC below
+          (showFundsNeeded then showGetUsdc), because this modal leads with the CDP
+          onramp and that rail has no legal clearance (operator, 2026-09-06).
+          selectionBoard#showWalletTopup is kept but has NO CALLER; what to do with
+          this modal and the Add Funds hub meanwhile is an operator decision about
+          those surfaces. NOTHING OPENS IT AT HEAD. Both ways in are closed:
+          showWalletTopup has no caller, and the hub's Back link swaps here only
+          when props.returnModal is 'wallet-topup' — a prop written in exactly
+          one place, modals/_wallet_topup itself. That makes the Back link a
+          return path from itself, not an entrance. It regains one the moment
+          either condition changes: something calls showWalletTopup, or some
+          other opener passes that prop. The registration stays, so whenever it
+          IS current it still renders and still gates: primary CTA buys USDC via
+          cdp-ramp, and the web2 kill-switch (ENABLE_WEB2_USDC_ENTRY off)
+          degrades it client-side to the entry-token rail (tokenFallback).
+          Registered ungated alongside onramp-hub (which it links into) for the
+          same reason: it can appear right
+          after an in-session signup where the server-rendered logged_in? was still
+          false. The Coinbase CTA hands off to cdp-ramp (registered under
+          logged_in? + ENABLE_CDP_RAMP below). %>
       <template x-if="$store.modals.current().id === 'wallet-topup'">
         <%= render "modals/wallet_topup" %>
       </template>
-      <%# Buy an Entry Token — the web2 / managed funds modal at the entry blocker
-          (selectionBoard#showBuyEntryToken, via the showFundsNeeded dispatcher).
-          Two stacked entry-token rails (Coinflow buy-1 on top, the Stripe pack
-          picker below); web3 keeps the USDC Top Up Wallet above. Registered ungated
-          alongside wallet-topup / onramp-hub for the same reason (an in-session
-          signup rendered the layout while logged out); each rail self-gates via
+      <%# Buy an Entry Token — the funds modal for the ONE audience the wall still
+          sends to tokens (selectionBoard#showBuyEntryToken, via the
+          showFundsNeeded dispatcher): a web2 viewer with ENABLE_WEB2_USDC_ENTRY
+          off, who cannot pay an entry with USDC at all. The dispatcher stopped
+          forking on session.mode on 2026-09-05 — everyone else, web2 and web3
+          alike, gets Get USDC below. Two stacked entry-token rails (Coinflow buy-1
+          on top, the Stripe pack picker below). Registered ungated alongside
+          wallet-topup / onramp-hub for the same reason (an in-session signup
+          rendered the layout while logged out); each rail self-gates via
           onramp_rail_visible?. %>
       <template x-if="$store.modals.current().id === 'buy-entry-token'">
         <%= render "modals/buy_entry_token" %>
+      </template>
+      <%# Get USDC — the teaching card at the funds wall, and the single answer
+          showFundsNeeded now gives whichever funding method came up short. It
+          carries ONE route, a Phantom row, and hands off to nothing else: a
+          revision that linked onward into Top Up Wallet was removed, because that
+          modal leads with the uncleared CDP onramp (operator, 2026-09-06). The
+          absence is pinned by test/views/buy_usdc_modal_test.rb, "the card offers
+          Phantom and NOTHING resembling a payment rail" — do not restore the link.
+          Registered ungated alongside wallet-topup / buy-entry-token for the same
+          reason: it can appear right after an in-session signup where the
+          server-rendered logged_in? was still false. %>
+      <template x-if="$store.modals.current().id === 'buy-usdc'">
+        <%= render "modals/buy_usdc" %>
       </template>
       <% if logged_in? %>
         <template x-if="$store.modals.current().id === 'username'">
@@ -1183,8 +2076,13 @@
           <%# free-entry-earned now renders studio-engine's shared block (0.20);
               TM supplies only the reward copy. The block reads props.level off
               $store.modals.current().props and fires window.fireFreeEntryConfetti. %>
+          <%# The sparkle is passed, not defaulted: the block ships 🎉 and this card
+              is the quieter half of the celebration — the confetti burst already
+              fires from fireFreeEntryConfetti, so the glyph does not need to shout
+              it a second time (operator, 2026-09-07). %>
           <%= render "studio/modals/blocks/free_entry_earned",
-                subtitle: "Well done! You earned a <strong class='text-heading font-semibold'>Free Entry Token &#127915;</strong> that will arrive in 48 hours. Keep earning more free entries with each level.".html_safe %>
+                icon_emoji: "✨",
+                subtitle: "Well done! You earned a <strong class='text-heading font-semibold'>Free Entry Token &#127915;</strong>. Keep earning more free entries with each level.".html_safe %>
         </template>
       <% end %>
       <%# crop-photo gets pushed on top of whatever modal owns the avatar
@@ -1211,8 +2109,16 @@
             endpoint via Cdp::BaseController; the inert cdpRampFlow factory
             in shared/_alpine_factories is the only remnant). Opened by the
             /wallet buttons, the wallet-deposit modal's Coinbase option, and
-            the /cdp return pages' deep-link. %>
-        <% if AppFlags.cdp_ramp? %>
+            the /cdp return pages' deep-link.
+
+            cdp_ramp_modal_available? (app/helpers/onramp_helper.rb) is THE
+            statement of this guard, and every surface that opens 'cdp-ramp'
+            asks the same predicate. It also reads logged_in?, redundant here
+            inside the enclosing logged_in? block and load-bearing at the
+            openers: wallet-topup and onramp-hub are registered UNGATED above
+            so they survive an in-session signup, and their Coinbase rails must
+            not outlive this registration. Keep the two answers in one place. %>
+        <% if cdp_ramp_modal_available? %>
           <template x-if="$store.modals.current().id === 'cdp-ramp'">
             <%= render "modals/cdp_ramp" %>
           </template>

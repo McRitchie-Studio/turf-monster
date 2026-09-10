@@ -8,17 +8,28 @@
   has_edit_items   = @contest.open? && editable_entries.any?
   has_admin_item   = current_user&.admin?
   show_dropdown    = has_edit_items || has_admin_item
+
+  # Row 3's slate column: the league is the LABEL and the span is the VALUE
+  # ("NFL" over "Weeks 1-3"). Slate#sport is the two-value column
+  # ("nfl" | "fifa"); everything non-NFL in this app is the World Cup, and a
+  # bare "FIFA" reads as a governing body rather than a competition.
+  slate_sport = @contest.slate&.sport.to_s
+  slate_label = slate_sport == "nfl" ? "NFL" : "World Cup"
+  # Multi-week contests name their span ("Weeks 1-3"); the anchor slate name
+  # alone would read as a single-week contest.
+  slate_value = (@contest.multi_week? && @contest.week_span_label) || @contest.slate&.name
 %>
 
+<%# `data-contest-row` marks the four rows the operator's mobile mockup named.
+    They are the addressable seam for test/views/contest_header_rows_test.rb —
+    the utility classes alone are not (grid-cols-3 recurs several times on a
+    rendered contest page). Renaming a row means updating that test. %>
 <div class="mb-6">
-  <p class="text-sm font-medium">
-    <%# A multi-week contest names its span ("Weeks 1-3") rather than just the
-        anchor slate, which alone would read as a single-week contest. %>
-    <% if @contest.multi_week? && @contest.week_span_label %><span class="text-secondary"><%= @contest.week_span_label %></span><span class="text-muted mx-1">&middot;</span><% elsif @contest.slate %><span class="text-secondary"><%= @contest.slate.name %></span><span class="text-muted mx-1">&middot;</span><% end %><span class="text-muted"><%= creator_name.downcase %></span>
-  </p>
-
-  <div class="flex items-start justify-between gap-2">
-    <h1 class="text-2xl md:text-3xl font-extrabold text-heading">
+  <%# Row 1 — the contest name. Sized up a step at every breakpoint: on mobile
+      this is the card's header and it was reading the same weight as the stats
+      row beneath it. %>
+  <div data-contest-row="title" class="flex items-start justify-between gap-2">
+    <h1 class="text-3xl md:text-4xl font-extrabold text-heading">
       <%= @contest.name %>
       <% if @contest.cancelled? %>
         <span class="align-middle inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-800 uppercase tracking-wide">Cancelled</span>
@@ -87,62 +98,104 @@
     <% end %>
   </div>
 
-  <%# Creator moved up beside the title; the exact start date moved into a click
-      tooltip on the "Starts In" countdown in the stats row below — so the old
-      "creator · lock date" subtitle line is gone. %>
-
-  <%# Start countdown moved inline into the stats row (next to Entries). Only
-      the conclusion countdown lives here now. %>
+  <%# Start countdown lives in the Row 3 meta grid below. Only the conclusion
+      countdown floats free up here. %>
   <% if @contest.concludes_at.present? && !@contest.settled? %>
-    <div class="flex flex-wrap items-center gap-2">
+    <div class="flex flex-wrap items-center gap-2 mt-2">
       <%= render "contests/timestamp_countdown", target: @contest.concludes_at, label: "Concludes in", done_label: "🏁 Concluded", tone: "orange" %>
     </div>
   <% end %>
 
-  <%# The standalone "Watch Live" button moved inline into the stats-row lock
-      countdown's done-state (see the Stats row below). %>
+  <%
+    show_start = @contest.starts_in_at.present? && !@contest.settled?
+    # Row 3's grammar matches Row 2's: bold VALUE first, muted label after
+    # ("Weeks 1-3 NFL", the same shape as "$500 Prizes"), inline at EVERY width
+    # and on one baseline so the 10px label sits on the 12px value's.
+    meta_cell  = "flex items-baseline gap-1.5 md:gap-2 min-w-0"
+    meta_label = "text-[10px] font-medium text-muted shrink-0 leading-tight"
+    meta_value = "text-xs font-bold text-heading truncate max-w-full leading-tight"
+  %>
 
-  <!-- Stats row -->
-  <div class="flex items-center gap-4 mt-3 flex-wrap">
-    <div>
-      <span class="text-lg font-extrabold text-primary">$<%= @contest.guaranteed_prize_dollars.to_i %></span>
-      <span class="text-xs text-muted ml-1">Prizes</span>
-    </div>
-    <div class="w-px h-5 bg-subtle"></div>
-    <div>
-      <span class="text-lg font-extrabold text-heading">$<%= @contest.entry_fee_dollars.to_i %></span>
-      <span class="text-xs text-muted ml-1">Entry</span>
-    </div>
-    <div class="w-px h-5 bg-subtle"></div>
-    <div>
-      <span class="text-lg font-extrabold text-heading"><%= entry_count %>/<%= max %></span>
-      <span class="text-xs text-muted ml-1">Entries</span>
-    </div>
-    <%# Starts countdown inline next to the entries count (replaces the old
-        "+ Add Nth Entry" link). Shows "Starts In X" while open; once the
-        derived start passes it flips to a "Watch Live" CTA (turf_totals, which
-        has a live page) or a "🔒 Entries closed" badge otherwise. Only rendered
-        when a start time is set and the contest isn't settled. %>
-    <% if @contest.starts_in_at.present? && !@contest.settled? %>
-      <div class="w-px h-5 bg-subtle"></div>
-      <%# Click the start countdown to reveal the exact start date as a tooltip. %>
-      <div x-data="{ tip: false }" @click.outside="tip = false" class="relative">
-        <div role="button" tabindex="0" @click="tip = !tip" @keydown.enter.prevent="tip = !tip" @keydown.space.prevent="tip = !tip"
-             class="cursor-pointer" aria-label="Show start time" :aria-expanded="tip">
-          <%= render "contests/timestamp_countdown", target: @contest.starts_in_at, label: "Starts In",
-                done_label: (@contest.turf_totals? ? "Watch Live" : "🔒 Entries closed"),
-                done_href: (@contest.turf_totals? ? live_contest_path(@contest) : nil),
-                tone: "yellow", on_done_modal: "it-begins", on_done_url: contest_path(@contest),
-                wrapper_class: "", bare: true, label_after: false, emphasize: true %>
-        </div>
-        <div x-show="tip" x-cloak
-             x-transition:enter="transition ease-out duration-150"
-             x-transition:enter-start="opacity-0 translate-y-1"
-             x-transition:enter-end="opacity-100 translate-y-0"
-             class="absolute left-0 top-full mt-1.5 z-30 whitespace-nowrap rounded-lg border border-subtle bg-surface px-3 py-1.5 text-xs font-medium text-secondary shadow-lg">
-          <%= @contest.start_time_display %>
-        </div>
+  <%# Rows 2 and 3 are ONE block with two layouts.
+
+      Mobile — the two row wrappers go `display: contents`, so their six cells
+      become direct items of THIS grid and the two rows share one set of tracks.
+      That is what keeps the columns aligned. Equal thirds (grid-cols-3) does
+      not work here: measured at 390px each third is 111px and "turf monster
+      creator" needs 122, so the name clipped to "turf mon…". `auto auto 1fr`
+      sizes the first two tracks to their content and gives the rest to the
+      widest cell — 91 + 100 + the remainder, inside 358px, nothing clipped.
+
+      md and up — side by side on one line, Row 3 to the RIGHT of Row 2: there
+      is width to spare there, and the vertical stack was spending a whole row
+      on reference detail. Both wrappers become flex containers again, so each
+      hugs its own content instead of holding tracks. %>
+  <div class="mt-3 grid grid-cols-[auto_auto_1fr] gap-x-3 gap-y-3
+              md:flex md:flex-wrap md:items-baseline md:gap-x-8 md:gap-y-2">
+
+    <%# Row 2 — the money line. The three figures a player decides on. No
+        surface of its own: the type size (text-lg here vs text-xs in Row 3)
+        carries the hierarchy, and an inset panel behind only these three read
+        as a separate component. Divider pips went with it. %>
+    <div data-contest-row="stats" class="contents md:flex md:items-baseline md:gap-6 md:shrink-0">
+      <div class="whitespace-nowrap">
+        <%# The prize pot is the headline number — it sweeps once every 10s to
+            pull the eye back without animating continuously. See .prize-shimmer. %>
+        <span class="prize-shimmer text-lg font-extrabold text-primary">$<%= @contest.guaranteed_prize_dollars.to_i %></span>
+        <span class="text-xs text-muted ml-1">Prizes</span>
       </div>
-    <% end %>
+      <div class="whitespace-nowrap">
+        <span class="text-lg font-extrabold text-heading">$<%= @contest.entry_fee_dollars.to_i %></span>
+        <span class="text-xs text-muted ml-1">Entry</span>
+      </div>
+      <div class="whitespace-nowrap">
+        <span class="text-lg font-extrabold text-heading"><%= entry_count %>/<%= max %></span>
+        <span class="text-xs text-muted ml-1">Entries</span>
+      </div>
+    </div>
+
+    <%# Row 3 — the odds and ends, consolidated. Replaces the old
+        "week span · creator" subtitle line above the title AND the start
+        countdown that used to ride inside the stats row. %>
+    <div data-contest-row="meta" class="contents md:flex md:items-baseline md:gap-6">
+      <% if slate_value.present? %>
+        <div class="<%= meta_cell %>">
+          <span class="<%= meta_value %>"><%= slate_value %></span>
+          <span class="<%= meta_label %>"><%= slate_label %></span>
+        </div>
+      <% end %>
+
+      <% if show_start %>
+        <%# Click the start countdown to reveal the exact start date as a tooltip. %>
+        <div x-data="{ tip: false }" @click.outside="tip = false" class="relative min-w-0">
+          <div role="button" tabindex="0" @click="tip = !tip" @keydown.enter.prevent="tip = !tip" @keydown.space.prevent="tip = !tip"
+               class="cursor-pointer" aria-label="Show start time" :aria-expanded="tip">
+            <%# shell_class hands the countdown the SAME cell shape as the two
+                plain cells beside it; label_after puts its digits first to
+                match them.
+                max_units: 2 keeps it to "13d 19h" — four units is what pushed
+                Row 3 onto a second line beside Row 2 at tablet width. %>
+            <%= render "contests/timestamp_countdown", target: @contest.starts_in_at, label: "Starts in",
+                  done_label: (@contest.turf_totals? ? "Watch Live" : "🔒 Entries closed"),
+                  done_href: (@contest.turf_totals? ? live_contest_path(@contest) : nil),
+                  tone: "yellow", on_done_modal: "it-begins", on_done_url: contest_path(@contest),
+                  wrapper_class: "", shell_class: meta_cell, label_class: meta_label,
+                  label_after: true, max_units: 2, emphasize: true, compact: true %>
+          </div>
+          <div x-show="tip" x-cloak
+               x-transition:enter="transition ease-out duration-150"
+               x-transition:enter-start="opacity-0 translate-y-1"
+               x-transition:enter-end="opacity-100 translate-y-0"
+               class="absolute left-0 top-full mt-1.5 z-30 whitespace-nowrap rounded-lg border border-subtle bg-surface px-3 py-1.5 text-xs font-medium text-secondary shadow-lg">
+            <%= @contest.start_time_display %>
+          </div>
+        </div>
+      <% end %>
+
+      <div class="<%= meta_cell %>">
+        <span class="<%= meta_value %>"><%= creator_name.downcase %></span>
+        <span class="<%= meta_label %>">creator</span>
+      </div>
+    </div>
   </div>
 </div>

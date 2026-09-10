@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_20_130000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_09_180000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -78,6 +78,43 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_20_130000) do
     t.string "timezone"
     t.datetime "updated_at", null: false
     t.index ["slug"], name: "index_arenas_on_slug", unique: true
+  end
+
+  create_table "athletes", force: :cascade do |t|
+    t.string "college_name"
+    t.datetime "created_at", null: false
+    t.integer "draft_pick"
+    t.integer "draft_round"
+    t.integer "draft_year"
+    t.string "espn_headshot_url"
+    t.string "espn_id"
+    t.string "gsis_id"
+    t.integer "height_inches"
+    t.integer "jersey_number"
+    t.string "nflverse_id"
+    t.string "otc_id"
+    t.string "person_slug", null: false
+    t.integer "pff_id"
+    t.string "pfr_id"
+    t.string "position"
+    t.string "sleeper_id"
+    t.string "slug", null: false
+    t.string "sport", null: false
+    t.string "team_slug"
+    t.datetime "updated_at", null: false
+    t.integer "weight_lbs"
+    t.index ["espn_id"], name: "index_athletes_on_espn_id"
+    t.index ["gsis_id"], name: "index_athletes_on_gsis_id", unique: true
+    t.index ["nflverse_id"], name: "index_athletes_on_nflverse_id", unique: true
+    t.index ["otc_id"], name: "index_athletes_on_otc_id", unique: true
+    t.index ["person_slug"], name: "index_athletes_on_person_slug", unique: true
+    t.index ["pff_id"], name: "index_athletes_on_pff_id", unique: true
+    t.index ["pfr_id"], name: "index_athletes_on_pfr_id", unique: true
+    t.index ["position"], name: "index_athletes_on_position"
+    t.index ["sleeper_id"], name: "index_athletes_on_sleeper_id", unique: true
+    t.index ["slug"], name: "index_athletes_on_slug", unique: true
+    t.index ["sport"], name: "index_athletes_on_sport"
+    t.index ["team_slug"], name: "index_athletes_on_team_slug"
   end
 
   create_table "cdp_ramp_transactions", force: :cascade do |t|
@@ -149,6 +186,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_20_130000) do
   create_table "contests", force: :cascade do |t|
     t.boolean "accepts_usdt", default: false, null: false
     t.boolean "chat_enabled", default: true, null: false
+    t.boolean "coming_soon", default: false, null: false
     t.datetime "concludes_at"
     t.string "contest_type", default: "small", null: false
     t.datetime "created_at", null: false
@@ -162,6 +200,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_20_130000) do
     t.boolean "onchain_cancelled", default: false, null: false
     t.boolean "onchain_closed", default: false, null: false
     t.string "onchain_contest_id"
+    t.datetime "onchain_reconcile_flagged_at"
     t.boolean "onchain_settled", default: false, null: false
     t.string "onchain_tx_signature"
     t.integer "rank"
@@ -174,6 +213,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_20_130000) do
     t.datetime "updated_at", null: false
     t.bigint "user_id"
     t.index ["game_type"], name: "index_contests_on_game_type"
+    t.index ["onchain_contest_id"], name: "index_contests_on_onchain_contest_id_unique", unique: true, where: "(onchain_contest_id IS NOT NULL)"
     t.index ["rank"], name: "index_contests_on_rank"
     t.index ["slate_id"], name: "index_contests_on_slate_id"
     t.index ["slug"], name: "index_contests_on_slug", unique: true
@@ -225,6 +265,29 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_20_130000) do
     t.index ["user_id"], name: "index_entries_on_user_id"
   end
 
+  create_table "entry_gifts", force: :cascade do |t|
+    t.datetime "claimed_at"
+    t.bigint "claimed_by_id"
+    t.bigint "contest_id"
+    t.datetime "created_at", null: false
+    t.string "mint_error"
+    t.string "mint_ref", null: false
+    t.string "mint_signature"
+    t.datetime "minted_at"
+    t.text "note"
+    t.string "recipient_email", null: false
+    t.bigint "sender_id", null: false
+    t.string "sender_username"
+    t.datetime "updated_at", null: false
+    t.string "wallet_address"
+    t.index ["claimed_by_id"], name: "index_entry_gifts_on_claimed_by_id"
+    t.index ["contest_id"], name: "index_entry_gifts_on_contest_id"
+    t.index ["created_at"], name: "index_entry_gifts_on_created_at"
+    t.index ["mint_ref"], name: "index_entry_gifts_on_mint_ref", unique: true
+    t.index ["recipient_email"], name: "index_entry_gifts_on_recipient_email"
+    t.index ["sender_id"], name: "index_entry_gifts_on_sender_id"
+  end
+
   create_table "error_logs", force: :cascade do |t|
     t.text "backtrace"
     t.datetime "created_at", null: false
@@ -247,17 +310,28 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_20_130000) do
     t.string "advancing_team_slug"
     t.integer "away_score"
     t.string "away_team_slug", null: false
+    t.string "clock"
     t.datetime "created_at", null: false
+    t.string "external_id"
+    t.integer "focus_rank"
     t.integer "home_score"
     t.string "home_team_slug", null: false
     t.datetime "kickoff_at"
+    t.integer "period"
+    t.integer "season_type"
+    t.integer "season_year"
     t.string "slug", null: false
     t.string "status", default: "scheduled"
+    t.string "status_detail"
     t.bigint "survivor_round_id"
     t.datetime "updated_at", null: false
     t.string "venue"
+    t.integer "week"
     t.index ["away_team_slug"], name: "index_games_on_away_team_slug"
+    t.index ["external_id"], name: "index_games_on_external_id_when_present", unique: true, where: "(external_id IS NOT NULL)"
     t.index ["home_team_slug"], name: "index_games_on_home_team_slug"
+    t.index ["season_year", "season_type", "week", "focus_rank"], name: "index_games_on_focus_rank_per_slot", unique: true, where: "(focus_rank IS NOT NULL)"
+    t.index ["season_year", "season_type", "week", "kickoff_at"], name: "index_games_on_season_slot"
     t.index ["slug"], name: "index_games_on_slug", unique: true
     t.index ["status"], name: "index_games_on_status"
     t.index ["survivor_round_id"], name: "index_games_on_survivor_round_id"
@@ -265,14 +339,22 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_20_130000) do
 
   create_table "goals", force: :cascade do |t|
     t.datetime "created_at", null: false
+    t.string "external_id"
     t.string "game_slug", null: false
     t.integer "minute"
+    t.string "play_description"
     t.string "player_slug"
+    t.integer "points", default: 1, null: false
+    t.string "scorer_name"
+    t.string "scorer_slug"
+    t.string "scoring_type"
     t.string "slug", null: false
     t.string "team_slug", null: false
     t.datetime "updated_at", null: false
+    t.index ["external_id"], name: "index_goals_on_external_id_when_present", unique: true, where: "(external_id IS NOT NULL)"
     t.index ["game_slug"], name: "index_goals_on_game_slug"
     t.index ["player_slug"], name: "index_goals_on_player_slug"
+    t.index ["scorer_slug"], name: "index_goals_on_scorer_slug"
     t.index ["slug"], name: "index_goals_on_slug", unique: true
     t.index ["team_slug"], name: "index_goals_on_team_slug"
   end
@@ -452,6 +534,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_20_130000) do
     t.jsonb "metadata", default: {}
     t.text "serialized_tx", null: false
     t.string "slug"
+    t.boolean "stale", default: false, null: false
     t.string "status", default: "pending", null: false
     t.bigint "target_id"
     t.string "target_type"
@@ -459,9 +542,27 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_20_130000) do
     t.string "tx_type", null: false
     t.datetime "updated_at", null: false
     t.index ["slug"], name: "index_pending_transactions_on_slug", unique: true
+    t.index ["status", "stale"], name: "index_pending_transactions_on_status_and_stale"
     t.index ["status"], name: "index_pending_transactions_on_status"
     t.index ["target_type", "target_id"], name: "index_pending_transactions_on_target"
     t.index ["tx_signature"], name: "index_pending_transactions_on_tx_signature_unique", unique: true, where: "(tx_signature IS NOT NULL)"
+  end
+
+  create_table "people", force: :cascade do |t|
+    t.jsonb "aliases", default: []
+    t.boolean "athlete", default: false
+    t.string "avatar_url"
+    t.boolean "coach", default: false
+    t.datetime "created_at", null: false
+    t.string "disambiguator"
+    t.string "first_name", null: false
+    t.string "last_name", null: false
+    t.string "location"
+    t.string "slug", null: false
+    t.datetime "updated_at", null: false
+    t.index ["aliases"], name: "index_people_on_aliases", using: :gin
+    t.index ["last_name", "first_name"], name: "index_people_on_last_name_and_first_name"
+    t.index ["slug"], name: "index_people_on_slug", unique: true
   end
 
   create_table "players", force: :cascade do |t|
@@ -553,6 +654,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_20_130000) do
     t.float "formula_mult_scale"
     t.float "formula_prob_exp"
     t.string "name", null: false
+    t.integer "season_type", default: 2, null: false
     t.string "slug"
     t.string "sport"
     t.datetime "starts_at"
@@ -560,6 +662,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_20_130000) do
     t.integer "week"
     t.integer "year"
     t.index ["slug"], name: "index_slates_on_slug", unique: true
+    t.index ["sport", "year", "season_type", "week"], name: "index_slates_on_season_slot"
     t.index ["week"], name: "index_slates_on_week"
     t.index ["year", "week"], name: "index_slates_on_year_and_week"
   end
@@ -647,6 +750,46 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_20_130000) do
     t.datetime "updated_at", null: false
     t.index ["app_name"], name: "index_studio_geo_settings_on_app_name", unique: true
     t.index ["slug"], name: "index_studio_geo_settings_on_slug", unique: true
+  end
+
+  create_table "studio_knowledge_docs", force: :cascade do |t|
+    t.jsonb "access", default: {}, null: false
+    t.bigint "byte_size"
+    t.string "category"
+    t.datetime "created_at", null: false
+    t.date "document_date"
+    t.string "entity", null: false
+    t.bigint "expectation_id"
+    t.string "mime_type"
+    t.string "path", default: "", null: false
+    t.string "s3_key"
+    t.string "source_note"
+    t.string "status", default: "inbox", null: false
+    t.text "summary"
+    t.bigint "superseded_by_id"
+    t.jsonb "tags", default: [], null: false
+    t.string "title", null: false
+    t.datetime "updated_at", null: false
+    t.string "uploaded_by"
+    t.index ["entity", "path"], name: "index_studio_knowledge_docs_on_entity_and_path"
+    t.index ["entity", "status"], name: "index_studio_knowledge_docs_on_entity_and_status"
+    t.index ["expectation_id"], name: "index_studio_knowledge_docs_on_expectation_id"
+    t.index ["s3_key"], name: "index_studio_knowledge_docs_on_s3_key", unique: true
+    t.index ["superseded_by_id"], name: "index_studio_knowledge_docs_on_superseded_by_id"
+  end
+
+  create_table "studio_knowledge_expectations", force: :cascade do |t|
+    t.boolean "active", default: true, null: false
+    t.string "cadence", default: "once", null: false
+    t.string "category"
+    t.datetime "created_at", null: false
+    t.string "entity", null: false
+    t.string "path", default: "", null: false
+    t.string "source_note"
+    t.date "start_on"
+    t.string "title", null: false
+    t.datetime "updated_at", null: false
+    t.index ["entity", "active"], name: "index_studio_knowledge_expectations_on_entity_and_active"
   end
 
   create_table "studio_links", force: :cascade do |t|
@@ -785,6 +928,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_20_130000) do
     t.string "email"
     t.datetime "email_verified_at"
     t.text "encrypted_web2_solana_private_key"
+    t.integer "entry_tokens_granted_level", default: 1, null: false
+    t.datetime "entry_tokens_swept_at", default: "1970-01-01 00:00:00", null: false
     t.datetime "export_initiated_at"
     t.datetime "first_chat_message_at"
     t.string "first_name"
@@ -815,10 +960,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_20_130000) do
     t.string "username"
     t.datetime "username_changed_at"
     t.string "web2_solana_address"
+    t.datetime "web3_authenticated_at"
     t.string "web3_solana_address"
+    t.string "web3_wallet_provider"
     t.index "lower((username)::text)", name: "index_users_on_lower_username", unique: true, where: "(username IS NOT NULL)"
     t.index ["contest_entered"], name: "index_users_on_contest_entered_true", where: "(contest_entered = true)"
     t.index ["email"], name: "index_users_on_email", unique: true, where: "(email IS NOT NULL)"
+    t.index ["entry_tokens_swept_at", "id"], name: "index_users_on_pending_level_up_grants", where: "(level > entry_tokens_granted_level)"
     t.index ["frozen_at"], name: "index_users_on_frozen_at", where: "(frozen_at IS NOT NULL)"
     t.index ["invited_by_id"], name: "index_users_on_invited_by_id"
     t.index ["ips"], name: "index_users_on_ips", using: :gin
@@ -846,6 +994,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_20_130000) do
   add_foreign_key "email_deliveries", "users"
   add_foreign_key "entries", "contests"
   add_foreign_key "entries", "users"
+  add_foreign_key "entry_gifts", "contests"
+  add_foreign_key "entry_gifts", "users", column: "claimed_by_id"
+  add_foreign_key "entry_gifts", "users", column: "sender_id"
   add_foreign_key "games", "survivor_rounds"
   add_foreign_key "landing_pages", "contests", on_delete: :nullify
   add_foreign_key "messages", "contests"

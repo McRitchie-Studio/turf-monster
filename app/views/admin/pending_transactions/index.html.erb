@@ -11,6 +11,8 @@
           message: "No treasury transactions yet.",
           detail:  "Multisig transactions requiring cosigning will appear here." %>
   <% else %>
+    <%= render "shared/wallet_desktop_only_notice" %>
+
     <div class="space-y-3">
       <% @pending.each do |tx| %>
         <div class="card p-4">
@@ -77,15 +79,21 @@
 
             <div class="flex flex-col gap-2 flex-shrink-0">
               <% if tx.pending? %>
+                <%# The wire is NOT rendered into this button any more. It used to be,
+                    and because the blockhash inside it aged from page-render
+                    time, a second Co-sign click re-broadcast the same expired
+                    bytes — which is why retrying never worked. cosignTransaction
+                    now asks the server to build a fresh transaction at click
+                    time, so there is no stale copy and no rush to approve.
+                    That also retires the Rebuild button, whose only job was
+                    refreshing that blockhash by hand. %>
                 <button data-tx-slug="<%= tx.slug %>"
-                        data-tx-serialized="<%= tx.serialized_tx %>"
                         data-tx-label="<%= tx.tx_type.titleize %>"
-                        onclick="cosignTransaction(this.dataset.txSlug, this.dataset.txSerialized, this.dataset.txLabel)"
+                        onclick="cosignTransaction(this.dataset.txSlug, this.dataset.txLabel)"
+                        data-desktop-only-action
                         class="btn btn-primary btn-sm">
                   Co-sign
                 </button>
-                <%= button_to "Rebuild", rebuild_admin_pending_transaction_path(slug: tx.slug),
-                      method: :post, class: "btn btn-outline btn-sm" %>
               <% end %>
             </div>
           </div>
@@ -99,4 +107,10 @@
   </div>
 </div>
 
-<div id="cosign-config" data-rpc-url="<%= Solana::Config::RPC_URL %>" style="display:none;"></div>
+<%# BROWSER-facing, so public_rpc_url — never the server RPC constant, which
+    carries the provider api-key on mainnet. See Solana::Config. %>
+<%# No #cosign-config here: this page's browser never talks to an RPC now.
+    The server broadcasts the cosigned wire over the credentialed endpoint
+    (Admin::PendingTransactionsController#broadcast). The vault_init and
+    vault_state pages still render their own — they have separate inline
+    flows that were not part of this fix. %>

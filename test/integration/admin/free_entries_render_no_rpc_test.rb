@@ -67,6 +67,17 @@ class Admin::FreeEntriesRenderNoRpcTest < ActionDispatch::IntegrationTest
     store = ActiveSupport::Cache::MemoryStore.new
     # One unconsumed entry token cached → minted 1; owed = floor(250/100) - 1 = 1.
     store.write(tokens_key, [{ consumed: false }])
+    # Every OTHER wallet user is warmed empty. The "syncing…" assertion below is
+    # page-wide, so a single cold row anywhere on the listing fails it — this test
+    # used to assume @wallet_user was the only wallet row, and adding an unrelated
+    # wallet fixture broke it. Warming the rest keeps the assertion about what it
+    # means (warm rows do not render a loading state) rather than about how many
+    # fixtures happen to hold a wallet.
+    User.where.not(id: @wallet_user.id).find_each do |u|
+      next if u.solana_address.blank?
+
+      store.write(Solana::Vault.entry_tokens_cache_key(u.solana_address), [])
+    end
 
     Rails.stub :cache, store do
       Solana::Vault.stub :new, RenderPathRpcTripwire.new do

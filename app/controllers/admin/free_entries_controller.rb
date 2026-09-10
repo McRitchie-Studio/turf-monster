@@ -44,11 +44,11 @@ module Admin
         # protection against actual double-mint, but the lock prevents the
         # wasted admin SOL rent on a doomed second instruction.
         user.with_lock do
-          owed = compute_owed_for(user)
+          owed, levels = owed_plan_for(user)
           raise "Nothing owed to #{user.display_name}" if owed.zero?
           count = params[:count].present? ? params[:count].to_i : owed
           count = [count, owed].min
-          signatures = mint_n_tokens(user, count)
+          signatures = mint_n_tokens(user, count, levels)
           flash[:notice] = "Minted #{signatures.length} free #{'entry'.pluralize(signatures.length)} for #{user.display_name}"
         end
       end
@@ -60,12 +60,57 @@ module Admin
         users = users_with_wallet
         total = 0
         users.find_each do |user|
-          owed = compute_owed_for(user)
+          owed, levels = owed_plan_for(user)
           next if owed.zero?
-          mint_n_tokens(user, owed)
+          mint_n_tokens(user, owed, levels)
           total += owed
         end
         flash[:notice] = "Minted #{total} free entries across all users"
+      end
+      redirect_to admin_free_entries_path
+    end
+
+    # Void a user's unspent free entries — the claw-back counterpart to #mint.
+    # `count` burns that many (the row's "Burn 1"); absent, it burns every
+    # unspent token the user holds (the row's "Burn all").
+    #
+    # There is deliberately NO #burn_all across ALL users to mirror #mint_all.
+    # Minting too many costs the operator some SOL rent and a user gets a gift;
+    # burning too many destroys property for every account on the platform at
+    # once, and no support workflow needs it. The blast radius is capped at one
+    # user on purpose.
+    def burn
+      user = User.find_by!(slug: params[:user_slug])
+      rescue_and_log(target: user) do
+        # Same per-user lock as #mint (OPSEC-030). Here it matters MORE: the
+        # on-chain guard that makes minting safe to double-submit is `init`
+        # collision, and burning has no equivalent — a second in-flight request
+        # re-reads the same unspent list and aims at tokens the first is already
+        # burning. Those lose the EntryTokenAlreadyBurned race noisily rather
+        # than double-burning, but the lock keeps the operator from paying fees
+        # to find that out.
+        user.with_lock do
+          burnable = burnable_tokens_for(user)
+
+          # Not an exception: a stale row or a double-click lands here, and
+          # neither is an incident worth an ErrorLog. Say so and move on.
+          if burnable.empty?
+            flash[:alert] = "No unspent free entries to burn for #{user.display_name}"
+            next
+          end
+
+          count = params[:count].present? ? params[:count].to_i : burnable.length
+          count = count.clamp(0, burnable.length)
+          burned, failed = burn_n_tokens(user, burnable.first(count))
+
+          # A total failure is a real incident — raise it so rescue_and_log files
+          # an ErrorLog. A PARTIAL failure already did real work, so report the
+          # true split instead of throwing away the record of what landed.
+          raise "Burn failed for #{user.display_name}: #{failed.first}" if burned.empty? && failed.any?
+
+          flash[:notice] = "Burned #{burned.length} free #{'entry'.pluralize(burned.length)} for #{user.display_name}"
+          flash[:alert]  = "#{failed.length} burn(s) failed: #{failed.first}" if failed.any?
+        end
       end
       redirect_to admin_free_entries_path
     end
@@ -173,26 +218,110 @@ module Admin
     end
 
     def compute_owed_for(user)
-      seeds = (vault.sync_balance(user.solana_address) rescue nil)&.dig(:seeds) || 0
-      tokens = (vault.list_entry_tokens(user.solana_address) rescue [])
-      [(seeds / SEEDS_PER_LEVEL) - tokens.length, 0].max
+      owed_plan_for(user).first
     end
 
-    def mint_n_tokens(user, count)
-      signatures = []
-      count.times do
-        # Globally-unique, <=64-byte source_ref per mint (the on-chain PDA is
-        # sha256(source_ref), so a repeat collides on init). Centralized in
-        # Solana::Vault.operator_source_ref — keyed on user.id + a random nonce;
-        # see that method for why NOT the wallet address (it overflowed [u8;64]).
-        result = vault.mint_entry_token(
-          wallet_address: user.solana_address,
-          source: :operator,
-          source_ref: Solana::Vault.operator_source_ref(user)
-        )
-        signatures << result[:signature]
+    # The owed COUNT and the specific LEVELS behind it, from ONE pair of reads.
+    #
+    # The count is unchanged — the same arithmetic this page has always used, and
+    # deliberately still ref-agnostic (`tokens.length`), so a hand-minted token
+    # still suppresses an automatic grant. What is new is the second half: which
+    # levels those are, so the mint below can key each token to its level exactly
+    # as Tokens::LevelUpGrant does.
+    def owed_plan_for(user)
+      address = user.solana_address
+      seeds   = (vault.sync_balance(address) rescue nil)&.dig(:seeds) || 0
+      tokens  = (vault.list_entry_tokens(address) rescue [])
+      owed    = [(seeds / SEEDS_PER_LEVEL) - tokens.length, 0].max
+
+      [owed, Tokens::LevelUpGrant.missing_levels(address, seeds: seeds, tokens: tokens)]
+    end
+
+    # THE OPERATOR AND THE SWEEP MINT UNDER THE SAME REFS.
+    #
+    # A level this page is paying gets Tokens::LevelUpGrant's DETERMINISTIC ref, so
+    # if the sweep is mid-flight for the same user and the same level, the second
+    # instruction collides on `init` at an existing PDA and exactly one token
+    # lands. That is the whole fix for the double-grant race: no lock, no
+    # coordination, just one ref scheme instead of two.
+    #
+    # A mint with NO level behind it — `levels` short of `count`, which happens when
+    # tokens exist that carry no level in their ref (older hand-mints, or refs
+    # orphaned by a scheme change) — keeps the random operator ref. Those are
+    # genuinely un-keyable, and inventing a level for one would key a token to a
+    # milestone nobody reached.
+    def mint_n_tokens(user, count, levels = [])
+      address = user.solana_address
+
+      Array.new(count) do |i|
+        level = levels[i]
+        source_ref = if level
+                       Tokens::LevelUpGrant.source_ref(address, level)
+        else
+                       Solana::Vault.operator_source_ref(user)
+        end
+
+        vault.mint_entry_token(wallet_address: address, source: :operator,
+                               source_ref: source_ref)[:signature]
       end
-      signatures
+    end
+
+    # The tokens a burn may target, NEWEST FIRST.
+    #
+    # LIVE read, not the render cache: #compute_user_data_for is deliberately
+    # cache-first and up to ~60s stale, which is fine for displaying a count and
+    # not fine for choosing which accounts to destroy. #mint re-derives live for
+    # the same reason (#owed_plan_for).
+    #
+    # `consumed` is the only filter needed. A burn sets it, so already-burned
+    # tokens fall out here as well as already-spent ones — the same one predicate
+    # the on-chain guard uses.
+    #
+    # NEWEST FIRST because a partial burn is a claw-back of a RECENT mistake: an
+    # operator who granted 3 by fat-finger and burns 1 means the one just
+    # granted, not the token the user has been sitting on since signup. Oldest-
+    # first would take the wrong one every time.
+    def burnable_tokens_for(user)
+      address = user.solana_address
+      return [] if address.blank?
+
+      (vault.list_entry_tokens(address) rescue [])
+        .reject { |t| t[:consumed] }
+        .sort_by { |t| -t[:created_at].to_i }
+    end
+
+    # Burn each token one instruction at a time, returning [burned, failures].
+    #
+    # Per-token rescue, unlike #mint_n_tokens: a mint that fails midway can be
+    # re-run and the successful ones collide harmlessly on `init`, so aborting is
+    # free. A burn is irreversible, so abandoning tokens 2 and 3 because token 1
+    # hit an RPC flake leaves the operator guessing which ones actually went. The
+    # caller decides what a partial result means.
+    def burn_n_tokens(user, tokens)
+      address  = user.solana_address
+      burned   = []
+      failures = []
+
+      tokens.each do |token|
+        vault.burn_entry_token(wallet_address: address, source_ref: token[:source_ref])
+        burned << token[:pda]
+        Rails.logger.info(
+          "[free-entries] burned user=#{user.id} pda=#{token[:pda]} ref=#{token[:source_ref]}"
+        )
+      rescue => e
+        failures << "#{e.class}: #{e.message.to_s[0, 140]}"
+        Rails.logger.warn(
+          "[free-entries] burn_failed user=#{user.id} pda=#{token[:pda]} " \
+          "ref=#{token[:source_ref]} (#{e.class}: #{e.message.to_s[0, 140]})"
+        )
+      end
+
+      # One bust after the batch, not one per token — every burn invalidated the
+      # same key anyway, and the row must not render off a list that predates the
+      # burns the operator just watched happen.
+      user.bust_entry_tokens_cache! if burned.any?
+
+      [burned, failures]
     end
   end
 end

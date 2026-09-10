@@ -94,12 +94,39 @@ async function documentMetrics(page) {
     // edge. The 4px regression came from a TEXT rect, not an element rect — the
     // tooltip's box stayed inside while its unbreakable line did not — so an
     // element-only sweep would have reported nothing to look at.
+    //
+    // "UNCLIPPED" MEANS BY ANY ANCESTOR, NOT JUST THE IMMEDIATE PARENT. This
+    // used to read `getComputedStyle(node.parentElement).overflowX`, which is
+    // the same question asked one level up and no further — and that was
+    // sufficient only for as long as no page this spec measures contained a
+    // horizontal scroller. /contests now leads with one (the featured contest
+    // rail), and every card to the right of the fold reported its slate name,
+    // its entry fee and its prize line as spilling. None of them do: they sit
+    // inside `overflow-x: auto` and are reachable by scrolling THAT box, which
+    // is why `documentOverflow` stayed at 0 through the same run while this
+    // list filled up. A text node under a clipping ancestor cannot give the
+    // DOCUMENT a scrollbar, which is the property this whole spec is about.
+    //
+    // The walk STOPS AT documentElement rather than including it: `overflow-x`
+    // on <html> is a page-wide setting, and treating it as a clip would empty
+    // this sweep for every node at once. `scanned` below is what keeps that
+    // honest — a sweep that measured nothing must not read as a sweep that
+    // found nothing.
+    const clippedHorizontally = (el) => {
+      for (let n = el; n && n !== document.documentElement; n = n.parentElement) {
+        if (getComputedStyle(n).overflowX !== "visible") return true;
+      }
+      return false;
+    };
+
     const spilling = [];
+    let scanned = 0;
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       if (!node.nodeValue.trim()) continue;
       const parent = node.parentElement;
-      if (!parent || getComputedStyle(parent).overflowX !== "visible") continue;
+      if (!parent || clippedHorizontally(parent)) continue;
+      scanned += 1;
       const range = document.createRange();
       range.selectNodeContents(node);
       for (const rect of range.getClientRects()) {
@@ -126,6 +153,7 @@ async function documentMetrics(page) {
     return {
       viewportWidth,
       documentOverflow: documentWidth - viewportWidth,
+      scanned,
       spilling: spilling.slice(0, 5),
       tooltips,
     };
@@ -208,6 +236,14 @@ test("the logged-in header stays contained when the page paints in a fallback fa
       // The symptom: no face the browser may legitimately paint in is allowed to
       // give this page a horizontal scrollbar.
       expect(metrics.documentOverflow, message).toBeLessThanOrEqual(1);
+      // An empty `spilling` is only evidence if the sweep actually read
+      // something. Without this, any future rule that clips the whole page
+      // (an `overflow-x` on a wrapper near the root) turns this assertion
+      // green by measuring nothing at all.
+      expect(
+        metrics.scanned,
+        `${message}\nthe spill sweep measured no text — it cannot report a clean page`
+      ).toBeGreaterThan(0);
       expect(metrics.spilling, message).toEqual([]);
 
       // The mechanism: every banner tooltip fits the cap it declares.

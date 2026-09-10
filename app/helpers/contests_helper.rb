@@ -1,4 +1,115 @@
 module ContestsHelper
+  # ── The status badge the contests page paints ────────────────────────────
+  #
+  # Three states this page adds on top of the plain status enum:
+  #
+  #   Coming Soon  an open contest flagged `coming_soon` — advertised, not
+  #                ready yet. It says so wherever the contest is listed, so a
+  #                table's Status column can never contradict the rail's sash
+  #                about the same contest on the same screen.
+  #   Won          a settled contest this viewer took money out of.
+  #   Complete     a settled contest this viewer entered and did not.
+  #
+  # `payout_cents` is the axis that separates those last two, and NIL IS A
+  # THIRD ANSWER, not a zero. Nil means "not asked on behalf of any particular
+  # viewer" — the All Contests table, which keeps the plain "Settled" it has
+  # always shown. Only the My Contests band passes a number, and only there is
+  # a settled contest told apart into Won and Complete.
+  #
+  # Won is the ONE FILLED badge on the page. Everything else takes the house
+  # outline treatment, so the row a reader actually won reads differently at a
+  # glance instead of being a second green outline beside Open's. Contrast:
+  # mint-500 (#06D6A0) under navy (#1A1535) text measures 9.34:1, and both are
+  # fixed brand hues rather than theme tokens, so that figure holds in the
+  # light theme as well as the dark one.
+  #
+  # PRECEDENCE, and why each guard comes before the ones it would otherwise
+  # swallow: cancelled first (terminal whatever else is true, and the fact that
+  # changes what the reader should do next), then the settled pair (a settled
+  # contest is never coming soon and its status branch would just say
+  # "Settled"), then coming soon, then the plain status.
+  def contest_status_badge(contest, payout_cents: nil)
+    return { label: "Cancelled", classes: contest_badge_classes("cancelled") } if contest.cancelled?
+
+    if contest.settled? && !payout_cents.nil?
+      return { label: "Won", classes: "bg-mint-500 text-navy border-mint-500 font-bold" } if payout_cents.to_i.positive?
+
+      return { label: "Complete", classes: contest_badge_classes("settled") }
+    end
+
+    return { label: "Coming Soon", classes: contest_badge_classes("pending") } if contest.coming_soon?
+
+    { label: contest.status.capitalize, classes: contest_badge_classes(contest.status) }
+  end
+
+  # ── The ribbon laid across a contest card ────────────────────────────────
+  #
+  # Returns the sash's text, or nil when the card should not carry one — most
+  # cards do not, which is what makes the ones that do worth looking at.
+  #
+  # `my_entry_count` is THIS VIEWER'S entry count, not the contest's. The card
+  # already prints the field size ("15 entries") in its stat line, so a sash
+  # repeating that number would say nothing; what it is for is the reader's own
+  # stake. One entry says "Entered" because a count of one adds nothing to it.
+  #
+  # Coming soon OUTRANKS entered. The two can co-occur — nothing stops an
+  # operator flagging a contest that already has entries — and "not ready yet"
+  # is the more urgent claim about a contest a reader is looking at now.
+  def contest_sash_label(contest, my_entry_count)
+    return "Coming Soon" if contest.coming_soon?
+
+    count = my_entry_count.to_i
+    return nil unless count.positive?
+
+    count == 1 ? "Entered" : "#{count} Entries"
+  end
+
+  # ── How much room is left in the field ───────────────────────────────────
+  #
+  # The card's stat line reports SPOTS LEFT rather than entries taken, because
+  # the two numbers answer different questions and only one of them is the
+  # reader's. "0 entries" on a brand-new contest reads as "nobody wants this";
+  # "3 spots left" on the same contest reads as "get in". The field size is
+  # still on the contest page itself (`_contest_header` row 2 prints n/max),
+  # where a reader who is deciding has the room for both halves.
+  #
+  # `entry_count` is passed IN — the confirmed count the controller already
+  # grouped for the whole page — so the card never triggers its own count query
+  # per row. The capacity is the contest's own `max_entries` when the operator
+  # set one, and its format's default otherwise; the same fallback pair
+  # Contest#fill! and the on-chain payload use.
+  #
+  # Clamped at zero. An over-filled field (comped entries can push the count
+  # past the cap — see Contest#fill!) must read "0 spots left", never a negative
+  # count, and "0 spots left" is the true statement in that case anyway.
+  def contest_spots_left(contest, entry_count)
+    capacity = contest.max_entries || contest.format_config[:max_entries]
+    [capacity.to_i - entry_count.to_i, 0].max
+  end
+
+  # What the Prizes cell says about a contest, for the viewer named by
+  # `payout_cents`. Three readings, and the middle one is the only place on the
+  # page where the number itself changes:
+  #
+  #   unsettled           the guaranteed prize pool, green — what is on offer.
+  #   settled, won        the amount THIS VIEWER won, green — the pool is
+  #                       history, their share is the fact.
+  #   settled, won none   the guaranteed pool, GREY. The number is kept rather
+  #                       than blanked because "$500 was on the table" is the
+  #                       point; the grey is what says it went elsewhere.
+  #
+  # Nil `payout_cents` (the All Contests table, which is nobody's ledger) takes
+  # the first reading whatever the status, exactly as it did before.
+  def contest_prize_cell(contest, payout_cents: nil)
+    return { amount: contest.guaranteed_prize_dollars, classes: "text-primary" } if payout_cents.nil? || !contest.settled?
+
+    if payout_cents.to_i.positive?
+      { amount: payout_cents.to_i / 100.0, classes: "text-primary font-bold" }
+    else
+      { amount: contest.guaranteed_prize_dollars, classes: "text-muted" }
+    end
+  end
+
   # Whether the current viewer is allowed to see this entry's picks.
   # While the contest is open and not yet locked, picks are private to the
   # entry owner so network-tab readers can't preview competitors' selections.
@@ -158,5 +269,225 @@ module ContestsHelper
   # the slate is ranked) can never win, so `to_f`'s zero is the right floor.
   def chat_prompt_priciest(matchups)
     matchups.select { |m| m.turf_score.present? }.max_by { |m| m.turf_score.to_f }
+  end
+
+  # What the live board should CALL itself, given the contest's state.
+  #
+  # The page renders in every state now (a link an operator has should work),
+  # but its header said "Live" with a pulsing red dot unconditionally — so a
+  # contest that had not kicked off, and one that had already paid out, both
+  # announced themselves as in progress. The badge is the first thing read on
+  # that page; a badge that is wrong is worse than no badge.
+  #
+  # THE STATE SPACE IS NOT AN ENUM, AND IT IS NOT THREE AXES EITHER. Two fixes
+  # have now been made here by enumerating the axes their author knew about and
+  # missing the next one. So enumerate them all, and say which pairings cannot
+  # occur — a branch that silently assumes a state is unreachable is how both
+  # earlier bugs survived review.
+  #
+  # FIVE PREDICATES ARE READ ABOUT A CONTEST. Only FOUR of them are free:
+  #
+  #   status      enum, pending/open/settled           (contest.rb:44)
+  #   cancelled?  onchain_cancelled, a boolean column  (contest.rb:498)
+  #   locked?     settled? || now >= starts_in_at      (contest.rb:586)
+  #   concluded?  settled? || now >= concludes_at      (contest.rb:594)
+  #   live?       locked? && !settled?                 (contest.rb:602)
+  #
+  # `live?` IS NOT AN AXIS. It is a derived reading of two others, and it carries
+  # NO conclusion term — which is the whole of this bug: a contest that has
+  # concluded but not been graded still satisfies `locked? && !settled?`, so it
+  # answered `live?` true and the badge pulsed "Live" at results that were final.
+  # The previous round of this same bug was the same shape with `cancelled?`.
+  #
+  # WHAT IS REACHABLE (settled forces both derived flags true, so it is listed
+  # once; `pending`/`open` behave alike here — neither is read directly):
+  #
+  #   status         cancelled?  locked?  concluded?   label
+  #   ---------------------------------------------------------------
+  #   pending/open   no          no       no           Not started
+  #   pending/open   no          yes      no           Live
+  #   pending/open   no          yes      yes          Concluded  <- read "Live"
+  #   pending/open   no          no       yes          Concluded  <- read "Not started"
+  #   pending/open   yes         any      any          Cancelled
+  #   settled        no          (forced) (forced)     Final
+  #   settled        yes         (forced) (forced)     Cancelled
+  #
+  # WHAT IS NOT REACHABLE, and why — do not add a branch for these:
+  #
+  #   settled + !locked?     `locked?` returns true unconditionally when
+  #                          `settled?` (contest.rb:587). No clock value changes it.
+  #   settled + !concluded?  Same shape: `concluded?` returns true unconditionally
+  #                          when `settled?` (contest.rb:595) — even with
+  #                          `concludes_at` nil or in the FUTURE. Pinned by
+  #                          test/models/contest_locking_test.rb:84.
+  #   live? + settled?       Excluded by `live?`'s own definition.
+  #   live? + !locked?       Excluded by `live?`'s own definition.
+  #
+  # The fourth row — concluded but NOT locked — looks contradictory and is not.
+  # On chain, `set_contest_conclusion_time` requires a conclusion later than the
+  # lock ONLY when a lock is set (`lock != 0`,
+  # programs/turf_vault/src/instructions/set_contest_conclusion_time.rs:71-74).
+  # The chain sees `starts_in_at` ONCE, at create: it is mirrored into
+  # `lock_timestamp` (contest.rb:526) and passed to create_contest
+  # (contest.rb:265). Nothing re-reads it afterwards, and no validation couples
+  # `concludes_at` to it — confirm_conclusion_time writes `concludes_at` ALONE
+  # (contests_controller.rb:1404). So the PAIR is unconstrained after create: a
+  # contest made with no slate schedule (lock 0, conclusion then unconstrained)
+  # that is later given one, or one whose first game is POSTPONED past a
+  # conclusion that has already passed, lands concluded-and-not-locked — and
+  # before this fix it read "Not started" at a contest whose results were final.
+  # It cannot be created that way outright: a conclusion must be in the FUTURE
+  # when set (same file, :70), so it reaches the past only by elapsed time.
+  #
+  # PRECEDENCE: cancelled, then final, then concluded, then live, then upcoming.
+  #
+  #   cancelled first  — terminal whatever else is true, and it is the fact that
+  #                      changes what the viewer should do next.
+  #   final next       — a settled contest is ALSO concluded and ALSO locked by
+  #                      definition (above), so anything checked before `final`
+  #                      would swallow every settled contest.
+  #   concluded next   — this is the fix. `live?` has no conclusion term, so a
+  #                      concluded, ungraded contest reaches `live` unless
+  #                      `concluded?` is asked first.
+  #   live, upcoming   — what is left once the terminal and final-results states
+  #                      are spoken for.
+  #
+  # Do NOT read "Cancelled" as "refunded": cancel_contest returns the prize pool
+  # to the CREATOR (Solana::Vault#build_cancel_contest), entry fees stay operator
+  # revenue, and entrant compensation is a manual mint_entry_token playbook.
+  # Terms promise a refund only for a contest cancelled BEFORE it locks, which is
+  # not the case this branch exists for. An entrant reading "Cancelled" may still
+  # be owed money — which is the reason the badge must not read "Live" at them.
+  #
+  # "Concluded" makes a NARROWER claim than "Final", and the difference is load
+  # bearing. It says the games are over and the result will not change; it does
+  # NOT say the contest is graded or that anyone has been paid.
+  #
+  # Do not upgrade that into "concluded always comes before final". It does not:
+  # `settle_contest` requires that the lock OR the conclusion has passed
+  # (turf_vault/src/instructions/settle_contest.rs:103-106), so a contest with a
+  # passed lock can be settled having never concluded. Concluding is one of two
+  # ways to open the settle gate, not a stage every contest passes through.
+  # "Concluded" therefore means "waiting on the payout", never "paid", and never
+  # "the step before Final".
+  #
+  # THE BADGE NO LONGER TRACKS `live?`, AND MUST NOT BE MADE TO AGAIN. It was
+  # documented as carrying "the same predicate the broadcast filters on", so
+  # that it told you whether an update could arrive. That is what produced the
+  # bug: cancel-while-locked is deliberately supported, `live?` is
+  # `locked? && !settled?`, and Contest::LiveBroadcast selects `status: [:open]`
+  # then `.select(&:live?)` — neither filter excludes a cancelled contest. So a
+  # cancelled, locked contest IS still in the broadcast set while this badge
+  # reads "Cancelled". That divergence is deliberate: the badge is a claim about
+  # what the contest IS, not about whether packets are still being pushed at the
+  # games strip below it.
+  #
+  # MOTION IS RESERVED FOR `live`. The pulsing dot is the one animated element
+  # here, and it means exactly one thing: this contest is in progress. Every
+  # terminal, finished, or not-yet state is static, so "is it moving?" stays a
+  # reliable read at a glance. Cancelled keeps the app's cancelled red (it
+  # matches CONTEST_BADGE_STYLES["cancelled"]) but takes a solid dot, never a
+  # pulse. Concluded takes the app's conclusion ORANGE — the same tone the
+  # header countdown lands on when it finishes ("🏁 Concluded", tone "orange" in
+  # contests/_timestamp_countdown.html.erb) — so the two places that report a
+  # conclusion agree on colour, and neither can be mistaken for live's red.
+  #
+  # Contrast, measured on the rendered page rather than computed from the
+  # palette (rasterised pixel vs the actual `bg-page`, sanity-checked against
+  # white-on-black = 21:1): text-orange-400 is 7.34:1 on the dark theme and
+  # 2.27:1 on the light one. The dark figure BEATS the text-red-400 that live
+  # and cancelled already use (6.05:1); the light figure trails it (2.76:1).
+  # Light mode is below AA for every state in this row, orange included — that
+  # is a pre-existing property of the row, not something the concluded state
+  # introduced, and fixing it means re-toning live and cancelled too. If you do
+  # that, note text-orange-500 measures EXACTLY at red-400's parity in both
+  # themes (6.05 / 2.76) and is the drop-in; it was passed over here only
+  # because 400 is the house label shade (label-400 over dot-500) and is the
+  # tone the countdown above already lands on.
+  #
+  # This badge is server-rendered at page load. Contest::LiveBroadcast replaces
+  # the games strip and the focus panel, not this header, so a contest whose
+  # state changes under a viewer keeps the label it was drawn with until a
+  # reload. Out of scope here; do not read these labels as self-correcting.
+  # Every utility below is written as a FULL LITERAL. Tailwind scans this file
+  # (config/tailwind.config.js content includes ./app/helpers/**/*.rb) but it
+  # only ever matches whole class names — a class assembled by interpolation
+  # compiles to no rule at all and the dot renders transparent.
+  LIVE_STATES = {
+    cancelled: { label: "Cancelled", classes: "text-red-400", dot: "bg-red-500" },
+    live: { label: "Live", classes: "text-red-400", dot: "bg-red-500 animate-pulse" },
+    concluded: { label: "Concluded", classes: "text-orange-400", dot: "bg-orange-500" },
+    final: { label: "Final", classes: "text-muted", dot: "bg-slate-500" },
+    upcoming: { label: "Not started", classes: "text-muted", dot: "bg-slate-500" }
+  }.freeze
+
+  # Order is the precedence rule documented above. Each guard is checked before
+  # any predicate it definitionally implies, so no later branch can swallow an
+  # earlier state.
+  def contest_live_state(contest)
+    return :cancelled if contest.cancelled?
+    return :final if contest.settled?
+    return :concluded if contest.concluded?
+    return :live if contest.live?
+
+    :upcoming
+  end
+
+  def contest_live_badge(contest)
+    LIVE_STATES.fetch(contest_live_state(contest))
+  end
+
+  # ── The day a slate game is actually played ──────────────────────────────
+  #
+  # The multi-week team card labels each opponent column with the DAY that
+  # game kicks off ("Dec 25") instead of its week number. The board header,
+  # the contest name and the rules page all already say which weeks the span
+  # covers, so the column is free to answer the one question the week number
+  # cannot: when do I watch this one. On the 2026 Weeks 15-17 span that turns
+  # "Week 16" into "Dec 25" — the Christmas game, named.
+  #
+  # THE DAY IS DERIVED IN US EASTERN, NOT IN UTC, and that is the entire
+  # reason this is a helper and not a strftime in the partial. `kickoff_at`
+  # is stored in true UTC and this app sets no `config.time_zone`, so
+  # `Time.zone` IS UTC — and every NFL night game crosses midnight there.
+  # Measured against db/seeds/data/nfl_2026_weeks_1_17.json: Buffalo's week-5
+  # Monday nighter at the Rams kicks off Mon Oct 12 8:15 PM ET and stores as
+  # 2026-10-13T00:15Z, and DAL@GB in week 6 is Sun Oct 18 8:20 PM ET stored
+  # as Monday the 19th. A UTC strftime prints TOMORROW on every Sunday-night,
+  # Monday-night and Thursday-night game — roughly one column in seven, and
+  # the operator's own screenshot (Buffalo, weeks 4-6) was one of them.
+  #
+  # The NFL schedules on the Eastern calendar, so Eastern is the calendar the
+  # label reads. It is deliberately NOT the viewer's local zone: two people
+  # looking at the same card should see the same date, and a west-coast
+  # viewer reading "Dec 25" for a game the league calls a Christmas game is
+  # right even when it kicks at 10 AM for them.
+  NFL_CALENDAR_ZONE = "America/New_York"
+
+  # Nil when there is no game or no kickoff — a REAL case, not a defensive
+  # flourish. 256 of 272 weekly-slate games carried a kickoff_at when it was
+  # last counted (2026-07-29), so roughly one game in twenty is still TBD.
+  # Callers fall back to the week label there rather than printing a blank.
+  def game_day_label(game)
+    kickoff = game&.kickoff_at
+    return nil if kickoff.blank?
+
+    kickoff.in_time_zone(NFL_CALENDAR_ZONE).strftime("%b %-d")
+  end
+
+  # One opponent column's two labels, resolved together so the card, its
+  # tooltip and its aria-label can never disagree about a week.
+  #
+  #   shown  what the column prints — the date, or "Week 4" when there is none
+  #   detail what the tooltip and the accessible name carry — ALWAYS the week,
+  #          plus the date when there is one. The week never disappears; it
+  #          moves off the face of the card and into the description, which is
+  #          what makes dropping it from the visible label safe.
+  def opponent_slot_labels(week, week_matchup)
+    week_text = "Week #{week || '?'}"
+    day_text  = game_day_label(week_matchup&.game)
+
+    { shown: day_text || week_text,
+      detail: day_text ? "#{week_text} · #{day_text}" : week_text }
   end
 end

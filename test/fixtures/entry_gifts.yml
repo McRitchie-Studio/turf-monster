@@ -1,0 +1,20 @@
+# DELIBERATELY EMPTY, and the emptiness is the point.
+#
+# `fixtures :all` deletes from every table that HAS a fixture file before it
+# inserts. A table with no file is never cleared — so rows this table collects
+# from other sources survive into the next run, and entry_gifts holds a foreign
+# key to contests, which fixtures DO clear. The result is a FOREIGN KEY
+# VIOLATION on fixture load that fails every test in the suite at once, with a
+# message about contests that names nothing about how the rows got there.
+#
+# That is not hypothetical: it happened the first time the Playwright lane ran
+# on this branch. e2e boots the server in RAILS_ENV=test against the TEST
+# database, so the gifts its specs send land in the same database the unit suite
+# uses, and `db:test:prepare` does not truncate them (it reloads the schema only
+# when the schema changed). 95 errors, none of them in the feature.
+#
+# Listing the table here — with no rows — is what puts it in the delete set. Do
+# not add rows: test/integration/entry_gift_flow_test.rb asserts an EMPTY table
+# to prove a plain magic link grants no entry, and a fixture row would make that
+# assertion pass for the wrong reason.
+{}

@@ -133,6 +133,21 @@
 
   // Burst canvas-confetti from the currently-visible quest card's "Quest x/4"
   // badge (the completing card is still on-screen — the advance is delayed).
+  // Read a layer tier at runtime. canvas-confetti takes zIndex as a NUMBER, so
+  // these two celebrations were the last bare blocking values in the app —
+  // 9999 and 10000, the same magic numbers the shared scale replaced everywhere
+  // else, sitting in JS where the CSS drift guard could not see them. Both are
+  // transient, pointer-events-none overlays that must not be missed while a
+  // modal is open, which is exactly --z-alert (above --z-modal, below toasts).
+  // Falls back to the tier's own value if the custom property is missing, so a
+  // page that somehow ships without the scale still paints the confetti on top.
+  function zTier(name, fallback) {
+    var v = parseInt(
+      getComputedStyle(document.documentElement).getPropertyValue(name).trim(), 10
+    );
+    return Number.isFinite(v) ? v : fallback;
+  }
+
   window.fireQuestBadgeConfetti = function () {
     if (typeof confetti === "undefined") return;
     var steps = Array.prototype.slice.call(document.querySelectorAll("[data-quest-step]"));
@@ -143,22 +158,23 @@
       ? { x: (rect.left + rect.width / 2) / window.innerWidth, y: (rect.top + rect.height / 2) / window.innerHeight }
       : { x: 0.72, y: 0.4 };
     var colors = window.CONFETTI_COLORS || ["#4BAF50", "#8E82FE", "#06D6A0", "#FF7C47", "#FFD700", "#00BFFF", "#FF6B9D", "#C084FC"];
-    confetti({ particleCount: 90, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: 9999, startVelocity: 24, gravity: 0.6, ticks: 180, scalar: 0.9 });
+    confetti({ particleCount: 90, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: zTier('--z-alert', 300), startVelocity: 24, gravity: 0.6, ticks: 180, scalar: 0.9 });
     setTimeout(function () {
-      confetti({ particleCount: 45, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: 9999, startVelocity: 14, gravity: 0.8, ticks: 140, scalar: 0.7 });
+      confetti({ particleCount: 45, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: zTier('--z-alert', 300), startVelocity: 14, gravity: 0.8, ticks: 140, scalar: 0.7 });
     }, 160);
   };
 
   // Center-burst confetti for a celebration MODAL (free-entry level-up). The
   // quest-badge variant aims at an on-page element; this fires from the upper-
-  // center where the modal card sits. zIndex sits above the modal host.
+  // center where the modal card sits. --z-alert sits above --z-modal, so it
+  // still clears the modal host exactly as the old bare 10000 did.
   window.fireFreeEntryConfetti = function () {
     if (typeof confetti === "undefined") return;
     var colors = window.CONFETTI_COLORS || ["#4BAF50", "#8E82FE", "#06D6A0", "#FF7C47", "#FFD700", "#00BFFF", "#FF6B9D", "#C084FC"];
     var origin = { x: 0.5, y: 0.38 };
-    confetti({ particleCount: 110, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: 10000, startVelocity: 28, gravity: 0.6, ticks: 200, scalar: 1.0 });
+    confetti({ particleCount: 110, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: zTier('--z-alert', 300), startVelocity: 28, gravity: 0.6, ticks: 200, scalar: 1.0 });
     setTimeout(function () {
-      confetti({ particleCount: 50, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: 10000, startVelocity: 16, gravity: 0.8, ticks: 150, scalar: 0.8 });
+      confetti({ particleCount: 50, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: zTier('--z-alert', 300), startVelocity: 16, gravity: 0.8, ticks: 150, scalar: 0.8 });
     }, 160);
   };
 
@@ -271,13 +287,16 @@
     };
   };
 
-  // === entryTokenBadge — navbar ✨ badge + count popover ==============
+  // === entryTokenBadge — the live free-entry COUNT ====================
+  //   Mounted on the gear sidebar's free-entry chip (components/_gear_sidebar).
+  //   It used to drive the navbar badge's own count popover; that popover is
+  //   gone (the badge opens this sidebar now), so open/toggle/close went with
+  //   it. What survives is the only part anything still needs: a `count` that
+  //   tracks the 'entry-tokens-updated' event updateNavTokens dispatches.
   window.entryTokenBadge = function (opts) {
     opts = opts || {};
     return {
-      open: false,
       count: parseInt(opts.initialCount, 10) || 0,
-      _timer: null,
       _onTokensUpdated: null,
       init() {
         var self = this;
@@ -289,106 +308,315 @@
       },
       destroy() {
         window.removeEventListener("entry-tokens-updated", this._onTokensUpdated);
-        clearTimeout(this._timer);
-      },
-      toggle() {
-        this.open = !this.open;
-        clearTimeout(this._timer);
-        if (this.open) {
-          var self = this;
-          this._timer = setTimeout(function () { self.open = false; }, 2000);
-        }
-      },
-      close() { this.open = false; clearTimeout(this._timer); }
-    };
-  };
-
-  // === ageVerifyModal — entry-time date-of-birth age gate (ENABLE_AGE_GATE) ==
-  //   Mounted by the modal host as id 'age-verify' (modals/_age_verify).
-  //   Month/Day/Year selects → POST /age/verify. On success: flip
-  //   $store.session.ageVerified, close, dispatch 'age-verified' (the board
-  //   resumes the entry). opts: { minAge, state, url }.
-  window.ageVerifyModal = function (opts) {
-    opts = opts || {};
-    var now = new Date();
-    return {
-      month: "", day: "", year: "",
-      submitting: false,
-      error: "",
-      minAge: parseInt(opts.minAge, 10) || 18,
-      stateCode: opts.state || "",
-      url: opts.url || "/age/verify",
-      months: [
-        { n: 1, label: "January" }, { n: 2, label: "February" }, { n: 3, label: "March" },
-        { n: 4, label: "April" }, { n: 5, label: "May" }, { n: 6, label: "June" },
-        { n: 7, label: "July" }, { n: 8, label: "August" }, { n: 9, label: "September" },
-        { n: 10, label: "October" }, { n: 11, label: "November" }, { n: 12, label: "December" }
-      ],
-      // Year range: 13 years ago (youngest plausible) back 100 years.
-      years: (function () {
-        var ys = [], top = now.getFullYear() - 13, bottom = now.getFullYear() - 100;
-        for (var y = top; y >= bottom; y--) ys.push(y);
-        return ys;
-      })(),
-      // Days available for the chosen month/year (handles 28/29/30/31).
-      get dayOptions() {
-        var m = parseInt(this.month, 10), y = parseInt(this.year, 10);
-        var max = 31;
-        if (m) max = new Date(y || 2000, m, 0).getDate(); // day 0 of next month = last of this
-        var ds = [];
-        for (var d = 1; d <= max; d++) ds.push(d);
-        return ds;
-      },
-      get complete() {
-        return !!(this.month && this.day && this.year);
-      },
-      get computedAge() {
-        if (!this.complete) return null;
-        var dob = new Date(parseInt(this.year, 10), parseInt(this.month, 10) - 1, parseInt(this.day, 10));
-        var age = now.getFullYear() - dob.getFullYear();
-        var hadBirthday = (now.getMonth() > dob.getMonth()) ||
-          (now.getMonth() === dob.getMonth() && now.getDate() >= dob.getDate());
-        if (!hadBirthday) age -= 1;
-        return age;
-      },
-      // Clamp an out-of-range day when the month changes (e.g. Feb after 31).
-      onMonthChange() {
-        if (this.day && parseInt(this.day, 10) > this.dayOptions.length) this.day = "";
-        this.error = "";
-      },
-      submit() {
-        if (!this.complete || this.submitting) return;
-        this.error = "";
-        this.submitting = true;
-        var self = this;
-        var csrf = (document.querySelector('meta[name="csrf-token"]') || {}).content || "";
-        fetch(this.url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf, "Accept": "application/json" },
-          body: JSON.stringify({ year: this.year, month: this.month, day: this.day })
-        })
-          .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
-          .then(function (res) {
-            self.submitting = false;
-            if (res.ok && res.body && res.body.verified) {
-              try {
-                var sess = window.Alpine && Alpine.store && Alpine.store("session");
-                if (sess) sess.ageVerified = true;
-              } catch (e) {}
-              try { Alpine.store("modals").close(); } catch (e) {}
-              window.dispatchEvent(new CustomEvent("age-verified"));
-              return;
-            }
-            self.error = (res.body && res.body.error) ||
-              "We couldn't verify your age. Please check the date and try again.";
-          })
-          .catch(function () {
-            self.submitting = false;
-            self.error = "Network error — please try again.";
-          });
       }
     };
   };
+
+  // === navCollapse — the navbar's scroll-linked collapse ==============
+  //
+  // Publishes ONE number, --nav-p (0 expanded .. 1 collapsed), on the <header>.
+  // application.css derives every collapsing dimension from it with calc().
+  //
+  // It replaces `@scroll.window="scrolled = scrolled ? (scrollY > 5) : (scrollY
+  // > 60)"` plus `transition-all duration-300`. That pair let the FINGER set a
+  // step and an ease curve own everything after it: measured 2026-08-27 at
+  // 390x844, the header ran 178px -> 139px and 34 of those 39px of document
+  // reflow landed AFTER the scroll had stopped, over 232ms, at up to 3px per
+  // frame of content the user never asked to move. Progress is a pure function
+  // of scrollY now, so the navbar cannot move in a frame the finger did not.
+  //
+  // Three details that are load-bearing:
+  //
+  //   passive + rAF — the listener never blocks the compositor and coalesces a
+  //   burst of scroll events (iOS momentum fires far above 60Hz) into one write
+  //   per frame. The write lands on the header, not :root, so the per-frame
+  //   style recalc stays inside the navbar subtree.
+  //
+  //   the short-page guard — collapsing shortens the document by --nav-ramp px.
+  //   On a page with barely more than that to scroll, the collapse deletes the
+  //   very scroll room that triggered it, the browser clamps scrollY back to 0,
+  //   and the navbar flaps open/shut forever. `roomExpanded` adds back the
+  //   shrink already applied, so the measurement does not chase itself.
+  //
+  //   reduced motion — with the collapse scroll-linked there is no clock left to
+  //   slow down, but resizing type under a moving finger is itself the motion
+  //   some readers are asking us to drop. Under the query --nav-p snaps 0/1 on
+  //   the old hysteresis instead of interpolating.
+  window.navCollapse = function () {
+    return {
+      scrolled: false,
+      p: 0,
+      _ramp: 48,
+      _maxPx: 5,
+      _reduce: null,
+      _onScroll: null,
+      _onResize: null,
+      _onReduce: null,
+      init() {
+        var self = this;
+        var el = this.$el;
+        var queued = false;
+
+        this._reduce = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+        function readRamp() {
+          var style = getComputedStyle(el);
+          var raw = parseFloat(style.getPropertyValue("--nav-ramp"));
+          self._ramp = raw > 0 ? raw : 48;
+          var step = parseFloat(style.getPropertyValue("--nav-max-step"));
+          self._maxPx = step > 0 ? step : 5;
+        }
+
+        function apply() {
+          queued = false;
+          var ramp = self._ramp;
+          var y = Math.max(0, window.scrollY);
+
+          // Height the document WOULD have with the navbar expanded — add back
+          // the shrink already applied so this measurement cannot chase itself.
+          var roomExpanded = document.documentElement.scrollHeight
+                             - window.innerHeight
+                             + ramp * self.p;
+
+          // WHERE THE COLLAPSE WANTS TO BE, from scroll position alone.
+          var target;
+          var snap = false;
+          if (roomExpanded < ramp + 24) {
+            target = 0;
+            snap = true;
+          } else if (self._reduce.matches) {
+            target = (self.p > 0 ? y > 5 : y > 60) ? 1 : 0;
+            snap = true;
+          } else {
+            // Smoothstep, not y/ramp. Both are pure functions of scroll
+            // position, so both stop dead with the finger — but a linear ramp
+            // steps content speed to ~2x the moment it starts and back to 1x
+            // the moment it ends. Smoothstep's slope is zero at both ends, so
+            // the burst fades in and out instead: out of 1x, ~1.5x mid-ramp,
+            // back to 1x. --nav-ramp is sized at 3x the collapse to put that
+            // peak there (see application.css).
+            var t = Math.min(1, y / ramp);
+            target = t * t * (3 - 2 * t);
+          }
+
+          // THE RATE LIMIT — how far the collapse may travel in ONE frame.
+          //
+          // Making progress a pure function of scroll position fixed motion
+          // that OUTLIVED the gesture, and it did. It also guaranteed a second
+          // defect: if scrollY moves 90px between two frames, so does the
+          // header's whole range. Measured on QA at 390x844, worst
+          // single-frame header height change by scroll profile —
+          //
+          //     8px/frame (slow, deliberate)   3.9px
+          //    24px/frame (normal swipe)      14.1px
+          //    momentum flick                 39.0px   <- the ENTIRE collapse
+          //    hard flick                     39.0px
+          //
+          // 39px is the full 178 -> 139. The operator found it on an iPhone:
+          // slow scrolling looked right, a flick jumped. Every measurement
+          // behind the original fix walked a constant 8px/frame, which is
+          // exactly the case that already worked.
+          //
+          // So the TARGET stays position-linked and the STEP is clamped. The
+          // property that makes this safe is that a slow scroll never reaches
+          // the clamp — under ~5px of header travel per frame the branch below
+          // returns `target` unchanged, so the behaviour the operator approved
+          // is not approximated, it is the same arithmetic.
+          //
+          // maxStep is derived, not tuned per band: application.css sizes
+          // --nav-ramp at 3x the band's collapse total, so collapsePx is
+          // ramp/3 and a cap of MAX px/frame is 3*MAX/ramp in --nav-p units.
+          // Mobile (ramp 120) gives 4.9px/frame, desktop (ramp 144) 5.0px.
+          // Retune --nav-ramp without keeping that 3x relation and this cap
+          // silently drifts with it.
+          var p;
+          if (snap) {
+            // A guard refusal and a reduced-motion state are DECISIONS, not
+            // motion; ramping them would animate the very thing each exists to
+            // avoid.
+            p = target;
+          } else {
+            var maxStep = (3 * self._maxPx) / ramp;
+            var delta = target - self.p;
+            p = Math.abs(delta) <= maxStep
+              ? target
+              : self.p + (delta > 0 ? maxStep : -maxStep);
+          }
+
+          if (p !== self.p) {
+            self.p = p;
+            el.style.setProperty("--nav-p", p.toFixed(4));
+          }
+
+          // KEEP FRAMES COMING WHILE CATCHING UP. Nothing else will schedule
+          // one: the finger is off, so no more scroll events are arriving, and
+          // without this the collapse would freeze wherever the clamp left it.
+          // It converges LINEARLY and lands exactly — about 8 frames (~130ms)
+          // from a standing start — rather than crawling asymptotically the way
+          // the 300ms ease this replaced did.
+          if (!snap && p !== target) {
+            queued = true;
+            requestAnimationFrame(apply);
+          }
+
+          // The shadow is the one thing still on a clock, and it may stay
+          // there: box-shadow paints, it never reflows, so it cannot move
+          // content. Hysteresis keeps it from strobing at the boundary.
+          var lit = self.scrolled ? y > 5 : y > 60;
+          if (lit !== self.scrolled) self.scrolled = lit;
+        }
+
+        this._onScroll = function () {
+          if (queued) return;
+          queued = true;
+          requestAnimationFrame(apply);
+        };
+
+        readRamp();
+        apply();
+
+        this._onResize = function () { readRamp(); self._onScroll(); };
+        window.addEventListener("scroll", this._onScroll, { passive: true });
+        window.addEventListener("resize", this._onResize, { passive: true });
+        if (this._reduce.addEventListener) this._reduce.addEventListener("change", apply);
+        this._onReduce = apply;
+      },
+      destroy() {
+        // A Turbo visit tears the header down and builds a new one; without
+        // this every visit would stack another listener on window.
+        if (this._onScroll) window.removeEventListener("scroll", this._onScroll);
+        if (this._onResize) window.removeEventListener("resize", this._onResize);
+        if (this._reduce && this._reduce.removeEventListener && this._onReduce) {
+          this._reduce.removeEventListener("change", this._onReduce);
+        }
+      }
+    };
+  };
+
+  // === navUsernameFade — the navbar username's overflow fade mask =====
+  //
+  // The username button is overflow-hidden + whitespace-nowrap, so a name wider
+  // than its box gets CUT mid-glyph. This decides whether to taper that cut,
+  // from the one fact it depends on: scrollWidth > clientWidth.
+  //
+  // IT HAS TO BE MEASURED AGAIN EVERY TIME THAT BOX MOVES. It used to be an
+  // inline one-shot in init(), and init() runs at the worst possible moment —
+  // the balance slot beside it is still on its cold-cache "loading" render, so
+  // the username has the whole column and fits. MEASURED at 900px: clientWidth
+  // 89 with scrollWidth 89 at init (no overflow, no mask), then the balance
+  // hydrate lands at ~2s, paints "$40", and squeezes the button to 84 against
+  // an unchanged scrollWidth of 89. Overflowing, and nothing recomputed. Same
+  // again when applyBalanceSlotRule() swaps the slot to its wider "Free Entry"
+  // face on a first mint (84 -> 44), and again on any viewport resize across
+  // the 768/1280 squeeze band.
+  //
+  // WHY ResizeObserver AND NOT THE 'entry-tokens-updated' EVENT. That event is
+  // one CAUSE of a resize; the observer watches the EFFECT. It therefore also
+  // catches the balance hydrate (which calls applyBalanceSlotRule directly and
+  // dispatches nothing), the viewport resize, and the navbar's scrolled
+  // text-lg/text-base step — none of which announce themselves. Watching the
+  // box means a future caller cannot forget to tell us.
+  //
+  // It also keeps this OFF the window: an observer belongs to the component
+  // instance and dies with it in destroy(), so a Turbo navigation that re-runs
+  // init() on a fresh navbar cannot leave a second listener bound behind it.
+  //
+  // Reading layout in the callback is safe here: the only thing that changes is
+  // mask-image, which paints and never reflows, so there is no observer loop.
+  window.navUsernameFade = function () {
+    return {
+      overflows: false,
+      _ro: null,
+      init() {
+        this.measure();
+        if (!window.ResizeObserver) return;
+        var self = this;
+        this._ro = new ResizeObserver(function () { self.measure(); });
+        this._ro.observe(this.$el);
+      },
+      destroy() {
+        if (this._ro) { this._ro.disconnect(); this._ro = null; }
+      },
+      measure() {
+        this.overflows = this.$el.scrollWidth > this.$el.clientWidth;
+      }
+    };
+  };
+
+  // === contestRail — the featured strip's right-edge fade ==============
+  //
+  // /contests leads with a horizontal rail of open + coming-soon cards. A
+  // strip that scrolls has to SAY it scrolls, and the house idiom for that is
+  // the one navUsernameFade uses above and the navbar username already ships:
+  // taper the content itself with a mask-image, so the last card fades out
+  // instead of being cut off square at the viewport edge.
+  //
+  // MASK, NOT AN OVERLAY GRADIENT. A gradient div faked over the edge has to
+  // know the page's background colour to fade INTO, which is a theme token
+  // that changes under it; a mask fades the content to transparent and is
+  // therefore correct on any background, in either theme, over any surface a
+  // future layout puts the rail on.
+  //
+  // 85% is where the taper starts — the last ~15% of the strip's width. Far
+  // enough in to read as a soft edge, not so far that a card sitting fully
+  // inside the viewport gets dimmed.
+  //
+  // IT IS A MEASUREMENT, NOT A STYLE, which is the whole reason this is a
+  // component and not a CSS class. A rail with three cards on a wide screen
+  // does not scroll, and fading its right edge would be a lie about what is
+  // there. So the mask is bound to `canScrollRight` and reasserted on every
+  // input that can change the answer:
+  //
+  //   @scroll   the reader scrolls — at the far right there is no more to
+  //             show and the fade must come OFF, or it reads as a strip that
+  //             never ends.
+  //   observer  the viewport is resized (a window resize, the sidebar's
+  //             breakpoint, a font swap). None of these announce themselves,
+  //             so watching the BOX means a future caller cannot forget to.
+  //
+  // The observer belongs to the instance and dies with it in destroy(), so a
+  // Turbo navigation that re-runs init() on a fresh rail cannot leave a second
+  // one bound behind it.
+  //
+  // $nextTick before the first read: init() runs while this component's own
+  // subtree is still being set up, and x-ref="viewport" is on a CHILD, so a
+  // straight this.$refs.viewport in init() can find nothing and measure a rail
+  // that is permanently un-faded.
+  //
+  // The 1px slack in the comparison absorbs sub-pixel scroll positions — a
+  // fractional scrollLeft at the true end of the strip otherwise leaves a
+  // half-pixel of "more to scroll" and the fade never clears.
+  window.contestRail = function () {
+    return {
+      canScrollRight: false,
+      _ro: null,
+      init() {
+        var self = this;
+        this.$nextTick(function () {
+          self.measure();
+          if (!window.ResizeObserver || !self.$refs.viewport) return;
+          self._ro = new ResizeObserver(function () { self.measure(); });
+          self._ro.observe(self.$refs.viewport);
+        });
+      },
+      destroy() {
+        if (this._ro) { this._ro.disconnect(); this._ro = null; }
+      },
+      measure() {
+        var el = this.$refs.viewport;
+        if (!el) { this.canScrollRight = false; return; }
+        this.canScrollRight = (el.scrollWidth - el.clientWidth - el.scrollLeft) > 1;
+      }
+    };
+  };
+
+  // ageVerifyModal was DELETED 2026-08-26 (adopt-birthday-age-gate-flow). The
+  // engine owns the factory now — window.birthdayModal, rendered at layout
+  // level by studio/_birthday_assets. It is not a rename with the same
+  // behaviour: the deleted one refused an under-age date CLIENT-SIDE, turning
+  // the card red and disabling its own submit. The engine's submits every date
+  // and routes on the SERVER's verdict, so a refusal reaches the age-gate card
+  // instead of a dead end. Do not re-add a local copy.
 
   // === contestLockPicker — /contests/new + /contests/edit calendar =
   window.contestLockPicker = function (opts) {
@@ -556,8 +784,10 @@
     opts = opts || {};
     var onProgress = (opts && opts.onProgress) || function () {};
     try {
-      var provider = window.walletProvider && window.walletProvider.detect();
-      if (!provider) throw new Error("Connect your Phantom wallet to rename.");
+      // Guarded correctly before this change, but with copy that named Phantom
+      // and assumed an extension — on a phone that is advice nobody can take.
+      // requireProvider answers with the remedy that fits the device.
+      var provider = window.walletProvider.requireInlineProvider();
       onProgress("Approve in Phantom…");
       await provider.connect();
       var txBytes = Uint8Array.from(atob(challenge), function (c) { return c.charCodeAt(0); });
@@ -793,9 +1023,15 @@
       init() {
         var self = this;
         var p = this.props;
-        // Gallery preview affordance: MODAL_VARIANTS is a static constant and
-        // can't carry a live ISO deadline, so demoCountdownMinutes synthesizes
-        // one at mount (0 → already expired, for the late-send preview).
+        // Review affordance: a caller that hands this card static props cannot
+        // carry a live ISO deadline, so demoCountdownMinutes synthesizes one at
+        // mount (0 -> already expired, for the late-send state). Written for the
+        // MODAL_VARIANTS catalogue, which was retired with /admin/modals on
+        // 2026-09-08, and driven from cdp_preview_smoke_test until the preview
+        // seam went on 2026-09-09. NO CALLER PASSES IT TODAY: it is reachable by
+        // hand from the style guide's own card, whose reference text says to
+        // drive the other steps by varying props, and from a console. Kept for
+        // that, not for a test.
         if (p.demoCountdownMinutes != null && !p.deadlineAt) {
           p.deadlineAt = new Date(Date.now() + p.demoCountdownMinutes * 60000).toISOString();
         }
@@ -984,3 +1220,64 @@
   // because its body is ~150 lines and it has a single render site (navbar);
   // pulling it here would bloat this shared file without saving page weight.
 </script>
+
+<%#
+  window.startPhantomDeepLink — the Phantom MOBILE round trip. Rendered from
+  solana-studio (solana_studio/phantom_deeplink) since
+  /tasks/turf-rides-gem-modals moved it off studio-engine, and from studio-engine
+  before that, since /tasks/adopt-engine-phantom-deeplink deleted this app's fork
+  (it lived at app/javascript/phantom_deeplink.js and loaded through the
+  importmap). The gem is the only copy now: /tasks/drop-engine-web3-modals dropped
+  the engine's in studio-engine 0.66.2, and this app runs above that floor, so
+  studio-engine hands it no studio/solana partial at all.
+
+  WHY IT LIVES IN THIS FILE rather than at each layout. Two layouts mounted the
+  shared Connect-Wallet picker until 2026-09-09 (layouts/application and
+  layouts/modal_preview) and each kept its own registration list, so anything
+  written at the callsite was written twice and free to drift. The preview layout
+  is gone; the reasoning is not, because it is about WHERE a callsite-written
+  thing goes wrong rather than about how many callsites there happen to be. A
+  render here, immediately inside the opening body tag, reaches every layout that
+  mounts the picker. Same reasoning as WalletPickerHelper.
+
+  AND WHY NOT THE IMPORTMAP, which is where the fork loaded from. The shared
+  picker suppresses Phantom's mobile INSTALL row and paints its deep-link row on
+  a getter that asks whether startPhantomDeepLink is a function, and Alpine
+  evaluates x-data before importmap modules execute — the race this file's
+  header documents for every other factory. A parse-time inline script wins it;
+  an ES module does not. So this move is strictly earlier than the fork was.
+
+  NACL, and the race this app DECIDED rather than inherited. solana-studio ships
+  solana_studio/deeplink_assets, which APPENDS a script element for tweetnacl
+  and is therefore asynchronous; the callback view reads nacl at PARSE TIME and
+  hard-fails with no retry. This app does not render deeplink_assets anywhere.
+  It loads tweetnacl from a blocking, SRI-pinned tag in the layout head, so
+  window.nacl is defined before either half runs and there is no race to lose.
+  Deleting that tag means adopting deeplink_assets AND teaching the callback to
+  wait; do not do one without the other.
+
+  AND EACH LAYOUT OWES THAT TAG SEPARATELY — the trap this file sets, because
+  rendering here is unconditional while the tag need not be. layouts/application
+  loads tweetnacl for every page, so today every render of this partial has nacl
+  behind it. layouts/modal_preview did NOT: it gated the tag per modal id, so a
+  preview card got the global from this line and nacl only if its id was on that
+  list. When the gate was narrower than this render, the shared picker painted
+  its mobile Phantom row (the getter only asks whether the global is a function)
+  and the tap threw "nacl is not defined" SYNCHRONOUSLY, before the fetch, where
+  the deep link's own catch could not see it. That was
+  /tasks/preview-gallery-deeplink-dead, and the layout it happened in was deleted
+  by /tasks/retire-the-preview-harness on 2026-09-09.
+
+  WHAT THE TEST COVERS, AND WHAT IT DOES NOT — stated exactly, because an earlier
+  version of this note claimed more than was true and a reader who believes it
+  stops looking. phantom_deeplink_adoption_test asserts that the ONE layout
+  loading tweetnacl does so from a blocking tag, and reads that tag back off a
+  RENDERED page rather than only out of the layout source. It used to derive,
+  from the preview layout's own registrations, which of its cards could reach a
+  deep-link caller and demand the per-id gate cover all of them; that derivation
+  died with the gate, and nothing replaced it because there is no gate left to be
+  narrower than this render. A SECOND layout rendering this partial would owe
+  tweetnacl too and NOTHING ASSERTS IT: no test enumerates the layouts that
+  render this file. If you add one, add its own coverage with it.
+%>
+<%= render "solana_studio/phantom_deeplink" %>

@@ -25,7 +25,7 @@
 //      font, because a character budget in the helper is only a proxy for width.
 
 const { test, expect } = require("@playwright/test");
-const { login, reseed, createActiveEntry, setQuestState } = require("./helpers");
+const { login, reseed, createActiveEntry, setQuestState, allowMotion } = require("./helpers");
 
 const CONTEST_SLUG = "world-cup-2026";
 const CONTEST_PATH = `/contests/${CONTEST_SLUG}`;
@@ -56,6 +56,14 @@ test.beforeEach(async ({ request }) => await reseed(request));
 
 test("the rested placeholder survives another quest-chat-active ping", async ({ page }) => {
   test.setTimeout(90_000);
+  // MOTION ON, ON PURPOSE. The lane runs prefers-reduced-motion by default since
+  // /tasks/make-reduced-motion-reach-specs, and the composer's own code respects
+  // it: `startPrompts()` RETURNS EARLY under the query
+  // (contests/_chat_panel.html.erb:288) because a string rewriting itself under
+  // the reader's caret is animation too. The typed deck is this spec's whole
+  // subject, so it turns motion back on rather than waiting 40s for a deck that
+  // was never going to type.
+  await allowMotion(page);
   await entrantOnChatQuest(page);
 
   const rested = await restedPlaceholder(page);
@@ -115,6 +123,14 @@ const OVERSIZE_NAME = "Bosnia and Herzegovina";
 // the real path, not a cross-platform pixel prediction.
 test("the rest line never wraps in the composer at 375px", async ({ page }) => {
   test.setTimeout(90_000);
+  // MOTION ON, ON PURPOSE. The lane runs prefers-reduced-motion by default since
+  // /tasks/make-reduced-motion-reach-specs, and the composer's own code respects
+  // it: `startPrompts()` RETURNS EARLY under the query
+  // (contests/_chat_panel.html.erb:288) because a string rewriting itself under
+  // the reader's caret is animation too. The typed deck is this spec's whole
+  // subject, so it turns motion back on rather than waiting 40s for a deck that
+  // was never going to type.
+  await allowMotion(page);
   await page.setViewportSize({ width: 375, height: 900 });
   await entrantOnChatQuest(page);
 

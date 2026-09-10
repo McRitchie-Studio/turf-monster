@@ -24,11 +24,9 @@ namespace :solana do
     fail = ->(msg) { puts "  ✗ #{msg}"; exit_code = 1 }
     info = ->(msg) { puts "  · #{msg}" }
 
-    redact = ->(v) { v.to_s.sub(/api-key=[^&]+/, "api-key=***") }
-
     puts "=== Solana preflight (config consistency) ==="
     puts "  NETWORK    = #{Solana::Config::NETWORK}"
-    puts "  RPC_URL    = #{redact.(Solana::Config::RPC_URL)}"
+    puts "  RPC_URL    = #{Solana::Config.redact_rpc_url(Solana::Config::RPC_URL)}"
     puts "  PROGRAM_ID = #{Solana::Config::PROGRAM_ID}"
     puts "  USDC_MINT  = #{Solana::Config::USDC_MINT}"
     puts "  USDT_MINT  = #{Solana::Config::USDT_MINT}"
@@ -61,8 +59,14 @@ namespace :solana do
       if ENV[var].to_s.strip.empty?
         fail.("#{var} is unset")
       else
-        # Don't echo secrets; just confirm presence (+ redact RPC).
-        shown = var == "SOLANA_ADMIN_KEY" ? "(set)" : redact.(ENV[var])
+        # Don't echo secrets; just confirm presence. Only the RPC URL goes
+        # through redact_rpc_url — it is a URL redactor, and a bare base58
+        # program ID / mint would come back as "***".
+        shown = case var
+        when "SOLANA_ADMIN_KEY" then "(set)"
+        when "SOLANA_RPC_URL"   then Solana::Config.redact_rpc_url(ENV[var])
+        else ENV[var]
+        end
         pass.("#{var} present — #{shown}")
       end
     end
@@ -114,9 +118,15 @@ namespace :solana do
         info.("vault paused = #{vault[:paused]}")
       end
     rescue Solana::Client::RpcError => e
-      fail.("VaultState read failed (RPC): #{e.message[0, 160]}")
+      # redact_message, not a bare truncation: this rescue also catches the
+      # client CONSTRUCTOR's Solana::Client::InsecureRpcUrlError (and
+      # URI::InvalidURIError), both of which interpolate the whole credentialed
+      # endpoint into their own message. Truncating at 160 chars is not
+      # redaction — the key sits at the front of the string. Same defect, same
+      # rotation path, as the one fixed in solana:health.
+      fail.("VaultState read failed (RPC): #{Solana::Config.redact_message(e.message).truncate(160)}")
     rescue StandardError => e
-      fail.("VaultState read failed: #{e.class}: #{e.message[0, 160]}")
+      fail.("VaultState read failed: #{e.class}: #{Solana::Config.redact_message(e.message).truncate(160)}")
     end
 
     puts

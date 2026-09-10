@@ -150,10 +150,19 @@ class FaucetControllerTest < ActionDispatch::IntegrationTest
 
   test "with_production_env sets every var Solana::Config requires in production" do
     source   = Rails.root.join("app/services/solana/config.rb").read
-    required = source.scan(/ENV\.fetch\("(\w+)"\) \{ raise/).flatten
+    # Scan CODE, not prose. This used to scan the whole file, and when
+    # SOLANA_NETWORK moved to the `.presence` idiom the count stayed at 3 only
+    # because a COMMENT quotes the retired `ENV.fetch(k) { raise }` form
+    # verbatim — the completeness guard was passing on a comment while measuring
+    # two real call sites. Strip full-line comments, and recognise BOTH idioms,
+    # so a var counts here only while it really is required in production.
+    code     = source.lines.grep_v(/^\s*#/).join
+    required = code.scan(/ENV\.fetch\("(\w+)"\) \{ raise|ENV\["(\w+)"\]\.presence\s*\|\|\s*raise/)
+                   .flatten.compact
 
     assert_operator required.size, :>=, 3,
-                    "expected the production-required env vars to still be declared as raising ENV.fetch calls in config.rb"
+                    "expected the production-required env vars to still be declared in config.rb " \
+                    "as raising ENV.fetch calls or `.presence || raise` — in CODE, not in a comment"
 
     # The ambient env must be CLEARED first, or this measures the shell instead
     # of the helper. Measured: dotenv loads .env in dev/test and it sets

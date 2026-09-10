@@ -1,0 +1,34 @@
+<%# ONE GAME on the week board. Locals: card (Game), zone (the column key).
+
+    IT DRAWS THE SAME TILE /live DRAWS — live/_game_tile, in its `:split` size,
+    rather than a second, plainer rendering of a game invented for this page.
+    That is not only less markup: an operator ordering the games is choosing
+    between the very cards the board will show, and two renderings of a game
+    would eventually disagree about what a team is called or what colour it is.
+    The tile brings the team fields, the mascot and city, the live score and the
+    status badge with it.
+
+    :split lays the two teams SIDE BY SIDE rather than stacking them, which
+    halves each card's height — the whole week has to be readable as one list,
+    and vertical room is the scarce thing on a page whose job is ordering.
+
+    THE POSITION IS NOT WRITTEN HERE. The badge's number is a CSS counter over
+    the list (see the styles in weeks/show), which means it is right on first
+    paint AND right the instant a drag finishes — with no JS to run and nothing
+    to re-render. A server-rendered number would be stale between the drop and
+    the response, and would then have two sources of truth to keep honest; a
+    counter has one, and it is the thing the operator is manipulating. %>
+<%= render layout: "studio/board/card_shell",
+           locals: { id: card.slug, zone: zone,
+                     class: "flex items-center gap-3 cursor-grab active:cursor-grabbing select-none" } do %>
+  <%# The gutter. Outside the tile rather than laid over it: a number sitting on
+      a team's field has to survive thirty-two background colours, and this one
+      only has to survive the page. %>
+  <span data-role="rank-badge" aria-hidden="true"
+        class="tt-rank-badge flex-shrink-0 h-7 w-7 rounded-full bg-surface-alt border border-subtle
+               text-secondary text-xs font-extrabold flex items-center justify-center tabular-nums"></span>
+
+  <div class="min-w-0 flex-1">
+    <%= render "live/game_tile", game: card, size: :split %>
+  </div>
+<% end %>
