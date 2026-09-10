@@ -21,7 +21,15 @@ class WalletOpRunnerJsTest < ActiveSupport::TestCase
 
   # `transport:` picks which provider tmWalletOp is handed. `body` runs with:
   # ran (every walletOps.run call), modal (every card painted), stranded.
-  def run_js(body, transport: "inline", hidden: false)
+  #
+  # `run_result:` is the EXPRESSION the stubbed walletOps.run answers with, and
+  # it is what makes the arming ORDER observable. The default resolves
+  # immediately, which is precisely the world in which the defect is invisible:
+  # prepare appears to take no time, so a watchdog armed before the call and one
+  # armed after it look identical. A test that never holds run open cannot see
+  # which side of the handoff the timer is on.
+  def run_js(body, transport: "inline", hidden: false,
+             run_result: "Promise.resolve({ suspended: true })")
     script = <<~JS
       global.window = global;
       global.console = { log: function () {}, warn: function () {}, error: function () {} };
@@ -38,7 +46,7 @@ class WalletOpRunnerJsTest < ActiveSupport::TestCase
       global.setTimeout = function (fn, ms) { timers.push({ fn: fn, ms: ms }); return timers.length; };
 
       var ran = [];
-      window.SolanaStudio = { walletOps: { run: function (name, ctx, opts) { ran.push({ name: name, ctx: ctx, opts: opts }); return Promise.resolve({ suspended: true }); } } };
+      window.SolanaStudio = { walletOps: { run: function (name, ctx, opts) { ran.push({ name: name, ctx: ctx, opts: opts }); return (#{run_result}); } } };
 
       var modal = { cards: [], visible: true };
       modal.show = function (t, b) { modal.cards.push(['show', t, b]); };
@@ -240,6 +248,83 @@ class WalletOpRunnerJsTest < ActiveSupport::TestCase
                  "here re-enables buttons behind a wallet that is actively signing"
     assert_equal ["show"], result["cards"],
                  "and no error card belongs in front of a user whose wallet did open"
+  end
+
+  # --- WHICH SIDE OF THE HANDOFF THE WATCHDOG STARTS ON --------------------
+  #
+  # THE VALUE WAS PORTED FROM THE BOARD; THE STARTING GUN WAS NOT.
+  # contests/_turf_totals_board arms this same 2500ms timer AFTER awaiting run.
+  # This wrapper armed it BEFORE the call — and runRedirect AWAITS prepare()
+  # and navigates second, so the window meant to outlast an OS app-switch prompt
+  # was being asked to cover prepare's network round trips as well. Contest
+  # creation is the worst case: a multipart banner upload plus a rebuild POST.
+
+  test "the grace window starts when the wallet was handed the link, not when prepare began" do
+    # run() is HELD OPEN here, which is the only way the order is observable: an
+    # immediately-resolved run makes "armed before" and "armed after" identical.
+    result = run_js(<<~JS, transport: "redirect",
+      var stranded = 0;
+      var trip = window.tmWalletOp('contest_create', {}, { onStranded: function () { stranded += 1; } });
+
+      // Still inside prepare — on a real create, mid banner upload.
+      var duringPrepare = { timers: timers.length, listeners: pageHideHandlers.length };
+
+      releaseRun();
+      await trip;
+      var afterHandoff = { timers: timers.length, listeners: pageHideHandlers.length };
+
+      timers.forEach(function (t) { t.fn(); });
+      return { duringPrepare: duringPrepare, afterHandoff: afterHandoff, stranded: stranded,
+               delay: timers[0] && timers[0].ms, cards: modal.cards };
+    JS
+                    run_result: "new Promise(function (res) { global.releaseRun = function () { res({ suspended: true }); }; })")
+
+    # THE LISTENER IS THE HALF THAT MUST BE EARLY. The navigation it watches for
+    # happens INSIDE run(), so attaching it afterwards registers a handler for an
+    # event that has already gone by.
+    assert_equal({ "timers" => 0, "listeners" => 1 }, result["duringPrepare"],
+                 "a slow create paints \"your wallet app did not open\" moments before Phantom " \
+                 "opens when this counts down through prepare")
+
+    assert_equal({ "timers" => 1, "listeners" => 1 }, result["afterHandoff"],
+                 "the link is with the OS now — this is the first moment there is an app switch to wait on")
+    assert_equal 2500, result["delay"], "the window only has to outlast the OS app-switch prompt"
+
+    # AND IT STILL FIRES. Moving the start must not disarm the guard: a trip that
+    # was handed off and never left is still stranded, and still says so.
+    assert_equal 1, result["stranded"]
+    assert_equal ["error", "Wallet Did Not Open"], result["cards"].last.first(2)
+  end
+
+  test "a prepare that failed leaves ITS OWN message on the card" do
+    # NOT A RACE — DETERMINISTIC. On a create that genuinely fails, the caller's
+    # catch paints the real cause immediately and the watchdog overwrote it 2.5s
+    # later, EVERY time, so the operator never saw why. The trip never reached
+    # the wallet, so there is no handoff to wait on and nothing to arm.
+    result = run_js(<<~JS, transport: "redirect",
+      var stranded = 0;
+      var message = null;
+      try {
+        await window.tmWalletOp('contest_create', {}, { onStranded: function () { stranded += 1; } });
+      } catch (e) {
+        message = e.message;
+        // Exactly what contests/new does with it.
+        modal.error(e.message, 'Contest Creation Failed');
+      }
+      timers.forEach(function (t) { t.fn(); });
+      return { message: message, timers: timers.length, stranded: stranded, cards: modal.cards };
+    JS
+                    run_result: "Promise.reject(new Error('Your session expired — sign in and try again.'))")
+
+    # Asserted as the ONE right card, not as "no wallet error was shown" — that
+    # weaker claim passes when the wrong error is shown too.
+    assert_equal ["error", "Contest Creation Failed", "Your session expired — sign in and try again."],
+                 result["cards"].last,
+                 "the cause the user can act on has to be the card still standing"
+    assert_equal 0, result["timers"], "there was no handoff, so there is no grace window to run"
+    assert_equal 0, result["stranded"], "the caller already released its own controls in its catch"
+    assert_equal "Your session expired — sign in and try again.", result["message"],
+                 "the rejection reaches the caller untouched — this wrapper diagnoses nothing"
   end
 
   test "an inline run arms no handoff watch at all" do

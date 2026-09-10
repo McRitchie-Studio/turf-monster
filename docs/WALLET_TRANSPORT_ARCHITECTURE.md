@@ -400,6 +400,19 @@ cluster, and the watch for a handoff to the wallet app that never happens. Each
 of those was a defect in this epic; the return address lost a real user's entry
 on QA after they had approved it.
 
+**THE HANDOFF WATCH ARMS IN TWO HALVES, AT DIFFERENT MOMENTS.** The `pagehide`
+listener is attached BEFORE `walletOps.run`, because the navigation it watches
+for happens inside that call. The 2500ms timer starts only once `run` has
+RESOLVED — `runRedirect` awaits `prepare()` and navigates second, so a timer
+started before the call measures prepare's network round trips rather than the
+OS app switch. Contest creation is the worst case: its prepare is a multipart
+banner upload plus a rebuild POST. Armed early it produced two failures — a slow
+but WORKING create painted "Your wallet app did not open" moments before Phantom
+opened, and a create that genuinely FAILED had its real error card overwritten
+2.5s later, deterministically, so the cause was never seen. A `run` that REJECTS
+arms no timer at all: nothing was handed off, so nothing may claim the wallet
+failed to open. `contests/_turf_totals_board` uses the same shape inline.
+
 **THE INLINE PATH IS NO LONGER A SECOND IMPLEMENTATION.** solana-studio 0.9.2
 (PR #41) closed the three gaps that forced one: the inline path now takes the
 same base58 wire bytes and converts them through the provider's own

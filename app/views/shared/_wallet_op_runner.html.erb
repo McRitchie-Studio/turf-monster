@@ -103,15 +103,50 @@
   // when the app switch DOES take, so its absence after the grace window is what
   // tells us this document is still here. document.hidden covers the iOS case
   // where the switch is in flight but pagehide has not fired yet.
-  function watchHandoff(onStranded) {
+  //
+  // THE TWO HALVES ARM AT DIFFERENT MOMENTS, and that is the whole reason this
+  // hands back a handle instead of doing both at once.
+  //
+  //   THE LISTENER arms BEFORE run(), because the navigation it watches for
+  //   happens INSIDE run(). Attached afterwards it would be registered after the
+  //   event it exists to catch.
+  //
+  //   THE TIMER arms only once run() has RESOLVED, because that is the first
+  //   moment the OS has actually been handed the universal link. runRedirect
+  //   AWAITS prepare() and navigates second — so a timer started before the call
+  //   is not measuring the app switch at all, it is racing prepare's network
+  //   round trips. Contest creation is the worst case: its prepare is a
+  //   multipart banner upload plus a rebuild POST, and 2.5s does not cover both
+  //   plus an app switch. Two failures fell out of that, and neither is exotic:
+  //   a SLOW BUT WORKING create painted "Your wallet app did not open" moments
+  //   before Phantom opened, and a create that FAILED had its real error card
+  //   overwritten by this one 2.5s later, every single time, so the user never
+  //   saw the cause. Raised in review of PR 674.
+  //
+  // The shape is the one contests/_turf_totals_board already arrived at by
+  // measurement: listener before the run, setTimeout after the await.
+  function watchHandoff() {
     var left = false;
     var onPageHide = function () { left = true; };
     window.addEventListener('pagehide', onPageHide, { once: true });
-    setTimeout(function () {
-      window.removeEventListener('pagehide', onPageHide);
-      if (left || document.hidden) return;
-      onStranded();
-    }, HANDOFF_GRACE_MS);
+
+    return {
+      // The handoff took: start counting down the grace window.
+      start: function (onStranded) {
+        setTimeout(function () {
+          window.removeEventListener('pagehide', onPageHide);
+          if (left || document.hidden) return;
+          onStranded();
+        }, HANDOFF_GRACE_MS);
+      },
+      // The trip never reached the wallet — prepare threw, the journal refused,
+      // the wrong account connected. There is no handoff to wait on, so nothing
+      // is armed and the listener is released rather than left to accumulate one
+      // more dead handler per retry.
+      cancel: function () {
+        window.removeEventListener('pagehide', onPageHide);
+      }
+    };
   }
 
   // ctx  — the intent's own arguments. JSON-serialisable, always: on the
@@ -137,15 +172,17 @@
       }
     }
 
-    if (redirect) {
-      watchHandoff(function () {
-        var m = solanaModal();
-        if (m && m.visible) {
-          m.error('Your wallet app did not open. Make sure it is installed on this device, then try again.',
-                  'Wallet Did Not Open');
-        }
-        if (typeof opts.onStranded === 'function') opts.onStranded();
-      });
+    // Armed here, STARTED after the run — see watchHandoff. An inline transport
+    // never navigates, so it gets no watch at all.
+    var watch = redirect ? watchHandoff() : null;
+
+    function stranded() {
+      var m = solanaModal();
+      if (m && m.visible) {
+        m.error('Your wallet app did not open. Make sure it is installed on this device, then try again.',
+                'Wallet Did Not Open');
+      }
+      if (typeof opts.onStranded === 'function') opts.onStranded();
     }
 
     return window.SolanaStudio.walletOps.run(name, ctx, {
@@ -154,6 +191,18 @@
       appUrl: window.location.origin,
       redirectLink: window.location.origin + CALLBACK_PATH,
       cluster: document.body.dataset.solanaCluster
+    }).then(function (result) {
+      // THE LINK IS WITH THE OS NOW. Everything before this point was prepare.
+      if (watch) watch.start(stranded);
+      return result;
+    }, function (err) {
+      // NOTHING WAS HANDED OFF, so nothing may later claim the wallet failed to
+      // open. The caller's catch is about to paint the REAL cause, and a
+      // watchdog left running would replace that message 2.5 seconds later —
+      // deterministically, not as a race. Rethrown untouched: this branch adds
+      // no diagnosis, it only declines to invent one.
+      if (watch) watch.cancel();
+      throw err;
     });
   };
 })();

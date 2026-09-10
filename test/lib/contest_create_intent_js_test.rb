@@ -29,9 +29,13 @@ class ContestCreateIntentJsTest < ActiveSupport::TestCase
   end
 
   # `responses` maps a URL fragment → the JSON body that POST answers with.
-  # `body` runs with: posted (every request recorded), defined (every intent
-  # walletOps.define was handed), and B58.
-  def run_js(body, responses:, authed: true)
+  # `body` runs with: posted (every request recorded), shown (every card
+  # painted), defined (every intent walletOps.define was handed), and B58.
+  #
+  # `alpine:` decides whether this world HAS a modal store at all. Both worlds
+  # are real: prepare() runs on the page that owns the form, complete() may run
+  # on studio-engine's callback document, which never rendered an Alpine store.
+  def run_js(body, responses:, authed: true, alpine: true)
     script = <<~JS
       global.window = global;
       global.console = { log: function () {}, warn: function () {}, error: function () {} };
@@ -44,6 +48,9 @@ class ContestCreateIntentJsTest < ActiveSupport::TestCase
       window.SolanaStudio.walletOps = {
         define: function (name, handler) { defined[name] = handler; }
       };
+
+      const shown = [];
+      #{alpine ? "window.Alpine = { store: function (n) { return n === 'solanaModal' ? { show: function (t, b) { shown.push([t, b]); } } : null; } };" : ''}
 
       const posted = [];
       const RESPONSES = #{responses.to_json};
@@ -222,6 +229,53 @@ class ContestCreateIntentJsTest < ActiveSupport::TestCase
     assert_match(/broadcast this contest instead of signing/, result["message"])
   end
 
+  # --- what the user is looking at while the server works -------------------
+  #
+  # walletOps.run has NO progress hook between the signing hop and complete(), so
+  # a call site cannot paint this leg — the narration can only come from the
+  # intent itself. contests/new used to narrate three steps and the generator
+  # five; the collapse onto one call left a single static card standing for all
+  # of them.
+
+  test "the create finalize leg is narrated rather than left on the signing copy" do
+    result = run_js(<<~JS, responses: CREATE_RESPONSES)
+      var signed = B58.encode(new Uint8Array([7, 7, 7]));
+      await window.tmCompleteContestCreate(
+        { csrfToken: 'C', finalizePath: '/finalize' },
+        { signedTransaction: signed },
+        { params_token: 'T', contest_pda: 'P' }
+      );
+      return { shown: shown };
+    JS
+
+    # #finalize BLOCKS on cosign_and_broadcast_create_contest. Unpainted, the
+    # card the admin is staring at still reads "approve the prize-pool USDC
+    # transfer in your wallet when it opens" — an approval they have already
+    # given — while the server is mid-broadcast.
+    assert_equal [["Confirming Onchain", "Cosigning and submitting your contest to Solana..."]],
+                 result["shown"],
+                 "the wallet is done and the server is not — say so, or the admin reopens the wallet"
+  end
+
+  test "a create the wallet broadcast is never narrated as confirming" do
+    # THE CONTROL ON THE PAINT'S PLACEMENT. The sign-only refusal posts nothing,
+    # so a card painted above it would announce a confirmation that will not
+    # happen — and it would be the LAST thing on screen before the throw.
+    result = run_js(<<~JS, responses: CREATE_RESPONSES)
+      try {
+        await window.tmCompleteContestCreate(
+          { csrfToken: 'C', finalizePath: '/finalize' },
+          { signature: 'SIG', signedTransaction: null },
+          { params_token: 'T', contest_pda: 'P' }
+        );
+      } catch (e) { /* asserted elsewhere */ }
+      return { shown: shown };
+    JS
+
+    assert_empty result["shown"],
+                 "nothing is being cosigned — the refusal is the whole outcome"
+  end
+
   # --- contest_bundle ------------------------------------------------------
 
   test "bundle prepare sends only the key and returns wire bytes plus its ids" do
@@ -276,5 +330,44 @@ class ContestCreateIntentJsTest < ActiveSupport::TestCase
     assert_equal true, result["threw"]
     assert_equal 0, result["posts"]
     assert_match(/broadcast this bundle instead of signing/, result["message"])
+  end
+
+  test "the bundle finalize leg is narrated rather than left on the signing copy" do
+    result = run_js(<<~JS, responses: BUNDLE_RESPONSES)
+      var signed = B58.encode(new Uint8Array([4, 5]));
+      await window.tmCompleteContestBundle(
+        { csrfToken: 'C', finalizePath: '/finalize_bundle' },
+        { signedTransaction: signed },
+        { params_token: 'B', contest_pda: 'P' }
+      );
+      return { shown: shown };
+    JS
+
+    # The generator lost the most here: five narrated steps became one static
+    # card held for the whole of #finalize_bundle, which cosigns, broadcasts and
+    # provisions server-side.
+    assert_equal [["Confirming Onchain", "Cosigning and submitting this bundle to Solana..."]],
+                 result["shown"]
+  end
+
+  test "a document without Alpine still finalizes a contest" do
+    # THE ABSENT-CAPABILITY RULE, and this handler runs where it bites: complete()
+    # may execute on studio-engine's callback page, which has no Alpine store. An
+    # unguarded paint would throw there AFTER the admin approved and AFTER resume()
+    # consumed the journal — the original lost-entry incident, at the moment of
+    # highest cost. Copy is a courtesy; a contest is not.
+    result = run_js(<<~JS, responses: CREATE_RESPONSES, alpine: false)
+      var signed = B58.encode(new Uint8Array([7, 7, 7]));
+      var data = await window.tmCompleteContestCreate(
+        { csrfToken: 'C', finalizePath: '/finalize' },
+        { signedTransaction: signed },
+        { params_token: 'T', contest_pda: 'P' }
+      );
+      return { slug: data.slug, posts: posted.length };
+    JS
+
+    assert_nil result["error"]
+    assert_equal "x", result["slug"], "the finalize POST must still land on a page with no modal store"
+    assert_equal 1, result["posts"]
   end
 end
