@@ -263,6 +263,27 @@ class SolanaManagedWalletKeyRotationTest < ActiveSupport::TestCase
            "a re-seal carrying any other secret must never be written"
   end
 
+  # "Decrypt it with the new key ALONE." A re-seal that landed under the
+  # PREVIOUS key would pass any read-back that also tries the previous key --
+  # and then die the day that key is retired. It must be refused, and the row
+  # left exactly as it was.
+  test "a re-seal that only the PREVIOUS key can open is refused and never written" do
+    user, keypair = managed_user_sealed_under(@key_a, "verify-prev")
+    before = user.encrypted_web2_solana_private_key
+
+    status, out = with_wallet_keys(primary: @key_b, previous: @key_a) do
+      Solana::Keypair.stub(:seal_plaintext, ->(plaintext) { "v2:#{v2_encryptor(@key_a).encrypt_and_sign(plaintext)}" }) do
+        run_task
+      end
+    end
+
+    assert_equal 1, status
+    assert_match(/FAILED user ##{user.id} .*read-back under the current key alone did not match/, out)
+    assert_match(/migrated: 0/, out)
+    assert user.reload.encrypted_web2_solana_private_key == before, "the row must be left byte-identical"
+    assert opens_under?(@key_a, before, keypair)
+  end
+
   # The address check cannot see this one: Solana::Keypair.from_bytes reads
   # only the 32-byte seed, so a plaintext with the SAME seed and a different
   # second half derives the same address. Only the byte-for-byte comparison
