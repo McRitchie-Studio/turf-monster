@@ -329,17 +329,17 @@
           Create Contest
         </button>
         <p class="text-xs text-muted text-center mt-2">
-          You sign the on-chain Contest PDA creation with your Phantom wallet. The prize pool USDC
-          transfers from your wallet to the vault. The DB row is created only after the on-chain
-          transaction confirms — no orphans possible.
+          You sign the on-chain Contest PDA creation with your Phantom wallet. The prize pool USDC transfers from your wallet to the vault.
+          The contest row is saved as pending before the transaction broadcasts, and opens after the transaction verifies.
+          If a later step fails, the pending row stays: a sweep every 15 minutes opens it once the Contest PDA exists, and otherwise deletes it or flags it for manual review.
         </p>
       </div>
     <% end %>
 
     <%# Phantom-driven contest creation. POST /contests builds a fully unsigned
         TX (admin fee-payer + creator signature slots reserved). Phantom signs
-        first, then POST /contests/finalize validates the signed wire, admin
-        cosigns, simulates, broadcasts, verifies, and creates the DB row. %>
+        first, then POST /contests/finalize validates the signed wire, saves a `pending` row, admin
+        cosigns, simulates, broadcasts, stamps the signature, verifies, and promotes it to `open`. %>
     <script type="application/json" id="contest-new-config">
       <%= {
         hasPhantom: current_user&.phantom_wallet?,
