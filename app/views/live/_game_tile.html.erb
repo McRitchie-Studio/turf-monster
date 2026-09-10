@@ -198,6 +198,13 @@
             second event inside one chain repaints in place and plays the
             entrance nudge, which is what the scorer card did before its
             headshot made that impossible. %>
+        <%# THE WORDS KEEP THE HALF. This block still meets the two team rows
+            exactly where they meet each other, and its four lines still centre
+            in that half — which is the layout the operator signed off, and
+            moving the seam to make room for the picture below moved the words
+            with it. So the seam does not move; the frame BELOW reaches up past
+            it instead (see its own note). %>
+        <% plays = game.goals.sort_by { |goal| [goal.minute || 0, goal.id] }.reverse %>
         <div class="relative h-1/2 w-full flex-shrink-0 overflow-hidden"
              data-role="status-frame" data-test="live-focus-status">
           <div class="tt-status-track absolute inset-x-0 top-0 h-[200%] flex flex-col">
@@ -296,7 +303,6 @@
         <%# THE EVENTS, newest first. A feed that grows downward pushes the play
             you care about out of a fixed-height rail; newest-first keeps the last
             score where the eye already is, and the rest scroll. %>
-        <% plays = game.goals.sort_by { |goal| [goal.minute || 0, goal.id] }.reverse %>
         <% if plays.any? %>
           <%# THE FADE IS AN OVERLAY, NOT A MASK ON THE SCROLLER, and that choice
               is what keeps a two-play game honest. A mask fades the container's
@@ -320,7 +326,25 @@
               The frame clips (overflow-hidden); the track is twice its height and
               each pane is exactly one window tall, so translateY(-50%) lands the
               second pane perfectly. %>
-          <div class="relative h-1/2 min-h-0 w-full overflow-hidden"
+          <%# IT REACHES UP PAST THE SEAM — 1.25rem of it — so the portrait can
+              OVERLAP the words' half rather than being confined below the line
+              the two team rows meet on. That overlap is the whole effect: a
+              picture whose bottom sits flush on the card's edge and whose head
+              crosses a boundary reads as having depth, where one boxed neatly
+              inside its own half reads as a thumbnail.
+
+              THE FRAME MOVES, NOT THE PICTURE, because the frame CLIPS — the
+              wheel is two panes on a rolling track and depends on it — so no
+              height given to the portrait can escape its own box. Raising the
+              clip line is the only way anything inside it gets above the seam.
+
+              THE CALC KEEPS THE FLOOR EXACT AT ANY TILE HEIGHT: the frame is
+              half the rail plus the overlap and starts the overlap early, so
+              top = H/2 - 1.25rem and bottom = H, whatever H turns out to be.
+              A percentage margin could not do this — percentage margins resolve
+              against the container's WIDTH, and this rail is wider than it is
+              tall, so -12% would have pulled it up by 48px instead of 28. %>
+          <div class="relative h-[calc(50%+1.25rem)] -mt-5 min-h-0 w-full overflow-hidden"
                data-role="event-feed-frame" data-fade-top="0" data-fade-bottom="1">
             <div class="tt-event-track absolute inset-x-0 top-0 h-[300%] flex flex-col">
 

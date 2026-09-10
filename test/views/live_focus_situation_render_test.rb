@@ -30,6 +30,14 @@ class LiveFocusSituationRenderTest < ActionDispatch::IntegrationTest
                               kickoff_at: 3.hours.from_now)
   end
 
+  # A goal is what brings the events frame into being — the rail renders none
+  # for a game with no scores, so the seam has nothing to move for.
+  def score!(game)
+    game.update_column(:slug, game.name_slug) if game.slug != game.name_slug
+    game.reload.goals.create!(team_slug: "team-a", points: 3, scoring_type: "field_goal",
+                              scorer_name: "Sam Kicker")
+  end
+
   def rail_for(slug)
     css_select("[data-focus-slug='#{slug}'] [data-test='live-focus-status']").first
   end
@@ -145,6 +153,41 @@ class LiveFocusSituationRenderTest < ActionDispatch::IntegrationTest
       assert_select "[data-role=scorer-card] [data-role=#{gone}]", { count: 0 },
         "[data-role=#{gone}] belongs to the status half — a copy here is the duplicate"
     end
+  end
+
+  # ── THE WORDS KEEP THEIR HALF; THE FRAME REACHES UP ───────────────────────
+  #
+  # The first cut of the overlap moved the SEAM — 38/62 — which bought the
+  # portrait its room by taking it from the words, and the four lines re-centred
+  # in a shorter box. The operator's verdict was that their centring was right
+  # as it was. So the status block keeps h-1/2 and the frame below reaches up
+  # past it instead, by a fixed 1.25rem.
+  #
+  # PINNED AS A PAIR. The height and the negative margin have to agree or the
+  # rail's floor stops being the card's edge: half plus the overlap, started an
+  # overlap early, lands the bottom back on H whatever H is. Nothing else in the
+  # suite would notice them drifting apart, and the e2e spec that measures the
+  # RESULT (flush at the bottom, crossing the divider at the top) runs in a lane
+  # this one does not.
+  test "the status block keeps the rows' seam for its words" do
+    score!(@live)
+    get live_path
+
+    status = css_select("[data-focus-slug='#{@live.slug}'] [data-role='status-frame']").first
+    assert_includes status["class"].split, "h-1/2",
+      "the words centre in the same box they always did"
+  end
+
+  test "the portrait's frame reaches above the seam and still ends on the floor" do
+    score!(@live)
+    get live_path
+
+    frame = css_select("[data-focus-slug='#{@live.slug}'] [data-role='event-feed-frame']").first
+    classes = frame["class"].split
+
+    assert_includes classes, "-mt-5", "the frame starts 1.25rem above the seam"
+    assert_includes classes, "h-[calc(50%+1.25rem)]",
+      "and is that much taller, so its floor is still the card's edge"
   end
 
   # The event pane is hidden from assistive tech until the page fills it in.

@@ -600,6 +600,35 @@ test.describe("Contest live page", () => {
     });
     expect(offCentre).toBeLessThan(6);
 
+    // ── FLUSH AT THE BOTTOM, BLEEDING AT THE TOP ────────────────────────────
+    //
+    // The two halves of the operator's ask, and the only tier that can check
+    // either: both are questions about where boxes LAND, which a render test
+    // cannot compute and a class assertion only proxies for.
+    //
+    // The shoulders sit exactly on the card's bottom edge, and the head rises
+    // past the line where the two team rows meet, into the half that holds the
+    // words. The bleed is bought by the FRAME starting above that seam — so a
+    // frame put back on the halfway line fails this, which a `h-[62%]` string
+    // comparison would not notice if the seam moved some other way.
+    const geometry = await page.evaluate((slug) => {
+      const tile = document.querySelector(`[data-focus-slug="${slug}"]`);
+      const rows = tile.querySelector('[data-role="team-rows"]').getBoundingClientRect();
+      const frame = tile.querySelector('[data-role="event-feed-frame"]').getBoundingClientRect();
+      const shown = [...tile.querySelectorAll('[data-role="scorer-card"]')].find((c) => {
+        const r = c.getBoundingClientRect();
+        return (r.top + r.bottom) / 2 > frame.top && (r.top + r.bottom) / 2 < frame.bottom;
+      });
+      const img = shown.querySelector('[data-role="scorer-headshot"]').getBoundingClientRect();
+      return {
+        flushGap: rows.bottom - img.bottom,
+        bleed: rows.top + rows.height / 2 - img.top,
+      };
+    }, gameSlug);
+
+    expect(Math.abs(geometry.flushGap)).toBeLessThan(2);
+    expect(geometry.bleed).toBeGreaterThan(10);
+
     // The card is genuinely on screen, not merely class-swapped: a transform
     // typo would leave it parked below the rail while the class said otherwise.
     //
