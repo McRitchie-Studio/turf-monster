@@ -287,7 +287,12 @@ through it.
 ### ⚠️ All five call sites are wired
 
 Three **render surfaces** catch these rejections, and two of the three live in
-the **solana-studio gem** — wired there since **0.7.0**; this app locks 0.9.0.
+the **solana-studio gem** — wired there since **0.7.0**, and this app's
+`Gemfile.lock` resolves **at or above that floor**. Stated as a RELATION rather
+than as a number, because the number rots: this line read "locks 0.9.0" while
+the lockfile already said 0.9.1. The relation is asserted on every test run
+rather than trusted — see below.
+
 The other two sites are not surfaces at all — they are the two guards
 inside `solanaConnectAndVerify` that REPLACE a wallet's message with one of
 ours, and each reports before it destroys the evidence:
@@ -300,16 +305,35 @@ ours, and each reports before it destroys the evidence:
 | `wallet_connect` | solana-studio `solana_studio/modals/_wallet_connect.html.erb` | **wired** — in the gem since 0.7.0 |
 | `web3_step_up` | solana-studio `solana_studio/modals/_web3_step_up.html.erb` | **wired** — in the gem since 0.7.0 |
 
-**Nothing in this app checks the gem's two, by choice.** The wiring test below
-deliberately does not read the gem's source, and the Gemfile floor is `~> 0.6`,
-so those two rows are maintained by hand. They read **not wired** from the day
-0.7.0 landed until 2026-09-09 — an operator filtering `error_logs` by
-`wallet_connect` was told, by this table, that the stage could hold nothing.
-Re-read the gem before trusting the column — `grep reportWalletFailure "$(bundle
-show solana-studio)"/app/views/solana_studio/modals/_wallet_connect.html.erb`.
+**The gem's two rows are machine-checked now — as a LOCK FLOOR, not against the
+gem's source.** `test/controllers/wallet_failure_reporter_wiring_test.rb`
+asserts that this app's own `Gemfile.lock` resolves solana-studio at or above
+**0.7.0**, so those two rows read **wired** only while the gem this app installs
+actually carries the call sites. That is a fact about THIS repo. Reading the
+gem's source instead would red-seal the producer's release against a consumer's
+bookkeeping — the trade this page has always refused, and still does.
+
+**A floor, never an equality.** An `== 0.9.1` assertion goes red the moment
+solana-studio ships 0.9.2, which reintroduces that same red-seal by the back
+door. The question a ledger row asks is *is the wiring in there*, and that
+answer is monotonic — every release at or above the floor carries it.
+
+**Why it took a guard at all.** These two rows read **not wired** from the day
+0.7.0 landed until 2026-09-09, three gem releases later — an operator filtering
+`error_logs` by `wallet_connect` was told, by this table, that the stage could
+hold nothing. Then the correction itself shipped with the version wrong. The
+hand-maintained rows were wrong twice running; the floor is what stops a third.
+
 The version above is the EARLIEST tag containing the commit that wired them
-(`06bda3b`), not a tag that happens to carry it; and the floor `~> 0.6` still
-admits 0.6.x, where both rows are false.
+(`06bda3b`), not a tag that happens to carry it. **The gap this paragraph used
+to describe is CLOSED, and closing it is why the sentence changed:** the Gemfile
+pin (`Gemfile:165`) reads `"~> 0.9", ">= 0.9.2"`, so the resolver itself refuses
+0.6.x, and `test/lib/engine_pin_contract_test.rb`'s `SOLANA_STUDIO_MINIMUM`
+asserts the resolve against 0.9.2 as well. The floor test below is therefore a
+BACKSTOP, not the only guard: it states the floor THIS ledger needs — 0.7.0 —
+which is the claim that survives a pin someone loosens later. Re-derive by hand
+with `grep reportWalletFailure "$(bundle
+show solana-studio)"/app/views/solana_studio/modals/_wallet_connect.html.erb`.
 
 The two layout stages are not a substitute for the surfaces and the surfaces are
 not a substitute for them. Each fires for exactly one thing — a failure whose
@@ -339,9 +363,12 @@ silence, exactly as it already does for the mapper.
 
 `test/controllers/wallet_failure_reporter_wiring_test.rb` holds this ledger as
 an executable accounting, so a stage cannot be added or dropped without the
-table above being wrong out loud. It deliberately does **not** assert against
-the gem's source — a consumer test that reddens when the producer ships would
-red-seal the gem's own release.
+table above being wrong out loud. The gem's two live there in `GEM_STAGES` —
+named for WHERE the call sites are, not for a status, because the old name
+(`PENDING_GEM_STAGES`) encoded one and went stale with it. It deliberately does
+**not** assert against the gem's source — a consumer test that reddens when the
+producer ships would red-seal the gem's own release — and asserts the lock floor
+instead.
 
 ### Four limits worth knowing before reading a row
 
