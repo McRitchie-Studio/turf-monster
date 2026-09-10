@@ -156,6 +156,29 @@ if [ "$SKIP_CHECKS" != "1" ]; then
   case "$STRIPE_KEY" in sk_test_*) fail "STRIPE_SECRET_KEY on $HEROKU_APP is test mode — must be sk_live_." ;; esac
   ok "Stripe live mode"
 
+  # Signing-key isolation (OPSEC) — turf-monster-qa must NOT hold the same
+  # SOLANA_ADMIN_KEY as this app. Measured byte-identical on both apps
+  # 2026-09-08 (len 88, matching SHA-256): QA was signing as production with the
+  # Alex Bot key, so anything running there could put a real signature on a real
+  # mainnet transaction.
+  #
+  # This pre-flight is the ONLY place the check can live. It needs both apps'
+  # config at once: a dyno sees only its own ENV, and CI holds no Heroku session
+  # and neither secret. CI covers the LOGIC (test/lib/signing_key_isolation_test.rb,
+  # test/tasks/opsec_signing_key_isolation_test.rb) and never the live values.
+  #
+  # The task reads via `heroku config --json`, never `config:get` — the latter
+  # prints a bare newline for an ABSENT key, a present-but-EMPTY one, and an
+  # unauthenticated read alike (docs/SOLANA.md, "Check it by KEY PRESENCE").
+  # It fails closed: absent / empty / unreadable is INDETERMINATE, never
+  # "distinct". It prints digests, never key material.
+  if ISOLATION_REPORT=$(bin/rails opsec:signing_key_isolation 2>&1); then
+    ok "QA signs with its own SOLANA_ADMIN_KEY"
+  else
+    printf '%s\n' "$ISOLATION_REPORT" >&2
+    fail "Signing-key isolation check failed (see report above). Give turf-monster-qa its own keypair; --skip-checks bypasses."
+  fi
+
   if [ "${SKIP_TESTS:-0}" != "1" ]; then
     bold "Running tests"
     TESTLOG=$(mktemp)

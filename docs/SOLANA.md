@@ -102,6 +102,11 @@ Signers (`VaultState.signers`, threshold 2) — the same set on **devnet and mai
 - Alex (human Phantom, = `INIT_AUTHORITY`) — `7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr`
 - Mason — `CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR`
 
+Three FIXED slots, one shared set — which is exactly why `turf-monster-qa`
+cannot hold a signing key distinct from production today. Giving it one is an
+on-chain signer rotation that EVICTS a current signer, not a config change and
+not an addition; see "Rotating QA onto its own key" below.
+
 ### Program Upgrades — Squads multisig (OPSEC-002, 2026-05-19+)
 
 **`anchor deploy` no longer works.** The program upgrade authority is a Squads V4 2-of-3 multisig vault — distinct from `VaultState`'s in-program multisig — not a single keypair. **Each cluster has its own vault PDA**: devnet `BW13kgfiG2koFn3WRkte21NW9TFygsD1ge2fNJdjH6kC`, mainnet `Bk9sS7iiSRL18vuo2KVzkeGw7EekKqxMCjrdoyGGdJm`. Every upgrade goes through the Squad. Running `anchor deploy` will fail because the Solana CLI signs as a single keypair that is no longer the upgrade authority.
@@ -361,6 +366,151 @@ initializer against real non-JSON bodies over a real socket, and asserts BOTH
 halves — the indeterminate cases boot, a real mismatch still refuses) and
 `test/tasks/solana_health_unauthorized_rpc_test.rb`.
 
+## Per-environment signing keys (`SOLANA_ADMIN_KEY`)
+
+`SOLANA_ADMIN_KEY` holds the Alex Bot keypair — the server's own signer, one of
+the three `VaultState.signers` and the fee payer and contest creator on every
+on-chain write. **Every deployed app holds its OWN keypair. Never copy one
+app's value into another.**
+
+On 2026-09-08 the variable was measured byte-identical on `turf-monster-mainnet`
+and `turf-monster-qa` (len 88, matching SHA-256, confirmed by three independent
+readings). QA was signing as production: a rehearsal, a seed task, or a stray
+`bin/rails` console on the QA dyno could put a real signature on a real mainnet
+transaction. `QaRehearsal::NetworkGuard` already refuses to drive the wrong
+CLUSTER — nothing refused the shared KEY.
+
+### The guard
+
+```bash
+bin/rails opsec:signing_key_isolation
+```
+
+Exits non-zero unless it can PROVE the two apps differ. `bin/deploy` runs it in
+the pre-flight, so a production deploy aborts while the key is shared.
+`--skip-checks` bypasses it, as with every other pre-flight check.
+
+**Where it runs — and where it does not.** The comparison needs both apps'
+config at once, which leaves exactly one host:
+
+| Context | Sees both apps? | Runs the live comparison? |
+|---|---|---|
+| `bin/deploy` pre-flight (operator machine, Heroku session) | yes | **yes — on every production deploy** |
+| A dyno (`solana:preflight`) | no — a dyno sees only its own ENV | no |
+| CI (GitHub Actions) | no — no Heroku session, neither secret present | **no** |
+
+CI executes the guard's LOGIC against injected readings
+(`test/lib/signing_key_isolation_test.rb`,
+`test/tasks/opsec_signing_key_isolation_test.rb`, and
+`test/lib/deploy_signing_key_guard_test.rb` for the `bin/deploy` wiring) and
+never the live values. It cannot. Do not write this up as CI-covered — on a
+money-adjacent path a false coverage claim is worse than no claim at all.
+
+**It reads with `heroku config --json`, never `heroku config:get`** — see "Check
+it by KEY PRESENCE" above. `config:get` exits 0 and prints a bare newline for an
+ABSENT key, a PRESENT-BUT-EMPTY one, and an unauthenticated read alike, so it
+cannot tell "QA has no key" from "we could not look".
+
+**Absence is not isolation.** A value that is missing, empty, or unreadable on
+either side is INDETERMINATE, and indeterminate FAILS. Two blanks compare EQUAL
+and two unknowns compare UNEQUAL, so either naive comparison would answer
+confidently and wrongly.
+
+The report prints a length and a 12-character SHA-256 prefix per app. It never
+prints key material, and the reader extracts one key rather than returning the
+config payload that carries every other secret the app has.
+
+### Rotating QA onto its own key
+
+**Status 2026-09-08: NOT DONE.** The two apps still share a key and the guard
+fails today. **There is no runnable procedure below**, because the rotation this
+section used to describe is not achievable against the deployed program. What
+follows is the reason, and the decision it waits on.
+
+**Why it is not a `heroku config:set`.** The Alex Bot pubkey is a REGISTERED
+ON-CHAIN SIGNER — `VaultState.signers` holds the same three identities on devnet
+and mainnet (see "Two-level multisig auth" above). Handing QA a fresh keypair
+without touching the chain leaves the QA server signing as an identity the
+devnet vault does not recognise, and every admin-signed QA vault operation
+starts failing. QA would not be isolated; it would be dead.
+
+**Why it is not an on-chain registration either.** `update_signers`
+(`turf-vault/programs/turf_vault/src/lib.rs:78-83`) takes `new_signers:
+[Pubkey; 3]`, and `instructions/update_signers.rs:109` assigns
+`vault.signers = new_signers`. It REPLACES the whole set across three FIXED
+slots. **There is no fourth slot: a QA key cannot join the set, it can only take
+a slot from a current signer.**
+
+Three guards decide which slot. Signer continuity requires that BOTH cosigners
+authorizing the transaction survive it, and forbids any `Pubkey::default()` slot
+(`SignerContinuityRequired`, **6017**); no two slots may match
+(`DuplicateSigner`, 6014). `validate_multisig` accepts any two distinct current
+signers (`state.rs:159-161`), so the free slot is always **the signer who did
+not cosign** — exactly three legal rotations, each evicting someone:
+
+| Cosigned by | Slot QA takes | What that costs |
+|---|---|---|
+| Alex + Mason | Alex Bot (server) | Every devnet server op re-points to the new key — blast radius below |
+| Alex Bot + Alex | Mason | Leaves one human cosigner; 2-of-3 becomes satisfiable by two server keys |
+| Alex Bot + Mason | Alex | Same, and Alex is `INIT_AUTHORITY` |
+
+**Blast radius of the server-slot rotation.** `turf-monster-qa` runs on
+**devnet** and `turf-monster-mainnet` on **mainnet**
+(`app/services/solana/config.rb:53-55`), so a QA rotation changes the devnet
+`VaultState` and leaves mainnet untouched. That containment is narrower than it
+sounds: the devnet server slot is not QA's alone. Local development and the
+devnet e2e lane sign as the same identity — `e2e/DEVNET_RUNBOOK.md:10` records
+`SOLANA_BOT_KEY` as the "same as `SOLANA_ADMIN_KEY` in `.env`", and `:58`
+derives it literally. Evicting the server signer from devnet therefore breaks
+local vault operations and the e2e lane **for every developer** until each is
+re-pointed; and the key that replaces it is then shared by QA, local dev, and
+e2e, isolating QA from production without isolating it from development.
+
+**The two questions this waits on.** Both are for Mr. McRitchie with the
+on-chain lane. Neither is answerable by editing this file:
+
+1. **Which cluster's vault changes, and who absorbs the eviction?** The apps
+   share a key because one identity is registered on both vaults. Breaking that
+   means one cluster takes a new server identity and one current signer loses a
+   slot.
+2. **Is a devnet-wide server key — QA, local dev, and e2e together — the
+   intended end state?** If QA needs an identity development does not hold,
+   three slots cannot express it, and that is a program change, not a rotation.
+
+Until both are answered the guard stays red and turf-monster production deploys
+refuse. That is the guard working as designed.
+
+**The one settled step**, for whenever the rotation is authorized: generate the
+QA keypair without printing or persisting the secret, and file it as its own
+1Password item in vault `studio-agents`, beside `agent.alex.solana` — the
+location `.env.example` already names for every consumer of this var.
+
+```bash
+f="$(mktemp -t qa-signer)"                                    # never `cat` this file
+solana-keygen new --no-bip39-passphrase --silent --outfile "$f"
+solana-keygen pubkey "$f"                                     # the ONLY value safe to read aloud
+#   file the base58 secret into 1Password, then: rm -P "$f"
+```
+
+`--silent` is what suppresses the seed phrase; `--no-bip39-passphrase` skips
+only the passphrase PROMPT and leaves the phrase printing to the terminal.
+`-o/--outfile` takes a FILEPATH, but `-` is the Solana CLI's STDOUT token:
+`-o -` PRINTS the secret keypair JSON straight to the terminal and creates
+NO file (verified against solana-keygen 3.1.15/Agave). Never use it for this
+key — always pass a real path. `SOLANA_ADMIN_KEY` wants the
+**base58** secret (`Solana::Keypair.from_base58`,
+`app/services/solana/keypair.rb:55`), not the JSON byte array `solana-keygen`
+writes, so convert it on the way into 1Password rather than through a terminal
+that keeps scrollback.
+
+The rest of the rotation — the devnet `update_signers` transaction, the
+`heroku config:set --app turf-monster-qa` (QA only, never mainnet), a check that
+QA can actually SIGN against the devnet vault before that config flip, and
+`bin/rails opsec:signing_key_isolation` reporting two distinct digests — stays
+unwritten on purpose. The transaction's shape is exactly what question 1
+decides. Any step that rotates a live credential or changes on-chain state needs
+Mr. McRitchie's explicit approval before anyone runs it.
+
 ## Solana Auth Security
 
 - **SIWS / nonce replay prevention**: Solana sign-in nonces include a timestamp with an enforced 5-minute expiry; the nonce is deleted from the session before verification (delete-before-verify) to prevent replay. Signature verification is host-bound (`Solana::AuthVerifier`, OPSEC-018).
@@ -368,4 +518,4 @@ halves — the indeterminate cases boot, a real mismatch still refuses) and
 
 ## Error namespace
 
-turf-vault custom errors start at **6000** (`errors.rs`). Anchor framework **3000-range** errors (e.g. 3012 `AccountDidNotDeserialize`) signal **schema drift** between the deployed program and an on-chain account — i.e. an IDL/layout mismatch — **not** a vault error. Key codes: `ContestNotOpen` 6003, `ContestAlreadySettled` 6006, `SettlementOverflow` 6008, `ContestNotCancellable` 6029, `ContestLocked` 6034, `ContestConcluded` 6035. Several codes (6011/6012/6017/6019/6028) are retired-but-kept for numbering stability.
+turf-vault custom errors start at **6000** (`errors.rs`). Anchor framework **3000-range** errors (e.g. 3012 `AccountDidNotDeserialize`) signal **schema drift** between the deployed program and an on-chain account — i.e. an IDL/layout mismatch — **not** a vault error. Key codes: `ContestNotOpen` 6003, `ContestAlreadySettled` 6006, `SettlementOverflow` 6008, `ContestNotCancellable` 6029, `ContestLocked` 6034, `ContestConcluded` 6035. Codes 6011/6012/6019 are retired-but-kept for numbering stability. **6017 `SignerContinuityRequired` and 6028 `ContestNotLocked` are LIVE** — v0.20 un-retired 6017 with `update_signers` (`errors.rs:14`), and 6028 is emitted by `settle_contest.rs:106`.

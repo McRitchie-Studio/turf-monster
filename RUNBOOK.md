@@ -57,6 +57,26 @@ Troubleshooting guide for autonomous agents. Format: problem, diagnosis, fix.
   load runs. Set missing values with
   `heroku config:set KEY=value --app turf-monster-mainnet`.
 
+**Deploy aborts: "Signing-key isolation check failed"**
+- Diagnosis: `bin/deploy`'s pre-flight ran `bin/rails opsec:signing_key_isolation`
+  and it exited non-zero. Re-run it alone to read the report; it prints a length
+  and a SHA-256 prefix per app, never key material.
+- Two different failures wear this message:
+  - **SHARED** — `turf-monster-qa` and `turf-monster-mainnet` carry the same
+    `SOLANA_ADMIN_KEY`, so QA signs as production. This is a real finding, not a
+    flake. The fix is to rotate QA onto its own keypair, and as of 2026-09-08
+    there is NO runnable procedure for it: `VaultState` holds three FIXED signer
+    slots, so a QA key cannot join the set — it can only EVICT a current signer,
+    and which one is an on-chain decision still awaiting Mr. McRitchie. Read
+    `docs/SOLANA.md`, "Rotating QA onto its own key", before promising a
+    timeline; it names the blast radius and the two open questions.
+  - **INDETERMINATE** — the guard could not prove the two differ, because a value
+    was absent, empty, or unreadable. Absence is not isolation, so it fails
+    closed. Check `heroku auth:whoami` first, then
+    `heroku config --json --app turf-monster-qa | jq 'has("SOLANA_ADMIN_KEY")'`.
+- `--skip-checks` bypasses it like any other pre-flight. Do that only for a
+  deploy that is itself the remediation, and say so.
+
 **Magic-link request succeeds but email never arrives**
 - Diagnosis: `/magic_link` returns `{"success":true}` but Sidekiq logs show a
   provider error, often `Resend::Error: The <domain> domain is not verified`.
