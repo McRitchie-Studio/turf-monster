@@ -1,9 +1,12 @@
 # Wallet Transport Architecture
 
-**Status:** Wired for **contest entry**, on ONE call site for both transports
-(`/tasks/collapse-inline-entry-call-site`, solana-studio 0.9.2). The four
-remaining user-facing flows are still hand-rolled and tracked at
-`/tasks/migrate-account-wallet-flows` and `/tasks/migrate-remaining-entry-flows`.
+**Status:** Wired for **contest entry** and **username rename**, each on ONE call
+site for both transports (`/tasks/collapse-inline-entry-call-site` and
+`/tasks/migrate-account-wallet-flows`, solana-studio 0.9.2). Create-contest and
+the contest generator are still hand-rolled and tracked at
+`/tasks/migrate-remaining-entry-flows`. **Wallet export is not migrating** — it
+signs a message rather than a transaction, and the message is key-bearing; see
+"Wallet export cannot cross the redirect" below.
 **Written:** 2026-09-07
 **Task:** https://mcritchie.studio/tasks/wallet-transport-architecture-doc
 **Spans:** turf-monster · solana-studio · studio-engine
@@ -169,16 +172,32 @@ walletOps.run('contest_entry', { contestId, currency });
 Naming the handler statically is the one discipline this imposes on call sites,
 and it is the price of surviving page destruction.
 
-### 4. Only a slug crosses the redirect
+### 4. A slug crosses the redirect — alongside the bytes, not instead of them
 
-The entry flow already creates a server-side prepared-transaction record
-(`ptx_slug`, via `prepare_entry`, retired by `discard_prepared_entry`). So the
-client never carries transaction bytes across the redirect — only a slug. The
-journal stays small, non-sensitive, and cheap to validate server-side.
+**Corrected 2026-09-09 against the shipped gem.** An earlier draft of this
+section claimed "the client never carries transaction bytes across the redirect —
+only a slug", and that is not what the transport does. `runRedirect` journals
+`{ op, ctx, state }` verbatim, `state` is whatever `prepare()` returned, and
+`requireWireTransaction` **insists** that it contain `transaction` as base58 wire
+bytes — because `signingHop` reads `intent.state.transaction` on the callback
+document to build the wallet payload. The unsigned transaction is in
+`localStorage`, on every intent, by design. (`solana_studio/wallet_journal.js`
+repeats the older claim in its own header; the code one file over is the
+authority.)
 
-**This is the piece that makes the whole design tractable**, and it already
-exists. It was built for blockhash freshness, not for this, but it is exactly the
-right shape.
+What the slug actually buys is the **server-side** half. The entry flow creates a
+prepared-transaction record (`ptx_slug`, via `prepare_entry`, retired by
+`discard_prepared_entry`), so the bytes the wallet signs can be validated against
+a row the server minted rather than trusted as they come back. Username rename
+needs no slug: `update_username` mints its challenge and a signed `token` before
+the hook is ever called, and `confirm_username` re-verifies the broadcast
+transaction with `TxVerifier` regardless of what the journal carried.
+
+**What this means for what may become an intent.** An unsigned transaction in
+`localStorage` for ten minutes is acceptable: it is public, it is inert without a
+signature, and the chain is the real boundary. A *credential* is not, and the
+journal has no way to hold one safely — which is what rules wallet export out
+below.
 
 ### 5. The send strategy branches per wallet
 
@@ -287,13 +306,55 @@ Enumerated from every `connect` / `signTransaction` call site.
 
 | Flow | Location |
 |---|---|
-| Contest entry — turf totals | `app/views/contests/_turf_totals_board.html.erb:1631` |
+| Contest entry — turf totals | `app/views/contests/_turf_totals_board.html.erb` — **migrated**, `contest_entry` intent |
 | Contest entry — world cup survivor | `app/views/contests/_world_cup_survivor_board.html.erb:142` |
 | Create contest | `app/views/contests/new.html.erb:424` |
 | Contest generator | `app/views/contests/generator.html.erb:94` |
-| Username rename | `app/views/shared/_alpine_factories.html.erb:787` |
-| Wallet export | `app/views/wallet_exports/show.html.erb:132` |
+| Username rename | `app/views/shared/_alpine_factories.html.erb` — **migrated**, `username_rename` intent |
 | Sign-in | `app/views/layouts/application.html.erb:244` — *mobile path exists, Phantom only* |
+
+Line numbers are omitted for the migrated rows on purpose: the call site is now
+three lines of chrome around one `walletOps.run`, and the flow itself lives in
+`app/views/shared/_contest_entry_intent.html.erb` and
+`app/views/shared/_username_rename_intent.html.erb`, registered from the layout
+so both exist on the callback document.
+
+### Wallet export cannot cross the redirect
+
+`app/views/wallet_exports/show.html.erb` — **inline only, and staying that way**
+(`/tasks/migrate-account-wallet-flows`, measured against solana-studio 0.9.2).
+
+1. **walletOps cannot express it.** Every hop it takes is a *transaction* hop:
+   `requireWireTransaction` refuses an intent whose `prepare` returns no base58
+   transaction, `signingHop` reaches only `beginSignTransaction` /
+   `beginSignAndSendTransaction`, and `resume` knows only the steps `connect`,
+   `signTransaction`, `signAndSendTransaction`. Prove-custody signs a **message**.
+   The redirect provider *does* ship `beginSignMessage` / `completeSignMessage`
+   (sign-in uses them), so the capability is real one layer down and simply
+   unreachable from an intent.
+2. **A gem that grew that hop still could not carry this one.** Per §4 the journal
+   holds `ctx` and `state` in `localStorage` for ten minutes. The message this
+   flow signs is `WalletExportsController.prove_message`, which interpolates
+   `Token: <the URL token>` — and that token is the entire auth boundary for
+   `GET /wallet_exports/:token`, the page that renders the decrypted private key.
+   Journalling the message parks a key-bearing credential on disk.
+3. **The far side has session replay ON.** `complete` would run on
+   `/auth/phantom/callback` and POST to the export page's `/complete` — a URL
+   containing that token — from a document where
+   `ApplicationHelper#session_replay_active?` is **true**, because only
+   `WalletExportsController` sets `@suppress_session_replay`. That streams the
+   token to LogRocket, the exact leak `harden_secret_response` closed
+   (Lazarus audit #2).
+
+**The mobile remedy that does exist:** open the export page inside a wallet app's
+own browser, where a provider is injected and the inline path works unchanged.
+`requireInlineProvider` already says so.
+
+**Tracked, not dropped:** `/tasks/wallet-export-mobile-transport` holds the shape
+a real fix needs — a transport that never persists the challenge, for example a
+server-held pending-signature row reached by an opaque slug, the way contest entry
+uses `ptx_slug`. That is a solana-studio change plus a turf one, not a walletOps
+intent.
 
 ### Desktop-only is a legitimate answer — SHIPPED (`gate-admin-flows-desktop-only`)
 
