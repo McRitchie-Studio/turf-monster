@@ -588,16 +588,6 @@ Rails.application.routes.draw do
   # Admin: Level badges preview gallery (1–10)
   get "admin/level_badges", to: "admin#level_badges", as: :admin_level_badges
 
-  # Admin: Modal gallery — grid of every modal partial / state variant
-  # rendered in isolated iframes (see AdminController::MODAL_VARIANTS).
-  # The gallery at /admin/modals was retired 2026-09-08 — turf cards its own modals
-  # on /admin/style#host-modals now, against the REAL partials. These two survive
-  # ONLY as a render seam for nine test files that never touched the gallery page;
-  # retiring them is /tasks/retire-the-preview-harness. They are not linked from
-  # anywhere and are not a review surface.
-  get "admin/modals/preview/:modal_id", to: "admin#modal_preview", as: :admin_modal_preview
-  get "admin/modals/preview_crop", to: "admin#modal_preview_crop", as: :admin_modal_preview_crop
-
   # Admin: Mint USDC (devnet) + balance check
   post "admin/mint_usdc", to: "admin#mint_usdc", as: :admin_mint_usdc
   get "admin/usdc_balance", to: "admin#usdc_balance", as: :admin_usdc_balance

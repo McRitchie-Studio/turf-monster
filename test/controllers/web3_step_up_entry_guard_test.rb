@@ -150,9 +150,11 @@ class Web3StepUpEntryGuardTest < ActionDispatch::IntegrationTest
   # THE ROUTE, THROUGH THE LIVE LAYOUT. The blocker tells the board to open the
   # card now; re-arming the session prompt is what makes the NEXT render open it
   # too, for a player who reloads instead of reading the modal. Asserted against
-  # layouts/application — the layout a player actually gets — because
-  # /admin/modals/preview renders modals under layouts/modal_preview, so a break
-  # in the real layout survives a suite that only ever looks at the harness.
+  # layouts/application — the layout a player actually gets. That mattered
+  # sharply while /admin/modals/preview rendered modals under a SECOND layout: a
+  # break in the real one survived any assertion that only looked at the harness.
+  # The harness went on 2026-09-09 and every modal assertion in this suite reads
+  # the live layout now; this note stays as the reason it must keep doing so.
   test "the refusal re-arms the step-up card and the live layout emits it" do
     log_in_as(@wallet_user)
 

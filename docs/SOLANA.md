@@ -264,7 +264,10 @@ credential.
 the response body — `body[data-solana-rpc-url]` in `layouts/application` and
 `layouts/modal_preview`, `#cosign-config[data-rpc-url]` on the three admin
 cosign pages, and `@page_config[:rpc_url]` on `/proof-of-reserves`, which is
-UNAUTHENTICATED and additionally renders the value as visible page text. On
+UNAUTHENTICATED and additionally renders the value as visible page text. Five of
+the six are still guarded by
+`test/integration/rpc_credential_not_in_browser_test.rb`; the sixth stopped
+existing when `layouts/modal_preview` was deleted on 2026-09-09. On
 `turf-monster-mainnet` that constant is a Helius endpoint carrying an `api-key`
 query param, so every page load shipped the credential to every browser. The
 `solana:health` / `solana:preflight` rakes had redacted the same constant before
