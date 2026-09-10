@@ -1157,7 +1157,7 @@ allowed_skips: 4
 # stays 17 and allowed_skips stays 4 — both listers agree, which is what proves
 # the new specs brought no runtime skip with them. Derived with
 # bin/e2e-lane-derive --write, not by arithmetic.
-executed: 255
+executed: 256
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
