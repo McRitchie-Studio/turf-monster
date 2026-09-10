@@ -191,6 +191,19 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
         scripts/scrape_draftkings.js
         app/services/nfl/espn/client.rb
       ]
+    },
+    # Swept 2026-09-09. AN EMPTY `fallback_only_files` IS AN OPT-OUT OF THAT ONE
+    # CLAIM, NOT OF THE GUARD. The per-file roster is a claim about the files it
+    # NAMES, and in this document the fallback is spread thin — three ERB
+    # partials, six class-body declarations, one constant, one route, one schema
+    # column — with no file whose whole citation set rides it and whose name
+    # would tell a reader anything. The split counts in the preamble are asserted
+    # EXACTLY either way, and they are what carries the honest part of the claim,
+    # so an invented roster here would be a second number to maintain and no
+    # extra proof. Same reasoning for the three documents below it.
+    "docs/workflows/referral-google-tokens-to-chat.md" => {
+      min_citations: 120, min_path: 60, min_bare: 45,
+      fallback_only_files: []
     }
   }.freeze
 
