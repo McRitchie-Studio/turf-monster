@@ -2178,9 +2178,10 @@ module Solana
     #   3. System Program: ONLY advanceNonceAccount (data == u32 LE 4), and only
     #      when a durable nonce is configured AND the advance targets the
     #      configured SOLANA_DURABLE_NONCE_PUBKEY. A System transfer (opcode 2) or
-    #      anything else → reject. (Durable nonce is LIVE on mainnet — every real
-    #      entry that anchors on it carries this ix; omitting it here would break
-    #      every production entry.)
+    #      anything else → reject. (No entry the server builds carries this ix:
+    #      #build_enter_contest and #build_enter_contest_with_token both anchor
+    #      on a recent blockhash. The allowance predates #build_enter_contest's
+    #      2026-06-11 move off the nonce.)
     #   4. ComputeBudget: allowed (priority-fee / CU-limit hints; no authority risk).
     #   5. Any other program id or instruction → reject.
     #
@@ -2402,11 +2403,15 @@ module Solana
 
       # Server-side pre-flight. sig_verify:false — both sigs are present now but we
       # don't need the RPC to re-verify; we want program-error + log surfacing.
-      # replace_recent_blockhash:true — entry txs are anchored on the DURABLE
-      # NONCE when SOLANA_DURABLE_NONCE_PUBKEY is set (prod is), and a nonce
-      # value is never in the recent-blockhash queue, so a default simulation
-      # rejects every nonce-anchored tx with "BlockhashNotFound" (prod,
-      # 2026-06-11; devnet has no nonce configured, so staging never saw it).
+      # replace_recent_blockhash:true — entry txs are anchored on a plain RECENT
+      # blockhash, never the durable nonce: #build_enter_contest sets dn = nil
+      # (see its 2026-06-11 note). The flag predates that change by minutes on
+      # 2026-06-11, when entries WERE nonce-anchored and a default simulation
+      # rejected every one with "BlockhashNotFound" (a nonce value is never in
+      # the recent-blockhash queue). It stays because it keeps this pre-flight
+      # about the PROGRAM's verdict, not blockhash age (#simulate_and_broadcast
+      # uses it for the same reason). send_and_confirm's own sendTransaction
+      # preflight still rejects an expired blockhash before anything lands.
       # The RPC requires sigVerify=false alongside replaceRecentBlockhash —
       # already our setting; the real broadcast still enforces signatures.
       sim = client.simulate_transaction(patched_b64, sig_verify: false,
