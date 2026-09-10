@@ -189,9 +189,16 @@ class SolanaManagedWalletKeyRotationTest < ActiveSupport::TestCase
     end
 
     with_wallet_keys(primary: @key_b, previous: @key_a) do
+      # Both escapes are caught HERE: if the crash were swallowed, the task
+      # would finish and `exit` -- and a SystemExit loose in Minitest ends the
+      # whole run with no summary, which reads as a failure for the wrong reason.
+      escaped = nil
       Solana::Keypair.stub(:seal_plaintext, crashing_seal) do
-        assert_raises(Interrupt) { capture_io { Rake::Task["solana:reencrypt_managed_wallets"].tap(&:reenable).invoke } }
+        capture_io { Rake::Task["solana:reencrypt_managed_wallets"].tap(&:reenable).invoke }
+      rescue Interrupt, SystemExit => e
+        escaped = e
       end
+      assert escaped.is_a?(Interrupt), "a crash must propagate out of the walk, not be counted as a row (got #{escaped.class})"
 
       states = rows.map do |user, keypair|
         ciphertext = user.reload.encrypted_web2_solana_private_key
