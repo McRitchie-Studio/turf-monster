@@ -910,7 +910,33 @@
 # specs assert the reveal on GEOMETRY as well as on the class, because a
 # transform typo leaves the class right and the pane parked off screen.
 # Derived with bin/e2e-lane-derive --write, not incremented by hand.
-total_specs: 293
+#
+# 291 -> 295 (migrate-remaining-entry-flows): the world cup survivor board,
+# create contest and the contest generator each onto ONE walletOps call site.
+#
+# THIS ENTRY IS THE FILE'S OWN WARNING, PAID IN FULL. The branch was cut at 277
+# and derived 281/260. /tasks/migrate-account-wallet-flows then landed on
+# accepted and independently derived 281/260 for a DIFFERENT set of specs. Same
+# two numbers, different specs, so git found NO CONFLICT and merged them
+# silently — and the lane came out under-declared by exactly this branch's four,
+# with both e2e_declared_set and e2e_executed_set still reporting green against
+# the base they were derived on. That is the failure this file has warned about
+# three times; it is the first time it actually happened, and it was caught in
+# review rather than by the gate.
+#
+# THE ONLY DEFENCE THAT WOULD HAVE WORKED IS THE ONE BELOW: re-derive on the
+# MERGED tree. No arithmetic across a conflict — not 281 + 4, not 291 + 4 — and
+# no reading either side's number as a starting point, because the whole defect
+# is that both sides' numbers looked plausible and neither was right.
+# Derived with bin/e2e-lane-derive --write ON THE MERGED TREE.
+#
+# 295 -> 297 on merging accepted into live-game-situation-panel. That branch
+# (291 -> 293, above) and migrate-remaining-entry-flows (291 -> 295, above) were
+# both cut at 291 and each derived its own number on its own tree - the exact
+# shape the entry above warns about. 297 is what the lister printed on the
+# MERGED tree, taken as printed: not 293 + 4, not 295 + 2.
+# Derived with bin/e2e-lane-derive --write ON THE MERGED TREE.
+total_specs: 297
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1221,7 +1247,14 @@ allowed_skips: 4
 # excluded stays 17 and allowed_skips stays 4 — both listers agree, which is
 # what proves the new specs brought no runtime skip with them. Derived with
 # bin/e2e-lane-derive --write, not by arithmetic.
-executed: 272
+#
+# 274 -> 276 on merging accepted into live-game-situation-panel: the executed
+# side of the merge described beside total_specs. accepted had already carried
+# migrate-remaining-entry-flows to 274; this branch's two status-wheel specs land
+# on top. The lister re-derived excluded as 17 on the merged tree and
+# allowed_skips stays 4, so both listers agree. Derived with
+# bin/e2e-lane-derive --write ON THE MERGED TREE.
+executed: 276
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
