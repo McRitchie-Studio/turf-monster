@@ -18,6 +18,24 @@ evidence, and what would re-open the question, are in
 **Task:** https://mcritchie.studio/tasks/wallet-transport-architecture-doc
 **Spans:** turf-monster · solana-studio · studio-engine
 
+> **Code is law, for the citations here.** A `path:NN` names this repo's code,
+> and a bare `:NN` inherits the nearest preceding path — file context resets at
+> each `##` heading. `test/docs/workflow_citation_docs_test.rb` reddens when one
+> stops landing on the symbol or literal its prose names. That symbol check
+> reaches **0 of the 3 citations** here. The other **3** ride the weaker LITERAL
+> fallback — two on `.js` files, where the guard reads no definitions, and one on
+> an intent partial whose wrapper is an assignment rather than a named function —
+> so a green one proves the quoted words are in the cited lines, not that the
+> code is. Code in a GEM is named by file and symbol instead, written
+> `solana-studio: path#symbol`, and checked against the gem the lock resolves: a
+> gem line number would rot on an unrelated `bundle update`.
+> **Two blind spots, inherited knowingly.** A citation inside a markdown TABLE
+> anchors on the WHOLE table, so a symbol named in any row can satisfy it
+> (`/tasks/table-row-anchors-siblings`); every row here names its own symbol
+> anyway. And no check here can tell that a sentence describes the wrong thing.
+> §7 went stale twice with nothing reading it, and a coordinate check would have
+> missed both times; its version claim has a test of its own, described there.
+
 ---
 
 ## The problem in one paragraph
@@ -71,14 +89,17 @@ in the **Scope** table below.*
 
 - `app/javascript/wallet_provider.js` — `KeypairProvider`, `PhantomProvider`,
   Wallet Standard discovery (`_wsWallets`), and the `walletProvider` registry.
-  `detect()` at `:427` is keypair → Phantom → first Wallet-Standard wallet → `null`.
+  `detect()` was keypair → Phantom → first Wallet-Standard wallet → `null`. It
+  now returns a redirect provider on a phone (`7c113e4a`, turf PR 632); today it
+  starts at `app/javascript/wallet_provider.js:479`.
 - `solana-studio/app/views/solana_studio/_phantom_deeplink.html.erb` —
   `startPhantomDeepLink(linkMode, currentUserId)`. Generates an x25519 keypair,
   fetches a nonce, journals to `phantom_dl_*` in localStorage, redirects to
   `https://phantom.app/ul/v1/signIn`.
 - `studio-engine/app/views/solana_sessions/phantom_callback.html.erb` — the
-  return leg, 344 lines. Reads `phantom_dl_step` at `:149`, decrypts with
-  `nacl.box.open.after` at `:205`, POSTs the verify.
+  return leg, 344 lines then. Reads `phantom_dl_step`, decrypts with
+  `nacl.box.open.after`, POSTs the verify. (Its line numbers are dropped: the
+  file lives in a gem and has grown since.)
 - `window.nacl` — loaded from a **blocking, SRI-pinned** tag in
   `app/views/layouts/application.html.erb`. Deliberately not the async
   `deeplink_assets` loader, because the callback reads nacl at parse time.
@@ -250,8 +271,9 @@ Transaction, others:   [connect if none] → [signAndSendTransaction] → done
 
 So today's `phantom_dl_*` keys generalize to `wallet_dl_*` carrying: the wallet
 key, a **step cursor**, the persisted shared secret, the session token, and the
-pending intent. The callback's dispatch at `phantom_callback.html.erb:149`
-becomes a step-machine advance rather than a single `signIn` branch.
+pending intent. The callback's dispatch in studio-engine's
+`phantom_callback.html.erb` becomes a step-machine advance rather than a single
+`signIn` branch.
 
 ### 7. Every hop must carry its own `redirect_link`
 
@@ -262,12 +284,28 @@ sharpest illustration in this document of why it exists.
 **Corrected 2026-09-10.** A real iPhone on QA found this defect first: the task
 `/tasks/resume-validates-journal-completeness` was filed at 17:06 MDT, and the
 harness reproduced it on `accepted` at 20:14 MDT (`3f565729`). That proves the
-harness can see the class; it was not the first to see it. Since then
-solana-studio **0.9.3**, which `Gemfile.lock` resolves, journals `redirectLink`
-in `beginConnect` (`redirect_provider.js:194-204`), and its URL builders refuse
-a request without one (`wallet_transport.js:310-319`). The paragraphs below
-describe 0.9.2. The turf-side default stays until the Gemfile floor, `>= 0.9.2`
-today, reaches 0.9.3.
+harness can see the class; it was not the first to see it.
+
+**The gem half is fixed, and this paragraph dates the fix by the release that
+shipped it — never by the version the lockfile holds.** A sentence naming the
+locked version is how this section went stale twice: it named 0.9.3 as locked,
+and the lock moved on. solana-studio journals `redirectLink` in `beginConnect`
+(`solana-studio: app/assets/javascripts/solana_studio/redirect_provider.js#beginConnect`),
+and its URL builders refuse a request without one
+(`solana-studio: app/assets/javascripts/solana_studio/wallet_transport.js#requireField`).
+Both arrived in **0.9.3**: one commit adds both (`5683561`, "Refuse a wallet
+request with nowhere to return"), `v0.9.3` is the earliest tag containing it,
+and the published 0.9.2 gem carries neither. The Gemfile floor is `>= 0.9.2`,
+one patch below that release, so a lock rebuilt from the Gemfile alone may
+resolve a gem without the fix. That is why the turf-side default below stays
+until the floor reaches 0.9.3. The paragraphs below describe 0.9.2.
+
+**Each clause above is asserted, not trusted.** `test/docs/workflow_citation_docs_test.rb`
+reads this paragraph: the resolved gem must still journal the link and refuse a
+request without it, the floor named here must be the Gemfile's floor, and that
+floor must sit below the release named here. Raise the floor to 0.9.3 and the
+test goes red, naming the default to retire. It also refuses any sentence in
+these two wallet documents that says what the lock resolves.
 
 Phantom documents `redirect_link` as **required** on `connect` and on
 `signTransaction` alike (docs.phantom.com, provider-methods pages, fetched
@@ -284,11 +322,12 @@ signingHop(provider, connected.journal, {
 })
 ```
 
-and **neither side of that `||` exists in production**. `studio-engine`'s
-`solana_sessions/phantom_callback.html.erb` — the page a wallet returns to —
-calls `walletOps.resume(params, { navigate })` and passes no `redirectLink`;
-`solana-studio`'s `redirect_provider.beginConnect` journals `dappSecretKey`,
-`dappPublicKey` and `intent`, and no redirect link. `walletTransport`'s query
+and, in 0.9.2, **neither side of that `||` existed in production**.
+`studio-engine`'s `solana_sessions/phantom_callback.html.erb` — the page a
+wallet returns to — calls `walletOps.resume(params, { navigate })` and passes no
+`redirectLink` (it still does not); `solana-studio`'s
+`redirect_provider.beginConnect` journalled `dappSecretKey`, `dappPublicKey` and
+`intent`, and no redirect link. `walletTransport`'s query
 builder drops `undefined` values silently, so the parameter simply vanished.
 Measured against solana-studio 0.9.2 + studio-engine 0.74.6: hop two's query
 string was `[dapp_encryption_public_key, nonce, payload]`.
@@ -303,7 +342,7 @@ RECEIVES against the vendor's own parameter table, and it answers only by
 redirecting to the `redirect_link` the URL carries — so a missing one strands the
 trip instead of failing an assertion.
 
-**Where the value comes from now.** `app/views/shared/_contest_entry_intent.html.erb`
+**Where the value comes from now.** `app/views/shared/_contest_entry_intent.html.erb:128-149`
 wraps `walletOps.resume` and defaults `redirectLink` to
 `window.location.origin + window.location.pathname` — **the URL the document is
 on**. `resume()` only runs with a pending journal, which only happens on a
@@ -325,11 +364,14 @@ next flow to rediscover this on a phone.
 **It is a default, not an override**, and it is meant to be retired. The real fix
 is one line in `solana-studio`'s `beginConnect` — journal the redirect link so
 `resume`'s existing `|| journal.redirectLink` resolves — which is a gem change, a
-release, and another floor on the chain in the Gemfile.
-`test/integration/phantom_callback_redirect_link_test.rb` carries the retirement
-trigger: it asserts, against the DELIVERED callback document, that studio-engine
-still calls `resume` without a redirect link, and names what to delete when that
-stops being true.
+release, and another floor on the chain in the Gemfile. The gem change and the
+release are done (0.9.3, above); the floor is not.
+`test/integration/phantom_callback_redirect_link_test.rb` carries the ENGINE
+half of the retirement trigger: it asserts, against the DELIVERED callback
+document, that studio-engine still calls `resume` without a redirect link, and
+names what to delete when that stops being true. It never looked at the GEM
+half, which is how §7 went stale twice without a test noticing. The §7 test in
+`test/docs/workflow_citation_docs_test.rb`, described above, now covers that half.
 
 ---
 
@@ -561,9 +603,9 @@ the buttons disable, and a desktop stay untouched).
 
 | Repo | Owns | Constraint |
 |---|---|---|
-| `turf-monster` | Call sites, the blocking SRI-pinned tweetnacl tag | Engine floor `~> 0.72` |
+| `turf-monster` | Call sites, the blocking SRI-pinned tweetnacl tag | Pins both gems' floors in its `Gemfile`, each with a note saying why it moved |
 | `solana-studio` | `startPhantomDeepLink`, the wallet picker | Rails::Engine, joins the view lookup path |
-| `studio-engine` | **The callback view** — step dispatch at `:149` | Where the resume contract lives |
+| `studio-engine` | **The callback view** — its dispatch: `walletOps.resume` first, then the legacy `phantom_dl_step` branch | Where the resume contract lives |
 
 The callback lives in the engine and the deeplink lives in solana-studio, so any
 change to the resume contract must land in **both gems before turf-monster can
