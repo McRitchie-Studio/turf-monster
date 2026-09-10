@@ -1,7 +1,9 @@
 # Wallet Transport Architecture
 
-**Status:** Design — gem primitives merged (solana-studio PR #35), not yet wired
-into turf-monster
+**Status:** Wired for **contest entry**, on ONE call site for both transports
+(`/tasks/collapse-inline-entry-call-site`, solana-studio 0.9.2). The four
+remaining user-facing flows are still hand-rolled and tracked at
+`/tasks/migrate-account-wallet-flows` and `/tasks/migrate-remaining-entry-flows`.
 **Written:** 2026-09-07
 **Task:** https://mcritchie.studio/tasks/wallet-transport-architecture-doc
 **Spans:** turf-monster · solana-studio · studio-engine
@@ -142,8 +144,24 @@ walletOps.define('contest_entry', {
 walletOps.run('contest_entry', { contestId, currency });
 ```
 
-- **inline transport** — `run` executes prepare → sign → send → complete as one
-  async function, exactly as the code does today.
+- **inline transport** — `run` executes connect → prepare → sign → complete as
+  one async function. **Connect comes FIRST, and the order is the point:**
+  `prepare` is a server round trip that MINTS something (here, a prepared
+  transaction row with a fresh blockhash), so running it before the wallet has
+  said who it is spends a real record to discover the wrong account is
+  connected. That is what `run(..., { expectedAccount })` protects.
+- **`run` never sends.** Signing and broadcasting are different
+  responsibilities, and for a CO-SIGNED transaction — the entry's shape, with the
+  admin signer slot deliberately empty — the wallet must not broadcast at all.
+  `complete` is told which happened (`sendStrategy`) and owns the RPC. An intent
+  whose transaction cannot be wallet-broadcast declares `signOnly: true`; note
+  that the inline path signs-only regardless, so a flow that WANTS the wallet to
+  send sees that only on the redirect transport.
+- **the transaction is base58 wire bytes on every transport**, because a
+  `solanaWeb3.Transaction` cannot be written to the journal and so cannot survive
+  a page death. The inline provider converts, in both directions, through a codec
+  the gem requires by name (`deserializeTransaction` / `serializeTransaction` —
+  `INLINE_TX_CODEC` in `app/javascript/wallet_provider.js`).
 - **redirect transport** — `run` executes prepare, journals the intent, and
   redirects. The callback page reads the journal, looks the op up **by name**,
   and calls `complete`.

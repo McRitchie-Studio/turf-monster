@@ -394,4 +394,99 @@
     </div>
   <% end %>
 
+  <%= render layout: "style/modal_specimen", locals: {
+        label:     "Sign in",
+        reference: %(turf-monster's modals/_auth — the sign-in card, and the single busiest modal in the app: every session starts here. A STEP MACHINE, not a card: props.step drives eight faces from one id, and this specimen opens the credentials face a signed-out visitor meets. It reads TWELVE props (step, submitting, title, message, icon, cta, url, sentEmail, formError, googleError, phantomError, picksRequired) — more than any other card in this app — which is why its openers are worth reading before changing it: app/views/layouts/_navbar.html.erb, app/views/components/_user_nav.html.erb and app/javascript/solana_utils.js all open it, and the 401 reopen path passes only { step }. THE ENGINE OWNS THE PIECES, NOT THE CARD: shared/_email_field, shared/_age_attestation, blocks/_progress_pill and blocks/_card_header are the gem's — but NOT the resend footer: the gem ships studio/modals/auth/_resend_footer and turf renders its own fork, modals/auth/_resend_footer, which is one of the last consumer forks in this area; the step machine and the funding fork are turf's. Open other faces by passing a different step.),
+        open_expr: "$store.modals.open('auth', { step: 'credentials', submitting: null })",
+        openable:  true } do %>
+    <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 space-y-2">
+      <span class="block h-2 w-24 mx-auto rounded" style="background: var(--color-text); opacity: .18"></span>
+      <span class="block h-6 w-full rounded" style="background: var(--color-text); opacity: .12"></span>
+      <span class="block h-6 w-full rounded" style="background: var(--color-primary); opacity: .35"></span>
+    </div>
+  <% end %>
+
+  <%# THE FUNDING FACE OF THE SAME CARD, and it is a face rather than a card of
+      its own — auth/_usdc_funding renders INSIDE modals/_auth at step
+      'tokens-picker'. Carded separately because which funding partial renders is
+      a SERVER decision no prop can reach: application_helper#entry_funding_mode
+      picks _tokens (Stripe), _paypal_tokens or _usdc_funding, and on mainnet it
+      resolves to the last of those (PAYMENT_PROVIDER=none,
+      STRIPE_CHECKOUT_DISABLED=true, ENABLE_CDP_RAMP=true — re-derived
+      2026-09-09). So this card shows what a player actually meets, and the
+      Stripe face it replaced was carded for years while rendering to nobody. %>
+  <%= render layout: "style/modal_specimen", locals: {
+        label:     "Get USDC to enter",
+        reference: %(turf-monster's modals/auth/_usdc_funding, the funding step of the auth card — reached at step 'tokens-picker' when a player has picks and no way to pay. WHICH FUNDING PARTIAL RENDERS IS SERVER-DECIDED and no prop can change it: entry_funding_mode resolves :stripe, :paypal or the else-branch, and mainnet takes the else. THIS REPLACED A MIRROR OF THE STRIPE FACE. The engine carded style/modals/_entry_tokens, which mirrors modals/auth/_tokens — the DORMANT branch, carrying the largest measured drift on the guide (27 engine-only and 11 turf-only fragments) against a card no player has seen since the provider flipped. Operator call 2026-09-09: card the live branch, delete the mirror rather than transplant it. If the payment provider changes, RE-DERIVE entry_funding_mode — this card's subject moves with it. NOTE A SECOND GATE, and it is why this card can look empty on a dev stack while its neighbours do not: auth/_usdc_funding carries its own cdp_ramp_modal_available? check, so with ENABLE_CDP_RAMP off it renders "Purchases temporarily offline" rather than the rails. It is deliberately NOT badged disabled like the cdp-ramp card, because the auth id IS registered and the card DOES open — what is gated is one arm inside it, not the modal.),
+        open_expr: "$store.modals.open('auth', { step: 'tokens-picker', submitting: null })",
+        openable:  true } do %>
+    <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 space-y-2">
+      <span class="block h-2 w-20 mx-auto rounded" style="background: var(--color-text); opacity: .18"></span>
+      <span class="block h-6 w-full rounded" style="background: var(--color-primary); opacity: .5"></span>
+      <span class="block h-1.5 w-28 mx-auto rounded" style="background: var(--color-text); opacity: .3"></span>
+    </div>
+  <% end %>
+
+  <%= render layout: "style/modal_specimen", locals: {
+        label:     "Add funds hub",
+        reference: %(turf-monster's modals/_onramp_hub — the "more ways to add funds" rail picker, swapped into from the Top Up Wallet card and from the auth wizard's funding step. EVERY RAIL SELF-GATES on onramp_helper#onramp_rail_visible?, which shows most rails in development and, in production, only the rails whose backend is actually live — with COINBASE THE EXCEPTION, gated in every environment because its clause returns before the development bypass: Coinbase on ENABLE_CDP_RAMP, Coinflow on ENABLE_COINFLOW, Aeropay on ENABLE_AEROPAY, PayPal and Venmo on Payments.paypal_checkout?, Stripe on Payments.stripe?. So what you see here is what THIS stack has switched on, and on a stack with everything off the hub can render with no rails at all — a real state, tracked separately. props.returnModal decides where Back goes: 'wallet-topup' returns there, anything else returns to the auth wizard at props.returnStep.),
+        open_expr: "$store.modals.open('onramp-hub', { returnModal: 'wallet-topup' })",
+        openable:  true } do %>
+    <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 space-y-1.5">
+      <span class="block h-5 w-full rounded" style="background: var(--color-text); opacity: .12"></span>
+      <span class="block h-5 w-full rounded" style="background: var(--color-text); opacity: .12"></span>
+      <span class="block h-5 w-full rounded" style="background: var(--color-text); opacity: .12"></span>
+    </div>
+  <% end %>
+
+  <%= render layout: "style/modal_specimen", locals: {
+        label:     "Top up wallet",
+        reference: %(turf-monster's modals/_wallet_topup. NOTHING OPENS IT AT HEAD, and that is the first thing to know: its own header retired the "first funds card at the entry blocker" claim on 2026-09-06, and showWalletTopup has no caller. An earlier draft of this card repeated the retired sentence — copied from the engine mirror rather than re-derived from the partial, which is precisely the drift this section exists to end. It is Coinbase-forward by operator call: the primary CTA buys USDC, with entry tokens and the other rails moved behind the quiet "more ways to add funds" link into the hub. IT DEGRADES ITSELF for one audience: a web2 viewer with ENABLE_WEB2_USDC_ENTRY off cannot spend USDC on an entry, so a tokenFallback getter reads that off \$store.session and flips the card to the entry-token rail rather than pitching a purchase that would dead-end. The Coinbase rail is ALSO server-gated on onramp_rail_visible?(:coinbase), so a flagged-off ramp never ships a dead button that swaps to an unregistered modal. IT PASSES NO PROPS: the card writes returnModal as a LITERAL when it swaps to the hub, and never dereferences one — the only executable read of props.returnModal in the app is in modals/_onramp_hub.),
+        open_expr: "$store.modals.open('wallet-topup', {})",
+        openable:  true } do %>
+    <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 text-center space-y-2">
+      <div class="text-2xl leading-none">&#128176;</div>
+      <span class="block h-6 w-full rounded" style="background: var(--color-primary); opacity: .35"></span>
+      <span class="block h-1.5 w-24 mx-auto rounded" style="background: var(--color-text); opacity: .18"></span>
+    </div>
+  <% end %>
+
+  <%# DRIVEN THROUGH THE PROXY, NOT THROUGH PROPS — the one card on this section
+      that is. modals/_onchain_tx reads ZERO props: every field it paints comes
+      off $store.solanaModal (message, errorMessage, ctaLabel, ctaHref,
+      recoveryLabel, lobbyUrl, confetti), the legacy store that is now a thin
+      compatibility layer over $store.modals. So its trigger calls show() the way
+      the app does — cosign.js, lock_contest.js and the entry flow all reach it
+      this way — rather than opening an id with a props hash, which would paint
+      an empty card.
+
+      AND THEN IT RE-ARMS dismissible, which is the whole reason that second
+      statement is there. show() pins dismissible:false (layouts/application),
+      the gem host gates BOTH escape and backdrop-click on that flag, and the
+      PROCESSING arm renders no close control of its own — the Close button
+      lives in the error arm. In the app that is correct: an accidental click
+      must not orphan a signed-but-unconfirmed transaction, and every production
+      show() is followed by success() or error(), each of which flips the flag
+      back. A specimen has no transaction to protect and nothing to follow it,
+      so without the re-arm this card is the repo's first orphan show() and only
+      a page reload escapes it.
+
+      THE MIRROR THIS REPLACES WAS ESCAPABLE — it passed demoResolve and
+      advanced the spinner to a terminal state after MIN_LOAD_MS. So leaving the
+      trap in would have been a REAL exposure increase, not a neutral port, and
+      that is worth naming rather than quietly fixing. The re-arm was chosen
+      over walking the card to error because the processing state is the one
+      worth looking at, and it can now be looked at for as long as you like. %>
+  <%= render layout: "style/modal_specimen", locals: {
+        label:     "Submitting entry (on-chain)",
+        reference: %(turf-monster's modals/_onchain_tx, the in-flight card for any on-chain action — entry submission, contest creation, contest lock. THREE STATES, one card: processing, success and error, chosen by $store.solanaModal rather than by props, which is why this trigger calls show() instead of open(). It is opened NON-DISMISSIBLE while broadcasting, so an accidental click cannot orphan a signed-but-unconfirmed transaction — and that property caused a real bug: solanaModal.show() used to PUSH a card per step, leaving three stacked onchain-tx cards per entry, of which success() only ever advanced the top one. Closing anything landing on top then revealed a stale "Sign Transaction" for a settled entry. Fixed 2026-09-08 by patching a live card in place; the _liveTx helper in layouts/application walks the stack for one. THE ENGINE OWNS blocks/_card_header and blocks/_onchain_success; the recovery affordance, the Phantom-branded retry and the confetti are turf's.),
+        open_expr: "Alpine.store('solanaModal').show('Submitting Entry', 'Awaiting Phantom signature…'); $store.modals.current().props.dismissible = true",
+        openable:  true } do %>
+    <div class="pointer-events-none w-40 rounded-lg bg-surface border border-subtle shadow p-4 text-center space-y-2">
+      <div class="loading-dots"><span></span><span></span><span></span></div>
+      <span class="block h-2 w-24 mx-auto rounded" style="background: var(--color-text); opacity: .18"></span>
+      <span class="block h-1.5 w-28 mx-auto rounded" style="background: var(--color-text); opacity: .3"></span>
+    </div>
+  <% end %>
+
 </div>
