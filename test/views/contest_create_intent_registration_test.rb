@@ -113,6 +113,33 @@ class ContestCreateIntentRegistrationTest < ActiveSupport::TestCase
     end
   end
 
+  test "each migrated flow declares the wallet it expects" do
+    # The wrong-wallet check used to be four hand-written lines per flow
+    # (connect, read publicKey, compare, throw). walletOps owns it now, but ONLY
+    # when the call site declares `expectedAccount` — and dropping the
+    # declaration is the SILENT failure: nothing raises, nothing logs, and the
+    # operator learns they used the wrong account from an Anchor error after the
+    # signature. Structural, and its limits are the same as the count above.
+    VIEWS.each do |label, path|
+      assert_equal 1, code_only(path).scan("expectedAccount:").length,
+                   "#{label}: without this the guard is simply not applied, and nothing says so"
+    end
+  end
+
+  test "each migrated flow stops when the transport suspended the trip" do
+    # On the redirect transport run() hands the OS a universal link and this
+    # document is gone — but the promise it returns resolves with a
+    # `{ suspended: true }` marker, and a caller that read that as its result
+    # would paint a success card for a contest that has not been signed, let
+    # alone broadcast. In a real browser the line is usually unreachable; the
+    # cases where it is NOT are exactly the ones that matter (a blocked
+    # navigation, a deferred app switch).
+    VIEWS.each do |label, path|
+      assert_equal 1, code_only(path).scan(".suspended) return;").length,
+                   "#{label}: a suspended trip must not be read as a completed one"
+    end
+  end
+
   test "no migrated flow drives a wallet or the chain by hand any more" do
     # THE CONTROL ON THE COUNT ABOVE. A view could satisfy "exactly one
     # tmWalletOp" while still keeping its old inline path beside it, which is
