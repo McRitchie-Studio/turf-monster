@@ -38,7 +38,7 @@ ESPN scoreboard  ->  Nfl::LiveScores::PollCycle
 ```
 
 Nothing in the poller writes a score directly. `Nfl::LiveScores::PollCycle#record_play`
-writes `Goal` rows (`app/services/nfl/live_scores/poll_cycle.rb:358-383`) and the
+writes `Goal` rows (`app/services/nfl/live_scores/poll_cycle.rb:377-402`) and the
 existing callbacks carry them the rest of the way, which is why a hand-recorded goal
 and a fed one behave identically. On `Goal`, the `after_create :refresh_game_scores`
 declaration (`app/models/goal.rb:46`) runs `Goal#refresh_game_scores` (`:156-158`),
@@ -55,7 +55,7 @@ Every link in that chain, with its owner:
 |---|---|
 | `Nfl::LiveScores::PollCycle#call` — one cycle | `app/services/nfl/live_scores/poll_cycle.rb:74-86` |
 | `Nfl::LiveScores::PollCycle#process` — one game per scoreboard row | `:110-176` |
-| `Nfl::LiveScores::PollCycle#sync_scoring_plays` — reconciles the play list | `:271-324` |
+| `Nfl::LiveScores::PollCycle#sync_scoring_plays` — reconciles the play list | `:290-343` |
 | `Game#update_scores_from_goals!` — sums points | `app/models/game.rb:66-71` |
 | `Game#update_slate_matchups!` — sets `SlateMatchup#goals` | `:74-84` |
 | `Game#score_affected_contests!` — re-scores open contests | `:94-106` |
@@ -111,9 +111,9 @@ holds the board overnight (rung 3) and Monday night football takes it at 8:15
 Monday morning, twelve hours before its kickoff (rung 2).
 
 **The order is a tiebreak, never an override.** The `focus_rank` column on `games`
-(`db/schema.rb:316`) is a position in ONE list covering the whole week — unique per
+(`db/schema.rb:317`) is a position in ONE list covering the whole week — unique per
 season slot (year + season type + week) through the partial index
-`index_games_on_focus_rank_per_slot` (`db/schema.rb:333`), and validated as a positive
+`index_games_on_focus_rank_per_slot` (`db/schema.rb:336`), and validated as a positive
 integer on `Game` (`app/models/game.rb:45`). `Live::FocusGame.best_ranked` reads it
 (`app/services/live/focus_game.rb:112`) only WITHIN the set a rung has already made
 eligible, which is what stops the marquee game of the week from sitting on the board
@@ -173,9 +173,9 @@ and a bad minute must not end a watch.
 
 **It is idempotent.** Every scoring event is keyed on ESPN's own play id
 (`external_id`) under the unique partial index
-`index_goals_on_external_id_when_present` (`db/schema.rb:354`), and
+`index_goals_on_external_id_when_present` (`db/schema.rb:357`), and
 `Nfl::LiveScores::PollCycle#sync_scoring_plays` indexes what it already holds by that
-id before writing (`app/services/nfl/live_scores/poll_cycle.rb:289-290`) — so a second
+id before writing (`app/services/nfl/live_scores/poll_cycle.rb:308-309`) — so a second
 identical cycle writes nothing and an interrupted one resumes by being run again.
 
 ## THERE IS NO SCHEDULER
@@ -200,10 +200,10 @@ citations below name (`app/services/nfl/live_scores/poll_cycle.rb`).
 | Kind | Raised in | Means | What to do |
 |---|---|---|---|
 | `fetch_failed` | `#process` (`app/services/nfl/live_scores/poll_cycle.rb:168`) | One game's summary did not arrive | Ignore once. Twice on the same game: report it. |
-| `unknown_team` | `#upsert_game` (`:197`) and `#record_play` (`:361`) | An abbreviation resolved to no team | **Escalate.** A team that cannot be matched silently never scores. |
-| `score_drift` | `#detect_drift` (`:398-407`) | Our summed events disagree with the feed's total | Ignore a single cycle mid-play; persisting means a play was missed. |
-| `degraded_feed` | `#process` (`:127-128`) and `#sync_scoring_plays` (`:279`, `:301`) | The feed declined to answer — an absent `scoringPlays` key, zero plays against goals we hold, or a blank score on a live game | The cycle **refuses to act**. Investigate if it persists. |
-| `status_regression` | `#status_for` (`:247`) | A stale row reported an earlier state for a completed game | Informational; the game keeps its completed status. |
+| `unknown_team` | `#upsert_game` (`:197`) and `#record_play` (`:380`) | An abbreviation resolved to no team | **Escalate.** A team that cannot be matched silently never scores. |
+| `score_drift` | `#detect_drift` (`:417-426`) | Our summed events disagree with the feed's total | Ignore a single cycle mid-play; persisting means a play was missed. |
+| `degraded_feed` | `#process` (`:127-128`) and `#sync_scoring_plays` (`:298`, `:320`) | The feed declined to answer — an absent `scoringPlays` key, zero plays against goals we hold, or a blank score on a live game | The cycle **refuses to act**. Investigate if it persists. |
+| `status_regression` | `#status_for` (`:266`) | A stale row reported an earlier state for a completed game | Informational; the game keeps its completed status. |
 | `unsettled_final` | `#process` (`:149`) | The feed says FINAL but our events disagree with its total | The game is **not settled**. It settles on the next reconciling cycle. |
 | `cycle_error` | `#process` (`:175`) | An unexpected exception, captured to `ErrorLog` | A bug. Read the ErrorLog. |
 
@@ -218,7 +218,7 @@ These are guards with reproductions behind them, not defensive padding.
   now separates "no plays" from "no answer" by asking whether `scoringPlays` is an
   Array at all (`app/services/nfl/espn/scoring_plays.rb:65-67`);
   `Nfl::LiveScores::PollCycle#sync_scoring_plays` refuses to sweep to nothing
-  (`app/services/nfl/live_scores/poll_cycle.rb:279`, `:301`); and `#process` treats a
+  (`app/services/nfl/live_scores/poll_cycle.rb:298`, `:320`); and `#process` treats a
   blank score on a live game as an anomaly rather than a zero (`:127-128`).
 - **It will not settle a game it cannot reconcile.** Finalising flips every
   matchup and re-scores every contest. Doing that while our events disagree with
@@ -228,7 +228,7 @@ These are guards with reproductions behind them, not defensive padding.
   otherwise re-open a settled game and re-fire the FINAL broadcast.
 - **It will not store an id-less play.** `play["id"].to_s` yields `""`, which the
   unique index `index_goals_on_external_id_when_present` covers with its
-  `WHERE external_id IS NOT NULL` predicate (`db/schema.rb:354`) — so a second id-less
+  `WHERE external_id IS NOT NULL` predicate (`db/schema.rb:357`) — so a second id-less
   play anywhere in the league would collide across games.
 
 ## The external dependency
