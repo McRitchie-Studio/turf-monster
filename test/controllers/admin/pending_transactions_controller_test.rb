@@ -165,4 +165,164 @@ class Admin::PendingTransactionsControllerTest < ActionDispatch::IntegrationTest
       end
     end
   end
+
+  # --- broadcast: server-side send (the cosign fix) ---
+  #
+  # REGRESSION. The browser used to broadcast the cosigned wire itself, which
+  # failed on mainnet every time for three compounding reasons (all measured
+  # 2026-09-05): Config.public_rpc_url refuses to hand a credentialed endpoint
+  # to a browser, so the page fell back to the throttled public cluster RPC;
+  # web3.js Connection defaults to `finalized`, so sendRawTransaction
+  # preflighted a fresh blockhash against a bank ~32 slots stale and rejected a
+  # VALID tx with BlockhashNotFound; and the page read the tx out of a DOM
+  # attribute baked at render time, so clicking Co-sign again re-sent the SAME
+  # expired bytes. That silently stranded $140 of alpha-contest payouts in June.
+  # Broadcasting server-side removes all three.
+
+  test "broadcast sends the signed wire through the server and flips settle state" do
+    log_in_as(@admin)
+    tx = ptx("settle_contest", { settlements: [] }, target: @contest)
+    cosigner = Solana::Config::MULTISIG_SIGNERS.first
+    vault = FakeVault.new
+
+    Solana::Vault.stub :new, vault do
+      Solana::Keypair.stub :encode_base58, ->(s) { s.is_a?(String) ? s : s.to_s } do
+        Solana::TxVerifier.stub :verify!, true do
+          post broadcast_admin_pending_transaction_path(slug: tx.slug),
+            params: { cosigner_address: cosigner, signed_tx: "SIGNED_WIRE" }, as: :json
+        end
+      end
+    end
+
+    assert_response :success
+    assert_equal ["SIGNED_WIRE"], vault.broadcast_calls
+    assert_equal "confirmed", tx.reload.status
+    assert @contest.reload.onchain_settled?
+  end
+
+  test "broadcast of settle_contest enqueues winner notifications" do
+    log_in_as(@admin)
+    @contest.entries.create!(user: @admin, status: "complete", rank: 1, payout_cents: 4500, score: 1.0)
+    tx = ptx("settle_contest", { settlements: [] }, target: @contest)
+    cosigner = Solana::Config::MULTISIG_SIGNERS.first
+
+    Solana::Vault.stub :new, FakeVault.new do
+      Solana::Keypair.stub :encode_base58, ->(s) { s.is_a?(String) ? s : s.to_s } do
+        Solana::TxVerifier.stub :verify!, true do
+          assert_enqueued_jobs 1, only: WinnerNotificationJob do
+            post broadcast_admin_pending_transaction_path(slug: tx.slug),
+              params: { cosigner_address: cosigner, signed_tx: "SIGNED_WIRE" }, as: :json
+          end
+        end
+      end
+    end
+  end
+
+  test "broadcast refuses a blank signed wire" do
+    log_in_as(@admin)
+    tx = ptx("settle_contest", { settlements: [] }, target: @contest)
+    vault = FakeVault.new
+
+    Solana::Vault.stub :new, vault do
+      post broadcast_admin_pending_transaction_path(slug: tx.slug),
+        params: { cosigner_address: Solana::Config::MULTISIG_SIGNERS.first, signed_tx: "" }, as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_empty vault.broadcast_calls
+    assert_equal "pending", tx.reload.status
+  end
+
+  test "broadcast refuses a cosigner outside the multisig set" do
+    log_in_as(@admin)
+    tx = ptx("settle_contest", { settlements: [] }, target: @contest)
+    vault = FakeVault.new
+
+    Solana::Vault.stub :new, vault do
+      post broadcast_admin_pending_transaction_path(slug: tx.slug),
+        params: { cosigner_address: "NotASigner1111111111111111111111111111111", signed_tx: "SIGNED_WIRE" }, as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_empty vault.broadcast_calls
+    assert_equal "pending", tx.reload.status
+  end
+
+  test "broadcast refuses a transaction that is no longer pending" do
+    log_in_as(@admin)
+    tx = ptx("settle_contest", { settlements: [] }, target: @contest)
+    tx.update!(status: "confirmed")
+    vault = FakeVault.new
+
+    Solana::Vault.stub :new, vault do
+      post broadcast_admin_pending_transaction_path(slug: tx.slug),
+        params: { cosigner_address: Solana::Config::MULTISIG_SIGNERS.first, signed_tx: "SIGNED_WIRE" }, as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_empty vault.broadcast_calls
+  end
+
+  # The whole point of moving the broadcast server-side is that the operator
+  # learns WHY it failed. The old client blamed an expired blockhash for every
+  # failure, including program errors that no amount of retrying would fix.
+  test "broadcast surfaces the real failure instead of a blockhash guess" do
+    log_in_as(@admin)
+    tx = ptx("settle_contest", { settlements: [] }, target: @contest)
+    vault = FakeVault.new(broadcast_raises: "Pre-flight simulation failed: SettlementOverflow")
+
+    Solana::Vault.stub :new, vault do
+      post broadcast_admin_pending_transaction_path(slug: tx.slug),
+        params: { cosigner_address: Solana::Config::MULTISIG_SIGNERS.first, signed_tx: "SIGNED_WIRE" }, as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/SettlementOverflow/, JSON.parse(response.body)["error"])
+    assert_no_match(/blockhash/i, JSON.parse(response.body)["error"])
+    assert_equal "pending", tx.reload.status
+  end
+
+  # Rebuild is now what the CLIENT calls at click time to get a tx whose
+  # ~60-90s blockhash window starts at the click, not at page render. It must
+  # therefore hand the fresh wire back in the JSON body.
+  test "rebuild returns the fresh serialized tx in the json body" do
+    log_in_as(@admin)
+    tx = ptx("cancel_contest", { creator: "Creator11111111111111111111111111111111111" }, target: @contest)
+
+    Solana::Vault.stub :new, FakeVault.new do
+      post rebuild_admin_pending_transaction_path(slug: tx.slug), as: :json
+    end
+
+    assert_response :success
+    assert_match(/FAKE_TX_cancel/, JSON.parse(response.body)["serialized_tx"])
+  end
+
+  # --- the index must not ship the wire to the DOM ---
+  #
+  # REGRESSION for cause #2. `data-tx-serialized` used to carry the whole
+  # transaction, rendered with the page. Its blockhash aged from render time,
+  # so by the first click it was often already dead — and every subsequent
+  # click re-sent the identical expired bytes, which is why ten retries in a
+  # row all failed the same way. The button now carries only the slug, and the
+  # client asks the server for a fresh transaction when it is clicked.
+  test "index does not render the serialized transaction into the page" do
+    log_in_as(@admin)
+    ptx("settle_contest", { settlements: [] }, target: @contest)
+
+    get admin_pending_transactions_path
+
+    assert_response :success
+    assert_no_match(/data-tx-serialized/, response.body)
+    assert_no_match(/OLD_TX/, response.body, "the wire itself must never reach the DOM")
+  end
+
+  test "index co-sign button passes only the slug and label" do
+    log_in_as(@admin)
+    tx = ptx("settle_contest", { settlements: [] }, target: @contest)
+
+    get admin_pending_transactions_path
+
+    assert_match(/data-tx-slug="#{tx.slug}"/, response.body)
+    assert_match(/cosignTransaction\(this\.dataset\.txSlug, this\.dataset\.txLabel\)/, response.body)
+  end
 end

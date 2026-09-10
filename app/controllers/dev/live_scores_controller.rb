@@ -36,10 +36,15 @@ module Dev
       # the poller's reconciliation entirely — it only ever reconciles rows
       # carrying an ESPN play id — so an injected touchdown is never mistaken
       # for a withdrawn one and deleted out from under the demo.
+      scorer = pick_scorer(team, scoring_type)
+
       goal = @game.goals.create!(
         team_slug: team.slug,
         points: Goal.points_for(scoring_type),
-        scoring_type: scoring_type
+        scoring_type: scoring_type,
+        scorer_name: scorer&.person&.full_name,
+        scorer_slug: scorer&.person_slug,
+        play_description: synthetic_description(scorer, scoring_type)
       )
 
       render json: {
@@ -84,6 +89,61 @@ module Dev
     end
 
     private
+
+    # A PLAUSIBLE SCORER, so the injected play exercises the real card rather
+    # than a blank one. The live feed names the scorer in its play text; there
+    # is no text here, so we choose from the team's actual roster by position —
+    # a kicker kicks the field goals, a skill player scores the touchdowns.
+    #
+    # `scorer_slug` pins a specific player, which is what the browser spec uses
+    # to assert on a known name instead of whoever the roster happened to offer.
+    # Returns nil freely: a desk seeded without athletes still records the goal,
+    # and the card simply does not reveal.
+    TOUCHDOWN_POSITIONS = %w[WR RB TE QB].freeze
+    FIELD_GOAL_POSITIONS = %w[K].freeze
+
+    # A PLAUSIBLE PLAY, for the same reason as a plausible scorer: the live feed
+    # describes the play in its text and there is no text here, so the card would
+    # otherwise show a blank third row and prove nothing about the layout it
+    # exists to prove. Keyed off the scorer's position — a back runs it in, a
+    # receiver catches it, a kicker kicks it from range.
+    RUSHING = %w[RB QB FB].freeze
+    RECEIVING = %w[WR TE].freeze
+
+    def synthetic_description(scorer, scoring_type)
+      return Nfl::Espn::PlayDescription.from("", scoring_type) if scorer.nil?
+
+      case scoring_type
+      when "field_goal" then "#{rand(22..54)} yard field goal"
+      when "touchdown"
+        if RECEIVING.include?(scorer.position) then "#{rand(3..48)} yard receiving TD"
+        elsif RUSHING.include?(scorer.position) then "#{rand(1..29)} yard rushing TD"
+        else "Defensive touchdown"
+        end
+      else
+        Nfl::Espn::PlayDescription.from("", scoring_type)
+      end
+    end
+
+    def pick_scorer(team, scoring_type)
+      if params[:scorer_slug].present?
+        return Athlete.find_by(person_slug: params[:scorer_slug])
+      end
+
+      positions =
+        case scoring_type
+        when "field_goal" then FIELD_GOAL_POSITIONS
+        when "touchdown"  then TOUCHDOWN_POSITIONS
+        else return nil
+        end
+
+      Athlete.football.for_team(team.slug)
+             .where(position: positions)
+             .includes(:person)
+             .order(Arel.sql("RANDOM()"))
+             .first
+    end
+
 
     def require_non_production
       return unless Rails.env.production?

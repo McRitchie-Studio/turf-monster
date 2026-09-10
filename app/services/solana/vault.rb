@@ -1718,6 +1718,20 @@ module Solana
     ENTRY_TOKEN_SOURCE = { operator: 0, stripe: 1, moonpay: 2, paypal: 3, coinflow: 4, aeropay: 5 }.freeze
     ENTRY_TOKEN_LEN = 124 # bytes — 8 disc + 32 owner + 1 source + 64 source_ref + 1 consumed + 9 consumed_at + 8 created_at + 1 bump
 
+    # High bit of the on-chain `source` byte, set by burn_entry_token to
+    # tombstone a voucher an operator clawed back (turf-vault
+    # state.rs::entry_token_source::BURNED_FLAG). It rides in the spare bit of an
+    # EXISTING field because EntryTokenAccount is 124 bytes and fully packed —
+    # adding a real `burned` column would break deserialization of every token
+    # minted before the upgrade, and with it enter_contest_with_token for those
+    # holders.
+    #
+    # Consequence for THIS file: `source` off the wire is no longer a bare enum
+    # value. Every read must mask (see #decode_entry_token), or a burned Stripe
+    # token (1 | 0x80 = 129) reads as a source nothing recognizes.
+    ENTRY_TOKEN_BURNED_FLAG = 0x80
+    ENTRY_TOKEN_SOURCE_MASK = 0x7f
+
     def mint_entry_token(wallet_address:, source:, source_ref:)
       source_u8 = source.is_a?(Symbol) ? ENTRY_TOKEN_SOURCE.fetch(source) : source.to_i
 
@@ -1748,6 +1762,61 @@ module Solana
           { pubkey: wallet_bytes,                   is_signer: false, is_writable: false }, # user_wallet
           { pubkey: pda,                            is_signer: false, is_writable: true  }, # entry_token (init)
           { pubkey: Transaction::SYSTEM_PROGRAM_ID, is_signer: false, is_writable: false }
+        ],
+        data: data
+      )
+
+      signature = client.send_and_confirm(tx.serialize_base64)
+      invalidate_entry_tokens_cache(wallet_address)
+      { signature: signature, pda: Keypair.encode_base58(pda) }
+    end
+
+    # Void ONE unspent entry token — the operator claw-back counterpart to
+    # #mint_entry_token. 1-of-3 vault signer; the holder does NOT sign.
+    #
+    # Identified by `source_ref`, not by PDA, because the ref is what the caller
+    # actually has: #list_entry_tokens decodes it off each account, and the ref is
+    # what derives the address. Passing the ref lets this method recompute BOTH
+    # halves the program checks — the PDA it addresses and the source_ref_hash it
+    # sends — so the two can never disagree on the way out.
+    #
+    # TOMBSTONE, not close. The account survives with consumed = true and the
+    # burned flag set, so the on-chain token COUNT is unchanged — which is the
+    # whole point: `owed` on the admin free-entries page and
+    # Tokens::LevelUpGrant#missing_levels both derive from that count, so a burn
+    # that removed the account would immediately re-read as owed and be re-minted
+    # by the next "Mint all" or level-up sweep.
+    #
+    # NOT idempotent, deliberately. mint collides on `init` and can be retried
+    # blind; a re-burn instead fails the program's EntryTokenAlreadyBurned guard
+    # (6045 / 0x179d), because silently accepting one would overwrite consumed_at and
+    # destroy the record of when the burn happened. Callers that retry must
+    # re-read the list and skip tokens already carrying `burned: true`.
+    def burn_entry_token(wallet_address:, source_ref:)
+      admin = Keypair.admin
+
+      # The SAME two derivations mint does, from the same input — see
+      # #mint_entry_token. `padded_source_ref` raises rather than truncating past
+      # 64 bytes, so a ref that could not have been minted cannot be burned
+      # either.
+      ref_buffer = padded_source_ref(source_ref)
+      ref_hash   = Digest::SHA256.digest(ref_buffer)
+      pda, _ = Transaction.find_pda([b("entry_token"), ref_hash], @program_id)
+
+      data = Transaction.anchor_discriminator("burn_entry_token") +
+             ref_hash                  # source_ref_hash: [u8;32] (fixed array — raw bytes)
+
+      vault_pda, _ = vault_state_pda
+
+      tx = build_tx(admin)
+      tx.add_instruction(
+        program_id: @program_id,
+        accounts: [
+          # admin is writable because it is the fee payer, even though the
+          # instruction itself moves no lamports (a tombstone refunds no rent).
+          { pubkey: admin.public_key_bytes, is_signer: true,  is_writable: true  }, # admin
+          { pubkey: vault_pda,              is_signer: false, is_writable: false }, # vault_state
+          { pubkey: pda,                    is_signer: false, is_writable: true  }  # entry_token (mut)
         ],
         data: data
       )
@@ -2350,6 +2419,47 @@ module Solana
       client.send_and_confirm(patched_b64)
     end
 
+    # Broadcast a FULLY-signed multisig wire on the operator's behalf: the admin
+    # slot was signed at build time (build_partial_signed), the cosigner's
+    # Phantom filled the remaining slot in the browser, and this sends it.
+    #
+    # THE BROWSER MUST NOT SEND THESE ITSELF. It did until 2026-09-05, and it
+    # failed every time on mainnet for three compounding reasons:
+    #
+    #   1. Config.public_rpc_url deliberately refuses to hand a CREDENTIALED
+    #      endpoint to a browser (it would leak the key), and
+    #      SOLANA_PUBLIC_RPC_URL was unset — so the page fell back to the free
+    #      public cluster RPC, which rate-limits browser traffic hard.
+    #   2. `new solanaWeb3.Connection(url)` takes the `finalized` commitment by
+    #      default, so sendRawTransaction preflighted a fresh blockhash against
+    #      a bank ~32 slots behind and rejected a VALID tx as BlockhashNotFound.
+    #   3. The wire came from a DOM attribute rendered with the page, so
+    #      clicking Co-sign again re-sent the SAME expired bytes forever.
+    #
+    # One catch-all modal blamed the blockhash for all three, which is how $140
+    # of alpha-contest payouts sat unsent from June to September while the
+    # operator retried a transaction that could never land.
+    #
+    # sig_verify:false + replace_recent_blockhash:true are the same settings
+    # #cosign_and_broadcast_entry uses, and for the same reason: we want the
+    # PROGRAM's verdict here, not a re-check of signatures or blockhash age.
+    # The send that follows still enforces both for real.
+    #
+    # Anchored on a plain recent blockhash, NOT the durable nonce — see the
+    # 2026-06-11 note in #build_enter_contest: Phantom injects Lighthouse guard
+    # instructions at positions we do not control, and a nonce tx is only
+    # recognized when advanceNonceAccount is instruction 0.
+    def simulate_and_broadcast(signed_wire_base64)
+      sim = client.simulate_transaction(signed_wire_base64, sig_verify: false,
+                                        replace_recent_blockhash: true)
+      if sim && sim["err"]
+        logs = Array(sim["logs"]).last(6).join("\n")
+        raise "Pre-flight simulation failed: #{sim['err'].inspect}#{logs.empty? ? '' : "\n#{logs}"}"
+      end
+
+      client.send_and_confirm(signed_wire_base64)
+    end
+
     def cosign_and_broadcast_create_contest(signed_wire_base64)
       patched_b64 = Transaction.cosign_wire_base64(signed_wire_base64, signer: Keypair.admin)
 
@@ -2704,7 +2814,7 @@ module Solana
       data = Base64.decode64(account.dig("account", "data", 0))
       offset = 8
       owner_bytes, offset = Borsh.decode_pubkey(data, offset)
-      source = data[offset].ord; offset += 1
+      source_byte = data[offset].ord; offset += 1
       ref_slice = data[offset, 64]; offset += 64
       source_ref = ref_slice.bytes.take_while { |b| b != 0 }.pack("C*").force_encoding("UTF-8")
       consumed = data[offset].ord == 1; offset += 1
@@ -2713,10 +2823,20 @@ module Solana
       consumed_at = consumed_at_tag == 1 ? consumed_at_value : nil
       offset += 8
       created_at, offset = Borsh.decode_u64(data, offset)
+      # `source` carries the burn tombstone in its HIGH BIT (see
+      # ENTRY_TOKEN_BURNED_FLAG). Split it here, once, so no caller ever sees the
+      # raw byte: an unmasked read turns a burned Stripe token (1 | 0x80 = 129)
+      # into a source no lookup table has.
+      #
+      # A burned token is also `consumed: true` — that is what blocks the spend
+      # on chain — so anything counting UNCONSUMED tokens already excludes it and
+      # needs no change. `burned` exists to tell a claw-back apart from a genuine
+      # redemption, which only matters where the difference is shown or audited.
       {
         pda: account["pubkey"],
         owner: Keypair.encode_base58(owner_bytes),
-        source: source,
+        source: source_byte & ENTRY_TOKEN_SOURCE_MASK,
+        burned: (source_byte & ENTRY_TOKEN_BURNED_FLAG) != 0,
         source_ref: source_ref,
         consumed: consumed,
         consumed_at: consumed_at,

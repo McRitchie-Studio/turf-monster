@@ -9,7 +9,11 @@
 
   Per-rail visibility is gated by onramp_rail_visible? (app/helpers/
   onramp_helper.rb): every rail shows locally, each gates on its own backend
-  flag in production.
+  flag in production. Coinbase is the exception, and gates in EVERY env on
+  cdp_ramp_modal_available? — the same predicate that registers the cdp-ramp
+  modal in the host layout. Its destination is a modal rather than a route, so
+  revealing it locally, or on a page whose layout rendered logged-out, ships a
+  button that swaps to a modal id the host never registered.
 
   FLAG-AWARE degrade (tokenFallback): the Coinbase rail buys USDC, which a web2
   kill-switch viewer (ENABLE_WEB2_USDC_ENTRY off) can NOT spend on an entry, so

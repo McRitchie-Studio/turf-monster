@@ -154,6 +154,18 @@
 </script>
 
 <script>
+// The contest_entry intent and its two handlers MOVED to
+// shared/_contest_entry_intent, rendered from layouts/application.
+//
+// THEY CANNOT LIVE HERE. This partial renders only from contests/show and
+// contests/world_cup. The wallet returns to /auth/phantom/callback, which renders
+// studio-engine's view — this app has no local override — so on the return leg the
+// registry existed and the handler map was EMPTY. walletOps.resume() consumed the
+// journal at take() BEFORE the signTransaction hop called requireHandler, so the
+// throw came with nothing left to retry: the user approved in Phantom, came back,
+// and the entry was gone. Found in review of PR 632; the tests missed it because
+// they re-injected this registration into the simulated callback world.
+
 // selectionBoard — MUST be inline because Alpine processes x-data before importmap modules load.
 // Reads config from #board-config JSON element above.
 window.selectionBoard = function() {
@@ -213,7 +225,6 @@ window.selectionBoard = function() {
     // before the 'first-name-saved' listener can ever read it — the post-auth
     // chain fires that event too, and an undefined flag would be re-created on
     // every entry path that touched it.
-    _resumeAfterFirstName: false,
 
     init() {
       // Stripe checkout runs in a NEW TAB (see the buy-tokens panel). When
@@ -363,33 +374,35 @@ window.selectionBoard = function() {
         catch (e) { console.error('[hold-funding-check] beginFundingCheck threw:', e); }
       });
 
-      // First-name gate: the onboarding card fired 'first-name-saved' after a
-      // successful save (it already cleared $store.session.firstNameRequired).
-      // Same resume shape as 'age-verified' below — confirmEntry re-runs
-      // eligibilityBlocker, the name now passes, and the user flows on to the
-      // age / wallet / funding gates without re-holding.
+      // NO RESUME LISTENERS HERE, DELIBERATELY (operator rule, 2026-09-08).
       //
-      // GUARDED on the flag this board sets when IT opened the card: the
-      // post-auth chain opens the same modal and fires the same event, and
-      // resuming an entry nobody held would submit a lineup out of nowhere.
-      window.addEventListener('first-name-saved', function () {
-        if (!board._resumeAfterFirstName) return;
-        board._resumeAfterFirstName = false;
-        Promise.resolve()
-          .then(function () { return board.confirmEntry(); })
-          .catch(function (e) { console.error('[first-name-saved] confirmEntry rejected:', e); });
-      });
-
-      // Age gate (ENABLE_AGE_GATE): the DOB modal fired 'age-verified' after a
-      // successful verify (it already flipped $store.session.ageVerified). Pick
-      // the entry back up so the user flows straight to the next gate / entry
-      // without re-holding. confirmEntry re-runs eligibilityBlocker — age now
-      // passes, so it advances to tokens/balance or submits.
-      window.addEventListener('age-verified', function () {
-        Promise.resolve()
-          .then(function () { return board.confirmEntry(); })
-          .catch(function (e) { console.error('[age-verified] confirmEntry rejected:', e); });
-      });
+      // A hold has exactly TWO outcomes: the entry succeeds, or it hands off to
+      // a blocker and STOPS. Resolving the blocker never resubmits — the player
+      // holds again. Two listeners used to live here, on 'first-name-saved' and
+      // 'age-verified', each calling confirmEntry() so the entry "flowed on
+      // without re-holding". The convenience cost more than it bought: the
+      // resumed submit could fail for a SECOND reason (funds, wallet, geo), and
+      // the player then met an "Entry failed" card seconds after correcting the
+      // very thing that had stopped them — which reads as the correction having
+      // broken something.
+      //
+      // Nothing is needed in their place. Every blocker opener already calls
+      // resetHoldButtons() as its first statement, so the button is ready to
+      // hold the moment the card appears; and the session flags the modals set
+      // ($store.session.firstNameRequired / .ageVerified) mean the next hold
+      // clears the gate that just closed rather than re-opening it.
+      //
+      // ONE ASYMMETRY WENT WITH THEM, and it was a live bug rather than a tidy-
+      // up. The first-name listener was guarded on a flag this board set when IT
+      // opened the card, precisely because "resuming an entry nobody held would
+      // submit a lineup out of nowhere". The age listener carried no such guard,
+      // so a DOB answered in the POST-AUTH CHAIN — no hold in flight, no entry
+      // intended — reached confirmEntry() all the same.
+      //
+      // NOT to be confused with the 'age-verified' listener in
+      // layouts/application.html.erb, which is the onboarding CHAIN driver
+      // advancing to the wallet step. That one is not an entry resume and must
+      // stay.
 
       // Reopen the post-signup step after submitProfile()'s reload —
       // Google → buy entry tokens; email → check your email.
@@ -401,10 +414,10 @@ window.selectionBoard = function() {
           if (step && step.contestSlug === this.contestId) {
             if (step.step === 'tokens') {
               // Post-signup pack-picker resume — deliberately STAYS the Get
-              // Entry Tokens picker (not the Top Up Wallet modal). This restores
-              // the buy-tokens step the user was on through the signup reload,
-              // not the in-entry funds wall (that's the 'no_funding' blocker +
-              // its chain-layer twin, both rerouted to showWalletTopup).
+              // Entry Tokens picker. This restores the buy-tokens step the user
+              // was on through the signup reload, not the in-entry funds wall
+              // (that's the 'no_funding' blocker + its chain-layer twin, both
+              // rerouted to showFundsNeeded).
               //
               // The onboarding chain may be walking (first name -> age ->
               // wallet), and this picker can land on top of it — a
@@ -807,12 +820,17 @@ window.selectionBoard = function() {
         // The dismissible setup modal comes BACK here — this is the "re-opens
         // when it matters" half of letting the user close it after auth.
         case 'wallet_setup_required': this.showWalletSetupModal(); break;
-        // Funds-needed entry wall. Audience split via showFundsNeeded: a web2 /
-        // managed player buys an entry token (the Buy an Entry Token modal —
-        // Coinflow + Stripe rails), a web3 wallet keeps the Coinbase-forward USDC
-        // Top Up Wallet. Every funds-needed reroute funnels through the dispatcher.
+        // Funds-needed entry wall. showFundsNeeded sends both audiences to the
+        // Get USDC card, whose single route is a Phantom row; only the USDC
+        // kill-switch audience, who cannot pay with USDC at all, still goes to the
+        // entry-token modal. Every funds-needed reroute funnels through the
+        // dispatcher.
         case 'no_funding':           this.showFundsNeeded(); break;
         case 'insufficient_balance': this.showInsufficientBalanceModal(blocker); break;
+        // Self-custody account, web2 session. The server refused BEFORE
+        // attempting to sign (ContestsController#enter) because there is no
+        // custodial keypair for it to sign with. Open the card that fixes it.
+        case 'web3_step_up_required': this.showWeb3StepUpModal(blocker); break;
         default:                     this.resetHoldButtons();
       }
     },
@@ -820,13 +838,12 @@ window.selectionBoard = function() {
     // First-name gate: open the onboarding card in its REQUIRED mode (no skip
     // affordances — the hold cannot proceed without the name).
     //
-    // _resumeAfterFirstName is what separates this caller from the post-auth
-    // chain, which opens the SAME modal and fires the SAME 'first-name-saved'
-    // event. Without the flag, answering the chain's card seconds after signup
-    // would fire a confirmEntry for a hold nobody performed.
+    // No flag is needed to separate this caller from the post-auth chain any
+    // more: the chain opens the SAME modal and fires the SAME 'first-name-saved'
+    // event, but nothing on this board listens for it, so neither caller can
+    // resume an entry. See the note where those listeners used to be.
     showFirstNameModal() {
       this.resetHoldButtons();
-      this._resumeAfterFirstName = true;
       Alpine.store('modals').open('onboarding', { required: true, enterAnim: 'shake' });
     },
 
@@ -867,6 +884,31 @@ window.selectionBoard = function() {
       // Default pop-in instead.
       Alpine.store('modals').open('wallet-setup', {
         returnUrl: window.location.href
+      });
+    },
+
+    // Web3 step-up: this session was established by a web2 credential (magic
+    // link, email, Google) on an account whose only wallet is self-custody, so
+    // it cannot sign an entry. Opens the SAME card the auth paths open, with the
+    // SAME props — the server hands Web3StepUpPolicy#to_h through the blocker,
+    // so the remembered brand and the truncated address survive the round trip
+    // and the user sees one card, not two variants of one.
+    //
+    // Idempotent, mirroring showWalletSetupModal: this card may ALREADY be up
+    // (the post-auth render opens it too, which is exactly the stack the
+    // operator photographed on 2026-09-07). Pushing a second copy would leave
+    // one underneath for the user to close twice.
+    showWeb3StepUpModal(blocker) {
+      this.resetHoldButtons();
+      this.submitting = false;
+      var modals = Alpine.store('modals');
+      var open = (modals.stack || []).some(function (e) { return e && e.id === 'web3-step-up' && !e._closing; });
+      if (open) return;
+      var d = (blocker && blocker.data) || {};
+      modals.open('web3-step-up', {
+        provider:      d.provider      || null,
+        providerLabel: d.providerLabel || null,
+        walletHint:    d.walletHint    || null
       });
     },
 
@@ -975,13 +1017,13 @@ window.selectionBoard = function() {
     },
 
     // Solana clicked in the auth modal → save the guest lineup, then progress
-    // the modal to the "Connect Wallet" picker (modals/_wallet_connect). The
+    // the modal to the "Connect Wallet" picker (solana-studio's picker). The
     // picker runs the SIWS connect itself (window.solanaConnectAndVerify) and
     // returns here (returnUrl = this contest) so the saved cart auto-enters.
     openWalletConnect(ageAttested) {
       this.saveCartForRedirect(true);
       // ageAttested pre-checks the picker's own attestation checkbox (the
-      // auth modal already collected it) — see modals/_wallet_connect.
+      // auth modal already collected it) — see WalletPickerHelper onInit.
       Alpine.store('modals').swap('wallet-connect', { returnUrl: window.location.href, backTo: 'auth', ageAttested: !!ageAttested });
     },
 
@@ -1119,12 +1161,20 @@ window.selectionBoard = function() {
       }
     },
 
-    // Open (or swap into) the Coinbase-forward Top Up Wallet modal — the FIRST
-    // funds modal a logged-in player sees at the entry blocker when they lack
-    // funds (replaces the pack picker at that trigger; showTokensPanel above is
-    // still the picker, reached via the hub's Stripe card + the post-signup
-    // resume). wallet-topup is its OWN modal id, so unlike showTokensPanel
-    // (which advance()s WITHIN the auth wizard) the choice is open-vs-swap:
+    // Open (or swap into) the Top Up Wallet modal.
+    //
+    // NO CALLER, and that is deliberate rather than an oversight. It used to be
+    // the first funds modal at the entry blocker; the wall now answers with the
+    // Get USDC card (showFundsNeeded -> showGetUsdc), because Top Up Wallet leads
+    // with the CDP onramp and that rail has no legal clearance (operator,
+    // 2026-09-06). What to do with Top Up Wallet and the Add Funds hub while it
+    // stays uncleared is an operator decision about those surfaces, so this is
+    // kept rather than deleted — see the closing comment in modals/_buy_usdc.
+    //
+    // showTokensPanel above is still the pack picker, reached via the hub's
+    // Stripe card + the post-signup resume. wallet-topup is its OWN modal id, so
+    // unlike showTokensPanel (which advance()s WITHIN the auth wizard) the choice
+    // is open-vs-swap:
     //   - any modal currently open (e.g. the auth wizard) → swap() runs the
     //     host's cross-modal directional slide.
     //   - cold board (no modal open) → open() plays the fresh mount.
@@ -1140,16 +1190,48 @@ window.selectionBoard = function() {
     },
 
     // Funds-needed dispatcher — a logged-in player tried to enter and lacks
-    // funds. The audience split lives in ONE place: a web2 / managed player buys
-    // an entry token (showBuyEntryToken — the Coinflow + Stripe token rails), a
-    // web3 wallet keeps the USDC Top Up Wallet (showWalletTopup, unchanged).
+    // funds. The answer lives in ONE place, and it is the Get USDC card for
+    // everyone except the USDC kill-switch audience (see the branch below).
     // Every funds-needed reroute (the no_funding blocker, the hold-window check,
     // the chain-layer "no entry token" twin) funnels through here.
     showFundsNeeded() {
-      if (Alpine.store('session').mode === 'web2') {
+      var session = Alpine.store('session');
+      // ONE ANSWER, BOTH CASES (operator call, 2026-09-05). This used to fork on
+      // session.mode: web2 to the entry-token modal, web3 to Top Up Wallet. Mode
+      // is the wrong question — what a blocked player lacks is money for THIS
+      // entry, and whether they signed in with Google or a wallet does not change
+      // what fixes that. It only changed which modal they saw, and in production
+      // it sent every web2 player to a modal whose rails were both flagged off.
+      //
+      // The ONE audience that still keeps the token path is the USDC kill-switch
+      // one: a web2 viewer with ENABLE_WEB2_USDC_ENTRY off literally cannot pay
+      // an entry with USDC, so the USDC card would sell them a thing that cannot
+      // do the job they came to do. Same reasoning as _wallet_topup's
+      // tokenFallback fork, and the same audience.
+      //
+      // WHO 'web2' IS, precisely, because a comment on the card used to get this
+      // wrong: #556 promotes a session at LINK time, not on every later login, so
+      // this branch holds BOTH populations that pay from the managed wallet —
+      // managed-only accounts AND combo accounts (managed + linked Phantom)
+      // signed in with email or Google. Prod 2026-09-06: 24 + 12 = 36.
+      if (session.mode === 'web2' && !session.web2UsdcEntry) {
         this.showBuyEntryToken();
       } else {
-        this.showWalletTopup();
+        this.showGetUsdc();
+      }
+    },
+
+    // Open (or swap into) Get USDC — the teaching card at the funds wall. Mirrors
+    // showWalletTopup's open-vs-swap: its own modal id, so swap() when a modal is
+    // already up, else open() a fresh shake-in.
+    showGetUsdc() {
+      this.profileModal = false;
+      var s   = Alpine.store('modals');
+      var cur = s.current();
+      if (cur && cur.id) {
+        s.swap('buy-usdc', {});
+      } else {
+        s.open('buy-usdc', { enterAnim: 'shake' });
       }
     },
 
@@ -1159,6 +1241,15 @@ window.selectionBoard = function() {
     // its own modal id, so swap() when a modal is already up, else open() a fresh
     // shake-in.
     showBuyEntryToken() {
+      // NEVER OPEN AN EMPTY FUNDS MODAL. Both rails in modals/_buy_entry_token are
+      // server-gated, and with both off the card renders "pick how to pay" over
+      // nothing — which is what the entry wall did in production on 2026-09-05.
+      // entryTokenRailsAvailable carries that server answer; with no rail to show,
+      // fall through to the card that can actually take the player somewhere.
+      if (!Alpine.store('session').entryTokenRailsAvailable) {
+        this.showGetUsdc();
+        return;
+      }
       this.profileModal = false;
       var s   = Alpine.store('modals');
       var cur = s.current();
@@ -1321,8 +1412,12 @@ window.selectionBoard = function() {
     // The hold CTA is BOUND to $store.session.tokensAvailable (see the header
     // comment). Every other write to that key in this app is an ACQUISITION:
     // the mint poll in pollTokenStatus above, tokens/_paypal_sdk.html.erb, and
-    // solana_utils.js's session hydrate. refreshBalanceDelayed() ->
-    // refreshBalance() writes usdcCents/usdtCents and NOTHING else. So before
+    // solana_utils.js's session hydrate. This USED to read "refreshBalanceDelayed()
+    // -> refreshBalance() writes usdcCents/usdtCents and NOTHING else", and that
+    // is no longer true: onchainSettled() -> refreshSession() also writes
+    // tokensAvailable, so the delayed reload can now move the count DOWN — which
+    // is the honest direction after a consume, and a second cure for the stale
+    // count described below rather than a replacement for this method. So before
     // this method the count only ever went UP, and a wallet that had just
     // entered free kept reading "Hold for Free Entry" — then eligibilityBlocker
     // (solana_utils.js) waved the stale count through at hold-time while the
@@ -1500,11 +1595,14 @@ window.selectionBoard = function() {
       // has no USDC ATA yet, so $store.session.usdcCents reads null (unknown,
       // not 0) and the sync blocker fails OPEN — which previously let a $0 user
       // submit a doomed on-chain entry (cryptic "custom program error: 0x1").
-      // Only a DEFINITIVE { fundable:false } aborts into the Top Up Wallet.
+      // Only a DEFINITIVE { fundable:false } aborts into the funds-needed
+      // dispatcher below (showFundsNeeded) — Get USDC, or Buy an Entry Token for
+      // the USDC kill-switch audience. NOT Top Up Wallet: that modal has had no
+      // opener since showWalletTopup lost its last caller.
       //
       // Fail-OPEN by design — proceed (and rely on the server safety-net
       // resolve_web2_entry_funding!, which pre-checks USDC and returns
-      // no_funding → Top Up Wallet) when the check is: absent (non-hold auto-
+      // no_funding → that same dispatcher) when the check is: absent (non-hold auto-
       // enter, or web3 — beginFundingCheck no-ops there), null (401/flake/non-
       // OK), still unresolved at hold-end, or stale from an earlier flow (the
       // 8s freshness belt covers the release → buy-tokens → in-modal-hold case,
@@ -1546,7 +1644,81 @@ window.selectionBoard = function() {
 
       try {
         if (useOnchainFlow) {
-          var provider = window.walletProvider.detect();
+          var provider = window.walletProvider.requireProvider();
+
+          // === THE REDIRECT TRANSPORT ==================================
+          //
+          // A mobile browser has no injected wallet, so this provider reaches
+          // the wallet APP by URL and the page is destroyed until it answers.
+          // Everything below this block assumes a provider that resolves in
+          // place, which a redirect provider cannot do — so it forks here and
+          // hands off to walletOps, which owns the hops and the journal.
+          //
+          // WHY THE INLINE PATH BELOW IS LEFT ALONE, stated because the design
+          // doc promises ONE call site and this is visibly two. Three gaps in
+          // walletOps block the unification, each filed with evidence at
+          // /tasks/walletops-blocks-inline-unification: the inline provider
+          // needs a Transaction OBJECT while the redirect protocol needs base58
+          // wire bytes and one prepare() cannot return both; there is no
+          // post-connect hook, so the wrong-wallet check has nowhere to live on
+          // the redirect side (UX only — Anchor is the real ownership proof);
+          // and walletOps prefers signAndSendTransaction, which is wrong for a
+          // co-signed entry (/tasks/intent-declares-sign-only).
+          //
+          // Converting the inline path anyway would have meant reordering
+          // connect-before-prepare in the flow that takes payment, to satisfy an
+          // abstraction that cannot yet carry it. The duplication is deliberate,
+          // it is TRACKED, and retiring it is a task rather than a hope.
+          if (provider.transport === 'redirect') {
+            Alpine.store('solanaModal').show('Opening Your Wallet', 'Handing this entry to your wallet app…');
+
+            // WHEN THE HOP NEVER HAPPENS. run() ends by handing the OS a
+            // universal link, and "nothing after this executes" is only true
+            // when the OS honours it. If Phantom is not installed, or the user
+            // dismisses the app-switch prompt, this document stays alive — and
+            // before this guard it stayed alive holding a modal with no
+            // resolution and hold buttons that never came back, so the entry
+            // could not even be retried without a reload. Raised in review of
+            // PR 632.
+            //
+            // pagehide is the signal, not a timer alone: it fires when the hop
+            // DOES take, so its absence after the handoff is what tells us we
+            // are still here. The delay only has to outlast the OS prompt.
+            var board = this;
+            var left = false;
+            var onPageHide = function () { left = true; };
+            window.addEventListener('pagehide', onPageHide, { once: true });
+
+            // run() prepares, journals, and navigates. On the happy path nothing
+            // after it executes in this document — the callback page resumes the
+            // intent by NAME.
+            await window.SolanaStudio.walletOps.run('contest_entry', {
+              contestId: this.contestId,
+              csrfToken: this.csrfToken,
+              currency: this.entryCurrency()
+            }, {
+              provider: provider,
+              appUrl: window.location.origin,
+              redirectLink: window.location.origin + '/auth/phantom/callback',
+              cluster: document.body.dataset.solanaCluster
+            });
+
+            setTimeout(function () {
+              window.removeEventListener('pagehide', onPageHide);
+              // document.hidden covers the iOS case where the app switch is in
+              // flight but pagehide has not fired yet — leaving then is correct.
+              if (left || document.hidden) return;
+              board.submitting = false;
+              board.resetHoldButtons();
+              var sm = Alpine.store('solanaModal');
+              if (sm.visible) {
+                sm.error('Your wallet app did not open. Make sure Phantom is installed on this ' +
+                         'device, then try again.', 'Wallet Did Not Open');
+              }
+            }, 2500);
+            return;
+          }
+
           Alpine.store('solanaModal').show('Preparing Transaction', 'Building onchain transaction...');
 
           var resp = await provider.connect();
@@ -1667,12 +1839,17 @@ window.selectionBoard = function() {
           // StateFanout handler writes below — already populated from the
           // server response.
           window.StateFanout.apply('seeds', confirmData, { source: 'phantom-direct', seedsPerLevel: seedsPerLevel });
-          // 999s auto-close while reviewing seeds animation. Restore to a normal countdown when shipping (e.g. 8s).
+          // THE THIRD ARG IS IGNORED (application.html.erb): the engine's success
+          // card drives its own countdown, defaulting to FIVE seconds
+          // (studio/modals/blocks/_success_card:70, armed by _entry_confirmed:92)
+          // and ending in window.location.href. This comment used to claim a
+          // 999s auto-close, and that is exactly how the redirect got missed —
+          // a 10s non-navigating timer here is destroyed at t=5s.
           var modal = Alpine.store('solanaModal');
           modal.success(txSig, 'Entry Confirmed', 999);
           modal.title = 'Good Luck';
           modal.lobbyUrl = confirmData.redirect || ('/contests/' + this.contestId);
-          refreshBalanceDelayed();
+          onchainSettled({ navigating: true });
 
         } else {
           // Suppress the solanaModal "Submitting Entry" overlay when
@@ -1746,14 +1923,14 @@ window.selectionBoard = function() {
                   seedsTotal:  data.seeds_total  || 0,
                   seedsLevel:  data.seeds_level  || 0
                 });
-                refreshBalanceDelayed();
+                onchainSettled({ navigating: true });
               } else {
                 var sm = Alpine.store('solanaModal');
                 sm.seedsEarned = data.seeds_earned || 0;
                 sm.seedsTotal  = data.seeds_total  || 0;
                 sm.lobbyUrl    = data.redirect || '/';
                 sm.success(data.tx_signature, 'Entry Confirmed');
-                refreshBalanceDelayed();
+                onchainSettled({ navigating: true });
               }
             } else {
               if (Alpine.store('solanaModal').visible) Alpine.store('solanaModal').close();
@@ -1772,7 +1949,7 @@ window.selectionBoard = function() {
                   seedsTotal:  data.seeds_total  || 0,
                   seedsLevel:  data.seeds_level  || 0
                 });
-                refreshBalanceDelayed();
+                onchainSettled({ navigating: true });
               } else {
                 window.location.href = data.redirect || '/';
               }
@@ -1784,7 +1961,7 @@ window.selectionBoard = function() {
             // from the server (the chain-layer twin of the 'no_funding' eligibility
             // blocker). Routes through the same funds-needed dispatcher so the UX
             // is identical whether the wall is caught pre-flight or surfaced from
-            // the server (web2 buys an entry token, web3 keeps Top Up Wallet). Kept
+            // the server (both land on Get USDC; see showFundsNeeded). Kept
             // so a deploy of the controller ahead of the interpreter doesn't lose
             // the funds panel.
             if (Alpine.store('solanaModal').visible) Alpine.store('solanaModal').close();
@@ -1793,7 +1970,12 @@ window.selectionBoard = function() {
             this.showFundsNeeded();
           } else {
             if (Alpine.store('solanaModal').visible) {
-              Alpine.store('solanaModal').error(data.error || 'Something went wrong');
+              // TITLE THE FAILED STATE. error() leaves the title alone when it
+              // is not given one, so the card kept saying 'Submitting Entry'
+              // over a red error body — in-progress wording on a finished
+              // failure. Reported by an operator on 2026-09-07, alongside the
+              // raw raise text this same card was showing.
+              Alpine.store('solanaModal').error(data.error || 'Something went wrong', 'Entry Failed');
             } else {
               this.showError(data.error || 'Something went wrong');
             }
@@ -1829,9 +2011,32 @@ window.selectionBoard = function() {
           }
         }
 
+        // BLOCKERS MUST STILL BE BLOCKERS ON THE REDIRECT PATH. The inline path
+        // routes a failed prepare through _handleBlockerResponse, so funds-needed,
+        // age, first-name and wallet-setup each open their own panel. The redirect
+        // path prepares inside the intent handler, where that method is out of
+        // reach — so the handler attaches the server payload to the Error and this
+        // is where it rejoins the inline path. Without it every one of those
+        // blockers collapsed to a raw string on a phone. Raised in review of PR 632.
+        if (err && err.blockerData && this._handleBlockerResponse(err.blockerData)) {
+          this.resetHoldButtons();
+          this.submitting = false;
+          return;
+        }
+
         var msg = retryableUnsignedRequest
           ? 'The wallet signature was not completed. Your entry token is still available.'
           : parseSolanaError(err.message || 'Failed to sign entry');
+
+        // THE SILENT-FAILURE HOLE THIS FLOW FELL INTO. Every sign-in path reports
+        // a wallet failure; this one reported none, which is the whole reason the
+        // original mobile crash produced no ErrorLog row, no Sentry event, and no
+        // alert — it was found by a user, twice. dbg() is a no-op in production, so
+        // console logging above is not a substitute. Fire-and-forget by design:
+        // reportWalletFailure never throws and its response is never read.
+        if (typeof window.reportWalletFailure === 'function' && !(err && err.walletFailureReported)) {
+          window.reportWalletFailure('contest_entry', 'Phantom', err && err.message, msg);
+        }
         if (Alpine.store('solanaModal').visible) {
           var solanaModal = Alpine.store('solanaModal');
           solanaModal.error(msg, retryableUnsignedRequest ? 'Signature Not Completed' : null);
@@ -1991,9 +2196,11 @@ window.selectionBoard = function() {
         <% if multi_week %>
           <%# The multi-week board is one team-card grid ordered by span
               multiplier — there is no game view to sort against, so the toggle
-              is replaced by the span label. %>
+              is replaced by the instruction. The week span used to lead this
+              line; it lives in the contest header's Row 3 meta grid now, so
+              repeating it here only crowded the filter input on mobile. %>
           <span class="text-sm text-muted font-medium">
-            <%= @contest.week_span_label %> &middot; pick <%= @contest.picks_required %> teams
+            Pick <%= @contest.picks_required %> teams
           </span>
         <% else %>
         <span class="text-sm text-muted font-medium">Sort by</span>
@@ -2186,11 +2393,22 @@ window.selectionBoard = function() {
 
   <%# Mobile spacer so the fixed cart never hides the last board card. It tracks
       the bar's two real heights instead of a flat 10rem: 10rem under-measured
-      the taller Hold-to-Confirm state (the CTA only mounts at a full slate) and
-      over-measured the common one, charging every scroll for space the compact
-      bar no longer uses. %>
+      the taller Hold-to-Confirm state and over-measured the common one,
+      charging every scroll for space the compact bar no longer uses.
+      KEYED ON WHETHER THE CTA IS MOUNTED, NOT ON THE SLATE COUNT. Those are the
+      same question in two of the three branches and a DIFFERENT one in the
+      third: the hold button and the Update button are both x-shown at a full
+      slate, but `🔒 Entries closed` is a server-side branch with NO x-show, so
+      on a locked contest it mounts at EVERY selection count. Keying the spacer
+      off `selectionCount === picks_required` therefore left the bar 45px taller
+      than the space reserved for it at any partial slate — the last pick row
+      sat under the fixed bar. Measured on a locked contest before this fix:
+      1 pick 173.0px vs 128px, 3 picks 173.0 vs 128, 5 picks 175.5 vs 128,
+      6 picks 175.5 vs 208 (the only count that was ever right). %>
+  <% cta_always_mounted = @contest.locked? %>
   <div x-show="selectionCount > 0" class="md:hidden"
-       :style="selectionCount === <%= @contest.picks_required %> ? 'height:13rem' : 'height:8rem'"></div>
+       data-picks-spacer="mobile"
+       :style="<%= cta_always_mounted ? "'height:13rem'" : "selectionCount === #{@contest.picks_required} ? 'height:13rem' : 'height:8rem'" %>"></div>
 
   <!-- Mobile Cart: Fixed bottom bar (hidden until first selection) -->
   <div x-show="selectionCount > 0"
@@ -2200,7 +2418,7 @@ window.selectionBoard = function() {
        x-transition:leave-start="translate-y-0" x-transition:leave-end="translate-y-full"
        class="md:hidden bg-surface border-t-2 border-strong rounded-t-xl px-3 pt-2 pb-2.5"
        data-picks-bar="mobile"
-       style="position:fixed;bottom:0;left:0;right:0;z-index:9999;box-shadow:0 -6px 30px rgba(0,0,0,0.4)">
+       style="position:fixed;bottom:0;left:0;right:0;z-index:var(--z-docked, 100);box-shadow:0 -6px 30px rgba(0,0,0,0.4)">
     <% if @contest.locked? %>
       <div class="w-full px-4 py-2.5 rounded-xl text-sm font-bold bg-surface-alt text-muted text-center mb-2">
         🔒 Entries closed

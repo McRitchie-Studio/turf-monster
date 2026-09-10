@@ -26,6 +26,25 @@
       label_after   (Bool?)    — render the label AFTER the digits instead of
                                  before, e.g. "7d 14h 29m 34s Starts In"
                                  (default false)
+      label_class   (String?)  — override the label's typography so a caller
+                                 can match its surrounding row (default is the
+                                 10px uppercase muted pill label)
+      shell_class   (String?)  — override the RUNNING state's wrapper class, for
+                                 a caller whose row needs a different label/digit
+                                 arrangement than bare's one-line baseline (the
+                                 contest header stacks them below md). Ignored by
+                                 the done state, which is a badge either way.
+      max_units     (Int?)     — cap the reels at the two most significant units
+                                 ("13d 19h", then "19h 59m", then "59m 51s") for
+                                 a caller with no room for four. Only 2 is
+                                 honoured; omit for all four. Which two is
+                                 reactive — the pair rolls over as the clock
+                                 does, so nothing has to re-render.
+      compact       (Bool?)    — size the units for a reference row rather than a
+                                 headline (large 18px -> 12px, uniform 14px ->
+                                 10px). Composes with emphasize; used by the
+                                 contest header's Row 3, whose digits must match
+                                 the plain text-xs values beside them.
       emphasize     (Bool?)    — size the two leading units up to the "N/M
                                  Entries" size and hide m/s on mobile above an
                                  hour (default false → every unit one uniform
@@ -37,6 +56,8 @@
   <% on_done_url   = local_assigns[:on_done_url] %>
   <% bare        = local_assigns.fetch(:bare, false) %>
   <% label_after = local_assigns.fetch(:label_after, false) %>
+  <% label_class = local_assigns.fetch(:label_class, "text-[10px] uppercase tracking-wider text-muted") %>
+  <% shell_class = local_assigns.fetch(:shell_class, nil) %>
   <%# Days reel is sized in Ruby from the time remaining at render — days only
       ever count down from this max, so 0..dmax (plus a 1-day buffer) covers it. %>
   <% secs_left = [target.to_i - Time.current.to_i, 0].max %>
@@ -77,9 +98,9 @@
             }"
   >
     <div x-show="!done" x-cloak
-         class="<%= bare ? "inline-flex items-baseline gap-2" : "inline-flex items-center gap-2 rounded-lg border border-subtle bg-surface-alt px-3 py-1.5" %>">
+         class="<%= shell_class || (bare ? "inline-flex items-baseline gap-2" : "inline-flex items-center gap-2 rounded-lg border border-subtle bg-surface-alt px-3 py-1.5") %>">
       <% unless label_after %>
-        <span class="text-[10px] uppercase tracking-wider text-muted"><%= label %></span>
+        <span class="<%= label_class %>"><%= label %></span>
       <% end %>
       <%# Each unit is one rolling reel + its letter in a baseline-aligned
           wrapper that carries the unit's font size. One config row per unit
@@ -93,20 +114,41 @@
         # every unit at one uniform size with no responsive hiding — used by the
         # entry-success modal's "Kicks off in" countdown.
         emphasize = local_assigns.fetch(:emphasize, false)
-        large     = "text-lg font-extrabold"
-        uniform   = "text-sm font-bold"
+        # `compact` (opt-in, default off): every unit drops one type step, so a
+        # caller can keep emphasize's leading-unit/m-s split while sitting in a
+        # row that is smaller than the stats panel.
+        compact   = local_assigns.fetch(:compact, false)
+        large     = compact ? "text-xs font-extrabold" : "text-lg font-extrabold"
+        uniform   = compact ? "text-[10px] font-bold" : "text-sm font-bold"
         # Emphasize m/s binding (display + size): large + shown below an hour;
         # small and hidden on mobile above it (kept on >= sm). Class-driven, not
         # x-show, so the responsive `hidden` isn't clobbered by an inline style.
-        ms_bind   = "underHour ? 'inline-flex #{large}' : 'hidden sm:inline-flex text-sm font-bold'"
+        ms_bind   = "underHour ? 'inline-flex #{large}' : 'hidden sm:inline-flex #{uniform}'"
         lead_size = emphasize ? large : uniform
         ms_attr   = emphasize ? { bind: ms_bind } : { cls: uniform }
-        units = [
-          { v: "d", max: dmax, pad: false, w: "#{dmax.to_s.length}ch", show: "d > 0",     cls: lead_size },
-          { v: "h", max: 23,   pad: true,  w: "2ch",                   show: "!underHour", cls: lead_size },
-          { v: "m", max: 59,   pad: true,  w: "2ch" }.merge(ms_attr),
-          { v: "s", max: 59,   pad: true,  w: "2ch" }.merge(ms_attr),
-        ]
+        # `max_units: 2` shows only the two most significant units, and every unit
+        # takes the lead size (there is no secondary tier when only two render).
+        # The window slides on plain x-show as the clock rolls over: d+h while
+        # days remain, h+m inside a day, m+s inside an hour. It supersedes the
+        # emphasize breakpoint dance above — a caller asking for two units wants
+        # two at EVERY width, not four on a wide screen.
+        two_up = local_assigns.fetch(:max_units, nil).to_i == 2
+        units =
+          if two_up
+            [
+              { v: "d", max: dmax, pad: false, w: "#{dmax.to_s.length}ch", show: "d > 0",              cls: lead_size },
+              { v: "h", max: 23,   pad: true,  w: "2ch",                   show: "d > 0 || h > 0",     cls: lead_size },
+              { v: "m", max: 59,   pad: true,  w: "2ch",                   show: "d === 0",            cls: lead_size },
+              { v: "s", max: 59,   pad: true,  w: "2ch",                   show: "d === 0 && h === 0", cls: lead_size },
+            ]
+          else
+            [
+              { v: "d", max: dmax, pad: false, w: "#{dmax.to_s.length}ch", show: "d > 0",     cls: lead_size },
+              { v: "h", max: 23,   pad: true,  w: "2ch",                   show: "!underHour", cls: lead_size },
+              { v: "m", max: 59,   pad: true,  w: "2ch" }.merge(ms_attr),
+              { v: "s", max: 59,   pad: true,  w: "2ch" }.merge(ms_attr),
+            ]
+          end
       %>
       <%# Inter-unit spacing is a flex `gap` on the container, not per-unit
           margins — flex only spaces BETWEEN rendered items, so a hidden leading
@@ -124,7 +166,7 @@
         <% end %>
       </span>
       <% if label_after %>
-        <span class="text-[10px] uppercase tracking-wider text-muted"><%= label %></span>
+        <span class="<%= label_class %>"><%= label %></span>
       <% end %>
     </div>
     <% if local_assigns[:done_href].present? %>

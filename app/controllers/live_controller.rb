@@ -11,5 +11,9 @@ class LiveController < ApplicationController
   def index
     @slot = Nfl::LiveScores::CurrentSlot.call
     @games = Nfl::LiveScores::CurrentSlot.games_for(@slot)
+    # WHICH game the board opens on. Only the OPENING one: after first paint
+    # the choice belongs to the reader, held in Alpine state on the page
+    # wrapper where no broadcast can reach it (see live/index).
+    @focus_slug = Live::FocusGame.call(@games)
   end
 end

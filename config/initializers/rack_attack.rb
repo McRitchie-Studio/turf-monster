@@ -44,6 +44,16 @@ class Rack::Attack
     req.ip if req.post? && req.path == "/auth/solana/verify"
   end
 
+  ### Throttle: client-side wallet-failure reports
+  # An UNAUTHENTICATED endpoint that writes an error_logs row per call, so it is
+  # a table-growth vector as well as a request one. 20/min is far above what a
+  # human retrying Connect can produce (each attempt costs a wallet prompt) and
+  # far below what a script needs to be worth running. Dropping a report past the
+  # limit is the correct trade: the row is diagnostic, never load-bearing.
+  throttle("solana_report_failure/ip", limit: 20, period: 1.minute) do |req|
+    req.ip if req.post? && req.path == "/auth/solana/report_failure"
+  end
+
   ### Throttle: account-linking wallet sig (logged-in)
   throttle("link_solana/ip", limit: 5, period: 1.minute) do |req|
     req.ip if req.post? && req.path == "/account/link_solana"

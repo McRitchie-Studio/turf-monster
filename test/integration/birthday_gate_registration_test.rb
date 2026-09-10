@@ -3,10 +3,12 @@ require "test_helper"
 # [integration] Both halves of the age gate are registered on the modal host.
 #
 # THE FAILURE THIS EXISTS FOR is one this app has already shipped once. Until
-# 2026-08-19 layouts/modal_preview listed the age modal in its gallery but had no
+# 2026-08-19 layouts/modal_preview listed the age modal but had no
 # <template x-if> for the id, so opening it rendered an EMPTY card — a working
 # modal with nothing in it, which reads as a styling bug rather than a missing
-# partial and therefore gets ignored rather than reported.
+# partial and therefore gets ignored rather than reported. That layout was
+# deleted on 2026-09-09 and this asserts against the one that remains; the
+# failure mode is a property of registering by id, not of that layout.
 #
 # The 2026-08-26 adoption doubles that risk: the birthday card now SWAPS to
 # 'age-gate' on the server's underage verdict, so an unregistered gate id turns
@@ -73,15 +75,9 @@ class BirthdayGateRegistrationTest < ActionDispatch::IntegrationTest
       "the onboarding chain and the contest board both open the DOB card by id"
   end
 
-  test "the admin modal gallery registers both halves too" do
-    # The gallery is a SECOND registration list in a second layout, which is
-    # exactly how the 2026-08-19 gap happened: the id was listed in the gallery's
-    # index while the layout that renders it had no template for it.
-    log_in_as(users(:alex))
-    get admin_modals_path
-    assert_response :success
-
-    assert_includes response.body, "$store.modals.current().id === 'birthday'"
-    assert_includes response.body, "$store.modals.current().id === 'age-gate'"
-  end
+  # A gallery counterpart to the app-layout test above was retired with
+  # /admin/modals on 2026-09-09. It asserted the SAME register-both-or-neither
+  # invariant against the gallery's own second registration list — and that list
+  # is exactly what made the 2026-08-19 gap possible. With one registration
+  # surface left, the test at the top of this file is the whole guard.
 end

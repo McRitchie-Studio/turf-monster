@@ -1,7 +1,8 @@
 # Minimum-age policy for entering skill-based contests, by US state.
 #
 # Mirrors the legal-age copy that the old signup attestation surfaced
-# (shared/_age_attestation): 18+ in most states, 19+ in AL/NE, 21+ in
+# (studio/modals/shared/_age_attestation, studio-engine): 18+ in most
+# states, 19+ in AL/NE, 21+ in
 # IA/MA/VA. This is the authoritative server-side source — the entry gate
 # (ContestsController) and AgeVerificationsController both compute against it;
 # the client modal only renders the number for display.

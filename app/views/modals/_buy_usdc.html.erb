@@ -1,0 +1,202 @@
+<%#
+  Get USDC — the TEACHING half of the funds wall, and the single answer the
+  entry blocker now gives whichever funding method came up short.
+
+  WHY IT REPLACED A SPLIT. showFundsNeeded used to branch on session.mode alone:
+  web2 to Buy an Entry Token, web3 to Top Up Wallet. That fork asked the wrong
+  question. What a blocked player lacks is money for this entry, and the mode
+  they signed in under does not change the answer — it only changed which modal
+  they were shown. In production it changed it to a modal with no visible rails
+  at all (ENABLE_COINFLOW unset, PAYMENT_PROVIDER none, STRIPE_CHECKOUT_DISABLED
+  true), so the wall read "pick how to pay" over an empty box while the USDC rail
+  it never offered was the only funded path on the chain. One answer, both cases.
+
+  BUILT FROM ENGINE BLOCKS, deliberately (operator call, 2026-09-05). The modal
+  this one is modelled on, modals/_wallet_setup, hand-rolls its close mark and
+  its wallet row even though studio/modals/blocks ships both; the shapes drifted
+  because nothing made them share. This composes blocks/_close_x and
+  blocks/_rail_row so a change to the house idiom reaches it for free.
+
+  ONE ROUTE: BUY USDC INSIDE PHANTOM. The CDP/Coinbase onramp has no legal
+  clearance (operator, 2026-09-06), so this card must not offer it — a revision
+  that led with it has been removed. Signup mints no custodial wallet
+  (AppFlags.web3_only_onboarding? defaults ON), so a new account links Phantom
+  and funds the entry from there; the managed wallets that predate that flag are
+  legacy, and this card has nothing to sell them (see the limitation below).
+
+  THIS IS THE FUNDS-NEEDED VALIDATION NOTICE. showFundsNeeded routes here when a
+  player tries to enter without USDC and without an entry token — it is the card
+  that says what is missing and how to get it, not a payment surface.
+
+  THE BAND ALWAYS SHIPS A PLAYER. buy_usdc_video? cannot return false: the id
+  falls back to BuyUsdcHelper::DEFAULT_VIDEO_ID, so BUY_USDC_VIDEO_ID only swaps
+  WHICH video plays, never whether one does. The guard below is the seam that
+  keeps that decision in the helper, not an optional-band switch.
+
+  CRITICAL: rendered inside the host template x-if, so a SINGLE root element.
+  x-data is a double-quoted attribute, so single-quote everything inside the
+  Alpine expressions.
+%>
+<div x-data="{
+       videoMuted: true,
+       get props() { return ($store.modals.current() || {}).props || {} },
+       unmuteVideo: function() {
+         this.videoMuted = false
+         try {
+           var frame = this.$refs.videoFrame
+           if (frame && frame.contentWindow) {
+             frame.contentWindow.postMessage('{\'event\':\'command\',\'func\':\'unMute\',\'args\':[]}', '*')
+           }
+         } catch (e) {}
+       }
+     }"
+     class="relative">
+
+  <%# Engine close mark. The parent is class="relative" above, which this
+      absolutely-positioned button anchors to. %>
+  <%= render "studio/modals/blocks/close_x" %>
+
+  <%# The card's image: the USDC disc badged with Solana. It names the asset at
+      a glance, and it is the only place this card states the CHAIN — the copy
+      below names USDC and digital dollars and never says Solana, so the badge
+      carries that half alone. See blocks/_usdc_solana_mark. %>
+  <div class="flex justify-center pt-2 mb-3">
+    <%= render "modals/blocks/usdc_solana_mark", size: 64 %>
+  </div>
+
+  <div class="text-center mb-2">
+    <h3 class="text-heading font-bold text-lg leading-tight">Get USDC</h3>
+  </div>
+  <p class="text-xs text-body mb-4 text-center">
+    To enter the contest you will need to fund your wallet with USDC, which is a
+    form of digital dollars.
+  </p>
+
+  <%# THE PHANTOM ROW (operator call, 2026-09-05 — replaced a Coinbase rail_row).
+      A player at this wall already has a wallet; buying inside Phantom is one
+      screen away for them, where the Coinbase hand-off was three.
+
+      IT IS NOT blocks/_rail_row, and that is a known cost rather than an
+      oversight. The primitive draws its icon as a letter or an emoji in a tinted
+      tile — there is no slot for a brand <svg><use>, nor for the ml-auto action
+      label this idiom puts opposite the name. So this is the SECOND hand-rolled
+      copy of the house wallet row (modals/_wallet_setup has the first, and
+      solana-studio's _wallet_connect a third inline). Promoting it to an engine
+      primitive is a studio-engine change and is tracked separately; until then
+      the markup here is copied from _wallet_setup's mobile row verbatim so the
+      two at least stay identical.
+
+      A REAL LINK, not a button: it navigates off-site, and the rail_row contract
+      says outright that a rail which must navigate should be a plain anchor. %>
+  <%# Brand sprite. MUST live inside this single root — a sibling would be
+      dropped by the host's template x-if, painting an empty icon. %>
+  <%= render "studio/modals/blocks/wallet_brand_sprite" %>
+
+  <div class="space-y-3">
+    <%# THE ONE ROUTE, because it is the only one this app is cleared to offer.
+        The CDP/Coinbase onramp has NO LEGAL CLEARANCE (operator, 2026-09-06),
+        which is what its numbers were quietly saying all along: 27 attempts in
+        prod, 26 expired, 1 success, nothing since 2026-06-29. A revision of this
+        card led with that rail; leading a funds wall with an uncleared payment
+        path is worse than any layout mistake, so it is gone.
+
+        Phantom is not a fallback here — it IS the funding path. Signup mints no
+        custodial wallet (AppFlags.web3_only_onboarding? defaults ON), so every
+        new account links Phantom and buys USDC inside it.
+
+        Not blocks/_rail_row: that primitive draws its icon as a letter or emoji
+        in a tinted tile and has no slot for a brand <svg><use> or the ml-auto
+        action label this idiom puts opposite the name. Markup copied verbatim
+        from _wallet_setup's mobile row so the two stay identical until an engine
+        wallet-row primitive exists. %>
+    <a href="<%= phantom_buy_url %>" target="_blank" rel="noopener noreferrer"
+       class="w-full flex items-center gap-3 p-3 rounded-xl bg-surface-alt border border-strong hover:bg-surface transition text-left no-underline"
+       data-usdc-rail="phantom">
+      <svg class="w-9 h-9" aria-hidden="true"><use href="#se-wallet-phantom"></use></svg>
+      <span class="font-semibold text-heading">Phantom</span>
+      <span class="ml-auto flex items-center gap-2">
+        <span class="text-xs text-muted uppercase tracking-wide">Open Phantom</span>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-muted">
+          <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+        </svg>
+      </span>
+    </a>
+  </div>
+
+  <%# === NEW TO USDC =========================================================
+      The teaching half, same shape as the wallet card's "New to Solana" band:
+      someone walking it on screen, playing HERE, because a half-finished entry
+      should not have to leave the page to find out what a stablecoin is.
+
+      Muted autoplay is the only autoplay a browser permits on a modal that
+      opened without a click, and the overlay turns the glance it earns into a
+      choice. youtube-nocookie, so a player nobody pressed sets no cookie. %>
+  <div class="mt-5 pt-4 border-t border-strong">
+    <h4 class="text-heading font-semibold text-sm mb-1.5">New to USDC &#129300;</h4>
+    <p class="text-xs text-body mb-3">
+      How to buy USDC inside your wallet, in <strong class="font-semibold text-heading">two minutes</strong>.
+    </p>
+
+    <% if buy_usdc_video? %>
+      <div class="relative w-full aspect-video rounded-lg overflow-hidden border border-strong bg-black">
+        <iframe src="<%= buy_usdc_video_embed_url %>"
+                x-ref="videoFrame"
+                title="How to buy USDC"
+                class="absolute inset-0 w-full h-full"
+                allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+                referrerpolicy="strict-origin-when-cross-origin"
+                allowfullscreen></iframe>
+
+        <%# Covers the whole player on purpose: while the video is silent every
+            click should mean the same thing, and a click landing on the player
+            would pause it instead. It leaves for good on that click. %>
+        <button type="button" x-show="videoMuted" @click="unmuteVideo()"
+                class="group absolute inset-0 w-full h-full flex items-center justify-center bg-black/20 hover:bg-black/10 transition border-0 cursor-pointer"
+                aria-label="Unmute the video">
+          <span class="flex items-center gap-1.5 rounded-full bg-black/75 px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg transition group-hover:bg-black/90">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5">
+              <path d="M13 4.2a.8.8 0 0 0-1.32-.6L7.4 7.3H4.6A1.6 1.6 0 0 0 3 8.9v6.2a1.6 1.6 0 0 0 1.6 1.6h2.8l4.28 3.7a.8.8 0 0 0 1.32-.6V4.2Z" />
+              <path d="M16.4 8.6a.9.9 0 0 1 1.27 0L19.5 10.4l1.83-1.83a.9.9 0 1 1 1.27 1.27L20.77 11.7l1.83 1.83a.9.9 0 1 1-1.27 1.27L19.5 13l-1.83 1.83a.9.9 0 0 1-1.27-1.27l1.83-1.83-1.83-1.83a.9.9 0 0 1 0-1.27Z" />
+            </svg>
+            Tap for sound
+          </span>
+        </button>
+      </div>
+
+      <p class="text-[11px] text-muted mt-1.5 text-center">
+        <a href="<%= buy_usdc_video_watch_url %>" target="_blank" rel="noopener noreferrer"
+           class="underline hover:text-secondary">Watch on YouTube</a>
+      </p>
+    <% end %>
+
+    <%# The read-it-instead route. Neutral tone: it is a real control, and it
+        must not out-shout the Buy USDC rail above, which is the ask. %>
+    <% guide_url = buy_usdc_guide_url %>
+    <% guide_target = buy_usdc_guide_external? ? "_blank" : nil %>
+    <% guide_rel = buy_usdc_guide_external? ? "noopener noreferrer" : nil %>
+    <a href="<%= guide_url %>" target="<%= guide_target %>" rel="<%= guide_rel %>"
+       class="btn btn-neutral w-full mt-3 gap-2 no-underline" data-usdc-guide>
+      Detailed Guide
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
+        <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+      </svg>
+    </a>
+  </div>
+
+  <%# NO "MORE WAYS TO ADD FUNDS" LINK, and its absence is deliberate.
+      modals/_wallet_topup leads with the CDP/Coinbase rail and modals/_onramp_hub
+      offers it again; neither is legally cleared, so routing a blocked player
+      there from the funds wall would hand them the one path this app must not
+      sell. An orphaned showWalletTopup is a code-health cost; sending users to an
+      uncleared payment rail is a compliance one, and they are not comparable.
+
+      That leaves showWalletTopup with no caller from this wall — a REAL loose end
+      that review previously (and correctly) flagged. It is not resolvable inside
+      this card: what to do with Top Up Wallet and the Add Funds hub while the
+      onramp is uncleared is an operator decision about those two surfaces, not a
+      modal fix. Escalated rather than papered over. %>
+  <button type="button" @click="$store.modals.close()"
+          class="mt-2 w-full text-center text-sm text-secondary hover:text-heading">
+    Maybe later
+  </button>
+</div>

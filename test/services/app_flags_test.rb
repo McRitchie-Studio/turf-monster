@@ -44,14 +44,18 @@ class AppFlagsTest < ActiveSupport::TestCase
     with_env("", var: "ENABLE_CDP_RAMP")       { assert_not AppFlags.cdp_ramp? }
   end
 
-  test "qa_environment? is true only for a 'true' value" do
-    with_env(nil, var: "QA_ENV")      { assert_not AppFlags.qa_environment? }
-    with_env("true", var: "QA_ENV")   { assert AppFlags.qa_environment? }
-    with_env("TRUE", var: "QA_ENV")   { assert AppFlags.qa_environment? }
+  # qa_environment? delegates to the engine (Studio.qa_environment? →
+  # EnvironmentBanner's allow-list), so every QA_ENV reader in the ecosystem
+  # shares ONE truthiness — this used to pin a third, stricter vocabulary
+  # ("true" only), which left '1' meaning QA to storage.yml and not-QA here.
+  test "qa_environment? shares the engine's allow-list truthiness" do
+    %w[1 true yes on TRUE].each do |value|
+      with_env(value, var: "QA_ENV") { assert AppFlags.qa_environment?, "#{value.inspect} is allow-listed" }
+    end
     with_env(" true ", var: "QA_ENV") { assert AppFlags.qa_environment? }
-    with_env("false", var: "QA_ENV")  { assert_not AppFlags.qa_environment? }
-    with_env("1", var: "QA_ENV")      { assert_not AppFlags.qa_environment? }
-    with_env("", var: "QA_ENV")       { assert_not AppFlags.qa_environment? }
+    [ nil, "", "false", "0", "no", "off", "banana" ].each do |value|
+      with_env(value, var: "QA_ENV") { assert_not AppFlags.qa_environment?, "#{value.inspect} must fail safe to production" }
+    end
   end
 
   # live_production? = Rails.env.production? AND NOT a QA app.

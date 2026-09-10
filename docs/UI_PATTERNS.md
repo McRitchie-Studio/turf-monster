@@ -23,6 +23,8 @@
 - **Surfaces**: Use `bg-page`, `bg-surface`, `bg-surface-alt`, `bg-inset` — never hardcode `bg-navy-*`
 - **Text**: Use `text-heading`, `text-body`, `text-secondary`, `text-muted` — never hardcode `text-white` for headings or `text-gray-*` for body text
 - **Borders**: Use `border-subtle`, `border-strong` — never hardcode `border-navy-*`
+- **Error / danger TEXT**: Use `text-danger-ink` — never a static red (`text-red-400`, `text-red-300`, an inline `color:#f87171`). A fill may be vivid; text must clear WCAG AA 4.5:1 on **both** cards, and no static red does. The modal card is `bg-surface`, which is pure white in light mode: measured against this app's resolved theme, `text-red-400` is 2.89:1 light and 3.86:1 dark, so it fails both. `text-danger-ink` is derived per theme by studio-engine's `ThemeResolver#contrast_ink` (5.76:1 light, 4.50:1 dark here). Guarded by `test/views/error_text_contrast_test.rb`, which resolves the colour and measures the ratio rather than matching a class name. Its scope is two lanes: every text colour in the modal/sign-in surfaces **and** the four user-facing error surfaces (`contests/_quest_newsletter`, `contests/_turf_totals_leaderboard`, `wallet_exports/show`, `proof_of_reserves/show`), plus any element anywhere under `app/views` (except `app/views/admin`) bound to an error-ish Alpine expression — so a NEW error paragraph is measured without anyone remembering to widen a list.
+- **Danger text needs a theme surface under it.** `text-danger-ink` is derived to clear AA against the four theme surfaces (`bg-surface`, `bg-page`, `bg-surface-alt`, `bg-inset`), and a tint is not one of them — compositing `bg-red-500/10` over the dark card yields `#4f3750`, where the ink measures **4.25:1** and fails AA. (Composite in GAMMA-ENCODED sRGB, the way a browser does — a linear-light blend gives `#673751` and 3.78:1, which is wrong and is the figure this line carried between PR #649 and `contrast-guard-composites-wrong`. Chrome's own pixel is one 8-bit step away at `#4f3650`, 4.29:1 — also a fail.) Put an alert panel on a theme surface (`bg-inset` or `bg-surface-alt`; the ink is 7.31:1 on the dark `bg-surface-alt`) and keep the red *border* for the affordance, rather than a red wash. The guard composites every enclosing background before measuring, so a red-tinted panel is caught rather than scored against the bare card.
 - **CSS var naming**: `--color-cta` / `--color-cta-hover` for singular CTA color. Full `--color-primary-{50..900}` palette with RGB variants for Tailwind `primary-*` utilities.
 - **Tailwind config**: `primary` palette is dynamic from shared studio config (CSS vars). `warning` palette defined locally in `config/tailwind.config.js`. Safelist includes `bg`, `text`, `border`, `ring` utilities for brand colors.
 
@@ -36,10 +38,67 @@ Tailwind emits only classes it can see during the build. Keep dynamic class name
 - One-off static dimensions can stay inline when extracting a class would create noise or when a previously valid utility was purged.
 
 ### Public S3 and OG Assets
-Open Graph images must use the `amazon_public` / `amazon_dev_public` Active Storage services. The private `amazon` services return signed URLs; social unfurlers cache image URLs long enough for signed links to expire. Public OG services return permanent S3 object URLs, and `OgImageAttachable` owns the per-environment service choice.
+
+The constraint is that an og:image URL must be **permanent**: an unfurler caches
+the URL it was handed and re-fetches it days later, so anything carrying an
+expiring signature is a preview that works today and is broken by the weekend.
+There are two sanctioned ways to satisfy that, and which one applies depends on
+whether the image is an OG asset in its own right or a rendition of an image
+that already lives somewhere private.
+
+**1. Images uploaded AS og:images — public service.** `SiteSetting`'s
+`default_og_image` and `LandingPage`'s `og_image` use the `amazon_public` /
+`amazon_public_dev` services and are served as permanent S3 object URLs.
+`OgImageAttachable` owns the per-environment service choice. Do NOT put these on
+the private `amazon` services, whose `.url` is a signature that expires.
+
+**2. Renditions of an image that lives on the PRIVATE service — proxy route.**
+A contest banner (`Contest#contest_image`) is a normal private attachment that
+also has to unfurl, and moving every existing banner into a public bucket to get
+that is the wrong trade. Instead `OgHelper#contest_og_image_url` hands out
+`rails_storage_proxy_url(... .variant(:og_card))` — the representation **proxy**
+route, which is permanent (the signed blob id carries no expiry), lives on our
+own domain, and streams from the same private bucket. Use the proxy route, never
+`rails_storage_redirect_url`, which hands back the expiring service URL this
+whole section exists to avoid.
+
+Guard the variant on `variable?`, not merely `attached?` — `.variant` raises
+`ActiveStorage::InvariableError` eagerly for a content type outside
+`ActiveStorage.variable_content_types`, which would 500 the public page rather
+than fall through to the default card.
 
 ### Status Badges
-mint=open, yellow=locked (DERIVED time-gate, not a status — `Contest#locked?`), gray=settled, violet=pending
+`ApplicationHelper::CONTEST_BADGE_STYLES`, keyed by contest status — the pill on
+contest cards and headers: mint=open, yellow=locked (DERIVED time-gate, not a
+status — `Contest#locked?`), gray=settled, violet=pending, red=cancelled
+(`Contest#cancelled?`, the `onchain_cancelled` boolean — also not a status).
+
+### Live Board State Badge
+A DIFFERENT badge from the one above: `ContestsHelper::LIVE_STATES`, the label +
+dot beside the contest name on `/contests/:slug/live`, and the same string in the
+tab `<title>`. Five states — Cancelled (red), Live (red + `animate-pulse`),
+Concluded (orange), Final (gray), Not started (gray).
+
+Fixed precedence: **cancelled → final → concluded → live → upcoming**. The order
+is load-bearing, not cosmetic. `Contest#live?` is `locked? && !settled?` and
+mentions neither cancellation nor conclusion, so both of those states satisfy
+`live?` and would be swallowed by the `live` branch if asked later; and `settled?`
+forces both `locked?` and `concluded?` true by definition, so `final` must be
+asked before `concluded`. Two separate bugs have been filed against this helper
+for exactly that class of miss — the full five-predicate state space, including
+the combinations that are unreachable and why, is documented in the comment above
+`LIVE_STATES` in `app/helpers/contests_helper.rb`. Read it before adding a state.
+
+**Motion is reserved for `live`.** The pulsing dot means one thing — this contest
+is in progress — so every terminal, finished, and not-yet state takes a solid dot.
+Pinned end to end in `test/controllers/contest_live_state_test.rb`, which asserts
+on rendered page output (label, `data-state`, dot class, `<title>`) rather than on
+the helper's return value.
+
+The badge is server-rendered at page load and does NOT self-correct:
+`Contest::LiveBroadcast` replaces the games strip and focus panel, not the header,
+so a contest whose state changes under a viewer keeps the label it was drawn with
+until a reload.
 
 ## Button System
 
@@ -56,8 +115,8 @@ CSS component classes in `app/assets/tailwind/application.css`:
 
 `_turf_totals_board.html.erb` — two sort modes toggled via Alpine (`sortMode`/`sortDir`):
 
-- **Game view** (default): Paired cards with "vs" divider (`color-mix` background), sorted by lowest turf score. Uses `_matchup_game_pair.html.erb` partial (locals: `left`, `right`, `locked`). Both-selected: outer `outline` + `box-shadow` glow in primary, "vs" div gets primary tint.
-- **Turf Score view**: Flat grid (`grid-cols-2 md:grid-cols-4`) of individual cards sorted by turf score. Uses `_matchup_card.html.erb` partial (local: `matchup`). Double-click "Turf Score" toggles asc/desc (arrow indicator). Two server-rendered orderings toggled via `x-show` (no JS re-sorting).
+- **Game view** (default): Paired cards with "vs" divider (`color-mix` background), sorted by lowest turf score. Uses `_matchup_game_pair.html.erb` partial (locals: `left`, `right`, `locked`); the enclosing grid carries the `tm-pair-grid` hook so the sidebar-push companion rule can drop it to one column (see § Sidebar Primitive). Both-selected: outer `outline` + `box-shadow` glow in primary, "vs" div gets primary tint.
+- **Turf Score view**: Flat grid (`tm-team-grid grid-cols-2 md:grid-cols-4` — the `tm-team-grid` hook is what lets the sidebar-push companion rule drop it back to two columns; see § Sidebar Primitive) of individual cards sorted by turf score. Uses `_matchup_card.html.erb` partial (local: `matchup`). Double-click "Turf Score" toggles asc/desc (arrow indicator). Two server-rendered orderings toggled via `x-show` (no JS re-sorting).
 - Both views share the same Alpine `selections` state — selections persist across view switches.
 - **Filter input**: Text input in the sort toolbar filters matchup cards by team name (both teams). Uses `matchesFilter()` Alpine method with `x-show` on wrapper divs. Clear X button appears when text is entered.
 
@@ -135,15 +194,86 @@ JS-driven, big nudge at 3s then soft nudge every 10s. Resets on hold, soft-only 
 - `pickUrgent` flag set when going from 5→4 selections, cleared when reaching 5 again or clearing all
 
 ## Redirect Modal
-When hold-to-confirm hits a blocker (geo-blocked, not logged in, insufficient funds), a centered modal appears with icon, title, message, progress bar countdown (5s), and CTA button. Hold button flips to red `.error` state ("Entry Blocked").
-- Geo-blocked → "Location Restricted" → `/`
-- Not logged in → "Log In Required" → `/signin`
-- Insufficient funds → "Insufficient Funds" / "Top Up Wallet" → `/wallet`
-- `showRedirectModal(title, message, icon, url, seconds, cta)` method on Alpine component
+
+Two mechanisms fire in sequence on the hold path, and **geo is not one of the
+blocker arms**. Reading it the other way round is exactly what the old version of
+this section got wrong.
+
+### 1. The geo pre-check runs first, and returns
+
+`runHoldValidations()` (`contests/_turf_totals_board`) is the hold's `validate`
+callback. It fetches `GET /geo/check` before anything else; when `geo.blocked` is
+true it sets the hold error, opens the redirect modal, and returns `false` — the
+blocker switch below is never reached. That call is the **only** caller of
+`showRedirectModal` in the app.
+
+`showRedirectModal(title, message, icon, url, seconds, cta)` does not navigate on
+its own. It opens the auth wizard at its `redirect` step (`modals/_auth`), which
+renders `studio/modals/blocks/card_header` + `studio/modals/blocks/cta_redirect`.
+The engine block owns the 5s drain end-to-end and reads `props.url` at fire time
+(pass a null url to suppress the auto-navigation and keep the drain visual). The
+one call passes "Location Restricted" → `/`.
+
+### 2. The blocker switch navigates nowhere
+
+`showEligibilityBlockerModal(blocker)` (same partial) switches on
+`blocker.reason`. It has **seven arms plus a default, and ZERO of them are redirect
+modals** — no arm navigates: the seven named arms each open a modal and stay on
+the page, and the default only resets the hold button:
+
+- `not_logged_in` → `showLoginModal()` — the auth modal, not a redirect to `/signin`
+- `first_name_required` → `showFirstNameModal()` in its required mode (no skip affordance)
+- `age_required` → `showAgeVerifyModal()`
+- `wallet_setup_required` → `showWalletSetupModal()`
+- `no_funding` → `showFundsNeeded()` — Get USDC (`modals/_buy_usdc`), or Buy an Entry Token (`modals/_buy_entry_token`) for the USDC kill-switch audience (a web2 session with `ENABLE_WEB2_USDC_ENTRY` off). When that audience's two entry-token rails are both dark, `showBuyEntryToken` falls through to `showGetUsdc` rather than open an empty card — so with no rail to show, every audience lands on Get USDC.
+- `insufficient_balance` → `showInsufficientBalanceModal(blocker)` — the web3 deposit/currency picker (`modals/_wallet_deposit`, modal id `wallet-deposit`)
+- `web3_step_up_required` → `showWeb3StepUpModal(blocker)` — the self-custody step-up card (`solana_studio/modals/web3_step_up`, modal id `web3-step-up`; the partial is engine-owned, rendered by the app layout). Added by `self-custody-entry-unguarded`: a web2 session acting on a self-custody account, which has no managed keypair to sign the entry with. It opens the card and calls `resetHoldButtons()` — it does not navigate.
+- `default` → `resetHoldButtons()`
+
+There is no `geo_blocked` arm, and `blocker.reason` never carries that value
+anywhere in the app. (`geo_blocked?` does exist, but it is a server-side ERB
+helper read by `_wallet_deposit`, `shared/_buy_usdc_geo_note`,
+`shared/_buy_usdc_button` and `wallets/show` — a different mechanism on a
+different layer.)
+
+**The two paths leave the hold button in OPPOSITE states**, so do not read the
+red state as "blocked" in general. `setHoldError()` — the only code that adds
+`.error` ("Entry Blocked") — has exactly one caller, the geo pre-check, so the
+red state belongs to geo alone. The switch path CLEARS it instead: six of the
+seven arms and the default call `resetHoldButtons()`, and the `no_funding` arm
+does not touch the button at all (`showFundsNeeded` only opens a card).
+(`resetHoldButtons` is not the only clearer, whatever its own comment says —
+`setHoldSuccess` and `setHoldLoading` drop `.error` too.)
+
+### What this section used to claim, and why both halves were wrong
+
+It said insufficient funds redirected to "Top Up Wallet" at `/wallet`.
+
+**On the route.** `/wallet` **is** a route — `resource :wallet, only: [:show]` in
+`config/routes.rb`, served by `WalletsController#show`, and the navbar balance
+links to it (see § Navbar). The narrower true statement is that it was never the
+funds-wall destination: no arm of `showEligibilityBlockerModal` navigates
+anywhere, and the only navigation on the hold path is the geo pre-check's CTA
+to `/`.
+
+**On the modal.** Top Up Wallet (`modals/_wallet_topup`) has no entrance at head.
+`showWalletTopup` has one definition and zero calls — no `@click`, no dispatch,
+nothing in `app/assets/builds/`, and no dynamic `this[...]` dispatch in the board
+or the layout. The Add Funds hub's Back link swaps there only when
+`props.returnModal === 'wallet-topup'`, and the sole writer of that prop is
+`_wallet_topup` itself, which makes it a return path from itself rather than a
+way in. There is no admin way in either: `/admin/modals` was retired on
+2026-09-08 and the `AdminController#modal_preview` seam behind
+`/admin/modals/preview/<id>` — which passed `params[:modal_id]` through raw to
+`$store.modals.open()`, over a layout that never registered this partial — on
+2026-09-09. Both are gone, so neither can be talked into opening this card.
+
+It regains an entrance the moment either condition changes: something calls
+`showWalletTopup`, or some other opener passes that prop.
 
 ## Navbar
 
-Extracted to `layouts/_navbar.html.erb` partial. Sticky, scroll-responsive. The non-preview header is `nav-shell vt-pinned-header sticky top-0 z-[110] bg-page transition-shadow duration-300` — `z-[110]` deliberately sits below the shared modal host backdrop at `z-[120]`, so every modal covers persistent navigation chrome.
+Extracted to `layouts/_navbar.html.erb` partial. Sticky, scroll-responsive. The non-preview header is `nav-shell vt-pinned-header sticky top-0 z-[var(--z-nav)] bg-page transition-shadow duration-300` — `--z-nav` deliberately sits below the shared modal host backdrop at `--z-modal`, so every modal covers persistent navigation chrome. Both come from the shared layer scale (see **Layer scale** below); the header also carries a z-index, which makes it a stacking context, so the environment bars render as a SIBLING above it rather than inside it.
 
 ### The collapse is scroll-LINKED, not a threshold plus a clock
 
@@ -250,7 +380,54 @@ Public marketing page with hero, "How It Works" cards, and USDC claim form. Mint
 
 ## Modal Host (studio-engine v0.4.5+)
 
-Modal lifecycle is owned by the studio-engine modal host — `Alpine.store('modals')` — a stack-based store provided by the engine's `studio/modals/_host.html.erb` partial. (turf-monster ships its OWN fork of that partial at the same path; engine changes to the host do not reach this app until that fork is synced.) Local app code consumes the store; do not reimplement.
+Modal lifecycle is owned by the studio-engine modal host — `Alpine.store('modals')` — a stack-based store provided by the engine's `studio/modals/_host.html.erb` partial. Local app code consumes the store; do not reimplement.
+
+**This app no longer forks the host** (2026-08-28, `defork-turf-modal-host`). It used to:
+studio-engine is **non-isolated**, so an app view at the same path wins the lookup, and this
+app shipped its own `app/views/studio/modals/_host.html.erb` — 518 lines that rendered the
+same markup as the engine's while quietly falling behind its focus and stale-entry guards.
+A gem bump delivered no host fix at all, and nothing on a page could tell the two apart.
+That file is deleted. The engine's host renders, and a gem bump now reaches it.
+
+**Prove which host renders by RESOLUTION, never by path.** Both files lived at the same
+virtual path, so a `File.read` of a fixed path answers a different question than it appears
+to — which is exactly how the duplication survived. Ask the resolver:
+
+```ruby
+ApplicationController.new.lookup_context.find("host", ["studio/modals"], true).identifier
+```
+
+Assert it does **not** start with `Rails.root.join("app/views")`. Do **not** assert it
+contains `/gems/`: that encodes how the engine happens to be installed here and can never
+pass in studio-engine's own consumer-CI lane, which bundles the engine as a path checkout.
+`test/support/resolved_modal_host.rb` wraps this; `test/views/modal_host_adoption_test.rb`
+pins it, and `test/integration/modal_host_focus_contract_test.rb` reads the RESOLVED host
+so the focus contract stays asserted against whatever a page actually gets. Two things
+re-open the gap silently: a re-fork re-creates the shadow, and the studio-engine pin admits
+a RANGE, so a resolve inside it can carry a host that predates the fix.
+
+The pin's version is deliberately **not** written here. PR #581 deleted the `~> 0.64` this
+line used to name — but the argument never turned on WHICH release the pin names, only on
+the fact that it admits a range at all. The current floor lives in the `Gemfile` and in
+`test/lib/engine_pin_contract_test.rb`, which assert each other; a third copy here would
+only be a third statement to go stale.
+
+**Two consumer seams, so nothing has to fork this file again** (studio-engine 0.65.0):
+
+| Seam | Where it lives here | What it carries |
+|---|---|---|
+| `window.StudioModals.CARD_WIDTHS` | `app/views/shared/_modal_card_widths.html.erb` | per-modal card width by id (`wallet-setup` → `max-w-md`) |
+| `modals/_host_extras` | `app/views/modals/_host_extras.html.erb` | app-wide modal registrations (`cosign-rejected`) |
+
+The width partial **must render ABOVE the host** in every layout that mounts it — the host
+merges the map at the top of its own inline script, so a registration that arrives later is
+read by nobody and every card silently falls back to `max-w-sm`. A layout that mounts the
+host without it fails `modal_host_adoption_test.rb`.
+
+The `ModalAnimations` registry (`pop` / `shake` / `slide`, and the keyframes behind them) is
+engine-owned too, and consumer entries merge OVER the engine defaults the same way. This
+app registers none — its fork's registry was byte-identical to the engine's defaults, which
+is why adopting the host changed no animation.
 
 **Opening / closing**:
 
@@ -266,20 +443,42 @@ The stack is LIFO — multiple modals can be open simultaneously and render as a
 
 **Dismissibility**: Modals are dismissible by default (Escape + click outside). For on-chain TX flows, set `dismissible: false` on the props so an accidental click can't orphan a signed-but-unconfirmed transaction. Close only via `$store.modals.close()`.
 
-**Defining a new modal partial**: mount it inside `<template x-if="$store.modals.current().id === 'your-id'">` — and register it in **BOTH** lists, because there are two and forgetting the second is the usual slip:
+**Defining a new modal partial**: mount it inside `<template x-if="$store.modals.current().id === 'your-id'">`, then pick where it is REGISTERED:
 
-1. `app/views/layouts/application.html.erb` — the app.
-2. `app/views/layouts/modal_preview.html.erb` — the `/admin/modals/preview` gallery.
+- **Belongs to a page or a call site** (needs `logged_in?`, a feature flag, or helper-computed locals) — register it in the layout block in `app/views/layouts/application.html.erb`.
+- **Belongs to the APP** (no locals, no per-layout gating) — put it in `app/views/modals/_host_extras.html.erb` instead. The engine host renders that partial inside the card on every path through it, so one entry covers every layout that mounts the host and cannot drift. `cosign-rejected` is the current occupant.
 
-Both lists are long; grep either for `store.modals.current` to find where they start. (Deliberately no line numbers or counts here — this section previously pointed at a partial that had not existed for months, and precise-but-rotting coordinates are how that happens.)
+**There used to be TWO layout lists, and the second is why that distinction exists.** `app/views/layouts/modal_preview.html.erb` kept its own registration block for `/admin/modals/preview`, so a card added to one list and not the other rendered EMPTY in the other — a working modal with nothing in it, which reads as a styling bug and gets ignored rather than reported. It cost the age-verify card months, and six cards at once. `/tasks/retire-the-preview-harness` deleted that layout on 2026-09-09; `layouts/application` is the only mount left, and keeping it the only one is the cheapest way to keep that failure retired. If you ever add a second, `app/views/modals/_host_extras.html.erb` and the locals helpers (`WalletPickerHelper`, `Web3StepUpHelper`, `BirthdayModalHelper`, `OnboardingHelper#first_name_modal_locals`) are already the seams that stop a card forking across it.
 
-A modal registered only in (1) works in the app and is silently missing from the preview gallery, which is where it gets reviewed. **What the gallery cannot show**: at `/admin/modals/preview/<id>` the host backdrop computes `position: static` with no body scroll lock, while the identical element on a real app page computes `fixed` + `overflow: hidden` (measured back-to-back in one browser context, same CSS digests; cause not isolated). Trust the gallery for content and theme, never for production overlay geometry — clipping bugs are invisible there. **Critical: single root element** — sibling `<style>` / `<script>` / structural tags are silently dropped during parsing (see § Alpine + ERB Constraints below).
+The layout list is long; grep it for `store.modals.current` to find where it starts. (Deliberately no line numbers or counts here — this section previously pointed at a partial that had not existed for months, and precise-but-rotting coordinates are how that happens.) Note that a test scanning the LAYOUT's source for a registration cannot see a `_host_extras` one — `test/controllers/onboarding_gallery_test.rb` reads the RENDERED page for exactly that reason, so prefer a render assertion over a source scan when you add one.
+
+**Reviewing a modal**: turf cards its own modals in its section of the living style guide, `/admin/style#host-modals` (`app/views/style/host/_modals.html.erb`), against the real partials on the real layout. **Critical: single root element** — sibling `<style>` / `<script>` / structural tags are silently dropped during parsing (see § Alpine + ERB Constraints below).
 
 **Recovery**: The host auto-clears the stack on browser back navigation (bfcache `pageshow`) and Turbo navigation (`turbo:before-cache`). No app-side recovery code needed.
 
 **Slow-op smoothing**: `window.StudioModals.holdAtLeast(minMs)` returns a thenable enforcing a minimum spinner duration — pair with the processing card so the spinner doesn't flash past the user on fast operations.
 
 > The old `Alpine.store('solanaModal')` is now a thin compatibility proxy over `$store.modals`. New code should call `$store.modals` directly. `fireSuccessConfetti()` still lives in `solana_utils.js` (the old "in wallet_connect" claim was always wrong).
+
+**One `onchain-tx` card per flow, and `show()` is what keeps it that way.** Every
+write the proxy makes — `success()`, `error()`, and all fifteen field setters —
+resolves through `current()`, so it reaches only the card on TOP. But `show()` is
+how the proxy spells a STEP TRANSITION, not a new dialog: one contest entry calls
+it three times (Preparing Transaction, Sign Transaction, Confirming Onchain),
+contest create six, `lock_contest.js` six. `$store.modals.open()` PUSHES, so each
+of those flows used to leave a tower of `onchain-tx` cards of which only the last
+was ever advanced. The buried ones kept `state: 'processing'` and
+`dismissible: false` for the life of the page, invisible — the host renders only
+`current()` — until something landed on top and was dismissed. That is how
+closing the level-up celebration came to reveal "Approve your free entry in your
+wallet..." for a transaction that had settled seconds earlier
+(`level-up-reveals-stale-modal`). `show()` now reuses the live `onchain-tx` entry
+and pushes only when there is none, so `success()` is always pointed at the only
+card there is. It patches the entry's props in place rather than going through
+`swap()` / `advance()` on purpose: both defer the new props by one animation
+frame, and a `success()` arriving inside that window would be overwritten by
+processing props landing late. Guarded by `e2e/level_up_stacked_modal.spec.js`,
+which asserts the stack itself — the DOM cannot show you a buried card.
 
 ## Auth Modal — 8-step state machine
 
@@ -294,7 +493,7 @@ A modal registered only in (1) works in the app and is silently missing from the
 5. **tokens-minted** — Success card: "Entry Token Minted" + balance display + in-modal Hold-to-Confirm button. The hold fires `'hold-confirm-entry'`; the board's listener detects auth-modal context and stays in the modal → step `tokens-submitted`.
 6. **tokens-submitted** — `entry_confirmed` card (seeds bar + explorer link + leaderboard CTA). Auto-redirects to the contest or fallback.
 7. **tokens-error** — Poll timed out or entry submission failed. Error card with "Refresh" button.
-8. **redirect** — Geo-blocked / not logged in / insufficient funds. Countdown + CTA to the blocker's target page (e.g. `/wallet`). Driven by the board's `setInterval`.
+8. **redirect** — geo-blocked only. `showRedirectModal` is this step's one opener and the board's `runHoldValidations` geo pre-check is its one caller, so the CTA is always "Location Restricted" → `/`. Not-logged-in and funds blockers open their own modals and never reach this step (see § Redirect Modal). The 5s drain belongs to `studio/modals/blocks/cta_redirect`; the board's `setInterval` + `props.countdown` loop is retired.
 
 **Stripe integration**: Pack cards trigger `POST /tokens/stripe_checkout` → opens checkout in a new tab → buyer returns to `/tokens/processing?session_id=…` → page polls `GET /tokens/status` every 500ms until `ready: true`. Backend: webhook → `TokenPurchaseJob` → mints incrementally via `Vault#mint_entry_token`. Job is idempotent — tracks `already_minted` count, resumes from the next index on retry. See § Entry Tokens (Web2) below.
 
@@ -353,6 +552,17 @@ Entry tokens are on-chain `EntryTokenAccount` PDAs minted via Stripe Checkout. B
 7. Once all quantities minted, `purchase.mark_minted!(signatures)` flips status → `"minted"`. `TransactionLog` records the purchase.
 8. Poll detects `ready: true` → swaps the modal to `tokens-confirming` → user sees success card with balance + in-modal hold button.
 9. Hold completes → `ContestsController#enter` routes to the token path → `Vault#enter_contest_with_token` consumes one token → entry confirms (seeds awarded). Modal swaps to `tokens-submitted` and auto-redirects.
+
+**Operator claw-back — burning a token** (2026-09-06). `/admin/free_entries` pairs its Mint buttons with `Burn 1` and `Burn all N`, routed at `POST /admin/free_entries/:user_slug/burn` (`count` optional; absent burns everything unspent). The controls key off **unconsumed**, not `owed` — those point in opposite directions, so a row can offer both — and both are hidden on a cold cache for the same reason Mint is: never aim an irreversible action at an unverified count. There is deliberately **no** `burn_all` across all users to mirror `mint_all`; over-minting costs rent, over-burning destroys property for every account at once.
+
+**The confirmed number is a ceiling.** Burn-all POSTs the *displayed* count, not a bare "burn everything". The row's `unconsumed` is cache-first (up to 60s stale, and the page never auto-refreshes), while the controller re-reads the chain live — so sending no count let it fall through to the live figure, and a token minted between render and click (level-up sweep, a completed `TokenPurchaseJob`, another admin's "Mint All Owed") was destroyed by an operator who agreed to a smaller number. With the count sent, `count.clamp(0, burnable.length)` makes the confirmed figure a maximum: burn everything you saw, never more, and fewer if some were spent meanwhile. Both burn buttons are `btn-danger` — `--color-cta` and `--color-success` resolve to the same green, so `btn-outline` here was indistinguishable from the benign "Act as" and, on hover, from "Mint".
+
+**It inherits the page's wallet blindness.** `User#solana_address` is `web3 || web2`, so for a combo account only the Phantom wallet's tokens are counted and burnable — a web2-owned token is neither shown nor clawed back. Mint already had this and the burn exposure is no wider, but a claw-back workflow that silently misses half a combo user's tokens is worth knowing before you promise someone their balance is cleared.
+
+The on-chain half is `turf-vault`'s new `burn_entry_token` (1-of-3 vault signer; the holder does **not** sign, because a claw-back is aimed exactly at a holder who will not surrender the token). Two design points are load-bearing and easy to get wrong:
+
+- **It tombstones, it does not close.** `owed` is `(seeds / SEEDS_PER_LEVEL) - tokens.length`, read off the chain here *and* in `Tokens::LevelUpGrant#missing_levels`. Closing the PDA would drop `tokens.length`, so a burned token would re-read as owed and be re-minted by the page's own `Mint all` or the next level-up sweep — the burn would undo itself. The account survives (rent is not refunded); that is the price of a burn that sticks.
+- **The tombstone rides in the spare high bit of `source`** (`ENTRY_TOKEN_BURNED_FLAG = 0x80`), not in a new field. `EntryTokenAccount` is 124 bytes and fully packed; growing the struct would break `Account<EntryTokenAccount>` deserialization for every token minted before the upgrade, taking `enter_contest_with_token` down with it for those holders. A burn sets `consumed = true` (which is what actually blocks the spend, reusing the constraint that instruction already carried) **and** the flag (which is what tells a claw-back apart from a genuine redemption). `Vault#decode_entry_token` splits the byte once — `source` is masked, `burned` is a new key — so no caller sees the raw value.
 
 **Job idempotency**: `TokenPurchaseJob` short-circuits if `status == "minted"` (already done). On retry it calculates `already_minted` from the persisted signature count and loops from there — exactly-once per token even with mid-job crashes.
 
@@ -423,7 +633,7 @@ UI branching example:
 
 ## Landing Pages (funnel + referral attribution)
 
-Landing pages are `LandingPage` records (name, headline, subheadline, badge, cta_label, background_style, contest_id, slug, active). Rendered at `/landing/:slug` by `LandingPagesController#show`. Page sections:
+Landing pages are `LandingPage` records (name, headline, subheadline, badge, cta_label, background_style, contest_id, slug, active). Rendered at `/lp/:slug` by `LandingPagesController#show`. Page sections:
 
 1. Hero — brand logo + two-tone "Turf Totals" title (split-color rendering).
 2. Badge — optional `lp-badge` span (violet/20 background).
@@ -450,6 +660,7 @@ These are gotchas that produce **silent no-ops or phantom DOM** rather than erro
 7. **Alpine's GENERATED DOM must not reach Turbo's page cache.** Turbo snapshots the live DOM, `x-for` rows and `x-if` clones included, but Alpine's record of them (`_x_lookup`, `_x_currentIfEl`) is a JS property on the template element and does not survive a snapshot. On a restoration visit Alpine re-initialises, sees no record of the rows already in the restored HTML, and renders a SECOND set beside them — the cached set holding no scope, so it renders blank. Symptom: 6 of 6 picks, follow a link, press Back, and "Your Picks" shows twelve rows (six real, six empty). `shared/_alpine_turbo_cache_reset.html.erb` in the app layout strips generated nodes on `turbo:before-cache`; it is layout-wide because the same navigation also doubled the seeds bar's `x-for i in 5` to ten. The sweep calls `Alpine.destroyTree(node)` before detaching each node — guarded on Alpine being defined, since the script runs at body parse and Alpine is deferred. Detaching alone appears to work because Alpine's MutationObserver cleans up afterwards, but that is an internal, not a contract, and this runs on every page. Consequence to design around: a restored page renders `x-for` / `x-if` content from whatever state its `x-data` reads AT INIT — so client state survives Back only if something puts it in the snapshot (see item 8). Cover: `e2e/pick_slots_turbo_restore.spec.js`, `test/views/alpine_turbo_cache_reset_test.rb` and `test/integration/alpine_turbo_cache_reset_wired_test.rb` (the latter proves the layout still RENDERS the partial — the view test alone stays green if that render line is dropped). A browser tier is mandatory here and `page.goto()` will not do: it is a full browser load, never touches the snapshot cache, and passes against the broken build. Use a real in-page link plus `page.goBack()`.
 8. **A server-rendered config blob that a component re-reads on init will REVERT client state on Back.** The generalisable half of item 7, and it bit the contest cart. `#board-config` is rendered server-side and `selectionBoard()` re-reads it on every init, so a Turbo restoration visit replayed the cart as of the last SERVER RENDER and dropped every pick made since — the sidebar came back empty. The diagnostic tell is sharp: only state changed since the last server render is lost, so inserting a `page.reload()` before navigating makes it survive (which is exactly why an early version of `pick_slots_turbo_restore.spec.js` carried one). Fixed by `persistCartToConfig()`, bound to `@turbo:before-cache.window` on the board root, which writes the live cart into the blob so the snapshot carries it. Do NOT reach for `turbo-cache-control: no-cache` instead: guests never reach the server at all (`toggleSelection()` returns early on `!loggedIn`), so a refetched page has no cart to restore and loses their picks outright — and Back stops being instant on a heavy page. Cover: `e2e/cart_survives_turbo_restore.spec.js` (signed-in, pick identity, and guest) plus `test/integration/cart_persists_to_board_config_test.rb`, which pins the binding and the method together because they sit ~1200 lines apart in one partial.
 9. **`Alpine.evaluate` is synchronous** — returns `undefined` for async expressions. `evaluateLater`'s `extras` shape is version-dependent. For custom async logic, compile your own `AsyncFunction`: `new Function('return (async () => { ... })')().then(...)`.
+10. **A boolean attribute bound to a DOTTED expression is SET when the value is `undefined`, and REMOVED when it is `null`.** The two are not interchangeable, and nothing in the ERB shows the difference. `x-bind` rewrites an `undefined` result to `""` whenever the expression contains a dot (`c === void 0 && typeof n === "string" && n.match(/\./) && (c = "")` — alpine.js 3.16.1, vendored in studio-engine). `""` then misses `bindAttribute`'s `[null, undefined, false]` removal test, and for a boolean attribute Alpine assigns the attribute NAME as its value — so `:disabled="props.submitting"` renders `disabled="disabled"` for a prop nobody set. The control paints dead with no console error. It bit `/admin/modals`: the auth **Credentials** card omitted `submitting` from its `MODAL_VARIANTS` props while both live callers (`components/_user_nav.html.erb`, `layouts/_navbar.html.erb`) pass `submitting: null`, so all three credential CTAs plus the email field were untappable in the gallery while production was fine. **CORRECTED (turf-adopts-wallet-credential-slot).** This entry used to conclude “production was always correct, only the preview's props were short,” and therefore that the defence was call-site discipline *instead of* hardening the binding. That conclusion was measured false, and the correction matters because it inverted the priority. Two live paths reach an undefined `props.submitting`, and only one of them is a call site: (1) `app/javascript/solana_utils.js` reopens this modal at the credentials step after a 401 and passed `{ step: 'credentials' }` and nothing else, so every credential control rendered disabled for a user whose session had just expired — the one moment the modal exists to serve; and (2) the `props` getter in `modals/_auth.html.erb` returns an **empty object** whenever `current()` is transiently null during an open or close transition, and **no opener exists on that path at all**. The gallery's short props were a third instance of the same defect, not the only one. So both defences apply, and neither substitutes for the other: **openers pass every key the live call sites pass** (that is what keeps the gallery reviewing the app that ships, and it is the only thing that surfaces prop drift), **and the binding is hardened** with `!!` (that is the only thing that reaches the empty-object transient). The four credential controls now bind `!!props.submitting`; the gem's own copy of the wallet button (`solana_studio/auth/_wallet_credential`) coerces the same way, so hardening converges the two rather than forking them. Cover: `test/views/auth_submitting_coercion_test.rb`, which pins the coercion, the seeded 401 reopen, and the agreement of the two live call sites — that last assertion arrived from `test/controllers/auth_credentials_gallery_test.rb`, retired on 2026-09-09 with the `/admin/modals/preview` seam its other three tests drove.
 
 ### Inline JS that stays inline
 Some Alpine factories intentionally stay inline in `.erb` partials because Alpine evaluates `x-data` before importmap modules have finished executing. Keep these inline unless the surrounding component is refactored to a registered `Alpine.data(...)` factory loaded before Alpine starts:
@@ -465,9 +676,13 @@ Do move pure helper logic into modules when it does not participate in early `x-
 
 ## Sidebar Primitive and Gear Menu
 - **Sidebar primitive** (`components/_sidebar_panel.html.erb`): fixed right panel using `--nav-h`, shared slide transitions, default width `w-80 max-w-full`, optional width override, and optional header actions / close / click-outside / Escape behavior.
-- **Shared push class** (`.tm-sidebar-pushed` in `application.tailwind.css`): same breakpoint cascade the contest picks sidebar used before extraction — 20rem at `768px`, then 15rem / 10rem / 5rem / overlay at wider breakpoints.
+- **Shared push class** (`.tm-sidebar-pushed` in `app/assets/tailwind/application.css`): same breakpoint cascade the contest picks sidebar used before extraction — 20rem at `768px`, then 15rem / 10rem / 5rem / overlay at wider breakpoints.
+- **The push is invisible to Tailwind's breakpoints, so it needs companion rules.** `md:`/`lg:` are VIEWPORT queries; they cannot see the 320px this class just took away, so a component sized on a breakpoint is sized on a width the pushed column does not have. Two companion rules in the same stylesheet correct that, and both follow the same convention — **plain, unlayered CSS scoped under `.tm-sidebar-pushed`**, never a Tailwind variant. Unlayered author CSS outranks anything inside `@layer utilities` regardless of specificity or source order, so `md:grid-cols-4` and `lg:text-sm` cannot win it back; and the `.tm-sidebar-pushed` scope means the rule applies only while the sidebar is actually open.
+  - `768px-1119.98px` — the pushed column wears the phone's grid (`.tm-team-grid` → 2 columns, `.tm-pair-grid` → 1). Below 1120px a four-up card in the pushed column is narrower than the same card on a 390px phone.
+  - `1120px-1343.98px` — the pushed column holds the SMALL opponent labels (`.tm-opponent-cell` / `.tm-opponent-week` / `.tm-opponent-row` and its spans). `contests/_multi_week_team_card` steps those up at `lg`, which lands exactly where the pushed card is narrowest; 1344px is where the push steps 20rem → 15rem and the card gets its width back.
+  - The two bands abut with no gap by construction. Adding a component that steps up at a breakpoint inside either band means adding a hook and a hold, not widening a band. Both are pinned by `test/views/sidebar_pushed_grid_test.rb` and `test/views/sidebar_pushed_label_hold_test.rb`, which read the small variant out of the partial rather than hard-coding it.
 - **Contest picks sidebar** (`contests/_turf_totals_board.html.erb`): renders the desktop "Your Picks" panel through the primitive, keeps cart-specific slots/footer behavior, and still omits a close button so picks stay visible until cleared.
-- **Gear sidebar** (`components/_gear_sidebar.html.erb` + `components/_gear_sidebar_trigger.html.erb`): the gear icon, username, and profile image toggle one page-level menu using the same `md` breakpoint boundary as the contest sidebar (`hidden md:flex` desktop panel, full-width `flex md:hidden` mobile drawer). Links: My Profile, My Contests, next quest when present, How to Play, Proof of Reserves, Refresh Wallet, admin shortlist for admins (Dashboard, Contests, Users, Landing Pages), and Log out. The sidebar uses the same emoji-swap animation as the old dropdown and `.tm-gear-sidebar-layer` (`z-index:10000`) so it overlaps both the desktop contest picks sidebar (`z-40`) and the mobile bottom entry slip (`z-index:9999`) when the menu is open.
+- **Gear sidebar** (`components/_gear_sidebar.html.erb` + `components/_gear_sidebar_trigger.html.erb`): the gear icon, username, and profile image toggle one page-level menu using the same `md` breakpoint boundary as the contest sidebar (`hidden md:flex` desktop panel, full-width `flex md:hidden` mobile drawer). Links: My Profile, My Contests, next quest when present, How to Play, Proof of Reserves, Refresh Wallet, admin shortlist for admins (Dashboard, Contests, Users, Landing Pages), and Log out. The sidebar uses the same emoji-swap animation as the old dropdown and `.tm-gear-sidebar-layer` (`var(--z-drawer)`) so it overlaps both the desktop contest picks sidebar (`z-40`) and the mobile bottom entry slip (`var(--z-docked)`) when the menu is open. The drawer sits BELOW `--z-modal`: a modal opened from the gear menu covers it.
 - **Soccer dropdown** (`components/_soccer_dropdown.html.erb`): Soccer ball emoji trigger, links to Teams and Games pages.
 
 ## Dev Mode
@@ -594,18 +809,36 @@ Practical implications:
 - Always reference brand colors via the CSS var, never via hex literals — switching themes (or running the `/admin/theme` editor) only updates the var, not hardcoded hex.
 - For alpha variants in hand-rolled CSS, use the four-arg form: `rgb(var(--color-primary-rgb) / 0.2)`.
 
-## Toast manager z-index override
+## Layer scale
 
-The studio-engine `_flash.html.erb` partial ships toasts at `z-index: 60` (above most content but below sticky-fixed-tops). Turf Monster overrides this with the engine's CSS custom properties — `--studio-toast-z: 200` and `--studio-toast-blur-z: 199`, set on `:root` in `app/assets/tailwind/application.css:95-98` and read by studio-engine 0.4.10+ — so toasts render **above** both the sticky navbar AND any open modal. The ordered contract is navbar `110` → modal `120` → toast blur `199` → toast `200`. If any layer changes, preserve that order.
+Every layer that can cover other chrome reads a named `--z-*` tier instead of a bare number. **studio-engine owns the scale outright** — the tiers are defined once, in the gem's `app/assets/tailwind/studio_engine/engine.css` (`-- Layer scale`), and reach this app through the engine build `application.css` imports on line 3. There is no local copy. Read the ORDER, not the number:
 
-The override used to live in an inline `<style>` block in `_navbar.html.erb` and needed `!important` to beat the engine's old inline `style="z-index:60"`. The engine no longer renders that inline style, so the variable-based override now wins by normal cascade. Only the explanatory comment remains in the navbar, at `_navbar.html.erb:14-19`.
+`--z-docked` (mobile entry slip) → `--z-nav` (pinned navbar) → `--z-drawer` (gear sidebar) → `--z-modal` (modal backdrop + card, THE app blocker) → `--z-lightbox` → `--z-alert` (live scoring overlay, confetti) → `--z-toast-blur` → `--z-toast` → `--z-banner` (QA / DEV MODE bars, reachable mid-modal) → `--z-tooltip`.
+
+Below 100 the tiers coincide with Tailwind's own `z-10`..`z-50`, so existing sub-100 classes are already on the scale. `test/views/layer_scale_adoption_test.rb` asserts the ordering **against the resolved gem**, refuses any bare blocking number (>= 100) written into `app/views/**/*.erb`, `app/assets/tailwind/**/*.css`, or `app/javascript/**/*.js`, and reads the COMPILED `app/assets/builds/tailwind.css` to prove every tier a browser resolves is the engine's — defined exactly once, at the engine's value.
+
+**Never redefine a tier locally.** This app carried an `ADOPTION SHIM` — a `:root` in `application.css` mirroring the tiers while the pin predated the gem that ships them — and it was deleted in `delete-turf-layer-shim`. It had to go rather than linger: `application.css` imports the engine build FIRST, so a local `:root` further down won on equal specificity and this app silently ran a frozen private copy of the shared scale. Nothing failed; the next engine layer change simply would not have arrived. `test/lib/engine_pin_contract_test.rb` now refuses a re-introduced definition of any engine-shipped tier, in **any** source CSS file this app ships. To change a level, change it in studio-engine.
+
+## Toast layer — the override seam this app no longer uses
+
+`--studio-toast-z` and `--studio-toast-blur-z` are studio-engine's published per-component override seam for the toast stack. **This app sets neither**, and that is the correct state: the engine's own `layouts/studio/_flash.html.erb` defaults them to the shared tiers — `var(--studio-toast-z, var(--z-toast, 400))` and `var(--studio-toast-blur-z, var(--z-toast-blur, 399))` — so toasts already render above both the sticky navbar and any open modal with nothing declared here.
+
+Turf Monster used to set both names on `:root`, from inside the layer-scale adoption shim, back when the engine's own default was a bare `60` (above most content, BELOW a modal — a toast fired from an open modal was invisible). Both the shim and the local overrides went in `delete-turf-layer-shim`. Verified in a real browser after the deletion: `#toast-container` computes `z-index: 400` and `.toast-page-blur` computes `399`, resolved from the engine.
+
+Reach for the seam only for a genuinely turf-specific toast level, and set it once — `test/lib/tailwind_css_dedupe_test.rb` refuses a second declaration, because the later one wins in silence. To move the toast layer for every Studio app, change `--z-toast` in studio-engine instead.
+
+Historical note: the override once lived in an inline style block in `_navbar.html.erb` and needed `!important` to beat the engine's old inline `style="z-index:60"`. The engine stopped rendering that inline style long ago.
 
 ## Test scaffolding feature flag (`ENABLE_TEST_SCAFFOLDING`)
 
 When set, the env flag enables two scaffold-only UI elements visible to admins for end-to-end-with-real-money testing without real cost:
 
-- A **`$1 tiny` contest tier** in `Contest::FORMATS` — same payout shape as `tiny`, $1 entry fee. Lets you exercise the full Stripe + entry-token + onchain flow with pocket change.
+- A **`micro` contest tier** in `Contest::FORMATS` — **$1.00 entry, 9 max entries, paying $5 / $2 / $2** ($9.00 guaranteed on $9.00 gross). Surfaces as a card in the Format picker on `/contests/new`, gated by `Contest.selectable_formats` + `AppFlags.test_scaffolding?`. Lets you exercise the full Stripe + entry-token + onchain flow with pocket change.
 - A **`test_trio` token pack** (`StripePurchase::PACKS`) — 3 tokens for $5. Surfaces in the auth modal's `tokens-picker` step as a third option alongside `single` ($19) and `trio` ($49). Gated by `StripePurchase.available_packs` + `AppFlags.test_scaffolding?`.
+
+**The `micro` tier is break-even by design** (operator call, 2026-08-27): a full contest grosses exactly the $9 it guarantees, and a short fill loses money — grading pays only the ranks that exist, so 1 entry pays $5 (-$4), 2 pay $7 (-$5), and 3+ pay the full $9, making three entries the worst case at -$6. It exists to rehearse the money path, not to earn on it. `test/models/contest_test.rb` pins the $0 margin so a later "rounding" edit has to be deliberate.
+
+**Production BOOTS with this flag on** (changed 2026-08-27). `config/initializers/test_scaffolding_guard.rb` used to `raise` on a production boot carrying the flag, which made the `micro` tier unreachable on real production — the one place the operator wanted to rehearse. It now logs at ERROR and reports to Sentry instead, so the state is loud but not fatal. That means production really is selling $1.67-per-token entry tokens while the flag is set: **treat it as a test window and unset it when you are done.**
 
 Unset before public launch — the `$1` tier and `$5/3` pack are not customer-facing offers. Memory ref: `project_turf_test_scaffolding`.
 

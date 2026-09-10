@@ -139,6 +139,12 @@ module ActiveSupport
       parallelize_teardown { |_worker| SimpleCov.result }
     end
 
+    # ImageCache is defined in studio-engine, and the fixture loader does not
+    # infer an engine class from a host-app table name — without this it treats
+    # image_caches.yml as raw columns, which loses both the polymorphic `owner:`
+    # shorthand and the automatic timestamps.
+    set_fixture_class image_caches: ImageCache
+
     fixtures :all
 
     # Give `user` a managed (custodial) wallet, whatever the onboarding flag says.
@@ -258,6 +264,76 @@ class ActionDispatch::IntegrationTest
   # otherwise asserting the absence of something that was never there, which is
   # exactly how logout_is_definitive_test's wallet-brand check passed for the
   # wrong reason until 2026-08-27.
+  # The RAW source of every <template> registration for one modal id, straight
+  # out of a response body.
+  #
+  # WHY RAW, AND NOT NOKOGIRI. Some assertions about a modal registration are
+  # about DELIMITERS — the classic one being a double quote inside the
+  # double-quoted x-data attribute, which closes it early and makes Alpine mount
+  # the whole component as a silent no-op that still renders markup. A parser has
+  # already resolved those by the time it hands back a node, and re-serializing a
+  # mangled attribute can hide exactly the damage being looked for.
+  #
+  # WHY IT COUNTS NESTING. A naive `<template ...>.*?</template>` is WRONG here
+  # and fails in the least helpful way: several engine cards contain an inner
+  # `<template x-if="error">`, so the lazy match stops at the INNER closing tag
+  # and silently returns a truncated card. Assertions about anything below that
+  # point — the submit button, the skip link — then fail as "not present" on
+  # markup that is present. Measured while adopting the first-name card, where it
+  # cost three confusing failures before the slice itself was suspected.
+  # An ordinary page, rendered through layouts/application, whose body carries
+  # every modal card this app registers.
+  #
+  # THIS IS THE MODAL RENDER SEAM, and there is exactly one of it. Every
+  # registration in layouts/application is a server-rendered <template x-if>, so
+  # one request for any page on that layout carries the full markup of every
+  # card at once — which is what a component assertion actually needs.
+  #
+  # WHAT IT REPLACED, and why the replacement is stronger rather than merely
+  # equivalent. Assertions of this kind used to drive /admin/modals/preview,
+  # which rendered ONE card on layouts/modal_preview — a second layout keeping a
+  # SECOND registration list. Two lists for one set of cards is the drift this
+  # app has already paid for twice: six cards rendered empty for months because
+  # a modal reached one list and not the other, and a mutation that broke the
+  # REQUIRED first-name branch in layouts/application survived every assertion in
+  # first_name_entry_gate_test, because every one of them was reading the other
+  # layout (that file's own note records the surviving mutant). Retiring the
+  # second layout retired both hazards; asserting here asserts the layout a
+  # player is actually served.
+  #
+  # /about IS THE DEFAULT BECAUSE IT IS THE CHEAPEST — a static page needing no
+  # fixture, no session and no flag, whose layout is the same one every other
+  # page uses. Pass another path when the assertion needs page-specific state
+  # (the session payload, a contest board). Log in first when the card is
+  # registered behind `logged_in?`.
+  #
+  # SCOPE NEGATIVE ASSERTIONS TO THE CARD. This page carries ~34 registrations,
+  # so `assert_not_includes body, "btn btn-primary w-full"` is answering a
+  # question about the whole app. Slice with modal_registration_sources below
+  # and assert against that.
+  def modal_host_page(path = about_path)
+    get path
+    assert_response :success
+    response.body
+  end
+
+  def modal_registration_sources(body, modal_id)
+    opening = /<template x-if="[^"]*id === '#{Regexp.escape(modal_id)}'/
+    body.to_enum(:scan, opening).map { Regexp.last_match.begin(0) }.map do |start|
+      depth = 0
+      pos = start
+      loop do
+        nxt = body.index(/<template\b|<\/template>/, pos)
+        break body[start..] unless nxt
+
+        tag = body[nxt, 10].start_with?("</template") ? :close : :open
+        pos = nxt + (tag == :close ? "</template>".length : "<template".length)
+        depth += (tag == :open ? 1 : -1)
+        break body[start...pos] if depth.zero?
+      end
+    end
+  end
+
   def log_in_as_onchain(user, wallet_provider: nil)
     key = Ed25519::SigningKey.generate
     pubkey_b58 = Solana::Keypair.encode_base58(key.verify_key.to_bytes)

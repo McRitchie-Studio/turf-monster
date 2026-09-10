@@ -1,8 +1,21 @@
-<%# The game grid. Locals: games (enumerable of Game).
+<%# The game grid. Locals: games (enumerable of Game), focus_slug (String or nil).
 
     Rendered BOTH on first load and by every Nfl::LiveBroadcast update, from
     the same partial with the same locals — that identity is what stops a
-    broadcast-replaced board from drifting away from a freshly loaded one. %>
+    broadcast-replaced board from drifting away from a freshly loaded one.
+
+    EVERY CARD IS A BUTTON, and the game currently in the focus panel is not
+    drawn here at all. `focus` is Alpine state declared on the page wrapper,
+    OUTSIDE this target: a broadcast replaces this whole partial on every score,
+    so state declared in here would be reset by the next touchdown and the
+    reader's chosen game would silently jump back to the server's pick
+    mid-play. Declared out there, it survives every replacement and the fresh
+    cards read it as Alpine initialises them.
+
+    The inline `display:none` on the focused card is the same first-paint guard
+    the focus panel uses: Alpine boots after first paint, so without it the
+    board opens with the focused game drawn twice for a frame. %>
+<% focus_slug = local_assigns.fetch(:focus_slug, nil) %>
 <% ordered = games.sort_by { |g| [g.live? ? 0 : (g.completed? ? 2 : 1), g.kickoff_at || Time.current] } %>
 <% if ordered.empty? %>
   <div class="card p-8 text-center">
@@ -16,7 +29,24 @@
       ("San Francisco", "New England"). %>
   <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
     <% ordered.each do |game| %>
-      <%= render "live/game_tile", game: game %>
+      <%# A BUTTON WRAPPING THE CARD, matching contests/_live_game_chip rather
+          than inventing a second way to make a game tile clickable. The tile
+          itself is untouched — it is shared with the focus panel and with the
+          contest page, and a partial that renders differently depending on who
+          is listening is how two boards drift apart. %>
+      <button type="button"
+              data-test="live-grid-card"
+              data-pick-slug="<%= game.slug %>"
+              x-show="focus !== '<%= game.slug %>'"
+              style="<%= "display: none" if game.slug == focus_slug %>"
+              @click="select('<%= game.slug %>')"
+              class="block w-full text-left cursor-pointer transition hover:-translate-y-0.5 motion-reduce:transform-none">
+        <%# The tile already names the teams and reads out the score, so it
+            names this button; this says what pressing it DOES, which nothing
+            visible has to. %>
+        <span class="sr-only">Focus this game.</span>
+        <%= render "live/game_tile", game: game %>
+      </button>
     <% end %>
   </div>
 <% end %>

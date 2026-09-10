@@ -83,20 +83,41 @@ module Cdp
       render json: { error: e.message }, status: :unprocessable_entity
     end
 
-    # §5 address selection:
-    #   onramp  → DESTINATION wallet: User#solana_address (web3 preferred,
-    #             web2 fallback)
-    #   offramp → the SOURCE wallet that will sign the post-widget send: web3
-    #             when this session can produce Phantom signatures
-    #             (wallet_context.web3?), else the managed web2 wallet the
-    #             server signs with.
+    # §5 address selection — BOTH DIRECTIONS ASK THE SESSION. Credit the wallet
+    # this session can actually spend from, and source from the one it can sign
+    # with; those are the same question, so they get the same answer.
+    #
+    #   onramp  → DESTINATION wallet: web3 when this session can produce Phantom
+    #             signatures (wallet_context.web3?), else the managed web2 wallet.
+    #   offramp → the SOURCE wallet that will sign the post-widget send: the same
+    #             rule, for the same reason.
+    #
+    # THE ASYMMETRY THIS REPLACED COST REAL MONEY. The onramp used to take
+    # User#solana_address UNCONDITIONALLY, and that method prefers web3
+    # (user.rb). A COMBO account — managed wallet plus a linked Phantom — signed
+    # in with Google or a magic link is a WEB2 session, and
+    # ContestsController#resolve_web2_entry_funding! spends its web2 address:
+    # its own comment warns "a managed+phantom combo account signs with — and
+    # spends from — the custodial wallet the server holds, never the web3
+    # address (which #solana_address would otherwise prefer and desync from the
+    # keypair)". So the deposit landed at Phantom while the entry was charged at
+    # the managed wallet: the user paid, and stayed blocked. 12 such accounts
+    # existed in prod on 2026-09-06.
+    #
+    # SESSION, NOT ACCOUNT IDENTITY. wallet_context.web3? reads the SESSION
+    # (studio-engine SessionContext#mode), so the same combo account correctly
+    # gets Phantom when it signed in WITH Phantom and the managed wallet when it
+    # signed in with email — which is exactly when each one can pay.
     def wallet_for(direction)
       user = current_user
-      if direction == :onramp
-        address = user.solana_address
-        mode = address.present? && address == user.web3_solana_address ? :web3 : :web2
-        [address, mode]
-      elsif wallet_context.web3? && user.web3_solana_address.present?
+      if wallet_context.web3? && user.web3_solana_address.present?
+        [user.web3_solana_address, :web3]
+      elsif direction == :onramp && user.web2_solana_address.blank?
+        # A web3-only account on a session that cannot sign with it (an admin
+        # impersonating, say). There is no managed wallet to fall back to, so
+        # credit the only address the account has rather than refusing — the
+        # onramp is a DEPOSIT, and a deposit to the user's own wallet is never
+        # unsafe, merely less useful than it could be.
         [user.web3_solana_address, :web3]
       else
         [user.web2_solana_address, :web2]

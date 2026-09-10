@@ -39,6 +39,16 @@ function dialog(page) {
   return page.getByRole("dialog");
 }
 
+// THE WRONG-WALLET ROUTE. Its SPELLING is the gem's and it moved: up to
+// solana-studio 0.6.0 a full-width "Use a different wallet" row, and from the
+// next release a quiet "Not your wallet?" link beside the address (operator
+// call). This app renders whichever its lock resolves, and the release sweep
+// bumps that lock without touching this file — so the locator accepts either
+// and the WALK, which is what this spec is actually for, stays pinned.
+function pickerLink(page) {
+  return dialog(page).getByRole("button", { name: /Use a different wallet|Not your wallet\?/i });
+}
+
 async function currentModal(page) {
   return page.evaluate(() => {
     const m = window.Alpine && Alpine.store && Alpine.store("modals");
@@ -59,8 +69,15 @@ test("a wallet account signing in by magic link is met with the step-up card", a
     .toBe("web3-step-up");
 
   // The card must say what happened, not just demand a signature.
+  //
+  // Matched LOOSELY on purpose. The body copy is solana-studio's, this app
+  // stopped overriding it on 2026-09-06, and the gem cut that copy from four
+  // lines to one in the very next release — so the exact sentence differs
+  // either side of a lock bump the release sweep performs without touching
+  // this file. What both spellings share is the reason the card exists, and
+  // that is what this asserts.
   await expect(dialog(page).getByText("Sign in with your wallet")).toBeVisible();
-  await expect(dialog(page).getByText(/can.t sign on-chain/i)).toBeVisible();
+  await expect(dialog(page).getByText(/secured by a Solana wallet/i)).toBeVisible();
 });
 
 test("the card leads with the wallet the account actually used", async ({ page }) => {
@@ -83,13 +100,23 @@ test("an account with no remembered brand gets the picker, not a dead end", asyn
 
   await expect(dialog(page).getByRole("button", { name: /Connect your wallet/i })).toBeVisible();
   await expect(dialog(page).getByRole("button", { name: /Phantom|Solflare|Backpack/i })).toHaveCount(0);
+
+  // ...and NO correction link. This account has an address but no remembered
+  // brand, so the card still names the wallet — but the primary button is
+  // already the picker, and a "not this one" link beside the address would be a
+  // second door into the same room, competing with the one action on the card.
+  // Asserted as not-VISIBLE rather than absent: the gem ships both halves of
+  // every branch in the markup and lets the browser choose, so a count of zero
+  // would be asserting something neither release is true of.
+  await expect(pickerLink(page)).not.toBeVisible();
 });
 
-test("Use a different wallet reaches the picker and comes back", async ({ page }) => {
+test("the wrong-wallet route reaches the picker and comes back", async ({ page }) => {
   await signInAsWalletUser(page);
   await expect.poll(async () => (await currentModal(page))?.id, { timeout: 15_000 }).toBe("web3-step-up");
 
-  await dialog(page).getByRole("button", { name: /Use a different wallet/i }).click();
+  await expect(pickerLink(page)).toBeVisible();
+  await pickerLink(page).click();
   await expect.poll(async () => (await currentModal(page))?.id, { timeout: 10_000 }).toBe("wallet-connect");
 
   // Back must return to the step-up card. Before the picker learned this

@@ -54,6 +54,18 @@ test("turf totals page loads @smoke", async ({ page }) => {
   await expect(page.locator("body")).toBeVisible();
 });
 
+// The NFL rules page, and the one the navbar's Rules link now lands on. Both
+// versioned rules pages stay smoked: they are one per SEASON, not a page and a
+// replacement, and the older route must keep answering old links.
+test("turf monster rules page loads @smoke", async ({ page }) => {
+  await page.goto("/turf-monster-v1");
+  await expect(page.locator("body")).toBeVisible();
+  // Title, not getByRole("heading", { level: 1 }) — the navbar wordmark is an
+  // h1 too (_navbar.html.erb), so a level-1 heading locator matches TWO nodes
+  // and dies on strict mode. The title is the page's own, and unambiguous.
+  await expect(page).toHaveTitle(/Turf Monster v1/);
+});
+
 const signedInSidebarRoutes = [
   { route: "/contests", destination: "/account" },
   { route: "/account", destination: "/contests" },

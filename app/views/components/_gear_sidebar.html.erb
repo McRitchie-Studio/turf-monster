@@ -65,6 +65,7 @@
     <% end %>
 
     <%= link_to help_how_to_play_path, class: link_class do %><%= emoji_swap.("🎮", "🤔") %><span>How to Play</span><% end %>
+    <%= link_to nfl_team_totals_path, class: link_class do %><%= emoji_swap.("🏈", "📊") %><span>NFL Totals</span><% end %>
     <%= link_to proof_of_reserves_path, class: link_class do %><%= emoji_swap.("🪎", "🏦") %><span>Proof of Reserves</span><% end %>
 
     <button type="button"
@@ -75,9 +76,24 @@
       <div class="border-t border-subtle my-2"></div>
       <div class="label-upper font-bold px-4 py-1 text-muted">Admin</div>
       <%= link_to admin_dashboard_path, class: link_class do %><%= emoji_swap.("💻", "🔬") %><span>Dashboard</span><% end %>
+      <%# Signatures — the treasury cosign queue. The count is what the operator
+          is actually being asked to sign (PendingTransaction.awaiting_signature),
+          NOT every pending row: 10 of production's 11 were dead enter_contest
+          transactions from June and July, and a badge that reads 11 when one
+          thing needs signing is a badge nobody reads twice. Gray at zero, bold
+          above — the weight is the signal, so it can be caught peripherally
+          without reading the number. %>
+      <% signature_count = pending_signature_count %>
+      <%= link_to admin_pending_transactions_path, class: link_class do %>
+        <%= emoji_swap.("✍️", "🖋️") %><span>Signatures</span>
+        <span class="ml-auto text-xs tabular-nums <%= signature_count.positive? ? "font-bold text-heading" : "font-normal text-muted" %>"
+              data-signature-count="<%= signature_count %>"><%= signature_count %></span>
+      <% end %>
       <%= link_to contests_path, class: link_class do %><%= emoji_swap.("✚", "✨") %><span>Contests</span><% end %>
       <%= link_to admin_users_path, class: link_class do %><%= emoji_swap.("👥", "🏟️") %><span>Users</span><% end %>
       <%= link_to admin_landing_pages_path, class: link_class do %><%= emoji_swap.("🪂", "🖼️") %><span>Landing Pages</span><% end %>
+      <%= link_to admin_entry_gifts_path, class: link_class do %><%= emoji_swap.("🎁", "✨") %><span>Send Free Entry</span><% end %>
+      <%= link_to admin_emails_path, class: link_class do %><%= emoji_swap.("✉️", "📮") %><span>Emails</span><% end %>
       <%= link_to admin_style_path, class: link_class do %><%= emoji_swap.("🎨", "🧩") %><span>Design System</span><% end %>
     <% end %>
 

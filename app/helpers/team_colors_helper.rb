@@ -61,6 +61,36 @@ module TeamColorsHelper
     }
   end
 
+  # THE PICK PILL: the team's own dark, wearing the team's own accent.
+  #
+  # `glow` is the value, not `light` and not `mascot` — it is "the team's extra
+  # brand colour where it curates one, falling back to the light", which is
+  # exactly the distinction the pill needs. Atlanta curates no alt and falls to
+  # its red; Tampa Bay curates ORANGE, and its red-on-charcoal is the muddy pair
+  # the alt exists to replace. Both come out as the colour a fan would name.
+  #
+  # LEGIBILITY IS THE HALO, NOT A DIFFERENT COLOUR. An earlier cut measured the
+  # contrast and swapped anything under WCAG AA for white, which is a defensible
+  # rule and the wrong one here: it turned six of the pills white and threw away
+  # the one thing the pill is for. This app already solved that problem — the
+  # mascot on every team card wears its accent over `mascot_shadow`, which is how
+  # Buffalo's red-on-blue (1.88:1 unaided) is readable on the contest board. The
+  # pill does the same, so it stays legible AND stays the team's.
+  #
+  # `shade` is the team's LIGHT lifting the bottom of the pill — an inset glow,
+  # not a second background. A flat team-dark rectangle is legible and lifeless;
+  # a shade of the team's own light gives it depth without introducing a colour
+  # from outside the team, and stays under the text rather than competing with
+  # it. Held low (0.4) because this is a 78px pill: any more and the multiplier
+  # starts sitting in fog.
+  def team_pill_palette(team)
+    bg    = normalize_hex(team&.color_dark) || normalize_hex(team&.card_background) || FALLBACK_PRIMARY
+    fg    = team_card_palette(team)[:glow]
+    light = normalize_hex(team&.color_light) || fg
+
+    { bg: bg, fg: fg, shade: rgba(light, 0.4), shadow: mascot_shadow(fg) }
+  end
+
   # A subtle halo that keeps the mascot legible on the team gradient: a light
   # halo behind an essentially-black mascot, a dark halo behind everything else.
   # Held at 0.5 alpha so it reads as a soft glow, not a hard sticker outline.
@@ -84,6 +114,82 @@ module TeamColorsHelper
       normalize_hex(opponent.color_dark) || FALLBACK_PRIMARY
     else
       normalize_hex(opponent.color_light) || LIGHT_FG
+    end
+  end
+
+  # Below this luminance gap a tint cannot darken the label it sits behind.
+  RIM_MIN_SEPARATION = 0.02
+
+  # A soft halo behind an opponent's short name, in the opponent's OTHER brand
+  # colour — their dark behind a light label, their light behind a dark one.
+  #
+  # WHY THIS IS NOT DECORATION. Measured across all 992 (host, opponent)
+  # pairings on 2026-09-09: 275 of them — 28% — put the label under 3:1 against
+  # the field it sits on, and the floor is 1.04:1 (Houston's red on San
+  # Francisco's, Atlanta's on Miami's). At that ratio the two colours have
+  # essentially the SAME luminance and differ only in hue, which is the one
+  # difference an edge cannot be built from.
+  #
+  # A RADIAL BACKDROP, NOT A TEXT-SHADOW, and the difference is the whole
+  # point. A text-shadow traces the GLYPH — it thickens each letter's outline
+  # but leaves the counters and the gaps between letters showing the raw field,
+  # so on a same-luminance pair the word still dissolves into its background at
+  # reading size. Shipped that first; the operator's verdict was "not enough",
+  # and he was right. This darkens the AREA the word sits in, which is what
+  # actually gives the glyphs something to be read against.
+  #
+  # It rides the row (emoji + abbreviation), which stays a full-width block so
+  # the gradient has room to fade out INSIDE the column. Sizing it to the text
+  # instead would clip the falloff to the glyph box and put a hard edge exactly
+  # where the softness is doing the work — and the padding that would fix that
+  # does not fit: a column is ~48px at 390px and the content already spends ~40.
+  #
+  # THE GEOMETRY IS PINNED TO THE BOX, and both numbers are load-bearing. A
+  # background is clipped to its padding box, and this row is one line of
+  # 10px text with leading-none — about 14px tall. The first cut used a 175%
+  # vertical radius, which the box sliced flat: it shipped as a horizontal BAR
+  # with square ends, not a shadow. Radii of 48% / 50% put the ellipse's edge
+  # exactly at the box's, so the fade completes instead of being cut, and the
+  # row carries py-1 to give that fade somewhere to happen. Horizontal stays
+  # under 50% so the halo dies before the column divider.
+  #
+  # The stops end at rgba(tint, 0) rather than `transparent`, which some
+  # engines interpolate through transparent-BLACK and fringe grey on a coloured
+  # tint.
+  def opponent_label_halo(opponent, card_team)
+    return "none" unless opponent
+
+    tint = opponent_halo_color(opponent, card_team)
+    "radial-gradient(ellipse 48% 50% at 50% 50%, #{rgba(tint, 0.85)} 0%, " \
+      "#{rgba(tint, 0.6)} 52%, #{rgba(tint, 0)} 100%)"
+  end
+
+  # The opponent's OTHER family, or a neutral when the two families sit too
+  # close in luminance to darken anything (no team in the current NFL set —
+  # this is the guard, not a live path).
+  def opponent_halo_color(opponent, card_team)
+    label = opponent_label_color(opponent, card_team)
+    rim   = opponent_rim_color(opponent, card_team)
+    return rim if rim && (relative_luminance(rim) - relative_luminance(label)).abs >= RIM_MIN_SEPARATION
+
+    relative_luminance(label) < NEAR_BLACK_LUMINANCE ? LIGHT_FG : "#000000"
+  end
+
+  # THE OPPOSITE FAMILY TO WHICHEVER ONE opponent_label_color JUST PICKED, and
+  # that flip is the trick. opponent_label_color paints the opponent's LIGHT on
+  # a dark card and their DARK on a light (gold) one. Tint with color_dark
+  # unconditionally and every gold-field card draws a dark halo behind dark
+  # text — the same colour, so it disappears exactly where the flip put the
+  # label most at risk. Reading the tint off the same flip keeps the two in
+  # opposition by construction.
+  def opponent_rim_color(opponent, card_team)
+    return nil unless opponent
+
+    host_bg = normalize_hex(card_team&.card_background) || FALLBACK_PRIMARY
+    if relative_luminance(host_bg) > LIGHT_FIELD_LUMINANCE
+      normalize_hex(opponent.color_light)
+    else
+      normalize_hex(opponent.color_dark)
     end
   end
 
@@ -152,5 +258,31 @@ module TeamColorsHelper
 
   def clamp255(value)
     value.round.clamp(0, 255)
+  end
+  # TWO COLOURS, GUARANTEED DISTINCT — the scoring ring on the contest live page.
+  #
+  # The ring draws two wedges to say WHOSE score just landed, and `palette[:glow]`
+  # cannot always supply the second: it falls back `color_alt || color_light ||
+  # mascot`, so a team that curates no alt returns the accent again and the ring
+  # renders as one flat hue. Measured: Baltimore has an alt (#C60C30) and reads as
+  # gold-and-red; Washington has none and read as yellow-and-yellow.
+  #
+  # `color_dark` is the missing half. Every team has one — it is the field their
+  # own tile is painted with — so falling back to it gives Washington
+  # yellow-and-burgundy and Kansas City yellow-and-red, which is what a viewer
+  # means by "their colours".
+  #
+  # Returns [accent, second]; the second is never equal to the first unless the
+  # team genuinely has one colour and nothing to pair it with.
+  def team_glow_pair(team)
+    palette = team_card_palette(team)
+    accent  = palette[:accent]
+    second  = palette[:glow]
+
+    if second.nil? || second.casecmp?(accent.to_s)
+      second = normalize_hex(team&.color_dark) || normalize_hex(team&.card_background) || accent
+    end
+
+    [accent, second]
   end
 end

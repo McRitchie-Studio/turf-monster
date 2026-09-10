@@ -1,0 +1,85 @@
+<%# THE SCORER REVEAL — who just scored, in the space the events list vacates.
+    Locals: none. Every value is written by the page's script at reveal time.
+
+    IT IS THE SECOND PANE ON THE RAIL'S WHEEL. The frame clips to one pane; this
+    fills the one below the events list, and the track rolls up to bring it into
+    view. Because the panes are stacked rather than layered, the list and the
+    card can never be on screen together — which is what an earlier cross-fade
+    version got wrong, leaving the scorer's name readable through the list.
+
+    EMPTY AND HIDDEN AT REST. It is painted once per focus tile and stays out of
+    the flow until a qualifying score fills it in. That is why it carries no
+    server-rendered scorer: the tile is re-rendered by every broadcast, and a
+    card holding the LAST score would flash on screen for one frame each time a
+    different game scored.
+
+    THREE GROUPS, largest first, so the eye lands on the event and then walks
+    down into the detail:
+      TOUCHDOWN!                 what happened
+      Baltimore / RAVENS         who it was for, the mascot in its own colour
+      Rashod Bateman / 22 yard   who did it, and how
+    No points chip: the banner above already carries "+6", and repeating it here
+    spent width on the one fact the reader can also read off the score. %>
+<div class="tt-scorer-card h-full w-full flex items-stretch justify-center gap-3 px-2 py-1"
+     data-role="scorer-card"
+     aria-hidden="true">
+
+  <%# FULL HEIGHT OF THE RAIL, AND NO DISC BEHIND IT.
+      ESPN's headshots are transparent cutouts — verified: the corners are
+      srgba(0,0,0,0) and the mean alpha survives our resize to five decimals. So
+      the player is composited straight onto the team gradient, the way a
+      broadcast lower-third does it. An earlier cut put a `bg-surface-alt` circle
+      behind the image, which the transparency dutifully revealed as a dark blob;
+      the background was ours, not the feed's.
+      The source is landscape (600x436), so `object-contain` with an auto width
+      shows the whole cutout instead of `object-cover` cropping it into a disc.
+      Bottom-aligned: the shoulders sit on the rail's floor and the head is what
+      rises into the card.
+
+      IT SHRINKS, AND BELOW A THRESHOLD IT GOES. `shrink-0` plus `max-w-none`
+      pinned it at a constant 154px, and the text column — the only flexible
+      thing left — was what gave: measured at 390px and 640px viewports the card
+      rendered ZERO characters of headline, mascot, name and detail and
+      overflowed its frame by 33px. The rail is `w-1/3` of the tile, so the
+      constraint is CARD width and a viewport breakpoint cannot see it; the
+      container query in live_page_styles is what drops the face and keeps the
+      words. The events list this replaces is perfectly legible on a phone, so
+      showing less than it does is a regression, not a trade-off. %>
+  <span class="tt-scorer-avatar relative h-full flex items-end justify-center self-stretch">
+    <img data-role="scorer-headshot"
+         alt=""
+         class="h-full w-auto max-w-full object-contain object-bottom hidden">
+    <%# No cached headshot: nflverse had no espn_id, or the upload has not run
+        for this player. THIS is where a disc belongs — initials need a ground to
+        sit on, and there is no cutout here to show one through. %>
+    <span data-role="scorer-initials"
+          class="w-11 h-11 self-center rounded-full bg-surface-alt
+                 flex items-center justify-center text-sm font-bold text-white/70"></span>
+  </span>
+
+  <%# THREE GROUPS, not five loose lines. The action, then who it was for, then
+      who did it and how — each group tight inside itself and spaced from its
+      neighbours, so the eye reads three things rather than scanning a list.
+
+      THE TEAM SITS ABOVE THE PLAYER. A score belongs to a team first: that is
+      what moves the number on the left and what the reader has money on. The
+      scorer and the play are the detail underneath it. %>
+  <div class="min-w-0 flex-1 flex flex-col justify-center text-center gap-1.5">
+    <p class="tt-scorer-headline font-black uppercase tracking-wide text-white leading-none truncate"
+       data-role="scorer-headline"></p>
+
+    <div class="leading-tight">
+      <p class="text-[11px] font-medium truncate" data-role="scorer-location"></p>
+      <%# The mascot is the loudest line after the headline — it is the team you
+          have money on, so it outranks the player's name in weight. %>
+      <p class="text-base font-black uppercase tracking-wide truncate leading-tight"
+         data-role="scorer-mascot"></p>
+    </div>
+
+    <div class="leading-tight">
+      <p class="text-white font-semibold text-sm truncate" data-role="scorer-name"></p>
+      <p class="text-white/70 text-xs truncate" data-role="scorer-detail"></p>
+    </div>
+  </div>
+
+</div>

@@ -325,17 +325,71 @@ class Cdp::RampSessionsControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "onramp prefers the web3 address when one is linked" do
+  # REBOUND, and it PINNED THE DEFECT. This asserted that a COMBO account on an
+  # EMAIL login — a web2 session — was credited at its Phantom address. That is
+  # the bug: ContestsController#resolve_web2_entry_funding! charges such a
+  # session's entry to the MANAGED wallet, so the deposit landed where the entry
+  # could not spend it and the user stayed blocked after paying. The offramp test
+  # directly below has always asserted the correct shape for the identical setup;
+  # the two now agree.
+  test "onramp on a web2 session credits the MANAGED wallet, even with Phantom linked" do
     with_cdp_ramp do
       give_managed_wallet
       @user.update!(web3_solana_address: "PhantomAddr#{SecureRandom.hex(4)}")
-      log_in_as @user
+      log_in_as @user # email login → web2 session even though Phantom is linked
       post_session(:onramp)
       assert_response :success
 
       ramp = CdpRampTransaction.last
-      assert_equal @user.web3_solana_address, ramp.wallet_address
+      assert_equal @user.web2_solana_address, ramp.wallet_address,
+                   "a web2 session pays its entry from the managed wallet, so that " \
+                   "is the only wallet a deposit can usefully land in"
+      assert ramp.wallet_web2?
+    end
+  end
+
+  test "onramp on a Phantom session still credits the web3 wallet" do
+    with_cdp_ramp do
+      give_managed_wallet
+      log_in_as_onchain @user # sets web3_solana_address + session[:onchain]
+      post_session(:onramp)
+      assert_response :success
+
+      ramp = CdpRampTransaction.last
+      assert_equal @user.reload.web3_solana_address, ramp.wallet_address,
+                   "a session that can sign with Phantom spends from Phantom"
       assert ramp.wallet_web3?
+    end
+  end
+
+  test "onramp and offramp resolve the SAME wallet for the same session" do
+    with_cdp_ramp do
+      give_managed_wallet
+      @user.update!(web3_solana_address: "PhantomAddr#{SecureRandom.hex(4)}")
+      log_in_as @user
+
+      post_session(:onramp)
+      on = CdpRampTransaction.last.wallet_address
+      post_session(:offramp)
+      off = CdpRampTransaction.last.wallet_address
+
+      # The asymmetry between these two branches WAS the defect — money in and
+      # money out disagreed about which wallet the session owns.
+      assert_equal off, on,
+                   "deposit and withdrawal must name the same wallet for one session"
+    end
+  end
+
+  test "a web3-only account still gets a destination when the session is web2" do
+    with_cdp_ramp do
+      # No managed wallet to fall back to. Refusing would strand the deposit; a
+      # deposit into the account's own only wallet is never unsafe.
+      @user.update!(web2_solana_address: nil, web3_solana_address: "PhantomAddr#{SecureRandom.hex(4)}")
+      log_in_as @user
+      post_session(:onramp)
+      assert_response :success
+
+      assert_equal @user.web3_solana_address, CdpRampTransaction.last.wallet_address
     end
   end
 

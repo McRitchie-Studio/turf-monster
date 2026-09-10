@@ -1,7 +1,20 @@
 <%#
-  Top Up Wallet — the FIRST funds modal a logged-in player sees when they try
-  to enter a contest and lack funds (the board's no_funding entry blocker,
-  selectionBoard#showWalletTopup, plus the chain-layer "no tokens" twin).
+  Top Up Wallet — the Coinbase-forward funds modal.
+
+  IT IS NO LONGER THE ENTRY BLOCKER'S ANSWER, and this header used to say it was.
+  The funds wall now routes to Get USDC (modals/_buy_usdc) via showFundsNeeded,
+  because this modal leads with the CDP onramp and that rail has no legal
+  clearance (operator, 2026-09-06). selectionBoard#showWalletTopup is kept but has
+  no caller; what to do with this modal and the Add Funds hub while the onramp
+  stays uncleared is an operator decision about those surfaces, not a modal fix.
+  NOTHING OPENS THIS MODAL AT HEAD. Both ways in are closed: showWalletTopup has
+  no caller, and the Add Funds hub's Back link (modals/_onramp_hub) swaps here
+  only when props.returnModal is 'wallet-topup' — a prop written in exactly one
+  place, this file's own "More ways to add funds" link below. So that Back link is
+  a return path from itself, not an entrance. An entrance reappears the moment
+  either condition changes: something calls showWalletTopup, or some other opener
+  passes returnModal: 'wallet-topup'. What follows describes what this modal
+  renders and how it gates whenever it IS opened.
 
   COINBASE-FORWARD (operator 2026-06-13): now that a web2/managed USDC entry
   works (the server signs the on-chain enter_contest with the user's custodial
@@ -16,13 +29,21 @@
   the flag off, read from $store.session) flips the modal to the entry-token
   rail for exactly that audience. web3 and flag-on web2 always see Coinbase.
 
-  The Coinbase rail is server-gated on onramp_rail_visible?(:coinbase) (the same
-  policy the hub uses: ENABLE_CDP_RAMP in production) so a flagged-off ramp never
+  The Coinbase rail is server-gated on onramp_rail_visible?(:coinbase), which
+  for this rail alone resolves to cdp_ramp_modal_available? — the SAME predicate
+  the host layout uses to register the cdp-ramp modal, in every environment. It
+  reads logged_in? as well as the ENABLE_CDP_RAMP flag, and both halves matter
+  here: this modal is registered UNGATED (it must survive an in-session signup,
+  where the server-rendered logged_in? was still false) while cdp-ramp is not,
+  so on that page the rail used to outlive its destination. Either half missing
   ships a dead button that swaps to an unregistered cdp-ramp modal.
 
-  One modal id ('wallet-topup'); no internal step machine. Opened by the board's
-  funds-needed blocker via $store.modals.open('wallet-topup', {}) on a cold
-  board, or swap() mid-flow.
+  One modal id ('wallet-topup'); no internal step machine. The board's
+  funds-needed blocker NO LONGER opens it — showFundsNeeded routes to Get USDC or,
+  for the USDC kill-switch audience, Buy an Entry Token, and showWalletTopup,
+  which held the open/swap pair, has no caller (see the header). The shape it used
+  is still the shape any future entrance wants: $store.modals.open('wallet-topup',
+  {}) on a cold board, swap() mid-flow.
 
   Modeled on modals/_onramp_hub + _wallet_deposit. CRITICAL: rendered inside a
   host template x-if, so a SINGLE root element. x-data is a double-quoted
