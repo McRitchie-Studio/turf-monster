@@ -168,4 +168,76 @@ class Game < ApplicationRecord
   def away_expected_total
     expected_total_for(away_team_slug)
   end
+
+  # ── THE SITUATION, as the live rail says it ──────────────────────────────
+  #
+  # Three short lines that only exist while a game is being played, composed
+  # HERE rather than in the view because both the focus rail and the scoring
+  # banner say them and two copies of the composition is two copies that drift.
+  #
+  # EACH RETURNS nil WHEN IT HAS NOTHING TO SAY, and the rail renders nothing
+  # for a nil rather than an empty line — a scheduled game is not a live game
+  # with blank fields, and a rail that reserves space for words that will never
+  # come reads as a rendering fault.
+
+  # "Q3 · 6:06". The clock alone is ambiguous (6:06 of which quarter?) and the
+  # quarter alone is coarse, so they travel together or not at all.
+  #
+  # OVERTIME IS NOT "Q5". ESPN counts periods straight past four, and a card
+  # that says Q5 is wrong about a thing every viewer can see.
+  def period_clock_label
+    return nil unless live?
+
+    quarter = period_label
+    return clock.presence unless quarter
+
+    [quarter, clock.presence].compact.join(" · ")
+  end
+
+  def period_label
+    return nil unless period.to_i.positive?
+
+    period > 4 ? "OT" : "Q#{period}"
+  end
+
+  # "SEA on NE 23" — who has the ball, and where. The two halves come from
+  # different places (our team record, ESPN's yard-line text) and either can be
+  # missing, so each is degraded to on its own: possession with no yard line
+  # still says who has the ball, and a yard line with no possession still says
+  # where the ball is.
+  def possession_line
+    return nil unless live?
+
+    holder = possession_team&.short_name.presence || possession_team&.name.presence
+    return possession_text.presence unless holder
+    return holder unless possession_text.presence
+
+    "#{holder} on #{possession_text}"
+  end
+
+  def possession_team
+    return nil if possession_team_slug.blank?
+
+    # Both sides are already loaded on any board that renders this, so the
+    # comparison is done in memory rather than firing a third query per tile.
+    [ home_team, away_team ].compact.find { |team| team.slug == possession_team_slug }
+  end
+
+  # "3rd & 9", "4th & Goal". Verbatim from ESPN — pluralising downs and knowing
+  # that first-and-ten inside the ten is "1st & Goal" is exactly the work the
+  # feed has already done.
+  def down_distance_label
+    return nil unless live?
+
+    down_distance.presence
+  end
+
+  # "3rd & 9 at NE 13" — the banner's one-line version of the two lines the
+  # rail stacks. It has a single row to spend and the two facts are read
+  # together, so they are joined rather than given a line each.
+  def situation_line
+    return nil unless live?
+
+    [ down_distance_label, possession_text.presence ].compact.join(" at ").presence
+  end
 end

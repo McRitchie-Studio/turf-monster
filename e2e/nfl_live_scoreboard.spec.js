@@ -480,6 +480,49 @@ test.describe("Contest live page", () => {
     await expect(banner).toBeVisible();
     await expect(banner).toHaveClass(/nfl-b-td/);
     await expect(page.locator("#nfl-score-label")).toHaveText(/touchdown/i);
+
+    // THE NAME BLOCK READS CITY-OVER-ACTION. It used to run the other way — a
+    // loud "TOUCHDOWN" over a quiet "Buffalo Bills" — which spent the loud line
+    // on the event and then named the team in full underneath a banner already
+    // wearing its colours.
+    //
+    // ASSERTED AS DOM ORDER, not as text. Which words land in the city slot is
+    // the fixture's business (a team with no location falls back to its name);
+    // which slot comes FIRST is the convention, and it is what a regression
+    // would silently flip back.
+    await expect(page.locator("#nfl-score-team")).not.toHaveText("");
+    const cityLeads = await page.evaluate(() => {
+      const city = document.getElementById("nfl-score-team");
+      const action = document.getElementById("nfl-score-label");
+      // Node.DOCUMENT_POSITION_FOLLOWING === 4
+      return !!(city.compareDocumentPosition(action) & 4);
+    });
+    expect(cityLeads).toBe(true);
+
+    // THE SCORE LINE IS THREE THINGS with the score in the MIDDLE. It used to
+    // be one left-aligned string, which put the fact everybody is here for in
+    // the corner and left two-thirds of the bar empty. The abbreviations are
+    // split into their own slots so each can wear its own team's colour over
+    // its own half of the blend.
+    await expect(page.locator("#nfl-score-away-abbr")).not.toHaveText("");
+    await expect(page.locator("#nfl-score-home-abbr")).not.toHaveText("");
+    await expect(page.locator("#nfl-score-tally-row")).toBeVisible();
+
+    // Each abbreviation is painted, not left to inherit the banner's ink —
+    // that inheritance is what the split blend exists to replace.
+    const awayInk = await page
+      .locator("#nfl-score-away-abbr")
+      .evaluate((el) => el.style.color);
+    expect(awayInk).not.toBe("");
+
+    // AND THE BAR CARRIES BOTH TEAMS. A half-applied blend — one team's hue
+    // against the CSS default — is the failure the painter guards against by
+    // falling back to the resting wash, so an actual gradient here is the
+    // proof that both colours arrived on the feed node.
+    const barBg = await page
+      .locator("#nfl-score-line")
+      .evaluate((el) => el.style.background);
+    expect(barBg).toMatch(/linear-gradient/);
   });
 
   // THE SCORER REVEAL. A touchdown on the focused game swaps its events rail for
@@ -521,10 +564,22 @@ test.describe("Contest live page", () => {
     await expect(card.locator('[data-role="scorer-headline"]')).toHaveText("Touchdown!");
     await expect(card.locator('[data-role="scorer-name"]')).toHaveText("Josh Allen");
 
-    // The team leads the detail, above the player — a score belongs to a team
-    // first. And the points chip is gone from the card entirely.
-    await expect(card.locator('[data-role="scorer-mascot"]')).not.toHaveText("");
+    // FOUR LINES, IN THE ORDER A BROADCAST SAYS THEM: the city, what happened,
+    // how, then who. The mascot line is GONE — the card used to name the team
+    // twice ("Buffalo", then "BILLS" in the accent) and spend the colour on the
+    // second naming; the accent moved onto the ACTION, which is what changed.
+    await expect(card.locator('[data-role="scorer-location"]')).not.toHaveText("");
+    await expect(card.locator('[data-role="scorer-mascot"]')).toHaveCount(0);
     await expect(card.locator('[data-role="scorer-points"]')).toHaveCount(0);
+
+    // AND THE ACCENT IS ON THE HEADLINE. Asserted as "not the inherited
+    // colour": the exact hue is the team's and belongs to the fixture, but a
+    // headline still painting in the card's default white is the regression —
+    // the convention silently not applied.
+    const headlineColor = await card
+      .locator('[data-role="scorer-headline"]')
+      .evaluate((el) => el.style.color);
+    expect(headlineColor).not.toBe("");
 
     // The card is genuinely on screen, not merely class-swapped: a transform
     // typo would leave it parked below the rail while the class said otherwise.
@@ -573,6 +628,96 @@ test.describe("Contest live page", () => {
         })
       )
       .toBeLessThan(4);
+  });
+
+  // ── THE TOP HALF ROTATES TOO ──────────────────────────────────────────────
+  //
+  // The rail's two halves run the same wheel. At rest the top says where the
+  // game is up to — quarter, clock, down, possession — and a qualifying score
+  // rolls it to the announcement, so the WHOLE rail is telling you about the
+  // play rather than half of each.
+  //
+  // ASSERTED ON GEOMETRY, not on the class alone. The class is what the script
+  // sets; whether the track actually moved is a CSS question, and a wrong
+  // percentage or a missing rule would leave the class true and the pane parked
+  // off screen — which is exactly the failure mode the event wheel below it
+  // shipped once already.
+  test("a score rotates the game status out and the announcement in", async ({ page }) => {
+    await allowMotion(page);
+    await loginAdmin(page);
+    await openLive(page, CONTEST);
+
+    const visible = () => page.locator('[data-test="live-focus-game"]:visible');
+    const gameSlug = await visible().getAttribute("data-focus-slug");
+    const teamSlug = await page
+      .locator('[data-test="live-focus-game"]:visible [data-team-slug]')
+      .first()
+      .getAttribute("data-team-slug");
+
+    const frame = page.locator(
+      `[data-focus-slug="${gameSlug}"] [data-role="status-frame"]`
+    );
+    await expect(frame).toHaveCount(1);
+    await expect(frame).not.toHaveClass(/tt-status-revealing/);
+
+    await recordTouchdownBy(page, gameSlug, teamSlug, "josh-allen");
+
+    // EVERY BROADCAST REPLACES THIS PANEL, so the locator is re-resolved by
+    // playwright on each poll — the frame asserted on at the end is not the
+    // node that existed at the start, which is the whole reason applyStatus has
+    // a restore path.
+    const revealed = page.locator(
+      `[data-focus-slug="${gameSlug}"] [data-role="status-frame"]`
+    );
+    await expect(revealed).toHaveClass(/tt-status-revealing/, { timeout: 15000 });
+
+    const pane = revealed.locator('[data-role="status-event"]');
+    await expect(pane.locator('[data-role="status-headline"]')).toHaveText("Touchdown!");
+    await expect(pane.locator('[data-role="status-name"]')).toHaveText("Josh Allen");
+    await expect(pane).toHaveAttribute("aria-hidden", "false");
+
+    // The announcement is IN the window, and the game status is out of it.
+    // Containment both ways: a track that never moved would leave the status
+    // pane where it was and the announcement below the fold, and a track that
+    // moved twice would show neither.
+    const inWindow = (role) =>
+      revealed.evaluate((f, r) => {
+        const w = f.getBoundingClientRect();
+        const el = f.querySelector(`[data-role="${r}"]`).getBoundingClientRect();
+        const overlap = Math.min(el.bottom, w.bottom) - Math.max(el.top, w.top);
+        return Math.max(0, Math.round(overlap));
+      }, role);
+
+    await expect.poll(() => inWindow("status-event")).toBeGreaterThan(20);
+    await expect.poll(() => inWindow("status-game")).toBeLessThan(4);
+  });
+
+  // IT ROTATES BACK. The announcement is a moment, not a new resting state:
+  // when the chain drains the rail returns to the clock and the down, which is
+  // what a reader watching the game needs between plays.
+  test("the announcement rotates back to the game status", async ({ page }) => {
+    await allowMotion(page);
+    await loginAdmin(page);
+    await openLive(page, CONTEST);
+
+    const visible = () => page.locator('[data-test="live-focus-game"]:visible');
+    const gameSlug = await visible().getAttribute("data-focus-slug");
+    const teamSlug = await page
+      .locator('[data-test="live-focus-game"]:visible [data-team-slug]')
+      .first()
+      .getAttribute("data-team-slug");
+
+    await recordTouchdownBy(page, gameSlug, teamSlug, "josh-allen");
+
+    const frame = page.locator(
+      `[data-focus-slug="${gameSlug}"] [data-role="status-frame"]`
+    );
+    await expect(frame).toHaveClass(/tt-status-revealing/, { timeout: 15000 });
+
+    // The chain holds a lone banner for TT_BANNER_MS (8s by default) and then
+    // drains. Generous beyond that: the point is that it ends on its own.
+    await expect(frame).not.toHaveClass(/tt-status-revealing/, { timeout: 20000 });
+    await expect(frame.locator('[data-role="status-event"]')).toHaveAttribute("aria-hidden", "true");
   });
 
   // The card is a MOMENT, not a new resting state. It rides the banner chain,

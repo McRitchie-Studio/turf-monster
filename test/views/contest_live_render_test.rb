@@ -253,8 +253,11 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
 
     # A missing slot would throw inside paintScorerCard and wedge the chain, the
     # same way a deleted helper once did to flushChain.
+    # scorer-mascot is deliberately absent: the card named the team twice (the
+    # city, then the MASCOT in the accent) and the accent moved onto the ACTION,
+    # which is the thing that changed. One naming, one coloured line.
     %w[scorer-headshot scorer-initials scorer-headline scorer-name
-       scorer-detail scorer-location scorer-mascot].each do |role|
+       scorer-detail scorer-location].each do |role|
       assert_select "[data-role=scorer-card] [data-role=#{role}]", { minimum: 1 },
         "paintScorerCard writes into [data-role=#{role}]"
     end
@@ -323,7 +326,15 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
   test "the banner ships with every slot empty" do
     get_live
 
-    %w[nfl-score-emoji nfl-score-label nfl-score-team nfl-score-points nfl-score-line].each do |id|
+    # THE LEAVES, NOT THE CONTAINERS. #nfl-score-line is a three-column bar now
+    # and carries one piece of static punctuation — the en dash between the two
+    # scores, which belongs to the markup and not to any painter. Asserting
+    # emptiness on the container would fail on that dash and say nothing about
+    # the slots, which are the things a repaint can leave stale.
+    %w[nfl-score-emoji nfl-score-label nfl-score-team nfl-score-points
+       nfl-score-situation nfl-score-clock nfl-score-note
+       nfl-score-away-abbr nfl-score-away-pts
+       nfl-score-home-pts nfl-score-home-abbr].each do |id|
       assert_select "##{id}" do |els|
         assert_equal "", els.first.text.strip, "#{id} must ship empty — the script owns it"
       end
@@ -351,6 +362,7 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
   # the script and compares the sets. Add a sixth slot to paintBanner and forget
   # paintRankBanner, and this goes red naming it.
   SCRIPT = Rails.root.join("app/views/contests/_live_script.html.erb")
+  BANNER = Rails.root.join("app/views/live/_score_banner.html.erb")
 
   # The body of a top-level `function name(...) { ... }` in the script, matched
   # by brace depth rather than by a regex, so a nested block cannot end it early.
@@ -358,6 +370,10 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
     start = source.index("function #{name}(")
     assert start, "#{name} not found in the script — was it renamed?"
 
+    body_from(source, start, name)
+  end
+
+  def body_from(source, start, name)
     open_brace = source.index("{", start)
     depth = 0
     open_brace.upto(source.length - 1) do |i|
@@ -380,8 +396,47 @@ class ContestLiveRenderTest < ActionDispatch::IntegrationTest
     body.gsub(%r{/\*.*?\*/}m, " ").gsub(%r{//[^\n]*}, " ")
   end
 
+  # THE SHARED PAINTER COUNTS AS A WRITE.
+  #
+  # Neither function fills most of these slots by hand any more: both call
+  # window.NflBanner, which lives beside the markup so the league board and the
+  # contest page cannot drift apart on what the bar says. A scan that stopped at
+  # the function body would see THREE slots where there are eleven — and would
+  # then compare two nearly-empty sets, pass, and be blind to the exact bug it
+  # exists for. So a `NflBanner.x(` call is resolved to that method's body, and
+  # a `this.y(` inside one is resolved again: two levels reaches every id.
+  #
+  # The id pattern spans hyphens (`nfl-score-away-abbr`, not `nfl-score-away`)
+  # because the new slots are multi-word, and a pattern that stopped at the
+  # first hyphen would compare truncated names that collide with each other.
+  SLOT_ID = /nfl-score-[a-z]+(?:-[a-z]+)*/
+
   def banner_slots_written_by(source, name)
-    code_only(function_body(source, name)).scan(/nfl-score-[a-z]+/).uniq.to_set
+    expand(code_only(function_body(source, name)), 2)
+  end
+
+  # Slots named directly in this body, plus those named in the shared painter
+  # methods it calls, to `depth` levels of resolution.
+  def expand(body, depth)
+    slots = body.scan(SLOT_ID).to_set
+    return slots if depth.zero?
+
+    body.scan(/(?:NflBanner|this)\.([a-zA-Z]+)\s*\(/).flatten.uniq.each do |method|
+      inner = shared_painter_body(method)
+      slots += expand(inner, depth - 1) if inner
+    end
+    slots
+  end
+
+  # `name: function (…) { … }` in the banner partial's own script. Returns nil
+  # for a call that is not one of the shared painter's methods (`toggle`,
+  # `getElementById`), so an unrelated call is skipped rather than flunking.
+  def shared_painter_body(method)
+    @banner_source ||= File.read(BANNER)
+    start = @banner_source.index(/^\s*#{Regexp.escape(method)}:\s*function\s*\(/)
+    return nil unless start
+
+    code_only(body_from(@banner_source, start, method))
   end
 
   test "the rank summary repaints every banner slot a score writes" do

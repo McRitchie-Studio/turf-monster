@@ -56,6 +56,30 @@
      data-team-mascot="<%= team ? (team.mascot.presence || team.short_name || team.name) : "" %>"
      data-accent="<%= team ? team_card_palette(team)[:accent] : "" %>"
      data-location-color="<%= team ? team_card_palette(team)[:location] : "" %>"
+     <%# THE HALO THE ACCENT NEEDS TO SURVIVE ITS OWN FIELD. The banner's
+         background is the team's own card colour and its action line is now the
+         team's own mascot colour, which is the pairing the tile solves with
+         `mascot_shadow` — Buffalo is red-on-blue at 1.88:1 unaided. Computed
+         server-side because the direction of the halo depends on the accent's
+         luminance (a near-black mascot takes a LIGHT halo), which is a decision
+         TeamColorsHelper already makes. %>
+     data-accent-shadow="<%= team ? team_card_palette(team)[:mascot_shadow] : "" %>"
+     <%# THE SCORE LINE'S OWN DATA. The banner's bottom bar is a 50/50 blend of
+         the two teams' dark colours with each abbreviation in that team's light,
+         and it carries the game's SITUATION beside the tally — down and distance
+         on the left, quarter and clock on the right. Both are blank on a game
+         that is not in progress, which is how the bar collapses to just the
+         score for a final.
+         Colours come from the server's palette rather than being guessed in JS,
+         the same way `accent` and `location-color` already do. %>
+     <% away_line = game.away_team ? team_scoreline_palette(game.away_team) : {} %>
+     <% home_line = game.home_team ? team_scoreline_palette(game.home_team) : {} %>
+     data-away-dark="<%= away_line[:dark] %>"
+     data-away-light="<%= away_line[:light] %>"
+     data-home-dark="<%= home_line[:dark] %>"
+     data-home-light="<%= home_line[:light] %>"
+     data-situation="<%= game.situation_line %>"
+     data-clock="<%= game.period_clock_label %>"
      data-home-team="<%= game.home_team&.short_name || game.home_team_slug %>"
      data-away-team="<%= game.away_team&.short_name || game.away_team_slug %>"
      data-home-score="<%= game.home_score.to_i %>"
