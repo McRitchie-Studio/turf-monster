@@ -212,7 +212,7 @@ Every **non-test** caller, for reference (a dozen more live under `test/`):
 
 | Caller | Where |
 |---|---|
-| Contest creation (the real path) | `app/controllers/contests_controller.rb:1713` |
+| Contest creation (the real path) | `app/controllers/contests_controller.rb:1770` |
 | Demo seed | `db/seeds/nfl_demo_contest.rb:51` |
 | E2E seed — span 15-17 | `e2e/seed.rb:113` |
 | E2E seed — span 1-3 | `e2e/seed.rb:223` |
@@ -274,6 +274,6 @@ is `nfl_team_total_projections` today.
 
 - [[market-snapshot]] — the predecessor. Owns the network, the derive math, and the
   projections table this SOP reads.
-- [[admin-contest-setup]] — the successor. `app/controllers/contests_controller.rb:1713` (step 7's real
+- [[admin-contest-setup]] — the successor. `app/controllers/contests_controller.rb:1770` (step 7's real
   contest-creation path) is that workflow's entrypoint, so a slate built here is what a
   contest is then opened on.

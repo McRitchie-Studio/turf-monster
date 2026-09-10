@@ -14,21 +14,27 @@ class WalletFailureReporterWiringTest < ActionDispatch::IntegrationTest
   REPORTER_JS = "app/javascript/solana_errors.js".freeze
 
   # THE BOUNDARY, MADE EXECUTABLE. Three render surfaces catch these rejections.
-  # ONE is in this repo. The other two are in the solana-studio GEM, and wiring
-  # them needs a gem release — so they are unwired today, on purpose, and this
-  # accounting is what stops a partial fix from reading as a complete one. A
-  # half-corrected change leaves a contradiction more authoritative than the gap
-  # it replaced; the fix is to say which half, out loud, in a place that is
-  # checked. Follow-on work is tracked in docs/AUTH.md.
+  # ONE is in this repo. The other two are in the solana-studio GEM, WIRED THERE
+  # SINCE 0.7.0 — so all five stages report today, and the two Hashes below split
+  # on WHERE THE CALL SITE LIVES, not on whether it fires.
+  #
+  # THIS COMMENT IS THE DEFECT THE FLOOR TEST NOW GUARDS. It read "unwired today,
+  # on purpose" from the day 0.7.0 landed until 2026-09-09 — three gem releases —
+  # while docs/AUTH.md cited THIS FILE as its executable accounting, so a reader
+  # following the doc's own cross-reference landed on the opposite claim. Nothing
+  # reddened, and the reason is worth stating: "every stage the server knows is
+  # wired in this repo or named in the gem" asserts that the two Hashes COVER
+  # STAGES — the union, never which side a stage is on. A prose classification
+  # cannot check itself. The floor test at the bottom is the half that can.
   #
   # The LAYOUT is wired too, and it is not a surface — it is TWO call sites in
   # one file. solanaConnectAndVerify substitutes a sentence of its own in two
   # places (a connect() that never answered, and a connect() that answered
   # before signMessage refused), and each substitution is the last place the
   # wallet's words exist on its path — see the STAGES comment in
-  # Solana::ClientFailureReport. Wiring the two gem surfaces later does not
-  # replace either, because by the time they catch, the substitution has
-  # happened. Note this Hash is stage => file and two stages share one file;
+  # Solana::ClientFailureReport. The gem's two surfaces do not replace either,
+  # because by the time they catch, the substitution has already happened.
+  # Note this Hash is stage => file and two stages share one file;
   # the per-site test below scans that file for EVERY stage it sends, so a
   # second call site cannot hide behind the first.
   WIRED_STAGES = {
@@ -37,14 +43,40 @@ class WalletFailureReporterWiringTest < ActionDispatch::IntegrationTest
     "connect_verify_signature" => "app/views/layouts/application.html.erb"
   }.freeze
 
-  # Deliberately NOT asserted against the gem's own source. A turf-monster test
-  # that reddens the moment solana-studio ships these call sites would red-seal
-  # the producer's release against a consumer's bookkeeping. The accounting lives
-  # here; the wiring lives there.
-  PENDING_GEM_STAGES = {
+  # The two call sites that live in the solana-studio GEM, wired there since
+  # 0.7.0. Named for WHERE THEY ARE, because the old name encoded a STATUS
+  # (PENDING_GEM_STAGES) and a status in a constant name rots exactly the way
+  # that one did — it read "pending" for three releases after the gem shipped.
+  #
+  # THEY CANNOT SIMPLY MOVE INTO WIRED_STAGES. That Hash is stage => a file in
+  # THIS repo, and "each wired call site sends a stage the server actually
+  # recognises" reads those files off disk. The gem's two have no such file
+  # here, so the per-site scan has nothing to run and the split survives the
+  # wiring.
+  #
+  # Deliberately NOT asserted against the gem's own SOURCE. A turf-monster test
+  # that reddens when solana-studio moves these call sites would red-seal the
+  # producer's release against a consumer's bookkeeping. The accounting lives
+  # here; the wiring lives there. What IS assertable is a fact about THIS repo —
+  # the version its own lockfile resolves. See the floor test below.
+  GEM_STAGES = {
     "wallet_connect" => "solana-studio: solana_studio/modals/_wallet_connect.html.erb",
     "web3_step_up"   => "solana-studio: solana_studio/modals/_web3_step_up.html.erb"
   }.freeze
+
+  # The solana-studio release that WIRED the two stages above: commit 06bda3b,
+  # "Report wallet failures from both web3 modals", whose EARLIEST containing tag
+  # is v0.7.0. Stated as the earliest containing tag rather than as a list of
+  # tags that carry it, because a list is falsified by the very next release —
+  # this repo has already paid for that mistake at length (see Gemfile:108).
+  #
+  # DERIVED, not read off a changelog. Across the installed gem corpus,
+  # solana_studio/modals/_wallet_connect.html.erb EXISTS from 0.5.3 carrying
+  # ZERO `reportWalletFailure` call sites through 0.6.1, and carries three from
+  # 0.7.0 onward; _web3_step_up.html.erb moves with it. So 0.6.1 is the last
+  # release where this file's old "unwired" reading was true, and the corpus
+  # says the transition is a step rather than a drift.
+  GEM_STAGES_WIRED_SINCE = Gem::Version.new("0.7.0")
 
   test "the URL the browser posts to resolves to the endpoint that records" do
     # THE FAILURE THIS CATCHES: a reporter aimed at a path that 404s. It is
@@ -62,12 +94,12 @@ class WalletFailureReporterWiringTest < ActionDispatch::IntegrationTest
     assert_equal "report_failure", route[:action]
   end
 
-  test "every stage the server knows is either wired here or named as pending" do
+  test "every stage the server knows is wired in this repo or named in the gem" do
     # Nothing may fall off the list silently in either direction: a stage the
     # server declares but nobody sends is dead weight, and a stage sent by a call
     # site the server has never heard of is recorded as `unknown` with no error.
     assert_equal Solana::ClientFailureReport::STAGES.sort,
-                 (WIRED_STAGES.keys + PENDING_GEM_STAGES.keys).sort,
+                 (WIRED_STAGES.keys + GEM_STAGES.keys).sort,
                  "a stage was added or removed without updating the wiring ledger above"
   end
 
@@ -176,5 +208,43 @@ class WalletFailureReporterWiringTest < ActionDispatch::IntegrationTest
     keys = body.scan(/^\s*(\w+):/).flatten.sort
     assert_equal %w[mapped_message provider raw_message stage], keys,
                  "the reporter's body changed shape — every key here is stored verbatim"
+  end
+
+  test "the resolved solana-studio carries the wiring GEM_STAGES claims" do
+    # THE HALF NO COMMENT CAN CHECK, and the reason this test exists. GEM_STAGES
+    # asserts two stages report from inside the gem. That is true only while the
+    # solana-studio this app actually installs carries the call sites — and the
+    # ledger read the OPPOSITE for three releases with nothing anywhere going
+    # red, because the union test above never asks which side a stage is on.
+    #
+    # A FLOOR, NEVER AN EQUALITY. `assert_equal "0.9.1", version` looks tighter
+    # and is strictly worse: it goes red the moment solana-studio ships 0.9.2,
+    # which is precisely the red-seal this file's whole design refuses — a
+    # consumer's bookkeeping failing the producer's release. The question the
+    # ledger actually asks is "is the wiring in there", and that answer is
+    # MONOTONIC: every version at or above the floor carries it, so a floor is
+    # the assertion that matches the claim's shape. An equality would also be
+    # false on arrival for anyone who bumps the gem, making the guard a chore
+    # rather than a check.
+    #
+    # THE LOCKFILE, not the loaded constant, because the lockfile is the fact
+    # about THIS repo: it is committed, it is what CI (`bundler-cache: true`)
+    # and the deploy install from, and it is readable in a diff. Reading the
+    # gem's own source instead would close the gap the wrong way — see the
+    # GEM_STAGES comment.
+    locked = Bundler.locked_gems.specs.find { |spec| spec.name == "solana-studio" }
+    refute_nil locked,
+               "solana-studio is not in Gemfile.lock at all — the two GEM_STAGES have no source"
+
+    assert_operator locked.version, :>=, GEM_STAGES_WIRED_SINCE,
+                    "Gemfile.lock resolves solana-studio #{locked.version}, BELOW the " \
+                    "#{GEM_STAGES_WIRED_SINCE} that wired #{GEM_STAGES.keys.sort.join(' and ')}. " \
+                    "Below that floor those two stages report nothing, while this file and " \
+                    "docs/AUTH.md's call-site table both say they are wired — the contradiction " \
+                    "this guard exists to make loud. Either raise the resolve, or mark both rows " \
+                    "unwired in BOTH places. This guard is a BACKSTOP, not the only refusal: " \
+                    "the Gemfile pin (`~> 0.9`, `>= 0.9.2`) and engine_pin_contract_test's " \
+                    "SOLANA_STUDIO_MINIMUM both refuse a 0.6.x resolve already. What this one " \
+                    "adds is the floor THIS ledger needs, which outlives a loosened pin."
   end
 end

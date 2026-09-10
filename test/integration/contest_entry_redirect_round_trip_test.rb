@@ -78,9 +78,16 @@ class ContestEntryRedirectRoundTripTest < ActiveSupport::TestCase
       };
 
       var posted = [];
-      function freshWorld() {
+      function freshWorld(pathname) {
         // EVERYTHING except localStorage is rebuilt. This is the page death.
         global.window = global;
+        // A BROWSER-SHAPED WORLD, and the location is not decoration. The page a
+        // wallet returns to is the ONLY thing that knows the redirect_link the
+        // next hop must carry, and the partial's wrapper reads it from here. A
+        // world without a location could not have caught the missing
+        // redirect_link, which is exactly what this file used to paper over by
+        // passing one to resume() by hand.
+        global.location = { origin: 'https://t.test', pathname: pathname || '/' };
         global.console = { log: function () {}, warn: function () {}, error: function () {} };
         window.authedFetch = function (url, opts) {
           posted.push({ url: url, body: JSON.parse(opts.body) });
@@ -107,7 +114,7 @@ class ContestEntryRedirectRoundTripTest < ActiveSupport::TestCase
             cluster: 'devnet', navigate: navigate });
 
         // ---- PAGE DIES. Only localStorage survives. ----
-        freshWorld();
+        freshWorld('/auth/phantom/callback');
         var walletKey = window.SolanaStudio.walletTransport.base58.encode(new Uint8Array(32).fill(5));
         var body = new TextEncoder().encode(JSON.stringify({ public_key: 'USERPK', session: 'SESS' }));
         var connectParams = {
@@ -115,11 +122,17 @@ class ContestEntryRedirectRoundTripTest < ActiveSupport::TestCase
           nonce: window.SolanaStudio.walletTransport.base58.encode(new Uint8Array(24).fill(1)),
           data: window.SolanaStudio.walletTransport.base58.encode(body)
         };
+        // NO redirectLink SUPPLIED, and that omission is the point. This is what
+        // studio-engine's solana_sessions/phantom_callback really passes:
+        // `resume(params, { navigate })`. Handing it a redirectLink here — which
+        // this file used to do, and which solana-studio's own suite still does —
+        // manufactures the exact parameter production was missing, and is why a
+        // green suite sat over a signing deeplink Phantom would have refused.
         var afterConnect = await window.SolanaStudio.walletOps.resume(connectParams,
-          { redirectLink: 'https://t.test/auth/phantom/callback', navigate: navigate });
+          { navigate: navigate });
 
         // ---- PAGE DIES AGAIN. ----
-        freshWorld();
+        freshWorld('/auth/phantom/callback');
         // A VALID base58 string, computed rather than typed. The literal
         // 'B58SIGNED' failed here because base58 excludes I, O, l and 0 — the
         // handler's decode threw on the fixture, not on the code. Worth keeping
@@ -134,6 +147,18 @@ class ContestEntryRedirectRoundTripTest < ActiveSupport::TestCase
 
         process.stdout.write(JSON.stringify({
           navigations: navigations.map(function (u) { return u.split('?')[0]; }),
+          // THE QUERY STRING, not just the path. Stripping it at `?` is what
+          // made a signing hop with no redirect_link indistinguishable from a
+          // correct one here.
+          redirectLinks: navigations.map(function (u) {
+            var q = u.split('?')[1] || '';
+            var found = null;
+            q.split('&').forEach(function (pair) {
+              var kv = pair.split('=');
+              if (kv[0] === 'redirect_link') found = decodeURIComponent(kv[1] || '');
+            });
+            return found;
+          }),
           afterConnectSuspended: !!(afterConnect && afterConnect.suspended),
           done: !!(done && done.done),
           confirmed: done && done.value && done.value.tx_signature,
@@ -151,6 +176,15 @@ class ContestEntryRedirectRoundTripTest < ActiveSupport::TestCase
     assert_equal ["https://phantom.app/ul/v1/connect", "https://phantom.app/ul/v1/signTransaction"],
                  r["navigations"],
                  "Phantom must SIGN, never signAndSend — this entry is co-signed by the server"
+    # BOTH HOPS MUST CARRY redirect_link — Phantom's docs list it as REQUIRED on
+    # connect and on signTransaction alike, and a wallet that signs without one
+    # has nowhere to return the signed bytes. See
+    # app/views/shared/_contest_entry_intent.html.erb for what supplies it on the
+    # second hop and why the gem does not.
+    assert_equal ["https://t.test/auth/phantom/callback", "https://t.test/auth/phantom/callback"],
+                 r["redirectLinks"],
+                 "a signing hop with no redirect_link strands the user inside their wallet"
+
     assert r["afterConnectSuspended"], "connect must advance to the signing hop, not finish"
     assert r["done"], "the second resume must complete the intent"
     assert_equal "SIG-OK", r["confirmed"]

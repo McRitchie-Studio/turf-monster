@@ -67,8 +67,12 @@
     secondary_event:  "tm-entry-dismiss"
   }
 
-  # Only when a contest is in scope — a real entry on a contest page. The
-  # gallery preview passes no kickoff_at and simply renders without it.
+  # Only when a contest is in scope — a real entry on a contest page. The sole
+  # caller, modals/_onchain_tx, passes @contest&.starts_at, and layouts/application
+  # renders modals/onchain_tx on EVERY page — so kickoff_at arrives nil wherever
+  # @contest is unset and the countdown simply does not render. The /admin/modals
+  # preview was the other caller that arrived without one; it was retired on
+  # 2026-09-09 and this guard did not change.
   if kickoff_at.present?
     engine_locals[:above_seeds] = "contests/timestamp_countdown"
     engine_locals[:above_seeds_locals] = {

@@ -1170,6 +1170,34 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_nil meta["entry_token_pda"]
   end
 
+  # THE SIGN CARD NAMES A CURRENCY AND ONLY THE SERVER KNOWS WHICH ONE. A board
+  # that offers no picker (the world-cup survivor board) posts no currency, so
+  # the "usdc" default is applied HERE and the client cannot name it. Before the
+  # echo, that board rendered "Approve the  transfer in your wallet..." with the
+  # token missing. This is the server half of that fix; the copy half is pinned
+  # in test/lib/contest_entry_intent_js_test.rb.
+  test "prepare_entry echoes the currency it priced so a picker-less board can name it" do
+    @user.update!(web3_solana_address: "Web3CurEcho#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_cur_echo", season_id: 1)
+    SeasonConfig.set_current!(1)
+
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
+
+    vault = FakeVault.new(tokens: [])
+    Solana::Vault.stub :new, vault do
+      # NO currency param — exactly what the survivor board sends.
+      post prepare_entry_contest_path(@contest), as: :json
+    end
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_equal "usdc", body["currency"],
+                 "the client sent no currency, so the response has to carry the one the " \
+                 "server defaulted to — otherwise the sign card has nothing to name"
+  end
+
   test "discard_prepared_entry expires an unsigned wallet request so retry can rebuild it" do
     @user.update!(web3_solana_address: "Web3Discard#{SecureRandom.hex(4)}")
     log_in_as_onchain(@user)
@@ -2806,9 +2834,10 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     bundle_slug = ContestBundle::ALL["survivor"][:contest][:slug]
     assert_equal "world-cup-survivor-free-roll", bundle_slug
 
-    # Step 1: generate_bundle builds the partially-signed create TX. The
-    # contest_pda + serialized_tx + returned slug all derive from the explicit
-    # bundle slug (FakeVault: cpda-<slug> / FAKE_TX_create_<slug>).
+    # Step 1: generate_bundle builds the UNSIGNED create TX — the admin slot is
+    # left empty for the server to cosign at finalize. The contest_pda +
+    # serialized_tx + returned slug all derive from the explicit bundle slug
+    # (FakeVault: cpda-<slug> / FAKE_TX_create_<slug>).
     gen = nil
     Solana::Vault.stub :new, FakeVault.new(usdc_balance: 100_000.0) do
       post generate_bundle_contests_path(key: "survivor")
@@ -2821,9 +2850,15 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "FAKE_TX_create_#{bundle_slug}", gen["serialized_tx"]
     assert gen["params_token"].present?
 
-    # Step 3: finalize_bundle persists the Contest + LandingPage. The PDA it
-    # verifies + stores is re-derived server-side from the SAME slug (identity
-    # encode_base58 stub → cpda-<slug>), so onchain_contest_id matches.
+    # Step 3: finalize_bundle cosigns, broadcasts, and persists the Contest +
+    # LandingPage. The PDA it verifies + stores is re-derived server-side from
+    # the SAME slug (identity encode_base58 stub → cpda-<slug>), so
+    # onchain_contest_id matches.
+    #
+    # `signed_tx`, NOT `tx_signature`: the browser used to broadcast and post the
+    # signature it got back, which cannot work on the redirect transport — the
+    # document that would broadcast is destroyed while the wallet signs. The
+    # server broadcasts now. See contests_bundle_server_broadcast_test.rb.
     fin = nil
     Solana::Vault.stub :new, FakeVault.new do
       Solana::Keypair.stub :encode_base58, ->(s) { s.is_a?(String) ? s : s.to_s } do
@@ -2831,7 +2866,7 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
           post finalize_bundle_contests_path, params: {
             params_token: gen["params_token"],
             contest_pda:  gen["contest_pda"],
-            tx_signature: "sig-bundle-#{SecureRandom.hex(2)}"
+            signed_tx:    "SIGNED_BUNDLE_WIRE_#{SecureRandom.hex(2)}"
           }
         end
       end

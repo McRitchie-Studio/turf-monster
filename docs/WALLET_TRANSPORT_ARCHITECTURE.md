@@ -1,13 +1,16 @@
 # Wallet Transport Architecture
 
-**Status:** Wired for **contest entry** and **username rename**, each on ONE call
-site for both transports (`/tasks/collapse-inline-entry-call-site` and
-`/tasks/migrate-account-wallet-flows`, solana-studio 0.9.2). Create-contest and
-the contest generator are still hand-rolled and tracked at
-`/tasks/migrate-remaining-entry-flows`. **Wallet export is not migrating** — it
-signs a message rather than a transaction, and the message is key-bearing; see
-"Wallet export cannot cross the redirect" below.
-**Written:** 2026-09-07
+**Status:** Wired for **every user-facing flow that can cross the redirect** —
+contest entry (both boards), create contest, bundle provisioning and username
+rename — each riding ONE call site for both transports
+(`/tasks/collapse-inline-entry-call-site`, `/tasks/migrate-account-wallet-flows`,
+`/tasks/migrate-remaining-entry-flows`, solana-studio 0.9.2).
+**Wallet export is not migrating** — it signs a message rather than a
+transaction, and the message is key-bearing; see "Wallet export cannot cross the
+redirect" below. Sign-in still rides the undocumented Phantom `signIn` deeplink.
+The design below describes the target; the **Scope** table records what has
+actually landed.
+**Written:** 2026-09-07 · **Last corrected:** 2026-09-09
 **Task:** https://mcritchie.studio/tasks/wallet-transport-architecture-doc
 **Spans:** turf-monster · solana-studio · studio-engine
 
@@ -243,6 +246,73 @@ key, a **step cursor**, the persisted shared secret, the session token, and the
 pending intent. The callback's dispatch at `phantom_callback.html.erb:149`
 becomes a step-machine advance rather than a single `signIn` branch.
 
+### 7. Every hop must carry its own `redirect_link`
+
+**Found 2026-09-09, live on `accepted`, by the stub-wallet harness** — and it is
+the sharpest illustration in this document of why the harness exists.
+
+Phantom documents `redirect_link` as **required** on `connect` and on
+`signTransaction` alike (docs.phantom.com, provider-methods pages, fetched
+2026-09-09). It is the only thing that tells a wallet where to send the answer.
+A signing deeplink without one is not degraded — it is a dead end: the user
+approves the transaction inside their wallet, and nothing comes back.
+
+The two-hop machine above supplies it on hop one and dropped it on hop two.
+`walletOps.resume` builds the signing hop as
+
+```js
+signingHop(provider, connected.journal, {
+  redirectLink: opts.redirectLink || journal.redirectLink
+})
+```
+
+and **neither side of that `||` exists in production**. `studio-engine`'s
+`solana_sessions/phantom_callback.html.erb` — the page a wallet returns to —
+calls `walletOps.resume(params, { navigate })` and passes no `redirectLink`;
+`solana-studio`'s `redirect_provider.beginConnect` journals `dappSecretKey`,
+`dappPublicKey` and `intent`, and no redirect link. `walletTransport`'s query
+builder drops `undefined` values silently, so the parameter simply vanished.
+Measured against solana-studio 0.9.2 + studio-engine 0.74.6: hop two's query
+string was `[dapp_encryption_public_key, nonce, payload]`.
+
+**Nothing caught it because the tests supplied the missing parameter
+themselves.** solana-studio's own round-trip suite passes
+`redirectLink: 'https://a.test/cb'` to `resume()`; this app's integration round
+trip did the same and then stripped the query string at `?` before comparing the
+hops. Both were green over a deeplink Phantom would have refused. That is the
+class of defect `e2e/stub-wallet.js` exists to close: it judges the URL a wallet
+RECEIVES against the vendor's own parameter table, and it answers only by
+redirecting to the `redirect_link` the URL carries — so a missing one strands the
+trip instead of failing an assertion.
+
+**Where the value comes from now.** `app/views/shared/_contest_entry_intent.html.erb`
+wraps `walletOps.resume` and defaults `redirectLink` to
+`window.location.origin + window.location.pathname` — **the URL the document is
+on**. `resume()` only runs with a pending journal, which only happens on a
+document a wallet redirected to, so that value *is* the `redirect_link` that
+worked one hop earlier. Not a configured path, not a re-derived route, and
+correct by construction for a host that mounts the callback anywhere else.
+
+**IT COVERS EVERY INTENT, NOT JUST CONTEST ENTRY**, and that is deliberate rather
+than incidental. The wrapper replaces `SolanaStudio.walletOps.resume` itself —
+once, guarded by `tmRedirectLinkDefaulted` — so the fix lands on the ONE function
+the callback document actually calls, whoever registered the intent behind it.
+The `username_rename` intent added by `/tasks/migrate-account-wallet-flows`
+registers handlers and never calls `resume`; the engine's callback page is the
+only caller, and it runs long after both partials have installed. So username
+rename inherited a working hop two without a line of its own, and any future
+intent will too. The alternative — a per-intent default — would have left the
+next flow to rediscover this on a phone.
+
+**It is a default, not an override**, and it is meant to be retired. The real fix
+is one line in `solana-studio`'s `beginConnect` — journal the redirect link so
+`resume`'s existing `|| journal.redirectLink` resolves — which is a gem change, a
+release, and another floor on the chain in the Gemfile.
+`test/integration/phantom_callback_redirect_link_test.rb` carries the retirement
+trigger: it asserts, against the DELIVERED callback document, that studio-engine
+still calls `resume` without a redirect link, and names what to delete when that
+stops being true.
+
 ---
 
 ## Per-wallet adapters
@@ -290,11 +360,14 @@ change, and this table is a snapshot taken 2026-09-07.
 Tier 3 is the safety net. A wallet with no adapter still gets a working path by
 being handed into its own browser, where the inline transport already works.
 
-**Interim mitigation, available immediately:** guard `detect()` at the four
-unguarded call sites — `_turf_totals_board:1631`, `_world_cup_survivor_board:142`,
-`contests/new:424`, `generator:94`, the four that dereference the result without a
-null check — and tell mobile users to open the page in their wallet's browser. That is tier 1 by hand, needs no new architecture, and stops the crash
-while tier 2 is built.
+**Interim mitigation — SUPERSEDED, kept for the reasoning.** The first answer
+was to guard `detect()` at the four unguarded call sites and tell mobile users to
+open the page in their wallet's browser: tier 1 by hand, no new architecture,
+crash stopped. All four have since been given a real mobile path
+instead, so nothing is left holding the guard. The lesson that
+outlived it: `requireInlineProvider()` is the honest refusal for a caller that
+has NOT been taught the redirect transport, and it is a DEAD END rather than a
+fix — the world-cup board sat behind one and turned every phone away politely.
 
 ---
 
@@ -304,20 +377,72 @@ Enumerated from every `connect` / `signTransaction` call site.
 
 ### Must work on all platforms
 
-| Flow | Location |
-|---|---|
-| Contest entry — turf totals | `app/views/contests/_turf_totals_board.html.erb` — **migrated**, `contest_entry` intent |
-| Contest entry — world cup survivor | `app/views/contests/_world_cup_survivor_board.html.erb:142` |
-| Create contest | `app/views/contests/new.html.erb:424` |
-| Contest generator | `app/views/contests/generator.html.erb:94` |
-| Username rename | `app/views/shared/_alpine_factories.html.erb` — **migrated**, `username_rename` intent |
-| Sign-in | `app/views/layouts/application.html.erb:244` — *mobile path exists, Phantom only* |
+Line numbers are deliberately omitted: they were wrong within a day of being
+written. Each flow's state is what matters.
+
+| Flow | Location | State |
+|---|---|---|
+| Contest entry — turf totals | `app/views/contests/_turf_totals_board.html.erb` | **migrated** — one `walletOps.run('contest_entry')` (`/tasks/collapse-inline-entry-call-site`) |
+| Contest entry — world cup survivor | `app/views/contests/_world_cup_survivor_board.html.erb` | **migrated** — one `tmWalletOp('contest_entry')` (`/tasks/migrate-remaining-entry-flows`) |
+| Create contest | `app/views/contests/new.html.erb` | **migrated** — one `tmWalletOp('contest_create')` (`/tasks/migrate-remaining-entry-flows`) |
+| Contest generator | `app/views/contests/generator.html.erb` | **migrated** — one `tmWalletOp('contest_bundle')` (`/tasks/migrate-remaining-entry-flows`) |
+| Username rename | `app/views/shared/_alpine_factories.html.erb` | **migrated** — one `walletOps.run('username_rename')` (`/tasks/migrate-account-wallet-flows`) |
+| Sign-in | `app/views/layouts/application.html.erb` | *mobile path exists, Phantom only, still on the undocumented `signIn` deeplink* |
+
+**Wallet export is deliberately absent from this table.** It is not a flow
+awaiting migration — it is the one flow that must NOT cross the redirect, for
+reasons that are permanent rather than scheduling. It has its own section below.
+
+**ONE CALL SITE IS NOW LITERALLY ONE LINE**, and the four things that used to be
+retyped around it live in `app/views/shared/_wallet_op_runner.html.erb`
+(`window.tmWalletOp`): the callback return address, the app identity, the
+cluster, and the watch for a handoff to the wallet app that never happens. Each
+of those was a defect in this epic; the return address lost a real user's entry
+on QA after they had approved it.
+
+**THE HANDOFF WATCH ARMS IN TWO HALVES, AT DIFFERENT MOMENTS.** The `pagehide`
+listener is attached BEFORE `walletOps.run`, because the navigation it watches
+for happens inside that call. The 2500ms timer starts only once `run` has
+RESOLVED — `runRedirect` awaits `prepare()` and navigates second, so a timer
+started before the call measures prepare's network round trips rather than the
+OS app switch. Contest creation is the worst case: its prepare is a multipart
+banner upload plus a rebuild POST. Armed early it produced two failures — a slow
+but WORKING create painted "Your wallet app did not open" moments before Phantom
+opened, and a create that genuinely FAILED had its real error card overwritten
+2.5s later, deterministically, so the cause was never seen. A `run` that REJECTS
+arms no timer at all: nothing was handed off, so nothing may claim the wallet
+failed to open. `contests/_turf_totals_board` uses the same shape inline.
+
+**THE INLINE PATH IS NO LONGER A SECOND IMPLEMENTATION.** solana-studio 0.9.2
+(PR #41) closed the three gaps that forced one: the inline path now takes the
+same base58 wire bytes and converts them through the provider's own
+`deserializeTransaction` / `serializeTransaction`
+(`app/javascript/wallet_provider.js`), `expectedAccount` gives the wrong-wallet
+check a home on both transports, and an intent declares `signOnly` so a
+co-signed transaction is never handed to a wallet's broadcaster. That is a
+PATCH-level floor — `gem "solana-studio", "~> 0.9", ">= 0.9.2"` — and below it
+the inline path throws from inside the wallet extension while `expectedAccount`
+is ignored in silence.
+
+**TWO SERVER CHANGES MADE THE LAST TWO FLOWS POSSIBLE**, and both are cases of
+something the resume needed not surviving the page death:
+
+- **The contest banner.** It used to ride the FINALIZE post as a File, which
+  cannot be journalled. `#create` now stashes it as an unattached blob and binds
+  the signed id to the `params_token`, so `#finalize` attaches it from a request
+  carrying no file.
+- **The bundle broadcast.** `contests/generator` used to `sendRawTransaction`
+  in the BROWSER and POST only the signature — impossible on the callback
+  document, which loads no solanaWeb3. `#generate_bundle` now builds with
+  `admin_signs: false` and `#finalize_bundle` cosigns and broadcasts, which also
+  puts the bundle behind `assert_create_contest_cosign_safe!` for the first
+  time.
 
 Line numbers are omitted for the migrated rows on purpose: the call site is now
-three lines of chrome around one `walletOps.run`, and the flow itself lives in
-`app/views/shared/_contest_entry_intent.html.erb` and
-`app/views/shared/_username_rename_intent.html.erb`, registered from the layout
-so both exist on the callback document.
+three lines of chrome around one `walletOps.run`, and the flow itself lives in a
+registered intent partial — `app/views/shared/_contest_entry_intent.html.erb`,
+`_contest_create_intent.html.erb` and `_username_rename_intent.html.erb` — all
+rendered from the layout so every one of them exists on the callback document.
 
 ### Wallet export cannot cross the redirect
 
@@ -436,7 +561,9 @@ cheapest insurance in the design.
 |---|---|---|
 | **0** *(optional, ~1 day)* | Guard `detect()`; capability-gated messaging; tier-3 handoff copy | Stops the crash today |
 | **1** | Encryption core + `walletOps` + all three adapters, wired to **contest entry only** | The transport abstraction, end to end, on the flow that is bleeding |
-| **2** | Migrate the remaining five user-facing flows; ~~admin flows get desktop-only messaging~~ (**done** — `gate-admin-flows-desktop-only`) | Mobile parity |
+| **2** | Migrate the remaining user-facing flows; ~~admin flows get desktop-only messaging~~ (**done** — `gate-admin-flows-desktop-only`) | Mobile parity |
+| **2a** | ~~Turf-totals fork collapsed~~ (**done** — `collapse-inline-entry-call-site`); ~~world cup survivor entry, create contest, contest generator~~ (**done** — `migrate-remaining-entry-flows`) | Every contest flow on one call site |
+| **2b** | ~~Username rename~~ (**done** — `migrate-account-wallet-flows`); wallet export ruled **permanently out** (signs a key-bearing message — see above); retire the undocumented `signIn` deeplink | The rest of phase 2 |
 | **3** *(optional)* | Android Mobile Wallet Adapter | Better Android UX — no page destruction |
 
 Phase 1 covering all three wallets was chosen deliberately: they share the

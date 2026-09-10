@@ -81,11 +81,19 @@ class ContestsFinalizeWriteOrderingTest < ActionDispatch::IntegrationTest
   # Step 3. `vault` is the stand-in for the whole finalize leg, so a caller can
   # inject a fault or a snapshot recorder.
   #
-  # `multipart:` matters and is not a test detail. The real client builds a
-  # FormData and posts the banner as a file part (contests/new.html.erb:492-502)
-  # — a JSON post cannot carry one, and a `contest_image` sent as JSON arrives
-  # as a String that `attach` would try to read as a signed blob id. Any test
-  # about the image has to travel the wire the browser actually uses.
+  # `multipart:` matters and is not a test detail. A JSON post cannot carry a
+  # file, and a `contest_image` sent as JSON arrives as a String that `attach`
+  # would read as a signed blob id — so any test about a DIRECTLY POSTED image
+  # has to travel the wire a multipart client uses.
+  #
+  # NOTE WHAT THE REAL CLIENT DOES NOW, because this comment used to describe it
+  # and no longer can: contests/new posts the banner with the PREPARE call, and
+  # #create stashes it against the params_token, so the finalize the browser
+  # actually makes carries no file at all. A File cannot cross the redirect
+  # transport's page death, which is what forced the move — see
+  # test/controllers/contests_banner_survives_redirect_test.rb. The direct-post
+  # path below is still supported and still tested; it is simply no longer the
+  # only one.
   def run_finalize(create_json, vault, extra_params = {}, multipart: false)
     body = {
       params_token: create_json["params_token"],

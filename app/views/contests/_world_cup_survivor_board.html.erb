@@ -139,90 +139,49 @@ window.survivorBoard = function() {
 
       try {
         if (useOnchainFlow) {
-          var provider = window.walletProvider.requireInlineProvider();
-          modal.show('Preparing Transaction', 'Building on-chain transaction…');
-          var connectResp = await provider.connect();
-          var pubkeyB58 = connectResp.publicKey.toBase58();
-          if (sess.address && pubkeyB58 !== sess.address) {
-            throw new Error('Wrong wallet connected. Switch to ' + sess.address.substring(0, 8) + '…');
-          }
-
-          // Single-signature flow — see _turf_totals_board.html.erb for
-          // the full rationale. The on-chain TX signature below is itself
-          // the wallet-ownership proof; the prior per-entry SIWS check
-          // was defense-in-depth that doubled signing prompts without
-          // strengthening on-chain integrity.
-
-          // prepare_entry is just-in-time: the server rebuilds the
-          // unsigned entry TX (build_enter_contest → build_partial_unsigned)
-          // which RE-FETCHES get_latest_blockhash AND prepends the ComputeBudget
-          // priority-fee + CU-limit ixs. We call it immediately before signing
-          // so the blockhash is maximally fresh (mirrors create's rebuild_create_tx).
-          console.log('[contest-entry] POST prepare_entry (fresh blockhash + priority fee)…');
-          var prepareResp = await window.authedFetch('/contests/' + this.contestId + '/prepare_entry', {
-            method: 'POST',
-            headers: { 'X-CSRF-Token': this.csrfToken, 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify({})
+          // ONE CALL SITE, EVERY TRANSPORT. Everything this flow used to do by
+          // hand — connect, check the wallet, prepare, sign, cosign, confirm —
+          // is the `contest_entry` intent, registered by NAME from
+          // shared/_contest_entry_intent on every page in the app. The same
+          // intent serves the turf-totals board; this board adds no handler of
+          // its own, so a fix to either lands on both.
+          //
+          // WHY BY NAME. On a phone there is no injected wallet: the page is
+          // DESTROYED while the wallet app signs, and the answer comes back on
+          // /auth/phantom/callback — a document that never ran this component.
+          // A closure cannot survive that. Before this, the board asked for
+          // requireInlineProvider() and a phone got an honest refusal instead of
+          // an entry.
+          //
+          // SIGN-ONLY, and it is the intent that declares it: prepare_entry
+          // returns a transaction whose ADMIN SLOT IS EMPTY and the server
+          // cosigns and broadcasts. A wallet that broadcast it would hand Solana
+          // a transaction missing a required signature, and the bytes the server
+          // needs would never come back — an entry with nothing to retry.
+          var board = this;
+          var confirmData = await window.tmWalletOp('contest_entry', {
+            contestId: this.contestId,
+            csrfToken: this.csrfToken
+          }, {
+            // A UX GUARD, NOT THE OWNERSHIP PROOF — Anchor rejects any
+            // enter_contest_direct whose signer does not match the entry PDA's
+            // owner, with or without this. What it buys is "Wrong wallet"
+            // instead of a program error, and no prepared-transaction row spent
+            // discovering it.
+            expectedAccount: sess.address || null,
+            preparingBody: 'Building your entry — approve it in your wallet when it opens.',
+            handoffBody: 'Handing this entry to your wallet app…',
+            onStranded: function () { board.submitting = false; }
           });
-          if (!prepareResp) { this.submitting = false; return; } // 401 — login modal surfaced
-          var prepareData = await prepareResp.json();
-          console.log('[contest-entry] prepare_entry response:', { success: prepareData.success, error: prepareData.error, entry_pda: prepareData.entry_pda, ptx_slug: prepareData.ptx_slug, serialized_tx_len: prepareData.serialized_tx ? prepareData.serialized_tx.length : null });
-          if (!prepareData.success) throw new Error(prepareData.error || 'Failed to prepare entry');
-          var ptxSlug = prepareData.ptx_slug;
 
-          modal.show('Sign Transaction', 'Approve the entry transaction in your wallet…');
-          var txBytes = Uint8Array.from(atob(prepareData.serialized_tx), function(c) { return c.charCodeAt(0); });
-          var tx = solanaWeb3.Transaction.from(txBytes);
-          try {
-            var progIds = tx.instructions.map(function(ix) { return ix.programId.toBase58(); });
-            console.log('[contest-entry] deserialized TX:', {
-              recentBlockhash: tx.recentBlockhash,
-              instructionCount: tx.instructions.length,
-              programIds: progIds,
-              hasComputeBudgetPrice: progIds.indexOf('ComputeBudget111111111111111111111111111111') !== -1
-            });
-          } catch (logErr) { console.warn('[contest-entry] TX inspection failed (non-fatal):', logErr); }
+          // REDIRECT TRANSPORT ENDS HERE, and in a real browser this line is
+          // never reached on it: run() handed the trip to the wallet app and
+          // this document is gone. The callback page finishes the intent by
+          // name and paints its own result. The guard is for the case where
+          // the navigation is faked or deferred — a resolved `suspended` marker
+          // must not be read as a confirmed entry.
+          if (!confirmData || confirmData.suspended) return;
 
-          // Phantom-FIRST signing order (2026-06-05) — see
-          // _turf_totals_board.html.erb for the full rationale. Phantom signs the
-          // FULLY-UNSIGNED tx FIRST (both admin + user slots empty) to clear
-          // Phantom's multi-signer-order "could be malicious" banner; the server
-          // then cosigns (admin), simulates, broadcasts, confirms, verifies. No
-          // client-side broadcast/simulate/poll/stamp anymore.
-          var signedTx = await provider.signTransaction(tx);
-          var signedBytes = signedTx.serialize({ requireAllSignatures: false, verifySignatures: false });
-          console.log('[contest-entry] signed by Phantom (admin slot empty); raw byte length:', signedBytes.length);
-
-          var sb = '';
-          var sChunk = 0x8000;
-          for (var bi = 0; bi < signedBytes.length; bi += sChunk) {
-            sb += String.fromCharCode.apply(null, signedBytes.subarray(bi, bi + sChunk));
-          }
-          var signedB64 = btoa(sb);
-
-          modal.show('Confirming On-chain', 'Cosigning and submitting to Solana…');
-          var confirmResp = await window.authedFetch('/contests/' + this.contestId + '/confirm_onchain_entry', {
-            method: 'POST',
-            headers: { 'X-CSRF-Token': this.csrfToken, 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify({ signed_tx: signedB64, entry_id: prepareData.entry_id, entry_pda: prepareData.entry_pda, ptx_slug: ptxSlug })
-          });
-          if (!confirmResp) { this.submitting = false; return; } // 401 — login modal surfaced
-          var confirmData = await confirmResp.json();
-          if (!confirmData.success) {
-            // Audit C1 — server refused to co-sign because the submitted tx
-            // didn't match the prepared entry (422, code 'tx_rejected'). Close
-            // the on-chain overlay, re-enable the Enter button (submitting=false),
-            // and show the reassuring cosign-rejected modal instead of throwing
-            // the generic error. This board has no _handleBlockerResponse, so the
-            // case is handled inline here. Good actors never hit this.
-            if (confirmData.code === 'tx_rejected') {
-              try { modal.close(); } catch (e) {}
-              this.submitting = false;
-              Alpine.store('modals').open('cosign-rejected', {});
-              return;
-            }
-            throw new Error(confirmData.error || 'Failed to confirm entry');
-          }
           var txSig = confirmData.tx_signature;
           console.log('[contest-entry] server cosigned + confirmed on-chain:', txSig);
 
@@ -285,6 +244,23 @@ window.survivorBoard = function() {
         }
       } catch (err) {
         console.error('[contest-entry] FAILED:', err);
+        // Audit C1 — the server refused to co-sign because the submitted tx did
+        // not match the prepared entry (422, code 'tx_rejected'). Close the
+        // on-chain overlay, re-enable the Enter button, and show the reassuring
+        // cosign-rejected modal instead of a raw error. Good actors never hit it.
+        //
+        // THE CODE TRAVELS ON THE ERROR, not in a response this catch can read:
+        // the confirm POST now happens inside the shared `contest_entry` intent,
+        // which may be running on the CALLBACK document. Flattening the payload
+        // to a message string there is what would strand this branch — so the
+        // handler carries `code` on the Error it throws, and this reads it on
+        // whichever document caught it.
+        if (err && err.code === 'tx_rejected') {
+          try { modal.close(); } catch (e) {}
+          this.submitting = false;
+          Alpine.store('modals').open('cosign-rejected', {});
+          return;
+        }
         var msg = (typeof parseSolanaError === 'function')
           ? parseSolanaError(err.message || 'Entry failed')
           : (err.message || 'Entry failed');

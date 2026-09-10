@@ -217,8 +217,16 @@
       <%# Banner — same shared crop modal as the contest editor (studio cropper).
           The editor saves immediately (the contest exists); here the contest
           doesn't exist yet, so the cropped blob is HELD in the hidden
-          contest_image input and submitted with the Create-Contest finalize
-          step. cropper_assets loads cropper.js + the cropPhotoModal factory. %>
+          contest_image input and rides the PREPARE post — #create stashes it as
+          an unattached blob and binds the signed id into the params_token, and
+          #finalize attaches it from a request carrying no file at all.
+
+          IT CANNOT RIDE FINALIZE, AND THAT IS THE WHOLE REASON THIS FLOW
+          CHANGED. On the redirect transport the page is DESTROYED while the
+          wallet signs; finalize runs on /auth/phantom/callback, a document that
+          never held this input. A File cannot be journalled and cannot survive
+          that, so a banner posted at finalize is a banner lost on every phone.
+          cropper_assets loads cropper.js + the cropPhotoModal factory. %>
       <%= render "studio/cropper_assets" %>
       <div class="mb-6" x-data="contestBannerCrop()"
            @crop-photo-confirmed.window="holdCrop($event.detail.blob)">
@@ -257,7 +265,13 @@
         // modal as the contest editor (studio cropper, dispatch mode). The
         // contest doesn't exist yet, so instead of submitting a form, holdCrop()
         // drops the cropped blob into the hidden contest_image input + shows a
-        // preview; the Create-Contest finalize step submits that file.
+        // preview; the PREPARE post carries that file, not the finalize step.
+        //
+        // The file has to leave the browser BEFORE the wallet hop, because the
+        // redirect transport destroys this page and finalize runs on the wallet
+        // callback document — which has no input, no blob, and no way to rebuild
+        // one. #create stashes it and binds the signed id to the params_token;
+        // #finalize attaches from the token.
         function contestBannerCrop() {
           var CROP = { aspectRatio: 5, maxWidth: 2000, maxHeight: 400, transparent: true, autoCropArea: 1, dispatch: true };
           return {
@@ -396,7 +410,13 @@
         form.addEventListener('submit', async function(e) {
           e.preventDefault();
 
-          if (!cfg.hasPhantom || !window.walletProvider || !window.walletProvider.isAvailable()) {
+          // detect(), NOT isAvailable(). isAvailable() asks whether a wallet is
+          // INJECTED into this page, which on iOS Safari and Android Chrome is
+          // always false — so this gate turned every phone away with "install
+          // Phantom" before the flow could even start. detect() answers the
+          // question that actually matters: is there a wallet this page can
+          // REACH, by injection or by redirect.
+          if (!cfg.hasPhantom || !window.walletProvider || !window.walletProvider.detect()) {
             showWalletRequiredModal();
             return;
           }
@@ -417,92 +437,49 @@
           }
 
           setBusy('Preparing on-chain TX…');
+          // The modal copy is tmWalletOp's, not this page's: it is the half that
+          // knows which transport is about to be used, and a "Preparing
+          // Transaction" card painted here would flash and be replaced by
+          // "Opening Your Wallet" on every phone.
           var modal = Alpine.store('solanaModal');
-          modal.show('Preparing Transaction', 'Building the on-chain create_contest instruction…');
 
           try {
-            var provider = window.walletProvider.requireProvider();
-            var connectResp = await provider.connect();
-            var pubkeyB58 = connectResp.publicKey.toBase58();
-            if (cfg.userWallet && pubkeyB58 !== cfg.userWallet) {
-              throw new Error('Wrong wallet connected. Switch to ' + cfg.userWallet.substring(0, 8) + '… in Phantom and try again.');
-            }
-
-            // Step 1 — POST the form params multipart; server returns the unsigned TX
-            var prepareForm = new FormData(form);
-            // The image isn't on-chain — strip it out of the prepare call to keep the response small
-            prepareForm.delete('contest[contest_image]');
-            var prepareResp = await fetch(form.action, {
-              method: 'POST',
-              headers: { 'X-CSRF-Token': cfg.csrfToken, 'Accept': 'application/json' },
-              body: prepareForm
+            // ONE CALL SITE, EVERY TRANSPORT. The whole sequence this used to
+            // spell out by hand — connect, check the wallet, POST the form,
+            // rebuild for a fresh blockhash, sign, POST the signed wire back —
+            // is the `contest_create` intent, registered BY NAME from
+            // shared/_contest_create_intent on every page in the app.
+            //
+            // WHY BY NAME. On a phone there is no injected wallet: this page is
+            // DESTROYED while the wallet app signs, and the answer comes back on
+            // /auth/phantom/callback, a document that never rendered this form.
+            // A closure cannot survive that; a name written into the journal can.
+            //
+            // WHAT CHANGED FOR THE BANNER. The image used to ride the FINALIZE
+            // post as a File — impossible to journal, so on a phone it would
+            // have vanished silently. It now goes up with the PREPARE post and
+            // the server stashes it against the params_token. See the intent.
+            var finalData = await window.tmWalletOp('contest_create', {
+              csrfToken: cfg.csrfToken,
+              formSelector: '#contest-form',
+              rebuildPath: cfg.rebuildPath,
+              finalizePath: cfg.finalizePath
+            }, {
+              // A UX GUARD, NOT THE OWNERSHIP PROOF — the on-chain program is
+              // what actually binds the creator. What this buys is "Wrong
+              // wallet" instead of a program error, and no server-minted token
+              // spent discovering it.
+              expectedAccount: cfg.userWallet || null,
+              preparingBody: 'Building the on-chain create_contest instruction — approve the prize-pool USDC transfer in your wallet when it opens.',
+              handoffBody: 'Handing this contest to your wallet app…',
+              onStranded: setIdle
             });
-            var prepareData = await prepareResp.json();
-            if (!prepareData.success) throw new Error(prepareData.error || 'Failed to build transaction');
 
-            // Step 1.5 — re-issue the unsigned TX with a FRESH blockhash
-            // immediately before signing. The blockhash baked at /contests time
-            // goes stale while the user reads/decides; a stale blockhash makes
-            // the send fail. The rebuild still goes through the server so the
-            // exact tx is bound to the signed params_token.
-            // The rebuilt TX inherits the ComputeBudget priority-fee +
-            // CU-limit ixs from the server-side builder.
-            // Mirrors mcritchie's fetchFreshTx. params_token still binds finalize.
-            console.log('[contest-create] rebuilding TX with fresh blockhash via', cfg.rebuildPath);
-            var rebuildResp = await fetch(cfg.rebuildPath, {
-              method: 'POST',
-              headers: { 'X-CSRF-Token': cfg.csrfToken, 'Content-Type': 'application/json', 'Accept': 'application/json' },
-              body: JSON.stringify({ params_token: prepareData.params_token })
-            });
-            var rebuildData = await rebuildResp.json();
-            console.log('[contest-create] rebuild response:', { success: rebuildData.success, error: rebuildData.error, serialized_tx_len: rebuildData.serialized_tx ? rebuildData.serialized_tx.length : null });
-            if (!rebuildData.success) throw new Error(rebuildData.error || 'Failed to refresh transaction');
-
-            modal.show('Sign Transaction', 'Approve the prize-pool USDC transfer in Phantom…');
-
-            // Step 2 — deserialize (fresh-blockhash TX), inspect, sign, then
-            // send the signed-but-not-broadcast wire back to Rails.
-            var txBytes = Uint8Array.from(atob(rebuildData.serialized_tx), function(c) { return c.charCodeAt(0); });
-            var tx = solanaWeb3.Transaction.from(txBytes);
-            try {
-              var rbh = tx.recentBlockhash;
-              var progIds = tx.instructions.map(function(ix) { return ix.programId.toBase58(); });
-              var acctCount = tx.instructions.reduce(function(n, ix) { return n + ix.keys.length; }, 0);
-              console.log('[contest-create] deserialized TX:', {
-                recentBlockhash: rbh,
-                instructionCount: tx.instructions.length,
-                programIds: progIds,
-                totalAccountKeys: acctCount,
-                hasComputeBudgetPrice: progIds.indexOf('ComputeBudget111111111111111111111111111111') !== -1
-              });
-            } catch (logErr) { console.warn('[contest-create] TX inspection failed (non-fatal):', logErr); }
-
-            var signedTx = await provider.signTransaction(tx);
-            var signedBytes = signedTx.serialize({ requireAllSignatures: false, verifySignatures: false });
-            console.log('[contest-create] signed by Phantom; partial wire byte length:', signedBytes.length);
-            var signedBinary = '';
-            var signedChunk = 0x8000;
-            for (var si = 0; si < signedBytes.length; si += signedChunk) {
-              signedBinary += String.fromCharCode.apply(null, signedBytes.subarray(si, si + signedChunk));
-            }
-            var signedTxB64 = btoa(signedBinary);
-
-            // Step 3 — POST signed_tx + params_token + image to finalize.
-            modal.show('Broadcasting', 'Server is validating and submitting the transaction…');
-            var finalizeForm = new FormData();
-            finalizeForm.append('contest_pda', prepareData.contest_pda);
-            finalizeForm.append('params_token', prepareData.params_token);
-            finalizeForm.append('signed_tx', signedTxB64);
-            var imageFile = form.querySelector('input[type="file"][name="contest[contest_image]"]').files[0];
-            if (imageFile) finalizeForm.append('contest_image', imageFile);
-
-            var finalResp = await fetch(cfg.finalizePath, {
-              method: 'POST',
-              headers: { 'X-CSRF-Token': cfg.csrfToken, 'Accept': 'application/json' },
-              body: finalizeForm
-            });
-            var finalData = await finalResp.json();
-            if (!finalData.success) throw new Error(finalData.error || 'Failed to save contest');
+            // REDIRECT TRANSPORT ENDS HERE, and in a real browser this line is
+            // never reached on it: this document is gone and the callback page
+            // finishes the intent by name. The guard exists so a resolved
+            // `suspended` marker is never read as a created contest.
+            if (!finalData || finalData.suspended) return;
 
             modal.show('Done', 'Redirecting to your new contest…');
             // The prize pool just left this wallet, and we are ABOUT TO NAVIGATE — so
