@@ -92,7 +92,6 @@ async function startEntryTrip(page) {
     // injected this is the ONLY thing that can hand back a redirect provider,
     // and when it could not, the mobile entry branch was dead code.
     var provider = window.walletProvider.requireProvider();
-    window.__tripError = null;
     window.__trip = window.SolanaStudio.walletOps.run(
       "contest_entry",
       { contestId: 1, csrfToken: "stub-csrf", currency: "usdc" },
@@ -102,7 +101,7 @@ async function startEntryTrip(page) {
         redirectLink: window.location.origin + "/auth/phantom/callback",
         cluster: document.body.dataset.solanaCluster,
       }
-    ).catch(function (e) { window.__tripError = e.message; });
+    ).catch(function (e) { /* the page is on its way to the wallet */ });
   });
 }
 
@@ -178,7 +177,16 @@ test.describe("a stub wallet on the redirect transport", () => {
     await page.goto("/");
     const origin = new URL(page.url()).origin;
     await startEntryTrip(page);
-    await page.waitForURL((url) => url.pathname === "/contests", { timeout: 25_000 });
+
+    // WAIT FOR THE HOP, NOT FOR THE TRIP. A signing deeplink with no
+    // redirect_link strands the trip by construction, so waiting on the landing
+    // would report this defect as "waitForURL timed out" — a message that names
+    // neither the hop nor the parameter, and sends the reader to the wrong end
+    // of the flow. The wallet RECEIVES the malformed request either way, so the
+    // hop is the observable to wait on.
+    await expect
+      .poll(() => (wallet.hop("signTransaction") ? "arrived" : null), { timeout: 25_000 })
+      .toBe("arrived");
 
     const connect = wallet.hop("connect");
     const sign = wallet.hop("signTransaction");
@@ -238,9 +246,17 @@ test.describe("a stub wallet on the redirect transport", () => {
     await page.goto("/");
     await startEntryTrip(page);
 
+    // `startEntryTrip` calls walletProvider.requireProvider() INSIDE the page, so
+    // a resolver that answers null fails this test with the app's own
+    // "open this page in your wallet app" sentence before a hop is ever built.
+    // What is asserted here is the other half: that the provider it did hand
+    // back could actually be DRIVEN as far as a real wallet request.
     await expect.poll(() => wallet.methods().length, { timeout: 15_000 }).toBeGreaterThan(0);
     expect(wallet.methods()[0]).toBe("connect");
-    expect(await page.evaluate(() => window.__tripError)).toBeFalsy();
+    // …and that the request it built is one Phantom would accept. Reading a
+    // page variable here would be a race — the document is on its way to the
+    // wallet — so the observable is the wallet's own record.
+    expect(wallet.violations).toEqual([]);
   });
 
   test("refuses to broadcast a co-signed entry itself", async ({ page, context }) => {
