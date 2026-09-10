@@ -2806,9 +2806,10 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     bundle_slug = ContestBundle::ALL["survivor"][:contest][:slug]
     assert_equal "world-cup-survivor-free-roll", bundle_slug
 
-    # Step 1: generate_bundle builds the partially-signed create TX. The
-    # contest_pda + serialized_tx + returned slug all derive from the explicit
-    # bundle slug (FakeVault: cpda-<slug> / FAKE_TX_create_<slug>).
+    # Step 1: generate_bundle builds the UNSIGNED create TX — the admin slot is
+    # left empty for the server to cosign at finalize. The contest_pda +
+    # serialized_tx + returned slug all derive from the explicit bundle slug
+    # (FakeVault: cpda-<slug> / FAKE_TX_create_<slug>).
     gen = nil
     Solana::Vault.stub :new, FakeVault.new(usdc_balance: 100_000.0) do
       post generate_bundle_contests_path(key: "survivor")
@@ -2821,9 +2822,15 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "FAKE_TX_create_#{bundle_slug}", gen["serialized_tx"]
     assert gen["params_token"].present?
 
-    # Step 3: finalize_bundle persists the Contest + LandingPage. The PDA it
-    # verifies + stores is re-derived server-side from the SAME slug (identity
-    # encode_base58 stub → cpda-<slug>), so onchain_contest_id matches.
+    # Step 3: finalize_bundle cosigns, broadcasts, and persists the Contest +
+    # LandingPage. The PDA it verifies + stores is re-derived server-side from
+    # the SAME slug (identity encode_base58 stub → cpda-<slug>), so
+    # onchain_contest_id matches.
+    #
+    # `signed_tx`, NOT `tx_signature`: the browser used to broadcast and post the
+    # signature it got back, which cannot work on the redirect transport — the
+    # document that would broadcast is destroyed while the wallet signs. The
+    # server broadcasts now. See contests_bundle_server_broadcast_test.rb.
     fin = nil
     Solana::Vault.stub :new, FakeVault.new do
       Solana::Keypair.stub :encode_base58, ->(s) { s.is_a?(String) ? s : s.to_s } do
@@ -2831,7 +2838,7 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
           post finalize_bundle_contests_path, params: {
             params_token: gen["params_token"],
             contest_pda:  gen["contest_pda"],
-            tx_signature: "sig-bundle-#{SecureRandom.hex(2)}"
+            signed_tx:    "SIGNED_BUNDLE_WIRE_#{SecureRandom.hex(2)}"
           }
         end
       end
