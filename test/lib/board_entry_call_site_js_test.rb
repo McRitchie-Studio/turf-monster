@@ -21,6 +21,7 @@ require "json"
 class BoardEntryCallSiteJsTest < ActiveSupport::TestCase
   BOARD  = Rails.root.join("app/views/contests/_turf_totals_board.html.erb")
   RUNNER = Rails.root.join("app/views/shared/_wallet_op_runner.html.erb")
+  INTENT = Rails.root.join("app/views/shared/_contest_entry_intent.html.erb")
 
   # Bounded by the method that follows it, so a drift in either direction fails
   # here by name rather than lifting half a method into the sandbox.
@@ -36,6 +37,26 @@ class BoardEntryCallSiteJsTest < ActiveSupport::TestCase
   def runner_source
     src = File.read(RUNNER)
     src[(src.index("<script>") + "<script>".length)...src.rindex("</script>")]
+  end
+
+  # The celebration the inline return leg paints, lifted verbatim from the
+  # partial the LAYOUT renders.
+  #
+  # WHY THE REAL ONE RATHER THAN A STUB, which is the same choice this file
+  # already makes for the runner. The board used to hold these three acts inline;
+  # they moved to shared/_contest_entry_intent so the REDIRECT transport could
+  # reach them too — its own document dies before the server answers, so nothing
+  # there could paint. Stubbing the function here would leave this test asserting
+  # that the board calls something, without ever asking whether that something
+  # still paints. Bounded by the comment that follows it, so a drift in either
+  # direction fails here by name.
+  def paint_source
+    src = File.read(INTENT)
+    start = src.index("window.tmMirrorTokenSpend = function (payload) {")
+    assert start, "could not find tmMirrorTokenSpend in the intent partial"
+    finish = src.index("// THE PAINTER, registered by the kind", start)
+    assert finish, "could not bound the paint block — the comment after it moved"
+    src[start...finish]
   end
 
   # `transport:` 'inline' | 'redirect'. `left:` whether the app switch took —
@@ -102,6 +123,13 @@ class BoardEntryCallSiteJsTest < ActiveSupport::TestCase
 
       #{runner_source}
 
+      // The real celebration, then the recorder wrapped AROUND it — so the
+      // assertions below still name mirrorTokenSpend while the code that runs
+      // is the shipped one.
+      #{paint_source}
+      var _realMirror = window.tmMirrorTokenSpend;
+      window.tmMirrorTokenSpend = function (p) { calls.push('mirrorTokenSpend'); return _realMirror(p); };
+
       var board = {
         #{confirm_entry_source},
         submitting: false,
@@ -115,7 +143,13 @@ class BoardEntryCallSiteJsTest < ActiveSupport::TestCase
         setHoldLoading: function () { calls.push('setHoldLoading'); },
         setHoldSuccess: function () { calls.push('setHoldSuccess'); },
         resetHoldButtons: function () { calls.push('resetHoldButtons'); },
-        mirrorTokenSpend: function () { calls.push('mirrorTokenSpend'); },
+        // NO mirrorTokenSpend STUB, deliberately. The board's own method is now
+        // a one-line delegation to the global above, and the inline leg reaches
+        // the spend mirror through the painter rather than through `this`. A
+        // stub here would answer to that name as well, so a board that went back
+        // to mirroring inline would satisfy the assertion below without the
+        // shipped code running — the decoy this file's runner_source choice
+        // exists to avoid.
         showLoginModal: function () { calls.push('showLoginModal'); },
         showEligibilityBlockerModal: function () { calls.push('showEligibilityBlockerModal'); },
         showFundsNeeded: function () { calls.push('showFundsNeeded'); },
