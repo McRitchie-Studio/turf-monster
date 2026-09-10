@@ -71,6 +71,77 @@ class WalletOpRunnerJsTest < ActiveSupport::TestCase
     JSON.parse(stdout)
   end
 
+  # A world with NO Alpine, NO provider and NO walletOps — just the fetch helper
+  # and whatever fetch shape the caller asks for. `authed:` supplies
+  # window.authedFetch; `status:` is what a plain window.fetch answers with.
+  def run_fetch_js(body, authed: false, status: 200)
+    script = <<~JS
+      global.window = global;
+      var calls = [];
+      #{authed ? "window.authedFetch = function (u, o) { calls.push(['authed', u]); return Promise.resolve('AUTHED-RESPONSE'); };" : ''}
+      global.fetch = function (u, o) { calls.push(['plain', u]); return Promise.resolve({ status: #{status}, body: 'PLAIN-RESPONSE' }); };
+      window.fetch = global.fetch;
+
+      #{script_body(RUNNER)}
+
+      (async function () {
+        var out;
+        try {
+          out = await (async function () { #{body} })();
+        } catch (e) {
+          out = { error: e.message };
+        }
+        out.calls = calls;
+        process.stdout.write(JSON.stringify(out));
+      })();
+    JS
+
+    stdout, stderr, status_out = Open3.capture3("node", "--eval", script)
+    assert status_out.success?, "node failed: #{stderr}"
+    JSON.parse(stdout)
+  end
+
+  # --- the fetch the callback document actually has ------------------------
+  #
+  # THE DEFECT THESE EXIST FOR. window.authedFetch ships only in the DEFERRED
+  # importmap module solana_utils.js, while studio-engine's phantom_callback
+  # dispatches from a bare inline script during body parse and wallet_ops calls
+  # complete() SYNCHRONOUSLY. So on the ONE document that matters it is not there
+  # yet, and a handler calling it directly throws a TypeError AFTER the user has
+  # approved in their wallet, with the journal already consumed by take().
+  #
+  # AND THE 401 NORMALISATION IS THE HALF THAT FAILS SILENTLY. authedFetch
+  # answers FALSY on a 401 (having surfaced the login modal); plain fetch answers
+  # a 401 Response, which is TRUTHY. Every handler branches on `if (!resp)`, so a
+  # fallback that returned the Response unchanged reads an expired session as a
+  # successful prepare — and carries an empty transaction to the wallet.
+
+  test "with no authedFetch, a 401 is normalised to the falsy shape handlers branch on" do
+    result = run_fetch_js("return { resp: await window.tmWalletFetch('/prepare', {}) };", status: 401)
+
+    assert_nil result["resp"],
+               "a 401 Response is TRUTHY — returned unchanged it reads as a prepared transaction"
+    assert_equal [["plain", "/prepare"]], result["calls"]
+  end
+
+  test "with no authedFetch, a 200 comes back untouched" do
+    # THE CONTROL. A helper that answered falsy for everything would pass the
+    # test above and break every successful request.
+    result = run_fetch_js("var r = await window.tmWalletFetch('/prepare', {}); return { body: r && r.body };")
+
+    assert_equal "PLAIN-RESPONSE", result["body"]
+  end
+
+  test "authedFetch is preferred whenever the document has it" do
+    # It is the one that surfaces the login modal and the rate-limit card. The
+    # fallback exists for the callback page, not as a replacement.
+    result = run_fetch_js("return { resp: await window.tmWalletFetch('/prepare', {}) };", authed: true)
+
+    assert_equal "AUTHED-RESPONSE", result["resp"]
+    assert_equal [["authed", "/prepare"]], result["calls"],
+                 "the plain fetch must not be reached when authedFetch is present"
+  end
+
   CALL = "await window.tmWalletOp('contest_create', { contestId: 9 }, { expectedAccount: 'WALLET1' });".freeze
 
   # --- the return address, and everything else the trip needs --------------
