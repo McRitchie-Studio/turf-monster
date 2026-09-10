@@ -9,6 +9,7 @@ module Nfl
   # both, which is why Goal carries a callback for each.
   #
   # Stream: "nfl_live". Targets:
+  #   nfl_live_focus        (update)  — the hero panel for the affected slot
   #   nfl_live_scoreboard   (update)  — the game grid for the affected slot
   #   nfl_live_event_feed   (append)  — a data-only node the page's
   #                                     MutationObserver turns into a toast
@@ -31,7 +32,7 @@ module Nfl
 
         # BOARD FIRST, THEN THE EVENT — the order is load-bearing.
         #
-        # `replace_scoreboard` swaps the entire scoreboard partial, so any class
+        # `replace_board` swaps the entire focus panel and scoreboard, so any class
         # the page has just put on a row is destroyed with the node that carried
         # it. Appending the event first therefore starts the scoring animation on
         # markup that is about to be thrown away, and the animation is wiped
@@ -40,7 +41,7 @@ module Nfl
         #
         # Updating the board first and announcing second also reads correctly:
         # the number is already right when the animation draws attention to it.
-        replace_scoreboard(game)
+        replace_board(game)
         append_event(goal, game)
       end
 
@@ -50,7 +51,7 @@ module Nfl
         return unless game && nfl?(game.home_team)
 
         append_final(game) if event == :game_completed
-        replace_scoreboard(game)
+        replace_board(game)
       end
 
       # Games in the same season slot as the one that changed. This is what the
@@ -60,7 +61,7 @@ module Nfl
       def slot_games(game)
         Game.nfl.in_season_slot(
           year: game.season_year, season_type: game.season_type, week: game.week
-        ).includes(:home_team, :away_team)
+        ).includes(:home_team, :away_team, :goals)
       end
 
       private
@@ -69,12 +70,32 @@ module Nfl
         team&.league == "nfl"
       end
 
-      def replace_scoreboard(game)
+      # BOTH HALVES OF THE BOARD, from one slot query and one focus decision.
+      #
+      # The focus panel and the grid are two views of the same set — the grid
+      # hides whichever game the panel is showing — so they must be re-rendered
+      # from the SAME games and the SAME focus slug. Rendering them from two
+      # queries a moment apart is how a game ends up drawn twice, or not at all.
+      #
+      # The focus slug here is only the server's opinion, and it decides nothing
+      # for a reader who has already chosen: it sets the inline first-paint
+      # default on the fresh markup, and Alpine's `focus` — which lives on the
+      # page wrapper, outside both targets — immediately overrules it.
+      def replace_board(game)
+        games = slot_games(game).to_a
+        focus_slug = ::Live::FocusGame.call(games)
+
+        Turbo::StreamsChannel.broadcast_update_to(
+          STREAM,
+          target:  "nfl_live_focus",
+          partial: "live/focus",
+          locals:  { games: games, focus_slug: focus_slug }
+        )
         Turbo::StreamsChannel.broadcast_update_to(
           STREAM,
           target:  "nfl_live_scoreboard",
           partial: "live/scoreboard",
-          locals:  { games: slot_games(game) }
+          locals:  { games: games, focus_slug: focus_slug }
         )
       rescue => e
         ErrorLog.capture!(e)

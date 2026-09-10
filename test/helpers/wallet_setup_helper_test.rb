@@ -17,8 +17,16 @@ class WalletSetupHelperTest < ActionView::TestCase
 
     # The half no assertion on this file alone can prove: the host above only
     # renders if frame-src names it. Read the policy the app really ships.
-    policy = Rails.application.config.content_security_policy
-    assert_includes policy.frame_src, "https://www.youtube-nocookie.com",
+    # READ THE DIRECTIVE, DO NOT CALL THE DSL METHOD. In Rails'
+    # ActionDispatch::ContentSecurityPolicy every directive is `def frame_src(*sources)`
+    # — a SETTER. Calling it with no arguments returns the current list AND
+    # assigns nil, so the first caller in a process reads the real value and
+    # DESTROYS it for everyone after. Measured 2026-09-05: this file's own
+    # assertion wiped frame-src, and the sibling BuyUsdcHelperTest then failed on
+    # `Expected nil (NilClass) to respond to #include?` — green alone, red in the
+    # suite, and the mutation leaks to any later test that renders under this CSP.
+    frame_src = Rails.application.config.content_security_policy.directives["frame-src"]
+    assert_includes frame_src, "https://www.youtube-nocookie.com",
                     "CSP frame-src must allow the host the embed URL uses, or " \
                     "the player is a blocked blank frame with no visible error"
   end

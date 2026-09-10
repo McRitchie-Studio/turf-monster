@@ -34,6 +34,18 @@ class Admin::DashboardControllerTest < ActionDispatch::IntegrationTest
     assert_select "a[href=?]", nfl_report_slates_path, text: /🏈 NFL Points Distribution/
   end
 
+  # The live board and the page that orders it, as a PAIR — the only way to see
+  # what a focus order does is to open the board it drives, so a dashboard that
+  # offers one without the other sends the operator hunting for the other half.
+  test "show links the live board and the week that orders it" do
+    log_in_as(@admin)
+    get admin_dashboard_path
+
+    assert_response :success
+    assert_select "a[href=?]", live_path, text: /Live Board/
+    assert_select "a[href=?]", admin_nfl_weeks_path, text: /Focus Order/
+  end
+
   test "show surfaces a settled explicit pick alongside its resolved fallback" do
     settled = Contest.create!(
       name: "Settled Pick", status: :settled, contest_type: "small",

@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { reseed, allowMotion } = require("./helpers");
+const { reseed, allowMotion, loginAdmin, createActiveEntry } = require("./helpers");
 
 // The league-wide live scoreboard at /live.
 //
@@ -9,6 +9,11 @@ const { reseed, allowMotion } = require("./helpers");
 // standing in for a real NFL scoring play.
 test.beforeEach(async ({ request }) => await reseed(request));
 
+// `:visible` runs through the selectors below because the board draws every
+// game TWICE — once as a hero tile in the focus panel, once as a card in the
+// grid — and hides one of each so the reader sees it exactly once. Without it
+// each lookup matches two nodes and Playwright refuses in strict mode; with it
+// every assertion follows the game to whichever half is on screen.
 test.describe("Live NFL scoreboard", () => {
   test("renders the board without a sign-in", async ({ page }) => {
     await page.goto("/live");
@@ -16,7 +21,13 @@ test.describe("Live NFL scoreboard", () => {
     // Named, not `level: 1` — the navbar brand is also an h1, so an unnamed
     // level-1 lookup is a strict-mode violation rather than an assertion.
     await expect(page.getByRole("heading", { name: /Week 4/ })).toBeVisible();
-    await expect(page.locator('[data-test="live-game-tile"]').first()).toBeVisible();
+    // :visible and scoped to the grid — the FIRST tile in the grid's DOM order is
+    // the focused game's card, which the board deliberately hides (it is drawn as
+    // the hero above instead), so an unscoped `.first()` asserts on the one node
+    // that is supposed to be invisible.
+    await expect(page.locator('#nfl_live_scoreboard [data-test="live-game-tile"]:visible').first()).toBeVisible();
+    // The hero panel is the other half of the same board, and it opens on one game.
+    await expect(page.locator('[data-test="live-focus-game"]:visible')).toHaveCount(1);
     // Public: no redirect to the sign-in screen.
     await expect(page).toHaveURL(/\/live$/);
 
@@ -48,7 +59,7 @@ test.describe("Live NFL scoreboard", () => {
     const [gameSlug, teamSlug] = target.split("|");
 
     const scoreCell = page
-      .locator(`[data-game-slug="${gameSlug}"] [data-team-slug="${teamSlug}"] [data-role="score"]`);
+      .locator(`[data-game-slug="${gameSlug}"] [data-team-slug="${teamSlug}"] [data-role="score"]:visible`);
     const before = parseInt((await scoreCell.textContent()).trim(), 10);
 
     await select.selectOption(target);
@@ -93,7 +104,7 @@ test.describe("Live NFL scoreboard", () => {
     const [gameSlug, teamSlug] = target.split("|");
     await select.selectOption(target);
 
-    const row = page.locator(`[data-game-slug="${gameSlug}"] [data-team-slug="${teamSlug}"]`);
+    const row = page.locator(`[data-game-slug="${gameSlug}"] [data-team-slug="${teamSlug}"]:visible`);
     // Both brand colours must reach the row: the field (washes, rail glow) and
     // the ink (the score). The ink is the fix for a score that rendered in a
     // team's near-black brand colour and vanished against the dark board.
@@ -133,7 +144,7 @@ test.describe("Live NFL scoreboard", () => {
     await select.selectOption(target);
 
     const scoreCell = page
-      .locator(`[data-game-slug="${gameSlug}"] [data-team-slug="${teamSlug}"] [data-role="score"]`);
+      .locator(`[data-game-slug="${gameSlug}"] [data-team-slug="${teamSlug}"] [data-role="score"]:visible`);
     const before = parseInt((await scoreCell.textContent()).trim(), 10);
 
     await page.locator('[data-test="dev-score-field_goal"]').click();
@@ -162,7 +173,7 @@ test.describe("Live NFL scoreboard", () => {
     await select.selectOption(target);
 
     const opacity = () =>
-      page.locator(`[data-game-slug="${gameSlug}"]`).evaluate((el) =>
+      page.locator(`[data-game-slug="${gameSlug}"]:visible`).evaluate((el) =>
         getComputedStyle(el).getPropertyValue("--studio-team-glow-opacity").trim());
 
     await page.locator('[data-test="dev-score-touchdown"]').click();
@@ -205,7 +216,60 @@ test.describe("Live NFL scoreboard", () => {
     await expect(banner).toHaveClass(/nfl-b-final/);
 
     // And the card itself settles into its final state, no reload.
-    await expect(page.locator(`[data-game-slug="${gameSlug}"]`)).toContainText("Final");
+    await expect(page.locator(`[data-game-slug="${gameSlug}"]:visible`)).toContainText("Final");
+  });
+
+  // THE FOCUS GAME. The board opens on the game the ladder picks and draws it
+  // large at the top; pressing any card in the grid hands that panel over —
+  // which takes the pressed game OUT of the grid and carries the page up to it.
+  //
+  // The scroll is the half a Rails view test cannot reach, and it is not a
+  // flourish: the card you pressed disappears, so without the scroll the only
+  // visible consequence of the press is a game vanishing from the list.
+  test("pressing a card focuses it, takes it out of the grid, and scrolls up to it", async ({ page }) => {
+    // Short viewport so the page is definitely taller than the window — a
+    // scroll assertion on a page that cannot scroll proves nothing.
+    await page.setViewportSize({ width: 900, height: 500 });
+    await page.goto("/live");
+
+    const hero = page.locator('[data-test="live-focus-game"]:visible');
+    await expect(hero).toHaveCount(1);
+    const opened = await hero.getAttribute("data-focus-slug");
+
+    // The board opens on ONE game and that game is not also in the grid.
+    await expect(page.locator(`[data-test="live-grid-card"][data-pick-slug="${opened}"]`)).toBeHidden();
+
+    const others = page.locator(`[data-test="live-grid-card"]:visible`);
+    expect(await others.count()).toBeGreaterThan(0);
+
+    // Start at the bottom, so "it scrolled up to the panel" is measured rather
+    // than inherited from a page that was already at the top.
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    const startedAt = await page.evaluate(() => window.scrollY);
+
+    const card = others.first();
+    const wanted = await card.getAttribute("data-pick-slug");
+    await card.click();
+
+    // The hero is the game that was pressed…
+    await expect(page.locator('[data-test="live-focus-game"]:visible'))
+      .toHaveAttribute("data-focus-slug", wanted);
+    // …it has left the grid…
+    await expect(page.locator(`[data-test="live-grid-card"][data-pick-slug="${wanted}"]`)).toBeHidden();
+    // …and the one it replaced has come back to it.
+    await expect(page.locator(`[data-test="live-grid-card"][data-pick-slug="${opened}"]`)).toBeVisible();
+
+    // POLLED, not read once: the scroll is animated, so a single evaluate
+    // straight after the click samples a page still on its way.
+    await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 5000 })
+      .toBeLessThan(startedAt);
+
+    // And it landed with the panel actually on screen, below the sticky header
+    // rather than under it — which is what the panel's scroll-margin buys.
+    const top = await page.locator("#nfl_live_focus").evaluate((el) => el.getBoundingClientRect().top);
+    expect(top).toBeGreaterThanOrEqual(0);
+    expect(top).toBeLessThan(500);
   });
 
   test("clearing a game takes its score back to zero", async ({ page }) => {
@@ -217,11 +281,837 @@ test.describe("Live NFL scoreboard", () => {
     await select.selectOption(target);
 
     const scoreCell = page
-      .locator(`[data-game-slug="${gameSlug}"] [data-team-slug="${teamSlug}"] [data-role="score"]`);
+      .locator(`[data-game-slug="${gameSlug}"] [data-team-slug="${teamSlug}"] [data-role="score"]:visible`);
     await page.locator('[data-test="dev-score-touchdown"]').click();
     await expect(scoreCell).not.toHaveText("0", { timeout: 10000 });
 
     await page.locator('[data-test="dev-score-clear"]').click();
     await expect(scoreCell).toHaveText("0", { timeout: 10000 });
   });
+});
+
+// The CONTEST live page at /contests/:slug/live.
+//
+// Its sibling above proves a score reaches an open browser. This proves the
+// half that only exists here: the reader chooses which game to watch, and that
+// choice has to survive the score arriving.
+//
+// WHY THIS CANNOT BE A RAILS TEST. Every assertion below is about state no
+// response body carries. Which of the sixteen focus tiles is visible is decided
+// by Alpine after paint; the hot score, the glow and the "this entry is mine"
+// post are put back onto broadcast-replaced markup by a MutationObserver; and
+// the focus surviving a broadcast is only observable AFTER a websocket message
+// has torn out and rebuilt the DOM the choice was made in. A String assertion
+// sees the markup that arrives, never the markup the page ends up with.
+// nfl-weeks-15-17, NOT the main world-cup-2026 fixture. These specs have to LOCK
+// a contest to make its live page reachable at all, and locking the contest the
+// rest of the lane enters would leak that state into every spec that runs after
+// them. This one backs multi_week_contest.spec.js alone, and the afterEach below
+// hands it back unlocked.
+const CONTEST = "nfl-weeks-15-17";
+
+// The live page refuses a contest that has not locked (Contest#live? is
+// locked? && !settled?), and locked? is derived from starts_at. #lock is the
+// real admin path — off-chain here, so it just moves starts_at.
+async function setLock(page, slug, inSeconds) {
+  await page.goto(`/contests/${slug}`);
+  const status = await page.evaluate(async ([contestSlug, seconds]) => {
+    const token = document.querySelector('meta[name="csrf-token"]');
+    const res = await fetch(`/contests/${contestSlug}/lock`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": token ? token.content : "" },
+      body: JSON.stringify({ in_seconds: seconds }),
+    });
+    return res.status;
+  }, [slug, inSeconds]);
+  expect(status).toBeLessThan(400);
+}
+
+// Lock it, then land on the live page and CHECK WE ARE STILL THERE. #live
+// redirects a contest that has not locked, and a redirect would otherwise show
+// up further down as "element(s) not found" — pointing at the assertions rather
+// than at the premise that failed.
+async function openLive(page, slug) {
+  await setLock(page, slug, 0);
+  await page.goto(`/contests/${slug}/live`);
+  await expect(page).toHaveURL(new RegExp(`/contests/${slug}/live$`));
+}
+
+// Score a real Goal on a game the contest actually contains, through the same
+// dev injector the league board uses — so the whole pipeline runs (recompute →
+// matchups → re-score → websocket) rather than a broadcast being faked.
+async function recordTouchdown(page, gameSlug, teamSlug) {
+  const status = await page.evaluate(async ([game, team]) => {
+    const token = document.querySelector('meta[name="csrf-token"]');
+    const res = await fetch("/dev/live_scores/record", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": token ? token.content : "" },
+      body: JSON.stringify({ game_slug: game, team_slug: team, scoring_type: "touchdown" }),
+    });
+    return res.status;
+  }, [gameSlug, teamSlug]);
+  expect(status).toBe(200);
+}
+
+// Same injector, with the scorer PINNED. The dev endpoint otherwise picks a
+// plausible player off the scoring team's roster, which is right for a demo and
+// wrong for a test: the e2e database carries the small offline athlete seed, so
+// which player is available depends on which game the contest opened on. Naming
+// one keeps the assertion about the card, not about the fixture.
+async function recordTouchdownBy(page, gameSlug, teamSlug, scorerSlug) {
+  const status = await page.evaluate(async ([game, team, scorer]) => {
+    const token = document.querySelector('meta[name="csrf-token"]');
+    const res = await fetch("/dev/live_scores/record", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": token ? token.content : "" },
+      body: JSON.stringify({
+        game_slug: game, team_slug: team, scoring_type: "touchdown", scorer_slug: scorer,
+      }),
+    });
+    return res.status;
+  }, [gameSlug, teamSlug, scorerSlug]);
+  expect(status).toBe(200);
+}
+
+test.describe("Contest live page", () => {
+  // Hand the contest back OPEN. `lock` only moves starts_at, so pushing it an
+  // hour out is the same door in the other direction — no test-only endpoint,
+  // and the next spec finds the contest as the seed left it.
+  test.afterEach(async ({ page }) => {
+    await loginAdmin(page);
+    await setLock(page, CONTEST, 3600);
+  });
+
+  test("the focused game follows the chip you click", async ({ page }) => {
+    await loginAdmin(page);
+    await openLive(page, CONTEST);
+
+    const focusTiles = page.locator('[data-test="live-focus-game"]');
+    await expect(focusTiles.first()).toBeAttached();
+
+    // Every game is rendered into the panel and all but one is hidden. Alpine
+    // owns which — nothing in the response says it.
+    const visible = () => page.locator('[data-test="live-focus-game"]:visible');
+    await expect(visible()).toHaveCount(1);
+    const before = await visible().getAttribute("data-focus-slug");
+
+    // Click a DIFFERENT chip and the panel follows it.
+    const other = page
+      .locator(`[data-test="live-game-chip"]:not([data-game-slug="${before}"])`)
+      .first();
+    const wanted = await other.getAttribute("data-game-slug");
+    await other.click();
+
+    await expect(visible()).toHaveCount(1);
+    await expect(visible()).toHaveAttribute("data-focus-slug", wanted);
+    // The strip agrees with the panel — one chip marked, and it is that one.
+    await expect(page.locator(".tt-chip-focused").first())
+      .toHaveAttribute("data-game-slug", wanted);
+  });
+
+  test("a score lights both renderings and does not steal your focus", async ({ page }) => {
+    await allowMotion(page);
+    await loginAdmin(page);
+    await createActiveEntry(page, CONTEST);
+    await openLive(page, CONTEST);
+
+    // Watch a game the reader CHOSE, not the one the page opened on — the bug
+    // this guards is the broadcast resetting that choice.
+    const visible = () => page.locator('[data-test="live-focus-game"]:visible');
+    const opened = await visible().getAttribute("data-focus-slug");
+    const chosen = page
+      .locator(`[data-test="live-game-chip"]:not([data-game-slug="${opened}"])`)
+      .first();
+    const gameSlug = await chosen.getAttribute("data-game-slug");
+    await chosen.click();
+    await expect(visible()).toHaveAttribute("data-focus-slug", gameSlug);
+
+    const teamSlug = await page
+      .locator(`[data-test="live-focus-game"]:visible [data-team-slug]`)
+      .first()
+      .getAttribute("data-team-slug");
+
+    const chipScore = page.locator(
+      `[data-test="live-game-chip"][data-game-slug="${gameSlug}"] [data-team-slug="${teamSlug}"] [data-role="score"]`
+    ).first();
+    const tileScore = page.locator(
+      `[data-test="live-focus-game"] [data-game-slug="${gameSlug}"] [data-team-slug="${teamSlug}"] [data-role="score"]`
+    ).first();
+    await expect(chipScore).toHaveText("0");
+
+    await recordTouchdown(page, gameSlug, teamSlug);
+
+    await expect(chipScore).not.toHaveText("0", { timeout: 15000 });
+    await expect(tileScore).not.toHaveText("0", { timeout: 15000 });
+
+    // EVERY rendering of that score, not just the two named above.
+    //
+    // The strip CLONES its whole row to loop seamlessly, so a game the reader
+    // can see is drawn two or three times: the chip, its clone, and the tile.
+    // The page looks up all of them; a querySelector would light the first and
+    // leave the rest grey — invisible until the carousel scrolled the cold copy
+    // into view. Asserting only the first chip and the tile does not catch that,
+    // which is exactly what an earlier cut of this spec failed to notice when
+    // the lookup was deliberately broken to check the spec bites.
+    const everyCopy = page.locator(
+      `[data-game-slug="${gameSlug}"] [data-team-slug="${teamSlug}"] [data-role="score"]`
+    );
+    const copies = await everyCopy.count();
+    expect(copies).toBeGreaterThan(1);
+    for (let i = 0; i < copies; i += 1) {
+      await expect(everyCopy.nth(i)).toHaveClass(/nfl-score-hot/);
+      await expect(everyCopy.nth(i)).not.toHaveText("0");
+    }
+
+    // The choice survived the broadcast that replaced the strip AND the panel.
+    await expect(visible()).toHaveCount(1);
+    await expect(visible()).toHaveAttribute("data-focus-slug", gameSlug);
+
+    // AND the viewer's own row is still marked. This one is only true if the
+    // script re-applied it: the broadcast sends one payload to every subscriber,
+    // so the server's re-render of the leaderboard cannot know whose entry it is.
+    await expect(page.locator("[data-role=entry-row].tt-lb-mine")).toHaveCount(1);
+
+    // The banner is raised from the same partial the league board uses, and it
+    // carries the scoring type's own entrance — a touchdown arrives as a
+    // touchdown. Asserted here rather than in a spec of its own so the lane's
+    // executed set is unchanged.
+    const banner = page.locator("#nfl-score-banner");
+    await expect(banner).toBeVisible();
+    await expect(banner).toHaveClass(/nfl-b-td/);
+    await expect(page.locator("#nfl-score-label")).toHaveText(/touchdown/i);
+  });
+
+  // THE SCORER REVEAL. A touchdown on the focused game swaps its events rail for
+  // a card naming who scored.
+  //
+  // Josh Allen is pinned because he is in db/seeds/nfl_athletes_demo.rb, the
+  // offline set this lane seeds — see recordTouchdownBy above.
+  test("a touchdown on the focused game reveals the scorer", async ({ page }) => {
+    await allowMotion(page);
+    await loginAdmin(page);
+    await openLive(page, CONTEST);
+
+    const visible = () => page.locator('[data-test="live-focus-game"]:visible');
+    const gameSlug = await visible().getAttribute("data-focus-slug");
+    const teamSlug = await page
+      .locator('[data-test="live-focus-game"]:visible [data-team-slug]')
+      .first()
+      .getAttribute("data-team-slug");
+
+    await recordTouchdownBy(page, gameSlug, teamSlug, "josh-allen");
+
+    // The frame is what wears the state, so one class swaps both children and
+    // they can never disagree about which is showing.
+    // WAIT FOR THE RAIL TO EXIST FIRST. A game with no scores yet renders no
+    // events frame — the first touchdown is what brings one into being, via the
+    // broadcast that re-renders the panel. Asserting the class on a locator that
+    // has not resolved yet spends the whole timeout on the wrong question.
+    const frame = page.locator(
+      `[data-focus-slug="${gameSlug}"] [data-role="event-feed-frame"]`
+    );
+    await expect(frame).toHaveCount(1, { timeout: 15000 });
+    await expect(frame).toHaveClass(/tt-revealing/, { timeout: 15000 });
+
+    // The card that is actually IN the window. Two panes exist so the next
+    // event can be built off screen, and the one parked below is legitimately
+    // filled with the same content after a settle — asserting on the first
+    // match would sometimes read the parked copy.
+    const card = frame.locator('[data-role="scorer-card"]:visible').first();
+    await expect(card.locator('[data-role="scorer-headline"]')).toHaveText("Touchdown!");
+    await expect(card.locator('[data-role="scorer-name"]')).toHaveText("Josh Allen");
+
+    // The team leads the detail, above the player — a score belongs to a team
+    // first. And the points chip is gone from the card entirely.
+    await expect(card.locator('[data-role="scorer-mascot"]')).not.toHaveText("");
+    await expect(card.locator('[data-role="scorer-points"]')).toHaveCount(0);
+
+    // The card is genuinely on screen, not merely class-swapped: a transform
+    // typo would leave it parked below the rail while the class said otherwise.
+    //
+    // toBeVisible() is not enough by itself — overflow clipping is not "hidden"
+    // to playwright, so a pane sliced in half by a wrong wheel position still
+    // passes it. Assert CONTAINMENT: nothing of the card clipped by its frame.
+    await expect(card).toBeVisible();
+
+    // POLLED, AND A MISSING CARD IS A FAILURE — NOT A PASS.
+    //
+    // This read once and returned -1 when no card was centred in the window.
+    // `-1 <= 1` is true, so the exact condition it exists to catch — no card
+    // where one should be — read as SUCCESS. Sampled every 10ms it returned -1
+    // from t=11ms to t=94ms, and it fired inside that window most runs. The
+    // sentinel is now larger than any real clip, so "no card" cannot satisfy it.
+    await expect
+      .poll(async () =>
+        frame.evaluate((f) => {
+          const w = f.getBoundingClientRect();
+          const shown = [...f.querySelectorAll('[data-role="scorer-card"]')].find((c) => {
+            const r = c.getBoundingClientRect();
+            const mid = (r.top + r.bottom) / 2;
+            return mid > w.top && mid < w.bottom;
+          });
+          if (!shown) return Number.MAX_SAFE_INTEGER;
+          const r = shown.getBoundingClientRect();
+          return Math.round(Math.max(0, w.top - r.top) + Math.max(0, r.bottom - w.bottom));
+        })
+      )
+      .toBeLessThanOrEqual(1);
+    await expect(card).toHaveAttribute("aria-hidden", "false");
+
+    // AND THE LIST HAS LEFT THE WINDOW. Asserted on GEOMETRY, not opacity: the
+    // panes do not fade any more, they ride a track that rolls, so the list is
+    // gone because it is outside the frame's box — not because it went
+    // transparent. An opacity assertion here passed against the old cross-fade
+    // and reported nothing about the wheel.
+    await expect
+      .poll(async () =>
+        frame.evaluate((f) => {
+          const w = f.getBoundingClientRect();
+          const feed = f.querySelector(".tt-event-feed").getBoundingClientRect();
+          const overlap = Math.min(feed.bottom, w.bottom) - Math.max(feed.top, w.top);
+          return Math.max(0, Math.round(overlap));
+        })
+      )
+      .toBeLessThan(4);
+  });
+
+  // The card is a MOMENT, not a new resting state. It rides the banner chain,
+  // so it retires when the chain drains and the rail goes back to its list.
+  test("the scorer card retires and the events list returns", async ({ page }) => {
+    await allowMotion(page);
+    await loginAdmin(page);
+    await openLive(page, CONTEST);
+
+    const visible = () => page.locator('[data-test="live-focus-game"]:visible');
+    const gameSlug = await visible().getAttribute("data-focus-slug");
+    const teamSlug = await page
+      .locator('[data-test="live-focus-game"]:visible [data-team-slug]')
+      .first()
+      .getAttribute("data-team-slug");
+
+    await recordTouchdownBy(page, gameSlug, teamSlug, "josh-allen");
+
+    // WAIT FOR THE RAIL TO EXIST FIRST. A game with no scores yet renders no
+    // events frame — the first touchdown is what brings one into being, via the
+    // broadcast that re-renders the panel. Asserting the class on a locator that
+    // has not resolved yet spends the whole timeout on the wrong question.
+    const frame = page.locator(
+      `[data-focus-slug="${gameSlug}"] [data-role="event-feed-frame"]`
+    );
+    await expect(frame).toHaveCount(1, { timeout: 15000 });
+    await expect(frame).toHaveClass(/tt-revealing/, { timeout: 15000 });
+
+    // A lone banner holds 8s; the card goes with it. Waiting on the class rather
+    // than on a timer keeps this honest if that hold is ever retuned.
+    await expect(frame).not.toHaveClass(/tt-revealing/, { timeout: 20000 });
+    await expect(frame.locator('[data-role="scorer-card"]').first()).toHaveAttribute("aria-hidden", "true");
+
+    // THE LIST IS BACK IN THE WINDOW — measured as POSITION, not as content.
+    //
+    // The first version of this assertion divided the overlap by the FRAME's
+    // height, which reduces to feedHeight / frameHeight: a count of scoring
+    // rows, not a wheel position. The feed is centred in a pane that exactly
+    // fills the frame, so when the wheel is home the overlap IS the feed's own
+    // height — and 85% is only reachable once the list OVERFLOWS the rail, about
+    // five rows. This spec records ONE touchdown and nothing clears goals
+    // between runs, so every attempt added a row and the number climbed: it
+    // failed 3/3 locally and went green on CI only at retry 2. A spec that
+    // passes because it has been run before is worse than no spec, and merged
+    // as-is it would have reddened the first playwright attempt for every PR
+    // after it.
+    //
+    // What actually says "the wheel is home" is that NO PART of the feed is
+    // clipped by the frame — absolute pixels, independent of how much has been
+    // scored.
+    await expect
+      .poll(async () =>
+        frame.evaluate((f) => {
+          const w = f.getBoundingClientRect();
+          const feed = f.querySelector(".tt-event-feed").getBoundingClientRect();
+          return Math.round(
+            Math.max(0, w.top - feed.top) + Math.max(0, feed.bottom - w.bottom)
+          );
+        })
+      )
+      .toBeLessThanOrEqual(1);
+
+    // And the track is at its resting position — the feed fitting and the wheel
+    // being home are only the same thing when the transform is zero.
+    await expect
+      .poll(async () =>
+        frame.evaluate((f) => {
+          const t = getComputedStyle(f.querySelector(".tt-event-track")).transform;
+          if (t === "none") return 0;
+          const m = t.match(/matrix\(([^)]+)\)/);
+          return m ? Math.abs(Math.round(parseFloat(m[1].split(",")[5]))) : -1;
+        })
+      )
+      .toBe(0);
+  });
+
+  // ── A HEADSHOT THAT FAILS SLOWLY ──────────────────────────────────────────
+  //
+  // The card and the banner both lead with a portrait, and both used to ask
+  // "has this url not FAILED?" — a deny-list over a state that also holds
+  // 'loading'. The presentation gate gives up after HEADSHOT_WAIT_MS and paints
+  // anyway, so a failure slower than that arrived as 'loading', counted as
+  // usable, and reproduced the symptom the fast case had already fixed.
+  //
+  // A FAST 404 was always handled — that is the point of routing this one SLOW.
+  //
+  // SAMPLED ACROSS THE WINDOW, not polled for the happy ending. An earlier cut
+  // polled for "initials visible" with a long timeout and PASSED ON THE BUG: a
+  // later broadcast repaints the card, by which time the preload has recorded
+  // 'failed', so the system recovers on its own and the poll sees the recovery.
+  // It proved "it eventually looks right", which was never in doubt. The defect
+  // is a WINDOW, so the assertion is about the window — while the card is
+  // revealed there must never be a frame showing neither picture nor initials.
+  test("a headshot that fails slowly still shows initials and the points", async ({
+    page,
+  }) => {
+    // The route hangs 12s on purpose, so this outlives the default budget.
+    test.setTimeout(60000);
+    await allowMotion(page);
+    await loginAdmin(page);
+    await openLive(page, CONTEST);
+
+    // Longer than HEADSHOT_WAIT_MS (2s) plus imgReady's own 2s, so the event is
+    // presented while the picture is still in flight.
+    await page.route("**/headshots/**", async (route) => {
+      await new Promise((r) => setTimeout(r, 12000));
+      await route.abort("failed");
+    });
+
+    const visible = () => page.locator('[data-test="live-focus-game"]:visible');
+    const gameSlug = await visible().getAttribute("data-focus-slug");
+    const teamSlug = await page
+      .locator('[data-test="live-focus-game"]:visible [data-team-slug]')
+      .first()
+      .getAttribute("data-team-slug");
+
+    await recordTouchdownBy(page, gameSlug, teamSlug, "josh-allen");
+
+    // THE MEASUREMENT IS A DURATION, NOT A FRAME.
+    //
+    // "Both hidden" happens legitimately for a frame or two: when the preload
+    // already said 'ready', the card hides the initials and waits for its own
+    // <img> to decode, which is a blink. Asserting on any single such frame
+    // failed on the FIX as well as the bug — measured at 7ms in, with
+    // complete:false, which is exactly that healthy blink.
+    //
+    // The defect is that the gap PERSISTS: with a deny-list read the card sat
+    // showing nothing from the moment it painted until the next broadcast
+    // repainted it — seconds, not milliseconds. So this measures the longest
+    // continuous stretch with neither picture nor initials, and allows a blink.
+    const gap = await page.evaluate(async (slug) => {
+      const t0 = Date.now();
+      const deadline = t0 + 14000;
+      let sawRevealed = false;
+      let longest = 0;
+      let runStart = null;
+
+      while (Date.now() < deadline) {
+        const f = document.querySelector(
+          `[data-focus-slug="${slug}"] [data-role="event-feed-frame"]`
+        );
+        let blank = false;
+
+        if (f && f.classList.contains("tt-revealing")) {
+          const w = f.getBoundingClientRect();
+          const card = [...f.querySelectorAll('[data-role="scorer-card"]')].find((c) => {
+            const r = c.getBoundingClientRect();
+            const mid = (r.top + r.bottom) / 2;
+            return mid > w.top && mid < w.bottom;
+          });
+          if (card) {
+            sawRevealed = true;
+            const img = card.querySelector('[data-role="scorer-headshot"]');
+            const ini = card.querySelector('[data-role="scorer-initials"]');
+            blank =
+              (!img || img.classList.contains("hidden")) &&
+              (!ini || ini.classList.contains("hidden"));
+          }
+        }
+
+        const now = Date.now();
+        if (blank) {
+          if (runStart === null) runStart = now;
+          longest = Math.max(longest, now - runStart);
+        } else {
+          runStart = null;
+        }
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      return { sawRevealed, longest };
+    }, gameSlug);
+
+    expect(gap.sawRevealed, "the card never revealed — the test proved nothing").toBe(true);
+    expect(
+      gap.longest,
+      `the card showed neither a picture nor initials for ${gap.longest}ms`
+    ).toBeLessThan(1000);
+
+    // THE BANNER: the points chip, not a broken image and a literal alt string.
+    await expect(page.locator("#nfl-score-avatar")).toHaveClass(/hidden/);
+    await expect(page.locator("#nfl-score-points")).toHaveText("+6");
+  });
+
+
+  // ── THE STRIP IS THE READER'S ────────────────────────────────────────────
+  //
+  // The markup test can see overflow-x and the handlers. What it cannot see is
+  // the thing that actually broke before: the rotation and a reader's scroll
+  // both trying to own the position. That was impossible to get wrong safely
+  // while one drove `transform` and the other drove scrollLeft — whichever
+  // wrote last snapped the strip out from under the other — so the fix made the
+  // native scroll offset the only owner, and this is where that is proven.
+  // A PLAIN VERTICAL PAGE SCROLL MUST LEAVE THE ROTATION ALONE.
+  //
+  // A wheel event fires on whatever sits under the pointer and bubbles, whether
+  // or not that element is what ends up scrolling. This strip runs full width
+  // across the TOP of the live page, so it is directly under the cursor on the
+  // way down to chat — and while the handover was bound to @wheel, reading the
+  // chat cost you the rotation for the rest of the session. The strip itself
+  // never moved: page scrollY 400, strip scrollLeft 0, stood down anyway.
+  //
+  // It mattered more than it sounds because this page hides the strip's
+  // scrollbar, so the rotation is the only thing advertising that games exist
+  // off-screen. Kill it and a 16-game slate silently reads as however many chips
+  // happen to fit.
+  test("scrolling the page past the strip leaves the rotation alone", async ({
+    page,
+  }) => {
+    test.setTimeout(60000);
+    await allowMotion(page);
+    await loginAdmin(page);
+    await openLive(page, CONTEST);
+
+    const viewport = page.locator('[x-ref="viewport"]').first();
+    const at = () => viewport.evaluate((el) => Math.round(el.scrollLeft));
+
+    const room = await viewport.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(room, "the strip must overflow, or it would not rotate at all").toBeGreaterThan(100);
+
+    // The gesture: pointer over the strip, wheel DOWN. deltaX is 0.
+    await viewport.hover();
+    await page.mouse.wheel(0, 400);
+    await page.waitForTimeout(700);
+
+    // The page moved and the strip did not — which is exactly why the strip must
+    // not treat this as the reader taking it over.
+    expect(await page.evaluate(() => Math.round(window.scrollY)),
+      "the page should have scrolled").toBeGreaterThan(100);
+    expect(await at(), "the strip itself never moved").toBe(0);
+
+    // AND THE SAME SCROLL WITH A HAIR OF SIDEWAYS DRIFT — a trackpad emits a
+    // fraction of a pixel of deltaX on a nominally vertical scroll, and
+    // `deltaX !== 0` read that as the reader taking over. Asserted on the flag,
+    // because the flag IS the predicate the travel below already exercises.
+    const stoodDown = () =>
+      viewport.evaluate((el) => window.Alpine.$data(el)._stood_down);
+    await viewport.hover();
+    await viewport.evaluate((el) =>
+      el.dispatchEvent(
+        new WheelEvent("wheel", { deltaX: 0.4, deltaY: 400, bubbles: true })
+      )
+    );
+    expect(await stoodDown(), "0.4px of drift is not the reader taking over").toBe(false);
+
+    // Pointer off the strip, so hover-pause is not what we are measuring, then
+    // wait out the 8s dwell. A rotation that survived the wheel will travel.
+    await page.mouse.move(5, 5);
+    const before = await at();
+    await page.waitForTimeout(11000);
+    const after = await at();
+    expect(
+      after - before,
+      `the rotation died on a vertical page scroll (${before} -> ${after})`
+    ).toBeGreaterThan(30);
+  });
+
+  test("a reader can scroll the strip, and it stays where they put it", async ({
+    page,
+  }) => {
+    test.setTimeout(90000);
+    await allowMotion(page);
+    await loginAdmin(page);
+    await openLive(page, CONTEST);
+
+    const viewport = page.locator('[x-ref="viewport"]').first();
+    const at = () => viewport.evaluate((el) => Math.round(el.scrollLeft));
+
+    // It has somewhere to scroll TO — otherwise the rest proves nothing.
+    const room = await viewport.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(room, "the strip must overflow, or there is nothing to scroll").toBeGreaterThan(100);
+
+    // THE CONTROL, and it is the reason this test means anything.
+    //
+    // Everything below asserts the strip DID NOT move. That assertion is worth
+    // nothing unless an untouched strip WOULD have moved in the same window —
+    // and the rotation dwells 8s before its first frame, so a shorter wait
+    // passes on a strip that is merely idle and on one that is properly stood
+    // down alike. This measures the window first: leave the strip alone, wait
+    // out the dwell, and prove it travels. Only then does "it held" have force.
+    const restingAt = await at();
+    await page.waitForTimeout(9500);
+    const rotated = await at();
+    expect(
+      rotated - restingAt,
+      "the rotation never moved, so a later 'it held' would prove nothing"
+    ).toBeGreaterThan(30);
+
+    // ONE OWNER OF THE POSITION, ASKED AFTER THE ROTATION HAS ACTUALLY MOVED.
+    //
+    // The strip used to travel by animating the track's `transform` while the
+    // viewport clipped, which made hand-scrolling impossible: two mechanisms
+    // describing the same movement in different coordinates, and whichever
+    // wrote last snapped the strip out from under the other. So `none` here is
+    // the claim that scrollLeft is the sole owner.
+    //
+    // IT ONLY MEANS THAT AFTER THE ROTATION HAS RUN. This assertion used to sit
+    // at the top of the test, where a track with no transform and a track whose
+    // transform has not been written YET are indistinguishable -- the old
+    // implementation wrote it inside the scroll step, behind the same 8s dwell,
+    // so it read `none` there too. Measured on the merged branch: `none` at T0
+    // and `none` at T+12s alike, the assertion passing identically against the
+    // implementation it was written to reject. The control above has just
+    // proven the rotation travelled, so asking now is the first moment the
+    // answer distinguishes anything.
+    const transform = await viewport.evaluate(
+      (el) => getComputedStyle(el.querySelector('[x-ref="track"]')).transform
+    );
+    expect(
+      transform,
+      `the rotation travelled ${rotated - restingAt}px by transform, not scrollLeft`
+    ).toBe("none");
+
+    // Now hand it over. A wheel stands the rotation down for good.
+    //
+    // Then WAIT FOR THE WHEEL TO LAND before parking the strip by hand. Chromium
+    // animates a wheel scroll, so it is still travelling when mouse.wheel()
+    // resolves; assigning scrollLeft into that animation gets overwritten by the
+    // frames still to come, and the strip settles somewhere else entirely.
+    await viewport.hover();
+    await page.mouse.wheel(300, 0);
+    await expect
+      .poll(async () => {
+        const a = await at();
+        await page.waitForTimeout(120);
+        return (await at()) - a;
+      }, { message: "the wheel scroll never settled", timeout: 5000 })
+      .toBe(0);
+
+    await viewport.evaluate((el) => { el.scrollLeft = 700; });
+    expect(await at()).toBe(700);
+
+    // GET THE POINTER OFF THE STRIP, or this test proves nothing.
+    //
+    // The strip pauses under the pointer (@mouseenter="pause()"), so a hovering
+    // mouse holds it still whether or not the stand-down works — an earlier cut
+    // of this test asserted "it held" with the pointer parked on the strip and
+    // passed happily against a standDown() neutered to a no-op. Moving away
+    // fires @mouseleave="resume()", and resume() is exactly what refuses once
+    // the reader has taken over. Now only a REAL stand-down keeps it here.
+    await page.mouse.move(5, 5);
+
+    // AND IT STAYS — across a window we have just proven is long enough for the
+    // rotation to have moved it.
+    await page.waitForTimeout(9500);
+    const held = await at();
+    expect(Math.abs(held - 700), `the strip drifted to ${held}`).toBeLessThan(20);
+
+    // AND IT SURVIVES A SCORE, which is the case that actually broke.
+    //
+    // Contest::LiveBroadcast#replace_games swaps the innerHTML of the container
+    // this component's x-data lives in, so every goal destroys and rebuilds the
+    // carousel. Before the state was hoisted out of that container, the reader's
+    // offset and their stand-down went back to 0/false on every touchdown — on
+    // the page this feature exists for, on the event that page exists to show.
+    const chip = page.locator('[data-test="live-game-chip"][data-game-slug]').first();
+    const gameSlug = await chip.getAttribute("data-game-slug");
+    const teamSlug = await chip.locator("[data-team-slug]").first().getAttribute("data-team-slug");
+
+    const swapped = viewport.evaluate((el) => new Promise((res) => {
+      const box = el.closest('[id$="_games"]');
+      new MutationObserver(() => res(true)).observe(box, { childList: true, subtree: true });
+    }));
+    await recordTouchdown(page, gameSlug, teamSlug);
+    await swapped;
+    await page.waitForTimeout(1500);
+
+    const afterScore = await page.locator('[x-ref="viewport"]').first()
+      .evaluate((el) => Math.round(el.scrollLeft));
+    expect(
+      Math.abs(afterScore - 700),
+      `the score reset the strip to ${afterScore} — the reader lost their place`
+    ).toBeLessThan(20);
+
+    // Still stood down afterwards: the rebuilt component inherited the handover,
+    // so the rotation does not start up again under someone who is reading.
+    await page.waitForTimeout(9500);
+    const settled = await page.locator('[x-ref="viewport"]').first()
+      .evaluate((el) => Math.round(el.scrollLeft));
+    expect(
+      Math.abs(settled - 700),
+      `the rotation restarted after the score and crept to ${settled}`
+    ).toBeLessThan(20);
+  });
+
+  // A SLOW DRAG IS STILL THE READER — THE TOLERANCE IS A TOTAL, NOT A PER-EVENT
+  // ALLOWANCE.
+  //
+  // The handover compares the strip's live offset against the last value the
+  // component itself WROTE. While that comparison also re-anchored on every
+  // scroll event — taking the position it had just seen as the next baseline —
+  // each step got measured against the step before it rather than against the
+  // rotation, and the tolerance was handed out afresh every few milliseconds. A
+  // drag slow enough to move less than the tolerance per event was therefore
+  // invisible no matter how far it travelled. Measured on the merged branch:
+  // 120 events of 1.5px moved the strip 180px, two whole chips, with the
+  // handover never firing and the rotation still due to resume and drag the
+  // strip off the game the reader had parked on.
+  //
+  // A FINGER IS EXACTLY THAT INPUT, which is why it went unseen: a trackpad and
+  // a mouse are both caught at the wheel instead, so every hand-check of this
+  // feature on a laptop passed.
+  test("a drag too slow to trip any one event still hands the strip over", async ({
+    page,
+  }) => {
+    test.setTimeout(90000);
+    await allowMotion(page);
+    await loginAdmin(page);
+    await openLive(page, CONTEST);
+
+    const viewport = page.locator('[x-ref="viewport"]').first();
+    const stood = () =>
+      viewport.evaluate((el) => window.Alpine.$data(el)._stood_down);
+
+    const room = await viewport.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(room, "the strip must overflow, or there is nothing to drag").toBeGreaterThan(300);
+    expect(await stood(), "the rotation must still be armed before the drag").toBe(false);
+
+    // ONE NUDGE PER FRAME, which is the event stream a finger produces. Driving
+    // the same distance in a single turn would coalesce into one large scroll
+    // event — the case that already worked — and prove the opposite.
+    const drag = await viewport.evaluate((el, [frames, step]) => new Promise((resolve) => {
+      let i = 0, pos = el.scrollLeft, events = 0, stoodAt = null;
+      const onScroll = () => {
+        events += 1;
+        if (stoodAt === null && window.Alpine.$data(el)._stood_down) {
+          stoodAt = Math.round(el.scrollLeft);
+        }
+      };
+      el.addEventListener("scroll", onScroll, { passive: true });
+      const tick = () => {
+        if (i++ >= frames) {
+          return setTimeout(() => {
+            el.removeEventListener("scroll", onScroll);
+            resolve({ travelled: Math.round(el.scrollLeft), events, stoodAt });
+          }, 200);
+        }
+        pos += step;
+        el.scrollLeft = pos;
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }), [300, 0.6]);
+
+    // THE CONTROL, and it is what stops this test quietly ceasing to
+    // discriminate. Every step here has to stay UNDER the 2px tolerance, or the
+    // drag is one a per-event comparison would have caught anyway and the test
+    // passes against the very implementation it exists to reject. Asserted as
+    // the average rather than the maximum: a dropped frame merges two nudges
+    // and spikes a maximum without changing what the drag IS.
+    expect(drag.events, "the drag must arrive as many small events").toBeGreaterThan(100);
+    expect(
+      drag.travelled / drag.events,
+      `steps averaged ${(drag.travelled / drag.events).toFixed(2)}px — over the tolerance, so a per-event comparison would catch them too`
+    ).toBeLessThanOrEqual(2);
+    expect(drag.travelled, "the strip must actually have gone somewhere").toBeGreaterThan(100);
+
+    // And it hands over almost immediately, because the budget is cumulative:
+    // a few pixels of travel, not a few pixels per event forever.
+    expect(
+      await stood(),
+      `${drag.travelled}px of reader-driven travel across ${drag.events} events, and the rotation still has the strip`
+    ).toBe(true);
+    expect(
+      drag.stoodAt,
+      `the handover waited for ${drag.stoodAt}px of travel instead of the tolerance`
+    ).toBeLessThan(20);
+  });
+
+  // A WINDOW THAT GETS WIDER IS NOT A READER.
+  //
+  // Widen the viewport and clientWidth grows, so the largest reachable offset
+  // SHRINKS and the browser drags scrollLeft back with it. Nothing about that
+  // is the reader — it is the rotation's own last position, still at the end of
+  // a strip that just got shorter — but it arrives as a scroll event like any
+  // other, and the strip read it as a takeover. Measured on the merged branch:
+  // 900px to 1600px moved clientWidth 836 -> 1216 and clamped a strip parked at
+  // the end down 380px, standing the rotation down.
+  //
+  // PERMANENTLY, which is what makes it worth a spec of its own: the flag lives
+  // on `window` so a broadcast cannot clear it and neither can a Turbo visit
+  // away and back. One rotation of a laptop, or one drag of a window edge, and
+  // the strip never moves again for the rest of the session.
+  test("widening the window is not the reader taking the strip over", async ({
+    page,
+  }) => {
+    test.setTimeout(90000);
+    await allowMotion(page);
+    await loginAdmin(page);
+    await page.setViewportSize({ width: 900, height: 720 });
+    await openLive(page, CONTEST);
+
+    const viewport = page.locator('[x-ref="viewport"]').first();
+    const read = () => viewport.evaluate((el) => ({
+      at: Math.round(el.scrollLeft),
+      max: Math.round(el.scrollWidth - el.clientWidth),
+      clientWidth: el.clientWidth,
+      stood: window.Alpine.$data(el)._stood_down,
+      remembered: window.gamesStripMemory.stoodDown,
+    }));
+
+    // PARKED THROUGH THE COMPONENT'S OWN WRITE PATH — the one the rotation
+    // uses. This has to be the rotation's position, not a reader's: assigning
+    // scrollLeft here would hand the strip over first, and the resize would
+    // then be measured against a rotation that was already dead.
+    await viewport.evaluate((el) => {
+      window.Alpine.$data(el)._writeScroll(el, el.scrollWidth - el.clientWidth);
+    });
+    const before = await read();
+    expect(before.at, "the strip must be parked at the end for the clamp to bite").toBe(before.max);
+    expect(before.stood, "and parking it by rotation is not a handover").toBe(false);
+
+    await page.setViewportSize({ width: 1600, height: 720 });
+
+    // Wait on the LAYOUT, not on a timer: the clamp lands with the new
+    // clientWidth, and a sleep here would race it in both directions.
+    await expect
+      .poll(async () => (await read()).clientWidth, {
+        message: "the viewport never widened",
+        timeout: 5000,
+      })
+      .toBeGreaterThan(before.clientWidth);
+
+    const after = await read();
+
+    // THE CONTROL. A widening that clamped nothing proves nothing — this test
+    // would then be asserting that an event which never happened was ignored.
+    expect(
+      before.at - after.at,
+      `the browser clamped ${before.at - after.at}px, too little to be mistaken for a reader`
+    ).toBeGreaterThan(100);
+
+    expect(
+      after.stood,
+      `a ${before.at - after.at}px clamp from a window resize read as the reader`
+    ).toBe(false);
+    expect(
+      after.remembered,
+      "and it was written to the memory that outlives every broadcast and Turbo visit"
+    ).toBe(false);
+  });
+
 });

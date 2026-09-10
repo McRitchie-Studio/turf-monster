@@ -69,3 +69,63 @@ namespace :nfl do
     puts "nfl:recolor — recolored #{count} team(s) from Nfl::TeamPalette::PALETTE"
   end
 end
+
+# NFL player database — Person + Athlete seeded from nflverse, with headshots
+# cached to S3 via studio-engine's ImageCache. See
+# app/services/nflverse/seed_players.rb.
+namespace :nfl do
+  desc "Seed Person + Athlete from nflverse players.csv. MIN_SEASON=2026 STATUS=ACT SKIP_HEADSHOTS=1 VERBOSE=1"
+  task players_seed: :environment do
+    seeder = Nflverse::SeedPlayers.new(
+      verbose:          ENV["VERBOSE"].present?,
+      upload_headshots: ENV["SKIP_HEADSHOTS"].blank?,
+      min_season:       ENV.fetch("MIN_SEASON", Nflverse::SeedPlayers::DEFAULT_MIN_SEASON),
+      status_filter:    ENV.fetch("STATUS", "ACT")
+    )
+    seeder.call
+
+    puts
+    puts "people:   #{Person.count}"
+    puts "athletes: #{Athlete.count} (#{Athlete.on_a_team.count} on a roster)"
+    puts "headshots: #{ImageCache.where(owner_type: 'Athlete', purpose: 'headshot').count} variants cached"
+  end
+
+  desc "Cache headshot variants for Athletes that have an espn_id but no cached image. Idempotent."
+  task upload_headshots: :environment do
+    widths = Nflverse::SeedPlayers::HEADSHOT_WIDTHS
+    candidates = Athlete.where.not(espn_id: nil).includes(:image_caches)
+    puts "candidates: #{candidates.count} athletes; widths: #{widths.inspect}"
+
+    cached = skipped = failed = 0
+
+    candidates.find_each do |athlete|
+      have = athlete.image_caches.select { |c| c.purpose == "headshot" }.map(&:variant)
+      if (["original", *widths.map(&:to_s)] - have).empty?
+        skipped += 1
+        next
+      end
+
+      folder = athlete.team_slug.presence || "free-agents"
+      begin
+        Studio::ImageCache.cache!(
+          owner: athlete,
+          purpose: "headshot",
+          source_url: athlete.espn_headshot_url,
+          key_prefix: "headshots/nfl/#{folder}/#{athlete.person_slug}",
+          widths: widths,
+          content_type: "image/png"
+        )
+        cached += 1
+        puts "  [+] #{athlete.person_slug}" if cached <= 5 || (cached % 100).zero?
+      rescue StandardError => e
+        failed += 1
+        puts "  [!] #{athlete.person_slug}: #{e.class}: #{e.message}"
+      end
+    end
+
+    puts
+    puts "cached:  #{cached}"
+    puts "skipped: #{skipped} (already complete)"
+    puts "failed:  #{failed}"
+  end
+end

@@ -94,4 +94,51 @@ class Nfl::Espn::ScoringPlaysTest < ActiveSupport::TestCase
       "text" => "#{team} scored"
     }
   end
+
+  # ── THE SEAM: are the parsers actually CALLED? ────────────────────────────
+  #
+  # Nfl::Espn::Scorer and Nfl::Espn::PlayDescription are covered thoroughly as
+  # pure functions. That says nothing about whether rows_from invokes them — a
+  # dropped field here is invisible to those suites and silently blanks the
+  # scorer card in production.
+  def scoring_payload
+    {
+      "scoringPlays" => [
+        { "id" => "401", "team" => { "abbreviation" => "BUF" },
+          "homeScore" => 0, "awayScore" => 7,
+          "type" => { "abbreviation" => "TD" },
+          "text" => "Khalil Shakir 12 Yd pass from Josh Allen (Tyler Bass Kick)" },
+        { "id" => "402", "team" => { "abbreviation" => "BUF" },
+          "homeScore" => 0, "awayScore" => 10,
+          "type" => { "abbreviation" => "FG" },
+          "text" => "Tyler Bass 41 Yd Field Goal" }
+      ]
+    }
+  end
+
+  test "a parsed row carries the scorer the play text names" do
+    rows = Nfl::Espn::ScoringPlays.rows_from(scoring_payload, home_abbr: "MIA", away_abbr: "BUF")
+
+    assert_equal ["Khalil Shakir", "Tyler Bass"], rows.map(&:scorer)
+  end
+
+  test "a parsed row carries the play description" do
+    rows = Nfl::Espn::ScoringPlays.rows_from(scoring_payload, home_abbr: "MIA", away_abbr: "BUF")
+
+    assert_equal ["12 yard receiving TD", "41 yard field goal"], rows.map(&:description)
+  end
+
+  # A play whose prose names nobody must not invent one — the Row carries nil and
+  # the card falls back rather than showing a team name where a player goes.
+  test "a play with no nameable scorer yields nil, not a guess" do
+    payload = { "scoringPlays" => [
+      { "id" => "403", "team" => { "abbreviation" => "BUF" },
+        "homeScore" => 0, "awayScore" => 2,
+        "type" => { "abbreviation" => "SF" }, "text" => "Bills Safety" }
+    ] }
+
+    row = Nfl::Espn::ScoringPlays.rows_from(payload, home_abbr: "MIA", away_abbr: "BUF").first
+    assert_nil row.scorer
+    assert_equal "Safety", row.description
+  end
 end

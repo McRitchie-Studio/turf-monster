@@ -31,20 +31,36 @@ class Nfl::BuildPreseasonSlateTest < ActiveSupport::TestCase
   # answers that query for a regular-season "Weeks 2-4" contest and drags
   # exhibition matchups into it — silently, because the row looks like any other
   # week-4 slate.
+  # THE PROPERTY IS UNCHANGED; THE MECHANISM MOVED. This used to be enforced by
+  # nilling the slate's week, which also made a preseason SPAN impossible to
+  # build — its own sources could not be selected either. season_type is now a
+  # column and both week-based lookups scope by it, so the slate carries a real
+  # week AND stays out of the regular season.
   test "a preseason slate is invisible to the regular-season span lookup" do
     Nfl::BuildPreseasonSlate.call(year: 2026, week: 4)
 
-    span_sources = Slate.where(week: [2, 3, 4], year: 2026, sport: "nfl")
+    sources = Nfl::BuildSpanSlate.new(year: 2026, weeks: [4]).send(:source_slates) rescue []
 
-    assert_empty span_sources.where(name: "NFL 2026 Preseason Week 4"),
+    refute_includes sources.map(&:name), "NFL 2026 Preseason Week 4",
       "a preseason slate must never be selectable as a regular-season span source"
   end
 
-  test "a preseason slate stays out of the weekly ladder" do
+  # And the half the old workaround made impossible: it must now be findable BY
+  # ITS OWN SEASON, or a preseason span has no sources.
+  test "a preseason slate IS selectable as a preseason span source" do
     result = Nfl::BuildPreseasonSlate.call(year: 2026, week: 4)
 
-    assert_nil result.slate.week
-    refute_includes Slate.weekly.to_a, result.slate
+    sources = Nfl::BuildSpanSlate.new(year: 2026, weeks: [4], season_type: Slate::PRESEASON_SEASON_TYPE)
+                                 .send(:source_slates)
+
+    assert_equal [result.slate.id], sources.map(&:id)
+  end
+
+  test "a preseason slate carries its real week number" do
+    result = Nfl::BuildPreseasonSlate.call(year: 2026, week: 4)
+
+    assert_equal 4, result.slate.week, "the week is real data, not a collision workaround"
+    assert_equal Slate::PRESEASON_SEASON_TYPE, result.slate.season_type
   end
 
   test "the name carries the sport and year the model derives" do

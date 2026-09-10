@@ -70,6 +70,51 @@ module Admin
       redirect_to admin_free_entries_path
     end
 
+    # Void a user's unspent free entries — the claw-back counterpart to #mint.
+    # `count` burns that many (the row's "Burn 1"); absent, it burns every
+    # unspent token the user holds (the row's "Burn all").
+    #
+    # There is deliberately NO #burn_all across ALL users to mirror #mint_all.
+    # Minting too many costs the operator some SOL rent and a user gets a gift;
+    # burning too many destroys property for every account on the platform at
+    # once, and no support workflow needs it. The blast radius is capped at one
+    # user on purpose.
+    def burn
+      user = User.find_by!(slug: params[:user_slug])
+      rescue_and_log(target: user) do
+        # Same per-user lock as #mint (OPSEC-030). Here it matters MORE: the
+        # on-chain guard that makes minting safe to double-submit is `init`
+        # collision, and burning has no equivalent — a second in-flight request
+        # re-reads the same unspent list and aims at tokens the first is already
+        # burning. Those lose the EntryTokenAlreadyBurned race noisily rather
+        # than double-burning, but the lock keeps the operator from paying fees
+        # to find that out.
+        user.with_lock do
+          burnable = burnable_tokens_for(user)
+
+          # Not an exception: a stale row or a double-click lands here, and
+          # neither is an incident worth an ErrorLog. Say so and move on.
+          if burnable.empty?
+            flash[:alert] = "No unspent free entries to burn for #{user.display_name}"
+            next
+          end
+
+          count = params[:count].present? ? params[:count].to_i : burnable.length
+          count = count.clamp(0, burnable.length)
+          burned, failed = burn_n_tokens(user, burnable.first(count))
+
+          # A total failure is a real incident — raise it so rescue_and_log files
+          # an ErrorLog. A PARTIAL failure already did real work, so report the
+          # true split instead of throwing away the record of what landed.
+          raise "Burn failed for #{user.display_name}: #{failed.first}" if burned.empty? && failed.any?
+
+          flash[:notice] = "Burned #{burned.length} free #{'entry'.pluralize(burned.length)} for #{user.display_name}"
+          flash[:alert]  = "#{failed.length} burn(s) failed: #{failed.first}" if failed.any?
+        end
+      end
+      redirect_to admin_free_entries_path
+    end
+
     private
 
     def vault
@@ -219,6 +264,64 @@ module Admin
         vault.mint_entry_token(wallet_address: address, source: :operator,
                                source_ref: source_ref)[:signature]
       end
+    end
+
+    # The tokens a burn may target, NEWEST FIRST.
+    #
+    # LIVE read, not the render cache: #compute_user_data_for is deliberately
+    # cache-first and up to ~60s stale, which is fine for displaying a count and
+    # not fine for choosing which accounts to destroy. #mint re-derives live for
+    # the same reason (#owed_plan_for).
+    #
+    # `consumed` is the only filter needed. A burn sets it, so already-burned
+    # tokens fall out here as well as already-spent ones — the same one predicate
+    # the on-chain guard uses.
+    #
+    # NEWEST FIRST because a partial burn is a claw-back of a RECENT mistake: an
+    # operator who granted 3 by fat-finger and burns 1 means the one just
+    # granted, not the token the user has been sitting on since signup. Oldest-
+    # first would take the wrong one every time.
+    def burnable_tokens_for(user)
+      address = user.solana_address
+      return [] if address.blank?
+
+      (vault.list_entry_tokens(address) rescue [])
+        .reject { |t| t[:consumed] }
+        .sort_by { |t| -t[:created_at].to_i }
+    end
+
+    # Burn each token one instruction at a time, returning [burned, failures].
+    #
+    # Per-token rescue, unlike #mint_n_tokens: a mint that fails midway can be
+    # re-run and the successful ones collide harmlessly on `init`, so aborting is
+    # free. A burn is irreversible, so abandoning tokens 2 and 3 because token 1
+    # hit an RPC flake leaves the operator guessing which ones actually went. The
+    # caller decides what a partial result means.
+    def burn_n_tokens(user, tokens)
+      address  = user.solana_address
+      burned   = []
+      failures = []
+
+      tokens.each do |token|
+        vault.burn_entry_token(wallet_address: address, source_ref: token[:source_ref])
+        burned << token[:pda]
+        Rails.logger.info(
+          "[free-entries] burned user=#{user.id} pda=#{token[:pda]} ref=#{token[:source_ref]}"
+        )
+      rescue => e
+        failures << "#{e.class}: #{e.message.to_s[0, 140]}"
+        Rails.logger.warn(
+          "[free-entries] burn_failed user=#{user.id} pda=#{token[:pda]} " \
+          "ref=#{token[:source_ref]} (#{e.class}: #{e.message.to_s[0, 140]})"
+        )
+      end
+
+      # One bust after the batch, not one per token — every burn invalidated the
+      # same key anyway, and the row must not render off a list that predates the
+      # burns the operator just watched happen.
+      user.bust_entry_tokens_cache! if burned.any?
+
+      [burned, failures]
     end
   end
 end

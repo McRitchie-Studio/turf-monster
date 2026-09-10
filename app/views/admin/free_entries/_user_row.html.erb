@@ -38,6 +38,50 @@
           Mint <%= row[:owed] %>
         <% end %>
       <% end %>
+      <%# Claw-back. Offered on UNCONSUMED (what the user can still spend), not on
+          `owed` — those are opposite directions: owed is what we still have to
+          give, unconsumed is what we can still take back. A row can show both.
+          Cold cache hides these for the same reason it hides Mint: never aim a
+          destructive action at an unverified count.
+
+          "Burn all" passes no count and the controller burns everything unspent;
+          "Burn 1" takes the NEWEST, which is the one a fat-fingered grant just
+          created. Both confirm first — a burn is irreversible, and unlike an
+          over-mint it cannot be undone by clicking the other button. %>
+      <% if !row[:loading] && row[:unconsumed] > 0 %>
+        <%# btn-danger on BOTH, not just Burn all. --color-cta and --color-success
+            are the same green in the live theme, so btn-outline here rendered
+            pixel-identical to the benign "Act as" at rest and, on hover, to
+            "Mint" 8px away. This is the app's only irreversible action; it does
+            not get to look like the two safe buttons beside it. %>
+        <%= button_to admin_burn_free_entries_path(user_slug: user.slug, count: 1),
+                      class: "btn btn-danger btn-sm",
+                      form_class: "inline-block",
+                      data: { turbo_confirm: "Burn the newest unspent free entry for #{user.display_name}? This cannot be undone." } do %>
+          Burn 1
+        <% end %>
+        <% if row[:unconsumed] > 1 %>
+          <%# PASS THE COUNT THE OPERATOR IS SHOWN — this is what makes the
+              confirm binding. row[:unconsumed] is CACHED (cache-first, up to 60s
+              stale, and the page never auto-refreshes, so the window is however
+              long the tab sits open), while the controller re-reads the chain
+              LIVE. Sending no count made it fall through to `burnable.length`,
+              so a token minted after render — a level-up sweep, a completed
+              TokenPurchaseJob, another admin's "Mint All Owed" — was destroyed
+              by an operator who agreed to burn a smaller number. Irreversible,
+              and in the harmful direction.
+
+              With the count sent, the controller's clamp(0, burnable.length)
+              turns the confirmed number into a CEILING: burn everything you saw,
+              never more, and still fewer if some were spent in the meantime. %>
+          <%= button_to admin_burn_free_entries_path(user_slug: user.slug, count: row[:unconsumed]),
+                        class: "btn btn-danger btn-sm",
+                        form_class: "inline-block",
+                        data: { turbo_confirm: "Burn ALL #{row[:unconsumed]} unspent free entries for #{user.display_name}? This cannot be undone." } do %>
+            Burn all <%= row[:unconsumed] %>
+          <% end %>
+        <% end %>
+      <% end %>
       <%# OPSEC-046: act-as entry point in the web2 console (the Lauren support
           workflow). Non-admins only — admins can't be impersonated. %>
       <% unless user.admin? %>
@@ -47,7 +91,13 @@
                       form_class: "inline-block",
                       data: { turbo_confirm: "Act as #{user.display_name}? You'll browse the app as this user until you return." } %>
       <% end %>
-      <% if !row[:loading] && row[:owed] <= 0 && user.admin? %>
+      <%# The "nothing actionable" placeholder, so an admin's cell is never blank.
+          It must track EVERY button above it or it contradicts them: admins get
+          no "Act as", so before burn existed `owed <= 0` really did mean the cell
+          was empty. It no longer does — an admin can hold unspent tokens with
+          nothing owed — so the dash now also requires there to be nothing to
+          burn. %>
+      <% if !row[:loading] && row[:owed] <= 0 && row[:unconsumed] <= 0 && user.admin? %>
         <span class="text-muted text-xs">—</span>
       <% end %>
     </div>

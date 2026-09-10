@@ -55,6 +55,14 @@ Seeds create 5 users, 48 World Cup teams plus 31 knockout-slot placeholders, 32 
 - Redis (Sidekiq queue)
 - Node.js **22.x** (keeps local dev, CI, and Heroku aligned; turf-vault needs at least Node 20.18.0)
 - Bundler 2.4+
+- **ImageMagick** (`brew install imagemagick`) — Active Storage variants render
+  through it, not libvips. `config/application.rb` pins
+  `active_storage.variant_processor = :mini_magick` because libvips is absent
+  from every machine this app runs on (measured on turf-monster-mainnet,
+  turf-monster-qa and the dev Macs, all of which carry `magick` and no `vips`).
+  Without it the contest link-preview card cannot render and
+  `test/models/contest_og_card_test.rb` fails with
+  `executable not found: "convert"`.
 
 ## Test
 

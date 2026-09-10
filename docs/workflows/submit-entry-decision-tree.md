@@ -135,7 +135,7 @@ confirm_onchain_entry
 | 1 | Web3: any failure BEFORE broadcast (guard, simulation, Phantom dismissal) | **Nothing moved** | signatureless pending PT | A signing failure gets an in-place **Try Again** action that expires the unsigned PT and prepares fresh wire bytes. Other stale PTs auto-expire on page load. |
 | 2 | Web3: broadcast OK, verification/DB error after | USDC/USDT **paid**, entry on-chain, app shows `cart` | PT `submitted` + tx_signature | Auto: next contest-page visit triggers the recovery modal → §5.1 promotes to `active` without re-charging |
 | 3 | Web3: broadcast OK, even the PT stamp failed (DB death in the ~ms between broadcast and the stamp) | Paid on-chain, **no app breadcrumb** | on-chain Entry PDA only | Manual (operator): explorer + `/admin/transactions` + OutboundRequest audit. Window is deliberately tiny; residual risk accepted |
-| 4 | Web2 token: consume OK, `confirm!` transient failure | Token **burned**, entry on-chain, app `cart` | entry row carries `onchain_tx_signature` (durable capture) | Auto: `Entries::OnchainReconcileJob` enqueued inline; also healed by the no-arg sweep |
+| 4 | Web2 token: consume OK, `confirm!` transient failure | Token **consumed**, entry on-chain, app `cart` | entry row carries `onchain_tx_signature` (durable capture) | Auto: `Entries::OnchainReconcileJob` enqueued inline; also healed by the no-arg sweep |
 | 5 | Web2 USDC: transfer OK, `confirm!` transient failure | USDC **paid** | same durable capture | Same reconciler |
 | 6 | Web3 paid (case 2) but the user never returns to the contest page | Paid, entry on-chain, app `cart` | stamped PT sits `submitted` | **Gap**: no scheduled PT sweeper today — heal requires the user's visit or an operator running the reconcile rake. Recommended follow-up: schedule `Entries::OnchainReconcileJob` (no-arg sweep) + extend the sweep to poll stamped PTs |
 | 7 | Contest cancelled after entries | Prize pool refunded to creator on-chain; **entry fees stay operator revenue** | — | Operator playbook: `mint_entry_token` goodwill credits to affected entrants |
@@ -165,8 +165,18 @@ and every such case except #3/#6 self-heals automatically.
   successful consume/transfer; (b) no-arg sweep over all eligible open
   contests via `rake entries:reconcile_onchain` (operator) or the same job
   with no id. Idempotent — never double-enters or double-charges.
-- **Heals**: `cart` entries carrying `onchain_tx_signature` (the durable
-  capture) → converge to `active`, announce in chat on heal.
+- **Heals**: `cart` entries (signature on the row → fast path; none → chain
+  probe), plus `abandoned` rows that can prove a broadcast → converge to
+  `active`, announce in chat on heal.
+- **What proves a broadcast for an `abandoned` row** — one rule, two records,
+  because there are two entry paths: the consume signature **on the ENTRY**
+  (§2, the managed durable capture → fast path, slot spared) **or** a signed
+  `PendingTransaction` targeting it (§3c, the Phantom path → chain probe, slot
+  released). The managed half was added by `reach-managed-abandoned-strand`;
+  before it, the shape carrying the strongest proof available was the one
+  refused, and its owner could be issued a fresh slot and pay twice. Note this
+  is the SIGNATURE, never `onchain_entry_id` — a comped
+  `EnterContestWithToken` stamps a PDA and moves no USDC.
 
 ### 5.3 Page-load stale-PT expiry (web3 hygiene)
 Signatureless pending PTs older than 10 minutes are flipped to `expired`

@@ -1,4 +1,11 @@
 one:
   name: Test Slate
   slug: test-slate
+  # EXPLICIT, because the derivation is silent and this fixture is the sport
+  # every other fixture inherits. `Slate.sport_from_name("Test Slate")` finds no
+  # "nfl" and no "week N", so it answers "fifa" — and a reader of the name alone
+  # cannot tell. A test once asserted this soccer-slate contest must render
+  # "NFL" copy and passed. Same value the name derives; now it is stated.
+  # This mirrors production, where both live funnels are fifa.
+  sport: fifa
   starts_at: <%= 30.days.from_now.utc.iso8601 %> # dynamic — a literal date here became a calendar time bomb on 2026-06-11

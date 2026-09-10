@@ -76,7 +76,7 @@ pack id) → SDK popup / app-switch / desktop QR → `onApprove` POSTs
 `tokens-minted` steps (or the on-page status cards on `/tokens/buy`). Cancel and
 error land back on the picker with an inline notice. There is NO new tab and NO
 `/tokens/processing` leg — that page stays Stripe-only. The checkout overlay is
-appended to `document.body` by the SDK, so the modal host (`z-[120]`) never
+appended to `document.body` by the SDK, so the modal host (`z-[var(--z-modal)]`) never
 clips it.
 
 ## Go-live gate — DO NOT skip

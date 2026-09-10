@@ -1,0 +1,71 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# The QA contest rehearsal, as five steps you run one at a time.
+#
+#   bin/qa-contest-rehearsal create     # 1. contest, on-chain, pool funded
+#   bin/qa-contest-rehearsal enter      # 2. the cast enters, as real players
+#   bin/qa-contest-rehearsal play --pace 3   # 3. replay preseason, watchable
+#   bin/qa-contest-rehearsal conclude   # 4. lock, grade, settle
+#   bin/qa-contest-rehearsal close      # 5. reclaim rent
+#
+# Options:
+#   --cast mason,mack       who plays (default: mason,mack)
+#   --cosign agent|link     step 4: agent key, or a link you sign (default: agent)
+#   --no-reset              step 3: keep the scores already recorded
+#
+# DEVNET ONLY. Every step runs NetworkGuard before it loads a key, and the
+# guard refuses any app but turf-monster-qa running the devnet program. That
+# is not ceremony: the co-signing key is Mason's, and Mason is a signer on the
+# MAINNET vault too.
+#
+# Steps share state through tmp/qa-rehearsal/current.json, so each one is
+# re-runnable on its own and `create` starts a fresh run.
+
+require_relative "../config/environment"
+require "optparse"
+
+options = { cast: nil, cosign: :agent, reset: true, pace: 0 }
+
+parser = OptionParser.new do |o|
+  o.banner = "Usage: bin/qa-contest-rehearsal <create|enter|play|conclude|close|status> [options]"
+  o.on("--cast LIST", "Comma-separated cast (default: mason,mack)") { |v| options[:cast] = v.split(",").map(&:strip) }
+  o.on("--cosign MODE", "agent (default) or link") { |v| options[:cosign] = v.to_sym }
+  o.on("--no-reset", "Step 3: do not clear existing scores first") { options[:reset] = false }
+  o.on("--pace SECONDS", "Step 3: replay scoring plays this far apart, so you can watch") { |v| options[:pace] = v.to_i }
+  o.on("-h", "--help") { puts o; exit 0 }
+end
+parser.parse!
+
+step = ARGV.shift
+unless step
+  puts parser
+  exit 1
+end
+
+driver = TurfMonster::QaRehearsal::Driver.new(
+  **{ cast: options[:cast] }.compact
+)
+
+begin
+  case step
+  when "create"   then driver.create_contest
+  when "enter"    then driver.enter_cast
+  when "play"     then driver.play_preseason(reset: options[:reset], pace: options[:pace])
+  when "conclude" then driver.conclude(cosign: options[:cosign])
+  when "close"    then driver.close_contest
+  when "status"
+    puts JSON.pretty_generate(driver.manifest.read_or_empty)
+  else
+    warn "unknown step #{step.inspect}"
+    puts parser
+    exit 1
+  end
+rescue TurfMonster::QaRehearsal::NetworkGuard::RefusedError => e
+  # The refusal is the headline, not a stack trace behind it.
+  warn e.message
+  exit 2
+rescue StandardError => e
+  warn "#{e.class}: #{e.message}"
+  exit 1
+end

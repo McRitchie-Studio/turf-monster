@@ -26,7 +26,7 @@ class Solana::ErrorInterpreterTest < ActiveSupport::TestCase
     assert_equal 1900,                    r[:blocker][:data][:neededCents]
   end
 
-  test "0x1772 in a web2 session maps to no_funding/web2 (Top Up Wallet), not the web3 deposit modal" do
+  test "0x1772 in a web2 session maps to no_funding/web2 (the showFundsNeeded funds wall), not the web3 deposit modal" do
     contest = Struct.new(:entry_fee_cents).new(1900)
     r = interp("custom program error: 0x1772", contest: contest, mode: :web2)
     assert_equal "no_funding", r[:blocker][:reason]
@@ -42,7 +42,12 @@ class Solana::ErrorInterpreterTest < ActiveSupport::TestCase
 
   # Funding-preflight safety net (2026-06-13): the #resolve_web2_entry_funding!
   # pre-check raise ("Not enough USDC …") maps to the no_funding/web2 blocker so
-  # the board opens the Top Up Wallet instead of attempting a doomed on-chain entry.
+  # the board can route the player through selectionBoard#showFundsNeeded — Get
+  # USDC (modals/_buy_usdc), or Buy an Entry Token (modals/_buy_entry_token) for
+  # the USDC kill-switch audience — instead of attempting a doomed on-chain entry.
+  # Not Top Up Wallet: nothing reaches that modal at head, and the two conditions
+  # that would give it an entrance are spelled out in the service itself
+  # (app/services/solana/error_interpreter.rb, the no-entry-tokens branch).
   test "pre-check 'not enough usdc' in a web2 session maps to no_funding/web2 with neededCents" do
     contest = Struct.new(:entry_fee_cents).new(1900)
     r = interp("Not enough USDC to enter this contest — top up your wallet and try again.",
@@ -164,5 +169,44 @@ class Solana::ErrorInterpreterTest < ActiveSupport::TestCase
   test "exception instances are accepted" do
     r = interp(StandardError.new("No entry tokens. Buy at /tokens/buy"))
     assert_equal "no_funding", r[:blocker][:reason]
+  end
+
+  # THE RAISE THAT BECAME USER COPY (operator report, QA, 2026-09-07). A
+  # self-custody account signed in with Google reached ContestsController's web2
+  # funding path, which raises "Managed wallet missing keypair (cannot sign
+  # entry)" because there is no custodial keypair. Nothing mapped it, so the
+  # unmapped-passthrough branch handed the raise string straight to the modal
+  # and the player read an exception message on a red card.
+  #
+  # #enter now refuses this before it ever tries to sign, so these are backstop
+  # assertions — and that is the point of having them: the interpreter's promise
+  # is that no raise text reaches a modal, and a promise with no test is a
+  # comment.
+  test "the missing-keypair raise never reaches the user as itself" do
+    r = interp("Managed wallet missing keypair (cannot sign entry)")
+
+    assert_no_match(/keypair/i, r[:message], "the raise wording is not user copy")
+    assert_no_match(/managed wallet missing/i, r[:message])
+    assert_match(/wallet/i, r[:message], "it still has to tell the user what to do")
+  end
+
+  test "the missing-keypair raise routes to the web3 step-up card" do
+    r = interp("Managed wallet missing keypair (cannot sign entry)")
+
+    assert_equal "web3_step_up_required", r[:blocker][:reason],
+                 "same blocker ContestsController#enter returns, so both routes land on one card"
+    assert_equal "web3", r[:blocker][:mode]
+    assert r[:log], "reaching this branch at all means a guard was bypassed — say so in the log"
+  end
+
+  test "the missing-keypair mapping is not mode-scoped" do
+    # The account's problem is that it holds no managed wallet, which is true
+    # whichever session is asking. A mode-scoped match would drop the mapping
+    # for any caller that threads a different mode and put the raise text back
+    # on screen.
+    %i[web2 web3 guest].each do |mode|
+      r = interp("Managed wallet missing keypair (cannot sign entry)", mode: mode)
+      assert_equal "web3_step_up_required", r[:blocker][:reason], "mode #{mode} lost the mapping"
+    end
   end
 end

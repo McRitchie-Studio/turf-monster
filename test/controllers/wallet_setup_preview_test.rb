@@ -1,12 +1,35 @@
 require "test_helper"
 
-# Component render of the wallet-setup modal (web3-only onboarding), driven
-# through the admin modal gallery — the same seam cdp_preview_smoke_test uses.
+# Component render of the wallet-setup modal (web3-only onboarding), read off the
+# page it actually ships on — the same seam cdp_preview_smoke_test uses.
 #
 # What this tier owns: the modal is REGISTERED, it renders, and it carries the
 # three things the operator specified — the Phantom row, the "New to Solana
 # Wallets?" teaching block with both screenshots side by side, and the guide CTA.
+#
+# THE SEAM CHANGED ON 2026-09-09, and the assertions got stricter for it. These
+# used to drive /admin/modals/preview/wallet-setup — one card on
+# layouts/modal_preview, a second layout keeping a second registration list — and
+# they read the WHOLE preview body, which carried fifteen other cards. So every
+# negative here ("no filled CTA", "no small bordered button") was already a claim
+# about fifteen modals rather than about this one, and the positives passed off a
+# layout no player is served. They now read the wallet-setup registration ALONE,
+# sliced out of an ordinary page on layouts/application.
 class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
+  # The wallet-setup card's own markup, off the layout that renders it.
+  #
+  # RAW, not parsed: several assertions below are about DELIMITERS inside the
+  # x-data attribute, and a parser resolves those before handing back a node.
+  # COUNTED, not assumed: a card that stopped registering would otherwise turn
+  # every assertion here into a claim about whatever else is on the page.
+  def wallet_setup_card
+    cards = modal_registration_sources(modal_host_page, "wallet-setup")
+    assert_equal 1, cards.length,
+                 "expected exactly one wallet-setup registration on layouts/application; found " \
+                 "#{cards.length}. Zero means the card is not on the page a player is served; " \
+                 "two are free to drift apart."
+    cards.first
+  end
   # The failure mode no other assertion in this file can see.
   #
   # The modal's x-data is a DOUBLE-QUOTED HTML attribute. One double-quote
@@ -28,48 +51,72 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
                         "silently kills the modal in the browser (markup assertions won't catch it)"
   end
 
-  test "admin modal gallery lists the wallet-setup variant" do
-    log_in_as users(:alex)
-    get admin_modals_path
-    assert_response :success
-    assert_includes response.body, "Set up your wallet (post-auth)"
-    assert_includes response.body, "modals/_wallet_setup.html.erb"
-  end
+  # The gallery-listing test was retired with /admin/modals on 2026-09-09.
+  # wallet-setup is carded in turf's own style-guide section now, against the
+  # real partial rather than a variant record — that section is the REVIEW
+  # surface; the assertions below are the automated one, and they read the same
+  # partial through the same layout.
 
+  # These three used to be hand-parsed integers — `z-[120]` scraped out of the
+  # modal host, `z-[110]` out of the navbar, `--studio-toast-z: 200` out of the
+  # CSS. They are TIERS now (studio-engine's shared layer scale), so the test
+  # resolves the same three layers through the names they read instead of through
+  # their values. The guarantee is unchanged, and it no longer breaks the moment a
+  # tier is renumbered — which is the entire point of naming them.
+  #
+  # WHERE EACH NAME IS READ FROM IS THE POINT, and two of the three moved in
+  # delete-turf-layer-shim. The modal and navbar tiers are named in THIS app's
+  # markup, so they are still read here. The toast tier is not: this app used to
+  # name it in an application.css `:root` (`--studio-toast-z: var(--z-toast)`)
+  # inside the layer-scale adoption shim, and that shim is deleted — the ENGINE's
+  # own flash partial now defaults the seam to the tier. Reading a deleted local
+  # override left this test asserting `present?` on nil, which is how a shim
+  # deletion looks like a regression instead of a cleanup.
+  #
+  # The VALUES likewise come from the engine now. application.css defines no
+  # tiers at all, so parsing its first `:root` block for them returned an empty
+  # map and every fetch raised KeyError.
   test "the shared modal layer covers the Turf navbar and stays below toasts" do
-    host = Rails.root.join("app/views/studio/modals/_host.html.erb").read
-    navbar = Rails.root.join("app/views/layouts/_navbar.html.erb").read
-    css = Rails.root.join("app/assets/tailwind/application.css").read
+    # THE HOST MOVED AGAIN, and this time out of the app entirely. This app used
+    # to shadow studio-engine's modal host with a fork at
+    # app/views/studio/modals/_host.html.erb; defork-turf-modal-host deleted it.
+    # Resolve the host rather than reading a path — see ResolvedModalHost for why
+    # the identifier must never be asserted to contain "/gems/".
+    host = ResolvedModalHost.source.gsub(/<%#.*?%>/m, "")
+    navbar = Rails.root.join("app/views/layouts/_navbar.html.erb").read.gsub(/<%#.*?%>/m, "")
+    engine_css = Studio::Engine.root.join("app/assets/tailwind/studio_engine/engine.css").read
+    flash = Studio::Engine.root.join("app/views/layouts/studio/_flash.html.erb").read
 
-    host_code = host.gsub(/<%#.*?%>/m, "")
-    navbar_code = navbar.gsub(/<%#.*?%>/m, "")
-    modal_z = host_code[/<div class="fixed inset-0 z-\[(\d+)\][^"]*modal-backdrop-mount"/, 1]
-    navbar_z = navbar_code[/vt-pinned-header sticky top-0 z-\[(\d+)\]/, 1]
-    toast_z = css[/--studio-toast-z:\s*(\d+)/, 1]
+    modal_tier = host[/<div class="fixed inset-0 z-\[var\((--z-[a-z-]+)\)\][^"]*modal-backdrop-mount"/, 1]
+    navbar_tier = navbar[/vt-pinned-header sticky top-0 z-\[var\((--z-[a-z-]+)\)\]/, 1]
+    toast_tier = flash[/--studio-toast-z,\s*var\((--z-[a-z-]+)/, 1]
 
-    assert modal_z.present?, "could not locate the shared modal backdrop layer"
-    assert navbar_z.present?, "could not locate the live sticky navbar layer"
-    assert toast_z.present?, "could not locate the Turf toast layer override"
+    assert modal_tier.present?, "could not locate the shared modal backdrop layer"
+    assert navbar_tier.present?, "could not locate the live sticky navbar layer"
+    assert toast_tier.present?,
+           "the engine's flash partial no longer falls its toast seam back to a shared tier"
 
-    assert_operator modal_z.to_i, :>, navbar_z.to_i,
+    tiers = engine_css[/^:root \{(.*?)^\}/m].to_s
+              .scan(/(--z-[a-z-]+):\s*(-?\d+)/)
+              .to_h { |name, value| [ name, value.to_i ] }
+
+    assert_operator tiers.fetch(modal_tier), :>, tiers.fetch(navbar_tier),
                     "the shared modal host must cover every sticky Turf navbar"
-    assert_operator toast_z.to_i, :>, modal_z.to_i,
+    assert_operator tiers.fetch(toast_tier), :>, tiers.fetch(modal_tier),
                     "toasts must remain visible above every open modal"
   end
 
   test "wallet-setup preview renders the Phantom row in both states" do
-    log_in_as users(:alex)
-    get admin_modal_preview_path(modal_id: "wallet-setup")
-    assert_response :success
+    card = wallet_setup_card
 
-    assert_includes response.body, "Set up your wallet"
+    assert_includes card, "Set up your wallet"
     # Installed → Connect; not installed → the install page. Both branches ship
     # in the markup; Alpine picks between them on phantomPresent — which is
     # broader than hasPhantom, because a Phantom the probe frame found counts as
     # installed to the user even though this document cannot reach it.
-    assert_includes response.body, "@click=\"activate()\""
-    assert_includes response.body, "https://phantom.com/download"
-    assert_includes response.body, "#se-wallet-phantom"
+    assert_includes card, "@click=\"activate()\""
+    assert_includes card, "https://phantom.com/download"
+    assert_includes card, "#se-wallet-phantom"
   end
 
   test "the install row watches for Phantom without moving the page" do
@@ -84,40 +131,38 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
     # created AFTER the install, so a tab that was open when the user installed
     # Phantom will never have one. The probe frame is that half — a fresh
     # same-origin document, loaded hidden, where the extension DOES appear.
-    log_in_as users(:alex)
-    get admin_modal_preview_path(modal_id: "wallet-setup")
-    assert_response :success
+    card = wallet_setup_card
 
     # Spinner + Waiting…, armed by leaving for the install page.
-    assert_includes response.body, "installClicked = true"
-    assert_includes response.body, "installClicked ? 'Waiting…' : 'Install'"
-    assert_includes response.body, "cta-spinner"
-    assert_includes response.body,
+    assert_includes card, "installClicked = true"
+    assert_includes card, "installClicked ? 'Waiting…' : 'Install'"
+    assert_includes card, "cta-spinner"
+    assert_includes card,
                     "Finish setting up Phantom in the new tab, then return here. We’ll detect it automatically."
     # The ping.
-    assert_includes response.body, "self._stopPoll()"
+    assert_includes card, "self._stopPoll()"
     # The probe frame, and the two things that make it work: a NEW document
     # every attempt (a cached one predates the install), and reading the
     # provider back across the same-origin boundary.
-    assert_includes response.body, "'/wallet_probe?t='"
-    assert_includes response.body, "f.contentWindow"
-    assert_includes response.body, "_readFrame()"
+    assert_includes card, "'/wallet_probe?t='"
+    assert_includes card, "f.contentWindow"
+    assert_includes card, "_readFrame()"
     # Bounded — a modal left open all afternoon must not load a document every
     # 2 seconds forever.
-    assert_includes response.body, "this.probeTries >= 150"
+    assert_includes card, "this.probeTries >= 150"
     # Listeners and the frame torn down, so reopening the modal can't stack them.
-    assert_includes response.body, "removeEventListener"
-    assert_includes response.body, "_dropFrame()"
+    assert_includes card, "removeEventListener"
+    assert_includes card, "_dropFrame()"
     # Detected state uses the same green badge as the wallet-connect picker.
-    assert_includes response.body, "badge border-primary text-primary"
+    assert_includes card, "badge border-primary text-primary"
     # What Connect actually does, for someone who just met Phantom.
-    assert_includes response.body, "sign a message proving the"
+    assert_includes card, "sign a message proving the"
     # The instructions the operator rejected must be gone. All three pointed the
     # user back at THIS page — reload it, confirm to it, press something on it —
     # when the only thing left to do is over in the browser's own install flow.
-    assert_not_includes response.body, "Reload page"
-    assert_not_includes response.body, "Installed it?"
-    assert_not_includes response.body, "updates on its own"
+    assert_not_includes card, "Reload page"
+    assert_not_includes card, "Installed it?"
+    assert_not_includes card, "updates on its own"
   end
 
   test "detecting Phantom never reloads the page the user is reading" do
@@ -154,31 +199,27 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
     # carries the modal, autoConnect carries the intent — and the modal spends
     # them on the other side so the user gets the signature prompt they clicked
     # for, not the same row again.
-    log_in_as users(:alex)
-    get admin_modal_preview_path(modal_id: "wallet-setup")
-    assert_response :success
+    card = wallet_setup_card
 
-    assert_includes response.body, "walletSetupReopen"
-    assert_includes response.body, "walletSetupAutoConnect"
+    assert_includes card, "walletSetupReopen"
+    assert_includes card, "walletSetupAutoConnect"
     # Read once and cleared immediately, or an unrelated later reload replays a
     # signature prompt at the user out of nowhere.
-    assert_includes response.body, "sessionStorage.removeItem('walletSetupAutoConnect')"
+    assert_includes card, "sessionStorage.removeItem('walletSetupAutoConnect')"
     # And the resume is bounded: if Phantom never shows up the user gets an
     # ordinary modal back, not a spinner that never resolves.
-    assert_includes response.body, "this._resumeTicks > 10"
+    assert_includes card, "this._resumeTicks > 10"
   end
 
   test "the row's click picks the path that can actually succeed" do
     # hasPhantom (reachable in THIS document) and probeFound (installed, but in
     # a document this page is not) look identical to the user and must not be
     # to the code: signing needs the former. One button, resolved at click time.
-    log_in_as users(:alex)
-    get admin_modal_preview_path(modal_id: "wallet-setup")
-    assert_response :success
+    card = wallet_setup_card
 
-    assert_includes response.body, "@click=\"activate()\""
-    assert_includes response.body, "if (this.hasPhantom) return this.connect();"
-    assert_includes response.body, "if (this.probeFound) return this.resumeConnect();"
+    assert_includes card, "@click=\"activate()\""
+    assert_includes card, "if (this.hasPhantom) return this.connect();"
+    assert_includes card, "if (this.probeFound) return this.resumeConnect();"
   end
 
   test "the reopen path is wired in the layout" do
@@ -204,68 +245,64 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
     # "New to Solana Wallets?" was two still screenshots until 2026-08-18.
     # It is a video now, and the point is that it plays HERE — a half-finished
     # signup should not have to leave the page to learn what a wallet is.
-    log_in_as users(:alex)
-    get admin_modal_preview_path(modal_id: "wallet-setup")
-    assert_response :success
+    card = wallet_setup_card
 
-    assert_includes response.body, "New to Solana &#129300;</h4>"
-    assert_not_includes response.body, "New to Solana Wallets?"
+    assert_includes card, "New to Solana &#129300;</h4>"
+    assert_not_includes card, "New to Solana Wallets?"
     # The paragraph that explained what a wallet IS became one line, with the
     # number carrying the promise.
-    assert_includes response.body, "Set up your wallet in <strong"
-    assert_includes response.body, ">90 seconds</strong>"
-    assert_not_includes response.body, "a bank card for the internet"
+    assert_includes card, "Set up your wallet in <strong"
+    assert_includes card, ">90 seconds</strong>"
+    assert_not_includes card, "a bank card for the internet"
     # The guide CTA is a full-size button now (operator call, 2026-08-18), not
     # the small bordered strip it was — but NEUTRAL, because the Phantom row
     # above it is what this modal is actually asking for.
-    assert_includes response.body, "Detailed Guide"
-    assert_includes response.body, "btn btn-neutral w-full",
+    assert_includes card, "Detailed Guide"
+    assert_includes card, "btn btn-neutral w-full",
                     "a full-size button, and the quiet one"
-    assert_not_includes response.body, "btn btn-neutral btn-sm"
-    assert_not_includes response.body, "btn btn-primary w-full",
+    assert_not_includes card, "btn btn-neutral btn-sm"
+    assert_not_includes card, "btn btn-primary w-full",
                         "a filled CTA here would out-shout Connect"
 
     # The embed, on the privacy host the CSP allows.
-    assert_includes response.body, "https://www.youtube-nocookie.com/embed/OH7-AIjZlp4"
-    assert_includes response.body, "allowfullscreen"
-    assert_includes response.body, "allow=\"autoplay;",
+    assert_includes card, "https://www.youtube-nocookie.com/embed/OH7-AIjZlp4"
+    assert_includes card, "allowfullscreen"
+    assert_includes card, "allow=\"autoplay;",
                     "the parent has to permit autoplay too, not just the URL"
 
     # The poster paints BEHIND the player, so the block is never a black
     # rectangle while the iframe boots.
-    assert_includes response.body, WalletSetupHelper::PHANTOM_INTRO_VIDEO_POSTER
+    assert_includes card, WalletSetupHelper::PHANTOM_INTRO_VIDEO_POSTER
 
     # The read-it-instead escape hatch, for a browser that will not play the embed.
-    assert_includes response.body, "Watch on YouTube"
+    assert_includes card, "Watch on YouTube"
 
     # The stills it replaced are gone, files and all.
-    assert_not_includes response.body, "/phantom-step-download.png"
-    assert_not_includes response.body, "/phantom-step-create-wallet.png"
+    assert_not_includes card, "/phantom-step-download.png"
+    assert_not_includes card, "/phantom-step-create-wallet.png"
   end
 
   test "the video starts itself muted, and one click buys sound" do
     # OPERATOR CALL, 2026-08-18: start it playing, click to unmute. Muted is not
     # a preference here — it is the only autoplay a browser allows on a modal
     # that opened without a click, so the two ship as one thing.
-    log_in_as users(:alex)
-    get admin_modal_preview_path(modal_id: "wallet-setup")
-    assert_response :success
+    card = wallet_setup_card
 
-    assert_includes response.body, "autoplay=1"
-    assert_includes response.body, "mute=1"
-    assert_includes response.body, "enablejsapi=1",
+    assert_includes card, "autoplay=1"
+    assert_includes card, "mute=1"
+    assert_includes card, "enablejsapi=1",
                     "without it the player ignores the unmute command, silently"
 
     # The affordance, and the reason it covers the whole player: while the video
     # is silent every click must mean the same thing, and a click landing on the
     # player itself would PAUSE it — the opposite of reaching for the sound.
-    assert_includes response.body, %(x-show="videoMuted")
-    assert_includes response.body, %(@click="unmuteVideo()")
-    assert_includes response.body, "Tap for sound"
-    assert_includes response.body, "absolute inset-0 w-full h-full flex items-center"
+    assert_includes card, %(x-show="videoMuted")
+    assert_includes card, %(@click="unmuteVideo()")
+    assert_includes card, "Tap for sound"
+    assert_includes card, "absolute inset-0 w-full h-full flex items-center"
 
     # And it leaves on that click, handing the player's own controls back.
-    assert_includes response.body, "this.videoMuted = false;"
+    assert_includes card, "this.videoMuted = false;"
   end
 
   test "the video poster is actually served" do
@@ -289,26 +326,33 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
     # reads as a TARGET, so it belongs on the row you are meant to click; a
     # pulse reads as a heartbeat, so it belongs on the row telling you the thing
     # you already went and did worked.
-    log_in_as users(:alex)
-    get admin_modal_preview_path(modal_id: "wallet-setup")
-    assert_response :success
+    card = wallet_setup_card
 
-    assert_includes response.body, "studio-team-glow"
-    assert_includes response.body, "--studio-team-glow-color: #AB9FF2",
+    assert_includes card, "studio-team-glow"
+    assert_includes card, "--studio-team-glow-color: #AB9FF2",
                     "Phantom purple on the install row — go and get this thing"
-    assert_includes response.body, "pulse-cta"
-    assert_includes response.body, "--pulse-cta-color: rgb(var(--color-primary-rgb))",
+    assert_includes card, "pulse-cta"
+    assert_includes card, "--pulse-cta-color: rgb(var(--color-primary-rgb))",
                     "the pulse is keyed to the same role colour as the Installed badge"
 
     # Each effect belongs to ONE branch, and to the RIGHT one. Both on a single
     # row, or the pair swapped back, is the bug this pins.
-    installed_branch = response.body[/<template x-if="phantomPresent">.*?<\/template>/m]
-    install_branch   = response.body[/<template x-if="!phantomPresent">.*?<\/template>/m]
-    assert installed_branch.present? && install_branch.present?,
-           "both row branches must ship in the markup; Alpine picks between them"
+    #
+    # THREE branches since 2026-08-27: the not-installed case split by platform
+    # so a phone gets the deep-link row instead of a download link it cannot
+    # act on (see test/controllers/wallet_picker_single_phantom_test.rb). Both
+    # not-installed branches are still the one target on the card, so both wear
+    # the travelling ring; only the reachable row pulses.
+    installed_branch = card[/<template x-if="phantomPresent">.*?<\/template>/m]
+    mobile_branch    = card[/<template x-if="!phantomPresent && isMobile">.*?<\/template>/m]
+    desktop_branch   = card[/<template x-if="!phantomPresent && !isMobile">.*?<\/template>/m]
+    assert installed_branch.present? && mobile_branch.present? && desktop_branch.present?,
+           "all three row branches must ship in the markup; Alpine picks between them"
 
-    assert_includes install_branch, "studio-team-glow"
-    assert_not_includes install_branch, "pulse-cta"
+    [mobile_branch, desktop_branch].each do |install_branch|
+      assert_includes install_branch, "studio-team-glow"
+      assert_not_includes install_branch, "pulse-cta"
+    end
     assert_includes installed_branch, "pulse-cta"
     assert_not_includes installed_branch, "studio-team-glow"
   end
@@ -323,15 +367,40 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
     # onboarding chain driver, the post-Connect reopen). A prop would have to be
     # remembered at each, and one miss means the same card is two different
     # widths depending on how the user got there.
-    host = Rails.root.join("app/views/studio/modals/_host.html.erb").read
+    # THE REGISTRY LEFT THE HOST. This app carried a fork of studio-engine's
+    # modal host and registered the width inside it; defork-turf-modal-host
+    # deleted the fork and moved the registration onto the engine's CARD_WIDTHS
+    # seam (app/views/shared/_modal_card_widths, rendered above the host by every
+    # layout that mounts it). So the app half is read from the RENDERED PAGE —
+    # which is also the stronger question, since a registration that never
+    # reaches the page is the failure this seam actually has.
+    #
+    # PAGE-WIDE, NOT CARD-SCOPED, and the distinction is the seam's whole point:
+    # shared/_modal_card_widths renders ABOVE the host, outside every card, so
+    # the registration this reads is on the page and never inside the template
+    # it applies to. Every other assertion in this file slices the card first;
+    # this one must not.
+    body = modal_host_page
 
-    assert_includes host, "CARD_WIDTHS = { 'wallet-setup': 'max-w-md' }"
-    assert_includes host, "DEFAULT_CARD_WIDTH = 'max-w-sm'",
-                    "every other modal must keep the width it had"
+    host = ResolvedModalHost.source
+    default = host[/DEFAULT_CARD_WIDTH\s*=\s*'([\w-]+)'/, 1]
+    # READ AS CODE. A plain substring match on the body finds the engine host's
+    # own `// … CARD_WIDTHS = { 'wallet-setup': 'max-w-md' };` doc example, which
+    # ships to the page like any other text inside an inline script — so it stays
+    # green with the registration deleted. See RenderedCardWidths.
+    registered = RenderedCardWidths.width_for(body, "wallet-setup")
+
+    assert default.present?, "the engine host no longer names a default card width"
+    assert registered.present?,
+           "the page registers no width for wallet-setup, so the card silently " \
+           "falls back to #{default}"
+    assert_not_equal default, registered,
+                     "wallet-setup is registered at the DEFAULT width (#{default}) — " \
+                     "a registry that resolves to the default is doing nothing"
 
     # And exactly ONE max-w-* ever lands on the card. A static class plus a
     # bound one would leave the winner to stylesheet source order, which is not
-    # something this file gets to decide.
+    # something a view gets to decide.
     card = host[/<div class="bg-surface rounded-xl[^"]*"/]
     assert card.present?, "could not locate the modal card element — did it move?"
     assert_not_includes card, "max-w-",
@@ -367,12 +436,10 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
     # and the operator asked for a way back to it. Small and quiet by design —
     # linking Phantom is the season's path — but it has to WORK, so pin the swap
     # target rather than the wording.
-    log_in_as users(:alex)
-    get admin_modal_preview_path(modal_id: "wallet-setup")
-    assert_response :success
+    card = wallet_setup_card
 
-    assert_includes response.body, "Buy an entry token"
-    assert_includes response.body, "$store.modals.swap('buy-entry-token', {})",
+    assert_includes card, "Buy an entry token"
+    assert_includes card, "$store.modals.swap('buy-entry-token', {})",
                     "the link must swap (one card on screen), not stack a second modal"
   end
 
@@ -386,14 +453,12 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
     #
     # Operator's call was to keep it VISIBLE and explain rather than refuse. Both
     # branches ship in the markup; Alpine picks between them on walletHasAddress.
-    log_in_as users(:alex)
-    get admin_modal_preview_path(modal_id: "wallet-setup")
-    assert_response :success
+    card = wallet_setup_card
 
-    assert_includes response.body, %(<template x-if="$store.session.walletHasAddress">),
+    assert_includes card, %(<template x-if="$store.session.walletHasAddress">),
                     "the clickable rail must be gated on actually having a wallet"
-    assert_includes response.body, %(<template x-if="!$store.session.walletHasAddress">)
-    assert_includes response.body, "Link a wallet first",
+    assert_includes card, %(<template x-if="!$store.session.walletHasAddress">)
+    assert_includes card, "Link a wallet first",
                     "a wallet-less player must be told why, not handed a dead button"
   end
 
@@ -450,15 +515,13 @@ class WalletSetupPreviewTest < ActionDispatch::IntegrationTest
     # The house guide is a SEPARATE task (phantom-onboarding-guide-page). This
     # asserts the seam, not a particular winner: whichever target resolves, the
     # CTA must be a real destination — never a dead route.
-    log_in_as users(:alex)
-    get admin_modal_preview_path(modal_id: "wallet-setup")
-    assert_response :success
+    card = wallet_setup_card
 
     if Rails.application.routes.url_helpers.respond_to?(:getting_started_path)
-      assert_includes response.body, "/getting-started",
+      assert_includes card, "/getting-started",
                       "with the guide route live the CTA should point at the house guide"
     else
-      assert_includes response.body, WalletSetupHelper::PHANTOM_GUIDE_URL,
+      assert_includes card, WalletSetupHelper::PHANTOM_GUIDE_URL,
                       "without the guide route the CTA must fall back to Phantom's guide, not 404"
     end
   end

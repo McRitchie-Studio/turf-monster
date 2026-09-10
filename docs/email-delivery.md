@@ -70,7 +70,21 @@ The shared `Studio::Email.deliver` facade uses that app-level adapter first, so
 Turf can align call sites with McRitchie Studio without moving production data
 into `studio_email_deliveries` yet.
 
-Use `EmailDelivery.resend_unsent!` after a provider or worker outage.
+### Recovering stranded rows
+
+`EmailDeliveryResendJob` runs every 20 minutes (`config/schedule.yml`) and
+re-enqueues rows still `sent: false`. It exists for the silent failure Sidekiq
+cannot cover: a row left unsent with no job anywhere, which on 2026-09-07 left a
+paid contest winner untold. It is bounded on purpose — rows younger than 30
+minutes are still in flight, rows older than 7 days are counted in its log line
+and left for a human, and at most 100 go per tick so a backlog drains across
+ticks. It no-ops entirely where `Studio.local_email_capture?` is true, since
+nothing there can ever reach `sent`.
+
+`EmailDelivery.resend_unsent!` remains the by-hand escape hatch, and it has **no
+bounds at all** — it re-enqueues every unsent row in the table, months-old
+"you won" mail included, and that mail cannot be unsent. Let the sweep drain a
+backlog; reach for `resend_unsent!` only after counting what it would send.
 
 ## Cutover Checklist
 

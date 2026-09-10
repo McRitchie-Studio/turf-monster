@@ -79,7 +79,7 @@ test("the picks sidebar keeps exactly six slots after a Turbo back-navigation", 
   // A real in-page Turbo visit, then a real restoration visit back to it.
   // page.goto() would be a full browser load and would NOT exercise the
   // snapshot cache, so it would pass against the broken partial.
-  // (The navbar's "Rules" link lands on /turf-totals-v1, not /rules — wait on
+  // (The navbar's "Rules" link lands on /turf-monster-v1, not /rules — wait on
   // "left the contest" rather than on a path this spec would have to keep in
   // sync with the marketing route.)
   await page.getByRole("link", { name: "Rules" }).first().click();
