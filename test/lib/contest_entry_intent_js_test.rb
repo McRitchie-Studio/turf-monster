@@ -403,6 +403,22 @@ class ContestEntryIntentJsTest < ActiveSupport::TestCase
                  "the server built all have to name the same token"
   end
 
+  test "the server's confirm leg is narrated, not left on the signing copy" do
+    # confirm BLOCKS on send_and_confirm; unpainted, the card sits on the signing copy.
+    out = run_js(<<~JS)
+      (async function () {
+        var shown = [];
+        window.Alpine = { store: function () { return { show: function (t, b) { shown.push([t, b]); } }; } };
+        await window.tmCompleteContestEntry({ contestId: 12, csrfToken: 'T' },
+          { signedTransaction: 'B58<1,2,3>' }, { ptx_slug: 'p1', entry_id: 7, entry_pda: 'PDA' });
+        return shown;
+      })()
+    JS
+    assert out["ok"], out["message"]
+    assert_equal [["Confirming Onchain", "Cosigning and submitting to Solana..."]], out["value"],
+                 "the wallet is done and the server is not — say so, or the user reopens the wallet"
+  end
+
   test "a document without Alpine still prepares an entry" do
     # THE ABSENT-CAPABILITY RULE. Copy is a courtesy; an entry is not. This
     # handler is registered on EVERY page, including the wallet callback.

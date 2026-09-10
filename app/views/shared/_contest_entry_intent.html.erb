@@ -208,6 +208,15 @@ window.tmCompleteContestEntry = async function (ctx, result, state) {
     sb += String.fromCharCode.apply(null, signed.subarray(i, i + chunk));
   }
 
+  // THE LONGEST LEG, AND IT USED TO BE NARRATED (board, pre-collapse). confirm
+  // BLOCKS on send_and_confirm; unpainted the card still reads "Approve the ...
+  // transfer..." with nothing to approve. Guarded — complete() runs on the
+  // callback document too.
+  try {
+    if (window.Alpine && Alpine.store('solanaModal')) {
+      Alpine.store('solanaModal').show('Confirming Onchain', 'Cosigning and submitting to Solana...');
+    }
+  } catch (e) { /* copy is a courtesy; never let it fail an entry */ }
   var resp = await window.tmEntryFetch('/contests/' + ctx.contestId + '/confirm_onchain_entry', {
     method: 'POST',
     headers: { 'X-CSRF-Token': ctx.csrfToken, 'Content-Type': 'application/json', 'Accept': 'application/json' },
