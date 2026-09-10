@@ -198,7 +198,14 @@ test("a level-up refreshes until the newly minted token appears", async ({ page 
     }));
   });
 
-  await expect(page.getByText("It is minting now and should appear shortly")).toBeVisible();
+  // The celebration card is the GATE for everything below — the polls only mean
+  // something once it is actually up. This used to wait on "It is minting now and
+  // should appear shortly", which the 2026-09-07 copy polish removed; it now waits
+  // on the sentence that survived. Deliberately NOT the sparkle: ✨ is also the
+  // navbar badge's glyph (see the top of this file), so a bare getByText would be
+  // ambiguous here. The glyph is pinned instead by engine_modal_defork_test, which
+  // slices to the card's own markup.
+  await expect(page.getByText("Keep earning more free entries with each level")).toBeVisible();
   await expect.poll(() => levelUpHydrates, { timeout: 15_000 }).toBe(2);
   await expect(page.locator(BADGE).first()).toBeVisible();
   await expect.poll(() => page.evaluate(() => Alpine.store("session").tokensAvailable)).toBe(1);

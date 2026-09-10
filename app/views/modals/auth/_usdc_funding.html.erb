@@ -11,6 +11,17 @@
   the entry fee prefilled). After the buy settles, the board's hold button
   passes the USDC eligibility gate — no entry token involved, so the
   tokens-waiting/confirming/minted steps never occur on this path.
+
+  That handoff is gated on cdp_ramp_modal_available? (app/helpers/
+  onramp_helper.rb), the SAME predicate the host layout registers the cdp-ramp
+  modal behind. It asks logged_in? as well as the ENABLE_CDP_RAMP flag, and the
+  session half is load-bearing HERE in particular: the auth modal is registered
+  UNGATED in the layout — it has to be, it is the signup surface — while
+  cdp-ramp is registered under logged_in?. This step is reached right after an
+  in-session signup, on a page whose layout rendered logged-out and therefore
+  emitted no cdp-ramp template at all. Asking only the flag put a live Buy
+  button in front of a modal id that does not exist on that page. The else
+  branch below is what those viewers get instead.
 %>
 <template x-if="props.step && props.step.indexOf('tokens-') === 0">
   <div>
@@ -25,7 +36,7 @@
           <h3 class="text-heading font-bold text-lg leading-tight">Add USDC to Play</h3>
         </div>
         <%= render "studio/modals/blocks/progress_pill", current: 2, total: 3 %>
-        <% if AppFlags.cdp_ramp? %>
+        <% if cdp_ramp_modal_available? %>
           <% entry_fee_dollars = ((@contest&.entry_fee_cents || 1900) / 100) %>
           <p class="text-xs text-body mb-4 text-center">Entry fee is $<%= entry_fee_dollars %> in USDC. Your lineup is saved &mdash; add USDC to finish.</p>
           <p class="text-xs text-muted mb-4 text-center"

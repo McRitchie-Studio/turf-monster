@@ -11,10 +11,21 @@
 
     `matchup` is the team's WEEK-ONE matchup: it is the anchor the selection is
     keyed on, so toggleSelection / selections[] work exactly as they do on a
-    single-week board. `opponents` is [[slate, matchup_or_nil], ...] in week
+    single-week board. `opponents` is [[week, matchup_or_nil], ...] in week
     order; a nil matchup is a bye. %>
 <% locked = matchup.locked? %>
 <% team = matchup.team %>
+<%# Each opponent column is labelled with the DAY that game is played rather
+    than its week number — the span is named all over this page already, so the
+    column is free to answer "when do I watch this one" instead of repeating it.
+    The week is not lost: it moves into the tooltip and the accessible name
+    (`detail`). Resolved once, here, so the chip, the tooltip and the aria-label
+    can never disagree — and via ContestsHelper#game_day_label, which reads the
+    kickoff in US EASTERN. A UTC read prints TOMORROW on every night game. %>
+<% opponent_slots = opponents.map do |week, week_matchup|
+     opponent_slot_labels(week, week_matchup)
+       .merge(matchup: week_matchup, opponent: week_matchup&.opponent_team)
+   end %>
 <% pal = team_card_palette(team) %>
 <% glow_alt = team.color_alt.presence || team.color_light %>
 <div class="holo-wrap relative" style="--glow-c: <%= glow_alt %>;">
@@ -37,7 +48,7 @@
           'matchup-pulse': pulseId === '<%= matchup.id %>' && selectionCount === 0
         }"
         role="checkbox" :aria-checked="!!selections['<%= matchup.id %>']"
-        aria-label="<%= team.name %> — <%= opponents.map { |week, m| "week #{week}: #{m&.opponent_team&.name || 'bye'}" }.join(', ') %>"
+        aria-label="<%= team.name %> — <%= opponent_slots.map { |slot| "#{slot[:detail]}: #{slot[:opponent]&.name || 'bye'}" }.join(', ') %>"
         <% if locked %>disabled<% end %>>
   <% if locked %>
     <span class="absolute top-2 left-2 text-[10px]" style="color: <%= pal[:fg_faint] %>">&#128274;</span>
@@ -53,30 +64,54 @@
   <p class="font-extrabold text-2xl md:text-3xl leading-tight truncate team-name"
      style="color: <%= pal[:accent] %>; text-shadow: <%= pal[:mascot_shadow] %>" title="<%= team.name %>"><%= team.mascot %></p>
 
-  <%# One line: the stylish multiplier (1.6×) then the "Points" label. %>
+  <%# One line: the stylish multiplier (1.6x) then the "Points" label.
+      THE MULTIPLIER SIGN IS A LOWERCASE x, AND IT IS NOT IN THE MONO SPAN.
+      Both halves of that were the fix for a sign that read as floating.
+      U+00D7 (×) is hung on the font's MATH AXIS, roughly half the cap height,
+      so it rides high beside a digit instead of sitting with it — and inside
+      the monospace face it is additionally drawn small in a full character
+      cell, which detaches it further. Worst after a lone "1". A lowercase x
+      in the card's own sans face sits on the baseline at x-height, one size
+      below the digits, and reads as part of the number.
+
+      The digits stay monospace — that is the look on the rest of the board.
+      The two spans are butted with NO whitespace between the tags; the
+      newline before "Points" is what supplies that one word space.
+
+      "Points" IS UNCONDITIONAL. The number multiplies points, it does not
+      count them, so "1x Point" was never right: 1x is one TIMES points. %>
   <% if multiplier %>
     <p class="mt-1.5">
-      <span class="font-mono font-bold text-lg md:text-xl" style="color: <%= pal[:fg] %>"><%= format_turf_score(multiplier) %>&times;</span>
-      <span class="text-sm" style="color: <%= pal[:fg_faint] %>"><%= multiplier == 1 ? 'Point' : 'Points' %></span>
+      <span class="font-mono font-bold text-lg md:text-xl" style="color: <%= pal[:fg] %>"><%= format_turf_score(multiplier) %></span><span class="font-bold text-base md:text-lg" style="color: <%= pal[:fg] %>">x</span>
+      <span class="text-sm" style="color: <%= pal[:fg_faint] %>">Points</span>
     </p>
   <% end %>
 
-  <%# "Opponents" rides the divider so the three chips read as who this team
-      faces. grid-template-columns is inline rather than a Tailwind grid-cols-N
-      class so a span of any length lays out evenly (a 2- or 4-week contest would
+  <%# "vs" rides the divider so the three chips read as who this team faces.
+      It wears the card's own foreground at the multiplier's weight, so the
+      multiplier and this line are the two bold marks down the card's spine.
+      The word it replaced sat in faint grey and was five syllables long — it
+      competed with the dates below it for the same quiet ink and won, while
+      saying less.
+
+      grid-template-columns is inline rather than a Tailwind grid-cols-N class
+      so a span of any length lays out evenly (a 2- or 4-week contest would
       otherwise need a class that isn't compiled). %>
   <div class="mt-3 flex items-center gap-2" aria-hidden="true">
     <span class="h-px flex-1" style="background-color: <%= pal[:divider] %>"></span>
-    <span class="text-[10px] uppercase tracking-wide" style="color: <%= pal[:grey] %>">Opponents</span>
+    <span class="text-xs font-bold" style="color: <%= pal[:fg] %>">vs</span>
     <span class="h-px flex-1" style="background-color: <%= pal[:divider] %>"></span>
   </div>
-  <div class="mt-2 grid" style="grid-template-columns: repeat(<%= [opponents.size, 1].max %>, minmax(0, 1fr))">
-    <% opponents.each_with_index do |(week, week_matchup), index| %>
-      <% opponent = week_matchup&.opponent_team %>
-      <div class="px-px lg:px-1 text-center"
+  <div class="mt-2 grid" style="grid-template-columns: repeat(<%= [opponent_slots.size, 1].max %>, minmax(0, 1fr))">
+    <% opponent_slots.each_with_index do |slot, index| %>
+      <% opponent = slot[:opponent] %>
+      <div class="tm-opponent-cell px-px lg:px-1 text-center"
            style="<%= "border-left: 1px solid #{pal[:divider]};" if index.positive? %>"
-           title="Week <%= week || '?' %> &mdash; <%= opponent ? "vs #{opponent.name}" : 'bye week' %>">
-        <p class="text-[9px] lg:text-[10px] uppercase tracking-wide leading-tight" style="color: <%= pal[:grey] %>">Week <%= week || '?' %></p>
+           title="<%= slot[:detail] %> &mdash; <%= opponent ? "vs #{opponent.name}" : 'bye week' %>">
+        <%# The date ("Dec 25"), or the week when that game has no kickoff yet.
+            Both fit the width "WEEK 16" already held, so the mobile column
+            budget the sizes below were tuned against is unchanged. %>
+        <p class="tm-opponent-week text-[9px] lg:text-[10px] uppercase tracking-wide leading-tight" style="color: <%= pal[:grey] %>"><%= slot[:shown] %></p>
         <%# emoji + abbreviation share one centered baseline (items-center,
             leading-none) so the taller emoji stops leaving vertical space above
             the text; the abbreviation wears the opponent's own color.
@@ -98,7 +133,11 @@
             10px emoji + 10px abbreviation clear the widest short name ("WAS")
             with room at 375px and up; below that `truncate` still degrades it,
             as it did before. %>
-        <p class="mt-1 flex items-center justify-center gap-0.5 lg:gap-1 leading-none">
+        <%# The halo rides the ROW, behind emoji and abbreviation together, and
+            the row stays a full-width block so the gradient can fade out
+            inside the column. See TeamColorsHelper#opponent_label_halo. %>
+        <p class="tm-opponent-row mt-1 py-1 flex items-center justify-center gap-0.5 lg:gap-1 leading-none"
+           style="background: <%= opponent_label_halo(opponent, team) %>">
           <% if opponent %>
             <span class="text-[10px] lg:text-sm"><%= opponent.emoji %></span>
             <span class="text-[10px] lg:text-sm font-semibold truncate" style="color: <%= opponent_label_color(opponent, team) %>"><%= opponent.short_name %></span>

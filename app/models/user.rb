@@ -4,7 +4,12 @@ class User < ApplicationRecord
   # The seeded house account's stable identity (db/seeds/users.rb). Usernames
   # can be renamed (and "turf" is itself a reserved prefix), so User.turf keys
   # on this email, never the username.
-  TURF_HOUSE_EMAIL = "turf@mcritchie.studio".freeze
+  #
+  # It moved off `turf@mcritchie.studio` on 2026-09-04. That address was a Google
+  # GROUP with zero members forwarding into the studio inbox; this one is a real
+  # Google user on Turf's own domain (1Password `google.turf.agents`), which is
+  # what lets the house account actually receive mail as itself.
+  TURF_HOUSE_EMAIL = "team@turfmonster.media".freeze
 
   # Stable identities whose usernames are parked before the generic generator
   # runs. These are keyed by verified email or wallet ownership so a fresh DB,
@@ -15,19 +20,48 @@ class User < ApplicationRecord
     # the FIRST NAME TOKEN, so the old value rendered "Welcome Mr.!" in every
     # sign-in email and on /admin/emails. mcritchie-studio already names the same
     # person "Alex McRitchie" — one person, one name, across the apps.
-    { email: "alex@mcritchie.studio",    name: "Alex McRitchie",  username: "mcritchie", role: "admin", wallet: "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr" },
-    { email: "team@mcritchie.studio",    name: "Team McRitchie",  username: "alex",      role: "admin", wallet: "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd" },
-    { email: "mason@mcritchie.studio",   name: "Mason McRitchie", username: "mason",     role: "user",  wallet: "CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR" },
-    { email: "mack@mcritchie.studio",    name: "Mack McRitchie",  username: "mack",      role: "user",  wallet: "foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds" },
-    { email: TURF_HOUSE_EMAIL,           name: "Turf Monster",    username: "turf",      role: "admin", wallet: "BLSBw8fXHzZc5pbaYCKMpMSsrtXBTbWXpUPVzMrXx9oo" },
-    # THIS APP'S OWN ADMIN, on its own domain. Distinct from the shared
-    # alex@mcritchie.studio above (one operator, every app) and from
-    # TURF_HOUSE_EMAIL (the house ACCOUNT that User.turf keys on, not a person).
-    # Every app seeds the shared pair plus an admin on its own domain, so a
+    #
+    # THE HUMAN HOLDS `alex`, as of 2026-09-04. The 2026-06-02 flip had given the
+    # bare name to the shared team account and put the person on `mcritchie`;
+    # this reverses it, so the username reads as the person it belongs to.
+    { email: "alex@mcritchie.studio",  name: "Alex McRitchie",  username: "alex",      role: "admin", wallet: "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr" },
+    # The shared team account — the server-side signer, not a person — now on
+    # `mcritchie`. Named "Team McRitchie" here and in mcritchie-studio.
+    { email: "team@mcritchie.studio",  name: "Team McRitchie",  username: "mcritchie", role: "admin", wallet: "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd" },
+    { email: "mason@mcritchie.studio", name: "Mason McRitchie", username: "mason",     role: "user",  wallet: "CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR" },
+    { email: "mack@mcritchie.studio",  name: "Mack McRitchie",  username: "mack",      role: "user",  wallet: "foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds" },
+    # THIS APP'S ADMIN ON ITS OWN DOMAIN — and it is the house account itself now.
+    # Every app seeds the shared identities plus an admin on its own domain, so a
     # session can be signed in as "the operator of THIS app" without borrowing
-    # Studio's identity.
-    { email: "alex@turfmonster.media",   name: "Alex McRitchie",  username: "alexturf",  role: "admin" }
+    # Studio's identity. A separate `alex@turfmonster.media` / `alexturf` row used
+    # to carry that; it was removed on 2026-09-04 because TURF_HOUSE_EMAIL now
+    # satisfies the same property with one account instead of two.
+    #
+    # (`alex@turfmonster.media` still exists as the SUPPORT and marketing FROM
+    # address — see ApplicationMailer::MARKETING_FROM and the pages/ views. Only
+    # the seeded user was retired.)
+    { email: TURF_HOUSE_EMAIL,         name: "Turf Monster",    username: "turf",      role: "admin", wallet: "BLSBw8fXHzZc5pbaYCKMpMSsrtXBTbWXpUPVzMrXx9oo" }
   ].freeze
+
+  # SEATS THE ROSTER HAS RETIRED, email => the role their row keeps, and the only
+  # thing that ever demotes one.
+  #
+  # Nothing in this app reconciles a user against PARKED_IDENTITIES: there is no
+  # save-time callback for role or email (only `ensure_username`, and only on
+  # create), the seed touches the rows it seeds, and `admin:claim_usernames`
+  # writes usernames. So an identity dropped from the roster does not lose
+  # anything — it simply stops being described, and keeps the admin it was seeded
+  # with. `alex@turfmonster.media` is that case: retired on 2026-09-04 because
+  # TURF_HOUSE_EMAIL now satisfies the same "an admin on this app's own domain"
+  # property, and it remains the PUBLIC support and marketing address (see
+  # ApplicationMailer::MARKETING_FROM and the pages/ views), so an app account on
+  # it that still holds admin is a login anyone who reads the footer can address.
+  #
+  # It is demoted, not deleted: the row has entries, purchases and a managed
+  # wallet, and destroying a real account is the operator's call, not a seed's.
+  RETIRED_IDENTITIES = {
+    "alex@turfmonster.media" => "user"
+  }.freeze
 
   # Rails mirror of turf-vault's on-chain reserved-prefix list — keep in sync
   # with RESERVED_PREFIXES in turf-vault
@@ -520,7 +554,21 @@ class User < ApplicationRecord
     Solana::Keypair.from_encrypted(encrypted_web2_solana_private_key)
   end
 
-  def generate_managed_wallet!
+  # `reason:` names WHY a wallet is being asked for, because the two callers get
+  # different answers under web3-only onboarding:
+  #
+  #   :signup — the after_create callback. Honours the season's web3-only call
+  #             and mints nothing; the account links Phantom instead.
+  #   :gift   — EntryGifts::Claim, redeeming an operator-sent free entry. Mints
+  #             the managed wallet ANYWAY, because the gift is an on-chain token
+  #             and a token needs an address. Mr. McRitchie's explicit call
+  #             (2026-09-08): a friend handed a free entry should be able to play
+  #             it without first installing a browser extension.
+  #
+  # The admin refusal below is NOT parameterised the same way and must not be —
+  # see OPSEC-044. An admin who is gifted an entry gets no custodial key; the
+  # gift stays claimed-but-unminted and says so on the ledger.
+  def generate_managed_wallet!(reason: :signup)
     return if web2_solana_address.present?
     # Web3-only onboarding (NFL 2026 operator call — AppFlags.web3_only_onboarding?):
     # no custodial wallet is minted at signup at all. The account is created and
@@ -529,7 +577,7 @@ class User < ApplicationRecord
     # show it). Same shape as the OPSEC-044 admin rule below — "no managed
     # wallet" is an already-supported state (wallet_kind :none), which is why
     # this is a one-line early return rather than a flow change.
-    return if AppFlags.web3_only_onboarding?
+    return if reason == :signup && AppFlags.web3_only_onboarding?
     # OPSEC-044: admins go web3-only. Server should never hold custodial keys
     # for accounts with elevated privileges — a managed wallet for an admin
     # combines the highest-value account with the largest decryption surface.

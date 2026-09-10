@@ -23,7 +23,7 @@ class ApplicationController < ActionController::Base
   before_action :touch_last_seen
   before_action :require_profile_completion
   before_action :preload_navbar_solana_data
-  helper_method :display_balance, :display_seeds_data, :display_entry_token_count, :onchain_session?, :wallet_context, :client_session_payload, :true_user, :impersonating?, :current_wallet
+  helper_method :display_balance, :display_seeds_data, :display_entry_token_count, :onchain_session?, :wallet_context, :client_session_payload, :true_user, :impersonating?, :current_wallet, :pending_signature_count
 
   # OPSEC-045: extend the engine's set_app_session to also bind a per-user
   # session_token in the cookie. The verify_session_token before_action
@@ -460,6 +460,10 @@ class ApplicationController < ActionController::Base
     return if user_token.present? && user_token == cookie_token
 
     Rails.logger.info("[opsec-045] session_token mismatch user_id=#{true_user.id} — forcing re-login")
+    # RECORDED BEFORE THE IVARS ARE CLEARED — one line down there is no
+    # true_user left to key the row on, and WHO was logged out is the whole
+    # value of the row.
+    record_session_token_mismatch(true_user, cookie_token: cookie_token)
     @current_user = nil
     @true_user = nil
     @impersonating = false
@@ -470,14 +474,81 @@ class ApplicationController < ActionController::Base
     end
   end
 
+  # OPSEC-045'S DURABLE TRACE, ADDED 2026-09-09.
+  #
+  # THE HOLE. The forced logout above left a `Rails.logger.info` line and
+  # nothing else. Rails logs are not a triage surface here — error_logs is,
+  # which is where every other user-facing failure in this app lands and where
+  # an operator actually looks. So the one event that ends a user's session
+  # against their will was the one event that could not be found afterwards.
+  # That mattered beyond tidiness: a `session_token` mismatch answers a
+  # non-HTML request with a 302 to /signin, which `fetch` FOLLOWS to an HTML
+  # body at status 200 — the exact shape `window.solanaConnectAndVerify`'s
+  # verify guard substitutes a server sentence for. Without a row, "our server
+  # could not finish sign-in" is all anyone can ever know about it; with one,
+  # the cause is named and attributed to a user.
+  #
+  # WHY A RAISE. Identical to SolanaSessionsController#record_client_wallet_failure,
+  # and for the same reason: `rescue_and_log` is this app's ONE persistence path
+  # for a logged failure — it captures, attaches target/parent by the shared slug
+  # rules, and fans out to Sentry — but it is built to CATCH a raise, and nothing
+  # here has thrown. Raising one line deep is what puts this event on that shared
+  # path instead of a hand-rolled second one that would drift from it, and it is
+  # what gives the row a real backtrace. `rescue_and_log` re-raises by contract;
+  # the re-raise is caught and dropped right here.
+  #
+  # IT MAY NOT BLOCK THE LOGOUT. A forced logout is a SECURITY act and completes
+  # whether or not it was written down, so the recorder swallows its own faults
+  # into the Rails log — a logger that can veto the thing it observes is worse
+  # than no logger. This is the same fail-open contract report_failure carries.
+  #
+  # NEITHER TOKEN IS RECORDED. Both are session credentials; the row says only
+  # whether the cookie carried one at all, which is the whole diagnostic
+  # difference (absent = a session predating the binding; stale = a rotation, a
+  # revoked sibling session, or a stolen cookie meeting one).
+  def record_session_token_mismatch(user, cookie_token:)
+    rescue_and_log(target: user) do
+      raise SessionTokenMismatch,
+            "OPSEC-045 forced logout: session_token mismatch for user_id=#{user.id} " \
+            "(cookie token #{cookie_token.present? ? 'present but stale' : 'absent'})"
+    end
+  rescue SessionTokenMismatch
+    nil
+  rescue StandardError => e
+    Rails.logger.error("[opsec-045] mismatch record dropped: #{e.class}: #{e.message}")
+  end
+
   # True when the current session was authenticated via Solana wallet signature
-  # (not email/password). Set by SolanaSessionsController#verify. Forced false
+  # (not email/password). Set by #promote_to_onchain_session!. Forced false
   # while impersonating (OPSEC-046): an admin can't produce the target's Phantom
   # signature, and this stops the admin's real :onchain flag from leaking into
   # the impersonated view — forcing the web2/managed server-sign path for entries.
   def onchain_session?
     return false if impersonating?
     session[:onchain] == true
+  end
+
+  # The SESSION half of proving wallet ownership — the two writes that turn a
+  # verified signature into a :web3 SessionContext. Call it from EVERY path that
+  # verifies a live wallet signature for the current user.
+  #
+  # It lives here, called by both, because the halves used to drift: the wallet
+  # LOGIN path (SolanaSessionsController#verify) wrote them and the wallet LINK
+  # path (AccountsController#link_solana) did not, so a Google account that
+  # linked Phantom kept a :web2 session. For an account whose ONLY wallet is
+  # self-custody that is a dead end, not a downgrade — web2 entry server-signs
+  # from #web2_solana_address, which such an account does not have — so the
+  # board offered "Buy an Entry Token" to a user holding enough USDC to enter.
+  #
+  # This does NOT loosen the doctrine in SessionContext, it satisfies it: :web3
+  # means "authenticated via a live wallet signature THIS session", and a link
+  # is exactly that (OPSEC-005 binds the signed message to current_user.id).
+  # Impersonation is unaffected — #onchain_session? force-returns false there.
+  def promote_to_onchain_session!(provider: nil)
+    session[:onchain] = true
+    # Which wallet signed, so a later step-up asks the one that can sign NOW.
+    # Untrusted client string — Solana::WalletProvider drops anything unknown.
+    Solana::CurrentWallet.remember(session, provider)
   end
 
   # Canonical auth + wallet state for this request — the single source of truth
@@ -501,6 +572,22 @@ class ApplicationController < ActionController::Base
   # actually SIGN the consume), so a cold/null token hint can never mis-fund — it
   # can only mis-label. #display_entry_token_count scopes the hint to the wallet
   # that can sign in this session, matching the authoritative entry path.
+  # How many treasury transactions are actually waiting on a co-signature —
+  # the number behind the Signatures badge in the admin nav.
+  #
+  # `awaiting_signature` and not `pending`: production held 11 pending rows the
+  # day this shipped and 10 were dead `enter_contest` transactions from June and
+  # July. A badge that reads 11 when one thing needs signing teaches the operator
+  # to ignore it, which is worse than having no badge.
+  #
+  # Non-admins never pay for the query, and the result is memoized so rendering
+  # the sidebar twice (desktop + mobile panel) hits the database once.
+  def pending_signature_count
+    return 0 unless current_user&.admin?
+
+    @pending_signature_count ||= PendingTransaction.awaiting_signature.count
+  end
+
   def client_session_payload
     wallet_context.to_h.merge(
       usdcCents:       wallet_field_cents(:usdc),
@@ -511,6 +598,15 @@ class ApplicationController < ActionController::Base
       # then USDC). Static per render (the flag can't change mid-session), so
       # refreshSession/refreshBalance never touch it.
       web2UsdcEntry:   AppFlags.web2_usdc_entry?,
+      # Whether the Buy an Entry Token modal has ANY rail to show. Both of its
+      # rails are server-gated (ENABLE_COINFLOW, and PAYMENT_PROVIDER +
+      # STRIPE_CHECKOUT_DISABLED for Stripe), and in production on 2026-09-05 both
+      # were off — so the modal rendered its "pick how to pay" line over an empty
+      # box and the entry wall became a dead end. The gate lives in ERB, which the
+      # board cannot see, so the answer has to travel: selectionBoard#showBuyEntryToken
+      # falls through to the USDC card when this is false. Static per render.
+      entryTokenRailsAvailable:
+        helpers.onramp_rail_visible?(:coinflow) || helpers.onramp_rail_visible?(:stripe),
       # Entry-time age gate (ENABLE_AGE_GATE). eligibilityBlocker reads these
       # synchronously at hold-time and pops the DOB modal BEFORE the tokens /
       # balance check when the gate is on and this user hasn't verified yet.
@@ -702,6 +798,38 @@ class ApplicationController < ActionController::Base
 
   def invalidate_usdc_cache(user = current_user)
     Rails.cache.delete(usdc_cache_key(user))
+  end
+
+  # Both halves of the navbar pill, for a path that just MOVED the user's money.
+  #
+  # #display_balance renders usdc + usdt COMBINED, and #combined_balance returns
+  # nil — the "loading" state the client then fills via refreshBalance — only
+  # when BOTH reads are nil; a nil beside a live value counts as zero. So
+  # dropping the USDC key alone, while its USDT twin stays warm (they are
+  # written together at the same 60s TTL, so it nearly always is), does not
+  # produce "loading". It produces the USDT balance PRESENTED AS THE TOTAL:
+  # a confidently wrong number, which is worse than the stale one it replaced.
+  #
+  # Use this wherever an action has already moved money — EITHER currency. The
+  # pill renders a SUM, so which mint moved does not narrow the drop: spend USDC
+  # and the warm USDT twin becomes the total; spend USDT and the stale pre-spend
+  # USDT survives as the total while the untouched USDC key is cleared for
+  # nothing. Both are one wrong number.
+  #
+  # SCOPE, so nobody reads more into this than it does: both keys are written
+  # with `expires_in: 60.seconds`, so a missed drop self-heals within a minute.
+  # This closes a sub-minute stale window. It is an optimisation, not a
+  # correctness guarantee, and no caller should be argued for on stronger terms.
+  #
+  # An earlier revision of this comment said #invalidate_usdc_cache "stays for
+  # the callers that only ever want the one key". That was wrong: no caller of a
+  # COMBINED pill ever wants one key. What actually remains on the one-key drop
+  # is the devnet faucet/mint tooling (users#add_funds, faucet#create,
+  # wallets#faucet, admin#mint_usdc) — all `AppFlags.live_production?`-guarded,
+  # so a corrupted total there is a dev-tooling wart, not a money-path defect.
+  def invalidate_wallet_balance_cache(user = current_user)
+    Rails.cache.delete(usdc_cache_key(user))
+    Rails.cache.delete(usdt_cache_key(user))
   end
 
   # Navbar seeds bar — on-chain seed count for the logged-in user.

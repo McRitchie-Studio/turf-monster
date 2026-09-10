@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { login, allowMotion } = require("./helpers");
+const { login, allowMotion, OVERFLOWING_NAME_EMAIL, FITTING_NAME_EMAIL } = require("./helpers");
 
 const VIEWPORTS = [
   { width: 1366, height: 800 },
@@ -198,9 +198,12 @@ test("logged-in navbar keeps the Free Entry face contained and the username read
     expect(metrics.controls.some((c) => c.name === "balance"), message).toBe(false);
 
     // ...and the part containment alone never noticed. The wider face used to
-    // starve the username to 15.6px -- zero readable characters of "mcritchie"
-    // at every width from 768 through 1024 -- while documentOverflow stayed 0
-    // and nothing went offscreen, so the old pass called that a pass.
+    // starve the username to 15.6px -- zero readable characters of the operator
+    // name (then nine characters, "mcritchie") at every width from 768 through
+    // 1024 -- while documentOverflow stayed 0 and nothing went offscreen, so the
+    // old pass called that a pass. The assertion below is length-adaptive on
+    // purpose (`min(4, length)`), so it keeps biting after the 2026-09-04 swap
+    // shortened the name to "alex".
     const legible = await usernameLegibility(page);
     const want = Math.min(4, legible.length);
     expect(legible.visibleChars,
@@ -683,7 +686,9 @@ async function settleNavbar(page) {
 test("a live balance-slot face swap re-fades the clipped username", async ({ page }) => {
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 1366, height: 800 });
-  await login(page, "alex@mcritchie.studio", "password");
+  // The account is chosen for the WIDTH of its username, not for who it is —
+  // there is no fade to measure on a name that fits. See OVERFLOWING_NAME_EMAIL.
+  await login(page, OVERFLOWING_NAME_EMAIL, "password");
 
   for (const width of [768, 900, 1024, 1280]) {
     await page.setViewportSize({ width, height: 800 });
@@ -709,7 +714,7 @@ test("the fade follows a resize across the squeeze band, and leaves a fitting na
     // measured once in init(), at 1366 with the balance still loading, and the
     // answer it cached there ("fits") outlived every later change to the box.
     await page.setViewportSize({ width: 1366, height: 800 });
-    await login(page, "alex@mcritchie.studio", "password");
+    await login(page, OVERFLOWING_NAME_EMAIL, "password");
     await page.goto("/contests");
     await settleNavbar(page);
     await swapToFreeEntryFace(page);
@@ -729,7 +734,7 @@ test("the fade follows a resize across the squeeze band, and leaves a fitting na
     // to spare at every width and on BOTH faces of the balance slot (measured:
     // scrollWidth 34 == clientWidth 34 at 900 and 1366, amount and Free Entry
     // alike). A name that fits must never be faded.
-    await login(page, "turf@mcritchie.studio", "password");
+    await login(page, FITTING_NAME_EMAIL, "password");
     await page.setViewportSize({ width: 900, height: 800 });
     await page.goto("/contests");
     await settleNavbar(page);

@@ -20,7 +20,8 @@
 //
 //   JS   — matchMedia(...).matches, the flag every inline script in this app
 //          branches on (contests/live.html.erb:18, contests/_chat_panel.html.erb:288,
-//          modals/_onboarding.html.erb:67).
+//          and the engine's studio/modals/onboarding/_first_name, which this app
+//          renders for the first-name step).
 //   CSS  — whether the STYLE ENGINE honors the query, measured by animating a
 //          probe element that a @media block is supposed to silence. matchMedia
 //          could in principle report true while the cascade ignored it, and it is

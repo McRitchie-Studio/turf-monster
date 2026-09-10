@@ -33,9 +33,9 @@ puts "Seeding test database for Playwright (additive overlay)..."
 
 # ── Step 1: canonical state via db/seeds.rb ──────────────────────────
 # Loads idempotently. Creates / preserves teams, slates, matchups, games.
-# Also seeds the 5 core users (mcritchie/alex/mason/mack/turf — the human
-# operator is `mcritchie`, the server bot is `alex` after the 2026-06-02
-# naming flip) but we
+# Also seeds the 5 core users (alex/mcritchie/mason/mack/turf — the human
+# operator is `alex`, the server bot is `mcritchie` after the 2026-09-04 swap,
+# which reversed the 2026-06-02 flip) but we
 # wipe + redo them below for deterministic IDs.
 load Rails.root.join("db/seeds.rb")
 
@@ -70,11 +70,12 @@ ActiveRecord::Base.connection.execute("ALTER SEQUENCE users_id_seq RESTART WITH 
 # ── Step 3: re-seed core users (deterministic IDs) ───────────────────
 load Rails.root.join("db/seeds/users.rb")
 users = seed_core_users!
-# The human operator — username `mcritchie` after the 2026-06-02 naming flip
-# (was `alex`; the bare `alex` username now belongs to the server bot). This is
-# the account whose Phantom wallet you connect with in the browser and the
+# The human operator — username `alex` again as of 2026-09-04, which reverses the
+# 2026-06-02 flip that had handed the bare name to the shared team account and
+# put the person on `mcritchie`. (The team account holds `mcritchie` now.) This
+# is the account whose Phantom wallet you connect with in the browser and the
 # creator of the e2e fixture contest below.
-human = users["mcritchie"]
+human = users["alex"]
 
 # ── Step 4: build e2e fixture contests ────────────────────────────────
 # Keep the legacy contest slug used throughout the specs, but use the late NFL

@@ -2,8 +2,7 @@ puts "Seeding Turf Picks..."
 
 # Users (shared definitions across all seed files)
 load Rails.root.join("db/seeds/users.rb")
-core_users = seed_core_users!
-admin = core_users["alex"]
+seed_core_users!
 
 # ─── Teams (all 48 World Cup 2026) ──────────────────────────────
 # All 48 confirmed (playoff spots decided March 26-31, 2026)
@@ -728,6 +727,9 @@ if Rails.env.development?
     puts "  ⚠️  Could not seed the dev demo contest: #{e.message}"
   end
 end
+
+# ─── NFL athletes (offline demo set for /nfl-players) ────────
+load Rails.root.join("db/seeds/nfl_athletes_demo.rb")
 
 # ─── Landing pages (marketing funnels) ───────────────────────
 load Rails.root.join("db/seeds/landing_pages.rb")

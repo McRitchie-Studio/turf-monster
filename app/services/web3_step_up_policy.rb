@@ -35,6 +35,16 @@
 # backwards would lock a legitimate owner out of their own account over a
 # wallet they merely cannot reach right now.
 #
+# ONE CALLER READS THIS AS A GATE, and the difference is worth naming because it
+# reads like a contradiction and is not. ContestsController#enter refuses a PAID
+# on-chain entry when this policy says `true` AND the account holds no custodial
+# keypair — not because the advice became enforcement, but because such an
+# account has nothing to sign the entry with, so proceeding could only fail.
+# The refusal is scoped by that second fact: a COMBO account gets the same
+# `true` here and enters anyway, from the wallet the server holds. Everywhere
+# else the verdict still only opens a card. (2026-09-07 — a player met the
+# unguarded path as a raw exception string; the guard is the correction.)
+#
 # NO I/O. Unlike WalletSetupPolicy (which reads a balance), every input here is a
 # column or a session flag, so this is safe on the render path and costs nothing
 # to ask twice.

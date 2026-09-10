@@ -8,10 +8,20 @@ class Solana::KeypairTest < ActiveSupport::TestCase
 
   # Reproduce the pre-OPSEC-015 ciphertext format: AES over the first 32
   # CHARS of the hex secret_key_base, Base64'd bytes, NO version prefix.
+  #
+  # Derives the key material here rather than calling the production accessor,
+  # so this stays an INDEPENDENT reproduction of the legacy format. When
+  # RAILS_MASTER_KEY is present (dev, and CI's own runs) it uses the real
+  # secret_key_base exactly as before; it falls back only when credentials
+  # cannot decrypt, which is the case on Dependabot PRs -- they run against the
+  # Dependabot secret store and cannot see repository secrets.
+  def legacy_key_material
+    Rails.application.credentials.secret_key_base.presence ||
+      Solana::Keypair::TEST_SECRET_KEY_BASE
+  end
+
   def legacy_ciphertext_for(keypair)
-    enc = ActiveSupport::MessageEncryptor.new(
-      Rails.application.credentials.secret_key_base[0, 32]
-    )
+    enc = ActiveSupport::MessageEncryptor.new(legacy_key_material[0, 32])
     enc.encrypt_and_sign(Base64.strict_encode64(keypair.to_bytes))
   end
 

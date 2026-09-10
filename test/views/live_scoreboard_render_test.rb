@@ -1,6 +1,12 @@
 require "test_helper"
 
-# [component] The /live scoreboard, as it actually renders.
+# [component] The /live scoreboard GRID, as it actually renders.
+#
+# Every selector below is scoped to #nfl_live_scoreboard on purpose. The page
+# draws each game twice — a hero tile in the focus panel and a card in the grid
+# — from the same partial with the same hooks, so an unscoped `[data-game-slug]`
+# matches both and `rows.first` quietly becomes whichever comes first in the
+# document (the hero). The panel has its own file: LiveFocusRenderTest.
 class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
   setup do
     @home = teams(:team_a)
@@ -26,14 +32,14 @@ class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
     get live_path
 
     assert_response :success
-    assert_select "[data-test=?]", "live-game-tile"
+    assert_select "#nfl_live_scoreboard [data-test=?]", "live-game-tile"
   end
 
   test "shows each team's summed score, not its number of scoring events" do
     get live_path
 
     assert_response :success
-    assert_select "[data-game-slug=?]", @game.slug do
+    assert_select "#nfl_live_scoreboard [data-game-slug=?]", @game.slug do
       assert_select "[data-role=score]", text: "6"
       assert_select "[data-role=score]", text: "3"
     end
@@ -54,7 +60,7 @@ class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
   test "paints the mascot in the team accent and the city in the location color" do
     get live_path
 
-    assert_select "[data-game-slug=?] [data-team-slug=?]", @game.slug, @home.slug do |rows|
+    assert_select "#nfl_live_scoreboard [data-game-slug=?] [data-team-slug=?]", @game.slug, @home.slug do |rows|
       html = rows.first.to_s
       assert_match(/color:\s*#ffb612[^"]*text-shadow/i, html,
         "the mascot should carry the accent colour AND its halo")
@@ -66,7 +72,7 @@ class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
   test "each card hosts a team glow ring, dark until a score lights it" do
     get live_path
 
-    assert_select "[data-test=?][data-game-slug=?]", "live-game-tile", @game.slug do |cards|
+    assert_select "#nfl_live_scoreboard [data-test=?][data-game-slug=?]", "live-game-tile", @game.slug do |cards|
       style = cards.first["style"]
       assert_includes cards.first["class"], "studio-team-glow"
       assert_match(/--studio-team-glow-opacity:\s*0/, style)
@@ -81,7 +87,7 @@ class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
   test "names each team by its mascot, with the city underneath" do
     get live_path
 
-    assert_select "[data-game-slug=?] [data-team-slug=?]", @game.slug, @home.slug do
+    assert_select "#nfl_live_scoreboard [data-game-slug=?] [data-team-slug=?]", @game.slug, @home.slug do
       assert_select "*", text: "Giants"
       assert_select "*", text: "New York"
       assert_select "*", text: "NYG", count: 0
@@ -96,7 +102,7 @@ class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
   test "each row exposes the team's field AND ink colors to the animations" do
     get live_path
 
-    assert_select "[data-game-slug=?] [data-team-slug=?]", @game.slug, @home.slug do |rows|
+    assert_select "#nfl_live_scoreboard [data-game-slug=?] [data-team-slug=?]", @game.slug, @home.slug do |rows|
       style = rows.first["style"]
       assert_match(/--nfl-team:\s*#97233F/i, style)
       assert_match(/--nfl-team-ink:\s*#FFB612/i, style)
@@ -106,7 +112,7 @@ class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
   test "each row carries the wash, rail and sweep the animations target" do
     get live_path
 
-    assert_select "[data-game-slug=?]", @game.slug do
+    assert_select "#nfl_live_scoreboard [data-game-slug=?]", @game.slug do
       assert_select ".nfl-row-wash", count: 2
       assert_select ".nfl-rail", count: 2
       assert_select ".nfl-sweep", count: 2
@@ -121,7 +127,7 @@ class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
   test "the touchdown sweep carries an explicit width, not a build-order casualty" do
     get live_path
 
-    assert_select ".nfl-sweep" do |sweeps|
+    assert_select "#nfl_live_scoreboard .nfl-sweep" do |sweeps|
       assert_match(/width:\s*\d+%/, sweeps.first["style"])
     end
   end
@@ -137,7 +143,7 @@ class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
 
     get live_path
 
-    assert_select "[data-game-slug=?] time[data-role=kickoff]", @game.slug do |els|
+    assert_select "#nfl_live_scoreboard [data-game-slug=?] time[data-role=kickoff]", @game.slug do |els|
       assert_equal kickoff.iso8601, els.first["datetime"]
     end
   end
@@ -149,7 +155,7 @@ class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
 
     get live_path
 
-    assert_select "[data-game-slug=?] time[data-role=kickoff]", @game.slug, text: /11:00 PM UTC/
+    assert_select "#nfl_live_scoreboard [data-game-slug=?] time[data-role=kickoff]", @game.slug, text: /11:00 PM UTC/
   end
 
   test "a game with no kickoff still renders, without an empty time element" do
@@ -157,7 +163,7 @@ class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
 
     get live_path
 
-    assert_select "[data-game-slug=?]", @game.slug do
+    assert_select "#nfl_live_scoreboard [data-game-slug=?]", @game.slug do
       assert_select "time[data-role=kickoff]", count: 0
       assert_select "*", text: "TBD"
     end
@@ -165,14 +171,14 @@ class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
 
   test "labels a live game with its clock and a final game as final" do
     get live_path
-    assert_select "[data-game-slug=?]", @game.slug do
+    assert_select "#nfl_live_scoreboard [data-game-slug=?]", @game.slug do
       assert_select "*", text: /Q3 8:42/
       assert_select "*", text: /Live/i
     end
 
     @game.update!(status: "completed", status_detail: "Final")
     get live_path
-    assert_select "[data-game-slug=?]", @game.slug do
+    assert_select "#nfl_live_scoreboard [data-game-slug=?]", @game.slug do
       assert_select "*", text: /Final/
     end
   end
@@ -223,7 +229,7 @@ class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
     @game.update!(status: "completed", status_detail: "Final")
     get live_path
 
-    assert_select "[data-game-slug=?]", @game.slug do |cards|
+    assert_select "#nfl_live_scoreboard [data-game-slug=?]", @game.slug do |cards|
       assert_equal 1, cards.first.to_s.scan(/Final/).length
     end
   end
@@ -232,7 +238,7 @@ class LiveScoreboardRenderTest < ActionDispatch::IntegrationTest
     @game.update!(status: "completed", status_detail: "Final/OT")
     get live_path
 
-    assert_select "[data-game-slug=?]", @game.slug do
+    assert_select "#nfl_live_scoreboard [data-game-slug=?]", @game.slug do
       assert_select "*", text: "Final/OT"
     end
   end

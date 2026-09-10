@@ -1,8 +1,11 @@
 <%#
-  Buy an Entry Token modal. The funds-needed modal for a WEB2 / managed player
-  at the entry blocker: selectionBoard#showFundsNeeded routes web2 here, while a
-  web3 wallet keeps the Coinbase-forward USDC Top Up Wallet (modals/_wallet_topup,
-  unchanged). One token buys exactly one contest entry.
+  Buy an Entry Token modal. NO LONGER the default funds-needed card: since
+  2026-09-05 showFundsNeeded sends the wall to modals/_buy_usdc, and this one is
+  reached only by the USDC KILL-SWITCH audience (web2 mode with
+  ENABLE_WEB2_USDC_ENTRY off), who cannot pay an entry with USDC at all — plus
+  the auth wizard's own pack-picker paths. showBuyEntryToken also falls through
+  to Get USDC when neither rail below is visible, so this card can never open
+  empty. One token buys exactly one contest entry.
 
   Two stacked entry-token rails, composed from the ones the Add Funds hub already
   ships (modals/_onramp_hub):

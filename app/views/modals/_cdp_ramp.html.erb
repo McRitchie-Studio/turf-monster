@@ -163,14 +163,21 @@
       <div class="bg-inset rounded-lg p-4 text-center mb-4" x-show="!windowExpired">
         <div class="text-xs text-secondary mb-1">Time left to send</div>
         <div class="text-3xl font-bold font-mono"
-             :class="remainingMs !== null && remainingMs < 300000 ? 'text-red-400' : 'text-primary'"
+             :class="remainingMs !== null && remainingMs < 300000 ? 'text-danger-ink' : 'text-primary'"
              x-text="remainingLabel"></div>
       </div>
 
       <%# Late-send rule (spec section 10): funds sent after the window still
           land in the user's Coinbase crypto balance, but the sell is marked
           failed and never auto-completes. %>
-      <div class="bg-red-500/10 border border-red-600/30 rounded-lg p-3 text-xs text-red-400 mb-4"
+      <%# BACKGROUND: bg-inset, not the bg-red-500/10 wash this used to carry.
+          danger-ink is derived to clear 4.5:1 against the four THEME surfaces,
+          and a red tint is not one of them: measured, the ink lands at 4.25:1
+          on the dark card once a red-500 wash at one-tenth alpha is composited
+          over it. Landing the panel on a real theme surface keeps the text
+          inside the token's contract and reads the same, since the red border
+          and red text already mark it as a warning. %>
+      <div class="bg-inset border border-red-600/30 rounded-lg p-3 text-xs text-danger-ink mb-4"
            x-show="windowExpired" x-cloak>
         The 30-minute window has passed. USDC sent now still lands in your
         Coinbase crypto balance, but Coinbase marks this cash-out failed and
@@ -206,9 +213,13 @@
         </div>
       </template>
 
-      <template x-if="props.sendError">
-        <p class="text-red-400 text-xs text-center mt-3" x-text="props.sendError"></p>
-      </template>
+      <%# LIVE REGION, NOT A CONDITIONAL INSERT. This was a template x-if, so
+          the paragraph did not exist until the send failed, and a region
+          inserted alongside its own content is not reliably announced. It is
+          now mounted and empty for the whole life of the sending step.
+          Guard: test/views/error_live_regions_test.rb %>
+      <p x-show="props.sendError" x-cloak role="alert" aria-live="assertive" aria-atomic="true"
+         class="text-danger-ink text-xs text-center mt-3" x-text="props.sendError"></p>
     </div>
   </template>
 

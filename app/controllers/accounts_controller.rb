@@ -259,13 +259,34 @@ class AccountsController < ApplicationController
       # Check if Solana wallet belongs to another user
       existing = User.from_solana_wallet(pubkey_b58)
       if existing && existing.id != current_user.id
-        merge_users!(survivor: current_user, absorbed: existing)
+        # merge_users! keeps the LOWER id, so the survivor is NOT necessarily
+        # current_user — take the row it returns and write through THAT.
+        survivor = merge_users!(survivor: current_user, absorbed: existing)
+        # The merge copies only email / name / provider+uid across and then
+        # DESTROYS the absorbed row — including, on the no-swap ordering, the row
+        # that held the wallet. Without this the survivor is left with
+        # web3_solana_address nil while still carrying the brand stamp and an
+        # on-chain session: an account CLAIMING a wallet it does not have, which
+        # shuts both entry doors for a survivor that has a managed wallet
+        # (ContestsController#enter refuses, #prepare_entry raises).
+        #
+        # AFTER merge_users! returns, never inside it: the absorbed row still
+        # owns the address until the destroy inside that transaction, so an
+        # earlier write would collide on the uniqueness of the column.
+        survivor.update!(web3_solana_address: pubkey_b58)
         # The survivor now holds the wallet this request just proved, so it earns
-        # the same brand stamp as the non-merge branch below.
-        current_user.record_web3_authentication!(provider: params[:wallet_provider])
+        # the same brand stamp as the non-merge branch below. Through `survivor`
+        # and not `current_user`: on the swap ordering current_user IS the
+        # destroyed row, and record_web3_authentication! bails on it
+        # (`return false unless persisted?`) — so the durable stamp was being
+        # dropped there, silently, on roughly half of all orderings.
+        survivor.record_web3_authentication!(provider: params[:wallet_provider])
         # The account now holds a web3 wallet — the wallet-setup nudge is
         # satisfied, so drop it in the same breath as the link.
         clear_wallet_setup_state!
+        # ...and this session just proved that wallet, so it IS an on-chain
+        # session. The merge branch returns early, so it needs its own call.
+        promote_to_onchain_session!(provider: params[:wallet_provider])
         return render json: { success: true, redirect: account_path, notice: "Accounts merged." }
       end
 
@@ -275,6 +296,12 @@ class AccountsController < ApplicationController
       # same one-click step-up as one who logged in with the wallet directly.
       current_user.record_web3_authentication!(provider: params[:wallet_provider])
       clear_wallet_setup_state!
+      # The DURABLE stamps above record that this ACCOUNT holds a wallet; this
+      # records that THIS SESSION can sign with it. Without it the session stays
+      # :web2 and an account whose only wallet is self-custody cannot enter at
+      # all — the board shows the web2 "Buy an Entry Token" wall instead of
+      # asking Phantom to sign. See ApplicationController#promote_to_onchain_session!.
+      promote_to_onchain_session!(provider: params[:wallet_provider])
       # NO on-chain UserAccount is created here, deliberately. Creating one costs
       # ~0.00182 SOL of ADMIN rent and is PERMANENT — nothing in turf-vault closes
       # a UserAccount — while this endpoint is reachable by any signed-in user with

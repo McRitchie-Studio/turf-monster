@@ -96,7 +96,24 @@ export async function authedFetch(url, opts) {
   } catch (e) {}
   try {
     var modals = window.Alpine && Alpine.store && Alpine.store('modals');
-    if (modals && modals.open) modals.open('auth', { step: 'credentials' });
+    // Seed every prop the credentials card's controls read. `submitting: null`
+    // is the load-bearing one and is NOT the same as omitting the key: the
+    // four controls are bound through dotted expressions, and Alpine rewrites
+    // an undefined result to the empty string, which SETS a boolean attribute
+    // rather than removing it. The binds are hardened with !! as well, so this
+    // is the belt to that pair of braces -- it keeps every opener passing the
+    // same shape, which is what the gallery mirrors. `mode` is deliberately
+    // absent: the navbar openers pass it, but _auth.html.erb never reads it,
+    // and this is a re-login rather than a signup.
+    if (modals && modals.open) {
+      modals.open('auth', {
+        step: 'credentials',
+        submitting: null,
+        formError: '',
+        phantomError: '',
+        googleError: ''
+      });
+    }
   } catch (e) {}
   return null;
 }
@@ -214,6 +231,285 @@ export function refreshBalance() {
     .catch(function() {});
 }
 
+// ── THE ON-CHAIN SETTLE SEAM ────────────────────────────────────────────────
+//
+// onchainSettled() is what EVERY web3-transaction-success path calls. It exists
+// because a balance read taken right after a broadcast is a coin flip: the
+// transaction is confirmed, but the RPC has not necessarily caught up, so the
+// read comes back with the PRE-SPEND number. Measured on QA 2026-09-07 — a $75
+// contest creation, a session_refresh fired 828ms after finalize returned, and
+// a navbar that confidently showed the old balance for the next 60 seconds.
+//
+// THE RULE THAT SHAPES THIS: never paint a number we have reason to distrust.
+// Between the spend and the settle the pill holds its LOADING state (operator
+// call 2026-09-07). Ten seconds of "loading" is a worse look and a better
+// answer than ten seconds of a wrong dollar figure.
+//
+// WHY A MARKER AND NOT JUST A TIMER. Some callers navigate — contest creation
+// assigns window.location.href the moment the server answers — and a setTimeout
+// does not survive unload. Scheduling in the caller would be a SILENT no-op on
+// exactly the flows this was built for. So a navigating caller leaves a marker
+// in sessionStorage and the DESTINATION page picks it up (see the layout's
+// hydrateNavbar). A caller that cannot navigate schedules directly.
+//
+// AND A THIRD KIND, which the either/or above could not express: a surface that
+// stays put but MAY be navigated away from — the survivor board, whose success
+// card arms no countdown yet navigates when the user closes it. It takes both
+// paths at once. See onchainSettled for the full shape table.
+var ONCHAIN_SETTLE_KEY = "tm:onchain-settle-until";
+export var ONCHAIN_SETTLE_MS = 10000;
+
+// Writing the marker and retiring it are SEPARATE concerns, because they are no
+// longer done by the same caller at the same moment. A stay-put-but-may-navigate
+// caller writes one for a navigation that might never happen (see onchainSettled),
+// and its own in-page read is what retires it (see settleRead).
+//
+// SO A MARKER IS AN IDENTITY, NOT JUST A DEADLINE IN A KEY. Because the write
+// and the retire are separated in time, a retire can arrive while the slot holds
+// a DIFFERENT spend's marker, and a bare removeItem would delete that one.
+//
+// Two spends in one session is not exotic: spend, close the card (which
+// navigates), spend again on the page you land on. The first spend's read is now
+// deferred onto that second page, and when it lands it would wipe the second
+// spend's marker. The second spend then settles NOWHERE — its in-page timer dies
+// at the next navigation and the destination inherits nothing, so it hydrates
+// normally and paints the PRE-SPEND figure with .hidden cleared, presented as the
+// answer. That is precisely the failure this whole seam exists to refuse, and a
+// key-scoped clear reintroduces it on a surface this fix never meant to touch.
+//
+// STORED AS "<until>:<id>". parseInt stops at the colon, so pendingOnchainSettleMs
+// reads the deadline out of either shape and a marker left by a page loaded
+// before this deploy still hands its window over correctly.
+var _markerSeq = 0;
+
+function markerIdOf(raw) {
+  if (raw == null) return null;
+  var at = String(raw).indexOf(":");
+  return at < 0 ? null : String(raw).slice(at + 1);
+}
+
+// Returns the id of the marker it wrote, or null when it wrote none. Null is the
+// honest answer for a caller that owns no marker, and it is what keeps such a
+// caller from retiring somebody else's.
+function writeOnchainSettleMarker(delay) {
+  var id = String(++_markerSeq) + "-" + Math.random().toString(36).slice(2, 10);
+  try {
+    window.sessionStorage.setItem(ONCHAIN_SETTLE_KEY, String(Date.now() + delay) + ":" + id);
+  } catch (_) { return null; }
+  return id;
+}
+
+// Retire a marker ONLY when the slot still holds the one this settle wrote. A
+// settle that wrote none — the deferred read on a destination page, whose marker
+// was consumed by settleOnLoadIfPending on the way in — retires nothing at all.
+function clearOnchainSettleMarker(id) {
+  if (!id) return;
+  try {
+    if (markerIdOf(window.sessionStorage.getItem(ONCHAIN_SETTLE_KEY)) !== id) return;
+    window.sessionStorage.removeItem(ONCHAIN_SETTLE_KEY);
+  } catch (_) {}
+}
+
+// Put the balance pill back into the server's cache-cold "loading" shape:
+// hidden, with no dollar figure. Mirrors _navbar.html.erb's `hide_balance`
+// branch, so the client's loading state and the server's are the same state.
+// ONE WRITER OWNS THE PILL WHILE A SETTLE IS PENDING (operator call, 2026-09-07).
+//
+// refreshLevelUpToken() polls refreshSession() at +1000/2500/5000/9000ms after a
+// level-up entry, and refreshSession() paints the balance. Inside a settle window
+// those reads are the SAME too-early reads this whole seam exists to refuse —
+// measured at ~7.6s of the pre-spend figure, with .hidden cleared so it reads as
+// authoritative. The poller keeps doing its real job (chasing the entry token);
+// it just does not touch the balance.
+var _settlePending = false;
+export function settlePending() { return _settlePending; }
+
+// What the pill said before we blanked it, so a FAILED settle can put it back
+// rather than leaving the navbar with no balance at all (blocker 3).
+var _pillBeforeLoading = null;
+
+function paintBalanceRestore() {
+  if (_pillBeforeLoading == null) return;
+  try {
+    document.querySelectorAll("[data-balance-display]").forEach(function (el) {
+      el.textContent = _pillBeforeLoading.text;
+      if (_pillBeforeLoading.hidden) el.classList.add("hidden");
+      else el.classList.remove("hidden");
+    });
+  } catch (_) {}
+}
+
+function paintBalanceLoading() {
+  try {
+    var first = document.querySelector("[data-balance-display]");
+    _pillBeforeLoading = first
+      ? { text: first.textContent, hidden: first.classList.contains("hidden") }
+      : null;
+    document.querySelectorAll("[data-balance-display]").forEach(function (el) {
+      el.textContent = "";
+      el.classList.add("hidden");
+    });
+  } catch (_) {}
+}
+
+// RETRY ONCE, THEN RESTORE (operator call, 2026-09-07). A settle read can fail
+// outright, or be REFUSED: lockedFetch hands a contender Promise.resolve(null)
+// rather than sharing the in-flight promise, and 'session' is contended by the
+// level-up poller and both refresh buttons. So the settle takes its OWN key.
+// Without this the pill — already blanked — stays blank for good, which is
+// worse than the stale-but-visible number it replaced.
+var SETTLE_LOCK_KEY = "onchain-settle";
+var SETTLE_RETRY_MS = 3000;
+
+// A 200 whose wallet read FLAKED carries usdc AND usdt null (AccountsController
+// #session_refresh) and refreshSession paints nothing on that shape, so unless
+// it counts as a failure the blanked pill stays blank, unretried, for good.
+function settleRead(markerId) {
+  return refreshSession({ lockKey: SETTLE_LOCK_KEY }).then(function (data) {
+    var landed = (data && (data.usdc != null || data.usdt != null)) ? data : null;
+    // THE READ LANDED, SO THE MARKER IT SERVED HAS DONE ITS JOB — retire THAT one.
+    //
+    // Only a mayNavigate caller holds a markerId here: a navigating caller
+    // schedules no read at all, and a deferred read's marker was consumed by
+    // settleOnLoadIfPending on the way in, so it passes null and retires nothing.
+    // That mayNavigate caller wrote its marker for a navigation that MIGHT
+    // happen. If the user then leaves late — closing the survivor card
+    // navigates, which is the normal way out of it — the destination would
+    // otherwise consume a marker whose window we have already served: blank a
+    // pill that is showing the settled number and hold it blank for another
+    // full window. Retiring the served marker is what stops the two halves
+    // fighting; retiring the KEY would take a later spend's window with it.
+    //
+    // A read that did NOT land deliberately leaves the marker alone. The pill
+    // has been restored to the stale figure by then, so the destination is a
+    // second chance at the settle rather than a double-blank.
+    if (landed) clearOnchainSettleMarker(markerId);
+    return landed;
+  });
+}
+
+function scheduleOnchainSettle(delay, markerId) {
+  paintBalanceLoading();
+  _settlePending = true;
+  if (window.showNavSpinner) window.showNavSpinner();
+
+  function done(resolve) {
+    _settlePending = false;
+    if (window.hideNavSpinner) window.hideNavSpinner();
+    resolve();
+  }
+
+  return new Promise(function (resolve) {
+    setTimeout(function () {
+      // The settle's own read must be allowed to paint, so drop the flag first.
+      _settlePending = false;
+      settleRead(markerId).then(function (data) {
+        if (data) return done(resolve);
+        // Refused or failed. One more try, then put back what was there.
+        // The retry carries the SAME marker id: if a newer spend has taken the
+        // slot in the meantime, this retry must not retire that one either.
+        setTimeout(function () {
+          settleRead(markerId).then(function (retryData) {
+            if (!retryData) paintBalanceRestore();
+            done(resolve);
+          });
+        }, SETTLE_RETRY_MS);
+      });
+    }, delay);
+  });
+}
+
+// THREE SHAPES, because a surface is not simply navigating or not. The middle
+// one is real and was missing, and the cost of not having it was a settle that
+// never fired at all on the survivor board.
+//
+// opts.navigating  — the caller assigns window.location NOW. A setTimeout does
+//                    not survive unload, so leave the marker and schedule
+//                    nothing; the destination page runs the read.
+// opts.mayNavigate — the caller STAYS PUT, but the user may leave at any moment.
+//                    The survivor board is this shape: its success card sets no
+//                    lobbyUrl, so the engine's startCountdown() returns early and
+//                    the card just sits there — yet modal.onClose assigns
+//                    window.location, and closing the card is the normal way out
+//                    of it. Needs BOTH halves: schedule in-page so the pill
+//                    settles for the user who stays, AND leave the marker so the
+//                    settle is not lost for the user who goes. Exactly one of the
+//                    two ever serves the window — settleRead() retires the marker
+//                    THIS call wrote, by id, the moment the in-page read lands.
+//                    By id and not by key, because a later spend may already own
+//                    the slot; see writeOnchainSettleMarker.
+// neither          — a surface with no navigation at all (the faucet). Schedule.
+//
+// opts.delayMs     — override the settle window (default ONCHAIN_SETTLE_MS).
+export function onchainSettled(opts) {
+  opts = opts || {};
+  var delay = (opts.delayMs == null) ? ONCHAIN_SETTLE_MS : opts.delayMs;
+  var markerId = (opts.navigating || opts.mayNavigate) ? writeOnchainSettleMarker(delay) : null;
+  if (opts.navigating) return null;
+  return scheduleOnchainSettle(delay, markerId);
+}
+
+// Consume a marker left by a navigating OR mayNavigate caller. Returns the
+// REMAINING ms when one was pending (never negative), else null. Clears it
+// either way, so a reload cannot re-arm the wait forever — and the caller it
+// hands the window to therefore owns no marker, which is why its settle retires
+// nothing (see clearOnchainSettleMarker).
+export function pendingOnchainSettleMs() {
+  var raw = null;
+  try {
+    raw = window.sessionStorage.getItem(ONCHAIN_SETTLE_KEY);
+    window.sessionStorage.removeItem(ONCHAIN_SETTLE_KEY);
+  } catch (_) { return null; }
+  if (!raw) return null;
+  var until = parseInt(raw, 10);
+  if (!until) return null;
+  return Math.max(0, until - Date.now());
+}
+
+// The load-time decision, as a FUNCTION rather than as glue in the layout.
+//
+// It lives here because the layout's inline script is not reachable by any
+// unit test — three lines of ERB deciding whether to read the chain is exactly
+// where a silent regression hides. Returns true when the caller must NOT do its
+// own load-time read: a spend happened on the page that sent us here, so
+// onchainSettled now owns the pill until it settles.
+// onSettled fires when the window closes, so the caller can release whatever
+// re-entry guard it holds. It MATTERS: hydrateNavbar runs on BOTH
+// DOMContentLoaded and turbo:load, and a defer that does not claim that guard
+// lets the SECOND call sail past and do the early read this exists to prevent —
+// repainting the stale number about a millisecond after we cleared it. Measured
+// in a browser 2026-09-07; both the node unit tests and a hand probe missed it,
+// the probe only because its unstubbed fetch happened to fail.
+export function settleOnLoadIfPending(onSettled) {
+  var pendingMs = pendingOnchainSettleMs();
+  // `== null`, NOT `!pendingMs`. pendingOnchainSettleMs floors its answer at 0,
+  // and zero milliseconds left is still a marker: a spend DID happen on the page
+  // that sent us here. mayNavigate makes that ordinary — the user closes the
+  // card long after the window elapsed — and falling through to the layout's
+  // hydrate is not an equivalent read. That one runs on the contended 'session'
+  // lock (lockedFetch answers a contender with null) and never retries; the
+  // settle takes its own key and retries once.
+  if (pendingMs == null) return false;
+  var pending = onchainSettled({ delayMs: pendingMs });
+  if (pending && typeof onSettled === "function") pending.then(onSettled, onSettled);
+  return true;
+}
+
+// ── THE SEEDS GUARD ─────────────────────────────────────────────────────────
+// refreshSession() repaints the seeds bar, and the entry flow runs a ~3s
+// level-up animation. Converging every success path onto a delayed FULL reload
+// means that reload can land mid-animation and snap the bar back or re-fire the
+// milestone. The animation owns the bar while it plays; the reload skips it.
+var _seedsAnimatingUntil = 0;
+
+export function markSeedsAnimating(ms) {
+  _seedsAnimatingUntil = Date.now() + (ms || 3000);
+}
+
+export function seedsAnimating() {
+  return Date.now() < _seedsAnimatingUntil;
+}
+
 export function refreshBalanceDelayed(ms) {
   var delay = ms || 10000;
   if (window.showNavSpinner) window.showNavSpinner();
@@ -235,8 +531,9 @@ export function refreshBalanceDelayed(ms) {
 // token consume, withdrawal, payout) instead of stitching together
 // refreshBalance + updateNavTokens + seedsNavbar/localStorage by hand.
 // Returns a Promise so callers can chain a spinner around it.
-export function refreshSession() {
-  return lockedFetch('session', '/account/session_refresh', {
+export function refreshSession(opts) {
+  var lockKey = (opts && opts.lockKey) || 'session';
+  return lockedFetch(lockKey, '/account/session_refresh', {
     headers: { 'Accept': 'application/json' }, cache: 'no-store'
   })
     .then(function(r) { return r && r.json(); })
@@ -266,6 +563,11 @@ export function refreshSession() {
       // when both are null preserves the prior pill value instead of
       // showing a false $0. A single-sided null counts as 0 in the sum.
       try {
+        // ONE WRITER: a settle owns the pill until it lands. Everything else
+        // that reaches here inside the window — the level-up poller above all —
+        // is reading too early by construction, and painting it would clear the
+        // loading state and present the pre-spend number as the answer.
+        if (settlePending()) throw new Error("settle pending — balance paint deferred");
         if (data.usdc != null || data.usdt != null) {
           var combined  = (data.usdc != null ? parseFloat(data.usdc) : 0) +
                           (data.usdt != null ? parseFloat(data.usdt) : 0);
@@ -289,7 +591,11 @@ export function refreshSession() {
       // dispatch the same 'navbar-seeds-update' event the entry-confirm
       // flow uses so the bar transitions smoothly to the new value
       // instead of snapping on next reload.
+      // THE GUARD: a level-up animation owns the bar while it plays. A delayed
+      // full reload landing mid-animation would snap the bar back to a value
+      // the animation is still travelling toward, or re-fire the milestone.
       try {
+        if (seedsAnimating()) throw new Error("seeds animating — skip repaint");
         localStorage.setItem('seedsNavbar', JSON.stringify({
           seeds_total: data.seeds,
           level:       data.level,
@@ -482,6 +788,16 @@ export function animateFreeEntryBadge() {
   setTimeout(function() { badge.classList.remove('free-entry-punch'); }, 700);
 }
 
+// Read a layer tier at runtime. canvas-confetti takes zIndex as a NUMBER, so
+// these two bursts kept a bare 9999 after _alpine_factories converted its
+// identical pair — same magic number, one directory the drift scan did not
+// glob. --z-alert is the tier those two now read: above --z-modal, so a
+// celebration fired from an open modal is not hidden by it.
+function zTier(name, fallback) {
+  var v = parseInt(getComputedStyle(document.documentElement).getPropertyValue(name).trim(), 10);
+  return Number.isFinite(v) ? v : fallback;
+}
+
 // Confetti burst that originates from the ✨ Entry badge in the navbar.
 // Used instead of the centered fireSuccessConfetti for token-flow
 // celebrations (mint + entry confirmed) so the streamers shoot out of
@@ -510,10 +826,10 @@ export function fireConfettiFromBadge() {
   // every direction (up, down, sideways), low startVelocity + low
   // gravity keep them clustered around the badge rather than blasting
   // off-screen. Reads like an "out of the ticket" celebration.
-  confetti({ particleCount: 90, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: 9999, startVelocity: 22, gravity: 0.55, ticks: 180, scalar: 0.9 });
+  confetti({ particleCount: 90, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: zTier('--z-alert', 300), startVelocity: 22, gravity: 0.55, ticks: 180, scalar: 0.9 });
   // Smaller follow-up shell, even tighter, for layered texture.
   setTimeout(function() {
-    confetti({ particleCount: 45, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: 9999, startVelocity: 14, gravity: 0.75, ticks: 140, scalar: 0.7 });
+    confetti({ particleCount: 45, angle: 90, spread: 360, origin: origin, colors: colors, zIndex: zTier('--z-alert', 300), startVelocity: 14, gravity: 0.75, ticks: 140, scalar: 0.7 });
   }, 160);
 }
 
@@ -527,6 +843,12 @@ window.solanaNetworkInfo = solanaNetworkInfo;
 window.confirmSolanaNetworkIntent = confirmSolanaNetworkIntent;
 window.refreshBalance = refreshBalance;
 window.refreshBalanceDelayed = refreshBalanceDelayed;
+window.onchainSettled = onchainSettled;
+window.pendingOnchainSettleMs = pendingOnchainSettleMs;
+window.settleOnLoadIfPending = settleOnLoadIfPending;
+window.markSeedsAnimating = markSeedsAnimating;
+window.seedsAnimating = seedsAnimating;
+window.settlePending = settlePending;
 window.refreshSession = refreshSession;
 window.refreshLevelUpToken = refreshLevelUpToken;
 // fireConfettiFromModal was removed (it had no call sites). Its exact radial

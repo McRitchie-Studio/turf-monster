@@ -7,18 +7,34 @@ require "test_helper"
 # app_flags_test.rb (config.x.payment_provider / .stripe_enabled /
 # .paypal_enabled + ENABLE_CDP_RAMP); production is faked with the same
 # Rails.env.stub the webhook controller tests use.
+#
+# COINBASE IS THE EXCEPTION and is tested apart from the others. Its rail opens
+# a MODAL rather than a route, and that modal is registered by the host layout
+# behind cdp_ramp_modal_available?. So it must gate on that same predicate in
+# EVERY environment: the show-everything-locally policy, applied to Coinbase,
+# is a live button whose destination was never registered. The rendered proof
+# is test/views/cdp_ramp_kill_switch_test.rb.
 class OnrampHelperTest < ActionView::TestCase
   include OnrampHelper
 
+  # cdp_ramp_modal_available? reads logged_in?, which reaches the real views as
+  # a controller helper_method. Default it to signed-in so the rail tests below
+  # isolate the flag, and steer it explicitly where the session is the subject.
+  def logged_in? = @logged_in != false
+
   # --- dev/test: every rail visible regardless of backend flags ---
 
-  test "all rails are visible outside production even with every flag off" do
+  # Coinbase is deliberately absent from this list. It used to be here, and that
+  # assertion WAS the defect: it pinned a rail that renders locally while its
+  # modal does not, so every non-production render shipped a dead button and the
+  # whole suite agreed that was correct.
+  test "rails whose destination is a route or a script are visible outside production" do
     with_cdp_ramp(nil) do
       with_coinflow(nil) do
         with_aeropay(nil) do
           swap_provider("none") do
             swap_stripe_enabled(false) do
-              %i[coinbase coinflow aeropay paypal venmo stripe].each do |rail|
+              %i[coinflow aeropay paypal venmo stripe].each do |rail|
                 assert onramp_rail_visible?(rail), "#{rail} should be visible in test env"
               end
             end
@@ -30,11 +46,41 @@ class OnrampHelperTest < ActionView::TestCase
 
   # --- production: each rail gates on its own backend flag ---
 
+  # --- coinbase: the modal's own guard, in every environment ---
+
   test "coinbase is gated on AppFlags.cdp_ramp? in production" do
     in_production do
       with_cdp_ramp("true") { assert onramp_rail_visible?(:coinbase) }
       with_cdp_ramp(nil)    { assert_not onramp_rail_visible?(:coinbase) }
     end
+  end
+
+  test "coinbase is gated on AppFlags.cdp_ramp? OUTSIDE production too" do
+    # The kill-switch has no env exemption, so neither may the rail that opens
+    # the modal it unregisters. Without this, dev and the test suite render a
+    # Coinbase button that swaps to a modal id nothing emitted.
+    with_cdp_ramp("true") { assert onramp_rail_visible?(:coinbase) }
+    with_cdp_ramp(nil)    { assert_not onramp_rail_visible?(:coinbase) }
+  end
+
+  test "coinbase is hidden to a viewer the layout rendered logged out" do
+    # wallet-topup and onramp-hub are registered UNGATED so they survive an
+    # in-session signup; cdp-ramp is registered under logged_in?. With the flag
+    # ON — production today — the rail would otherwise outlive its destination.
+    @logged_in = false
+    with_cdp_ramp("true") do
+      assert_not onramp_rail_visible?(:coinbase)
+      in_production { assert_not onramp_rail_visible?(:coinbase) }
+    end
+  end
+
+  test "cdp_ramp_modal_available? needs BOTH the flag and a session" do
+    with_cdp_ramp("true") { assert cdp_ramp_modal_available? }
+
+    with_cdp_ramp(nil) { assert_not cdp_ramp_modal_available?, "the flag alone gates it" }
+
+    @logged_in = false
+    with_cdp_ramp("true") { assert_not cdp_ramp_modal_available?, "the session alone gates it" }
   end
 
   test "coinflow is gated on AppFlags.coinflow? in production" do

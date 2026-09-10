@@ -171,7 +171,7 @@ heroku config:set --app turf-monster-mainnet \
 # to start production if this is set — see audit H4).
 heroku config:unset SKIP_IDL_VERIFICATION --app turf-monster-mainnet 2>/dev/null
 heroku config:unset SOLANA_SKIP_NETWORK_CHECK --app turf-monster-mainnet 2>/dev/null
-heroku config:unset ENABLE_TEST_SCAFFOLDING --app turf-monster-mainnet 2>/dev/null  # disable $1 micro contests
+heroku config:unset ENABLE_TEST_SCAFFOLDING --app turf-monster-mainnet 2>/dev/null  # disable $1 micro contests + the $5/3-token pack
 ```
 
 - [ ] All vars set. `heroku config --app turf-monster-mainnet | grep SOLANA` matches the table above.
@@ -229,6 +229,9 @@ Do this with a real Phantom wallet on mainnet. Plan to spend ~$5.
 - [ ] **Sign up** with Phantom — UserAccount PDA visible on-chain (`solana account <USER_PDA> --url mainnet-beta`).
 - [ ] **Deposit $5 USDC** — vault USDC PDA balance increases by 5, UserAccount.balance shows 5.
 - [ ] **Enter a $1 micro contest** (if you didn't disable `ENABLE_TEST_SCAFFOLDING`) or a real $19 contest.
+      The `micro` tier is $1.00 entry / 9 entries / $5-$2-$2 payouts. Since 2026-08-27 production BOOTS
+      with the flag on (it logs at ERROR + Sentry rather than crashing), so this rehearsal is reachable
+      on mainnet — but the same flag also sells 3 entry tokens for $5, so unset it when you finish.
 - [ ] **Withdraw $5** — succeeds (under $100 cap). `daily_withdrawn` on-chain = 5_000_000.
 - [ ] **Attempt to withdraw $96 more** — succeeds (cumulative $101 would fail, but $96 makes $101 wait — actually $5 + $96 = $101 so this should FAIL with WithdrawDailyCapExceeded). Confirm the cap fires.
 - [ ] **Pause vault** via the (yet-to-be-built) /admin/vault_state UI or via a one-shot script. Confirm deposit + withdraw return VaultPaused.

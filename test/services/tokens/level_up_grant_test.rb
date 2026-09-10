@@ -1,7 +1,9 @@
 require "test_helper"
 
-# Unit — Tokens::LevelUpGrant is the payout behind the level-up modal's
-# "your Free Entry Token is minting now". What it must get right:
+# Unit — Tokens::LevelUpGrant is the payout behind the level-up modal's Free
+# Entry Token. (This note used to quote the card's "is minting now" sentence;
+# the 2026-09-07 copy polish removed it. The MINT is still asynchronous — only
+# the sentence announcing it is gone.) What it must get right:
 #   - one token per level milestone, lowest level first
 #   - a DETERMINISTIC source_ref, because that is the ONLY thing standing
 #     between a Sidekiq retry and a double-grant

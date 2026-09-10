@@ -85,3 +85,58 @@ window.parseSolanaError = function(msg) {
   // Pass through unrecognized messages (likely our own friendly raise messages)
   return msg;
 };
+
+// Report a wallet failure the user has ALREADY been shown, so it reaches
+// error_logs. Everything on this surface fails client-side — the throw is caught
+// by the modal, mapped by parseSolanaError above, and painted into a paragraph —
+// so without this call nothing about it exists outside the browser. That is why
+// an empty-Phantom user was told to check their USDC balance seven times in one
+// production session on 2026-09-06 before an operator noticed by hand.
+//
+// BOTH HALVES, ALWAYS. `mapped` is what the user read; `raw` is what the wallet
+// said. A wrong mapping is invisible in the mapped half alone — the 2026-09-06
+// incident WAS a correct mapper meeting a string it had never seen — so the pair
+// is the whole diagnostic value of the call.
+//
+// FIRE AND FORGET, BY CONTRACT. This returns undefined, never a promise: there
+// is nothing for a caller to await, so no caller can accidentally block a user
+// on it. Three layers keep a reporting fault off the user's screen —
+//   * try/catch here, for a synchronous throw (no fetch, no CSRF meta, no JSON);
+//   * .catch() on the promise, for a network failure or a 500 (which would
+//     otherwise surface as an unhandled rejection);
+//   * `typeof` guards at every call site, for a page where this never loaded.
+// The response is never read. The server answers 204 whether or not it recorded
+// anything, precisely so there is nothing here worth branching on.
+//
+// PII: the four fields below are the ONLY ones sent, and none of them is a
+// credential. A signature, a nonce and the signed SIWS message are absent by
+// construction, not by filtering — the caller never has them in hand. The server
+// re-checks anyway (Solana::ClientFailureReport), because `raw` is free text a
+// WALLET composed and it can quote our nonce back at us.
+window.reportWalletFailure = function(stage, provider, raw, mapped) {
+  try {
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    var clip = function(value) {
+      return String(value === null || value === undefined ? '' : value).slice(0, 500);
+    };
+    fetch('/auth/solana/report_failure', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        // Accept, so Rails resolves the request format as JSON rather than
+        // falling back to HTML on a bare */* and running the navbar preload.
+        'Accept': 'application/json',
+        'X-CSRF-Token': (meta && meta.content) || ''
+      },
+      // The failure a user reacts to by leaving is the one most worth having.
+      // keepalive lets the POST outlive the page it was fired from.
+      keepalive: true,
+      body: JSON.stringify({
+        stage: clip(stage),
+        provider: clip(provider),
+        raw_message: clip(raw),
+        mapped_message: clip(mapped)
+      })
+    }).catch(function() {});
+  } catch (_e) {}
+};

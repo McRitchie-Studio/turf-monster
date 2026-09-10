@@ -1,0 +1,24 @@
+# Cached headshot variants for the `passer` athlete only. Every other athlete
+# fixture deliberately has none, so the card's initials fallback is exercised
+# by default rather than only in a hand-built case.
+#
+# The polymorphic `owner:` shorthand works because test_helper registers
+# `set_fixture_class image_caches: ImageCache` — the loader cannot infer an
+# engine class from a host-app table name on its own.
+passer_headshot_100:
+  owner: passer (Athlete)
+  purpose: headshot
+  variant: "100"
+  s3_key: headshots/nfl/team-a/pat-passer/100.png
+  source_url: https://a.espncdn.com/i/headshots/nfl/players/full/1000001.png
+  content_type: image/png
+  bytes: 4096
+
+passer_headshot_400:
+  owner: passer (Athlete)
+  purpose: headshot
+  variant: "400"
+  s3_key: headshots/nfl/team-a/pat-passer/400.png
+  source_url: https://a.espncdn.com/i/headshots/nfl/players/full/1000001.png
+  content_type: image/png
+  bytes: 16384
