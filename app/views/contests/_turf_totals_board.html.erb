@@ -154,6 +154,18 @@
 </script>
 
 <script>
+// The contest_entry intent and its two handlers MOVED to
+// shared/_contest_entry_intent, rendered from layouts/application.
+//
+// THEY CANNOT LIVE HERE. This partial renders only from contests/show and
+// contests/world_cup. The wallet returns to /auth/phantom/callback, which renders
+// studio-engine's view — this app has no local override — so on the return leg the
+// registry existed and the handler map was EMPTY. walletOps.resume() consumed the
+// journal at take() BEFORE the signTransaction hop called requireHandler, so the
+// throw came with nothing left to retry: the user approved in Phantom, came back,
+// and the entry was gone. Found in review of PR 632; the tests missed it because
+// they re-injected this registration into the simulated callback world.
+
 // selectionBoard — MUST be inline because Alpine processes x-data before importmap modules load.
 // Reads config from #board-config JSON element above.
 window.selectionBoard = function() {
@@ -1616,8 +1628,6 @@ window.selectionBoard = function() {
       // web3 = a Phantom-authenticated session — sign the entry directly.
       // web2 = managed wallet — POST /enter (server consumes an entry token).
       var useOnchainFlow = sess.isWeb3 && this.contestOnchain;
-      var preparedPtxSlug = null;
-      var awaitingWalletSignature = false;
 
       this.setHoldLoading();
       this.submitting = true;
@@ -1633,110 +1643,95 @@ window.selectionBoard = function() {
       try {
         if (useOnchainFlow) {
           var provider = window.walletProvider.requireProvider();
-          Alpine.store('solanaModal').show('Preparing Transaction', 'Building onchain transaction...');
+          var isRedirect = provider.transport === 'redirect';
 
-          var resp = await provider.connect();
-          var pubkeyB58 = resp.publicKey.toBase58();
-
-          if (sess.address && pubkeyB58 !== sess.address) {
-            throw new Error('Wrong wallet connected. Switch to ' + sess.address.substring(0, 8) + '..., or reconnect your wallet on the Account page.');
-          }
-
-          // Single-signature flow: the actual on-chain TX (signTransaction
-          // below) IS the wallet-ownership proof — Anchor rejects any
-          // enter_contest_direct whose signer doesn't match the entry PDA's
-          // owner. The previous SIWS signMessage step was defense-in-depth
-          // that doubled the signing prompts without strengthening on-chain
-          // integrity (current_user comes from the session cookie set at
-          // login via the same SIWS flow). Removed 2026-05-24.
-
-          // Currency pick (2026-06-10): USDC when it covers the fee, else USDT
-          // on accepts-USDT contests. Decided once here so the prepare POST,
-          // the Phantom prompt copy, and the user's mental model all agree.
-          var entryCurrency = this.entryCurrency();
-
-          // prepare_entry is just-in-time: the server rebuilds the UNSIGNED entry
-          // TX (build_enter_contest → build_partial_unsigned) which RE-FETCHES
-          // get_latest_blockhash AND prepends the ComputeBudget priority-fee +
-          // CU-limit ixs. We call it immediately before signing so the blockhash
-          // is maximally fresh (mirrors create's rebuild_create_tx).
-          console.log('[contest-entry] POST prepare_entry (fresh blockhash + priority fee), currency=' + entryCurrency);
-          var prepareResp = await window.authedFetch('/contests/' + this.contestId + '/prepare_entry', {
-            method: 'POST',
-            headers: { 'X-CSRF-Token': this.csrfToken, 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify({ currency: entryCurrency })
-          });
-          if (!prepareResp) return; // 401 — authedFetch surfaced the login modal
-          var prepareData = await prepareResp.json();
-          console.log('[contest-entry] prepare_entry response:', { success: prepareData.success, error: prepareData.error, entry_pda: prepareData.entry_pda, ptx_slug: prepareData.ptx_slug, serialized_tx_len: prepareData.serialized_tx ? prepareData.serialized_tx.length : null });
-          var ptxSlug = prepareData.ptx_slug;
-          if (!prepareData.success) {
-            if (this._handleBlockerResponse(prepareData)) return;
-            throw new Error(prepareData.error || 'Failed to prepare entry');
-          }
-          preparedPtxSlug = ptxSlug;
-
-          // Surface WHAT this entry spends (small label — the modal copy is the
-          // natural spot; no redesign). A token-funded entry spends no currency
-          // at all: the server built enter_contest_with_token, and naming a USDC
-          // transfer here would contradict the "Hold for Free Entry" button the
-          // user just held. token_funded is the SERVER's own decision, echoed
-          // back by prepare_entry for exactly this copy.
-          Alpine.store('solanaModal').show('Sign Transaction', prepareData.token_funded
-            ? 'Approve your free entry in your wallet...'
-            : 'Approve the ' + entryCurrency.toUpperCase() + ' transfer in your wallet...');
-          var txBytes = Uint8Array.from(atob(prepareData.serialized_tx), function(c) { return c.charCodeAt(0); });
-          var tx = solanaWeb3.Transaction.from(txBytes);
-          try {
-            var progIds = tx.instructions.map(function(ix) { return ix.programId.toBase58(); });
-            console.log('[contest-entry] deserialized TX:', {
-              recentBlockhash: tx.recentBlockhash,
-              instructionCount: tx.instructions.length,
-              programIds: progIds,
-              hasComputeBudgetPrice: progIds.indexOf('ComputeBudget111111111111111111111111111111') !== -1
-            });
-          } catch (logErr) { console.warn('[contest-entry] TX inspection failed (non-fatal):', logErr); }
-
-          // Phantom-FIRST signing order (2026-06-05): Phantom signs the
-          // FULLY-UNSIGNED tx FIRST (both admin + user slots empty). This clears
-          // Phantom's multi-signer-order "could be malicious" Lighthouse banner
-          // that fired when the server pre-signed and Phantom signed second.
+          // === ONE CALL SITE, BOTH TRANSPORTS ==========================
           //
-          // We DO NOT broadcast/simulate/poll client-side anymore. We hand the
-          // Phantom-signed wire bytes (requireAllSignatures:false → admin slot
-          // still empty) to the server, which cosigns with the admin keypair
-          // (Transaction.cosign_wire), runs a simulateTransaction pre-flight,
-          // broadcasts, waits for confirmation, then verifies + activates.
-          awaitingWalletSignature = true;
-          var signedTx = await provider.signTransaction(tx);
-          awaitingWalletSignature = false;
-          // requireAllSignatures:false — the admin slot is intentionally still
-          // empty; the server fills it. verifySignatures:false — the tx isn't
-          // fully signed yet, so don't let web3.js reject it on serialize.
-          var signedBytes = signedTx.serialize({ requireAllSignatures: false, verifySignatures: false });
-          console.log('[contest-entry] signed by Phantom (admin slot empty); raw byte length:', signedBytes.length);
+          // WHAT USED TO BE HERE, and its absence is the point. This branch
+          // carried a SECOND, hand-rolled copy of the entry flow for injected
+          // wallets — prepare POST, atob, Transaction.from, signTransaction,
+          // serialize, chunked btoa, confirm POST — beside the walletOps.run the
+          // mobile branch already used. Only the desktop copy was ever exercised
+          // on a laptop, which is exactly the rot walletOps exists to prevent.
+          //
+          // solana-studio 0.9.2 closed the three gaps that blocked the merge
+          // (/tasks/walletops-blocks-inline-unification): the transaction codec
+          // moved to the PROVIDER (INLINE_TX_CODEC in app/javascript/
+          // wallet_provider.js), so both transports are handed identical base58
+          // wire bytes; the wrong-wallet check became a DECLARED expectedAccount
+          // rather than a comparison only this branch could run; and the intent
+          // now declares signOnly, which a co-signed entry requires.
+          //
+          // THE FLOW ITSELF IS NOT HERE. It is registered BY NAME at page load in
+          // shared/_contest_entry_intent, because a closure cannot survive the
+          // page death the redirect transport runs through. What is left below is
+          // only the chrome the two transports do not share: what the modal says,
+          // and what to do when the hop that should destroy this page does not.
+          var board = this;
+          var left = false;
+          var onPageHide = function () { left = true; };
+          if (isRedirect) {
+            Alpine.store('solanaModal').show('Opening Your Wallet', 'Handing this entry to your wallet app…');
 
-          var sb = '';
-          var sChunk = 0x8000;
-          for (var bi = 0; bi < signedBytes.length; bi += sChunk) {
-            sb += String.fromCharCode.apply(null, signedBytes.subarray(bi, bi + sChunk));
+            // WHEN THE HOP NEVER HAPPENS. run() ends by handing the OS a
+            // universal link, and "nothing after this executes" is only true
+            // when the OS honours it. If Phantom is not installed, or the user
+            // dismisses the app-switch prompt, this document stays alive — and
+            // before this guard it stayed alive holding a modal with no
+            // resolution and hold buttons that never came back, so the entry
+            // could not even be retried without a reload. Raised in review of
+            // PR 632.
+            //
+            // pagehide is the signal, not a timer alone: it fires when the hop
+            // DOES take, so its absence after the handoff is what tells us we
+            // are still here. The delay only has to outlast the OS prompt.
+            window.addEventListener('pagehide', onPageHide, { once: true });
+          } else {
+            Alpine.store('solanaModal').show('Preparing Transaction', 'Building onchain transaction...');
           }
-          var signedB64 = btoa(sb);
 
-          Alpine.store('solanaModal').show('Confirming Onchain', 'Cosigning and submitting to Solana...');
-          var confirmResp = await window.authedFetch('/contests/' + this.contestId + '/confirm_onchain_entry', {
-            method: 'POST',
-            headers: { 'X-CSRF-Token': this.csrfToken, 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify({ signed_tx: signedB64, entry_id: prepareData.entry_id, entry_pda: prepareData.entry_pda, ptx_slug: ptxSlug })
+          // EXPECTED ACCOUNT IS UX, NOT SECURITY, and saying so plainly matters
+          // because the opposite claim is easy to make. The transaction itself is
+          // the ownership proof — Anchor rejects any enter_contest_direct whose
+          // signer does not match the entry PDA's owner, with or without this.
+          // What DECLARING it buys is a sentence the user can act on instead of a
+          // program error, and, on the inline transport, a prepared-transaction
+          // row that is never minted for the wrong wallet, because walletOps
+          // connects before it prepares there. It replaces a hand-rolled
+          // publicKey comparison that could only ever run on the desktop branch.
+          var confirmData = await window.SolanaStudio.walletOps.run('contest_entry', {
+            contestId: this.contestId,
+            csrfToken: this.csrfToken,
+            currency: this.entryCurrency()
+          }, {
+            provider: provider,
+            expectedAccount: sess.address || null,
+            appUrl: window.location.origin,
+            redirectLink: window.location.origin + '/auth/phantom/callback',
+            cluster: document.body.dataset.solanaCluster
           });
-          if (!confirmResp) return; // 401 — authedFetch surfaced the login modal
-          var confirmData = await confirmResp.json();
-          if (!confirmData.success) {
-            if (this._handleBlockerResponse(confirmData)) return;
-            throw new Error(confirmData.error || 'Failed to confirm entry');
+
+          if (isRedirect) {
+            setTimeout(function () {
+              window.removeEventListener('pagehide', onPageHide);
+              // document.hidden covers the iOS case where the app switch is in
+              // flight but pagehide has not fired yet — leaving then is correct.
+              if (left || document.hidden) return;
+              board.submitting = false;
+              board.resetHoldButtons();
+              var sm = Alpine.store('solanaModal');
+              if (sm.visible) {
+                sm.error('Your wallet app did not open. Make sure Phantom is installed on this ' +
+                         'device, then try again.', 'Wallet Did Not Open');
+              }
+            }, 2500);
+            return;
           }
+
+          // THE RETURN LEG, INLINE ONLY. On the redirect transport complete()
+          // finishes on the callback document, which has no board component to
+          // paint — the engine's callback view owns the outcome there.
           var txSig = confirmData.tx_signature;
-          console.log('[contest-entry] server cosigned + confirmed on-chain:', txSig);
           this.setHoldSuccess();
           // Spend mirror — the token this entry consumed is GONE. See
           // mirrorTokenSpend(); nothing else on this path lowers the count.
@@ -1904,8 +1899,19 @@ window.selectionBoard = function() {
         // Retire that record before offering a user-initiated retry so the next
         // attempt gets a fresh blockhash and a fresh Phantom request. Never use
         // this path after signing; those attempts belong to on-chain recovery.
-        var retryableUnsignedRequest = useOnchainFlow && awaitingWalletSignature && preparedPtxSlug;
-        awaitingWalletSignature = false;
+        //
+        // WHY THIS READS A LEDGER INSTEAD OF TWO LOCALS. prepare_entry is what
+        // MINTS the PreparedTransaction, and prepare now runs inside the intent
+        // handler, where these locals cannot reach — walletOps does not carry
+        // `prepared` out on a rejected signing hop, so the slug is not on the
+        // error either. The intent records the outstanding row when it mints one
+        // and clears it the moment complete() begins, which is precisely the
+        // window the two locals used to describe: bytes minted, nothing signed.
+        // See window.tmOutstandingEntryPrepare in shared/_contest_entry_intent.
+        var outstandingPrepare = window.tmOutstandingEntryPrepare || null;
+        window.tmOutstandingEntryPrepare = null;
+        var preparedPtxSlug = outstandingPrepare && outstandingPrepare.ptxSlug;
+        var retryableUnsignedRequest = useOnchainFlow && !!preparedPtxSlug;
 
         if (retryableUnsignedRequest) {
           try {
@@ -1925,9 +1931,42 @@ window.selectionBoard = function() {
           }
         }
 
+        // BLOCKERS MUST STILL BE BLOCKERS ON THE REDIRECT PATH. The inline path
+        // routes a failed prepare through _handleBlockerResponse, so funds-needed,
+        // age, first-name and wallet-setup each open their own panel. The redirect
+        // path prepares inside the intent handler, where that method is out of
+        // reach — so the handler attaches the server payload to the Error and this
+        // is where it rejoins the inline path. Without it every one of those
+        // blockers collapsed to a raw string on a phone. Raised in review of PR 632.
+        if (err && err.blockerData && this._handleBlockerResponse(err.blockerData)) {
+          this.resetHoldButtons();
+          this.submitting = false;
+          return;
+        }
+
         var msg = retryableUnsignedRequest
           ? 'The wallet signature was not completed. Your entry token is still available.'
           : parseSolanaError(err.message || 'Failed to sign entry');
+
+        // THE SECOND WAY OUT, which the gem cannot know about. walletOps names
+        // BOTH wallets — more than the hand-rolled check it replaced did — but
+        // "switch accounts in your wallet" is only one of the two remedies, and
+        // it is the wrong one for a user whose LINKED address is the stale side.
+        // The check is the gem's; where this app relinks is this app's, so the
+        // sentence the old copy offered is kept rather than quietly dropped.
+        if (err && err.wrongAccount) {
+          msg = msg + ' Or reconnect your wallet on the Account page.';
+        }
+
+        // THE SILENT-FAILURE HOLE THIS FLOW FELL INTO. Every sign-in path reports
+        // a wallet failure; this one reported none, which is the whole reason the
+        // original mobile crash produced no ErrorLog row, no Sentry event, and no
+        // alert — it was found by a user, twice. dbg() is a no-op in production, so
+        // console logging above is not a substitute. Fire-and-forget by design:
+        // reportWalletFailure never throws and its response is never read.
+        if (typeof window.reportWalletFailure === 'function' && !(err && err.walletFailureReported)) {
+          window.reportWalletFailure('contest_entry', 'Phantom', err && err.message, msg);
+        }
         if (Alpine.store('solanaModal').visible) {
           var solanaModal = Alpine.store('solanaModal');
           solanaModal.error(msg, retryableUnsignedRequest ? 'Signature Not Completed' : null);

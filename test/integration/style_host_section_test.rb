@@ -81,8 +81,34 @@ class StyleHostSectionTest < ActionDispatch::IntegrationTest
     # READS NO PROPS AT ALL: its endpoint is server-rendered into the x-data
     # from newsletter_unsubscribe_path, and its one production opener calls
     # open with an id and no second argument.
-    "unsubscribe-confirm"  => []
+    "unsubscribe-confirm"  => [],
+
+    # ─── batch 3, the heavy five (2026-09-09) ────────────────────────────────
+    # auth is carded TWICE — the credentials face and the funding face — because
+    # props.step drives eight faces from one id. This is the UNION of what both
+    # triggers pass, which is what the markup half compares against.
+    "auth"             => %w[step submitting],
+    "onramp-hub"       => %w[returnModal],
+    # NO PROPS. An earlier draft passed returnModal, which NOTHING reads: the
+    # card writes it as a literal when it swaps to the hub and never
+    # dereferences one. Half (b) below missed it because the string
+    # "props.returnModal" appears in an ERB COMMENT in that partial — a comment
+    # saying the prop is written elsewhere and not read here. The guard was
+    # satisfied by prose DENYING the thing it asserts, which is why (b) now
+    # strips comments before it looks.
+    "wallet-topup"     => []
   }.freeze
+
+  # Ids carded MORE THAN ONCE, and how many EXTRA cards each contributes beyond
+  # its first. Not a loophole — a second card must earn it by showing a face the
+  # first cannot reach with the same trigger.
+  EXTRA_FACES = { "auth" => 1 }.freeze
+
+  # Cards driven through the LEGACY PROXY rather than by opening an id with a
+  # props hash. modals/_onchain_tx reads zero props — every field comes off
+  # $store.solanaModal — so opening it with a props hash paints an EMPTY card.
+  # It has no TRIGGERS entry because there are no props to declare.
+  PROXY_DRIVEN = { "onchain-tx" => "Alpine.store('solanaModal').show(" }.freeze
 
   # One card's hidden reference prose, as style/_modal_specimen renders it.
   REFERENCE_SPAN = %r{<span x-ref="ref" class="hidden">.*?</span>}m
@@ -231,16 +257,31 @@ class StyleHostSectionTest < ActionDispatch::IntegrationTest
     # are only jointly suppressing — `disabled: true` WITH `openable: true`
     # renders a trigger again, which is the gem's documented preview case and
     # which no card in this section uses (cdp-ramp passes them as exact
-    # opposites of one predicate). The assert message below already said
-    # "disabled"; this is the sentence above it catching up.
+    # opposites of one predicate).
     #
     # style/_modal_specimen prints exactly one hidden reference span per card,
     # gated on nothing, so counting those counts cards whether or not they are
     # clickable.
-    assert_equal TRIGGERS.size, decoded_section(@body).scan(REFERENCE_SPAN).size,
+    #
+    # ONE CARD PER DECLARED ID WAS THE ASSUMPTION, and batch 3 broke it honestly
+    # in two ways, so the expected count is DERIVED rather than equal to
+    # TRIGGERS.size:
+    #   EXTRA_FACES — one id may be carded more than once when props select
+    #     genuinely different faces of it. `auth` is carded twice, credentials
+    #     and funding, because props.step drives eight faces from one id and the
+    #     funding face is chosen by a SERVER helper no prop can reach.
+    #   PROXY_DRIVEN — a card may render no `$store.modals.open` trigger at all.
+    #     onchain-tx reads zero props and is driven through $store.solanaModal,
+    #     so it has no id in TRIGGERS to be counted by.
+    # Both are declared above, so an UNdeclared extra card still lands here.
+    expected_cards = TRIGGERS.size + EXTRA_FACES.values.sum + PROXY_DRIVEN.size
+
+    assert_equal expected_cards, decoded_section(@body).scan(REFERENCE_SPAN).size,
                  "the section renders a different number of specimen cards than the " \
-                 "#{TRIGGERS.size} this test declares — half (a) above sees only cards that " \
-                 "render a trigger, so a disabled card added here is caught by this half alone"
+                 "#{expected_cards} this test declares (#{TRIGGERS.size} ids + " \
+                 "#{EXTRA_FACES.values.sum} extra face(s) + #{PROXY_DRIVEN.size} proxy-driven) — " \
+                 "half (a) above sees only cards that render a trigger, so a disabled card added " \
+                 "here is caught by this half alone"
   end
 
   test "no trigger drives the gem's page-scoped store" do
@@ -293,7 +334,15 @@ class StyleHostSectionTest < ActionDispatch::IntegrationTest
       # the page does.
       keys.each do |key|
         sources = PROP_SOURCES.map { |f| Rails.root.join(f.include?("%s") ? format(f, id.tr("-", "_")) : f) }
-        found   = sources.any? { |f| File.exist?(f) && File.read(f).include?("props.#{key}") }
+        found   = sources.any? do |f|
+          next false unless File.exist?(f)
+
+          # COMMENTS STRIPPED FIRST. A prop named only in prose is not read by
+          # anything, and _wallet_topup's header names props.returnModal purely
+          # to say it is NOT dereferenced there — which satisfied this guard
+          # while the trigger passed a prop nothing consumed.
+          File.read(f).gsub(/<%#.*?%>/m, "").include?("props.#{key}")
+        end
 
         assert found,
                "#{id} is opened with #{key}, but props.#{key} is read in none of " \
@@ -496,8 +545,72 @@ class StyleHostSectionTest < ActionDispatch::IntegrationTest
   # `seeds_earned` that reads as specimen drift while the markup is right. Every
   # prop the section passed before 2026-09-09 was camelCase, so nothing had ever
   # exercised it; modals/_newsletter_success reads props.seeds_earned.
+  # EVERY trigger for an id, unioned — not just the first.
+  #
+  # It read only the first match until 2026-09-09, which left a SECOND card for
+  # an already-declared id passing whatever it liked: measured, adding a bogus
+  # key to the tokens-picker trigger alone left this file green. auth is carded
+  # twice on purpose (credentials and funding faces), so "first trigger wins"
+  # silently exempted half of it. The TRIGGERS comment already called the
+  # declared set a union; this is the code catching up to the comment.
   def rendered_trigger_props(body, id)
-    args = triggerable_section(body)[/\$store\.modals\.open\('#{Regexp.escape(id)}'(?:,\s*\{(.*?)\})?\s*\)/m, 1]
-    args&.scan(/([a-zA-Z_]+):/)&.flatten&.sort
+    triggers = triggerable_section(body)
+               .scan(/\$store\.modals\.open\('#{Regexp.escape(id)}'(?:,\s*\{(.*?)\})?\s*\)/m)
+               .flatten.compact
+    return nil if triggers.empty?
+
+    triggers.flat_map { |args| args.scan(/([a-zA-Z_]+):/).flatten }.uniq.sort
+  end
+
+  test "the proxy-driven card drives the proxy, and is still registered" do
+    # THE TRAP: opening onchain-tx the way every other card is opened renders an
+    # EMPTY card. It reads zero props — message, errorMessage, ctaLabel,
+    # recoveryLabel and the rest all come off $store.solanaModal — so a props
+    # hash reaches nothing. The trigger looks like its neighbours and behaves
+    # nothing like them, which is exactly the kind of thing a reader copies.
+    section = decoded_section(@body)
+
+    PROXY_DRIVEN.each do |id, call|
+      assert_includes section, call,
+                      "#{id} is driven through the legacy proxy — its trigger must call " \
+                      "#{call}…, not $store.modals.open, which would paint an empty card"
+
+      refute_includes section, "$store.modals.open('#{id}'",
+                      "#{id} reads no props; opening it with a props hash renders an empty card"
+
+      # Registration is asserted for it like any other card — the proxy is a
+      # compatibility layer OVER $store.modals, so the id still has to be
+      # registered in turf's own layout host or the real host paints nothing.
+      refute_empty app_registration_sources(@body, id),
+                   "#{id} is triggered from the host section but turf's layout registers no " \
+                   "such modal — the host would open an EMPTY panel"
+    end
+  end
+
+  test "no card traps the page — every triggered card can be closed" do
+    # THE CLASS THIS GUARDS, and it shipped once. The on-chain card is opened
+    # through solanaModal.show(), which pins props.dismissible=false; the gem
+    # host gates BOTH escape and backdrop-click on that flag, and the processing
+    # arm renders no close control of its own. In the app that is right — an
+    # accidental click must not orphan a signed-but-unconfirmed transaction, and
+    # every production show() is followed by success() or error(), each of which
+    # flips the flag back. A SPECIMEN has nothing following it, so the card
+    # became the repo's first orphan show() and only a page reload escaped it.
+    #
+    # Asserted at the TRIGGER, because that is the only place a specimen can fix
+    # it: a trigger that pins dismissible false must re-arm it in the same
+    # expression. Written for the class rather than for onchain-tx, since the
+    # next proxy-driven card will reach for the same show().
+    section = decoded_section(@body)
+
+    section.scan(/@click="([^"]*solanaModal[^"]*)"/).flatten.each do |trigger|
+      next unless trigger.include?(".show(")
+
+      assert_match(/dismissible\s*=\s*true/, trigger,
+                   "a specimen opening the on-chain card with solanaModal.show() must re-arm " \
+                   "dismissible in the same trigger — show() pins it false, the processing arm " \
+                   "has no close control, and nothing follows a specimen to flip it back, so " \
+                   "the card traps the page until reload. Trigger was: #{trigger}")
+    end
   end
 end

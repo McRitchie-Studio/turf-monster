@@ -36,9 +36,28 @@ require "test_helper"
 # { step: 'credentials' }, `:disabled="props.submitting"` yielded button.disabled
 # true and attribute disabled="disabled", while `:disabled="!!props.submitting"`
 # yielded false. Same for a props value of {}.
+# ONE MORE ASSERTION ARRIVED HERE on 2026-09-09, when
+# test/controllers/auth_credentials_gallery_test.rb was retired with the
+# /admin/modals/preview seam it drove. Three of that file's four tests died with
+# their subject — two asserted the preview page round-tripped a null `submitting`
+# into its config blob, and the third pinned a Ruby mirror of the
+# isCredentialsStep getter that had lost its last reader. The fourth never
+# depended on the preview at all: it reads the two live openers and requires them
+# to agree. It is the call-site half of the pair this file's header describes, so
+# it belongs beside the hardening half rather than in a file named after a
+# showroom that no longer exists.
 class AuthSubmittingCoercionTest < ActiveSupport::TestCase
   AUTH_PARTIAL = "app/views/modals/_auth.html.erb".freeze
   SOLANA_UTILS = "app/javascript/solana_utils.js".freeze
+
+  # The two production openers of the CREDENTIALS card. Whatever these pass is
+  # the shape every other opener owes; reading them rather than restating them
+  # here means a key added to the live payload turns this red instead of quietly
+  # widening the gap.
+  LIVE_CALL_SITES = [
+    "app/views/components/_user_nav.html.erb",
+    "app/views/layouts/_navbar.html.erb"
+  ].freeze
 
   # Comments are page content as far as a naive scan is concerned — the partial
   # DESCRIBES the coercion in prose a few lines above the markup that performs
@@ -82,6 +101,32 @@ class AuthSubmittingCoercionTest < ActiveSupport::TestCase
                     "expected at least the four credential controls (Google, Solana, email " \
                     "field, Email Link) to bind !!props.submitting in #{AUTH_PARTIAL}; found " \
                     "#{coerced.length}"
+  end
+
+  # Keys of the object literal the given file hands to modals.open('auth', {...}).
+  def live_keys(path)
+    payload = Rails.root.join(path).read[/\$store\.modals\.open\('auth',\s*\{([^}]*)\}\)/m, 1]
+    assert payload.present?,
+           "#{path} no longer opens the auth modal with an inline object — this test reads the " \
+           "live prop shape out of it, so it needs retuning alongside that call site"
+    payload.scan(/(\w+)\s*:/).flatten.map(&:to_sym).sort
+  end
+
+  test "both live call sites open the credentials card with the same prop shape" do
+    shapes = LIVE_CALL_SITES.to_h { |path| [path, live_keys(path)] }
+
+    # Calibration, and it is not ceremony: two openers that BOTH stopped passing
+    # `submitting` would agree perfectly with each other while reintroducing the
+    # exact defect this file exists for. The agreement assertion cannot see that;
+    # this can.
+    assert_includes shapes.values.first, :submitting,
+                    "neither live call site passes `submitting` any more — the agreement " \
+                    "assertion below would then be satisfied by two equally broken openers"
+
+    assert_equal shapes.values.first, shapes.values.last,
+                 "the navbar and the user-nav open the same modal with different props " \
+                 "(#{shapes.inspect}). A key one of them omits is a control the other renders " \
+                 "live and this one renders dead."
   end
 
   test "the 401 reopen seeds submitting rather than omitting it" do

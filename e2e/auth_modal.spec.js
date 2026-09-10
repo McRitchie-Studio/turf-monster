@@ -102,7 +102,9 @@ test("Solana button in standalone auth modal opens the wallet chooser @smoke", a
   // toggles it), so this is a computed-visibility assertion. A desktop browser
   // CAN install the extension, so an "Open app" row here would be the
   // duplicate-Phantom bug: two Phantom rows, the top one broken.
-  await expect(dialog.locator('button:has-text("Open app")')).toBeHidden();
+  // Scoped: three wallets carry an "Open app" label on a phone since
+  // solana-studio 0.9.0. On a DESKTOP none of them should be showing.
+  await expect(dialog.getByRole('button', { name: /Phantom/ })).toBeHidden();
 });
 
 // ── The MOBILE Phantom row, which no browser had ever seen ────────────────
@@ -155,11 +157,16 @@ test.describe("the Connect Wallet picker on a phone", () => {
   test("Phantom offers its deep link and drops its install row @smoke", async ({ page }) => {
     const dialog = await openPicker(page);
 
-    // The deep-link row. Always present in the DOM — x-show toggles display — so
-    // toBeVisible() is a COMPUTED check, not "is the string in the response".
-    const deepLink = dialog.locator('button:has-text("Open app")');
+    // The deep-link row, SCOPED TO PHANTOM. It used to be the only "Open app"
+    // button in the modal, so a bare text locator was unambiguous. It no longer
+    // is: solana-studio 0.9.0 gave Solflare and Backpack mobile handoff rows that
+    // carry the same label, and this locator started resolving to three elements
+    // (strict mode violation). That is the picker behaving CORRECTLY — a phone
+    // now has three ways in — so the fix is to name the row this test is about
+    // rather than to loosen the assertion.
+    const deepLink = dialog.getByRole("button", { name: /Phantom/ });
     await expect(deepLink).toBeVisible();
-    await expect(deepLink).toContainText("Phantom");
+    await expect(deepLink).toContainText("Open app");
 
     // And Phantom's install row is gone. This one is a real DOM absence: the
     // install rows are an x-for over missingInstalls, so a filtered wallet has no
@@ -167,10 +174,17 @@ test.describe("the Connect Wallet picker on a phone", () => {
     await expect(dialog.getByRole("link", { name: /Phantom Install/ })).toHaveCount(0);
 
     // THE CONTROL, without which "no Phantom install row" is satisfied by a picker
-    // that painted nothing. We ship no deep link for these two, so a phone must
-    // still be offered their download pages.
-    await expect(dialog.getByRole("link", { name: /Solflare Install/ })).toBeVisible();
-    await expect(dialog.getByRole("link", { name: /Backpack Install/ })).toBeVisible();
+    // that painted nothing. It has been INVERTED on purpose, and the old comment
+    // ("we ship no deep link for these two") was the false claim that
+    // /tasks/fix-wallet-picker-deeplink-claim removed: Solflare and Backpack DO
+    // each ship a deeplink protocol, and a phone was being handed their DESKTOP
+    // EXTENSION download pages — a dead end with no error. They now get handoff
+    // rows into their own in-app browsers, so the download links must be GONE and
+    // the rows must be present.
+    await expect(dialog.getByRole("link", { name: /Solflare Install/ })).toHaveCount(0);
+    await expect(dialog.getByRole("link", { name: /Backpack Install/ })).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: /Solflare/ })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: /Backpack/ })).toBeVisible();
   });
 
   // TAPPING IT, rather than checking the symbol exists. The gem's own partial
@@ -200,7 +214,9 @@ test.describe("the Connect Wallet picker on a phone", () => {
     const declared = await page.evaluate(() => document.body.dataset.solanaCluster);
 
     const handoff = page.waitForRequest((r) => r.url().startsWith("https://phantom.app/ul/v1/signIn"));
-    await dialog.locator('button:has-text("Open app")').click();
+    // SCOPED TO PHANTOM, same reason as the row assertion above: three wallets
+    // now carry an "Open app" label, so a bare text locator is ambiguous.
+    await dialog.getByRole('button', { name: /Phantom/ }).click();
     const params = new URL((await handoff).url()).searchParams;
 
     // Where Phantom is told to come back to — this app's own callback route,
@@ -239,7 +255,7 @@ test.describe("the Connect Wallet picker on a phone", () => {
     const dialog2 = await openPicker(page);
     await page.evaluate(() => { document.body.dataset.solanaCluster = "mainnet-beta"; });
     const handoff2 = page.waitForRequest((r) => r.url().startsWith("https://phantom.app/ul/v1/signIn"));
-    await dialog2.locator('button:has-text("Open app")').click();
+    await dialog2.getByRole('button', { name: /Phantom/ }).click();
     expect(new URL((await handoff2).url()).searchParams.get("cluster")).toBe("mainnet-beta");
   });
 });

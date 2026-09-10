@@ -1,35 +1,10 @@
 class AdminController < ApplicationController
   before_action :require_admin, except: [:usdc_balance]
 
-
-
   def navbar
   end
 
   def level_badges
-  end
-
-
-  # SURVIVES ITS GALLERY, deliberately. /admin/modals was retired 2026-09-08 —
-  # turf cards its own modals on /admin/style#host-modals now, against the real
-  # partials. This action and layouts/modal_preview are kept ONLY as a render
-  # seam for the test files that drive them and never touched the gallery
-  # page. Nothing links here; it is not a review surface, and layouts/
-  # modal_preview keeps a SECOND registration list which has drifted before
-  # (it is why six gallery cards rendered empty for months). Retiring it is
-  # /tasks/retire-the-preview-harness.
-  def modal_preview
-    @modal_id    = params[:modal_id].to_s
-    @modal_props = params[:props].present? ? (JSON.parse(params[:props]) rescue {}) : {}
-    render layout: "modal_preview"
-  end
-
-  # Legacy preview route from when the avatar cropper had its own
-  # bespoke z-[110] overlay. Now that the cropper goes through the
-  # shared modal host, this route is unused — keep it pointing at the
-  # same minimal layout for back-compat with any bookmarked URL.
-  def modal_preview_crop
-    render layout: "modal_preview"
   end
 
   def hub
