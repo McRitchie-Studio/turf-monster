@@ -161,7 +161,7 @@ Phantom must be installed in the browser or available via mobile deep link.
        admins (`:586`) and, under `AppFlags.web3_only_onboarding?`, for everyone
        (`:580`). The key material itself is read a layer down, in
        `Solana::Keypair.current_encryptor`
-       (`app/services/solana/keypair.rb:117-122`).
+       (`app/services/solana/keypair.rb:214-216`).
      - `after_commit :enqueue_onchain_account_setup`
        (`app/models/user.rb:127`) →
        `CreateOnchainUserAccountJob.perform_later` (`:793-795`). Async — the

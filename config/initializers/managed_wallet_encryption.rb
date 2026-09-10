@@ -6,6 +6,12 @@
 # Dev / test / CI fall back to secret_key_base run through the same KDF — a
 # proper 256-bit key, just not rotation-isolated. Production must use a
 # dedicated key so secret_key_base can be rotated independently.
+#
+# Rotating THIS key needs MANAGED_WALLET_ENCRYPTION_KEY_PREVIOUS (decrypt-only)
+# for the length of the migration — see docs/SOLANA.md "Rotating the
+# managed-wallet key". Deliberately NOT validated here: a boot guard that
+# judged the previous key's format would take production down over a value that
+# only has to open old rows, and the rotation task already proves that it does.
 if Rails.env.production? && ENV["MANAGED_WALLET_ENCRYPTION_KEY"].blank?
   raise <<~MSG
     MANAGED_WALLET_ENCRYPTION_KEY required in production (OPSEC-015).
