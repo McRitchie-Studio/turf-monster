@@ -381,8 +381,14 @@
       (icon_emoji_key reads props.icon) + cta_redirect for the drain-
       and-go button. The board's setInterval + props.countdown loop
       is retired — cta_redirect owns the timer end-to-end and reads
-      props.url at fire time so the CTA respects late-bound URLs +
-      the null-bypass (gallery preview). %>
+      props.url at fire time, so the CTA respects a late-bound URL and
+      the NULL BYPASS: on a null url the drain still plays, the timer
+      fires a no-op, and a click closes the card instead of navigating.
+      showRedirectModal in contests/_turf_totals_board is the only opener
+      of this step and documents null as the way to ask for that; its one
+      caller passes a real path, so nothing in the app reaches the bypass
+      at head. The /admin/modals preview was what used to, and it was
+      retired on 2026-09-09. %>
   <template x-if="props.step === 'redirect'">
     <div>
       <%= render 'studio/modals/blocks/card_header',

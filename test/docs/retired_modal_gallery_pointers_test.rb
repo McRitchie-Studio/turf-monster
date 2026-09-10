@@ -3,7 +3,7 @@
 require "test_helper"
 
 # [component] The successor to modal_deprecation_list_agreement_test, which was
-# deleted with /admin/modals on 2026-09-08.
+# deleted with /admin/modals on 2026-09-09.
 #
 # WHAT THE DELETED TEST DID, AND WHY IT IS OWED A REPLACEMENT. AUTH.md carries
 # the last surviving copy of the uncarded-modal deprecation list — the five ids
@@ -21,7 +21,7 @@ require "test_helper"
 # table row together is green there and leaves AUTH.md quietly lying.
 #
 # WHY THE FIVE IDS ARE A CONSTANT HERE rather than parsed out of the prose. The
-# list is now a HISTORICAL RECORD — it closed on 2026-09-08 and cannot gain a
+# list is now a HISTORICAL RECORD — it closed on 2026-09-09 and cannot gain a
 # name. A constant states that directly, survives any rewording of the bullet,
 # and cannot silently parse to a short list the way a regex over prose can. The
 # doc-side half below asserts the bullet still NAMES all five, so a rewrite that
@@ -42,7 +42,7 @@ class RetiredModalGalleryPointersTest < ActionDispatch::IntegrationTest
   # Fact-bearing anchor (a state plus its date) rather than a turn of phrase, so
   # the bullet can be rewritten around it. If it ever goes, the floor below
   # fails LOUD with the remedy rather than passing on an empty slice.
-  BULLET_ANCHOR = "RETIRED on 2026-09-08"
+  BULLET_ANCHOR = "RETIRED on 2026-09-09"
 
   # A CAPABILITY-GATED CARD IS STILL A CARD, and this file learned that the hard
   # way: its first run reported cdp-ramp missing from a section that cards it
@@ -118,12 +118,20 @@ class RetiredModalGalleryPointersTest < ActionDispatch::IntegrationTest
                      "Templates cards — every assertion in this file is scoped by that slice, " \
                      "so an unbounded one makes all of them vacuous"
 
-    # (b) Discriminating. wallet-topup has no card anywhere (docs/UI_PATTERNS.md
-    # records why: no opener, no preview registration, no entrance at head).
-    refute_includes section, "$store.modals.open('wallet-topup'",
-                     "wallet-topup gained a card in turf's section — good news, but this control " \
+    # (b) Discriminating. `onboarding` is a LIVE registered id — the chain's
+    # first-name step, mounted in layouts/application — with no card in turf's
+    # section, so the predicate above is asked about a real modal and answers no.
+    #
+    # THIS CONTROL HAS ALREADY DONE ITS JOB ONCE. It pointed at wallet-topup
+    # until 2026-09-09, when 226cd008 carded wallet-topup here (openable: true)
+    # and turned this line red — which is the failure it exists to produce, and
+    # is why the message below tells the next reader to re-point rather than to
+    # delete. Pick another registered-but-uncarded id when that happens again.
+    refute_includes section, "$store.modals.open('onboarding'",
+                     "onboarding gained a card in turf's section — good news, but this control " \
                      "relied on its absence to prove the predicate above can return false. " \
-                     "Re-point it at another uncarded id."
+                     "Re-point it at another id that layouts/application registers and this " \
+                     "section does not card."
   end
 
   # --- what makes the prose's tense correct -----------------------------------
@@ -133,7 +141,7 @@ class RetiredModalGalleryPointersTest < ActionDispatch::IntegrationTest
       refute AdminController.const_defined?(name, false),
              "AdminController::#{name} is defined again. Several comments and both of " \
              "docs/AUTH.md and docs/UI_PATTERNS.md now describe it in the PAST TENSE as " \
-             "retired with /admin/modals on 2026-09-08. Reintroducing it under the old name " \
+             "retired with /admin/modals on 2026-09-09. Reintroducing it under the old name " \
              "makes that prose wrong everywhere at once — rename it, or sweep the prose back."
     end
   end

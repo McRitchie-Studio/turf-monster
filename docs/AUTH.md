@@ -755,7 +755,7 @@ Rules worth knowing:
   recoverable from an address. Those users get the same card with the picker as
   its primary action.
 - **The showroom moved, and then it closed.** `/admin/modals` was DEPRECATED as
-  a destination on 2026-08-21 (operator direction) and RETIRED on 2026-09-08:
+  a destination on 2026-08-21 (operator direction) and RETIRED on 2026-09-09:
   modal primitive work goes to the engine's living style guide at
   `/admin/style#modals`, where a modal is inherited by every Studio app instead
   of being turf's alone. The five ids that held the old page open the longest
@@ -788,7 +788,7 @@ Rules worth knowing:
   port — the engine owns and cards `studio/modals/templates/*` itself) and the
   three remaining blank Quest / Newsletter cards (`free-entry-earned`,
   `newsletter-subscribe`, `newsletter-success`).
-  `cosign-rejected` STAYED to the end, by the FIRST route's opposite: it is
+  `cosign-rejected` STAYED to the end, by the SECOND route's opposite: it is
   registered once in `modals/_host_extras`, which studio-engine's host renders on
   every path, so it genuinely drew a card rather than a blank one. It left by the
   THIRD route with the other four.
@@ -885,14 +885,20 @@ Rules worth knowing:
   verification where the board runs its own resume, is an open design question.
 - **The chain has no showroom, but its pin outlived one.** The ordered
   walk-through lived at `/admin/modals` → **Flows** (`AdminController::MODAL_FLOWS`)
-  until the gallery was retired on 2026-09-08; the section, the route and the
+  until the gallery was retired on 2026-09-09; the section, the route and the
   constant all went with it. The invariant it carried did not.
   `OnboardingFlow::STEPS` is pinned in `test/controllers/onboarding_gallery_test.rb`
   — "the chain driver opens a modal for every step OnboardingFlow resolves" —
   which asserts against the layout's own chain driver rather than against a
   review page, so a new step now strands a user in a red assertion instead of
-  merely going unlisted in a gallery. The individual cards stay reviewable on the
-  living style guide (`/admin/style#host-modals`); the ordered walk is not, and
+  merely going unlisted in a gallery. The individual cards stay reviewable, but
+  not in one place: step 3 (`wallet-setup`) is turf's own and is carded in turf's
+  section at `/admin/style#host-modals`, while steps 1 and 2 are engine cards
+  carded on the engine's section at `/admin/style#modals` — `onboarding-first-name`
+  and `birthday`. Note what that second row does NOT cover: the engine shows the
+  engine's birthday card, and turf's `modals/_birthday` adapter around it (the
+  3-of-3 progress pill plus the jurisdiction locals `BirthdayModalHelper`
+  resolves) is carded nowhere. The ORDERED WALK has no review surface at all, and
   nothing replaced it.
 
 ## Account Management

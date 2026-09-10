@@ -102,8 +102,12 @@ export async function authedFetch(url, opts) {
     // an undefined result to the empty string, which SETS a boolean attribute
     // rather than removing it. The binds are hardened with !! as well, so this
     // is the belt to that pair of braces -- it keeps every opener passing the
-    // same shape, which is what the gallery mirrors. `mode` is deliberately
-    // absent: the navbar openers pass it, but _auth.html.erb never reads it,
+    // same shape. WHAT ENFORCES THAT NOW is
+    // test/views/auth_submitting_coercion_test.rb, which reads this call and
+    // the two navbar openers and requires them to agree. The /admin/modals
+    // gallery used to be the surface that made such drift visible; it was
+    // retired on 2026-09-09 and the discipline outlived it.
+    // `mode` is deliberately absent: the navbar openers pass it, but _auth.html.erb never reads it,
     // and this is a re-login rather than a signup.
     if (modals && modals.open) {
       modals.open('auth', {
