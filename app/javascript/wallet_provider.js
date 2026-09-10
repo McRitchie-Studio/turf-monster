@@ -63,6 +63,53 @@ function normalizeSignInOutput(out) {
 }
 
 
+// --- The inline transport's transaction codec ---
+//
+// WHY THIS LIVES ON THE PROVIDER AND NOT IN A FLOW. walletOps hands every
+// transport the SAME base58 wire bytes, because base58 is the only shape that
+// survives a redirect — a solanaWeb3.Transaction cannot be written to the
+// journal, so it cannot cross a page death. An INJECTED wallet signs a
+// Transaction OBJECT. Something has to convert, and the shape requirement is the
+// PROVIDER'S, not the flow's — the same reason `signTransaction` is answered
+// here rather than branched on at each call site. The gem cannot do it:
+// deserializing base58 needs @solana/web3.js, the ~200KB dependency it refuses
+// to take, so it requires both halves BY NAME before it touches the wallet.
+//
+// ONE IMPLEMENTATION, ATTACHED TO EVERY INLINE PROVIDER. All three below take a
+// Transaction and answer with a Transaction, so they share one codec; a copy per
+// provider or per flow would be the same web3.js lines duplicated, which is the
+// duplication walletOps exists to remove. The redirect provider is the gem's own
+// and needs neither half — it speaks wire bytes natively.
+var INLINE_TX_CODEC = {
+  // Wire bytes → the object an injected wallet will sign.
+  deserializeTransaction: function(wire) {
+    return solanaWeb3.Transaction.from(window.SolanaStudio.walletTransport.base58.decode(wire));
+  },
+
+  // The signed object → wire bytes the server can cosign.
+  //
+  // BOTH FLAGS ARE LOAD-BEARING, and getting them wrong costs a real signature.
+  // Every transaction that reaches this codec today is CO-SIGNED: the server
+  // builds it with the admin signer slot deliberately EMPTY, the wallet fills
+  // only its own, and the server cosigns and broadcasts. requireAllSignatures
+  // false is what lets a partially-signed transaction serialize at all;
+  // verifySignatures false stops web3.js rejecting the very gap the server is
+  // about to fill. A bare serialize() throws AFTER the user has approved, with
+  // signed bytes that nothing can post and nothing to retry from.
+  serializeTransaction: function(signed) {
+    return window.SolanaStudio.walletTransport.base58.encode(
+      signed.serialize({ requireAllSignatures: false, verifySignatures: false })
+    );
+  }
+};
+
+function _withInlineTxCodec(provider) {
+  provider.deserializeTransaction = INLINE_TX_CODEC.deserializeTransaction;
+  provider.serializeTransaction   = INLINE_TX_CODEC.serializeTransaction;
+  return provider;
+}
+
+
 // --- PhantomProvider ---
 // Wraps window.phantom.solana. Delegates all calls to the browser extension.
 var PhantomProvider = {
@@ -235,6 +282,11 @@ var KeypairProvider = {
   }
 };
 
+// The two legacy singletons take the codec here; a Wallet Standard adapter takes
+// it as it is built (_makeWsAdapter). Attached rather than written into each
+// literal so there is exactly one implementation to read and to change.
+[ PhantomProvider, KeypairProvider ].forEach(_withInlineTxCodec);
+
 
 // --- Wallet Standard discovery (the multi-wallet hub) ---
 // Implements the @wallet-standard/app handshake in plain JS — no bundler/npm.
@@ -285,7 +337,7 @@ function _makeWsAdapter(wallet) {
       toString: function() { return acct.address; }
     };
   }
-  return {
+  return _withInlineTxCodec({
     name: wallet.name,
     icon: wallet.icon, // data: URI provided by the wallet — rendered in the hub
     _raw: wallet,
@@ -374,7 +426,7 @@ function _makeWsAdapter(wallet) {
       return (feat && feat.disconnect) ? feat.disconnect() : Promise.resolve();
     },
     get publicKey() { return account ? pubObj(account) : null; }
-  };
+  });
 }
 
 function _wsRegister(wallet) {

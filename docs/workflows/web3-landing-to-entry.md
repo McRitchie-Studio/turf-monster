@@ -69,7 +69,7 @@ Phantom must be installed in the browser or available via mobile deep link.
      holding no entry — unless `show_board_for_existing_entry` opens it back
      up for `?add_entry=true` (`:71`).
    - The board partial mounts `x-data="selectionBoard()"` —
-     `app/views/contests/_turf_totals_board.html.erb:2158`. The factory is
+     `app/views/contests/_turf_totals_board.html.erb:2088`. The factory is
      defined inline as `window.selectionBoard = function()` (`:171`) because
      Alpine processes `x-data` before importmap modules load (see
      `docs/UI_PATTERNS.md` § Alpine + ERB Constraints).
@@ -94,8 +94,8 @@ Phantom must be installed in the browser or available via mobile deep link.
      than trusting its own optimistic mutation
      (`_turf_totals_board.html.erb:741`).
    - At `picks_required` selections the board blurs behind the cart —
-     `blurDismissed` gates the overlay (`:2169-2175`) — and the shared
-     `render 'studio/hold_button'` appears (`:2348`).
+     `blurDismissed` gates the overlay (`:2099-2105`) — and the shared
+     `render 'studio/hold_button'` appears (`:2278`).
 
 4. **Hold-to-Confirm fires.** The shared hold button dispatches the
    `hold-confirm-entry` window event; the board's `init()` listener routes it
@@ -111,24 +111,24 @@ Phantom must be installed in the browser or available via mobile deep link.
    - `Alpine.store('session').isGuest` is the canonical guest pivot, derived
      from `SessionContext#mode` (`studio-engine: app/models/session_context.rb`)
      and hydrated from the `session-context` JSON block on every render
-     (`app/views/layouts/application.html.erb:249`).
+     (`app/views/layouts/application.html.erb:252`).
 
 5. **Sign up via Phantom.** Choosing Solana in that wizard calls
    `openWalletConnect(ageAttested)`
    (`app/views/contests/_turf_totals_board.html.erb:1023-1028`), which swaps in
    solana-studio's wallet picker. The picker runs
-   `window.solanaConnectAndVerify` — `app/views/layouts/application.html.erb:343`.
-   - The nonce is fetched from `/auth/solana/nonce` (`:379`) →
+   `window.solanaConnectAndVerify` — `app/views/layouts/application.html.erb:346`.
+   - The nonce is fetched from `/auth/solana/nonce` (`:382`) →
      `SolanaSessionsController#nonce`
      (`app/controllers/solana_sessions_controller.rb:5-9`).
    - Two signing paths. A wallet that supports SIWS `signIn` is used directly;
      otherwise the message is built locally — domain, pubkey, statement,
      `Nonce:` — and signed with `provider.signMessage`
-     (`app/views/layouts/application.html.erb:547-549`).
+     (`app/views/layouts/application.html.erb:550-552`).
    - The `User-ID` binding that ties a signature to an account (OPSEC-005) rides
-     only on the wallet-LINK path (`opts.linkMode`), not on signup (`:437`).
+     only on the wallet-LINK path (`opts.linkMode`), not on signup (`:440`).
    - The signature is base58-encoded and POSTed to `/auth/solana/verify`
-     (`:727`) as `signatureB58` alongside the message and pubkey (`:809-813`).
+     (`:730`) as `signatureB58` alongside the message and pubkey (`:812-816`).
      An unreadable answer to that POST — an HTML body from a fault of ours,
      which usually arrives as a 302 followed to status 200 rather than a 500;
      see docs/AUTH.md — is

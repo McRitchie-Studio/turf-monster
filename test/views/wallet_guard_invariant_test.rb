@@ -108,8 +108,10 @@ class WalletGuardInvariantTest < ActiveSupport::TestCase
     # caller wants requireInlineProvider(), which refuses a redirect provider
     # with the same device-appropriate message, because a redirect provider has
     # no connect/signTransaction/signMessage and reaching for them reproduces
-    # the original incident one call site over. Three views were converted to
-    # the stricter sibling; NONE was removed, so the floor does not move.
+    # the original incident one call site over. Views were converted to the
+    # stricter sibling; NONE was removed, so this total floor does not move — a
+    # site that LEARNS the redirect transport moves between the two guards, it
+    # does not stop calling one.
     guards = %w[
       walletProvider.requireProvider()
       walletProvider.requireInlineProvider()
@@ -132,9 +134,29 @@ class WalletGuardInvariantTest < ActiveSupport::TestCase
     inline = Dir.glob(VIEWS.join("**/*.erb")).count do |p|
       File.read(p).include?("walletProvider.requireInlineProvider()")
     end
-    assert_operator inline, :>=, 3,
-                    "the three views that cannot drive a redirect provider — the survivor " \
-                    "board, the alpine factories and the wallet export — must ask for an " \
-                    "INLINE provider; found #{inline}."
+
+    # FLOOR LOWERED 3 → 2 ON PURPOSE, 2026-09-09, which is the move this test's
+    # own comment asks for instead of deleting a check.
+    #
+    # shared/_alpine_factories GRADUATED. It held the third slot because
+    # tmUsernameFinalize hand-rolled the on-chain arc for an injected wallet and
+    # could not drive a redirect provider — so refusing one was correct. That
+    # rename now runs through SolanaStudio.walletOps.run (the username_rename
+    # intent in shared/_username_rename_intent), which owns both transports, so
+    # the file forks on provider.transport and requireProvider() is the RIGHT
+    # guard there. It did not stop guarding; it moved to the other guard, and
+    # the >= 6 total above is what holds that.
+    #
+    # THE TWO THAT REMAIN ARE NOT PENDING WORK OF THE SAME KIND. The survivor
+    # board is tracked at /tasks/migrate-remaining-entry-flows. The wallet
+    # export is a DELIBERATE PERMANENT no — it signs a MESSAGE, and walletOps
+    # has no signMessage hop; more to the point the message carries the export
+    # token, which is a bearer credential for the decrypted private key, and the
+    # redirect transport would journal it to localStorage. Reasons in full at
+    # /tasks/wallet-export-mobile-transport and in that view's own comment.
+    # So this floor is expected to reach 1 and then STOP.
+    assert_operator inline, :>=, 2,
+                    "the views that cannot drive a redirect provider — the survivor board " \
+                    "and the wallet export — must ask for an INLINE provider; found #{inline}."
   end
 end

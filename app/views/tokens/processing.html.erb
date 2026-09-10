@@ -7,7 +7,7 @@
     Fallback — if there's no opener (user navigated directly, or the
     opener tab was closed mid-flow), poll /tokens/status here and show
     the standalone success card. %>
-<div class="max-w-md mx-auto mt-12" x-data="tokenProcessing('<%= j @session_id %>', '<%= @contest ? j(contest_path(@contest)) : '' %>', '<%= j @preview_state.to_s %>')" x-init="start()">
+<div class="max-w-md mx-auto mt-12" x-data="tokenProcessing('<%= j @session_id %>', '<%= @contest ? j(contest_path(@contest)) : '' %>')" x-init="start()">
   <div class="card shadow p-8 text-center">
     <%# Loading state — also covers the moment after hand-off, before window.close().
         Renders the SAME shared card_header (spinner + copy) as the in-contest
@@ -68,7 +68,7 @@
 </div>
 
 <script>
-  function tokenProcessing(sessionId, contestUrl, previewState) {
+  function tokenProcessing(sessionId, contestUrl) {
     return {
       ready: false,
       contestUrl: contestUrl,
@@ -80,15 +80,6 @@
       _ticker: null,
 
       start() {
-        // Gallery preview (/admin/modals): force a static state, no
-        // postMessage / polling / window.close. Keeps the preview iframe
-        // from hand-shaking with a non-existent opener or polling forever.
-        if (previewState) {
-          if (previewState === 'ready')   { this.minted = 3; this.balance = 5; this.ready = true; }
-          else if (previewState === 'errored') { this.errored = true; }
-          // 'loading' → leave the default spinner state as-is.
-          return;
-        }
         console.log('[tokens] processing.start sessionId=', sessionId, 'contestUrl=', contestUrl);
         if (!sessionId) {
           console.warn('[tokens] processing.start: no sessionId — flipping to errored state');
