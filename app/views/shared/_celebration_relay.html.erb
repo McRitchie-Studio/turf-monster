@@ -101,6 +101,10 @@
     return rec;
   }
 
+  // THE DOCUMENT THAT STASHED NEVER AUTO-DRAINS. Turbo's first turbo:load waits
+  // for readyState 'complete', so a callback page still loading a subresource
+  // when confirm answers would drain its own stash, then navigate away with it.
+  var stashedHere = false;
   // Write the payload the landing page will need. Answers whether it was
   // actually persisted, so a caller that cares can say so rather than promise a
   // celebration the device cannot deliver.
@@ -109,6 +113,7 @@
     if (!s || !kind || !payload) return false;
     try {
       s.setItem(KEY, JSON.stringify({ kind: String(kind), payload: payload, stashedAt: Date.now() }));
+      stashedHere = true;
       return true;
     } catch (e) {
       // Quota, private mode, or a disabled store. The flow itself has already
@@ -218,7 +223,7 @@
       // ~3s at 50ms. Long enough for a module graph on a cold phone connection,
       // short enough that the card is not visibly late when one never arrives.
       if ((alpineStarted() && fanoutReady()) || attempts++ >= 60) {
-        if (alpineStarted()) drain();
+        if (alpineStarted() && !stashedHere) drain();
         return;
       }
       W.setTimeout(attempt, 50);

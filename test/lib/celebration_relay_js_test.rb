@@ -78,9 +78,10 @@ class CelebrationRelayJsTest < ActiveSupport::TestCase
       // The relay schedules its drain off document events. A bare shim is enough:
       // with no Alpine present the schedule parks on a listener that never fires,
       // so the auto-drain cannot race the assertions below.
+      window.__on = {};
       window.document = {
         readyState: 'complete',
-        addEventListener: function () {}
+        addEventListener: function (n, f) { (window.__on[n] = window.__on[n] || []).push(f); }
       };
       console.warn = function () {};
       #{store_js}
@@ -296,5 +297,19 @@ class CelebrationRelayJsTest < ActiveSupport::TestCase
     assert result["ok"], result["message"]
     assert_nil result["value"]["kind"]
     assert_equal 0, result["value"]["painted"]
+  end
+
+  test "the callback page that stashed leaves the slot to the page it lands on" do
+    result = run_js(<<~JS)
+      var R = window.tmCelebrationRelay, painted = 0;
+      window.Alpine = { version: '3' }; window.StateFanout = { apply: function () {} };
+      R.define('contest_entry', function () { painted++; });
+      R.stash('contest_entry', { tx_signature: 'SIG-7' });
+      window.__on['turbo:load'].forEach(function (f) { f(); });
+      return { painted: painted, stillThere: R.peek('contest_entry') };
+    JS
+    assert result["ok"], result["message"]
+    assert_equal 0, result["value"]["painted"], "a late turbo:load on the dying callback page spent the card"
+    assert_equal({ "tx_signature" => "SIG-7" }, result["value"]["stillThere"])
   end
 end
