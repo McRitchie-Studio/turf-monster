@@ -12,14 +12,21 @@ Casual-agent index. Open a per-workflow file for the dirty details.
 > each. They name symbols throughout and point at none of them, so every claim in those
 > two is unverified prose. Check them against the code before you rely on either.
 >
-> **A citation is not automatically a checked citation.**
-> `test/docs/workflow_citation_docs_test.rb` holds a document to its citations only if
-> that document is listed in its `COVERAGE` — today
-> [web3-landing-to-entry](web3-landing-to-entry.md) and
-> [market-snapshot](market-snapshot.md). Every other cited file here is unguarded — its
-> citations are real coordinates, but no test reads them. And a guarded file is not
-> uniformly guarded either: each one's own preamble states which of its citations get
-> the weaker of the two checks.
+> **Every cited file here is checked — but not to the same depth.**
+> `test/docs/workflow_citation_docs_test.rb` reads EVERY file in this directory and
+> proves three things about every citation in it: the file it names exists, the line it
+> names is inside that file, and the lines it names are not all blank. So a coordinate
+> that points at nothing is now a red test, wherever it is written.
+>
+> The stronger check — that a citation lands on the SYMBOL its prose names, which is what
+> catches a number that merely moved — still runs only on the documents listed in that
+> test's `COVERAGE`: today [web3-landing-to-entry](web3-landing-to-entry.md) and
+> [market-snapshot](market-snapshot.md). Turning it on everywhere is a citation sweep, not
+> a test change: measured 2026-09-09, 265 of the 323 citations in the other four cited
+> files would fail it. Until they are swept, read a number in those four as a real
+> coordinate that has been bounds-checked, not as a verified claim about the code at it.
+> And a `COVERAGE` file is not uniformly guarded either: each one's own preamble states
+> which of its citations get the weaker of the two checks.
 
 ## User journeys
 
