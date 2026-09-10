@@ -25,7 +25,7 @@
     server-rendered scorer: the tile is re-rendered by every broadcast, and a
     card holding the LAST score would flash on screen for one frame each time a
     different game scored. %>
-<div class="tt-scorer-card h-full w-full flex items-stretch justify-center px-2 py-1"
+<div class="tt-scorer-card h-full w-full flex items-stretch justify-center px-2 pt-1"
      data-role="scorer-card"
      aria-hidden="true">
 
@@ -39,27 +39,48 @@
 
       The source is landscape (600x436), so `object-contain` with an auto width
       shows the whole cutout instead of `object-cover` cropping it into a disc.
-      Bottom-aligned: the shoulders sit on the rail's floor and the head is what
-      rises into the pane. Horizontally centred: with the words gone this pane
-      holds one object, and an object alone in a box belongs in the middle of it
-      rather than shoved against an edge it no longer shares with anything.
+      Horizontally centred: with the words gone this pane holds one object, and
+      an object alone in a box belongs in the middle of it rather than shoved
+      against an edge it no longer shares with anything.
+
+      IT IS TALLER THAN ITS PANE, AND ANCHORED TO THE TOP. The pane is a third
+      of a 300% track — about 120px — and `object-contain` fits the whole cutout
+      inside that, which spends most of the height on the empty air above a
+      head-and-shoulders crop. At 125% the FACE is what fills the pane and the
+      bottom of the jersey runs off the edge, which is where the card's own
+      border is: the events frame clips there, so the overflow lands on the
+      card's edge exactly as the banner's portrait lands on its score line.
+
+      125% AND NOT MORE. 145% was measured first and cut the picture at the
+      NECK — 52px of a 168px cutout clipped, taking both shoulders and the
+      collar stripes with them, which is a floating head rather than a
+      broadcast portrait. The ceiling is set by where the crop lands on the
+      PLAYER, not by how much room the pane has.
+
+      TOP-ANCHORED, NOT SCALED FROM THE BOTTOM. `transform: scale()` about a
+      bottom origin grows the head UPWARD, out of the pane's top and into the
+      clip — the one direction the picture cannot afford to lose. Growing
+      downward costs shoulders, which the crop was going to cut anyway.
 
       NO CONTAINER QUERY DROPPING IT ANY MORE. The old rules hid the face below
       ~230px of rail because the WORDS beside it were being squeezed to nothing
       and the words won that trade. There are no words here to lose, so a narrow
       rail simply gets a smaller portrait — which is still the whole message
       this pane carries. %>
-  <span class="tt-scorer-avatar relative h-full w-full flex items-end justify-center self-stretch">
+  <span class="tt-scorer-avatar relative h-full w-full flex items-start justify-center self-stretch">
     <img data-role="scorer-headshot"
          alt=""
-         class="h-full w-auto max-w-full object-contain object-bottom hidden">
+         class="h-[125%] w-auto max-w-full object-contain object-top hidden">
     <%# No cached headshot: nflverse had no espn_id, or the upload has not run
         for this player. THIS is where a disc belongs — initials need a ground to
         sit on, and there is no cutout here to show one through. The words above
         already name them, so this is a placeholder for a face, not a fallback
         for the information. %>
+    <%# The disc stays CENTRED in the pane while the photograph is top-anchored:
+        a circle of initials has no head to protect and no shoulders to spend,
+        so it simply sits in the middle of the space it is given. %>
     <span data-role="scorer-initials"
-          class="w-16 h-16 self-center rounded-full bg-surface-alt
+          class="w-16 h-16 my-auto self-center rounded-full bg-surface-alt
                  flex items-center justify-center text-lg font-bold text-white/70"></span>
   </span>
 
