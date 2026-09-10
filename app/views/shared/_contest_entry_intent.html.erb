@@ -144,6 +144,33 @@ window.tmPrepareContestEntry = async function (ctx) {
     throw prepareError;
   }
 
+  // THE OUTSTANDING PREPARED ROW, recorded where it is MINTED. prepare_entry
+  // creates a PreparedTransaction with a fresh blockhash; if the wallet never
+  // signs it, the board retires that row before offering "Try Again" so the
+  // retry gets fresh bytes and a fresh wallet request. The board used to hold
+  // the slug in a local because it ran the prepare POST itself — now this
+  // handler does, on BOTH transports, and walletOps does not hand `prepared`
+  // back when the signing hop rejects. So the record lives here, on window,
+  // where the board's catch can still find it. CLEARED at the top of complete():
+  // once signing has happened the attempt belongs to on-chain recovery, and
+  // retiring the row then would be wrong.
+  window.tmOutstandingEntryPrepare = { ptxSlug: data.ptx_slug, contestId: ctx.contestId };
+
+  // WHAT THE USER IS ABOUT TO BE ASKED, painted here because this is the only
+  // place token_funded exists — the SERVER decides it and echoes it back for
+  // exactly this copy, and naming a USDC transfer over an entry the user held
+  // "Hold for Free Entry" for would contradict the button they just pressed.
+  // walletOps has no hook between prepare and the signing hop, so no call site
+  // can paint it: prepare is the seam. Transport-neutral on purpose — the
+  // redirect user reads the same sentence as their wallet app takes over.
+  try {
+    if (window.Alpine && Alpine.store('solanaModal')) {
+      Alpine.store('solanaModal').show('Sign Transaction', data.token_funded
+        ? 'Approve your free entry in your wallet...'
+        : 'Approve the ' + String(ctx.currency || '').toUpperCase() + ' transfer in your wallet...');
+    }
+  } catch (e) { /* copy is a courtesy; never let it fail an entry */ }
+
   var bytes = Uint8Array.from(atob(data.serialized_tx), function (c) { return c.charCodeAt(0); });
   return {
     transaction: window.SolanaStudio.walletTransport.base58.encode(bytes),
@@ -157,6 +184,12 @@ window.tmPrepareContestEntry = async function (ctx) {
 // Complete: hand the wallet's signature to the server, which cosigns and
 // broadcasts. Runs in a document that never saw prepare().
 window.tmCompleteContestEntry = async function (ctx, result, state) {
+  // THE SIGNING HOP IS OVER — the prepared row is no longer retirable. Anything
+  // that fails from here belongs to on-chain recovery, not to a discard-and-
+  // retry, so the ledger prepare() wrote is cleared FIRST, before any branch
+  // below can throw past it.
+  window.tmOutstandingEntryPrepare = null;
+
   // SIGN-ONLY IS A REQUIREMENT HERE, not a preference — see the intent's comment
   // above. A wallet that broadcast instead of signing returns a signature and no
   // transaction, and there is nothing to recover: the server never got the bytes
@@ -175,6 +208,15 @@ window.tmCompleteContestEntry = async function (ctx, result, state) {
     sb += String.fromCharCode.apply(null, signed.subarray(i, i + chunk));
   }
 
+  // THE LONGEST LEG, AND IT USED TO BE NARRATED (board, pre-collapse). confirm
+  // BLOCKS on send_and_confirm; unpainted the card still reads "Approve the ...
+  // transfer..." with nothing to approve. Guarded — complete() runs on the
+  // callback document too.
+  try {
+    if (window.Alpine && Alpine.store('solanaModal')) {
+      Alpine.store('solanaModal').show('Confirming Onchain', 'Cosigning and submitting to Solana...');
+    }
+  } catch (e) { /* copy is a courtesy; never let it fail an entry */ }
   var resp = await window.tmEntryFetch('/contests/' + ctx.contestId + '/confirm_onchain_entry', {
     method: 'POST',
     headers: { 'X-CSRF-Token': ctx.csrfToken, 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -183,7 +225,16 @@ window.tmCompleteContestEntry = async function (ctx, result, state) {
   if (!resp) throw new Error('Your session expired before the entry was recorded.');
 
   var data = await resp.json();
-  if (!data.success) throw new Error(data.error || 'Failed to confirm entry');
+  if (!data.success) {
+    // CARRY THE PAYLOAD, exactly as prepare does. confirm_onchain_entry answers
+    // with blocker codes of its own, and the inline call site used to route them
+    // through _handleBlockerResponse before it moved behind walletOps. Flatten
+    // this to a string and every one of those panels collapses into raw text —
+    // the same regression the prepare half was fixed for in PR 632.
+    var confirmError = new Error(data.error || 'Failed to confirm entry');
+    confirmError.blockerData = data;
+    throw confirmError;
+  }
   console.log('[contest-entry] server cosigned + confirmed on-chain:', data.tx_signature);
   return data;
 };
