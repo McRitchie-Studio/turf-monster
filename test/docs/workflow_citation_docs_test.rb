@@ -208,6 +208,10 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
     "docs/workflows/email-signup-token-to-chat.md" => {
       min_citations: 155, min_path: 65, min_bare: 85,
       fallback_only_files: []
+    },
+    "docs/workflows/slate-build.md" => {
+      min_citations: 55, min_path: 30, min_bare: 20,
+      fallback_only_files: []
     }
   }.freeze
 
