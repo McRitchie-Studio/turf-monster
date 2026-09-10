@@ -400,11 +400,11 @@ written. Each flow's state is what matters.
 
 | Flow | Location | State |
 |---|---|---|
-| Contest entry — turf totals | `app/views/contests/_turf_totals_board.html.erb` | **migrated** — one `walletOps.run('contest_entry')` (`/tasks/collapse-inline-entry-call-site`) |
+| Contest entry — turf totals | `app/views/contests/_turf_totals_board.html.erb` | **migrated** — one `tmWalletOp('contest_entry')` (`/tasks/collapse-inline-entry-call-site`, then `/tasks/route-board-through-runner`) |
 | Contest entry — world cup survivor | `app/views/contests/_world_cup_survivor_board.html.erb` | **migrated** — one `tmWalletOp('contest_entry')` (`/tasks/migrate-remaining-entry-flows`) |
 | Create contest | `app/views/contests/new.html.erb` | **migrated** — one `tmWalletOp('contest_create')` (`/tasks/migrate-remaining-entry-flows`) |
 | Contest generator | `app/views/contests/generator.html.erb` | **migrated** — one `tmWalletOp('contest_bundle')` (`/tasks/migrate-remaining-entry-flows`) |
-| Username rename | `app/views/shared/_alpine_factories.html.erb` | **migrated** — one `walletOps.run('username_rename')` (`/tasks/migrate-account-wallet-flows`) |
+| Username rename | `app/views/shared/_alpine_factories.html.erb` | **migrated** — one `walletOps.run('username_rename')` (`/tasks/migrate-account-wallet-flows`); still spells out its own return address, cluster and `pagehide` watch rather than calling `tmWalletOp` |
 | Sign-in | `app/views/layouts/application.html.erb` | *mobile path exists, Phantom only, still on the undocumented `signIn` deeplink* |
 
 **Wallet export is deliberately absent from this table.** It is not a flow
@@ -429,7 +429,8 @@ but WORKING create painted "Your wallet app did not open" moments before Phantom
 opened, and a create that genuinely FAILED had its real error card overwritten
 2.5s later, deterministically, so the cause was never seen. A `run` that REJECTS
 arms no timer at all: nothing was handed off, so nothing may claim the wallet
-failed to open. `contests/_turf_totals_board` uses the same shape inline.
+failed to open. `contests/_turf_totals_board` arrived at this shape inline and
+now gets it from the runner like every other contest flow.
 
 **THE INLINE PATH IS NO LONGER A SECOND IMPLEMENTATION.** solana-studio 0.9.2
 (PR #41) closed the three gaps that forced one: the inline path now takes the

@@ -1642,9 +1642,6 @@ window.selectionBoard = function() {
 
       try {
         if (useOnchainFlow) {
-          var provider = window.walletProvider.requireProvider();
-          var isRedirect = provider.transport === 'redirect';
-
           // === ONE CALL SITE, BOTH TRANSPORTS ==========================
           //
           // WHAT USED TO BE HERE, and its absence is the point. This branch
@@ -1664,69 +1661,57 @@ window.selectionBoard = function() {
           //
           // THE FLOW ITSELF IS NOT HERE. It is registered BY NAME at page load in
           // shared/_contest_entry_intent, because a closure cannot survive the
-          // page death the redirect transport runs through. What is left below is
-          // only the chrome the two transports do not share: what the modal says,
-          // and what to do when the hop that should destroy this page does not.
+          // page death the redirect transport runs through.
+          //
+          // AND NEITHER IS THE ADDRESS BOOK. The return address, the app
+          // identity, the cluster, the transport fork and the watch for a hop
+          // that never happens all live in window.tmWalletOp
+          // (shared/_wallet_op_runner) — the same runner the survivor board,
+          // contests/new and contests/generator call. This board used to spell
+          // every one of them out inline, which was the same address book
+          // written twice, and a missing redirectLink at a hand-rolled call site
+          // is the defect that lost a real user's approved entry on QA
+          // (/tasks/route-board-through-runner). What is left below is what this
+          // board SAYS, and what it must hand back when the hop does not happen.
           var board = this;
-          var left = false;
-          var onPageHide = function () { left = true; };
-          if (isRedirect) {
-            Alpine.store('solanaModal').show('Opening Your Wallet', 'Handing this entry to your wallet app…');
-
-            // WHEN THE HOP NEVER HAPPENS. run() ends by handing the OS a
-            // universal link, and "nothing after this executes" is only true
-            // when the OS honours it. If Phantom is not installed, or the user
-            // dismisses the app-switch prompt, this document stays alive — and
-            // before this guard it stayed alive holding a modal with no
-            // resolution and hold buttons that never came back, so the entry
-            // could not even be retried without a reload. Raised in review of
-            // PR 632.
-            //
-            // pagehide is the signal, not a timer alone: it fires when the hop
-            // DOES take, so its absence after the handoff is what tells us we
-            // are still here. The delay only has to outlast the OS prompt.
-            window.addEventListener('pagehide', onPageHide, { once: true });
-          } else {
-            Alpine.store('solanaModal').show('Preparing Transaction', 'Building onchain transaction...');
-          }
-
-          // EXPECTED ACCOUNT IS UX, NOT SECURITY, and saying so plainly matters
-          // because the opposite claim is easy to make. The transaction itself is
-          // the ownership proof — Anchor rejects any enter_contest_direct whose
-          // signer does not match the entry PDA's owner, with or without this.
-          // What DECLARING it buys is a sentence the user can act on instead of a
-          // program error, and, on the inline transport, a prepared-transaction
-          // row that is never minted for the wrong wallet, because walletOps
-          // connects before it prepares there. It replaces a hand-rolled
-          // publicKey comparison that could only ever run on the desktop branch.
-          var confirmData = await window.SolanaStudio.walletOps.run('contest_entry', {
+          var confirmData = await window.tmWalletOp('contest_entry', {
             contestId: this.contestId,
             csrfToken: this.csrfToken,
             currency: this.entryCurrency()
           }, {
-            provider: provider,
+            // EXPECTED ACCOUNT IS UX, NOT SECURITY, and saying so plainly
+            // matters because the opposite claim is easy to make. The
+            // transaction itself is the ownership proof — Anchor rejects any
+            // enter_contest_direct whose signer does not match the entry PDA's
+            // owner, with or without this. What DECLARING it buys is a sentence
+            // the user can act on instead of a program error, and, on the inline
+            // transport, a prepared-transaction row that is never minted for the
+            // wrong wallet, because walletOps connects before it prepares there.
+            // It replaces a hand-rolled publicKey comparison that could only
+            // ever run on the desktop branch.
             expectedAccount: sess.address || null,
-            appUrl: window.location.origin,
-            redirectLink: window.location.origin + '/auth/phantom/callback',
-            cluster: document.body.dataset.solanaCluster
-          });
-
-          if (isRedirect) {
-            setTimeout(function () {
-              window.removeEventListener('pagehide', onPageHide);
-              // document.hidden covers the iOS case where the app switch is in
-              // flight but pagehide has not fired yet — leaving then is correct.
-              if (left || document.hidden) return;
+            preparingBody: 'Building onchain transaction...',
+            handoffBody: 'Handing this entry to your wallet app…',
+            // WHEN THE HOP NEVER HAPPENS. If the wallet app is not installed, or
+            // the user dismisses the app-switch prompt, this document stays
+            // alive. The runner paints "Wallet Did Not Open" on the card; what it
+            // cannot know is that this board's hold buttons are dead and
+            // submitting is still true, so a retry would be refused without a
+            // reload. Raised in review of PR 632.
+            onStranded: function () {
               board.submitting = false;
               board.resetHoldButtons();
-              var sm = Alpine.store('solanaModal');
-              if (sm.visible) {
-                sm.error('Your wallet app did not open. Make sure Phantom is installed on this ' +
-                         'device, then try again.', 'Wallet Did Not Open');
-              }
-            }, 2500);
-            return;
-          }
+            }
+          });
+
+          // REDIRECT TRANSPORT ENDS HERE, and in a real browser this line is
+          // never reached on it: run() handed the trip to the wallet app and this
+          // document is on its way out. The callback page finishes the intent by
+          // name and paints its own result. A resolved `suspended` marker must
+          // not be read as a confirmed entry — without this return a mobile
+          // entry navigates to the wallet AND paints Entry Confirmed for an
+          // entry no server has confirmed.
+          if (!confirmData || confirmData.suspended) return;
 
           // THE RETURN LEG, INLINE ONLY. On the redirect transport complete()
           // finishes on the callback document, which has no board component to

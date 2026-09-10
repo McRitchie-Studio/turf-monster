@@ -253,7 +253,8 @@ class WalletOpRunnerJsTest < ActiveSupport::TestCase
   # --- WHICH SIDE OF THE HANDOFF THE WATCHDOG STARTS ON --------------------
   #
   # THE VALUE WAS PORTED FROM THE BOARD; THE STARTING GUN WAS NOT.
-  # contests/_turf_totals_board arms this same 2500ms timer AFTER awaiting run.
+  # contests/_turf_totals_board armed this same 2500ms timer AFTER awaiting run,
+  # back when it carried its own inline copy (it calls this wrapper now).
   # This wrapper armed it BEFORE the call — and runRedirect AWAITS prepare()
   # and navigates second, so the window meant to outlast an OS app-switch prompt
   # was being asked to cover prepare's network round trips as well. Contest
@@ -351,5 +352,33 @@ class WalletOpRunnerJsTest < ActiveSupport::TestCase
 
     assert_equal "Opening Your Wallet", redirect["card"][1]
     assert_equal "Preparing Transaction", inline["card"][1]
+  end
+
+  # --- what a caller may still say, and what it gets back ------------------
+  #
+  # THE TURF-TOTALS BOARD IS WHY THESE EXIST (/tasks/route-board-through-runner).
+  # It kept its own progress labels when it moved behind this runner, and it
+  # ends its redirect leg on the value this hands back — so both halves of that
+  # contract are asserted here, where the runner owns them.
+
+  test "a caller's own card body is shown on each transport, under the runner's title" do
+    opts = "{ preparingBody: 'Building onchain transaction...', handoffBody: 'Handing this entry to your wallet app…' }"
+    redirect = run_js("await window.tmWalletOp('contest_entry', {}, #{opts}); return { card: modal.cards[0] };",
+                      transport: "redirect")
+    inline = run_js("await window.tmWalletOp('contest_entry', {}, #{opts}); return { card: modal.cards[0] };")
+
+    assert_equal ["show", "Opening Your Wallet", "Handing this entry to your wallet app…"], redirect["card"]
+    assert_equal ["show", "Preparing Transaction", "Building onchain transaction..."], inline["card"],
+                 "a body the caller passed must replace the default, on the transport it names only"
+  end
+
+  test "the redirect marker reaches the caller untouched" do
+    # A caller ends its redirect leg on `result.suspended`. A wrapper that
+    # swallowed or rebuilt the value would send that caller into its inline
+    # return leg — an Entry Confirmed card on a document on its way to the wallet.
+    result = run_js("return { value: await window.tmWalletOp('contest_entry', {}, {}) };", transport: "redirect",
+                    run_result: "Promise.resolve({ suspended: true, url: 'https://phantom.app/ul/v1/connect' })")
+
+    assert_equal({ "suspended" => true, "url" => "https://phantom.app/ul/v1/connect" }, result["value"])
   end
 end
