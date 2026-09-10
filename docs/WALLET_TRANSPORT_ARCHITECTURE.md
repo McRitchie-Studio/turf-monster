@@ -255,8 +255,9 @@ becomes a step-machine advance rather than a single `signIn` branch.
 
 ### 7. Every hop must carry its own `redirect_link`
 
-**Found 2026-09-09, live on `accepted`, by the stub-wallet harness** — and it is
-the sharpest illustration in this document of why the harness exists.
+**Found 2026-09-09 by a QA iPhone, then reproduced live on `accepted` by the
+stub-wallet harness** — proof that the harness can see this class, and the
+sharpest illustration in this document of why it exists.
 
 **Corrected 2026-09-10.** A real iPhone on QA found this defect first: the task
 `/tasks/resume-validates-journal-completeness` was filed at 17:06 MDT, and the
