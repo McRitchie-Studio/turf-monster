@@ -166,6 +166,27 @@ require "prism"
 #      would redden honest ones. What IS fixed is the degenerate case — a
 #      citation whose cited lines are entirely blank is now rejected outright, at
 #      0 false positives across all 164. The rest of the weakness stands stated.
+#   7. A TABLE ROW ANCHORS ONLY ON ITSELF — and until 2026-09-10 it anchored on
+#      the WHOLE TABLE. prose_unit knows lists (a citation's own item plus its
+#      ancestors) and paragraphs (blank-line delimited). A markdown row starts
+#      with `|`, which list_item? does not match, so a row fell through to
+#      paragraph() and got every row of its table: any symbol named in ANY row
+#      satisfied every citation in it. Found by Carl reviewing PR 681 and proved
+#      with this file's own machinery — two rows of live-scoring.md with their
+#      coordinates SWAPPED stayed green, while the identical falsification in
+#      running prose went red. It was dormant for a reason: 81 of 972 citations
+#      sat in tables, 77 of them in the two documents PR 681 newly cited. The
+#      fix: a row is its own unit — its cells, and NOT the header row, because a
+#      header that names a 223-line action would re-create the same loose
+#      anchor one level up. Turning it on reddened 30 rows (submit-entry-
+#      decision-tree 26, live-scoring 4), every one leaning on its table's
+#      header for the action it cited; each row now names its own owner. The
+#      control is "a table-row citation anchors only on its own row" below.
+#      STILL STANDING, stated rather than fixed: enclosing_names reads only the
+#      FIRST line of each range (`innermost(defs, r.first)`), so a range that
+#      starts in a gap, or runs across two definitions, is judged by that one
+#      line. A citation meant to span definitions should list them separately
+#      (`:12-18, 30-41`) — each part is then judged on its own first line.
 class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # COVERAGE IS PER DOCUMENT, AND THAT IS THE POINT. A second document guarded
   # under one shared floor would be covered in name only: web3-landing-to-entry's
@@ -319,6 +340,12 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # stale. Which file it is carries no other meaning; the per-document claim
   # about fallback-only files lives in COVERAGE above.
   BLANK_CONTROL_FILE = "app/views/layouts/application.html.erb"
+
+  # The CONTROL for the table-row rule below: a real model with two sibling
+  # methods, each located at run time so the control cannot go stale. Which
+  # methods they are carries no meaning beyond being two distinct definitions.
+  TABLE_CONTROL_FILE    = "app/models/entry.rb"
+  TABLE_CONTROL_METHODS = %w[confirm! assert_enterable!].freeze
 
   # A citation: `path/to/file.rb:12`, `file.rb:12-18`, `:12`, `:12, 20-24`.
   LINES  = /\d+(?:-\d+)?(?:,\s*\d+(?:-\d+)?)*/
@@ -477,6 +504,31 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # The guard above is VACUOUSLY green on a correct document, so this proves it
   # bites. Nothing is hard-coded: a blank line and a non-blank line are located
   # at run time, so the control cannot itself go stale.
+  # A TABLE ROW IS ITS OWN PROSE UNIT. A markdown row starts with `|`, which
+  # list_item? does not match, so prose_unit used to fall through to
+  # paragraph() — blank-line delimited, i.e. THE WHOLE TABLE — and any symbol
+  # named in ANY row anchored every citation in it. Found by Carl reviewing
+  # PR 681: two rows of live-scoring.md with their coordinates SWAPPED stayed
+  # green. The fixture is built from two real sibling methods located at run
+  # time, so it cannot go stale, and it is checked in all three shapes: honest
+  # rows anchor, a single falsified row does not, a swapped pair does not.
+  test "a table-row citation anchors only on its own row" do
+    honest = table_fixture(TABLE_CONTROL_METHODS.map { |m| [m, m] })
+    assert honest.all? { |c| anchored?(c) },
+           "honest table rows stopped anchoring — the table rule is over-tight: " \
+           "#{honest.reject { |c| anchored?(c) }.map { |c| c[:raw] }.join(", ")}"
+
+    first, second = TABLE_CONTROL_METHODS
+    falsified = table_fixture([[first, second], [second, second]])
+    refute anchored?(falsified.first),
+           "a row naming #{first} but citing a line inside #{second} anchored — a sibling " \
+           "row naming #{second} is still satisfying it, so rows are NOT scoped"
+
+    swapped = table_fixture([[first, second], [second, first]])
+    assert swapped.none? { |c| anchored?(c) },
+           "a SWAPPED row pair anchored — each row is being satisfied by the other row's symbol"
+  end
+
   test "the blank-line rejection rejects a blank citation and only a blank one" do
     lines       = source(BLANK_CONTROL_FILE)
     blank_no    = lines.index { |l| l.strip.empty? }&.succ
@@ -566,6 +618,28 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   def cite_at(path, range)
     { doc: GUARDED_DOCS.first, line: 0, raw: "#{path}:#{range.first}-#{range.last}",
       kind: :path, path: path, ranges: [range] }
+  end
+
+  # A two-column table of `Entry#<named>` rows, each citing the DEFINITION LINE of
+  # <cited> in TABLE_CONTROL_FILE. Seeded straight into the doc_lines memo under a
+  # key no real document can have, so prose_unit reads it exactly as it reads a
+  # real document — the rule under test is exercised, not re-implemented.
+  def table_fixture(rows)
+    defs = definitions(TABLE_CONTROL_FILE)
+    line_of = ->(name) do
+      d = defs.find { |x| x[:name] == name }
+      assert d, "expected #{TABLE_CONTROL_FILE} to define #{name} — the table control is stale"
+      d[:first]
+    end
+    key = "fixture/table-#{rows.flatten.join("-")}.md"
+    lines = ["| Claim | Where |", "|---|---|"] +
+            rows.map { |named, cited| "| `Entry##{named}` | `#{TABLE_CONTROL_FILE}:#{line_of.(cited)}` |" }
+    (@doc_lines ||= {})[key] = lines
+    rows.each_with_index.map do |(_named, cited), i|
+      n = line_of.(cited)
+      { doc: key, line: i + 3, raw: "#{TABLE_CONTROL_FILE}:#{n}", kind: :path,
+        path: TABLE_CONTROL_FILE, ranges: [n..n] }
+    end
   end
 
   # The citations belonging to ONE guarded document. Every per-document claim
@@ -669,6 +743,13 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
     lines = doc_lines(citation[:doc])
     idx = citation[:line] - 1
 
+    # A TABLE ROW IS ITS OWN UNIT — its cells, and nothing else: not a sibling
+    # row, and not the header row either. A row names its symbol in one cell and
+    # cites in another, and both are on this one physical line, so the row is
+    # exactly the prose a reader credits the citation to. Without this, a row
+    # fell through to paragraph() below and got the whole table (limit 7).
+    return lines[idx] if table_row?(lines[idx])
+
     s = idx
     s -= 1 while s.positive? && !list_item?(lines[s]) && !boundary?(lines[s])
     return paragraph(lines, idx) if boundary?(lines[s]) || !list_item?(lines[s])
@@ -691,6 +772,7 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   end
 
   def list_item?(line) = line.match?(/\A\s*(?:[-*]|\d+\.)\s/)
+  def table_row?(line) = line.to_s.lstrip.start_with?("|")
   def boundary?(line)  = line.strip.empty? || line.start_with?("#")
 
   def paragraph(lines, idx)
