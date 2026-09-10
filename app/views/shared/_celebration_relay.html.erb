@@ -1,0 +1,243 @@
+<%# THE CELEBRATION RELAY — one thing a redirect cannot destroy.
+
+    WHAT IT IS FOR. On the inline transport the document that starts an on-chain
+    flow is still alive when the server answers, so it paints the outcome itself.
+    On the redirect transport that document is DEAD: the wallet app took over,
+    the answer lands on studio-engine's callback page, and the callback ends with
+    a hard navigation to wherever the flow said to land. Everything the original
+    document would have painted is skipped, because there is no longer a
+    component to paint it.
+
+    This is the piece of work shared/_username_rename_intent named and deferred:
+    "Reproducing the celebration would mean carrying its payload across the
+    journal and re-staging it on arrival, which is a separate piece of work."
+    So the relay is built as a PRIMITIVE with a kind, not as a contest-entry
+    one-off. A flow adopts it in two moves: stash its payload under its own kind
+    on the leg that cannot paint, and register a painter for that kind.
+
+    WHAT IS LOST WITHOUT IT, and it is not decoration. The contest entry that
+    prompted this carried three acts on its inline return leg, and two of them
+    leave the UI asserting something FALSE when they are skipped: the free-entry
+    token count never comes down (nothing else lowers it), and the navbar seeds
+    and level stay at their pre-entry figures. The third is the celebration card
+    itself. Measured on QA iPhone Safari 2026-09-09: entry recorded on chain,
+    screen showed nothing.
+
+    localStorage, NOT sessionStorage, for the reason walletJournal already
+    settled: iOS does not guarantee a universal link returns to the originating
+    tab, and sessionStorage is per-tab. It would be empty exactly when it
+    mattered.
+
+    SINGLE-USE AND EXPIRING, both deliberate and both copied from walletJournal.
+    take() reads and clears in one motion, so a reload or a double-fired listener
+    cannot throw the same party twice; the expiry means a slot abandoned midway
+    cannot congratulate someone tomorrow for an entry they made today. %>
+<script>
+(function (W) {
+  'use strict';
+
+  // ONE SLOT. A browser runs one wallet round trip at a time — the journal this
+  // rides beside is itself a single slot — so a queue would be structure with no
+  // case behind it. The kind on the record is what keeps two flows from reading
+  // each other's payload, and clear() is therefore also the purge: there is no
+  // second key to leave behind.
+  var KEY = 'tm_celebration_relay';
+
+  // Ten minutes, the same bound walletJournal chose and for the same reason: long
+  // enough to outlast a human reading a wallet approval screen, short enough that
+  // an abandoned trip is gone before it can be replayed by accident. The relay is
+  // written AFTER the wallet has answered, so in practice it lives for one
+  // navigation; the bound is for the trip that never lands.
+  var MAX_AGE_MS = 10 * 60 * 1000;
+
+  // EVERY access guarded. localStorage throws outright in a Safari private window
+  // and in some embedded webviews, which are precisely the browsers a mobile
+  // wallet flow runs in. A storage failure must degrade to "no celebration
+  // pending" and never to an exception thrown out of a page load.
+  function store() {
+    try {
+      return W.localStorage || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function clear() {
+    var s = store();
+    if (!s) return;
+    try { s.removeItem(KEY); } catch (e) { /* nothing to do and nothing to say */ }
+  }
+
+  // The raw record, or null. Expiry and corruption are ANSWERS here, not errors:
+  // both clear the slot so the next read reports "nothing pending" rather than
+  // re-deciding the same thing forever.
+  function record() {
+    var s = store();
+    if (!s) return null;
+
+    var raw;
+    try {
+      raw = s.getItem(KEY);
+    } catch (e) {
+      return null;
+    }
+    if (!raw) return null;
+
+    var rec;
+    try {
+      rec = JSON.parse(raw);
+    } catch (e) {
+      clear();
+      return null;
+    }
+
+    if (!rec || typeof rec !== 'object' || !rec.kind) { clear(); return null; }
+
+    if (typeof rec.stashedAt === 'number' && (Date.now() - rec.stashedAt) > MAX_AGE_MS) {
+      clear();
+      return null;
+    }
+
+    return rec;
+  }
+
+  // Write the payload the landing page will need. Answers whether it was
+  // actually persisted, so a caller that cares can say so rather than promise a
+  // celebration the device cannot deliver.
+  function stash(kind, payload) {
+    var s = store();
+    if (!s || !kind || !payload) return false;
+    try {
+      s.setItem(KEY, JSON.stringify({ kind: String(kind), payload: payload, stashedAt: Date.now() }));
+      return true;
+    } catch (e) {
+      // Quota, private mode, or a disabled store. The flow itself has already
+      // succeeded on the server by the time anything is stashed, so a failure
+      // here costs the party and nothing else.
+      return false;
+    }
+  }
+
+  // Read WITHOUT clearing, and only for the kind asked for. A slot holding
+  // ANOTHER flow's payload answers null and is LEFT ALONE — the flow that owns it
+  // is the one entitled to consume it.
+  function peek(kind) {
+    var rec = record();
+    return (rec && rec.kind === String(kind)) ? rec.payload : null;
+  }
+
+  // Read and clear in one motion. This is the single-use property: a reload, a
+  // back button, or a listener that fires twice finds an empty slot.
+  function take(kind) {
+    var payload = peek(kind);
+    if (payload) clear();
+    return payload;
+  }
+
+  var painters = {};
+
+  // Register the painter for a kind. Idempotent by assignment, because the
+  // partials that call this are rendered on every document and a second
+  // registration of the same function is not an error.
+  function define(kind, painter) {
+    if (!kind || typeof painter !== 'function') return;
+    painters[String(kind)] = painter;
+  }
+
+  // Paint whatever is waiting, at most once. Returns the kind painted, or null.
+  //
+  // TAKE BEFORE PAINT, and the order is the guarantee: a painter that throws has
+  // already consumed the slot, so a broken painter costs one celebration rather
+  // than repeating on every page for ten minutes.
+  //
+  // AN UNREGISTERED KIND IS LEFT WHERE IT IS. The painter for a flow ships in a
+  // partial the layout renders, so its absence means this document genuinely
+  // cannot paint that kind — not that the payload is spent. The expiry bounds
+  // how long it waits for a document that can.
+  function drain() {
+    var rec = record();
+    if (!rec) return null;
+
+    var painter = painters[rec.kind];
+    if (!painter) return null;
+
+    var payload = take(rec.kind);
+    if (!payload) return null;
+
+    try {
+      painter(payload);
+    } catch (e) {
+      try { console.warn('[celebration-relay] painter for "' + rec.kind + '" failed:', e); } catch (_) {}
+    }
+    return rec.kind;
+  }
+
+  W.tmCelebrationRelay = {
+    KEY: KEY,
+    MAX_AGE_MS: MAX_AGE_MS,
+    stash: stash,
+    peek: peek,
+    take: take,
+    clear: clear,
+    define: define,
+    drain: drain
+  };
+
+  // === WHEN THE DRAIN RUNS ==================================================
+  //
+  // Every painter this relay serves ends up writing to an Alpine store, and the
+  // stores register during Alpine's own boot. So the drain waits for Alpine to
+  // have STARTED (alpine:initialized fires after the DOM walk, which is when the
+  // modal host's own listeners are wired) rather than for DOMContentLoaded,
+  // which is earlier than either.
+  //
+  // AND FOR StateFanout, which is a DEFERRED importmap module: the layout's own
+  // note records that Alpine's defer script fires alpine:init BEFORE importmap
+  // modules execute, so a drain that fired at the first opportunity could reach
+  // the seeds fanout before it exists. The wait is BOUNDED and then paints
+  // anyway — a missing fanout must cost the seeds animation, never the card.
+  //
+  // The document this runs on is not necessarily a wallet callback or a contest
+  // page. On a document with an empty slot every line below is a no-op, which is
+  // why rendering this everywhere is safe.
+  function alpineStarted() {
+    return !!(W.Alpine && W.Alpine.version);
+  }
+
+  function fanoutReady() {
+    return !!(W.StateFanout && typeof W.StateFanout.apply === 'function');
+  }
+
+  function drainWhenReady() {
+    // Nothing waiting: answer immediately and schedule nothing. This is the
+    // common case on every page in the app.
+    if (!record()) return;
+
+    var attempts = 0;
+    (function attempt() {
+      // ~3s at 50ms. Long enough for a module graph on a cold phone connection,
+      // short enough that the card is not visibly late when one never arrives.
+      if ((alpineStarted() && fanoutReady()) || attempts++ >= 60) {
+        if (alpineStarted()) drain();
+        return;
+      }
+      W.setTimeout(attempt, 50);
+    })();
+  }
+
+  function schedule() {
+    if (alpineStarted()) drainWhenReady();
+    else W.document.addEventListener('alpine:initialized', drainWhenReady, { once: true });
+  }
+
+  if (W.document.readyState === 'loading') {
+    W.document.addEventListener('DOMContentLoaded', schedule, { once: true });
+  } else {
+    schedule();
+  }
+  // A Turbo visit does not re-run this script, and the redirect leg lands with a
+  // full document load — but a flow whose landing page is reached through Turbo
+  // would otherwise never drain. take() keeps it to once either way.
+  W.document.addEventListener('turbo:load', drainWhenReady);
+})(window);
+</script>

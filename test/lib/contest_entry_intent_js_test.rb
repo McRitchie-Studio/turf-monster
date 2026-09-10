@@ -39,7 +39,14 @@ class ContestEntryIntentJsTest < ActiveSupport::TestCase
 
   # `fetch:` describes what authedFetch answers — :ok, :unauthorized (falsy, the
   # 401 shape), or a hash body with success:false.
-  def run_js(script, fetch: :ok, body: nil)
+  #
+  # `prepared_here:` sets the marker prepare() leaves on the document that STARTS
+  # an entry. It is the transport discriminator: present means this is the inline
+  # leg and the caller awaiting the promise will paint; absent means prepare()
+  # ran on a document the wallet app destroyed, so this is the callback page and
+  # nothing here can paint. Both legs are driven below because the whole defect
+  # was one of them behaving like the other.
+  def run_js(script, fetch: :ok, body: nil, prepared_here: false)
     fetch_js =
       case fetch
       when :unauthorized then "window.authedFetch = function () { calls.push(['fetch', arguments[0], arguments[1]]); return Promise.resolve(null); };"
@@ -78,6 +85,14 @@ class ContestEntryIntentJsTest < ActiveSupport::TestCase
         encode: function (bytes) { return 'B58<' + Array.from(bytes).join(',') + '>'; },
         decode: function (s) { return new Uint8Array(String(s).replace(/^B58</, '').replace(/>$/, '').split(',').map(Number)); }
       } } };
+      // The relay, recorded rather than stubbed away: what is under test is
+      // WHETHER complete() writes to it and with what, on each leg.
+      var relayWrites = [];
+      window.tmCelebrationRelay = {
+        stash: function (kind, payload) { relayWrites.push([kind, payload]); return true; },
+        define: function () {}
+      };
+      window.tmOutstandingEntryPrepare = #{prepared_here ? "{ ptxSlug: 'ptx-1', contestId: 12 }" : "null"};
       console.log = function () {};
       #{handlers_source}
       var RESULT;
@@ -93,6 +108,7 @@ class ContestEntryIntentJsTest < ActiveSupport::TestCase
         // of node too, or the test below can only see the flattened string.
         catch (e) { RESULT = { ok: false, message: e.message, blockerData: e.blockerData || null, code: e.code || null }; }
         RESULT.calls = calls;
+        RESULT.relay = relayWrites;
         process.stdout.write(JSON.stringify(RESULT));
       })();
     JS
@@ -512,5 +528,194 @@ class ContestEntryIntentJsTest < ActiveSupport::TestCase
 
     assert out["ok"], out["message"]
     assert_equal "B58<1,2,3>", out["value"]["transaction"]
+  end
+
+  # --- the celebration, across the page death ------------------------------
+  #
+  # THE DEFECT THESE PIN, reported from a real device on 2026-09-09: an entry
+  # that succeeded on chain and a screen that showed nothing. complete() finished
+  # on studio-engine's callback document, which has no board, and the next thing
+  # that document did was navigate away. Three acts were skipped and two of them
+  # left the UI asserting a figure that was no longer true.
+
+  COMPLETE_CALL =
+    "window.tmCompleteContestEntry({ contestId: 12, csrfToken: 'T' }, " \
+    "{ signedTransaction: 'B58<1,2,3>' }, { ptx_slug: 'p1', entry_id: 7, entry_pda: 'PDA' })".freeze
+
+  test "the callback document writes the celebration down for the page that lands" do
+    # No prepare marker: prepare() ran on a document the wallet app destroyed, so
+    # this is the callback page. Nothing here can paint, so the payload has to
+    # travel.
+    result = run_js(COMPLETE_CALL, prepared_here: false,
+                    body: { "success" => true, "tx_signature" => "SIG-REDIRECT",
+                            "redirect" => "/contests/12", "token_consumed" => true,
+                            "seeds_earned" => 10, "seeds_total" => 40, "seeds_level" => 1 })
+
+    assert result["ok"], result["message"]
+    assert_equal 1, result["relay"].length, "the redirect leg must stash exactly one celebration"
+
+    kind, payload = result["relay"].first
+    assert_equal "contest_entry", kind,
+                 "the kind is what routes the payload to the painter that can read it"
+    # THE ONE RIGHT ANSWER: everything the three acts need, carried whole. A
+    # payload that dropped any of these paints a card with no signature, a token
+    # count that never comes down, or a navbar stuck on pre-entry seeds.
+    assert_equal "SIG-REDIRECT", payload["tx_signature"]
+    assert_equal true, payload["token_consumed"]
+    assert_equal 10, payload["seeds_earned"]
+    assert_equal 40, payload["seeds_total"]
+    assert_equal 1, payload["seeds_level"]
+    assert_equal "/contests/12", payload["redirect"]
+  end
+
+  test "the inline document stashes nothing, because it paints for itself" do
+    # THE REGRESSION THIS GUARDS is the fix's own: stash on both legs and the
+    # inline card auto-navigates to the lobby, the landing page drains the slot,
+    # and the user is congratulated a second time for one entry.
+    result = run_js(COMPLETE_CALL, prepared_here: true,
+                    body: { "success" => true, "tx_signature" => "SIG-INLINE",
+                            "redirect" => "/contests/12", "token_consumed" => true })
+
+    assert result["ok"], result["message"]
+    assert_equal [], result["relay"],
+                 "the inline leg's caller is alive and paints; a stashed payload would fire twice"
+  end
+
+  test "a refused entry celebrates nothing on either leg" do
+    result = run_js(COMPLETE_CALL, prepared_here: false,
+                    body: { "success" => false, "error" => "Contest is full" })
+
+    refute result["ok"]
+    assert_equal [], result["relay"],
+                 "the stash sits after the success branch — a blocker must not throw a party"
+  end
+
+  test "a device that refuses storage still records the entry" do
+    # The entry is already confirmed on chain by the time anything is stashed.
+    # Losing the party is the whole cost of a store that will not write.
+    result = run_js(<<~JS, prepared_here: false)
+      (function () {
+        window.tmCelebrationRelay = { stash: function () { return false; }, define: function () {} };
+        return #{COMPLETE_CALL};
+      })()
+    JS
+
+    assert result["ok"], result["message"]
+    assert_equal "SIG", result["value"]["tx_signature"],
+                 "complete() answers its caller with the confirmed entry regardless"
+  end
+
+  # --- the paint itself ----------------------------------------------------
+
+  # A recording Alpine, close enough to the real store to judge the three acts:
+  # solanaModal.success() is a NO-OP unless a card is open, which is exactly the
+  # condition the relay leg arrives in.
+  def paint_js(body, visible: false)
+    <<~JS
+      (function () {
+        var acts = { shown: [], success: null, props: {}, fanout: null, tokens: null };
+        var _visible = #{visible};
+        var solanaModal = {
+          get visible() { return _visible; },
+          show: function (t, b) { acts.shown.push([t, b]); _visible = true; },
+          success: function (tx, msg) {
+            if (!_visible) return;
+            acts.success = [tx, msg];
+          },
+          set title(v) { acts.props.title = v; },
+          set lobbyUrl(v) { acts.props.lobbyUrl = v; },
+          set seedsEarned(v) { acts.props.seedsEarned = v; },
+          set seedsTotal(v) { acts.props.seedsTotal = v; },
+          set seedsLevel(v) { acts.props.seedsLevel = v; }
+        };
+        var session = { tokensAvailable: 3 };
+        window.Alpine = { store: function (n) { return n === 'session' ? session : solanaModal; } };
+        window.updateNavTokens = function (n) { acts.tokens = n; };
+        window.StateFanout = { apply: function (type, payload, opts) { acts.fanout = [type, payload, opts]; } };
+        #{body}
+        acts.sessionTokens = session.tokensAvailable;
+        return acts;
+      })()
+    JS
+  end
+
+  test "the paint runs all three acts the redirect transport was losing" do
+    result = run_js(paint_js(<<~JS))
+      window.tmPaintEntryCelebration(
+        { tx_signature: 'SIG-P', redirect: '/contests/12', token_consumed: true,
+          seeds_earned: 10, seeds_total: 40, seeds_level: 1 },
+        { source: 'phantom-redirect', seedsPerLevel: 100 }
+      );
+    JS
+
+    assert result["ok"], result["message"]
+    acts = result["value"]
+
+    # 1. the spend mirror — the ONLY thing that lowers the free-entry count
+    assert_equal 2, acts["sessionTokens"], "the token this entry consumed is gone"
+    assert_equal 2, acts["tokens"], "and the navbar has to be told"
+
+    # 2. the seeds fanout — navbar seeds and level
+    assert_equal "seeds", acts["fanout"][0]
+    assert_equal 40, acts["fanout"][1]["seeds_total"]
+    assert_equal "phantom-redirect", acts["fanout"][2]["source"]
+    assert_equal 100, acts["fanout"][2]["seedsPerLevel"]
+
+    # 3. the card
+    assert_equal ["SIG-P", "Entry Confirmed"], acts["success"]
+    assert_equal "Good Luck", acts["props"]["title"]
+    assert_equal "/contests/12", acts["props"]["lobbyUrl"]
+    assert_equal 10, acts["props"]["seedsEarned"]
+  end
+
+  test "the paint opens a card on a page that has none open" do
+    # THE ONE LINE THAT IS NOT IN THE BOARD'S ORIGINAL, and the reason the relay
+    # leg would otherwise write to nothing: success() begins by fetching the live
+    # card and returning when there isn't one. The relay leg always arrives on a
+    # freshly loaded page.
+    result = run_js(paint_js("window.tmPaintEntryCelebration({ tx_signature: 'SIG-FRESH' }, {});",
+                             visible: false))
+
+    assert result["ok"], result["message"]
+    assert_equal [["Confirming Onchain", "Cosigning and submitting to Solana..."]],
+                 result["value"]["shown"]
+    assert_equal ["SIG-FRESH", "Entry Confirmed"], result["value"]["success"],
+                 "the card must be painted, not written to a store with nothing open"
+  end
+
+  test "the paint leaves an already-open card alone" do
+    # The inline leg reaches here with "Confirming Onchain" already up. Calling
+    # show() again would be a second step transition on a settled entry.
+    result = run_js(paint_js("window.tmPaintEntryCelebration({ tx_signature: 'SIG-INL' }, {});",
+                             visible: true))
+
+    assert result["ok"], result["message"]
+    assert_equal [], result["value"]["shown"],
+                 "the inline leg's card is already open; the guard must not fire there"
+    assert_equal ["SIG-INL", "Entry Confirmed"], result["value"]["success"]
+  end
+
+  test "a missing seeds fanout costs the animation and not the card" do
+    # StateFanout ships in a DEFERRED importmap module and this function is
+    # reachable from a bare inline script. An absent capability must not fail
+    # louder than the thing it was optional for.
+    result = run_js(<<~JS)
+      (function () {
+        var success = null;
+        var solanaModal = {
+          get visible() { return true; }, show: function () {},
+          success: function (tx, msg) { success = [tx, msg]; },
+          set title(v) {}, set lobbyUrl(v) {}, set seedsEarned(v) {},
+          set seedsTotal(v) {}, set seedsLevel(v) {}
+        };
+        window.Alpine = { store: function () { return solanaModal; } };
+        window.StateFanout = undefined;
+        window.tmPaintEntryCelebration({ tx_signature: 'SIG-NF', seeds_total: 40 }, {});
+        return success;
+      })()
+    JS
+
+    assert result["ok"], result["message"]
+    assert_equal ["SIG-NF", "Entry Confirmed"], result["value"]
   end
 end
