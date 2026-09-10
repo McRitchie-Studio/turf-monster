@@ -292,12 +292,52 @@ test.describe("a stub wallet on the redirect transport", () => {
     const seen = {};
     await stubServerHops(context, seen);
 
+    // A PERSON TAKES TIME TO SAY NO. A real rejection waits on a thumb inside the
+    // wallet app; the stub answers at once. Holding the signing hop open for
+    // longer than expect.poll's widest default interval (1s) makes this spec meet,
+    // on EVERY runner, the window that reddened it on slow ones: a page read
+    // issued while an outgoing hop is pending does not return. It waits for the
+    // hop to commit, then throws "Execution context was destroyed", and
+    // expect.poll retries a failing matcher but not a throwing generator. Measured
+    // with the old body-text poll: 5 of 5 green without this delay, 5 of 5 red
+    // with it, on the error CI printed.
+    await context.route("https://phantom.app/ul/v1/signTransaction**", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      await route.fallback();
+    });
+
     await page.goto("/");
     await startEntryTrip(page);
 
-    await expect
-      .poll(() => page.evaluate(() => document.body && document.body.innerText), { timeout: 25_000 })
-      .toContain("User rejected the request.");
+    // WAIT ON THE LEG THAT CARRIES THE ANSWER, NOT THE ROUTE IT SHARES. After the
+    // board, the trip is four navigations (connect hop, callback, signing hop,
+    // callback) and BOTH returns land on CALLBACK. The first is already on its way
+    // back out to the wallet, so a pathname match can resolve on the wrong page:
+    // measured 5 of 5 red when the connect return was made to reach its load
+    // event before its outgoing hop. Today a pathname match passes only because
+    // the connect return leaves before its own load, so the wait's load step
+    // lands on the error leg by luck. Only the error leg carries errorCode, and
+    // nothing after it navigates until showError's /signin fallback 30s later.
+    // So once this resolves, with waitForURL's default "load", the document
+    // showing the rejection is the one every read below reaches. waitForURL
+    // reads no page state, so it cannot throw across the hops it waits through.
+    await page.waitForURL(
+      (url) => url.pathname === CALLBACK && url.searchParams.get("errorCode") === "4001",
+      { timeout: 25_000 }
+    );
+
+    // THE SLOT, NOT THE BODY. Outside live production this app turns on the
+    // callback's debug log (config/initializers/studio.rb), and that log prints
+    // every URL parameter. The body therefore holds "User rejected the request."
+    // as soon as the wallet redirects, whatever the page tells the user. Measured:
+    // with the slot's copy changed, the old body read stayed green. #phantom-error
+    // is where the callback's showError() writes the sentence the user reads, and
+    // the slot e2e/wallet_sign_in.spec.js already reads. These two retry only
+    // while showError runs on this document; the wait above leaves no navigation
+    // for them to retry across.
+    const errorSlot = page.locator("#phantom-error");
+    await expect(errorSlot).toBeVisible();
+    await expect(errorSlot).toHaveText("User rejected the request.");
 
     // The rejection came back on a well-formed request — the wallet only rejects
     // what it could read.

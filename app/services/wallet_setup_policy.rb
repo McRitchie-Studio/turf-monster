@@ -73,12 +73,16 @@ class WalletSetupPolicy
   #
   # TWO HALVES, AND THE SECOND ONE IS THE LOAD-BEARING ONE. The obvious half is
   # a token already on chain. The half that actually matters is a gift that has
-  # been CLAIMED but whose mint is still queued — because this policy's verdict
-  # is computed exactly ONCE, at sign-in (ApplicationController
-  # #record_wallet_setup_state!, which stores it in session[:wallet_setup] and
-  # never recomputes), and the claim is SYNCHRONOUS while EntryGiftMintJob is
-  # ASYNC. So at the only instant this method runs for a gifted player, the
-  # token does not exist yet. A token-only check would read false, arm the
+  # been CLAIMED but whose mint is still queued — because the verdict the entry
+  # gate reads is written at only two instants: at sign-in
+  # (ApplicationController#record_wallet_setup_state!, which stores it in
+  # session[:wallet_setup]) and right after a gift claim on the signed-in path
+  # (MagicLinksController#link_continue, the same method). A gifted player's
+  # verdict is written straight after the claim either way, and the claim is
+  # SYNCHRONOUS while EntryGiftMintJob is ASYNC, so when that stored verdict is
+  # written the token does not exist yet. (OnboardingFlow also asks this policy
+  # live, after the first-name card; by then the mint may have landed, and the
+  # token half answers instead.) A token-only check would read false, arm the
   # modal for the whole session, and reproduce the exact bug this closes.
   #
   # Scoped to mints that are still expected — `mint_error` blank — so a gift

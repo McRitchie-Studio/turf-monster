@@ -46,7 +46,7 @@ Phantom must be installed in the browser or available via mobile deep link.
      funnel's slug and a 30-day expiry, and only when the cookie is blank
      (`:18`). So an explicit `?reference=…` captured earlier by
      `ApplicationController#capture_reference`
-     (`app/controllers/application_controller.rb:443-448`) wins.
+     (`app/controllers/application_controller.rb:455-460`) wins.
    - Hero CTA renders `link_to @landing_page.cta_label_display,
      contest_path(@contest.slug, scroll: 280)` with `target: "_blank"`
      (`app/views/landing_pages/show.html.erb:65-67`).
@@ -161,7 +161,7 @@ Phantom must be installed in the browser or available via mobile deep link.
        admins (`:586`) and, under `AppFlags.web3_only_onboarding?`, for everyone
        (`:580`). The key material itself is read a layer down, in
        `Solana::Keypair.current_encryptor`
-       (`app/services/solana/keypair.rb:117-122`).
+       (`app/services/solana/keypair.rb:214-216`).
      - `after_commit :enqueue_onchain_account_setup`
        (`app/models/user.rb:127`) →
        `CreateOnchainUserAccountJob.perform_later` (`:793-795`). Async — the
@@ -171,8 +171,8 @@ Phantom must be installed in the browser or available via mobile deep link.
    - `set_app_session(user)` writes `session[:turf_user_id]` +
      `session[:session_token]` and clears any stale on-chain flag
      (`app/controllers/application_controller.rb:33-66`, `:41`).
-     `promote_to_onchain_session!` then grants it (`:547-552`) — that write is
-     what `onchain_session?` reads (`:526-529`), and `verify` calls it at
+     `promote_to_onchain_session!` then grants it (`:559-564`) — that write is
+     what `onchain_session?` reads (`:538-541`), and `verify` calls it at
      `app/controllers/solana_sessions_controller.rb:77`. It lives in
      `ApplicationController` because the login and wallet-link paths used to
      drift apart.
@@ -313,7 +313,7 @@ Phantom must be installed in the browser or available via mobile deep link.
   `submitted` → `confirmed` inside `#confirm_onchain_entry`)
 - `session[:turf_user_id]`, `session[:session_token]` (write in step 6), and the
   on-chain flag set by `promote_to_onchain_session!`
-  (`app/controllers/application_controller.rb:547-552`)
+  (`app/controllers/application_controller.rb:559-564`)
 - on-chain: `UserAccount` PDA (`ensure_user_account` in step 7; re-asserted
   synchronously in step 9 `#prepare_entry`)
 - on-chain: `Entry` PDA + `Contest.entry_fees` USDC/USDT credit, or an entry

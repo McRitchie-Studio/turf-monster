@@ -196,6 +196,72 @@ class EntryGiftFlowTest < ActionDispatch::IntegrationTest
     assert_nil flash[:auth_toast], "a spent link of your own is not an event worth announcing"
   end
 
+  # THE VERDICT THE CLAIM INVALIDATES. Signing in computes WalletSetupPolicy
+  # once and caches it in session[:wallet_setup]; for an account with no wallet
+  # that verdict is TRUE. The claim on this path then mints a managed wallet —
+  # the one fact wallet_setup_required? short-circuits on — so the gate stops
+  # short-circuiting and falls through to the cached TRUE. The page then tells
+  # eligibilityBlocker to refuse every hold and open the wallet-setup card, for
+  # the rest of the session, to a player holding the very entry that exists to
+  # spare them that card. The :authenticate shapes never had this: they claim
+  # BEFORE they record.
+  test "a gift claimed on the signed-in path recomputes the cached wallet verdict" do
+    recipient = users(:jordan)
+    recipient.update_columns(web2_solana_address: nil, web3_solana_address: nil)
+
+    log_in_as(recipient)
+    # The sign-in's landing render spends its one-shot prompts, as a real
+    # browser's does long before the recipient opens their mail.
+    follow_redirects!
+    assert_equal true, session[:wallet_setup],
+                 "precondition: signing in without a wallet caches a TRUE verdict"
+
+    gift = EntryGift.create!(recipient_email: recipient.email, sender: @admin)
+    link = Studio::Link.create_magic_link(email: recipient.email, linkable: gift,
+                                          ttl: EntryGift::LINK_TTL)
+    post link_consume_path(token: link.token)
+
+    assert recipient.reload.managed_wallet?,
+           "precondition: the claim minted the wallet that ends the gate's short-circuit"
+    assert_equal false, session[:wallet_setup],
+                 "the claim must re-record the verdict it just made stale"
+    # STATE, NOT A PROMPT. The :authenticate shapes arm the onboarding chain;
+    # this path re-records only what the entry gate enforces, so a continuing
+    # player is not walked through first-name and age cards they never asked
+    # to see again. Jordan has no first name, so a chain armed here would show.
+    assert_nil session[:onboarding_prompt],
+               "the signed-in path must not start an onboarding beat"
+
+    # The entry gate as the client reads it: eligibilityBlocker checks
+    # walletSetupRequired ahead of every funding rail.
+    follow_redirects!
+    assert_includes response.body, '"walletSetupRequired":false'
+  end
+
+  # THE CONTROL: the verdict is RECOMPUTED, not cleared. An admin claimant holds
+  # no custodial key (OPSEC-044), so the claim lands with a mint_error, mints no
+  # wallet and buys no bypass. The same re-record must therefore still read
+  # TRUE. A fix that simply wrote false after any claim would pass the test
+  # above and fail this one.
+  test "a claim that buys no bypass leaves the wallet verdict standing" do
+    log_in_as(@admin)
+    follow_redirects!
+    assert_equal true, session[:wallet_setup],
+                 "precondition: an admin with no wallet signs in with a TRUE verdict"
+
+    gift = EntryGift.create!(recipient_email: @admin.email, sender: @admin)
+    link = Studio::Link.create_magic_link(email: @admin.email, linkable: gift,
+                                          ttl: EntryGift::LINK_TTL)
+    post link_consume_path(token: link.token)
+
+    gift.reload
+    assert gift.claimed?, "precondition: the claim landed"
+    assert_equal EntryGifts::Claim::ADMIN_REASON, gift.mint_error,
+                 "precondition: an admin's gift can never be minted"
+    assert_equal true, session[:wallet_setup],
+                 "a claim that grants no entry must not lift the wallet gate"
+  end
+
   # THE RESCUE NOBODY WAS TESTING — the one path whose entire purpose is "never
   # 500 a signed-in visitor", and whose failure is invisible by construction: the
   # link is already burned, the gift stays :sent, and EntryGift#stalled? cannot
