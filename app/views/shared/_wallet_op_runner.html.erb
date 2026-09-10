@@ -28,16 +28,17 @@
     touches no journal, and adds no state. Everything below the modal copy is
     arguments.
 
-    ONE CALL SITE STILL DOES NOT USE THIS, and it is worth naming rather than
-    leaving to be discovered: contests/_turf_totals_board collapsed onto a single
-    walletOps.run in /tasks/collapse-inline-entry-call-site, which landed in
-    parallel with this partial, and it still spells out its own redirectLink,
-    appUrl, cluster and pagehide watch inline. That is the same address book
-    written twice — and a missing redirectLink at a hand-rolled call site is the
-    defect that lost a real user's entry on QA. Routing it through here is
-    /tasks/route-board-through-runner; it was left alone here because that board
-    is the app's highest-traffic money path and its just-landed tests read its
-    source directly. %>
+    EVERY CONTEST FLOW NOW CALLS THIS. The last to arrive was
+    contests/_turf_totals_board, the app's highest-traffic money path: it
+    collapsed onto a single walletOps.run in parallel with this partial and kept
+    its own redirectLink, appUrl, cluster and pagehide watch inline until
+    /tasks/route-board-through-runner routed it here.
+
+    ONE WALLET CALL SITE STILL DOES NOT, and it is worth naming rather than
+    leaving to be discovered: the username rename in shared/_alpine_factories
+    runs walletOps.run('username_rename') with its own copy of the address book
+    and its own pagehide watch. It is the same shape this partial exists to
+    retire, left for its own change. %>
 <script>
 (function () {
   // The redirect return leg is studio-engine's callback view. Named once, here,
@@ -45,8 +46,9 @@
   var CALLBACK_PATH = '/auth/phantom/callback';
 
   // Long enough to outlast the OS app-switch prompt, short enough that a user
-  // who dismissed it is not left staring at a dead modal. Matches the value the
-  // turf-totals board arrived at by measurement.
+  // who dismissed it is not left staring at a dead modal. The value the
+  // turf-totals board arrived at by measurement, back when it carried its own
+  // copy of this watch.
   var HANDOFF_GRACE_MS = 2500;
 
   // THE 401 NORMALISATION IS NOT OPTIONAL, and it is why this wrapper exists at
@@ -123,8 +125,9 @@
   //   overwritten by this one 2.5s later, every single time, so the user never
   //   saw the cause. Raised in review of PR 674.
   //
-  // The shape is the one contests/_turf_totals_board already arrived at by
-  // measurement: listener before the run, setTimeout after the await.
+  // The shape is the one contests/_turf_totals_board arrived at by measurement
+  // while it still carried an inline copy (it calls this now): listener before
+  // the run, setTimeout after the await.
   function watchHandoff() {
     var left = false;
     var onPageHide = function () { left = true; };
@@ -151,7 +154,8 @@
 
   // ctx  — the intent's own arguments. JSON-serialisable, always: on the
   //        redirect transport this is written to localStorage verbatim.
-  // opts — { provider, expectedAccount, preparing, handoff, onStranded }
+  // opts — { provider, expectedAccount, preparingTitle, preparingBody,
+  //          handoffTitle, handoffBody, onStranded }
   //
   // Resolves with the intent's complete() value on the inline transport. On the
   // redirect transport nothing after this resolves in a real browser: the page

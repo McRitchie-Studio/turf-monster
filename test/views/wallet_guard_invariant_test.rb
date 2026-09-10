@@ -126,9 +126,11 @@ class WalletGuardInvariantTest < ActiveSupport::TestCase
     # asking. Only the second kind lowers this number, and it is the kind that
     # happened here.
     #
-    # MEASURED ON THE MERGED TREE, four views ask directly: the turf-totals
-    # board (which forks on transport), the runner, the alpine factories and
-    # the wallet export.
+    # FLOOR LOWERED 4 → 3 ON PURPOSE, 2026-09-10, by the same move as above:
+    # /tasks/route-board-through-runner routed the turf-totals board through
+    # window.tmWalletOp, so the board stopped asking and the runner asks on its
+    # behalf. MEASURED ON THIS TREE, three views ask directly: the runner, the
+    # alpine factories and the wallet export.
     guards = %w[
       walletProvider.requireProvider()
       walletProvider.requireInlineProvider()
@@ -138,22 +140,22 @@ class WalletGuardInvariantTest < ActiveSupport::TestCase
       guards.any? { |g| src.include?(g) }
     end
 
-    assert_operator users, :>=, 4,
-                    "expected at least the four signing views that still ask directly to call " \
+    assert_operator users, :>=, 3,
+                    "expected at least the three signing views that still ask directly to call " \
                     "requireProvider() or requireInlineProvider(); found #{users}. If a " \
                     "call site was removed on purpose, lower this floor deliberately " \
                     "rather than deleting the check."
 
     # AND THE RUNNER MUST BE ONE OF THEM. This is what makes the lowered floor
-    # honest rather than a weakening: the three flows that stopped asking did so
+    # honest rather than a weakening: the four flows that stopped asking did so
     # because ONE place now asks on their behalf. Delete the guard there and
-    # three flows dereference whatever detect() returned — the original incident,
-    # reproduced three times from a single edit.
+    # four flows dereference whatever detect() returned — the original incident,
+    # reproduced four times from a single edit.
     runner = VIEWS.join("shared/_wallet_op_runner.html.erb")
-    assert File.exist?(runner), "the shared wallet-op runner is missing — three flows have no guard at all"
+    assert File.exist?(runner), "the shared wallet-op runner is missing — four flows have no guard at all"
     assert_includes File.read(runner), "walletProvider.requireProvider()",
-                    "tmWalletOp is where the survivor board, contest create and bundle " \
-                    "provisioning get their provider; without the guard here all three " \
+                    "tmWalletOp is where both contest boards, contest create and bundle " \
+                    "provisioning get their provider; without the guard here all four " \
                     "dereference whatever detect() answered"
 
     # AND THE STRICTER ONE MUST ACTUALLY BE USED. Without this, converting every

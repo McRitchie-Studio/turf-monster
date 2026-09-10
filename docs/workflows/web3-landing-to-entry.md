@@ -6,9 +6,9 @@
 > `test/docs/workflow_citation_docs_test.rb` enforces both rules and checks every
 > number against the symbol its prose names — the symbol is the claim, the number
 > is bookkeeping. That check comes in two strengths, and it is worth knowing
-> which one you are reading. **131 of the 164 citations** below sit inside a
+> which one you are reading. **129 of the 166 citations** below sit inside a
 > definition, and there the prose must name that definition or the citation
-> reddens. The other **33** sit in code with no enclosing definition — a route
+> reddens. The other **37** sit in code with no enclosing definition — a route
 > entry, ERB markup, a callback in a class body — and there the guard asks only
 > that a code token quoted nearby appear in the cited lines, which proves the
 > words are present, not that the code is. **All 7 citations on
@@ -69,7 +69,7 @@ Phantom must be installed in the browser or available via mobile deep link.
      holding no entry — unless `show_board_for_existing_entry` opens it back
      up for `?add_entry=true` (`:71`).
    - The board partial mounts `x-data="selectionBoard()"` —
-     `app/views/contests/_turf_totals_board.html.erb:2088`. The factory is
+     `app/views/contests/_turf_totals_board.html.erb:2073`. The factory is
      defined inline as `window.selectionBoard = function()` (`:171`) because
      Alpine processes `x-data` before importmap modules load (see
      `docs/UI_PATTERNS.md` § Alpine + ERB Constraints).
@@ -94,8 +94,8 @@ Phantom must be installed in the browser or available via mobile deep link.
      than trusting its own optimistic mutation
      (`_turf_totals_board.html.erb:741`).
    - At `picks_required` selections the board blurs behind the cart —
-     `blurDismissed` gates the overlay (`:2099-2105`) — and the shared
-     `render 'studio/hold_button'` appears (`:2278`).
+     `blurDismissed` gates the overlay (`:2084-2090`) — and the shared
+     `render 'studio/hold_button'` appears (`:2263`).
 
 4. **Hold-to-Confirm fires.** The shared hold button dispatches the
    `hold-confirm-entry` window event; the board's `init()` listener routes it
@@ -104,7 +104,7 @@ Phantom must be installed in the browser or available via mobile deep link.
      (`:1521`); a blocked state aborts into the `Location Restricted` redirect
      modal (`:1525`). That route is drawn by the engine now, behind
      `config.draw_geo_routes`, not by this app (`config/routes.rb:604-610`).
-   - `confirmEntry()` (`_turf_totals_board.html.erb:1566-2072`) short-circuits
+   - `confirmEntry()` (`_turf_totals_board.html.erb:1566-2057`) short-circuits
      to `showLoginModal()` when the session is a guest (`:1575-1579`), which
      opens the auth wizard at `step: 'credentials'` (`:935-948`) — the entry
      into step 5.
@@ -214,11 +214,20 @@ Phantom must be installed in the browser or available via mobile deep link.
 
 9. **Web3 entry: prepare + sign + confirm.** `confirmEntry()` branches on
    `sess.isWeb3 && this.contestOnchain`
-   (`_turf_totals_board.html.erb:1630`).
-   - **Wallet re-assert.** `provider.connect()` runs first, and a `pubkeyB58`
-     that does not match the session address aborts before any server call
-     (`:1724-1728`).
-   - **`POST /contests/:id/prepare_entry`** (`:1750`) →
+   (`_turf_totals_board.html.erb:1630`) and hands the whole trip to one
+   `window.tmWalletOp('contest_entry', …)` call (`:1677`). The runner
+   (`app/views/shared/_wallet_op_runner.html.erb`) supplies the return address,
+   cluster and transport fork. The flow itself is the `contest_entry` intent,
+   registered by name from the layout so the wallet's callback page can finish
+   it.
+   - **Wallet re-assert.** The board declares `expectedAccount: sess.address`
+     (`_turf_totals_board.html.erb:1692`), and solana-studio's `walletOps`
+     refuses a different connected wallet before it signs. On the inline
+     transport it connects before `prepare`, so no prepared transaction is
+     minted for the wrong wallet.
+   - **`POST /contests/:id/prepare_entry`** from the intent's
+     `tmPrepareContestEntry`
+     (`app/views/shared/_contest_entry_intent.html.erb:189-191`) →
      `ContestsController#prepare_entry`
      (`app/controllers/contests_controller.rb:1001-1156`).
      - Requires `onchain_session?` — a session with no live wallet signature
@@ -247,14 +256,18 @@ Phantom must be installed in the browser or available via mobile deep link.
        refresh; see failure modes below.
      - Returns `{ success, serialized_tx, entry_id, entry_pda, ptx_slug,
        token_funded }` (`:1135-1152`).
-   - **Phantom signs FIRST, and the browser does not broadcast.** The client
-     deserializes the base64 transaction and calls `provider.signTransaction`
-     (`_turf_totals_board.html.erb:1797`), then re-serializes with
-     `requireAllSignatures: false` — the admin slot is deliberately still empty
-     (`:1802`). Phantom signing an entirely unsigned transaction is what clears
-     Phantom's multi-signer "could be malicious" banner.
-   - **`POST /contests/:id/confirm_onchain_entry`** with those wire bytes
-     (`:1813-1817`) → `ContestsController#confirm_onchain_entry`
+   - **Phantom signs FIRST, and the browser does not broadcast.** The intent
+     declares `signOnly: true`
+     (`app/views/shared/_contest_entry_intent.html.erb:68`), so `walletOps`
+     asks the wallet to sign and never to send. The provider's codec
+     re-serializes with `requireAllSignatures: false` — the admin slot is
+     deliberately still empty (`app/javascript/wallet_provider.js:99-101`).
+     Phantom signing an entirely unsigned transaction is what clears Phantom's
+     multi-signer "could be malicious" banner.
+   - **`POST /contests/:id/confirm_onchain_entry`** with those wire bytes as
+     `signed_tx`, from the intent's `tmCompleteContestEntry`
+     (`app/views/shared/_contest_entry_intent.html.erb:301-304`) →
+     `ContestsController#confirm_onchain_entry`
      (`app/controllers/contests_controller.rb:1341-1459`). The server owns
      everything from here — it cosigns with `Transaction.cosign_wire`, simulates,
      broadcasts and waits (`:1330-1340`).
@@ -293,7 +306,7 @@ Phantom must be installed in the browser or available via mobile deep link.
        and refreshes the total through `sync_balance` (`:2091-2093`).
    - Modal closes; the seeds bar animates; `lobbyUrl` drives the countdown
      redirect back to the contest page
-     (`_turf_totals_board.html.erb:1851`).
+     (`_turf_totals_board.html.erb:1745`).
 
 ## Data touched
 
@@ -326,7 +339,7 @@ Phantom must be installed in the browser or available via mobile deep link.
   (step 5) and `signTransaction` at entry (step 9). There is no separate
   per-entry SIWS prompt: `confirmEntry` records that it was removed as
   defence-in-depth which doubled the prompts without strengthening on-chain
-  integrity (`app/views/contests/_turf_totals_board.html.erb:1731-1737`).
+  integrity (`app/views/contests/_turf_totals_board.html.erb:1716-1722`).
 
 ## Failure modes
 
@@ -347,11 +360,13 @@ Phantom must be installed in the browser or available via mobile deep link.
   (`app/controllers/contests_controller.rb:878-880`) — the operator must call
   `SeasonConfig.set_current!(season_id)` first. Caught before the user spends a
   Phantom signature.
-- **Wrong wallet connected.** `confirmEntry` re-asserts the connected
-  `pubkeyB58` against the session address
-  (`app/views/contests/_turf_totals_board.html.erb:1724-1728`) — symptom:
-  "Wrong wallet connected. Switch to abcd…". The user must reconnect the wallet
-  that owns the account, or switch Phantom's active wallet.
+- **Wrong wallet connected.** `confirmEntry` declares the session address as
+  `expectedAccount`
+  (`app/views/contests/_turf_totals_board.html.erb:1692`), and solana-studio's
+  `walletOps` refuses a different connected wallet with a sentence naming both.
+  The board adds "Or reconnect your wallet on the Account page." (`:1942-1943`).
+  The user must reconnect the wallet that owns the account, or switch Phantom's
+  active wallet.
 - **Refresh mid-flight (signed, handed to the server, awaiting confirmation).**
   Covered by `PendingTransaction`. On the next page load
   `find_pending_recovery_ptx`

@@ -17,10 +17,22 @@ require "json"
 # place to discover it and one no desktop test can reach.
 class ContestEntryIntentRegistrationTest < ActiveSupport::TestCase
   # The registration IIFE lives in the LAYOUT-rendered partial now — see the
-  # note in that file for why the board was the wrong home. The redirect FORK
-  # asserted lower down is still the board's, so this file reads both.
+  # note in that file for why the board was the wrong home. The transport FORK
+  # and the handoff watch moved out of the board too, into the runner
+  # (/tasks/route-board-through-runner), so this file reads all three: what the
+  # board still owns, and where the halves it gave up now live.
   PARTIAL = Rails.root.join("app/views/shared/_contest_entry_intent.html.erb")
   BOARD   = Rails.root.join("app/views/contests/_turf_totals_board.html.erb")
+  RUNNER  = Rails.root.join("app/views/shared/_wallet_op_runner.html.erb")
+
+  # The board's code with its full-line comments removed. The board's comments
+  # NAME the things it no longer does — redirectLink, pagehide, walletOps.run —
+  # so an absence asserted over prose would fail on the explanation of why the
+  # code is gone. Only full-line comments go: a trailing comment stays, which can
+  # make a refutation stricter but never vacuous.
+  def board_code
+    File.read(BOARD).lines.reject { |l| l =~ %r{\A\s*//} }.join
+  end
 
   # The registration IIFE, lifted verbatim.
   def registration_source
@@ -95,30 +107,49 @@ class ContestEntryIntentRegistrationTest < ActiveSupport::TestCase
     src[open_brace..finish]
   end
 
-  # The post-run transport guard: the `if (isRedirect) { … return; }` that
-  # follows the single walletOps.run, not the modal-copy fork that precedes it.
-  def post_run_redirect_branch(src)
-    run_at = src.index("walletOps.run('contest_entry'")
-    assert run_at, "the entry call site moved"
-    guard_at = src.index("if (isRedirect) {", run_at)
-    assert guard_at, "the redirect guard after the call site is gone — a mobile entry now " \
-                     "falls into the inline return leg in a document on its way out"
-    brace_matched(src, guard_at)
+  # The board's ONE wallet call, from `window.tmWalletOp(` to its closing paren,
+  # paren-matched for the same reason brace_matched exists: the call spans an
+  # options object with a nested function, and a regex drifts to the first `)`.
+  def board_call(src)
+    call_at = src.index("window.tmWalletOp('contest_entry'")
+    assert call_at, "the board's entry call moved or stopped using the runner"
+    open_paren = src.index("(", call_at)
+    depth = 0
+    finish = nil
+    (open_paren...src.length).each do |i|
+      case src[i]
+      when "(" then depth += 1
+      when ")" then (depth -= 1) == 0 && (finish = i)
+      end
+      break if finish
+    end
+    assert finish, "could not paren-match the board's tmWalletOp call"
+    [call_at, finish]
   end
 
   # THE HEADLINE PROPERTY OF /tasks/collapse-inline-entry-call-site, and the
-  # reason walletOps exists at all: ONE call site for both transports. Until this
+  # reason walletOps exists at all: ONE call site for both transports. Until that
   # landed the board ran walletOps for a phone and a hand-rolled copy of the same
   # flow for a laptop — prepare POST, atob, Transaction.from, signTransaction,
   # serialize, chunked btoa, confirm POST — and only the laptop copy was ever
   # exercised, which is how the mobile half rotted unseen in the first place.
+  #
+  # WHAT IT PINS NOW (/tasks/route-board-through-runner). It used to count ONE
+  # walletOps.run in the board. That call moved into the runner, so the board
+  # holds exactly one window.tmWalletOp and NO walletOps.run: a direct run
+  # reappearing here is a second call site, and one that would carry its own
+  # address book again — the defect that lost an approved entry on QA.
   test "contest entry reaches the wallet through exactly one call site" do
     src = File.read(BOARD)
+    code = board_code
 
-    assert_equal 1, src.scan("walletOps.run(").length,
-                 "a second walletOps.run in this board is a second call site by another " \
+    assert_equal 1, code.scan("window.tmWalletOp(").length,
+                 "a second tmWalletOp in this board is a second call site by another " \
                  "name — the transports may differ in what the modal says, never in how " \
                  "the transaction is prepared, signed, or posted"
+    assert_equal 0, code.scan("walletOps.run(").length,
+                 "the board calls walletOps.run directly again — that call site must spell " \
+                 "out its own redirectLink, and a missing one lost a real user's entry"
 
     # The hand-rolled half, named by the calls only it could make. Each of these
     # is now the gem's or the provider's, and finding one here again means the
@@ -137,23 +168,53 @@ class ContestEntryIntentRegistrationTest < ActiveSupport::TestCase
   end
 
   test "the fork asks the provider what it is, never the device" do
-    # Asserted on the SOURCE here, deliberately and with its limits stated: the
-    # branch lives inside an Alpine method that cannot be lifted out without its
-    # component. What this pins is the fork being keyed on the provider's own
-    # transport field rather than on a user-agent sniff — the mistake that would
-    # send a desktop user inside a wallet's in-app browser down the redirect
-    # path, and a phone inside one down a path with no injected wallet. The
-    # behaviour is owned by e2e.
-    src = File.read(BOARD)
+    # Asserted on the SOURCE here, deliberately and with its limits stated.
+    # What this pins is the fork being keyed on the provider's own transport
+    # field rather than on a user-agent sniff — the mistake that would send a
+    # desktop user inside a wallet's in-app browser down the redirect path, and a
+    # phone inside one down a path with no injected wallet. The behaviour is
+    # owned by e2e and by test/lib/board_entry_call_site_js_test.rb.
+    #
+    # WHAT IT PINS NOW. The fork used to be the board's own `isRedirect`. It
+    # moved into the runner, which every contest flow shares, so the provider
+    # question is asserted THERE — and the board is asserted to ask no transport
+    # question of its own, which is what keeps the fork decided in one place.
+    runner = File.read(RUNNER)
+    code = board_code
 
-    assert_includes src, "provider.transport === 'redirect'",
-                     "the fork must ask the PROVIDER what it is, not guess from the device"
-    assert_includes src, "walletOps.run('contest_entry'",
-                     "the entry must run the intent by the name registered above"
-    refute_match(/isMobile\(\)[^;]*\?[^;]*walletOps\.run/m, src,
+    assert_includes runner, "provider.transport === 'redirect'",
+                    "the fork must ask the PROVIDER what it is, not guess from the device"
+    assert_includes code, "window.tmWalletOp('contest_entry'",
+                    "the entry must run the intent by the name registered above, through the runner"
+    %w[provider.transport requireProvider isRedirect].each do |fork|
+      assert_not_includes code, fork,
+                          "the board forks on transport again (#{fork}) — a second copy of a " \
+                          "decision the runner makes for every contest flow"
+    end
+    refute_match(/isMobile\(\)[^;]*\?[^;]*tmWalletOp/m, code,
                  "transport, not device, decides this fork")
-    refute_match(/if\s*\(\s*.*isMobile\(\)\s*\)\s*\{[^}]*walletOps\.run/m, src,
+    refute_match(/if\s*\(\s*.*isMobile\(\)\s*\)\s*\{[^}]*tmWalletOp/m, code,
                  "transport, not device, decides this fork")
+  end
+
+  # ACCEPTANCE, stated as an absence the board could regrow. The four things
+  # the runner exists to write once — the return address, the app identity, the
+  # cluster, and the handoff watch — must not be written again here. The runner
+  # is asserted to hold them, so an absence here is a move, never a loss.
+  test "the board writes none of the redirect address book; the runner holds all of it" do
+    runner = File.read(RUNNER)
+    code = board_code
+
+    { "redirectLink" => "the return address",
+      "/auth/phantom/callback" => "the callback route the return address names",
+      "appUrl" => "the app identity",
+      "solanaCluster" => "the cluster",
+      "'pagehide'" => "the handoff watch" }.each do |token, what|
+      assert_not_includes code, token,
+                          "the board spells out #{what} again — the same address book written " \
+                          "twice, which is how a hand-rolled site came to omit one"
+      assert_includes runner, token, "the runner no longer holds #{what}"
+    end
   end
 
   test "a wrong wallet keeps the remedy the gem's sentence cannot name" do
@@ -177,43 +238,62 @@ class ContestEntryIntentRegistrationTest < ActiveSupport::TestCase
     # Without the return, a mobile entry navigates to the wallet AND keeps
     # executing — painting an Entry Confirmed card off a promise that resolved
     # only because the hop had not happened yet, in a document on its way out.
-    src = File.read(BOARD)
-    branch = post_run_redirect_branch(src)
+    #
+    # WHAT IT PINS NOW. The guard used to be `if (isRedirect) { … return; }`
+    # keyed on the board's own fork. The board has no fork any more, so it reads
+    # what the runner hands back instead: runRedirect resolves
+    # `{ suspended: true }` once it has navigated, and the survivor board already
+    # guards on exactly that. Pinned as the FIRST statement after the call, not
+    # merely present somewhere later — anything between the two would run on the
+    # redirect transport too. The behaviour is driven in
+    # test/lib/board_entry_call_site_js_test.rb.
+    code = board_code
+    _, call_end = board_call(code)
+    after_call = code[(call_end + 1)..].sub(/\A\s*;/, "")
 
-    # The LAST statement in the block must be the return — not merely present
-    # somewhere inside it, which a nested callback could satisfy.
-    tail = branch.rstrip.sub(/\}\z/, "").rstrip
-    assert tail.end_with?("return;"),
-           "the redirect guard must END in `return;` — without it a mobile entry " \
-           "navigates to the wallet AND falls into the inline return leg, painting a " \
-           "success card for an entry no server has confirmed"
+    assert_equal "if (!confirmData || confirmData.suspended) return;", after_call.lstrip.lines.first.strip,
+                 "the statement after the runner call must end the redirect transport — " \
+                 "without it a mobile entry navigates to the wallet AND falls into the " \
+                 "inline return leg, painting a success card for an entry no server has confirmed"
   end
 
   # --- what the redirect transport owes when the hop does NOT happen ---------
   #
-  # ASSERTED ON SOURCE, with the same limits the fork test above states: these
-  # live inside an Alpine method that cannot be lifted out without its
-  # component. What they pin is that the recovery EXISTS and is keyed on the
-  # right signal; the behaviour is owned by e2e. They are here because all three
-  # were invisible to every tier when they shipped.
+  # ASSERTED ON SOURCE, with the same limits the fork test above states. What
+  # they pin is that the recovery EXISTS and is keyed on the right signal; the
+  # behaviour is driven in test/lib/board_entry_call_site_js_test.rb and in
+  # test/lib/wallet_op_runner_js_test.rb. They are here because all three were
+  # invisible to every tier when they shipped.
 
   test "a hop that never happens restores the button and names the failure" do
-    src = File.read(BOARD)
-    branch = post_run_redirect_branch(src)
-    # The listener is ARMED before the call site (it has to be — the hop can take
-    # the page during run()) and DISARMED inside the guard after it, so the two
-    # halves are asserted at the two places they now live.
-    assert_includes src, "window.addEventListener('pagehide', onPageHide",
+    # WHAT IT PINS NOW. This used to find the pagehide listener, its removal,
+    # the error card and the button reset all inside the board's own redirect
+    # branch. The watch moved into the runner — ONE copy, which is what lets a
+    # later fix to it (a pageshow answer for a restored page) cover this board
+    # without touching it. So the halves are asserted where they now live: the
+    # watch and the card in the runner, and in the board only what the runner
+    # cannot know — that this board's hold buttons are dead and it is still
+    # marked submitting.
+    runner = File.read(RUNNER)
+    assert_includes runner, "window.addEventListener('pagehide', onPageHide",
                     "pagehide firing is the only honest signal that the hop took, and it " \
                     "must be armed before run() — the page can be gone by the time it returns"
-    assert_includes branch, "removeEventListener('pagehide', onPageHide)",
-                    "an armed listener the guard never disarms leaks into the next attempt"
-    assert_includes branch, "board.resetHoldButtons()",
+    assert_includes runner, "window.removeEventListener('pagehide', onPageHide)",
+                    "an armed listener the watch never disarms leaks into the next attempt"
+    assert_includes runner, "'Wallet Did Not Open'",
+                    "the modal must resolve to something actionable, not spin forever"
+
+    code = board_code
+    call_start, call_end = board_call(code)
+    call = code[call_start..call_end]
+    stranded_at = call.index("onStranded: function () {")
+    assert stranded_at, "the board no longer tells the runner what to undo when the hop " \
+                        "never happens — the runner paints the card but the board stays stuck"
+    stranded = brace_matched(call, stranded_at)
+    assert_includes stranded, "board.resetHoldButtons()",
                     "a declined universal link left the hold buttons dead"
-    assert_includes branch, "board.submitting = false",
+    assert_includes stranded, "board.submitting = false",
                     "and left submitting true, so a retry was refused"
-    assert_match(/sm\.error\(/, branch,
-                 "the modal must resolve to something actionable, not spin forever")
   end
 
   test "the entry flow reports wallet failures like every other wallet path" do
