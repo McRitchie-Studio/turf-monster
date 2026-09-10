@@ -10,7 +10,10 @@ transaction, and the message is key-bearing; see "Wallet export cannot cross the
 redirect" below. Sign-in still rides the undocumented Phantom `signIn` deeplink.
 The design below describes the target; the **Scope** table records what has
 actually landed.
-**Written:** 2026-09-07 · **Last corrected:** 2026-09-09
+**Written:** 2026-09-07 · **Last corrected:** 2026-09-10
+**Adapter decision (2026-09-10):** keep this protocol and narrow it rather than
+adopt a maintained adapter; the evidence, and what would re-open the question,
+are in [WALLET_ADAPTER_EVALUATION.md](WALLET_ADAPTER_EVALUATION.md).
 **Task:** https://mcritchie.studio/tasks/wallet-transport-architecture-doc
 **Spans:** turf-monster · solana-studio · studio-engine
 
@@ -53,12 +56,15 @@ to take the injection road. Only one of the two roads is modelled.
 | Where it works | Desktop extension, Wallet Standard, wallet in-app browser | iOS Safari, Android Chrome |
 | Shape | `await provider.op()` resolves in the same page | The page is **destroyed**; the result returns on a callback URL |
 | State lives in | JS closures | Must be serialized to survive navigation |
-| Modelled today | ✅ `wallet_provider.js` | ❌ one-off, Phantom-only, outside the registry |
+| Modelled today | ✅ `wallet_provider.js` | ✅ solana-studio `walletOps` + `redirectProvider` (gem 0.8.0+, wired here by turf PR 632); it was ❌ one-off and Phantom-only when this was written |
 
 A promise cannot survive a navigation. That single fact is what the design has to
 be built around; everything below follows from it.
 
 ## Current state
+
+*A snapshot as of 2026-09-07, kept for the reasoning. What has landed since is
+in the **Scope** table below.*
 
 ### What exists and works
 
@@ -250,6 +256,16 @@ becomes a step-machine advance rather than a single `signIn` branch.
 
 **Found 2026-09-09, live on `accepted`, by the stub-wallet harness** — and it is
 the sharpest illustration in this document of why the harness exists.
+
+**Corrected 2026-09-10.** A real iPhone on QA found this defect first: the task
+`/tasks/resume-validates-journal-completeness` was filed at 17:06 MDT, and the
+harness reproduced it on `accepted` at 20:14 MDT (`3f565729`). That proves the
+harness can see the class; it was not the first to see it. Since then
+solana-studio **0.9.3**, which `Gemfile.lock` resolves, journals `redirectLink`
+in `beginConnect` (`redirect_provider.js:194-204`), and its URL builders refuse
+a request without one (`wallet_transport.js:310-319`). The paragraphs below
+describe 0.9.2. The turf-side default stays until the Gemfile floor, `>= 0.9.2`
+today, reaches 0.9.3.
 
 Phantom documents `redirect_link` as **required** on `connect` and on
 `signTransaction` alike (docs.phantom.com, provider-methods pages, fetched
@@ -564,7 +580,7 @@ cheapest insurance in the design.
 | **2** | Migrate the remaining user-facing flows; ~~admin flows get desktop-only messaging~~ (**done** — `gate-admin-flows-desktop-only`) | Mobile parity |
 | **2a** | ~~Turf-totals fork collapsed~~ (**done** — `collapse-inline-entry-call-site`); ~~world cup survivor entry, create contest, contest generator~~ (**done** — `migrate-remaining-entry-flows`) | Every contest flow on one call site |
 | **2b** | ~~Username rename~~ (**done** — `migrate-account-wallet-flows`); wallet export ruled **permanently out** (signs a key-bearing message — see above); retire the undocumented `signIn` deeplink | The rest of phase 2 |
-| **3** *(optional)* | Android Mobile Wallet Adapter | Better Android UX — no page destruction |
+| **3** *(optional)* | Android Mobile Wallet Adapter — evaluated 2026-09-10, deferred until Android's share is measured ([WALLET_ADAPTER_EVALUATION.md](WALLET_ADAPTER_EVALUATION.md)) | Better Android UX — no page destruction |
 
 Phase 1 covering all three wallets was chosen deliberately: they share the
 encryption core, so adapters two and three are largely a base URL and a method
@@ -593,6 +609,6 @@ come first.
    reads as an unresolved placeholder. Needs a device test.
 6. Backpack documents **no custom URI scheme** — universal links only. Unlike
    Phantom, there is no scheme fallback.
-4. How many real users are affected? Searching LogRocket sessions for
+7. How many real users are affected? Searching LogRocket sessions for
    `provider.connect` gives the distinct-user count, which should size phase 1's
    urgency against the rest of the backlog.
