@@ -189,8 +189,10 @@ confirm_onchain_entry
 │     before anything is signed or broadcast
 ├─ C1 cosign guard: assert_entry_cosign_safe!  (server NEVER blind-cosigns)
 │     allowlist per instruction: exactly ONE enter_contest bound to THIS
-│     entry's server-derived PDA · advanceNonceAccount only if configured ·
-│     ComputeBudget · Lighthouse (pure assertions — can only fail the tx).
+│     entry's server-derived PDA · ComputeBudget · Lighthouse (pure
+│     assertions — can only fail the tx). NO System instruction: a transfer
+│     is the C1 attack, and a nonce advance would spend the admin's authority
+│     over the operator nonce.
 │     ANYTHING else → 422 code=tx_rejected, nothing signed, nothing broadcast
 ├─ cosign_wire (admin signature filled into the Phantom-signed bytes)
 ├─ simulateTransaction pre-flight (sig_verify:false, replaceRecentBlockhash:true)
@@ -207,7 +209,7 @@ confirm_onchain_entry
 | Branch | Where, in `ContestsController#confirm_onchain_entry` (`app/controllers/contests_controller.rb:1341-1459`) unless named |
 |---|---|
 | `assert_enterable!` PRE-FLIGHT | `:1365` |
-| C1 cosign guard — `Solana::Vault#assert_entry_cosign_safe!` | `:1388`; definition `app/services/solana/vault.rb:2196-2303` |
+| C1 cosign guard — `Solana::Vault#assert_entry_cosign_safe!` | `:1388`; definition `app/services/solana/vault.rb:2200-2293` |
 | cosign + simulate + broadcast — `Solana::Vault#cosign_and_broadcast_entry` | `app/controllers/contests_controller.rb:1397`; definition `app/services/solana/vault.rb:2400-2420` |
 | PT stamped with `tx_signature` immediately | `app/controllers/contests_controller.rb:1409` |
 | `ContestsController#verify_and_confirm_onchain_entry!` | `:1415-1418`; definition `:2656-2672` |
@@ -301,7 +303,7 @@ three:
 2. **Simulation of any tx whose blockhash isn't in the recent queue needs
    `replaceRecentBlockhash: true`** (sigVerify must be false alongside it) —
    `Solana::Vault#cosign_and_broadcast_entry` simulates with both
-   (`app/services/solana/vault.rb:2412-2413`). PR #135.
+   (`app/services/solana/vault.rb:2392-2393`). PR #135.
 3. **Never anchor user-driven Phantom-signed txs on a shared durable nonce.**
    Phantom's injection position can displace the advance from instruction 0
    (un-recognizing the nonce → BlockhashNotFound at preflight), and one nonce
