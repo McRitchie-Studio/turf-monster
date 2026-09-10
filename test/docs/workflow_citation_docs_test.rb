@@ -204,6 +204,10 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
     "docs/workflows/referral-google-tokens-to-chat.md" => {
       min_citations: 120, min_path: 60, min_bare: 45,
       fallback_only_files: []
+    },
+    "docs/workflows/email-signup-token-to-chat.md" => {
+      min_citations: 155, min_path: 65, min_bare: 85,
+      fallback_only_files: []
     }
   }.freeze
 
