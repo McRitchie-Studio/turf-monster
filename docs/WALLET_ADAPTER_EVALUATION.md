@@ -185,7 +185,7 @@ a phone.
   (`e2e/stub_wallet_round_trip.spec.js:26-31` says so).
 - **A bfcache restore.** Playwright launches Chromium with
   `--disable-back-forward-cache` (`node_modules/playwright-core/lib/server/chromium/chromiumSwitches.js:59`,
-  playwright-core 1.58.2, the version `package-lock.json` resolves). So the
+  measured in playwright-core 1.58.2 on 2026-09-10). So the
   frozen-card trap cannot be reproduced in CI.
 - **The OS app switch**, iOS opening a universal link in a new tab, and whether
   Phantom accepts our URLs.
