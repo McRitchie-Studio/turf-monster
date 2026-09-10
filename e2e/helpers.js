@@ -27,7 +27,7 @@ async function login(page, email, _password) {
     await page.waitForURL(leftMagicLink, { timeout: 5000 });
   } catch (_) {
     // Auto-submit didn't fire (no-JS fallback) — click the consume button.
-    await page.locator('button:has-text("Sign in to Turf Totals")').click();
+    await page.locator('button:has-text("Sign in to Turf Monster")').click();
     await page.waitForURL(leftMagicLink);
   }
 }
@@ -121,6 +121,22 @@ async function createActiveEntry(page, contestSlug) {
 }
 
 /**
+ * Give the signed-in user a managed (custodial) wallet — a GRANDFATHERED web2
+ * user (TestController#grant_managed_wallet).
+ *
+ * Web3-only onboarding (ENABLE_WEB3_ONLY_ONBOARDING) stopped signup from
+ * minting one, so a spec about the managed-wallet path has to ask for it
+ * explicitly rather than inherit it from signing up.
+ */
+async function grantManagedWallet(page) {
+  const res = await page.request.post("/test/grant_managed_wallet");
+  if (!res.ok()) {
+    throw new Error(`grant_managed_wallet failed: ${res.status()} ${await res.text()}`);
+  }
+  return res.json();
+}
+
+/**
  * Stage the current user's quest ladder position (TestController#set_quest_state)
  * so a spec can land on a given quest_step / next_quest without driving the
  * on-chain username + chat quests first. Pass any of:
@@ -201,12 +217,99 @@ async function stubQuestEndpoints(page, opts = {}) {
   });
 }
 
+
+/**
+ * OPT OUT OF THE LANE'S REDUCED MOTION, for a spec that tests animation.
+ *
+ * playwright.config.js sets `contextOptions.reducedMotion: "reduce"`, and since
+ * /tasks/make-reduced-motion-reach-specs that setting actually REACHES the page.
+ * The app honors it: `.free-entry-glow`, `.legendary-badge`, the modal mount /
+ * unmount curves, `.holo-card` and six more selectors all collapse to
+ * `animation: none` under the query.
+ *
+ * So a spec that asserts a RUNNING timeline — getAnimations(), a mid-flight
+ * currentTime, a frame-to-frame paint diff — must turn motion back on first, and
+ * must do it out loud rather than inherit it by luck:
+ *
+ *     await allowMotion(page);
+ *
+ * Call it BEFORE the navigation whose paint you intend to measure.
+ */
+async function allowMotion(page) {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+}
+
+/**
+ * The human operator's USERNAME, as seeded by db/seeds/users.rb.
+ *
+ * It lives here because three specs assert the nav chip's text and a fourth
+ * builds a profile slug from it, and on 2026-09-04 it changed: `alex` and
+ * `mcritchie` traded owners (the human took the bare name back; the shared team
+ * account moved to `mcritchie`), which reddened the playwright lane in four
+ * places at once. One literal is one edit next time.
+ *
+ * Keep it in step with User::PARKED_IDENTITIES — nothing enforces that from
+ * JavaScript, so a rename is a two-file change by hand.
+ */
+const OPERATOR_USERNAME = "alex";
+
+/**
+ * Two seeded accounts chosen for the WIDTH of their username, for the navbar
+ * fade specs — which need a name that does not fit and a name that does.
+ *
+ * `mcritchie` (9 chars, ~72px) overflows the navbar's username slot; `turf`
+ * (34px) fits with room to spare at every width and on both faces of the
+ * balance slot. Sign-in email, not username, because the login helper takes an
+ * email and because the email is the half that does not churn.
+ *
+ * These moved on 2026-09-04: the overflowing name used to be the human
+ * operator's. The swap gave the human `alex` — 38px, which FITS — so the fade
+ * specs lost their overflowing subject and failed on their own precondition
+ * ("this width must actually be overflowing"). The long name did not disappear;
+ * it moved to the shared team account, which is what these point at now.
+ */
+const OVERFLOWING_NAME_EMAIL = "team@mcritchie.studio";
+const FITTING_NAME_EMAIL = "team@turfmonster.media";
+
+/**
+ * Seed / clear the /contests featured rail's own fixtures
+ * (TestController#seed_contests, #clear_seeded_contests).
+ *
+ * The rail's browser-only properties need more than one contest to be
+ * observable and the dev seed ships exactly one, so the rail specs state their
+ * premise instead of inheriting it. Every seeded row carries the `e2e-rail-`
+ * slug prefix and `clearRailContests` deletes exactly that set — the lane runs
+ * one worker against one database, so a leftover contest is paid for by every
+ * later spec that measures this page.
+ */
+async function seedRailContests(page, count) {
+  const res = await page.request.post("/test/seed_contests", { data: { count } });
+  if (!res.ok()) {
+    throw new Error(`seed_contests failed: ${res.status()} ${await res.text()}`);
+  }
+  return res.json();
+}
+
+async function clearRailContests(page) {
+  const res = await page.request.post("/test/clear_seeded_contests");
+  if (!res.ok()) {
+    throw new Error(`clear_seeded_contests failed: ${res.status()} ${await res.text()}`);
+  }
+  return res.json();
+}
+
 module.exports = {
   login,
+  seedRailContests,
+  clearRailContests,
+  OPERATOR_USERNAME,
+  OVERFLOWING_NAME_EMAIL,
+  FITTING_NAME_EMAIL,
   loginAdmin,
   loginViaPhantom,
   reseed,
   createActiveEntry,
+  grantManagedWallet,
   setQuestState,
   stubQuestEndpoints,
   setupPhantomMock,
@@ -214,4 +317,5 @@ module.exports = {
   setupOnchainMocks,
   computeMockTransaction,
   attestAge,
+  allowMotion,
 };

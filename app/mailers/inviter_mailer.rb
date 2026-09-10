@@ -19,7 +19,7 @@ class InviterMailer < ApplicationMailer
     @target              = 2
     @remaining           = [@target - @invitees_in_contest, 0].max
     @account_url         = account_url
-    @banner_url          = email_banner_url("friend-joined-banner.png")
+    @banner_url          = Studio::EmailCatalog.resolved_url(:friend_joined_contest)
     @banner_alt          = "Your Friend's In!"
 
     mail(

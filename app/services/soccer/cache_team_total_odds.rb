@@ -45,7 +45,7 @@ module Soccer
               team_total_under_odds: Integer(row.fetch("under_odds")),
               # The O/U line IS the DK goals expectation; only fill blanks so
               # a hand-tuned expectation is never clobbered by a reseed.
-              dk_goals_expectation: matchup.dk_goals_expectation || BigDecimal(row.fetch("line").to_s)
+              expected_score: matchup.expected_score || BigDecimal(row.fetch("line").to_s)
             )
             matchups_updated += 1
           end

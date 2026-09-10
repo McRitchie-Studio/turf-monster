@@ -12,7 +12,7 @@ class SlatesFormulaReportSamplesTest < ActionDispatch::IntegrationTest
     slate = Slate.create!(name: "Group Stage — Samples", starts_at: 2.days.from_now)
     SlateMatchup.create!(
       slate: slate, team_slug: @belgium.slug, opponent_team_slug: @opponent.slug,
-      status: "pending", dk_goals_expectation: 1.5, team_total_over_odds: -175, team_total_under_odds: 110
+      status: "pending", expected_score: 1.5, team_total_over_odds: -175, team_total_under_odds: 110
     )
   end
 
@@ -32,7 +32,7 @@ class SlatesFormulaReportSamplesTest < ActionDispatch::IntegrationTest
     slate = Slate.find_by!(name: "Group Stage — Samples")
     SlateMatchup.create!(
       slate: slate, team_slug: lineless.slug, opponent_team_slug: @belgium.slug,
-      status: "pending", dk_goals_expectation: 2.5
+      status: "pending", expected_score: 2.5
     )
 
     get formula_report_slates_path

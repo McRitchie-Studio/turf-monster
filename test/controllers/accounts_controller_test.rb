@@ -71,7 +71,7 @@ class AccountsControllerTest < ActionDispatch::IntegrationTest
     ctl = ApplicationController.new
     ctl.instance_variable_set(:@wallet_balances, { usdc: 12.34, usdt: 0.5, sol: 1.0 })
     ctl.define_singleton_method(:current_user)     { user }
-    ctl.define_singleton_method(:onchain_session?) { false }
+    ctl.define_singleton_method(:onchain_session?) { true }
 
     payload = Rails.stub(:cache, ActiveSupport::Cache::MemoryStore.new) do
       Rails.cache.write(Solana::Vault.entry_tokens_cache_key(user.solana_address),
@@ -131,6 +131,37 @@ class AccountsControllerTest < ActionDispatch::IntegrationTest
     assert_equal user.reload.web3_solana_address, body["address"]
   end
 
+  # OPSEC-044, on the signature path. Creating an on-chain UserAccount costs
+  # ~0.00182 SOL of ADMIN rent and is PERMANENT — nothing in turf-vault closes a
+  # UserAccount. This endpoint verifies a signature over a keypair the CALLER
+  # generates, and keypairs are free, so an eager create here bills admin SOL per
+  # REQUEST rather than per user: roughly 13 SOL/day against the 5/min/IP
+  # rack_attack throttle, which is a brute-force limit and not a spend meter.
+  # The account is created lazily instead, by the paths that actually need it
+  # (entry.rb:302, stripe_deposit_job.rb:51, contests_controller.rb:746/:1550).
+  test "linking Phantom does NOT spend admin SOL creating an on-chain account" do
+    address = Solana::Keypair.generate.address
+    log_in_as @alex
+    clear_enqueued_jobs
+
+    assert_no_enqueued_jobs(only: CreateOnchainUserAccountJob) do
+      Solana::AuthVerifier.stub(:verify!, address) do
+        post link_solana_account_path,
+             params: {
+               message: "Link wallet\nUser-ID: #{@alex.id}",
+               signature: "stub-signature",
+               pubkey: address,
+               wallet_provider: "Phantom"
+             },
+             as: :json
+      end
+    end
+
+    assert_response :success
+    assert_equal address, @alex.reload.web3_solana_address,
+      "the link itself must still work — only the eager on-chain spend is gone"
+  end
+
   test "session_state skips require_profile_completion gate" do
     user = User.create!(email: "incomplete@mcritchie.studio")
     # User with no username would normally hit require_profile_completion and
@@ -157,7 +188,8 @@ class AccountsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "update_username (custodial) saves via a server-signed set_username" do
-    user = User.create!(email: "renamer@mcritchie.studio") # managed wallet
+    user = User.create!(email: "renamer@mcritchie.studio")
+    grant_managed_wallet!(user) # the custodial rename signs with the server-held key
     user.update_columns(contest_entered: true) # satisfy the gate
     log_in_as user
     fake_vault = Object.new
@@ -173,7 +205,11 @@ class AccountsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "update_username is gated until contest_entered" do
-    user = User.create!(email: "gated@mcritchie.studio") # managed wallet, contest_entered: false
+    # Managed wallet, contest_entered: false — the wallet has to exist or the
+    # request fails on "No wallet on this account" and never reaches the gate
+    # this test is about.
+    user = User.create!(email: "gated@mcritchie.studio")
+    grant_managed_wallet!(user)
     log_in_as user
     post update_username_account_path, params: { value: "new-name-here" }, as: :json
     assert_response :forbidden

@@ -80,7 +80,7 @@ class DemoContestPlayableTest < ActionDispatch::IntegrationTest
             opponent_team_slug: opponent_slug,
             game_slug: game.slug,
             week: week,
-            dk_goals_expectation: 24.5 - SPAN_TEAMS.index(team_slug),
+            expected_score: 24.5 - SPAN_TEAMS.index(team_slug),
             status: "pending"
           )
         end

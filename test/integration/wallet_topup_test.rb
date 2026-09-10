@@ -2,8 +2,20 @@ require "test_helper"
 
 # Render-gating coverage for the COINBASE-FORWARD Top Up Wallet modal
 # (modals/_wallet_topup), its ungated registration in the application layout,
-# the entry-blocker re-route in contests/_turf_totals_board, and the Add Funds
-# hub's returnModal back-branching. Companion to onramp_hub_test.rb.
+# the entry blocker's funds-needed dispatch in contests/_turf_totals_board, and
+# the Add Funds hub's returnModal back-branching. Companion to onramp_hub_test.rb.
+#
+# THE ENTRY BLOCKER NO LONGER REACHES THIS MODAL, and nothing in this file may
+# assert that it does. showFundsNeeded routes to Get USDC (modals/_buy_usdc) or,
+# for the USDC kill-switch audience, to Buy an Entry Token, and
+# selectionBoard#showWalletTopup has zero callers. What is still true, and is what
+# these tests pin, is that the modal RENDERS and GATES correctly whenever
+# something opens it, and that the layout still registers it ungated. Today
+# nothing does: the hub's Back link swaps here only on props.returnModal ==
+# 'wallet-topup', a prop only modals/_wallet_topup itself writes, so that branch
+# is a return path from itself rather than an entrance. The branch is still
+# pinned below because it is real code that must keep working; what is NOT
+# claimed anywhere here is that something reaches it.
 #
 # Since unified funding (operator 2026-06-13), a web2/managed USDC entry works
 # (server-signed enter_contest) when ENABLE_WEB2_USDC_ENTRY is on, so USDC is the
@@ -15,6 +27,28 @@ require "test_helper"
 # modal handoff is a tracked Playwright e2e gap (mirrors the on-chain
 # success-modal coverage-gap precedent).
 class WalletTopupTest < ActionDispatch::IntegrationTest
+  # The Coinbase CTA tracks cdp_ramp_modal_available? — the SAME predicate the
+  # layout registers the cdp-ramp modal behind — in every environment, so a page
+  # that carries the CTA needs BOTH ENABLE_CDP_RAMP and a session. This modal is
+  # registered UNGATED (it must survive an in-session signup) while cdp-ramp is
+  # not, so the guest page below is the one that used to ship the dead button.
+  def with_cdp_ramp
+    was = ENV["ENABLE_CDP_RAMP"]
+    ENV["ENABLE_CDP_RAMP"] = "true"
+    yield
+  ensure
+    was.nil? ? ENV.delete("ENABLE_CDP_RAMP") : ENV["ENABLE_CDP_RAMP"] = was
+  end
+
+  def get_topup_with_coinbase
+    with_cdp_ramp do
+      log_in_as users(:jordan)
+      get contests_path
+    end
+    assert_response :success
+    response.body
+  end
+
   # --- modal registration (ungated, like onramp-hub) ---
 
   test "the wallet-topup modal is registered ungated in the layout for a guest" do
@@ -50,10 +84,24 @@ class WalletTopupTest < ActionDispatch::IntegrationTest
 
   # --- primary CTA: Buy USDC with Coinbase (cdp-ramp buy preflight) ---
 
-  test "the primary CTA buys USDC with Coinbase via the cdp-ramp buy preflight" do
+  test "the modal offers no Coinbase CTA without the flag and a session" do
+    # THE KILL-SWITCH PATH, and the in-session-signup path with it. wallet-topup
+    # is registered ungated, so it renders here; cdp-ramp is not registered on
+    # this page at all. The CTA must therefore be absent rather than dead.
     get contests_path
     assert_response :success
-    body = response.body
+    refute_includes response.body, %(data-topup-rail="coinbase"),
+                    "the modal still draws the Coinbase CTA with no cdp-ramp modal registered"
+    refute_includes response.body, "$store.modals.swap('cdp-ramp'",
+                    "the modal still hands a click to an unregistered cdp-ramp modal"
+    # The modal itself must survive the guard — hiding a rail is not the same as
+    # losing the surface that carries it.
+    assert_includes response.body, "$store.modals.current().id === 'wallet-topup'"
+    assert_includes response.body, "Top Up Wallet"
+  end
+
+  test "the primary CTA buys USDC with Coinbase via the cdp-ramp buy preflight" do
+    body = get_topup_with_coinbase
     # Coinbase-forward: the bordered primary CTA hands off to the existing
     # cdp-ramp buy preflight (the same handoff /wallet Buy USDC + the hub use).
     assert_includes body, %(data-topup-rail="coinbase")
@@ -62,8 +110,10 @@ class WalletTopupTest < ActionDispatch::IntegrationTest
                      "$store.modals.swap('cdp-ramp', { flow: 'buy', step: 'preflight' })"
     # The Coinbase pitch is hidden for the web2 kill-switch audience that can't
     # pay with USDC.
-    assert_match(/x-if="!tokenFallback">\s*<button type="button" data-topup-rail="coinbase"/m, body,
+    assert_match(%r{x-if="!tokenFallback">\s*<button\b[^>]*data-topup-rail="coinbase"}m, body,
                  "the Coinbase CTA must be gated behind !tokenFallback")
+    assert_includes body, "$store.modals.current().id === 'cdp-ramp'",
+                    "the CTA is only legitimate on a page that registered its modal"
   end
 
   # --- flag-aware degrade: web2 + ENABLE_WEB2_USDC_ENTRY off -> token rail ---
@@ -76,8 +126,23 @@ class WalletTopupTest < ActionDispatch::IntegrationTest
     # flag off); it is NOT the default primary action.
     assert_includes body, %(data-topup-rail="tokens")
     assert_includes body, "Buy Entry Tokens"
-    assert_match(/x-if="tokenFallback">\s*<button type="button" data-topup-rail="tokens"/m, body,
+    assert_match(%r{x-if="tokenFallback">\s*<button\b[^>]*data-topup-rail="tokens"}m, body,
                  "the token rail must be gated behind tokenFallback")
+    # THE TILE GLYPH IS PINNED, because a defork already swapped it once. This
+    # rail's icon tile has always drawn U+1F3AB TICKET (written &#127915; before
+    # the chrome was adopted from studio-engine). The engine's own specimen,
+    # style/modals/_ds_wallet_topup, passes U+1F39F ADMISSION TICKETS — a
+    # different emoji in a different colour — and adopting the primitive by
+    # copying the specimen's locals rather than this app's prior markup put it on
+    # the ONE call-to-action the web2 kill-switch audience is shown. Nothing
+    # raised and no other assertion moved, so only this pins it. Windowed on the
+    # rail itself, NOT the whole page: 🎟️ is legitimately used elsewhere in this
+    # app, so a page-wide refute would fail on unrelated markup.
+    tile = body[body.index(%(data-topup-rail="tokens")), 400]
+    assert_includes tile, "\u{1F3AB}",
+                    "the token rail tile must draw U+1F3AB TICKET"
+    refute_includes tile, "\u{1F39F}",
+                    "U+1F39F ADMISSION TICKETS is the engine specimen's glyph, not this tile's"
     # tokenFallback fires for web2 viewers ONLY when the web2-USDC kill-switch is
     # off — web3 and flag-on web2 always see the Coinbase pitch.
     assert_includes body,
@@ -137,22 +202,46 @@ class WalletTopupTest < ActionDispatch::IntegrationTest
                     "hub Back must default to the tokens picker"
   end
 
-  # --- entry-blocker re-route (render level; e2e gap noted above) ---
+  # --- entry-blocker funds dispatch (render level; e2e gap noted above) ---
 
-  test "the board entry blocker routes the funds-needed wall through showFundsNeeded (web3 keeps Top Up Wallet)" do
+  test "the board entry blocker routes the funds-needed wall through showFundsNeeded" do
     get contest_path(contests(:one))
     assert_response :success
     body = response.body
-    # web3's showWalletTopup method still exists and still opens the USDC Top Up
-    # Wallet — the web3 branch of the dispatcher is byte-identical to before.
-    assert_includes body, "showWalletTopup()"
-    assert_includes body, "s.open('wallet-topup', { enterAnim: 'shake' })"
-    # The 'no_funding' eligibility-blocker case (renamed from 'no_tokens' in the
-    # unified-funding refactor) now routes through the audience dispatcher:
-    # web2 → Buy an Entry Token modal, web3 → Top Up Wallet.
+    # REBOUND AGAIN, 2026-09-07, and this time by DELETION.
+    #
+    # The previous rebind replaced "showWalletTopup's source text is present"
+    # with "Get USDC carries the onward control that reaches it" — and shipped
+    # the very failure its own comment described. It asserted, against the whole
+    # contest page, `$store.modals.swap('wallet-topup', {})` under the message
+    # "Top Up Wallet must have a live entrance, not just a definition". That
+    # string is rendered by modals/_onramp_hub, which the layout registers
+    # ungated into every contest page, so the assertion never once looked at the
+    # Get USDC card. It also kept `showWalletTopup()` — source text again, and
+    # the function has had no callers since b792cd32.
+    #
+    # It could not have gone green-to-red either way: deleting the entire Get
+    # USDC partial left it passing (measured 2026-09-07). And the route it
+    # demanded is one the operator FORBADE — the CDP/Coinbase onramp has no legal
+    # clearance, and Top Up Wallet leads with it — so a red run here would have
+    # read as an instruction to restore it.
+    #
+    # The card's real contract is pinned where the card can be rendered alone:
+    # test/views/buy_usdc_modal_test.rb, "the card offers Phantom and NOTHING
+    # resembling a payment rail". What stays HERE is the dispatch this test is
+    # named for.
+    #
+    # The 'no_funding' eligibility-blocker case routes through the dispatcher.
     assert_match(/case 'no_funding':\s+this\.showFundsNeeded\(\);/, body,
                  "the no_funding entry wall must route through showFundsNeeded")
-    assert_includes body, "if (Alpine.store('session').mode === 'web2') {"
+    # REBOUND (2026-09-05). This pinned `mode === 'web2'` as the WHOLE dispatcher
+    # condition, which is the fork that was the bug: it sent every web2 player to
+    # a modal whose rails were both flagged off in production. The concern is that
+    # the dispatcher FORKS ON FUNDING, not that it forks on mode, so assert the
+    # condition that survives — the USDC kill-switch audience, who cannot pay with
+    # USDC and therefore keep the entry-token path.
+    assert_includes body, "session.mode === 'web2' && !session.web2UsdcEntry",
+                    "only the USDC kill-switch audience may be routed to tokens"
     refute_match(/case 'no_tokens':/, body,
                  "the legacy no_tokens blocker case must be gone (renamed no_funding)")
   end
@@ -165,15 +254,23 @@ class WalletTopupTest < ActionDispatch::IntegrationTest
     # card + the post-signup pendingAuthStep resume), so the deferred buy-tokens
     # step is unchanged.
     assert_includes body, "showTokensPanel()"
-    assert_includes body, "board.showTokensPanel();"
+    # The resume calls it DIRECTLY. It used to appear as `board.showTokensPanel()`
+    # inside a setTimeout — the 3s deferral that let the magic-link welcome modal
+    # drain its countdown first. That modal is retired, so the deferral and its
+    # closure-captured `board` alias went with it; pinning the old spelling would
+    # be pinning a dead branch.
+    assert_includes body, "this.showTokensPanel();"
   end
 
   # --- hold-window funding pre-check wiring (render level; e2e gap noted above) ---
   #
   # The fix for the fresh-managed-wallet "0x1" sim error: the 2s hold's START
   # kicks off an authoritative server funding check (POST check_funding) that
-  # confirmEntry awaits at hold-COMPLETE, rerouting an unfundable web2 entry to
-  # the Top Up Wallet instead of a doomed on-chain attempt. These assert the
+  # confirmEntry awaits at hold-COMPLETE, rerouting an unfundable web2 entry
+  # through showFundsNeeded — to Buy an Entry Token for the USDC kill-switch
+  # audience, else Get USDC — instead of a doomed on-chain attempt. NOT to this
+  # modal: the reroute test below asserts showFundsNeeded, and the file header
+  # forbids the claim. These assert the
   # client wiring at render level; the live hold-window race is a tracked
   # Playwright e2e gap (same precedent as the on-chain success-modal coverage).
 

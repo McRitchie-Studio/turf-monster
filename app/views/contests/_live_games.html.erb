@@ -1,24 +1,73 @@
-<%# Games for the live contest page. Locals: active / upcoming / completed
-    (Game[]) + contest. ONE single row at the top, ordered active → upcoming →
-    completed; each card self-labels its phase (LIVE / kickoff time / FINAL).
-    gamesCarousel (defined inline in live.html.erb) dwells 10s, smooth-scrolls
-    one full content-width so it lands back on an identical first row, then
-    dwells again — only when the row overflows. Rendered inside
-    #contest_<id>_games (owned by live.html.erb), which the broadcaster
-    updates on every score change, so this is pure content (no outer id). %>
-<% phased = active.map { |g| [g, :active] } +
-            upcoming.map { |g| [g, :upcoming] } +
-            completed.map { |g| [g, :completed] } %>
-<section class="mb-8">
-  <h2 class="text-sm font-semibold text-secondary mb-3">Games</h2>
+<%# THE GAME STRIP — every game in the contest, shrunk to a row of buttons.
+    Locals: active / upcoming / completed (Game[]) + contest.
 
+    Two jobs, and only two. It shows the whole slate at a glance, and it is how
+    the reader CHOOSES which game the panel below shows. Ordered active →
+    upcoming → completed so whatever is being played now is what you land on.
+
+    Rendered inside #contest_<id>_games, which Contest::LiveBroadcast updates on
+    every score, so this is pure content (no outer id). The FOCUS lives in Alpine
+    state declared on a wrapper outside that target — a broadcast replaces these
+    chips, and a selection stored among them would be forgotten every time
+    anyone scored. %>
+<%
+  phased = active + upcoming + completed
+%>
+<section class="mb-5">
   <% if phased.any? %>
-    <div x-data="gamesCarousel()">
-      <div x-ref="viewport" class="overflow-hidden">
-        <div x-ref="track" class="flex gap-3 will-change-transform">
-          <% phased.each do |game, phase| %>
-            <div class="flex-shrink-0 basis-[calc((100%-0.75rem)/2)] sm:basis-[calc((100%-1.5rem)/3)] lg:basis-[calc((100%-2.25rem)/4)]">
-              <%= render "contests/live_game_card", game: game, phase: phase %>
+    <%# Hover pauses the rotation. A strip that both moves and takes clicks is a
+        strip that moves the target out from under the pointer; the carousel
+        stops the moment you reach for it. %>
+    <div x-data="gamesCarousel()" @mouseenter="pause()" @mouseleave="resume()">
+      <%# py-2 is for the RING, not for looks. The selected chip's glow paints
+          outside its own box, and this viewport clips — without the padding the
+          ring is sliced flat along the top and bottom of the strip. %>
+      <%# SCROLLABLE, and the reader owns it the moment they touch it.
+          overflow-x is auto so the strip can be dragged, swiped or wheeled to a
+          game the rotation has not reached; overflow-y stays hidden because the
+          selected chip's glow ring paints outside its box and the py-2 above is
+          what keeps it from being sliced — see the note on this element. The
+          scrollbar is hidden the same way .tt-event-feed hides its own: a bar
+          under a single row of chips reads as chrome, and the strip already
+          advertises that it moves by rotating. %>
+      <%# @scroll IS THE HANDOVER, and it is deliberately the only one.
+          It fires when this element's own offset actually changed, so a drag, a
+          swipe, a sideways wheel and an arrow key all arrive here, while a
+          VERTICAL page scroll past the strip does not — the strip never moved.
+          That distinction is the whole point: this element spans the top of the
+          page, so it sits under the cursor on the way down to chat, and a
+          `wheel` listener here stood the rotation down for the rest of the
+          session on the commonest gesture on the page. remember() tells the
+          reader's scroll from the rotation's own by what the component wrote.
+
+          It also records the position on a page-level object OUTSIDE this
+          container, because a score replaces everything in here — see the
+          gamesStripMemory note in live.html.erb.
+
+          NO @pointerdown / @keydown / @touchstart. Choosing a game is what this
+          strip is FOR, so neither a click nor a TAP may cost the reader the
+          rotation; hover already freezes it while the pointer is on the chip,
+          and a drag, a swipe or an arrow key reaches @scroll on its own.
+          Criterion 3 yields to a reader who scrolls the strip, and a tap is not
+          a scroll.
+
+          The wheel is the ONE input still worth listening to, because it is the
+          one that is DISCRETE. A drag or a swipe emits scroll events for as long
+          as it lasts, so if the rotation overwrites the reader mid-frame the
+          next event still catches them; a single wheel notch gets exactly one
+          chance, which a rotation frame can swallow. Hence the supplement — and
+          only for horizontal intent, since a vertical wheel is the bug above.
+
+          Both listeners are passive: neither calls preventDefault, and a
+          non-passive listener on a scroll container blocks the scroll it watches. %>
+      <div x-ref="viewport"
+           class="tt-games-strip overflow-x-auto overflow-y-hidden py-2"
+           @scroll.passive="remember()"
+           @wheel.passive="wheelAcross($event)">
+        <div x-ref="track" class="flex gap-2 items-stretch will-change-transform">
+          <% phased.each do |game| %>
+            <div class="flex-shrink-0">
+              <%= render "contests/live_game_chip", game: game %>
             </div>
           <% end %>
         </div>

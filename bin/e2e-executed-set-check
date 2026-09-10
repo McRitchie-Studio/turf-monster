@@ -1,0 +1,73 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# bin/e2e-executed-set-check — THE E2E LANE'S VERDICT GATE.
+#
+# The `playwright` job can tell you its specs PASSED. It cannot tell you it RAN THEM ALL —
+# that is the one question a test lane structurally cannot answer about itself, and it is the
+# question three rounds of review used to defeat this PR's guards. So this runs AFTER the
+# shards, over the JSON reports THEY emitted, and asserts the executed set against the
+# contract in config/e2e_lane.yml.
+#
+#   Usage:  bin/e2e-executed-set-check <reports-dir> [--contract config/e2e_lane.yml]
+#
+# Exit 0 = the lane executed exactly the specs it is supposed to. Exit 1 = it did not, and
+# the green shards were covering less than they claimed. See bin/lib/e2e_executed_set.rb for
+# the full argument.
+
+require_relative "lib/e2e_executed_set"
+
+reports_dir = nil
+contract_path = nil
+
+args = ARGV.dup
+until args.empty?
+  arg = args.shift
+  case arg
+  when "--contract" then contract_path = args.shift
+  when "-h", "--help"
+    puts "usage: bin/e2e-executed-set-check <reports-dir> [--contract config/e2e_lane.yml]"
+    exit 0
+  else reports_dir = arg
+  end
+end
+
+root = File.expand_path("..", __dir__)
+contract_path ||= File.join(root, "config", "e2e_lane.yml")
+
+abort "usage: bin/e2e-executed-set-check <reports-dir>" unless reports_dir
+abort "no contract at #{contract_path}" unless File.exist?(contract_path)
+abort "no reports directory at #{reports_dir}" unless Dir.exist?(reports_dir)
+
+contract = E2eExecutedSet.load_contract(contract_path)
+reports = E2eExecutedSet.load_reports(reports_dir)
+
+# ZERO REPORTS IS NOT ZERO PROBLEMS. If the shards never uploaded a receipt, this gate has no
+# evidence — and "no evidence" is the exact condition it exists to refuse. Failing open here
+# would rebuild the original bug (a gate that credits a lane it never observed) inside the
+# gate that was written to kill it.
+if reports.empty?
+  warn "E2E EXECUTED SET: RED"
+  warn "  no Playwright JSON reports found in #{reports_dir}."
+  warn "  The shards did not run, did not finish, or did not upload their receipts. A lane " \
+       "that produced no evidence has not been shown to have run — that is RED, not green."
+  exit 1
+end
+
+gate = E2eExecutedSet.new(contract: contract, reports: reports)
+failures = gate.failures
+
+if failures.empty?
+  puts "E2E EXECUTED SET: GREEN"
+  puts "  #{gate.summary}"
+  exit 0
+end
+
+warn "E2E EXECUTED SET: RED"
+warn "  #{gate.summary}"
+warn ""
+failures.each { |failure| warn "  ✗ #{failure}\n\n" }
+warn "  The `playwright` check is GREEN over a set that is not the set this repo agreed to " \
+     "run. Reconcile it deliberately — do not just move the number in config/e2e_lane.yml to " \
+     "match what happened, which is the self-declaration disease this whole lane exists to cure."
+exit 1

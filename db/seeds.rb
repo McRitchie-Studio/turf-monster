@@ -2,8 +2,7 @@ puts "Seeding Turf Picks..."
 
 # Users (shared definitions across all seed files)
 load Rails.root.join("db/seeds/users.rb")
-core_users = seed_core_users!
-admin = core_users["alex"]
+seed_core_users!
 
 # ─── Teams (all 48 World Cup 2026) ──────────────────────────────
 # All 48 confirmed (playoff spots decided March 26-31, 2026)
@@ -565,13 +564,13 @@ def create_slate_with_contest(slate_name:, contest_name:, games:, teams:, dk_odd
 
       line = dk["line"]&.to_f
 
-      m.update!(dk_goals_expectation: line)
+      m.update!(expected_score: line)
     end
 
-    # Rank by dk_goals_expectation DESC. Teams without DK data sort to end alphabetically.
+    # Rank by expected_score DESC. Teams without DK data sort to end alphabetically.
     sorted = matchups.sort_by do |m|
-      if m.dk_goals_expectation.present?
-        [0, -m.dk_goals_expectation.to_f, m.team.name]
+      if m.expected_score.present?
+        [0, -m.expected_score.to_f, m.team.name]
       else
         [1, 0, m.team.name]
       end
@@ -655,11 +654,11 @@ Slate.find_or_create_by!(name: "Default")
 puts "  Created Default slate for formula defaults"
 
 # ─── Geo Settings ──────────────────────────────────────────
-GeoSetting.find_or_create_by!(app_name: "Turf Monster") do |gs|
+Studio::GeoSetting.find_or_create_by!(app_name: "Turf Monster") do |gs|
   gs.enabled = false
-  gs.banned_states = GeoSetting::DEFAULT_BANNED_STATES
+  gs.banned_subdivisions = Studio.geo_default_banned_subdivisions
 end
-puts "  Created GeoSetting (enabled: #{GeoSetting.current.enabled?})"
+puts "  Created Studio::GeoSetting (enabled: #{Studio::GeoSetting.current.enabled?})"
 
 # ─── Season (on-chain seed schedule, turf-vault v0.11.0+) ────
 # DB pointer is always set (cheap). On-chain Season creation is best-effort —
@@ -728,6 +727,9 @@ if Rails.env.development?
     puts "  ⚠️  Could not seed the dev demo contest: #{e.message}"
   end
 end
+
+# ─── NFL athletes (offline demo set for /nfl-players) ────────
+load Rails.root.join("db/seeds/nfl_athletes_demo.rb")
 
 # ─── Landing pages (marketing funnels) ───────────────────────
 load Rails.root.join("db/seeds/landing_pages.rb")

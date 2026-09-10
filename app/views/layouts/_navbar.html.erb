@@ -5,97 +5,152 @@
 %>
 <% show_user = local_assigns.fetch(:show_logged_in, logged_in?) %>
 <% is_preview = local_assigns.fetch(:preview, false) %>
-<% qa_environment = AppFlags.qa_environment? %>
-<% show_environment_banner = !is_preview && (!Rails.env.production? || qa_environment) %>
-<% environment_message = if qa_environment
-     ["QA Environment", "Non-production", ("Devnet" if Solana::Config.devnet?)].compact.join(" · ")
-   else
-     "#{Rails.env.capitalize} Environment"
-   end %>
 
-<%# z-[130] sits ABOVE the modal host's z-[120] backdrop so the navbar
-    (and especially the 🎟️ Entry badge) stays bright during a token-
-    mint celebration instead of being dimmed by the modal overlay.
-    The modal's escape key + X button still close it; clicking the
-    navbar no longer counts as "click outside" — acceptable trade. %>
+<%# --z-nav sits BELOW --z-modal. A modal is the active task, so its backdrop and
+    card cover all persistent navigation chrome instead of appearing cut off
+    beneath the navbar. Both tiers, and everything else that can block, come from
+    the shared layer scale, which studio-engine owns OUTRIGHT — engine.css
+    defines them and this app reads them through the engine build application.css
+    imports. There is no local copy; the mirror that used to sit in
+    application.css was deleted in delete-turf-layer-shim, because it outranked
+    the gem it was mirroring. Toasts (--z-toast) and the environment bars
+    (--z-banner) are the two layers deliberately above a modal. %>
 
-<%# Toast z-index override now lives in app/assets/tailwind/application.css as CSS
-    custom properties (--studio-toast-z / --studio-toast-blur-z), read
-    by studio-engine 0.4.10+. The previous inline <style> block here
-    needed !important to beat the engine's old inline `style="z-index:60"`;
-    the engine no longer uses inline, so the var-based override wins
-    via normal cascade. %>
+<%# Toasts need nothing declared here or in application.css. The engine's own
+    flash partial defaults its two override seams (--studio-toast-z and
+    --studio-toast-blur-z) to the shared toast tiers, so the stack already
+    clears the navbar and any open modal. This app set both from inside the old
+    adoption shim, back when the engine defaulted them to a bare 60 and a toast
+    fired from an open modal was invisible behind it. To move the toast layer,
+    change the tier in studio-engine. %>
 <%# vt-pinned-header (engine 0.24 smooth-load): names this header as the shared
     view-transition element so it stays pinned while page content cross-fades.
     NON-PREVIEW ONLY — the admin navbar-review page renders preview copies of
     this partial inside the body, and a duplicate view-transition-name silently
     disables ALL view transitions on the page. Exactly one pinned header per page. %>
-<header data-navbar-root x-data="{ scrolled: false }" <%= '@scroll.window="scrolled = scrolled ? (window.scrollY > 5) : (window.scrollY > 60)"'.html_safe unless is_preview %>
-        class="<%= is_preview ? 'bg-page' : 'vt-pinned-header sticky top-0 z-[130] bg-page transition-shadow duration-300' %>"
-        :class="scrolled && 'shadow-lg border-b border-subtle is-scrolled'">
-  <% if show_environment_banner %>
-    <% environment_actions = capture do %>
-        <% if Solana::Config.devnet? && !qa_environment %>
-          <span class="rounded" style="font-size:10px; font-weight:700; padding:1px 6px; background:rgba(0,0,0,0.2);">DEVNET</span>
-        <% end %>
-        <%= render "shared/dev_mode_button" %>
-        <%= render "shared/email_status_button" %>
-    <% end %>
-    <%= render "shared/app_banner",
-               tone: :environment,
-               density: :normal,
-               message: environment_message,
-               actions: environment_actions %>
-  <% end %>
-  <%= render "shared/impersonation_banner" if !is_preview && impersonating? %>
+<%# nav-shell is the --nav-p scope: navCollapse() writes the collapse progress
+    (0 expanded .. 1 collapsed) on THIS element once per animation frame, and
+    application.css derives the row padding, logo size, title size, balance size
+    and username size from it with calc(). Nothing on the collapse path carries a
+    time-based transition any more — see the factory's comment for the numbers
+    that bought that. transition-shadow stays: box-shadow paints, it never
+    reflows, so it cannot move content under the reader.
+    Preview keeps nav-shell (the vars have to resolve) but no x-data — the
+    /admin/navbar page drives --nav-p from its own Scrolled toggle. %>
+<%# THE BARS ARE A SIBLING OF THE HEADER, ABOVE IT — not a child of it. They used
+    to render inside <header>, and that is why the modal backdrop dimmed DEV MODE
+    on QA: this header is `sticky` with a z-index, which makes it a STACKING
+    CONTEXT, and a descendant's z-index is clamped inside its context. No value on
+    the banner could escape a header composited at --z-nav. Outside it, the
+    engine's `body.modal-open .studio-bar-stack` rule can lift them over the modal.
+
+    Normal flow, no pin — the engine's bar_stack_test contracts exactly this shape
+    (stack precedes header in document order, carries no positioning and no z-
+    class of its own), so the bars keep scrolling up BEHIND the pinned header.
+    Anything that needs to clear both reads --nav-bottom, which already reports
+    the header's live bottom edge with chrome stacked above it. %>
+<% unless is_preview %>
+  <div class="studio-bar-stack w-full" data-studio-bar-stack>
+    <%= render "studio/banners/environment", devnet: Solana::Config.devnet? %>
+  </div>
+<% end %>
+<header data-navbar-root <%= 'x-data="navCollapse()"'.html_safe unless is_preview %>
+        class="nav-shell <%= is_preview ? 'bg-page' : 'vt-pinned-header sticky top-0 z-[var(--z-nav)] bg-page transition-shadow duration-300' %>"
+        <%= ":class=\"scrolled && 'shadow-lg border-b border-subtle is-scrolled'\"".html_safe unless is_preview %>>
+  <%# THE IMPERSONATION BAR STAYS HERE, INSIDE THE PINNED HEADER, and the
+      environment bar does not. They look alike and are not the same kind of
+      thing:
+
+        · The environment bar is an AMBIENT LABEL. "QA Environment · DEV MODE" is
+          information, and the engine's banners/_stack records scrolling away as
+          a deliberate, accepted trade for it. Moving it to the sibling stack is
+          what buys it the modal-open lift.
+        · The impersonation bar is an OPSEC CONTROL (OPSEC-046). It carries the
+          escape hatch — a deliberately JS-free button_to "Return to <admin>"
+          that works even if Alpine and Turbo never load — and an admin who
+          scrolls must not lose either the warning or the way out. In the header
+          it is pinned by construction, with no second sticky sibling to measure
+          against.
+
+      That is why only ONE of the two moved. The cost, stated rather than
+      hidden: the impersonation bar is inside a header that carries a z-index and
+      is therefore a stacking context, so it does NOT rise over an open modal the
+      way the environment bar now does. Being permanently on screen is the
+      property that matters for an escape hatch; being reachable through a modal
+      is the property that matters for a QA toggle. Each one keeps its own.
+
+      The environment bar moved OUT of this element to the sibling stack above —
+      see the note there for why a stacking context made its z-index unreachable. The engine partial is still self-gating
+      (studio-engine >= 0.30) and was built by lifting THIS app's behavior: the QA
+      message composition, the DEVNET chip when devnet && !qa, and the
+      link-vs-inert-chip email button. `preview:` is no longer forwarded because
+      the whole stack is skipped in a preview render, which is what kept the
+      /admin/navbar review page from painting a second banner — a duplicate
+      pinned-header view-transition name silently disables every view transition
+      on the page (smooth_load_component_test counts that class name here, so
+      don't spell it again in prose). %>
   <%# .user-nav-col / .nav-title / .nav-logo / .nav-logo-link responsive
       rules live in app/assets/tailwind/application.css @layer utilities (migrated
       2026-05-24, dropped the 10 !important workarounds). %>
-  <div class="flex items-center min-w-0 <%= is_preview ? 'py-6' : 'transition-all duration-300' %>"
-       <%= ":class=\"scrolled ? 'py-2' : 'py-6'\"".html_safe unless is_preview %>>
+  <%= render "shared/impersonation_banner" if !is_preview && impersonating? %>
+  <div class="nav-row flex items-center min-w-0">
     <%# Left side: logo + nav %>
     <div class="flex-1 min-w-0 px-4">
       <div class="flex items-center gap-6 min-w-0">
         <%= link_to root_path, class: "nav-logo-link inline-flex items-center gap-3 group" do %>
-          <img src="/icon-192.png" alt="Turf Totals" width="48" height="48" class="nav-logo rounded-full shadow-lg <%= is_preview ? 'w-12 h-12' : 'group-hover:scale-105 transition-all duration-300' %>"
-               <%= "x-bind:class=\"scrolled ? 'w-8 h-8' : 'w-12 h-12'\"".html_safe unless is_preview %>>
-          <h1 class="nav-title font-extrabold text-heading tracking-tight <%= is_preview ? 'text-3xl' : 'transition-all duration-300' %>"
-              <%= "x-bind:class=\"scrolled ? 'text-xl' : 'text-3xl'\"".html_safe unless is_preview %>><span class="dm-salmon">Turf</span><span class="dm-yellow text-primary">Totals</span></h1>
+          <%# No w-*/h-* utility here: .nav-shell .nav-logo sizes it off --nav-p.
+              transition-transform, NOT transition-all — the hover lift still
+              eases, while width/height follow the finger with no clock. %>
+          <img src="/icon-192.png" alt="Turf Monster" width="48" height="48" class="nav-logo rounded-full shadow-lg <%= "group-hover:scale-105 transition-transform duration-300" unless is_preview %>">
+          <h1 class="nav-title font-extrabold text-heading tracking-tight"><span class="dm-salmon">Turf</span><span class="dm-yellow text-primary">Monster</span></h1>
         <% end %>
         <nav class="dm-teal hidden md:flex items-center gap-4 min-w-0">
           <%= link_to "Contests", contests_path, class: "text-secondary hover:text-primary text-sm font-medium transition" %>
-          <%= link_to "NFL Totals", nfl_team_totals_path, class: "text-secondary hover:text-primary text-sm font-medium transition" %>
-          <%= link_to "Rules", turf_totals_v1_path, class: "text-secondary hover:text-primary text-sm font-medium transition" %>
-          <%= link_to "Reserves", proof_of_reserves_path, class: "text-secondary hover:text-primary text-sm font-medium transition" %>
+          <%= link_to "Rules", turf_monster_v1_path, class: "text-secondary hover:text-primary text-sm font-medium transition" %>
           <%= render "components/geo_badge" %>
         </nav>
       </div>
     </div>
     <%# Right side: user nav (matches sidebar width) %>
     <% balance_html = capture do %>
-      <%# Hide the $X balance link when it's $0 AND the user already has
-          a free-entry token to show — the 🎟️ badge in _user_nav is
-          enough; a redundant "$0" just clutters the navbar. The
-          equivalent rule re-applies live via updateNavTokens /
-          refreshBalance after mints + consumes. %>
+      <%# The balance SLOT holds two mutually exclusive faces:
+            [data-balance-display]     the "$1284" wallet link
+            [data-free-entry-label]    the "✨ Free Entry" stand-in
+          A $0 balance held by a user WITH an entry token reads "✨ Free Entry"
+          instead of a redundant "$0" — the amount they can enter for is zero
+          dollars, which is the point, not an empty wallet. The same rule
+          re-applies live through applyBalanceSlotRule() in solana_utils.js
+          after mints + consumes, so server render and client never drift.
+          The label ALSO peeks over the amount while the ✨ badge beside the
+          avatar is hovered (.fe-peek, driven by freeEntryHover in _user_nav) —
+          that is the answer to "what is this sparkle?". %>
       <%# display_balance is nil while the navbar cache is cold ("loading") —
           the server no longer blocks the render on the balance RPC. HIDE the
           whole balance link (incl. the "$") while loading so there's no lone
           "$" placeholder; client-side refreshBalance() then sets
           [data-balance-display] AND removes .hidden (its else-branch), so the
-          full "$112" appears all at once. The $0-with-token rule also hides it. %>
+          full "$112" appears all at once. %>
       <% balance_loading = display_balance.nil? %>
       <% balance_dollars = display_balance.to_f %>
       <% balance_zero    = !balance_loading && balance_dollars.zero? %>
       <%# Cache-first (display_entry_token_count) — nil while cold counts as
-          "no tokens" so we don't hide a real $0 balance during loading;
-          updateNavTokens re-applies the hide-$0-with-token rule after hydrate. %>
+          "no tokens" so we don't swap a real $0 balance during loading;
+          applyBalanceSlotRule re-applies the swap after hydrate. %>
       <% has_tokens      = display_entry_token_count.to_i.positive? %>
-      <% hide_balance    = balance_loading || (balance_zero && has_tokens) %>
-      <%# Balance link — USDC + USDT combined (display_balance). Free-entry
-          tokens are surfaced by the 🎟️ badge in _user_nav (next to the
-          balance), not by a second balance-style link here. %>
-      <%= link_to wallet_path, class: "dm-blue flex-shrink-0 font-mono text-primary hover:text-primary-600 transition-all duration-300 font-bold leading-none mr-1 #{'hidden' if hide_balance}", "x-bind:class": "scrolled ? 'text-lg' : 'text-xl'", data: { balance_display: true } do %><% unless balance_loading %>$<%= balance_dollars.to_i %><% end %><% end %>
+      <% free_entry      = balance_zero && has_tokens %>
+      <% hide_balance    = balance_loading || free_entry %>
+      <div class="relative flex-shrink-0 leading-none mr-1"
+           data-balance-slot="true"
+           x-bind:class="freeEntryHover ? 'fe-peek' : ''">
+        <%# nav-balance takes its font-size from --nav-p (xl -> lg) instead of a
+            reactive class swap, which kept the size on Alpine's per-scroll path
+            for a 2px change. transition-colors keeps the hover fade. %>
+        <%= link_to wallet_path, class: "nav-balance dm-blue block font-mono text-primary hover:text-primary-600 transition-colors duration-300 font-bold leading-none #{'hidden' if hide_balance}", data: { balance_display: true } do %><% unless balance_loading %>$<%= balance_dollars.to_i %><% end %><% end %>
+        <%# No size binding here: the two faces want DIFFERENT sizes (the peek is
+            a compact pill, the stand-in matches the amount it replaces), so
+            .free-entry-label / .is-active own font-size in application.css. %>
+        <%= link_to wallet_path, class: "free-entry-label dm-blue gap-1 font-bold text-primary hover:text-primary-600 leading-none whitespace-nowrap #{'is-active' if free_entry}", data: { free_entry_label: true } do %><span class="fe-spark" aria-hidden="true">✨</span><span>Free Entry</span><% end %>
+      </div>
     <% end if show_user %>
     <div class="user-nav-col dm-purple flex-shrink-0 min-w-0 pl-0 pr-4 md:px-4">
       <% if show_user %>
@@ -116,9 +171,7 @@
   <%# Mobile sub-navbar: compact row of links hidden on desktop %>
   <div class="dm-coral flex md:hidden items-center gap-3 px-4 py-1.5 border-t border-subtle bg-surface-alt">
     <%= link_to "Contests", contests_path, class: "text-secondary hover:text-primary text-xs font-medium transition whitespace-nowrap" %>
-    <%= link_to "NFL Totals", nfl_team_totals_path, class: "text-secondary hover:text-primary text-xs font-medium transition whitespace-nowrap" %>
-    <%= link_to "Rules", turf_totals_v1_path, class: "text-secondary hover:text-primary text-xs font-medium transition whitespace-nowrap" %>
-    <%= link_to "Reserves", proof_of_reserves_path, class: "text-secondary hover:text-primary text-xs font-medium transition whitespace-nowrap" %>
+    <%= link_to "Rules", turf_monster_v1_path, class: "text-secondary hover:text-primary text-xs font-medium transition whitespace-nowrap" %>
     <%= render "components/geo_badge" %>
     <span class="ml-auto flex items-center gap-3">
       <%= render "components/gear_sidebar_trigger" %>

@@ -17,7 +17,7 @@ class MultiWeekContestTest < ActiveSupport::TestCase
       SlateMatchup.create!(
         slate: @span, team_slug: team_slug, opponent_team_slug: "team-f",
         game_slug: "#{team_slug}-wk#{index + 1}-#{SecureRandom.hex(3)}",
-        week: index + 1, dk_goals_expectation: expected,
+        week: index + 1, expected_score: expected,
         turf_score: turf_score, rank: 1, goals: goals[index], status: "pending"
       )
     end
@@ -73,7 +73,7 @@ class MultiWeekContestTest < ActiveSupport::TestCase
 
   test "the multiplier is READ FROM STORAGE, not recomputed at scoring time" do
     # The defect this guards: the multiplier used to be recomputed live from
-    # dk_goals_expectation, and a projections refresh after lock re-ranked the
+    # expected_score, and a projections refresh after lock re-ranked the
     # span — measured drift 1.0x at pick time to 3.0x at settlement. Settlement
     # is on-chain, so a player must be paid the price they were shown.
     add_games!("team-a", [25.0, 25.0, 25.0], turf_score: 1.0, goals: [2, 2, 2])
@@ -84,7 +84,7 @@ class MultiWeekContestTest < ActiveSupport::TestCase
 
     # Projections move hard AFTER the pick is locked. The frozen turf_score does
     # not, so the score must not move either.
-    @span.slate_matchups.update_all(dk_goals_expectation: 0.1)
+    @span.slate_matchups.update_all(expected_score: 0.1)
     selection.compute_points!
 
     assert_equal 6.0, selection.reload.points.to_f,
@@ -138,6 +138,24 @@ class MultiWeekContestTest < ActiveSupport::TestCase
     entry.reload.score!
 
     assert_in_delta 21.0, entry.reload.score, 0.001, "(6 x 2.0) + (3 x 3.0)"
+  end
+
+  test "weekly_breakdown stays week-ordered when kickoff times tie" do
+    # Regression (engine PR #81's consumer lane, 2026-08-09): with no Game rows
+    # every sort key ties at Time.at(0), so the breakdown inherited DB return
+    # order — [3, 1, 2] on CI. Create the weeks OUT of order so unpinned code
+    # fails deterministically instead of by permutation luck.
+    [ 2, 3, 1 ].each do |wk|
+      SlateMatchup.create!(
+        slate: @span, team_slug: "team-a", opponent_team_slug: "team-f",
+        game_slug: "team-a-wk#{wk}-#{SecureRandom.hex(3)}",
+        week: wk, expected_score: 25.0, turf_score: 2.0, rank: 1, status: "pending"
+      )
+    end
+    span_contest!
+    selection = pick!("team-a")
+
+    assert_equal [ 1, 2, 3 ], selection.weekly_breakdown.map(&:first)
   end
 
   test "weekly_breakdown labels each game by its own week" do

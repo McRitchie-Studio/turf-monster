@@ -10,7 +10,10 @@ class AccountsWalletExportTest < ActionDispatch::IntegrationTest
       email: "managed-#{SecureRandom.hex(2)}@example.test",
       email_verified_at: Time.current
     )
-    # generate_managed_wallet! ran in after_create — confirm.
+    # Minted explicitly: after_create stopped doing it when web3-only onboarding
+    # became the default (2026-08-15). Export is a managed-wallet-only feature,
+    # so this user has to be one.
+    grant_managed_wallet!(@managed)
     assert @managed.reload.managed_wallet?, "fixture setup: expected managed wallet"
 
     # Use Solana::Keypair to mint a fresh base58 address — the test fixtures
@@ -22,11 +25,13 @@ class AccountsWalletExportTest < ActionDispatch::IntegrationTest
       web3_solana_address: phantom_kp.address,
       email_verified_at: Time.current
     )
-    # User#after_create :generate_managed_wallet! is unconditional for
-    # non-admins, so the phantom user picks up a managed key on top. The
-    # "managed-only export" rule keys off managed_wallet? — and the
-    # canonical "phantom user" in our flows is one without server-held
-    # key material. Null it out to match.
+    # Belt and braces. Web3-only onboarding (default ON since 2026-08-15) means
+    # after_create mints nothing, so this user is already key-less — but the flag
+    # is revertible in one env change, and with it off after_create is
+    # unconditional for non-admins and would hand the phantom user a managed key
+    # on top. The "managed-only export" rule keys off managed_wallet?, and the
+    # canonical phantom user in our flows holds no server-side key material.
+    # Nulling it out keeps this suite honest on BOTH sides of the switch.
     @phantom.update_columns(web2_solana_address: nil, encrypted_web2_solana_private_key: nil)
   end
 

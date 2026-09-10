@@ -26,12 +26,31 @@ class TokensFundingModesTest < ActionDispatch::IntegrationTest
   test "picker offers the CDP Buy USDC handoff when stripe is off and the ramp is on" do
     Rails.application.config.x.stripe_enabled = false
     with_cdp_ramp do
+      # SIGNED IN. The handoff is gated on cdp_ramp_modal_available?, which reads
+      # logged_in? as well as the flag, because the host registers the cdp-ramp
+      # modal under logged_in? too. This asserted the handoff on a GUEST page,
+      # where cdp-ramp is never registered — it was pinning a dead button.
+      log_in_as users(:jordan)
       get contests_path
       assert_response :success
       assert_includes response.body, "Add USDC to Play"
       assert_includes response.body, "Buy USDC with Coinbase"
       assert_includes response.body, "$store.modals.swap('cdp-ramp'"
       refute_includes response.body, "Get Entry Tokens"
+    end
+  end
+
+  test "the picker withholds the CDP handoff on a guest-rendered layout" do
+    # The auth modal is registered UNGATED (it is the signup surface) while
+    # cdp-ramp is registered under logged_in?, so on this page the Buy CTA would
+    # swap to a modal id that was never emitted. The step still says something.
+    Rails.application.config.x.stripe_enabled = false
+    with_cdp_ramp do
+      get contests_path
+      assert_response :success
+      assert_includes response.body, "Add USDC to Play"
+      assert_includes response.body, "Purchases temporarily offline"
+      refute_includes response.body, "$store.modals.swap('cdp-ramp'"
     end
   end
 
@@ -43,8 +62,10 @@ class TokensFundingModesTest < ActionDispatch::IntegrationTest
       assert_response :success
       assert_includes response.body, "tokens-waiting"
       # Refute the picker's CDP-buy card (auth/_usdc_funding's cdp-on branch) by
-      # its unique copy — "Buy USDC with Coinbase" is no longer picker-specific
-      # (the Coinbase-forward wallet-topup modal renders it ungated on this page).
+      # its unique copy rather than by "Buy USDC with Coinbase", which the
+      # wallet-topup modal also renders. Both surfaces now gate that copy on
+      # cdp_ramp_modal_available?, so on this guest page neither draws it — but
+      # the unique string is still the honest way to name the picker's mode.
       refute_includes response.body, "Pay with debit, Apple Pay"
     end
   end
@@ -56,8 +77,8 @@ class TokensFundingModesTest < ActionDispatch::IntegrationTest
       assert_response :success
       assert_includes response.body, "Purchases temporarily offline"
       # Refute the picker's CDP-buy card by its unique copy (see the stripe-on
-      # test): the wallet-topup modal now renders "Buy USDC with Coinbase"
-      # ungated, so that string no longer proves the picker's mode.
+      # test): "Buy USDC with Coinbase" is shared with the wallet-topup modal,
+      # so that string never proved the picker's mode on its own.
       refute_includes response.body, "Pay with debit, Apple Pay"
     end
   end

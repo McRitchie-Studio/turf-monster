@@ -7,7 +7,10 @@
     border: 2px solid var(--color-border-strong);
     border-radius: 0.5rem;
     pointer-events: none;
-    transition: width 0.15s ease;
+    /* --nav-p is a registered <number>, so the Scrolled toggle can TRANSITION
+       it directly — one interpolating property in place of the five per-element
+       font-size/width/padding transitions this block used to carry. */
+    transition: width 0.15s ease, --nav-p 0.3s ease;
   }
   .navbar-preview header { position: static !important; }
 
@@ -18,18 +21,32 @@
   .navbar-preview.is-mobile .user-nav-col { padding-left: 0 !important; padding-right: 1rem !important; }
   .navbar-preview.is-mobile .nav-title { flex-direction: column !important; gap: 0 !important; line-height: 1.15 !important; }
   .navbar-preview.is-mobile .nav-title span:first-child { margin-bottom: -4px !important; }
-  .navbar-preview.is-mobile .nav-title span:last-child { font-size: 1.5rem !important; }
   .navbar-preview.is-mobile .nav-logo-link { gap: 0.5rem !important; }
 
+  /* Breakpoint simulation for the --nav-p sizes. The live navbar picks these
+     up from media queries in application.css, which cannot fire for a
+     CONTAINER at a fixed viewport width — so the same calc()s are re-keyed on
+     the wrapper. They are the same expressions, not a second set of numbers:
+     if you retune the collapse, retune both or the preview starts lying.
+     Unlayered, so they beat @layer utilities' .nav-shell without !important. */
+  .navbar-preview.is-mobile .nav-shell {
+    --nav-logo-size: calc(3rem - 0.5rem * var(--nav-p));
+  }
+  .navbar-preview.bp-tiny .nav-shell {
+    --nav-title-size: calc(1.1rem - 0.2rem * var(--nav-p));
+    --nav-title-lead-size: calc(1.3rem - 0.3rem * var(--nav-p));
+  }
+  .navbar-preview.bp-small .nav-shell {
+    --nav-title-size: calc(1.25rem - 0.25rem * var(--nav-p));
+    --nav-title-lead-size: calc(1.5rem - 0.35rem * var(--nav-p));
+  }
+
   /* Tiny (< 400px) */
-  .navbar-preview.bp-tiny .nav-title { font-size: 1.1rem !important; }
-  .navbar-preview.bp-tiny .nav-title span:last-child { font-size: 1.3rem !important; }
   .navbar-preview.bp-tiny .nav-logo-link { gap: 0.25rem !important; }
   .navbar-preview.bp-tiny .user-nav-col { width: 14rem !important; }
   .navbar-preview.bp-tiny .username-cap { max-width: 5rem !important; }
 
   /* Small (400–767px) */
-  .navbar-preview.bp-small .nav-title { font-size: 1.25rem !important; }
   .navbar-preview.bp-small .user-nav-col { width: 15rem !important; }
   .navbar-preview.bp-small .username-cap { max-width: 6rem !important; }
 
@@ -37,27 +54,14 @@
   .navbar-preview.is-desktop .user-nav-col { width: 20rem !important; }
   .navbar-preview.is-desktop .username-cap { max-width: 7rem !important; }
 
-  /* Transitions for scrolled toggle */
-  .navbar-preview .nav-logo { transition: width 0.3s, height 0.3s; }
-  .navbar-preview .nav-title,
-  .navbar-preview .nav-title span:last-child { transition: font-size 0.3s; }
-  .navbar-preview .py-6 { transition: padding 0.3s; }
-  .navbar-preview header { transition: box-shadow 0.3s, border-color 0.3s; }
-  .navbar-preview [data-balance-display] { transition: font-size 0.3s; }
-
-  /* Scrolled state: base (all breakpoints) */
+  /* Scrolled state. The size half of this used to be TWELVE !important rules
+     restating every collapsed value; the toggle now just sets --nav-p: 1 on
+     the wrapper (below) and the shipped calc()s do the rest, so the preview
+     exercises the real rules instead of a parallel copy of them. What is left
+     is the shadow, which the live header gets from .is-scrolled and a preview
+     header (no x-data, so no `scrolled`) cannot. */
   .navbar-preview.is-scrolled-preview header { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); border-bottom: 1px solid var(--color-border-subtle); }
-  .navbar-preview.is-scrolled-preview .py-6 { padding-top: 0.5rem !important; padding-bottom: 0.5rem !important; }
-  .navbar-preview.is-scrolled-preview .nav-logo { width: 2rem !important; height: 2rem !important; }
-  .navbar-preview.is-scrolled-preview .nav-title { font-size: 1.25rem !important; }
-  .navbar-preview.is-scrolled-preview [data-balance-display] { font-size: 1.125rem !important; }
-
-  /* Scrolled state: mobile overrides */
-  .navbar-preview.is-mobile.is-scrolled-preview .nav-logo { width: 2.5rem !important; height: 2.5rem !important; }
-  .navbar-preview.bp-tiny.is-scrolled-preview .nav-title { font-size: 0.9rem !important; }
-  .navbar-preview.bp-tiny.is-scrolled-preview .nav-title span:last-child { font-size: 1rem !important; }
-  .navbar-preview.bp-small.is-scrolled-preview .nav-title { font-size: 1rem !important; }
-  .navbar-preview.bp-small.is-scrolled-preview .nav-title span:last-child { font-size: 1.15rem !important; }
+  .navbar-preview header { transition: box-shadow 0.3s, border-color 0.3s; }
 
   /* Slider with device marker */
   .slider-wrap { position: relative; }
@@ -136,7 +140,7 @@
                 Scrolled
               </button>
             </div>
-            <div class="navbar-preview <%= bp[:classes] %>" :class="scrolled && 'is-scrolled-preview'" :style="'width: ' + w + 'px'">
+            <div class="navbar-preview <%= bp[:classes] %>" :class="scrolled && 'is-scrolled-preview'" :style="'width: ' + w + 'px; --nav-p: ' + (scrolled ? 1 : 0)">
               <%= render "layouts/navbar", preview: true, show_logged_in: section[:show_logged_in] %>
             </div>
           </div>

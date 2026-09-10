@@ -2,6 +2,67 @@
 // Abstracts wallet operations behind a common interface so Phantom, keypair-based
 // bots, and future providers all share the same API surface.
 
+// --- Sign In With Solana (solana:signIn) ---
+//
+// WHY: `connect()` then `signMessage()` costs the user TWO wallet approvals for
+// one intent. The Wallet Standard's `solana:signIn` feature does both in one —
+// the wallet composes the SIWS message itself, connects, and signs, returning
+// the account plus the exact bytes it signed. Every provider below advertises
+// support via `supportsSignIn()` and normalizes its output to ONE shape:
+//
+//   { address: <base58 String>, signedMessage: <Uint8Array>, signature: <Uint8Array> }
+//
+// CRITICAL CONTRACT: callers MUST verify against `signedMessage` — the bytes the
+// wallet actually signed — never a locally rebuilt string. A wallet is free to
+// add URI / Version / Chain ID / Issued At lines, and a rebuilt string would not
+// match the signature. See solanaConnectAndVerify in layouts/application.html.erb.
+
+// Minimal SIWS message, used by providers that compose the message themselves
+// (the keypair test provider) rather than delegating to a real wallet. Matches
+// the shape a Wallet Standard wallet emits for the same input.
+//
+// Byte-identical to the hand-rolled fallback message in solanaConnectAndVerify
+// IN LOGIN MODE ONLY. Link mode diverges on purpose: the fallback writes
+// "User-ID: <id>" as its own paragraph, while the SIWS statement inlines it as
+// "(User-ID: <id>)" because the spec's grammar puts `statement` on one line.
+// Both satisfy the server's `message.include?("User-ID: <id>")`.
+function buildSiwsMessage(input, address) {
+  return (input.domain || '') + ' wants you to sign in with your Solana account:\n' +
+         address + '\n\n' +
+         (input.statement || '') + '\n\n' +
+         'Nonce: ' + (input.nonce || '');
+}
+
+// Normalize a signIn output across the Wallet Standard shape
+// ({ account: { address }, ... }) and the legacy injected-provider shape
+// ({ address, ... }, where address may be a PublicKey object). Written
+// defensively on purpose: the injected Phantom provider's exact return shape is
+// version-dependent, and guessing wrong here would break sign-in rather than
+// degrade it. Anything unrecognized throws, which routes the caller to its
+// fallback path instead of posting a malformed payload.
+function normalizeSignInOutput(out) {
+  var o = Array.isArray(out) ? out[0] : out;
+  if (!o) throw new Error('signIn returned no output');
+
+  var address = null;
+  if (o.account && o.account.address) {
+    address = o.account.address;
+  } else if (o.address) {
+    address = (typeof o.address === 'string') ? o.address : o.address.toBase58();
+  }
+  if (!address) throw new Error('signIn output carried no account address');
+  if (!o.signedMessage) throw new Error('signIn output carried no signedMessage');
+  if (!o.signature) throw new Error('signIn output carried no signature');
+
+  return {
+    address: address,
+    signedMessage: new Uint8Array(o.signedMessage),
+    signature: new Uint8Array(o.signature),
+    _account: o.account || null
+  };
+}
+
+
 // --- PhantomProvider ---
 // Wraps window.phantom.solana. Delegates all calls to the browser extension.
 var PhantomProvider = {
@@ -25,6 +86,19 @@ var PhantomProvider = {
     var p = this._provider();
     if (!p) return Promise.reject(new Error('Phantom not available'));
     return p.signMessage(encoded, encoding);
+  },
+
+  supportsSignIn: function() {
+    var p = this._provider();
+    return !!(p && typeof p.signIn === 'function');
+  },
+
+  signIn: function(input) {
+    var p = this._provider();
+    if (!p || typeof p.signIn !== 'function') {
+      return Promise.reject(new Error('Phantom does not support signIn'));
+    }
+    return p.signIn(input).then(normalizeSignInOutput);
   },
 
   signTransaction: function(tx) {
@@ -117,6 +191,26 @@ var KeypairProvider = {
     });
   },
 
+  // Stands in for a real wallet's solana:signIn so the e2e suite exercises the
+  // CONSOLIDATED path, not just the fallback. Without this the new code would
+  // ship with zero browser coverage — every test provider would take the old
+  // two-step branch and the signIn branch would never execute in CI.
+  supportsSignIn: function() { return true; },
+
+  signIn: function(input) {
+    var self = this;
+    return this._ensureKeypair().then(function(kp) {
+      var address = window.encodeBase58(kp.publicKey);
+      var encoded = new TextEncoder().encode(buildSiwsMessage(input, address));
+      return {
+        address: address,
+        signedMessage: encoded,
+        signature: nacl.sign.detached(encoded, kp.secretKey),
+        _account: null
+      };
+    });
+  },
+
   signTransaction: function(tx) {
     return this._ensureKeypair().then(function(kp) {
       // solanaWeb3 must be loaded on the page
@@ -154,6 +248,30 @@ function _wsHasSolana(wallet) {
   return !!(wallet && wallet.chains && wallet.chains.some(function(c) { return c.indexOf('solana:') === 0; }));
 }
 
+// A REJECTION THAT PROVES THE WALLET EXISTS.
+//
+// `standard:connect` resolving an EMPTY accounts array is not a missing wallet.
+// It is a user who dismissed the account-selection sheet, or deselected every
+// account in it — the wallet answered, and authorized nothing. Rejecting to
+// sign without a connected account says the same thing one step later.
+//
+// The sign-in fallback's catch (app/views/layouts/application.html.erb,
+// window.solanaConnectAndVerify) reads this tag and rethrows these untouched,
+// because the ONE diagnosis that catch can offer — "Finish setting up your
+// wallet … create or import one" — is FALSE for someone who plainly has one.
+// Before uninitialized-phantom-reads-wrong (PR #571) these travelled to
+// parseSolanaError verbatim: opaque, but TRUE. The tag is what keeps them true
+// now that the catch has a friendlier answer it must not give here.
+//
+// A PLAIN PROPERTY, NOT A SUBCLASS OR A MESSAGE PREFIX, on purpose: the message
+// is user-facing prose that reaches parseSolanaError, and neither an
+// `instanceof` across script boundaries nor a sentinel inside the copy survives
+// being read by a human.
+function _walletAnswered(err) {
+  err.walletAnswered = true;
+  return err;
+}
+
 // Normalize a Wallet Standard `Wallet` into our provider interface. The byte
 // contract is preserved: signMessage takes the same Uint8Array the SIWS code
 // produces with TextEncoder, and returns { signature: Uint8Array } — exactly
@@ -178,17 +296,30 @@ function _makeWsAdapter(wallet) {
       return feat.connect(silent ? { silent: true } : {}).then(function(res) {
         var accts = (res && res.accounts) || wallet.accounts || [];
         account = accts[0] || null;
-        if (!account) throw new Error('No account authorized');
+        if (!account) throw _walletAnswered(new Error('No account authorized'));
         return { publicKey: pubObj(account) };
       });
     },
     signMessage: function(encoded /*, encoding ignored — WS always takes raw bytes */) {
-      if (!account) return Promise.reject(new Error('Wallet not connected'));
+      if (!account) return Promise.reject(_walletAnswered(new Error('Wallet not connected')));
       return wallet.features['solana:signMessage'].signMessage({ account: account, message: encoded })
         .then(function(outputs) {
           var out = Array.isArray(outputs) ? outputs[0] : outputs;
           return { signature: out.signature };
         });
+    },
+    supportsSignIn: function() { return !!wallet.features['solana:signIn']; },
+    signIn: function(input) {
+      var feat = wallet.features['solana:signIn'];
+      if (!feat) return Promise.reject(new Error('Wallet does not support signIn'));
+      return feat.signIn(input).then(function(outputs) {
+        var norm = normalizeSignInOutput(outputs);
+        // signIn CONNECTS as well as signs, so adopt the account it returned —
+        // otherwise a later signTransaction on this same adapter would reject
+        // with "Wallet not connected" despite the user having just signed in.
+        if (norm._account) account = norm._account;
+        return norm;
+      });
     },
     signTransaction: function(tx) {
       var feat = wallet.features['solana:signTransaction'];
@@ -207,9 +338,18 @@ function _makeWsAdapter(wallet) {
         });
     },
     on: function(event, cb) {
-      // Normalize WS 'standard:events' change → the legacy 'accountChanged'
-      // the wallet watcher store listens for.
-      if (event !== 'accountChanged') return;
+      // Normalize WS 'standard:events' change → the legacy events the wallet
+      // watcher store listens for.
+      //
+      // 'disconnect' IS translated here, and that is the point of this branch.
+      // Wallet Standard has no separate disconnect event: an empty accounts
+      // array IS the disconnect. Before this, `on` opened with
+      // `if (event !== 'accountChanged') return;` and dropped every other event
+      // on the floor — so the disconnect subscription in solana_stores.js was a
+      // SILENT NO-OP on this adapter, which is the steady state for a modern
+      // Phantom after the 'wallet-provider:registered' swap. It worked only on
+      // the legacy provider, whose own `on` forwards any event.
+      if (event !== 'accountChanged' && event !== 'disconnect') return;
       var feat = wallet.features['standard:events'];
       if (!feat || !feat.on) return;
       feat.on('change', function(props) {
@@ -217,7 +357,14 @@ function _makeWsAdapter(wallet) {
         // it actually includes accounts (an empty array = disconnect → null).
         if (props && 'accounts' in props) {
           account = (props.accounts && props.accounts[0]) || null;
-          cb(account ? pubObj(account) : null);
+          if (event === 'disconnect') {
+            // Only the transition to NO account is a disconnect. A switch to a
+            // different account is an accountChanged, and firing disconnect for
+            // it would tear down a session the user never left.
+            if (!account) cb();
+          } else {
+            cb(account ? pubObj(account) : null);
+          }
         }
       });
     },
@@ -236,7 +383,13 @@ function _wsRegister(wallet) {
   // Require the features the SIWS sign-in flow needs.
   if (!wallet.features['standard:connect'] || !wallet.features['solana:signMessage']) return;
   if (_wsWallets.some(function(a) { return a._raw === wallet; })) return; // de-dupe
-  _wsWallets.push(_makeWsAdapter(wallet));
+  var adapter = _makeWsAdapter(wallet);
+  _wsWallets.push(adapter);
+  try {
+    window.dispatchEvent(new CustomEvent('wallet-provider:registered', {
+      detail: { name: adapter.name }
+    }));
+  } catch (e) { /* registration still succeeds in non-browser test contexts */ }
 }
 
 // The app's side of the handshake. `register` is what wallets call (directly
@@ -275,6 +428,36 @@ var walletProvider = {
     if (KeypairProvider.isAvailable()) return KeypairProvider;
     if (PhantomProvider.isAvailable()) return PhantomProvider;
     if (_wsWallets.length) return _wsWallets[0];
+
+    // NOTHING IS INJECTED. On a desktop that means no extension; on a phone it
+    // is simply the normal state, because a mobile browser cannot host one. The
+    // redirect transport is the answer to the second case and only the second
+    // case — so this is gated on isMobile(), not merely on "nothing found".
+    //
+    // GATED ON THE REGISTRY TOO, the way every optional capability here is: a
+    // page that did not load solana_studio/redirect_provider.js has no registry
+    // to ask, and must fall through to null so requireProvider() can give the
+    // honest "open this page in your wallet app" message instead.
+    //
+    // WHY PHANTOM SPECIFICALLY, and this is a real limitation rather than a
+    // preference. detect() exists for call sites that do NOT let the user
+    // choose, so something has to be picked, and Phantom is the only wallet with
+    // a working mobile sign-in path in this app today — the deeplink that
+    // establishes a web3 session is Phantom's. Its universal link also degrades
+    // honestly when the app is absent: Phantom serves its own install page
+    // rather than failing blank.
+    //
+    // THE COST, stated so nobody has to discover it: a Solflare or Backpack user
+    // on a phone whose page reaches THIS function is pointed at Phantom. That is
+    // wrong for them, and the reason it is tolerable is that it is not their
+    // path — the wallet PICKER is where a wallet gets chosen, and its mobile
+    // handoff rows send those users into their own wallet's browser, where a
+    // provider IS injected and this function returns long before reaching here.
+    // Retiring the guess needs a persisted per-user wallet choice, which this
+    // app does not have yet.
+    if (this.isMobile() && window.SolanaStudio && window.SolanaStudio.redirectProvider) {
+      return window.SolanaStudio.redirectProvider.forWallet('phantom');
+    }
     return null;
   },
 
@@ -288,7 +471,7 @@ var walletProvider = {
     for (var i = 0; i < _wsWallets.length; i++) {
       if (_wsWallets[i].name && _wsWallets[i].name.toLowerCase() === lower) return _wsWallets[i];
     }
-    if (lower === 'phantom') return PhantomProvider; // legacy fallback
+    if (lower === 'phantom' && PhantomProvider.isAvailable()) return PhantomProvider; // legacy fallback
     return null;
   },
 
@@ -313,7 +496,124 @@ var walletProvider = {
   isMobile: function() {
     return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
            (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
-  }
+  },
+
+  // WHY THIS EXISTS. `detect()` returns null whenever no wallet is injected,
+  // and on iOS Safari and Android Chrome that is ALWAYS — a mobile browser
+  // cannot host an extension, and only a wallet's own in-app browser injects a
+  // provider. Every call site used to dereference that null immediately, so a
+  // phone got `null is not an object (evaluating 'provider.connect')` printed
+  // into a transaction modal. Reported from production 2026-09-07 by a user
+  // trying to spend a FREE entry token.
+  //
+  // THE ASYMMETRY THAT MAKES THIS NECESSARY: `isWeb3` is a SERVER-SESSION fact.
+  // A user who signed in through the Phantom deeplink has it set, on a phone,
+  // with no injected wallet anywhere — so "logged in with a wallet" and "can
+  // reach a wallet right now" are different questions, and the flows were only
+  // asking the first.
+  //
+  // Throws rather than returning null on purpose: every caller already sits in
+  // a try/catch that renders `err.message`, so throwing routes an honest
+  // sentence to the screen through the path that already exists. Returning null
+  // would need five new branches to say the same thing five times.
+  requireProvider: function() {
+    var provider = this.detect();
+    if (provider) return provider;
+    throw new Error(this.noWalletMessage());
+  },
+
+  // --- The DESKTOP-ONLY declaration, for flows a phone should not attempt ---
+  //
+  // WHY A THIRD MEMBER AND NOT A SECOND MECHANISM. requireProvider answers "can
+  // this browser reach a wallet right now", and for the contest flows that is
+  // the whole question — a phone inside Phantom's own in-app browser reaches
+  // one, and should be let through. The four admin wallet flows (vault init,
+  // vault pause/unpause, contest lock/conclude, treasury cosign) ask a
+  // STRICTER question, and it is a question about the DEVICE, not the wallet:
+  // an admin co-signing a 2-of-3 treasury operation from a phone is not a use
+  // case this app supports, and a wallet app's in-app browser does not make it
+  // one. Same object, same isMobile() branch noWalletMessage already turns on.
+  //
+  // IT ASKS ABOUT THE DEVICE AND NOTHING ELSE, deliberately. The obvious
+  // version — `if (isMobile()) throw; return this.requireProvider();` — was
+  // written first and is WRONG for these callers, because they do not sign
+  // through the provider this registry hands out. They hold `window.solana`,
+  // and detect() reads `window.phantom.solana`. A legacy Phantom build that
+  // injects only the former is a desktop that CAN sign and that a composed
+  // gate would refuse, with copy telling the operator to install the extension
+  // they already have. e2e/cosign_fresh_transaction.spec.js stubs exactly that
+  // browser, and it went red on the composed version — which is the tell:
+  // making it green would have meant editing a spec to accept a false
+  // refusal. So the wallet question stays where it was answered before, at
+  // each call site's own `isPhantom` check, and this adds only the fact none
+  // of them had.
+  //
+  // THE COPY IS THE POINT, as it is for noWalletMessage. "Phantom wallet is
+  // required" — what all four flows said before this — is true on a phone and
+  // useless there: no iOS or Android browser can host the extension it names,
+  // so the sentence describes a remedy that does not exist on the device
+  // reading it. This names the one move that works, and says why, so nobody
+  // spends ten minutes hunting for a mobile path that was never built.
+  //
+  // It does NOT tell a phone to install anything, and it does NOT offer the
+  // in-app-browser remedy noWalletMessage gives — that one is right for
+  // contest entry and wrong here. test/lib/wallet_desktop_only_js_test.rb
+  // holds both negatives.
+  desktopOnlyMessage: function() {
+    return "This operation is desktop only. Open the page on a desktop " +
+           "browser with your wallet extension — a phone cannot reach a " +
+           "signer wallet.";
+  },
+
+  // Throws, like requireProvider, so the honest sentence reaches the screen
+  // through the try/catch every one of these flows already has. Returns
+  // nothing: there is no provider to hand back, and returning a possibly-null
+  // one is the shape of the original defect.
+  requireDesktop: function() {
+    if (this.isMobile()) throw new Error(this.desktopOnlyMessage());
+  },
+
+  // Split out from requireProvider so a caller can PAINT the reason before a
+  // user commits to an action, rather than only after one fails. The copy
+  // differs because the remedies do: installing an extension is not a thing a
+  // phone can do, and telling someone to do it is worse than saying nothing.
+  noWalletMessage: function() {
+    if (this.isMobile()) {
+      return "This browser cannot reach a wallet. Open this page inside your " +
+             "wallet app's own browser — Phantom, Solflare, and Backpack each " +
+             "have one — then try again.";
+    }
+    return "No wallet detected. Install or unlock a Solana wallet extension, " +
+           "then refresh this page.";
+  },
+
+  // A provider that can sign IN THIS PAGE, or an honest refusal.
+  //
+  // WHY THIS EXISTS, and it is a defect this change itself created. detect() now
+  // returns a REDIRECT provider on a phone. That object is not a drop-in for an
+  // injected one: its surface is begin*/complete* pairs plus can/browseUrl, and
+  // `connect`, `signTransaction`, `signMessage` and `publicKey` are all
+  // undefined on it. Any caller that took requireProvider() and reached for
+  // .connect() therefore went from a readable refusal to
+  // "provider.connect is not a function" — which is the ORIGINAL incident,
+  // relocated. Found in review of PR 632 across three live call sites.
+  //
+  // A caller that has been TAUGHT the redirect transport asks requireProvider()
+  // and forks on provider.transport. A caller that has NOT — every flow still
+  // written around a provider that resolves in place — asks for this instead and
+  // gets the mobile remedy it used to get, unchanged.
+  //
+  // Deliberately NOT a narrower detect(). detect() answering "nothing" on a phone
+  // is what made the contest-entry redirect path unreachable in the first place;
+  // the honest fix is for the CALLER to say which shape it can use.
+  requireInlineProvider: function() {
+    var provider = this.detect();
+    if (provider && provider.transport !== 'redirect') return provider;
+    // A redirect provider IS a wallet — just not one this caller can drive — so
+    // the remedy is the same one a phone with no wallet gets: open the page where
+    // a provider is injected.
+    throw new Error(this.noWalletMessage());
+  },
 };
 
 window.walletProvider = walletProvider;

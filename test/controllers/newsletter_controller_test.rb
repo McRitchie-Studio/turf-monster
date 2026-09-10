@@ -12,10 +12,12 @@ class NewsletterControllerTest < ActionDispatch::IntegrationTest
   include ActionMailer::TestHelper
 
   setup do
-    # Managed-wallet user: an email signup auto-generates a web2 wallet on
-    # create, so grant_newsletter_seeds clears its solana_connected? guard.
+    # Managed-wallet user, minted explicitly so grant_newsletter_seeds clears its
+    # solana_connected? guard. Signup used to provide the wallet; web3-only
+    # onboarding (default ON since 2026-08-15) stopped minting one.
     @wallet_user = User.create!(email: "nl-wallet@mcritchie.studio")
-    assert @wallet_user.solana_connected?, "email signup should auto-generate a managed wallet"
+    grant_managed_wallet!(@wallet_user)
+    assert @wallet_user.solana_connected?, "the seed grant is wallet-gated"
   end
 
   test "a guest cannot subscribe" do

@@ -42,6 +42,8 @@
       </p>
     </div>
 
+    <%= render "shared/wallet_desktop_only_notice" %>
+
     <% if @vault[:paused] %>
       <div class="card p-4 mb-6 border-green-500/30">
         <h2 class="text-lg font-bold text-heading mb-2">Unpause Vault</h2>
@@ -62,7 +64,8 @@
           </div>
 
           <div class="flex items-center gap-3 pt-2">
-            <button id="vault-unpause-btn" type="button" onclick="vaultAction('unpause')" class="btn btn-primary">
+            <button id="vault-unpause-btn" type="button" onclick="vaultAction('unpause')"
+                    data-desktop-only-action class="btn btn-primary">
               Connect Phantom + Unpause
             </button>
             <span id="vault-action-status" class="text-sm text-secondary"></span>
@@ -96,6 +99,7 @@
 
           <div class="flex items-center gap-3 pt-2">
             <button id="vault-pause-btn" type="button" onclick="vaultAction('pause')"
+                    data-desktop-only-action
                     class="btn bg-red-600 hover:bg-red-700 text-white">
               🚨 Connect Phantom + PAUSE
             </button>
@@ -167,9 +171,27 @@
   }
 
   window.vaultAction = async function(instruction) {
+    // THE GATE RUNS FIRST — before the reason field, before the confirm(). A
+    // pause is 2-of-3 multisig and its reason is logged on-chain; making an
+    // operator type that, then agree to a dialog naming the network, and only
+    // then learn their device cannot sign is how someone ends up looking for a
+    // way around it. requireDesktop is the shared gate: the
+    // desktop-only sentence on a phone, the no-wallet sentence on a desktop
+    // with none. The notice partial above already painted the same sentence
+    // and disabled both buttons; this is the backstop.
+    try {
+      window.walletProvider.requireDesktop();
+    } catch (gateErr) {
+      setStatus(gateErr.message, true);
+      return;
+    }
+
+    // Phantom SPECIFICALLY cosigns here — the server verifies the connected key
+    // against the chosen vault signer — so the gate above, which any Solana
+    // wallet satisfies, does not replace this check.
     var provider = window.solana;
-    if (!provider?.isPhantom) {
-      alert('Phantom wallet is required.');
+    if (!provider || !provider.isPhantom) {
+      setStatus('Phantom is required to cosign. Unlock the Phantom extension, then reload.', true);
       return;
     }
 

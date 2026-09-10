@@ -31,6 +31,28 @@ end
 ```
 Gate routes, controllers, and all UI entry points on it (kill-switch = unset the var).
 
+**A UI entry point asks `cdp_ramp_modal_available?`, not `AppFlags.cdp_ramp?`**
+(`app/helpers/onramp_helper.rb`). Every `cdp-ramp` opener is a handoff to a MODAL,
+and the host layout registers that modal behind `logged_in?` AND the flag. An
+opener that asks a WIDER question than the registration ships a button that swaps
+to an unregistered modal id: the host finds no template, the card opens empty, and
+nothing raises. Two ways that happened, both fixed 2026-09-07:
+
+- `onramp_rail_visible?` reveals every rail outside production for design review,
+  so the Coinbase rail rendered in dev and in the whole test suite with the flag
+  off. Coinbase now short-circuits to `cdp_ramp_modal_available?` in every env,
+  because it is the one rail whose destination is a modal rather than a route.
+- `wallet-topup` and `onramp-hub` are registered UNGATED (they must survive an
+  in-session signup, where the server-rendered `logged_in?` was still false) while
+  `cdp-ramp` is registered under `logged_in?`. On that page the rail outlived its
+  destination even with the flag ON.
+
+`app/views/cdp/returns/show.html.erb` needs no view guard: `Cdp::BaseController`
+prepends `head :not_found unless AppFlags.cdp_ramp?`, so the page cannot render
+with the flag off (regression: `test/controllers/cdp/returns_controller_test.rb`).
+
+Kill-switch behaviour is pinned by `test/views/cdp_ramp_kill_switch_test.rb`.
+
 ## 3. `Cdp::Auth` — per-request JWT (`app/services/cdp/auth.rb`)
 
 Exact recipe (Ed25519 / EdDSA) [^2][^3]:
@@ -70,7 +92,7 @@ Thin HTTP wrapper for `https://api.developer.coinbase.com`: `get(path, params)` 
 ```
 
 - Onramp: address = **destination** wallet. Offramp: address = **source** of funds being sold [^4]. One address per network.
-- Address selection: onramp → `User#solana_address` (web3 preferred, web2 fallback — existing helper). Offramp → the wallet that will sign the send: `web3_solana_address` (Phantom mode) or `web2_solana_address` (managed mode).
+- Address selection — **both directions ask the SESSION** (`SessionContext#web3?`), never account identity: `web3_solana_address` when this session authenticated with Phantom, else the managed `web2_solana_address`. Onramp credits the wallet the session can spend from; offramp sources the wallet it can sign with. One exception, onramp only: an account with no managed wallet gets `web3_solana_address` as the destination rather than a refusal. `User#solana_address` is deliberately NOT used — it is web3-preferred, so it credited Phantom for a combo account whose entry pays from the managed wallet.
 - Exact values for USDC-on-Solana: asset ticker `"USDC"`, network slug `"solana"` (lowercase); "To enable USDC on the Solana network, you must pass in a Solana formatted destination address" [^19].
 - `clientIp`: treat as **required** (the canonical `/onramp/reference` page marks it required; see open questions for the page conflict). Heroku tension: docs say "Do not trust X-Forwarded-For", but Heroku's router delivers the client IP only via XFF and appends the true client last — `request.remote_ip` is the only realistic source; document the assumption [^1].
 - Response: `{"token": "...", "channel_id": ""}`. Token is **single-use and expires after 5 minutes** — mint at click time (AJAX), never at page render, never cache [^1][^5].
@@ -142,7 +164,7 @@ Event types: `onramp.transaction.{created,updated,success,failed}` and `offramp.
 
 - `GET /onramp/v1/buy/config` (no params) → `countries[] { id, subdivisions[] (US states only), payment_methods[] }`; `GET /onramp/v1/sell/config` — same shape for offramp [^15]. Docs: "call this API periodically and cache the response" [^15].
 - `GET /onramp/v1/buy/options?country=US&subdivision=XX&networks=solana` — **subdivision is REQUIRED for country=US** ("certain states (e.g., NY) have state specific asset restrictions"); confirm USDC appears in `purchase_currencies` with a Solana network entry + read min/max per payment method. `GET /onramp/v1/sell/options?country=US&subdivision=XX&networks=solana` → `cashout_currencies[].limits` + `sell_currencies` for the sell side [^16].
-- Implementation: `Rails.cache.fetch(..., expires_in: 12.hours)` **plus per-request `@ivar ||=` memoization** (dev null_store no-ops Rails.cache — existing house pattern). Gate the Buy/Cash-out buttons with the existing Geocoder geo session in `ApplicationController` (country + subdivision); disable with an explainer when unsupported.
+- Implementation: `Rails.cache.fetch(..., expires_in: 12.hours)` **plus per-request `@ivar ||=` memoization** (dev null_store no-ops Rails.cache — existing house pattern). Gate the Buy/Cash-out buttons with the geo session `Studio::GeoDetection` resolves (country + subdivision); disable with an explainer when unsupported.
 - At integration time, verify the network slug Solana reports in options/config responses (`"solana"` vs `"solana-mainnet"`-style strings appear in different doc examples) and whether buy-config nests under a `data` key [^15].
 
 ## 14. Frontend

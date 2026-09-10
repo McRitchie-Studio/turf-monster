@@ -14,6 +14,7 @@ class WalletsWithdrawTest < ActionDispatch::IntegrationTest
       email: "wd-#{SecureRandom.hex(2)}@example.test",
       email_verified_at: Time.current
     )
+    grant_managed_wallet!(@managed)
     assert @managed.reload.managed_wallet?
 
     # Stub sync_balance to return $50 available. The controller calls this

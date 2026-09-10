@@ -71,6 +71,84 @@ class Solana::VaultCosignValidationTest < ActiveSupport::TestCase
     assert vault.assert_entry_cosign_safe!(out[:serialized_tx], entry: entry_for(entry_number: 0), wallet_address: WALLET)
   end
 
+  # --- token-funded entries (Phantom spends an EntryTokenAccount) --------------
+  #
+  # The guard's expectation comes from the SERVER: #prepare_entry recorded which
+  # EntryTokenAccount it built against, and that single fact decides which
+  # instruction may be admin-cosigned. These four cases pin both directions of
+  # that lock, because a guard that accepts EITHER instruction would let a client
+  # turn a USDC entry into a free one — or spend a token the server never chose.
+
+  test "a legit enter_contest_with_token passes when the server prepared that token" do
+    vault = Solana::Vault.new(client: fake_client)
+    token = Solana::Keypair.generate.to_base58
+    out   = vault.build_enter_contest_with_token(WALLET, SLUG, 0, token, season_id: 1)
+
+    assert vault.assert_entry_cosign_safe!(out[:serialized_tx], entry: entry_for(entry_number: 0),
+                                                                wallet_address: WALLET,
+                                                                entry_token_pda: token)
+  end
+
+  test "a token wire spending a DIFFERENT token than the server picked is rejected" do
+    vault    = Solana::Vault.new(client: fake_client)
+    prepared = Solana::Keypair.generate.to_base58
+    other    = Solana::Keypair.generate.to_base58
+    out      = vault.build_enter_contest_with_token(WALLET, SLUG, 0, other, season_id: 1)
+
+    # The program refuses a token whose owner is not the signer, so this wire
+    # could only ever spend a token this SAME wallet owns — a voucher the server
+    # never selected and never accounted for. The guard is the second lock.
+    err = assert_raises(Solana::Vault::UnsafeCosignError) do
+      vault.assert_entry_cosign_safe!(out[:serialized_tx], entry: entry_for(entry_number: 0),
+                                                           wallet_address: WALLET,
+                                                           entry_token_pda: prepared)
+    end
+    assert_match(/entry_token_pda_mismatch/, err.message)
+  end
+
+  test "a token wire is rejected when the server prepared a currency transfer" do
+    vault = Solana::Vault.new(client: fake_client)
+    token = Solana::Keypair.generate.to_base58
+    out   = vault.build_enter_contest_with_token(WALLET, SLUG, 0, token, season_id: 1)
+
+    # THE ESCALATION THIS BLOCKS: entry priced in USDC, wire swapped for a free
+    # token consume. No entry_token_pda expectation → only enter_contest passes.
+    err = assert_raises(Solana::Vault::UnsafeCosignError) do
+      vault.assert_entry_cosign_safe!(out[:serialized_tx], entry: entry_for(entry_number: 0),
+                                                           wallet_address: WALLET)
+    end
+    assert_match(/wrong_turf_vault_ix/, err.message)
+  end
+
+  test "a transfer wire is rejected when the server prepared a token consume" do
+    vault = Solana::Vault.new(client: fake_client)
+    out   = vault.build_enter_contest(WALLET, SLUG, 0, currency_idx: 0, season_id: 1)
+
+    err = assert_raises(Solana::Vault::UnsafeCosignError) do
+      vault.assert_entry_cosign_safe!(out[:serialized_tx], entry: entry_for(entry_number: 0),
+                                                           wallet_address: WALLET,
+                                                           entry_token_pda: Solana::Keypair.generate.to_base58)
+    end
+    assert_match(/wrong_turf_vault_ix/, err.message)
+  end
+
+  test "enter_contest_with_token bound to the WRONG entry index is rejected" do
+    vault = Solana::Vault.new(client: fake_client)
+    token = Solana::Keypair.generate.to_base58
+    out   = vault.build_enter_contest_with_token(WALLET, SLUG, 0, token, season_id: 1)
+
+    # Pins the shared account layout the guard leans on: contest_entry sits at
+    # ENTER_CONTEST_ENTRY_PDA_POSITION (5) in the token instruction too. Reorder
+    # that instruction's accounts and this fails instead of silently checking
+    # whatever now occupies slot 5.
+    err = assert_raises(Solana::Vault::UnsafeCosignError) do
+      vault.assert_entry_cosign_safe!(out[:serialized_tx], entry: entry_for(entry_number: 1),
+                                                           wallet_address: WALLET,
+                                                           entry_token_pda: token)
+    end
+    assert_match(/entry_pda_mismatch/, err.message)
+  end
+
   test "a legit create_contest (Phantom-first unsigned wire) passes" do
     vault = Solana::Vault.new(client: fake_client)
     out = vault.build_create_contest(WALLET, SLUG, **create_params, admin_signs: false)

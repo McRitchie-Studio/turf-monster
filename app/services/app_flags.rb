@@ -7,6 +7,9 @@
 #
 # Off by default everywhere — including production — unless the operator sets
 # ENABLE_TEST_SCAFFOLDING=true. To disable before launch, unset the env var.
+# Production BOOTS with it on (since 2026-08-27) so the $1 micro tier can be
+# rehearsed on mainnet; the boot logs at ERROR + Sentry rather than raising.
+# See config/initializers/test_scaffolding_guard.rb for what that costs.
 #
 # cdp_ramp? gates the Coinbase CDP Onramp/Offramp integration (buy USDC /
 # cash out via the Coinbase-hosted widget) — routes, controllers, and all UI
@@ -48,13 +51,36 @@ module AppFlags
   end
 
   # True for stable QA apps that run Rails in production mode but must still
-  # identify themselves as non-production review targets.
+  # identify themselves as non-production review targets. Delegates to the
+  # engine so every QA_ENV reader shares ONE truthiness (the EnvironmentBanner
+  # allow-list) — this was the third, stricter vocabulary for the same flag.
   def self.qa_environment?
-    ENV["QA_ENV"].to_s.strip.downcase == "true"
+    Studio.qa_environment?
+  end
+
+  # True only on a REAL production deployment: Rails.env is production AND
+  # this is not a QA app.
+  #
+  # The OPSEC-020 kill-switches (faucet, airdrop, add_funds, admin mint) used
+  # to ask `Rails.env.production?` directly. A QA Heroku app sets no RAILS_ENV,
+  # so the buildpack boots it as production — and there is no
+  # config/environments/qa.rb (nor a `qa:` key in database.yml) to switch it
+  # to. `Rails.env.production?` therefore read TRUE on QA and disarmed every
+  # dev-funding tool there, leaving a devnet QA app with no way to fund a test
+  # wallet. QA_ENV is the flag this codebase already uses to tell the two
+  # apart (see qa_environment? and the layout's data-app-environment).
+  #
+  # Guards asking this stay closed on mainnet production, where QA_ENV is
+  # never set — and each of them keeps its independent
+  # `Solana::Config.devnet?` raise, so production is refused twice over.
+  def self.live_production?
+    Rails.env.production? && !qa_environment?
   end
 
   # True when the legal-age attestation checkbox gates account creation
-  # (signin page, auth modal, wallet-connect modal — shared/_age_attestation).
+  # (signin page, auth modal, wallet-connect modal). The checkbox itself is
+  # the ENGINE partial studio/modals/shared/_age_attestation, which does NOT
+  # self-gate — each of those three callsites wraps its render in this flag.
   # Parked OFF for the first contest (operator call, 2026-06-10); set
   # ENABLE_AGE_ATTESTATION=true to restore the full gate. While off the
   # checkbox doesn't render, every client/server gate passes, and —
@@ -88,5 +114,30 @@ module AppFlags
   # never offered to web2 (payouts are USDC, so managed users won't hold USDT).
   def self.web2_usdc_entry?
     ENV.fetch("ENABLE_WEB2_USDC_ENTRY", "true").to_s.strip.downcase != "false"
+  end
+
+  # True when new email / Google accounts are WEB3-ONLY: signup no longer mints
+  # a custodial web2 wallet (User#generate_managed_wallet! returns early), and
+  # auth success routes the user into the wallet-setup modal to link Phantom
+  # instead (WalletSetupPolicy).
+  #
+  # Operator call for NFL 2026: supporting web2 players carries a legal cost
+  # Turf can't absorb this season, so every player onboards pure web3.
+  #
+  # DEFAULT ON — a KILL-SWITCH, like web2_usdc_entry? above and unlike every
+  # opt-in flag between them. It was an opt-in through the build-out, off
+  # everywhere, which is what made a freshly signed-up player still land on the
+  # web2 Buy an Entry Token modal after the onboarding chain: the wallet step
+  # was written, wired and dark. The season it was built for has arrived, so the
+  # default now states it — web3-only is the behavior unless
+  # ENABLE_WEB3_ONLY_ONBOARDING is set to "false", which reverts the whole
+  # season's onboarding to web2 in one env change with no deploy. That
+  # revertibility is why the wallet minting is still gated here rather than
+  # deleted.
+  #
+  # EXISTING managed wallets are untouched either way: this gates MINTING at
+  # signup, never the rails that serve the wallets already out there.
+  def self.web3_only_onboarding?
+    ENV.fetch("ENABLE_WEB3_ONLY_ONBOARDING", "true").to_s.strip.downcase != "false"
   end
 end

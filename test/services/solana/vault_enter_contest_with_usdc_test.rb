@@ -18,8 +18,27 @@ require "test_helper"
 class Solana::VaultEnterContestWithUsdcTest < ActiveSupport::TestCase
   setup do
     @user = users(:jordan)
-    @user.generate_managed_wallet! # fresh, consistent web2 address + encrypted key
+    # A GRANDFATHERED managed wallet — fresh, consistent web2 address +
+    # encrypted key. Minted with web3-only onboarding switched OFF because that
+    # flag gates MINTING AT SIGNUP and has defaulted ON since 2026-08-15; a bare
+    # generate_managed_wallet! now returns early and every test below fails on a
+    # wallet-less user. The subject here is the server-signed entry path that the
+    # managed wallets ALREADY out there still use, so the account has to have one.
+    with_web3_only_off { @user.generate_managed_wallet! }
+    assert @user.reload.web2_solana_address.present?,
+           "setup precondition: the managed wallet must exist for any of this to mean anything"
     @contest = Struct.new(:slug, :season_id).new("unified-funding-contest", 1)
+  end
+
+  # Deliberately NOT under `private` — Minitest collects tests from public
+  # instance methods, and a visibility change here would silently stop every
+  # `test` block after it from running.
+  def with_web3_only_off
+    original = ENV["ENABLE_WEB3_ONLY_ONBOARDING"]
+    ENV["ENABLE_WEB3_ONLY_ONBOARDING"] = "false"
+    yield
+  ensure
+    original.nil? ? ENV.delete("ENABLE_WEB3_ONLY_ONBOARDING") : ENV["ENABLE_WEB3_ONLY_ONBOARDING"] = original
   end
 
   # A Vault whose enter_contest / ensure_* are replaced with recorders, so the

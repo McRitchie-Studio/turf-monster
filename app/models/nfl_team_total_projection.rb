@@ -1,4 +1,7 @@
 class NflTeamTotalProjection < ApplicationRecord
+  # The capturing run. Optional because rows created before market-snapshot-impl
+  # have none; the ingest service stamps it on every upsert going forward.
+  belongs_to :market_snapshot, optional: true
   belongs_to :slate, optional: true
   belongs_to :game, foreign_key: :game_slug, primary_key: :slug
   belongs_to :team, foreign_key: :team_slug, primary_key: :slug
@@ -12,6 +15,14 @@ class NflTeamTotalProjection < ApplicationRecord
   validates :expected_points, :game_total, numericality: { greater_than: 0 }
   validates :home_spread, :favorite_spread, numericality: true
   validates :team_slug, uniqueness: { scope: [:year, :week, :game_slug] }
+  # "posted" (DK listed a team-total O/U, used as-is) or "derived" (computed from
+  # game total + spread). Nullable only for legacy rows; the ingest always stamps it.
+  validates :basis, inclusion: { in: MarketSnapshot::BASES }, allow_nil: true
+  validates :posted_line, numericality: { greater_than: 0 }, allow_nil: true
+
+  def posted?
+    basis == "posted"
+  end
 
   scope :for_year, ->(year) { where(year: year) }
   scope :for_week, ->(week) { where(week: week) }

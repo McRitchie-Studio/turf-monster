@@ -58,21 +58,13 @@ class NewsletterController < ApplicationController
   # 'seeds' payload ({ seeds_earned, seeds_total, seeds_level }) so the client can
   # run the same tick-up + level-up animation as a contest entry, or nil if the
   # grant can't run yet (deferred + backfillable — the subscription still stands).
+  #
+  # MOVED TO NewsletterSeedGrant because this is no longer the only way to join.
+  # The shared /profile page subscribes through the engine, which reaches this app
+  # via Studio.after_newsletter_change — a lambda in an initializer, which cannot
+  # call a private controller method. One implementation, two callers; see the
+  # service for why a second copy would drift.
   def grant_newsletter_seeds(user)
-    return nil unless user.solana_connected?
-
-    vault = Solana::Vault.new
-    result = vault.grant_seeds(
-      wallet_address: user.solana_address, amount: vault.seeds_for_quest(:newsletter), kind: :newsletter
-    )
-    {
-      seeds_earned: result[:seeds_earned],
-      seeds_total:  result[:seeds_total],
-      seeds_level:  result[:seeds_level]
-    }
-  rescue => e
-    Rails.logger.warn "[quest][newsletter] seed grant deferred for user=#{user.id} " \
-                      "(#{e.class}: #{e.message.to_s[0, 140]})"
-    nil
+    NewsletterSeedGrant.call(user)
   end
 end

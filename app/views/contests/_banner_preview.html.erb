@@ -1,8 +1,20 @@
 <%# Current banner preview on the contest edit screen. update_banner replaces
-    this (#contest-banner-preview) via Turbo Stream after an immediate save. %>
-<div id="contest-banner-preview" class="rounded-lg overflow-hidden border border-subtle" style="aspect-ratio: 4 / 1;">
-  <% if @contest.contest_image.attached? %>
-    <%= image_tag @contest.contest_image, class: "w-full h-full object-cover", alt: "Current banner" %>
+    this (#contest-banner-preview) via Turbo Stream after an immediate save.
+
+    The box tracks the ATTACHED image's OWN ratio whenever Active Storage has
+    analyzed it, so a legacy 4:1 banner previews exactly as it is stored rather
+    than being center-cropped into the current 5:1 box. New crops arrive at 5:1
+    and so land on 5:1 here too; 5:1 is also the empty-state and the fallback
+    for a blob whose AnalyzeJob has not run yet (metadata carries no width). %>
+<%
+  banner        = @contest.contest_image
+  meta          = banner.attached? ? banner.blob.metadata : {}
+  width, height = meta["width"].to_i, meta["height"].to_i
+  ratio         = width.positive? && height.positive? ? "#{width} / #{height}" : "5 / 1"
+%>
+<div id="contest-banner-preview" class="rounded-lg overflow-hidden border border-subtle" style="aspect-ratio: <%= ratio %>;">
+  <% if banner.attached? %>
+    <%= image_tag banner, class: "w-full h-full object-cover", alt: "Current banner" %>
   <% else %>
     <div class="w-full h-full flex items-center justify-center text-xs text-muted"
          style="background: linear-gradient(135deg, var(--color-primary-700), var(--color-primary-900))">

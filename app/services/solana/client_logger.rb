@@ -48,13 +48,22 @@ module Solana
             OutboundRequestLogger.record!(
               service:       "solana_rpc",
               method:        method.to_s,
-              endpoint:      (@rpc_url rescue nil),
+              # REDACTED ON WRITE. log_outbound? returns true for every FAILED
+              # call, and a key rotation drives a burst of failures — so the
+              # moment of rotation was exactly when the OLD credential got
+              # written into this table again. Revoking the key is not erasure
+              # while these rows hold it verbatim. (Historical rows written
+              # before this change still carry it; purging them is an ops task,
+              # not a code one.)
+              endpoint:      Solana::Config.redact_rpc_url((@rpc_url rescue nil)),
               request_body:  { method: method.to_s, params: redact_rpc_params(method, params) },
               response_body: error ? nil : { result: result },
               status_code:   error ? nil : 200,
               duration_ms:   ((Time.current - started) * 1000).round,
               error_class:   error&.class&.to_s,
-              error_message: error&.message
+              # Same exposure by a second route: InsecureRpcUrlError and
+              # URI::InvalidURIError both carry the full endpoint in .message.
+              error_message: error && Solana::Config.redact_message(error.message)
             )
           rescue => log_err
             Rails.logger.error "[outbound_request_logger] solana hook failed: #{log_err.message}"

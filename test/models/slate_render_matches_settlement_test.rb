@@ -3,7 +3,7 @@ require "test_helper"
 # The slate page must price a team the way settlement prices it. Rendering from
 # a live ranking while Selection#compute_points! settles from the STORED
 # turf_score let the two disagree — most visibly on World Cup slates, which
-# carry no dk_goals_expectation and so rendered exactly inverted.
+# carry no expected_score and so rendered exactly inverted.
 class SlateRenderMatchesSettlementTest < ActiveSupport::TestCase
   setup do
     @slate = Slate.create!(name: "Render Parity Slate", slug: "render-parity-slate")
@@ -12,7 +12,7 @@ class SlateRenderMatchesSettlementTest < ActiveSupport::TestCase
   def add!(team_slug, expected:, rank: nil, turf_score: nil, game_slug: nil)
     SlateMatchup.create!(
       slate: @slate, team_slug: team_slug, opponent_team_slug: "team-f",
-      game_slug: game_slug, dk_goals_expectation: expected,
+      game_slug: game_slug, expected_score: expected,
       rank: rank, turf_score: turf_score, status: "pending"
     )
   end
@@ -39,7 +39,7 @@ class SlateRenderMatchesSettlementTest < ActiveSupport::TestCase
   end
 
   test "World Cup slates with no expected points render in stored order" do
-    # No dk_goals_expectation at all — a live ranking ties every team and falls
+    # No expected_score at all — a live ranking ties every team and falls
     # through to alphabetical, rendering the favourite as the 3.0x longshot.
     add!("team-c", expected: nil, rank: 1, turf_score: 1.0)
     add!("team-a", expected: nil, rank: 2, turf_score: 2.0)

@@ -3,6 +3,7 @@
 # Whitelist of asset sources to defang reflected/stored XSS. The site
 # loads:
 #   - Phantom wallet from injected window object (no external script)
+#   - YouTube (privacy-mode) player iframe for the wallet-setup explainer video
 #   - Solana web3 + Alpine via CDN (script-src https:)
 #   - Stripe Checkout redirect (form POST to checkout.stripe.com — needs a form-action entry)
 #   - Google OAuth (OmniAuth google_oauth2 form POST to accounts.google.com — needs a form-action entry)
@@ -24,7 +25,17 @@ Rails.application.configure do
   # run alphabetically, so paypal.rb hasn't resolved the flag yet when this
   # file executes. Same normalization as paypal.rb.
   paypal_provider = (ENV["PAYMENT_PROVIDER"].presence || "none").to_s.strip.downcase == "paypal"
-  frame_sources = [:self, "https://js.stripe.com", "https://hooks.stripe.com"]
+  # youtube-nocookie serves the player the wallet-setup modal plays inline (the
+  # "New to Solana Wallets?" explainer); youtube.com is listed with it because
+  # the nocookie player hands some requests back to the main host mid-playback,
+  # and a frame-src miss there is a black box with no error the user can act on.
+  frame_sources = [
+    :self,
+    "https://js.stripe.com",
+    "https://hooks.stripe.com",
+    "https://www.youtube-nocookie.com",
+    "https://www.youtube.com"
+  ]
   frame_sources += ["https://*.paypal.com", "https://*.venmo.com"] if paypal_provider
 
   config.content_security_policy do |policy|
@@ -37,7 +48,12 @@ Rails.application.configure do
     policy.connect_src :self, :https, :wss   # XHR + Solana RPC + websockets
     policy.worker_src  :self, :blob          # canvas-confetti + LogRocket spawn Web Workers from blob: URLs (default_src has no blob → blocked in prod)
     policy.frame_src(*frame_sources)
-    policy.frame_ancestors :none   # clickjacking protection — we never embed in iframes
+    # Clickjacking protection: nothing here may be framed. ONE deliberate
+    # exception, declared at the controller rather than widened here —
+    # WalletProbeController relaxes this to :self for its own empty page, which
+    # the wallet-setup modal frames to detect a just-installed Phantom without
+    # reloading the page the user is on.
+    policy.frame_ancestors :none
     policy.base_uri    :self
     policy.form_action :self, "https://checkout.stripe.com", "https://accounts.google.com"
   end

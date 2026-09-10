@@ -9,8 +9,11 @@
     { name: "Invite friends",          reward: "+50 seeds each", ongoing: true,                                         count:   current_user.invitees_in_contest_count }
   ]
 %>
-<div class="card shadow p-6 mb-6">
-  <h2 class="text-lg font-bold text-heading mb-4">Quests</h2>
+<%# BODY ONLY — no card, no heading. Each call site owns its chrome: /account
+    wraps this in its own card with an <h2>, and the /profile row gets both from
+    the engine's section wrapper and its `title:`. Carrying them here rendered a
+    card inside a card and the word "Quests" twice on /profile. %>
+<div>
 
   <div class="divide-y divide-subtle">
     <% quests.each do |quest| %>

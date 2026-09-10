@@ -1,0 +1,17 @@
+<%#
+  Deliberately empty. This document exists to BE loaded, not to be read: its
+  only job is to be a fresh page in this origin, which is the one thing that
+  makes a browser extension's content script run. The wallet-setup modal frames
+  it and inspects window.phantom on the other side.
+
+  Keep it free of scripts, styles, and app chrome — every byte here is loaded
+  again on each detection attempt.
+%><!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="robots" content="noindex, nofollow">
+    <title>wallet probe</title>
+  </head>
+  <body></body>
+</html>

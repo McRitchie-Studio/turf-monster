@@ -1,0 +1,6 @@
+<%# A framed guide screenshot with caption. Locals: image, alt, caption. %>
+<figure class="card p-2 space-y-2">
+  <%= image_tag "guide/#{image}", alt: alt, loading: "lazy",
+        class: "rounded-lg w-full" %>
+  <figcaption class="text-secondary text-xs text-center pb-1"><%= caption %></figcaption>
+</figure>

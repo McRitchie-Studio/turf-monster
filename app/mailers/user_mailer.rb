@@ -12,7 +12,7 @@ class UserMailer < ApplicationMailer
     @user = user
     @contest = contest
     @verify_url = email_verifications_verify_url(token: token)
-    @banner_url = email_banner_url("verify-banner.png")
+    @banner_url = Studio::EmailCatalog.resolved_url(:email_verification)
     @banner_alt = "Verify Your Email"
     mail(to: user.email, subject: "Verify your Turf Monster email")
   end
@@ -25,11 +25,24 @@ class UserMailer < ApplicationMailer
     @contest = contest
     @email = email
     @magic_url = link_url(token: token) # unified /l/<token> (Studio::LinksController)
-    # Admin-managed banner (Studio::EmailImage) with the versioned asset as the
-    # fallback until an operator uploads one. Manage at /admin/email_images.
-    @banner_url = Studio::EmailImage.url(:magic_link) || email_banner_url("magic-link-banner.jpg")
-    @banner_alt = "Your Magic Link"
-    mail(to: email, subject: "🐊🪄 Turf Totals Sign-in Link")
+    # THE LAYERED BANNER: this app's artwork with the greeting drawn on top as
+    # live HTML. The mailer supplies only WHO the recipient is — what the banner
+    # SAYS about them is the operator's, editable on /admin/emails. Handing over
+    # a finished header here would leave those fields accepting edits no inbox
+    # ever sees.
+    #
+    # username/name rather than display_name: display_name falls back to the
+    # email local part, so it ALWAYS returns something and a recipient with no
+    # handle would be greeted by a fragment of their address instead of getting
+    # the name-free header a stranger should see.
+    recipient = User.find_by(email: email.to_s.strip.downcase)
+    @banner = Studio::Banner.for(:magic_link,
+                                 name: recipient&.username.presence || recipient&.name.presence)
+    # KEPT AS THE FLOOR. @banner wins when present; this is what still ships if
+    # the layered artwork is ever unregistered.
+    @banner_url = Studio::EmailCatalog.resolved_url(:magic_link)
+    @banner_alt = @banner&.header.presence || "Your Magic Link"
+    mail(to: email, subject: "🐊🪄 Turf Monster Sign-in Link")
   end
 
   # Self-custody wallet export (task #11). Token is a signed payload from
@@ -39,7 +52,7 @@ class UserMailer < ApplicationMailer
     @user = user
     @export_url = url_for(controller: "wallet_exports", action: "show", token: token, only_path: false)
     @support_email = "alex@turfmonster.media"
-    @banner_url = email_banner_url("wallet-export-banner.png")
+    @banner_url = Studio::EmailCatalog.resolved_url(:wallet_export)
     @banner_alt = "Your Wallet Keys"
     mail(to: user.email, subject: "Your Turf Monster wallet export link")
   end
@@ -53,7 +66,7 @@ class UserMailer < ApplicationMailer
     @old_email = old_email
     @new_email = new_email
     @account_url = account_url
-    @banner_url = email_banner_url("email-change-notify-banner.png")
+    @banner_url = Studio::EmailCatalog.resolved_url(:email_change_notification)
     @banner_alt = "Heads Up"
     mail(to: old_email, subject: "Your Turf Monster email was changed")
   end
@@ -68,7 +81,7 @@ class UserMailer < ApplicationMailer
     @current_email = current_email
     @new_email = new_email
     @confirm_url = confirm_email_change_url(token)
-    @banner_url = email_banner_url("email-change-confirm-banner.png")
+    @banner_url = Studio::EmailCatalog.resolved_url(:email_change_confirmation)
     @banner_alt = "Confirm Your Email"
     mail(to: current_email, subject: "Confirm your Turf Monster email change")
   end

@@ -10,27 +10,12 @@ require "test_helper"
 class CssComponentHooksTest < ActionDispatch::IntegrationTest
   CSS = File.read(Rails.root.join("app/assets/tailwind/application.css"))
 
-  test "hold button partial renders every hook the hold-btn utility styles" do
-    html = ApplicationController.render(partial: "shared/hold_button")
-    doc = Nokogiri::HTML::DocumentFragment.parse(html)
-
-    button = doc.at_css("button.hold-btn")
-    assert button, "hold button must render with the .hold-btn class"
-
-    assert doc.at_css(".hold-btn > .hold-icon > svg.progress circle"), "progress ring markup"
-    assert doc.at_css(".hold-btn > .hold-icon > svg.tick polyline"), "tick markup"
-    assert_equal 4, doc.css(".hold-btn ul.hold-text > li").size,
-      "sliding text needs 4 slots (default/hold/success/error)"
-    assert doc.at_css(".hold-btn .nudge-debug .countdown-num"), "debug countdown markup"
-
-    # The styling for all of the above lives INSIDE @utility hold-btn (the
-    # dedupe deleted the bare hold-icon/hold-text/state utilities).
-    assert_includes CSS, "@utility hold-btn", "@utility hold-btn must define the component"
-    %w[.hold-icon .hold-text .nudge-debug].each do |hook|
-      assert_match(/@utility hold-btn \{.*#{Regexp.escape(hook)}/m, CSS,
-        "#{hook} must be styled within @utility hold-btn")
-    end
-  end
+  # The hold-to-confirm button and its fizz used to be pinned here. Both halves
+  # moved to studio-engine 0.56 (studio/_hold_button + the ACTION family in
+  # engine-motion.css), so the markup<->stylesheet contract is asserted there —
+  # test/views/hold_button_test.rb, test/views/engine_motion_css_test.rb and the
+  # five mutation-verified specs in its browser lane. What stayed this app's own
+  # is the PALETTE it feeds in: test/integration/hold_button_fizz_palette_test.rb.
 
   test "gear sidebar renders the nav emoji swap hooks the stylesheet styles" do
     log_in_as(users(:alex))

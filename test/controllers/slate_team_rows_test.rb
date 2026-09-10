@@ -14,7 +14,7 @@ class SlateTeamRowsTest < ActionDispatch::IntegrationTest
       home_team_slug: team_slug, away_team_slug: opponent_slug, status: "scheduled"
     )
     SlateMatchup.create!(slate: @slate, team_slug: team_slug, opponent_team_slug: opponent_slug,
-                         game_slug: game.slug, dk_goals_expectation: expected, status: "pending")
+                         game_slug: game.slug, expected_score: expected, status: "pending")
   end
 
   test "a multi-week slate renders one row per team, not one per game" do

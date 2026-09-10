@@ -15,6 +15,7 @@ on:
 jobs:
   devnet:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     # Skip if the bot key isn't configured (e.g. forks or fresh repo setup)
     if: ${{ vars.DEVNET_NIGHTLY_ENABLED == 'true' }}
 
@@ -33,6 +34,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+      - name: Await RubyGems propagation for locked gems
+        run: .github/scripts/await-gem-propagation.sh
+
       - uses: ruby/setup-ruby@v1
         with: { ruby-version: .ruby-version, rubygems: 3.5.11, bundler-cache: true }
       - uses: actions/setup-node@v4

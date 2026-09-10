@@ -6,7 +6,7 @@ class OmniauthCallbacksController < ApplicationController
 
   # Popup entrypoint: flags the session so the callback renders the
   # window-closer page, then renders an auto-submitting POST form into
-  # OmniAuth's request phase. Reached via window.open from the Turf Totals auth
+  # OmniAuth's request phase. Reached via window.open from the Turf Monster auth
   # modal. OmniAuth request phase must stay POST-only for CSRF protection.
   def popup
     session[:oauth_popup] = true
@@ -106,9 +106,26 @@ class OmniauthCallbacksController < ApplicationController
             "email"    => auth.info.email,
             "at"       => Time.current.to_i
           }
+          # SAME STANDARD, BOTH SHAPES (2026-08-21). This is the web3 step-up
+          # situation arriving from the front door instead of from behind a
+          # session: a self-custody account presenting a web2 credential. It used
+          # to be told so as a red sentence under the Google button — which named
+          # the account's email address in the failure text of an unauthenticated
+          # request, and gave the one person who could act on it nothing to click.
+          # Arm the standard card instead. The identity is already
+          # GoogleOauthValidator-checked and stashed above, so the wallet
+          # signature that clears the card also completes the link
+          # (apply_pending_google_link!).
           if @oauth_popup
+            # POPUP ONLY, deliberately. The popup has no page of its own to land
+            # on — it closes and the OPENER reloads — so the armed prompt is the
+            # only way to say anything actionable, and that reload renders the
+            # card. The non-popup branch below already has a whole page for this
+            # (/login/wallet), and opening the modal on top of it would be two
+            # explanations of one situation talking over each other.
+            arm_web3_step_up_for(existing)
             return finish_oauth(signin_path, success: false,
-                                alert: "#{auth.info.email} is a wallet account — log in with your Solana wallet to link Google.")
+                                alert: "Sign in with your Solana wallet to continue.")
           end
           return redirect_to link_wallet_path
         end
@@ -133,9 +150,24 @@ class OmniauthCallbacksController < ApplicationController
 
       rescue_and_log(target: result) do
         set_app_session(result)
+        # Web3-only onboarding: records the verdict and arms the one-shot prompt
+        # that opens the wallet-setup modal on the next render. In popup mode
+        # that render is the OPENER'S RELOAD (finish_oauth renders a closer page
+        # instead of redirecting), which is why this rides the session rather
+        # than the flash.
+        # Arms the onboarding chain (first name → age → wallet). The landing
+        # below still keys on the WALLET step alone, deliberately: with web3-only
+        # onboarding switched off, a new Google signup has a managed wallet and
+        # its entry-token upsell is still the right destination — the chain simply
+        # opens on top of whichever page that is.
+        onboarding_steps = record_onboarding_state!(result)
+        needs_wallet = onboarding_steps.include?(:wallet)
         # New signups land on the entry-tokens page (post-signup upsell);
-        # returning Google users go to the app root.
-        finish_oauth(new_signup ? tokens_buy_path : root_path, success: true,
+        # returning Google users go to the app root. A wallet-less signup skips
+        # that upsell — /tokens/buy sells web2 entry tokens it cannot pay for —
+        # and lands on the app root, where the setup modal opens.
+        landing = new_signup && !needs_wallet ? tokens_buy_path : root_path
+        finish_oauth(landing, success: true,
                      needs_profile: !result.profile_complete?,
                      notice: "Signed in with Google!")
       end

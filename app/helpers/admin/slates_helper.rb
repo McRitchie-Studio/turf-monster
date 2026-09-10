@@ -15,7 +15,7 @@ module Admin
           name: home.name,
           shortName: home.short_name,
           emoji: home.emoji,
-          dkGoalsExpectation: matchups.find { |m| m.team_slug == home.slug }&.dk_goals_expectation,
+          expectedScore: matchups.find { |m| m.team_slug == home.slug }&.expected_score,
           turfScore: matchups.find { |m| m.team_slug == home.slug }&.turf_score&.to_f,
           players: home.players.order(:name).map { |p| { slug: p.slug, name: p.name, position: p.position, number: p.jersey_number } }
         },
@@ -24,7 +24,7 @@ module Admin
           name: away.name,
           shortName: away.short_name,
           emoji: away.emoji,
-          dkGoalsExpectation: matchups.find { |m| m.team_slug == away.slug }&.dk_goals_expectation,
+          expectedScore: matchups.find { |m| m.team_slug == away.slug }&.expected_score,
           turfScore: matchups.find { |m| m.team_slug == away.slug }&.turf_score&.to_f,
           players: away.players.order(:name).map { |p| { slug: p.slug, name: p.name, position: p.position, number: p.jersey_number } }
         },

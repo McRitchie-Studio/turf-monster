@@ -34,9 +34,7 @@
     <%= render "tokens/pack_button_styles" %>
 
     <%# Shared close × — top-right, sits above whichever step is active. %>
-    <button @click="$store.modals.close()"
-            class="absolute top-0 right-0 -mt-2 -mr-2 text-secondary hover:text-heading text-xl leading-none z-10"
-            aria-label="Close">&times;</button>
+  <%= render "studio/modals/blocks/close_x" %>
 
     <%# ==================================================================
         STEP 2/3 — Pack picker (wizard template layout) %>
@@ -48,24 +46,21 @@
         </div>
         <%# Picker is step 2 of the 3-step onboarding journey. %>
         <%= render "studio/modals/blocks/progress_pill", current: 2, total: 3 %>
-        <p class="text-xs text-secondary mb-4 text-center">1 token = 1 contest entry. Your lineup is saved &mdash; pick a pack to finish.</p>
+        <p class="text-xs text-body mb-4 text-center">1 token = 1 contest entry. Your lineup is saved &mdash; pick a pack to finish.</p>
         <%# DEFENSIVE DEPTH, not a live path. modals/_auth:346 renders this
             picker only when entry_funding_mode == :stripe, which IS
             Payments.stripe? (application_helper#entry_funding_mode) — so
             stripe_on is a tautology here and these cards never render disabled
             today. With Stripe off the buyer never reaches this picker at all;
             they get modals/auth/_usdc_funding's "Purchases temporarily offline".
-            The sibling picker's identical gate is ALSO dead, for its own
-            reason: modals/auth/_paypal_tokens renders only under :paypal, i.e.
-            Payments.paypal_checkout? true — which is exactly the condition its
-            :63 branch tests, so the Stripe fallback holding that gate is
-            unreachable. Enumerating all 12 provider × stripe_enabled ×
-            paypal_enabled configs, ZERO reach it.
             The gate that genuinely varies is tokens/buy.html.erb:70 — the buy
             PAGE is not gated by entry_funding_mode, so Stripe really can be off
-            beneath it. That is the live case; both modal gates are belt-and-
-            braces against their render guards loosening. %>
-        <% stripe_on = Payments.stripe? && Rails.application.config.x.stripe_enabled %>
+            beneath it. That is the live case; this modal gate is belt-and-braces
+            against its render guard loosening.
+            Payments.stripe? already means "provider == 'stripe' AND
+            config.x.stripe_enabled" (app/services/payments.rb), so anding the
+            flag again is redundant — the single call carries the whole gate. %>
+        <% stripe_on = Payments.stripe? %>
         <div class="space-y-3">
           <% StripePurchase.available_packs.each do |pack_id, pack| %>
             <%# Pack click advances to 'tokens-waiting' through the store's
@@ -163,7 +158,7 @@
             auth-modal/tokens-minted context via $store.modals and, on
             success, calls resolveEntry() — swapping this wizard for the
             shared onchain-tx "Entry Confirmed" resolution card. %>
-        <%= render 'shared/hold_button',
+        <%= render 'studio/hold_button',
             default_text: "Hold to Confirm Entry",
             hold_text: "Almost there...",
             success_text: "Submitting…",

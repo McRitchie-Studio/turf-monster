@@ -1,11 +1,13 @@
 # Passwordless: email auth is magic-link only. No password_digest is set —
 # the column is dormant (DB default ""), kept only so the schema is unchanged.
 # Fixture label `alex` (referenced by entries.yml / contests.yml as `user: alex`)
-# is the HUMAN operator. Per the 2026-06-02 naming flip the human is now
-# "Mr. McRitchie" / username `mcritchie`; the bot took over the bare `alex`
-# name/username (the bot is not represented as a fixture). The fixture LABEL
-# stays `alex` to avoid churning the entry/contest fixture references — it is a
-# Rails fixture identifier, not the username or slug.
+# is the HUMAN operator. The 2026-09-04 swap put the human back on the bare
+# `alex` username and moved the shared team account to `mcritchie`, reversing
+# the 2026-06-02 flip (the team account is not represented as a fixture). The
+# fixture LABEL stays `alex` to avoid churning the entry/contest fixture
+# references — it is a Rails fixture identifier, not the username or slug, and
+# this row's own username stays `mcritchie_test` so it collides with neither
+# parked name.
 alex:
   name: Mr. McRitchie
   username: mcritchie_test
@@ -24,4 +26,24 @@ sam:
   username: sam_test
   email: sam@mcritchie.studio
   web3_solana_address: foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds
+  session_token: <%= SecureRandom.hex(32) %>
+
+# A COMBO account: a managed web2 wallet AND a linked Phantom, on two DIFFERENT
+# addresses. It existed nowhere in this suite, which is how a whole class of
+# wallet-selection bug stayed invisible — `User#solana_address` prefers web3
+# unconditionally, and with only web3-only fixtures every "which wallet?" test
+# was true by construction. Tokens::LevelUpGrant reads balances off ONE of these
+# two and must never write a zero from the wrong one.
+casey:
+  name: Casey
+  # Fixtures bypass Sluggable's before_save, so a fixture with no slug: is a user
+  # no route can address — and /admin/users and /admin/free_entries both build an
+  # impersonate path from u.slug UNGUARDED, so one blank slug raises for the whole
+  # page. Real users always carry a slug; declaring it here keeps this fixture
+  # honest instead of making every listing test backfill it.
+  slug: casey-test
+  username: casey_test
+  email: casey@mcritchie.studio
+  web2_solana_address: 9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin
+  web3_solana_address: 7bQmGnT4kFvVJfZ8dLpR2sYcXwNhE5aKtM3uD6gWqPzR
   session_token: <%= SecureRandom.hex(32) %>

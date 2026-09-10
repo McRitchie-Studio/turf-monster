@@ -12,9 +12,15 @@ create-or-login doors and one shared account spine.
   links or creates anything.
 - **Wallet sign-in proves key ownership without Solana RPC.** SIWS signature
   verification is local Ed25519 math; chain writes happen later.
-- **Every non-admin account gets a server-managed wallet.** Phantom users also
-  keep their own `web3_solana_address`; managed wallet funds still live in the
-  user's own token accounts, not a pooled DB balance.
+- **A new account gets NO wallet until it links Phantom.** Web3-only onboarding
+  is the default since 2026-08-15 (`AppFlags.web3_only_onboarding?`, off only on
+  an explicit `ENABLE_WEB3_ONLY_ONBOARDING=false`), so signup mints no managed
+  wallet and auth success routes the user to the wallet-setup modal (see
+  [Web3-only onboarding](AUTH.md#web3-only-onboarding)). With the switch off, the
+  old rule returns: every non-admin account gets a server-managed wallet on
+  create. Phantom users also keep
+  their own `web3_solana_address`; managed wallet funds still live in the user's
+  own token accounts, not a pooled DB balance.
 
 ## Overview
 
@@ -53,7 +59,11 @@ Once any controller has a `User` row, account initialization is the same:
 2. `before_create :set_initial_session_token` writes `users.session_token`.
 3. `after_create :generate_managed_wallet!` creates a server-managed Ed25519
    wallet for non-admin users and encrypts the secret with
-   `MANAGED_WALLET_ENCRYPTION_KEY`.
+   `MANAGED_WALLET_ENCRYPTION_KEY`. **Skipped by default** — web3-only
+   onboarding is a default-on kill-switch since 2026-08-15, so the account is
+   created and signed in exactly as before but with `wallet_kind == :none` until
+   the user links Phantom through the wallet-setup modal. Setting
+   `ENABLE_WEB3_ONLY_ONBOARDING=false` restores the mint.
 4. `after_commit :enqueue_onchain_account_setup, on: :create` schedules
    `CreateOnchainUserAccountJob`.
 5. `set_app_session(user)` writes the Rails cookie session and clears stale
@@ -146,7 +156,13 @@ proved the address and the server re-validated the token.
 
 **Key files:** `SolanaSessionsController`,
 `app/controllers/concerns/solana/session_auth.rb`, `solana-studio`
-`Solana::AuthVerifier`, `wallet_provider.js`, `phantom_deeplink.js`
+`Solana::AuthVerifier`, `wallet_provider.js`. The MOBILE deep link is
+solana-studio's — `solana_studio/_phantom_deeplink`, rendered by
+`shared/_alpine_factories` — and its callback view is studio-engine's,
+`solana_sessions/phantom_callback`. `adopt-engine-phantom-deeplink` took both off
+this app; `turf-rides-gem-modals` then moved the deep-link half to solana-studio,
+while the callback stayed with the engine. Turf keeps the route, the controller action,
+and the blocking tweetnacl tag in `layouts/application`.
 
 ```mermaid
 sequenceDiagram

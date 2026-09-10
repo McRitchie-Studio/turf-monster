@@ -1,11 +1,25 @@
 # Turf Monster Workflows
 
-Casual-agent index. Open a per-workflow file for the dirty details (line-cited).
+Casual-agent index. Open a per-workflow file for the dirty details.
 
-> **Code-first principle.** Workflow files cite `path/to/file.rb:NN` so claims can be
+> **Code-first principle.** Most workflow files cite `path/to/file.rb:NN` so claims can be
 > verified against the current codebase. If a workflow file disagrees with the code,
 > trust the code and update the file. Prose rots; line numbers drift on refactor —
 > re-confirm before relying on either.
+>
+> **Two workflow files cite nothing at all.** Measured 2026-09-09, [live-scoring](live-scoring.md)
+> and [submit-entry-decision-tree](submit-entry-decision-tree.md) parse to zero citations
+> each. They name symbols throughout and point at none of them, so every claim in those
+> two is unverified prose. Check them against the code before you rely on either.
+>
+> **A citation is not automatically a checked citation.**
+> `test/docs/workflow_citation_docs_test.rb` holds a document to its citations only if
+> that document is listed in its `COVERAGE` — today
+> [web3-landing-to-entry](web3-landing-to-entry.md) and
+> [market-snapshot](market-snapshot.md). Every other cited file here is unguarded — its
+> citations are real coordinates, but no test reads them. And a guarded file is not
+> uniformly guarded either: each one's own preamble states which of its citations get
+> the weaker of the two checks.
 
 ## User journeys
 
@@ -14,8 +28,8 @@ What a player or operator-as-user does end-to-end.
 | Workflow | Entrypoint | One-liner |
 |---|---|---|
 | [submit-entry-decision-tree](submit-entry-decision-tree.md) | Hold to Confirm | THE entry map: web2/web3 × token/USDC/USDT branches, every failure point, funds-stuck inventory, recovery channels + their triggers, mainnet-only gotchas. |
-| [web3-landing-to-entry](web3-landing-to-entry.md) | `GET /l/:slug` | Funnel → Phantom signup → on-chain direct entry (USDC). |
-| [referral-google-tokens-to-chat](referral-google-tokens-to-chat.md) | `GET /l/:slug` + `?reference=` | Funnel → Google signup → buy 3 tokens → enter → first chat msg. |
+| [web3-landing-to-entry](web3-landing-to-entry.md) | `GET /lp/:slug` | Funnel → Phantom signup → on-chain direct entry (USDC). |
+| [referral-google-tokens-to-chat](referral-google-tokens-to-chat.md) | `GET /lp/:slug` + `?reference=` | Funnel → Google signup → buy 3 tokens → enter → first chat msg. |
 | [email-signup-token-to-chat](email-signup-token-to-chat.md) | `GET /` | Root → email signup → buy 1 token → enter main contest → chat. |
 
 ## Backend pipelines
@@ -24,7 +38,7 @@ Server-side chains: controller → job → external → DB / on-chain.
 
 | Workflow | Entrypoint | One-liner |
 |---|---|---|
-| _none yet_ | | |
+| [live-scoring](live-scoring.md) | `bin/nfl-live-poll` | Poll ESPN → write Goals → re-score open contests → broadcast. |
 
 ## Operator / admin processes
 
@@ -33,6 +47,8 @@ What a Turf Monster operator does from the admin surface or rake tasks.
 | Workflow | Entrypoint | One-liner |
 |---|---|---|
 | [admin-contest-setup](admin-contest-setup.md) | Phantom login → `GET /contests/new` | Phantom auth → create on-chain Contest PDA → admin enters via Phantom. |
+| [market-snapshot](market-snapshot.md) | `bin/rails nfl:expected_team_totals_cache` | Prefer DK posted team totals, derive from spread + total when absent. |
+| [slate-build](slate-build.md) | `Nfl::BuildSpanSlate.call` | Projections → slate → rank by summed expectation → freeze the multiplier. |
 
 ## Dev / deploy
 

@@ -13,7 +13,8 @@ module Nfl
   #     would be sold as three weeks and scored as two)
   #   * a year with no weekly slates at all
   # Scoping every lookup by YEAR is what keeps a 2026 span from absorbing a 2025
-  # slate — slates carry a week but no year column, so the year lives in the name.
+  # slate. Since `slates-sport-year` that scope is the `year` + `sport` COLUMNS, not a
+  # LIKE against the name.
   class BuildSpanSlate
     class Error < StandardError; end
 
@@ -21,9 +22,10 @@ module Nfl
       new(...).call
     end
 
-    def initialize(year:, weeks:)
+    def initialize(year:, weeks:, season_type: Slate::DEFAULT_SEASON_TYPE)
       @year = year.to_i
       @weeks = Array(weeks).map(&:to_i).uniq.sort
+      @season_type = season_type.to_i
     end
 
     def call
@@ -53,39 +55,64 @@ module Nfl
       slate.reload
     end
 
-    def self.slate_name(year, weeks)
-      weeks.size == 1 ? "NFL #{year} Week #{weeks.first}" : "NFL #{year} Weeks #{weeks.first}-#{weeks.last}"
+    # The season qualifier is part of the NAME, not decoration: it is what the
+    # model derives season_type back out of, and what stops a preseason span and
+    # a regular span of the same weeks colliding on `find_or_create_by!(name:)`.
+    def self.slate_name(year, weeks, season_type = Slate::DEFAULT_SEASON_TYPE)
+      qualifier = season_type.to_i == Slate::PRESEASON_SEASON_TYPE ? "Preseason " : ""
+      span = weeks.size == 1 ? "Week #{weeks.first}" : "Weeks #{weeks.first}-#{weeks.last}"
+      "NFL #{year} #{qualifier}#{span}"
     end
 
     private
 
-    # The weekly slates the span is assembled from, scoped to THIS year by name.
-    # Every requested week must exist — a missing one is an error, not a shorter
-    # contest.
+    # The weekly slates the span is assembled from, scoped to THIS year and sport by
+    # COLUMN. Every requested week must exist — a missing one is an error, not a
+    # shorter contest.
     def source_slates
       # Sources must be SINGLE-week slates. A span slate is itself named
       # "NFL 2026 Weeks 1-3" and carries week=1, so without this filter a REBUILD
       # matched the span as its own source for week 1, wiped its rows, and then
       # copied from the now-empty slate — silently returning a shorter span.
-      candidates = Slate.where(week: @weeks)
-                        .where("name LIKE ?", "NFL #{@year} %")
+      #
+      # Was `where("name LIKE ?", "NFL #{@year} %")`. Scoping by the `year` + `sport`
+      # COLUMNS is what `slates-sport-year` exists to enable — and it is what gives the
+      # [year, week] index a reader. A LIKE on the name could also be defeated by a
+      # renamed slate; the columns cannot. A weekly slate with a NULL year no longer
+      # matches, which surfaces as the same "no slate for week N" refusal this method
+      # already raises — fail-closed, not a silently shorter span.
+      # .order(:id) because index_by below keeps the LAST row per week, and admission
+      # widened from "name starts with NFL <year> " to any nfl row with year=<year> — so
+      # two same-week rows must resolve deterministically rather than by scan order.
+      # SEASON TYPE IS PART OF THE SCOPE. Week numbers repeat within a year --
+      # preseason week 3 and regular week 3 both exist -- so without it, asking
+      # for a preseason 3-4 span returned the REGULAR weeks: unplayed games,
+      # assembled into a contest, with nothing raising. That is the failure this
+      # column was added for.
+      candidates = Slate.where(week: @weeks, year: @year, sport: "nfl", season_type: @season_type).order(:id)
                         .reject { |slate| slate.week_range.nil? || slate.week_range.size > 1 }
 
       scoped = candidates.index_by(&:week)
       missing = @weeks - scoped.keys
 
       if missing.any?
-        raise Error, "NFL #{@year} has no slate for week#{'s' if missing.size > 1} #{missing.join(', ')}"
+        season = @season_type == Slate::PRESEASON_SEASON_TYPE ? "preseason" : "regular season"
+        raise Error, "NFL #{@year} #{season} has no slate for " \
+                     "week#{'s' if missing.size > 1} #{missing.join(', ')}"
       end
 
       @weeks.map { |week| scoped.fetch(week) }
     end
 
     def ensure_slate!
-      name = self.class.slate_name(@year, @weeks)
+      name = self.class.slate_name(@year, @weeks, @season_type)
       Slate.find_or_create_by!(name: name) do |slate|
         slate.slug = name.parameterize
         slate.week = @weeks.first
+        # sport/year are NOT set here on purpose: Slate's before_validation derives both
+        # from the name for every writer. A reviewer mutation proved these assignments
+        # were dead — deleting them left the suite green — so one derivation point beats
+        # two that can disagree.
       end
     end
 
@@ -101,7 +128,7 @@ module Nfl
             team_slug: matchup.team_slug,
             opponent_team_slug: matchup.opponent_team_slug,
             game_slug: matchup.game_slug,
-            dk_goals_expectation: matchup.dk_goals_expectation,
+            expected_score: matchup.expected_score,
             status: matchup.status
           )
         end

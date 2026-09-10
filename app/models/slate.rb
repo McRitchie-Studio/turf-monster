@@ -15,6 +15,34 @@ class Slate < ApplicationRecord
 
   validates :name, presence: true
 
+  # Fill `sport` / `year` from the name whenever a writer did not set them. Six call
+  # sites create Slates (two services, three seed paths, one controller) and a seventh
+  # will appear; patching each is how a column ends up null in production. Deriving
+  # here means EVERY path — present and future — persists the columns.
+  #
+  # Only fills BLANKS, so an explicit `sport:` from a caller always wins. And the
+  # derived value is exactly what #sport / #season_year would have computed from the
+  # same name, so this records what a reader already saw rather than changing anyone's
+  # answer. That matters because `where(sport: "nfl")` is a live query
+  # (app/services/nfl/build_span_slate.rb:77) and it silently drops NULL rows — this keeps
+  # it honest. (A `sport` index now exists, but only as the leading column of the
+  # composite `index_slates_on_season_slot` added with season_type — the earlier
+  # deliberate refusal of a STANDALONE sport index still stands.)
+  # ESPN's season codes, the SAME scale `games.season_type` already uses (see
+  # Game.in_season_slot). One vocabulary across both tables, so a join or a
+  # comparison between them means what it looks like.
+  PRESEASON_SEASON_TYPE = 1
+  DEFAULT_SEASON_TYPE = 2
+
+  # Week numbers are not unique within a year — NFL preseason week 3 and regular
+  # week 3 both exist — so a slate's week alone cannot say which games it holds.
+  # See the AddSeasonTypeToSlates migration for what that ambiguity cost.
+  def self.season_type_from_name(name)
+    name.to_s.match?(/preseason/i) ? PRESEASON_SEASON_TYPE : DEFAULT_SEASON_TYPE
+  end
+
+  before_validation :derive_sport_and_year_from_name
+
   # Weekly slates in week order. Excludes the "Default" formula-holder row and
   # any slate with no week (World Cup slates).
   scope :weekly, -> { where.not(name: "Default").where.not(week: nil).order(:week) }
@@ -31,19 +59,35 @@ class Slate < ApplicationRecord
     return [self] if count.to_i <= 1 || week.blank?
 
     wanted = (week...(week + count.to_i)).to_a
-    found = self.class.weekly.where(week: wanted)
+    # SCOPED BY SEASON TYPE as well as year. Preseason slates used to be kept
+    # out of this lookup by carrying `week: nil` — a workaround for exactly this
+    # collision, which cost them the ability to be found at all. Now that
+    # season_type is a column they carry a real week, so this has to say which
+    # season it means or a regular-season span would absorb an exhibition week
+    # of the same number.
+    found = self.class.weekly.where(week: wanted, season_type: season_type)
                 .select { |slate| slate.season_year == season_year }
                 .index_by(&:week)
     wanted.take_while { |number| found.key?(number) }.map { |number| found[number] }
   end
 
-  # The season a weekly slate belongs to, read as the 4-digit year in its name
-  # ("NFL 2026 Week 1" → "2026"). slates carry a week but no season/year column,
-  # so the year lives in the name. Nil when the name carries no year — those
-  # slates scope only to other year-less slates, never cross-matching a dated
-  # one. Bounded to 20xx so a stray week number can't read as a year.
+  # The season a weekly slate belongs to. Reads the `year` COLUMN, falling back to the
+  # 4-digit year in the name for any row written before `slates-sport-year` (or by an
+  # older code path mid-deploy). Nil when neither carries one — those slates scope only
+  # to other year-less slates, never cross-matching a dated one.
+  #
+  # Returned as a String because every caller compares it to another #season_year, and
+  # the name-derived form was always a String — an Integer here would silently make a
+  # column-backed slate stop matching a fallback one, DROPPING weeks from a span.
+  # Bounded to 20xx so a stray week number can never read as a year.
+  #
+  # `self[:year]`, not the bare reader: after a rollback the attribute is gone, and the
+  # bare form raises NoMethodError while `self[:year]` returns nil and degrades to the
+  # name — matching #sport below.
   def season_year
-    name.to_s[/\b(20\d{2})\b/, 1]
+    return self[:year].to_s if has_attribute?(:year) && self[:year].present?
+
+    self.class.year_from_name(name)&.to_s
   end
 
   def self.default_record
@@ -77,17 +121,20 @@ class Slate < ApplicationRecord
   #
   # A one-week slate is the degenerate case: summing one game is that game.
 
-  # { team_slug => [matchup, ...] }, each team's games in kickoff order.
+  # { team_slug => [matchup, ...] }, each team's games in kickoff order,
+  # week-tie-broken: matchups without games (or sharing a kickoff) all tie on
+  # the time key, and an unqualified tie inherits DB return order — which is
+  # how the weekly breakdown once rendered [3, 1, 2] on CI.
   def matchups_by_team
     slate_matchups.includes(:team, :opponent_team, :game)
                   .group_by(&:team_slug)
-                  .transform_values { |matchups| matchups.sort_by { |m| m.game&.kickoff_at || Time.at(0) } }
+                  .transform_values { |matchups| matchups.sort_by { |m| [ m.game&.kickoff_at || Time.at(0), m.week || 0 ] } }
   end
 
-  # { team_slug => summed dk_goals_expectation }
+  # { team_slug => summed expected_score }
   def expected_points_by_team
     matchups_by_team.transform_values do |matchups|
-      matchups.sum { |matchup| matchup.dk_goals_expectation.to_f }
+      matchups.sum { |matchup| matchup.expected_score.to_f }
     end
   end
 
@@ -97,15 +144,21 @@ class Slate < ApplicationRecord
   # The tie-break — earliest kickoff, then team name — deliberately mirrors the
   # per-row ordering this replaced, so a ONE-week slate ranks identically to
   # before. Changing it would silently re-price tied teams on every existing
-  # slate. (NFL games currently carry no kickoff_at at all, so ties in practice
-  # fall straight through to the name.)
+  # slate.
+  #
+  # The kickoff key is the ACTIVE discriminator, not a dormant one. (An earlier
+  # version of this comment claimed "NFL games currently carry no kickoff_at at all,
+  # so ties fall straight through to the name" — false on the current seeds, and a
+  # SOP inherited the error from here. Measured 2026-07-29: db/seeds/nfl_2026.rb:144
+  # and :152 set it, 256 of 272 weekly-slate games carry one, and Week 3 is 16/16.)
+  # Tied teams are separated by kickoff BEFORE the name is ever consulted.
   def team_rankings
     by_team = matchups_by_team
     return {} if by_team.empty?
 
     ranked = by_team.sort_by do |_team_slug, matchups|
       [
-        -matchups.sum { |matchup| matchup.dk_goals_expectation.to_f },
+        -matchups.sum { |matchup| matchup.expected_score.to_f },
         matchups.filter_map { |matchup| matchup.game&.kickoff_at }.min || Time.at(0),
         matchups.first.team.name
       ]
@@ -127,7 +180,7 @@ class Slate < ApplicationRecord
   #
   # This is load-bearing, not a preference. Rendering from a live #team_rankings
   # call made the page disagree with settlement in three ways:
-  #   * World Cup slates never set dk_goals_expectation, so a live ranking ties
+  #   * World Cup slates never set expected_score, so a live ranking ties
   #     everything and falls through to alphabetical — the favourite rendered as
   #     the 3.0x longshot, exactly inverted from how it actually scores.
   #   * The admin drag-to-reorder wrote stored ranks the page then ignored, so it
@@ -148,7 +201,7 @@ class Slate < ApplicationRecord
         team_slug: team_slug,
         team: anchor.team,
         matchups: matchups,
-        expected_points: matchups.sum { |matchup| matchup.dk_goals_expectation.to_f },
+        expected_points: matchups.sum { |matchup| matchup.expected_score.to_f },
         rank: anchor.rank || computed[:rank],
         turf_score: anchor.turf_score || computed[:turf_score]
       )
@@ -185,20 +238,49 @@ class Slate < ApplicationRecord
     first..[last, first].max
   end
 
-  # Which sport this slate belongs to. Slate carries no sport column yet, so this
-  # matches the name — which is safe because slate names are operator-controlled
-  # and generated to a fixed convention ("NFL <year> Week <n>").
+  # Which sport this slate belongs to.
   #
   # Canonical home for this rule: ContestsController#sport_for_slate delegates
   # here rather than keeping a second copy of the regex.
   #
   # Note `weeks?` — a span slate is named "Weeks 1-3", which a singular `week\s+\d`
   # would miss (it only classifies today by also matching the "NFL" token).
+  # Reads the `sport` COLUMN, falling back to the name for rows written before
+  # `slates-sport-year`. The fallback is kept deliberately: a null must degrade to the
+  # old behaviour, never to a wrong answer.
+  #
+  # PRICING-ADJACENT — but NOT retroactive, and the distinction matters. This selects
+  # the multiplier curve (`SlateMatchup.turf_score_for(rank, n, sport:)`). That curve's
+  # output is PERSISTED onto `slate_matchups.turf_score` at rank time, and
+  # `Selection#compute_points!` (`app/models/selection.rb:35`, `:42`) reads the stored
+  # column and never recomputes — so a sport flip CANNOT re-price a pick that is
+  # already made. What it does break is the NEXT ranking. Still worth the care: the
+  # backfill derives with exactly these rules, and
+  # `test/models/slate_sport_year_test.rb` asserts the migration's rule and this one
+  # cannot drift.
+  # `has_attribute?` first, symmetric with #season_year. Two different absences to
+  # survive, and they behave differently — measured, not assumed:
+  #   * post-rollback (column GONE):  self[:sport] -> nil          (degrades)
+  #   * partial select (not LOADED):  self[:sport] -> RAISES       (MissingAttributeError)
+  # Only the guard covers the second. No caller partial-selects Slate today, so this is
+  # a trap being closed rather than a live bug.
   def sport
-    downcased = name.to_s.downcase
-    return "nfl" if downcased.match?(/\bnfl\b|\bweeks?\s+\d/)
+    return self[:sport] if has_attribute?(:sport) && self[:sport].present?
 
-    "fifa"
+    self.class.sport_from_name(name)
+  end
+
+  # The pre-column rule, kept as the single source both the fallback and the backfill
+  # read. Note `weeks?` — a span slate is named "Weeks 1-3", which a singular `week\s+\d`
+  # would miss.
+  def self.sport_from_name(name)
+    name.to_s.downcase.match?(/\bnfl\b|\bweeks?\s+\d/) ? "nfl" : "fifa"
+  end
+
+  # The year the name carries, or nil. Bounded to 20xx so a stray week number can never
+  # read as a year — `/(\d{1,2})/` would make "Week 3" a year 3 slate.
+  def self.year_from_name(name)
+    name.to_s[/\b(20\d{2})\b/, 1]&.to_i
   end
 
   # Sport marker for the selector row, so a glance separates the football slates
@@ -247,5 +329,37 @@ class Slate < ApplicationRecord
 
   def first_game_starts_at
     first_game&.kickoff_at
+  end
+
+  private
+
+  # Fills `sport` / `year` from the name for any writer that did not set them.
+  #
+  # ROLLBACK-SAFE, and this guard is the whole reason the method is worth reading:
+  # `has_attribute?` is checked BEFORE the writers. `self[:sport]` degrades to nil when
+  # the column is gone, but `self.sport =` raises NoMethodError — so without this, a
+  # `db:rollback` would break EVERY Slate save rather than just losing the derivation.
+  # The readers above advertise rollback tolerance; this keeps that promise true for
+  # writes as well.
+  def derive_sport_and_year_from_name
+    self.sport = self.class.sport_from_name(name) if has_attribute?(:sport) && self[:sport].blank?
+    self.year = self.class.year_from_name(name) if has_attribute?(:year) && self[:year].blank?
+    derive_season_type_from_name
+  end
+
+  # Season type joins sport and year as a name-derived column, so every writer
+  # gets it without having to remember. It is NOT guarded on `blank?` like the
+  # other two because the column has a NOT NULL default of "regular" — a caller
+  # who never thought about it would otherwise pin every preseason slate to
+  # "regular" simply by existing.
+  #
+  # An EXPLICIT non-default value still wins: a caller that sets "preseason" on
+  # a name that does not say so is making a deliberate statement, and the last
+  # thing this should do is overrule it.
+  def derive_season_type_from_name
+    return unless has_attribute?(:season_type)
+    return if season_type_changed? && self[:season_type] != DEFAULT_SEASON_TYPE
+
+    self.season_type = self.class.season_type_from_name(name)
   end
 end

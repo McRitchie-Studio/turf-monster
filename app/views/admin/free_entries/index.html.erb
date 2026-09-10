@@ -17,10 +17,11 @@
     <% end %>
   </div>
 
-  <%# Stats row — Minted/Owed reflect only the first batch (each row
-      costs 2 Solana RPCs; computing across all #{@total_users} users
-      up-front would re-introduce the N+1 that drove this page to
-      paginate in the first place). %>
+  <%# Stats row — Minted/Owed reflect only the first batch. Rows now render
+      CACHE-FIRST (seeds/level from the denormalized users.seeds mirror,
+      minted/owed from the per-user entry-token cache) — no on-chain RPC on the
+      render path. A cold row shows "…" and a background job warms it; page-nav
+      loads more batches without re-introducing the render-time N+1 RPC. %>
   <div class="grid grid-cols-3 gap-3">
     <div class="card p-4">
       <div class="text-muted text-[10px] uppercase tracking-wide">Total Users</div>
@@ -76,6 +77,6 @@
   <% end %>
 
   <p class="text-muted text-xs">
-    Each mint is a Solana transaction signed by the admin (bot key). 60-second cache on per-user token list — buttons may take a moment to reflect on the page refresh after minting.
+    Each mint is a Solana transaction signed by the admin (bot key). Counts render from a 60-second cache — a row showing <span class="font-mono">…</span> is syncing its on-chain data in the background; refresh to see it. Minting always re-checks the chain live, so a stale count never over-mints.
   </p>
 </div>

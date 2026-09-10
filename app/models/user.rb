@@ -4,19 +4,64 @@ class User < ApplicationRecord
   # The seeded house account's stable identity (db/seeds/users.rb). Usernames
   # can be renamed (and "turf" is itself a reserved prefix), so User.turf keys
   # on this email, never the username.
-  TURF_HOUSE_EMAIL = "turf@mcritchie.studio".freeze
+  #
+  # It moved off `turf@mcritchie.studio` on 2026-09-04. That address was a Google
+  # GROUP with zero members forwarding into the studio inbox; this one is a real
+  # Google user on Turf's own domain (1Password `google.turf.agents`), which is
+  # what lets the house account actually receive mail as itself.
+  TURF_HOUSE_EMAIL = "team@turfmonster.media".freeze
 
   # Stable identities whose usernames are parked before the generic generator
   # runs. These are keyed by verified email or wallet ownership so a fresh DB,
   # QA reset, or unseeded wallet login does not mint a random fruit-animal name
   # for a known operator wallet/email.
   PARKED_IDENTITIES = [
-    { email: "alex@mcritchie.studio",    name: "Mr. McRitchie",   username: "mcritchie", role: "admin", wallet: "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr" },
-    { email: "team@mcritchie.studio",    name: "Team McRitchie",  username: "alex",      role: "admin", wallet: "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd" },
-    { email: "mason@mcritchie.studio",   name: "Mason McRitchie", username: "mason",     role: "user",  wallet: "CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR" },
-    { email: "mack@mcritchie.studio",    name: "Mack McRitchie",  username: "mack",      role: "user",  wallet: "foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds" },
-    { email: TURF_HOUSE_EMAIL,           name: "Turf Monster",    username: "turf",      role: "admin", wallet: "BLSBw8fXHzZc5pbaYCKMpMSsrtXBTbWXpUPVzMrXx9oo" }
+    # "Alex McRitchie", not "Mr. McRitchie": the layered email banner greets by
+    # the FIRST NAME TOKEN, so the old value rendered "Welcome Mr.!" in every
+    # sign-in email and on /admin/emails. mcritchie-studio already names the same
+    # person "Alex McRitchie" — one person, one name, across the apps.
+    #
+    # THE HUMAN HOLDS `alex`, as of 2026-09-04. The 2026-06-02 flip had given the
+    # bare name to the shared team account and put the person on `mcritchie`;
+    # this reverses it, so the username reads as the person it belongs to.
+    { email: "alex@mcritchie.studio",  name: "Alex McRitchie",  username: "alex",      role: "admin", wallet: "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr" },
+    # The shared team account — the server-side signer, not a person — now on
+    # `mcritchie`. Named "Team McRitchie" here and in mcritchie-studio.
+    { email: "team@mcritchie.studio",  name: "Team McRitchie",  username: "mcritchie", role: "admin", wallet: "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd" },
+    { email: "mason@mcritchie.studio", name: "Mason McRitchie", username: "mason",     role: "user",  wallet: "CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR" },
+    { email: "mack@mcritchie.studio",  name: "Mack McRitchie",  username: "mack",      role: "user",  wallet: "foUuRyeibadQoGdKXZ9pBGDqmkb1jY1jYsu8dZ29nds" },
+    # THIS APP'S ADMIN ON ITS OWN DOMAIN — and it is the house account itself now.
+    # Every app seeds the shared identities plus an admin on its own domain, so a
+    # session can be signed in as "the operator of THIS app" without borrowing
+    # Studio's identity. A separate `alex@turfmonster.media` / `alexturf` row used
+    # to carry that; it was removed on 2026-09-04 because TURF_HOUSE_EMAIL now
+    # satisfies the same property with one account instead of two.
+    #
+    # (`alex@turfmonster.media` still exists as the SUPPORT and marketing FROM
+    # address — see ApplicationMailer::MARKETING_FROM and the pages/ views. Only
+    # the seeded user was retired.)
+    { email: TURF_HOUSE_EMAIL,         name: "Turf Monster",    username: "turf",      role: "admin", wallet: "BLSBw8fXHzZc5pbaYCKMpMSsrtXBTbWXpUPVzMrXx9oo" }
   ].freeze
+
+  # SEATS THE ROSTER HAS RETIRED, email => the role their row keeps, and the only
+  # thing that ever demotes one.
+  #
+  # Nothing in this app reconciles a user against PARKED_IDENTITIES: there is no
+  # save-time callback for role or email (only `ensure_username`, and only on
+  # create), the seed touches the rows it seeds, and `admin:claim_usernames`
+  # writes usernames. So an identity dropped from the roster does not lose
+  # anything — it simply stops being described, and keeps the admin it was seeded
+  # with. `alex@turfmonster.media` is that case: retired on 2026-09-04 because
+  # TURF_HOUSE_EMAIL now satisfies the same "an admin on this app's own domain"
+  # property, and it remains the PUBLIC support and marketing address (see
+  # ApplicationMailer::MARKETING_FROM and the pages/ views), so an app account on
+  # it that still holds admin is a login anyone who reads the footer can address.
+  #
+  # It is demoted, not deleted: the row has entries, purchases and a managed
+  # wallet, and destroying a real account is the operator's call, not a seed's.
+  RETIRED_IDENTITIES = {
+    "alex@turfmonster.media" => "user"
+  }.freeze
 
   # Rails mirror of turf-vault's on-chain reserved-prefix list — keep in sync
   # with RESERVED_PREFIXES in turf-vault
@@ -61,6 +106,20 @@ class User < ApplicationRecord
   before_validation :ensure_username, on: :create
   before_save :set_name_parts, if: -> { name_changed? }
   before_create :set_initial_session_token  # OPSEC-045
+  # Sluggable's before_save builds "<base>-<id>" — but on CREATE the id does not
+  # exist yet, so every fresh row lands with a DANGLING "<base>-". Until now the
+  # id got filled in by ACCIDENT: generate_managed_wallet! ran an update! on
+  # every non-admin immediately after create, and that second save re-ran the
+  # slug builder with the id present. Admins, who never get a managed wallet,
+  # have always kept the dangling shape (see the seeded `alex-` / `turf-`), and
+  # web3-only onboarding extends that to EVERY new account — silently changing
+  # the URL shape of every new profile, and breaking anything that looks a user
+  # up by the id-bearing slug.
+  #
+  # So finalize it explicitly rather than depending on whether some other
+  # callback happens to save the row. Runs BEFORE generate_managed_wallet! so
+  # the slug is settled no matter what that one does.
+  after_create :finalize_slug!
   after_create :generate_managed_wallet!
   # The username's master record lives on-chain — create the UserAccount PDA
   # (with the username) right after signup. after_commit so the managed wallet
@@ -298,6 +357,38 @@ class User < ApplicationRecord
     :none
   end
 
+  # --- Web3 authentication memory ---
+
+  # Stamp that this account just proved its self-custody wallet by signature,
+  # and (when the client told us) WHICH wallet brand did the proving.
+  #
+  # Why remember the brand at all: Web3StepUpPolicy exists to tell a wallet
+  # account that its email/Google session cannot sign on-chain. Without this,
+  # the only thing that modal can offer is the generic three-brand picker — so a
+  # returning Phantom user is made to re-choose Phantom from a list, every time.
+  # With it, the modal leads with one button that says Continue with Phantom.
+  #
+  # `provider` arrives from the browser (it reads the name off the Wallet
+  # Standard registration), so it is UNTRUSTED and goes through
+  # Solana::WalletProvider.normalize — an unknown or absent brand leaves the
+  # column alone rather than storing junk that can never match again. The
+  # timestamp is stamped either way: knowing WHEN the wallet last signed is
+  # useful even when we never learned its name.
+  #
+  # update_columns, matching the funnel-attribution and age-attestation stamps
+  # above it: this runs inside an auth path on a row that may be years old, and a
+  # validation added since that row was written must not turn a successful
+  # signature into a failed login.
+  def record_web3_authentication!(provider: nil)
+    return false unless persisted?
+
+    attrs = { web3_authenticated_at: Time.current }
+    normalized = Solana::WalletProvider.normalize(provider)
+    attrs[:web3_wallet_provider] = normalized if normalized
+    update_columns(attrs)
+    true
+  end
+
   # --- Newsletter / quest ---
 
   # Subscribed = joined at least once and not since unsubscribed. Mirrors the
@@ -448,13 +539,45 @@ class User < ApplicationRecord
     web3_solana_address || web2_solana_address
   end
 
+  # TRUE when the account holds BOTH a managed web2 wallet and a linked web3
+  # one. `solana_address` above resolves that pair by always preferring web3,
+  # which is fine for "where do we send things" and NOT fine for "where are this
+  # user's seeds" — the seeds may sit on whichever wallet earned them. Callers
+  # that read balances use this to tell a trustworthy zero from an ambiguous one
+  # (Tokens::LevelUpGrant#call).
+  def combo_wallets?
+    web2_solana_address.present? && web3_solana_address.present?
+  end
+
   def solana_keypair
     return nil unless encrypted_web2_solana_private_key.present?
     Solana::Keypair.from_encrypted(encrypted_web2_solana_private_key)
   end
 
-  def generate_managed_wallet!
+  # `reason:` names WHY a wallet is being asked for, because the two callers get
+  # different answers under web3-only onboarding:
+  #
+  #   :signup — the after_create callback. Honours the season's web3-only call
+  #             and mints nothing; the account links Phantom instead.
+  #   :gift   — EntryGifts::Claim, redeeming an operator-sent free entry. Mints
+  #             the managed wallet ANYWAY, because the gift is an on-chain token
+  #             and a token needs an address. Mr. McRitchie's explicit call
+  #             (2026-09-08): a friend handed a free entry should be able to play
+  #             it without first installing a browser extension.
+  #
+  # The admin refusal below is NOT parameterised the same way and must not be —
+  # see OPSEC-044. An admin who is gifted an entry gets no custodial key; the
+  # gift stays claimed-but-unminted and says so on the ledger.
+  def generate_managed_wallet!(reason: :signup)
     return if web2_solana_address.present?
+    # Web3-only onboarding (NFL 2026 operator call — AppFlags.web3_only_onboarding?):
+    # no custodial wallet is minted at signup at all. The account is created and
+    # signed in exactly as before; it simply has no wallet until the user links
+    # Phantom through the wallet-setup modal (WalletSetupPolicy decides when to
+    # show it). Same shape as the OPSEC-044 admin rule below — "no managed
+    # wallet" is an already-supported state (wallet_kind :none), which is why
+    # this is a one-line early return rather than a flow change.
+    return if reason == :signup && AppFlags.web3_only_onboarding?
     # OPSEC-044: admins go web3-only. Server should never hold custodial keys
     # for accounts with elevated privileges — a managed wallet for an admin
     # combines the highest-value account with the largest decryption surface.
@@ -522,7 +645,15 @@ class User < ApplicationRecord
   # request it in the same pageview. Cache key includes the deployed
   # program ID so a program-redeploy implicitly invalidates. Writers
   # (TokenPurchaseJob mint, enter_contest_with_token consume) should call
-  # `User#bust_entry_tokens_cache!` after the chain TX confirms.
+  # `User#bust_entry_tokens_cache!` after the chain TX confirms — that ONE call
+  # clears both layers (see the method), which is what makes it a safe
+  # instruction to give writers.
+  #
+  # THERE ARE TWO LAYERS, and this one wraps the other:
+  #   #cached_entry_tokens      → "entry_tokens/v1/<prog8>/<addr>"  (here)
+  #     └── Vault#list_entry_tokens → "entry_tokens:<addr>"         (the RPC layer)
+  # The inner key is also what the navbar badge and the hold-for-free-entry CTA
+  # read directly (ApplicationController#display_entry_token_count).
 
   def entry_tokens_cache_key
     "entry_tokens/v1/#{Solana::Config::PROGRAM_ID[0, 8]}/#{solana_address}"
@@ -547,8 +678,25 @@ class User < ApplicationRecord
     @cached_entry_tokens = []
   end
 
+  # Clears BOTH entry-token cache layers plus the per-request memos.
+  #
+  # It used to delete only the outer (User) key. The next read then re-entered
+  # Vault#list_entry_tokens, hit its STILL-WARM "entry_tokens:<addr>" key, and
+  # re-served the just-spent token as unconsumed for up to 60s — so the navbar
+  # badge and the "Hold for Free Entry" CTA (which read that inner key directly)
+  # kept promising a free entry the wallet could no longer honour, and a second
+  # #prepare_entry re-picked the CONSUMED token and built a doomed
+  # enter_contest_with_token (0x177f) instead of falling back to USDC.
+  #
+  # Both wallet addresses are cleared, not just #solana_address: a combo account
+  # (managed + Phantom) can hold tokens under either, and #solana_address returns
+  # only the Phantom one. Deleting a cold key is free, so the wide bust costs
+  # nothing and removes a whole class of "busted the wrong address" bug.
   def bust_entry_tokens_cache!
     Rails.cache.delete(entry_tokens_cache_key)
+    [web3_solana_address, web2_solana_address].compact_blank.uniq.each do |address|
+      Rails.cache.delete(Solana::Vault.entry_tokens_cache_key(address))
+    end
     remove_instance_variable(:@cached_entry_tokens) if defined?(@cached_entry_tokens)
     remove_instance_variable(:@entry_token_balance) if defined?(@entry_token_balance)
   end
@@ -680,5 +828,19 @@ class User < ApplicationRecord
   def name_slug
     base = username.presence || name.presence || email.presence || solana_address.presence || "user"
     "#{base}-#{id}".downcase.gsub(/\s+/, "-")
+  end
+
+  # Re-run the slug builder now that the row HAS an id (see the after_create
+  # declaration for why this is not already true).
+  #
+  # update_column, deliberately: no validations, no callbacks (Sluggable's
+  # before_save would recurse), no updated_at churn on a row created microseconds
+  # ago. It cannot collide with the unique index either — the id in the slug is
+  # unique by construction, so the value it writes is unique by construction.
+  def finalize_slug!
+    expected = name_slug
+    return if slug == expected
+
+    update_column(:slug, expected)
   end
 end

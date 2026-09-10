@@ -10,7 +10,7 @@ class NewsletterMailer < ApplicationMailer
     @user        = user
     @account_url = account_url
     @cta_url     = root_url
-    @banner_url  = email_banner_url("welcome-banner.png")
+    @banner_url  = Studio::EmailCatalog.resolved_url(:newsletter_welcome)
     @banner_alt  = "You're in! — Turf Monster newsletter"
     mail(to: user.email, from: marketing_from, subject: "Welcome to the Turf Monster newsletter 🐊")
   end

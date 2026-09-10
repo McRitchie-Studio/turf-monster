@@ -7,12 +7,12 @@
   <div class="w-full max-w-md">
     <div class="text-center mb-8">
       <%= brand_logo px: 80, classes: "w-20 h-20 shadow-lg mx-auto mb-4" %>
-      <h1 class="text-3xl font-extrabold text-heading tracking-tight">Turf <span class="text-primary">Totals</span></h1>
+      <h1 class="text-3xl font-extrabold text-heading tracking-tight">Turf <span class="text-primary">Monster</span></h1>
       <p class="text-secondary mt-2">Sign in to play</p>
     </div>
 
     <%# ageAttested initializes TRUE when the attestation flag is off — the
-        checkbox partial renders nothing and every gate below passes. %>
+        callsite below renders no checkbox and every gate below passes. %>
     <div class="card shadow p-8" x-data="{ ageAttested: <%= AppFlags.age_attestation? ? 'false' : 'true' %>, ageError: false }">
       <%# Legal-age attestation — gates account creation. Google + email are
           gated here; the Solana button opens the Connect Wallet picker, which
@@ -20,7 +20,7 @@
           Server-side enforcement on every signup endpoint is the boundary. %>
       <% if AppFlags.age_attestation? %>
         <div class="mb-4">
-          <%= render "shared/age_attestation" %>
+          <%= render "studio/modals/shared/age_attestation" %>
         </div>
       <% end %>
 
@@ -92,7 +92,11 @@
         <button type="submit" :disabled="sending" class="btn btn-neutral btn-lg w-full disabled:cursor-wait">
           <span x-text="sending ? 'Sending…' : 'Email Link'">Email Link</span>
         </button>
-        <p x-show="error" x-cloak class="text-xs text-red-400 text-center mt-2" x-text="error"></p>
+        <%# text-danger-ink, not a static red: this card is bg-surface, which
+            is white in light mode, where every static red falls under WCAG AA.
+            Guarded by test/views/error_text_contrast_test.rb. %>
+        <p x-show="error" x-cloak role="alert" aria-live="assertive" aria-atomic="true"
+           class="text-xs text-danger-ink text-center mt-2" x-text="error"></p>
         <p class="text-xs text-muted text-center mt-2">We'll email you a one-tap link — no password needed.</p>
       </form>
     </div>

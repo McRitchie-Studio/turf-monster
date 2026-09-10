@@ -10,6 +10,19 @@
 # is safely logged in here and stamped email_verified_at (unlike from_omniauth,
 # which refuses that collision precisely because it lacked this proof).
 class MagicLinksController < ApplicationController
+  # The shared click flow (studio-engine >= 0.31): preview_magic_link for the
+  # inert GET, consume_magic_link for the burning POST, and the decision table
+  # behind them (Studio::LinkResolution). Turf keeps its own rich behavior by
+  # overriding the HOOKS below — the age gate, the toasts, the contest landing —
+  # never by re-deciding what a click means.
+  #
+  # The rule that made this worth adopting: a DEAD link must not touch the
+  # session, and a re-click on your OWN live link must not either. Before this,
+  # every consume ran reset_prior_session! and every failure bounced to
+  # /signin — so clicking your own link twice logged you out of a session that
+  # was perfectly valid.
+  include Studio::LinkConsumption
+
   skip_before_action :require_authentication
 
   # The confirm interstitial is a transient loading screen (just a spinner that
@@ -62,23 +75,26 @@ class MagicLinksController < ApplicationController
     # protection is off in the test env.)
     response.set_header("Referrer-Policy", "strict-origin")
     @token = params[:token]
-    # We render WITHOUT verifying the signature: a verify here would have to
-    # decode + check expiry, and surfacing "expired" vs "invalid" on a GET adds
-    # nothing — the POST does the authoritative check and shows the same error.
-    # Keeping confirm signature-free also means a malformed/garbage token still
-    # gets a friendly page instead of a 500.
+    # preview_magic_link is INERT — it never burns. It returns :live when the
+    # link is still good (we render the spinner, which auto-POSTs to #consume),
+    # and otherwise settles the click here and returns :handled. A dead link
+    # therefore stops going through a spinner that only POSTs to learn what a
+    # read already knew — and a visitor clicking their own spent link is
+    # redirected on the spot, session untouched.
+    render :confirm if preview_magic_link(::Studio::Link.magic_links.find_by(token: params[:token])) == :live
   end
 
   # POST /magic_link/:token — the authoritative consume. This is the ONLY place
   # the single-use token is burned, and it only runs on the human's button press
   # (a scanner won't POST a CSRF-protected form). Mirrors the prior GET behavior.
+  # consume_magic_link burns first — winning the atomic burn IS the proof the
+  # link was live — then routes through Studio::LinkResolution to one of three
+  # outcomes: authenticate (sign_in_existing / sign_up_new below), continue (the
+  # viewer's own live link: burn it, keep the session exactly as it stands), or
+  # dead (never touch the session at all).
   def consume
     response.set_header("Referrer-Policy", "strict-origin")
-    result = Studio::Link.consume!(params[:token])
-    user = User.find_by(email: result.email)
-    user ? sign_in_existing(user, result) : sign_up_new(result)
-  rescue Studio::Link::InvalidToken
-    redirect_to signin_path, alert: "That sign-in link is invalid or has expired. Request a fresh one below."
+    consume_magic_link(::Studio::Link.magic_links.find_by(token: params[:token]))
   end
 
   private
@@ -101,16 +117,46 @@ class MagicLinksController < ApplicationController
     Current.reset
   end
 
+  # Reached ONLY when the identity actually changes — a signed-out visitor, or a
+  # link belonging to someone other than the current user. That is what makes
+  # reset_prior_session! safe to keep here: the concern routes a re-click by the
+  # SAME user to link_continue instead, which never reaches this method. Before
+  # the adoption this ran on every consume, so a second click cost the visitor
+  # their whole session (onchain flag, geo override, picks in flight) to
+  # re-establish the identity they already had.
   def sign_in_existing(user, result)
     reset_prior_session!
     user.claim_parked_username!
     set_app_session(user)
-    user.update!(email_verified_at: Time.current) if user.email_verified_at.blank?
+    # BEFORE record_onboarding_state!, and that order is load-bearing: claiming a
+    # gift can CREATE this account's managed wallet, which is one of the very
+    # facts WalletSetupPolicy reads. Claim first and a gifted player is not asked
+    # to install Phantom for a wallet they were just given.
+    claim_entry_gift!(user)
+    # Web3-only onboarding: a RETURNING web2 user is nudged to link Phantom
+    # unless their managed wallet still holds an entry's worth of USDC — those
+    # users are useable as-is (operator call) and see nothing new.
+    # A returning login gets no welcome beat, but may still owe a step (a blank
+    # first name, an unverified DOB, a wallet). Any armed step means a modal is
+    # about to open, and a toast underneath it would just talk over it.
+    onboarding_steps = record_onboarding_state!(user)
+    needs_wallet = onboarding_steps.any?
+    # rescue_and_log because the session is already established above: a User
+    # validation failing here would otherwise 500 a signed-in visitor with
+    # nothing in ErrorLog to attribute it to.
+    rescue_and_log(target: user) do
+      user.update!(email_verified_at: Time.current) if user.email_verified_at.blank?
+    end
     # Returning login: a quiet "welcome back" toast — no celebratory modal and no
     # token upsell (they already have an account). Land on the contest they came
-    # from, else the featured contest.
+    # from, else the featured contest. When wallet setup is due, the toast is
+    # dropped: the setup modal (auto-opened from the session prompt) IS the
+    # message, and a toast underneath it would just talk over it.
+    return redirect_to landing_path_for(result) if needs_wallet
+
     redirect_to landing_path_for(result),
-                flash: { auth_toast: { title: "Welcome back", message: "Signed in as #{user.username}." } }
+                flash: { auth_toast: entry_gift_toast ||
+                  { title: "Welcome back", message: "Signed in as #{user.username}." } }
   end
 
   # Mirrors RegistrationsController#create: build → configure_new_user → save!
@@ -137,26 +183,48 @@ class MagicLinksController < ApplicationController
       cookies.delete(:reference)
       user.update!(email_verified_at: Time.current)
       set_app_session(user)
+      # Same seam and the same reason as sign_in_existing: the claim mints this
+      # brand-new account's managed wallet (the after_create callback declined to,
+      # under web3-only onboarding), so it must land before the onboarding state
+      # is read.
+      claim_entry_gift!(user)
+      # The onboarding chain owns this moment now: first name → age → wallet,
+      # resolved server-side and walked by the layout's driver wherever the user
+      # lands. Both branches below only decide whether to ALSO say something in a
+      # toast/modal, and anything the chain is about to show wins — two greetings
+      # on one render reads as a bug.
+      onboarding_steps = record_onboarding_state!(user)
       if contest_return_to?(result)
         # New user landing on a SPECIFIC contest: confirm auth with a toast and
         # let the board's existing post-login flow open the get-entry-tokens
         # picker (a web2 magic-link user needs a token to play). No celebratory
         # modal here — the toast + tokens picker carry the moment.
-        redirect_to result.return_to,
-                    flash: { auth_toast: {
+        #
+        # Wallet setup pending: no toast promising an entry token, because a
+        # wallet-less account can't buy one. Land on the contest (picks intact)
+        # and let the setup modal carry the next step.
+        # NO GIFT TOAST ON THIS BRANCH, and it is not an oversight — it is
+        # unreachable. This is sign_up_new, so the account was created in this
+        # request and has no first name, so `first_name` is always outstanding,
+        # so onboarding_steps.any? is always TRUE and this flash is never set at
+        # all. An `entry_gift_toast ||` sat here and could not fire; it read as
+        # a live branch and described an outcome the code cannot produce.
+        # The chain's opening card carries this moment; a gifted NEW account
+        # sees its entry in the badge, and the :continue / returning-login paths
+        # are where the gift toast actually appears.
+        redirect_to result.return_to, **(onboarding_steps.any? ? {} : { flash: { auth_toast: {
                       title:   "You're signed in",
                       message: "Grab an entry token to lock in your picks."
-                    } }
+                    } } })
       else
-        # New user via a GENERIC /signin: celebratory welcome modal on the
-        # featured contest (resolved live below), with a CTA that drops them onto
-        # the contest. No token upsell — they haven't picked anything yet.
-        redirect_to landing_path_for(result),
-                    flash: { magic_link_welcome: {
-                      username: user.username,
-                      message:  featured_contest ? "You're all set — dive into #{featured_contest.name}." : "You're all set — let's play.",
-                      next:     nil
-                    } }
+        # A GENERIC /signin signup: the onboarding chain owns this moment. Its
+        # first card here is the first-name ask, outstanding by definition for an
+        # account created in this request (nothing has set a first name yet), so
+        # there is no second greeting to add — a flash welcome modal would stack
+        # on the chain's opening card. The old flash[:magic_link_welcome] branch
+        # that used to live here was unreachable for exactly that reason and has
+        # been retired.
+        redirect_to landing_path_for(result)
       end
     end
   rescue ActiveRecord::RecordNotUnique
@@ -202,25 +270,201 @@ class MagicLinksController < ApplicationController
     p.start_with?("/") && !p.start_with?("//") ? p : nil
   end
 
+  # --- Entry gifts -----------------------------------------------------------
+
+  # Redeem the free entry this link was carrying, if it was carrying one.
+  #
+  # THE LINK ITSELF IS THE ONLY IDENTIFIER. Studio::Link is polymorphic, so an
+  # operator-sent gift rides in the row as `linkable` and nothing extra has to
+  # travel in the URL — no gift id to tamper with, and a link that carries no
+  # gift resolves to nil and takes every path below unchanged.
+  #
+  # NEVER FATAL. This runs after the session is already established, so a
+  # failure here must not 500 a visitor who is, from their side, correctly
+  # signed in — they would lose the account they just made to a bookkeeping
+  # error. The gift stays unclaimed and its link is spent, which is the one
+  # outcome that needs an operator: EntryGift#stalled? does not cover it (there
+  # is no claim), so it is logged AND filed as an ErrorLog rather than swallowed.
+  def claim_entry_gift!(user)
+    gift = ::Studio::Link.magic_links.find_by(token: params[:token])&.linkable
+    return unless gift.is_a?(EntryGift)
+
+    @entry_gift_claim = EntryGifts::Claim.call(gift, user)
+  rescue StandardError => e
+    Rails.logger.error "[entry-gift] claim_failed token=#{params[:token]} user=#{user&.id} " \
+                       "#{e.class}: #{e.message}"
+    capture_entry_gift_error(e, user)
+    nil
+  end
+
+  # ErrorLog directly rather than rescue_and_log, which RE-RAISES by design (see
+  # Admin::SeasonsController#create) — and re-raising is the one thing this path
+  # must not do. Telemetry that fails is swallowed for the same reason: it must
+  # never be what turns a successful sign-in into a 500.
+  def capture_entry_gift_error(exception, user)
+    log = ErrorLog.capture!(exception)
+    log.target = user
+    log.target_name = user.try(:slug)
+    log.save!
+  rescue StandardError => e
+    Rails.logger.error "[entry-gift] error_log_failed user=#{user&.id} #{e.class}: #{e.message}"
+  end
+
+  # The toast a just-claimed gift replaces the stock sign-in copy with, or nil
+  # when this click carried no gift. Deliberately says the entry is ALREADY
+  # theirs rather than promising a mint that is still in a job — the token is
+  # minted within seconds and the badge picks it up on the next poll, while a
+  # "minting…" message would be the only thing on screen still saying so if the
+  # RPC were slow.
+  def entry_gift_toast
+    return nil unless @entry_gift_claim&.claimed?
+
+    sender = @entry_gift_claim.gift.sender
+    from   = sender&.name.presence || sender&.username.presence
+    { title:   "You've got a free entry 🎟️",
+      message: from ? "#{from} covered your entry — pick your lineup." \
+                    : "Your entry is covered — pick your lineup." }
+  end
+
+  # --- Studio::LinkConsumption hooks -----------------------------------------
+
+  # Turf's sign-in page is /signin, not the engine's /login.
+  def link_login_path
+    signin_path
+  end
+
+  # "Home" for turf is the root board (contests#world_cup) — the same place
+  # landing_path_for sends a link with no destination, so both halves of a link
+  # click agree on where "the app" is.
+  def link_home_path
+    root_path
+  end
+
+  # The concern's default treats a bare "/" as a real destination; turf treats it
+  # as "no destination" and lands on the root instead (landing_path_for, which
+  # says the same of the auth pages). Overridden rather than reimplemented so the
+  # login/home cases keep coming from the hooks above.
+  def link_destination(destination, result)
+    return super unless destination == :return_to
+
+    landing_path_for(result)
+  end
+
+  # A used, expired, or unrecognized link. The concern guarantees this never
+  # touches the session; this override only chooses HOW the message is shown.
+  #
+  # It is a PRESENTATION choice, not a necessity. An earlier version of this
+  # comment claimed turf renders auth_toast and nothing else, and that plain
+  # flash[:notice]/[:alert] appear in no layout or view. That was FALSE: both
+  # application.html.erb and landing.html.erb render layouts/studio/flash, and
+  # the engine partial selects exactly notice+alert. The proof was in this very
+  # file — #create ships `notice: "Check your inbox…"`, the most important
+  # message in the flow. The override is kept because the bespoke title reads
+  # better than a bare sentence, and because it lets the outcome's severity ride
+  # through to the toast; inheriting the default would have worked too.
+  # THE THIRD OUTCOME, and the one this app had left on the engine's default.
+  #
+  # Studio::LinkConsumption routes a click to :authenticate, :continue, or
+  # :dead. `claim_entry_gift!` was wired into the first only — sign_in_existing
+  # and sign_up_new — so a recipient who was ALREADY SIGNED IN as the gift's own
+  # address took :continue and silently lost the gift: the token burned, the
+  # claim never happened, no ErrorLog was filed, the ledger still read "Sent",
+  # and EntryGift#stalled? could not surface it because it requires claimed?. A
+  # re-send minted a fresh link and walked them back into the same cell.
+  #
+  # That is not an exotic path. It is gifting an existing player who reads their
+  # mail on the device they are signed in on. Caught in review; pinned now by
+  # entry_gift_flow_test.rb's ":continue" pair.
+  #
+  # CLAIM, THEN DELEGATE. `super` keeps every property this path exists for —
+  # the session is left exactly as it stands, no re-auth, no onboarding beat.
+  # The claim is additive.
+  #
+  # AND IT DOES ANNOUNCE THE GIFT. The engine's silence on :continue is about
+  # IDENTITY — it exists so a re-click on your own live link does not cost you
+  # the session you already had. It was never a rule that a click may change
+  # nothing visible: this one just gave the visitor an entry, which is the whole
+  # reason the mail was sent.
+  #
+  # The toast is honest about which fact it reports. `entry_gift_toast` says
+  # "You've got a free entry 🎟️" — it announces the ENTRY, never a sign-in, so
+  # showing it here claims nothing that did not happen.
+  #
+  # What decided it: staying silent makes the NEXT click a lie. The recipient
+  # taps "claim your free entry", lands on the contest with no acknowledgement,
+  # and the natural move is to tap it again — which now takes :dead and reads
+  # "link already used", for a gift they believe they never received. Silence
+  # does not keep the path invisible; it converts a working gift into a support
+  # question.
+  #
+  # SCOPED TO GIFTS. `entry_gift_toast` is nil unless a claim actually landed,
+  # so a plain magic-link re-click leaves the flash untouched and stays exactly
+  # as invisible as it was before.
+  def link_continue(result, outcome)
+    claim_entry_gift!(current_user)
+    if (toast = entry_gift_toast)
+      flash[:auth_toast] = toast
+    end
+    super
+  end
+
+  def link_dead(outcome, result)
+    path = link_destination(outcome.destination, result)
+    return redirect_to(path) if outcome.silent?
+
+    redirect_to path, flash: { auth_toast: {
+      # `type` is the SEVERITY, and it has to ride along: the layout's toast
+      # dispatch used to hard-code 'notice', so "Sign-in link expired" painted
+      # the green success check. The engine toast reads this to pick between
+      # --color-success and --color-danger.
+      type:    outcome.level == :alert ? "alert" : "notice",
+      title:   dead_link_title(outcome),
+      message: outcome.message
+    } }
+  end
+
+  def dead_link_title(outcome)
+    outcome.level == :alert ? "Sign-in link expired" : "Still signed in"
+  end
+
   # True when the link carried a specific contest (resolved_return_to bakes the
   # contest path — and any validated picks — in at request time).
   def contest_return_to?(result)
     result.return_to.to_s.start_with?("/contests/")
   end
 
-  # The featured contest, resolved at CLICK time (not baked into the token) so
-  # it's always current. Single source of truth shared with the root redirect.
-  def featured_contest
-    @featured_contest ||= Contest.featured
+  # Paths that are NOT destinations. A link requested from the sign-in card
+  # carries return_to: "/signin", and honoring that lands a freshly signed-in
+  # user back on the sign-in page — where SessionsController#new's
+  # redirect_if_authenticated bounces them to /account. That is how clicking a
+  # magic link put the operator on their account page instead of the app
+  # (2026-08-15). The auth pages are a WAY IN, never a place to arrive.
+  # Written WITHOUT trailing slashes, and matched as "the path itself, or a
+  # segment under it" — so /l matches /l/abc but never /login, and /login is
+  # listed on its own rather than being swallowed by a sloppier prefix test.
+  NON_DESTINATION_PREFIXES = ["/signin", "/login", "/magic_link", "/l"].freeze
+
+  def non_destination?(path)
+    p = path.to_s.split("?").first.to_s.chomp("/")
+    return true if p.empty? # a bare "/"
+
+    NON_DESTINATION_PREFIXES.any? { |prefix| p == prefix || p.start_with?("#{prefix}/") }
   end
 
   # Where a login lands: honor any explicit (already-sanitized) return_to — a
-  # contest, or e.g. /account — and otherwise (no destination, or a bare "/")
-  # drop them on the live featured contest, else the contests index.
+  # contest, or e.g. /account — and otherwise drop them on the ROOT (operator
+  # call, 2026-08-15). "Otherwise" covers no destination, a bare "/", and the
+  # auth pages above, which used to be honored literally.
+  #
+  # Root is contests#world_cup, the app's home board. It replaces a redirect to
+  # `Contest.featured` here: same intent, one destination, and it cannot resolve
+  # to nil the way the featured lookup could (which is why the contests-index
+  # fallback beside it is gone too).
   def landing_path_for(result)
-    rt = result.return_to
-    return rt if rt.present? && rt != "/"
+    # `result` is nil for an unrecognized token — the dead path calls this too.
+    rt = result&.return_to
+    return rt if rt.present? && !non_destination?(rt)
 
-    featured_contest ? contest_path(featured_contest) : contests_path
+    root_path
   end
 end
