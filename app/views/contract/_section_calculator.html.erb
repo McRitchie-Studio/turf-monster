@@ -1,7 +1,9 @@
 <%#
   SOL → USD cost calculator. Editable SOL price; recomputes the
-  permanent + refundable + total-float costs in dollars.
-    locals: binary_size
+  permanent + refundable + total-float costs in dollars. The lamport lines do
+  not depend on the SOL price, so they render server-side from the measured
+  figures; Alpine only drives the SOL/USD totals.
+    locals: binary_size, programdata_space, pd_rent_lamports, program_acct_rent, buffer_lamports
 
   Alpine factory lives in the parent show.html.erb (window.contractCostCalculator)
   because the factory MUST be defined inline before Alpine processes x-data
@@ -47,12 +49,12 @@
       <h3 class="text-heading font-semibold text-sm mb-3">PERMANENT (you spend forever)</h3>
       <dl class="space-y-1.5 font-mono text-xs sm:text-[13px] text-secondary">
         <div class="flex justify-between items-baseline gap-2">
-          <dt class="truncate">ProgramData rent (<%= number_with_delimiter(binary_size) %> + 128) &times; 6960</dt>
-          <dd class="text-heading tabular-nums whitespace-nowrap" x-text="fmtLamports(pdLamports) + ' &#8467;'">--</dd>
+          <dt class="truncate" data-test="contract-pd-rent-formula" data-space="<%= programdata_space %>">ProgramData rent (<%= number_with_delimiter(programdata_space) %> + 128) &times; 6960</dt>
+          <dd class="text-heading tabular-nums whitespace-nowrap" data-test="contract-pd-rent-lamports"><%= number_with_delimiter(pd_rent_lamports) %> &#8467;</dd>
         </div>
         <div class="flex justify-between items-baseline gap-2">
           <dt class="truncate">Program account (36 + 128) &times; 6960</dt>
-          <dd class="text-heading tabular-nums whitespace-nowrap">1,141,440 &#8467;</dd>
+          <dd class="text-heading tabular-nums whitespace-nowrap"><%= number_with_delimiter(program_acct_rent) %> &#8467;</dd>
         </div>
         <div class="flex justify-between items-baseline gap-2">
           <dt class="truncate">Deploy TX fees (signatures + compute)</dt>
@@ -74,8 +76,8 @@
       <h3 class="text-heading font-semibold text-sm mb-3">FLOAT (you need on hand, then refundable)</h3>
       <dl class="space-y-1.5 font-mono text-xs sm:text-[13px] text-secondary">
         <div class="flex justify-between items-baseline gap-2">
-          <dt class="truncate">Buffer account (same size as binary)</dt>
-          <dd class="text-heading tabular-nums whitespace-nowrap" x-text="fmtLamports(pdLamports) + ' &#8467;'">--</dd>
+          <dt class="truncate">Buffer account (37 + <%= number_with_delimiter(binary_size) %> + 128) &times; 6960</dt>
+          <dd class="text-heading tabular-nums whitespace-nowrap"><%= number_with_delimiter(buffer_lamports) %> &#8467;</dd>
         </div>
         <div class="flex justify-between items-baseline">
           <dt class="text-muted">&mdash; refunded when you close the buffer</dt>

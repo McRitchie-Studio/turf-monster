@@ -7,17 +7,24 @@
 <% end %>
 
 <%#
-  Public transparency page for the turf-vault smart contract (v0.19).
+  Public transparency page for the turf-vault smart contract.
   Renders identically for guests and logged-in users; expands operator
   sections when current_user.admin?. Same single route /contract for both.
 
-  Phase 1 (this file): static infographic. Section/binary byte counts are
-  MEASURED (llvm-objdump on the deploy .so + a debug-info rebuild for the
-  per-instruction split); the admin playbook's web2/web3 caller map is
-  re-audited against app/services/solana/vault.rb and its call sites. The
-  version pill + network read live from Solana::Config so they can't drift;
-  the byte/caller data is hand-maintained — refresh after a turf-vault
-  release (see docs/SOLANA.md "Post-deploy IDL re-pin").
+  Phase 1 (this file): static infographic. Its figures come from TWO
+  measurements, and each one says which program version it measured:
+    - binary, ELF sections and rent: read off the DEPLOYED mainnet program
+      (the `measured` block below: v0.25.0, 2026-09-10);
+    - per-instruction bytes and the .text buckets: a v0.19 debug-info
+      rebuild (`attributed_on` below), not yet redone for v0.25.0.
+  The admin playbook's web2/web3 caller map is re-audited against
+  app/services/solana/vault.rb and its call sites. The version pill,
+  network and instruction/error counts read live from Solana::Config and
+  the committed IDL, so they can't drift; the byte/caller data is
+  hand-maintained. Refresh it after every turf-vault release (docs/SOLANA.md,
+  "Also refresh the /contract page");
+  test/views/contract_measurements_test.rb goes red when the mainnet IDL is
+  re-pinned without it.
 
   Phase 2 (placeholder): live deployment state (paused, registered
   currencies, op-revenue balances) — Carl's Rails refactor first.
@@ -39,31 +46,70 @@
   # reads no IDL, so unlike the cluster pill's fallback this one would be SEEN.
   prog_version = (Solana::Config.idl_version rescue nil).then { |v| v ? "v#{v.split('.').first(2).join('.')}" : "version unknown" }
 
-  # ─── Hero stats (v0.19, embedded-IDL build) ───────────────────────
-  binary_size          = 501_528            # bytes — `llvm-objdump --section-headers turf_vault.so`
-  lamports_per_byte    = 6_960              # rent formula constant
-  perm_rent_lamports   = (binary_size + 128) * lamports_per_byte
-  buffer_lamports      = perm_rent_lamports # buffer = same size as binary
-  program_acct_rent    = (36 + 128) * lamports_per_byte
+  # ─── MEASURED: turf-vault v0.25.0 on mainnet-beta, 2026-09-10 ──────
+  # The binary, section and rent figures below were read off the DEPLOYED
+  # mainnet program over the public RPC, with no credential, at finalized
+  # slot 445_912_166 on 2026-09-10:
+  #   solana program show DaFv83yokwTz8msP9CzJ13eazSGk15NuUTxjkfzJzxMM --url https://api.mainnet-beta.solana.com
+  #     ProgramData BCuQEkMK7tKyNsToyegt7GnesAdpiZVNwVbruJW62iib, data length 545,928, last deployed slot 425,788,802
+  #   solana program dump <that program id> mainnet.so --url <that rpc>
+  #     545,928 bytes, sha256 = program_sha256 below (= the "Program SHA256" row of
+  #     turf-vault docs/CURRENT_DEPLOYMENT.md, so these are the executing bytes)
+  #   llvm-objdump --section-headers mainnet.so   (the platform-tools llvm under ~/.cache/solana)
+  #   getMultipleAccounts [program, ProgramData]  space 36 and 545,973; lamports 1,141,440 and 3,800,862,960
+  # The dump is the whole program region of ProgramData. The ELF inside it
+  # ends at e_shoff + e_shnum * e_shentsize = 544,328 + 9 * 64 = 544,904;
+  # the other 1,024 bytes are zeros the account was sized with. Rent is
+  # charged on the account's whole space (a 45-byte loader header plus
+  # 545,928), so the permanent rent comes from that space, not the ELF length.
+  # The version is v0.25.0 by the discriminator probe in CURRENT_DEPLOYMENT.md
+  # (admin_create_user_account PRESENT, burn_entry_token absent), rerun on this dump.
+  # test/views/contract_measurements_test.rb pins version and idl_sha256 to
+  # config/turf_vault.mainnet.idl.json: re-pinning that IDL after a deploy turns it
+  # red until this block is re-measured.
+  measured = {
+    version:        "0.25.0",
+    cluster:        "mainnet-beta",
+    slot:           445_912_166,
+    date:           "2026-09-10",
+    idl_sha256:     "b9b522635894a42f5434f1faa1cd126d146f3042ae2c233acd1dd76a300f7152",
+    program_sha256: "e71a3fce25f8b5f28a203b33705a0274ebf1b2200c9f092ac86339931f2dbee7"
+  }
+
+  binary_size          = 544_904   # bytes: the ELF inside the ProgramData program region
+  programdata_space    = 545_973   # bytes: the ProgramData account (45-byte header + 545,928)
+  lamports_per_byte    = 6_960     # rent formula constant
+  pd_rent_lamports     = (programdata_space + 128) * lamports_per_byte  # 3,800,862,960: its on-chain balance
+  program_acct_rent    = (36 + 128) * lamports_per_byte                 # 1,141,440: the Program account's balance
+  buffer_lamports      = (37 + binary_size + 128) * lamports_per_byte   # a buffer holds a 37-byte header + the ELF
   tx_fee_lamports      = 1_000_000
-  perm_total_lamports  = perm_rent_lamports + program_acct_rent + tx_fee_lamports
+  perm_total_lamports  = pd_rent_lamports + program_acct_rent + tx_fee_lamports
   total_float_lamports = perm_total_lamports + buffer_lamports
 
-  perm_sol      = perm_total_lamports / 1e9   # ~3.45 SOL — forever-locked
-  buffer_sol    = buffer_lamports / 1e9       # ~3.45 SOL — refunded after deploy
-  float_sol     = total_float_lamports / 1e9  # ~6.90 SOL — needed on hand at deploy
+  perm_sol      = pd_rent_lamports / 1e9      # 3.801 SOL, forever-locked in the ProgramData account
+  buffer_sol    = buffer_lamports / 1e9       # 3.794 SOL, refunded after deploy
+  float_sol     = total_float_lamports / 1e9  # 7.597 SOL, needed on hand at deploy
   v015_perm_sol = 3.248
 
-  # ─── Section layout (exact byte counts from llvm-objdump
-  #   --section-headers on the embedded-IDL build) ──────────────────
+  # ─── Section layout: llvm-objdump --section-headers on the mainnet dump
+  #   (the `measured` block above). dyn meta = .dynamic 176 + .dynsym 360
+  #   + .dynstr 222. The binary carries no IDL JSON: a scan of the dump
+  #   finds no "instructions" or "metadata" key. ──────────────────────
   sections = [
-    { name: ".text",        bytes: 425_304, color: "#6ad7ff", desc: "BPF bytecode — every Anchor handler, every Rust core/alloc/serde routine pulled in by it." },
-    { name: ".rel.dyn",     bytes:  39_664, color: "#c5a3ff", desc: "Relocation entries the BPF loader applies at load time to fix up addresses." },
-    { name: ".rodata",      bytes:  21_976, color: "#ffce6b", desc: "Read-only strings: error names, msg!() log strings, account-field names embedded by Anchor, plus the embedded IDL JSON for `anchor idl fetch`." },
-    { name: ".data.rel.ro", bytes:  12_888, color: "#7af0a9", desc: "Relocatable read-only constants — Anchor discriminators, instruction-method tables." },
-    { name: "dyn meta",     bytes:     830, color: "#5d6790", desc: ".dynamic + .dynsym + .dynstr — minimal dynamic-linking metadata." },
-    { name: "ELF hdr+pad",  bytes: binary_size - 425_304 - 39_664 - 21_976 - 12_888 - 830, color: "#243155", desc: "ELF header, program headers, .shstrtab, section padding." }
+    { name: ".text",        bytes: 464_208, color: "#6ad7ff", desc: "BPF bytecode — every Anchor handler, every Rust core/alloc/serde routine pulled in by it." },
+    { name: ".rel.dyn",     bytes:  42_384, color: "#c5a3ff", desc: "Relocation entries the BPF loader applies at load time to fix up addresses." },
+    { name: ".rodata",      bytes:  23_272, color: "#ffce6b", desc: "Read-only strings: error names and messages, msg!() log strings, account-field and PDA-seed names embedded by Anchor." },
+    { name: ".data.rel.ro", bytes:  13_344, color: "#7af0a9", desc: "Relocatable read-only constants — Anchor discriminators, instruction-method tables." },
+    { name: "dyn meta",     bytes:     758, color: "#5d6790", desc: ".dynamic + .dynsym + .dynstr — minimal dynamic-linking metadata." },
+    { name: "ELF hdr+pad",  bytes: binary_size - 464_208 - 42_384 - 23_272 - 13_344 - 758, color: "#243155", desc: "ELF header, program headers, .shstrtab, the section-header table, alignment padding." }
   ]
+
+  # ─── NOT RE-MEASURED. The .text buckets and the per-instruction bytes
+  #   below come from a v0.19 debug-info rebuild: they need symbols, and
+  #   the deployed binary is stripped. v0.25.0 has not been re-attributed
+  #   (its .text is 464,208 bytes against v0.19's 425,304), so the page
+  #   labels them with attributed_on wherever it shows them.
+  attributed_on = "v0.19"
 
   # ─── .text buckets (v0.19 embedded-IDL build: includes the Idl*
   #   instruction handlers + embedded IDL JSON access machinery).
@@ -206,14 +252,19 @@
     ]
   }
 
-  # Only the calculator reads this; the other sections render their
-  # numbers via inline ERB. Keep the JSON small to avoid bloating
-  # initial page HTML.
+  # Counts read from the committed IDL (the one the version pill reads), so
+  # they track every re-pin instead of being hand-maintained. nil when the
+  # IDL cannot be read; the footer then leaves them out rather than guess.
+  idl = (JSON.parse(File.read(Solana::Config::IDL_PATH)) rescue nil)
+  idl_instruction_names = Array(idl && idl["instructions"]).map { |ix| ix["name"] }
+  idl_error_codes = Array(idl && idl["errors"]).map { |e| e["code"] }.compact
+
+  # Only the calculator reads this, and only for the SOL-price-dependent
+  # figures; its lamport lines are static and render via inline ERB. Keep
+  # the JSON small to avoid bloating initial page HTML.
   contract_page_config = {
-    binary_size:       binary_size,
-    lamports_per_byte: lamports_per_byte,
-    perm_lamports:     perm_total_lamports,
-    float_lamports:    total_float_lamports
+    perm_lamports:  perm_total_lamports,
+    float_lamports: total_float_lamports
   }
 %>
 
@@ -235,11 +286,9 @@
     })();
     return {
       solPrice: 165,
-      binarySize: cfg.binary_size,
-      pdLamports: (cfg.binary_size + 128) * cfg.lamports_per_byte,
       // perm = ProgramData rent + Program-account rent + deploy TX fees.
       get permSol()    { return cfg.perm_lamports  / 1e9; },
-      // buffer = a second account the same size as the binary, paid up-front
+      // buffer = a second account holding the binary, paid up-front
       // during deploy and refunded once `close-buffer` runs.
       get bufferSol()  { return cfg.float_lamports / 1e9 - cfg.perm_lamports / 1e9; },
       // float = total SOL on hand at deploy time (perm + refundable buffer).
@@ -248,8 +297,7 @@
       get bufferUsd()  { return this.bufferSol * this.solPrice; },
       get floatUsd()   { return this.floatSol  * this.solPrice; },
       fmtSol(n)        { return Number(n).toFixed(3); },
-      fmtUsd(n)        { return "$" + Math.round(Number(n)).toLocaleString(); },
-      fmtLamports(n)   { return Number(n).toLocaleString(); }
+      fmtUsd(n)        { return "$" + Math.round(Number(n)).toLocaleString(); }
     };
   };
 </script>
@@ -289,23 +337,23 @@
   </header>
 
   <%= render "section_intro" %>
-  <%= render "section_hero", perm_sol: perm_sol, float_sol: float_sol, buffer_sol: buffer_sol, binary_size: binary_size, v015_perm_sol: v015_perm_sol %>
-  <%= render "section_sections", sections: sections, binary_size: binary_size %>
-  <%= render "section_buckets", text_buckets: text_buckets %>
-  <%= render "section_instructions", user_instructions: user_instructions %>
+  <%= render "section_hero", perm_sol: perm_sol, float_sol: float_sol, buffer_sol: buffer_sol, binary_size: binary_size, v015_perm_sol: v015_perm_sol, measured: measured %>
+  <%= render "section_sections", sections: sections, binary_size: binary_size, programdata_space: programdata_space %>
+  <%= render "section_buckets", text_buckets: text_buckets, attributed_on: attributed_on, measured: measured, deployed_text_bytes: sections.first[:bytes] %>
+  <%= render "section_instructions", user_instructions: user_instructions, attributed_on: attributed_on, measured: measured %>
   <%= render "section_auth" %>
 
   <% if is_admin %>
-    <%= render "section_admin_playbook", operator_instructions: operator_instructions %>
+    <%= render "section_admin_playbook", operator_instructions: operator_instructions, attributed_on: attributed_on, idl_instruction_names: idl_instruction_names %>
     <%= render "section_admin_state" %>
   <% end %>
 
-  <%= render "section_calculator", binary_size: binary_size %>
+  <%= render "section_calculator", binary_size: binary_size, programdata_space: programdata_space, pd_rent_lamports: pd_rent_lamports, program_acct_rent: program_acct_rent, buffer_lamports: buffer_lamports %>
 
   <footer class="border-t border-subtle pt-6 mt-8 text-xs text-muted">
     <p class="mb-1 font-mono">turf-vault <%= prog_version %> &middot; Anchor 0.32.1 &middot; Rust 1.89.0</p>
-    <p class="mb-1">Repo: <code class="text-secondary">/Users/alex/projects/turf-vault</code> &middot; 18 instructions &middot; errors 6000&ndash;6038</p>
-    <p>Section bytes from <code class="text-secondary">llvm-objdump --section-headers turf_vault.so</code>; per-instruction bytes from a debug-info rebuild (deduped by address). Caller map re-audited against <code class="text-secondary">app/services/solana/vault.rb</code>.</p>
+    <p class="mb-1">Repo: <code class="text-secondary">/Users/alex/projects/turf-vault</code><% if idl_instruction_names.any? %> &middot; <%= idl_instruction_names.size %> instructions<% end %><% if idl_error_codes.any? %> &middot; errors <%= idl_error_codes.min %>&ndash;<%= idl_error_codes.max %><% end %></p>
+    <p>Binary, section and rent figures read off the <%= measured[:cluster] %> deployment of turf-vault v<%= measured[:version] %> at slot <%= number_with_delimiter(measured[:slot]) %> (<%= measured[:date] %>): <code class="text-secondary">solana program dump</code>, then <code class="text-secondary">llvm-objdump --section-headers</code>. Per-instruction and .text-bucket bytes from a <%= attributed_on %> debug-info rebuild (deduped by address), not yet re-measured. Caller map re-audited against <code class="text-secondary">app/services/solana/vault.rb</code>.</p>
   </footer>
 
 </div>

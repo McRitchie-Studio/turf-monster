@@ -1,23 +1,35 @@
 <%#
-  Admin-only: full 18-instruction list grouped by signer role, plus an
+  Admin-only: the audited instruction list grouped by signer role, plus an
   operational playbook AND the live web2/web3 caller map for each action
   (re-audited against app/services/solana/vault.rb and its call sites).
+  The list was audited on v0.19 (18 instructions). The count and the
+  "not yet in this playbook" names are computed against the committed IDL,
+  so an instruction a later release added is named here, not hidden.
 
     locals: operator_instructions (Hash group_label => Array of
-            {name, bytes, auth_class, status, web3, web2, playbook})
+            {name, bytes, auth_class, status, web3, web2, playbook}),
+            attributed_on, idl_instruction_names (empty when the IDL is unreadable)
 %>
+<% listed_names = operator_instructions.values.flatten.map { |ix| ix[:name] }.uniq %>
+<% unlisted_names = idl_instruction_names - listed_names %>
 <section class="card border-2 border-primary/30 p-6 sm:p-8 mb-6">
   <div class="flex flex-col sm:flex-row sm:items-baseline sm:gap-4 mb-2">
     <h2 class="text-heading font-bold text-xl">Operator playbook</h2>
     <span class="text-[11px] font-mono text-primary uppercase tracking-wider">admin only</span>
   </div>
   <p class="text-secondary text-sm mb-5 max-w-3xl">
-    All 18 instructions, grouped by signer role, with the operational reasoning plus the
+    <%= listed_names.size %> instructions, grouped by signer role, with the operational reasoning plus the
     current Rails (<span class="font-mono text-xs">web2</span>) and browser/Phantom
-    (<span class="font-mono text-xs">web3</span>) caller for each. Every instruction is now
+    (<span class="font-mono text-xs">web3</span>) caller for each. Every instruction listed is
     wired to an admin action — the 2-of-3 treasury ops queue a <code class="font-mono text-xs">PendingTransaction</code>
-    you cosign in the Treasury.
+    you cosign in the Treasury. Byte counts are from the <%= attributed_on %> build.
   </p>
+  <% if unlisted_names.any? %>
+    <p class="text-warning text-[13px] -mt-3 mb-5 max-w-3xl" data-test="contract-playbook-unlisted">
+      Not yet in this playbook (in the committed IDL, never audited here):
+      <%= safe_join(unlisted_names.map { |n| content_tag(:code, n, class: "font-mono text-xs") }, ", ") %>.
+    </p>
+  <% end %>
 
   <div class="space-y-6">
     <% operator_instructions.each do |group_label, ixs| %>
