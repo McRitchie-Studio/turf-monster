@@ -190,8 +190,8 @@ Phantom must be installed in the browser or available via mobile deep link.
    - Skips a user with no wallet (`:12`), then calls
      `Solana::Vault#ensure_user_account` (`:14`).
    - `ensure_user_account` is an idempotent no-op when the PDA already exists —
-     the `:ok` status returns `nil` (`app/services/solana/vault.rb:728-737`,
-     `:731`) — so Sidekiq retries are safe.
+     the `:ok` status returns `nil` (`app/services/solana/vault.rb:763-772`,
+     `:766`) — so Sidekiq retries are safe.
    - The job logs and re-`raise`s so Sidekiq retries
      (`app/jobs/create_onchain_user_account_job.rb:16-18`).
    - This is the FIRST on-chain TX in the whole flow — signup itself is pure
@@ -246,7 +246,7 @@ Phantom must be installed in the browser or available via mobile deep link.
        `build_enter_contest_with_token` (`:1082-1094`); otherwise the currency
        is resolved USDC-or-USDT (`:1032-1042`) and it builds
        `vault.build_enter_contest` (`:1105-1111`,
-       `app/services/solana/vault.rb:1300`). Either way the transaction comes
+       `app/services/solana/vault.rb:1335`). Either way the transaction comes
        back FULLY UNSIGNED.
      - Persists a `PendingTransaction` with `tx_type: "enter_contest"`,
        `status: "pending"`, `target: entry` and a metadata blob naming the entry
@@ -277,7 +277,7 @@ Phantom must be installed in the browser or available via mobile deep link.
        (`:1388-1391`).
      - `Solana::Vault#cosign_and_broadcast_entry` (`:1397`) fills the admin
        slot, runs a `simulate_transaction` pre-flight, then sends and waits for
-       confirmation (`app/services/solana/vault.rb:2400-2420`).
+       confirmation (`app/services/solana/vault.rb:2443-2463`).
      - The `PendingTransaction` is stamped `submitted` with the signature
        (`app/controllers/contests_controller.rb:1409`) — IMMEDIATELY after
        broadcast and BEFORE the verification below. That order is the A1
@@ -286,7 +286,7 @@ Phantom must be installed in the browser or available via mobile deep link.
        as "never broadcast" and lets the user pay a second time.
      - **OPSEC-010 server-side proof.** `verify_and_confirm_onchain_entry!`
        re-derives the entry PDA through `Solana::Vault#entry_pda`
-       (`app/services/solana/vault.rb:186-191`) and refuses a client-supplied
+       (`app/services/solana/vault.rb:221-226`) and refuses a client-supplied
        PDA that disagrees
        (`app/controllers/contests_controller.rb:2656-2672`, `:2658-2661`). Then
        `verify_solana_transaction!` (`:2599-2608`) fetches the transaction from
