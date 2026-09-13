@@ -38,6 +38,12 @@ module Solana
     # ComputeBudget program id (deterministic).
     COMPUTE_BUDGET_PROGRAM_ID = Keypair.decode_base58("ComputeBudget111111111111111111111111111111")
 
+    # The two ComputeBudget instructions our builders emit (see
+    # #compute_unit_limit_ix / #compute_unit_price_ix), and the only two the
+    # cosign guards admit.
+    COMPUTE_BUDGET_SET_LIMIT = 0x02 # u32 LE compute-unit limit
+    COMPUTE_BUDGET_SET_PRICE = 0x03 # u64 LE micro-lamports per compute unit
+
     # Lighthouse — Phantom's transaction-protection program. On MAINNET (not
     # devnet, which is why staging never sees it) Phantom may INJECT Lighthouse
     # assertion instructions into the tx at signing time. Lighthouse
@@ -71,6 +77,35 @@ module Solana
     # predictable (fee = price × limit) and avoids over-reserving CUs.
     PARTIAL_TX_COMPUTE_UNIT_LIMIT =
       ENV.fetch("SOLANA_PARTIAL_TX_COMPUTE_UNIT_LIMIT", "200000").to_i
+
+    # --- the cosign fee ceiling (cap-cosign-priority-fee) ----------------------
+    #
+    # On every wire the cosign guards admit, the ADMIN is the fee payer, and
+    # Solana charges the fee payer price x limit / 1e6 lamports of priority fee
+    # -- even when the transaction then fails. The guards used to admit any
+    # ComputeBudget instruction unread, so a user could raise the price on their
+    # own entry and have the admin pay it (a review probe of 1.4M CU at 5e10
+    # micro-lamports/CU, a 70 SOL fee, passed).
+    #
+    # The ceiling is DERIVED from what our own builders set, not chosen: at most
+    # COSIGN_FEE_MARGIN times the builder's price, and at most COSIGN_FEE_MARGIN
+    # times the builder's whole priority fee (price x limit). Both follow the two
+    # ENV overrides above, so raising the builder's fee raises the ceiling with it.
+    #
+    # Margin 10x: room for a wallet to raise the price on its own under load
+    # (hence cap, not refuse), while the admin's worst case per cosign stays at
+    # 10x the builder's fee. With the defaults: price <= 500_000 micro-lamports/CU,
+    # fee <= 100_000 lamports (0.0001 SOL). A builder price of 0 makes the
+    # ceiling 0: no wallet-added fee is cosigned when we add none ourselves.
+    COSIGN_FEE_MARGIN = 10
+    COSIGN_MAX_COMPUTE_UNIT_PRICE = PARTIAL_TX_PRIORITY_FEE_MICROLAMPORTS * COSIGN_FEE_MARGIN
+    COSIGN_MAX_PRIORITY_FEE_MICROLAMPORTS =
+      PARTIAL_TX_PRIORITY_FEE_MICROLAMPORTS * PARTIAL_TX_COMPUTE_UNIT_LIMIT * COSIGN_FEE_MARGIN
+
+    # Solana's maximum compute-unit limit. A wire that sets a price but no limit
+    # is charged at whatever limit the runtime defaults to; the guard assumes the
+    # most it could be, so the fee check can over-estimate but never under-.
+    MAX_COMPUTE_UNIT_LIMIT = 1_400_000
 
     # Sentinel currency_idx for token-funded entries (spec §3.11 / §11 Q2).
     TOKEN_FUNDED_CURRENCY_IDX = 255
@@ -2185,7 +2220,9 @@ module Solana
     #      user append one to their own entry and have the admin cosign advance
     #      the OPERATOR's nonce, stranding any operator tx anchored on it
     #      (reject-vestigial-nonce-cosign-advance).
-    #   4. ComputeBudget: allowed (priority-fee / CU-limit hints; no authority risk).
+    #   4. ComputeBudget: only SetComputeUnitLimit and SetComputeUnitPrice, at most
+    #      once each, and the priority fee they make the ADMIN pay is capped at
+    #      COSIGN_FEE_MARGIN x our builder's own fee (see COSIGN_FEE_MARGIN).
     #   5. Any other program id or instruction → reject.
     #
     # Raises UnsafeCosignError (logged server-side via #cosign_reject!) on the
@@ -2236,6 +2273,7 @@ module Solana
       lighthouse       = LIGHTHOUSE_PROGRAM_ID.b
 
       enter_count = 0
+      budget = {}
 
       msg[:instructions].each_with_index do |ix, i|
         program_id = account_keys[ix[:program_id_index]]
@@ -2273,7 +2311,8 @@ module Solana
           # (3) No System instruction, ever — not a transfer, not a nonce advance.
           system_ix_reject!(entry, wallet_address, ix, i)
         when compute_budget
-          # (4) Priority-fee / CU-limit hints — allowed, carry no authority risk.
+          # (4) Read, never waved through: the admin pays whatever fee these set.
+          read_compute_budget_ix!(entry, wallet_address, ix, i, budget)
         when lighthouse
           # (5) Phantom-injected Lighthouse protection assertions — allowed.
           # Pure post-state asserts (the worst they can do is fail the tx);
@@ -2288,6 +2327,7 @@ module Solana
       unless enter_count == 1
         cosign_reject!(entry, wallet_address, "enter_contest_count: found #{enter_count} #{expected_ix_name} ixs, require exactly 1")
       end
+      assert_priority_fee_capped!(entry, wallet_address, budget)
 
       true
     end
@@ -2330,6 +2370,7 @@ module Solana
       lighthouse       = LIGHTHOUSE_PROGRAM_ID.b
 
       create_count = 0
+      budget = {}
 
       msg[:instructions].each_with_index do |ix, i|
         program_id = account_keys[ix[:program_id_index]]
@@ -2358,7 +2399,8 @@ module Solana
           # is signed by the server FIRST and never reaches this guard.
           system_ix_reject!(context, wallet_address, ix, i)
         when compute_budget
-          # Priority-fee / CU-limit hints — allowed, carry no authority risk.
+          # Read, never waved through: the admin pays whatever fee these set.
+          read_compute_budget_ix!(context, wallet_address, ix, i, budget)
         when lighthouse
           # Phantom-injected transaction-protection assertions — allowed.
         else
@@ -2369,6 +2411,7 @@ module Solana
       unless create_count == 1
         cosign_reject!(context, wallet_address, "create_contest_count: found #{create_count} create_contest ixs, require exactly 1")
       end
+      assert_priority_fee_capped!(context, wallet_address, budget)
 
       true
     end
@@ -2520,6 +2563,49 @@ module Solana
       entry_id = entry.respond_to?(:id) ? entry.id : entry.inspect
       Rails.logger.warn("[cosign][rejected] entry_id=#{entry_id} wallet=#{wallet_address} reason=#{reason}")
       raise UnsafeCosignError, reason
+    end
+
+    # Parse one ComputeBudget instruction into `budget` ({ limit:, price: }).
+    # Only the two our builders emit are admitted, once each, at their exact
+    # encoded length: the runtime rejects a duplicate anyway, and anything else
+    # (RequestHeapFrame, the deprecated RequestUnits with its own fee field) is a
+    # shape no builder asks the admin to pay for.
+    def read_compute_budget_ix!(ctx, wallet_address, ix, index, budget)
+      data = ix[:data].to_s.b
+      kind, size =
+        case data.getbyte(0)
+        when COMPUTE_BUDGET_SET_LIMIT then [:limit, 5]
+        when COMPUTE_BUDGET_SET_PRICE then [:price, 9]
+        else
+          cosign_reject!(ctx, wallet_address,
+            "compute_budget_ix_not_allowed: ix #{index} disc=#{data.byteslice(0, 1).to_s.unpack1('H*')} " \
+            "(only SetComputeUnitLimit / SetComputeUnitPrice)")
+        end
+      unless data.bytesize == size
+        cosign_reject!(ctx, wallet_address, "compute_budget_malformed: ix #{index} #{kind} is #{data.bytesize} bytes, expected #{size}")
+      end
+      cosign_reject!(ctx, wallet_address, "compute_budget_duplicate: ix #{index} repeats #{kind}") if budget.key?(kind)
+
+      budget[kind] = kind == :limit ? data.byteslice(1, 4).unpack1("V") : data.byteslice(1, 8).unpack1("Q<")
+    end
+
+    # The fee the admin would pay for this wire, against the ceiling derived
+    # from our builders (COSIGN_FEE_MARGIN). No price means no priority fee; no
+    # limit is assumed to be the runtime maximum, so the check never under-counts.
+    def assert_priority_fee_capped!(ctx, wallet_address, budget)
+      price = budget.fetch(:price, 0)
+      if price > COSIGN_MAX_COMPUTE_UNIT_PRICE
+        cosign_reject!(ctx, wallet_address,
+          "compute_unit_price_over_cap: #{price} > #{COSIGN_MAX_COMPUTE_UNIT_PRICE} micro-lamports/CU")
+      end
+
+      limit = budget.fetch(:limit, MAX_COMPUTE_UNIT_LIMIT)
+      fee = price * limit
+      return if fee <= COSIGN_MAX_PRIORITY_FEE_MICROLAMPORTS
+
+      cosign_reject!(ctx, wallet_address,
+        "priority_fee_over_cap: #{price} x #{limit} CU = #{fee / 1_000_000} lamports > " \
+        "#{COSIGN_MAX_PRIORITY_FEE_MICROLAMPORTS / 1_000_000} lamports")
     end
 
     # Both cosign guards refuse EVERY System Program instruction. The reason
