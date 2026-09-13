@@ -144,7 +144,7 @@ After the user clicks "Cash out now" in the widget, CDP creates a transaction wh
 **Discovery (both modes):** `Cdp::OfframpPollJob` (§11) polls until a row with `status: TRANSACTION_STATUS_CREATED` appears; persist `to_address`, `sell_amount`, `network`, set `cashout_deadline_at = created_at + 30.minutes`.
 
 **Managed mode (server signs):** new `Cdp::OfframpSendJob`:
-- Build the USDC SPL transfer from the user's web2 ATA to `to_address`, mirroring `Solana::Vault#transfer_spl` (`app/services/solana/vault.rb:288`) but with **authority = the user's managed keypair** (`Solana::Keypair.from_encrypted`), mint = `Solana::Config::USDC_MINT` (mainnet `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`), amount = `BigDecimal(sell_amount.value) * 10**6` base units.
+- Build the USDC SPL transfer from the user's web2 ATA to `to_address`, mirroring `Solana::Vault#transfer_spl` (`app/services/solana/vault.rb:376`) but with **authority = the user's managed keypair** (`Solana::Keypair.from_encrypted`), mint = `Solana::Config::USDC_MINT` (mainnet `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`), amount = `BigDecimal(sell_amount.value) * 10**6` base units.
 - `to_address` ambiguity: docs never say whether the Solana `to_address` is an owner address or a token account — inspect on-chain (owned by SPL Token program → use directly as token account; else derive its USDC ATA). Confirm on first mainnet sell (open questions).
 - Guards: **fresh explicit user confirmation click in our UI before the server moves funds**; balance check; refuse sends past `cashout_deadline_at` minus a ~3-minute safety margin; record `sent_signature`; **verify signature status before any retry** (never blind-resend — same class of bug as the Lazarus `recover_pending_entry` finding).
 

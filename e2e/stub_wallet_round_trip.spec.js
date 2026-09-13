@@ -39,6 +39,10 @@ const IPHONE =
 // here rather than by the engine.
 const CALLBACK = "/auth/phantom/callback";
 
+// The seeded standard contest, which renders the turf-totals board
+// (e2e/seed.rb pins it as the main contest).
+const BOARD_CONTEST = "/contests/world-cup-2026";
+
 // base64 for bytes [1,2,3,4,5]: small, and recognisable once it has been through
 // the base64 -> base58 -> wallet -> base58 -> base64 loop the flow really runs.
 const SERIALIZED_TX_B64 = "AQIDBAU=";
@@ -77,30 +81,24 @@ async function stubServerHops(context, seen) {
   });
 }
 
-// Start the trip the way the contest board starts it: the provider this browser
-// really resolves, and the three options the board really passes
-// (app/views/contests/_turf_totals_board.html.erb). Fire-and-forget, because
-// run() ends by destroying this document.
+// Start the trip the way every contest flow starts it: through window.tmWalletOp
+// (app/views/shared/_wallet_op_runner.html.erb), the one call both contest
+// boards make. The runner resolves the provider with requireProvider() and
+// supplies the return address, app identity and cluster itself — so this file
+// passes NONE of them. It used to type all three by hand, which meant the
+// redirect_link test below could only ever read back the value this file wrote.
+// Fire-and-forget, because run() ends by destroying this document.
 async function startEntryTrip(page) {
   await page.waitForFunction(
-    () => !!(window.walletProvider && window.SolanaStudio &&
+    () => !!(window.walletProvider && window.tmWalletOp && window.SolanaStudio &&
              window.SolanaStudio.walletOps &&
              window.SolanaStudio.walletOps.defined("contest_entry"))
   );
   await page.evaluate(() => {
-    // requireProvider(), not a hand-built object. On a phone with nothing
-    // injected this is the ONLY thing that can hand back a redirect provider,
-    // and when it could not, the mobile entry branch was dead code.
-    var provider = window.walletProvider.requireProvider();
-    window.__trip = window.SolanaStudio.walletOps.run(
+    window.__trip = window.tmWalletOp(
       "contest_entry",
       { contestId: 1, csrfToken: "stub-csrf", currency: "usdc" },
-      {
-        provider: provider,
-        appUrl: window.location.origin,
-        redirectLink: window.location.origin + "/auth/phantom/callback",
-        cluster: document.body.dataset.solanaCluster,
-      }
+      {}
     ).catch(function (e) { /* the page is on its way to the wallet */ });
   });
 }
@@ -158,6 +156,65 @@ test.describe("a stub wallet on the redirect transport", () => {
     expect(seen.confirm.ptx_slug).toBe("ptx-stub-1");
     expect(seen.confirm.entry_id).toBe(4242);
     expect(seen.prepare.currency).toBe("usdc");
+  });
+
+  test("the board's own confirmEntry completes the round trip through the runner", async ({ page, context }) => {
+    // THE ENTRY A PHONE ACTUALLY MAKES (/tasks/route-board-through-runner). The
+    // test above starts the trip with the call the board makes; this one lets
+    // the BOARD make it. confirmEntry() on the turf-totals board — the app's
+    // highest-traffic money path — runs on the seeded contest page, and nothing
+    // in this test names a provider, a return address or a cluster. The board
+    // no longer names them either; if the runner stopped supplying one, the
+    // wallet below would have nowhere to send the user back to.
+    //
+    // THE SESSION IS SET BY HAND, and only the session. A web3 sign-in on this
+    // lane goes through the injected Phantom mock, which hands the board an
+    // INLINE provider and never reaches this transport. So the store is told
+    // what a signed-in Phantom session looks like — a branch selector, like
+    // contestOnchain, which e2e/seed.rb clears — and everything from the call
+    // onward is the app's own: eligibility, the runner, the journal, both page
+    // deaths, the callback, the intent. The address stays blank so no expected
+    // account is declared; the stub wallet's key is not the seeded user's.
+    const wallet = await installStubWallet(context);
+    const seen = {};
+    await stubServerHops(context, seen);
+
+    await page.goto(BOARD_CONTEST);
+    await page.waitForFunction(
+      () => !!(document.querySelector(".hold-btn") && window.Alpine && window.tmWalletOp &&
+               window.SolanaStudio && window.SolanaStudio.walletOps &&
+               window.SolanaStudio.walletOps.defined("contest_entry"))
+    );
+    const origin = new URL(page.url()).origin;
+
+    await page.evaluate(() => {
+      const s = Alpine.store("session");
+      s.loggedIn = true;
+      s.mode = "web3";
+      s.address = "";
+      s.firstNameRequired = false;
+      s.ageGateRequired = false;
+      s.walletSetupRequired = false;
+      s.tokensAvailable = 1;
+      const board = Alpine.$data(document.querySelector(".hold-btn").closest("[x-data]"));
+      board.contestOnchain = true;
+      // Fire and forget, off this evaluate's stack: the page is about to be
+      // handed to the wallet, and an evaluate still running then would throw.
+      setTimeout(() => board.confirmEntry(), 0);
+    });
+
+    await page.waitForURL((url) => url.pathname === "/contests", { timeout: 25_000 });
+
+    expect(wallet.methods()).toEqual(["connect", "signTransaction"]);
+    expect(wallet.violations).toEqual([]);
+    // The return address the board never wrote, on BOTH hops.
+    expect(wallet.hop("connect").redirectLink).toBe(`${origin}${CALLBACK}`);
+    expect(wallet.hop("signTransaction").redirectLink).toBe(`${origin}${CALLBACK}`);
+    expect(wallet.hop("connect").params.app_url).toBe(origin);
+    // The board's own arguments, carried across two page deaths.
+    expect(seen.prepare.currency).toBe("usdc");
+    expect(seen.confirm.ptx_slug).toBe("ptx-stub-1");
+    expect(seen.confirm.entry_id).toBe(4242);
   });
 
   test("hands every hop a redirect_link Phantom would accept", async ({ page, context }) => {
@@ -246,7 +303,8 @@ test.describe("a stub wallet on the redirect transport", () => {
     await page.goto("/");
     await startEntryTrip(page);
 
-    // `startEntryTrip` calls walletProvider.requireProvider() INSIDE the page, so
+    // `startEntryTrip` reaches walletProvider.requireProvider() through the
+    // runner, INSIDE the page, so
     // a resolver that answers null fails this test with the app's own
     // "open this page in your wallet app" sentence before a hop is ever built.
     // What is asserted here is the other half: that the provider it did hand

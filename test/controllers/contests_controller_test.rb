@@ -1765,7 +1765,7 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     # The real validator refuses a tx that doesn't match the prepared entry —
     # e.g. an admin-fee-payer SystemProgram.transfer (the C1 attack). The detailed
     # reason is for server logs only; it must never reach the client.
-    vault.cosign_safe_raises = "system_not_advance: ix 0 (the C1 attack)"
+    vault.cosign_safe_raises = "system_program_ix: ix 0 (the C1 attack)"
 
     Solana::Vault.stub :new, vault do
       post confirm_onchain_entry_contest_path(@contest),
@@ -1778,7 +1778,7 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     refute body["success"]
     assert_equal "tx_rejected", body["code"]          # stable code the frontend keys its modal off
     assert_empty vault.cosign_broadcast_calls          # validation ran BEFORE cosign — nothing broadcast
-    refute_match(/system_not_advance/, body["error"].to_s) # detailed reason never leaked to the client
+    refute_match(/system_program_ix/, body["error"].to_s) # detailed reason never leaked to the client
     assert entry.reload.cart?                          # no charge, safe to retry
   end
 

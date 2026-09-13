@@ -109,24 +109,24 @@ the no-token branch as an unconditional `enter_contest` USDC transfer; that bran
 is `enter_contest_with_usdc`, gated behind a flag, and with the flag off the path
 raises "No entry tokens" instead.
 
-| Branch | Where, in `ContestsController#enter` (`app/controllers/contests_controller.rb:716-938`) unless named |
+| Branch | Where — each row names its owner; `ContestsController#enter` is `app/controllers/contests_controller.rb:716-938` |
 |---|---|
-| contest cancelled → 422 | `:720-723` |
-| self-custodied → 422 + `self_custodied` | `:745-751` |
-| cart entry; survivor auto-creates | `:753-756` |
-| `onchain_session?` → 422 "use prepare_entry" | `:787-793` |
-| self-custody account in a web2 session → `web3_step_up_required` | `:838-844` |
-| `@contest.with_lock` | `:870` |
-| `assert_enterable!` pre-flight — `Entry#assert_enterable!` | `:873`; definition `app/models/entry.rb:125-159` |
-| season configured? | `app/controllers/contests_controller.rb:878-880` |
-| paid contest with no on-chain PDA → refuse | `:887-889` |
+| contest cancelled → 422 | `#enter` at `:720-723` |
+| self-custodied → 422 + `self_custodied` | `#enter` at `:745-751` |
+| cart entry; survivor auto-creates | `#enter` at `:753-756` |
+| `onchain_session?` → 422 "use prepare_entry" | `#enter` at `:787-793` |
+| self-custody account in a web2 session → `web3_step_up_required` | `#enter` at `:838-844` |
+| `@contest.with_lock` | `#enter` at `:870` |
+| `assert_enterable!` pre-flight — `Entry#assert_enterable!` | `#enter` at `:873`; definition `app/models/entry.rb:125-159` |
+| season configured? | `#enter` at `app/controllers/contests_controller.rb:878-880` |
+| paid contest with no on-chain PDA → refuse | `#enter` at `:887-889` |
 | payment branch — `ContestsController#resolve_web2_entry_funding!` | `:1878-1950` |
-| token → `Solana::Vault#enter_contest_with_token` | `:1894-1906` |
-| no token, `AppFlags.web2_usdc_entry?` → `Solana::Vault#enter_contest_with_usdc` | `:1907-1946` |
-| neither → "No entry tokens" | `:1948` |
-| durable capture, OUTSIDE the lock | `:907` |
+| token → `Solana::Vault#enter_contest_with_token` | `#resolve_web2_entry_funding!` at `:1894-1906` |
+| no token, `AppFlags.web2_usdc_entry?` → `Solana::Vault#enter_contest_with_usdc` | `#resolve_web2_entry_funding!` at `:1907-1946` |
+| neither → "No entry tokens" | `#resolve_web2_entry_funding!` at `:1948` |
+| durable capture, OUTSIDE the lock | `#enter` at `:907` |
 | `ContestsController#finalize_managed_entry!` → `Entry#confirm!` | `:2049-2075` |
-| transient failure after the spend → `Entries::OnchainReconcileJob.perform_later` | `:2074` |
+| transient failure after the spend → `Entries::OnchainReconcileJob.perform_later` | `#finalize_managed_entry!` at `:2074` |
 
 **Why the gate ordering is sacred:** incident 2026-06-08 — the consume ran
 before a validation gate; the gate then failed and the user was paid-on-chain
@@ -156,16 +156,16 @@ prepare_entry
     → returns serialized_tx + ptx_slug to the client
 ```
 
-| Branch | Where, in `ContestsController#prepare_entry` (`app/controllers/contests_controller.rb:1001-1156`) unless named |
+| Branch | Where — each row names its owner; `ContestsController#prepare_entry` is `app/controllers/contests_controller.rb:1001-1156` |
 |---|---|
-| not an `onchain_session?` → 403 | `:1024` |
-| full / wrong pick count / started game | `:1049-1054` |
-| `Entry#assign_onchain_entry_number!` | `:1064`; definition `app/models/entry.rb:307-322` |
-| `Solana::Vault#ensure_user_account` | `app/controllers/contests_controller.rb:1069` |
+| not an `onchain_session?` → 403 | `#prepare_entry` at `:1024` |
+| full / wrong pick count / started game | `#prepare_entry` at `:1049-1054` |
+| `Entry#assign_onchain_entry_number!` | `#prepare_entry` at `:1064`; definition `app/models/entry.rb:307-322` |
+| `Solana::Vault#ensure_user_account` | `#prepare_entry` at `app/controllers/contests_controller.rb:1069` |
 | username codes 6020-6022 → friendly message, in `Solana::ErrorInterpreter.interpret` | `app/services/solana/error_interpreter.rb:184-196` |
-| ATA for the SELECTED currency — `Solana::Vault#ensure_ata` | `app/controllers/contests_controller.rb:1099` |
-| unsigned tx on a FRESH blockhash — `Solana::Vault#build_enter_contest` sets no durable nonce | `app/services/solana/vault.rb:1331-1345` |
-| `PendingTransaction` created, no signature | `app/controllers/contests_controller.rb:1120-1132` |
+| ATA for the SELECTED currency — `Solana::Vault#ensure_ata` | `#prepare_entry` at `app/controllers/contests_controller.rb:1099` |
+| unsigned tx on a FRESH blockhash — `Solana::Vault#build_enter_contest` sets no durable nonce | `app/services/solana/vault.rb:1366-1380` |
+| `PendingTransaction` created, no signature | `#prepare_entry` at `app/controllers/contests_controller.rb:1120-1132` |
 
 ### 3b. Phantom signs (client)
 
@@ -189,8 +189,11 @@ confirm_onchain_entry
 │     before anything is signed or broadcast
 ├─ C1 cosign guard: assert_entry_cosign_safe!  (server NEVER blind-cosigns)
 │     allowlist per instruction: exactly ONE enter_contest bound to THIS
-│     entry's server-derived PDA · advanceNonceAccount only if configured ·
-│     ComputeBudget · Lighthouse (pure assertions — can only fail the tx).
+│     entry's server-derived PDA · ComputeBudget (limit + price only, admin's
+│     priority fee capped at 10x our builder's) · Lighthouse (pure
+│     assertions — can only fail the tx). NO System instruction: a transfer
+│     is the C1 attack, and a nonce advance would spend the admin's authority
+│     over the operator nonce.
 │     ANYTHING else → 422 code=tx_rejected, nothing signed, nothing broadcast
 ├─ cosign_wire (admin signature filled into the Phantom-signed bytes)
 ├─ simulateTransaction pre-flight (sig_verify:false, replaceRecentBlockhash:true)
@@ -204,14 +207,14 @@ confirm_onchain_entry
 └─ PT confirmed, chat announce, seeds fanout, success modal
 ```
 
-| Branch | Where, in `ContestsController#confirm_onchain_entry` (`app/controllers/contests_controller.rb:1341-1459`) unless named |
+| Branch | Where — each row names its owner; `ContestsController#confirm_onchain_entry` is `app/controllers/contests_controller.rb:1341-1459` |
 |---|---|
-| `assert_enterable!` PRE-FLIGHT | `:1365` |
-| C1 cosign guard — `Solana::Vault#assert_entry_cosign_safe!` | `:1388`; definition `app/services/solana/vault.rb:2196-2303` |
-| cosign + simulate + broadcast — `Solana::Vault#cosign_and_broadcast_entry` | `app/controllers/contests_controller.rb:1397`; definition `app/services/solana/vault.rb:2400-2420` |
-| PT stamped with `tx_signature` immediately | `app/controllers/contests_controller.rb:1409` |
-| `ContestsController#verify_and_confirm_onchain_entry!` | `:1415-1418`; definition `:2656-2672` |
-| PT confirmed | `:1420` |
+| `assert_enterable!` PRE-FLIGHT | `#confirm_onchain_entry` at `:1365` |
+| C1 cosign guard — `Solana::Vault#assert_entry_cosign_safe!` | `#confirm_onchain_entry` at `:1388`; definition `app/services/solana/vault.rb:2237-2333` |
+| cosign + simulate + broadcast — `Solana::Vault#cosign_and_broadcast_entry` | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1397`; definition `app/services/solana/vault.rb:2423-2443` |
+| PT stamped with `tx_signature` immediately | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1409` |
+| `ContestsController#verify_and_confirm_onchain_entry!` | `#confirm_onchain_entry` at `:1415-1418`; definition `:2656-2672` |
+| PT confirmed | `#confirm_onchain_entry` at `:1420` |
 
 ## 4. Can funds be taken without an entry? (the full inventory)
 
@@ -296,12 +299,12 @@ three:
 1. **Phantom injects Lighthouse guard instructions at signing time, mainnet
    only.** The cosign allowlist must accept the Lighthouse program (pure
    post-state assertions, cannot move funds) — the `LIGHTHOUSE_PROGRAM_ID` constant
-   (`app/services/solana/vault.rb:48`), admitted inside
-   `Solana::Vault#assert_entry_cosign_safe!`, on its `when lighthouse` arm (`:2287-2291`). PR #134.
+   (`app/services/solana/vault.rb:54`), admitted inside
+   `Solana::Vault#assert_entry_cosign_safe!`, on its `when lighthouse` arm (`:2316-2320`). PR #134.
 2. **Simulation of any tx whose blockhash isn't in the recent queue needs
    `replaceRecentBlockhash: true`** (sigVerify must be false alongside it) —
    `Solana::Vault#cosign_and_broadcast_entry` simulates with both
-   (`app/services/solana/vault.rb:2412-2413`). PR #135.
+   (`app/services/solana/vault.rb:2435-2436`). PR #135.
 3. **Never anchor user-driven Phantom-signed txs on a shared durable nonce.**
    Phantom's injection position can displace the advance from instruction 0
    (un-recognizing the nonce → BlockhashNotFound at preflight), and one nonce
@@ -309,4 +312,4 @@ three:
    entrants. Entries use a fresh blockhash (re-prepared seconds before
    signing); the durable nonce is for slow operator cosigns only.
    `Solana::Vault#build_enter_contest` pins `dn = nil` with that reasoning
-   (`app/services/solana/vault.rb:1331-1345`). PR #136.
+   (`app/services/solana/vault.rb:1366-1380`). PR #136.
