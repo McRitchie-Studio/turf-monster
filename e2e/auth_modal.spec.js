@@ -76,6 +76,102 @@ test("resending swaps to the Link Resent confirmation and starts the cooldown @s
   await expect(page.getByText(/Resend available in \d+s/)).toBeVisible();
 });
 
+// ── THE ENGINE RESEND FOOTER, JUDGED BY A BROWSER (/tasks/turf-adopts-resend-footer) ──
+//
+// This app deleted its fork of the resend footer and now renders the engine's
+// studio/modals/auth/resend_footer at both magic-link steps. Nothing in the MARKUP can
+// tell you whether that was safe: the two things the swap actually changes are a colour
+// that resolves through the theme and a spinner ring that resolves through currentColor,
+// and a token assertion would have passed on the version that FAILS contrast
+// (text-red-400, 2.77 light / 4.03 dark on this app's palette — the reason the engine
+// floor is >= 0.74.9). So both are measured after the cascade, in a real browser.
+const resendFooterError = (dialog) => dialog.locator('p[x-text="props.resendError"]');
+
+async function reachLinkSentStep(page, tag) {
+  await page.goto("/signin");
+  await page.fill('input[name="email"]', `authmodal-${tag}-${Date.now()}@example.com`);
+  await page.click('button:has-text("Email Link")');
+  await expect(page.locator('button:has-text("Resend link")')).toBeVisible();
+}
+
+// WCAG 2.x relative luminance, computed from what the browser actually painted.
+const CONTRAST_IN_BROWSER = `(fg, bg) => {
+  const channel = (c) => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  const lum = (rgb) => 0.2126 * channel(rgb[0]) + 0.7152 * channel(rgb[1]) + 0.0722 * channel(rgb[2]);
+  const a = lum(fg), b = lum(bg);
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}`;
+
+test("the engine resend error clears AA against the modal surface it sits on @smoke", async ({ page }) => {
+  await reachLinkSentStep(page, "contrast");
+
+  // A server refusal is how a real user reaches this sentence, same as the credentials
+  // live-region spec below.
+  await page.route("**/magic_link", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ success: false, error: "That address is not allowed." }),
+    })
+  );
+  await page.locator('button:has-text("Resend link")').click();
+
+  const dialog = page.getByRole("dialog");
+  const error = resendFooterError(dialog);
+  await expect(error).toHaveText("That address is not allowed.");
+
+  const ratio = await error.evaluate((el, contrastSrc) => {
+    const parse = (c) => c.match(/[\d.]+/g).slice(0, 3).map(Number);
+    const opaque = (c) => c && c !== "transparent" && !c.startsWith("rgba(0, 0, 0, 0)");
+    let node = el, bg = null;
+    while (node && !bg) {
+      const c = getComputedStyle(node).backgroundColor;
+      if (opaque(c)) bg = c;
+      node = node.parentElement;
+    }
+    // eslint-disable-next-line no-eval
+    return eval(contrastSrc)(parse(getComputedStyle(el).color), parse(bg));
+  }, CONTRAST_IN_BROWSER);
+
+  expect(ratio).toBeGreaterThanOrEqual(4.5);
+});
+
+test("the engine spinner draws the ring in the resend link's own colour @smoke", async ({ page }) => {
+  await reachLinkSentStep(page, "spinner");
+
+  // HOLD the resend in flight, so `props.submitting === 'magic-link'` is true long enough
+  // to read the spinner the engine renders. Without this the window is a few frames.
+  await page.route("**/magic_link", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    await route.fulfill({
+      status: 200, contentType: "application/json", body: JSON.stringify({ success: true }),
+    });
+  });
+
+  const dialog = page.getByRole("dialog");
+  const link = dialog.locator('button:has-text("Resending…"), button:has-text("Resend link")').first();
+  await dialog.locator('button:has-text("Resend link")').click();
+
+  // SCOPED TO THE SUBMITTING BUTTON. Both magic-link steps keep their footer mounted, so
+  // `span.spinner` alone resolves to two — and the one that matters is the one inside the
+  // link that is mid-resend, which is the only button reading "Resending…".
+  const spinner = dialog.locator('button:has-text("Resending…") span.spinner');
+  await expect(spinner).toBeVisible();
+
+  // currentColor resolution is the whole assertion: --spinner-track paints the RING and
+  // inherits the link's colour, --spinner-color paints only the leading segment and is
+  // transparent. That is what reproduced this app's host-only .cta-spinner, and only a
+  // browser resolves it — the markup just says class="spinner".
+  const painted = await spinner.evaluate((el) => {
+    const s = getComputedStyle(el);
+    return { ring: s.borderRightColor, lead: s.borderTopColor, ink: getComputedStyle(el.closest("button")).color };
+  });
+
+  expect(painted.ring).toBe(painted.ink);
+  expect(painted.lead).toMatch(/rgba\(0, 0, 0, 0\)|transparent/);
+  await expect(link).toBeVisible();
+});
+
 test("Solana button in standalone auth modal opens the wallet chooser @smoke", async ({ page }) => {
   await page.goto("/signin");
 
