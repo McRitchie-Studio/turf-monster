@@ -167,9 +167,15 @@ bin/deploy
    curl -s $RPC -X POST -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,
      "method":"getMultipleAccounts","params":[["<program id>","<ProgramData address>"],
      {"encoding":"base64","commitment":"finalized","dataSlice":{"offset":0,"length":0}}]}'
+   # TODAY's rent-exempt minimums — QUERY them, one call per size. Never multiply
+   # by a per-byte constant: the cluster has been lowering the rate (6,960 when
+   # this program was funded, 6,333 on 2026-09-11, 5,080 on 2026-09-13).
+   solana rent 545973 --url $RPC   # ProgramData: 45-byte header + the deployed file
+   solana rent 545965 --url $RPC   # a deploy buffer: 37-byte header + the deployed file
+   solana rent 36     --url $RPC   # the Program account
    ```
 
-   The dump is the whole program region, so it is the account's space minus the 45-byte header; the ELF is often shorter, with zero slack after it. Put the ELF length in `binary_size` and the ProgramData account's space in `programdata_space` (rent is charged on space, and `(space + 128) × 6960` must equal its lamports). Then update `measured` (version, slot, date, `idl_sha256` of the re-pinned mainnet IDL, `program_sha256`).
+   **The deployed file is the whole program region** — `solana program dump` writes it, the loader wrote it, and Agave reads it through EOF — so it is what `deployed_file_bytes` holds and what sizes both the ProgramData account (`+ 45`) and a deploy buffer (`+ 37`). The ELF's logical content usually ends earlier, with zeros after it; that endpoint goes in `elf_content_bytes` and is printed only where the page labels it as ELF content. **Keep balances and minimums apart**: `programdata_balance` / `program_acct_balance` are what the live accounts HOLD (`getMultipleAccounts`), while `pd_rent_min` / `buffer_rent_min` / `program_acct_min` are what they would COST at that slot (`solana rent`). Then update `measured` (version, slot, date, `idl_sha256` of the re-pinned mainnet IDL, `program_sha256`).
 2. **Per-instruction bytes and `.text` buckets — from a debug-info rebuild** of the deployed tag with `--features mainnet` (`CARGO_PROFILE_RELEASE_DEBUG=2 … cargo-build-sbf` → `llvm-objdump --syms | rustfilt`, dedup by address, bucket by instruction module): the deployed binary is stripped, so it cannot attribute them. Update `attributed_on` when you do. Until then the page labels them with the build they came from (`v0.19` as of 2026-09-10).
 3. **Auth roles and Rails call sites** — re-audit the admin playbook's web2/web3 caller map. The playbook names any committed-IDL instruction it does not cover yet.
 

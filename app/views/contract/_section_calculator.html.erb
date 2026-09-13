@@ -3,7 +3,14 @@
   permanent + refundable + total-float costs in dollars. The lamport lines do
   not depend on the SOL price, so they render server-side from the measured
   figures; Alpine only drives the SOL/USD totals.
-    locals: binary_size, programdata_space, pd_rent_lamports, program_acct_rent, buffer_lamports
+
+  EVERY LAMPORT FIGURE HERE IS QUERIED, NOT MULTIPLIED. The *_min locals come
+  from getMinimumBalanceForRentExemption at measured[:slot]; the *_balance
+  locals are what the live accounts hold. They differ because the two were
+  priced at different rates, and this block keeps them apart.
+    locals: deployed_file_bytes, programdata_space, buffer_space, program_acct_space,
+            pd_rent_min, buffer_rent_min, program_acct_min, programdata_balance,
+            program_acct_balance, funded_rate, current_rate, measured
 
   Alpine factory lives in the parent show.html.erb (window.contractCostCalculator)
   because the factory MUST be defined inline before Alpine processes x-data
@@ -14,10 +21,16 @@
     <h2 class="text-heading font-bold text-xl">Deploy-cost calculator</h2>
     <span class="text-[11px] font-mono text-muted uppercase tracking-wider">SOL &rarr; USD</span>
   </div>
-  <p class="text-secondary text-sm mb-5 max-w-3xl">
-    Solana rent formula:
-    <code class="font-mono bg-surface-alt px-1.5 py-0.5 rounded text-xs">(data_len + 128) &times; 6960 lamports</code>
-    &mdash; this is the rent-exempt minimum (2 years &times; lamports-per-byte-year &times; 2&times; exemption threshold).
+  <p class="text-secondary text-sm mb-5 max-w-3xl" data-test="contract-rent-rate-copy">
+    An account is rent-exempt once it holds the minimum for its size, and that minimum is
+    <em>not</em> a fixed constant &mdash; the cluster sets the per-byte rate and has been lowering it.
+    Ask the chain rather than multiply:
+    <code class="font-mono bg-surface-alt px-1.5 py-0.5 rounded text-xs">solana rent <%= programdata_space %></code>,
+    or <code class="font-mono bg-surface-alt px-1.5 py-0.5 rounded text-xs">getMinimumBalanceForRentExemption</code>.
+    Every minimum below was queried at slot <%= number_with_delimiter(measured[:slot]) %> (<%= measured[:date] %>),
+    where it worked out to <%= number_with_delimiter(current_rate) %> lamports a byte.
+    This program's accounts were funded at <%= number_with_delimiter(funded_rate) %>, so what they hold
+    is more than what they would cost to open today.
   </p>
 
   <%# Live readouts row — wraps to new lines on mobile %>
@@ -31,7 +44,7 @@
       </span>
     </label>
     <span class="font-mono text-secondary text-xs sm:text-sm">
-      Binary: <strong class="text-heading tabular-nums"><%= number_with_delimiter(binary_size) %></strong> bytes
+      Deployed file: <strong class="text-heading tabular-nums"><%= number_with_delimiter(deployed_file_bytes) %></strong> bytes
     </span>
     <span class="font-mono text-secondary text-xs sm:text-sm">
       SOL needed: <strong class="text-primary tabular-nums" x-text="fmtSol(floatSol)">--</strong>
@@ -49,24 +62,32 @@
       <h3 class="text-heading font-semibold text-sm mb-3">PERMANENT (you spend forever)</h3>
       <dl class="space-y-1.5 font-mono text-xs sm:text-[13px] text-secondary">
         <div class="flex justify-between items-baseline gap-2">
-          <dt class="truncate" data-test="contract-pd-rent-formula" data-space="<%= programdata_space %>">ProgramData rent (<%= number_with_delimiter(programdata_space) %> + 128) &times; 6960</dt>
-          <dd class="text-heading tabular-nums whitespace-nowrap" data-test="contract-pd-rent-lamports"><%= number_with_delimiter(pd_rent_lamports) %> &#8467;</dd>
+          <dt class="truncate" data-test="contract-pd-rent-min-line" data-space="<%= programdata_space %>">ProgramData minimum, <%= number_with_delimiter(programdata_space) %> bytes</dt>
+          <dd class="text-heading tabular-nums whitespace-nowrap" data-test="contract-pd-rent-min"><%= number_with_delimiter(pd_rent_min) %> &#8467;</dd>
         </div>
         <div class="flex justify-between items-baseline gap-2">
-          <dt class="truncate">Program account (36 + 128) &times; 6960</dt>
-          <dd class="text-heading tabular-nums whitespace-nowrap"><%= number_with_delimiter(program_acct_rent) %> &#8467;</dd>
+          <dt class="truncate" data-space="<%= program_acct_space %>">Program account minimum, <%= number_with_delimiter(program_acct_space) %> bytes</dt>
+          <dd class="text-heading tabular-nums whitespace-nowrap" data-test="contract-program-acct-min"><%= number_with_delimiter(program_acct_min) %> &#8467;</dd>
         </div>
         <div class="flex justify-between items-baseline gap-2">
           <dt class="truncate">Deploy TX fees (signatures + compute)</dt>
-          <dd class="text-heading tabular-nums whitespace-nowrap">~1,000,000 &#8467;</dd>
+          <dd class="text-heading tabular-nums whitespace-nowrap" data-test="contract-tx-fee">1,000,000 &#8467;</dd>
         </div>
         <div class="flex justify-between items-baseline gap-2 pt-2 mt-2 border-t border-subtle">
-          <dt class="text-heading font-semibold">Permanent SOL spent</dt>
+          <dt class="text-heading font-semibold">Permanent SOL at that slot's rate</dt>
           <dd class="text-warning tabular-nums font-semibold whitespace-nowrap" x-text="'~' + fmtSol(permSol) + ' SOL'">--</dd>
         </div>
         <div class="flex justify-between items-baseline gap-2">
           <dt class="text-muted">&asymp; at current price</dt>
           <dd class="text-heading tabular-nums whitespace-nowrap" x-text="'~' + fmtUsd(permUsd)">--</dd>
+        </div>
+        <div class="flex justify-between items-baseline gap-2 pt-2 mt-2 border-t border-subtle">
+          <dt class="text-secondary">What this program's accounts hold today</dt>
+          <dd class="text-heading tabular-nums whitespace-nowrap" data-test="contract-accounts-balance"><%= number_with_delimiter(programdata_balance + program_acct_balance) %> &#8467;</dd>
+        </div>
+        <div class="flex justify-between items-baseline gap-2">
+          <dt class="text-muted">&mdash; funded at <%= number_with_delimiter(funded_rate) %> lamports a byte, not today's <%= number_with_delimiter(current_rate) %></dt>
+          <dd></dd>
         </div>
       </dl>
     </div>
@@ -76,8 +97,8 @@
       <h3 class="text-heading font-semibold text-sm mb-3">FLOAT (you need on hand, then refundable)</h3>
       <dl class="space-y-1.5 font-mono text-xs sm:text-[13px] text-secondary">
         <div class="flex justify-between items-baseline gap-2">
-          <dt class="truncate">Buffer account (37 + <%= number_with_delimiter(binary_size) %> + 128) &times; 6960</dt>
-          <dd class="text-heading tabular-nums whitespace-nowrap"><%= number_with_delimiter(buffer_lamports) %> &#8467;</dd>
+          <dt class="truncate" data-test="contract-buffer-min-line" data-space="<%= buffer_space %>">Buffer minimum, <%= number_with_delimiter(buffer_space) %> bytes (37 + the <%= number_with_delimiter(deployed_file_bytes) %>-byte file)</dt>
+          <dd class="text-heading tabular-nums whitespace-nowrap" data-test="contract-buffer-min"><%= number_with_delimiter(buffer_rent_min) %> &#8467;</dd>
         </div>
         <div class="flex justify-between items-baseline">
           <dt class="text-muted">&mdash; refunded when you close the buffer</dt>

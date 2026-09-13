@@ -57,11 +57,21 @@
   #     turf-vault docs/CURRENT_DEPLOYMENT.md, so these are the executing bytes)
   #   llvm-objdump --section-headers mainnet.so   (the platform-tools llvm under ~/.cache/solana)
   #   getMultipleAccounts [program, ProgramData]  space 36 and 545,973; lamports 1,141,440 and 3,800,862,960
-  # The dump is the whole program region of ProgramData. The ELF inside it
-  # ends at e_shoff + e_shnum * e_shentsize = 544,328 + 9 * 64 = 544,904;
-  # the other 1,024 bytes are zeros the account was sized with. Rent is
-  # charged on the account's whole space (a 45-byte loader header plus
-  # 545,928), so the permanent rent comes from that space, not the ELF length.
+  # WHAT THE DUMP IS. The dump is the ProgramData account's whole program
+  # region: 545,928 bytes. That is THE DEPLOYED FILE — the loader wrote every
+  # byte of it and Agave reads it through EOF — so it is what the page calls
+  # the deployed program and what prices a deploy buffer. Inside it the ELF's
+  # logical content ends at e_shoff + e_shnum * e_shentsize = 544,328 + 9 * 64
+  # = 544,904, and the remaining 1,024 bytes are zeros. 544,904 is therefore
+  # LOGICAL ELF CONTENT ONLY: never the deployed file, never a rent input.
+  #
+  # RENT: TWO DIFFERENT NUMBERS, NEVER MIXED. What an account HOLDS is not
+  # what it would cost today. This program's accounts were funded when a
+  # rent-exempt byte cost 6,960 lamports (3,800,862,960 = (545,973 + 128) *
+  # 6,960 exactly). The cluster has been LOWERING that rate: review read
+  # 6,333 lamports/byte on 2026-09-11, and two days later it is 5,080. So the
+  # minimums below are QUERIED, never multiplied by a constant:
+  #   solana rent 545973 --url <rpc>   # or getMinimumBalanceForRentExemption
   # The version is v0.25.0 by the discriminator probe in CURRENT_DEPLOYMENT.md
   # (admin_create_user_account PRESENT, burn_entry_token absent), rerun on this dump.
   # test/views/contract_measurements_test.rb pins version and idl_sha256 to
@@ -70,26 +80,41 @@
   measured = {
     version:        "0.25.0",
     cluster:        "mainnet-beta",
-    slot:           445_912_166,
-    date:           "2026-09-10",
+    slot:           446_739_318,
+    date:           "2026-09-13",
     idl_sha256:     "b9b522635894a42f5434f1faa1cd126d146f3042ae2c233acd1dd76a300f7152",
     program_sha256: "e71a3fce25f8b5f28a203b33705a0274ebf1b2200c9f092ac86339931f2dbee7"
   }
 
-  binary_size          = 544_904   # bytes: the ELF inside the ProgramData program region
-  programdata_space    = 545_973   # bytes: the ProgramData account (45-byte header + 545,928)
-  lamports_per_byte    = 6_960     # rent formula constant
-  pd_rent_lamports     = (programdata_space + 128) * lamports_per_byte  # 3,800,862,960: its on-chain balance
-  program_acct_rent    = (36 + 128) * lamports_per_byte                 # 1,141,440: the Program account's balance
-  buffer_lamports      = (37 + binary_size + 128) * lamports_per_byte   # a buffer holds a 37-byte header + the ELF
-  tx_fee_lamports      = 1_000_000
-  perm_total_lamports  = pd_rent_lamports + program_acct_rent + tx_fee_lamports
-  total_float_lamports = perm_total_lamports + buffer_lamports
+  # Sizes, from `solana program show` and the dump.
+  deployed_file_bytes  = 545_928   # the deployed file: the ProgramData program region
+  elf_content_bytes    = 544_904   # logical ELF content inside it; the rest is zero padding
+  programdata_space    = 545_973   # the ProgramData account: 45-byte loader header + the file
+  buffer_space         = 545_965   # a deploy buffer: 37-byte buffer header + the file
+  program_acct_space   = 36        # the Program account, which points at ProgramData
 
-  perm_sol      = pd_rent_lamports / 1e9      # 3.801 SOL, forever-locked in the ProgramData account
-  buffer_sol    = buffer_lamports / 1e9       # 3.794 SOL, refunded after deploy
-  float_sol     = total_float_lamports / 1e9  # 7.597 SOL, needed on hand at deploy
-  v015_perm_sol = 3.248
+  # What the two live accounts HOLD, from getMultipleAccounts at measured[:slot].
+  programdata_balance  = 3_800_862_960
+  program_acct_balance = 1_141_440
+  funded_rate          = programdata_balance / (programdata_space + 128)  # 6,960 lamports/byte
+
+  # What they would COST today: getMinimumBalanceForRentExemption at
+  # measured[:slot], one call per size. Do not re-derive these by multiplying.
+  pd_rent_min          = 2_774_193_080
+  buffer_rent_min      = 2_774_152_440
+  program_acct_min     = 833_120
+  empty_acct_min       = 650_240   # the 128-byte account overhead, priced alone
+  current_rate         = (pd_rent_min - empty_acct_min) / programdata_space  # 5,080 lamports/byte
+
+  tx_fee_lamports      = 1_000_000
+  perm_total_lamports  = pd_rent_min + program_acct_min + tx_fee_lamports
+  total_float_lamports = perm_total_lamports + buffer_rent_min
+
+  locked_sol    = programdata_balance / 1e9   # 3.801 SOL the ProgramData account holds today
+  pd_min_sol    = pd_rent_min / 1e9           # 2.774 SOL, its rent-exempt minimum at that slot
+  buffer_sol    = buffer_rent_min / 1e9       # 2.774 SOL, refunded after deploy
+  float_sol     = total_float_lamports / 1e9  # 5.550 SOL to have on hand for a deploy today
+  v015_perm_sol = 3.248                       # v0.15.1's locked rent, also funded at 6,960
 
   # ─── Section layout: llvm-objdump --section-headers on the mainnet dump
   #   (the `measured` block above). dyn meta = .dynamic 176 + .dynsym 360
@@ -101,7 +126,8 @@
     { name: ".rodata",      bytes:  23_272, color: "#ffce6b", desc: "Read-only strings: error names and messages, msg!() log strings, account-field and PDA-seed names embedded by Anchor." },
     { name: ".data.rel.ro", bytes:  13_344, color: "#7af0a9", desc: "Relocatable read-only constants — Anchor discriminators, instruction-method tables." },
     { name: "dyn meta",     bytes:     758, color: "#5d6790", desc: ".dynamic + .dynsym + .dynstr — minimal dynamic-linking metadata." },
-    { name: "ELF hdr+pad",  bytes: binary_size - 464_208 - 42_384 - 23_272 - 13_344 - 758, color: "#243155", desc: "ELF header, program headers, .shstrtab, the section-header table, alignment padding." }
+    { name: "ELF hdr+pad",  bytes: elf_content_bytes - 464_208 - 42_384 - 23_272 - 13_344 - 758, color: "#243155", desc: "ELF header, program headers, .shstrtab, the section-header table, alignment padding." },
+    { name: "zero padding", bytes: deployed_file_bytes - elf_content_bytes, color: "#1b2440", desc: "Zeros after the ELF's last byte. The loader wrote the whole deployed file and the account rents every byte of it, ELF content or not." }
   ]
 
   # ─── NOT RE-MEASURED. The .text buckets and the per-instruction bytes
@@ -337,8 +363,11 @@
   </header>
 
   <%= render "section_intro" %>
-  <%= render "section_hero", perm_sol: perm_sol, float_sol: float_sol, buffer_sol: buffer_sol, binary_size: binary_size, v015_perm_sol: v015_perm_sol, measured: measured %>
-  <%= render "section_sections", sections: sections, binary_size: binary_size, programdata_space: programdata_space %>
+  <%= render "section_hero", locked_sol: locked_sol, pd_min_sol: pd_min_sol, float_sol: float_sol, buffer_sol: buffer_sol,
+             deployed_file_bytes: deployed_file_bytes, elf_content_bytes: elf_content_bytes,
+             programdata_space: programdata_space, funded_rate: funded_rate, current_rate: current_rate,
+             v015_perm_sol: v015_perm_sol, measured: measured %>
+  <%= render "section_sections", sections: sections, deployed_file_bytes: deployed_file_bytes, programdata_space: programdata_space %>
   <%= render "section_buckets", text_buckets: text_buckets, attributed_on: attributed_on, measured: measured, deployed_text_bytes: sections.first[:bytes] %>
   <%= render "section_instructions", user_instructions: user_instructions, attributed_on: attributed_on, measured: measured %>
   <%= render "section_auth" %>
@@ -348,12 +377,16 @@
     <%= render "section_admin_state" %>
   <% end %>
 
-  <%= render "section_calculator", binary_size: binary_size, programdata_space: programdata_space, pd_rent_lamports: pd_rent_lamports, program_acct_rent: program_acct_rent, buffer_lamports: buffer_lamports %>
+  <%= render "section_calculator", deployed_file_bytes: deployed_file_bytes, programdata_space: programdata_space,
+             buffer_space: buffer_space, program_acct_space: program_acct_space, pd_rent_min: pd_rent_min,
+             buffer_rent_min: buffer_rent_min, program_acct_min: program_acct_min,
+             programdata_balance: programdata_balance, program_acct_balance: program_acct_balance,
+             funded_rate: funded_rate, current_rate: current_rate, measured: measured %>
 
   <footer class="border-t border-subtle pt-6 mt-8 text-xs text-muted">
     <p class="mb-1 font-mono">turf-vault <%= prog_version %> &middot; Anchor 0.32.1 &middot; Rust 1.89.0</p>
     <p class="mb-1">Repo: <code class="text-secondary">/Users/alex/projects/turf-vault</code><% if idl_instruction_names.any? %> &middot; <%= idl_instruction_names.size %> instructions<% end %><% if idl_error_codes.any? %> &middot; errors <%= idl_error_codes.min %>&ndash;<%= idl_error_codes.max %><% end %></p>
-    <p>Binary, section and rent figures read off the <%= measured[:cluster] %> deployment of turf-vault v<%= measured[:version] %> at slot <%= number_with_delimiter(measured[:slot]) %> (<%= measured[:date] %>): <code class="text-secondary">solana program dump</code>, then <code class="text-secondary">llvm-objdump --section-headers</code>. Per-instruction and .text-bucket bytes from a <%= attributed_on %> debug-info rebuild (deduped by address), not yet re-measured. Caller map re-audited against <code class="text-secondary">app/services/solana/vault.rb</code>.</p>
+    <p>Byte and rent figures read off the <%= measured[:cluster] %> deployment of turf-vault v<%= measured[:version] %> at slot <%= number_with_delimiter(measured[:slot]) %> (<%= measured[:date] %>): <code class="text-secondary">solana program dump</code> for the <%= number_with_delimiter(deployed_file_bytes) %>-byte deployed file, <code class="text-secondary">llvm-objdump --section-headers</code> for its sections, <code class="text-secondary">getMultipleAccounts</code> for the balances, and <code class="text-secondary">getMinimumBalanceForRentExemption</code> for every rent-exempt minimum — none of them multiplied out from a per-byte constant. Per-instruction and .text-bucket bytes from a <%= attributed_on %> debug-info rebuild (deduped by address), not yet re-measured. Caller map re-audited against <code class="text-secondary">app/services/solana/vault.rb</code>.</p>
   </footer>
 
 </div>

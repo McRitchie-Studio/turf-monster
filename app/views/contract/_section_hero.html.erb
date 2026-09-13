@@ -3,32 +3,44 @@
   `measured` record in show.html.erb says which version, slot and date;
   the line under the grid prints it, because the numbers are presented as
   facts (the version pill above reads the committed IDL, not this record).
-    locals: perm_sol, float_sol, buffer_sol, binary_size, v015_perm_sol, measured
+
+  TWO DISTINCTIONS THIS GRID MUST NOT BLUR:
+    - the DEPLOYED FILE is deployed_file_bytes. elf_content_bytes is the
+      logical ELF content inside it and is labeled as such, nothing else.
+    - what the account HOLDS (locked_sol, funded at funded_rate) is not what
+      it would COST today (pd_min_sol, queried at measured[:slot]).
+
+    locals: locked_sol, pd_min_sol, float_sol, buffer_sol, deployed_file_bytes,
+            elf_content_bytes, programdata_space, funded_rate, current_rate,
+            v015_perm_sol, measured
 %>
 <section class="mb-8">
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
 
     <div class="card p-4 sm:p-5">
-      <div class="text-[10px] sm:text-xs uppercase tracking-wider text-secondary font-semibold mb-2">Deploy binary</div>
+      <div class="text-[10px] sm:text-xs uppercase tracking-wider text-secondary font-semibold mb-2">Deployed program</div>
       <div class="font-mono text-2xl sm:text-3xl tabular-nums text-heading leading-tight">
-        <%= number_with_delimiter(binary_size) %><span class="text-xs sm:text-sm text-secondary ml-1">bytes</span>
+        <%= number_with_delimiter(deployed_file_bytes) %><span class="text-xs sm:text-sm text-secondary ml-1">bytes</span>
       </div>
-      <div class="text-[11px] sm:text-xs text-muted mt-2 leading-snug">
-        ~<%= (binary_size / 1024.0).round %> KB. The ELF that lands on chain.
+      <div class="text-[11px] sm:text-xs text-muted mt-2 leading-snug" data-test="contract-elf-content">
+        ~<%= (deployed_file_bytes / 1024.0).round %> KB. The file the loader wrote, read through its last byte.
+        <span data-test="contract-elf-content-bytes"><%= number_with_delimiter(elf_content_bytes) %></span>
+        bytes of it are logical ELF content; the rest is zero padding.
       </div>
     </div>
 
     <div class="card p-4 sm:p-5">
-      <div class="text-[10px] sm:text-xs uppercase tracking-wider text-secondary font-semibold mb-2">Permanent rent</div>
-      <div class="font-mono text-2xl sm:text-3xl tabular-nums text-warning leading-tight">
-        <%= sprintf("%.3f", perm_sol) %><span class="text-xs sm:text-sm text-secondary ml-1">SOL</span>
+      <div class="text-[10px] sm:text-xs uppercase tracking-wider text-secondary font-semibold mb-2">Locked in ProgramData</div>
+      <div class="font-mono text-2xl sm:text-3xl tabular-nums text-warning leading-tight" data-test="contract-locked-sol">
+        <%= sprintf("%.3f", locked_sol) %><span class="text-xs sm:text-sm text-secondary ml-1">SOL</span>
       </div>
       <div class="text-[11px] sm:text-xs text-muted mt-2 leading-snug">
         <%
-          delta = perm_sol - v015_perm_sol
+          delta = locked_sol - v015_perm_sol
           delta_word = delta >= 0 ? "more" : "less"
         %>
-        Forever-locked rent on the ProgramData account. <%= sprintf("%.2f SOL %s than v0.15.1's %.3f", delta.abs, delta_word, v015_perm_sol) %>.
+        What the account holds today, funded at <%= number_with_delimiter(funded_rate) %> lamports a byte.
+        <%= sprintf("%.2f SOL %s than v0.15.1's %.3f", delta.abs, delta_word, v015_perm_sol) %>, funded at that same rate.
       </div>
     </div>
 
@@ -38,17 +50,17 @@
         <%= sprintf("%.3f", buffer_sol) %><span class="text-xs sm:text-sm text-secondary ml-1">SOL</span>
       </div>
       <div class="text-[11px] sm:text-xs text-muted mt-2 leading-snug">
-        During-deploy buffer account. Refunded once <code class="font-mono text-secondary">close-buffer</code> runs.
+        A buffer holding the same <%= number_with_delimiter(deployed_file_bytes) %>-byte file. Refunded once <code class="font-mono text-secondary">close-buffer</code> runs.
       </div>
     </div>
 
     <div class="card p-4 sm:p-5">
-      <div class="text-[10px] sm:text-xs uppercase tracking-wider text-secondary font-semibold mb-2">Total float at deploy</div>
+      <div class="text-[10px] sm:text-xs uppercase tracking-wider text-secondary font-semibold mb-2">Float to deploy today</div>
       <div class="font-mono text-2xl sm:text-3xl tabular-nums text-primary leading-tight">
         ~<%= sprintf("%.2f", float_sol) %><span class="text-xs sm:text-sm text-secondary ml-1">SOL</span>
       </div>
       <div class="text-[11px] sm:text-xs text-muted mt-2 leading-snug">
-        Both accounts exist simultaneously during deploy. Needed in the bot (Alex) before write-buffer.
+        Both accounts exist at once during a deploy. Needed in the bot (Alex) before write-buffer.
       </div>
     </div>
 
@@ -61,5 +73,9 @@
     at slot <%= number_with_delimiter(measured[:slot]) %> (<%= measured[:date] %>).
     Program sha256 <code class="font-mono text-secondary"><%= measured[:program_sha256] %></code>
     &mdash; check it with <code class="font-mono text-secondary">solana program dump</code> and <code class="font-mono text-secondary">shasum -a 256</code>.
+    Rent is a snapshot, not a constant: this account's <%= number_with_delimiter(programdata_space) %> bytes were funded at
+    <%= number_with_delimiter(funded_rate) %> lamports a byte, and at that slot the cluster's rent-exempt minimum
+    priced them at <%= number_with_delimiter(current_rate) %> a byte
+    (<span data-test="contract-pd-min-sol"><%= sprintf("%.3f", pd_min_sol) %></span> SOL), a rate it keeps lowering.
   </p>
 </section>

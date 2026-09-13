@@ -14,6 +14,15 @@ require "digest"
 # mainnet ProgramData account held 545,973 bytes and 3,800,862,960 lamports; the
 # page said 501,528 bytes and about 3.49 SOL.
 #
+# TWO DISTINCTIONS THE FIRST FIX STILL BLURRED (review, 2026-09-11), each with a
+# case below. (1) The loader writes 545,928 bytes and Agave reads that file
+# through EOF, so the DEPLOYED FILE is 545,928; 544,904 is only where the ELF's
+# logical content ends, and pricing a deploy buffer off it under-funds the
+# buffer. (2) An account's funded BALANCE is not today's rent-exempt MINIMUM:
+# these accounts were funded at 6,960 lamports a byte and the cluster has been
+# lowering that rate (6,333 on 2026-09-11, 5,080 two days later), so a minimum
+# must be queried rather than multiplied out.
+#
 # WHAT THIS CAN PIN, AND WHAT IT CANNOT. A test cannot read the chain, so it cannot
 # prove the figures are current. It pins the next best thing: the record the figures
 # were measured under must name the IDL that is committed for mainnet, by version
@@ -26,7 +35,8 @@ require "digest"
 class ContractMeasurementsTest < ActionDispatch::IntegrationTest
   MAINNET_IDL = Rails.root.join("config", "turf_vault.mainnet.idl.json")
   PROGRAMDATA_HEADER_BYTES = 45 # UpgradeableLoaderState::ProgramData: tag 4 + slot 8 + Option<Pubkey> 33
-  LAMPORTS_PER_BYTE = 6_960
+  BUFFER_HEADER_BYTES = 37      # UpgradeableLoaderState::Buffer: tag 4 + Option<Pubkey> 33
+  RETIRED_LAMPORTS_PER_BYTE = 6_960 # the rate these accounts were funded at; the cluster has lowered it since
 
   def page
     get contract_path
@@ -64,24 +74,63 @@ class ContractMeasurementsTest < ActionDispatch::IntegrationTest
     assert_match(/slot [\d,]+ \(\d{4}-\d{2}-\d{2}\)/, text, "the visible record must name the slot and date it measured at")
   end
 
-  test "the permanent rent is the ProgramData account's rent, header included" do
+  # DISTINCTION 1: the DEPLOYED FILE is the whole program region the loader
+  # wrote (Agave reads it through EOF). The ELF's logical content ends earlier,
+  # and the zeros after it are rented like any other byte. The page may print
+  # the ELF endpoint, but only where it is labeled as ELF content, and never as
+  # an input to rent — sizing the buffer off it under-prices a deploy.
+  test "the deployed file sizes the accounts, and the ELF endpoint appears only as ELF content" do
     body = page
 
-    binary = body[%r{Deploy binary</div>\s*<div[^>]*>\s*([\d,]+)}m, 1]
-    data_len = body[/ProgramData rent \(([\d,]+) \+ 128\)/, 1]
-    lamports = body[%r{data-test="contract-pd-rent-lamports"[^>]*>\s*([\d,]+)}m, 1]
-    hero_sol = body[%r{Permanent rent</div>\s*<div[^>]*>\s*([\d.]+)}m, 1]
-    assert binary && data_len, "the hero binary size or the calculator's ProgramData formula did not render"
+    deployed = body[%r{Deployed program</div>\s*<div[^>]*>\s*([\d,]+)}m, 1]
+    elf = body[%r{data-test="contract-elf-content-bytes"[^>]*>\s*([\d,]+)}m, 1]
+    pd_space = body[/data-test="contract-pd-rent-min-line"[^>]*data-space="(\d+)"/, 1]
+    buffer_space = body[/data-test="contract-buffer-min-line"[^>]*data-space="(\d+)"/, 1]
+    assert deployed && elf && pd_space && buffer_space,
+      "the hero file size, the ELF-content figure, or a rent line's byte count did not render"
+    assert_operator int(elf), :<, int(deployed),
+      "the ELF content must be shorter than the deployed file, or this case is testing nothing"
 
-    assert_operator int(data_len), :>=, int(binary) + PROGRAMDATA_HEADER_BYTES,
-      "rent is charged on the whole ProgramData account: the #{binary}-byte ELF plus a " \
-      "#{PROGRAMDATA_HEADER_BYTES}-byte loader header at least. A data_len of #{data_len} leaves the header out."
+    assert_equal int(deployed) + PROGRAMDATA_HEADER_BYTES, pd_space.to_i,
+      "the ProgramData account is the 45-byte loader header plus the whole deployed file"
+    assert_equal int(deployed) + BUFFER_HEADER_BYTES, buffer_space.to_i,
+      "a deploy buffer holds the whole deployed file, not just its ELF content: pricing it off " \
+      "#{elf} under-funds the buffer by #{int(deployed) - int(elf)} bytes"
 
-    assert lamports, "the ProgramData rent line rendered no server-side lamport figure"
-    assert_equal (int(data_len) + 128) * LAMPORTS_PER_BYTE, int(lamports),
-      "the rent line's lamports must follow the rent formula for the data_len it prints"
-    assert_equal format("%.3f", int(lamports) / 1e9), hero_sol,
-      "the hero's forever-locked rent must be the ProgramData account's rent, the same figure the calculator itemizes"
+    # Every printing of the ELF endpoint must sit inside the labeled span.
+    labeled = body.scan(%r{data-test="contract-elf-content-bytes"[^>]*>\s*#{Regexp.escape(elf)}}m).size
+    assert_equal body.scan(elf).size, labeled,
+      "#{elf} is logical ELF content; it appears somewhere that does not say so"
+  end
+
+  # DISTINCTION 2: what an account HOLDS is not what it would COST today. These
+  # accounts were funded when a rent-exempt byte cost 6,960 lamports; the cluster
+  # keeps lowering that rate, so the page's minimums must be QUERIED
+  # (getMinimumBalanceForRentExemption), never multiplied by the old constant.
+  test "today's rent-exempt minimum is queried, and kept apart from the funded balance" do
+    body = page
+
+    pd_space = body[/data-test="contract-pd-rent-min-line"[^>]*data-space="(\d+)"/, 1].to_i
+    pd_min = int(body[%r{data-test="contract-pd-rent-min"[^>]*>\s*([\d,]+)}m, 1].to_s)
+    buffer_min = int(body[%r{data-test="contract-buffer-min"[^>]*>\s*([\d,]+)}m, 1].to_s)
+    program_min = int(body[%r{data-test="contract-program-acct-min"[^>]*>\s*([\d,]+)}m, 1].to_s)
+    tx_fee = int(body[%r{data-test="contract-tx-fee"[^>]*>\s*([\d,]+)}m, 1].to_s)
+    held = int(body[%r{data-test="contract-accounts-balance"[^>]*>\s*([\d,]+)}m, 1].to_s)
+    assert [pd_space, pd_min, buffer_min, program_min, tx_fee, held].all?(&:positive?),
+      "a rent figure did not render; the comparisons below would prove nothing"
+
+    assert_operator held, :>, pd_min,
+      "the funded balance and today's minimum are different facts; showing one number for both is the bug"
+    refute_equal (pd_space + 128) * RETIRED_LAMPORTS_PER_BYTE, pd_min,
+      "this minimum is the retired #{RETIRED_LAMPORTS_PER_BYTE}-lamports-a-byte constant multiplied out. " \
+      "Query it: solana rent #{pd_space}, or getMinimumBalanceForRentExemption."
+
+    # The calculator's SOL totals must be built from the QUERIED minimums.
+    cfg = JSON.parse(body[%r{<script type="application/json" id="contract-page-config">(.*?)</script>}m, 1])
+    assert_equal pd_min + program_min + tx_fee, cfg["perm_lamports"],
+      "the permanent total must be the queried minimums plus deploy fees, nothing else"
+    assert_equal cfg["perm_lamports"] + buffer_min, cfg["float_lamports"],
+      "the deploy float must be that permanent total plus the queried buffer minimum"
   end
 
   test "figures that were not re-measured say which build they came from" do
