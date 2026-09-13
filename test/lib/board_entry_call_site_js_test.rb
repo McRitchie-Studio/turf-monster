@@ -89,6 +89,13 @@ class BoardEntryCallSiteJsTest < ActiveSupport::TestCase
       modal.show = function (t, b) { modal.cards.push(['show', t, b]); modal.state = 'processing'; };
       modal.error = function (b, t) { modal.cards.push(['error', t, b]); modal.state = 'error'; };
       modal.success = function (sig, t) { modal.cards.push(['success', t, sig]); modal.state = 'success'; };
+      // The store's retire() in miniature (its real body, and the buried card
+      // that forced it, live in test/lib/solana_modal_retire_js_test.rb).
+      modal.retire = function () {
+        if (modal.state !== 'processing') return false;
+        modal.close();
+        return true;
+      };
       modal.setRecovery = function (label) { modal.cards.push(['recovery', label]); };
       modal.close = function () { modal.cards.push(['close']); };
 

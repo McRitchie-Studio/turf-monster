@@ -164,7 +164,7 @@ prepare_entry
 | `Solana::Vault#ensure_user_account` | `app/controllers/contests_controller.rb:1069` |
 | username codes 6020-6022 → friendly message, in `Solana::ErrorInterpreter.interpret` | `app/services/solana/error_interpreter.rb:184-196` |
 | ATA for the SELECTED currency — `Solana::Vault#ensure_ata` | `app/controllers/contests_controller.rb:1099` |
-| unsigned tx on a FRESH blockhash — `Solana::Vault#build_enter_contest` sets no durable nonce | `app/services/solana/vault.rb:1331-1345` |
+| unsigned tx on a FRESH blockhash — `Solana::Vault#build_enter_contest` sets no durable nonce | `app/services/solana/vault.rb:1366-1380` |
 | `PendingTransaction` created, no signature | `app/controllers/contests_controller.rb:1120-1132` |
 
 ### 3b. Phantom signs (client)
@@ -189,7 +189,8 @@ confirm_onchain_entry
 │     before anything is signed or broadcast
 ├─ C1 cosign guard: assert_entry_cosign_safe!  (server NEVER blind-cosigns)
 │     allowlist per instruction: exactly ONE enter_contest bound to THIS
-│     entry's server-derived PDA · ComputeBudget · Lighthouse (pure
+│     entry's server-derived PDA · ComputeBudget (limit + price only, admin's
+│     priority fee capped at 10x our builder's) · Lighthouse (pure
 │     assertions — can only fail the tx). NO System instruction: a transfer
 │     is the C1 attack, and a nonce advance would spend the admin's authority
 │     over the operator nonce.
@@ -209,8 +210,8 @@ confirm_onchain_entry
 | Branch | Where, in `ContestsController#confirm_onchain_entry` (`app/controllers/contests_controller.rb:1341-1459`) unless named |
 |---|---|
 | `assert_enterable!` PRE-FLIGHT | `:1365` |
-| C1 cosign guard — `Solana::Vault#assert_entry_cosign_safe!` | `:1388`; definition `app/services/solana/vault.rb:2200-2293` |
-| cosign + simulate + broadcast — `Solana::Vault#cosign_and_broadcast_entry` | `app/controllers/contests_controller.rb:1397`; definition `app/services/solana/vault.rb:2400-2420` |
+| C1 cosign guard — `Solana::Vault#assert_entry_cosign_safe!` | `:1388`; definition `app/services/solana/vault.rb:2237-2333` |
+| cosign + simulate + broadcast — `Solana::Vault#cosign_and_broadcast_entry` | `app/controllers/contests_controller.rb:1397`; definition `app/services/solana/vault.rb:2443-2463` |
 | PT stamped with `tx_signature` immediately | `app/controllers/contests_controller.rb:1409` |
 | `ContestsController#verify_and_confirm_onchain_entry!` | `:1415-1418`; definition `:2656-2672` |
 | PT confirmed | `:1420` |
@@ -298,12 +299,12 @@ three:
 1. **Phantom injects Lighthouse guard instructions at signing time, mainnet
    only.** The cosign allowlist must accept the Lighthouse program (pure
    post-state assertions, cannot move funds) — the `LIGHTHOUSE_PROGRAM_ID` constant
-   (`app/services/solana/vault.rb:48`), admitted inside
-   `Solana::Vault#assert_entry_cosign_safe!`, on its `when lighthouse` arm (`:2287-2291`). PR #134.
+   (`app/services/solana/vault.rb:54`), admitted inside
+   `Solana::Vault#assert_entry_cosign_safe!`, on its `when lighthouse` arm (`:2316-2320`). PR #134.
 2. **Simulation of any tx whose blockhash isn't in the recent queue needs
    `replaceRecentBlockhash: true`** (sigVerify must be false alongside it) —
    `Solana::Vault#cosign_and_broadcast_entry` simulates with both
-   (`app/services/solana/vault.rb:2392-2393`). PR #135.
+   (`app/services/solana/vault.rb:2435-2436`). PR #135.
 3. **Never anchor user-driven Phantom-signed txs on a shared durable nonce.**
    Phantom's injection position can displace the advance from instruction 0
    (un-recognizing the nonce → BlockhashNotFound at preflight), and one nonce
@@ -311,4 +312,4 @@ three:
    entrants. Entries use a fresh blockhash (re-prepared seconds before
    signing); the durable nonce is for slow operator cosigns only.
    `Solana::Vault#build_enter_contest` pins `dn = nil` with that reasoning
-   (`app/services/solana/vault.rb:1331-1345`). PR #136.
+   (`app/services/solana/vault.rb:1366-1380`). PR #136.

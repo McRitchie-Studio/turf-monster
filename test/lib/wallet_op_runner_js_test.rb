@@ -64,10 +64,21 @@ class WalletOpRunnerJsTest < ActiveSupport::TestCase
       var ran = [];
       window.SolanaStudio = { walletOps: { run: function (name, ctx, opts) { ran.push({ name: name, ctx: ctx, opts: opts }); return (#{run_result}); } } };
 
-      var modal = { cards: [], visible: true, state: null };
+      var modal = { cards: [], visible: true, state: null, retired: 0 };
       modal.show = function (t, b) { modal.cards.push(['show', t, b]); modal.visible = true; modal.state = 'processing'; };
       modal.error = function (b, t) { modal.cards.push(['error', t, b]); modal.state = 'error'; };
       modal.close = function () { modal.cards.push(['close']); modal.visible = false; modal.state = null; };
+      // The store's own retire(), in miniature — it finds the live transaction
+      // card ANYWHERE on the stack and drops it only while it is still
+      // processing. Its real body (and the buried case that forced it) is
+      // driven in test/lib/solana_modal_retire_js_test.rb; what the runner owes
+      // is CALLING it, on the way back and nowhere else.
+      modal.retire = function () {
+        modal.retired += 1;
+        if (modal.state !== 'processing') return false;
+        modal.close();
+        return true;
+      };
       global.Alpine = { store: function (n) { return n === 'solanaModal' ? modal : null; } };
 
       var provider = { transport: #{transport.to_json}, name: 'stub' };
@@ -381,7 +392,7 @@ class WalletOpRunnerJsTest < ActiveSupport::TestCase
       timers.forEach(function (t) { t.fn(); });        // so nothing is stranded
       var beforeReturn = modal.cards.map(function (c) { return c[0]; });
       firePageShow(true);                              // ...and the user swiped back
-      return { released: released, beforeReturn: beforeReturn,
+      return { released: released, beforeReturn: beforeReturn, retired: modal.retired,
                cards: modal.cards.map(function (c) { return c[0]; }),
                watching: listening('window:pageshow') + listening('document:visibilitychange') };
     JS
@@ -392,6 +403,9 @@ class WalletOpRunnerJsTest < ActiveSupport::TestCase
     assert_equal 1, result["released"],
                  "the caller's hold buttons and submitting flag must come back with the page, " \
                  "or the retry the user came back for is refused"
+    assert_equal 1, result["retired"],
+                 "retirement goes through the store's retire(), which reaches a card the " \
+                 "celebration has buried; reading .visible / .state here reaches only the top one"
     assert_equal 0, result["watching"], "a watch that has answered lets go of the page"
   end
 
@@ -485,19 +499,22 @@ class WalletOpRunnerJsTest < ActiveSupport::TestCase
       fireVisibility(true);
       fireVisibility(false);
       firePageShow(true);
-      return { released: released, cards: modal.cards.map(function (c) { return c[0]; }),
+      return { released: released, retired: modal.retired,
+               cards: modal.cards.map(function (c) { return c[0]; }),
                watching: listening('window:pageshow') + listening('document:visibilitychange') };
     JS
 
     assert_equal %w[show error], result["cards"]
+    assert_equal 0, result["retired"], "the stranded path paints a card; it never retires one"
     assert_equal 1, result["released"], "released once, by the stranded path"
     assert_equal 0, result["watching"]
   end
 
-  test "a return retires only a card that is still waiting" do
-    # The runner owns the processing card it painted, not whatever the store
-    # shows by the time the user is back. A card another step has already
-    # resolved is left for its own buttons.
+  test "a return asks the store to retire, and a resolved card refuses" do
+    # WHERE THE DECISION LIVES. The runner always asks; the store answers, and it
+    # is the store that knows a card has already resolved to success or error and
+    # belongs to its own buttons. Asserted here as ASKED-AND-REFUSED rather than
+    # not-asked, because those are different runners.
     result = run_js(<<~JS, transport: "redirect")
       var released = 0;
       await window.tmWalletOp('contest_entry', {}, { onStranded: function () { released += 1; } });
@@ -505,9 +522,11 @@ class WalletOpRunnerJsTest < ActiveSupport::TestCase
       timers.forEach(function (t) { t.fn(); });
       modal.state = 'success';
       firePageShow(true);
-      return { released: released, cards: modal.cards.map(function (c) { return c[0]; }) };
+      return { released: released, retired: modal.retired,
+               cards: modal.cards.map(function (c) { return c[0]; }) };
     JS
 
+    assert_equal 1, result["retired"], "the runner asks on every way back"
     assert_equal ["show"], result["cards"], "a resolved card is not the runner's to close"
     assert_equal 1, result["released"], "the caller's own flow on this page is still over"
   end

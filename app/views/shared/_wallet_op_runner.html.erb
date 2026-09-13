@@ -264,10 +264,19 @@
     // processing card is the trap — non-dismissible, scroll-locked — so it is
     // RETIRED rather than turned into an error: nothing failed, the user simply
     // came back, and they expect the board they left, scrollable and ready to
-    // try again. Only a card still processing is this runner's to retire.
+    // try again.
+    //
+    // retire(), NOT close(), AND THE DIFFERENCE IS A SECOND TRAP. The card can
+    // be BURIED: the level-up celebration opens on top of a non-dismissible card
+    // rather than swapping it away, so an abandoned handoff can leave the
+    // processing card one below the screen. This used to read .visible / .state
+    // — both of which describe the CURRENT card only — decide there was nothing
+    // to retire, and leave the trap standing for the moment the celebration
+    // closed. The store's retire() finds the live transaction anywhere on the
+    // stack and only while it is still processing. Raised in review of PR 697.
     function returned() {
       var m = solanaModal();
-      if (m && m.visible && m.state === 'processing') m.close();
+      if (m && typeof m.retire === 'function') m.retire();
       if (typeof opts.onStranded === 'function') opts.onStranded();
     }
 

@@ -185,8 +185,10 @@ function methodFor(url) {
  *        Per-hop override. Return `{ errorCode, errorMessage }` to answer as a
  *        rejecting wallet, `{ data: {...} }` to change the sealed body,
  *        `{ abandon: true }` to answer as a wallet the user walked away from,
- *        or null for the default. Called AFTER the contract check, so a
- *        rejection or an abandon still proves the request was well formed.
+ *        `{ appSwitch: true }` to answer as the OS taking the link into the
+ *        wallet app while the sending page stays alive behind it, or null for
+ *        the default. Called AFTER the contract check, so a rejection, an
+ *        abandon or an app switch still proves the request was well formed.
  * @returns {Promise<object>} the wallet handle
  */
 async function installStubWallet(context, opts = {}) {
@@ -357,6 +359,17 @@ async function installStubWallet(context, opts = {}) {
     }
 
     const override = opts.answer ? opts.answer(hop) : null;
+
+    // THE OS TOOK THE LINK AND THE PAGE STAYED. On a phone a universal link
+    // opens the wallet APP, and the browser's navigation never commits — the
+    // page that sent the user is still there, merely hidden behind the wallet.
+    // Aborting is the only faithful answer: any fulfilled body would REPLACE
+    // that document, which is a different trip with a different way back.
+    // (/tasks/frozen-wallet-overlay-traps-user drives the return from both.)
+    if (override && override.appSwitch) {
+      hop.appSwitch = true;
+      return route.abort("aborted");
+    }
 
     // A WALLET THE USER WALKED AWAY FROM. The request arrived and was judged
     // above; then the user left without approving or rejecting, so NOTHING is
