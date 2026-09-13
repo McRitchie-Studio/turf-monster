@@ -44,15 +44,23 @@ class ErrorLiveRegionsTest < ActiveSupport::TestCase
     ["modals/_unsubscribe_confirm.html.erb", "error"]           => "alert",
     ["modals/_wallet_changed.html.erb", "error"]                => "alert",
     ["modals/_wallet_setup.html.erb", "error"]                  => "alert",
-    # props.resendError is NOT listed any more, and that is the adoption rather than a
-    # gap: /tasks/turf-adopts-resend-footer deleted this app's fork of the resend footer
-    # and renders the engine's studio/modals/auth/resend_footer instead, so the paragraph
-    # is no longer in this tree for the sweep below to find. The engine's copy is the same
-    # shape — mounted, x-show + x-cloak, role="alert", which per WAI-ARIA IS
-    # aria-live="assertive" + aria-atomic="true" — and the property this file exists to
-    # protect is now proved where it actually matters: e2e/auth_modal.spec.js reads the
-    # region EMPTY before the failure and watches it fill, in a browser, which is stronger
-    # than a source scan could be about a template this repo no longer holds.
+    # props.resendError is NOT listed any more, and the sweep below FORCED that rather
+    # than anyone choosing it: /tasks/turf-adopts-resend-footer deleted this app's fork of
+    # the resend footer and renders the engine's studio/modals/auth/resend_footer instead,
+    # so the paragraph is not under app/views for `discover` to find and leaving the row
+    # here would fail "the table covers every error paragraph in the app". The engine's
+    # copy is the same shape — mounted, x-show + x-cloak, role="alert", which per WAI-ARIA
+    # IS aria-live="assertive" + aria-atomic="true", though the fork STATED both and the
+    # engine's copy does not.
+    #
+    # WHERE THE GUARD LIVES NOW: the ENGINE, which owns the template. studio-engine's
+    # test/views/modal_error_lines_announce_test.rb sweeps its own modal error lines for
+    # role="alert" or aria-live and names this footer, so an engine release that drops the
+    # role goes red THERE rather than here. Do NOT read e2e/auth_modal.spec.js as covering
+    # it, which an earlier draft of this note claimed: its empty-then-filled live-region
+    # spec reads props.formError on the credentials step — a different paragraph, still
+    # listed below — and the two resend specs this adoption added measure the painted
+    # CONTRAST and the SPINNER, never the role and never the ordering.
     ["contests/_quest_newsletter.html.erb", "error"]            => "alert",
     ["shared/_auth_card.html.erb", "error"]                     => "alert",
     ["wallet_exports/show.html.erb", "errorText"]               => "alert",
