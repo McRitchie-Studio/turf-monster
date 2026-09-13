@@ -9,10 +9,32 @@ adapter now."
 **Companion:** [WALLET_TRANSPORT_ARCHITECTURE.md](WALLET_TRANSPORT_ARCHITECTURE.md)
 describes the protocol this page evaluates.
 
-Every external fact below carries a URL and was read on **2026-09-10**. Every
-fact about our code carries a `path:line` measured on this branch, or in the
-installed gem the lock resolves (solana-studio **0.9.3**, studio-engine
-**0.74.7**). Anything not verified is marked **unverified**.
+Every external fact below carries a URL and was read on **2026-09-10**.
+Anything not verified is marked **unverified**.
+
+> **Code is law, for the citations here.** A fact about this repo's code carries
+> a `path:NN`, and a bare `:NN` inherits the nearest preceding path — file
+> context resets at each `##` heading. `test/docs/workflow_citation_docs_test.rb`
+> reddens when one stops landing on the symbol or literal its prose names. That
+> symbol check reaches **3 of the 24 citations** here. The other **21** ride the
+> weaker LITERAL fallback — `.js` files, ERB, the Playwright config, and Ruby
+> lines outside any method (a `before_action` list, the CSP block), where the
+> guard finds no definition — so a green one proves the quoted words are in the
+> cited lines, not that the code is. A fact about a GEM names the file
+> and the symbol instead, written `solana-studio: path#symbol`, and is checked
+> against the gem the lock resolves, whatever version that is: a gem line number
+> would rot on an unrelated `bundle update`. Gem SIZES were measured against the
+> gems the lock held when this was written (solana-studio 0.9.3, studio-engine
+> 0.74.7), and each size says which release it counts.
+> **Two blind spots, inherited knowingly.** Most citations here sit in markdown
+> TABLES, and a table citation anchors on the WHOLE table, so a symbol named in
+> any row can satisfy it (`/tasks/table-row-anchors-siblings`); every row names
+> its own symbol so it anchors either way. And no check here can tell that a
+> sentence describes the wrong thing: the security table's "Ours" column was
+> re-read against the code by hand on 2026-09-10. One citation is exempt from the
+> guard: playwright-core's
+> `chromiumSwitches.js` sits in `node_modules`, outside this repo, so its
+> sentence pins the package version instead.
 
 ---
 
@@ -45,8 +67,11 @@ installed gem the lock resolves (solana-studio **0.9.3**, studio-engine
     their signing dialects (see "What we own today").
   - Retire the legacy `phantom_dl_*` sign-in path. It is a second copy of the
     codec.
-  - Wire `walletJournal.purge()` into logout **before** taking solana-studio
-    0.10.0. That release adds a session record that never expires.
+  - Wire `walletJournal.purge()` into logout **before** any caller passes
+    `owner`. solana-studio 0.10.0 added a session record that never expires. It
+    stays unwritten only because `remember()` refuses a session with no `owner`,
+    and no caller here passes one; the first that does must add the purge call
+    in the same change, as the gem's own `wallet_journal.js` header says.
 - **Do not adopt MWA on Android yet.** It adds a transport and removes nothing.
   Measure Android's share of mobile entries first; the staged plan below is
   ready if the share is large.
@@ -60,17 +85,17 @@ installed gem the lock resolves (solana-studio **0.9.3**, studio-engine
 The redirect transport ships in the solana-studio gem. This app wires it up,
 and studio-engine owns the page a wallet returns to.
 
-| Piece | Where | Lines |
+| Piece | Where | Lines on 2026-09-10 (gem rows count solana-studio 0.9.3 and studio-engine 0.74.7) |
 |---|---|---|
-| Codec (x25519 + `nacl.box`), inline base58, per-vendor `PROFILES`, URL builders | solana-studio `app/assets/javascripts/solana_studio/wallet_transport.js` (codec `:235-272`, `PROFILES` `:105-174`, `requireField` `:310-319`) | 399 |
-| Provider factory, journal versioning, begin/complete per op | solana-studio `.../redirect_provider.js` (`JOURNAL_VERSION` `:37`, `beginConnect` journal `:194-204`) | 309 |
-| Resume journal: `localStorage` key `wallet_dl_journal`, 10-minute expiry, read-and-clear `take()` | solana-studio `.../wallet_journal.js` (`KEY` `:30-31`, `MAX_AGE_MS` `:37`) | 154 |
-| Intent registry + step machine | solana-studio `.../wallet_ops.js` (`runInline` `:259`, `runRedirect` `:297`, `signingHop` `:418`, `resume` `:437`) | 566 |
-| Legacy Phantom sign-in (undocumented `signIn` deeplink) | solana-studio `app/views/solana_studio/_phantom_deeplink.html.erb` | 179 |
-| Callback page: `walletOps` resume dispatch, plus the legacy sign-in branch with its **own** nacl decrypt | studio-engine `app/views/solana_sessions/phantom_callback.html.erb` (resume `:166-172`, legacy `:211`, legacy decrypt `:259-268`) | 406 |
-| `window.tmWalletOp`: return address, cluster, handoff watch | `app/views/shared/_wallet_op_runner.html.erb` (`CALLBACK_PATH` `:45`, `tmWalletOp` `:159`) | 209 |
-| Intents: entry (with the `redirectLink` resume wrapper at `:128-149`), create + bundle, rename | `app/views/shared/_contest_entry_intent.html.erb`, `_contest_create_intent.html.erb`, `_username_rename_intent.html.erb` | 330 / 201 / 298 |
-| Provider registry, inline codec, mobile `detect()` | `app/javascript/wallet_provider.js` (`INLINE_TX_CODEC` `:83`, `detect` `:479`, `requireInlineProvider` `:661`) | 671 |
+| Codec (x25519 + `nacl.box`), inline base58, per-vendor `PROFILES`, URL builders | `solana-studio: app/assets/javascripts/solana_studio/wallet_transport.js#codec,PROFILES,requireField` | 399 |
+| Provider factory, journal versioning, begin/complete per op | `solana-studio: app/assets/javascripts/solana_studio/redirect_provider.js#JOURNAL_VERSION,beginConnect` | 309 |
+| Resume journal: `localStorage` key `wallet_dl_journal`, 10-minute expiry, read-and-clear `take()` | `solana-studio: app/assets/javascripts/solana_studio/wallet_journal.js#KEY,MAX_AGE_MS,take` | 154 |
+| Intent registry + step machine | `solana-studio: app/assets/javascripts/solana_studio/wallet_ops.js#runInline,runRedirect,signingHop,resume` | 566 |
+| Legacy Phantom sign-in (undocumented `signIn` deeplink) | `solana-studio: app/views/solana_studio/_phantom_deeplink.html.erb#startPhantomDeepLink` | 179 |
+| Callback page: `walletOps` resume dispatch, plus the legacy sign-in branch with its **own** base58 decoder and nacl decrypt | `studio-engine: app/views/solana_sessions/phantom_callback.html.erb#hasResumer,b58decode` | 406 |
+| `window.tmWalletOp`: return address, cluster, handoff watch | `app/views/shared/_wallet_op_runner.html.erb:46` (`CALLBACK_PATH`), `:163` (`window.tmWalletOp`) | 209 |
+| Intents: entry (with the `redirectLink` default wrapped around `walletOps.resume` at `app/views/shared/_contest_entry_intent.html.erb:128-149`), create + bundle, rename | `app/views/shared/_contest_entry_intent.html.erb`, `_contest_create_intent.html.erb`, `_username_rename_intent.html.erb` | 330 / 201 / 298 |
+| Provider registry, inline codec, mobile `detect()` | `app/javascript/wallet_provider.js:83` (`INLINE_TX_CODEC`), `:479` (`detect`), `:661` (`requireInlineProvider`) | 671 |
 | Stand-in wallet + its spec | `e2e/stub-wallet.js`, `e2e/stub_wallet_round_trip.spec.js` | 459 / 442 |
 
 **Totals.** The gem's four transport files come to **1,428 lines** in 0.9.3.
@@ -79,7 +104,7 @@ Its node test files for them come to 1,834 lines (`wallet_ops_js_test.rb`
 `second_hop_url_js_test.rb` 169).
 
 **The surface is still growing.** solana-studio **0.10.0**, tagged 2026-09-10
-00:28 MDT and not yet in our lock, takes the same four files to **1,959 lines**
+00:28 MDT (our lock reached it after this was written), takes the same four files to **1,959 lines**
 (+37%) by adding a persisted wallet session. The gem cut **six releases in about
 50 hours** (v0.8.0 at 2026-09-07 22:38 MDT through v0.10.0), and every one that
 this app needs costs a floor bump.
@@ -88,10 +113,11 @@ this app needs costs a floor bump.
 `redirectProvider.forWallet('phantom')` on every phone
 (`app/javascript/wallet_provider.js:511`), and its own comment says why. The
 wallet picker offers Solflare and Backpack only as a **browse handoff** into
-their in-app browsers (`openInWallet`, solana-studio
-`app/views/solana_studio/modals/_wallet_connect.html.erb:250-255`). So their
-signing profiles are exercised by node tests alone. Backpack also documents no
-devnet cluster (`wallet_transport.js:162-166`).
+their in-app browsers
+(`solana-studio: app/views/solana_studio/modals/_wallet_connect.html.erb#openInWallet`).
+So their signing profiles are exercised by node tests alone. Backpack also
+documents no devnet cluster, and its profile says so
+(`solana-studio: app/assets/javascripts/solana_studio/wallet_transport.js#PROFILES`).
 
 ---
 
@@ -159,7 +185,7 @@ a phone.
   (`e2e/stub_wallet_round_trip.spec.js:26-31` says so).
 - **A bfcache restore.** Playwright launches Chromium with
   `--disable-back-forward-cache` (`node_modules/playwright-core/lib/server/chromium/chromiumSwitches.js:59`,
-  playwright-core 1.58.2, the version `package-lock.json` resolves). So the
+  measured in playwright-core 1.58.2 on 2026-09-10). So the
   frozen-card trap cannot be reproduced in CI.
 - **The OS app switch**, iOS opening a universal link in a new tab, and whether
   Phantom accepts our URLs.
@@ -255,7 +281,7 @@ deprecated. And our own round trip completed on a QA iPhone (per
 | Constraint | Ours | MWA (Android) | Phantom Connect | AppKit |
 |---|---|---|---|---|
 | **1. No key-bearing credential in `localStorage`.** The export flow signs a message carrying the token that guards the decrypted-key page (`WalletExportsController.prove_message`, `app/controllers/wallet_exports_controller.rb:86-91`; reasons at `app/views/wallet_exports/show.html.erb:129-177`). | ✅ The journal holds the dapp's ephemeral secret and the unsigned transaction, neither key-bearing (architecture doc §4). Export stays inline. ⚠ **0.10.0 adds a session record with no expiry**, and its own comment says nothing calls `purge()` yet while turf sweeps only `phantom_dl_`. | ✅ The page survives, so nothing needs journalling. This could even let export sign on Android without persisting the challenge — moot for export, which Mr. McRitchie made unsupported on a phone browser by design on 2026-09-10 (see the architecture doc). The default authorization cache stores a wallet auth token (location **unverified**). | ⚠ depends on `@phantom/indexed-db-stamper` (npm deps); what it stores is **unverified** | ⚠ WalletConnect keeps session keys client-side (storage **unverified**) |
-| **2. Session replay stays suppressed on every page a sensitive hop lands on.** Only `WalletExportsController` suppresses it (`:101`); `session_replay_active?` is otherwise true in production (`app/helpers/application_helper.rb:118-120`). | ✅ for transactions. The callback runs with replay **on**, which is why export must never cross it. | ✅ no landing page | ⚠ its auth redirect lands on a page we choose; the page must suppress replay if it carries anything sensitive | ✅ for WalletConnect; the in-app browser path is our inline path |
+| **2. Session replay stays suppressed on every page a sensitive hop lands on.** Only `WalletExportsController#harden_secret_response` suppresses it (`app/controllers/wallet_exports_controller.rb:101`); `session_replay_active?` is otherwise true in production (`app/helpers/application_helper.rb:118-120`). | ✅ for transactions. The callback runs with replay **on**, which is why export must never cross it. | ✅ no landing page | ⚠ its auth redirect lands on a page we choose; the page must suppress replay if it carries anything sensitive | ✅ for WalletConnect; the in-app browser path is our inline path |
 | **3. Contest entry keeps its server-held `ptx_slug` model.** The wallet signs only; the server cosigns and broadcasts. | ✅ | ⚠ the library exposes `solana:signTransaction` (0.6.0 `lib/esm/index.js`), but spec 2.0 lists `sign_transactions` as deprecated. Whether Phantom and Solflare keep answering it is **unverified**. | ❌ "Phantom embedded wallets do not accept pre-signed transactions." A second signer must go through `presignTransaction` on `signAndSendTransaction`. The server would sign **before** the user and lose the look at the signed bytes before broadcast. | ✅ for Phantom and Solflare (in-app browser, inline path); **unverified** for Backpack over WalletConnect |
 
 ---
@@ -266,7 +292,7 @@ deprecated. And our own round trip completed on a QA iPhone (per
 |---|---|---|---|---|
 | `tmWalletOp` runner | unchanged | unchanged; MWA arrives as an inline provider | replaced by the AppKit modal | replaced |
 | Intents (`prepare` / `complete`) | unchanged | unchanged | unchanged | `complete` rewritten: Phantom broadcasts |
-| Resume wrapper (`_contest_entry_intent.html.erb:128-149`) | retire once the Gemfile floor reaches 0.9.3 | stays for iOS | droppable, but only by accepting the iOS downgrade above | stays for iOS |
+| Resume wrapper around `walletOps.resume` (`_contest_entry_intent.html.erb:128-149`) | retire once the Gemfile floor reaches 0.9.3 | stays for iOS | droppable, but only by accepting the iOS downgrade above | stays for iOS |
 | Journal + engine callback page | unchanged | stay for iOS | droppable, but only by accepting the iOS downgrade above | stay (auth redirect) |
 | `detect()` ordering (`wallet_provider.js:479-514`) | unchanged | must prefer MWA over `forWallet('phantom')` on Android Chrome | replaced | replaced |
 | e2e stub | unchanged | a **new** harness: MWA talks over a local WebSocket, which `context.route` cannot intercept (**unverified** how to stub) | new relay stub | new stub |
@@ -299,16 +325,18 @@ header, an importmap pointing at jsdelivr's `+esm` build, and one call to
 | iPhone Safari (UA swap) | ✅ | 0 | `[]` | 58 |
 
 **What it proves:** the library loads and gates itself on the platform, and
-our CSP admits it. `script-src` and `connect-src` already allow `https:` and
-`wss:` (`content_security_policy.rb:46`, `:48`). 58 module requests is too many
+our CSP admits it. `script_src` already allows `:https`
+(`config/initializers/content_security_policy.rb:46`), and `connect_src` allows
+`:https` and `:wss` (`:48`). 58 module requests is too many
 for production, where it would be vendored with `bin/importmap pin --download`
 (not tested). **It does not prove** a signing round trip. That needs an Android
 device with Phantom or Solflare.
 
 **This app's JS setup, for reference:** importmap-rails with 20 local pins and
-no CDN pins (`config/importmap.rb`). web3.js 1.98.4 and tweetnacl load as
-SRI-pinned IIFE tags (`app/views/layouts/application.html.erb:73-78`). The
-gem's transport files load through sprockets (`:102-105`). There is no bundler:
+no CDN pins (`config/importmap.rb`). `@solana/web3.js@1.98.4` and
+`tweetnacl@1.0.3` load as SRI-pinned IIFE tags
+(`app/views/layouts/application.html.erb:73-78`). The gem's transport files load
+through sprockets, one `javascript_include_tag` each (`:102-105`). There is no bundler:
 `package.json` holds Playwright, tweetnacl (dev) and Tailwind only.
 
 ---
