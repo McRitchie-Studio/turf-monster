@@ -150,6 +150,20 @@
   }
 })();
 
+// SEEDS PER LEVEL, ON EVERY DOCUMENT. The board renders this constant into its
+// own config and hands it to StateFanout, which is right for the inline leg —
+// but the relay's painter runs on a landing page that may have no board, and
+// StateFanout falls back to a HARDCODED 100 when nobody passes it. The board's
+// own note says why that matters: the value is passed through "so the handler
+// can survive a model-constant bump", and a fallback silently reintroduces the
+// literal the pass-through exists to avoid.
+//
+// DELIBERATELY ABOVE THE HANDLER BLOCK. test/lib/contest_entry_intent_js_test
+// lifts everything from tmEntryFetch to the closing script tag as RAW SOURCE and
+// runs it in node — an ERB output tag inside that range would reach node as
+// literal ERB and fail to parse. Interpolation belongs on this side of the line.
+window.tmSeedsPerLevel = <%= User::SEEDS_PER_LEVEL.to_i %>;
+
 // THE TWO HALVES OF contest_entry, split at the seam a page death runs through.
 //
 // Everything before the wallet is reached lives in prepare(); everything after
@@ -265,6 +279,26 @@ window.tmPrepareContestEntry = async function (ctx) {
 // Complete: hand the wallet's signature to the server, which cosigns and
 // broadcasts. Runs in a document that never saw prepare().
 window.tmCompleteContestEntry = async function (ctx, result, state) {
+  // WHICH DOCUMENT AM I ON — read BEFORE the line below erases the evidence.
+  //
+  // THIS IS THE TRANSPORT DISCRIMINATOR, and it is derived from the flow rather
+  // than declared by a call site. prepare() sets tmOutstandingEntryPrepare on
+  // the document that STARTS the entry. On the inline transport that is this
+  // document, so the marker is here and the caller awaiting this promise is
+  // alive to paint the outcome. On the redirect transport prepare() ran on a
+  // document the wallet app destroyed, so the marker cannot be here — this is
+  // studio-engine's callback page, which has no board, no component, and one
+  // instruction after us: navigate away.
+  //
+  // WHY NOT A FLAG ON ctx, which was the obvious alternative. A flag is only as
+  // good as every call site remembering it, and this flow has already lost a
+  // real entry to exactly that class of omission — a redirect_link the caller
+  // did not pass. Worse, a test would then have to SUPPLY the flag to drive the
+  // redirect leg, which is the defect e2e/stub_wallet_round_trip exists to
+  // retire: a test that hands the code the very parameter production omits
+  // cannot see the omission.
+  var preparedOnThisDocument = !!window.tmOutstandingEntryPrepare;
+
   // THE SIGNING HOP IS OVER — the prepared row is no longer retirable. Anything
   // that fails from here belongs to on-chain recovery, not to a discard-and-
   // retry, so the ledger prepare() wrote is cleared FIRST, before any branch
@@ -325,6 +359,147 @@ window.tmCompleteContestEntry = async function (ctx, result, state) {
     throw confirmError;
   }
   console.log('[contest-entry] server cosigned + confirmed on-chain:', data.tx_signature);
+
+  // THE ENTRY IS RECORDED AND NOTHING HERE CAN PAINT IT. On the redirect
+  // transport the next instruction in this document's life is studio-engine's
+  // `window.location.href = result.value.redirect` — so the free-entry token
+  // count, the seeds fanout and the celebration card are all skipped, and two of
+  // those three leave the UI asserting a figure that is no longer true. Write
+  // the payload down for the document that lands, which is the only one that can
+  // still paint. Measured on QA iPhone Safari 2026-09-09: entry 176 recorded on
+  // chain, screen showed nothing.
+  //
+  // NOT ON THE INLINE LEG, and the guard is the point rather than an
+  // optimisation: there the caller awaiting this promise paints immediately, so
+  // a stashed payload would still be sitting in storage when its own success
+  // card auto-navigates to the lobby — and the landing page would throw the
+  // party a SECOND time. The inline transport must behave exactly as it does
+  // today, which means writing nothing.
+  //
+  // FAILURE HERE IS SILENT ON PURPOSE. The entry is already confirmed on chain;
+  // a device that refuses localStorage loses the celebration and keeps the entry.
+  if (!preparedOnThisDocument && window.tmCelebrationRelay) {
+    window.tmCelebrationRelay.stash('contest_entry', data);
+  }
+
   return data;
 };
+
+// === THE RETURN LEG, LIFTED OUT OF THE BOARD ==============================
+//
+// WHY IT MOVED HERE. The three acts below used to live only in the contest
+// board's inline branch, which meant they could only ever run on a document that
+// was still alive when the server answered. That is the whole defect: on the
+// redirect transport the board's document is gone. Here, in the partial the
+// LAYOUT renders on every page, the same three acts are reachable from both the
+// inline caller and the relay's painter — one code path, so a fix or a change to
+// the celebration lands on both transports by construction.
+//
+// This is the same relocation, for the same reason, that the handlers themselves
+// went through one change earlier; the partial's header records that trip.
+
+// THE SINGLE DOWNWARD WRITER for the free-entry token count. Every other write
+// to tokensAvailable in this app is an acquisition — nothing else lowers it — so
+// skipping this leaves the wallet reading "Hold for Free Entry" over a token
+// that has already been spent, and the next hold promises a free entry the
+// server will correctly charge for.
+//
+// The board still owns a mirrorTokenSpend() method and it now delegates here, so
+// there is exactly one implementation rather than one per transport.
+//
+// Keyed off the SERVER's token_consumed, never a local guess: the controller owns
+// the funding choice. A null (cold-cache "unknown") count coerces to 0, which is
+// the safe direction — 0 renders the neutral "Hold to Confirm".
+window.tmMirrorTokenSpend = function (payload) {
+  if (!payload || !payload.token_consumed) return;
+  try {
+    var sess = window.Alpine && window.Alpine.store && window.Alpine.store('session');
+    if (!sess) return;
+    var next = Math.max(0, (sess.tokensAvailable | 0) - 1);
+    sess.tokensAvailable = next;
+    if (window.updateNavTokens) window.updateNavTokens(next);
+  } catch (_) {}
+};
+
+// THE CELEBRATION ITSELF — the three acts, in the order the inline leg has
+// always run them.
+//
+// opts.source        the StateFanout discriminator, so a log line says which
+//                    transport painted.
+// opts.seedsPerLevel the board's server-rendered constant when a board is
+//                    present; window.tmSeedsPerLevel otherwise.
+// opts.lobbyUrl      overrides the payload's own redirect.
+//
+// THE ONE LINE THAT IS NOT IN THE BOARD'S ORIGINAL is the visible() guard.
+// solanaModal.success() begins `var c = _onCurrent(); if (!c) return;` — it is a
+// NO-OP when no onchain-tx card is open. The inline leg always has one open
+// (complete() showed "Confirming Onchain" a moment earlier), so there the guard
+// never fires and the sequence below is byte-for-byte what shipped. On the relay
+// leg the page is freshly loaded and nothing is open, so without it every line
+// after would silently write to nothing — the exact shape of the bug being
+// fixed, reproduced one layer down.
+window.tmPaintEntryCelebration = function (payload, opts) {
+  opts = opts || {};
+  if (!payload) return;
+
+  window.tmMirrorTokenSpend(payload);
+
+  var modal = null;
+  try {
+    modal = window.Alpine && window.Alpine.store && window.Alpine.store('solanaModal');
+  } catch (_) {}
+
+  if (modal) {
+    if (!modal.visible) modal.show('Confirming Onchain', 'Cosigning and submitting to Solana...');
+
+    if (payload.seeds_earned) {
+      modal.seedsEarned = payload.seeds_earned;
+      modal.seedsTotal  = payload.seeds_total;
+      modal.seedsLevel  = payload.seeds_level;
+    }
+  }
+
+  // OPSEC-007: no client to server PATCH of the level. The navbar reads
+  // seeds/level from the seedsNavbar localStorage key this fanout writes,
+  // already populated from the server response.
+  //
+  // GUARDED, because StateFanout ships in a deferred importmap module and this
+  // function is reachable from a bare inline script. A missing fanout must cost
+  // the seeds animation and never the card.
+  try {
+    if (window.StateFanout && typeof window.StateFanout.apply === 'function') {
+      window.StateFanout.apply('seeds', payload, {
+        source: opts.source || 'phantom-direct',
+        seedsPerLevel: opts.seedsPerLevel || window.tmSeedsPerLevel
+      });
+    }
+  } catch (_) {}
+
+  if (!modal) return;
+
+  // THE THIRD ARG IS IGNORED (application.html.erb): the engine's success card
+  // drives its own countdown, defaulting to FIVE seconds. It is kept because the
+  // board has always passed it and removing it is a change to a different
+  // question than this one.
+  modal.success(payload.tx_signature, 'Entry Confirmed', 999);
+  modal.title = 'Good Luck';
+  modal.lobbyUrl = opts.lobbyUrl || payload.redirect || null;
+};
+
+// THE PAINTER, registered by the kind the stash above writes.
+//
+// GUARDED like every optional capability in this file: a document without the
+// relay registers nothing and throws nothing.
+//
+// WHAT THE RELAY LEG PASSES AND WHY. lobbyUrl comes from the payload, the same
+// as the inline leg — the engine's card couples the CTA href and the auto
+// redirect to ONE key, so withholding it to avoid re-navigating to the page the
+// user already stands on would leave the primary "Contest Lobby" button inert.
+// A five-second reload of the destination is the smaller cost, and it lands the
+// relay user exactly where the inline user lands.
+if (window.tmCelebrationRelay) {
+  window.tmCelebrationRelay.define('contest_entry', function (payload) {
+    window.tmPaintEntryCelebration(payload, { source: 'phantom-redirect' });
+  });
+}
 </script>

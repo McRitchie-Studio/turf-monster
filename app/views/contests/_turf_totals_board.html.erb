@@ -1431,15 +1431,16 @@ window.selectionBoard = function() {
     // A null (cold-cache "unknown") count coerces to 0 here rather than staying
     // unknown. That is the safe direction: 0 renders the neutral "Hold to
     // Confirm", and the server stays authoritative either way.
+    //
+    // THE IMPLEMENTATION MOVED, the contract did not. It now lives on
+    // window.tmMirrorTokenSpend in shared/_contest_entry_intent, which the
+    // LAYOUT renders on every document — because the redirect transport has to
+    // lower this count from a page that has no board on it. This method stays as
+    // the board's name for it so the managed-wallet branch below reads the same
+    // as it always did, and so "the single downward writer" remains literally
+    // one function rather than one per transport.
     mirrorTokenSpend(payload) {
-      if (!payload || !payload.token_consumed) return;
-      try {
-        var sess = window.Alpine && Alpine.store && Alpine.store('session');
-        if (!sess) return;
-        var next = Math.max(0, (sess.tokensAvailable | 0) - 1);
-        sess.tokensAvailable = next;
-        if (window.updateNavTokens) window.updateNavTokens(next);
-      } catch (_) {}
+      if (window.tmMirrorTokenSpend) window.tmMirrorTokenSpend(payload);
     },
 
     setHoldSuccess() {
@@ -1713,36 +1714,32 @@ window.selectionBoard = function() {
           // entry no server has confirmed.
           if (!confirmData || confirmData.suspended) return;
 
-          // THE RETURN LEG, INLINE ONLY. On the redirect transport complete()
-          // finishes on the callback document, which has no board component to
-          // paint — the engine's callback view owns the outcome there.
-          var txSig = confirmData.tx_signature;
+          // THE RETURN LEG. Reached ONLY on the inline transport — the redirect
+          // branch returned above — but what it paints is no longer inline-only.
+          //
+          // WHAT CHANGED AND WHAT DID NOT. The three acts that make up the
+          // celebration (the spend mirror, the seeds fanout, the confirmation
+          // card) moved verbatim to window.tmPaintEntryCelebration in
+          // shared/_contest_entry_intent, which the layout renders on every
+          // document. This leg calls it and reaches exactly the state it always
+          // did. The redirect leg reaches the SAME function through the
+          // celebration relay, on the landing page, because complete() finishes
+          // on studio-engine's callback document and there is no board there to
+          // paint. Until this change that document simply navigated away and the
+          // user saw nothing — a stale token count, stale seeds, no card, over an
+          // entry that had succeeded on chain.
+          //
+          // THE TWO LINES THAT STAY HERE are the ones that are genuinely about
+          // THIS document rather than about the celebration: the hold button the
+          // user is still touching, and the settle marker for the navigation
+          // this leg is about to make. Neither has any meaning on a page that
+          // was loaded after the fact.
           this.setHoldSuccess();
-          // Spend mirror — the token this entry consumed is GONE. See
-          // mirrorTokenSpend(); nothing else on this path lowers the count.
-          this.mirrorTokenSpend(confirmData);
-
-          if (confirmData.seeds_earned) {
-            var m = Alpine.store('solanaModal');
-            m.seedsEarned = confirmData.seeds_earned;
-            m.seedsTotal  = confirmData.seeds_total;
-            m.seedsLevel  = confirmData.seeds_level;
-          }
-          // OPSEC-007: removed client→server PATCH /account/update_level. The
-          // navbar reads seeds/level from `seedsNavbar` localStorage which the
-          // StateFanout handler writes below — already populated from the
-          // server response.
-          window.StateFanout.apply('seeds', confirmData, { source: 'phantom-direct', seedsPerLevel: seedsPerLevel });
-          // THE THIRD ARG IS IGNORED (application.html.erb): the engine's success
-          // card drives its own countdown, defaulting to FIVE seconds
-          // (studio/modals/blocks/_success_card:70, armed by _entry_confirmed:92)
-          // and ending in window.location.href. This comment used to claim a
-          // 999s auto-close, and that is exactly how the redirect got missed —
-          // a 10s non-navigating timer here is destroyed at t=5s.
-          var modal = Alpine.store('solanaModal');
-          modal.success(txSig, 'Entry Confirmed', 999);
-          modal.title = 'Good Luck';
-          modal.lobbyUrl = confirmData.redirect || ('/contests/' + this.contestId);
+          window.tmPaintEntryCelebration(confirmData, {
+            source: 'phantom-direct',
+            seedsPerLevel: seedsPerLevel,
+            lobbyUrl: confirmData.redirect || ('/contests/' + this.contestId)
+          });
           onchainSettled({ navigating: true });
 
         } else {
