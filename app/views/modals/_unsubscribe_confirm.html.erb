@@ -35,7 +35,8 @@
         title: "Unsubscribe?",
         subtitle: "Are you sure? You'll stop getting sports news and contest updates." %>
 
-  <p x-show="error" x-cloak x-text="error" class="text-xs mb-3 text-center" style="color:#f87171"></p>
+  <p x-show="error" x-cloak role="alert" aria-live="assertive" aria-atomic="true"
+     x-text="error" class="text-xs mb-3 text-center text-danger-ink"></p>
 
   <button type="button" @click="unsubscribe()" :disabled="saving"
           class="btn btn-danger btn-lg w-full disabled:opacity-50 disabled:cursor-not-allowed">

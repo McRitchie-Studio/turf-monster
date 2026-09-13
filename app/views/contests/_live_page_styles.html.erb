@@ -128,38 +128,70 @@
     transform: translateY(-50%);
   }
 
+  /* ── THE STATUS WHEEL ─────────────────────────────────────────────────────
+     The rail's TOP half, running the same mechanism as its bottom half: two
+     panes on one track inside a clipping frame, turned by exactly one pane.
+     Transform only, so rolling the announcement in never reflows the tile and
+     the game's clock and the play can never be on screen together.
+
+     Two panes on a 200% track, so one pane is exactly one window and -50% lands
+     the second one square. */
+  .tt-status-track {
+    transform: translateY(0);
+    transition: transform 520ms cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: transform;
+  }
+  [data-role="status-frame"].tt-status-revealing .tt-status-track {
+    transform: translateY(-50%);
+  }
+
+  /* THE ANNOUNCEMENT'S SHOUT scales with the rail rather than taking a fixed
+     size, for the reason the scorer card's headline does: this half of the hero
+     tile is ~7.5rem tall and has four lines to fit in it, and a fixed size
+     either overflows the short rail or looks timid in the tall one. Held a
+     little under the card's because this pane carries no picture to be measured
+     against — it is four lines of text alone in the box. */
+  .tt-status-headline { font-size: clamp(0.95rem, 2.4vh, 1.4rem); }
+
+  /* SIZED BY THE RAIL, NOT BY THE VIEWPORT — the same reason the scorer card
+     below is, and the same measurements: this frame is a third of the hero
+     tile, so a 390px viewport gives it about 76px and 640px about 159px. An
+     `sm:` prefix cannot see that, because the constraint is the CARD's width. */
+  [data-role="status-frame"] { container-type: inline-size; }
+
+  /* Below ~150px of rail four lines is three too many: every one of them
+     truncates and the pane says "New Eng… / FIE… / 50 yard fi… / Andy …",
+     which is four pieces of nothing. The two that carry the message survive —
+     WHO and WHAT — and the shout is allowed to wrap rather than be cut, since
+     at this size an ellipsis costs more characters than the break does.
+     Same trade the card below makes when it drops the face: what is left has
+     to be readable, not merely present. */
+  @container (max-width: 150px) {
+    [data-role="status-event"] [data-role="status-detail"],
+    [data-role="status-event"] [data-role="status-name"] { display: none; }
+    .tt-status-headline {
+      font-size: clamp(0.7rem, 1.9vh, 0.95rem);
+      white-space: normal;
+      overflow-wrap: anywhere;
+      line-height: 1.05;
+    }
+  }
+
   /* The fades belong to the LIST pane. They ride the track with it, so they need
      nothing of their own — but while the card is up there is nothing to scroll,
      and a gradient over a portrait reads as a smudge. */
   .tt-fade { transition: opacity 200ms ease-out; }
   [data-role="event-feed-frame"].tt-revealing .tt-fade { opacity: 0; }
 
-  /* THE CARD IS SIZED BY ITS RAIL, NOT BY THE VIEWPORT.
-     The rail is a third of the hero tile, so a 1024px phone-landscape viewport
-     and a 1024px tile column are completely different amounts of room. Container
-     queries ask the only question that matters here — how wide is THIS card —
-     which is why the fix is not an `sm:` prefix. */
-  [data-role="event-feed-frame"] { container-type: inline-size; }
-
-  /* Below ~230px of rail there is not room for a face AND the words, and the
-     words win: the events list this card replaced is perfectly readable at that
-     width, so a cropped portrait with no text is strictly worse than what was
-     there. Measured: 390px viewport gives a 76px rail, 640px gives 159px. */
-  @container (max-width: 230px) {
-    .tt-scorer-card .tt-scorer-avatar { display: none; }
-    .tt-scorer-card { gap: 0.25rem; padding-left: 0.25rem; padding-right: 0.25rem; }
-  }
-
-  /* Between there and comfortable, the face yields first — it degrades to a
-     sliver gracefully, where the text degrades to nothing. */
-  @container (max-width: 340px) {
-    .tt-scorer-card .tt-scorer-avatar { max-width: 38%; }
-  }
-
-  /* THE HEADLINE scales with the rail rather than taking a fixed size: the hero
-     tile gives this card ~64px of height for five rows, and a fixed 18px shout
-     either overflowed the short rail or looked timid in the tall one. */
-  .tt-scorer-headline { font-size: clamp(0.8rem, 2.1vh, 1.15rem); }
+  /* THE PORTRAIT NEEDS NO CONTAINER QUERY ANY MORE.
+     Three rules used to live here: the frame declared itself a container, and
+     two @container rules shrank and then HID the face below ~230px of rail.
+     They existed because the WORDS shared the card with it and were being
+     squeezed to nothing — measured at 390px, the card rendered zero characters
+     of headline, mascot, name and detail. The words moved to the status half
+     above, so there is nothing left to lose that trade to: a narrow rail now
+     simply gets a smaller portrait, which is the whole of what this pane says.
+     The status half carries the container query instead, where the words are. */
 
   /* EACH EVENT ARRIVES. Inside a chain the frame stays revealed while the card's
      contents swap, so without this the second scorer's name simply replaces the
@@ -189,7 +221,8 @@
      information — it just stops travelling to get there. The track snaps rather
      than rolls, and the per-event nudge and the avatar pop are dropped. */
   @media (prefers-reduced-motion: reduce) {
-    .tt-event-track {
+    .tt-event-track,
+    .tt-status-track {
       transition: none;
     }
     [data-role="event-feed-frame"].tt-revealing .tt-scorer-card.tt-scorer-td .tt-scorer-avatar,

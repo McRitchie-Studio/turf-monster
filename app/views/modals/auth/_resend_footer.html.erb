@@ -15,5 +15,6 @@
     <span x-text="props.submitting === 'magic-link' ? 'Resending…' : ((props.resendCooldown || 0) > 0 ? ('Resend available in ' + props.resendCooldown + 's') : 'Resend link')"></span>
   </span>
 </button>
-<p x-show="props.resendError" x-cloak class="text-xs text-red-400 mt-3 text-center" x-text="props.resendError"></p>
+<p x-show="props.resendError" x-cloak role="alert" aria-live="assertive" aria-atomic="true"
+   class="text-xs text-danger-ink mt-3 text-center" x-text="props.resendError"></p>
 <button @click="$store.modals.close()" class="block mx-auto mt-3 text-sm text-secondary hover:text-heading transition">Close</button>

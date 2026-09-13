@@ -22,7 +22,7 @@ require "test_helper"
 #
 #   cosign_wire: slot 0 for 8K81w4e6… already holds a signature — refusing to clobber
 #
-# Money-safe (no cosign ⇒ no broadcast ⇒ no token burned, no charge) but a hard
+# Money-safe (no cosign ⇒ no broadcast ⇒ no token consumed, no charge) but a hard
 # REGRESSION on the entry path: a Phantom wallet holding a token could enter by
 # paying USDC before that wiring landed, and could not enter at all after it.
 # #build_enter_contest was deliberately migrated off this exact shape for the

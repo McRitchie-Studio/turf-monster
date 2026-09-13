@@ -11,6 +11,8 @@
           message: "No treasury transactions yet.",
           detail:  "Multisig transactions requiring cosigning will appear here." %>
   <% else %>
+    <%= render "shared/wallet_desktop_only_notice" %>
+
     <div class="space-y-3">
       <% @pending.each do |tx| %>
         <div class="card p-4">
@@ -88,6 +90,7 @@
                 <button data-tx-slug="<%= tx.slug %>"
                         data-tx-label="<%= tx.tx_type.titleize %>"
                         onclick="cosignTransaction(this.dataset.txSlug, this.dataset.txLabel)"
+                        data-desktop-only-action
                         class="btn btn-primary btn-sm">
                   Co-sign
                 </button>

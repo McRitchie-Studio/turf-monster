@@ -345,11 +345,19 @@
       banner.style.background = bg;
       banner.style.color = fg;
       document.getElementById('nfl-score-emoji').textContent  = isFinal ? '🏁' : (d.teamEmoji || '🏈');
-      document.getElementById('nfl-score-label').textContent  = isFinal ? 'Final' : (d.label || 'Score');
-      document.getElementById('nfl-score-team').textContent   = isFinal ? '' : (d.teamName || d.team || '');
+      // Painted through the banner's OWN helper, not by hand here. The contest
+      // page paints the same element from its own script, and the two had a
+      // copy each of the score line's string — which is two copies that drift.
+      // The parts that depend on the markup live beside the markup.
+      NflBanner.name(
+        isFinal ? '' : (d.teamLocation || d.teamName || d.team || ''),
+        isFinal ? 'Final' : (d.label || 'Score'),
+        isFinal ? '' : d.locationColor,
+        isFinal ? '' : d.accent,
+        isFinal ? '' : d.accentShadow
+      );
       document.getElementById('nfl-score-points').textContent = (isFinal || !d.points) ? '' : ('+' + d.points);
-      document.getElementById('nfl-score-line').textContent =
-        (d.awayTeam || '') + ' ' + (d.awayScore || '0') + '  –  ' + (d.homeScore || '0') + ' ' + (d.homeTeam || '');
+      NflBanner.line(d);
 
       overlay.classList.remove('hidden');
       var cls = isFinal ? 'nfl-b-final' : ((ANIM[d.scoringType] || FALLBACK).banner);

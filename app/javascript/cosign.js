@@ -55,11 +55,34 @@ window.cosignTransaction = async function(slug, txTypeLabel) {
     }
   };
 
+  // DESKTOP ONLY, DECLARED THROUGH THE SHARED GATE. Co-signing is a 2-of-3
+  // treasury operation; an operator doing it from a phone is not a use case
+  // this app supports, and saying "Phantom wallet is required" to a phone —
+  // which is what this said before — is a true sentence with no action behind
+  // it. requireDesktop gives the desktop-only sentence on a phone and
+  // the ordinary no-wallet sentence on a desktop, both through the modal this
+  // flow already renders every other failure into.
+  //
+  // `body` is passed so parseSolanaError never rewrites it: these messages are
+  // written for a person, not decoded from a program error.
+  try {
+    window.walletProvider.requireDesktop();
+  } catch (gateErr) {
+    fail(gateErr.message, {
+      title: window.walletProvider.isMobile() ? 'Desktop Required' : 'Wallet Required',
+      body: gateErr.message
+    });
+    return;
+  }
+
+  // Phantom SPECIFICALLY fills the cosigner slot, and the server verifies the
+  // address it reports — so the gate above, satisfied by any Solana wallet,
+  // does not stand in for this.
   var provider = window.solana;
   if (!provider || !provider.isPhantom) {
-    fail('Phantom wallet is required to co-sign transactions.', {
+    fail('Phantom is required to co-sign transactions.', {
       title: 'Wallet Required',
-      body: 'Phantom wallet is required to co-sign transactions.'
+      body: 'Phantom is required to co-sign transactions. Unlock the Phantom extension, then reload.'
     });
     return;
   }

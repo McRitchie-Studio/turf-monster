@@ -20,9 +20,32 @@ async function setContestTimeViaPhantom(slug, inSeconds, opts) {
     }
   };
 
+  // DESKTOP ONLY, DECLARED THROUGH THE SHARED GATE. This already degraded
+  // rather than crashed — it said "Phantom wallet is required." — but that is
+  // advice a phone cannot take: no iOS or Android browser can host the
+  // extension, so the sentence names a remedy that does not exist on the
+  // device reading it. requireDesktop answers with the move that does
+  // work (use a desktop) on a phone, and with the ordinary no-wallet remedy on
+  // a desktop.
+  //
+  // THROWN, NOT PAINTED, and that is a limitation worth naming: the buttons
+  // that call this live in app/views/contests/** (the contest header, the
+  // show page, the turf-totals leaderboard), so there is no single view this
+  // flow owns where a notice could be painted ahead of the tap. The admin
+  // pages that DO own their views paint via shared/_wallet_desktop_only_notice.
+  try {
+    window.walletProvider.requireDesktop();
+  } catch (gateErr) {
+    fail(gateErr.message, window.walletProvider.isMobile() ? "Desktop Required" : "Wallet Required");
+    return;
+  }
+
+  // Phantom SPECIFICALLY signs: the admin's Phantom key is itself a vault
+  // signer and the server verifies it, so the gate above does not replace
+  // this check.
   const provider = window.solana;
   if (!provider?.isPhantom) {
-    fail("Phantom wallet is required.", "Wallet Required");
+    fail("Phantom is required to sign this. Unlock the Phantom extension, then reload.", "Wallet Required");
     return;
   }
 

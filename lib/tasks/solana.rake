@@ -521,44 +521,42 @@ namespace :solana do
     exit exit_code
   end
 
-  # OPSEC-015: migrate managed-wallet private keys from the legacy encryption
-  # scheme (secret_key_base[0,32], ~128-bit) to the current v2 scheme
-  # (MANAGED_WALLET_ENCRYPTION_KEY via KeyGenerator, 256-bit). Safe to run
-  # anytime — idempotent (skips rows already at v2), non-destructive
-  # (re-encrypts to the same plaintext), and roundtrip-verified per row
-  # before the write. Run on prod after deploying the OPSEC-015 code +
-  # setting MANAGED_WALLET_ENCRYPTION_KEY.
-  desc "OPSEC-015: re-encrypt managed-wallet keys to the current (v2) scheme"
+  # Re-seal every managed-wallet private key under the CURRENT
+  # MANAGED_WALLET_ENCRYPTION_KEY -- the key-rotation migration, and still the
+  # OPSEC-015 legacy->v2 migration. All the logic, and the reasoning, lives in
+  # Solana::ManagedWalletRotation; this task only reports and exits.
+  #
+  #   DRY_RUN=1 bin/rails solana:reencrypt_managed_wallets   # counts, writes nothing
+  #   bin/rails solana:reencrypt_managed_wallets             # re-seals, verifies, counts
+  #
+  # With MANAGED_WALLET_ENCRYPTION_KEY_PREVIOUS set it is a ROTATION: rows are
+  # opened with the previous key and re-sealed under the current one. Without
+  # it, every v2 row must already open under the current key, or it FAILS.
+  #
+  # Exit 0 only when every row is verified under the current key alone (a dry
+  # run: only when no row would fail). Exit 1 when any row is not. Exit 2 when
+  # the configuration is refused before anything is read. Read the COUNTS --
+  # the old version of this task exited 0 having re-encrypted nothing.
+  desc "Re-seal managed-wallet keys under the current MANAGED_WALLET_ENCRYPTION_KEY (DRY_RUN=1 writes nothing)"
   task reencrypt_managed_wallets: :environment do
-    scope = User.where.not(encrypted_web2_solana_private_key: [nil, ""])
-    total = scope.count
-    migrated = skipped = failed = 0
-    puts "Re-encrypting #{total} managed-wallet key(s)..."
-
-    scope.find_each do |user|
-      current = user.encrypted_web2_solana_private_key
-      if Solana::Keypair.current_version?(current)
-        skipped += 1
-        next
-      end
-      begin
-        fresh = Solana::Keypair.reencrypt(current)
-        # Roundtrip sanity: the re-encrypted value MUST decrypt back to the
-        # same wallet pubkey before we overwrite the row. Guards against a
-        # silent corruption that would lock the user out of their funds.
-        roundtrip = Solana::Keypair.from_encrypted(fresh).to_base58
-        unless roundtrip == user.web2_solana_address
-          raise "roundtrip pubkey mismatch (#{roundtrip} != #{user.web2_solana_address})"
-        end
-        user.update_column(:encrypted_web2_solana_private_key, fresh)
-        migrated += 1
-      rescue => e
-        failed += 1
-        puts "  FAILED user ##{user.id} (#{user.web2_solana_address}): #{e.message}"
-      end
+    begin
+      rotation = Solana::ManagedWalletRotation.new(dry_run: ENV["DRY_RUN"].present?)
+    rescue Solana::ManagedWalletRotation::Refused => e
+      puts "REFUSED -- #{e.message}"
+      puts "Nothing was read or written."
+      exit 2
     end
+    result = rotation.run
+    exit(result.complete? ? 0 : 1)
+  end
 
-    puts "Done: #{migrated} migrated, #{skipped} already v2, #{failed} failed."
-    exit 1 if failed.positive?
+  # Read-only: how many managed-wallet rows open under the current key ALONE
+  # (and derive their stored wallet address). The rotation SOP's proof that the
+  # previous key can be retired -- and, run after it is retired, that nothing
+  # still needed it. Writes nothing. Exit 0 only when every row verifies.
+  desc "Read-only: count managed-wallet rows that open under the current key alone"
+  task verify_managed_wallet_keys: :environment do
+    result = Solana::ManagedWalletRotation.check(out: $stdout)
+    exit(result.verified? ? 0 : 1)
   end
 end

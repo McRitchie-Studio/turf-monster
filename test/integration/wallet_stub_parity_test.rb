@@ -74,6 +74,17 @@ class WalletStubParityTest < ActionDispatch::IntegrationTest
       } catch (e) {
         out = { threw: true, message: e.message };
       }
+      // The DESKTOP-ONLY gate, asked of the same object in the same run. It is
+      // reported separately because it answers a different question — about the
+      // DEVICE, not the wallet — and must be compared against its own
+      // counterpart, never against requireProvider's.
+      try {
+        wp.requireDesktop();
+        out.desktopThrew = false;
+      } catch (e) {
+        out.desktopThrew = true;
+        out.desktopMessage = e.message;
+      }
       out.isMobile = wp.isMobile();
       console.log(JSON.stringify(out));
     JS
@@ -115,6 +126,43 @@ class WalletStubParityTest < ActionDispatch::IntegrationTest
 
     assert_equal false, from_stub["isMobile"]
     assert_equal from_module["message"], from_stub["message"]
+  end
+
+  # THE STUB NEEDS THE DESKTOP-ONLY PAIR MORE THAN IT NEEDS requireProvider.
+  # shared/_wallet_desktop_only_notice.html.erb paints its sentence from an
+  # inline script in the page BODY, so the object answering is always the stub,
+  # never the module — the importmap has not run yet. A stub without these two
+  # throws "desktopOnlyMessage is not a function" while painting the very
+  # element whose job is to stop a phone from hitting an error.
+  test "the inlined stub carries the desktop-only gate at all" do
+    result = ask(stub_js, IPHONE)
+
+    assert result["desktopThrew"], "a phone must be refused by the stub too"
+    refute_match(/not a function/i, result["desktopMessage"].to_s,
+                 "the stub is missing requireDesktop or desktopOnlyMessage")
+  end
+
+  test "stub and module give a phone the same desktop-only answer" do
+    from_stub = ask(stub_js, IPHONE)
+    from_module = ask(module_js, IPHONE)
+
+    assert from_stub["desktopThrew"] && from_module["desktopThrew"]
+    assert_equal from_module["desktopMessage"], from_stub["desktopMessage"],
+                 "the painted reason and the thrown reason must not depend on load order"
+  end
+
+  # The desktop side of the parity, and it is an agreement to say NOTHING.
+  # requireDesktop asks about the device only, so a desktop passes both objects
+  # silently — the wallet question is answered at each call site's own isPhantom
+  # check. A stub that started refusing here would block a desktop signing flow
+  # for the duration of the pre-hydration window.
+  test "stub and module both let a desktop through" do
+    from_stub = ask(stub_js, MAC)
+    from_module = ask(module_js, MAC)
+
+    assert_equal false, from_stub["isMobile"]
+    assert_equal false, from_stub["desktopThrew"], "the stub refused a desktop"
+    assert_equal false, from_module["desktopThrew"], "the module refused a desktop"
   end
 
   test "neither surfaces a raw null dereference on any device" do

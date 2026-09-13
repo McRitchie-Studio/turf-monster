@@ -74,13 +74,24 @@ class HoldFreeEntryLabelTest < ActionDispatch::IntegrationTest
   # that transfers no USDC (it is enter_contest_with_token). The copy now follows
   # prepare_entry's `token_funded` — the SERVER's own funding decision, which had
   # no consumer until this.
+  #
+  # WHERE THE BRANCH LIVES, and why this test still reads a page render rather
+  # than a file. /tasks/collapse-inline-entry-call-site retired the board's
+  # hand-rolled entry path, so the copy moved to the contest_entry intent's
+  # prepare() (app/views/shared/_contest_entry_intent.html.erb) — the only place
+  # token_funded exists on BOTH transports, since walletOps offers no hook
+  # between prepare and the signing hop. The layout renders that partial on every
+  # page, so a contest render still carries it, and the question this test asks
+  # is unchanged: does the sentence follow the SERVER, or the currency?
   test "the signing modal names a free entry when the server funded it with a token" do
     get contest_path(contests(:one))
     assert_response :success
 
-    assert_includes response.body, "prepareData.token_funded",
-                    "the signing-modal copy must branch on the server's funding decision, " \
-                    "not on the currency the user happened to pick"
+    assert_match(/token_funded\s*\?\s*'Approve your free entry in your wallet/, response.body,
+                 "the signing-modal copy must branch on the server's funding decision, " \
+                 "not on the currency the user happened to pick — matched as the BRANCH " \
+                 "rather than as two nearby strings, which a currency-gated rewrite would " \
+                 "still satisfy")
     assert_includes response.body, "Approve your free entry in your wallet",
                     "a token-funded entry must be named as free at the moment of signing"
     assert_includes response.body, "transfer in your wallet",

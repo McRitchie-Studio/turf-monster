@@ -5,16 +5,21 @@ require "test_helper"
 # ContestsController#finalize_bundle MUST DROP THE NAVBAR BALANCE CACHE.
 #
 # Same bug as the one pinned for #finalize in
-# contests_finalize_write_ordering_test.rb, reached by a different route — and
-# the route is why it was missed. #finalize broadcasts `create_contest` itself,
-# so the spend has an obvious line in the SERVER to sit behind. #finalize_bundle
-# broadcasts nothing, which reads like "no money moves here". It does not.
+# contests_finalize_write_ordering_test.rb, reached by a different route.
 #
-# THE CLIENT BROADCASTS FIRST. contests/generator.html.erb runs
-# `connection.sendRawTransaction` and then `connection.confirmTransaction` on
-# the operator-signed prize-pool transfer, and only THEN POSTs to
-# finalize_bundle. The USDC is on-chain and out of the wallet before this action
-# is entered, so the whole body — and both rescues — are already post-spend.
+# THE SERVER BROADCASTS NOW, and this header used to say the opposite. Until
+# migrate-remaining-entry-flows, contests/generator.html.erb ran
+# `sendRawTransaction` + `confirmTransaction` in the BROWSER and POSTed only the
+# resulting signature, so every line of this action was already post-spend. That
+# half cannot run on the redirect transport — the document that would broadcast
+# is destroyed while the wallet signs — so #generate_bundle now leaves the admin
+# slot EMPTY and this action cosigns and broadcasts.
+#
+# WHICH MOVES THE SPEND TO A LINE IN THIS ACTION, and the drop must sit directly
+# behind it: after `cosign_and_broadcast_create_contest`, before the read-back
+# and the persist that can each raise. Placing it beside the render instead is
+# what leaves an operator staring at a pre-spend balance after a flaked
+# read-back, which is what the second test below pins.
 #
 # And it is reachable end to end:
 #   - finalize_bundle renders `redirect: generator_contests_path`
@@ -69,7 +74,9 @@ class ContestsFinalizeBundleCacheTest < ActionDispatch::IntegrationTest
     body = {
       params_token: generate_json["params_token"],
       contest_pda:  generate_json["contest_pda"],
-      tx_signature: "FAKE_SIG_bundle_create"
+      # The SIGNED WIRE, not a signature: the wallet signs and the server
+      # broadcasts. A body carrying `tx_signature` is now refused outright.
+      signed_tx:    "FAKE_SIGNED_WIRE_bundle_create"
     }
 
     Solana::Vault.stub :new, FakeVault.new do
@@ -112,10 +119,11 @@ class ContestsFinalizeBundleCacheTest < ActionDispatch::IntegrationTest
     end
   end
 
-  # THE PLACEMENT, not merely the presence — and here it is load-bearing in a
-  # way it was not for #finalize. The client already spent the money, so a
-  # finalize that fails ANYWHERE still owes the drop. Put the call beside the
-  # render and this test fails while the one above still passes.
+  # THE PLACEMENT, not merely the presence. The spend is now a line in this
+  # action, and everything after it can raise — so the drop belongs immediately
+  # behind the broadcast, not beside the render. This injects a fault into the
+  # OPSEC-010 read-back, which runs after the money has moved: put the call
+  # beside the render and this test fails while the one above still passes.
   test "a finalize_bundle that RAISES after entry still drops the balance cache" do
     Rails.stub(:cache, ActiveSupport::Cache::MemoryStore.new) do
       log_in_as(operator)
@@ -129,8 +137,8 @@ class ContestsFinalizeBundleCacheTest < ActionDispatch::IntegrationTest
 
       assert_not response.parsed_body["success"], "precondition: this finalize must have FAILED"
       assert_equal [nil, nil], balance_cache_for(operator),
-        "the client spent the money before this action was entered, so a failed finalize " \
-        "owes the drop too — this is why the call sits above the body and not beside the render"
+        "the broadcast already moved the money, so a finalize that fails after it owes the " \
+        "drop too — this is why the call sits behind the broadcast and not beside the render"
     end
   end
 end

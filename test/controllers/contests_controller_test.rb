@@ -1002,8 +1002,8 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
   # assert_enterable! BEFORE vault.enter_contest_with_token — so the token stays
   # UNCONSUMED, the entry stays `cart`, and NO reconcile is scheduled (there is
   # nothing to recover; fail loudly). This is the primary fix for incident
-  # 2026-06-08, where the gate ran AFTER the irreversible burn.
-  test "enter validates selection count BEFORE consuming the token (short entry → nothing burned)" do
+  # 2026-06-08, where the gate ran AFTER the irreversible consume.
+  test "enter validates selection count BEFORE consuming the token (short entry → nothing consumed)" do
     @user.update!(
       web3_solana_address: nil,
       web2_solana_address: "ManagedAddr#{SecureRandom.hex(4)}",
@@ -1168,6 +1168,34 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     meta = JSON.parse(ptx.metadata)
     assert_equal "transfer", meta["funding"]
     assert_nil meta["entry_token_pda"]
+  end
+
+  # THE SIGN CARD NAMES A CURRENCY AND ONLY THE SERVER KNOWS WHICH ONE. A board
+  # that offers no picker (the world-cup survivor board) posts no currency, so
+  # the "usdc" default is applied HERE and the client cannot name it. Before the
+  # echo, that board rendered "Approve the  transfer in your wallet..." with the
+  # token missing. This is the server half of that fix; the copy half is pinned
+  # in test/lib/contest_entry_intent_js_test.rb.
+  test "prepare_entry echoes the currency it priced so a picker-less board can name it" do
+    @user.update!(web3_solana_address: "Web3CurEcho#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_cur_echo", season_id: 1)
+    SeasonConfig.set_current!(1)
+
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
+
+    vault = FakeVault.new(tokens: [])
+    Solana::Vault.stub :new, vault do
+      # NO currency param — exactly what the survivor board sends.
+      post prepare_entry_contest_path(@contest), as: :json
+    end
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_equal "usdc", body["currency"],
+                 "the client sent no currency, so the response has to carry the one the " \
+                 "server defaulted to — otherwise the sign card has nothing to name"
   end
 
   test "discard_prepared_entry expires an unsigned wallet request so retry can rebuild it" do
@@ -1623,9 +1651,49 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
       assert_equal "confirmed", JSON.parse(response.body)["status"]
       assert entry.reload.active?
       assert_nil Rails.cache.read(cache_key),
-                 "crash recovery credits an entry whose token was burned on-chain — it owes " \
+                 "crash recovery credits an entry whose token was consumed on-chain — it owes " \
                  "the same cache bust as the live confirm path"
     end
+  end
+
+  # The instruction this path PROVES, which is what the comment above the cache
+  # bust in #recover_pending_entry describes. Crash recovery credits an entry whose
+  # token was CONSUMED by `enter_contest_with_token`; it is not a burn, and
+  # `burn_entry_token` — the operator claw-back the holder never signs — must never
+  # be what a recovered entry verifies against. The sibling tests above stub
+  # `TxVerifier.verify!` with a bare `true`, so nothing else in this file notices
+  # which instruction the server actually demanded.
+  test "recover_pending_entry verifies a token consume, never a burn" do
+    @user.update!(web3_solana_address: "WalletRIx#{SecureRandom.hex(4)}")
+    log_in_as @user
+    entry = @contest.entries.create!(user: @user, status: :cart)
+    [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
+    ptx = PendingTransaction.create!(
+      tx_type: "enter_contest", serialized_tx: "stx",
+      status: "submitted", tx_signature: "sig-recover-ix-1",
+      target: entry, initiator_address: @user.web3_solana_address,
+      metadata: { entry_pda: "epda-ix1", funding: "token", entry_token_pda: "tpda_ix_1" }.to_json
+    )
+
+    verified = []
+    vault = FakeVault.new(signature_statuses: {
+      "sig-recover-ix-1" => { "err" => nil, "confirmationStatus" => "confirmed" }
+    })
+    Solana::Vault.stub :new, vault do
+      Solana::Keypair.stub :encode_base58, ->(s) { s.is_a?(String) ? s : s.to_s } do
+        Solana::TxVerifier.stub :verify!, ->(**kw) { verified << kw[:instruction_name]; true } do
+          post recover_pending_entry_contest_path(@contest),
+            params: { ptx_slug: ptx.slug }, as: :json
+        end
+      end
+    end
+
+    assert_equal "confirmed", JSON.parse(response.body)["status"]
+    assert_equal ["enter_contest_with_token"], verified,
+                 "a token-funded recovery must prove the consume instruction"
+    refute_includes verified, "burn_entry_token",
+                    "entering a contest consumes the token; burning it is a separate " \
+                    "operator instruction and no entry path may verify against it"
   end
 
   # CONTROL: the bust is conditional on the SERVER having prepared a token, and
@@ -1697,7 +1765,7 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     # The real validator refuses a tx that doesn't match the prepared entry —
     # e.g. an admin-fee-payer SystemProgram.transfer (the C1 attack). The detailed
     # reason is for server logs only; it must never reach the client.
-    vault.cosign_safe_raises = "system_not_advance: ix 0 (the C1 attack)"
+    vault.cosign_safe_raises = "system_program_ix: ix 0 (the C1 attack)"
 
     Solana::Vault.stub :new, vault do
       post confirm_onchain_entry_contest_path(@contest),
@@ -1710,7 +1778,7 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     refute body["success"]
     assert_equal "tx_rejected", body["code"]          # stable code the frontend keys its modal off
     assert_empty vault.cosign_broadcast_calls          # validation ran BEFORE cosign — nothing broadcast
-    refute_match(/system_not_advance/, body["error"].to_s) # detailed reason never leaked to the client
+    refute_match(/system_program_ix/, body["error"].to_s) # detailed reason never leaked to the client
     assert entry.reload.cart?                          # no charge, safe to retry
   end
 
@@ -2766,9 +2834,10 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     bundle_slug = ContestBundle::ALL["survivor"][:contest][:slug]
     assert_equal "world-cup-survivor-free-roll", bundle_slug
 
-    # Step 1: generate_bundle builds the partially-signed create TX. The
-    # contest_pda + serialized_tx + returned slug all derive from the explicit
-    # bundle slug (FakeVault: cpda-<slug> / FAKE_TX_create_<slug>).
+    # Step 1: generate_bundle builds the UNSIGNED create TX — the admin slot is
+    # left empty for the server to cosign at finalize. The contest_pda +
+    # serialized_tx + returned slug all derive from the explicit bundle slug
+    # (FakeVault: cpda-<slug> / FAKE_TX_create_<slug>).
     gen = nil
     Solana::Vault.stub :new, FakeVault.new(usdc_balance: 100_000.0) do
       post generate_bundle_contests_path(key: "survivor")
@@ -2781,9 +2850,15 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "FAKE_TX_create_#{bundle_slug}", gen["serialized_tx"]
     assert gen["params_token"].present?
 
-    # Step 3: finalize_bundle persists the Contest + LandingPage. The PDA it
-    # verifies + stores is re-derived server-side from the SAME slug (identity
-    # encode_base58 stub → cpda-<slug>), so onchain_contest_id matches.
+    # Step 3: finalize_bundle cosigns, broadcasts, and persists the Contest +
+    # LandingPage. The PDA it verifies + stores is re-derived server-side from
+    # the SAME slug (identity encode_base58 stub → cpda-<slug>), so
+    # onchain_contest_id matches.
+    #
+    # `signed_tx`, NOT `tx_signature`: the browser used to broadcast and post the
+    # signature it got back, which cannot work on the redirect transport — the
+    # document that would broadcast is destroyed while the wallet signs. The
+    # server broadcasts now. See contests_bundle_server_broadcast_test.rb.
     fin = nil
     Solana::Vault.stub :new, FakeVault.new do
       Solana::Keypair.stub :encode_base58, ->(s) { s.is_a?(String) ? s : s.to_s } do
@@ -2791,7 +2866,7 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
           post finalize_bundle_contests_path, params: {
             params_token: gen["params_token"],
             contest_pda:  gen["contest_pda"],
-            tx_signature: "sig-bundle-#{SecureRandom.hex(2)}"
+            signed_tx:    "SIGNED_BUNDLE_WIRE_#{SecureRandom.hex(2)}"
           }
         end
       end

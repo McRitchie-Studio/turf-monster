@@ -8,8 +8,8 @@ require "test_helper"
 # Vault#assert_entry_cosign_safe! / #assert_create_contest_cosign_safe! now
 # DECODE the Phantom-signed wire and semantically allowlist it BEFORE any admin
 # signature: admin fee-payer, exactly one expected turf-vault IX bound to THIS
-# server-issued payload, and only the durable-nonce advance / ComputeBudget hints
-# alongside. Byte-equality is intentionally NOT used — the client round-trips the
+# server-issued payload, and only fee-capped ComputeBudget and Phantom's Lighthouse
+# assertions alongside -- never a System instruction, not even a nonce advance. Byte-equality is intentionally NOT used — the client round-trips the
 # tx through web3.js, which may re-encode the message bytes — so these tests
 # exercise legit builds via the public builders.
 class Solana::VaultCosignValidationTest < ActiveSupport::TestCase
@@ -237,7 +237,7 @@ class Solana::VaultCosignValidationTest < ActiveSupport::TestCase
     err = assert_raises(Solana::Vault::UnsafeCosignError) do
       vault.assert_entry_cosign_safe!(tx.serialize_base64, entry: entry_for(entry_number: 0), wallet_address: WALLET)
     end
-    assert_match(/system_not_advance/, err.message)
+    assert_match(/system_program_ix/, err.message)
   end
 
   test "admin-fee-payer SystemProgram.transfer is rejected for create_contest cosign" do
@@ -265,7 +265,7 @@ class Solana::VaultCosignValidationTest < ActiveSupport::TestCase
         onchain_params: create_params
       )
     end
-    assert_match(/system_not_advance/, err.message)
+    assert_match(/system_program_ix/, err.message)
   end
 
   test "create_contest signed wire bound to different payload is rejected" do
@@ -351,6 +351,226 @@ class Solana::VaultCosignValidationTest < ActiveSupport::TestCase
     err = assert_raises(Solana::Vault::UnsafeCosignError) do
       vault.assert_entry_cosign_safe!(tx.serialize_base64, entry: entry_for(entry_number: 0), wallet_address: WALLET)
     end
-    assert_match(/advance_without_config/, err.message)
+    assert_match(/advance_nonce_rejected/, err.message)
+  end
+
+  # --- reject-vestigial-nonce-cosign-advance -----------------------------------
+  #
+  # THE HOLE. Both guards admitted a System advanceNonceAccount as long as it
+  # targeted the CONFIGURED SOLANA_DURABLE_NONCE_PUBKEY, at ANY position. No
+  # wire that reaches either guard carries one: build_enter_contest sets dn = nil,
+  # build_enter_contest_with_token passes no nonce, and every guarded create is
+  # built with admin_signs: false (durable_nonce: nil). The nonce's authority is
+  # the admin -- the very key these guards decide whether to sign with. So a user
+  # could append an advance of the OPERATOR's nonce to their own entry or create,
+  # and the admin cosign would authorize it, stranding any operator tx anchored
+  # on the old nonce value. Griefing, not theft -- but it is signature authority
+  # on the money path that no builder asks for.
+  #
+  # Each case below runs WITH the nonce configured (the only state in which the
+  # old guard admitted it) and pairs the rejected wire with the SAME wire minus
+  # the advance, which must still pass -- so a rejection can only be about the
+  # advance, never about a malformed test wire.
+
+  def configured_nonce = @configured_nonce ||= Solana::Keypair.generate.to_base58
+
+  def operator_advance_ix
+    adv = Solana::SystemProgram.advance_nonce_account(nonce: configured_nonce, authority: Solana::Keypair.admin.address)
+    { program_id: adv[:program_id], accounts: adv[:accounts], data: adv[:data] }
+  end
+
+  # A Phantom-first shaped wire (no local signer; admin reserved as fee payer,
+  # the creator/entrant second) carrying `program_ix`, with the operator-nonce
+  # advance at `advance_at` (:first, :last) or absent (nil).
+  def wire(program_ix, advance_at: nil)
+    tx = Solana::Transaction.new
+    tx.set_recent_blockhash(Solana::Keypair.generate.to_base58)
+    tx.add_instruction(**operator_advance_ix) if advance_at == :first
+    tx.add_instruction(**program_ix)
+    tx.add_instruction(**operator_advance_ix) if advance_at == :last
+    tx.serialize_partial_base64(additional_signers: [Solana::Keypair.admin.public_key_bytes,
+                                                     Solana::Keypair.decode_base58(WALLET)])
+  end
+
+  def enter_contest_ix(vault)
+    accounts = Array.new(Solana::Vault::ENTER_CONTEST_ENTRY_PDA_POSITION) do
+      { pubkey: Solana::Keypair.generate.public_key_bytes, is_signer: false, is_writable: false }
+    end
+    accounts << { pubkey: vault.entry_pda(SLUG, WALLET, 0).first, is_signer: false, is_writable: true }
+    { program_id: Solana::Keypair.decode_base58(Solana::Config::PROGRAM_ID), accounts: accounts,
+      data: Solana::Transaction.anchor_discriminator("enter_contest") + ("\x00".b * 8) }
+  end
+
+  def create_contest_ix(vault)
+    spec = vault.create_contest_instruction(WALLET, SLUG, **create_params)
+    { program_id: Solana::Keypair.decode_base58(Solana::Config::PROGRAM_ID), accounts: spec[:accounts], data: spec[:data] }
+  end
+
+  def entry_guard(vault, wire_b64)
+    vault.assert_entry_cosign_safe!(wire_b64, entry: entry_for(entry_number: 0), wallet_address: WALLET)
+  end
+
+  def create_guard(vault, wire_b64)
+    vault.assert_create_contest_cosign_safe!(wire_b64, wallet_address: WALLET, contest_slug: SLUG,
+                                                       onchain_params: create_params)
+  end
+
+  %i[first last].each do |position|
+    test "REGRESSION: an entry wire advancing the CONFIGURED operator nonce (#{position}) is refused" do
+      vault = Solana::Vault.new(client: fake_client)
+      with_durable_nonce_env(configured_nonce) do
+        ix = enter_contest_ix(vault)
+        assert entry_guard(vault, wire(ix)), "control: the same entry wire without the advance must pass"
+
+        err = assert_raises(Solana::Vault::UnsafeCosignError) { entry_guard(vault, wire(ix, advance_at: position)) }
+        assert_match(/advance_nonce_rejected/, err.message)
+      end
+    end
+
+    test "REGRESSION: a create wire advancing the CONFIGURED operator nonce (#{position}) is refused" do
+      vault = Solana::Vault.new(client: fake_client)
+      with_durable_nonce_env(configured_nonce) do
+        ix = create_contest_ix(vault)
+        assert create_guard(vault, wire(ix)), "control: the same create wire without the advance must pass"
+
+        err = assert_raises(Solana::Vault::UnsafeCosignError) { create_guard(vault, wire(ix, advance_at: position)) }
+        assert_match(/advance_nonce_rejected/, err.message)
+      end
+    end
+  end
+
+  # CONTROL: every shape a guarded flow's BUILDER actually produces still passes
+  # with the nonce configured -- the production-shaped state. If any of these
+  # carried an advance, tightening the guard would break it. Once the guard
+  # refuses every System instruction, these passing IS the proof that no builder
+  # feeding a guard emits one.
+  test "control: every guarded builder's wire passes with the durable nonce configured" do
+    vault = Solana::Vault.new(client: fake_client)
+    token_pda = Solana::Keypair.generate.to_base58
+    with_durable_nonce_env(configured_nonce) do
+      entry = vault.build_enter_contest(WALLET, SLUG, 0, currency_idx: 0, season_id: 1)
+      assert entry_guard(vault, entry[:serialized_tx])
+
+      token = vault.build_enter_contest_with_token(WALLET, SLUG, 0, token_pda, season_id: 1)
+      assert vault.assert_entry_cosign_safe!(token[:serialized_tx], entry: entry_for(entry_number: 0),
+                                                                      wallet_address: WALLET, entry_token_pda: token_pda)
+
+      create = vault.build_create_contest(WALLET, SLUG, **create_params, admin_signs: false)
+      assert create_guard(vault, create[:serialized_tx])
+    end
+  end
+
+  # --- cap-cosign-priority-fee ---------------------------------------------------
+  #
+  # THE HOLE. Both guards admitted EVERY ComputeBudget instruction without reading
+  # it. The fee payer is the admin, and Solana charges the fee payer a priority
+  # fee of compute_unit_price x compute_unit_limit / 1e6 lamports -- charged even
+  # when the transaction then fails. So a user could take their own prepared entry,
+  # raise the price, sign, and POST it: the guard passed, the admin cosigned as
+  # fee payer, and the admin paid the leader. Carl's review probe: 1_400_000 CU x
+  # 5e10 micro-lamports/CU (a 70 SOL fee) returned true.
+  #
+  # These regression cases use only values the ORIGINAL code already knew about
+  # (the builder's own constants), so they fail today for the reason under test
+  # and not for a missing constant.
+
+  def cu_limit_ix(units) = { program_id: Solana::Vault::COMPUTE_BUDGET_PROGRAM_ID, accounts: [],
+                             data: "\x02".b + [units].pack("V") }
+
+  def cu_price_ix(micro_lamports) = { program_id: Solana::Vault::COMPUTE_BUDGET_PROGRAM_ID, accounts: [],
+                                      data: "\x03".b + [micro_lamports].pack("Q<") }
+
+  # The prepared shape -- ComputeBudget ixs first, then the program ix -- as a
+  # Phantom-first wire with the admin reserved as fee payer.
+  def budget_wire(program_ix, budget_ixs)
+    tx = Solana::Transaction.new
+    tx.set_recent_blockhash(Solana::Keypair.generate.to_base58)
+    budget_ixs.each { |ix| tx.add_instruction(**ix) }
+    tx.add_instruction(**program_ix)
+    tx.serialize_partial_base64(additional_signers: [Solana::Keypair.admin.public_key_bytes,
+                                                     Solana::Keypair.decode_base58(WALLET)])
+  end
+
+  BUILDER_PRICE = Solana::Vault::PARTIAL_TX_PRIORITY_FEE_MICROLAMPORTS
+  BUILDER_LIMIT = Solana::Vault::PARTIAL_TX_COMPUTE_UNIT_LIMIT
+
+  {
+    "Carl's probe: 1.4M CU at 5e10 micro-lamports/CU (70 SOL)" => [1_400_000, 50_000_000_000],
+    "the builder's own limit at 1000x the builder's price"      => [BUILDER_LIMIT, BUILDER_PRICE * 1000]
+  }.each do |label, (limit, price)|
+    test "REGRESSION: the entry guard refuses an admin-paid priority fee -- #{label}" do
+      vault = Solana::Vault.new(client: fake_client)
+      ix = enter_contest_ix(vault)
+      assert entry_guard(vault, budget_wire(ix, [cu_limit_ix(BUILDER_LIMIT), cu_price_ix(BUILDER_PRICE)])),
+             "control: the same entry at the builder's own fee must pass"
+
+      assert_raises(Solana::Vault::UnsafeCosignError) do
+        entry_guard(vault, budget_wire(ix, [cu_limit_ix(limit), cu_price_ix(price)]))
+      end
+    end
+
+    test "REGRESSION: the create guard refuses an admin-paid priority fee -- #{label}" do
+      vault = Solana::Vault.new(client: fake_client)
+      ix = create_contest_ix(vault)
+      assert create_guard(vault, budget_wire(ix, [cu_limit_ix(BUILDER_LIMIT), cu_price_ix(BUILDER_PRICE)])),
+             "control: the same create at the builder's own fee must pass"
+
+      assert_raises(Solana::Vault::UnsafeCosignError) do
+        create_guard(vault, budget_wire(ix, [cu_limit_ix(limit), cu_price_ix(price)]))
+      end
+    end
+  end
+
+  # --- the ceiling itself (derived from the builders; see COSIGN_FEE_MARGIN) -------
+
+  CAP_PRICE = Solana::Vault::COSIGN_MAX_COMPUTE_UNIT_PRICE
+
+  def refused(vault, program_ix, budget_ixs, guard: :entry)
+    assert_raises(Solana::Vault::UnsafeCosignError) do
+      w = budget_wire(program_ix, budget_ixs)
+      guard == :entry ? entry_guard(vault, w) : create_guard(vault, w)
+    end.message
+  end
+
+  test "a wallet-raised price up to the ceiling is cosigned -- cap, not refuse" do
+    vault = Solana::Vault.new(client: fake_client)
+    assert entry_guard(vault, budget_wire(enter_contest_ix(vault), [cu_limit_ix(BUILDER_LIMIT), cu_price_ix(CAP_PRICE)]))
+    assert create_guard(vault, budget_wire(create_contest_ix(vault), [cu_limit_ix(BUILDER_LIMIT), cu_price_ix(CAP_PRICE)]))
+  end
+
+  test "one micro-lamport per CU over the price ceiling is refused, by both guards" do
+    vault = Solana::Vault.new(client: fake_client)
+    over = [cu_limit_ix(BUILDER_LIMIT), cu_price_ix(CAP_PRICE + 1)]
+    assert_match(/compute_unit_price_over_cap/, refused(vault, enter_contest_ix(vault), over))
+    assert_match(/compute_unit_price_over_cap/, refused(vault, create_contest_ix(vault), over, guard: :create))
+  end
+
+  test "a price at the ceiling with a raised limit is refused once the admin's fee passes the cap" do
+    vault = Solana::Vault.new(client: fake_client)
+    ix = enter_contest_ix(vault)
+    assert_match(/priority_fee_over_cap/, refused(vault, ix, [cu_limit_ix(BUILDER_LIMIT + 1), cu_price_ix(CAP_PRICE)]))
+  end
+
+  test "a price with no limit is charged at the runtime maximum, never under-counted" do
+    vault = Solana::Vault.new(client: fake_client)
+    ix = enter_contest_ix(vault)
+    # 50_000 x 1_400_000 = 0.7 of the ceiling: passes. Double the price: 1.4x -- refused.
+    assert entry_guard(vault, budget_wire(ix, [cu_price_ix(BUILDER_PRICE)]))
+    assert_match(/priority_fee_over_cap/, refused(vault, ix, [cu_price_ix(BUILDER_PRICE * 2)]))
+  end
+
+  test "only SetComputeUnitLimit and SetComputeUnitPrice are admitted, once each, well-formed" do
+    vault = Solana::Vault.new(client: fake_client)
+    ix = enter_contest_ix(vault)
+    heap = { program_id: Solana::Vault::COMPUTE_BUDGET_PROGRAM_ID, accounts: [], data: "\x01".b + [256 * 1024].pack("V") }
+    deprecated = { program_id: Solana::Vault::COMPUTE_BUDGET_PROGRAM_ID, accounts: [],
+                   data: "\x00".b + [1_400_000].pack("V") + [1_000_000_000].pack("V") } # RequestUnits: units + additional_fee
+    short_price = { program_id: Solana::Vault::COMPUTE_BUDGET_PROGRAM_ID, accounts: [], data: "\x03".b + [1].pack("V") }
+
+    assert_match(/compute_budget_ix_not_allowed/, refused(vault, ix, [heap]))
+    assert_match(/compute_budget_ix_not_allowed/, refused(vault, ix, [deprecated]))
+    assert_match(/compute_budget_malformed/, refused(vault, ix, [short_price]))
+    assert_match(/compute_budget_duplicate/,
+                 refused(vault, ix, [cu_price_ix(1), cu_limit_ix(BUILDER_LIMIT), cu_price_ix(1)]))
   end
 end

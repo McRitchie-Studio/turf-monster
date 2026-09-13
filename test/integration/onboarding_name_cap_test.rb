@@ -39,22 +39,22 @@ require "test_helper"
 # bounds live. Neither can deadlock a studio-engine release — the deliberate
 # property that made onboarding_controller_test drop its own length assertions.
 class OnboardingNameCapTest < ActionDispatch::IntegrationTest
-  # The modal as a browser receives it. /admin/modals/preview is the path
-  # onboarding_gallery_test already uses to render this card, and it goes through
-  # modal_preview.html.erb's registration — the same engine partial, with the
-  # same locals helper, that the application layout renders.
+  # The modal as a browser receives it, off an ordinary page on
+  # layouts/application. This used to go through /admin/modals/preview, whose
+  # layout kept a SECOND registration of the same engine partial — so a cap that
+  # reached the preview's registration and not the app's would have measured
+  # green here while every real player got an uncapped field. That seam was
+  # retired on 2026-09-09 and this reads the only registration list left.
   #
-  # BOTH BRANCHES, not the first one found. The card is registered twice now
+  # BOTH BRANCHES, not the first one found. The card is registered twice
   # (skippable + required; see the note in layouts/application), and they are
   # separate render calls with separate locals — so a max_length that reached one
   # and not the other is a real and otherwise invisible outcome. at_css would
   # have silently measured whichever came first.
   def rendered_first_name_fields
-    log_in_as users(:alex)
-    get admin_modal_preview_path(modal_id: "onboarding", props: {}.to_json)
-    assert_response :success
+    body = modal_host_page
 
-    fields = Nokogiri::HTML(response.body).css("#onboarding-first-name")
+    fields = Nokogiri::HTML(body).css("#onboarding-first-name")
     assert_equal 2, fields.length,
                  "expected the first-name input on BOTH registrations; found #{fields.length}"
     fields

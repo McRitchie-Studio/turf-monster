@@ -22,7 +22,8 @@
         <input type="checkbox" x-model="consent" class="rounded border-subtle text-primary cursor-pointer">
         Subscribe to the Turf Monster newsletter
       </label>
-      <p x-show="error" x-cloak x-text="error" class="text-xs mt-2" style="color:#f87171"></p>
+      <p x-show="error" x-cloak role="alert" aria-live="assertive" aria-atomic="true"
+         x-text="error" class="text-xs mt-2 text-danger-ink"></p>
     </div>
     <button type="button" @click="start()" :disabled="saving || !consent"
             class="btn btn-primary w-full h-full disabled:opacity-50 disabled:cursor-not-allowed"

@@ -101,7 +101,13 @@ class FirstNameEntryGateTest < ActionDispatch::IntegrationTest
     assert first_name < funding, "the name must be asked before money"
   end
 
-  test "the board dispatches the blocker and resumes the entry once, guarded" do
+  # RENAMED 2026-09-08 — it used to be "...and resumes the entry once, guarded".
+  # The resume is gone: a hold now has exactly two outcomes, success or a
+  # hand-off to the blocker, and the player holds again (operator rule; see the
+  # note where the listeners were in _turf_totals_board). The DISPATCH half of
+  # this test is untouched and still the thing worth pinning — the blocker must
+  # still route to the card that fixes it.
+  test "the board dispatches the first-name blocker to the required card" do
     # NOT logged in, on purpose (same as wallet_topup_test's board assertions):
     # this markup is static component source, identical for every viewer, and a
     # user who already HAS an entry on this contest renders the entries view
@@ -113,12 +119,15 @@ class FirstNameEntryGateTest < ActionDispatch::IntegrationTest
 
     assert_includes body, "case 'first_name_required':  this.showFirstNameModal(); break;"
     assert_includes body, "Alpine.store('modals').open('onboarding', { required: true, enterAnim: 'shake' });"
-    # The resume, and the guard that keeps the post-auth chain from firing it.
-    # Both matter: the chain opens the same modal and dispatches the same event,
-    # so an unguarded listener would submit a lineup nobody held.
-    assert_includes body, "window.addEventListener('first-name-saved', function () {"
-    assert_includes body, "if (!board._resumeAfterFirstName) return;"
-    assert_includes body, "board._resumeAfterFirstName = false;"
+    # THE RESUME ASSERTIONS WERE RETIRED HERE, not weakened. They pinned
+    # window.addEventListener('first-name-saved') and the _resumeAfterFirstName
+    # guard around it — real behaviour, correctly tested, until the rule changed.
+    # Their replacement asserts the ABSENCE of that listener and lives in
+    # test/integration/hold_never_resumes_test.rb, which also pins the layout's
+    # onboarding-chain driver as the thing that must SURVIVE, since it listens
+    # for the same event name and is not a resume.
+    refute_includes body, "window.addEventListener('first-name-saved'",
+                    "the board must not resume an entry after the name is saved"
   end
 
   # --- 3. the card in required mode -------------------------------------------
@@ -131,19 +140,37 @@ class FirstNameEntryGateTest < ActionDispatch::IntegrationTest
     modal_registration_sources(body, "onboarding")
   end
 
+  # ONE TEST WHERE THERE WERE TWO, and the merge is the whole point of the note
+  # this replaces.
+  #
+  # FOUND BY MUTATION. Until 2026-09-09 the detailed assertions below rendered
+  # through /admin/modals/preview, which used layouts/modal_preview — a second
+  # layout keeping its OWN registration list. Breaking the required branch in
+  # layouts/application, the layout a real player is served, changed nothing
+  # here: the mutant survived every test in the file while the entry gate
+  # silently served the SKIPPABLE card, complete with a Skip link that records a
+  # session skip the gate deliberately ignores. A separate test was added
+  # alongside to assert the live layout, and the two then said nearly the same
+  # thing about two different pages.
+  #
+  # Retiring the preview seam removed the second page, so they are one test
+  # against the one layout, carrying the union of what each asserted. Not logged
+  # in, matching the board assertions above: the registrations are static markup,
+  # identical for every viewer, and they live in the layout rather than the page.
   test "the required card drops the skip affordances and keeps a plain close" do
-    log_in_as users(:alex)
-    get admin_modal_preview_path(modal_id: "onboarding", props: { required: true }.to_json)
-    assert_response :success
+    body = modal_host_page
 
-    cards = onboarding_registrations(response.body)
+    cards = onboarding_registrations(body)
     assert_equal 2, cards.length,
-                 "both registrations must render — the required one is only reachable through " \
-                 "its own branch, so a missing branch silently serves the skippable card to the " \
-                 "entry gate rather than drawing a blank one"
+                 "layouts/application must register the first-name card twice — the gem resolves " \
+                 "`required` at RENDER time, so one registration bakes a single mode for both " \
+                 "callers, and a missing branch silently serves the skippable card to the entry " \
+                 "gate rather than drawing a blank one. Found #{cards.length}."
 
     required = cards.find { |c| c.include?(%(aria-label="Close")) }
-    assert required, "no registration rendered the required card's plain Close"
+    assert required,
+           "the live layout has no required registration, so the entry gate would open the " \
+           "skippable card and offer a way past a validation the hold re-applies"
 
     assert_includes required, "What should we call you?"
 
@@ -178,52 +205,16 @@ class FirstNameEntryGateTest < ActionDispatch::IntegrationTest
     # makes the assertions above about the REQUIRED card rather than about the
     # whole page.
     skippable = cards.find { |c| c.include?("Skip for now") }
-    assert skippable, "the chain's skippable registration must still render"
+    assert skippable, "the live layout has no skippable registration for the post-auth chain"
     assert_includes skippable, %(aria-label="Skip")
-  end
-
-  # THE LAYOUT THE ENTRY GATE ACTUALLY USES.
-  #
-  # FOUND BY MUTATION, and it is the disease this codebase already has a name
-  # for. Every other assertion about this card renders through
-  # /admin/modals/preview, which uses layouts/modal_preview — and that layout
-  # keeps its OWN registration list. Breaking the required branch in
-  # layouts/application, the layout a real player is served, changed nothing in
-  # this suite: the mutant survived every test in the file while the entry gate
-  # silently served the SKIPPABLE card, complete with a Skip link that records a
-  # session skip the gate deliberately ignores.
-  #
-  # So this asserts the live layout directly. Not logged in, matching the board
-  # assertions above: the registrations are static markup, identical for every
-  # viewer, and they live in the layout rather than the page.
-  test "the app layout registers BOTH first-name branches, not just the preview" do
-    get contests_path
-    assert_response :success
-
-    cards = onboarding_registrations(response.body)
-    assert_equal 2, cards.length,
-                 "layouts/application must register the first-name card twice — the gem resolves " \
-                 "`required` at RENDER time, so one registration bakes a single mode for both " \
-                 "callers. Found #{cards.length}."
-
-    required  = cards.find { |c| c.include?(%(aria-label="Close")) }
-    skippable = cards.find { |c| c.include?(%(aria-label="Skip")) }
-
-    assert required,
-           "the LIVE layout has no required registration, so the entry gate would open the " \
-           "skippable card and offer a way past a validation the hold re-applies"
-    assert skippable, "the LIVE layout has no skippable registration for the post-auth chain"
-
-    assert_not_includes required, "Skip for now",
-                        "the entry-gate card must not render a skip control in the real app"
-    assert_includes skippable, "Skip for now"
 
     # And each branch must be keyed on the PROP, since that is what the two
     # callers differ by — the chain opens with no props, the gate with
-    # { required: true }.
-    assert_includes response.body,
+    # { required: true }. Without this, both registrations could resolve the
+    # same mode and every assertion above would still pass.
+    assert_includes body,
                     %(id === 'onboarding' && !!($store.modals.current().props || {}).required)
-    assert_includes response.body,
+    assert_includes body,
                     %(id === 'onboarding' && !($store.modals.current().props || {}).required)
   end
 
@@ -269,14 +260,10 @@ class FirstNameEntryGateTest < ActionDispatch::IntegrationTest
   end
 
   test "the chain's card keeps its skip, because a signup is not an entry" do
-    log_in_as users(:alex)
-    get admin_modal_preview_path(modal_id: "onboarding", props: {}.to_json)
-    assert_response :success
-
-    # SCOPED TO THE BRANCH, because both registrations are in every response
-    # now: an unscoped assert_includes for "Skip for now" would pass on the
-    # required card's presence alone and prove nothing about this one.
-    skippable = onboarding_registrations(response.body).find { |c| c.include?(%(aria-label="Skip")) }
+    # SCOPED TO THE BRANCH, because both registrations are on every page: an
+    # unscoped assert_includes for "Skip for now" would pass on the required
+    # card's presence alone and prove nothing about this one.
+    skippable = onboarding_registrations(modal_host_page).find { |c| c.include?(%(aria-label="Skip")) }
     assert skippable, "the chain's registration must render a Skip-labelled dismiss"
     assert_includes skippable, "Skip for now"
     assert_includes skippable, "/onboarding/skip_first_name"

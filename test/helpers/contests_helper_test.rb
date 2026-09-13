@@ -233,4 +233,59 @@ class ContestsHelperTest < ActionView::TestCase
       "the standard format must carry the cap this test reads through"
     assert_equal 24, contest_spots_left(@contest, 5)
   end
+
+  # --- game_day_label ---
+  #
+  # The multi-week team card labels each opponent column with the day that
+  # game is played. kickoff_at is stored in true UTC and this app sets no
+  # config.time_zone, so Time.zone IS UTC — these pin the Eastern read that
+  # keeps a night game on its own calendar day.
+
+  GameStub = Struct.new(:kickoff_at, keyword_init: true)
+  MatchupStub = Struct.new(:game, keyword_init: true)
+
+  test "an afternoon game is labelled with its month and day" do
+    # Sun Oct 4 2026, 1:00 PM ET.
+    assert_equal "Oct 4", game_day_label(GameStub.new(kickoff_at: Time.utc(2026, 10, 4, 17, 0)))
+  end
+
+  test "a night game keeps its Eastern date, not the UTC one it stores as" do
+    # Mon Oct 12 2026, 8:15 PM ET — stored as the 13th in UTC.
+    game = GameStub.new(kickoff_at: Time.utc(2026, 10, 13, 0, 15))
+
+    assert_equal "Oct 12", game_day_label(game)
+    assert_not_equal "Oct 13", game_day_label(game),
+                     "the UTC calendar day is the day after this game"
+  end
+
+  test "a game that crosses into January dates to the new month" do
+    # Sun Jan 3 2027, 1:00 PM ET — week 17 of the 2026 season.
+    assert_equal "Jan 3", game_day_label(GameStub.new(kickoff_at: Time.utc(2027, 1, 3, 18, 0)))
+  end
+
+  test "no game and no kickoff both label as nil" do
+    assert_nil game_day_label(nil)
+    assert_nil game_day_label(GameStub.new(kickoff_at: nil))
+  end
+
+  # --- opponent_slot_labels ---
+
+  test "a dated column shows the date and details the week" do
+    labels = opponent_slot_labels(5, MatchupStub.new(game: GameStub.new(kickoff_at: Time.utc(2026, 10, 13, 0, 15))))
+
+    assert_equal "Oct 12", labels[:shown]
+    assert_equal "Week 5 · Oct 12", labels[:detail]
+  end
+
+  test "an undated column falls back to the week on both faces" do
+    labels = opponent_slot_labels(6, MatchupStub.new(game: nil))
+
+    assert_equal "Week 6", labels[:shown]
+    assert_equal "Week 6", labels[:detail]
+  end
+
+  test "a bye column has no matchup at all and still names its slot" do
+    assert_equal "Week 6", opponent_slot_labels(6, nil)[:shown]
+    assert_equal "Week ?", opponent_slot_labels(nil, nil)[:shown]
+  end
 end

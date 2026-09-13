@@ -139,20 +139,26 @@ tweetnacl tag rather than the gem's async `solana_studio/_deeplink_assets`, and
 opts the callback's debug sink back on with
 `Studio.wallet_debug_sink = -> { !AppFlags.live_production? }`.
 
-**The two layouts load that tag on different terms, and the difference bites.**
-`layouts/application` loads tweetnacl on every page. `layouts/modal_preview` gates
-it per modal id, because loading web3.js and tweetnacl in all 49 gallery iframes
-stalled the page. Rendering the deep link is unconditional either way, so a
-preview card always publishes `window.startPhantomDeepLink` — and the gem
-picker paints its mobile Phantom row on that global merely EXISTING. A card that
-publishes the global without the tag therefore paints a row whose tap throws
-`nacl is not defined` synchronously, before the fetch, where nothing catches it.
-That is `/tasks/preview-gallery-deeplink-dead`. `phantom_deeplink_adoption_test`
-derives the ids that owe the tag from the preview layout's own registrations —
-the deep-link callers plus anything that reaches one through `swap`/`open` hops,
-failing closed on a target it cannot read — and fails when the gate is narrower.
-The derivation is scoped to that one layout by name: a THIRD layout rendering
-`shared/_alpine_factories` owes tweetnacl too, and nothing asserts it.
+**One layout loads that tag, unconditionally, and that is the whole guarantee
+now.** `layouts/application` loads tweetnacl on every page. Rendering the deep
+link is unconditional too, so every page publishes `window.startPhantomDeepLink`
+— and the gem picker paints its mobile Phantom row on that global merely
+EXISTING. A page that publishes the global WITHOUT the tag paints a row whose tap
+throws `nacl is not defined` synchronously, before the fetch, where nothing
+catches it.
+
+That used to be reachable. `layouts/modal_preview` gated the tag per modal id,
+because loading web3.js and tweetnacl in every gallery iframe stalled the page,
+and the gate was narrower than the set of cards that could put a caller on
+screen — `/tasks/preview-gallery-deeplink-dead`. `phantom_deeplink_adoption_test`
+carried a derivation for it: the deep-link callers plus anything reaching one
+through `swap`/`open` hops, failing closed on a target it could not read.
+`/tasks/retire-the-preview-harness` deleted that layout on 2026-09-09, which
+deleted the gate and with it the derivation — there is nothing left for a gate to
+be narrower than. What the test asserts instead is that the surviving tag is
+BLOCKING and that it reaches a RENDERED page, not merely that it appears in the
+layout source. A SECOND layout rendering `shared/_alpine_factories` would owe
+tweetnacl too, and nothing asserts that; add coverage with the layout.
 
 `Solana::SessionAuth#verify_solana_signature!` enforces:
 
@@ -278,21 +284,56 @@ A **pubkey is kept, deliberately**: it is public (already on
 signature rule starts at 64 characters precisely so a 44-character pubkey passes
 through it.
 
-### ⚠️ Three of the five call sites are wired
+### ⚠️ All five call sites are wired
 
-Three **render surfaces** catch these rejections; two of the three are in the
-**solana-studio gem**, and wiring them needs a gem release. The other two sites
-are not surfaces at all — they are the two guards inside `solanaConnectAndVerify`
-that REPLACE a wallet's message with one of ours, and each reports before it
-destroys the evidence:
+Three **render surfaces** catch these rejections, and two of the three live in
+the **solana-studio gem** — wired there since **0.7.0**, and this app's
+`Gemfile.lock` resolves **at or above that floor**. Stated as a RELATION rather
+than as a number, because the number rots: this line read "locks 0.9.0" while
+the lockfile already said 0.9.1. The relation is asserted on every test run
+rather than trusted — see below.
+
+The other two sites are not surfaces at all — they are the two guards
+inside `solanaConnectAndVerify` that REPLACE a wallet's message with one of
+ours, and each reports before it destroys the evidence:
 
 | Stage | Where | Status |
 |---|---|---|
 | `wallet_setup_connect` | `app/views/modals/_wallet_setup.html.erb` | **wired** |
 | `connect_verify_fallback` | `app/views/layouts/application.html.erb`, `solanaConnectAndVerify` — `connect()` never answered | **wired** |
 | `connect_verify_signature` | `app/views/layouts/application.html.erb`, `solanaConnectAndVerify` — connected, then `signMessage` refused | **wired** |
-| `wallet_connect` | solana-studio `solana_studio/modals/_wallet_connect.html.erb` | **not wired** — needs a gem release |
-| `web3_step_up` | solana-studio `solana_studio/modals/_web3_step_up.html.erb` | **not wired** — needs a gem release |
+| `wallet_connect` | solana-studio `solana_studio/modals/_wallet_connect.html.erb` | **wired** — in the gem since 0.7.0 |
+| `web3_step_up` | solana-studio `solana_studio/modals/_web3_step_up.html.erb` | **wired** — in the gem since 0.7.0 |
+
+**The gem's two rows are machine-checked now — as a LOCK FLOOR, not against the
+gem's source.** `test/controllers/wallet_failure_reporter_wiring_test.rb`
+asserts that this app's own `Gemfile.lock` resolves solana-studio at or above
+**0.7.0**, so those two rows read **wired** only while the gem this app installs
+actually carries the call sites. That is a fact about THIS repo. Reading the
+gem's source instead would red-seal the producer's release against a consumer's
+bookkeeping — the trade this page has always refused, and still does.
+
+**A floor, never an equality.** An `== 0.9.1` assertion goes red the moment
+solana-studio ships 0.9.2, which reintroduces that same red-seal by the back
+door. The question a ledger row asks is *is the wiring in there*, and that
+answer is monotonic — every release at or above the floor carries it.
+
+**Why it took a guard at all.** These two rows read **not wired** from the day
+0.7.0 landed until 2026-09-09, three gem releases later — an operator filtering
+`error_logs` by `wallet_connect` was told, by this table, that the stage could
+hold nothing. Then the correction itself shipped with the version wrong. The
+hand-maintained rows were wrong twice running; the floor is what stops a third.
+
+The version above is the EARLIEST tag containing the commit that wired them
+(`06bda3b`), not a tag that happens to carry it. **The gap this paragraph used
+to describe is CLOSED, and closing it is why the sentence changed:** the Gemfile
+pin (`Gemfile:165`) reads `"~> 0.9", ">= 0.9.2"`, so the resolver itself refuses
+0.6.x, and `test/lib/engine_pin_contract_test.rb`'s `SOLANA_STUDIO_MINIMUM`
+asserts the resolve against 0.9.2 as well. The floor test below is therefore a
+BACKSTOP, not the only guard: it states the floor THIS ledger needs — 0.7.0 —
+which is the claim that survives a pin someone loosens later. Re-derive by hand
+with `grep reportWalletFailure "$(bundle
+show solana-studio)"/app/views/solana_studio/modals/_wallet_connect.html.erb`.
 
 The two layout stages are not a substitute for the surfaces and the surfaces are
 not a substitute for them. Each fires for exactly one thing — a failure whose
@@ -305,14 +346,13 @@ would put the app's two most confusable wallet failures behind a single filter.
 
 Each substituted error is tagged `walletFailureReported`, and
 `_wallet_setup.html.erb` skips a tagged error, so one failure produces one row
-rather than two. **The two gem call sites owe that same guard when they are
-wired** — without it they would add a second row carrying our sentence in both
-halves, which is the shape this fix removes. Any FUTURE substituting guard added
-to `solanaConnectAndVerify` owes all three things: its own stage, a report made
-before the substitution, and the tag. The `connect_verify_signature` guard was
-added without them on 2026-09-07 (#587) and silently reopened the byte-identical
-row this endpoint exists to prevent, which is why the rule is written down here
-rather than left to be re-derived.
+rather than two. **Both gem call sites carry that same guard**, in the same
+line, so the gem release added no second row carrying our sentence in both
+halves. Any FUTURE substituting guard added to `solanaConnectAndVerify` owes all
+three things: its own stage, a report made before the substitution, and the tag.
+The `connect_verify_signature` guard was added without them on 2026-09-07 (#587)
+and silently reopened the byte-identical row this endpoint exists to prevent,
+which is why the rule is written down here rather than left to be re-derived.
 
 The reporter deliberately lives **here, not in the gem**. The gem's partials
 already call the host-provided `window.parseSolanaError` behind a `typeof`
@@ -323,25 +363,40 @@ silence, exactly as it already does for the mapper.
 
 `test/controllers/wallet_failure_reporter_wiring_test.rb` holds this ledger as
 an executable accounting, so a stage cannot be added or dropped without the
-table above being wrong out loud. It deliberately does **not** assert against
-the gem's source — a consumer test that reddens when the producer ships would
-red-seal the gem's own release.
+table above being wrong out loud. The gem's two live there in `GEM_STAGES` —
+named for WHERE the call sites are, not for a status, because the old name
+(`PENDING_GEM_STAGES`) encoded one and went stale with it. It deliberately does
+**not** assert against the gem's source — a consumer test that reddens when the
+producer ships would red-seal the gem's own release — and asserts the lock floor
+instead.
 
 ### Four limits worth knowing before reading a row
 
-- **Two branches replace the wallet's string — and both report it first, so
-  `raw` is still the wallet's.** On the `connect` + `signMessage` fallback path,
-  `solanaConnectAndVerify` REPLACES the wallet's message before rethrowing. By
-  the time any surface catches, the original Phantom string is gone, so what the
-  USER reads is always our sentence. **What `error_logs` holds is not.** Since
-  2026-09-07 (`/tasks/raw-message-is-ours`) each substituting guard reports from
+- **Three branches replace the message before any surface sees it — the two
+  WALLET ones report it first, so `raw` is still the wallet's.** On the `connect`
+  + `signMessage` fallback path, `solanaConnectAndVerify` REPLACES the wallet's
+  message before rethrowing. By the time any surface catches, the original
+  Phantom string is gone, so what the USER reads is always our sentence. **What
+  `error_logs` holds is not.** Since 2026-09-07
+  (`/tasks/raw-message-is-ours`) each substituting WALLET guard reports from
   INSIDE `solanaConnectAndVerify`, at the last point the wallet's own words
-  exist, and the two guards report on stages of their own:
+  exist, and those two guards report on stages of their own:
 
   | Substituted failure | Stage | The sentence the user reads |
   |---|---|---|
   | A `connect()` that NEVER ANSWERED (2026-09-06) | `connect_verify_fallback` | "Finish setting up your wallet in … — create or import one, then try again." |
   | Connected, then could not sign — `connect()` returned a public key and `signMessage` rejected (2026-09-07) | `connect_verify_signature` | "Your wallet connected but could not sign you in. Signing in moves no funds — try again." |
+  | `/auth/solana/nonce` answered with a body we could not read (2026-09-08) | none, deliberately | "Our server could not start sign-in — the problem is on our side, not your wallet. Please try again in a moment." |
+
+  **The third one reports nothing, and that is the rule below applied, not an
+  omission.** It is a fault of OURS: the 500 that produced the unreadable body
+  is already in the server's own log with its exception and backtrace, so the
+  browser has nothing to add — and the POST would go to the server that just
+  failed. The string it replaces is V8's complaint about our error page, never a
+  wallet's words, so no diagnosis dies with it. The substituted error carries
+  `walletFailureReported` so no SURFACE files it either; without that tag the
+  wallet-setup modal would record a row holding our sentence in both halves —
+  the `raw == mapped` anomaly named in the triage table below.
 
   The second substitution exists because rethrowing that failure UNTOUCHED was
   not safe. Phantom's generic "Unexpected error" is the string this path carries
@@ -369,27 +424,162 @@ red-seal the gem's own release.
   | Failure | Why it is not a missing wallet |
   |---|---|
   | A decline (`code 4001`, "user rejected/declined") | The human said no |
-  | `/auth/solana/nonce` failing (tagged `nonceFetchFailed`) | Our own server, not the wallet |
-  | Wallet Standard rejections tagged `walletAnswered` — "No account authorized" (an empty accounts array: a dismissed account-selection sheet), "Wallet not connected" | The wallet answered and authorized nothing |
+  | `/auth/solana/nonce` failing to REACH us — the request never arrived, and the rejection still says `Failed to fetch` (tagged `nonceFetchFailed`) | The network, not the wallet — and it leaves no server-side trace, so it stays reportable |
+  | The Wallet Standard rejection tagged `walletAnswered` — "No account authorized", an empty accounts array: a dismissed account-selection sheet | The wallet answered and authorized nothing |
+
+  **The adapter tags a SECOND rejection, and it never arrives.**
+  `wallet_provider.js` also tags "Wallet not connected", raised when `signMessage`
+  is called with no account. `solanaConnectAndVerify` calls `signMessage` only
+  after `connect()` has answered — and the `connected` guard rethrows ABOVE the
+  `walletAnswered` one, so that string is always substituted as
+  `connect_verify_signature`, with the wallet's words kept in `raw`. No operator
+  can read it. This table listed it anyway until 2026-09-09, which is what a
+  triage table written from the code's SHAPE rather than its BEHAVIOUR looks
+  like: it sent a reader after a cause the app cannot produce. Swap those two
+  guards and the string becomes reachable again —
+  `test/docs/auth_failure_mode_reachability_test.rb` runs the real helper and
+  reddens in either direction, naming the row that has to change.
 
   **Triage by the STAGE, then read both halves.** The stage says which diagnosis
-  fired; `mapped` is what the user read; `raw` is what the wallet said. Three
+  fired; `mapped` is what the user read; `raw` is what the wallet said. Four
   readings and what they mean:
 
   | What you see | What it means |
   |---|---|
   | `raw: "Unexpected error"` on `connect_verify_fallback` or `connect_verify_signature` | **Normal, and the fix working.** A substitution fired and the wallet's own generic string was captured before it was replaced. The stage tells you which of the two diagnoses the user was given. |
   | `raw` == `mapped` on either of those two stages | **An anomaly worth chasing.** It means the row came from a surface downstream of the substitution — the layout's report or its `walletFailureReported` tag has regressed — which is exactly the defect fixed on 2026-09-07. |
-  | `raw: "Unexpected error"` (or `"Unexpected token '<' …"`) with `mapped` reading "Wallet couldn't process the transaction…" | One of the three rethrows above met the mapper's generic branch. Not a missing wallet, and not a transaction either — see the exposure below. |
+  | `mapped: "Signature rejected"` beside any `raw` at all | **A decline, whatever the wallet called it.** All three surfaces read `code === 4001` BEFORE the mapper, so the mapped half never depends on the raw half here. A frightening `raw` on this reading is a wallet's wording, not a second failure. |
+  | `raw: "Unexpected token '<' …"` | **A REGRESSION, on every stage.** Both legs that could produce this reading are now substituted at the point the failure is identified — the nonce fetch on 2026-09-08, the verify POST on 2026-09-09 — so an unreadable HTML body is named as our server's fault before any surface maps it. A row still carrying this raw string means a guard has been reverted, hoisted, or gated on `r.ok`; the two copy tests named below redden on all three. On `connect_verify_fallback` or `connect_verify_signature` it was always a regression, because neither guard can see a nonce or a verify rejection. (Chrome's wording. Firefox and Safari phrase the same rejection differently, miss the mapper's branch, and hand the user the raw parser noise instead.) |
 
-  **Known exposure, unfixed as of 2026-09-07.** A nonce fetch that fails with an
-  HTML body — any 500 that renders a page — makes `r.json()` reject with
-  "Unexpected token '<' … is not valid JSON", which matches that SAME
-  `/^unexpected/i` branch. It is tagged `nonceFetchFailed` and rethrown
-  untouched, so the commonest server-failure shape still reaches the user as the
-  transaction sentence. Closing it needs either a third substitution at the guard
-  or a mapper change whose blast radius crosses the entry paths that legitimately
-  own that wording.
+  **The nonce exposure, closed on 2026-09-08** (`/tasks/nonce-failure-reads-as-balance`).
+  This page carried it as a known, deliberately-unfixed hole from 2026-09-07: a
+  nonce fetch that fails with an HTML body — see **What actually sends HTML**
+  below — makes `r.json()` reject with "Unexpected token '<' … is not valid
+  JSON", which matches the mapper's SAME `/^unexpected/i` branch, so the
+  commonest server-failure shape reached the user as the transaction sentence. An outage of
+  ours, read back to a paying user as their wallet being short of USDC.
+
+  It is now substituted where the failure is identified — inside `r.json()`,
+  not at the `nonceFetchFailed` guard, and the difference matters twice:
+
+  - **A guard-local fix would have missed the commonest wallet.** The `signIn`
+    branch awaits the nonce ABOVE its `try`, because the nonce is an INPUT to
+    `signIn()`, so its rejection is caught by nothing in
+    `solanaConnectAndVerify` and lands on the surface intact. Phantom supports
+    `signIn`. Measured on both paths, 2026-09-08.
+  - **An offline user must not be told it was us.** Inside the single `.catch`,
+    a `TypeError: Failed to fetch` and an unreadable 500 body are the same
+    rejection; inside `r.json()` they are already separated by which step threw.
+    So a request that never reached us keeps its own words and stays reportable.
+
+  The mapper is untouched: its transaction wording still belongs to the entry
+  and transaction paths that own it. `test/views/nonce_server_failure_copy_test.rb`
+  drives the RENDERED helper against a real 500 with an HTML body and asserts the
+  decoded sentence on both paths, and runs the literal past every regex the mapper
+  tests a message against.
+
+  **The verify exposure, closed on 2026-09-09**
+  (`/tasks/verify-leg-repeats-nonce-bug`). This page carried the same hole one
+  fetch later as a known, deliberately-unfixed defect: `solanaConnectAndVerify`
+  ended by POSTing to `/auth/solana/verify` (or `/account/link_solana`) and
+  calling `.json()` on the answer, outside BOTH `try` blocks and with none of the
+  three things the nonce leg gained. A 500 resolves the fetch, `.json()` rejects,
+  and the same `/^unexpected/i` branch produced the balance sentence.
+
+  It was WORSE than the nonce case, and that is why it was P1: the nonce fetch
+  happens BEFORE the user signs, this one AFTER the signature succeeded. A user
+  approved a wallet prompt, our server faulted, and we told them to check their
+  USDC balance — on a real-money product, at the moment they had most reason to
+  believe something had been taken.
+
+  It is now substituted inside `verifyResponse.json()`, and the site was chosen
+  by the same analysis the nonce leg used, with one result that differs:
+
+  - **One site covers both wallet paths, and here that is free.** The `signIn`
+    branch and the `connect` + `signMessage` fallback both fall THROUGH to this
+    single fetch; neither wraps it. So unlike the nonce leg — where a
+    guard-local fix would have missed every `signIn`-capable wallet, Phantom
+    included — no second substitution is needed. Both paths are driven, and
+    since 2026-09-09 the drive is **verified to be two paths**: the copy test's
+    wallet mock is strict (a `signIn`-capable wallet refuses `connect`, and one
+    without `signIn` refuses `signIn`) and every drive records which wallet
+    methods it reached. Before that, forcing `useSignIn` either way left the
+    file green, so "both paths" was a comment rather than a guarantee.
+  - **`r.ok` is NOT the fix, and gating on it would be a new defect.** This page
+    used to note that "nothing checks `r.ok`" as though the check were the
+    remedy. `SolanaSessionsController#verify` answers **401** (expired nonce, bad
+    signature) and **422** (age attestation) with a JSON body the user MUST read,
+    and the modal paints `result.error` from it. A throw gated on `!r.ok` would
+    replace three precise, actionable sentences with one generic one — the same
+    confidently-wrong diagnosis, pointed at a new party. Only an UNREADABLE body
+    is unambiguously ours, and `.json()` rejecting is exactly that signal.
+  - **An offline user must not be told it was us.** Wrapping the fetch itself
+    makes `TypeError: Failed to fetch` and an unreadable 500 body the same
+    rejection. Inside `.json()` they are already separated by which step threw,
+    so a request that never reached us keeps its own words and stays reportable.
+
+  - **The verify POST sends no `Accept` header, and that is load-bearing.**
+    Measured 2026-09-09 against `ActionDispatch::PublicExceptions`: with no
+    `Accept` (or `*/*`, or `text/html`) a 500 comes back as the rendered error
+    PAGE — the body `.json()` rejects on; with `Accept: application/json` the
+    same 500 comes back as `{"status":500,"error":"Internal Server Error"}`,
+    which **parses**. Adding that header is a one-line tidy-up two sibling call
+    sites in the layout already make, and it would silently DISARM this guard:
+    `.json()` would resolve, the substitution would never run, and a user who
+    had already signed would read a bare "Internal Server Error" instead of
+    being told their signature moved no funds. The copy test's fake server now
+    answers by `Accept` the way Rails does, so the header cannot be added
+    without reddening. Adding it deliberately means re-aiming the guard in the
+    same diff — and a JSON error body has to be told apart by STATUS, which the
+    `r.ok` bullet above explains this endpoint cannot do naively.
+
+  **What actually sends HTML — not "any unhandled exception".** This page and
+  both copy tests carried that sentence until 2026-09-09 and it is FALSE on the
+  verify leg: `SolanaSessionsController#verify` and `AccountsController#link_solana`
+  each END in a generic `rescue StandardError` rendering **JSON 422**, which
+  parses. Three things do send HTML, and **two arrive at status 200**:
+
+  | Producer | What the browser gets |
+  |---|---|
+  | The engine catch-all — `Studio::ErrorHandling`'s `rescue_from StandardError` claims whatever an action's own rescues do not: a raise in a `before_action`, or in `#nonce`, which has no local rescue | `handle_unexpected_error` → `respond_to`; this fetch sends no `Accept`, so `format.html` → **302 to root**, followed by `fetch` to HTML at **status 200** |
+  | OPSEC-045 forced logout (`ApplicationController#verify_session_token`) | `format.html` → **302 to /signin**, followed to HTML at **status 200**. Measured end to end 2026-09-09 |
+  | A fault outside `rescue_from`'s reach — middleware, routing | `ActionDispatch::PublicExceptions` → the rendered **500** page |
+
+  `r.ok` is TRUE on the first two, which is the whole argument for substituting
+  inside `.json()`: an `!r.ok` gate would not fire at all on the two shapes this
+  app actually produces most.
+
+  The substituted error carries `walletFailureReported`, for the reason the nonce
+  leg gives: the 500 is already in our own log with its backtrace, and the report
+  POST would go to the very server that just failed.
+  `test/views/verify_server_failure_copy_test.rb` drives the RENDERED helper
+  against a real 500 with an HTML body on both paths and asserts the decoded
+  sentence, pins a 401-with-JSON still reaching the user verbatim, and runs the
+  literal past every regex the mapper tests a message against.
+  `test/docs/auth_failure_mode_reachability_test.rb` now guards the CLOSED state
+  through its derived path, so this section and the behaviour cannot drift apart.
+
+  **The cause the substitution costs, bought back on the OPSEC-045 path**
+  (`/tasks/verify-guard-leaves-four-holes`, 2026-09-09). The guard is right to
+  replace an unreadable body with a sentence the user can act on, but the
+  replacement means the surface can no longer say WHY. For the commonest
+  status-200 producer in the table above that is now answered server-side:
+  `ApplicationController#verify_session_token` files an `ErrorLog` under
+  `SessionTokenMismatch` before it clears the session, targeted at the user it
+  logged out. So a support report of "it said your server could not finish
+  sign-in" is a query — `ErrorLog.where("inspect LIKE '%SessionTokenMismatch%'")`
+  — rather than a guess. Before this the forced logout emitted a
+  `Rails.logger.info` line and nothing else, which made it the one user-facing
+  event in this app that left no row.
+
+  Two properties of that record are deliberate and tested
+  (`test/controllers/session_token_mismatch_trace_test.rb`): **neither session
+  token is written down** — both are credentials, so the row says only whether
+  the cookie carried one (`present but stale` vs `absent`, which distinguishes a
+  rotation from a session predating the binding) — and the recorder is
+  **fail-open**, swallowing its own faults into the Rails log, because a forced
+  logout is a security act and a logger that can veto what it observes is worse
+  than no logger.
 
 - **The report is best-effort by design.** It is dropped on a throttle, a
   closed tab that beats `keepalive`, or a blocked request. `error_logs` is a
@@ -457,7 +647,7 @@ branch on `mode`: a wallet-less account reads `"web2"`.
 |-------|-------|
 | The flag | `AppFlags.web3_only_onboarding?` |
 | Wallet minting skipped | `User#generate_managed_wallet!` early-returns |
-| Who gets prompted | `WalletSetupPolicy` — one rule, both auth paths + the entry gate |
+| Who gets prompted | `WalletSetupPolicy` — one policy (Phantom → no wallet → free entry → USDC), both auth paths + the entry gate |
 | Recorded at sign-in | `record_wallet_setup_state!` → `session[:wallet_setup]` (state) + `session[:wallet_setup_prompt]` (one-shot auto-open) |
 | Read on render | `wallet_setup_required?` — RPC-free; feeds `walletSetupRequired` in the client session payload |
 | The modal | `app/views/modals/_wallet_setup.html.erb` (Phantom row + explainer video + Detailed Guide) |
@@ -466,6 +656,17 @@ branch on `mode`: a wallet-less account reads `"web2"`.
 
 Rules worth knowing:
 
+- **A user holding a FREE ENTRY is left alone — once they have a wallet.** A
+  gifted player already has the price of admission and needs no funding rail
+  (operator call, 2026-09-09). Rule 2 still comes first, and claiming the gift is
+  what clears it: `EntryGifts::Claim` mints the managed wallet (`reason: :gift`)
+  even under web3-only onboarding, and the magic-link paths claim BEFORE they
+  record the verdict. Two shapes then count: a minted entry token, **or a claimed
+  `EntryGift` whose mint is still expected** (`mint_error` blank, so an admin
+  claimant's unpayable gift buys no bypass — OPSEC-044). The verdict is computed
+  once at sign-in and the claim is synchronous while `EntryGiftMintJob` is not,
+  so a token-only test would read false and re-arm the modal for the whole
+  session. Both halves fall away once the entry is spent.
 - **A grandfathered web2 user holding ≥ `WalletSetupPolicy::MIN_USDC` (19) USDC
   is left alone.** 19 USDC is exactly one paid entry (`Contest::FORMATS`), so
   they can still play on their custodial rails and are never interrupted.
@@ -537,7 +738,7 @@ address. One standard now covers both.
 | Read on render | `web3_step_up_required?` — helper, RPC-free, true for the whole session |
 | The modal | `solana_studio/modals/_web3_step_up` — solana-studio owns the card; this app passes its own subtext + help route via `Web3StepUpHelper#web3_step_up_locals` |
 | Brand memory | `users.web3_wallet_provider` + `web3_authenticated_at`, stamped by `User#record_web3_authentication!` |
-| Showroom | `/admin/style#modals` — both states, against the real partial. This app's own wording renders at `/admin/modals/preview/web3-step-up` |
+| Showroom | `/admin/style#modals` — both states, against the real partial, including this app's own wording (the card takes its locals from `Web3StepUpHelper` on every render). The separate `/admin/modals/preview/web3-step-up` seam was retired 2026-09-09 |
 
 Rules worth knowing:
 
@@ -591,31 +792,44 @@ Rules worth knowing:
   before the column existed has one, and there is no backfill — the brand is not
   recoverable from an address. Those users get the same card with the picker as
   its primary action.
-- **The showroom is moving.** `/admin/modals` is DEPRECATED as a destination
-  (operator direction, 2026-08-21): modal primitive work goes to the engine's
-  living style guide at `/admin/style#modals`, where a modal is inherited by
-  every Studio app instead of being turf's alone. The page still stands because
-  5 modal ids have no card in the engine guide yet (`wallet-setup`,
-  `wallet-changed`, `cdp-ramp`, `buy-entry-token`, `cosign-rejected`) — port
-  first, delete second, so no state loses its review surface on the way out.
-  A NAME LEAVES THIS LIST FOR ONE OF TWO REASONS, and they are not the same
+- **The showroom moved, and then it closed.** `/admin/modals` was DEPRECATED as
+  a destination on 2026-08-21 (operator direction) and RETIRED on 2026-09-09:
+  modal primitive work goes to the engine's living style guide at
+  `/admin/style#modals`, where a modal is inherited by every Studio app instead
+  of being turf's alone. The five ids that held the old page open the longest
+  (`wallet-setup`, `wallet-changed`, `cdp-ramp`, `buy-entry-token`,
+  `cosign-rejected`) all have cards on the guide now — in TURF's own section at
+  `/admin/style#host-modals`, rendered from
+  `app/views/style/host/_modals.html.erb` against the real partials. Port first,
+  delete second: no state lost its review surface on the way out, and what
+  follows is the record of how each name left. Expect ONE of the five to be
+  greyed out when you go and look: `cdp-ramp`'s registration is gated on
+  `cdp_ramp_modal_available?`, so on any stack without `ENABLE_CDP_RAMP` (which
+  is every stack but QA and production) its card renders disabled, carrying the
+  flag's name instead of a trigger. That is the honest state, not a missing
+  card — a live trigger there would open an empty panel.
+  A NAME LEFT THIS LIST FOR ONE OF THREE REASONS, and they are not the same
   reason. Either the engine now OWNS the partial and shows its states (a true
-  port, as `web3-step-up` was below), or this page turned out never to be that modal's
-  review surface at all (it drew an EMPTY card). An engine SPECIMEN of a card
-  turf still owns is neither: it does not review turf's partial, so it does not
-  retire a name from this list. Measure against that bar, not against a
-  matching id in the engine guide.
+  port, as `web3-step-up` was below); or this page turned out never to be that
+  modal's review surface at all (it drew an EMPTY card); or turf CARDS ITS OWN
+  partial on the shared guide, which is the route studio-engine 0.71.0 opened
+  and how the last five went. An engine SPECIMEN of a card turf still owns is
+  none of the three: it does not review turf's partial, so it never retired a
+  name from this list. Measure against that bar, not against a matching id in
+  the engine guide.
   2026-09-06 (/tasks/drop-dead-gallery-cards) took three names off by the
   SECOND route: `quest-success`, `unsubscribe-confirm` and `unsubscribe-goodbye`
   were registered in `layouts/application` but never in `layouts/modal_preview`,
   and `admin/modal_preview.html.erb` has no dynamic fallback, so each drew a
-  blank card here. This page was never their showroom, so it is not holding one
-  open for them. The same change dropped the five `Templates` cards (a TRUE
+  blank card there. That page was never their showroom, so it was not holding
+  one open for them. The same change dropped the five `Templates` cards (a TRUE
   port — the engine owns and cards `studio/modals/templates/*` itself) and the
   three remaining blank Quest / Newsletter cards (`free-entry-earned`,
   `newsletter-subscribe`, `newsletter-success`).
-  `cosign-rejected` STAYS: it is registered once in `modals/_host_extras`, which
-  studio-engine's host renders on every path, so it genuinely draws here.
+  `cosign-rejected` STAYED to the end, by the SECOND route's opposite: it is
+  registered once in `modals/_host_extras`, which studio-engine's host renders on
+  every path, so it genuinely drew a card rather than a blank one. It left by the
+  THIRD route with the other four.
   `web3-step-up` came off this list on 2026-08-24: the card had moved out of this
   app, and the engine's style guide shows both of its states — it renders
   solana-studio's real partial there, not a specimen copy — so its cards here were
@@ -707,11 +921,23 @@ Rules worth knowing:
   on the first-name card. The picker can therefore still land on top of a walking
   chain (a cosmetic stack). Who owns the screen after the chain, and after age
   verification where the board runs its own resume, is an open design question.
-- **The showroom** is `/admin/modals` → **Flows** (`AdminController::MODAL_FLOWS`),
-  which walks the steps on the live modal host. It is pinned to
-  `OnboardingFlow::STEPS` by a test, so a new step cannot go unshown. These
-  flows are intended to move to the engine's `/admin/style#modals` later, which
-  needs a studio-engine release plus a pin bump in turf.
+- **The chain has no showroom, but its pin outlived one.** The ordered
+  walk-through lived at `/admin/modals` → **Flows** (`AdminController::MODAL_FLOWS`)
+  until the gallery was retired on 2026-09-09; the section, the route and the
+  constant all went with it. The invariant it carried did not.
+  `OnboardingFlow::STEPS` is pinned in `test/controllers/onboarding_gallery_test.rb`
+  — "the chain driver opens a modal for every step OnboardingFlow resolves" —
+  which asserts against the layout's own chain driver rather than against a
+  review page, so a new step now strands a user in a red assertion instead of
+  merely going unlisted in a gallery. The individual cards stay reviewable, but
+  not in one place: step 3 (`wallet-setup`) is turf's own and is carded in turf's
+  section at `/admin/style#host-modals`, while steps 1 and 2 are engine cards
+  carded on the engine's section at `/admin/style#modals` — `onboarding-first-name`
+  and `birthday`. Note what that second row does NOT cover: the engine shows the
+  engine's birthday card, and turf's `modals/_birthday` adapter around it (the
+  3-of-3 progress pill plus the jurisdiction locals `BirthdayModalHelper`
+  resolves) is carded nowhere. The ORDERED WALK has no review surface at all, and
+  nothing replaced it.
 
 ## Account Management
 

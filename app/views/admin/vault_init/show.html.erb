@@ -52,6 +52,8 @@
       </dl>
     </div>
   <% else %>
+    <%= render "shared/wallet_desktop_only_notice" %>
+
     <div class="card p-4 mb-6">
       <p class="text-secondary text-sm mb-4">
         The vault is uninitialized. Initialization can only be done by INIT_AUTHORITY's
@@ -93,7 +95,8 @@
         </div>
 
         <div class="flex items-center gap-3 pt-2">
-          <button id="vault-init-btn" type="button" onclick="initVault()" class="btn btn-primary">
+          <button id="vault-init-btn" type="button" onclick="initVault()"
+                  data-desktop-only-action class="btn btn-primary">
             Connect Phantom + Sign
           </button>
           <span id="vault-init-status" class="text-sm text-secondary"></span>
@@ -128,11 +131,33 @@
   }
 
   window.initVault = async function() {
-    var provider = window.solana;
-    if (!provider?.isPhantom) {
-      alert('Phantom wallet is required.');
+    // THE SAME CAPABILITY GATE THE REST OF THE APP USES, asked before anything
+    // else. requireDesktop throws the desktop-only sentence on a phone
+    // and the no-wallet sentence on a desktop with none — this page renders
+    // either through setStatus, the channel it already uses for every failure,
+    // instead of the alert() that used to say "Phantom wallet is required" to
+    // a device that can never have Phantom.
+    //
+    // The notice partial above has already painted the same sentence and
+    // disabled the button. This is the backstop: a button re-enabled by hand,
+    // or an initVault() reached some other way, still stops here.
+    try {
+      window.walletProvider.requireDesktop();
+    } catch (gateErr) {
+      setStatus(gateErr.message, true);
       return;
     }
+
+    // Phantom SPECIFICALLY signs this one. The transaction is built for the
+    // INIT_AUTHORITY's key and the server verifies that exact signer, so the
+    // gate above (which is satisfied by any Solana wallet) does not stand in
+    // for this check.
+    var provider = window.solana;
+    if (!provider || !provider.isPhantom) {
+      setStatus('Phantom is required to sign this transaction. Unlock the Phantom extension, then reload.', true);
+      return;
+    }
+
     var form = document.getElementById('vault-init-form');
     var fd = new FormData(form);
     var payload = {

@@ -13,17 +13,20 @@ class WalletSessionSwitchTest < ActionDispatch::IntegrationTest
     assert_select "body[data-wallet-provider='phantom']", 1
   end
 
+  # ASSERTED ON THE APPLICATION LAYOUT, which is what the failure message below
+  # always claimed. It drove /admin/modals/preview until that seam was retired on
+  # 2026-09-09 — so a wallet-changed card missing from layouts/application, the
+  # only layout a player is ever served, passed here while the preview layout's
+  # own copy of the registration kept the assertion green.
   test "the wallet-change card explains the handoff and offers one session action" do
-    log_in_as users(:alex)
-    get admin_modal_preview_path(modal_id: "wallet-changed", props: {}.to_json)
-    assert_response :success
+    body = modal_host_page
 
-    card = Nokogiri::HTML(response.body).css("template").find { |node|
-      node["x-if"].to_s.include?("=== 'wallet-changed'")
-    }
-    assert card, "wallet-changed modal is not registered in the application layout"
+    cards = modal_registration_sources(body, "wallet-changed")
+    assert_equal 1, cards.length,
+                 "expected one wallet-changed registration in layouts/application; found " \
+                 "#{cards.length}"
 
-    html = card.to_html
+    html = cards.first
     assert_includes html, "Start New Session"
     assert_includes html, "continueSwitch()"
     assert_not_includes html, "Not now"

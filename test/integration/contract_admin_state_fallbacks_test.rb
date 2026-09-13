@@ -161,32 +161,66 @@ class ContractAdminStateFallbacksTest < ActionDispatch::IntegrationTest
     end
   end
 
-  # WHERE THIS RESCUE LIVES, as of card-claims-program-invariance: HOISTED above
-  # the <dl>, into a `cluster` local, and read by BOTH captions that name the
-  # cluster — Program ID and Upgrade authority. It used to sit inline in the
-  # Upgrade authority caption. The regex below takes the FIRST match in the
-  # file, so one shared rescue is also what keeps this guard pointed at the only
-  # NETWORK fallback there is; a second copy would have captured that one
-  # instead and left this one unread while still passing.
-  test "the cluster caption fallback says it is unreachable rather than inventing an error" do
-    source = Rails.root.join(PARTIAL).read
+  # EVERY NETWORK FALLBACK UNDER app/views, not the first one in the partial.
+  #
+  # This guard used to read the FIRST match in the PARTIAL alone, which reported
+  # a complete picture over an incomplete scope. app/views/contract/show.html.erb
+  # carried a second NETWORK fallback, on the header's cluster pill, that
+  # resolved to the literal "devnet" - a cluster claim made from an error path -
+  # and the guard could not see it (transparency-pins-mainnet-program).
+  #
+  # So it scans every ERB under app/views, collects EVERY match in each file,
+  # pins where they live, and checks each one on its own, naming the file and
+  # the position. A new fallback anywhere fails the site count and has to be
+  # read; one that names a cluster is reported by site, whichever file it is in
+  # and whichever match it is in that file.
+  #
+  # The partial's fallback is HOISTED above the <dl> into a `cluster` local that
+  # both cluster-naming captions read (card-claims-program-invariance). The show
+  # page's sits inline in its header pill. Both fire only when Solana::Config
+  # fails to resolve, both render BEFORE the layout, and both are discarded when
+  # the layout's unrescued devnet? read raises - so one message fits both.
+  NETWORK_FALLBACK = /Solana::Config::NETWORK\s+rescue\s+(["'])(.*?)\1/m
+  NETWORK_FALLBACK_SITES = {
+    "app/views/contract/_section_admin_state.html.erb" => 1,
+    "app/views/contract/show.html.erb" => 1
+  }.freeze
 
-    caption = source[/Solana::Config::NETWORK rescue "([^"]*)"/, 1]
-    assert caption.present?,
-      "could not find the NETWORK rescue in #{PARTIAL} - this guard would pass vacuously"
-    assert_match(/unreachable/, caption,
-      "the NETWORK fallback is never seen by a reader. Acceptance is that a string nobody can " \
-      "reach says so, rather than being dressed in a friendlier error string.")
-    assert_match(/discarded/, caption,
-      "unreachable must be stated with the RIGHT mechanism. The fallback does fire - the partial " \
-      "renders before the layout does - and the rendered body is then discarded. A caption that " \
-      "says the partial never renders is the defect this line exists to catch.")
-    assert_no_match(/before this line renders/, caption,
-      "the layout renders AFTER the template and its partials, so nothing raises before this " \
-      "line renders; verified against actionview template_renderer and by standalone render")
-    assert_no_match(/not set/i, caption,
-      "an unset SOLANA_NETWORK raises in production by design (OPSEC-012), and since PR 559 " \
-      "empty and whitespace-only do too - none of them can produce this text")
+  test "every NETWORK fallback in the views says it is unreachable and names no cluster" do
+    root = Rails.root
+    found = Dir[root.join("app/views/**/*.erb")].sort.each_with_object({}) do |path, sites|
+      texts = File.read(path).scan(NETWORK_FALLBACK).map(&:last)
+      sites[Pathname.new(path).relative_path_from(root).to_s] = texts if texts.any?
+    end
+
+    assert_equal NETWORK_FALLBACK_SITES, found.transform_values(&:length),
+      "the NETWORK fallbacks under app/views moved, multiplied or vanished. Read each one " \
+      "before updating this map: a zero-match scan would pass without reading a line."
+
+    problems = found.flat_map do |path, texts|
+      texts.each_with_index.flat_map do |text, i|
+        site = "#{path} NETWORK fallback #{i + 1} of #{texts.length}"
+        [
+          ("#{site} names a cluster (#{text.inspect}). It fires only when Solana::Config did " \
+           "not resolve, so no cluster is known; naming one is a claim made from an error path." \
+           if /devnet|mainnet/i.match?(text)),
+          ("#{site} does not say it is unreachable. No reader ever sees it, and a string nobody " \
+           "can reach must say so rather than wear a friendlier error." \
+           unless text.include?("unreachable")),
+          ("#{site} does not name the mechanism. It DOES fire - templates and partials render " \
+           "before the layout - and the rendered body is then discarded." \
+           unless text.include?("discarded")),
+          ("#{site} claims a raise before it renders. The layout renders AFTER the template and " \
+           "its partials; verified against actionview template_renderer and by standalone render." \
+           if text.include?("before this line renders")),
+          ("#{site} blames an unset variable. An unset SOLANA_NETWORK raises in production by " \
+           "design (OPSEC-012), and since PR 559 empty and whitespace-only do too." \
+           if /not set/i.match?(text))
+        ].compact
+      end
+    end
+
+    assert_empty problems, problems.join("\n")
   end
 
   # --- the standing guard: this card's fallbacks may never blame an env var ---

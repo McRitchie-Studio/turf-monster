@@ -30,13 +30,39 @@ class AdminStylePageTest < ActionDispatch::IntegrationTest
     assert_select "section#tasks"
 
     # TM is an on-chain app: config.features enables :web3 + :leveling, so the
-    # Web3 modal specimens and leveling tricks render ENABLED, not capability-
-    # gated. No "disabled on this app" badge appears anywhere, and the Auth
-    # specimen defaults the Solana Wallet method ON. Guards the studio.rb
-    # config.features fix — a revert would grey these and re-add the badge.
+    # engine's Web3 modal specimens and leveling tricks render ENABLED, not
+    # capability-gated. Guards the studio.rb config.features fix — a revert would
+    # grey these and re-add the badge.
     assert_no_match(/disabled on this app/, @response.body)
-    assert_match(/wallet:\s*true/, @response.body)
-    assert_no_match(/wallet:\s*false/, @response.body)
+
+    # A SECOND PAIR LIVED HERE, RETIRED 2026-09-09:
+    #   assert_match(/wallet:\s*true/) / assert_no_match(/wallet:\s*false/)
+    # They read the seeded toggle state of the ENGINE'S Auth specimen, which was
+    # a mirror of THIS APP's sign-in card and has been deleted — the engine ships
+    # no auth card at all now, and this app cards its real one on its own host
+    # section (app/views/style/host/_modals.html.erb).
+    #
+    # WHAT THEY ACTUALLY PROVED, and why the replacement is not the badge check
+    # above: that pair turned true only when Studio.auth_method?(:wallet) AND
+    # :web3 AND the solana-studio gem all resolved. The badge check covers the
+    # FEATURES term alone. The term with no other witness here is the GEM — so
+    # assert it the way the guide itself decides it, on a card that only becomes
+    # a trigger when the gem resolves.
+    #
+    # `Connect wallet` renders from solana_studio/modals/_wallet_connect. Where
+    # the gem is absent the engine deliberately keeps the card LISTED but strips
+    # role="button" (an unregistered id would open an empty panel) and prints a
+    # notice saying why. Both halves are asserted, because the listed-but-inert
+    # state is exactly what a lost gem looks like.
+    connect_card = @response.body[/<[^>]*aria-label="Open the Connect wallet modal"[^>]*>/]
+    assert connect_card,
+           "the engine's Connect wallet specimen is missing entirely — expected it listed " \
+           "whether or not the gem resolves"
+    assert_includes connect_card, 'role="button"',
+                    "Connect wallet is listed but NOT a trigger, which is how the engine renders " \
+                    "it when solana-studio does not resolve — this app bundles the gem"
+    assert_no_match(/This app bundles no solana-studio/, @response.body,
+                    "the guide thinks this app ships no solana-studio")
   end
 
   test "redirects a non-admin away from /admin/style" do

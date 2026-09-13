@@ -128,6 +128,35 @@ Rails.application.config.to_prepare do
     }
   )
 
+  # THE GIFT INVITE — the one email a friend gets before they have an account.
+  #
+  # Registered as :transactional, which is what it IS by mechanism: one message,
+  # sent because Mr. McRitchie typed one address into /admin/entry_gifts. Only
+  # its FROM address borrows the marketing voice ("Alex from Turf Monster"), and
+  # that is set on the mailer, not here — see EntryGiftMailer.
+  #
+  # THE BANNER IS BORROWED, on purpose and visibly. friend-joined-banner.jpg is
+  # the closest artwork this app owns (it is the referral email's) and a
+  # bannerless card reads as unfinished next to its siblings. It is the FLOOR,
+  # not the ceiling: an operator upload on /admin/emails wins over the file
+  # named here, so replacing it needs no deploy. Swap this line for a gift
+  # banner of its own when one exists.
+  Studio::EmailCatalog.register(
+    "entry_gift_invite",
+    label: "Free entry gift",
+    description: "Operator-sent invitation carrying a free contest entry, in the sender's voice.",
+    type: :transactional,
+    default_asset: "emails/friend-joined-banner.jpg",
+    preview: lambda {
+      sender = User.where.not(email: nil).first ||
+               User.new(email: "alex@turfmonster.media", username: "alex", name: "Alex")
+      gift = EntryGift.new(recipient_email: "friend@example.com", sender: sender,
+                           contest: Contest.featured, mint_ref: "preview",
+                           note: "Put a lineup in this week — I want someone to beat.")
+      EntryGiftMailer.gift_invite(gift, sample_token)
+    }
+  )
+
   Studio::EmailCatalog.register(
     "newsletter_welcome",
     label: "Newsletter welcome",

@@ -3,12 +3,16 @@
 # Resolution order (most specific wins, static asset is the ultimate fallback
 # so a preview NEVER breaks even with nothing uploaded):
 #
-#   image: landing_page.og_image  ->  SiteSetting default_og_image  ->  /og.png
+#   image: contest.contest_image  ->  landing_page.og_image
+#          ->  SiteSetting default_og_image  ->  /og.png
 #   title: content_for(:title)    ->  SiteSetting default_og_title  ->  hardcoded
 #   desc:  content_for(:meta_..)  ->  SiteSetting default_og_desc.   ->  hardcoded
 #
 # `landing_page` is nil on the standard application layout; the landing layout
 # passes the current @landing_page so an operator can override per funnel page.
+# The contest rung is not a fourth argument to og_image_url — a contest page
+# rides the plain application layout, so contests/show sets the resolved URL as
+# `content_for :og_image` and the layout's page-level override picks it up.
 module OgHelper
   # Fallbacks baked into the layouts before this helper existed; kept here as
   # the last resort when SiteSetting has no admin-set default. Skill-contest
@@ -38,6 +42,24 @@ module OgHelper
   # (only valid for the static og.png; uploads may be any size).
   def og_image_default?(landing_page = nil)
     !(landing_page&.og_image&.attached? || SiteSetting.og_defaults[:image_attached])
+  end
+
+  # The contest's own banner, composed into the 1200x630 link-preview card
+  # (Contest's :og_card variant). nil when the contest has no banner, so the
+  # layout's `content_for(:og_image).presence` falls through to the site default
+  # exactly as an unbannered page always has.
+  #
+  # PROXY, NOT `.url`. contest_image lives on the PRIVATE service, whose `.url`
+  # is a signature that expires — and an unfurler caches the og:image URL it was
+  # given and re-fetches it days later, so an expiring URL is a preview that
+  # works today and is broken by the weekend. The proxy route is a permanent URL
+  # on our own domain (the signed blob id carries no expiry) and streams from
+  # the same private bucket, so nothing has to move to public storage.
+  def contest_og_image_url(contest)
+    return nil unless contest&.contest_image&.attached?
+    return nil unless contest.contest_image.variable?
+
+    rails_storage_proxy_url(contest.contest_image.variant(:og_card))
   end
 
   def og_title(override = nil)

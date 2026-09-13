@@ -64,8 +64,37 @@
           <span class="font-mono text-primary text-sm">02</span>
           <h3 class="text-lg font-bold text-heading">Choose your teams</h3>
         </div>
-        <p class="text-secondary text-sm leading-relaxed">
-          Tap 6 teams from the board. Each card shows the team&rsquo;s Turf Score and its opponents. Swap freely until the contest locks at the first kickoff.
+        <%# CORRECTED 2026-09-08. This step read "Swap freely until the contest
+            locks at the first kickoff", and contradicted section 07 on its own
+            page in two ways at once.
+
+            "Swap freely" dropped the qualifier section 07 carries: a team whose
+            game has ALREADY kicked off is frozen while the contest is still
+            open and its lock still ahead.
+
+            "At the first kickoff" named the wrong moment. Contest.locks_at is
+            starts_at, then the slate first kickoff, then the slate start
+            (contest.rb lines 686 to 693): an explicit starts_at WINS, it is
+            admin-permitted on create AND edit, and nothing validates it against
+            the slate. The two moments coincide in TWO ways, not one: when an
+            admin leaves starts_at blank, so the derivation falls through to
+            that kickoff; and when an admin SETS starts_at to exactly that
+            kickoff, which nothing forbids. The second way is the one the World
+            Cup rulebook's worked example depicts, at a lock and a first kickoff
+            both 3pm. So a comment naming only the blank case loses an argument
+            with that example, and a reader who catches a comment in a
+            half-truth discards the rest of it. Any OTHER explicit starts_at
+            splits the two, and that is the case which makes "at the first
+            kickoff" false.
+
+            Both halves now agree with section 07, and
+            test/integration/turf_totals_lock_rule_test.rb holds this subtree to
+            the SAME two measurements section 07 answers to, so the two cannot
+            drift apart again. The data-test hook is what scopes those
+            assertions here; without it they read the whole page and pass on
+            section 07's copy. %>
+        <p class="text-secondary text-sm leading-relaxed" data-test="nfl-pick-step">
+          Tap 6 teams from the board. Each card shows the team&rsquo;s Turf Score and its opponents. Until the contest locks at its stated start time, you can swap any team whose game has not kicked off.
         </p>
       </li>
 
@@ -377,8 +406,14 @@
         <div class="text-secondary">Ties</div>
         <div class="text-heading text-right">Split the places covered</div>
 
+        <%# This row sits in the EVERY NFL CONTEST band, so it states a rule,
+            not one contest's configuration. It read "First kickoff, Week 1",
+            which is the same false equivalence corrected in section 02 above
+            and is strictly worse here for being claimed as universal: an
+            explicit starts_at wins over the slate unvalidated. Hooked and held
+            to the measured lock moment. %>
         <div class="text-secondary">Lock</div>
-        <div class="text-heading text-right">First kickoff, Week 1</div>
+        <div class="text-heading text-right" data-test="nfl-lock-quick-ref">Stated start time</div>
 
         <div class="text-secondary">Entry</div>
         <div class="text-right"><%= link_to "USDC — see Getting Started", getting_started_path, class: "text-primary hover:underline" %></div>

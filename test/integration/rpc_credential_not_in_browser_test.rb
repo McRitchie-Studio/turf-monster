@@ -14,6 +14,14 @@ require "test_helper"
 #   app/controllers/admin/vault_init_controller.rb    -> @rpc_url -> same div
 #   app/controllers/proof_of_reserves_controller.rb   -> @page_config[:rpc_url]
 #
+# FIVE OF THEM ARE GUARDED BELOW; the sixth stopped existing. layouts/modal_preview
+# was deleted on 2026-09-09 with the /admin/modals/preview seam it served, so its
+# guard went with it rather than being rehomed — a surface that cannot render
+# cannot leak, and a test kept pointing at a deleted layout would only assert
+# that the deletion happened. The list above is left INTACT because it is the
+# incident's record: it says what the audit found, and shrinking it would make
+# the count in the sentence above it wrong.
+#
 # On the mainnet app that constant is a paid provider endpoint carrying an
 # `api-key` query param, so every page load shipped a provider credential to
 # every browser — and proof-of-reserves is UNAUTHENTICATED and additionally
@@ -206,18 +214,6 @@ class RpcCredentialNotInBrowserTest < ActionDispatch::IntegrationTest
       assert_response :success
       assert_browser_rpc_clean(cosign_config_rpc_url(response.body), response.body,
                                "admin/vault_init #cosign-config")
-    end
-  end
-
-  # --- the modal preview layout (admin-only, but the same body attribute) ---
-
-  test "the modal preview layout carries no credential" do
-    log_in_as(users(:alex))
-    with_keyed_rpc_url do
-      get admin_modal_preview_path(modal_id: "auth")
-      assert_response :success
-      assert_browser_rpc_clean(body_data_solana_rpc_url(response.body), response.body,
-                               "layouts/modal_preview body[data-solana-rpc-url]")
     end
   end
 end

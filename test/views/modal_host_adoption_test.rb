@@ -156,10 +156,12 @@ class ModalHostAdoptionTest < ActionDispatch::IntegrationTest
     # THE POINT OF THE SEAM. The block each layout passes to the host is
     # per-callsite, so a card registered there must be repeated in every layout
     # and a card added to only one renders EMPTY in the other — which has
-    # happened here before (see the age-verify note in layouts/modal_preview).
-    # If a layout starts carrying its own copy, this seam has quietly stopped
-    # being the single source.
-    # COMMENTS STRIPPED FIRST. Both layouts DISCUSS cosign-rejected in an ERB
+    # happened here before, when a second layout existed to differ from
+    # (the age-verify card drew blank in the preview layout for months). Only one
+    # layout mounts the host today, so this reads as a guard against the next
+    # one: if a layout starts carrying its own copy, this seam has quietly
+    # stopped being the single source.
+    # COMMENTS STRIPPED FIRST. The layout DISCUSSES cosign-rejected in an ERB
     # comment above the host render ("cosign-rejected lives there"), and a raw
     # File.read that happened to see it quoted would fail this test for a
     # sentence. Match the ERB comment form exactly as ERB does — <%# through the
@@ -208,27 +210,20 @@ class ModalHostAdoptionTest < ActionDispatch::IntegrationTest
 
   private
 
-  # The two paths that mount the host, rendered for real. Yielded as
-  # (label, body) so a failure names which one broke.
+  # Every path that mounts the host, rendered for real. Yielded as (label, body)
+  # so a failure names which one broke.
+  #
+  # THERE IS ONE OF THEM AGAIN. This yielded two until 2026-09-09 —
+  # layouts/application and layouts/modal_preview, the preview seam behind
+  # /admin/modals/preview — and the second existing at all is the whole reason
+  # the guards above are derived from a glob rather than written against one
+  # page. That layout is deleted; the glob-derived guards need no edit for it,
+  # and would pick a third layout up the day one appears.
   def each_host_render
     yield "layouts/application (/about)", about_page
-    yield "layouts/modal_preview (/admin/modals/preview)", modal_preview_page
   end
 
   def about_page
-    @about_page ||= begin
-      get about_path
-      assert_response :success
-      response.body
-    end
-  end
-
-  def modal_preview_page
-    @modal_preview_page ||= begin
-      log_in_as users(:alex)
-      get admin_modal_preview_path(modal_id: "wallet-setup")
-      assert_response :success
-      response.body
-    end
+    @about_page ||= modal_host_page
   end
 end

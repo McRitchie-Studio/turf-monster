@@ -68,10 +68,19 @@ module Solana
   # signature cannot.
   class ClientFailureReport
     # The places a wallet rejection is caught. THREE are render surfaces; two of
-    # those three are in the solana-studio GEM and are not wired yet (see
-    # docs/AUTH.md, "Reporting client-side wallet failures") — they are listed
-    # here because the stage is the operator's filter and the list is what makes
-    # an unwired site visible as a MISSING stage rather than as no failures.
+    # those three are in the solana-studio GEM, WIRED THERE SINCE 0.7.0 (see
+    # docs/AUTH.md, "Reporting client-side wallet failures"). All five stages
+    # report today. The list stays the operator's filter, and it is still what
+    # would make a site that stopped reporting visible as a MISSING stage
+    # rather than as no failures.
+    #
+    # THE GEM HALF IS A LOCK FACT, AND A COMMENT CANNOT CHECK IT. Those two
+    # report only while the solana-studio this app RESOLVES is at or above
+    # 0.7.0 — and this comment read "not wired yet" for three gem releases after
+    # 0.7.0 landed, while docs/AUTH.md cited it as authority. The floor is now
+    # asserted against this app's own Gemfile.lock in
+    # test/controllers/wallet_failure_reporter_wiring_test.rb, so it is
+    # re-derived on every run instead of remembered.
     #
     # THE LAST TWO ARE NOT SURFACES, and that is the point of them. Both are
     # guards inside the connect + signMessage fallback in solanaConnectAndVerify

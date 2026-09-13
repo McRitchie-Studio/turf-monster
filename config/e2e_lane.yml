@@ -745,7 +745,198 @@
 # is the only thing this file has ever accepted. Note what the arithmetic would
 # have said: 249 + 3 = 252 and 250 + 2 = 252 AGREE here, and agreement still is
 # not derivation — the lister is what wrote the number below.
-total_specs: 257
+#
+# 257 -> 261 (gate-admin-flows-desktop-only): four specs in
+# e2e/admin_desktop_only.spec.js for the four admin wallet flows now declaring
+# themselves DESKTOP-ONLY. Two of the three are only observable in a browser and
+# a UA away from the default: the notice ships HIDDEN in the response body and
+# is revealed by a script reading navigator, so no rendered-markup assertion can
+# tell "painted on a phone" from "never painted at all", and the disabled state
+# of the Co-sign buttons is set the same way. The third runs the flow on a
+# DESKTOP and proves it still reaches the server, which is what keeps a gate
+# that refuses everybody from satisfying the other two. The fourth covers the
+# contest lock/conclude flow, which is the one of the four admin flows with no
+# view of its own to paint into — its buttons live in app/views/contests/** —
+# so the click-time refusal is its ENTIRE declaration and this is the only tier
+# that can witness it. Derived with bin/e2e-lane-derive --write, not
+# incremented by hand.
+#
+# 261 -> 264 (survivor-settle-never-fires): three specs added to the EXISTING
+# e2e/onchain_settled_navbar.spec.js (66 files, unchanged) for onchainSettled's
+# new mayNavigate shape — arms both halves and settles in place, survives a
+# close-triggered navigation, and retires only the window it served. They cover
+# the seam no other tier reaches: the node tests execute the same module against
+# stubbed globals, so they prove the logic and nothing about the PAGE — not that
+# the importmap serves the new branch, not that window.onchainSettled takes the
+# option, not that the element it blanks is the pill the navbar renders. The
+# survivor board's call site is guarded by `typeof onchainSettled === 'function'`,
+# so each of those failures is SILENT, which is the same shape as the bug being
+# fixed. Derived with bin/e2e-lane-derive --write, not incremented by hand.
+#
+# EACH OF THE THREE DISCRIMINATES, measured against the pre-fix module on
+# 2026-09-09: with onchainSettled reverted, all three fail and the three
+# pre-existing specs still pass. That was not true of the first version — an
+# unknown option falls through to a plain schedule, so two of them passed
+# against the very bug they were written for. Both were re-aimed onto the
+# marker, which is the only thing the new shape does that no old shape does.
+#
+# 264 -> 265 (contest-banner-link-preview): one spec added in the NEW
+# e2e/og_image.spec.js for the contest link-preview card. It covers the seam no
+# lower tier reaches: the unit tiers assert the variant's TRANSFORMATION and the
+# integration tier asserts the TAG, and neither proves the URL in that tag
+# actually serves an image — the proxy route, the signed blob id and the
+# ImageMagick processor all sit between them. The spec fetches the og:image URL
+# back over HTTP and reads width/height out of the PNG IHDR, so a perfectly
+# formed tag pointing at a 404 fails here and passes everywhere else.
+# Re-derived with bin/e2e-lane-derive --write ON THE MERGED TREE, not by
+# arithmetic on the conflict this line has now hit a fourth time.
+#
+# 265 -> 266 (error-paragraphs-lack-live-regions): one spec added to the EXISTING
+# e2e/auth_modal.spec.js. That task made live regions of twelve error paragraphs,
+# five of which were `<template x-if="<error>">` and so did not exist until the
+# error did. The component tier pins that markup shape for all thirteen, but it
+# reads SOURCE: it cannot see whether Alpine really leaves the element mounted
+# once the modal's own step template has rendered. The spec reads the region
+# while it is still EMPTY and then watches it fill, which is the ordering no
+# source scan can reach. Re-derived with bin/e2e-lane-derive --write ON THE
+# MERGED TREE, after this line conflicted with #639's bump of the same counter.
+#
+# 266 -> 268 (gift-entry-by-email): two specs in e2e/entry_gift.spec.js for
+# gifting a free entry by email. The second is the one that needs a browser: the
+# server tiers already prove the click creates the account, mints the wallet and
+# redirects to the contest, but the thing the feature was ASKED for — that the
+# recipient lands IN the onboarding chain (first name → birthday) rather than on
+# a bare contest page — is walked by the layout's driver and the Alpine modal
+# host, so only a runtime can witness a card actually opening. The first drives
+# the operator's real send form, which is what makes the second's link the one a
+# real send produces rather than a fixture. Derived with bin/e2e-lane-derive
+# --write, not incremented by hand.
+# 268 -> 269 (free-entry-skips-wallet): one spec in e2e/entry_gift.spec.js for
+# the free-entry wallet bypass. The server tiers assert the two facts the client
+# READS — the chain's step list and session[:wallet_setup] — and cannot see what
+# the page DOES with them: the chain is walked by the layout's driver, the card
+# is opened by the Alpine modal host, and the hold-to-confirm block comes from
+# eligibilityBlocker in solana_utils.js, which checks walletSetupRequired BEFORE
+# tokensAvailable. The operator hit this card on TWO paths (the chain, and again
+# after a refresh) and both are runtime-only. Derived with bin/e2e-lane-derive
+# --write, not incremented by hand.
+#
+# 269 -> 276 (wire-contest-entry-walletops): the mobile entry path's specs, as
+# they land on the MERGED tree. Two NEW files —
+# e2e/contest_entry_callback_registration.spec.js, which loads
+# /auth/phantom/callback itself and asserts the contest_entry intent is
+# registered ON THAT DOCUMENT, and e2e/contest_entry_redirect_transport.spec.js
+# for the redirect handoff — plus a net addition in
+# e2e/wallet_require_provider.spec.js. The callback file exists because its
+# predecessor did not: a spec titled "the intent is registered by the name the
+# callback looks up" asserted at "/", a page that renders the board and so
+# registers the intent locally, and never visited the route in its own title.
+#
+# READ THE LIMIT OF THIS TIER BEFORE TRUSTING IT. playwright.config.js declares
+# chromium and devnet (also chromium) and NO webkit project, so every "on a
+# phone" spec here is a UA-string swap on a desktop engine. That is why a
+# PARSE-TIME ORDERING defect on the real callback document — complete() reaching
+# for a window.authedFetch that the deferred importmap module had not defined yet
+# — survived a green lane twice. This lane proves the wiring, not the device.
+# Derived with bin/e2e-lane-derive --write ON THE MERGED TREE, not by arithmetic.
+#
+# 276 -> 277 (collapse-inline-entry-call-site): ONE spec in the existing
+# e2e/free_entry_spend_mirror.spec.js for the inline transaction CODEC that
+# contest entry now converts through — base58 wire bytes <-> a solanaWeb3
+# Transaction, moved onto the wallet provider when the board's hand-rolled
+# desktop entry path was retired. Its unit test runs in node against a STUBBED
+# solanaWeb3, which can prove which bytes the codec passes and which serialize
+# options it asks for, and cannot prove the real library accepts either. So the
+# spec asks the REAL library both ways on the SAME partially-signed transaction:
+# a bare serialize() must throw on the deliberately empty admin signer slot, and
+# the codec's flagged serialize must not. That referee is the reason it is here
+# rather than one more node assertion, and it is the exact failure that would
+# otherwise land AFTER a user approves, with signed bytes nothing can post.
+#
+# 281 -> 291 (stub-wallet-round-trip): ten specs in ONE new file,
+# e2e/stub_wallet_round_trip.spec.js, driven by ONE new harness,
+# e2e/stub-wallet.js. Six exercise the redirect transport end to end and FOUR are
+# the harness's OWN CONTROL.
+#
+# THE BASE MOVED UNDER THIS ENTRY WHILE IT WAS IN REVIEW, which is the third time
+# this file records that happening and the reason the line below says DERIVED
+# rather than counted. The branch was cut at 277 and derived 285;
+# /tasks/migrate-account-wallet-flows then merged and took accepted to 281. The
+# merged number is NOT 285 + 4 and it is NOT 281 + 8 — both are arithmetic across
+# a conflict, which is the documented way to get this wrong. It is what
+# bin/e2e-lane-derive counted on the MERGED tree: 291, of which 270 execute.
+# excluded stays 17 and allowed_skips stays 4 — neither side added a tagged or a
+# skipping spec, and both listers agree.
+#
+# WHY A WHOLE FILE FOR ONE FLOW. Three defects in the mobile wallet epic reached
+# a real phone before anything went red — the contest_entry intent unregistered
+# on the callback page, a provider detect() would not hand a phone, and a signing
+# deeplink with no redirect_link — and every test in the area missed all three
+# for the same structural reason: they CONSTRUCT the provider by hand, feed it
+# options they supply themselves, and never inspect what a wallet would RECEIVE.
+# solana-studio's own round-trip suite is the sharpest case: it passes
+# `redirectLink: 'https://a.test/cb'` to resume(), manufacturing the exact
+# parameter production omits.
+#
+# So the harness stands where Phantom stands. It intercepts the universal link,
+# judges it against Phantom's PUBLISHED parameter table (docs.phantom.com,
+# fetched 2026-09-09 — every expectation in e2e/stub-wallet.js carries its own
+# `source` and `confidence`), decrypts the payload with the dapp key the URL
+# carries, and answers by redirecting to the redirect_link the URL carries. A
+# malformed deeplink therefore does not merely fail an assertion — it strands the
+# trip, which is what a phone experiences.
+#
+# THE TWO CONTROL SPECS ARE NOT PADDING. Every other assertion here passes when
+# the app is correct, so none of them can show that the contract table is
+# READING. The controls feed the stub a signing link with no redirect_link and a
+# connect link carrying a signing envelope, and assert it names both. If they go
+# quiet, the harness has stopped biting and the six above are worth nothing.
+#
+# THE SAME LIMIT AS THE BLOCK ABOVE, restated because this file's whole subject
+# is a phone: chromium only, no webkit project, so "on a phone" is a UA swap on a
+# desktop engine. It proves the protocol, the wiring and the return leg. It does
+# not prove iOS Safari storage, an OS app switch, or that Phantom accepts these
+# URLs. Only a device does that.
+#
+# 291 -> 293 (live-game-situation-panel): two specs appended to the EXISTING
+# e2e/nfl_live_scoreboard.spec.js — no new file — for the hero rail's status
+# wheel. The rail's TOP half now runs the same two-pane track its bottom half
+# does: at rest it says where the game is up to, and while a qualifying score is
+# on screen it rolls to the announcement and rolls back when the chain ends.
+# Neither direction is visible to a Rails tier. The render test can prove both
+# panes SHIP and that the announcement pane ships empty; only a browser can
+# prove the track actually turned, that the words arrived in the pane that came
+# into view, and that it returned on its own rather than stranding there. Both
+# specs assert the reveal on GEOMETRY as well as on the class, because a
+# transform typo leaves the class right and the pane parked off screen.
+# Derived with bin/e2e-lane-derive --write, not incremented by hand.
+#
+# 291 -> 295 (migrate-remaining-entry-flows): the world cup survivor board,
+# create contest and the contest generator each onto ONE walletOps call site.
+#
+# THIS ENTRY IS THE FILE'S OWN WARNING, PAID IN FULL. The branch was cut at 277
+# and derived 281/260. /tasks/migrate-account-wallet-flows then landed on
+# accepted and independently derived 281/260 for a DIFFERENT set of specs. Same
+# two numbers, different specs, so git found NO CONFLICT and merged them
+# silently — and the lane came out under-declared by exactly this branch's four,
+# with both e2e_declared_set and e2e_executed_set still reporting green against
+# the base they were derived on. That is the failure this file has warned about
+# three times; it is the first time it actually happened, and it was caught in
+# review rather than by the gate.
+#
+# THE ONLY DEFENCE THAT WOULD HAVE WORKED IS THE ONE BELOW: re-derive on the
+# MERGED tree. No arithmetic across a conflict — not 281 + 4, not 291 + 4 — and
+# no reading either side's number as a starting point, because the whole defect
+# is that both sides' numbers looked plausible and neither was right.
+# Derived with bin/e2e-lane-derive --write ON THE MERGED TREE.
+#
+# 295 -> 297 on merging accepted into live-game-situation-panel. That branch
+# (291 -> 293, above) and migrate-remaining-entry-flows (291 -> 295, above) were
+# both cut at 291 and each derived its own number on its own tree - the exact
+# shape the entry above warns about. 297 is what the lister printed on the
+# MERGED tree, taken as printed: not 293 + 4, not 295 + 2.
+# Derived with bin/e2e-lane-derive --write ON THE MERGED TREE.
+total_specs: 302
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1012,7 +1203,58 @@ allowed_skips: 4
 # TREE, not by arithmetic on any of the three conflicts this line has hit.
 # allowed_skips stays 4: both listers agree, which is what proves none of the new
 # specs brought a runtime skip with it.
-executed: 236
+#
+# 240 -> 243 (survivor-settle-never-fires): the three mayNavigate specs described
+# beside total_specs above. None is tagged @devnet and none skips, so excluded
+# stays 17 and allowed_skips stays 4 — both listers agree, which is what proves
+# the new specs brought no runtime skip with them. Re-derived with
+# bin/e2e-lane-derive --write, not by arithmetic.
+#
+# 243 -> 244 (contest-banner-link-preview): the og:image card spec described
+# beside total_specs above. It is not tagged @devnet and does not skip, so
+# excluded stays 17 and allowed_skips stays 4 — both listers agree, which is
+# what proves the new spec brought no runtime skip with it. Re-derived with
+# bin/e2e-lane-derive --write ON THE MERGED TREE, not by arithmetic.
+#
+# 244 -> 245 (error-paragraphs-lack-live-regions): the auth-modal live-region
+# spec described beside total_specs above. It is not tagged @devnet and does not
+# skip, so excluded stays 17 and allowed_skips stays 4. Re-derived with
+# bin/e2e-lane-derive --write ON THE MERGED TREE, not by arithmetic.
+#
+# 245 -> 247 (gift-entry-by-email): the two gift specs described beside
+# total_specs above. Neither is tagged @devnet and neither skips, so excluded
+# stays 17 and allowed_skips stays 4 — both listers agree, which is what proves
+# the new specs brought no runtime skip with them. Re-derived with
+# bin/e2e-lane-derive --write ON THE MERGED TREE, not by arithmetic on either
+# side of the conflict. THE BASE HAS MOVED UNDER A CORRECT RE-DERIVE TWICE ON
+# THIS TASK — 264/243 at the first review, 265/244 when it was resolved, 266/245
+# at the second review, 267/246 after that merge — so the only value worth
+# writing is the one the runner prints on the tree you are about to push.
+#
+# 247 -> 248 (free-entry-skips-wallet): the wallet-bypass spec described beside
+# total_specs above. Not tagged @devnet and does not skip, so excluded stays 17
+# and allowed_skips stays 4 — both listers agree. Re-derived with
+# bin/e2e-lane-derive --write, not by arithmetic.
+#
+# 248 -> 255 (wire-contest-entry-walletops): the mobile-entry specs described
+# beside total_specs above. None is tagged @devnet and none skips, so excluded
+# stays 17 and allowed_skips stays 4 — both listers agree, which is what proves
+# the new specs brought no runtime skip with them. Derived with
+# bin/e2e-lane-derive --write, not by arithmetic.
+#
+# 270 -> 272 (live-game-situation-panel): the two status-wheel specs described
+# beside total_specs above. Neither is tagged @devnet and neither skips, so
+# excluded stays 17 and allowed_skips stays 4 — both listers agree, which is
+# what proves the new specs brought no runtime skip with them. Derived with
+# bin/e2e-lane-derive --write, not by arithmetic.
+#
+# 274 -> 276 on merging accepted into live-game-situation-panel: the executed
+# side of the merge described beside total_specs. accepted had already carried
+# migrate-remaining-entry-flows to 274; this branch's two status-wheel specs land
+# on top. The lister re-derived excluded as 17 on the merged tree and
+# allowed_skips stays 4, so both listers agree. Derived with
+# bin/e2e-lane-derive --write ON THE MERGED TREE.
+executed: 281
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

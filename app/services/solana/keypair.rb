@@ -6,17 +6,50 @@
 # MANAGED_WALLET_ENCRYPTION_KEY (a dedicated env var, independent of
 # RAILS_MASTER_KEY / secret_key_base) run through ActiveSupport::KeyGenerator
 # for a full 256-bit AES key. Ciphertexts are version-tagged ("v2:") so the
-# scheme is rotatable: `from_encrypted` still decrypts legacy untagged
-# ciphertexts via the old secret_key_base derivation, and
-# `bin/rails solana:reencrypt_managed_wallets` migrates them forward.
+# SCHEME is recognisable: `from_encrypted` still decrypts legacy untagged
+# ciphertexts via the old secret_key_base derivation.
 #
 # Pre-OPSEC-015 the key was `secret_key_base[0, 32]` — 32 hex *characters*,
 # i.e. only ~128 bits of real entropy, and impossible to rotate without
 # orphaning every stored wallet key.
+#
+# KEY ROTATION (managed-wallet-key-rotation) — the two-key window.
+#
+#   MANAGED_WALLET_ENCRYPTION_KEY           seals every new ciphertext, and opens
+#   MANAGED_WALLET_ENCRYPTION_KEY_PREVIOUS  opens only — the key being retired
+#
+# The "v2:" tag names the SCHEME, never the KEY: every row sealed under the old
+# key and every row sealed under the new one reads "v2:". So a v2 payload is
+# opened by TRIAL, current key first, then the previous key. That is safe only
+# because the scheme is authenticated — AES-256-GCM under this app's
+# `load_defaults 8.1` — so a wrong key raises InvalidMessage instead of
+# returning bytes (measured 2026-09-10: 2000 of 2000 wrong-key trials raised).
+# No key identifier is stamped into the ciphertext on purpose: the defect this
+# window replaces WAS a label trusted as proof of a key. Whether a row is
+# readable under the new key is answered only by opening it with that key.
+#
+# `bin/rails solana:reencrypt_managed_wallets` walks every row onto the current
+# key and verifies each one under the current key ALONE before writing it (see
+# Solana::ManagedWalletRotation). The previous key may be retired only after
+# `bin/rails solana:verify_managed_wallet_keys` counts every row readable
+# without it.
 
 module Solana
   class Keypair
     ENCRYPTION_VERSION = "v2".freeze
+
+    # The two-key window (see the header). KEY_ENV seals and opens; PREVIOUS
+    # only opens, and only while a rotation is in flight.
+    KEY_ENV = "MANAGED_WALLET_ENCRYPTION_KEY".freeze
+    PREVIOUS_KEY_ENV = "MANAGED_WALLET_ENCRYPTION_KEY_PREVIOUS".freeze
+
+    # KeyGenerator label for the v2 AES key. Changing it orphans every row.
+    V2_KDF_LABEL = "turf-monster managed wallet v2".freeze
+
+    # Every key that may OPEN a stored ciphertext, in trial order. Only
+    # :current ever seals. A v2 payload is tried against :current and
+    # :previous; an untagged payload only ever against :legacy.
+    OPENING_KEYS = %i[current previous legacy].freeze
 
     # --- test-only, deliberately NON-SECRET fallbacks ---------------------------
     # Both of the credentials this class needs (SOLANA_ADMIN_KEY, and the
@@ -61,11 +94,41 @@ module Solana
     end
 
     # Load from an encrypted string. Handles the current "v2:"-tagged scheme
-    # and legacy untagged ciphertexts transparently.
+    # (under the current key OR, during a rotation, the previous one) and
+    # legacy untagged ciphertexts transparently. Raises InvalidMessage when no
+    # accepted key opens it — the same error a single-key read always raised.
     def self.from_encrypted(encrypted_string)
+      plaintext = open_plaintext(encrypted_string, keys: OPENING_KEYS)
+      raise ActiveSupport::MessageEncryptor::InvalidMessage if plaintext.nil?
+
+      from_bytes(Base64.strict_decode64(plaintext))
+    end
+
+    # The stored plaintext (Base64 of the 64-byte secret) of a ciphertext,
+    # opened ONLY with the named keys, or nil when none of them opens it.
+    #
+    # This is the primitive the rotation is built on: `keys: [:current]` asks
+    # "is this row readable under the new key alone?" — the one question a
+    # "v2:" prefix cannot answer. Only InvalidMessage (wrong key, or a
+    # tampered/corrupt payload) means "not this key"; anything else raises.
+    # The plaintext is returned, never logged — callers must keep it that way.
+    def self.open_plaintext(encrypted_string, keys:)
+      unknown = keys - OPENING_KEYS
+      raise ArgumentError, "unknown managed-wallet key(s): #{unknown.inspect}" if unknown.any?
+
       version, payload = parse_encrypted(encrypted_string)
-      decrypted = encryptor_for(version).decrypt_and_verify(payload)
-      from_bytes(Base64.strict_decode64(decrypted))
+      keys.each do |name|
+        encryptor = opening_encryptor(name, version)
+        next if encryptor.nil?
+
+        begin
+          plaintext = encryptor.decrypt_and_verify(payload)
+        rescue ActiveSupport::MessageEncryptor::InvalidMessage
+          next
+        end
+        return plaintext if plaintext.is_a?(String)
+      end
+      nil
     end
 
     # Encrypt for DB storage — always produces a current-version ciphertext.
@@ -74,20 +137,46 @@ module Solana
     end
 
     def self.encrypt_value(bytes)
-      payload = current_encryptor.encrypt_and_sign(Base64.strict_encode64(bytes))
-      "#{ENCRYPTION_VERSION}:#{payload}"
+      seal_plaintext(Base64.strict_encode64(bytes))
     end
 
-    # Re-encrypt a stored ciphertext to the current scheme: decrypt with
-    # whatever version it currently is, return a fresh current-version
-    # ciphertext. Drives `solana:reencrypt_managed_wallets`.
+    # Seal an already-encoded plaintext under the CURRENT key. The rotation
+    # re-seals the exact plaintext the old key opened, byte for byte, rather
+    # than re-deriving it from a Keypair — the envelope changes, the secret
+    # never does.
+    def self.seal_plaintext(plaintext)
+      "#{ENCRYPTION_VERSION}:#{current_encryptor.encrypt_and_sign(plaintext)}"
+    end
+
+    # Re-encrypt a stored ciphertext under the current key: open it with any
+    # accepted key, return a fresh current-key ciphertext. It does NOT verify
+    # and does NOT write — solana:reencrypt_managed_wallets does both, per row,
+    # through Solana::ManagedWalletRotation.
     def self.reencrypt(encrypted_string)
       from_encrypted(encrypted_string).encrypt
     end
 
-    # True if a ciphertext is already at the current encryption version.
+    # True if a ciphertext carries the current SCHEME tag. This is a FORMAT
+    # check and says NOTHING about which key sealed it: after a key change
+    # every row still answers true. Never use it to decide a row is done —
+    # that exact mistake made the old migration skip every row and exit 0.
     def self.current_version?(encrypted_string)
       encrypted_string.to_s.start_with?("#{ENCRYPTION_VERSION}:")
+    end
+
+    # True when a rotation is in flight: the previous key is configured.
+    def self.previous_key_configured?
+      ENV[PREVIOUS_KEY_ENV].present?
+    end
+
+    # Drop every memoized encryptor so the next use re-derives from ENV.
+    # Config changes on Heroku restart the dyno, so production never needs
+    # this; the rotation calls it once at start so it can never be answered
+    # by an encryptor derived before the environment it is checking.
+    def self.reset_encryptors!
+      @current_encryptor = nil
+      @previous_encryptor = nil
+      @legacy_encryptor = nil
     end
 
     def self.parse_encrypted(s)
@@ -99,14 +188,22 @@ module Solana
     end
     private_class_method :parse_encrypted
 
-    def self.encryptor_for(version)
-      case version
-      when ENCRYPTION_VERSION then current_encryptor
-      when :legacy            then legacy_encryptor
-      else raise "unknown managed-wallet encryption version: #{version.inspect}"
+    # The encryptor a named key opens a payload of this version with, or nil
+    # when that key cannot apply (not configured, or the wrong scheme). A v2
+    # payload is never handed to the legacy key, nor a legacy one to a v2 key.
+    def self.opening_encryptor(name, version)
+      if version == :legacy
+        name == :legacy ? legacy_encryptor : nil
+      elsif version == ENCRYPTION_VERSION
+        case name
+        when :current  then current_encryptor
+        when :previous then previous_encryptor
+        end
+      else
+        raise "unknown managed-wallet encryption version: #{version.inspect}"
       end
     end
-    private_class_method :encryptor_for
+    private_class_method :opening_encryptor
 
     # Current scheme: 256-bit key derived from MANAGED_WALLET_ENCRYPTION_KEY
     # via KeyGenerator (PBKDF2 + domain-separation label). In production the
@@ -115,14 +212,29 @@ module Solana
     # run through the SAME KDF: still a proper 256-bit key, just not
     # rotation-isolated (acceptable off-prod).
     def self.current_encryptor
-      @current_encryptor ||= begin
-        material = ENV["MANAGED_WALLET_ENCRYPTION_KEY"].presence ||
-                   legacy_secret_key_base
-        key = ActiveSupport::KeyGenerator.new(material).generate_key("turf-monster managed wallet v2", 32)
-        ActiveSupport::MessageEncryptor.new(key)
-      end
+      @current_encryptor ||= v2_encryptor(ENV[KEY_ENV].presence || legacy_secret_key_base)
     end
     private_class_method :current_encryptor
+
+    # The key being retired, during a rotation only: MANAGED_WALLET_ENCRYPTION_KEY_PREVIOUS,
+    # through the SAME KDF as the current key — it is simply the value the
+    # current key used to be. Opens, never seals. nil when unset or empty, so
+    # an empty assignment can never become a key.
+    def self.previous_encryptor
+      @previous_encryptor ||= begin
+        material = ENV[PREVIOUS_KEY_ENV].presence
+        material && v2_encryptor(material)
+      end
+    end
+    private_class_method :previous_encryptor
+
+    # One v2 encryptor from raw key material. The single definition of the v2
+    # key derivation — the current and previous keys both come through here.
+    def self.v2_encryptor(material)
+      key = ActiveSupport::KeyGenerator.new(material).generate_key(V2_KDF_LABEL, 32)
+      ActiveSupport::MessageEncryptor.new(key)
+    end
+    private_class_method :v2_encryptor
 
     # Legacy scheme (pre-OPSEC-015): the first 32 CHARS of the hex
     # secret_key_base — only ~128 bits of real entropy. Kept solely so

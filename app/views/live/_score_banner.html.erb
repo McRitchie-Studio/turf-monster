@@ -19,26 +19,253 @@
     over is a scoring banner nobody sees, which is exactly what a bare z-50
     bought before it was measured. It is pointer-events-none and self-dismisses,
     so sitting on top costs nothing — which is the whole case for --z-alert
-    existing as a tier above --z-modal. %>
-<div id="nfl-score-overlay" class="fixed inset-x-0 top-0 z-[var(--z-alert)] pointer-events-none hidden">
-  <div id="nfl-score-banner" class="mx-auto max-w-lg m-3 rounded-xl shadow-2xl overflow-hidden relative">
-    <div class="px-5 py-4 flex items-center gap-4">
-      <span id="nfl-score-emoji" class="text-4xl leading-none"></span>
-      <div class="min-w-0 flex-1">
-        <div id="nfl-score-label" class="text-xl font-extrabold uppercase tracking-wide leading-tight"></div>
-        <div id="nfl-score-team" class="text-sm font-semibold opacity-90 truncate"></div>
+    existing as a tier above --z-modal.
+
+    ── THE HEAD COMES OFF THE TOP ────────────────────────────────────────────
+    The scorer's portrait is bottom-aligned to the score line and taller than
+    the row it sits in, so it breaks the banner's top edge the way a broadcast
+    lower third does. TWO things make that possible and both are load-bearing:
+
+      · The banner no longer clips. `overflow-hidden` moved DOWN onto the
+        shimmer, which is the only child that actually needs it (a 45%-wide
+        highlight travelling -120%→120% would otherwise paint over the page).
+        Clipping at the banner meant the portrait was neatly guillotined at the
+        rounded corner, which looked like a bug rather than a flourish.
+      · The overlay carries top padding. The banner drops from the very top of
+        the viewport, so the room the head needs above it has to exist BEFORE
+        the head does. The overhang is the portrait's height minus the row's —
+        1.75rem at phone size, 2.25rem above it — and pt-8 plus the banner's own
+        m-3 gives 2.75rem, which clears both.
+
+    THE PORTRAIT'S LANE IS RESERVED IN THE TEXT COLUMN, and the two numbers are
+    tied: a 7rem-tall cutout from a 600x436 source draws about 9.6rem WIDE, so a
+    lane sized to the height alone would have let the face sit on the words. The
+    padding matches the cap, not the height.
+
+    The portrait is positioned ABSOLUTELY rather than laid out in the row. In
+    flow it would simply make the row as tall as itself, pushing the score line
+    down and sticking off nothing. %>
+<div id="nfl-score-overlay" class="fixed inset-x-0 top-0 pt-8 z-[var(--z-alert)] pointer-events-none hidden">
+  <div id="nfl-score-banner" class="mx-auto max-w-lg m-3 rounded-xl shadow-2xl relative">
+    <%# THE NAME BLOCK, in the team-card convention: the city quietly above, the
+        ACTION below it in the team's own accent. It used to run the other way —
+        a loud "FIELD GOAL" over a quiet "New England Patriots" — which spent
+        the loud line on the event and then repeated the team in full. The city
+        alone is enough to name a team whose colours are already the banner. %>
+    <div class="relative flex items-center gap-4 px-5 pt-4 pb-3 min-h-[4.25rem] sm:min-h-[4.75rem]">
+      <span id="nfl-score-emoji" class="text-4xl leading-none shrink-0"></span>
+      <%# The right lane is RESERVED whether or not a face lands in it: the
+          portrait and the points chip are alternatives in the same place, and a
+          text column that reflowed between them would jog the wording on every
+          banner that has no headshot. %>
+      <div class="min-w-0 flex-1 pr-[8.5rem] sm:pr-[10rem]">
+        <div id="nfl-score-team" class="text-sm font-semibold opacity-90 truncate leading-tight"></div>
+        <div id="nfl-score-label" class="text-xl font-extrabold uppercase tracking-wide leading-tight truncate"></div>
       </div>
-      <%# THE SCORER, when we know them. The avatar REPLACES the points chip
+      <%# THE FACE, when we know them. The avatar REPLACES the points chip
           rather than joining it: "+6" is already implied by the word TOUCHDOWN
           above it, and a face is worth more than a number the reader can infer.
           Both slots stay in the markup — the league board raises this same
           banner from a feed that carries no scorer, and falls back to the
           points. %>
+      <div id="nfl-score-points"
+           class="absolute right-5 top-1/2 -translate-y-1/2 text-3xl font-black tabular-nums opacity-95"></div>
+      <%# bottom-0 is what "flush with the score line" means literally: the
+          bottom of this box IS the top of the bar below. 7rem against a 4.75rem
+          row leaves 2.25rem of head above the banner. %>
+      <%# max-w is a WIDTH cap on a landscape source, not a crop: object-contain
+          fits the cutout inside the box, so a narrow phone gets a slightly
+          smaller portrait rather than one overlapping the words. %>
+      <%# z-10 PUTS THE HEAD ABOVE THE SHIMMER. Both are absolutely positioned
+          and the shimmer comes later in the markup, so without a z-index the
+          highlight swept across the player's FACE — a white wash over a
+          photograph, which reads as a rendering fault rather than as polish.
+          The shimmer belongs on the banner's own surface; the portrait sits on
+          top of it. %>
       <img id="nfl-score-avatar" alt=""
-           class="h-14 w-auto max-w-none object-contain object-bottom shrink-0 hidden">
-      <div id="nfl-score-points" class="text-3xl font-black tabular-nums opacity-95"></div>
+           class="absolute right-5 bottom-0 z-10 h-24 sm:h-28 w-auto max-w-[8.5rem] sm:max-w-[10rem]
+                  object-contain object-bottom hidden">
     </div>
-    <div id="nfl-score-line" class="px-5 py-2 text-sm font-bold tabular-nums bg-black/25"></div>
-    <span id="nfl-score-shimmer" class="absolute inset-0 pointer-events-none"></span>
+
+    <%# ── THE SCORE LINE ────────────────────────────────────────────────────
+        THREE THINGS, and the score is the middle one. It used to be a single
+        left-aligned string in a black wash, which put the one fact everybody is
+        here for in the corner and left two-thirds of the bar empty.
+
+        The bar is a 50/50 BLEND of the two teams' dark colours — away holding
+        the left, home the right, meeting in the middle — which is the same
+        recipe the split game tile and the contest chip use, so a score bar and
+        a game card read as the same object. Each abbreviation is printed in its
+        OWN team's light, which is why the blend is worth having: the colour
+        under a team's name is that team's.
+
+        Down and distance floats left of it and the quarter clock right, both
+        blank on a game that is not in progress — so a FINAL collapses to just
+        the score with the bar's colours intact.
+
+        rounded-b-xl is not decoration here. The banner stopped clipping when
+        the portrait began breaking its top edge, so this bar is now responsible
+        for its own bottom corners. %>
+    <%# WHITE IS THE BAR'S INK, AND THE TEAM COLOURS ARE THE EXCEPTION.
+        The bar inherits the banner's foreground, which is the scoring team's
+        mascot colour — so every word on it printed in that one team's red: the
+        scores, the clock, the down. The bar is about the GAME, not about the
+        team that just scored, and only the two abbreviations belong to anybody.
+        `text-white` on the row beats the inherited colour; the inline colours
+        the painter writes onto the two abbreviations beat the class. %>
+    <%# THE SEPARATOR IS THE TILE'S OWN, AND SO IS THE MECHANISM. A hairline of
+        the foreground at 0.14 alpha is what divides the two team rows on every
+        game card, and the score bar had nothing — it changed colour and hoped
+        that read as a boundary.
+
+        INLINE, NOT A UTILITY CLASS, because the tile's divider is inline too:
+        `border-bottom: 1px solid #{palette[:divider]}` where `divider` is
+        `rgba(fg, 0.14)` (TeamColorsHelper). Borrowing the rule the reader
+        already knows from the board means borrowing how it is drawn.
+
+        The first cut used a Tailwind border utility with an arbitrary alpha in
+        brackets, and ErrorTextContrastTest caught it: that class is not in the
+        compiled stylesheet, so it painted NOTHING. It measured fine locally
+        only because a local `tailwindcss:build` had JIT-generated it into an
+        uncommitted stylesheet — a colour-shaped class that compiles to nothing
+        is a defect precisely because it fails invisibly rather than loudly.
+
+        The class is not NAMED here on purpose: that guard scans this file's raw
+        text, so quoting the offending token in a comment re-trips it. %>
+    <div id="nfl-score-line" class="relative rounded-b-xl bg-black/25 px-4 py-2 text-xs font-bold text-white"
+         style="border-top: 1px solid rgba(255, 255, 255, 0.14);">
+      <div id="nfl-score-tally-row" class="grid grid-cols-3 items-center gap-2">
+        <%# THE DOWN LEADS AND THE SPOT FOLLOWS SMALLER. "4th & Inches" is the
+            fact; "at SEA 12" is where it is happening, and giving the two the
+            same weight made a nine-character phrase compete with the score. %>
+        <span id="nfl-score-situation" class="flex items-baseline gap-1 min-w-0">
+          <span id="nfl-score-down" class="truncate"></span>
+          <span id="nfl-score-spot" class="text-[0.65rem] font-semibold opacity-80 truncate"></span>
+        </span>
+        <span id="nfl-score-tally" class="flex items-center justify-center gap-1.5 text-sm tabular-nums whitespace-nowrap">
+          <span id="nfl-score-away-abbr"></span>
+          <span id="nfl-score-away-pts"></span>
+          <span class="opacity-50">–</span>
+          <span id="nfl-score-home-pts"></span>
+          <span id="nfl-score-home-abbr"></span>
+        </span>
+        <span id="nfl-score-clock" class="text-right truncate tabular-nums"></span>
+      </div>
+      <%# THE RANK SUMMARY'S LINE. It wears this same banner but has one
+          sentence to say, not a scoreline — and it used to say it by writing
+          textContent onto this element, which with the three-column bar in
+          place would delete the whole structure and leave a bare string. Its
+          own slot, shown while the tally row hides. %>
+      <div id="nfl-score-note" class="hidden text-center"></div>
+    </div>
+
+    <%# The shimmer is the ONLY child that clips. See the note above. %>
+    <span id="nfl-score-shimmer" class="absolute inset-0 rounded-xl overflow-hidden pointer-events-none"></span>
   </div>
 </div>
+
+<script>
+  // ── ONE PAINTER FOR TWO BOARDS ────────────────────────────────────────────
+  //
+  // The league board and the contest live page each drive this banner from
+  // their own script, and each used to compose the score line itself — two
+  // copies of one string, which is two copies that drift. The parts that depend
+  // on the MARKUP above live here instead, next to the markup, so a change to
+  // the bar is made once.
+  //
+  // Deliberately not a module and deliberately idempotent: both pages render
+  // this partial exactly once, but a Turbo visit can re-evaluate it, and
+  // re-assigning the same three functions costs nothing.
+  window.NflBanner = {
+    // The bar: the two teams' darks meeting in the middle, each abbreviation in
+    // its own team's light, the situation either side of the tally.
+    //
+    // MISSING COLOURS FALL BACK TOGETHER, not field by field. A half-blended
+    // bar — one team's navy against the CSS default — reads as a rendering
+    // fault, so if either dark is absent the bar keeps its resting black wash
+    // and only the text is painted.
+    line: function (d) {
+      var line = document.getElementById('nfl-score-line');
+      if (!line) return;
+
+      var awayDark  = d.awayDark, homeDark = d.homeDark;
+      line.style.background = (awayDark && homeDark)
+        ? 'linear-gradient(90deg, ' + awayDark + ' 0%, ' + awayDark + ' 34%, ' +
+          homeDark + ' 66%, ' + homeDark + ' 100%)'
+        : '';
+
+      this.text('nfl-score-away-abbr', d.awayTeam || '', d.awayLight);
+      this.text('nfl-score-home-abbr', d.homeTeam || '', d.homeLight);
+      this.text('nfl-score-away-pts', d.awayScore || '0');
+      this.text('nfl-score-home-pts', d.homeScore || '0');
+      // Blank on anything that is not in progress, which is how a FINAL's bar
+      // collapses to the score alone rather than freezing the last snap.
+      this.text('nfl-score-down', d.downDistance || '');
+      this.text('nfl-score-spot', d.fieldSpot || '');
+      this.text('nfl-score-clock', d.clock || '');
+
+      this.mode('tally');
+    },
+
+    // The rank summary's one sentence, across the whole bar.
+    note: function (message) {
+      var line = document.getElementById('nfl-score-line');
+      if (line) line.style.background = '';   // back to the resting wash
+
+      // THE TALLY IS CLEARED, NOT MERELY HIDDEN. Hiding the row is what the
+      // reader sees; clearing it is what keeps the two painters honest. The
+      // overlay never blanks between a score and the summary that follows it
+      // (see advanceChain), so anything left in a slot is INHERITED — and the
+      // next thing to unhide this row would show the last game's numbers for a
+      // frame before its own arrived. It is also what lets the render test
+      // compare the two painters as SETS: every slot the score fills, the
+      // summary accounts for.
+      this.text('nfl-score-away-abbr', '');
+      this.text('nfl-score-home-abbr', '');
+      this.text('nfl-score-away-pts', '');
+      this.text('nfl-score-home-pts', '');
+      this.text('nfl-score-down', '');
+      this.text('nfl-score-spot', '');
+      this.text('nfl-score-clock', '');
+
+      this.text('nfl-score-note', message || '');
+      this.mode('note');
+    },
+
+    mode: function (which) {
+      var tally = document.getElementById('nfl-score-tally-row');
+      var note  = document.getElementById('nfl-score-note');
+      if (tally) tally.classList.toggle('hidden', which !== 'tally');
+      if (note)  note.classList.toggle('hidden', which !== 'note');
+    },
+
+    // The name block: the city quietly above, the action in the team's accent.
+    // Colours arrive from the server's palette on the feed node; when one is
+    // absent the line simply inherits the banner's own foreground, which is
+    // what every banner looked like before the convention existed.
+    name: function (location, action, locationColor, accentColor, accentShadow) {
+      this.text('nfl-score-team', location || '', locationColor);
+      this.text('nfl-score-label', action || '', accentColor);
+      // THE HALO IS NOT OPTIONAL POLISH HERE. This banner's background is the
+      // team's own card colour and this line is now the team's own mascot
+      // colour — the pairing that measures 1.88:1 for Buffalo unaided. The tile
+      // solves it with the same shadow; so does this.
+      var label = document.getElementById('nfl-score-label');
+      if (label) {
+        var want = accentShadow || 'none';
+        if (label.style.textShadow !== want) label.style.textShadow = want;
+      }
+    },
+
+    text: function (id, value, color) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      if (el.textContent !== value) el.textContent = value;
+      // An empty colour CLEARS the inline one rather than leaving the previous
+      // team's on the element — the banner is reused, so the FINAL after a
+      // touchdown would otherwise print in the scoring team's ink.
+      var want = color || '';
+      if (el.style.color !== want) el.style.color = want;
+    }
+  };
+</script>

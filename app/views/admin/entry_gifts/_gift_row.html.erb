@@ -1,0 +1,64 @@
+<%# One row of the gift ledger. Locals: gift (EntryGift).
+
+    THE STATUS CELL IS THE POINT OF THIS TABLE. A gift has three good states and
+    two bad ones, and the bad ones are invisible unless the row says so: a claim
+    whose mint failed (mint_error), and a claim whose mint simply never landed
+    (EntryGift#stalled?). Both mean a real person believes they were given
+    something they do not have. %>
+<%
+  status = gift.status
+  tone = { minted: "var(--color-success)", failed: "var(--color-danger)" }[status]
+  tone ||= "var(--color-cta)" if gift.stalled?
+  label = { sent: "Sent", claimed: "Claimed — minting", minted: "Minted", failed: "Mint failed" }[status]
+  label = "Claimed — mint stalled" if status == :claimed && gift.stalled?
+%>
+<tr class="border-b border-subtle last:border-0">
+  <td class="px-4 py-3">
+    <div class="text-heading font-medium"><%= gift.recipient_email %></div>
+    <% if gift.claimed_by %>
+      <div class="text-muted text-xs">claimed by <%= gift.claimed_by.display_name %></div>
+    <% end %>
+    <% if gift.note.present? %>
+      <div class="text-muted text-xs italic truncate max-w-xs">&ldquo;<%= gift.note %>&rdquo;</div>
+    <% end %>
+  </td>
+  <td class="px-3 py-3 text-secondary"><%= gift.contest&.name || "Featured" %></td>
+  <td class="px-3 py-3 text-muted text-xs whitespace-nowrap">
+    <%= time_ago_in_words(gift.created_at) %> ago
+  </td>
+  <td class="px-3 py-3">
+    <span class="text-xs font-semibold" style="<%= "color: #{tone};" if tone %>"><%= label %></span>
+    <% if gift.mint_error.present? %>
+      <div class="text-muted text-xs mt-0.5 max-w-xs"><%= gift.mint_error %></div>
+    <% end %>
+    <% if gift.mint_signature.present? %>
+      <div class="text-muted text-[10px] font-mono mt-0.5 truncate max-w-[16rem]"><%= gift.mint_signature %></div>
+    <% end %>
+  </td>
+  <td class="px-4 py-3 text-right whitespace-nowrap">
+    <%# THE CLAIM LINK, DEV/TEST ONLY — because on a desk there is no inbox to
+        open it from. LOCAL_EMAIL_CAPTURE=1 means the invite is RECORDED rather
+        than sent, and the engine's local inbox can only build an "open" button
+        for the four email keys hardcoded in Studio::LocalEmailsController
+        (magic_link, email_verification, wallet_export, email_change_confirmation).
+        This one is not among them, so /_studio/local_emails lists the gift with
+        the token sitting in an args preview and nothing to click — the operator
+        would have to hand-assemble /l/<token> to try their own feature.
+
+        The gate lives in EntryGift.claim_links_visible? rather than inline here
+        — see that method for why the test could not pin an inline env check. %>
+    <% if !gift.claimed? && EntryGift.claim_links_visible? && gift.link %>
+      <a href="<%= link_path(token: gift.link.token) %>"
+         class="text-muted hover:text-primary text-[10px] font-mono mr-2 underline"
+         title="Dev only — the link the recipient would click">claim link</a>
+    <% end %>
+    <% if !gift.claimed? %>
+      <%= button_to "Re-send", admin_resend_entry_gift_path(gift), class: "btn btn-outline btn-sm",
+            form: { data: { turbo_confirm: "Send #{gift.recipient_email} a fresh link? The old one stops working." } } %>
+    <% elsif !gift.minted? %>
+      <%= button_to "Retry mint", admin_retry_mint_entry_gift_path(gift), class: "btn btn-outline btn-sm" %>
+    <% else %>
+      <span class="text-muted text-xs">&mdash;</span>
+    <% end %>
+  </td>
+</tr>

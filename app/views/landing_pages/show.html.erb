@@ -56,7 +56,11 @@
           </div>
         </div>
 
-        <p class="text-secondary text-xs text-center mb-5"><%= @contest.lock_time_display %></p>
+        <%# The time the "Contest Locks" step below points at. lock_time_display
+            reads starts_in_at, the same attribute Contest#locks_at reads, so
+            this line and that sentence can never name different moments.
+            data-test scopes the guard in turf_totals_lock_rule_test.rb. %>
+        <p class="text-secondary text-xs text-center mb-5" data-test="funnel-lock-time"><%= @contest.lock_time_display %></p>
 
         <%= link_to @landing_page.cta_label_display, contest_path(@contest.slug, scroll: 280),
               class: "btn btn-primary btn-lg w-full shadow-lg shadow-primary/20",

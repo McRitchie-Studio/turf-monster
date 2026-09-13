@@ -44,13 +44,14 @@ module OnboardingHelper
     "One last thing before your entry — just your first name, so we can address you " \
     "in emails about your contests and payouts.".freeze
 
-  # Locals for studio/modals/onboarding/first_name, shared by BOTH host
-  # registration lists — layouts/application (the live app) and
-  # layouts/modal_preview (the /admin/modals gallery). They are separate lists by
-  # design, so a value written inline twice is a value free to drift; this is the
-  # same seam web3_step_up_locals already provides for that card, and the
-  # preview layout's own note records that an inline copy is exactly where the
-  # wallet card drifted before.
+  # Locals for studio/modals/onboarding/first_name, shared by every host
+  # registration of that card — which today is the two in layouts/application
+  # (skippable and required), and until 2026-09-09 was also the pair in
+  # layouts/modal_preview. Those were SEPARATE lists by design, so a value
+  # written inline was written twice and free to drift; the same is true of the
+  # two branches below, which is why the helper still earns its place with one
+  # layout left. Same seam web3_step_up_locals provides for that card, and an
+  # inline copy is exactly where the wallet card drifted before.
   #
   # `required` hides both skip affordances. The gem resolves it at RENDER time
   # rather than from the Alpine store, which is why the layouts register two

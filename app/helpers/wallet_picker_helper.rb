@@ -4,12 +4,14 @@
 # (solana_studio/modals/_wallet_connect). It sat in studio-engine until
 # /tasks/turf-rides-gem-modals; the locals contract did not change with the move.
 #
-# WHY A HELPER AND NOT TWO CALLSITES. The picker is mounted from BOTH layouts —
-# layouts/application and layouts/modal_preview — and each keeps its own modal
-# registration list, so anything written inline at the callsite has to be written
-# twice and is then free to drift. That has bitten this app before (see the
-# age-verify note in layouts/modal_preview: a modal registered in one layout and
-# not the other renders as a blank card). Matching age_gate_modal_locals.
+# WHY A HELPER AND NOT A CALLSITE. The picker was mounted from BOTH layouts —
+# layouts/application and layouts/modal_preview — and each kept its own modal
+# registration list, so anything written inline at the callsite was written twice
+# and free to drift. That bit this app before: the age-verify card was registered
+# in one layout and not the other, and rendered blank there for months. The
+# preview layout was deleted on 2026-09-09, which retires the drift rather than
+# the reasoning — a helper is still what keeps the next second mount from forking
+# these locals. Matching age_gate_modal_locals.
 module WalletPickerHelper
   def wallet_connect_modal_locals
     {

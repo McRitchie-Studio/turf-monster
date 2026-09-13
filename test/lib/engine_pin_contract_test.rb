@@ -202,7 +202,20 @@ class EnginePinContractTest < ActiveSupport::TestCase
   #              gate interrupted. Below 0.72.0 the key is undefined on every
   #              path, so the branch never fires and a held entry never resumes
   #              — a dead hold-to-confirm with nothing logged anywhere.
-  MINIMUM = Gem::Version.new("0.72.0")
+  # 0.73.0 — solana_sessions/phantom_callback first dispatches a pending wallet_dl
+  #          journal to SolanaStudio.walletOps.resume BEFORE its legacy signIn
+  #          path. This app now sends contest entries out over the redirect
+  #          transport, so the RETURN leg is not optional: below 0.73.0 the
+  #          callback does not recognise the journal, falls through to the legacy
+  #          branch, and hands a returning ENTRY to a sign-in flow that has no
+  #          idea what a contest entry is. The user approves a transaction in
+  #          their wallet, comes back, and lands nowhere — nothing raises, nothing
+  #          logs, no test fails. DERIVED by unpacking every published gem across
+  #          the boundary: 0.72.0, 0.72.1, 0.72.2 and 0.72.3 all contain ZERO
+  #          occurrences of the dispatch guard; 0.73.0 contains it. Stated as the
+  #          EARLIEST containing version, because a list of versions goes stale on
+  #          the next release while "earliest" is a fact about the code.
+  MINIMUM = Gem::Version.new("0.73.0")
 
   test "the resolved studio-engine is at or above the floor this app depends on" do
     resolved = Gem::Version.new(Studio::VERSION)
@@ -410,7 +423,29 @@ class EnginePinContractTest < ActiveSupport::TestCase
   # the step-up card and the whole mobile Phantom leg would each have rendered as
   # an EMPTY modal. That is why the Gemfile pin is three segments now, and why
   # this assertion reads the RESOLVED version rather than the pin string.
-  SOLANA_STUDIO_MINIMUM = Gem::Version.new("0.5.3")
+  # 0.9.0 — the picker's mobile handoff rows (mobileHandoffs + openInWallet). The
+  #         redirect TRANSPORT itself arrived in 0.8.0 and fails LOUDLY below that
+  #         (SolanaStudio.walletOps undefined, walletOps.run throws on the first
+  #         hold-to-confirm). 0.9.0 is the floor that moved this constant because
+  #         it fails SILENTLY: this app now loads the registry those getters read,
+  #         and below 0.9.0 the picker never asks it, so Solflare and Backpack
+  #         fall back to their DESKTOP EXTENSION download rows on a phone with
+  #         nothing raised, logged, or failed.
+  # 0.9.2 — the inline transport's CODEC contract and the `expectedAccount` run
+  #         option. /tasks/collapse-inline-entry-call-site retired this app's
+  #         hand-rolled desktop entry path, so BOTH transports now go through one
+  #         SolanaStudio.walletOps.run and the gem is what converts nothing and
+  #         calls provider.deserializeTransaction / provider.serializeTransaction
+  #         instead. Below 0.9.2 runInline passes `prepared.transaction` STRAIGHT
+  #         to signTransaction — and this app's prepare() answers with base58 —
+  #         so an injected wallet is handed a STRING and throws `t.serialize is
+  #         not a function` from inside the extension, taking out every desktop
+  #         entry LOUDLY; while `expectedAccount` is simply not read, so the
+  #         wrong-wallet guard vanishes SILENTLY. Derived by unpacking the
+  #         published gems: wallet_ops.js has ZERO occurrences of
+  #         deserializeTransaction, serializeTransaction and expectedAccount in
+  #         both 0.9.0 and 0.9.1, and all three in 0.9.2.
+  SOLANA_STUDIO_MINIMUM = Gem::Version.new("0.9.2")
 
   test "the resolved solana-studio is at or above the floor this app renders from" do
     resolved = Gem::Version.new(Gem.loaded_specs.fetch("solana-studio").version.to_s)
@@ -420,6 +455,56 @@ class EnginePinContractTest < ActiveSupport::TestCase
                     "solana_studio/modals/_web3_step_up and solana_studio/_phantom_deeplink " \
                     "first exist in 0.5.3, and below it every one of those render calls " \
                     "resolves to NOTHING without raising: empty modals, no error"
+  end
+
+  # THE NUMBER IS THE SMALLER HALF OF THE FIX, exactly as it is for studio-engine
+  # above: a hand-bumped floor rots the moment the next reference outruns it. So
+  # the two facts the collapsed entry call site actually depends on are DERIVED
+  # from the resolved gem and from this app's own source, on both sides, rather
+  # than restated as a version.
+  #
+  # WHAT THIS DOES NOT CLAIM. It is a FLOOR guard, not a behaviour one: it asks
+  # whether the artifact bundler resolved carries the contract, which is a
+  # question about a file. That the codec CONVERTS correctly is owned by
+  # test/lib/wallet_inline_tx_codec_js_test.rb, which executes it.
+  def resolved_wallet_ops_source
+    File.read(File.join(Gem.loaded_specs.fetch("solana-studio").full_gem_path,
+                        "app/assets/javascripts/solana_studio/wallet_ops.js"))
+  end
+
+  test "the resolved solana-studio requires exactly the codec halves this app defines" do
+    required = resolved_wallet_ops_source[/INLINE_CODEC\s*=\s*\[(.*?)\]/m, 1].to_s.scan(/'([A-Za-z]+)'/).flatten
+
+    # A VACUOUS PASS IS THE FAILURE MODE THIS GUARDS. Below 0.9.2 the constant
+    # does not exist, `required` comes back EMPTY, and an each-loop over nothing
+    # asserts nothing — which is precisely the resolve this test exists to catch.
+    assert_equal %w[deserializeTransaction serializeTransaction], required,
+                 "the resolved solana-studio does not require the inline transaction codec " \
+                 "by name — below 0.9.2 walletOps hands `prepared.transaction` STRAIGHT to " \
+                 "signTransaction, and this app's prepare() answers with base58, so an " \
+                 "injected wallet is handed a STRING and throws from inside the extension"
+
+    provider = File.read(Rails.root.join("app/javascript/wallet_provider.js"))
+    required.each do |half|
+      assert_match(/#{half}:\s*function/, provider,
+                   "the resolved gem calls provider.#{half}() on every inline entry, and this " \
+                   "app's wallet provider does not define it — walletOps refuses BY NAME " \
+                   "before it touches the wallet, so every desktop entry stops at hold-to-confirm")
+    end
+  end
+
+  test "the resolved solana-studio reads the expectedAccount option this app declares" do
+    board = File.read(Rails.root.join("app/views/contests/_turf_totals_board.html.erb"))
+    assert_includes board, "expectedAccount:",
+                    "the contest entry call site no longer declares an expected account — " \
+                    "the hand-rolled publicKey comparison it replaced is gone, so dropping " \
+                    "the declaration leaves NO wrong-wallet sentence on either transport"
+
+    assert_includes resolved_wallet_ops_source, "opts.expectedAccount",
+                    "the resolved solana-studio never reads expectedAccount, so the option " \
+                    "this app passes is silently discarded: someone on the wrong account " \
+                    "gets an Anchor program error instead of the sentence naming the wallet " \
+                    "to switch to, with nothing raised, logged, or failed"
   end
 
   # The floor above is only worth having if the partials it names actually

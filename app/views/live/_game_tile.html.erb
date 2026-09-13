@@ -183,32 +183,126 @@
             combinations, and letting them size themselves jogged the date and
             the clock every time you clicked through the strip. Half the tile is
             simply a better constant than 4.75rem. %>
-        <div class="h-1/2 w-full flex-shrink-0 flex flex-col items-center justify-center gap-1 py-2">
-          <% if game.kickoff_at %>
-            <time datetime="<%= game.kickoff_at.utc.iso8601 %>" data-role="kickoff-date"
-                  class="text-xs font-bold uppercase tracking-wider text-white/60"><%= game.kickoff_at.utc.strftime("%b %-d") %></time>
-            <time datetime="<%= game.kickoff_at.utc.iso8601 %>" data-role="kickoff"
-                  class="text-lg font-bold text-white/90 leading-none"><%= game.kickoff_at.utc.strftime("%a %-I:%M %p") %></time>
-          <% end %>
+        <%# THE STATUS HALF IS A WHEEL, exactly like the events half below it.
+            At rest it says where the game is up to; when a score qualifies for
+            the takeover it rolls to the announcement and rolls back when the
+            chain ends. Two panes on one track inside a clipping frame, which is
+            the same mechanism (and the same reasoning) as the event wheel: the
+            two states can never be on screen together, and the swap moves
+            nothing else in the tile.
 
-          <div class="flex items-center justify-center gap-2">
-            <% if game.live? %>
-              <span class="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-red-400">
-                <span class="h-2 w-2 rounded-full bg-red-500 animate-pulse"></span> Live
-              </span>
-            <% elsif game.completed? %>
-              <span class="text-xs font-bold uppercase tracking-wider text-white/70">Final</span>
-            <% end %>
-            <% if game.status_detail.present? && !game.status_detail.casecmp("final").zero? %>
-              <span class="text-sm font-mono text-white/80 truncate"><%= game.status_detail %></span>
-            <% end %>
+            ONE pane per state rather than the events wheel's two-card
+            alternation. That wheel needs a spare pane because each card carries
+            a PICTURE that must decode off screen before it rolls into view;
+            this pane is four lines of text, which repaint in a frame — so a
+            second event inside one chain repaints in place and plays the
+            entrance nudge, which is what the scorer card did before its
+            headshot made that impossible. %>
+        <%# THE WORDS KEEP THE HALF. This block still meets the two team rows
+            exactly where they meet each other, and its four lines still centre
+            in that half — which is the layout the operator signed off, and
+            moving the seam to make room for the picture below moved the words
+            with it. So the seam does not move; the frame BELOW reaches up past
+            it instead (see its own note). %>
+        <% plays = game.goals.sort_by { |goal| [goal.minute || 0, goal.id] }.reverse %>
+        <div class="relative h-1/2 w-full flex-shrink-0 overflow-hidden"
+             data-role="status-frame" data-test="live-focus-status">
+          <div class="tt-status-track absolute inset-x-0 top-0 h-[200%] flex flex-col">
+
+            <%# PANE 1 — WHERE THE GAME IS UP TO.
+                A live game spends these three lines on the things that change
+                every snap: the quarter and the clock, the down and distance,
+                and who has the ball where. A game that is NOT live spends them
+                on when it happens — and spends only TWO of them, because
+                ESPN's shortDetail for a scheduled game ("9/10 - 8:35 PM EDT")
+                is the date and kickoff we have already printed above it in the
+                reader's own zone. %>
+            <div class="h-1/2 flex flex-col items-center justify-center gap-1 px-2 py-2"
+                 data-role="status-game">
+              <% if game.live? %>
+                <%# THE CLOCK LINE. `status_detail` says the same thing in
+                    ESPN's words ("11:49 - 3rd"); this says it in ours, and
+                    only one of them gets the line. %>
+                <div class="flex items-center justify-center gap-2">
+                  <% if game.period_clock_label %>
+                    <span class="text-xs font-bold uppercase tracking-wider text-white/60 tabular-nums"
+                          data-test="live-focus-clock"><%= game.period_clock_label %></span>
+                  <% end %>
+                  <span class="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-red-400">
+                    <span class="h-2 w-2 rounded-full bg-red-500 animate-pulse"></span> Live
+                  </span>
+                </div>
+
+                <%# THE BIG LINE — the down, in the slot the kickoff time used
+                    to hold. Between possessions and at the half ESPN sends no
+                    situation at all, so the detail stands in — but only when it
+                    is not the clock we just printed above ("11:49 - 3rd" is;
+                    "Halftime" is not). Repeating the clock in a bigger font
+                    would be the loudest line on the card saying nothing new. %>
+                <% detail = game.status_detail.presence %>
+                <% detail = nil if detail && game.clock.present? && detail.include?(game.clock) %>
+                <% headline = game.down_distance_label || detail %>
+                <% if headline %>
+                  <span class="text-lg font-bold text-white/90 leading-none truncate max-w-full"
+                        data-test="live-focus-down"><%= headline %></span>
+                <% end %>
+
+                <% if game.possession_line %>
+                  <span class="text-sm font-mono text-white/80 truncate max-w-full"
+                        data-test="live-focus-possession"><%= game.possession_line %></span>
+                <% end %>
+              <% else %>
+                <% if game.kickoff_at %>
+                  <time datetime="<%= game.kickoff_at.utc.iso8601 %>" data-role="kickoff-date"
+                        class="text-xs font-bold uppercase tracking-wider text-white/60"><%= game.kickoff_at.utc.strftime("%b %-d") %></time>
+                  <time datetime="<%= game.kickoff_at.utc.iso8601 %>" data-role="kickoff"
+                        class="text-lg font-bold text-white/90 leading-none"><%= game.kickoff_at.utc.strftime("%a %-I:%M %p") %></time>
+                <% end %>
+
+                <%# FINAL earns its line; a scheduled game's does not. The
+                    detail rides alongside only when it says MORE than the badge
+                    — "Final/OT" survives, a second "Final" does not, and a
+                    scheduled game's restatement of the kickoff never appears. %>
+                <% if game.completed? %>
+                  <% detail = game.status_detail.presence %>
+                  <% detail = nil if detail && detail.casecmp("final").zero? %>
+                  <div class="flex items-center justify-center gap-2">
+                    <span class="text-xs font-bold uppercase tracking-wider text-white/70">Final</span>
+                    <% if detail %>
+                      <span class="text-sm font-mono text-white/80 truncate"><%= detail %></span>
+                    <% end %>
+                  </div>
+                <% end %>
+              <% end %>
+            </div>
+
+            <%# PANE 2 — WHAT JUST HAPPENED. Empty and parked below the window
+                until the page fills it in; every value is written by
+                contests/_live_script at reveal time, so nothing is
+                server-rendered here for the same reason the scorer card carries
+                no scorer: every broadcast repaints this tile, and a pane
+                holding the LAST score would flash for one frame on every
+                unrelated goal in the contest.
+
+                THE ORDER IS THE OPERATOR'S: the city, then what happened, then
+                how, then who. The city and the action wear the team-card colour
+                convention — location in the light city colour, the action in
+                the team's own accent — so the announcement is unmistakably that
+                team's before a word of it is read. %>
+            <div class="h-1/2 flex flex-col items-center justify-center gap-0.5 px-2 py-2 text-center"
+                 data-role="status-event" aria-hidden="true">
+              <p class="text-[11px] font-medium leading-tight truncate max-w-full" data-role="status-location"></p>
+              <p class="tt-status-headline font-black uppercase tracking-wide leading-none truncate max-w-full"
+                 data-role="status-headline"></p>
+              <p class="text-[11px] text-white/70 leading-tight truncate max-w-full" data-role="status-detail"></p>
+              <p class="text-sm font-semibold text-white leading-tight truncate max-w-full" data-role="status-name"></p>
+            </div>
           </div>
         </div>
 
         <%# THE EVENTS, newest first. A feed that grows downward pushes the play
             you care about out of a fixed-height rail; newest-first keeps the last
             score where the eye already is, and the rest scroll. %>
-        <% plays = game.goals.sort_by { |goal| [goal.minute || 0, goal.id] }.reverse %>
         <% if plays.any? %>
           <%# THE FADE IS AN OVERLAY, NOT A MASK ON THE SCROLLER, and that choice
               is what keeps a two-play game honest. A mask fades the container's
@@ -232,12 +326,38 @@
               The frame clips (overflow-hidden); the track is twice its height and
               each pane is exactly one window tall, so translateY(-50%) lands the
               second pane perfectly. %>
-          <div class="relative h-1/2 min-h-0 w-full overflow-hidden"
+          <%# IT REACHES UP PAST THE SEAM — 1.25rem of it — so the portrait can
+              OVERLAP the words' half rather than being confined below the line
+              the two team rows meet on. That overlap is the whole effect: a
+              picture whose bottom sits flush on the card's edge and whose head
+              crosses a boundary reads as having depth, where one boxed neatly
+              inside its own half reads as a thumbnail.
+
+              THE FRAME MOVES, NOT THE PICTURE, because the frame CLIPS — the
+              wheel is two panes on a rolling track and depends on it — so no
+              height given to the portrait can escape its own box. Raising the
+              clip line is the only way anything inside it gets above the seam.
+
+              THE CALC KEEPS THE FLOOR EXACT AT ANY TILE HEIGHT: the frame is
+              half the rail plus the overlap and starts the overlap early, so
+              top = H/2 - 1.25rem and bottom = H, whatever H turns out to be.
+              A percentage margin could not do this — percentage margins resolve
+              against the container's WIDTH, and this rail is wider than it is
+              tall, so -12% would have pulled it up by 48px instead of 28. %>
+          <div class="relative h-[calc(50%+1.25rem)] -mt-5 min-h-0 w-full overflow-hidden"
                data-role="event-feed-frame" data-fade-top="0" data-fade-bottom="1">
             <div class="tt-event-track absolute inset-x-0 top-0 h-[300%] flex flex-col">
 
-              <%# PANE 1 — the running list of scores. %>
-              <div class="relative h-1/3 flex flex-col justify-center py-1.5">
+              <%# PANE 1 — the running list of scores.
+                  ONLY THE PORTRAIT GETS THE OVERLAP. The frame reaches 1.25rem
+                  above the rows' seam so the head can cross it; this pane rides
+                  the same frame, so without paying that reach back the LIST
+                  crossed it too and hung "Field Goal +3" over the clock. A
+                  picture breaking a boundary reads as depth; a list doing it
+                  reads as a layout fault. Padding, not a shorter pane: the
+                  panes are thirds of the track and the wheel's arithmetic
+                  depends on them staying equal. %>
+              <div class="relative h-1/3 flex flex-col justify-center pt-5 pb-1.5">
                 <div class="tt-event-feed min-h-0 overflow-y-auto space-y-1 pointer-events-auto"
                      data-test="live-focus-events">
               <% plays.each do |play| %>
@@ -264,7 +384,10 @@
                 scroll to; the page's script sets data-fade-top / -bottom on the
                 wrapper. At the top of the list there is no top fade, which is
                 how the list SAYS it is at the top. %>
-            <span class="tt-fade tt-fade-top pointer-events-none absolute inset-x-0 top-0 h-6"
+            <%# top-5, matching the pane's own reach-back: the fade says "there
+                is more above" and has to sit at the top of the LIST, not at the
+                top of a frame the list no longer starts at. %>
+            <span class="tt-fade tt-fade-top pointer-events-none absolute inset-x-0 top-5 h-6"
                   style="background: radial-gradient(ellipse at 50% 0%, rgba(8, 10, 16, 0.95) 0%, rgba(8, 10, 16, 0) 72%)"></span>
             <span class="tt-fade tt-fade-bottom pointer-events-none absolute inset-x-0 bottom-0 h-8"
                   style="background: radial-gradient(ellipse at 50% 100%, rgba(8, 10, 16, 0.95) 0%, rgba(8, 10, 16, 0) 72%)"></span>

@@ -102,7 +102,9 @@ test("Solana button in standalone auth modal opens the wallet chooser @smoke", a
   // toggles it), so this is a computed-visibility assertion. A desktop browser
   // CAN install the extension, so an "Open app" row here would be the
   // duplicate-Phantom bug: two Phantom rows, the top one broken.
-  await expect(dialog.locator('button:has-text("Open app")')).toBeHidden();
+  // Scoped: three wallets carry an "Open app" label on a phone since
+  // solana-studio 0.9.0. On a DESKTOP none of them should be showing.
+  await expect(dialog.getByRole('button', { name: /Phantom/ })).toBeHidden();
 });
 
 // ── The MOBILE Phantom row, which no browser had ever seen ────────────────
@@ -155,11 +157,16 @@ test.describe("the Connect Wallet picker on a phone", () => {
   test("Phantom offers its deep link and drops its install row @smoke", async ({ page }) => {
     const dialog = await openPicker(page);
 
-    // The deep-link row. Always present in the DOM — x-show toggles display — so
-    // toBeVisible() is a COMPUTED check, not "is the string in the response".
-    const deepLink = dialog.locator('button:has-text("Open app")');
+    // The deep-link row, SCOPED TO PHANTOM. It used to be the only "Open app"
+    // button in the modal, so a bare text locator was unambiguous. It no longer
+    // is: solana-studio 0.9.0 gave Solflare and Backpack mobile handoff rows that
+    // carry the same label, and this locator started resolving to three elements
+    // (strict mode violation). That is the picker behaving CORRECTLY — a phone
+    // now has three ways in — so the fix is to name the row this test is about
+    // rather than to loosen the assertion.
+    const deepLink = dialog.getByRole("button", { name: /Phantom/ });
     await expect(deepLink).toBeVisible();
-    await expect(deepLink).toContainText("Phantom");
+    await expect(deepLink).toContainText("Open app");
 
     // And Phantom's install row is gone. This one is a real DOM absence: the
     // install rows are an x-for over missingInstalls, so a filtered wallet has no
@@ -167,10 +174,17 @@ test.describe("the Connect Wallet picker on a phone", () => {
     await expect(dialog.getByRole("link", { name: /Phantom Install/ })).toHaveCount(0);
 
     // THE CONTROL, without which "no Phantom install row" is satisfied by a picker
-    // that painted nothing. We ship no deep link for these two, so a phone must
-    // still be offered their download pages.
-    await expect(dialog.getByRole("link", { name: /Solflare Install/ })).toBeVisible();
-    await expect(dialog.getByRole("link", { name: /Backpack Install/ })).toBeVisible();
+    // that painted nothing. It has been INVERTED on purpose, and the old comment
+    // ("we ship no deep link for these two") was the false claim that
+    // /tasks/fix-wallet-picker-deeplink-claim removed: Solflare and Backpack DO
+    // each ship a deeplink protocol, and a phone was being handed their DESKTOP
+    // EXTENSION download pages — a dead end with no error. They now get handoff
+    // rows into their own in-app browsers, so the download links must be GONE and
+    // the rows must be present.
+    await expect(dialog.getByRole("link", { name: /Solflare Install/ })).toHaveCount(0);
+    await expect(dialog.getByRole("link", { name: /Backpack Install/ })).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: /Solflare/ })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: /Backpack/ })).toBeVisible();
   });
 
   // TAPPING IT, rather than checking the symbol exists. The gem's own partial
@@ -200,7 +214,9 @@ test.describe("the Connect Wallet picker on a phone", () => {
     const declared = await page.evaluate(() => document.body.dataset.solanaCluster);
 
     const handoff = page.waitForRequest((r) => r.url().startsWith("https://phantom.app/ul/v1/signIn"));
-    await dialog.locator('button:has-text("Open app")').click();
+    // SCOPED TO PHANTOM, same reason as the row assertion above: three wallets
+    // now carry an "Open app" label, so a bare text locator is ambiguous.
+    await dialog.getByRole('button', { name: /Phantom/ }).click();
     const params = new URL((await handoff).url()).searchParams;
 
     // Where Phantom is told to come back to — this app's own callback route,
@@ -239,7 +255,7 @@ test.describe("the Connect Wallet picker on a phone", () => {
     const dialog2 = await openPicker(page);
     await page.evaluate(() => { document.body.dataset.solanaCluster = "mainnet-beta"; });
     const handoff2 = page.waitForRequest((r) => r.url().startsWith("https://phantom.app/ul/v1/signIn"));
-    await dialog2.locator('button:has-text("Open app")').click();
+    await dialog2.getByRole('button', { name: /Phantom/ }).click();
     expect(new URL((await handoff2).url()).searchParams.get("cluster")).toBe("mainnet-beta");
   });
 });
@@ -336,4 +352,69 @@ test("credential controls stay live when the opener omits submitting @smoke", as
   await expect(dialog.getByRole("button", { name: "Solana" })).toBeDisabled();
   await expect(dialog.getByRole("button", { name: "Email Link" })).toBeDisabled();
   await expect(dialog.locator('input[placeholder="you@example.com"]')).toBeDisabled();
+});
+
+test("the credentials form error is a live region that existed before the error @smoke", async ({ page }) => {
+  // THE RESTRUCTURED HALF OF /tasks/error-paragraphs-lack-live-regions, proved
+  // at runtime. That task made live regions of twelve error paragraphs, and
+  // five of them — these three in the auth modal, plus cdp_ramp's send failure
+  // and wallet_changed's — were `<template x-if="<error>">`, so the paragraph
+  // did not exist until the error did. A live region INSERTED alongside its own
+  // content is not reliably announced: assistive technology has to be observing
+  // the region before the text lands in it, so putting aria-live on that markup
+  // would have been a green test over an unchanged experience.
+  //
+  // test/views/error_live_regions_test.rb pins that shape for all thirteen
+  // paragraphs, but it reads SOURCE — it cannot see whether Alpine really
+  // leaves the element mounted once the modal's own `<template x-if>` step has
+  // rendered. That is this test's job, and the ORDER is the assertion: the
+  // region is read while still EMPTY, then watched to fill.
+  //
+  // DRIVEN BY A SERVER REFUSAL, NOT A BLANK SUBMIT. `sendMagicLinkStandalone`
+  // also sets formError to "Enter your email." on an empty field, but that
+  // branch is UNREACHABLE from the UI: the emailValidator installs a
+  // CAPTURE-phase submit gate (shared/_alpine_factories.html.erb) that
+  // stopPropagation()s an invalid or empty address, so the bubble-phase
+  // @submit.prevent never runs and submitMagicLink is never called. Measured
+  // 2026-09-09 — a blank-submit version of this test watched an empty region
+  // for the full timeout. A well-formed address the SERVER refuses is the path
+  // a real user takes to this sentence.
+  await page.goto("/signin");
+
+  await page.evaluate(() => {
+    Alpine.store("modals").open("auth", { step: "credentials" });
+  });
+
+  // SCOPED TO THE MODAL, for the reason the spec above this one records:
+  // /signin also renders shared/_auth_card, which has its own Email Link form
+  // and now its own error live region. Measured here: two "Email Link" buttons
+  // on this page, one of them outside the dialog.
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("heading", { name: "Sign in" })).toBeVisible();
+
+  const region = dialog.locator('p[x-text="props.formError"]');
+
+  // 1. It is here, before anything has failed, and it is empty.
+  await expect(region).toHaveAttribute("role", "alert");
+  await expect(region).toHaveAttribute("aria-live", "assertive");
+  await expect(region).toHaveAttribute("aria-atomic", "true");
+  expect((await region.textContent()).trim()).toBe("");
+
+  // 2. Now make the send fail, the way the server does.
+  await page.route("**/magic_link", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ success: false, error: "That address is not allowed." }),
+    })
+  );
+
+  await dialog.locator('input[placeholder="you@example.com"]').fill("live-region@example.com");
+  await dialog.getByRole("button", { name: "Email Link" }).click();
+
+  // 3. It fills IN PLACE. Same element handle throughout — a re-inserted node
+  //    would leave this locator resolving something else, which is exactly the
+  //    difference between x-show and the x-if this replaced.
+  await expect(region).toHaveText("That address is not allowed.");
+  await expect(region).toBeVisible();
 });

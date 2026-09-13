@@ -16,7 +16,7 @@ require "test_helper"
 # inner one warm, so the very next read re-entered #list_entry_tokens, hit the
 # still-warm RPC layer, and served the SPENT token as unconsumed for up to 60s.
 #
-# The user-visible failure that caused: after a Phantom entry burned a token the
+# The user-visible failure that caused: after a Phantom entry consumed a token the
 # button still said "Hold for Free Entry", and a second #prepare_entry re-picked
 # the CONSUMED token and built a doomed enter_contest_with_token (0x177f)
 # instead of falling back to USDC — the exact promise-outliving-the-token

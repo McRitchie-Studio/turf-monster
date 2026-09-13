@@ -6,11 +6,12 @@
 # is only the part the engine deliberately refuses to own — this app's legal
 # policy and this app's routes.
 #
-# It is a HELPER rather than literal render calls because the pair is registered
+# It is a HELPER rather than literal render calls because the pair was registered
 # TWICE: once in layouts/application (what a player meets) and once in
-# layouts/modal_preview (the /admin/modals preview harness, which keeps its own
-# registration list). Inlining the locals in both is how forks start — the same
-# reasoning as Web3StepUpHelper.
+# layouts/modal_preview, the admin preview harness, which kept its own
+# registration list. Inlining the locals in both is how forks start. The harness
+# was deleted on 2026-09-09 and the helper stays for the next second copy — the
+# same reasoning as Web3StepUpHelper.
 module BirthdayModalHelper
   # Locals for `render "studio/modals/blocks/birthday"`.
   #

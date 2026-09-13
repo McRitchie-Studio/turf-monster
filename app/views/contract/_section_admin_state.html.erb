@@ -30,10 +30,11 @@
       bearing: test/integration/contract_admin_state_fallbacks_test.rb asserts
       it, deliberately, so that a FOURTH fallback has to have its true cause
       re-derived instead of being swept into a Solana::Config-shaped message.
-      A second copy of this rescue would also have silently repointed that
-      file's other guard, which reads the FIRST "Solana::Config::NETWORK rescue"
-      in this file and would then have stopped reading the Upgrade authority
-      caption at all.
+      That file's other guard once read only the FIRST NETWORK fallback in
+      this file, so a second copy could have been checked in place of this one.
+      Since transparency-pins-mainnet-program it enumerates every NETWORK
+      fallback under app/views and pins where each one lives, so a copy fails
+      it loudly instead.
 
       The message is unchanged from the one that used to sit inline below, and
       it is unreachable for the same measured reason: this partial renders,

@@ -25,11 +25,13 @@ require "tmpdir"
 #   onInit / canPick / verifyArgs / onDeepLink / onBack   (extra_data)
 #   the legal-age attestation                             (slot)
 #
-# TWO RENDER SITES, and both must move. layouts/application and
-# layouts/modal_preview keep SEPARATE modal registration lists, so a picker
-# adopted in one and forked in the other renders the old copy at /admin/style
-# forever, silently. The static guard below is derived from the layout glob
-# rather than a hardcoded pair, so a third layout is covered the day it appears.
+# ONE RENDER SITE, and that is new. layouts/application and layouts/modal_preview
+# used to keep SEPARATE modal registration lists, so a picker adopted in one and
+# forked in the other rendered the old copy on the other page forever, silently.
+# The preview layout was deleted on 2026-09-09 with the /admin/modals/preview
+# seam. The static guards below stay derived from the layout glob rather than
+# from a named pair, so a second list is covered the day one appears again —
+# which is the property that matters, not the count.
 class WalletPickerAdoptionTest < ActionDispatch::IntegrationTest
   LAYOUTS = Dir[Rails.root.join("app/views/layouts/*.html.erb").to_s].freeze
 
@@ -75,10 +77,14 @@ class WalletPickerAdoptionTest < ActionDispatch::IntegrationTest
       File.read(path).include?("id === 'wallet-connect'")
     end
 
-    assert_operator registering.length, :>=, 2,
-      "expected at least layouts/application and layouts/modal_preview to " \
-      "register the picker, found #{registering.length} — the scan matched " \
-      "almost nothing, so every assertion below it is vacuous"
+    # CALIBRATION, not a census. It read `>= 2` while layouts/modal_preview
+    # existed; the floor is what stops an `offenders` list computed over an
+    # EMPTY scan from passing for free, so it tracks the layouts that mount the
+    # host — one today — rather than a number someone has to remember to lower.
+    assert_operator registering.length, :>=, 1,
+      "no layout registers the wallet-connect id at all, found " \
+      "#{registering.length} — the scan matched nothing, so every assertion " \
+      "below it is vacuous"
 
     offenders = registering.reject do |path|
       File.read(path).include?(%(render "solana_studio/modals/wallet_connect"))
@@ -117,23 +123,32 @@ class WalletPickerAdoptionTest < ActionDispatch::IntegrationTest
       "solana-studio is serving this app's picker"
   end
 
-  test "both render paths are SERVED BY the gem file, not merely resolvable to it" do
+  test "every render path is SERVED BY the gem file, not merely resolvable to it" do
     # RESOLUTION AND SERVICE ARE DIFFERENT QUESTIONS. The test above asks a fresh
-    # lookup what WOULD resolve; this one watches the two real pages render and
-    # reads back the identifier of the template that actually ran. A view path
+    # lookup what WOULD resolve; this one watches the real pages render and reads
+    # back the identifier of the template that actually ran. A view path
     # prepended after boot, or a template already compiled and served from cache,
     # separates the two answers.
+    rendered = []
     origins = ResolvedWalletPicker.render_origins do
-      each_picker_render(reload: true) { |label, body| assert body.present?, "#{label}: empty page" }
+      each_picker_render(reload: true) do |label, body|
+        assert body.present?, "#{label}: empty page"
+        rendered << label
+      end
     end
 
-    # COUNT FIRST, ALWAYS. If neither page mounted the picker, origins is [] and
-    # the offender check below is vacuously true — the exact shape of a probe
-    # that passes while measuring the wrong page.
-    assert_operator origins.length, :>=, 2,
-      "captured #{origins.length} picker render(s) across /about and " \
-      "/admin/modals/preview, expected one from each — a page stopped mounting " \
-      "the picker, so the origin assertion below would have passed on nothing"
+    # COUNT FIRST, ALWAYS. If no page mounted the picker, origins is [] and the
+    # offender check below is vacuously true — the exact shape of a probe that
+    # passes while measuring the wrong page. The floor is what each_picker_render
+    # actually yielded rather than a literal, so retiring a render site (the
+    # /admin/modals/preview seam went on 2026-09-09) cannot leave a stale number
+    # behind demanding a page that no longer exists.
+    assert_operator rendered.length, :>=, 1,
+      "each_picker_render yielded no pages at all, so nothing was measured"
+    assert_operator origins.length, :>=, rendered.length,
+      "captured #{origins.length} picker render(s) across #{rendered.join(', ')}, " \
+      "expected one from each — a page stopped mounting the picker, so the " \
+      "origin assertion below would have passed on nothing"
 
     offenders = origins.uniq.reject { |served| ResolvedWalletPicker.served_by_gem?(served) }
 
@@ -351,30 +366,18 @@ class WalletPickerAdoptionTest < ActionDispatch::IntegrationTest
 
   private
 
-  # The two paths that mount the picker, rendered for real. Yielded as
-  # (label, body) so a failure names which one broke.
+  # Every path that mounts the picker, rendered for real. Yielded as
+  # (label, body) so a failure names which one broke — and it stays a loop over
+  # a labelled set rather than one inline request, because the shape this file
+  # exists to catch is a picker that differs BETWEEN render sites. There is one
+  # site since 2026-09-09; the loop is what makes a second one cost nothing.
   def each_picker_render(reload: false)
     yield "layouts/application (/about)", about_page(reload: reload)
-    yield "layouts/modal_preview (/admin/modals/preview)", modal_preview_page(reload: reload)
   end
 
   def about_page(reload: false)
     @about_page = nil if reload
-    @about_page ||= begin
-      get about_path
-      assert_response :success
-      response.body
-    end
-  end
-
-  def modal_preview_page(reload: false)
-    @modal_preview_page = nil if reload
-    @modal_preview_page ||= begin
-      log_in_as users(:alex)
-      get admin_modal_preview_path(modal_id: "wallet-connect")
-      assert_response :success
-      response.body
-    end
+    @about_page ||= modal_host_page
   end
 
   # The picker's own x-data, located by a member only IT declares. The page

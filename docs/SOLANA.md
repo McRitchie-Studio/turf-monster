@@ -1,6 +1,6 @@
 # Solana Integration
 
-"DeFi mullet" — Web2 UX front, Solana settlement back. **Read paths** rescue-and-log (balance/seeds display falls back to 0 on RPC error). **Money-mutating paths** (create_contest, enter, settle) are TX-first — the on-chain transaction confirms *before* the DB row is written/promoted — and fail closed: `Solana::Vault.ensure_program_id_live!` raises if `PROGRAM_ID` isn't on the RPC, and `Solana::Config.verify_idl!` refuses to boot/precompile in prod on IDL drift. The app does not transact against a missing or IDL-mismatched program.
+"DeFi mullet" — Web2 UX front, Solana settlement back. **Read paths** rescue-and-log (balance/seeds display falls back to 0 on RPC error). **Money-mutating paths** (create_contest, enter, settle) are TX-first — the on-chain transaction confirms *before* the DB row is promoted (create_contest does write a `pending` row first, as a write-ahead record, so a broadcast never lands with nothing pointing at it; it is promoted to `open` only after verification) — and fail closed: `Solana::Vault.ensure_program_id_live!` raises if `PROGRAM_ID` isn't on the RPC, and `Solana::Config.verify_idl!` refuses to boot/precompile in prod on IDL drift. The app does not transact against a missing or IDL-mismatched program.
 
 ## Architecture: self-custody (v0.16+)
 
@@ -19,7 +19,7 @@ The two are **decoupled**: entry fees are operator revenue and do **not** count 
 Local (turf-monster) classes:
 - `Solana::Config` — program ID, RPC URLs (server **and** browser — see below), mints, network, signer set, IDL pinning (`verify_idl!`), plus `redact_rpc_url` (the shared log/terminal redactor for endpoints that carry a provider key).
   - **`Solana::Config.client` is the only sanctioned way to build a server-side RPC client.** A bare `Solana::Client.new` lets the *gem* pick the endpoint — it falls back to `ENV.fetch("SOLANA_RPC_URL", <public devnet>)`, which **fails open** where `Solana::Config::RPC_URL` fails closed (OPSEC-012), and it sits outside the public/credentialed split and `redact_rpc_url`. A caller that genuinely needs its own endpoint passes `rpc_url:` sourced from `Solana::Config`. Enforced against the source tree by `test/services/solana/client_routed_through_config_test.rb` (the sibling of PR 390's `.erb` / `app/javascript` ban, which is blind to Ruby).
-- `Solana::Keypair` — Ed25519 keygen, sign, base58, and encrypt/decrypt of managed-wallet secrets via a 256-bit key derived from the **`MANAGED_WALLET_ENCRYPTION_KEY`** env var (OPSEC-015; `secret_key_base[0,32]` is a legacy fallback only). `#inspect`/`#to_s` are redacted (OPSEC-021).
+- `Solana::Keypair` — Ed25519 keygen, sign, base58, and encrypt/decrypt of managed-wallet secrets via a 256-bit key derived from the **`MANAGED_WALLET_ENCRYPTION_KEY`** env var (OPSEC-015; `secret_key_base[0,32]` is a legacy fallback only). During a key rotation, **`MANAGED_WALLET_ENCRYPTION_KEY_PREVIOUS`** also opens rows sealed under the retiring key — it never seals. See [Rotating the managed-wallet key](#rotating-the-managed-wallet-key-managed_wallet_encryption_key). `#inspect`/`#to_s` are redacted (OPSEC-021).
   - **`Keypair.admin` and credentials in TEST.** `SOLANA_ADMIN_KEY` and `RAILS_MASTER_KEY` are GitHub **repository** secrets. Dependabot PRs run against the separate **Dependabot** secret store and cannot read repository secrets *by design*, so every dependency PR on this repo failed the Solana unit tests permanently — no rebase or re-run could clear it. The real defect was that unit tests which only *assemble* and *encrypt* demanded a production credential. Under **`Rails.env.test?` only**, `Keypair.admin` now falls back to a fixed non-secret keypair (`TEST_ADMIN_SEED`) and the legacy encryptor falls back to `TEST_SECRET_KEY_BASE`. **Outside test both remain a hard raise** — `Keypair.admin` is the Alex Bot signer (1-of-3 on the vault multisig; fee payer for `create_contest` / `enter_contest` / `mint_entry_token`), and a signing path that silently substituted a throwaway key would be far worse than a red CI. `Rails.env` is the discriminator on purpose: a marker like `ENV["CI"]` can be set anywhere, including on a production dyno. Pinned by `test/services/solana/keypair_admin_fallback_test.rb`, which asserts the raise still fires in `production`, `development`, and `staging`.
 - `Solana::Vault` — high-level builders + senders for the current TurfVault instruction surface (see table below). Managed-wallet paths sign server-side; Phantom paths build partial transactions for browser/user signatures plus server cosign where required. `sync_balance` surfaces the user's USDC ATA balance (back-compat `:balance` key) + decodes `seeds` from the `UserAccount` PDA; `fetch_wallet_balances` reads USDC/USDT ATAs; `ensure_program_id_live!` guards stale env.
 - `Solana::TxVerifier` — fetches a confirmed TX and asserts it touches `PROGRAM_ID` with the expected Anchor discriminator + signer + writable PDA (OPSEC-010). Defeats "submit any successful signature."
@@ -136,24 +136,53 @@ Use `turf-vault/scripts/squad-upgrade.js` — it builds a buffer, sets the buffe
 **Post-deploy IDL re-pin (mandatory)**: After every Squad upgrade, turf-monster MUST re-pin `EXPECTED_IDL_HASH` from the **freshly built** IDL — NOT `anchor idl fetch`. Squad upgrades run only the BPF `upgrade` instruction; they do NOT update the on-chain IDL account. `anchor idl fetch` therefore returns the stale pre-upgrade IDL.
 
 ```bash
-# After deploying turf-vault:
+# After deploying turf-vault, re-pin the IDL file of the CLUSTER YOU UPGRADED.
+# Each cluster commits its own file (they differ only in `address`):
+#   mainnet -> config/turf_vault.mainnet.idl.json  (build with --features mainnet)
+#   devnet  -> config/turf_vault.idl.json          (default build)
 cp /Users/alex/projects/turf-vault/target/idl/turf_vault.json \
-   /Users/alex/projects/turf-monster/config/turf_vault.idl.json
+   /Users/alex/projects/turf-monster/config/turf_vault.mainnet.idl.json
 cd /Users/alex/projects/turf-monster
-shasum -a 256 config/turf_vault.idl.json   # → this is the new EXPECTED_IDL_HASH
+jq -r .address config/turf_vault.mainnet.idl.json   # must be that cluster's program ID
+shasum -a 256 config/turf_vault.mainnet.idl.json    # → the new EXPECTED_IDL_HASH
 
-# Set EXPECTED_IDL_HASH on Heroku BEFORE git push (assets:precompile runs verify_idl!):
-heroku config:set EXPECTED_IDL_HASH=<sha> -a turf-monster-mainnet
-
-# Then commit + deploy
-git add config/turf_vault.idl.json
+# Commit, then deploy. bin/deploy reads the app's SOLANA_NETWORK to pick the file,
+# widens EXPECTED_IDL_HASH to {old,new}, pushes, then tightens it to {new}, so
+# both slugs verify across the release with no manual heroku config:set.
+git add config/turf_vault.mainnet.idl.json
 git commit -m "Re-pin IDL after turf-vault vX.Y.Z deploy"
 bin/deploy
 ```
 
 `Solana::Config.verify_idl!` will refuse to boot — and to precompile assets — in production when the file's SHA256 ≠ `EXPECTED_IDL_HASH`. Running prod against a drifted IDL silently corrupts every Borsh decode.
 
-**Also refresh the `/contract` page**: if the deploy changed the instruction set, byte sizes, auth roles, or any Rails call site, update the hand-maintained data in `app/views/contract/show.html.erb` (the public `/contract` transparency page; admin sections include the web2/web3 caller map). Its version pill + network auto-track the re-pinned IDL (`Solana::Config.idl_version` / `NETWORK`), but the per-instruction byte/caller data does not. Re-measure bytes with a debug-info rebuild (`CARGO_PROFILE_RELEASE_DEBUG=2 … cargo-build-sbf` → `llvm-objdump --syms | rustfilt`, dedup by address, bucket by instruction module).
+**Also refresh the `/contract` page — after every mainnet upgrade.** `app/views/contract/show.html.erb` (the public `/contract` transparency page) hand-maintains figures a new binary changes. Its version pill, cluster pill, and instruction and error counts read the committed IDL and `NETWORK`, so they track the re-pin; the figures below do not. `test/views/contract_measurements_test.rb` pins the page's `measured` record to `config/turf_vault.mainnet.idl.json` by version **and** sha256, so re-pinning that file turns it red until you redo step 1.
+
+1. **Binary, ELF sections, rent — from the deployed program, not a local build.** Anchor builds are not byte-reproducible, so measure the bytes that are executing. Public RPC, no credential:
+
+   ```bash
+   RPC=https://api.mainnet-beta.solana.com
+   solana program show DaFv83yokwTz8msP9CzJ13eazSGk15NuUTxjkfzJzxMM --url $RPC   # ProgramData address, data length
+   solana program dump DaFv83yokwTz8msP9CzJ13eazSGk15NuUTxjkfzJzxMM mainnet.so --url $RPC
+   shasum -a 256 mainnet.so           # program_sha256; must equal turf-vault docs/CURRENT_DEPLOYMENT.md
+   LLVM=~/.cache/solana/v1.52/platform-tools/llvm/bin   # any platform-tools version with llvm-objdump
+   $LLVM/llvm-objdump --section-headers mainnet.so      # section bytes
+   $LLVM/llvm-readelf --file-header mainnet.so          # ELF length = e_shoff + e_shnum * 64
+   # Space and lamports of the ProgramData and Program accounts, with the slot read at:
+   curl -s $RPC -X POST -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,
+     "method":"getMultipleAccounts","params":[["<program id>","<ProgramData address>"],
+     {"encoding":"base64","commitment":"finalized","dataSlice":{"offset":0,"length":0}}]}'
+   # TODAY's rent-exempt minimums — QUERY them, one call per size. Never multiply
+   # by a per-byte constant: the cluster has been lowering the rate (6,960 when
+   # this program was funded, 6,333 on 2026-09-11, 5,080 on 2026-09-13).
+   solana rent 545973 --url $RPC   # ProgramData: 45-byte header + the deployed file
+   solana rent 545965 --url $RPC   # a deploy buffer: 37-byte header + the deployed file
+   solana rent 36     --url $RPC   # the Program account
+   ```
+
+   **The deployed file is the whole program region** — `solana program dump` writes it, the loader wrote it, and Agave reads it through EOF — so it is what `deployed_file_bytes` holds and what sizes both the ProgramData account (`+ 45`) and a deploy buffer (`+ 37`). The ELF's logical content usually ends earlier, with zeros after it; that endpoint goes in `elf_content_bytes` and is printed only where the page labels it as ELF content. **Keep balances and minimums apart**: `programdata_balance` / `program_acct_balance` are what the live accounts HOLD (`getMultipleAccounts`), while `pd_rent_min` / `buffer_rent_min` / `program_acct_min` are what they would COST at that slot (`solana rent`). Then update `measured` (version, slot, date, `idl_sha256` of the re-pinned mainnet IDL, `program_sha256`).
+2. **Per-instruction bytes and `.text` buckets — from a debug-info rebuild** of the deployed tag with `--features mainnet` (`CARGO_PROFILE_RELEASE_DEBUG=2 … cargo-build-sbf` → `llvm-objdump --syms | rustfilt`, dedup by address, bucket by instruction module): the deployed binary is stripped, so it cannot attribute them. Update `attributed_on` when you do. Until then the page labels them with the build they came from (`v0.19` as of 2026-09-10).
+3. **Auth roles and Rails call sites** — re-audit the admin playbook's web2/web3 caller map. The playbook names any committed-IDL instruction it does not cover yet.
 
 ### Multisig Settlement Flow
 1. `Contest#grade!` scores entries and calls `settle_onchain!`
@@ -247,7 +276,9 @@ The per-season schedule above is authoritative for Turf Monster; update this doc
 - `solana:check_balance` / `solana:check_admin_balance` — read on-chain SOL/USDC balances.
 - `solana:mint_usdc` — mint test USDC to the admin ATA (`AMOUNT=<dollars>`, default 100). **Devnet only — hard-aborts on live production (OPSEC-020).** QA apps are exempt: they boot as Rails production but set `QA_ENV=true`, so `AppFlags.live_production?` reads false there and the devnet tooling stays usable.
 - `solana:fund_wallets` — fund a set of wallets (dev bring-up).
-- `solana:generate_keypair` / `solana:test_encryption` / `solana:reencrypt_managed_wallets` — managed-wallet key tooling (the last rotates ciphertext to the current `MANAGED_WALLET_ENCRYPTION_KEY`).
+- `solana:generate_keypair` / `solana:test_encryption` — managed-wallet key tooling.
+- `solana:reencrypt_managed_wallets` — re-seals every managed-wallet row under the current `MANAGED_WALLET_ENCRYPTION_KEY`, verifying each under that key ALONE before writing it. `DRY_RUN=1` writes nothing. Exit 0 only when every row verifies, 1 when any row does not, 2 when the configuration is refused. See [Rotating the managed-wallet key](#rotating-the-managed-wallet-key-managed_wallet_encryption_key).
+- `solana:verify_managed_wallet_keys` — read-only count of the rows that open under the current key alone. Exit 0 only when all of them do.
 - `solana:reconcile` — run `Solana::Reconciler` over all users (on-chain account-presence / state checks; no pooled balance reconciliation).
 - `solana:reconcile_contest CONTEST=<slug>` — compare an on-chain contest's entry count + slot-0 `entry_fees` against the DB.
 
@@ -269,7 +300,10 @@ credential.
 the response body — `body[data-solana-rpc-url]` in `layouts/application` and
 `layouts/modal_preview`, `#cosign-config[data-rpc-url]` on the three admin
 cosign pages, and `@page_config[:rpc_url]` on `/proof-of-reserves`, which is
-UNAUTHENTICATED and additionally renders the value as visible page text. On
+UNAUTHENTICATED and additionally renders the value as visible page text. Five of
+the six are still guarded by
+`test/integration/rpc_credential_not_in_browser_test.rb`; the sixth stopped
+existing when `layouts/modal_preview` was deleted on 2026-09-09. On
 `turf-monster-mainnet` that constant is a Helius endpoint carrying an `api-key`
 query param, so every page load shipped the credential to every browser. The
 `solana:health` / `solana:preflight` rakes had redacted the same constant before
@@ -413,9 +447,19 @@ either side is INDETERMINATE, and indeterminate FAILS. Two blanks compare EQUAL
 and two unknowns compare UNEQUAL, so either naive comparison would answer
 confidently and wrongly.
 
-The report prints a length and a 12-character SHA-256 prefix per app. It never
-prints key material, and the reader extracts one key rather than returning the
-config payload that carries every other secret the app has.
+**It compares the SIGNER the value derives, not the string it read.**
+`Keypair.from_bytes` signs with `bytes[0, 32]` and nothing checks the length, so two
+DIFFERENT base58 values sharing their first 32 bytes derive ONE signer — hashing the
+raw string called that pair isolated and PASSED. The digest is taken over the public
+key the value resolves to, and a value that derives no signer is UNDERIVABLE, which
+fails like any other blank. There is deliberately no length check: a 64-byte and a
+72-byte value can share their first 32 bytes and satisfy any length rule wide enough
+to admit the real key, so derivation is the check. Rejecting a malformed key belongs
+where the key is SET, in the rotation SOP.
+
+The report prints a length and a 12-character SHA-256 prefix OF THE DERIVED SIGNER per
+app. It never prints key material, and the reader extracts one key rather than
+returning the config payload that carries every other secret the app has.
 
 ### Rotating QA onto its own key
 
@@ -507,6 +551,82 @@ QA can actually SIGN against the devnet vault before that config flip, and
 unwritten on purpose. The transaction's shape is exactly what question 1
 decides. Any step that rotates a live credential or changes on-chain state needs
 Mr. McRitchie's explicit approval before anyone runs it.
+
+## Rotating the managed-wallet key (`MANAGED_WALLET_ENCRYPTION_KEY`)
+
+Every managed wallet's Ed25519 secret sits in `users.encrypted_web2_solana_private_key`,
+sealed under a key derived from `MANAGED_WALLET_ENCRYPTION_KEY`. The procedure lives
+in the hub: `mcritchie-studio/docs/agents/agents/steffon/sops/credential-rotation.md`
+(Phase 2). This section is the code it drives.
+
+**Deploy before rotate.** Everything below exists only on a release that carries
+`managed-wallet-key-rotation`. Merged is not deployed. On an older release the
+first config write strands every managed wallet, and the old task reports
+success. The SOP's Gate 0 proves the running release has the code before
+anything is minted.
+
+**Why it was unsafe before `managed-wallet-key-rotation`.** `Solana::Keypair` read
+one key and nothing else, and `solana:reencrypt_managed_wallets` decided a row was
+done by its `v2:` prefix. The prefix names the scheme, not the key. After a key
+swap every row still read `v2:`, so the task skipped them all, printed
+`0 migrated, N already v2, 0 failed`, and exited 0 — while every managed wallet
+had become undecryptable.
+
+**The two-key window.**
+
+| Env var | Seals | Opens |
+|---|---|---|
+| `MANAGED_WALLET_ENCRYPTION_KEY` | every new ciphertext | yes, tried first |
+| `MANAGED_WALLET_ENCRYPTION_KEY_PREVIOUS` | never | yes, only while set |
+
+A `v2:` payload is opened by trial: current key, then previous. That is safe
+because the scheme is authenticated (AES-256-GCM under `load_defaults 8.1`): a
+wrong key raises `InvalidMessage` rather than returning bytes. No key identifier
+is stamped into the ciphertext. The defect was a label trusted as proof of a
+key, so the only proof accepted now is opening the row with the key.
+
+**The migration**, per row (`Solana::ManagedWalletRotation`):
+
+1. If the current key ALONE opens it and the secret derives the stored
+   `web2_solana_address`, it is already new. Nothing is written.
+2. Otherwise it is opened with the previous key (or the legacy scheme, for an
+   untagged row), and it must derive the stored address.
+3. `DRY_RUN=1` stops here and counts it as would-migrate.
+4. The exact plaintext is re-sealed under the current key and read back under
+   the current key alone, then compared byte for byte in memory. Nothing is
+   logged.
+5. The row is written by compare-and-swap, so a row that changed during the
+   run is never clobbered.
+
+Each row is its own atomic write. A run that dies halfway leaves every row
+whole — old or new — and both keys still open both. Re-running finishes the job.
+After the walk, an independent recount opens every row under the current key
+alone. The run exits 0 only when that recount is complete.
+
+The last line of a run is the verdict. The counts above it are the evidence:
+`total / migrated / already-new / failed` and `Read-back: N of M`.
+
+**Refusals (exit 2, nothing read or written)**, when `…_PREVIOUS` is set:
+
+- the new key is absent;
+- the new key is not 64 hex characters (what `SecureRandom.hex(32)` mints);
+- the new key equals the previous one, even ignoring case or whitespace;
+- `…_PREVIOUS` is set but empty (what an empty `$OLD` writes).
+
+With no `…_PREVIOUS` set, the task is the OPSEC-015 legacy→v2 migration. Every v2
+row must already open under the current key, or it FAILS. It never reads a swapped
+key as "already v2" again.
+
+**What rotation does NOT do.** It re-seals the envelope; it never changes a
+wallet's private key. Every ciphertext sealed under the OLD key — in Postgres
+backups, forks, followers, or a dump — stays openable by the old key forever. If
+the old key is compromised, rotating protects nothing an attacker already copied.
+That is an incident: move funds to fresh wallets and destroy the old backups.
+
+Guards: `test/tasks/solana_managed_wallet_key_rotation_test.rb` (the regression
+and every path above, driven through the rake task and graded by exit status),
+`test/services/solana/keypair_rotation_test.rb`,
+`test/services/solana/managed_wallet_rotation_test.rb`.
 
 ## Solana Auth Security
 

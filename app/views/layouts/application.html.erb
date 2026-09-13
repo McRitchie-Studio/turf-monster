@@ -76,6 +76,53 @@
     <script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"
             integrity="sha384-05+sicyRJQ56XpL4U9HJ8YbtSzFDvAg7apPKOGV6A0JsAJKFM68jp5oLnUjG5mEp"
             crossorigin="anonymous"></script>
+
+    <%# THE REDIRECT TRANSPORT — the second way to reach a wallet.
+        `walletProvider` models only an INJECTED provider, which no ordinary
+        mobile browser has: on iOS Safari and Android Chrome detect() returns
+        null, and before /tasks/guard-wallet-detect-mobile that null reached
+        `.connect()` and printed a JavaScript error into a transaction modal.
+        These four files are the other transport — the one that hands off to the
+        wallet app by URL and resumes when it returns.
+
+        ORDER IS LOAD-BEARING, and it is a dependency chain, not a preference:
+        nacl above is read by the codec in wallet_transport; redirect_provider
+        and wallet_ops both read SolanaStudio.walletTransport; wallet_ops also
+        reaches for walletJournal. Each reads the one before it AT CALL TIME, so
+        a wrong order fails on the first tap rather than at load — the worst
+        place to find it.
+
+        NACL STAYS BLOCKING AND ABOVE THEM for the reason its own tag records:
+        the deep link reads it on a user tap (safe either way) but the callback
+        view's IIFE reads it AT PARSE TIME and hard-fails with no retry.
+
+        Served through sprockets from solana-studio, which declares all four in
+        config.assets.precompile (lib/solana_studio/engine.rb) — a gem-shipped
+        asset not named there 404s in production with no local warning. %>
+    <%= javascript_include_tag "solana_studio/wallet_transport" %>
+    <%= javascript_include_tag "solana_studio/redirect_provider" %>
+    <%= javascript_include_tag "solana_studio/wallet_journal" %>
+    <%= javascript_include_tag "solana_studio/wallet_ops" %>
+
+    <%# Registered on EVERY page, because the wallet returns to a page this app
+        does not own — see the partial for the entry that was lost when this
+        lived in the contest board. %>
+    <%# The HOW half of every on-chain flow — the return address, the cluster,
+        the 401-normalising fetch, and the handoff-never-happened watch. FIRST,
+        because the intents below use its fetch helper. It defines functions and
+        runs nothing at load. %>
+    <%= render "shared/wallet_op_runner" %>
+    <%# The relay the redirect transport's return leg paints THROUGH. Before the
+        intents, because each of them registers its painter with this by name at
+        parse time. It defines a store and schedules one drain; on a document
+        with nothing waiting every part of it is a no-op. %>
+    <%= render "shared/celebration_relay" %>
+    <%= render "shared/contest_entry_intent" %>
+    <%# The other two intents, here for the same reason and rendered the same
+        way. All three are idempotent and all three no-op on a page without
+        wallet_ops.js. %>
+    <%= render "shared/contest_create_intent" %>
+    <%= render "shared/username_rename_intent" %>
     <% if session_replay_active? %>
       <script src="https://cdn.logr-in.com/LogRocket.min.js" crossorigin="anonymous"></script>
       <script>
@@ -264,6 +311,18 @@
             if (provider) return provider;
             throw new Error(this.noWalletMessage());
           },
+          // MIRRORED BECAUSE A PRE-HYDRATION CALLER ALREADY REACHES FOR IT.
+          // shared/_alpine_factories asks for requireInlineProvider(), and this
+          // stub is what answers during the window before importmap modules
+          // execute — so a stub without it throws "requireInlineProvider is not
+          // a function", the same unreadable failure the pair above exists to
+          // remove. The stub's detect() always answers null, so the honest
+          // message is the only answer it can give, and it is the right one.
+          requireInlineProvider: function() {
+            var provider = this.detect();
+            if (provider && provider.transport !== 'redirect') return provider;
+            throw new Error(this.noWalletMessage());
+          },
           noWalletMessage: function() {
             if (this.isMobile()) {
               return "This browser cannot reach a wallet. Open this page inside your " +
@@ -272,6 +331,22 @@
             }
             return "No wallet detected. Install or unlock a Solana wallet extension, " +
                    "then refresh this page.";
+          },
+          // MIRRORED FOR THE SAME REASON, and this pair needs it MORE than the
+          // one above. The admin desktop-only notice PAINTS at parse time, from
+          // an inline script in the page body — so the object answering it is
+          // always THIS one, never the module. A stub without these two throws
+          // "desktopOnlyMessage is not a function" while painting the very
+          // element whose job is to keep a phone from hitting an error.
+          // test/integration/wallet_stub_parity_test.rb runs both objects and
+          // compares what they SAY, so a divergence here goes red.
+          desktopOnlyMessage: function() {
+            return "This operation is desktop only. Open the page on a desktop " +
+                   "browser with your wallet extension — a phone cannot reach a " +
+                   "signer wallet.";
+          },
+          requireDesktop: function() {
+            if (this.isMobile()) throw new Error(this.desktopOnlyMessage());
           }
         };
 
@@ -302,12 +377,65 @@
           // five minutes cover human think-time at the prompt. It fails CLOSED —
           // a user who dwells past five minutes gets a clean "Nonce expired" and
           // retries — which is why the trade is worth a saved round trip.
+          //
+          // OUR SERVER'S OWN SENTENCE, COMPOSED ONCE. Measured 2026-09-08 on the
+          // code this replaces: a nonce fetch that 500s with an HTML body makes
+          // r.json() reject with "Unexpected token '<', \"<!DOCTYPE \"... is not
+          // valid JSON", parseSolanaError's /^unexpected/i branch reads that as a
+          // TRANSACTION failure, and the user is told to check their wallet
+          // connection and their USDC balance. An outage of ours, read back to a
+          // paying user as their wallet being short of funds.
+          //
+          // SURVIVES THE MAPPER, which is the whole reason it can be substituted
+          // rather than rethrown — parseSolanaError passes unrecognised messages
+          // through untouched, and test/views/nonce_server_failure_copy_test.rb
+          // runs this literal past every regex the mapper tests a message against.
+          var nonceServerCopy = 'Our server could not start sign-in \u2014 the problem is on our side, not your wallet. Please try again in a moment.';
           var noncePromise = fetch('/auth/solana/nonce')
-            .then(function(r) { return r.json(); })
+            .then(function(r) {
+              // A BODY WE CANNOT READ IS OUR SERVER FAILING, AND THIS IS THE ONE
+              // PLACE THAT KNOWS IT. Below, in the single .catch, an offline
+              // TypeError and an unreadable 500 body are the same rejection and
+              // cannot be told apart; here they are already separated by WHICH
+              // step threw. So the substitution belongs here — inside r.json() —
+              // and the network failure keeps its own words on the way past.
+              //
+              // BOTH WALLET PATHS, FROM ONE PLACE. The signIn branch awaits this
+              // promise ABOVE its try (the nonce is an INPUT to signIn), so no
+              // catch in this function ever sees its rejection — it propagates
+              // straight to the surface. A substitution at the nonceFetchFailed
+              // guard alone would therefore have left every signIn-capable wallet,
+              // Phantom included, still reading the balance advice. Measured on
+              // both paths, 2026-09-08.
+              return r.json().catch(function() {
+                var serverError = new Error(nonceServerCopy);
+                // NOT REPORTED — the one substitution in this file that owes no
+                // report, and it owes none for the reason docs/AUTH.md already
+                // gives for a server REJECTION: report-client-wallet-failures
+                // exists for failures that leave NO server-side trace, because
+                // they happen entirely in the browser. This one is a 500 OF OURS;
+                // the exception, its backtrace and the request are already in the
+                // server's own log, and the POST would go to the very server that
+                // just failed. The string being replaced is V8's complaint about
+                // our error page, not a wallet's words, so nothing diagnostic
+                // dies here.
+                //
+                // TAGGED ANYWAY, so no SURFACE reports it either. Without the tag
+                // the wallet-setup modal's catch would file a row carrying our
+                // sentence in BOTH halves — the raw == mapped shape docs/AUTH.md
+                // names as an anomaly worth chasing — for a fault that is fully
+                // recorded server-side.
+                serverError.walletFailureReported = true;
+                throw serverError;
+              });
+            })
             .catch(function(e) {
               // Tag the error the fetch actually produced rather than wrapping
               // it: a wrapper would drop `TypeError: Failed to fetch` — the one
               // string that says "offline" — and replace it with our own guess.
+              // The substituted server sentence above arrives here as an object
+              // too, so it picks up the same tag and the fallback's guard goes on
+              // rethrowing a nonce failure untouched, whichever shape it took.
               if (e && typeof e === 'object') { e.nonceFetchFailed = true; throw e; }
               var wrapped = new Error(String(e));
               wrapped.nonceFetchFailed = true;
@@ -477,20 +605,27 @@
               // the mapper, which the e2e spec pins against the page's OWN mapper
               // rather than a copy.
               //
-              // STILL EXPOSED, DELIBERATELY UNFIXED HERE: a nonce fetch that
-              // fails with an HTML body makes r.json() reject with "Unexpected
-              // token '<' ... is not valid JSON", which matches that same
-              // /^unexpected/i branch. The nonceFetchFailed guard rethrows it
-              // untouched, so the commonest server-failure shape still lands on
-              // the transaction sentence. Closing it needs either a second
-              // substitution here or a mapper change whose blast radius crosses
-              // the entry paths that legitimately own that wording -- an operator
-              // decision, named here rather than made silently.
+              // THAT LEFT ONE HOLE OPEN UNTIL 2026-09-08, AND IT IS NOW CLOSED
+              // UPSTREAM OF HERE. A nonce fetch that failed with an HTML body
+              // made r.json() reject with "Unexpected token '<' ... is not valid
+              // JSON", which matches that same /^unexpected/i branch, so the
+              // commonest server-failure shape still landed on the transaction
+              // sentence. The substitution for it lives in the nonce fetch
+              // itself (see nonceServerCopy above), NOT in this guard: the signIn
+              // branch awaits that promise above its own try, so a guard here
+              // could never have covered it, and only the fetch knows whether the
+              // request failed to arrive or came back unreadable. The mapper is
+              // untouched -- its transaction wording still belongs to the entry
+              // paths that own it. See docs/AUTH.md and
+              // test/views/nonce_server_failure_copy_test.rb.
 
               // OUR OWN SERVER, FIRST. /auth/solana/nonce failing is an offline
               // moment or a blip on our side. Telling that user to create a
               // wallet is the same confidently-wrong diagnosis this whole task
-              // exists to remove, pointed at a different innocent party.
+              // exists to remove, pointed at a different innocent party. Either
+              // shape arrives tagged, so this rethrow stays exactly as it was:
+              // a network failure carries its own words, and a server fault
+              // carries the sentence composed for it.
               if (e && e.nonceFetchFailed) throw e;
 
               var em = (e && e.message) ? e.message : String(e);
@@ -615,11 +750,115 @@
           // normalises it (Solana::WalletProvider) and ignores anything off the
           // registry, so the test-only 'keypair' provider stamps nothing.
           var walletProviderName = (provider && provider.name) || walletName || undefined;
-          return await (await fetch(verifyUrl, {
+
+          // THE NONCE LEG'S DEFECT, ONE FETCH LATER, AND WORSE. Until 2026-09-09
+          // this was a bare `return await (await fetch(...)).json()` sitting
+          // outside BOTH try blocks. A reply that carries a rendered PAGE makes
+          // `.json()` reject with V8's
+          // "Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON";
+          // parseSolanaError's /^unexpected/i branch reads that as a TRANSACTION
+          // failure and answers "check wallet connection and USDC balance".
+          //
+          // WHICH FAULTS ACTUALLY SEND AN UNREADABLE BODY — NOT "any unhandled
+          // exception". That was this comment's claim until 2026-09-09 and it is
+          // FALSE on both endpoints: SolanaSessionsController#verify and
+          // AccountsController#link_solana each END in a generic
+          // `rescue StandardError` that renders JSON 422, which parses fine. An
+          // exception raised INSIDE either action is therefore not this case at
+          // all. THREE things do send HTML, and TWO OF THEM ARRIVE AT STATUS 200:
+          //
+          //   * THE ENGINE CATCH-ALL. Studio::ErrorHandling registers
+          //     `rescue_from StandardError`, so anything the actions' own rescues
+          //     do not claim — a raise in one of the before_actions this POST
+          //     runs, or in /auth/solana/nonce, which has no local rescue —
+          //     reaches handle_unexpected_error. In production that answers
+          //     through `respond_to`, and this fetch sends no Accept header, so
+          //     it takes `format.html`: a 302 to root, which fetch FOLLOWS to an
+          //     HTML body at status 200;
+          //   * THE OPSEC-045 FORCED LOGOUT. A session_token mismatch in
+          //     ApplicationController#verify_session_token answers the same way —
+          //     a 302 to /signin, followed to an HTML body at status 200.
+          //     Measured end to end 2026-09-09;
+          //   * A FAULT OUTSIDE rescue_from's REACH — middleware, routing — which
+          //     ActionDispatch::PublicExceptions renders as the 500 error page.
+          //
+          // `r.ok` is TRUE on the first two. That is the whole argument for why
+          // the substitution below sits inside `.json()` and can never become an
+          // `!r.ok` gate — such a gate would not fire at all on the two shapes
+          // this app actually produces most.
+          //
+          // WORSE THAN THE NONCE CASE BECAUSE OF WHEN IT FIRES. The nonce fetch
+          // happens BEFORE the user signs. This one happens AFTER the signature
+          // succeeded — so on a real-money product a user signs, our server
+          // faults, and we tell them they are short of funds at the exact moment
+          // they have most reason to think something was taken. The one step that
+          // proved their wallet fine is the step that precedes the accusation.
+          //
+          // ONE SITE, BOTH PATHS — and unlike the nonce leg, that is free here.
+          // The signIn branch and the connect + signMessage fallback both fall
+          // through to this line; neither wraps it. So a substitution here covers
+          // every wallet, and no guard-local variant is needed.
+          var verifyServerCopy = 'Your signature went through, but our server could not finish sign-in \u2014 the problem is on our side, not your wallet. Signing in moves no funds. Please try again in a moment.';
+          // NO `Accept: application/json` HERE, AND THAT IS THE DELIBERATE
+          // CHOICE, NOT AN OVERSIGHT. Two sibling call sites in this file send
+          // it (postMagicLink below, and the nonce fetch takes the default), so
+          // adding it here reads as a tidy-up. It would DISARM the guard on the
+          // next line. Measured 2026-09-09 against ActionDispatch::PublicExceptions:
+          // with no Accept header — or `*/*`, or `text/html` — a 500 comes back
+          // as the rendered error PAGE, which is the body `.json()` rejects on;
+          // with `Accept: application/json` the same 500 comes back as
+          // {"status":500,"error":"Internal Server Error"}, which PARSES. The
+          // helper would then resolve that object, the substitution would never
+          // run, and the user would read a bare "Internal Server Error" instead
+          // of a sentence telling them their signature moved no funds — while
+          // every assertion about the guard stayed green, because the guard is
+          // simply never reached.
+          //
+          // So the absence of this header is load-bearing and is pinned as such:
+          // test/views/verify_server_failure_copy_test.rb drives the RENDERED
+          // helper against a server that answers by Accept the way Rails does,
+          // and reddens the moment this header appears. If a future change wants
+          // the header, it has to re-aim the guard in the same diff — a JSON
+          // error body needs a STATUS test, which the note below explains this
+          // endpoint cannot have naively (401/422 carry bodies the user must read).
+          var verifyResponse = await fetch(verifyUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.content || '' },
             body: JSON.stringify({ message: message, signature: signatureB58, pubkey: pubkeyB58, age_attestation: ageAttestation, wallet_provider: walletProviderName })
-          })).json();
+          });
+          // SUBSTITUTED INSIDE r.json(), FOR THE SAME REASON THE NONCE LEG IS,
+          // AND DELIBERATELY NOT AT `!r.ok`. docs/AUTH.md used to note that
+          // "nothing checks r.ok" as though the check were the fix. It is not:
+          // this endpoint answers 401 and 422 with a JSON body the user MUST
+          // read — an expired nonce, a bad signature, the age attestation
+          // (SolanaSessionsController#verify renders all three) — and the modal
+          // paints `result.error` from it. A throw on !r.ok would replace those
+          // precise, actionable sentences with this generic one, which is the
+          // same class of confidently-wrong diagnosis pointed at a new party.
+          // Only an UNREADABLE body is unambiguously our fault, and `.json()`
+          // rejecting is exactly the signal that says so.
+          //
+          // AND THE OFFLINE USER STAYS OUT OF IT. Wrapping the fetch itself —
+          // the obvious simplification — makes `TypeError: Failed to fetch` and
+          // an unreadable 500 body the same rejection, and relabels a genuinely
+          // offline user as our outage. Here they are already separated by WHICH
+          // step threw, so a request that never reached us keeps its own words
+          // and stays reportable. Mutated both ways in
+          // test/views/verify_server_failure_copy_test.rb.
+          //
+          // NOT REPORTED, tagged so no surface reports it either — the reasoning
+          // is the nonce leg's, unchanged: this is a 500 OF OURS, already carrying
+          // its exception and backtrace in the server's own log, and the report
+          // POST would go to the very server that just failed. The string being
+          // replaced is V8's complaint about our error page, not a wallet's
+          // words, so nothing diagnostic dies here. Without the tag the
+          // wallet-setup modal's catch files a row with our sentence in BOTH
+          // halves — the raw == mapped shape docs/AUTH.md names as an anomaly.
+          return await verifyResponse.json().catch(function() {
+            var serverError = new Error(verifyServerCopy);
+            serverError.walletFailureReported = true;
+            throw serverError;
+          });
         };
 
         // Shared magic-link request. Form-encoded (so the rack-attack per-email
@@ -1050,6 +1289,48 @@
               this._onCloseHandler = null;
               if (_onCurrent()) Alpine.store('modals').close();
               if (cb) cb();
+            },
+            // retire() — drop the transaction card WHEREVER IT SITS ON THE
+            // STACK, and only while it is still waiting. Answers true if a card
+            // was retired.
+            //
+            // WHY close() CANNOT DO THIS. Every other method here reaches the
+            // CURRENT card through _onCurrent(), and this one can be BURIED: the
+            // level-up celebration opens ON TOP of a non-dismissible card by
+            // design (the free-entry-earned branch above declines to swap one
+            // away), which is precisely the state an abandoned wallet handoff
+            // can leave behind. A caller reading .visible / .state then sees the
+            // celebration, decides there is no processing card, and leaves one
+            // standing underneath — the user meets it again the moment they
+            // close the celebration, with the scroll lock still on and no way
+            // out. Raised in review of PR 697.
+            //
+            // STATE IS THE GUARD, not position: a card that has already resolved
+            // to success or error belongs to its own buttons.
+            retire: function() {
+              var live = _liveTx();
+              if (!live || live.props.state !== 'processing') return false;
+              var modals = Alpine.store('modals');
+              // On top: the ordinary close, unchanged — exit animation, focus
+              // release and the onClose callback all behave as they always have.
+              if (modals.current() === live) { this.close(); return true; }
+              // Buried: splice it out from under whatever took the screen.
+              // splice-then-_sync is the pair the engine's own close() uses
+              // (closeAllDismissible reaches the same place by REASSIGNING a
+              // filtered stack, so it is not the line to copy here). _sync() is
+              // the load-bearing half either way: body.modal-open keeps tracking
+              // the stack that is LEFT — still set while the celebration stands,
+              // cleared when it closes.
+              var idx = modals.stack.indexOf(live);
+              if (idx < 0) return false;
+              modals.stack.splice(idx, 1);
+              modals._sync();
+              // show() nulls both of these when it paints a processing card, so
+              // there is nothing here to fire; clearing them keeps a later close
+              // from running a handler this card's flow left behind.
+              this._recoveryHandler = null;
+              this._onCloseHandler = null;
+              return true;
             },
             setRecovery: function(label, handler, options) {
               var c = _onCurrent();
@@ -1622,11 +1903,16 @@
         keyframes, and renders this app's content partials by id.
 
         TWO REGISTRATION SEAMS, and the choice between them matters. Cards
-        registered in the block below are per-CALLSITE — this layout and
-        layouts/modal_preview each keep their own list, so a card added to only
-        one renders EMPTY in the other. A card that belongs to the APP rather
-        than to a page goes in app/views/modals/_host_extras instead, which the
-        host renders on every path through it. cosign-rejected lives there. %>
+        registered in the block below are per-CALLSITE: the block belongs to
+        THIS layout, so a second layout mounting the host would keep its own list
+        and a card added to only one would render EMPTY in the other. That is not
+        hypothetical — layouts/modal_preview was exactly that second list until
+        it was deleted on 2026-09-09, and it is why the age-verify card drew
+        blank for months. This is now the only mount, and keeping it the only one
+        is the cheapest way to keep that failure retired. A card that belongs to
+        the APP rather than to a page goes in app/views/modals/_host_extras
+        instead, which the host renders on every path through it.
+        cosign-rejected lives there. %>
     <%= render "studio/modals/host" do %>
       <%# Email-change-pending — opened on the /account page after a held
           email change (AccountsController#update). Informational handoff:
@@ -1650,8 +1936,8 @@
           REGISTER BOTH OR NEITHER. The birthday card hands a refusal off by
           swapping to 'age-gate'; an unregistered id renders an EMPTY card, which
           reads as a styling bug rather than a missing partial — the exact failure
-          this layout already shipped once (see the age-verify note in
-          layouts/modal_preview). %>
+          this app already shipped once, when a second registration list existed
+          for the age-verify card to be missing from. %>
       <template x-if="$store.modals.current().id === 'birthday'">
         <%= render "modals/birthday" %>
       </template>
@@ -1667,9 +1953,12 @@
           /tasks/turf-rides-gem-modals then moved the picker on to solana-studio,
           and /tasks/drop-engine-web3-modals dropped the engine's in 0.66.2.
           Everything turf adds now arrives through WalletPickerHelper as the gem
-          picker's extra_data hooks plus the legal-age slot. The SAME helper feeds layouts/modal_preview, which
-          keeps its own registration list — a picker adopted in one layout and
-          forked in the other renders the old copy at /admin/style forever. %>
+          picker's extra_data hooks plus the legal-age slot. THE HELPER IS WHY,
+          and it outlived the second consumer it was written for: it also fed
+          layouts/modal_preview, which kept its own registration list, so a
+          picker adopted in one layout and forked in the other would have gone on
+          rendering the old copy. Locals in a helper cannot fork that way — which
+          is the reason to keep them there for the next second consumer. %>
       <template x-if="$store.modals.current().id === 'wallet-connect'">
         <%= render "solana_studio/modals/wallet_connect", **wallet_connect_modal_locals %>
       </template>
@@ -1702,8 +1991,10 @@
           inert and never in the document, so only the mounted clone exists and
           a lookup for that field still resolves to exactly one element.
 
-          Locals come from first_name_modal_locals so this list and
-          layouts/modal_preview's cannot drift apart. %>
+          Locals come from first_name_modal_locals rather than inline, so the two
+          registrations above cannot drift apart from each other — nor from any
+          future second list, which is what the helper was written for when
+          layouts/modal_preview kept one. %>
       <template x-if="$store.modals.current().id === 'onboarding' && !($store.modals.current().props || {}).required">
         <%= render "studio/modals/onboarding/first_name", **first_name_modal_locals %>
       </template>
@@ -1725,7 +2016,9 @@
           What stays HERE is what the shared card deliberately does not
           take: Web3StepUpPolicy decides WHO sees it, and Web3StepUpHelper keeps
           this app's own words and its own help route. Those locals live in the
-          helper, not inline, because modal_preview registers this card too. %>
+          helper, not inline, because a second registration used to exist to
+          differ from them (layouts/modal_preview, deleted 2026-09-09) and a
+          third could. %>
       <template x-if="$store.modals.current().id === 'web3-step-up'">
         <%= render "solana_studio/modals/web3_step_up", **web3_step_up_locals %>
       </template>
@@ -1890,10 +2183,38 @@
       <% end %>
 
 
-      <%# Template reference modals — registered in non-production only so
-          they don't add JS surface area to prod. Surfaced at the top of
-          /admin/modals as "Templates" so new modal work has copy-paste
-          starting points. %>
+      <%# Template reference modals — the copy-from archetypes under
+          studio/modals/templates/, registered in non-production only so they
+          don't add JS surface area to prod.
+
+          NOTHING IN THIS APP OPENS ONE. No trigger, no link, and no call
+          anywhere that hands a template- id to modals.open — the only hits
+          for these ids are the five registrations below, the one defork
+          test that asserts a registration is still here, and the
+          retired-gallery docs guard, which borrows template-form to prove its
+          section slice stops short of the engine's cards. They are reachable
+          only by opening the id on this host by hand. Their REVIEW surface is
+          elsewhere and needs none of this — the engine's living style guide
+          cards all five in its own Templates section at /admin/style#modals
+          (studio-engine app/views/style/_modals.html.erb), and it opens them
+          on the guide's page-scoped dsModals host rather than on this one.
+
+          THE SENTENCE THIS REPLACES WAS TRUE WHEN IT WAS WRITTEN, and saying
+          so matters because a first pass at this comment claimed the
+          opposite. It said these were surfaced at the top of /admin/modals as
+          Templates. They were, with one correction. The gallery's variant
+          manifest — deleted with the page, so this is history rather than a
+          live citation — opened with five rows whose group was Templates, and
+          admin/modals.html.erb grouped that array by its group key and
+          rendered the groups in array order, which put Templates first in the
+          CATALOGUE — not first on the page, because the Flows section rendered
+          above the catalogue, exactly as its own comment said. Commit 036c6c3f
+          dropped those five rows on 2026-09-06 as a TRUE port (the engine
+          owns and cards the partials), and the gallery itself was retired on
+          2026-09-09. The claim went STALE on 2026-09-06; it was never false.
+
+          What these registrations buy is a real host to open an archetype on
+          while copying from it. %>
       <% unless Rails.env.production? %>
         <template x-if="$store.modals.current().id === 'template-form'">
           <%= render "studio/modals/templates/form" %>

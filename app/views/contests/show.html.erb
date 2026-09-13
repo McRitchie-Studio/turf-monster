@@ -10,6 +10,18 @@
   edit_mode = @edit_entry.present?
 %>
 
+<%# Link preview (og:image): this contest's own banner, composed into the
+    1200x630 card. The application layout reads content_for(:og_image) as its
+    page-level override, so nil here — a contest with no banner — falls through
+    to the admin default and then to /og.png exactly as before.
+
+    THE ROOT URL INHERITS THIS, which is why "/" needs no tags of its own:
+    ContestsController#world_cup 302s to Contest.featured (the contest pinned at
+    /admin/dashboard), and an unfurler follows that redirect and reads the page
+    it lands on. So a shared turfmonster.media link unfurls with the pinned
+    contest's banner, and re-pinning changes the card with no deploy. %>
+<% content_for :og_image, contest_og_image_url(@contest) %>
+
 <!-- Section 1: Hero Banner + Creator Avatar -->
 <%= render "contests/hero" %>
 

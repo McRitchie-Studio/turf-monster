@@ -297,7 +297,23 @@
       slate". It was dropped in the same edit, for the same reason: in that
       configuration the stated start time is NOT the first kickoff, so the
       aside states an equivalence the code does not hold to. Both halves are
-      operator-approved copy on a real-money page. %>
+      operator-approved copy on a real-money page.
+
+      CORRECTED A THIRD TIME 2026-09-08. That aside came out of the PROSE, but
+      the same equivalence survived twice more on this page: the worked example
+      resolved its lock with "because that is the first kickoff on the slate",
+      and the quick-reference row read "First kickoff on the slate". Both now
+      name the stated start time, which is the attribute Contest.locks_at
+      actually reads.
+
+      THE GUARD CHANGED WITH THEM, and this is the part worth knowing before
+      the next reword. The old assertion REQUIRED the phrase "first kickoff"
+      inside this section, and it passed ONLY because the worked example still
+      supplied it. A guard everyone read as pinning the prose was load-bearing
+      on an example nobody thought was load-bearing, so rewording the example
+      alone turned it red with a message that could not explain why. It now
+      asks Contest.locks_at whether the lock can leave the slate first kickoff,
+      and holds every lock surface on both rulebooks to that one answer. %>
   <!-- ========== 06 — WHEN PICKS LOCK ========== -->
   <section class="mb-12 md:mb-16" data-test="lock-rules">
     <p class="text-primary font-mono text-sm mb-2">06</p>
@@ -309,7 +325,7 @@
     <div class="bg-surface-alt rounded-xl border border-violet/30 p-6" data-test="lock-example">
       <p class="text-heading font-semibold mb-3">Example</p>
       <p class="text-secondary text-sm leading-relaxed">
-        You picked USA (3pm kickoff) and Haiti (9pm kickoff). The contest locks at 3pm, because that is the first kickoff on the slate. At 3:01pm both picks are final — Haiti&rsquo;s later kickoff does not buy you extra time to change it. Everyone picks blind, from the same board, before a single match starts; nobody gets to watch the 3pm result and then choose their 9pm team.
+        You picked USA (3pm kickoff) and Haiti (9pm kickoff). The contest locks at 3pm, its stated start time. At 3:01pm both picks are final — Haiti&rsquo;s later kickoff does not buy you extra time to change it. Everyone picks blind, from the same board, before a single match starts; nobody gets to watch the 3pm result and then choose their 9pm team.
       </p>
     </div>
   </section>
@@ -361,7 +377,7 @@
         <div class="text-heading text-right">Split evenly</div>
 
         <div class="text-secondary">Lock</div>
-        <div class="text-heading text-right" data-test="lock-quick-ref">First kickoff on the slate</div>
+        <div class="text-heading text-right" data-test="lock-quick-ref">Stated start time</div>
       </div>
     </div>
   </section>

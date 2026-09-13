@@ -21,10 +21,12 @@
   studio/_birthday_assets are inlined at layout level rather than shipped as
   modules.
 
-  RENDER IT ABOVE the host in EVERY layout that mounts the host. This app has two
-  (layouts/application and layouts/modal_preview); a layout that renders the host
-  without this one silently falls back to max-w-sm for every id, which looks like
-  a styling regression rather than a missing include.
+  RENDER IT ABOVE the host in EVERY layout that mounts the host. This app has one
+  (layouts/application) since layouts/modal_preview was deleted on 2026-09-09; a
+  layout that renders the host without this one silently falls back to max-w-sm
+  for every id, which looks like a styling regression rather than a missing
+  include. test/views/modal_host_adoption_test.rb derives the check from the
+  layout glob, so a second layout is covered the day it appears.
 
   Merged rather than assigned so the map survives another registration and a
   future engine default. Add a width: one line below, plus nothing else.

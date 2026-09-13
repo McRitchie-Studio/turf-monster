@@ -23,9 +23,15 @@ require "test_helper"
 # SCOPE, since the filename undersells it: this file measures Contest and Entry,
 # which never branch on sport, then holds EVERY published lock surface to that
 # one measurement — the World Cup rulebook, the NFL rulebook, the Terms editing
-# clause, and the funnel helper's citation trail. Add a lock surface, add it
-# here; do not stand up a second fixture, or the surfaces gain a way to disagree
-# with each other about the same code.
+# clause, and the pre-payment funnel (its rendered lock step AND its citation
+# trail). Add a lock surface, add it here; do not stand up a second fixture, or
+# the surfaces gain a way to disagree with each other about the same code.
+#
+# TWO DOORS, and the file measures both. The rulebook and Terms tests ask when a
+# picked entry stops being EDITABLE. The funnel test asks when a visitor stops
+# being able to ENTER — the only surface here that is read BEFORE money changes
+# hands, and the one direction where a wrong sentence costs a buyer a contest
+# rather than an edit.
 class TurfTotalsLockRuleTest < ActionDispatch::IntegrationTest
   # A slate with two kickoff waves is the exact shape the old copy described:
   # an early game that sets the contest lock, and a later game whose own
@@ -142,9 +148,13 @@ class TurfTotalsLockRuleTest < ActionDispatch::IntegrationTest
     else
       # Measured reality: ONE contest-level lock, no per-game exemption.
       assert_match(/locks/i, lock_text, "the lock section must state when a contest locks")
-      assert_match(/first kickoff/i, lock_text,
-                   "the lock moment the code derives is the slate's first kickoff")
       assert_match(/final/i, lock_text, "the section must say picks are final after the lock")
+
+      # WHEN it locks. This used to be `assert_match(/first kickoff/i, ...)`,
+      # which required the very equivalence the code does not hold to — and
+      # passed only because the worked example nested in this subtree supplied
+      # the phrase. It now consumes a measurement; see the section below.
+      assert_lock_moment_matches_measurement("lock-rules", "World Cup lock section")
 
       # No wording anywhere in the rulebook may promise the swap window the
       # measurement just proved impossible — prose, worked example, or the
@@ -178,6 +188,11 @@ class TurfTotalsLockRuleTest < ActionDispatch::IntegrationTest
                  "the example must land on picks being final at the contest lock")
     refute_match(/still swap|haven'?t started yet|until 9pm/i, example,
                  "the example must not resolve the later kickoff as extra editing time")
+
+    # The example resolved its own lock with "because that is the first kickoff
+    # on the slate" until 2026-09-08 — stating as the REASON a thing the code
+    # only sometimes does. Held to the same measurement as the prose above it.
+    assert_lock_moment_matches_measurement("lock-example", "World Cup worked example")
   end
 
   # The quick-reference table is where a reader skims for THE RULES. It read
@@ -186,9 +201,199 @@ class TurfTotalsLockRuleTest < ActionDispatch::IntegrationTest
     get turf_totals_v1_path
     assert_response :success
     row = scoped_text("lock-quick-ref")
-
-    assert_match(/first kickoff/i, row, "the quick-reference lock row must name the contest lock")
     refute_match(/per-game/i, row, "the quick-reference row must not promise per-game locking")
+
+    # This row asserted /first kickoff/i until 2026-09-08. Three words of copy
+    # cannot carry the reasoning, so it now consumes the measurement instead.
+    assert_lock_moment_matches_measurement("lock-quick-ref", "World Cup quick-reference lock row")
+  end
+
+  # ── the LOCK MOMENT, measured against the slate's first kickoff ───────────
+  # Every lock surface this file guards once named the lock as "the first
+  # kickoff on the slate", and three assertions above REQUIRED that phrase. It
+  # is not a synonym for the lock moment. Contest#locks_at is `starts_at ||
+  # slate.first_game_starts_at || slate.starts_at` (contest.rb:686-693): an
+  # explicit starts_at WINS, it is admin-permitted on create AND edit
+  # (contests_controller.rb:2702, 2737), and NOTHING validates it against the
+  # slate. The two moments coincide in TWO ways — an admin leaves starts_at
+  # blank and the derivation falls through to that kickoff, or an admin SETS
+  # starts_at to exactly that kickoff — and this measurement asks about
+  # NEITHER. It poses the third case, an explicit starts_at that is not the
+  # kickoff, which is the only one that splits them. Measured against production
+  # on 2026-09-07, all 7 contests set starts_at by hand.
+  #
+  # The two coinciding ways are measured separately, by "the contest lock
+  # coincides with the first kickoff in both documented ways" below. They are
+  # named here because every surface this file certifies carries a comment
+  # saying WHEN the equivalence holds, and a comment naming one of the two
+  # invites the next reader to check it against the World Cup rulebook's worked
+  # example — where starts_at IS the kickoff — and distrust the rest of it.
+  #
+  # WHY THIS REPLACED A GREP, because the old assertion looked harmless. It read
+  # `assert_match(/first kickoff/i, lock_text)` against the lock-rules subtree,
+  # and the PROSE in that subtree has said "at its stated start time" since
+  # 2026-09-07 — so it passed only because the WORKED EXAMPLE nested in the same
+  # subtree still supplied the phrase. A guard everyone read as pinning the
+  # prose was load-bearing on an example nobody thought was load-bearing:
+  # rewording the example alone turned it red, with a message about the prose.
+  #
+  # MEASURED, NOT ASSERTED, which is what keeps both directions live. If Contest
+  # ever derives or validates starts_at against the slate's first kickoff,
+  # admin_scheduled_contest's lock MOVES to @early_kickoff, this reads false,
+  # and every surface below flips to demanding the kickoff wording BACK — the
+  # equivalence would be true again, and a page that hid it would understate
+  # what the code guarantees.
+  def lock_moment_can_leave_first_kickoff?
+    contest = admin_scheduled_contest
+
+    # CONTROL. The fixture must STATE a start time that differs from its slate's
+    # first kickoff, or `false` below would mean "the fixture never posed the
+    # question" and every surface would be certified against a measurement that
+    # measured nothing. It reads the stored attribute, not the derivation, so it
+    # keeps answering the same way however Contest#locks_at is written.
+    refute_equal @slate.first_game_starts_at, contest.starts_at,
+                 "control: the fixture must state a start time that differs from its slate's " \
+                 "first kickoff, or the measurement below asks nothing"
+
+    contest.locks_at != @slate.first_game_starts_at
+  end
+
+  # ── the coincidence, measured in BOTH shapes ──────────────────────────────
+  # The measurement above poses the case where the two moments DIVERGE. This one
+  # poses the two where they meet, because that is the half the comments beside
+  # every corrected lock surface had been getting wrong: they named a blank
+  # starts_at and stopped, when an admin who SETS starts_at to exactly the first
+  # kickoff reaches the same instant by the other road.
+  #
+  # THE SECOND CASE IS LEGAL, and `create!` is what proves it rather than
+  # asserting it — Contest validates name, slug and slate presence and NOTHING
+  # about starts_at (contest.rb:15-38), so a create! that returns is the
+  # admin write succeeding. If a validation is ever added, this raises here
+  # instead of quietly certifying a configuration the app has begun refusing.
+  def contests_locking_at_first_kickoff
+    kickoff = @slate.first_game_starts_at
+    assert kickoff, "measurement: the fixture slate needs a first kickoff to coincide with"
+
+    derived = Contest.create!(
+      name: "Blank Start Contest", slug: "blank-start-contest",
+      entry_fee_cents: 1900, status: "open", max_entries: 29,
+      contest_type: "standard", slate: @slate, starts_at: nil
+    )
+    stated = Contest.create!(
+      name: "Stated Start Contest", slug: "stated-start-contest",
+      entry_fee_cents: 1900, status: "open", max_entries: 29,
+      contest_type: "standard", slate: @slate, starts_at: kickoff
+    )
+
+    # CONTROL, and it is the entire difference between the two cases. Both read
+    # the STORED attribute, never the derivation: without them both rows could
+    # be blank and the second case would silently be the first one again,
+    # leaving "an admin SETS starts_at" certified by a contest where no admin
+    # set anything.
+    assert_nil derived.reload.starts_at,
+               "control: the derived case must leave starts_at blank, or it is not that case"
+    assert_equal kickoff, stated.reload.starts_at,
+                 "control: the stated case must hold the first kickoff as its OWN attribute, " \
+                 "or it is the blank case wearing a different name"
+
+    [derived, stated]
+  end
+
+  # The claim every one of those comments now makes, held to Contest itself
+  # rather than to its own sentence. A guard that only greps the prose would
+  # pass on the narrower wording this test exists to have replaced.
+  test "the contest lock coincides with the first kickoff in both documented ways" do
+    derived, stated = contests_locking_at_first_kickoff
+    kickoff = @slate.first_game_starts_at
+
+    assert_equal kickoff, derived.locks_at,
+                 "a blank starts_at must let Contest#locks_at fall through to the slate's " \
+                 "first kickoff — the first of the two ways the comments name"
+    assert_equal kickoff, stated.locks_at,
+                 "an explicit starts_at SET to the first kickoff must lock at that kickoff — " \
+                 "the second way, the one the worked example depicts, and the one a comment " \
+                 "naming only the blank case leaves out"
+
+    # The third case, CONSUMED rather than restated so this test cannot disagree
+    # with the surfaces about the same attribute. It is what keeps the pair
+    # above from being the whole story: if an explicit starts_at ever stopped
+    # winning over the slate, the moments would coincide ALWAYS, "coincide in
+    # two ways" would become a distinction without a difference, and every
+    # surface here would owe the kickoff wording back.
+    assert lock_moment_can_leave_first_kickoff?,
+           "an explicit starts_at that is NOT the first kickoff must still win over the " \
+           "slate, or the equivalence holds universally and the comments' third case is dead"
+  end
+
+  # The equivalence the surfaces used to state, in both shapes they carried it:
+  # "the first kickoff on the slate" and "First kickoff, Week 1".
+  FIRST_KICKOFF_EQUIVALENCE = /first kickoff/i
+
+  # The attribute Contest#locks_at actually reads, as the corrected pages name it.
+  STATED_START_MOMENT = /stated start/i
+
+  # Holds ONE published lock surface to the measurement above. Every surface
+  # CONSUMES this rather than restating it, so no two of them can disagree about
+  # the same attribute — the rule this file's header sets for adding a surface.
+  def assert_lock_moment_matches_measurement(hook, surface)
+    # scoped_text asserts the node exists first, so a renamed or deleted hook
+    # fails HERE instead of handing the assertions below an empty string. The
+    # emptiness check is the other half of that guard, and it earns its keep on
+    # the quick-reference rows: they are three words, so the refutation alone
+    # would pass just as happily against a row that rendered nothing at all.
+    text = scoped_text(hook)
+    refute_empty text.strip, "the #{surface} must render text to be held to the measurement"
+
+    gap = admin_scheduled_contest.locks_at - @slate.first_game_starts_at
+    gap_hours = (gap / 1.hour.to_f).round(1)
+
+    if lock_moment_can_leave_first_kickoff?
+      assert_match(STATED_START_MOMENT, text,
+                   "the lock moment is the contest's STATED START TIME: this run measured a " \
+                   "contest locking #{gap_hours}h from its slate's first kickoff, so the " \
+                   "#{surface} must name the moment the code reads")
+      refute_match(FIRST_KICKOFF_EQUIVALENCE, text,
+                   "the #{surface} tells a reader the lock IS the slate's first kickoff, but an " \
+                   "explicit starts_at wins over the slate unvalidated (contest.rb:686-693) and " \
+                   "this run measured the two #{gap_hours}h apart")
+    else
+      assert_match(FIRST_KICKOFF_EQUIVALENCE, text,
+                   "Contest now locks at the slate's first kickoff however starts_at is set, so " \
+                   "the equivalence holds again and the #{surface} should name it")
+    end
+  end
+
+  # ── section 02 of the NFL rulebook, held to section 07's own measurements ──
+  # "Swap freely until the contest locks at the first kickoff" carried BOTH
+  # defects this family of guards has been removing, and contradicted section 07
+  # three hundred lines further down its own page. A reader who skims the
+  # numbered steps and never reaches the rulebook section got the wrong rule
+  # twice: an unqualified swap window, and a lock moment the code does not use.
+  #
+  # The two tests run the SAME measurements section 07 answers to, against
+  # section 02's own subtree. That is what "agrees with section 07" has to mean
+  # here — not that two strings match, but that neither can drift from the code
+  # without a named failure.
+  test "the NFL pick step names the lock moment its own rulebook measures" do
+    get turf_monster_v1_path
+    assert_response :success
+
+    assert_lock_moment_matches_measurement("lock-rules", "NFL lock section")
+    assert_lock_moment_matches_measurement("nfl-pick-step", "NFL pick step")
+  end
+
+  test "the NFL pick step's swap window matches what Entry enforces" do
+    assert_rulebook_swap_window_matches_measurement(turf_monster_v1_path, hook: "nfl-pick-step")
+  end
+
+  # The NFL quick-reference "Lock" row read "First kickoff, Week 1" and sits in
+  # the band headed EVERY NFL CONTEST — the same false equivalence, claimed as a
+  # rule that holds for every contest rather than one contest's configuration.
+  test "the NFL quick-reference lock row names the measured lock moment" do
+    get turf_monster_v1_path
+    assert_response :success
+
+    assert_lock_moment_matches_measurement("nfl-lock-quick-ref", "NFL quick-reference lock row")
   end
 
   # ── the lock WINDOW, measured off the production slate definition ─────────
@@ -375,7 +580,10 @@ class TurfTotalsLockRuleTest < ActionDispatch::IntegrationTest
     /swap any of your six teams/i => "promises every team is swappable pre-lock"
   }.freeze
 
-  def assert_rulebook_swap_window_matches_measurement(page_path)
+  # `hook` names the subtree to scope against. It defaults to the rulebook's own
+  # lock section; the NFL pick step passes its own so the two surfaces on that
+  # page are held to one measurement instead of drifting apart.
+  def assert_rulebook_swap_window_matches_measurement(page_path, hook: "lock-rules")
     frozen, editable = pre_lock_pick_freeze
 
     # CONTROL. Without it the refusal below could come from a dead entry, a
@@ -392,7 +600,7 @@ class TurfTotalsLockRuleTest < ActionDispatch::IntegrationTest
     # scoped_text asserts the node before reading it. A renamed or deleted
     # section then fails HERE, loudly, instead of handing the assertions below
     # an empty string they would all pass against having read nothing.
-    lock_text = scoped_text("lock-rules")
+    lock_text = scoped_text(hook)
     assert_match(/swap/i, lock_text,
                  "the lock section must still tell a player when picks can be swapped")
 
@@ -426,6 +634,129 @@ class TurfTotalsLockRuleTest < ActionDispatch::IntegrationTest
 
   test "the NFL rulebook's pre-lock swap window matches what Entry enforces" do
     assert_rulebook_swap_window_matches_measurement(turf_monster_v1_path)
+  end
+
+  # ── the ENTRY door, measured on a contest that locks BEFORE any kickoff ───
+  # The two measurements above both open AFTER the first kickoff, so neither can
+  # see the case the pre-payment funnel turns on: a contest whose stated start
+  # time PRECEDES the first game on its slate. Contest#locks_at is `starts_at ||
+  # slate.first_game_starts_at || slate.starts_at` (contest.rb:686-693) — an
+  # explicit starts_at WINS, is admin-permitted on create AND edit
+  # (contests_controller.rb:2702, 2737), and nothing validates it against the
+  # slate. Measured against production on 2026-09-08, 3 of 7 contests had locked
+  # earlier than their first kickoff, the widest by 8.6 days; none locked later.
+  #
+  # Closing entries early is a legitimate product choice, so this is NOT a test
+  # that the model should stop allowing it. It is a test that the funnel — the
+  # page a visitor reads BEFORE paying an entry fee — names the moment the door
+  # actually shuts.
+  def early_locking_contest
+    @early_locking_contest ||= Contest.create!(
+      name: "Early Lock Contest", slug: "early-lock-contest",
+      entry_fee_cents: 1900, status: "open", max_entries: 29,
+      contest_type: "standard", slate: @slate,
+      starts_at: @early_kickoff - 2.hours
+    )
+  end
+
+  # Answers only "would this entry be accepted", through the exact pre-flight a
+  # paying entrant runs. `comped:` is left at its default false on purpose: the
+  # admin-seed escape hatch (entry.rb:134) exempts the lock gate, and a comped
+  # call would measure the one path this sentence does not describe.
+  def entry_accepted?(entry)
+    entry.assert_enterable!
+    true
+  rescue StandardError
+    false
+  end
+
+  # Returns [refused_before_any_kickoff, accepted_earlier], both read at
+  # instants DERIVED from the contest, never hard-coded.
+  #
+  # MEASURED, NOT ASSERTED, and this is what keeps the else branch below alive:
+  # if Contest ever derives or validates starts_at against the slate's first
+  # kickoff, this contest's lock MOVES to @early_kickoff, the first clause reads
+  # false, and the test flips to demanding the kickoff wording back.
+  def early_lock_entry_window
+    contest = early_locking_contest
+    entry = Entry.create!(user: users(:alex), contest: contest, status: "cart")
+    @picked.each { |m| entry.selections.create!(slate_matchup: m) }
+
+    lock = contest.locks_at
+    first_kickoff = @slate.first_game_starts_at
+
+    refused_before_any_kickoff = nil
+    travel_to lock do
+      refused_before_any_kickoff = Time.current < first_kickoff && !entry_accepted?(entry)
+    end
+
+    accepted_earlier = nil
+    travel_to lock - 1.hour do
+      accepted_earlier = entry_accepted?(entry)
+    end
+
+    [refused_before_any_kickoff, accepted_earlier]
+  end
+
+  # css_select is UNSCOPED by default and reads the whole rendered document,
+  # layout included. Scoping to the funnel's own subtree is what makes a
+  # refute_match below mean "the funnel does not say this" rather than "the
+  # navbar and footer do not say this".
+  def funnel_subtree_text(hook)
+    node = css_select(%([data-test="#{hook}"])).first
+    assert node, "the funnel must render a #{hook} subtree"
+    node.text
+  end
+
+  test "the funnel's lock step names the moment entries actually close" do
+    refused_before_any_kickoff, accepted_earlier = early_lock_entry_window
+
+    # CONTROL. Without it the refusal above could come from a closed contest, a
+    # short pick set, a full slate, or a raise from anywhere inside the
+    # pre-flight, and this test would certify any copy at all. The SAME entry
+    # must be accepted an hour before the lock, or the refusal at the lock is
+    # not the contest lock talking.
+    assert accepted_earlier,
+           "control: the same entry must be accepted an hour before the contest lock"
+
+    contest = early_locking_contest
+    page = LandingPage.create!(name: "Lock Rule Funnel", slug: "lock-rule-funnel",
+                               headline: "Enter the Contest", contest: contest, active: true)
+
+    get landing_page_path(page.slug)
+    assert_response :success
+    step_text = funnel_subtree_text("funnel-how-it-works")
+
+    if refused_before_any_kickoff
+      # Measured reality: entries were REFUSED at a moment when no game on the
+      # slate had kicked off. Naming the kickoff would promise this visitor a
+      # window that had already closed — on the page they read before paying.
+      refute_match(/kick(s|ed)? off/i, step_text,
+                   "Entry REFUSED a complete entry at the contest lock while NO game on the " \
+                   "slate had kicked off, so the funnel may not name a kickoff as the moment " \
+                   "the contest locks — a visitor who waits for it finds entries closed")
+      assert_match(/start time/i, step_text,
+                   "the funnel must name the contest's start time, which is the attribute " \
+                   "Contest#locks_at actually reads")
+      assert_match(/locks/i, step_text, "the step must still say the contest locks")
+
+      # The sentence points at a time; the page must PRINT that time, and it
+      # must be the measured lock moment. Without this the copy could name a
+      # "start time" the visitor is never shown, or one taken from the slate.
+      shown = funnel_subtree_text("funnel-lock-time")
+      assert_match(/#{Regexp.escape(contest.locks_at.strftime('%B %-d'))}/, shown,
+                   "the funnel must print the date of the lock the copy points at")
+      assert_match(/#{Regexp.escape(contest.locks_at.strftime('%-I:%M %p'))}/, shown,
+                   "the funnel must print the clock time of the lock the copy points at")
+    else
+      # starts_at is now derived from, or validated against, the slate's first
+      # kickoff, so the contest can no longer lock before a game starts. The
+      # kickoff is then the concrete, checkable moment a visitor can look up,
+      # and naming the abstract "start time" instead is the weaker sentence.
+      assert_match(/kicks off/i, step_text,
+                   "the contest can no longer lock before its first kickoff, so the funnel " \
+                   "should name that kickoff — the moment a visitor can actually look up")
+    end
   end
 
   # Locks the citation trail the funnel helper hands the next reader: it cites

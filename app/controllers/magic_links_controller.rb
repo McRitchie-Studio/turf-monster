@@ -128,6 +128,11 @@ class MagicLinksController < ApplicationController
     reset_prior_session!
     user.claim_parked_username!
     set_app_session(user)
+    # BEFORE record_onboarding_state!, and that order is load-bearing: claiming a
+    # gift can CREATE this account's managed wallet, which is one of the very
+    # facts WalletSetupPolicy reads. Claim first and a gifted player is not asked
+    # to install Phantom for a wallet they were just given.
+    claim_entry_gift!(user)
     # Web3-only onboarding: a RETURNING web2 user is nudged to link Phantom
     # unless their managed wallet still holds an entry's worth of USDC — those
     # users are useable as-is (operator call) and see nothing new.
@@ -150,7 +155,8 @@ class MagicLinksController < ApplicationController
     return redirect_to landing_path_for(result) if needs_wallet
 
     redirect_to landing_path_for(result),
-                flash: { auth_toast: { title: "Welcome back", message: "Signed in as #{user.username}." } }
+                flash: { auth_toast: entry_gift_toast ||
+                  { title: "Welcome back", message: "Signed in as #{user.username}." } }
   end
 
   # Mirrors RegistrationsController#create: build → configure_new_user → save!
@@ -177,6 +183,11 @@ class MagicLinksController < ApplicationController
       cookies.delete(:reference)
       user.update!(email_verified_at: Time.current)
       set_app_session(user)
+      # Same seam and the same reason as sign_in_existing: the claim mints this
+      # brand-new account's managed wallet (the after_create callback declined to,
+      # under web3-only onboarding), so it must land before the onboarding state
+      # is read.
+      claim_entry_gift!(user)
       # The onboarding chain owns this moment now: first name → age → wallet,
       # resolved server-side and walked by the layout's driver wherever the user
       # lands. Both branches below only decide whether to ALSO say something in a
@@ -192,6 +203,15 @@ class MagicLinksController < ApplicationController
         # Wallet setup pending: no toast promising an entry token, because a
         # wallet-less account can't buy one. Land on the contest (picks intact)
         # and let the setup modal carry the next step.
+        # NO GIFT TOAST ON THIS BRANCH, and it is not an oversight — it is
+        # unreachable. This is sign_up_new, so the account was created in this
+        # request and has no first name, so `first_name` is always outstanding,
+        # so onboarding_steps.any? is always TRUE and this flash is never set at
+        # all. An `entry_gift_toast ||` sat here and could not fire; it read as
+        # a live branch and described an outcome the code cannot produce.
+        # The chain's opening card carries this moment; a gifted NEW account
+        # sees its entry in the badge, and the :continue / returning-login paths
+        # are where the gift toast actually appears.
         redirect_to result.return_to, **(onboarding_steps.any? ? {} : { flash: { auth_toast: {
                       title:   "You're signed in",
                       message: "Grab an entry token to lock in your picks."
@@ -250,6 +270,62 @@ class MagicLinksController < ApplicationController
     p.start_with?("/") && !p.start_with?("//") ? p : nil
   end
 
+  # --- Entry gifts -----------------------------------------------------------
+
+  # Redeem the free entry this link was carrying, if it was carrying one.
+  #
+  # THE LINK ITSELF IS THE ONLY IDENTIFIER. Studio::Link is polymorphic, so an
+  # operator-sent gift rides in the row as `linkable` and nothing extra has to
+  # travel in the URL — no gift id to tamper with, and a link that carries no
+  # gift resolves to nil and takes every path below unchanged.
+  #
+  # NEVER FATAL. This runs after the session is already established, so a
+  # failure here must not 500 a visitor who is, from their side, correctly
+  # signed in — they would lose the account they just made to a bookkeeping
+  # error. The gift stays unclaimed and its link is spent, which is the one
+  # outcome that needs an operator: EntryGift#stalled? does not cover it (there
+  # is no claim), so it is logged AND filed as an ErrorLog rather than swallowed.
+  def claim_entry_gift!(user)
+    gift = ::Studio::Link.magic_links.find_by(token: params[:token])&.linkable
+    return unless gift.is_a?(EntryGift)
+
+    @entry_gift_claim = EntryGifts::Claim.call(gift, user)
+  rescue StandardError => e
+    Rails.logger.error "[entry-gift] claim_failed token=#{params[:token]} user=#{user&.id} " \
+                       "#{e.class}: #{e.message}"
+    capture_entry_gift_error(e, user)
+    nil
+  end
+
+  # ErrorLog directly rather than rescue_and_log, which RE-RAISES by design (see
+  # Admin::SeasonsController#create) — and re-raising is the one thing this path
+  # must not do. Telemetry that fails is swallowed for the same reason: it must
+  # never be what turns a successful sign-in into a 500.
+  def capture_entry_gift_error(exception, user)
+    log = ErrorLog.capture!(exception)
+    log.target = user
+    log.target_name = user.try(:slug)
+    log.save!
+  rescue StandardError => e
+    Rails.logger.error "[entry-gift] error_log_failed user=#{user&.id} #{e.class}: #{e.message}"
+  end
+
+  # The toast a just-claimed gift replaces the stock sign-in copy with, or nil
+  # when this click carried no gift. Deliberately says the entry is ALREADY
+  # theirs rather than promising a mint that is still in a job — the token is
+  # minted within seconds and the badge picks it up on the next poll, while a
+  # "minting…" message would be the only thing on screen still saying so if the
+  # RPC were slow.
+  def entry_gift_toast
+    return nil unless @entry_gift_claim&.claimed?
+
+    sender = @entry_gift_claim.gift.sender
+    from   = sender&.name.presence || sender&.username.presence
+    { title:   "You've got a free entry 🎟️",
+      message: from ? "#{from} covered your entry — pick your lineup." \
+                    : "Your entry is covered — pick your lineup." }
+  end
+
   # --- Studio::LinkConsumption hooks -----------------------------------------
 
   # Turf's sign-in page is /signin, not the engine's /login.
@@ -286,6 +362,76 @@ class MagicLinksController < ApplicationController
   # message in the flow. The override is kept because the bespoke title reads
   # better than a bare sentence, and because it lets the outcome's severity ride
   # through to the toast; inheriting the default would have worked too.
+  # THE THIRD OUTCOME, and the one this app had left on the engine's default.
+  #
+  # Studio::LinkConsumption routes a click to :authenticate, :continue, or
+  # :dead. `claim_entry_gift!` was wired into the first only — sign_in_existing
+  # and sign_up_new — so a recipient who was ALREADY SIGNED IN as the gift's own
+  # address took :continue and silently lost the gift: the token burned, the
+  # claim never happened, no ErrorLog was filed, the ledger still read "Sent",
+  # and EntryGift#stalled? could not surface it because it requires claimed?. A
+  # re-send minted a fresh link and walked them back into the same cell.
+  #
+  # That is not an exotic path. It is gifting an existing player who reads their
+  # mail on the device they are signed in on. Caught in review; pinned now by
+  # entry_gift_flow_test.rb's ":continue" pair.
+  #
+  # CLAIM, THEN DELEGATE. `super` keeps every property this path exists for —
+  # the identity is left exactly as it stands, no re-auth, no onboarding beat.
+  # The claim is additive, and so is the one session fact it corrects (below).
+  #
+  # THE CLAIM MAKES THE CACHED WALLET VERDICT STALE, so it is re-recorded here.
+  # Signing in cached WalletSetupPolicy's answer in session[:wallet_setup], and
+  # for an account with no wallet that answer is TRUE. The claim then mints the
+  # account's managed wallet (EntryGifts::Claim#ensure_wallet!), which ends
+  # wallet_setup_required?'s no-wallet short-circuit and sends it to the cached
+  # TRUE. Left alone, the page kept sending walletSetupRequired: true, so the
+  # board's entry gate (eligibilityBlocker) refused every hold and reopened the
+  # wallet-setup card for the rest of the session, to a player holding the very
+  # entry that exists to spare them that card. (ContestsController#enter never
+  # refused them: its wallet check asks wallet_kind == :none, and the claim just
+  # made that false. The block was the client's, and it was total, because the
+  # hold never reaches the server.) The two :authenticate shapes cannot hit
+  # this: they claim BEFORE record_onboarding_state! reads anything.
+  #
+  # ONLY THE WALLET STATE, never record_onboarding_state! whole. That method
+  # also arms the onboarding chain and the web3 step-up card, which are what we
+  # ASK a user at sign-in, and nobody signed in here. The wallet verdict is
+  # what we ENFORCE, and it is the only thing the claim changed. prompt: false
+  # for the same reason: the gate stays correct without opening a card.
+  #
+  # Scoped to a claim that LANDED. A plain re-click claims nothing, changes no
+  # fact the policy reads, and stays free of the policy's balance read.
+  #
+  # AND IT DOES ANNOUNCE THE GIFT. The engine's silence on :continue is about
+  # IDENTITY — it exists so a re-click on your own live link does not cost you
+  # the session you already had. It was never a rule that a click may change
+  # nothing visible: this one just gave the visitor an entry, which is the whole
+  # reason the mail was sent.
+  #
+  # The toast is honest about which fact it reports. `entry_gift_toast` says
+  # "You've got a free entry 🎟️" — it announces the ENTRY, never a sign-in, so
+  # showing it here claims nothing that did not happen.
+  #
+  # What decided it: staying silent makes the NEXT click a lie. The recipient
+  # taps "claim your free entry", lands on the contest with no acknowledgement,
+  # and the natural move is to tap it again — which now takes :dead and reads
+  # "link already used", for a gift they believe they never received. Silence
+  # does not keep the path invisible; it converts a working gift into a support
+  # question.
+  #
+  # SCOPED TO GIFTS. `entry_gift_toast` is nil unless a claim actually landed,
+  # so a plain magic-link re-click leaves the flash untouched and stays exactly
+  # as invisible as it was before.
+  def link_continue(result, outcome)
+    claim_entry_gift!(current_user)
+    record_wallet_setup_state!(current_user, prompt: false) if @entry_gift_claim&.claimed?
+    if (toast = entry_gift_toast)
+      flash[:auth_toast] = toast
+    end
+    super
+  end
+
   def link_dead(outcome, result)
     path = link_destination(outcome.destination, result)
     return redirect_to(path) if outcome.silent?

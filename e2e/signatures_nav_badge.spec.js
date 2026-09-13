@@ -17,6 +17,15 @@ const { loginAdmin, reseed } = require("./helpers");
 // through /test/set_pending_signatures rather than hoping for one.
 test.beforeEach(async ({ request }) => await reseed(request));
 
+// AND PUT THEM BACK. `reseed` does not delete PendingTransactions, and the lane
+// runs one server with one worker, so rows seeded here outlive this file. That
+// has been harmless only because "signatures_nav_badge" sorts after every spec
+// that cares — e2e/audit.spec.js:126 asserts the treasury's EMPTY state. A new
+// spec file with an earlier name inherits the landmine; one did
+// (admin_desktop_only.spec.js, 2026-09-08) and reddened CI on a change that had
+// nothing to do with this file.
+test.afterEach(async ({ request }) => await setSignatures(request, 0, 0));
+
 const setSignatures = (request, live, stale) =>
   request.post("/test/set_pending_signatures", { form: { live, stale } });
 

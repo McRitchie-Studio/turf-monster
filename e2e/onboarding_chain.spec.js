@@ -220,7 +220,16 @@ test("the entry resume fires on a save and not on a skip @smoke", async ({ page 
 
   expect(
     await page.evaluate(() => window.__firstNameSaved),
-    "a skip must NOT re-dispatch first-name-saved — the board would resume an entry with no name"
+    // WHY THIS STILL MATTERS AFTER THE RESUME WAS REMOVED (2026-09-08). The
+    // board no longer listens for this event, so a stray dispatch can no longer
+    // resume an entry — that was the original reason and it is now stale. The
+    // assertion stays because the SHIM'S CONTRACT is what is under test: it
+    // reports the outcome the gem's card gave it, and reporting a save when the
+    // user skipped is wrong independently of who is listening. It is also the
+    // only guard on the branch; the same shim clears
+    // $store.session.firstNameRequired, and clearing THAT on a skip would let
+    // the next hold walk past a gate the user never satisfied.
+    "a skip must NOT report itself as a save — the shim branches on detail.saved"
   ).toBe(0);
   expect(
     await page.evaluate(() => Alpine.store("session").firstNameRequired),

@@ -148,14 +148,22 @@ class WalletPickerSinglePhantomTest < ActionDispatch::IntegrationTest
 
   # --- render smoke --------------------------------------------------------
 
-  test "both wallet modals still render through the admin gallery" do
-    log_in_as users(:alex)
+  # ASKED OF THE LAYOUT THAT SHIPS. This drove /admin/modals/preview until that
+  # seam was retired on 2026-09-09; layouts/application registers both cards
+  # ungated, so an ordinary page carries both and the smoke costs one request
+  # instead of two. The registrations are COUNTED rather than assumed — a card
+  # that stopped registering would otherwise turn this into an assertion about
+  # whatever else happens to be on the page.
+  test "both wallet modals render on the layout a player is served" do
+    body = modal_host_page
 
-    get admin_modal_preview_path(modal_id: "wallet-connect")
-    assert_response :success
-    assert_includes response.body, "Connect Wallet"
+    picker = modal_registration_sources(body, "wallet-connect")
+    setup  = modal_registration_sources(body, "wallet-setup")
 
-    get admin_modal_preview_path(modal_id: "wallet-setup")
-    assert_response :success
+    assert_equal 1, picker.length, "expected one wallet-connect registration; found #{picker.length}"
+    assert_equal 1, setup.length,  "expected one wallet-setup registration; found #{setup.length}"
+
+    assert_includes picker.first, "Connect Wallet"
+    assert_includes setup.first, "Set up your wallet"
   end
 end
