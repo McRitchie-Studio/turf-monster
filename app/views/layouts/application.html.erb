@@ -1314,10 +1314,13 @@
               // On top: the ordinary close, unchanged — exit animation, focus
               // release and the onClose callback all behave as they always have.
               if (modals.current() === live) { this.close(); return true; }
-              // Buried: splice it out from under whatever took the screen. The
-              // same two lines the engine's own closeAllDismissible uses, so
-              // body.modal-open keeps tracking the stack that is LEFT — still
-              // set while the celebration stands, cleared when it closes.
+              // Buried: splice it out from under whatever took the screen.
+              // splice-then-_sync is the pair the engine's own close() uses
+              // (closeAllDismissible reaches the same place by REASSIGNING a
+              // filtered stack, so it is not the line to copy here). _sync() is
+              // the load-bearing half either way: body.modal-open keeps tracking
+              // the stack that is LEFT — still set while the celebration stands,
+              // cleared when it closes.
               var idx = modals.stack.indexOf(live);
               if (idx < 0) return false;
               modals.stack.splice(idx, 1);
