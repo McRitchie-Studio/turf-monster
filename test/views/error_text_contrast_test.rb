@@ -122,7 +122,17 @@ class ErrorTextContrastTest < ActiveSupport::TestCase
     "app/views/modals/_newsletter_subscribe.html.erb"      => 1,
     "app/views/modals/_unsubscribe_confirm.html.erb"       => 1,
     "app/views/modals/_wallet_changed.html.erb"            => 1,
-    "app/views/modals/auth/_resend_footer.html.erb"        => 1,
+    # app/views/modals/auth/_resend_footer.html.erb is GONE from this list because the FILE
+    # is gone: /tasks/turf-adopts-resend-footer deleted this app's fork and renders the
+    # engine's studio/modals/auth/resend_footer instead, so there is no local red site
+    # left to resolve. The paragraph itself did not stop being measured — it stopped being
+    # STATIC. The engine paints it text-danger-ink (>= 0.74.9, the floor this adoption
+    # moved), and what that resolves to on this app's surfaces is now read AFTER THE
+    # CASCADE in a browser: e2e/auth_modal.spec.js computes the painted contrast ratio of
+    # the rendered error against the modal card and asserts >= 4.5. That is a stronger
+    # measurement than this file can make, and it is the only one that could have caught
+    # the engine shipping text-red-400 (2.77 light / 4.03 dark here), which no token in
+    # the markup reveals.
     "app/views/shared/_auth_card.html.erb"                 => 1
   }.freeze
 
