@@ -324,11 +324,13 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # transport document, which had gone stale TWICE by naming the solana-studio
   # version Gemfile.lock resolved. That claim is now held by the §7 test below.
   #
-  # Both blind spots are INHERITED, not fixed, and each preamble says so: a
-  # citation inside a markdown table anchors on the WHOLE table
-  # (/tasks/table-row-anchors-siblings), so every table row in these documents
-  # names its own symbol; and a citation that lands can still sit beside a false
-  # sentence.
+  # ONE blind spot is inherited and each preamble says so: a citation that lands
+  # can still sit beside a false sentence. The other is FIXED — a citation inside
+  # a markdown table anchored on the WHOLE table when these documents came in
+  # (/tasks/table-row-anchors-siblings), which is why every row in them names its
+  # own symbol; limit 7 below scoped a row to itself on 2026-09-13
+  # (/tasks/citation-anchors-across-table-rows), and those rows now anchor on the
+  # symbol they name rather than on a neighbour's.
   WALLET_DOCS = %w[
     docs/WALLET_TRANSPORT_ARCHITECTURE.md
     docs/WALLET_ADAPTER_EVALUATION.md

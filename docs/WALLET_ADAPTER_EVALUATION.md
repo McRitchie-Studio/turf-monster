@@ -26,11 +26,11 @@ Anything not verified is marked **unverified**.
 > would rot on an unrelated `bundle update`. Gem SIZES were measured against the
 > gems the lock held when this was written (solana-studio 0.9.3, studio-engine
 > 0.74.7), and each size says which release it counts.
-> **Two blind spots, inherited knowingly.** Most citations here sit in markdown
-> TABLES, and a table citation anchors on the WHOLE table, so a symbol named in
-> any row can satisfy it (`/tasks/table-row-anchors-siblings`); every row names
-> its own symbol so it anchors either way. And no check here can tell that a
-> sentence describes the wrong thing: the security table's "Ours" column was
+> **One blind spot left.** Most citations here sit in markdown TABLES, and a
+> table citation used to anchor on the WHOLE table, so a symbol named in any row
+> could satisfy it; a row now anchors only on itself
+> (`/tasks/citation-anchors-across-table-rows`), and every row here names its own
+> symbol. What no check can tell is that a sentence describes the wrong thing: the security table's "Ours" column was
 > re-read against the code by hand on 2026-09-10. One citation is exempt from the
 > guard: playwright-core's
 > `chromiumSwitches.js` sits in `node_modules`, outside this repo, so its
