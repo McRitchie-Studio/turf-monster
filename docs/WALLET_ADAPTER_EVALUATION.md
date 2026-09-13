@@ -94,9 +94,9 @@ and studio-engine owns the page a wallet returns to.
 | Legacy Phantom sign-in (undocumented `signIn` deeplink) | `solana-studio: app/views/solana_studio/_phantom_deeplink.html.erb#startPhantomDeepLink` | 179 |
 | Callback page: `walletOps` resume dispatch, plus the legacy sign-in branch with its **own** base58 decoder and nacl decrypt | `studio-engine: app/views/solana_sessions/phantom_callback.html.erb#hasResumer,b58decode` | 406 |
 | `window.tmWalletOp`: return address, cluster, handoff watch, and the way back | `app/views/shared/_wallet_op_runner.html.erb:49` (`CALLBACK_PATH`), `:163` (`watchHandoff`), `:233` (`window.tmWalletOp`) | 304 (re-measured 2026-09-13) |
-| Intents: entry (with the `redirectLink` default wrapped around `walletOps.resume` at `app/views/shared/_contest_entry_intent.html.erb:128-149`), create + bundle, rename | `app/views/shared/_contest_entry_intent.html.erb`, `_contest_create_intent.html.erb`, `_username_rename_intent.html.erb` | 330 / 201 / 298 |
+| Intents: entry (with the `redirectLink` default wrapped around `walletOps.resume` at `app/views/shared/_contest_entry_intent.html.erb:128-149`), create + bundle, rename | `app/views/shared/_contest_entry_intent.html.erb`, `_contest_create_intent.html.erb`, `_username_rename_intent.html.erb` | 505 / 201 / 307 (re-measured 2026-09-13) |
 | Provider registry, inline codec, mobile `detect()` | `app/javascript/wallet_provider.js:83` (`INLINE_TX_CODEC`), `:479` (`detect`), `:661` (`requireInlineProvider`) | 671 |
-| Stand-in wallet + its spec | `e2e/stub-wallet.js`, `e2e/stub_wallet_round_trip.spec.js` | 489 / 500 (re-measured 2026-09-13) |
+| Stand-in wallet + its spec | `e2e/stub-wallet.js`, `e2e/stub_wallet_round_trip.spec.js` | 489 / 607 (re-measured 2026-09-13) |
 
 **Totals.** The gem's four transport files come to **1,428 lines** in 0.9.3.
 Its node test files for them come to 1,834 lines (`wallet_ops_js_test.rb`
