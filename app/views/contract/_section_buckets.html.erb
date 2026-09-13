@@ -1,6 +1,9 @@
 <%#
-  .text byte buckets — horizontal bars sized by largest bucket.
-    locals: text_buckets (Array of { name:, bytes:, color:, detail: })
+  .text byte buckets — horizontal bars sized by largest bucket. The buckets
+  are an attribution from an older build (attributed_on), not the deployed
+  one, so the section says so beside the numbers.
+    locals: text_buckets (Array of { name:, bytes:, color:, detail: }),
+            attributed_on, measured, deployed_text_bytes
 %>
 <section class="card p-6 sm:p-8 mb-6">
   <% text_total = text_buckets.sum { |b| b[:bytes] } %>
@@ -8,12 +11,17 @@
   <div class="flex flex-col sm:flex-row sm:items-baseline sm:gap-4 mb-2">
     <h2 class="text-heading font-bold text-xl">What's inside .text</h2>
     <span class="text-[11px] font-mono text-muted uppercase tracking-wider">
-      code: <%= number_with_delimiter(text_total) %> bytes
+      <%= attributed_on %> code: <%= number_with_delimiter(text_total) %> bytes
     </span>
   </div>
-  <p class="text-secondary text-sm mb-5 max-w-3xl">
+  <p class="text-secondary text-sm mb-2 max-w-3xl">
     .text is the BPF bytecode that actually runs on chain. Most of it is Anchor's
     auto-generated account-validation code, not the business logic itself.
+  </p>
+  <p class="text-muted text-[13px] mb-5 max-w-3xl" data-test="contract-attributed-on" data-version="<%= attributed_on %>">
+    These buckets were attributed on the turf-vault <%= attributed_on %> build, whose .text was
+    <%= number_with_delimiter(text_total) %> bytes. The deployed v<%= measured[:version] %> .text is
+    <%= number_with_delimiter(deployed_text_bytes) %> bytes and has not been re-attributed yet.
   </p>
 
   <div class="space-y-3">

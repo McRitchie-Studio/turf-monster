@@ -1,9 +1,10 @@
 <%#
   Public, user-facing instructions only. The 5 things users
   themselves can trigger by signing a transaction. Operators
-  see the full 18-instruction list in section_admin_playbook.
+  see the audited instruction list in section_admin_playbook.
 
-    locals: user_instructions (Array of hashes)
+    locals: user_instructions (Array of hashes), attributed_on (the build
+            the per-instruction bytes were measured on), measured
 %>
 <section class="card p-6 sm:p-8 mb-6">
   <div class="flex flex-col sm:flex-row sm:items-baseline sm:gap-4 mb-2">
@@ -15,6 +16,10 @@
   <p class="text-secondary text-sm mb-5 max-w-3xl">
     These are the instructions you (the contestant) sign directly. Your wallet's signature
     is the only thing that authorizes them &mdash; no operator can call them on your behalf.
+  </p>
+  <p class="text-muted text-[13px] -mt-3 mb-5 max-w-3xl" data-test="contract-attributed-on" data-version="<%= attributed_on %>">
+    Byte counts per instruction were measured on the turf-vault <%= attributed_on %> build
+    and have not been re-measured for the deployed v<%= measured[:version] %>.
   </p>
 
   <% max_bytes = user_instructions.map { |ix| ix[:bytes] }.max %>
