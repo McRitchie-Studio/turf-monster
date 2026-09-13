@@ -8,6 +8,12 @@
 // (which also kills pull-to-refresh) — and before this fix nothing was left
 // watching, so the user was stuck until they closed the tab.
 //
+// AND A THIRD LEG SHARES THE HARNESS (/tasks/stranded-handoff-buries-card): the
+// hop that NEVER happens. Nothing takes the universal link — no wallet app
+// installed, or the user dismisses the OS prompt — so this document stays alive
+// and VISIBLE, and the runner's grace window is what notices. It reaches the
+// same buried card the way back does, so it belongs beside these two.
+//
 // THE TWO WAYS BACK ARE DIFFERENT MECHANISMS, and each test drives one:
 //
 //   1. THE PAGE WAS LEFT AND RESTORED. The browser navigated to the wallet's
@@ -247,7 +253,7 @@ test("a celebration stacked over the handoff leaves no frozen card underneath", 
   test.setTimeout(60_000);
   // THE COMPOSED RETURN (review of PR 697). Two cards, one way back, and the
   // one that matters is the one the user cannot see.
-  const wallet = await installStubWallet(context, { answer: () => ({ appSwitch: true }) });
+  const wallet = await installStubWallet(context, { answer: () => ({ stayPut: true }) });
   // Prepare is held open long enough for the level-up beat — dispatch plus its
   // own 900ms delay — to land its card while this flow is still preparing.
   const seen = await stubPrepare(context, { delayMs: 4_000 });
@@ -325,6 +331,102 @@ test("a celebration stacked over the handoff leaves no frozen card underneath", 
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.locator("body")).not.toHaveClass(/modal-open/);
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).overflowY)).not.toBe("hidden");
+  await scrollsUnderAWheel(page);
+
+  expect(await boardSubmitting(page)).toBe(false);
+  expect(seen.confirmed).toBe(false);
+});
+
+// A CARD IN ONE OF THE STORE'S OWN ENTRIES, read off the stack rather than off
+// the screen: the buried one is not visible, and "which card, in what state" is
+// what both tests below are actually about.
+const cardState = (page, id) =>
+  page.evaluate((wanted) => {
+    const entry = Alpine.store("modals").stack.find((e) => e.id === wanted);
+    return entry ? [entry.id, entry.props.state, entry.props.dismissible] : null;
+  }, id);
+
+test("a hop that never happens is answered on the card a celebration buried", async ({ page, context }) => {
+  // Longer than the file default: the celebration beat costs a dispatch plus its
+  // own 900ms, and the grace window is 2500ms after prepare resolves.
+  test.setTimeout(60_000);
+  // THE STRANDED LEG, COMPOSED (/tasks/stranded-handoff-buries-card). Same
+  // stack as the test above, different ending: nobody takes the link, so this
+  // page is still here — visible — when the grace window fires. The card that
+  // has to answer is the one under the celebration.
+  const wallet = await installStubWallet(context, { answer: () => ({ stayPut: true }) });
+  const seen = await stubPrepare(context, { delayMs: 4_000 });
+
+  await openBoard(page);
+  await startEntry(page);
+  await expect.poll(() => modalIds(page)).toEqual(["onchain-tx"]);
+
+  // The app's own level-up beat lands its card on top of one that forbids
+  // dismissal, rather than swapping it away.
+  await page.evaluate(() =>
+    window.dispatchEvent(new CustomEvent("navbar-seeds-update", { detail: { levelUp: true, newLevel: 2 } }))
+  );
+  await expect.poll(() => modalIds(page), { timeout: 10_000 }).toEqual(["onchain-tx", "free-entry-earned"]);
+
+  // The link is handed over and NOTHING takes it: the navigation never commits,
+  // this document stays, and — unlike the app-switch test — it stays VISIBLE.
+  await expect.poll(() => wallet.methods(), { timeout: 15_000 }).toEqual(["connect"]);
+  expect(wallet.violations).toEqual([]);
+  expect(new URL(page.url()).pathname, "the document must not have been replaced").toBe(BOARD_CONTEST);
+  expect(await page.evaluate(() => document.visibilityState),
+    "nothing switched away here — that is the other test").toBe("visible");
+
+  // 1. THE BURIED CARD ANSWERS, on the grace window. Read off the stack,
+  //    because nothing about it is on screen: it is still the first entry, it
+  //    is no longer processing, and it is now something the user can close.
+  await expect
+    .poll(() => cardState(page, "onchain-tx"), { timeout: 15_000 })
+    .toEqual(["onchain-tx", "error", true]);
+  await expect.poll(() => modalIds(page)).toEqual(["onchain-tx", "free-entry-earned"]);
+  expect(await boardSubmitting(page)).toBe(false);
+
+  // 2. THE USER CLOSES THE CELEBRATION and meets that answer instead of a
+  //    frozen spinner. This is the acceptance the old leg failed: it said
+  //    nothing at all, and what surfaced here was a non-dismissible card.
+  await page.evaluate(() => Alpine.store("modals").close());
+  await expect.poll(() => modalIds(page)).toEqual(["onchain-tx"]);
+  await expect(page.getByRole("dialog")).toHaveCount(1);
+  await expect(page.getByRole("dialog")).toContainText("Wallet Did Not Open");
+
+  // 3. AND THEY CAN LEAVE, through the card's own button — no store call, the
+  //    control a thumb can reach.
+  await page.getByRole("dialog").getByRole("button", { name: "Close" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator("body")).not.toHaveClass(/modal-open/);
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).overflowY)).not.toBe("hidden");
+  await scrollsUnderAWheel(page);
+
+  expect(seen.confirmed).toBe(false);
+});
+
+test("a hop that never happens still says so on the card in front of the user", async ({ page, context }) => {
+  // THE VISIBLE CASE, WHICH MUST NOT GO QUIET. Reaching the buried card is only
+  // half the acceptance: this is the case "Wallet Did Not Open" was written for,
+  // and a fix that bought the buried one by dropping this sentence would be a
+  // worse bug than the one it closed. Same leg, no celebration.
+  const wallet = await installStubWallet(context, { answer: () => ({ stayPut: true }) });
+  const seen = await stubPrepare(context);
+
+  await openBoard(page);
+  await startEntry(page);
+  await expect.poll(() => wallet.methods(), { timeout: 15_000 }).toEqual(["connect"]);
+  expect(wallet.violations).toEqual([]);
+
+  await expect
+    .poll(() => cardState(page, "onchain-tx"), { timeout: 15_000 })
+    .toEqual(["onchain-tx", "error", true]);
+  await expect(page.getByRole("dialog")).toHaveCount(1);
+  await expect(page.getByRole("dialog")).toContainText("Wallet Did Not Open");
+  await expect(page.getByRole("dialog")).toContainText("Make sure it is installed on this device");
+
+  await page.getByRole("dialog").getByRole("button", { name: "Close" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator("body")).not.toHaveClass(/modal-open/);
   await scrollsUnderAWheel(page);
 
   expect(await boardSubmitting(page)).toBe(false);

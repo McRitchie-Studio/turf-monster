@@ -491,6 +491,19 @@ live. `e2e/wallet_handoff_bfcache_return.spec.js` drives a real Chromium bfcache
 restore; its header names the three switches that make one possible in this
 lane.
 
+**AND THE STRANDED LEG READS THE SAME STACK** (`/tasks/stranded-handoff-buries-card`).
+The hop that never happens has the same blind spot the way back had: it used to
+guard on `.visible` and paint through `error()`, both of which write through the
+CURRENT card, so a celebration on top made it say nothing and leave a
+non-dismissible processing card underneath. It now goes through the store's
+`strand(message, title)`, which finds the live transaction card anywhere on the
+stack and — unlike `retire()` — MARKS it rather than dropping it: state `error`,
+the "Wallet Did Not Open" remedy, and `dismissible` true, so whatever the user
+meets when the card above closes is something they can leave. A card the user is
+already looking at reads exactly as it did before. `strand()` is a new method
+rather than a widened `error()` because `error()` has 14 call sites in this app
+and every one of them means "the card in front of the user".
+
 **THE INLINE PATH IS NO LONGER A SECOND IMPLEMENTATION.** solana-studio 0.9.2
 (PR #41) closed the three gaps that forced one: the inline path now takes the
 same base58 wire bytes and converts them through the provider's own
