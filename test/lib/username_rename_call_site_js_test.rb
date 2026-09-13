@@ -18,6 +18,14 @@ require "json"
 # caller ledger left set after the attempt. Each of those reads fine.
 class UsernameRenameCallSiteJsTest < ActiveSupport::TestCase
   FACTORIES = Rails.root.join("app/views/shared/_alpine_factories.html.erb")
+  # The handoff watch is the runner's (window.tmWatchHandoff), shared with every
+  # contest flow, so the runner is loaded into the same world as the call site.
+  RUNNER = Rails.root.join("app/views/shared/_wallet_op_runner.html.erb")
+
+  def runner_source
+    src = File.read(RUNNER)
+    src[(src.index("<script>") + "<script>".length)...src.rindex("</script>")]
+  end
 
   def call_site_source
     src = File.read(FACTORIES)
@@ -31,7 +39,10 @@ class UsernameRenameCallSiteJsTest < ActiveSupport::TestCase
   # `transport:` 'inline' | 'redirect'. `hop:` whether the wallet app actually
   # took the universal link (only meaningful on the redirect transport).
   # `run_error:` a JS expression thrown out of walletOps.run instead of resolving.
-  def run_js(transport: "inline", hop: true, run_error: nil, provider: nil)
+  # `returns:` how the user comes back after a hop that took — nil (they never
+  # do), "pageshow" (a bfcache restore) or "visible" (an app switch that never
+  # unloaded the page).
+  def run_js(transport: "inline", hop: true, run_error: nil, provider: nil, returns: nil)
     provider_js = provider || "{ transport: '#{transport}' }"
 
     run_body =
@@ -49,17 +60,23 @@ class UsernameRenameCallSiteJsTest < ActiveSupport::TestCase
       var calls = [];
       var hidden = #{hop ? 'true' : 'false'};
       var listeners = {};
+      var docListeners = {};
       global.document = {
         body: { dataset: { walletAddress: 'LINKED_ADDR', solanaCluster: 'devnet' } },
         get hidden() { return hidden; },
         // The csrf meta tag this document ships. The call site reads it to seed
         // ctx.csrfToken for the callback document, which may be served without
         // one of its own — see renameCsrfToken in shared/_username_rename_intent.
-        querySelector: function (sel) { return sel.indexOf('csrf') !== -1 ? { content: 'PAGE_CSRF' } : null; }
+        querySelector: function (sel) { return sel.indexOf('csrf') !== -1 ? { content: 'PAGE_CSRF' } : null; },
+        addEventListener: function (name, fn) { docListeners[name] = fn; },
+        removeEventListener: function (name, fn) { if (docListeners[name] === fn) delete docListeners[name]; }
       };
       window.location = { origin: 'https://turf.test' };
       window.addEventListener = function (name, fn, o) { listeners[name] = fn; calls.push(['listen', name]); };
-      window.removeEventListener = function (name, fn) { calls.push(['unlisten', name]); };
+      window.removeEventListener = function (name, fn) {
+        if (listeners[name] === fn) delete listeners[name];
+        calls.push(['unlisten', name]);
+      };
       window.walletProvider = { requireProvider: function () { calls.push(['requireProvider']); return #{provider_js}; } };
       window.tmUsernameRenameFinalizeUrl = '/account/confirm_username';
       window.SolanaStudio = { walletOps: { run: function (name, ctx, opts) {
@@ -74,18 +91,35 @@ class UsernameRenameCallSiteJsTest < ActiveSupport::TestCase
         #{run_body}
       } } };
 
+      #{runner_source}
+
       #{call_site_source}
 
       var RESULT;
       (async function () {
         var settled = false;
+        // Past the runner's 2500ms grace window, so a hop that never took has
+        // time to say so before this reads the attempt as pending.
         var timer = setTimeout(function () {
           if (settled) return;
           // NEVER RESOLVING IS THE CORRECT BEHAVIOUR on a successful redirect
           // hop; this is how the test observes it without hanging.
           process.stdout.write(JSON.stringify({ ok: null, pending: true, calls: calls }));
           process.exit(0);
-        }, 3000);
+        }, 4000);
+        // THE WAY BACK, well after run() has resolved and the watch has started,
+        // and well inside the grace window, as a quick abandon would be.
+        var returns = #{returns.to_json};
+        setTimeout(function () {
+          if (returns === 'pageshow') {
+            hidden = false;
+            if (listeners['pageshow']) listeners['pageshow']({ persisted: true });
+          }
+          if (returns === 'visible') {
+            hidden = false;
+            if (docListeners['visibilitychange']) docListeners['visibilitychange']({});
+          }
+        }, 100);
         try { RESULT = { ok: true, value: await window.tmUsernameFinalize('AQID', { token: 'TOK', onProgress: function (l) { calls.push(['progress', l]); } }) }; }
         catch (e) { RESULT = { ok: false, message: e.message }; }
         settled = true;
@@ -229,6 +263,36 @@ class UsernameRenameCallSiteJsTest < ActiveSupport::TestCase
     assert_match(/inside your wallet app's own browser/i, result["message"])
     assert_includes result["calls"].map(&:first), "unlisten",
                     "the pagehide listener must be removed once it has answered"
+  end
+
+  # --- the way back (/tasks/frozen-wallet-overlay-traps-user) ---------------
+  #
+  # THE SAME DOOR THE CONTEST BOARDS HAD, on the rename. A hop that took used to
+  # leave this hook pending forever, so a user who came back from the wallet
+  # without approving found the leveling modal still saving, its label still
+  # "Opening your wallet app…", and Save disabled — and the caller ledger was
+  # never cleared, because the finally below the await never ran. Coming back is
+  # now a failure the engine can show, which re-enables Save and releases the
+  # ledger.
+
+  test "coming back from the bfcache without an answer rejects with a way to retry" do
+    result = run_js(transport: "redirect", hop: true, returns: "pageshow")
+
+    refute_nil result["ok"], "the hook must not stay pending once the user is back on this page"
+    refute result["ok"], "a return without an answer is not a saved rename"
+    assert_match(/no answer came back from your wallet/i, result["message"])
+    assert_match(/try again/i, result["message"])
+    assert_equal "null", result["ledgerAfter"],
+                 "a ledger surviving the abandoned attempt would silence the NEXT rename's finalize"
+  end
+
+  test "coming back from an app switch that never unloaded the page rejects too" do
+    result = run_js(transport: "redirect", hop: true, returns: "visible")
+
+    refute_nil result["ok"]
+    refute result["ok"]
+    assert_match(/no answer came back from your wallet/i, result["message"])
+    assert_equal "null", result["ledgerAfter"]
   end
 
   test "the redirect transport says a wallet app is opening, not that a wallet is signing" do
