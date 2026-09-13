@@ -29,10 +29,11 @@ evidence, and what would re-open the question, are in
 > code is. Code in a GEM is named by file and symbol instead, written
 > `solana-studio: path#symbol`, and checked against the gem the lock resolves: a
 > gem line number would rot on an unrelated `bundle update`.
-> **Two blind spots, inherited knowingly.** A citation inside a markdown TABLE
-> anchors on the WHOLE table, so a symbol named in any row can satisfy it
-> (`/tasks/table-row-anchors-siblings`); every row here names its own symbol
-> anyway. And no check here can tell that a sentence describes the wrong thing.
+> **One blind spot left.** A citation inside a markdown TABLE used to anchor on
+> the WHOLE table, so a symbol named in any row could satisfy it; a row now
+> anchors only on itself (`/tasks/citation-anchors-across-table-rows`), which is
+> why every row here names its own symbol. What no check can tell is that a
+> sentence describes the wrong thing.
 > §7 went stale twice with nothing reading it, and a coordinate check would have
 > missed both times; its version claim has a test of its own, described there.
 
