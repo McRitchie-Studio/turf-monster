@@ -112,6 +112,11 @@
         because the intents below use its fetch helper. It defines functions and
         runs nothing at load. %>
     <%= render "shared/wallet_op_runner" %>
+    <%# The relay the redirect transport's return leg paints THROUGH. Before the
+        intents, because each of them registers its painter with this by name at
+        parse time. It defines a store and schedules one drain; on a document
+        with nothing waiting every part of it is a no-op. %>
+    <%= render "shared/celebration_relay" %>
     <%= render "shared/contest_entry_intent" %>
     <%# The other two intents, here for the same reason and rendered the same
         way. All three are idempotent and all three no-op on a page without

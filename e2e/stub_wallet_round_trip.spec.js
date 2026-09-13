@@ -47,6 +47,12 @@ const BOARD_CONTEST = "/contests/world-cup-2026";
 // the base64 -> base58 -> wallet -> base58 -> base64 loop the flow really runs.
 const SERIALIZED_TX_B64 = "AQIDBAU=";
 
+// The signature the SERVER answers with after it cosigns. Named, because the
+// celebration test below asserts this exact string reaches the card the user
+// sees — a card carrying any other signature is a card built from something
+// other than this trip's confirmation.
+const CONFIRMED_SIGNATURE = "CosignedByTheServer1111111111111111111111111";
+
 // Stub ONLY the two server hops. Everything between them — the deeplink, the
 // crypto, the journal, the page death, the callback route, the intent lookup —
 // is the real thing.
@@ -74,8 +80,18 @@ async function stubServerHops(context, seen) {
       contentType: "application/json",
       body: JSON.stringify({
         success: true,
-        tx_signature: "CosignedByTheServer1111111111111111111111111",
+        tx_signature: CONFIRMED_SIGNATURE,
         redirect: "/contests",
+        // THE CELEBRATION PAYLOAD, which the real confirm_onchain_entry has
+        // always rendered (post_entry_seeds_payload + token_consumed) and this
+        // stub used to omit. Its absence is why the round trip below could pass
+        // while a user watched the redirect transport paint nothing: with no
+        // seeds and no consumed token there was nothing for the return leg to
+        // get WRONG.
+        token_consumed: true,
+        seeds_earned: 10,
+        seeds_total: 40,
+        seeds_level: 1,
       }),
     });
   });
@@ -215,6 +231,97 @@ test.describe("a stub wallet on the redirect transport", () => {
     expect(seen.prepare.currency).toBe("usdc");
     expect(seen.confirm.ptx_slug).toBe("ptx-stub-1");
     expect(seen.confirm.entry_id).toBe(4242);
+  });
+
+  test("paints the entry-confirmed card on the page it lands on @smoke", async ({ page, context }) => {
+    // THE DEFECT THIS PINS, and the reason it needs its own test rather than one
+    // more assertion on the round trip above: that test proves the entry was
+    // RECORDED, and recording is exactly what was working. Mr. McRitchie joined a
+    // contest from QA iPhone Safari on 2026-09-09, the entry landed on chain
+    // (entry 176, confirmed 05:09:06 UTC), and his screen showed him nothing.
+    // "Join a contest worked great but didn't respond with the congrats on join
+    // contest."
+    //
+    // WHY EVERY OTHER TIER MISSES IT. The three acts of the return leg ran in the
+    // contest board's component, and on this transport that component's document
+    // is DEAD by the time the server answers — complete() finishes on
+    // studio-engine's callback page and the next thing it does is navigate away.
+    // A node tier can drive the handlers and see a correct payload returned; only
+    // a browser that actually makes the hop can see that nobody painted it.
+    //
+    // ASSERTED AS THE ONE RIGHT ANSWER: the card is present and it carries THIS
+    // trip's signature. Not "no error was shown" — a blank page shows no error
+    // either, which is precisely what the user got.
+    const wallet = await installStubWallet(context);
+    const seen = {};
+    await stubServerHops(context, seen);
+
+    await page.goto("/");
+    await startEntryTrip(page);
+
+    await page.waitForURL((url) => url.pathname === "/contests", { timeout: 25_000 });
+
+    // The engine's success card renders the signature into an explorer link, so
+    // the href is the card's own statement of WHICH transaction it is
+    // celebrating. A card built from a stale relay slot, or from a default,
+    // cannot carry this string.
+    await expect(
+      page.locator(`a[href*="explorer.solana.com/tx/${CONFIRMED_SIGNATURE}"]`),
+      "the redirect transport landed with no entry-confirmed card — the entry was recorded " +
+        "on chain and the user was shown nothing"
+    ).toBeVisible({ timeout: 15_000 });
+
+    // The celebration is three acts and the card is only one of them. The seeds
+    // fanout writes the navbar's cached figure, so this is the observable proof
+    // that the OTHER state crossed the page death rather than being left stale —
+    // the half of the defect a user cannot see until their next page load.
+    const seedsNavbar = await page.evaluate(() => {
+      try { return JSON.parse(window.localStorage.getItem("seedsNavbar") || "null"); }
+      catch (e) { return null; }
+    });
+    expect(
+      seedsNavbar,
+      "the seeds fanout never ran on the landing page, so the navbar keeps its pre-entry figures"
+    ).toMatchObject({ seeds_total: 40, level: 1 });
+
+    // …and the entry really was confirmed, so a green card is not being reported
+    // over a trip that failed.
+    expect(seen.confirm.ptx_slug).toBe("ptx-stub-1");
+  });
+
+  test("does not celebrate the same entry twice", async ({ page, context }) => {
+    // THE SINGLE-USE PROPERTY, from the browser's side. The relay slot is
+    // localStorage, which survives everything — so a slot that is not consumed
+    // by the read that paints it throws the same party on every page load for
+    // the length of its expiry. Reloading the landing page is how a user finds
+    // that out.
+    const wallet = await installStubWallet(context);
+    const seen = {};
+    await stubServerHops(context, seen);
+
+    await page.goto("/");
+    await startEntryTrip(page);
+    await page.waitForURL((url) => url.pathname === "/contests", { timeout: 25_000 });
+    await expect(
+      page.locator(`a[href*="explorer.solana.com/tx/${CONFIRMED_SIGNATURE}"]`)
+    ).toBeVisible({ timeout: 15_000 });
+
+    // A deliberate reload of the page the celebration was just painted on.
+    await page.goto("/contests");
+
+    // THE RIGHT ANSWER ON THE SECOND VISIT is an empty slot: the payload was
+    // spent by the read that painted it. Asserted on the STORE rather than on
+    // the absent card, because "no card yet" is also true of a card that is
+    // merely slow — and this assertion has to distinguish those two.
+    const pending = await page.evaluate(() => {
+      try { return window.localStorage.getItem(window.tmCelebrationRelay.KEY); }
+      catch (e) { return "unreadable"; }
+    });
+    expect(
+      pending,
+      "the celebration slot survived the read that painted it, so every page load for the " +
+        "next ten minutes congratulates the user again"
+    ).toBeNull();
   });
 
   test("hands every hop a redirect_link Phantom would accept", async ({ page, context }) => {

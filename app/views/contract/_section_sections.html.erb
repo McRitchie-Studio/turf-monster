@@ -1,15 +1,20 @@
 <%#
   ELF section breakdown — stacked bar + legend.
-    locals: sections (Array of { name:, bytes:, color:, desc: }), binary_size
+    locals: sections (Array of { name:, bytes:, color:, desc: }) — these SUM to
+            deployed_file_bytes, the zero padding after the ELF included, because
+            rent is charged on the file, not on the ELF content inside it;
+            deployed_file_bytes; programdata_space (the account the rent is charged on)
 %>
 <section class="card p-6 sm:p-8 mb-6">
   <div class="flex flex-col sm:flex-row sm:items-baseline sm:gap-4 mb-2">
-    <h2 class="text-heading font-bold text-xl">Where the <%= (binary_size / 1024.0).round %> KB goes</h2>
+    <h2 class="text-heading font-bold text-xl">Where the <%= (deployed_file_bytes / 1024.0).round %> KB goes</h2>
     <span class="text-[11px] font-mono text-muted uppercase tracking-wider">ELF section headers</span>
   </div>
   <p class="text-secondary text-sm mb-5 max-w-3xl">
     Solana charges rent on every byte in the ProgramData account, regardless of what's in it.
     The ELF section layout decides what those bytes <em>are</em>.
+    The account holds <%= number_with_delimiter(programdata_space) %> bytes: a 45-byte loader header
+    in front of the <%= number_with_delimiter(deployed_file_bytes) %>-byte file broken down below.
   </p>
 
   <%# Stacked bar (desktop) — full-width split by byte percentage %>
