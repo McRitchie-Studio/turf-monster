@@ -17,9 +17,15 @@ require "rake"
 # `bin/deploy`'s pre-flight on the operator's machine.
 class OpsecSigningKeyIsolationTaskTest < ActiveSupport::TestCase
   # Obviously fake. A real credential never appears in a test or its output.
-  SENTINEL_PROD = "SENTINEL-NOT-A-REAL-KEY-PRODUCTION-0000"
-  SENTINEL_QA   = "SENTINEL-NOT-A-REAL-KEY-QA-1111"
-  SENTINEL_BYSTANDER = "SENTINEL-NOT-A-REAL-KEY-RAILS-MASTER-2222"
+  # DERIVABLE BASE58, forced by /tasks/qa-shares-production-signing-key: the guard now
+  # compares the SIGNER a value derives, so a string that derives nothing is :underivable
+  # and proves no isolation. 64 arbitrary bytes each — the shape of a Solana secret key,
+  # cryptographically worthless, every byte visible here.
+  def self.sentinel(seed) = Solana::Keypair.encode_base58(Array.new(64) { |i| (seed + i) % 251 }.pack("C*"))
+
+  SENTINEL_PROD = sentinel(3)
+  SENTINEL_QA   = sentinel(101)
+  SENTINEL_BYSTANDER = sentinel(197)
 
   TASK = "opsec:signing_key_isolation"
 

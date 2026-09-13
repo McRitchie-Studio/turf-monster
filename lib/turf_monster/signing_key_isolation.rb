@@ -51,9 +51,25 @@ module TurfMonster
   # `bin/deploy`'s existing fail-closed contract (a missing EXPECTED_IDL_HASH
   # aborts too), and `--skip-checks` remains the documented escape.
   #
-  # NOTHING HERE EVER HOLDS THE SECRET. Reading digests the value in its
-  # constructor and discards the plaintext, so no accessor, `inspect`, report
-  # line, or backtrace can publish it. Comparison is on the digests.
+  # IT COMPARES WHAT THE APP DERIVES, NOT THE STRING IT READ. solana-studio's
+  # `Keypair.from_bytes` does `private_key = bytes[0, 32]` and signs with THAT;
+  # `from_base58` decodes then calls it, and app/services/solana/keypair.rb reaches the
+  # same path through `Keypair.admin`. Nothing checks the length. So two DIFFERENT base58
+  # strings sharing their first 32 bytes derive ONE signer — and hashing the raw string
+  # called that pair ISOLATED and PASSED, on precisely the property this guard exists to
+  # prove. The digest is therefore taken over the PUBLIC KEY the value resolves to.
+  #
+  # NO LENGTH CHECK, DELIBERATELY. A length assertion answers a different question ("is
+  # this well-formed?") and would not close this hole: a 64-byte value and a 72-byte one
+  # can still derive the same signer, and both pass any length rule wide enough to admit
+  # the real key. Derivation IS the check — a value that cannot produce a signer is
+  # :underivable and refuses, and one that can is compared on what it produces. Rejecting
+  # malformed keys belongs where the key is SET (the rotation SOP), not in a comparator
+  # whose only question is whether two environments sign as the same identity.
+  #
+  # NOTHING HERE EVER HOLDS THE SECRET. Reading derives, digests, and discards in its
+  # constructor, so no accessor, `inspect`, report line, or backtrace can publish either
+  # the secret or the plaintext public key. Comparison is on the digests.
   class SigningKeyIsolation
     VARIABLE = "SOLANA_ADMIN_KEY"
     PRODUCTION_APP = "turf-monster-mainnet"
@@ -72,20 +88,34 @@ module TurfMonster
     #   :unreadable — the read itself failed (not logged in, no such app,
     #                 network error, non-JSON response)
     class Reading
-      READABLE_STATES = %i[present empty missing].freeze
+      # :underivable is READABLE — the config read SUCCEEDED and handed us a value; the
+      # value is simply not a key. That is a different fact from "we could not look", and
+      # the report says so. It is still never `present?`, so it refuses.
+      READABLE_STATES = %i[present empty missing underivable].freeze
+
+      # What the app derives. Resolved at CALL time, not load time, so this library still
+      # loads in a context that has no Solana constant.
+      DERIVE_SIGNER = ->(base58) { Solana::Keypair.from_base58(base58).public_key_bytes }
 
       attr_reader :app, :state, :digest, :length, :reason
 
       class << self
         # @param present [Boolean] whether the app's config carries the key AT ALL
         # @param raw [String, nil] the value, used only to derive digest + length
-        def for(app:, present:, raw: nil)
+        def for(app:, present:, raw: nil, derive: DERIVE_SIGNER)
           return new(app: app, state: :missing) unless present
 
           normalized = raw.to_s.strip
           return new(app: app, state: :empty) if normalized.empty?
 
-          new(app: app, state: :present, normalized: normalized)
+          begin
+            signer = derive.call(normalized)
+          rescue StandardError => e
+            # The CLASS only, never the message: a decoder can quote the value it choked on.
+            return new(app: app, state: :underivable, reason: e.class.name, length: normalized.length)
+          end
+
+          new(app: app, state: :present, signer: signer, length: normalized.length)
         end
 
         def unreadable(app:, reason:)
@@ -93,16 +123,14 @@ module TurfMonster
         end
       end
 
-      def initialize(app:, state:, normalized: nil, reason: nil)
+      def initialize(app:, state:, signer: nil, length: nil, reason: nil)
         @app = app.to_s
         @state = state
         @reason = reason
-        # Digest here and keep nothing else. `normalized` is a local that goes
-        # out of scope with the constructor; it is never assigned to an ivar.
-        if normalized
-          @digest = Digest::SHA256.hexdigest(normalized)
-          @length = normalized.length
-        end
+        @length = length
+        # Digest here and keep nothing else. `signer` is the DERIVED public key and goes
+        # out of scope with the constructor; neither it nor the secret is ever an ivar.
+        @digest = Digest::SHA256.hexdigest(signer) if signer
         freeze
       end
 
@@ -119,9 +147,10 @@ module TurfMonster
       # What the operator is shown. Never the value.
       def describe
         case state
-        when :present    then "len=#{length} sha256[0,#{DIGEST_PREFIX_LENGTH}]=#{digest_prefix}"
+        when :present    then "len=#{length} signer-sha256[0,#{DIGEST_PREFIX_LENGTH}]=#{digest_prefix}"
         when :empty      then "key present, value EMPTY"
         when :missing    then "key ABSENT from this app's config"
+        when :underivable then "len=#{length} value did not derive a signer (#{reason})"
         when :unreadable then "UNREADABLE — #{reason}"
         end
       end

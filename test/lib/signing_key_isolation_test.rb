@@ -17,12 +17,20 @@ class SigningKeyIsolationTest < ActiveSupport::TestCase
   Reading = TurfMonster::SigningKeyIsolation::Reading
 
   # Obviously fake. A real credential never appears in a test or its output.
-  SENTINEL_PROD = "SENTINEL-NOT-A-REAL-KEY-PRODUCTION-0000"
-  SENTINEL_QA   = "SENTINEL-NOT-A-REAL-KEY-QA-1111"
+  #
+  # THEY ARE NOW DERIVABLE BASE58, and that is forced by the fix
+  # (/tasks/qa-shares-production-signing-key): the guard compares the SIGNER a value
+  # derives, so a string that derives no signer is :underivable and proves nothing. These
+  # are 64 arbitrary bytes each — structurally a Solana secret key, cryptographically
+  # worthless, and every byte visible right here.
+  def self.sentinel(seed) = Solana::Keypair.encode_base58(Array.new(64) { |i| (seed + i) % 251 }.pack("C*"))
+
+  SENTINEL_PROD = sentinel(3)
+  SENTINEL_QA   = sentinel(101)
 
   # Another app's secret, riding in the same config payload. Nothing this code
   # prints may ever contain it.
-  SENTINEL_BYSTANDER = "SENTINEL-NOT-A-REAL-KEY-RAILS-MASTER-2222"
+  SENTINEL_BYSTANDER = sentinel(197)
 
   def present(app, raw)  = Reading.for(app: app, present: true, raw: raw)
   def missing(app)       = Reading.for(app: app, present: false)
@@ -177,7 +185,7 @@ class SigningKeyIsolationTest < ActiveSupport::TestCase
     assert_equal 12, reading.digest_prefix.length
     assert_match(/\A[0-9a-f]{12}\z/, reading.digest_prefix)
     assert_equal SENTINEL_PROD.length, reading.length
-    assert_equal "len=#{SENTINEL_PROD.length} sha256[0,12]=#{reading.digest_prefix}", reading.describe
+    assert_equal "len=#{SENTINEL_PROD.length} signer-sha256[0,12]=#{reading.digest_prefix}", reading.describe
   end
 
   test "equal values digest equal and unequal values digest unequal" do
@@ -268,4 +276,61 @@ class SigningKeyIsolationTest < ActiveSupport::TestCase
     assert_equal "turf-monster-mainnet", g.production.app
     assert_equal "turf-monster-qa", g.qa.app
   end
+  # ── THE FIRST 32 BYTES ARE THE SIGNER (/tasks/qa-shares-production-signing-key) ──
+  #
+  # solana-studio's `Keypair.from_bytes` does `private_key = bytes[0, 32]` and hands THAT
+  # to Ed25519::SigningKey; `from_base58` decodes then calls it, and turf's
+  # app/services/solana/keypair.rb reaches the same path via `Keypair.admin`. Nothing
+  # checks the length. So two DIFFERENT base58 strings that share their first 32 bytes
+  # derive the SAME signer — and a guard that hashed the raw STRING called them isolated
+  # and PASSED, on exactly the property it exists to prove.
+  SHARED_HEAD = (1..32).to_a.freeze
+
+  def sharing_head(tail) = Solana::Keypair.encode_base58((SHARED_HEAD + Array.new(32, tail)).pack("C*"))
+
+  test "values that derive the SAME signer are SHARED however much the strings differ" do
+    prod = sharing_head(7)
+    qa   = sharing_head(9)
+    refute_equal prod, qa, "precondition: the two config values must differ as strings"
+    assert_equal Solana::Keypair.from_base58(prod).public_key_bytes,
+                 Solana::Keypair.from_base58(qa).public_key_bytes,
+                 "precondition: sharing the first 32 bytes must derive one signer"
+
+    guard = Guard.new(production: present("turf-monster-mainnet", prod), qa: present("turf-monster-qa", qa))
+
+    assert_equal :shared, guard.verdict,
+                 "the app signs with bytes[0,32]; these two config values sign as the SAME key, so " \
+                 "reporting isolation here is a false pass on the guard's whole purpose"
+    refute guard.ok?, "a shared signer must never be the passing verdict"
+  end
+
+  test "values that derive DIFFERENT signers are still isolated" do
+    guard = Guard.new(production: present("turf-monster-mainnet", sharing_head(7)),
+                      qa: present("turf-monster-qa", sentinel_tail_differs))
+
+    assert_equal :isolated, guard.verdict, "a genuinely distinct signer must still pass"
+    assert guard.ok?
+  end
+
+  # A value that derives no signer cannot prove isolation, so it fails CLOSED rather than
+  # raising out of a deploy pre-flight.
+  test "a value that derives no signer is underivable and refuses" do
+    reading = present("turf-monster-qa", "SENTINEL-NOT-BASE58-AT-ALL-!!!")
+
+    assert_equal :underivable, reading.state
+    refute reading.present?
+    assert_nil reading.digest, "nothing derivable means nothing to compare"
+    assert_equal :indeterminate,
+                 Guard.new(production: present("turf-monster-mainnet", SENTINEL_PROD), qa: reading).verdict
+  end
+
+  test "an underivable value names no secret and no library internals" do
+    raw = "SENTINEL-NOT-BASE58-AT-ALL-!!!"
+    reading = present("turf-monster-qa", raw)
+
+    refute_includes reading.describe, raw, "the value must never reach the operator's screen"
+    assert_match(/did not derive a signer/, reading.describe)
+  end
+
+  def sentinel_tail_differs = Solana::Keypair.encode_base58(Array.new(64) { |i| (200 + i) % 251 }.pack("C*"))
 end
