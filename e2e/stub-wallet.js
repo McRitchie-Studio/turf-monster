@@ -183,9 +183,13 @@ function methodFor(url) {
  * @param {string} [opts.session]        the session token connect issues
  * @param {(hop) => object|null} [opts.answer]
  *        Per-hop override. Return `{ errorCode, errorMessage }` to answer as a
- *        rejecting wallet, `{ data: {...} }` to change the sealed body, or null
- *        for the default. Called AFTER the contract check, so a rejection still
- *        proves the request was well formed.
+ *        rejecting wallet, `{ data: {...} }` to change the sealed body,
+ *        `{ abandon: true }` to answer as a wallet the user walked away from,
+ *        `{ stayPut: true }` to answer the way a universal link answers a
+ *        BROWSER — the navigation never commits and the sending page stays
+ *        alive — or null for the default. Called AFTER the contract check, so a
+ *        rejection, an abandon or a stayPut still proves the request was well
+ *        formed.
  * @returns {Promise<object>} the wallet handle
  */
 async function installStubWallet(context, opts = {}) {
@@ -356,6 +360,41 @@ async function installStubWallet(context, opts = {}) {
     }
 
     const override = opts.answer ? opts.answer(hop) : null;
+
+    // THE NAVIGATION NEVER COMMITS, AND THE PAGE STAYS. This is what a
+    // universal link does to the BROWSER, and it covers the two stories that
+    // differ only in what happens next:
+    //
+    //   the OS took the link  — the wallet app has the screen and this document
+    //                           is alive behind it, hidden until the user
+    //                           returns (/tasks/frozen-wallet-overlay-traps-user).
+    //   nothing took the link — no wallet app is installed, or the user
+    //                           dismissed the OS prompt, so this document is
+    //                           alive and VISIBLE, and the grace window is what
+    //                           notices (/tasks/stranded-handoff-buries-card).
+    //
+    // Aborting is the only faithful answer to either: any fulfilled body would
+    // REPLACE this document, which is a different trip entirely.
+    if (override && override.stayPut) {
+      hop.stayPut = true;
+      return route.abort("aborted");
+    }
+
+    // A WALLET THE USER WALKED AWAY FROM. The request arrived and was judged
+    // above; then the user left without approving or rejecting, so NOTHING is
+    // sent back — no redirect, no error. The page sits here the way the wallet
+    // app does, until the user goes back to the page that sent them.
+    // (/tasks/frozen-wallet-overlay-traps-user: that way back is the trap.)
+    if (override && override.abandon) {
+      hop.abandoned = true;
+      return route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: `<!doctype html><title>stub wallet — left unanswered</title>` +
+              `<h1 data-stub-wallet-abandoned="1">${method}: the user left without answering</h1>`,
+      });
+    }
+
     if (override && override.errorCode) {
       // VENDOR — every method's error redirect is errorCode + errorMessage, with
       // no data and no nonce. 4001 is the user rejection.

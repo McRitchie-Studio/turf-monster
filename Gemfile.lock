@@ -510,7 +510,7 @@ DEPENDENCIES
   sprockets-rails
   stimulus-rails
   stripe
-  studio-engine (~> 0.73)
+  studio-engine (~> 0.74, >= 0.74.9)
   tailwindcss-rails (~> 4.5)
   turbo-rails
   tzinfo-data

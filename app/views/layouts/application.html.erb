@@ -1290,6 +1290,84 @@
               if (_onCurrent()) Alpine.store('modals').close();
               if (cb) cb();
             },
+            // retire() — drop the transaction card WHEREVER IT SITS ON THE
+            // STACK, and only while it is still waiting. Answers true if a card
+            // was retired.
+            //
+            // WHY close() CANNOT DO THIS. Every other method here reaches the
+            // CURRENT card through _onCurrent(), and this one can be BURIED: the
+            // level-up celebration opens ON TOP of a non-dismissible card by
+            // design (the free-entry-earned branch above declines to swap one
+            // away), which is precisely the state an abandoned wallet handoff
+            // can leave behind. A caller reading .visible / .state then sees the
+            // celebration, decides there is no processing card, and leaves one
+            // standing underneath — the user meets it again the moment they
+            // close the celebration, with the scroll lock still on and no way
+            // out. Raised in review of PR 697.
+            //
+            // STATE IS THE GUARD, not position: a card that has already resolved
+            // to success or error belongs to its own buttons.
+            retire: function() {
+              var live = _liveTx();
+              if (!live || live.props.state !== 'processing') return false;
+              var modals = Alpine.store('modals');
+              // On top: the ordinary close, unchanged — exit animation, focus
+              // release and the onClose callback all behave as they always have.
+              if (modals.current() === live) { this.close(); return true; }
+              // Buried: splice it out from under whatever took the screen.
+              // splice-then-_sync is the pair the engine's own close() uses
+              // (closeAllDismissible reaches the same place by REASSIGNING a
+              // filtered stack, so it is not the line to copy here). _sync() is
+              // the load-bearing half either way: body.modal-open keeps tracking
+              // the stack that is LEFT — still set while the celebration stands,
+              // cleared when it closes.
+              var idx = modals.stack.indexOf(live);
+              if (idx < 0) return false;
+              modals.stack.splice(idx, 1);
+              modals._sync();
+              // show() nulls both of these when it paints a processing card, so
+              // there is nothing here to fire; clearing them keeps a later close
+              // from running a handler this card's flow left behind.
+              this._recoveryHandler = null;
+              this._onCloseHandler = null;
+              return true;
+            },
+            // strand(message, title) — say why the trip never left ON THE CARD
+            // THAT WAS WAITING, wherever it sits. Answers true if a card took it.
+            //
+            // THE OTHER LEG OF THE SAME LESSON (/tasks/stranded-handoff-buries-
+            // card). retire() above reaches a buried card because the level-up
+            // celebration can open on top of one; the STRANDED leg reads the
+            // same stack and had the same blind spot. It guarded on .visible and
+            // painted through error(), both of which write through _onCurrent —
+            // so when the wallet app never opened and a celebration happened to
+            // be on top, nothing was said, the buried card kept state
+            // 'processing' and dismissible:false, and the user met it frozen the
+            // moment they closed the celebration. Found in review of PR 697.
+            //
+            // MARKED, NOT DROPPED, and that is the difference from retire(). A
+            // user who came BACK from the wallet knows why their entry did not
+            // happen; a user whose wallet never opened does not, so the card
+            // keeps its place and answers — dismissible, with the remedy on it.
+            //
+            // A NEW METHOD RATHER THAN RE-POINTING error(). error() has 14 call
+            // sites in this app and each means "the card in front of the user";
+            // widening it would let any of them write onto a transaction card
+            // buried under something else. This is that reach, with one caller.
+            //
+            // STATE IS THE GUARD, as in retire(): a card that already resolved to
+            // success or error keeps its own words, however late this fires.
+            strand: function(message, title) {
+              var live = _liveTx();
+              if (!live || live.props.state !== 'processing') return false;
+              live.props.state = 'error';
+              live.props.errorMessage = message;
+              if (title) live.props.title = title;
+              // The whole point: whatever the user finds when the card above it
+              // closes, they can close too.
+              live.props.dismissible = true;
+              return true;
+            },
             setRecovery: function(label, handler, options) {
               var c = _onCurrent();
               if (!c) return;

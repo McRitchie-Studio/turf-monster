@@ -36,9 +36,25 @@ class WalletOpRunnerJsTest < ActiveSupport::TestCase
       global.location = { origin: 'https://turf.test' };
       global.document = { body: { dataset: { solanaCluster: 'devnet' } }, hidden: #{hidden} };
 
-      var pageHideHandlers = [];
-      global.addEventListener = function (name, cb) { if (name === 'pagehide') pageHideHandlers.push(cb); };
-      global.removeEventListener = function () {};
+      // Every listener, keyed 'target:event'. removeEventListener REALLY removes,
+      // so a test can see whether a watch let go of the page once it answered.
+      var handlers = {};
+      var pageHideHandlers = handlers['window:pagehide'] = [];
+      function listen(target) {
+        return function (name, cb) { (handlers[target + ':' + name] = handlers[target + ':' + name] || []).push(cb); };
+      }
+      function unlisten(target) {
+        return function (name, cb) {
+          var list = handlers[target + ':' + name] || [];
+          var i = list.indexOf(cb);
+          if (i >= 0) list.splice(i, 1);
+        };
+      }
+      global.addEventListener = listen('window');
+      global.removeEventListener = unlisten('window');
+      document.addEventListener = listen('document');
+      document.removeEventListener = unlisten('document');
+      global.listening = function (key) { return (handlers[key] || []).length; };
 
       // The grace window is a real setTimeout in the source. Captured rather than
       // waited on, so the test decides when it fires.
@@ -48,9 +64,41 @@ class WalletOpRunnerJsTest < ActiveSupport::TestCase
       var ran = [];
       window.SolanaStudio = { walletOps: { run: function (name, ctx, opts) { ran.push({ name: name, ctx: ctx, opts: opts }); return (#{run_result}); } } };
 
-      var modal = { cards: [], visible: true };
-      modal.show = function (t, b) { modal.cards.push(['show', t, b]); };
-      modal.error = function (b, t) { modal.cards.push(['error', t, b]); };
+      var modal = { cards: [], visible: true, state: null, retired: 0 };
+      // .visible is CURRENT-ONLY in the real store (get visible(){ return
+      // !!_onCurrent() }), so a buried card reads false here too.
+      Object.defineProperty(modal, 'visible', { get: function () { return !modal.buried && modal._visible; }, set: function (v) { modal._visible = v; }, configurable: true });
+      modal.visible = true;
+      modal.show = function (t, b) { modal.cards.push(['show', t, b]); modal.visible = true; modal.state = 'processing'; };
+      modal.error = function (b, t) { modal.cards.push(['error', t, b]); modal.state = 'error'; };
+      modal.close = function () { modal.cards.push(['close']); modal.visible = false; modal.state = null; };
+      // The store's own retire(), in miniature — it finds the live transaction
+      // card ANYWHERE on the stack and drops it only while it is still
+      // processing. Its real body (and the buried case that forced it) is
+      // driven in test/lib/solana_modal_stack_reach_js_test.rb; what the runner owes
+      // is CALLING it, on the way back and nowhere else.
+      modal.retire = function () {
+        modal.retired += 1;
+        if (modal.state !== 'processing') return false;
+        modal.close();
+        return true;
+      };
+      // The store's strand() in miniature: it marks the live transaction card
+      // WHEREVER IT SITS, so it answers on a buried card too — which is the
+      // whole point (/tasks/stranded-handoff-buries-card). `buried` here stands
+      // for a celebration having taken the screen: the card is no longer
+      // current, so .visible is false, and only a stack-reaching call can find
+      // it. The real body is driven in
+      // test/lib/solana_modal_stack_reach_js_test.rb.
+      modal.buried = false;
+      modal.stranded = [];
+      modal.strand = function (msg, title) {
+        modal.stranded.push([title, msg]);
+        if (modal.state !== 'processing') return false;
+        modal.cards.push([modal.buried ? 'error-buried' : 'error', title, msg]);
+        modal.state = 'error';
+        return true;
+      };
       global.Alpine = { store: function (n) { return n === 'solanaModal' ? modal : null; } };
 
       var provider = { transport: #{transport.to_json}, name: 'stub' };
@@ -61,7 +109,18 @@ class WalletOpRunnerJsTest < ActiveSupport::TestCase
       // The body fires this AFTER the run has armed the watch — arming happens
       // inside tmWalletOp, so a pagehide fired earlier would land on nothing and
       // the test would pass for the wrong reason.
-      global.firePageHide = function () { pageHideHandlers.forEach(function (cb) { cb(); }); };
+      global.firePageHide = function () { pageHideHandlers.slice().forEach(function (cb) { cb(); }); };
+
+      // THE WAY BACK. A bfcache restore is a pageshow with persisted true; an app
+      // switch that never unloaded the page is a visibilitychange. Copied before
+      // iterating, because a handler that answers removes itself.
+      global.firePageShow = function (persisted) {
+        (handlers['window:pageshow'] || []).slice().forEach(function (cb) { cb({ persisted: persisted }); });
+      };
+      global.fireVisibility = function (hiddenNow) {
+        document.hidden = hiddenNow;
+        (handlers['document:visibilitychange'] || []).slice().forEach(function (cb) { cb({}); });
+      };
 
       (async function () {
         var out;
@@ -193,7 +252,7 @@ class WalletOpRunnerJsTest < ActiveSupport::TestCase
       var stranded = 0;
       await window.tmWalletOp('contest_create', {}, { onStranded: function () { stranded += 1; } });
       timers.forEach(function (t) { t.fn(); });
-      return { stranded: stranded, cards: modal.cards, delay: timers[0] && timers[0].ms };
+      return { stranded: stranded, cards: modal.cards, said: modal.stranded, delay: timers[0] && timers[0].ms };
     JS
 
     # run() ends by handing the OS a universal link, and "nothing after this
@@ -203,7 +262,40 @@ class WalletOpRunnerJsTest < ActiveSupport::TestCase
     assert_equal 1, result["stranded"], "the caller must be told, so it can re-enable its own controls"
     assert_equal ["error", "Wallet Did Not Open"], result["cards"].last.first(2),
                  "and the user must be told, in the card they are already looking at"
+    # THE VISIBLE CASE MUST NOT GO QUIET when the buried case is fixed: this is
+    # the case "Wallet Did Not Open" was written for.
+    assert_equal [["Wallet Did Not Open",
+                   "Your wallet app did not open. Make sure it is installed on this device, then try again."]],
+                 result["said"],
+                 "the sentence the user reads, unchanged"
     assert_equal 2500, result["delay"], "the window only has to outlast the OS app-switch prompt"
+  end
+
+  test "a hop that never happens is answered on a BURIED card too" do
+    # /tasks/stranded-handoff-buries-card. The level-up celebration can be on
+    # top when the grace window fires — the layout opens it over a card that
+    # forbids dismissal rather than swapping it away. The old stranded leg
+    # guarded on .visible and painted through error(), both current-only, so it
+    # said NOTHING and left a non-dismissible processing card under the
+    # celebration: the same frozen page the return leg was taught to clear,
+    # reached down the other leg.
+    result = run_js(<<~JS, transport: "redirect")
+      var released = 0;
+      await window.tmWalletOp('contest_entry', {}, { onStranded: function () { released += 1; } });
+      modal.buried = true;                             // the celebration took the screen
+      timers.forEach(function (t) { t.fn(); });        // never left: stranded
+      return { released: released, stranded: modal.stranded, retired: modal.retired,
+               cards: modal.cards.map(function (c) { return c[0]; }) };
+    JS
+
+    assert_equal [["Wallet Did Not Open",
+                   "Your wallet app did not open. Make sure it is installed on this device, then try again."]],
+                 result["stranded"],
+                 "the runner must ASK the store, which is the only thing that can reach a buried card"
+    assert_equal %w[show error-buried], result["cards"],
+                 "the buried card must carry the reason, so the user meets an answer and not a spinner"
+    assert_equal 0, result["retired"], "a stranded card is answered where it lies, never dropped"
+    assert_equal 1, result["released"]
   end
 
   test "a redirect that DID leave the page strands nothing" do
@@ -328,19 +420,191 @@ class WalletOpRunnerJsTest < ActiveSupport::TestCase
                  "the rejection reaches the caller untouched — this wrapper diagnoses nothing"
   end
 
+  # --- the way back: the user returns and the wallet never answered ----------
+  #
+  # /tasks/frozen-wallet-overlay-traps-user. The trap, in order: the user taps
+  # to enter, the NON-DISMISSIBLE processing card paints "Opening Your Wallet",
+  # the phone switches to the wallet app, and the user comes back without acting.
+  # pagehide had already told the watch the hop took, so nothing was left
+  # watching — and the card came back with the page, with no Close button and
+  # the body's scroll lock still on, which also kills pull-to-refresh. The user
+  # was stuck until they closed the tab.
+  #
+  # WHY RETIRING IS SAFE HERE AND NOWHERE ELSE. On the redirect transport the
+  # wallet's answer NEVER lands on this document: it lands on the callback page,
+  # which finishes the intent by name. So once the link was handed off, a user
+  # looking at this page again is, by construction, a user this page will hear
+  # nothing more for. Before the handoff that is not true — prepare is still
+  # running and will navigate — and on the inline transport it is never true.
+
+  test "a trip that came back from the bfcache retires the card and releases the caller" do
+    result = run_js(<<~JS, transport: "redirect")
+      var released = 0;
+      await window.tmWalletOp('contest_entry', {}, { onStranded: function () { released += 1; } });
+      firePageHide();                                  // the hop took
+      timers.forEach(function (t) { t.fn(); });        // so nothing is stranded
+      var beforeReturn = modal.cards.map(function (c) { return c[0]; });
+      firePageShow(true);                              // ...and the user swiped back
+      return { released: released, beforeReturn: beforeReturn, retired: modal.retired,
+               cards: modal.cards.map(function (c) { return c[0]; }),
+               watching: listening('window:pageshow') + listening('document:visibilitychange') };
+    JS
+
+    assert_equal ["show"], result["beforeReturn"], "sanity: the hop took, so no error card went up"
+    assert_equal %w[show close], result["cards"],
+                 "the non-dismissible card must not survive the way back — it is the whole trap"
+    assert_equal 1, result["released"],
+                 "the caller's hold buttons and submitting flag must come back with the page, " \
+                 "or the retry the user came back for is refused"
+    assert_equal 1, result["retired"],
+                 "retirement goes through the store's retire(), which reaches a card the " \
+                 "celebration has buried; reading .visible / .state here reaches only the top one"
+    assert_equal 0, result["watching"], "a watch that has answered lets go of the page"
+  end
+
+  test "an app switch that never unloaded the page is a way back too" do
+    # THE iOS SHAPE THE BFCACHE SIGNAL CANNOT SEE. Opening a wallet app from a
+    # universal link need not unload this document at all: it goes hidden, the
+    # wallet takes the screen, and coming back makes it visible again. No
+    # pageshow fires, because nothing was restored.
+    result = run_js(<<~JS, transport: "redirect", hidden: true)
+      var released = 0;
+      await window.tmWalletOp('contest_entry', {}, { onStranded: function () { released += 1; } });
+      timers.forEach(function (t) { t.fn(); });        // hidden, so the hop took
+      var beforeReturn = modal.cards.map(function (c) { return c[0]; });
+      fireVisibility(false);                           // back from the wallet app
+      return { released: released, beforeReturn: beforeReturn,
+               cards: modal.cards.map(function (c) { return c[0]; }) };
+    JS
+
+    assert_equal ["show"], result["beforeReturn"]
+    assert_equal %w[show close], result["cards"]
+    assert_equal 1, result["released"]
+  end
+
+  test "coming back inside the grace window retires once and strands nothing" do
+    # The quickest abandon there is: the app switch took and the user was back
+    # before the 2.5s window ran out. The window must not then report "your
+    # wallet did not open" on a card the way back has already retired.
+    result = run_js(<<~JS, transport: "redirect")
+      var released = 0;
+      await window.tmWalletOp('contest_entry', {}, { onStranded: function () { released += 1; } });
+      fireVisibility(true);
+      fireVisibility(false);
+      firePageShow(true);                              // a second signal for the same return
+      timers.forEach(function (t) { t.fn(); });
+      return { released: released, cards: modal.cards.map(function (c) { return c[0]; }) };
+    JS
+
+    assert_equal %w[show close], result["cards"], "one return, one retirement, no error card after it"
+    assert_equal 1, result["released"]
+  end
+
+  test "a return before the handoff is not a return: prepare is still running" do
+    # "STILL WAITING FOR ONE", the half of the distinction that keeps the card.
+    # Until run() resolves, the link has not reached the OS and prepare will
+    # still navigate to the wallet. Retiring the card here would unlock the
+    # board under a trip that is about to leave.
+    result = run_js(<<~JS, transport: "redirect",
+      var released = 0;
+      var trip = window.tmWalletOp('contest_entry', {}, { onStranded: function () { released += 1; } });
+      fireVisibility(true);
+      fireVisibility(false);
+      firePageShow(true);
+      var duringPrepare = modal.cards.map(function (c) { return c[0]; });
+      releaseRun();
+      await trip;
+      return { released: released, duringPrepare: duringPrepare,
+               cards: modal.cards.map(function (c) { return c[0]; }) };
+    JS
+                    run_result: "new Promise(function (res) { global.releaseRun = function () { res({ suspended: true }); }; })")
+
+    assert_equal ["show"], result["duringPrepare"]
+    assert_equal ["show"], result["cards"], "the handoff happened after these events, so none was a return"
+    assert_equal 0, result["released"]
+  end
+
+  test "a pageshow that is not a bfcache restore retires nothing" do
+    # persisted false is an ordinary load of a NEW document — this one never
+    # left, so there is nothing to come back from.
+    result = run_js(<<~JS, transport: "redirect")
+      var released = 0;
+      await window.tmWalletOp('contest_entry', {}, { onStranded: function () { released += 1; } });
+      firePageHide();
+      timers.forEach(function (t) { t.fn(); });
+      firePageShow(false);
+      return { released: released, cards: modal.cards.map(function (c) { return c[0]; }) };
+    JS
+
+    assert_equal ["show"], result["cards"]
+    assert_equal 0, result["released"]
+  end
+
+  test "a stranded trip keeps its error card through a later return" do
+    # The hop never happened, so the user is already reading "Wallet Did Not
+    # Open" on a card they can close. A tab switch afterwards is not a return
+    # from a wallet, and must not pull that explanation out from under them or
+    # release the caller a second time.
+    result = run_js(<<~JS, transport: "redirect")
+      var released = 0;
+      await window.tmWalletOp('contest_entry', {}, { onStranded: function () { released += 1; } });
+      timers.forEach(function (t) { t.fn(); });        // never left: stranded
+      fireVisibility(true);
+      fireVisibility(false);
+      firePageShow(true);
+      return { released: released, retired: modal.retired,
+               cards: modal.cards.map(function (c) { return c[0]; }),
+               watching: listening('window:pageshow') + listening('document:visibilitychange') };
+    JS
+
+    assert_equal %w[show error], result["cards"]
+    assert_equal 0, result["retired"], "the stranded path paints a card; it never retires one"
+    assert_equal 1, result["released"], "released once, by the stranded path"
+    assert_equal 0, result["watching"]
+  end
+
+  test "a return asks the store to retire, and a resolved card refuses" do
+    # WHERE THE DECISION LIVES. The runner always asks; the store answers, and it
+    # is the store that knows a card has already resolved to success or error and
+    # belongs to its own buttons. Asserted here as ASKED-AND-REFUSED rather than
+    # not-asked, because those are different runners.
+    result = run_js(<<~JS, transport: "redirect")
+      var released = 0;
+      await window.tmWalletOp('contest_entry', {}, { onStranded: function () { released += 1; } });
+      firePageHide();
+      timers.forEach(function (t) { t.fn(); });
+      modal.state = 'success';
+      firePageShow(true);
+      return { released: released, retired: modal.retired,
+               cards: modal.cards.map(function (c) { return c[0]; }) };
+    JS
+
+    assert_equal 1, result["retired"], "the runner asks on every way back"
+    assert_equal ["show"], result["cards"], "a resolved card is not the runner's to close"
+    assert_equal 1, result["released"], "the caller's own flow on this page is still over"
+  end
+
   test "an inline run arms no handoff watch at all" do
     # THE CONTROL, and it is load-bearing. An inline transport NEVER navigates —
     # so a watch armed here would fire on every desktop signature and tell a user
-    # staring at their extension that their wallet did not open.
+    # staring at their extension that their wallet did not open. And the inline
+    # promise is still live across a tab switch, so a return watch here would
+    # retire the card in front of a transaction that is still confirming.
     result = run_js(<<~JS, transport: "inline")
       var stranded = 0;
       await window.tmWalletOp('contest_create', {}, { onStranded: function () { stranded += 1; } });
       timers.forEach(function (t) { t.fn(); });
-      return { stranded: stranded, timers: timers.length, cards: modal.cards };
+      fireVisibility(true);
+      fireVisibility(false);
+      firePageShow(true);
+      return { stranded: stranded, timers: timers.length, cards: modal.cards,
+               watching: listening('window:pageshow') + listening('document:visibilitychange') };
     JS
 
     assert_equal 0, result["timers"], "no grace window belongs on a transport that cannot navigate"
+    assert_equal 0, result["watching"], "no return watch either — this page is still the one waiting"
     assert_equal 0, result["stranded"]
+    assert_equal 1, result["cards"].length, "the processing card stays up for the inline answer"
     assert_equal "Preparing Transaction", result["cards"].first[1],
                  "an inline run paints the preparing card, not the handoff card"
   end

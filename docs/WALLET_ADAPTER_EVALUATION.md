@@ -16,7 +16,7 @@ Anything not verified is marked **unverified**.
 > a `path:NN`, and a bare `:NN` inherits the nearest preceding path — file
 > context resets at each `##` heading. `test/docs/workflow_citation_docs_test.rb`
 > reddens when one stops landing on the symbol or literal its prose names. That
-> symbol check reaches **3 of the 24 citations** here. The other **21** ride the
+> symbol check reaches **4 of the 25 citations** here. The other **21** ride the
 > weaker LITERAL fallback — `.js` files, ERB, the Playwright config, and Ruby
 > lines outside any method (a `before_action` list, the CSP block), where the
 > guard finds no definition — so a green one proves the quoted words are in the
@@ -93,10 +93,10 @@ and studio-engine owns the page a wallet returns to.
 | Intent registry + step machine | `solana-studio: app/assets/javascripts/solana_studio/wallet_ops.js#runInline,runRedirect,signingHop,resume` | 566 |
 | Legacy Phantom sign-in (undocumented `signIn` deeplink) | `solana-studio: app/views/solana_studio/_phantom_deeplink.html.erb#startPhantomDeepLink` | 179 |
 | Callback page: `walletOps` resume dispatch, plus the legacy sign-in branch with its **own** base58 decoder and nacl decrypt | `studio-engine: app/views/solana_sessions/phantom_callback.html.erb#hasResumer,b58decode` | 406 |
-| `window.tmWalletOp`: return address, cluster, handoff watch | `app/views/shared/_wallet_op_runner.html.erb:46` (`CALLBACK_PATH`), `:163` (`window.tmWalletOp`) | 209 |
-| Intents: entry (with the `redirectLink` default wrapped around `walletOps.resume` at `app/views/shared/_contest_entry_intent.html.erb:128-149`), create + bundle, rename | `app/views/shared/_contest_entry_intent.html.erb`, `_contest_create_intent.html.erb`, `_username_rename_intent.html.erb` | 330 / 201 / 298 |
+| `window.tmWalletOp`: return address, cluster, handoff watch, and the way back | `app/views/shared/_wallet_op_runner.html.erb:49` (`CALLBACK_PATH`), `:163` (`watchHandoff`), `:233` (`window.tmWalletOp`) | 319 (re-measured 2026-09-13) |
+| Intents: entry (with the `redirectLink` default wrapped around `walletOps.resume` at `app/views/shared/_contest_entry_intent.html.erb:128-149`), create + bundle, rename | `app/views/shared/_contest_entry_intent.html.erb`, `_contest_create_intent.html.erb`, `_username_rename_intent.html.erb` | 505 / 201 / 307 (re-measured 2026-09-13) |
 | Provider registry, inline codec, mobile `detect()` | `app/javascript/wallet_provider.js:83` (`INLINE_TX_CODEC`), `:479` (`detect`), `:661` (`requireInlineProvider`) | 671 |
-| Stand-in wallet + its spec | `e2e/stub-wallet.js`, `e2e/stub_wallet_round_trip.spec.js` | 459 / 442 |
+| Stand-in wallet + its spec | `e2e/stub-wallet.js`, `e2e/stub_wallet_round_trip.spec.js` | 498 / 607 (re-measured 2026-09-13) |
 
 **Totals.** The gem's four transport files come to **1,428 lines** in 0.9.3.
 Its node test files for them come to 1,834 lines (`wallet_ops_js_test.rb`
@@ -142,7 +142,7 @@ wallet-transport risk tags and on deeplink text, then traced to commits.
 | Handoff watchdog armed before `prepare` finished | `/tasks/arm-handoff-watch-later`, turf PR 679 | Review of PR 674 |
 | Create and bundle intents said nothing during the cosign leg | same task, defect 2 | Review of PR 674 |
 | No celebration and a stale token count after a redirect entry | `/tasks/carry-entry-celebration-across-redirect` | **Real phone** (QA iPhone, **after** the stub landed) |
-| Card that cannot be dismissed after an abandoned handoff (bfcache restore) | `/tasks/frozen-wallet-overlay-traps-user` | Review; reproducible only on a phone today |
+| Card that cannot be dismissed after an abandoned handoff (bfcache restore) | `/tasks/frozen-wallet-overlay-traps-user` | Review; later reproduced in the browser tier by `e2e/wallet_handoff_bfcache_return.spec.js` |
 | Callback page shows one static line for about 18 s, naming Phantom | `/tasks/callback-page-narrates-the-wait` | Review of PR 679; timing from a QA iPhone |
 | Stub rejection spec raced a navigation, and its body-text assertion was vacuous | `/tasks/stub-wallet-rejection-race`, turf PR 684 (`fc837382`) | CI (a harness defect) |
 
@@ -183,14 +183,21 @@ a phone.
 - **iOS WebKit.** `playwright.config.js:106-116` declares two projects, and both
   run `chromium`. "iPhone" in the spec is a user-agent swap
   (`e2e/stub_wallet_round_trip.spec.js:26-31` says so).
-- **A bfcache restore.** Playwright launches Chromium with
+- **A bfcache restore, by default.** Playwright launches Chromium with
   `--disable-back-forward-cache` (`node_modules/playwright-core/lib/server/chromium/chromiumSwitches.js:59`,
-  measured in playwright-core 1.58.2 on 2026-09-10). So the
-  frozen-card trap cannot be reproduced in CI.
+  measured in playwright-core 1.58.2 on 2026-09-13), so the stub specs never
+  restore a page. ONE spec now opts in: `e2e/wallet_handoff_bfcache_return.spec.js`
+  drops that switch, runs the full Chromium build (the default headless shell
+  refuses every page, static ones included — `BackForwardCacheDisabledForDelegate`),
+  and closes turbo's Action Cable socket first, because Chromium will not cache a
+  page holding a live WebSocket. It proves the restore was REAL — the same
+  document came back, and it logged a `pageshow` with `persisted` — before it
+  asserts anything about the card. What it still cannot show is whether iOS
+  Safari caches this board with that socket open.
 - **The OS app switch**, iOS opening a universal link in a new tab, and whether
   Phantom accepts our URLs.
 - **Solflare and Backpack.** The stub routes `https://phantom.app/**` only
-  (`e2e/stub-wallet.js:258`), and its contract table is Phantom's.
+  (`e2e/stub-wallet.js:262`), and its contract table is Phantom's.
 - **Callback-page UX, unless a spec asserts it.** The missing celebration was
   visible to Chromium. No spec asserted the card.
 
