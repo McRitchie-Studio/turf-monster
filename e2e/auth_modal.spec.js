@@ -83,7 +83,8 @@ test("resending swaps to the Link Resent confirmation and starts the cooldown @s
 // tell you whether that was safe: the two things the swap actually changes are a colour
 // that resolves through the theme and a spinner ring that resolves through currentColor,
 // and a token assertion would have passed on the version that FAILS contrast
-// (text-red-400, 2.77 light / 4.03 dark on this app's palette — the reason the engine
+// (text-red-400, 2.89 light / 3.86 dark on this app's palette — Tailwind v4's red-400,
+// about #FF6467, which is what this app compiles — the reason the engine
 // floor is >= 0.74.9). So both are measured after the cascade, in a real browser.
 const resendFooterError = (dialog) => dialog.locator('p[x-text="props.resendError"]');
 
