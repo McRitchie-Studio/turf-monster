@@ -111,10 +111,18 @@ class BoardEntryCallSiteJsTest < ActiveSupport::TestCase
       modal.error = function (b, t) { modal.cards.push(['error', t, b]); modal.state = 'error'; };
       modal.success = function (sig, t) { modal.cards.push(['success', t, sig]); modal.state = 'success'; };
       // The store's retire() in miniature (its real body, and the buried card
-      // that forced it, live in test/lib/solana_modal_retire_js_test.rb).
+      // that forced it, live in test/lib/solana_modal_stack_reach_js_test.rb).
       modal.retire = function () {
         if (modal.state !== 'processing') return false;
         modal.close();
+        return true;
+      };
+      // strand() marks the live transaction card wherever it sits; on the board
+      // the card is the current one, so this is error() with the store's own
+      // state guard (/tasks/stranded-handoff-buries-card).
+      modal.strand = function (msg, title) {
+        if (modal.state !== 'processing') return false;
+        modal.error(msg, title);
         return true;
       };
       modal.setRecovery = function (label) { modal.cards.push(['recovery', label]); };

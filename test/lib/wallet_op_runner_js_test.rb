@@ -65,18 +65,38 @@ class WalletOpRunnerJsTest < ActiveSupport::TestCase
       window.SolanaStudio = { walletOps: { run: function (name, ctx, opts) { ran.push({ name: name, ctx: ctx, opts: opts }); return (#{run_result}); } } };
 
       var modal = { cards: [], visible: true, state: null, retired: 0 };
+      // .visible is CURRENT-ONLY in the real store (get visible(){ return
+      // !!_onCurrent() }), so a buried card reads false here too.
+      Object.defineProperty(modal, 'visible', { get: function () { return !modal.buried && modal._visible; }, set: function (v) { modal._visible = v; }, configurable: true });
+      modal.visible = true;
       modal.show = function (t, b) { modal.cards.push(['show', t, b]); modal.visible = true; modal.state = 'processing'; };
       modal.error = function (b, t) { modal.cards.push(['error', t, b]); modal.state = 'error'; };
       modal.close = function () { modal.cards.push(['close']); modal.visible = false; modal.state = null; };
       // The store's own retire(), in miniature — it finds the live transaction
       // card ANYWHERE on the stack and drops it only while it is still
       // processing. Its real body (and the buried case that forced it) is
-      // driven in test/lib/solana_modal_retire_js_test.rb; what the runner owes
+      // driven in test/lib/solana_modal_stack_reach_js_test.rb; what the runner owes
       // is CALLING it, on the way back and nowhere else.
       modal.retire = function () {
         modal.retired += 1;
         if (modal.state !== 'processing') return false;
         modal.close();
+        return true;
+      };
+      // The store's strand() in miniature: it marks the live transaction card
+      // WHEREVER IT SITS, so it answers on a buried card too — which is the
+      // whole point (/tasks/stranded-handoff-buries-card). `buried` here stands
+      // for a celebration having taken the screen: the card is no longer
+      // current, so .visible is false, and only a stack-reaching call can find
+      // it. The real body is driven in
+      // test/lib/solana_modal_stack_reach_js_test.rb.
+      modal.buried = false;
+      modal.stranded = [];
+      modal.strand = function (msg, title) {
+        modal.stranded.push([title, msg]);
+        if (modal.state !== 'processing') return false;
+        modal.cards.push([modal.buried ? 'error-buried' : 'error', title, msg]);
+        modal.state = 'error';
         return true;
       };
       global.Alpine = { store: function (n) { return n === 'solanaModal' ? modal : null; } };
@@ -232,7 +252,7 @@ class WalletOpRunnerJsTest < ActiveSupport::TestCase
       var stranded = 0;
       await window.tmWalletOp('contest_create', {}, { onStranded: function () { stranded += 1; } });
       timers.forEach(function (t) { t.fn(); });
-      return { stranded: stranded, cards: modal.cards, delay: timers[0] && timers[0].ms };
+      return { stranded: stranded, cards: modal.cards, said: modal.stranded, delay: timers[0] && timers[0].ms };
     JS
 
     # run() ends by handing the OS a universal link, and "nothing after this
@@ -242,7 +262,40 @@ class WalletOpRunnerJsTest < ActiveSupport::TestCase
     assert_equal 1, result["stranded"], "the caller must be told, so it can re-enable its own controls"
     assert_equal ["error", "Wallet Did Not Open"], result["cards"].last.first(2),
                  "and the user must be told, in the card they are already looking at"
+    # THE VISIBLE CASE MUST NOT GO QUIET when the buried case is fixed: this is
+    # the case "Wallet Did Not Open" was written for.
+    assert_equal [["Wallet Did Not Open",
+                   "Your wallet app did not open. Make sure it is installed on this device, then try again."]],
+                 result["said"],
+                 "the sentence the user reads, unchanged"
     assert_equal 2500, result["delay"], "the window only has to outlast the OS app-switch prompt"
+  end
+
+  test "a hop that never happens is answered on a BURIED card too" do
+    # /tasks/stranded-handoff-buries-card. The level-up celebration can be on
+    # top when the grace window fires — the layout opens it over a card that
+    # forbids dismissal rather than swapping it away. The old stranded leg
+    # guarded on .visible and painted through error(), both current-only, so it
+    # said NOTHING and left a non-dismissible processing card under the
+    # celebration: the same frozen page the return leg was taught to clear,
+    # reached down the other leg.
+    result = run_js(<<~JS, transport: "redirect")
+      var released = 0;
+      await window.tmWalletOp('contest_entry', {}, { onStranded: function () { released += 1; } });
+      modal.buried = true;                             // the celebration took the screen
+      timers.forEach(function (t) { t.fn(); });        // never left: stranded
+      return { released: released, stranded: modal.stranded, retired: modal.retired,
+               cards: modal.cards.map(function (c) { return c[0]; }) };
+    JS
+
+    assert_equal [["Wallet Did Not Open",
+                   "Your wallet app did not open. Make sure it is installed on this device, then try again."]],
+                 result["stranded"],
+                 "the runner must ASK the store, which is the only thing that can reach a buried card"
+    assert_equal %w[show error-buried], result["cards"],
+                 "the buried card must carry the reason, so the user meets an answer and not a spinner"
+    assert_equal 0, result["retired"], "a stranded card is answered where it lies, never dropped"
+    assert_equal 1, result["released"]
   end
 
   test "a redirect that DID leave the page strands nothing" do

@@ -2,8 +2,12 @@ require "test_helper"
 require "open3"
 require "json"
 
-# [unit] $store.solanaModal.retire() — dropping the transaction card WHEREVER IT
-# SITS on the modal stack.
+# [unit] The two solanaModal methods that reach the transaction card WHEREVER IT
+# SITS on the modal stack: retire() drops it, strand() marks it failed.
+#
+# RENAMED FROM solana_modal_retire_js_test.rb (/tasks/stranded-handoff-buries-card)
+# because the second caller arrived: the same buried card is reachable down two
+# legs, and a file named for one of them hides the other.
 #
 # THE DEFECT THIS TIER EXISTS FOR. Every other method on this store reaches the
 # CURRENT card (_onCurrent), and the transaction card can be BURIED: the
@@ -26,7 +30,7 @@ require "json"
 # The composed browser regression in e2e/wallet_handoff_bfcache_return.spec.js
 # drives the real engine store, in a real restore, and asserts what the user
 # can see.
-class SolanaModalRetireJsTest < ActiveSupport::TestCase
+class SolanaModalStackReachJsTest < ActiveSupport::TestCase
   LAYOUT = Rails.root.join("app/views/layouts/application.html.erb")
 
   # Bounded by the two lines that open and close the store's own block, so a
@@ -218,5 +222,116 @@ class SolanaModalRetireJsTest < ActiveSupport::TestCase
 
     assert_equal false, result["retired"]
     assert_equal ["onchain-tx"], result["ids"]
+  end
+
+  # --- strand(): the OTHER leg that has to reach the buried card ------------
+  #
+  # /tasks/stranded-handoff-buries-card. When the hop NEVER happens — no wallet
+  # app installed, or the user dismisses the OS prompt — the runner has to say
+  # "Wallet Did Not Open" on the card that was waiting. error() cannot reach a
+  # buried one (it writes through _onCurrent like every other setter), so the
+  # stranded leg painted NOTHING and left the same non-dismissible card standing
+  # under the celebration that the return leg had just been taught to clear.
+  #
+  # WHY A NEW METHOD RATHER THAN RE-POINTING error() AT _liveTx. error() has 14
+  # call sites in this app (cosign, lock_contest, the faucet, the generator,
+  # both boards, contests/new) and every one of them means "the card the user is
+  # looking at". Re-pointing it would make each of them able to write onto a
+  # transaction card buried under something else. strand() is the same reach
+  # with one caller.
+
+  test "a processing card BURIED under the celebration is stranded where it lies" do
+    result = run_js(<<~JS)
+      modal.show('Sign Transaction', 'Approve your free entry in your wallet...');
+      modals.open('free-entry-earned', { level: 2 });
+
+      var stranded = modal.strand('Your wallet app did not open.', 'Wallet Did Not Open');
+      var buried = modals.stack[0].props;
+      var afterStrand = { ids: ids(), state: buried.state, title: buried.title,
+                          message: buried.errorMessage, dismissible: buried.dismissible,
+                          locked: document.body.classList.contains('modal-open') };
+
+      // The user closes the celebration and meets the card underneath.
+      modals.close();
+      return { stranded: stranded, afterStrand: afterStrand, ids: ids(),
+               state: modal.state, dismissible: modals.stack.length ? modals.stack[0].props.dismissible : null,
+               locked: document.body.classList.contains('modal-open') };
+    JS
+
+    assert_equal true, result["stranded"]
+    # STILL THERE, and now carrying its reason: the card is not dropped, it is
+    # answered. Dropping it would leave the user with no idea why the entry
+    # never happened.
+    assert_equal %w[onchain-tx free-entry-earned], result["afterStrand"]["ids"]
+    assert_equal "error", result["afterStrand"]["state"]
+    assert_equal "Wallet Did Not Open", result["afterStrand"]["title"]
+    assert_equal "Your wallet app did not open.", result["afterStrand"]["message"]
+    assert_equal true, result["afterStrand"]["dismissible"],
+                 "the card the user meets when the celebration closes must be one they can leave"
+    assert_equal true, result["afterStrand"]["locked"], "a card is still up, so the lock is right"
+
+    assert_equal ["onchain-tx"], result["ids"], "closing the celebration reveals the answered card"
+    assert_equal "error", result["state"]
+    assert_equal true, result["dismissible"], "and it is closable — no frozen card, no scroll lock left"
+  end
+
+  test "a processing card on top is stranded exactly the way error() left it" do
+    # THE VISIBLE CASE MUST NOT GO QUIET. This is the case "Wallet Did Not Open"
+    # was written for, and the buried fix must not buy the buried case by
+    # dropping the sentence the visible user reads.
+    result = run_js(<<~JS)
+      modal.show('Opening Your Wallet', 'Handing this over to your wallet app…');
+      var stranded = modal.strand('Your wallet app did not open.', 'Wallet Did Not Open');
+      return { stranded: stranded, ids: ids(), state: modal.state, title: modal.title,
+               message: modal.errorMessage, dismissible: modals.stack[0].props.dismissible };
+    JS
+
+    assert_equal true, result["stranded"]
+    assert_equal ["onchain-tx"], result["ids"]
+    assert_equal "error", result["state"]
+    assert_equal "Wallet Did Not Open", result["title"]
+    assert_equal "Your wallet app did not open.", result["message"]
+    assert_equal true, result["dismissible"]
+  end
+
+  test "a settled card is not overwritten by a late stranded timer" do
+    # STATE IS THE GUARD HERE TOO. The grace window fires 2.5s after the handoff
+    # and nothing stops another beat from resolving the card first; a success
+    # the user is reading must not turn into "Wallet Did Not Open".
+    result = run_js(<<~JS)
+      modal.show('Submitting Entry', 'Processing your entry...');
+      modal.success('SIG1', 'Entry Confirmed');
+      var onTop = modal.strand('Your wallet app did not open.', 'Wallet Did Not Open');
+      modals.open('free-entry-earned', { level: 2 });
+      var buried = modal.strand('Your wallet app did not open.', 'Wallet Did Not Open');
+      return { onTop: onTop, buried: buried, state: modals.stack[0].props.state,
+               title: modals.stack[0].props.title };
+    JS
+
+    assert_equal false, result["onTop"]
+    assert_equal false, result["buried"]
+    assert_equal "success", result["state"]
+    # success() carries its copy in message / successTitle and leaves the card's
+    # own title alone, so "unchanged" here is the title the flow last set —
+    # measured, not assumed.
+    assert_equal "Submitting Entry", result["title"], "the settled card keeps its own words"
+  end
+
+  test "stranding nothing is answered, not thrown" do
+    result = run_js("return { stranded: modal.strand('nope', 'Nope'), ids: ids() };")
+
+    assert_equal false, result["stranded"]
+    assert_equal [], result["ids"]
+  end
+
+  test "a card mid-close is already gone as far as strand is concerned" do
+    result = run_js(<<~JS)
+      modal.show('Sign Transaction', 'Approve your free entry in your wallet...');
+      modals.stack[0]._closing = true;
+      return { stranded: modal.strand('nope', 'Nope'), state: modals.stack[0].props.state };
+    JS
+
+    assert_equal false, result["stranded"]
+    assert_equal "processing", result["state"]
   end
 end

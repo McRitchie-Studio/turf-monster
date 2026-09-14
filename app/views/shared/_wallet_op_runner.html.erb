@@ -250,11 +250,26 @@
     // never navigates, so it gets no watch at all.
     var watch = redirect ? watchHandoff() : null;
 
+    // WHEN THE HOP NEVER HAPPENS. Say so ON THE CARD THAT WAS WAITING — and it
+    // may not be the card on screen. This used to guard on m.visible and paint
+    // through m.error(), and BOTH reach only the CURRENT card, so a celebration
+    // sitting on top (the layout opens free-entry-earned OVER a card that
+    // forbids dismissal, rather than swapping it away) made this leg say
+    // nothing at all: the buried card kept state 'processing' and
+    // dismissible:false, the watch disarmed, and the user met a frozen,
+    // scroll-locked page the moment they closed the celebration. The same
+    // endpoint the way back was taught to avoid, down the other leg
+    // (/tasks/stranded-handoff-buries-card).
+    //
+    // strand() is the store's stack-reaching version, and it MARKS rather than
+    // retires: a user whose wallet never opened has not been told why yet, so
+    // the card keeps its place, gains the reason, and becomes dismissible. A
+    // card the user IS looking at reads exactly as it always has.
     function stranded() {
       var m = solanaModal();
-      if (m && m.visible) {
-        m.error('Your wallet app did not open. Make sure it is installed on this device, then try again.',
-                'Wallet Did Not Open');
+      if (m && typeof m.strand === 'function') {
+        m.strand('Your wallet app did not open. Make sure it is installed on this device, then try again.',
+                 'Wallet Did Not Open');
       }
       if (typeof opts.onStranded === 'function') opts.onStranded();
     }
