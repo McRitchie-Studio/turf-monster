@@ -222,8 +222,10 @@ class EnginePinContractTest < ActiveSupport::TestCase
   #          only the second needs a patch to state it: Studio::JsIdentifier, which the
   #          partial calls and which first exists in 0.74.3 (below it the auth modal raises
   #          NameError the moment it renders), and the COLOUR, which is the number. Static
-  #          text-red-400 fails AA on this app's palette — 2.77 on the light modal surface,
-  #          4.03 on the dark, against a 4.5 target — while --color-danger-ink is derived
+  #          text-red-400 fails AA on this app's palette — 2.89 on the light modal surface,
+  #          3.86 on the dark, against a 4.5 target (Tailwind v4's red-400, about #FF6467,
+  #          which is what this app compiles; the v3 hex #F87171 gives 2.77 and 4.03 and
+  #          fails the same way) — while --color-danger-ink is derived
   #          per theme to 4.5:1 precisely to be the text red. Adopting below 0.74.9 would
   #          import a contrast REGRESSION with every test still green, because no token in
   #          the markup says what a colour resolves to; e2e/auth_modal.spec.js measures the
