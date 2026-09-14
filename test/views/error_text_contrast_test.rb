@@ -131,7 +131,8 @@ class ErrorTextContrastTest < ActiveSupport::TestCase
     # CASCADE in a browser: e2e/auth_modal.spec.js computes the painted contrast ratio of
     # the rendered error against the modal card and asserts >= 4.5. That is a stronger
     # measurement than this file can make, and it is the only one that could have caught
-    # the engine shipping text-red-400 (2.77 light / 4.03 dark here), which no token in
+    # the engine shipping text-red-400 (2.89 light / 3.86 dark here — the v4 red-400 this
+    # app compiles, about #FF6467), which no token in
     # the markup reveals.
     "app/views/shared/_auth_card.html.erb"                 => 1
   }.freeze
@@ -541,6 +542,41 @@ class ErrorTextContrastTest < ActiveSupport::TestCase
                         "to files on purpose: a bare total is a number you raise whenever it fails."
       end
     end
+  end
+
+  # ── the prose has to agree with the measurement ───────────────────────────
+  #
+  # THE DEFECT THIS CATCHES, measured 2026-09-13: this file contradicted ITSELF 123
+  # lines apart. Its header stated text-red-400 at 2.89:1 on the light card — the
+  # Tailwind v4 red-400 this app actually compiles, about #ff6467 — while a comment
+  # further down cited 2.77 light / 4.03 dark for the SAME class. Those are v3's
+  # #f87171, a hex this app has not compiled since it moved to Tailwind v4, and the
+  # pair had been copied into three other files. Every test stayed green, because no
+  # test read the prose.
+  #
+  # The v3 numbers are not banned outright: they are TRUE of the inline
+  # `style="color:#f87171"` two newsletters carried, which this file measures on
+  # purpose. What is banned is attributing them to the CLASS — so a line is only a
+  # violation when it names text-red-400 and a v3 ratio and does NOT name the hex or
+  # the version those belong to.
+  V3_RATIOS = %w[2.77 4.03].freeze
+
+  test "every red-400 ratio this file cites is the one it measures" do
+    light = contrast(resolve("var(--color-red-400)", :light), surfaces(:light)["--color-surface"])
+    dark  = contrast(resolve("var(--color-red-400)", :dark), surfaces(:dark)["--color-surface"])
+
+    assert_equal "2.89", format("%.2f", light), "the light-card figure this file's prose cites"
+    assert_equal "3.86", format("%.2f", dark), "the dark-card figure this file's prose cites"
+
+    misattributed = File.readlines(__FILE__).each_with_index.select do |line, _|
+      line.include?("text-red-400") && V3_RATIOS.any? { |r| line.include?(r) } &&
+        !line.match?(/f87171|v3/i)
+    end
+
+    assert_empty misattributed.map { |line, i| "#{i + 1}: #{line.strip}" },
+                 "these lines attribute Tailwind v3's red-400 ratios (#{V3_RATIOS.join(' / ')}, hex " \
+                 "#f87171) to text-red-400, which this app compiles from v4 (#ff6467) at " \
+                 "#{format('%.2f', light)} light / #{format('%.2f', dark)} dark"
   end
 
   # ── controls: prove the machinery bites ───────────────────────────────────
