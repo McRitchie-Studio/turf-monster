@@ -215,7 +215,24 @@ class EnginePinContractTest < ActiveSupport::TestCase
   #          occurrences of the dispatch guard; 0.73.0 contains it. Stated as the
   #          EARLIEST containing version, because a list of versions goes stale on
   #          the next release while "earliest" is a fact about the code.
-  MINIMUM = Gem::Version.new("0.73.0")
+  # 0.74.9 — studio/modals/auth/_resend_footer paints its error paragraph
+  #          text-danger-ink instead of text-red-400. This app RENDERS that block from
+  #          both magic-link steps (/tasks/turf-adopts-resend-footer) and deleted its own
+  #          fork, so there is no local copy to fall back on. Two things set this floor and
+  #          only the second needs a patch to state it: Studio::JsIdentifier, which the
+  #          partial calls and which first exists in 0.74.3 (below it the auth modal raises
+  #          NameError the moment it renders), and the COLOUR, which is the number. Static
+  #          text-red-400 fails AA on this app's palette — 2.77 on the light modal surface,
+  #          4.03 on the dark, against a 4.5 target — while --color-danger-ink is derived
+  #          per theme to 4.5:1 precisely to be the text red. Adopting below 0.74.9 would
+  #          import a contrast REGRESSION with every test still green, because no token in
+  #          the markup says what a colour resolves to; e2e/auth_modal.spec.js measures the
+  #          painted ratio in a browser for that reason. DERIVED by reading the partial in
+  #          the published gems across the boundary: 0.74.8 carries text-red-400 and
+  #          0.74.9 carries text-danger-ink. Stated as the EARLIEST containing version,
+  #          because a list of versions goes stale on the next release while "earliest" is
+  #          a fact about the code.
+  MINIMUM = Gem::Version.new("0.74.9")
 
   test "the resolved studio-engine is at or above the floor this app depends on" do
     resolved = Gem::Version.new(Studio::VERSION)
