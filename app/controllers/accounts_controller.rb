@@ -246,7 +246,38 @@ class AccountsController < ApplicationController
     render plain: e.message, status: :gone
   end
 
+  # Copy for the refusal below. Named here so the view that hides the connect
+  # CTA and the server that refuses the link say the same sentence.
+  STRANDED_VOUCHER_ERROR =
+    "Your free entry lives in the wallet we set up for you, and linking your own " \
+    "wallet would put it out of reach. Play your free entry first — then link " \
+    "your wallet.".freeze
+  STRANDED_VOUCHER_UNREADABLE =
+    "We couldn't check your free entry just now, and linking a wallet while one " \
+    "is unspent can strand it. Please try again in a moment.".freeze
+
   def link_solana
+    # THE STRAND GUARD, and it runs BEFORE the signature is even verified.
+    #
+    # Placed at the top of the action on purpose: every branch below ends with
+    # the account holding a web3 address, so one check here covers the plain
+    # link AND the merge. Refusing after `verify_solana_signature!` would also
+    # work, but it would refuse a user who has already signed — and a signature
+    # this app then rejects is the one shape the wallet-error path warns about
+    # (see the layout's verify comment): the user proves their wallet is fine
+    # and is told no in the same breath.
+    #
+    # The CTA is hidden for exactly this state too (accounts/_solana_wallet_
+    # section), so reaching here means the client state was stale, not that the
+    # user was lied to. This is the boundary, not the message.
+    if (blocker = EntryGifts::UnspentVoucher.blocking_for(current_user))
+      Rails.logger.info("[entry-gift] wallet link refused user=#{current_user.id} " \
+                        "gift=#{blocker.gift.id} reason=#{blocker.reason} " \
+                        "wallet=#{blocker.gift.wallet_address}")
+      message = blocker.unknown? ? STRANDED_VOUCHER_UNREADABLE : STRANDED_VOUCHER_ERROR
+      return render json: { error: message }, status: :unprocessable_entity
+    end
+
     pubkey_b58 = verify_solana_signature!(
       message: params[:message],
       signature_b58: params[:signature],

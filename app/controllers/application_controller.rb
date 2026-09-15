@@ -563,6 +563,39 @@ class ApplicationController < ActionController::Base
     Solana::CurrentWallet.remember(session, provider)
   end
 
+  # Did this click ask us to keep the wallet CHOICE out of a newcomer's way?
+  #
+  # Set by the gift link (EntryGiftMailer#gift_invite mints
+  # /l/<token>?wallet=managed) and honoured on any sign-in surface the click
+  # bounces to. A gifted newcomer has no reason to pick a wallet yet: the free
+  # entry is already paid for, EntryGifts::Claim#ensure_wallet! gives them a
+  # managed wallet the server can sign with, and the wallet question is worth
+  # asking at their SECOND contest, when paying is the reason. Offering Phantom
+  # at that moment asks them to solve a problem they do not have.
+  #
+  # IT IS A UX NUDGE, NOT A CONTROL, and it is written to be exactly that.
+  # Anyone can strip the parameter; ensure_wallet! behaves correctly either way,
+  # the voucher still lands somewhere the server can sign for, and nothing here
+  # is load-bearing for safety. So it carries no signature, no session state and
+  # no expiry — hardening it would imply a guarantee it does not make.
+  #
+  # GATED ON PHANTOM, not on solana_connected?. A clicker who already has a
+  # Phantom linked must see the normal sign-in: hiding web3 auth from them does
+  # not spare a choice, it pushes them into a SECOND account, and for them
+  # ensure_wallet! already returns the right address. A managed-only account has
+  # no Phantom to be pushed away from and is exactly who the nudge is for, so
+  # the wider predicate would switch it off for its own audience.
+  def managed_wallet_onboarding?
+    params[:wallet] == "managed" && !current_user&.phantom_wallet?
+  end
+  helper_method :managed_wallet_onboarding?
+
+  # The query the nudge rides on, splatted into a path helper. Empty when the
+  # nudge does not hold, so a caller never has to branch.
+  def managed_wallet_params
+    managed_wallet_onboarding? ? { wallet: "managed" } : {}
+  end
+
   # Canonical auth + wallet state for this request — the single source of truth
   # the whole UI branches on (web3 / web2 / guest). Serialised into the page and
   # mirrored client-side by Alpine.store('session'). See SessionContext.

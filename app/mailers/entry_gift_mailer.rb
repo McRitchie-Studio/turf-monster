@@ -19,7 +19,13 @@ class EntryGiftMailer < ApplicationMailer
     # The unified short link (Studio::LinksController) — the same /l/<token>
     # entry point the sign-in magic link uses, so the click flow's
     # scanner-safe GET → human POST consume applies here unchanged.
-    @claim_url = link_url(token: token)
+    # `wallet: "managed"` is the nudge: a gifted newcomer should land in the
+    # managed wallet this claim is about to create, not in front of a wallet
+    # CHOICE they have no reason to make yet. Honoured only on the sign-in
+    # surfaces this click can bounce to, and only for a clicker with no Phantom
+    # (ApplicationController#managed_wallet_onboarding?). Strip it and the claim
+    # still behaves correctly — it steers, it does not enforce.
+    @claim_url = link_url(token: token, wallet: "managed")
 
     # THE USERNAME, AS IT WAS WHEN THE GIFT WAS SENT.
     #
