@@ -58,7 +58,7 @@
 # test/web3_modals_test.rb uses from its side of the seam.
 #
 # MEASURED, not reasoned, on 2026-09-01: loading the gem from a PATH CHECKOUT
-# (/Users/alex/projects/solana-studio ahead of the installed copy) moves
+# (a local solana-studio checkout ahead of the installed copy) moves
 # Engine.root and the resolved identifier together — served_by_gem? stays TRUE
 # while the identifier contains no "/gems/" at all. The two forms disagree in
 # exactly the lane that red-sealed the publish, and this one is the survivor.

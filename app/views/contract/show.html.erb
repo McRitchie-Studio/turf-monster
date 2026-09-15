@@ -385,7 +385,7 @@
 
   <footer class="border-t border-subtle pt-6 mt-8 text-xs text-muted">
     <p class="mb-1 font-mono">turf-vault <%= prog_version %> &middot; Anchor 0.32.1 &middot; Rust 1.89.0</p>
-    <p class="mb-1">Repo: <code class="text-secondary">/Users/alex/projects/turf-vault</code><% if idl_instruction_names.any? %> &middot; <%= idl_instruction_names.size %> instructions<% end %><% if idl_error_codes.any? %> &middot; errors <%= idl_error_codes.min %>&ndash;<%= idl_error_codes.max %><% end %></p>
+    <p class="mb-1">Repo: <code class="text-secondary">turf-vault</code><% if idl_instruction_names.any? %> &middot; <%= idl_instruction_names.size %> instructions<% end %><% if idl_error_codes.any? %> &middot; errors <%= idl_error_codes.min %>&ndash;<%= idl_error_codes.max %><% end %></p>
     <p>Byte and rent figures read off the <%= measured[:cluster] %> deployment of turf-vault v<%= measured[:version] %> at slot <%= number_with_delimiter(measured[:slot]) %> (<%= measured[:date] %>): <code class="text-secondary">solana program dump</code> for the <%= number_with_delimiter(deployed_file_bytes) %>-byte deployed file, <code class="text-secondary">llvm-objdump --section-headers</code> for its sections, <code class="text-secondary">getMultipleAccounts</code> for the balances, and <code class="text-secondary">getMinimumBalanceForRentExemption</code> for every rent-exempt minimum — none of them multiplied out from a per-byte constant. Per-instruction and .text-bucket bytes from a <%= attributed_on %> debug-info rebuild (deduped by address), not yet re-measured. Caller map re-audited against <code class="text-secondary">app/services/solana/vault.rb</code>.</p>
   </footer>
 

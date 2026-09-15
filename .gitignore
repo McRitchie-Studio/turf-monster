@@ -42,7 +42,17 @@
 test-ledger/
 
 # Playwright / Node
-node_modules/
+#
+# NO TRAILING SLASH, AND THAT IS THE WHOLE POINT. A pattern ending in "/"
+# matches DIRECTORIES ONLY. node_modules here was a committed SYMLINK (mode
+# 120000) whose content was an ABSOLUTE path to this repo's own node_modules --
+# it pointed at itself -- and "node_modules/" did not match it, so a routine
+# `git add -A` staged it and
+# da74fbc5 shipped it to main and accepted. Every desk git created after that
+# checked the symlink out, which is why the local e2e lane was dead on all of
+# them while CI stayed green: CI installs its own. Restoring the slash re-opens
+# exactly that hole.
+node_modules
 test-results/
 playwright-report/
 playwright/.cache/
