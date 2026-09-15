@@ -68,6 +68,24 @@ One-time runbook for the **v0.15.0 mainnet first deploy**. Read top-to-bottom; e
   > losing two personal keys. He has that trade and chose four — changeable
   > later with one config transaction, since he holds 3 of 4.
   >
+  > **THE FIVE-MEMBER VAULT SET IS BLOCKED ON A PROGRAM UPGRADE, NOT ON A
+  > CEREMONY.** The DEPLOYED v0.25.0 declares `update_signers(new_signers:
+  > [Pubkey; 3])` against `signers: [Pubkey; 3]` — it can only ever write
+  > THREE, and it replaces the whole set. `accepted` widens that to
+  > `[Pubkey; MAX_SIGNERS]` alongside `signers_ext`. So the order is forced:
+  >
+  > 1. **Restore a working upgrade path.** `scripts/squad-upgrade.js` signs as
+  >    `8K81…` and cosigns with `CytJ…`, both removed from Squads on
+  >    2026-09-15, so it cannot drive an upgrade today. A current member has to
+  >    sign — the agent holds `BLSBw8…` — and three of the four approve.
+  > 2. **Deploy v0.26.** This is what puts `signers_ext` on-chain.
+  > 3. **Re-pin `EXPECTED_IDL_HASH`** on `turf-monster-mainnet` from the BUILT
+  >    IDL — the v0.26 change alters the IDL.
+  > 4. **Only then `update_signers`** with the five-member set.
+  >
+  > Attempting step 4 first does not fail harmlessly: it spends a ceremony and
+  > Mr. McRitchie's signatures on a transaction the live program cannot accept.
+  >
   > **Never write "the multisig" unqualified.** Say *Squads* or *`VaultState`*
   > every time. The unqualified form is what produced the stale claims this
   > block replaces. `SOLANA_MULTISIG_SIGNERS` below models `VaultState`, not

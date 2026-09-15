@@ -422,7 +422,9 @@ module Solana
     # TO CONVERGE. Squads (upgrade) is FOUR at threshold 3 and is LIVE:
     # BLSBw8…, 7ZDJ…, 3Qj4v9…, 9gACbz…. VaultState (the money) is FIVE and is
     # the TARGET: those four PLUS system 7auwTL…, which is deliberately OFF
-    # Squads. 7auwTL… is the app's HOT key — it sits in Heroku config on a
+    # Squads. FIVE IS NOT WRITABLE YET — the deployed v0.25.0 takes
+    # `update_signers(new_signers: [Pubkey; 3])`, so the five-member set needs
+    # v0.26 on-chain first; MAINNET_LAUNCH.md carries the forced order. 7auwTL… is the app's HOT key — it sits in Heroku config on a
     # running dyno and signs every entry and payout, so it is the most exposed
     # key here and the last that should hold upgrade authority; it also has no
     # job there, since upgrading is a rare human act, never an unattended one.
