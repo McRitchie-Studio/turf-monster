@@ -538,9 +538,10 @@ class FakeVault
   #   offramp_send_signature: the canned tx signature (default below)
   #   offramp_build_raises:   message → raise at build time
 
-  attr_writer :offramp_send_signature, :offramp_build_raises
+  attr_writer :offramp_send_signature, :offramp_build_raises, :offramp_cosign_raises
 
   def build_user_usdc_transfer(user_keypair:, destination_token_account:, amount_lamports:)
+    assert_above_withdrawal_minimum!(amount_lamports)
     @offramp_build_calls ||= []
     @offramp_build_calls << {
       authority: user_keypair.address,
@@ -558,8 +559,10 @@ class FakeVault
     @offramp_build_calls ||= []
   end
 
-  # Phantom flavor — unsigned single-signer tx envelope.
+  # Phantom flavor — unsigned TWO-signer envelope: the house is the fee payer,
+  # the wallet is the transfer authority (phantom-cashout-needs-sol).
   def build_user_usdc_transfer_unsigned(wallet_address:, destination_token_account:, amount_lamports:)
+    assert_above_withdrawal_minimum!(amount_lamports)
     @offramp_unsigned_calls ||= []
     @offramp_unsigned_calls << {
       wallet: wallet_address,
@@ -571,6 +574,46 @@ class FakeVault
 
   def offramp_unsigned_calls
     @offramp_unsigned_calls ||= []
+  end
+
+  # The cash-out cosign guard. Records what it was asked to validate so a test
+  # can assert the server re-derived destination + amount itself; raises when
+  # offramp_cosign_raises is set, mirroring Vault::UnsafeCosignError.
+  def assert_usdc_transfer_cosign_safe!(signed_wire_base64, wallet_address:, destination_token_account:,
+                                        amount_lamports:, context: "offramp_send")
+    @offramp_cosign_guard_calls ||= []
+    @offramp_cosign_guard_calls << {
+      wire: signed_wire_base64,
+      wallet: wallet_address,
+      destination: destination_token_account,
+      amount: amount_lamports,
+      context: context
+    }
+    raise Solana::Vault::UnsafeCosignError, @offramp_cosign_raises if @offramp_cosign_raises
+    true
+  end
+
+  def offramp_cosign_guard_calls
+    @offramp_cosign_guard_calls ||= []
+  end
+
+  def cosign_usdc_transfer(signed_wire_base64)
+    @offramp_cosign_calls ||= []
+    @offramp_cosign_calls << signed_wire_base64
+    { signed_tx: "COSIGNED_#{signed_wire_base64}",
+      signature: (@offramp_send_signature || "FakeOfframpSendSig") }
+  end
+
+  def offramp_cosign_calls
+    @offramp_cosign_calls ||= []
+  end
+
+  # Mirrors the REAL builders' floor so a controller test through this double
+  # meets the same refusal production would (Vault::MIN_WITHDRAWAL_BASE_UNITS).
+  def assert_above_withdrawal_minimum!(amount_lamports)
+    return if amount_lamports.to_i >= Solana::Vault::MIN_WITHDRAWAL_BASE_UNITS
+    raise Solana::Vault::BelowMinimumWithdrawalError,
+          "Minimum withdrawal is $#{Solana::Vault::MIN_WITHDRAWAL_USD}; got #{amount_lamports.to_i}"
   end
 
   # --- Currency registry + sweep (unused-instructions cleanup) ---

@@ -443,6 +443,7 @@ Rails.application.routes.draw do
     # body and scoped to the viewer's own offramp rows.
     post "offramp/confirm_send", to: "cdp/offramp_sends#confirm", as: :cdp_offramp_confirm_send
     post "offramp/prepare_send", to: "cdp/offramp_sends#prepare", as: :cdp_offramp_prepare_send
+    post "offramp/cosign_send",  to: "cdp/offramp_sends#cosign", as: :cdp_offramp_cosign_send
     post "offramp/sent",         to: "cdp/offramp_sends#sent",    as: :cdp_offramp_sent
   end
 

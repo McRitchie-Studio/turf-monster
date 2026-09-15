@@ -71,6 +71,15 @@ module Cdp
 
       amount = amount_base_units(ramp)
       return refuse(ramp, "sell amount missing or not positive") unless amount.positive?
+      # The $0.99 floor (phantom-cashout-needs-sol). Cdp::OfframpSendsController
+      # #confirm refuses a sub-floor cash-out before this job is ever enqueued,
+      # and Vault#build_user_usdc_transfer asserts it again as the unbypassable
+      # backstop — but that assertion RAISES, and a raise here re-raises for a
+      # Sidekiq retry that could never succeed. Refuse it cleanly instead, so a
+      # row created before the floor existed dies quietly rather than looping.
+      if amount < Solana::Vault::MIN_WITHDRAWAL_BASE_UNITS
+        return refuse(ramp, "below the $#{Solana::Vault::MIN_WITHDRAWAL_USD} minimum withdrawal (#{amount} base units)")
+      end
 
       destination = resolve_destination(ramp)
       return unless destination

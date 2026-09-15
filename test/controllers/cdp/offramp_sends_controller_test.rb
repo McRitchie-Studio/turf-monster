@@ -287,4 +287,206 @@ class Cdp::OfframpSendsControllerTest < ActionDispatch::IntegrationTest
       assert_response :unprocessable_entity
     end
   end
+
+  # ── cosign_send (Phantom, house pays the fee) ──────────────────────────────
+  #
+  # phantom-cashout-needs-sol: the cash-out wire names the HOUSE as fee payer,
+  # so Phantom's signature alone does not make it broadcastable. These pin the
+  # hop that fills the admin slot — and the guard that keeps the house's
+  # signature from being spent on anything but this cash-out.
+
+  test "cosign_send validates against the server's OWN destination and amount, then cosigns" do
+    with_cdp_ramp do
+      ramp = create_ramp(wallet_mode: "web3")
+      log_in_as @user
+
+      fake_client = FakeSolanaClient.new({}, account_infos: { @to_address => token_account_info })
+      vault = FakeVault.new
+      stub_solana_client(fake_client) do
+        Solana::Vault.stub :new, vault do
+          post cdp_offramp_cosign_send_path,
+               params: { partner_user_ref: ramp.partner_user_ref, signed_tx: "PHANTOM_SIGNED_WIRE" },
+               as: :json
+        end
+      end
+
+      assert_response :success
+      body = JSON.parse(response.body)
+      assert_equal "COSIGNED_PHANTOM_SIGNED_WIRE", body["signed_tx"]
+      assert_equal "FakeOfframpSendSig", body["tx_signature"]
+
+      guard = vault.offramp_cosign_guard_calls.first
+      assert_equal "PHANTOM_SIGNED_WIRE", guard[:wire]
+      assert_equal ramp.wallet_address, guard[:wallet]
+      assert_equal @to_address, guard[:destination],
+                   "the destination is re-resolved server-side, never read off the request"
+      assert_equal 19_000_000, guard[:amount],
+                   "the amount comes from the ramp row, never from the client"
+
+      ramp.reload
+      assert ramp.sending?, "the row leaves cdp_created the moment the house signs (one cosign per row)"
+      assert_equal "FakeOfframpSendSig", ramp.sent_signature,
+                   "the signature is persisted BEFORE the signed bytes leave the server"
+    end
+  end
+
+  test "cosign_send refuses a wire the guard rejects, and says nothing about why" do
+    with_cdp_ramp do
+      ramp = create_ramp(wallet_mode: "web3")
+      log_in_as @user
+
+      fake_client = FakeSolanaClient.new({}, account_infos: { @to_address => token_account_info })
+      vault = FakeVault.new
+      vault.offramp_cosign_raises = "token_accounts_mismatch: ix 0 accounts=attacker..."
+      stub_solana_client(fake_client) do
+        Solana::Vault.stub :new, vault do
+          post cdp_offramp_cosign_send_path,
+               params: { partner_user_ref: ramp.partner_user_ref, signed_tx: "TAMPERED" },
+               as: :json
+        end
+      end
+
+      assert_response :unprocessable_entity
+      error = JSON.parse(response.body)["error"]
+      assert_match(/didn't match your cash-out/, error)
+      assert_no_match(/token_accounts_mismatch/, error,
+                      "the guard's forensic reason is logged server-side, never returned")
+      assert_empty vault.offramp_cosign_calls, "validate-then-cosign: nothing is signed on reject"
+      assert ramp.reload.cdp_created?, "a rejected wire must not advance the row"
+    end
+  end
+
+  test "cosign_send refuses a SECOND cosign once the first send landed on-chain" do
+    with_cdp_ramp do
+      ramp = create_ramp(wallet_mode: "web3", status: "sending", sent_signature: "LandedSig111")
+      log_in_as @user
+
+      landed = { "meta" => { "err" => nil }, "transaction" => { "message" => {} } }
+      fake_client = FakeSolanaClient.new({}, account_infos: { @to_address => token_account_info },
+                                             transactions: { "LandedSig111" => landed })
+      vault = FakeVault.new
+      stub_solana_client(fake_client) do
+        Solana::Vault.stub :new, vault do
+          post cdp_offramp_cosign_send_path,
+               params: { partner_user_ref: ramp.partner_user_ref, signed_tx: "SECOND_WIRE" },
+               as: :json
+        end
+      end
+
+      assert_response :unprocessable_entity
+      assert_match(/already sent/, JSON.parse(response.body)["error"])
+      assert_empty vault.offramp_cosign_calls,
+                   "the house must not fund a second transfer for a cash-out that already sent"
+      assert_equal "LandedSig111", ramp.reload.sent_signature
+    end
+  end
+
+  test "cosign_send RE-ARMS when the recorded send never landed" do
+    with_cdp_ramp do
+      ramp = create_ramp(wallet_mode: "web3", status: "sending", sent_signature: "NeverLanded111")
+      log_in_as @user
+
+      # get_transaction → nil: the browser never managed to broadcast.
+      fake_client = FakeSolanaClient.new({}, account_infos: { @to_address => token_account_info })
+      vault = FakeVault.new
+      stub_solana_client(fake_client) do
+        Solana::Vault.stub :new, vault do
+          post cdp_offramp_cosign_send_path,
+               params: { partner_user_ref: ramp.partner_user_ref, signed_tx: "RETRY_WIRE" },
+               as: :json
+        end
+      end
+
+      assert_response :success
+      assert_equal ["RETRY_WIRE"], vault.offramp_cosign_calls
+      assert ramp.reload.sending?
+      assert_equal "FakeOfframpSendSig", ramp.sent_signature, "the dead signature is replaced, not kept"
+    end
+  end
+
+  test "sent still accepts the wallet now that it sits in signer slot 1 behind the house" do
+    with_cdp_ramp do
+      ramp = create_ramp(wallet_mode: "web3")
+      log_in_as @user
+
+      # The post-fix shape: two signers, house at 0 (fee payer), wallet at 1.
+      house_paid = {
+        "meta" => { "err" => nil },
+        "transaction" => {
+          "message" => {
+            "header" => { "numRequiredSignatures" => 2 },
+            "accountKeys" => [Solana::Keypair.admin.address, ramp.wallet_address]
+          }
+        }
+      }
+      fake_client = FakeSolanaClient.new({}, transactions: { "HousePaidSig111" => house_paid })
+      stub_solana_client(fake_client) do
+        post cdp_offramp_sent_path,
+             params: { partner_user_ref: ramp.partner_user_ref, tx_signature: "HousePaidSig111" },
+             as: :json
+      end
+
+      assert_response :success
+      assert ramp.reload.sent?
+      assert_equal "HousePaidSig111", ramp.sent_signature
+    end
+  end
+
+  # ── the $0.99 withdrawal floor ─────────────────────────────────────────────
+
+  test "prepare_send refuses a withdrawal below the $0.99 floor, naming the floor" do
+    with_cdp_ramp do
+      ramp = create_ramp(wallet_mode: "web3", sell_amount_value: BigDecimal("0.40"))
+      log_in_as @user
+
+      fake_client = FakeSolanaClient.new({}, account_infos: { @to_address => token_account_info })
+      vault = FakeVault.new
+      stub_solana_client(fake_client) do
+        Solana::Vault.stub :new, vault do
+          post cdp_offramp_prepare_send_path, params: { partner_user_ref: ramp.partner_user_ref }, as: :json
+        end
+      end
+
+      assert_response :unprocessable_entity
+      body = JSON.parse(response.body)
+      assert_match(/Minimum withdrawal is \$0\.99/, body["error"],
+                   "someone with $0.40 stuck must read a FLOOR, not a generic validation failure")
+      assert_equal "0.99", body["minimum_usd"]
+      assert_empty vault.offramp_unsigned_calls, "no transaction is built below the floor"
+      assert_nil ramp.reload.confirmed_at, "a refused cash-out is not stamped as confirmed"
+    end
+  end
+
+  test "confirm_send refuses a managed withdrawal below the $0.99 floor" do
+    with_cdp_ramp do
+      ramp = create_ramp(sell_amount_value: BigDecimal("0.40")) # web2
+      log_in_as @user
+
+      post cdp_offramp_confirm_send_path, params: { partner_user_ref: ramp.partner_user_ref }, as: :json
+
+      assert_response :unprocessable_entity
+      assert_match(/Minimum withdrawal is \$0\.99/, JSON.parse(response.body)["error"])
+      assert_empty enqueued_jobs.select { |j| j[:job] == Cdp::OfframpSendJob },
+                   "the send job is never enqueued for a sub-floor cash-out"
+      assert ramp.reload.cdp_created?
+    end
+  end
+
+  test "a cash-out at exactly $0.99 is above the floor and proceeds" do
+    with_cdp_ramp do
+      ramp = create_ramp(wallet_mode: "web3", sell_amount_value: BigDecimal("0.99"))
+      log_in_as @user
+
+      fake_client = FakeSolanaClient.new({}, account_infos: { @to_address => token_account_info })
+      vault = FakeVault.new
+      stub_solana_client(fake_client) do
+        Solana::Vault.stub :new, vault do
+          post cdp_offramp_prepare_send_path, params: { partner_user_ref: ramp.partner_user_ref }, as: :json
+        end
+      end
+
+      assert_response :success
+      assert_equal 990_000, vault.offramp_unsigned_calls.first[:amount]
+    end
+  end
 end
