@@ -141,6 +141,107 @@ class GovernanceRollbackPinTest < ActiveSupport::TestCase
     end
   end
 
+  # ── WHAT THE ROLLBACK BUYS, held against the two IDLs ─────────────────────
+  #
+  # The doc's other load-bearing claim, and the one most likely to be read too
+  # generously: the unset is a BOOT-level rollback, not a functional one. Anchor
+  # account lists are positional, so a v0.25 wire is rejected by a v0.26 program
+  # wherever the list differs — and it differs almost everywhere. The numbers in
+  # the prose are derived here from the committed artifacts, so a future IDL that
+  # changes them reddens instead of leaving the runbook overstating the retreat.
+
+  def instruction_accounts(path)
+    JSON.parse(File.read(path)).fetch("instructions")
+        .to_h { |i| [i["name"], i.fetch("accounts").map { |a| a["name"] }] }
+  end
+
+  test "19 of the 20 shared instructions change account list, and the doc says so" do
+    v25 = instruction_accounts(V25_PATH)
+    v26 = instruction_accounts(V26_PATH)
+    shared = v25.keys & v26.keys
+
+    assert_equal 20, shared.length, "the shapes share 20 instructions"
+    changed = shared.reject { |n| v25[n] == v26[n] }
+    assert_equal 19, changed.length, "19 of the 20 have a different account list"
+    assert_equal ["initialize"], (shared - changed), "only the one-time bootstrap survives unchanged"
+
+    gained = shared.select { |n| v26[n].include?("governance") && !v25[n].include?("governance") }
+    assert_equal 17, gained.length, "17 of them change by gaining the governance account"
+
+    body = DOC.read
+    assert_match(/20 instructions, and 19 of them have a different account list/, body)
+    assert_match(/17\s*\n?\s*by gaining `governance`/m, body)
+  end
+
+  # The read side is the reason a rolled-back app LOOKS healthy, which is the
+  # trap the prose names — and the mechanism is NOT the obvious one. Neither
+  # changed account type grows: both SPEND TRAILING `_reserved` PADDING, so every
+  # pre-existing field keeps its byte offset and a v0.25 decoder reads the new
+  # field as padding it already ignores. That is a stronger property than
+  # "appended", and it is the claim the prose now makes. This test was written
+  # asserting the weaker one and reddened, which is how the doc got corrected.
+  #
+  # It is also the mechanism behind the step-4 warning. v0.25's VaultState has
+  # THREE signer slots; v0.26's extra two live in `signers_ext`, a field the
+  # deployed v0.25 binary does not have — which is exactly why a five-key
+  # update_signers against it truncates rather than failing.
+  SIZES = { "pubkey" => 32, "u8" => 1, "u16" => 2, "u32" => 4, "u64" => 8, "i64" => 8 }.freeze
+
+  def byte_size(type)
+    return SIZES.fetch(type) if type.is_a?(String)
+    return byte_size(type["array"][0]) * type["array"][1] if type.is_a?(Hash) && type["array"]
+    raise "no size for #{type.inspect}"
+  end
+
+  def typed_fields(path)
+    JSON.parse(File.read(path)).fetch("types", [])
+        .to_h { |t| [t["name"], (t.dig("type", "fields") || [])] }
+  end
+
+  test "the changed layouts spend reserved padding, so every old field keeps its offset" do
+    f25 = typed_fields(V25_PATH)
+    f26 = typed_fields(V26_PATH)
+    names = JSON.parse(File.read(V25_PATH)).fetch("accounts").map { |a| a["name"] } &
+            JSON.parse(File.read(V26_PATH)).fetch("accounts").map { |a| a["name"] }
+
+    assert_equal 7, names.length, "seven account types are shared"
+    changed = names.reject { |n| f25[n].map { |f| f["name"] } == f26[n].map { |f| f["name"] } }
+    assert_equal %w[UserAccount VaultState], changed.sort,
+                 "only these two changed; a third means the read-side claim needs re-deriving"
+
+    changed.each do |n|
+      old_f = f25[n]
+      new_f = f26[n]
+      assert_equal "_reserved", old_f.last["name"], "#{n} must end in padding for this argument to hold"
+      assert_equal "_reserved", new_f.last["name"]
+
+      # Every pre-existing field, padding aside, sits at the SAME index in the
+      # same order — which for a flat Borsh struct is the same byte offset.
+      old_body = old_f[0..-2]
+      assert_equal old_body.map { |f| f["name"] }, new_f[0, old_body.length].map { |f| f["name"] },
+                   "#{n}'s pre-existing fields must keep their positions"
+      assert_equal old_body.map { |f| f["type"] }, new_f[0, old_body.length].map { |f| f["type"] },
+                   "#{n}'s pre-existing fields must keep their types"
+
+      # And the new fields are paid for out of the padding, byte for byte, so
+      # the account's total size does not move.
+      added = new_f[old_body.length..-2]
+      refute_empty added, "#{n} is in the changed set, so it must have gained a field"
+      spent = byte_size(old_f.last["type"]) - byte_size(new_f.last["type"])
+      assert_equal added.sum { |f| byte_size(f["type"]) }, spent,
+                   "#{n}'s new fields must be paid for out of _reserved, or the account grew"
+    end
+
+    # The concrete numbers, so a future change cannot quietly rebalance them.
+    assert_equal 1, byte_size(f26["UserAccount"].find { |f| f["name"] == "username_registered" }["type"])
+    assert_equal 64, byte_size(f26["VaultState"].find { |f| f["name"] == "signers_ext" }["type"])
+    assert_equal 3, f26["VaultState"].find { |f| f["name"] == "signers" }["type"]["array"][1],
+                 "the base signers array stays THREE — the extra two live in signers_ext"
+
+    assert_match(%r{spend\s+trailing\s+`_reserved`\s+padding}mi, DOC.read,
+                 "the prose must name the mechanism, not the weaker 'appended' claim")
+  end
+
   # ── the prose the defect was, in the end, about ───────────────────────────
 
   test "the ceremony list does not contain the tighten" do

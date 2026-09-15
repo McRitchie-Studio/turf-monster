@@ -15,16 +15,15 @@ require "test_helper"
 class Solana::GovernanceSwitchTest < ActiveSupport::TestCase
   CONFIG_RB = Rails.root.join("app", "services", "solana", "config.rb")
 
-  # The constant is frozen at class-load from ENV, so the parse is re-derived
-  # here from the same source of truth rather than by re-booting the app under a
-  # different environment. The vocabulary lists ARE the contract.
+  # The constant is frozen at class-load from ENV, so the parse is exercised
+  # through the RULE that constant is built from rather than by re-booting the
+  # app under a different environment. It used to be RE-DERIVED here, which made
+  # these tests a check on a copy of the contract; `Solana::IdlSelection`
+  # (make-deploy-governance-aware) takes a plain Hash for exactly this reason, so
+  # "absent" is a Hash without the key and every case below now runs the real
+  # code. The vocabulary lists ARE the contract.
   def resolve(value, present: true)
-    return false unless present
-
-    raw = value.to_s.strip.downcase
-    return true if Solana::Config::GOVERNANCE_TRUE.include?(raw)
-    return false if Solana::Config::GOVERNANCE_FALSE.include?(raw)
-    raise ArgumentError, "unreadable"
+    Solana::IdlSelection.governance?(present ? { Solana::Config::GOVERNANCE_ENV_VAR => value } : {})
   end
 
   # ── THE DEFAULT IS THE DEPLOYED SHAPE ─────────────────────────────────────
@@ -60,20 +59,27 @@ class Solana::GovernanceSwitchTest < ActiveSupport::TestCase
   # the day someone meant to turn it on.
   test "a present-but-GARBAGE value raises instead of defaulting" do
     ["yeah", "1.0", "enable", "v0.26", "-", "ok"].each do |v|
-      assert_raises(ArgumentError, "#{v.inspect} must refuse, not default") { resolve(v) }
+      assert_raises(Solana::IdlSelection::UnreadableSwitchError, "#{v.inspect} must refuse, not default") { resolve(v) }
     end
   end
 
   test "a present-but-EMPTY value raises rather than resolving like absent" do
-    assert_raises(ArgumentError) { resolve("") }
-    assert_raises(ArgumentError) { resolve("   ") }
+    assert_raises(Solana::IdlSelection::UnreadableSwitchError) { resolve("") }
+    assert_raises(Solana::IdlSelection::UnreadableSwitchError) { resolve("   ") }
     refute resolve("", present: false), "absent is still the documented default"
   end
 
-  test "the config reads presence with ENV.key?, which is what tells absent from empty" do
-    source = CONFIG_RB.read
-    assert_match(/if !ENV\.key\?\(GOVERNANCE_ENV_VAR\)/, source,
+  # The read moved to lib/solana/idl_selection.rb with the rest of the selection
+  # rule, so that bin/deploy applies the SAME parse to the target's config vars
+  # instead of a bash copy of it (make-deploy-governance-aware). The property is
+  # unchanged and is asserted in both halves: the rule reads presence with
+  # `key?`, and the config applies the rule rather than re-reading ENV itself.
+  test "presence is read with key?, which is what tells absent from empty" do
+    assert_match(/env\.key\?\(GOVERNANCE_ENV_VAR\)/,
+                 Rails.root.join("lib", "solana", "idl_selection.rb").read,
                  "ENV.fetch with a default cannot distinguish absent from set-but-empty")
+    assert_match(/IdlSelection\.governance\?\(ENV\)/, CONFIG_RB.read,
+                 "Config must apply that rule, not restate it")
   end
 
   # ── WHAT THE SWITCH SELECTS ───────────────────────────────────────────────

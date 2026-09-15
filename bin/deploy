@@ -15,6 +15,8 @@
 #   2. Confirm (real-funds deploy requires explicit consent)
 #   3. IDL re-pin via allow-list widen→tighten if the bundled IDL bumped
 #      (EXPECTED_IDL_HASH accepts {old,new} across the release → no unverified window)
+#      The IDL is chosen by the TARGET's own config vars through the app's own
+#      selection rule — network AND the turf-vault governance switch.
 #   4. Push to the heroku-mainnet remote
 #   5. Smoke-check; roll back on failure
 #   Migrations run in Heroku's release phase (Procfile `release:`), NOT here.
@@ -63,8 +65,13 @@ Env:
   SKIP_TESTS=1    skip the local test run
 
 IDL bumps are handled automatically: EXPECTED_IDL_HASH is a comma allow-list, so
-the script widens it to {old,new}, pushes, then tightens to {new} — the live and
-incoming slugs both verify across the release, with no BYPASS / unverified window.
+the script widens it to {old,new}, pushes, then tightens to the hashes this slug
+ships for the target's cluster — the live and incoming slugs both verify across
+the release, with no BYPASS / unverified window. Which IDL is "live" is decided
+by the target's SOLANA_NETWORK *and* SOLANA_VAULT_GOVERNANCE, read through
+lib/solana/idl_selection.rb — the same rule Solana::Config applies at boot.
+The tighten keeps the OTHER switch position's hash so `heroku config:unset
+SOLANA_VAULT_GOVERNANCE` still boots (the v0.26 one-command rollback).
 
 One-time mainnet first deploy: follow MAINNET_LAUNCH.md instead.
 USAGE
@@ -88,8 +95,10 @@ git remote get-url "$REMOTE" >/dev/null 2>&1 \
 
 BRANCH=$(git rev-parse --abbrev-ref HEAD)   # computed BEFORE the skip-checks gate
 
-# Defined under set -u even when checks are skipped.
-LOCAL_HASH=""; REMOTE_HASHES=""; IDL_BUMP=0; IDL_FILE="config/turf_vault.idl.json"
+# Defined under set -u even when checks are skipped. IDL_FILE/SIBLING_IDL_FILE
+# stay EMPTY rather than guessing a file: which IDL this target boots against is
+# resolved from the target's own config vars below, never assumed here.
+LOCAL_HASH=""; REMOTE_HASHES=""; IDL_BUMP=0; IDL_FILE=""; SIBLING_IDL_FILE=""; SIBLING_HASH=""
 
 # ── Pre-flight ───────────────────────────────────────────────────────────────
 if [ "$SKIP_CHECKS" != "1" ]; then
@@ -123,20 +132,49 @@ if [ "$SKIP_CHECKS" != "1" ]; then
     ok "Synced with origin"
   fi
 
-  # IDL pin — resolve the file by the TARGET's network (mirrors
-  # Solana::Config::IDL_PATH), compare to the app's EXPECTED_IDL_HASH allow-list.
-  # The mainnet app runs SOLANA_NETWORK=mainnet-beta, so this resolves to the
-  # mainnet IDL; the devnet branch stays as a safe fallback (mirrors Config).
-  NET=$(heroku config:get SOLANA_NETWORK --app "$HEROKU_APP" 2>/dev/null || echo "")
-  if [ "$NET" = "mainnet-beta" ]; then
-    IDL_FILE="config/turf_vault.mainnet.idl.json"
-  else
-    IDL_FILE="config/turf_vault.idl.json"
-  fi
-  [ -f "$IDL_FILE" ] || fail "$IDL_FILE missing (target network: ${NET:-devnet}) — re-pin per MAINNET_LAUNCH.md."
-  ok "IDL file present ($IDL_FILE)"
+  # IDL pin — ASK THE APP which IDL this target boots against, then compare it to
+  # the app's EXPECTED_IDL_HASH allow-list.
+  #
+  # `lib/solana/idl_selection.rb` is the ONE implementation of that rule:
+  # Solana::Config applies it to ENV at boot, this script applies it to the
+  # TARGET's config vars. It was re-implemented here in bash as "mainnet ?
+  # mainnet IDL : devnet IDL" under a comment claiming it mirrored
+  # Solana::Config::IDL_PATH — true until `wire-rails-to-governance` taught the
+  # app to append `.v026` when SOLANA_VAULT_GOVERNANCE is on (turf-vault v0.26),
+  # false the moment it merged. A stale mirror hashes a file the app does not
+  # read, calls it a bump, and TIGHTENS the pin onto it; the next dyno boot then
+  # fails verify_governance_alignment!, which deliberately sits outside
+  # BYPASS_IDL_CHECK because the hatch is for hash skew, not a wrong shape.
+  #
+  # Ruby, not `bin/rails runner`: this machine cannot boot the app under the
+  # target's environment — SOLANA_NETWORK=mainnet-beta trips OPSEC-039's genesis
+  # check against the LOCAL RPC and refuses. The selection rule is plain Ruby so
+  # it answers without a Rails boot at all.
+  #
+  # `heroku config --json`, not `config:get`: config:get prints an empty line for
+  # BOTH an absent key and a present-but-empty one, and here they are different
+  # outcomes — an ABSENT SOLANA_VAULT_GOVERNANCE means the v0.25 shape, while
+  # `SOLANA_VAULT_GOVERNANCE=` refuses to boot. Piped on STDIN, never argv: that
+  # JSON carries every secret the app holds and argv is world-readable in `ps`.
+  TARGET_CONFIG=$(heroku config --json --app "$HEROKU_APP" 2>/dev/null || echo "")
+  [ -n "$TARGET_CONFIG" ] || fail "Couldn't read $HEROKU_APP config vars (heroku config --json) — check 'heroku auth:whoami'."
+
+  SELECTION=$(printf '%s' "$TARGET_CONFIG" | ruby lib/solana/idl_selection.rb --deploy-preflight) \
+    || fail "The IDL selection rule refused this target (message above) — nothing was changed."
+  select_field() { printf '%s\n' "$SELECTION" | sed -n "s/^$1=//p"; }
+
+  NET=$(select_field network)
+  IDL_FILE=$(select_field idl_path)
+  SIBLING_IDL_FILE=$(select_field sibling_idl_path)
+  ok "IDL: $IDL_FILE — target is $NET, SOLANA_VAULT_GOVERNANCE $(select_field governance), shape $(select_field vault_shape)"
 
   LOCAL_HASH=$(shasum -a 256 "$IDL_FILE" | awk '{print $1}')
+  # The file the OTHER switch position selects on this cluster. Hashed here so
+  # the tighten below can keep the v0.26 one-command rollback alive; empty when
+  # this slug no longer ships that shape.
+  if [ -n "$SIBLING_IDL_FILE" ]; then
+    SIBLING_HASH=$(shasum -a 256 "$SIBLING_IDL_FILE" | awk '{print $1}')
+  fi
   REMOTE_HASHES=$(heroku config:get EXPECTED_IDL_HASH --app "$HEROKU_APP" 2>/dev/null || echo "")
   [ -n "$REMOTE_HASHES" ] || fail "EXPECTED_IDL_HASH not set on $HEROKU_APP — boot will fail (OPSEC-014). Set it first."
   # Membership test mirrors Solana::Config.idl_hash_acceptable? (comma allow-list).
@@ -185,13 +223,37 @@ fi
 # ── Rollback point ───────────────────────────────────────────────────────────
 PREV_RELEASE=$(heroku releases --app "$HEROKU_APP" -n 1 2>/dev/null | awk '/^ *v[0-9]/ {print $1; exit}' || echo "")
 
+# ── The two allow-list sets, computed in one place ───────────────────────────
+# SHAPE PAIR: every IDL hash the slug being deployed can legitimately boot with
+# on this cluster — the file the target's SOLANA_VAULT_GOVERNANCE selects today,
+# plus the file the OTHER switch position selects. Both are artifacts committed
+# in that slug, and any one boot still verifies exactly the single file its own
+# switch chose (a shape/switch disagreement is refused by
+# Solana::Config.verify_governance_alignment!, not by this list).
+shape_pair_hashes() {
+  if [ -n "$SIBLING_HASH" ]; then
+    printf '%s,%s' "$LOCAL_HASH" "$SIBLING_HASH"
+  else
+    printf '%s' "$LOCAL_HASH"
+  fi
+}
+
+# Comma allow-list hygiene: drop blanks and repeats, preserving order, so the
+# value an operator reads in `heroku config` is the set and nothing else.
+# (Solana::Config.expected_idl_hashes parses either way — this is for humans.)
+dedupe_hashes() { printf '%s' "$1" | tr ',' '\n' | awk 'NF && !seen[$0]++' | paste -sd, -; }
+
+# WIDENED: the outgoing slug's hashes PLUS the incoming slug's, so both verify
+# across the release boundary.
+widened_set() { dedupe_hashes "${REMOTE_HASHES},$(shape_pair_hashes)"; }
+
 rollback_or_hint() {
   warn "$1"
-  # If we tightened the IDL allow-list to {new}, rolling the slug back to the old
-  # IDL would fail the check. Re-widen to {old,new} first so the rolled-back slug
-  # verifies; leave it widened (operator tightens to the correct hash after).
+  # If we tightened the IDL allow-list, rolling the slug back to the old IDL
+  # would fail the check. Re-widen to {old + this slug's shapes} first so the
+  # rolled-back slug verifies; leave it widened (operator tightens after).
   if [ "$IDL_BUMP" = "1" ]; then
-    heroku config:set EXPECTED_IDL_HASH="${REMOTE_HASHES},${LOCAL_HASH}" --app "$HEROKU_APP" >/dev/null 2>&1 || true
+    heroku config:set EXPECTED_IDL_HASH="$(widened_set)" --app "$HEROKU_APP" >/dev/null 2>&1 || true
     warn "Re-widened EXPECTED_IDL_HASH to {old,new} so a rollback boots; tighten to the correct hash after investigating."
   fi
   if [ -n "$PREV_RELEASE" ]; then
@@ -207,7 +269,7 @@ rollback_or_hint() {
 # release boundary — no BYPASS, no unverified window.
 if [ "$IDL_BUMP" = "1" ]; then
   bold "IDL re-pin: widening EXPECTED_IDL_HASH allow-list (old + new)"
-  heroku config:set EXPECTED_IDL_HASH="${REMOTE_HASHES},${LOCAL_HASH}" --app "$HEROKU_APP" >/dev/null
+  heroku config:set EXPECTED_IDL_HASH="$(widened_set)" --app "$HEROKU_APP" >/dev/null
   ok "Allow-list now accepts both the live and incoming IDL"
 fi
 
@@ -221,14 +283,37 @@ fi
 ok "Pushed (migrations ran in the release phase)"
 
 # ── IDL allow-list tighten (dance step 2) ────────────────────────────────────
-# The new slug is live and verified (it matched the widened set). Tighten to
-# {new}. If this fails, prod is STILL on the new VERIFIED slug — just re-run it.
+# The new slug is live and verified (it matched the widened set). Tighten to the
+# hashes THIS slug ships for this cluster, dropping the outgoing slug's stale
+# hash — which is the whole job of the tighten. If this fails, prod is STILL on
+# the new VERIFIED slug — just re-run it.
+#
+# WHY THE SIBLING SHAPE'S HASH STAYS IN THE SET. `heroku config:unset
+# SOLANA_VAULT_GOVERNANCE` is the documented one-command rollback for the
+# turf-vault v0.26 upgrade: it re-resolves Solana::Config::IDL_PATH to the other
+# shape's file and restarts the dynos — no deploy, no second Squads ceremony.
+# That rollback boots ONLY while the other shape's hash is still allow-listed,
+# so tightening to a single hash quietly spends the reversibility the whole
+# version-aware design was chosen to buy. Measured, at PR 714's head: with the
+# pin at {v026} alone the unset raises IdlMismatchError and no dyno boots; with
+# {v025,v026} the same unset boots fine.
+#
+# This is the SCRIPT's automated tighten. The CEREMONY's manual tighten — and
+# the doc that calls steps 3-4 freely reversible — is a separate defect, filed
+# as fix-governance-rollback-ordering; nothing here edits that runbook.
 if [ "$IDL_BUMP" = "1" ]; then
-  bold "IDL re-pin: tightening EXPECTED_IDL_HASH to the new hash"
-  if heroku config:set EXPECTED_IDL_HASH="$LOCAL_HASH" --app "$HEROKU_APP" >/dev/null; then
-    ok "Pinned to $LOCAL_HASH"
+  TIGHTENED=$(dedupe_hashes "$(shape_pair_hashes)")
+  bold "IDL re-pin: tightening EXPECTED_IDL_HASH to this slug's IDL hashes"
+  if heroku config:set EXPECTED_IDL_HASH="$TIGHTENED" --app "$HEROKU_APP" >/dev/null; then
+    ok "Pinned to $TIGHTENED"
+    # An `x && y` tail here would exit the script under `set -e` whenever the
+    # slug ships only one shape — the condition's own non-zero status is the
+    # last one in the branch.
+    if [ -n "$SIBLING_HASH" ]; then
+      ok "Kept ${SIBLING_IDL_FILE}'s hash so a SOLANA_VAULT_GOVERNANCE flip still boots"
+    fi
   else
-    warn "Tighten failed — prod is on the new VERIFIED slug, allow-list still includes the old hash. Re-run: heroku config:set EXPECTED_IDL_HASH=$LOCAL_HASH --app $HEROKU_APP"
+    warn "Tighten failed — prod is on the new VERIFIED slug, allow-list still includes the old hash. Re-run: heroku config:set EXPECTED_IDL_HASH=$TIGHTENED --app $HEROKU_APP"
   fi
 fi
 

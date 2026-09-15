@@ -313,11 +313,49 @@ it has its own preconditions under "Tightening the pin — the one-way door" bel
    you added are simply absent the next time an action needs them.
 
 **Rollback is `heroku config:unset SOLANA_VAULT_GOVERNANCE` plus a restart** —
-seconds, no deploy, no second ceremony. It returns Rails to the v0.25 shape.
+seconds, no deploy, no second ceremony. It returns Rails to the v0.25 shape —
+which after step 1 means a booting app, not a working one; read "What the
+rollback actually buys" below before you rely on it.
 Step 1 is the point of no easy return: rolling the PROGRAM back is a second
 Squads act. **Steps 2-4 are reversible from the Rails side alone for exactly as
 long as `EXPECTED_IDL_HASH` still accepts the v0.25 hash** — which is why the
 tighten is not in the list above.
+
+#### What the rollback actually buys — a BOOT, not a working app
+
+Say this part plainly, because "one-command rollback" invites the wrong reading.
+**Before** the program upgrade, unsetting the switch is a true rollback: Rails
+returns to the shape the chain is still speaking, and everything works.
+**After** step 1, it is not. It buys a booting app that cannot transact.
+
+Anchor account lists are POSITIONAL, so a v0.25-shaped wire sent to a v0.26
+program is rejected. Measured from the two committed IDLs: the shapes share
+**20 instructions, and 19 of them have a different account list in v0.26** — 17
+by gaining `governance`, plus `create_user_account` (`+username_record`) and
+`set_username`. The only shared instruction whose account list is unchanged is
+`initialize`, a one-time bootstrap. There is no meaningful subset that survives.
+
+The read side survives almost intact, and that is the trap rather than the
+consolation. Of the seven account types both shapes declare, five are
+byte-identical. The two that changed do not grow: they **spend trailing
+`_reserved` padding**, so every pre-existing field keeps its byte offset and a
+v0.25 decoder reads the new field as padding it already ignores.
+`UserAccount` takes one byte of its 32 for `username_registered` (32 -> 31);
+`VaultState` takes all 64 of its reserve for `signers_ext`, two more pubkeys
+(64 -> 0). So a rolled-back app renders pages and shows balances while every
+entry, settle, mint, pause and season write fails on chain.
+
+`VaultState` is worth pausing on, because it is the same fact as the step-4
+warning above: the base `signers` array is THREE slots in BOTH shapes, and
+v0.26's extra two live in `signers_ext` — a field the deployed v0.25 binary
+does not have. That is why a five-key `update_signers` against it writes three
+and drops two instead of failing.
+
+**So the boot-level rollback is worth having and is not a retreat.** It is the
+difference between an app that crash-loops with no `/up`, no admin, and no way
+to read state, and an app you can log into while you decide what to do —
+including proposing the second Squads act that rolls the PROGRAM back. Keep it.
+Just do not plan around it as though it restored service.
 
 #### Tightening the pin — the one-way door
 
@@ -343,12 +381,21 @@ retreat from an accidental `config:unset`. Both produce byte-identical state:
 the v0.25 file selected, its hash allow-listed, and
 `verify_governance_alignment!` satisfied — because the switch and the file agree
 with EACH OTHER even though neither agrees with the upgraded program. Nothing
-refuses that boot. Rails then assembles v0.25 account lists for a v0.26 program
-and every vault transaction fails on chain instead of at boot. Tightening is how
-you finally say "we are not going back", and it converts that silent
-misconfiguration into a loud boot refusal. It buys strictness at the exact
-moment you would most want to retreat, so it is worth its cost only once
-retreating is off the table.
+refuses that boot, and what follows is the 19-of-20 failure described above: an
+app that looks healthy and cannot write. Tightening is how you finally say "we
+are not going back", and it converts that silent misconfiguration into a loud
+boot refusal. It buys strictness at the exact moment you would most want the
+boot, so it is worth its cost only once retreating is off the table.
+
+**What tightening does NOT buy is tamper-detection** — the pair pin costs
+nothing there, which is worth stating because it is the intuitive objection.
+`verify_governance_alignment!` reads the selected file's CONTENTS, runs ahead of
+the `BYPASS_IDL_CHECK` return, and never consults the allow-list at all, so it
+already pins which of the two files each switch position may select. A two-hash
+set therefore admits exactly ONE file per switch position, the same as a
+one-hash set; what the second hash admits is the other position, which is the
+whole point. Do not weaken that guard to make a rollback work — it is the one
+thing standing between a wrong shape and a dyno that accepts traffic.
 
 **Tighten when all of these hold, and not before:**
 
@@ -357,21 +404,18 @@ retreating is off the table.
   `close_contest` and one `settle_contest` — on the cluster being tightened.
 - You have decided you will not retreat. If you would still consider it, the
   widened pin is the correct state and costs you one allow-listed hash.
-- **`bin/deploy`'s tighten keeps BOTH switch positions.** Read its tighten step
-  and check that for yourself before you tighten by hand; the requirement is
-  that it writes every hash this slug ships for the target cluster, not one.
-  As measured on 2026-09-15 it did not: it resolved the IDL file from
-  `SOLANA_NETWORK` ALONE — half of the rule, which is keyed on network **and**
-  `SOLANA_VAULT_GOVERNANCE` — and tightened `EXPECTED_IDL_HASH` to that single
-  file's hash. Against a widened pin that is harmless: the v0.25 hash is already
-  allow-listed, so no bump fires and nothing is rewritten. Against a pin already
-  tightened to v0.26 it is not: it reads the v0.25 file, sees a bump, widens,
-  and then tightens the live app to **the v0.25 hash alone** — the last row of
-  the table above, and a `config:set` restarts the dynos on its way out. The
-  `make-deploy-governance-aware` task moves the selection rule into one file
-  applied by both readers and makes the tighten keep both positions; confirm it
-  has MERGED rather than assuming it, since a runbook that trusts an unlanded
-  fix is the failure this bullet exists to prevent.
+- **You accept that `bin/deploy` will undo it at the next IDL bump.** The script
+  agrees with this section and says so in its own comment: its automated tighten
+  writes the hashes this slug ships for the target cluster — **both switch
+  positions** — precisely so an `unset` still boots. It asks
+  `lib/solana/idl_selection.rb` which file the TARGET boots against, the same
+  rule `Solana::Config` applies to its own ENV at boot, so there is no second
+  implementation to drift. A routine deploy with no IDL bump rewrites nothing
+  and leaves a manual tighten standing; the next deploy that DOES bump the IDL
+  widens, pushes, and then re-pins both shapes of the new pair. A hand-tightened
+  pin is therefore a temporary state with an expiry you do not control — which
+  is the strongest argument that the dual pin, not the single one, is this
+  system's resting state.
 
 Tighten as its own change, with its own restart, and confirm the app boots
 before walking away.
@@ -444,19 +488,27 @@ Use `turf-vault/scripts/squad-upgrade.js` — it builds a buffer, sets the buffe
 **Post-deploy IDL re-pin (mandatory)**: After every Squad upgrade, turf-monster MUST re-pin `EXPECTED_IDL_HASH` from the **freshly built** IDL — NOT `anchor idl fetch`. Squad upgrades run only the BPF `upgrade` instruction; they do NOT update the on-chain IDL account. `anchor idl fetch` therefore returns the stale pre-upgrade IDL.
 
 ```bash
-# After deploying turf-vault, re-pin the IDL file of the CLUSTER YOU UPGRADED.
-# Each cluster commits its own file (they differ only in `address`):
-#   mainnet -> config/turf_vault.mainnet.idl.json  (build with --features mainnet)
-#   devnet  -> config/turf_vault.idl.json          (default build)
+# After deploying turf-vault, re-pin the IDL file of the CLUSTER YOU UPGRADED —
+# and of the program VERSION you upgraded to. FOUR artifacts, cluster x version;
+# cluster files differ only in `address`, and SOLANA_VAULT_GOVERNANCE picks the
+# version half:
+#   mainnet v0.25 -> config/turf_vault.mainnet.idl.json       (--features mainnet)
+#   mainnet v0.26 -> config/turf_vault.mainnet.v026.idl.json  (--features mainnet)
+#   devnet  v0.25 -> config/turf_vault.idl.json               (default build)
+#   devnet  v0.26 -> config/turf_vault.v026.idl.json          (default build)
+# lib/solana/idl_selection.rb owns that choice: Solana::Config applies it to ENV
+# at boot, bin/deploy applies it to the TARGET app's config vars.
 cp /Users/alex/projects/turf-vault/target/idl/turf_vault.json \
    /Users/alex/projects/turf-monster/config/turf_vault.mainnet.idl.json
 cd /Users/alex/projects/turf-monster
 jq -r .address config/turf_vault.mainnet.idl.json   # must be that cluster's program ID
 shasum -a 256 config/turf_vault.mainnet.idl.json    # → the new EXPECTED_IDL_HASH
 
-# Commit, then deploy. bin/deploy reads the app's SOLANA_NETWORK to pick the file,
-# widens EXPECTED_IDL_HASH to {old,new}, pushes, then tightens it to {new}, so
-# both slugs verify across the release with no manual heroku config:set.
+# Commit, then deploy. bin/deploy asks that same rule which file the TARGET boots
+# against — SOLANA_NETWORK *and* SOLANA_VAULT_GOVERNANCE — widens
+# EXPECTED_IDL_HASH to {old,new}, pushes, then tightens to the hashes this slug
+# ships for that cluster: both switch positions, so a `heroku config:unset
+# SOLANA_VAULT_GOVERNANCE` rollback still boots. No manual heroku config:set.
 git add config/turf_vault.mainnet.idl.json
 git commit -m "Re-pin IDL after turf-vault vX.Y.Z deploy"
 bin/deploy
