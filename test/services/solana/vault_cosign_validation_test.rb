@@ -15,7 +15,7 @@ require "test_helper"
 class Solana::VaultCosignValidationTest < ActiveSupport::TestCase
   # A real entrant wallet — MUST differ from the admin managed wallet (the
   # fee-payer): enter_contest marks BOTH admin (payer) and this wallet (user) as
-  # signers. (Mason's seed wallet; admin / Alex Bot is 8K81w4e6…aRYd.)
+  # signers. (Mason's seed wallet; admin / Xan is 8K81w4e6…aRYd.)
   WALLET = "CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR".freeze
   SLUG   = "cosign-validation-test".freeze
 

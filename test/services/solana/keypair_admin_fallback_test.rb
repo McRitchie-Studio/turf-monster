@@ -1,7 +1,7 @@
 require "test_helper"
 require "minitest/mock"
 
-# Solana::Keypair.admin is the Alex Bot signer: 1-of-3 on the turf-vault
+# Solana::Keypair.admin is the Xan signer: 1-of-3 on the turf-vault
 # multisig and the fee payer/signer for create_contest, enter_contest and
 # mint_entry_token. Its absence MUST stay a hard raise everywhere except test.
 #

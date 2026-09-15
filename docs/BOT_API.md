@@ -43,8 +43,8 @@ Content-Type: application/json
   "token": "tm_bot_a1b2c3d4e5f6...",
   "expires_at": "2026-04-13T00:00:00Z",
   "user": {
-    "slug": "alex-bot",
-    "username": "alex-bot",
+    "slug": "mcritchie",
+    "username": "mcritchie",
     "wallet": "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd"
   }
 }
@@ -200,8 +200,8 @@ GET /api/v1/account
 
 ```json
 {
-  "slug": "alex-bot",
-  "username": "alex-bot",
+  "slug": "mcritchie",
+  "username": "mcritchie",
   "wallet": "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd",
   "usdc_balance": 500.00,
   "seeds_total": 180,
