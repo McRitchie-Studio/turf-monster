@@ -238,9 +238,7 @@ class User < ApplicationRecord
   end
 
   # The "Turf Monster" house account (seeded admin, tied to the solana.turf.admin
-  # wallet, BLSBw8fX… — filed as agent.turf.solana until the 2026-09-15 re-file,
-  # which recreated the item without changing the wallet). It's the display
-  # author for system chat announcements — e.g. the
+  # wallet). It's the display author for system chat announcements — e.g. the
   # "<name> joined the contest" line, which is posted as a reactable bubble FROM
   # Turf Monster. Returns nil only in an unseeded DB (callers fall back). Not
   # memoized: the test suite recreates users, so a process-level cache would go
