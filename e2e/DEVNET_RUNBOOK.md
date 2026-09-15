@@ -7,8 +7,12 @@ End-to-end tests that exercise Turf Monster against real Solana devnet. These te
 - Node.js + `npx playwright` installed (`npm install` in project root)
 - Dev server running on port 3100 (`bin/dev` or `bin/rails server -p 3100`)
 - Sidekiq running (`bundle exec sidekiq`) — required for `EnsureAtaJob` after user registration
-- `SOLANA_BOT_KEY` env var set to Alex Bot's base58-encoded private key (same as `SOLANA_ADMIN_KEY` in `.env`)
-- Alex Bot wallet funded with ~0.2 SOL + ~$20 USDC on devnet
+- `SOLANA_BOT_KEY` env var set to the base58 private key for the devnet e2e bot
+  wallet `F6f8h5yy…` — the LEGACY pre-rotation wallet, which is what the balance
+  commands below check. **Not necessarily the same as `SOLANA_ADMIN_KEY`**, which
+  holds Xan's current key `8K81w4e6…`; `e2e/keypair-provider.js` documents the
+  split and the two ways to close it. Do not "fix" one side by editing this line.
+- That e2e bot wallet funded with ~0.2 SOL + ~$20 USDC on devnet
 - Mack wallet funded with ~1 SOL on devnet (USDC seeded by faucet in Test 6)
 
 ## Pre-Flight Balance Check
@@ -100,7 +104,7 @@ The `devnet` project in `playwright.config.js` filters tests by the `@devnet` ta
 | 16 | Mack 1st Entry (Standard) | Mack enters standard contest with 6 picks via standard path. |
 | 17 | Mack 2nd Entry (Standard) | Mack re-enters with different picks (cards 6-11). Tests multi-entry for Web3 users. |
 
-**Dependencies:** Tests run serially (`workers: 1`). Onboarding (1-6) seeds wallets for all later tests. Tests 8-12 depend on `sharedSmallContestUrl` (Test 7). Tests 14-17 depend on `sharedStandardContestUrl` (Test 13). Tests 4, 8, 14-15 depend on Mason's magic-link-created account (Test 3). Tests use two wallets: Alex Bot (admin) and Mack (Web3 user).
+**Dependencies:** Tests run serially (`workers: 1`). Onboarding (1-6) seeds wallets for all later tests. Tests 8-12 depend on `sharedSmallContestUrl` (Test 7). Tests 14-17 depend on `sharedStandardContestUrl` (Test 13). Tests 4, 8, 14-15 depend on Mason's magic-link-created account (Test 3). Tests use two wallets: Xan (admin) and Mack (Web3 user).
 
 ## Pre-Flight Checks (Automatic)
 
@@ -138,7 +142,7 @@ Error: `Attempt to debit an account but found no record of a prior credit`
 Top up SOL using the faucet protocol above. Each test run uses ~0.01 SOL.
 
 ### Insufficient USDC Balance
-Faucet seeds $500 for Alex and $50 per other user, so pre-existing USDC requirement is low (~$20). If still failing, mint more via `/faucet` while logged in as Alex Bot.
+Faucet seeds $500 for Alex and $50 per other user, so pre-existing USDC requirement is low (~$20). If still failing, mint more via `/faucet` while logged in as Xan.
 
 ### RPC Timeout / Rate Limiting
 Devnet RPC can be flaky. If tests fail with timeout errors:

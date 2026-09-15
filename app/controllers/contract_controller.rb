@@ -3,7 +3,7 @@
 # Phase 1 (current): static infographic — binary stats, ELF section
 # breakdown, .text buckets, per-instruction cards, auth model, and a
 # SOL→USD cost calculator. Numbers are hardcoded against v0.16 of the
-# turf-vault program (see /Users/alex/projects/turf-vault/docs/v0.16-spec.md).
+# turf-vault program (see the turf-vault repo, docs/v0.16-spec.md).
 #
 # Phase 2 (not implemented here — depends on Carl's Solana::Vault
 # refactor for the v0.16 VaultState layout): wire live `paused`,

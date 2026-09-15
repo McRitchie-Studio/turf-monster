@@ -71,7 +71,7 @@ module Solana
     # Load admin keypair from SOLANA_ADMIN_KEY env var (base58).
     #
     # OUTSIDE TEST THE ENV VAR IS MANDATORY AND ITS ABSENCE IS A HARD RAISE.
-    # This is the Alex Bot signer: 1-of-3 on the vault multisig, the fee payer
+    # This is the Xan signer: 1-of-3 on the vault multisig, the fee payer
     # and signer for create_contest / enter_contest / mint_entry_token. A
     # signing path that quietly substituted a throwaway key would build
     # transactions that are rejected on-chain (or, worse, anchored to an

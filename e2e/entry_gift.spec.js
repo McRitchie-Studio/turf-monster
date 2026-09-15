@@ -164,3 +164,41 @@ test("a gifted player is never shown the wallet card, before or after a refresh"
   });
   expect(blocked, "walletSetupRequired gates hold-to-confirm before tokensAvailable").toBe(false);
 });
+
+// [e2e] THE WALLET CHOICE A GIFTED NEWCOMER SHOULD NEVER MEET.
+//
+// WHY A BROWSER IS THE ONLY PLACE THIS CLOSES. The server tier can assert that
+// the sign-in card renders without the wallet button, and it does. What it
+// cannot see is whether the CARD STILL READS AS A CARD once that button is
+// taken out of it — the Google CTA, the "or" divider and the email field are
+// laid out by Tailwind at runtime, and a removal that collapses the divider or
+// strands a margin is invisible to assert_select. It also cannot see that the
+// shared modal host still renders the Connect Wallet picker on this page, which
+// is exactly why the assertions below key on the card's own [data-auth-solana]
+// wrapper and not on the Solana mark.
+test("the gift link's sign-in bounce hides the wallet choice, and the card still holds", async ({
+  page
+}) => {
+  // WITHOUT the nudge: the wallet option is there. This half runs FIRST on
+  // purpose — it is the control, and a suppression test whose control never ran
+  // passes just as well against a card that lost the button for some other
+  // reason.
+  await page.goto("/signin");
+  await expect(page.locator("[data-auth-solana]")).toBeVisible();
+
+  // WITH it: gone, and the rest of the card intact.
+  await page.goto("/signin?wallet=managed");
+  await expect(page.locator("[data-auth-solana]")).toHaveCount(0);
+  await expect(page.locator('form[action^="/auth/google_oauth2"]')).toBeVisible();
+  await expect(page.locator("#email")).toBeVisible();
+
+  // THE LAYOUT ASSERTION, and the reason this is a browser test. The divider
+  // still separates the one-tap options from the email field, and the card
+  // never scrolls sideways at phone width.
+  await expect(page.getByText("or", { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth
+  );
+  expect(overflow, "the sign-in card must not scroll sideways on a phone").toBeLessThanOrEqual(0);
+});

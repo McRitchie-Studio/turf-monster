@@ -102,6 +102,26 @@ module Solana
     COSIGN_MAX_PRIORITY_FEE_MICROLAMPORTS =
       PARTIAL_TX_PRIORITY_FEE_MICROLAMPORTS * PARTIAL_TX_COMPUTE_UNIT_LIMIT * COSIGN_FEE_MARGIN
 
+    # --- the minimum withdrawal (phantom-cashout-needs-sol) -------------------
+    #
+    # Since the HOUSE pays the fee on every user cash-out — both the Phantom
+    # wire (#build_user_usdc_transfer_unsigned) and the managed one
+    # (#build_user_usdc_transfer) — a withdrawal costs the house real SOL
+    # whether it succeeds or fails on-chain. Measured with the defaults above:
+    # 2 signatures x 5_000 lamports base + 50_000 micro-lamports/CU x 200_000 CU
+    # priority = 20_000 lamports = 0.00002 SOL per cash-out.
+    #
+    # A floor keeps a withdrawal worth more than the fee that carries it, and
+    # closes the dust-withdrawal vector (repeatedly cashing out cents to burn
+    # the house's SOL). $0.99, set by Mr. McRitchie 2026-09-14.
+    #
+    # Deliberately NOT ENV-overridable, unlike the fee knobs above: this is a
+    # user-facing money boundary with copy that quotes it, so it should move by
+    # a reviewed change, not by a dyno restart.
+    MIN_WITHDRAWAL_USD = "0.99"
+    USDC_BASE_UNITS_PER_USD = 1_000_000 # USDC carries 6 decimals
+    MIN_WITHDRAWAL_BASE_UNITS = 990_000 # $0.99
+
     # Solana's maximum compute-unit limit. A wire that sets a price but no limit
     # is charged at whatever limit the runtime defaults to; the guard assumes the
     # most it could be, so the fee check can over-estimate but never under-.
@@ -206,6 +226,158 @@ module Solana
 
     def vault_state_pda
       Transaction.find_pda([b("vault")], @program_id)
+    end
+
+    # ── turf-vault v0.26 governance (Config.governance? gates every use) ────
+
+    # GovernanceConfig PDA — seeds [b"governance"]. Holds the per-action
+    # signature thresholds AND the entry-token mint-window policy, both as
+    # DATA, so retuning either is a transaction rather than a program upgrade.
+    # Required by EVERY vault-authorized instruction from v0.26 on.
+    def governance_pda
+      Transaction.find_pda([b("governance")], @program_id)
+    end
+
+    # MintWindow PDA — seeds [b"mint_window", window_index as i64 LE].
+    # One account per cap window, created by that window's first mint.
+    def mint_window_pda(window_index)
+      Transaction.find_pda([b("mint_window"), Borsh.encode_i64(window_index)], @program_id)
+    end
+
+    # The username registry's canonical key: the 32-byte on-chain username
+    # buffer with ASCII A-Z folded to lowercase. It is BOTH the `name_key`
+    # instruction argument and the second PDA seed, and the program re-derives
+    # it and refuses a mismatch (`UsernameKeyMismatch`, 6061).
+    #
+    # FOLDED BY BYTE RANGE, NOT String#downcase. Ruby's downcase is
+    # Unicode-aware and folds (for one example) "É" to "é"; the program's
+    # `canonical_username_key` calls `u8::to_ascii_lowercase` per byte and
+    # leaves every byte above 0x7E alone. Using downcase here would derive a
+    # different record than the program writes for any non-ASCII name — which
+    # the charset guard makes unreachable today, and which would become
+    # reachable the moment that guard was widened. Held byte-identical to
+    # turf-vault's own off-chain twin, scripts/lib/username-key.js.
+    def username_name_key(username)
+      username_bytes32(username).bytes.map { |byte| byte.between?(0x41, 0x5A) ? byte + 0x20 : byte }.pack("C*")
+    end
+
+    # UsernameRecord PDA — seeds [b"username", name_key]. The FULL 32 bytes
+    # including the zero padding, not the name's significant bytes.
+    #
+    # The record's EXISTENCE is the uniqueness rule, so three states matter to a
+    # reader: absent = free; owner is a wallet = that player holds it; owner is
+    # the [b"vault"] PDA = reserved by the operator and unclaimable.
+    def username_record_pda(username)
+      Transaction.find_pda([b("username"), username_name_key(username)], @program_id)
+    end
+
+    # The governance account meta every vault-authorized instruction carries in
+    # v0.26, and carries NOWHERE in v0.25.
+    #
+    # Splatted into each builder's account array at the exact index the Anchor
+    # struct declares (always immediately after `vault_state`), so on the v0.25
+    # branch it contributes nothing and the array is byte-identical to what
+    # shipped. That is what lets one slug speak both shapes: the switch is read
+    # once, here, instead of being duplicated across seventeen builders.
+    def governance_metas
+      return [] unless Config.governance?
+      pda, _ = governance_pda
+      [{ pubkey: pda, is_signer: false, is_writable: false }]
+    end
+
+    # Anchor encodes an ABSENT `Option<...>` account as the PROGRAM ID in that
+    # slot, non-signer and non-writable (see @coral-xyz/anchor
+    # program/namespace/instruction.js — `acc.optional && pubkey.equals(programId)`).
+    # The two set_contest_*_time builders have encoded `cosigner: None` this way
+    # since v0.19; this names the convention so grant_seeds' new
+    # `invitee_user_account` and every future optional uses the same one.
+    def absent_optional_meta
+      { pubkey: @program_id, is_signer: false, is_writable: false }
+    end
+
+    def optional_account_meta(pubkey_bytes, writable: false)
+      return absent_optional_meta if pubkey_bytes.nil?
+      { pubkey: pubkey_bytes, is_signer: false, is_writable: writable }
+    end
+
+    # `close_contest`'s new rent destination (v0.26). Both refunds — the Contest
+    # PDA's and the prize_pool ATA's — used to land on `admin`, i.e. whichever
+    # vault signer happened to send the transaction, which quietly made "close a
+    # finished contest" a routine that PAID THE CALLER out of rent the platform
+    # had funded. Small per contest, unbounded in aggregate.
+    #
+    # READ FROM CHAIN, not from Config. The program pins this to
+    # `vault_state.treasury_authority` and rejects anything else with
+    # `InvalidRentDestination`, so the authoritative value is the one stored on
+    # the vault. Config.squads_vault_pda is the fallback for an unreadable
+    # vault state, and a stale one fails closed rather than paying the wrong
+    # account.
+    def treasury_metas
+      return [] unless Config.governance?
+
+      authority = begin
+        self.class.cached_vault_state&.dig(:treasury_authority)
+      rescue StandardError
+        nil
+      end
+      authority ||= Config.squads_vault_pda
+
+      [{ pubkey: Keypair.decode_base58(authority), is_signer: false, is_writable: true }]
+    end
+
+    # Extra vault signatures beyond the instruction's NAMED signer slots.
+    #
+    # v0.26 raised several actions to three signatures, and rather than grow
+    # fourteen account structs the program reads the surplus from the LEADING
+    # `remaining_accounts` — which, for a raw client like this one, simply means
+    # metas appended after the named list. `instructions::governance::authorize`
+    # takes exactly `threshold - named.count` of them and requires each to have
+    # signed, so the split is deterministic on both sides of the wire.
+    #
+    # Returns [] on the v0.25 branch: the old program has no notion of these and
+    # would read them as trailing junk.
+    def extra_cosigner_metas(pubkeys)
+      return [] unless Config.governance?
+      Array(pubkeys).compact.map do |key|
+        { pubkey: key.is_a?(String) ? Keypair.decode_base58(key) : key,
+          is_signer: true, is_writable: false }
+      end
+    end
+
+    # An UNATTENDED action whose v0.26 threshold exceeds what the calling
+    # process can sign for.
+    class ThresholdUnreachableError < StandardError; end
+
+    # The remaining-account metas for a SERVER-SIGNED path, built from actual
+    # keypairs rather than pubkeys — a locally signed transaction cannot leave a
+    # slot for someone else to fill, so these paths need the key, not the
+    # address. (The partial/browser builders take `extra_cosigners:` pubkeys
+    # instead and leave the slots empty for Phantom.)
+    #
+    # REFUSES IN RAILS RATHER THAN BROADCASTING A DOOMED TRANSACTION. Several
+    # actions the server used to perform alone now need two or three
+    # signatures, and a short account list reaches the chain as
+    # `InsufficientSigners` (6046) or, worse, as the first trailing account
+    # being read as a cosigner that did not sign (`CosignerDidNotSign`, 6047).
+    # Neither error names the action, the threshold, or the fix. This one does,
+    # before any SOL is spent.
+    def unattended_extra_signer_metas(action, required:, signers:)
+      return [] unless Config.governance?
+
+      keypairs = Array(signers).compact
+      held = 1 + keypairs.length # the admin key this process holds, plus these
+      if held < required
+        raise ThresholdUnreachableError, <<~MSG.strip
+          #{action} needs #{required} vault signatures under turf-vault v0.26 and this \
+          process can produce #{held}. Pass extra_signers: [<Solana::Keypair>, ...] or run \
+          the action through the admin cosign flow, which leaves the slots for Phantom. \
+          (Was #{held}-of-N before the upgrade; see docs/SOLANA.md "v0.26 signature thresholds".)
+        MSG
+      end
+
+      keypairs.map do |kp|
+        { pubkey: kp.public_key_bytes, is_signer: true, is_writable: false }
+      end
     end
 
     def user_account_pda(wallet_address)
@@ -409,6 +581,7 @@ module Solana
     def build_user_usdc_transfer(user_keypair:, destination_token_account:, amount_lamports:)
       raise ArgumentError, "user_keypair required" unless user_keypair
       raise ArgumentError, "amount must be positive" unless amount_lamports.to_i.positive?
+      assert_above_withdrawal_minimum!(amount_lamports)
 
       admin = Keypair.admin
       from_ata, _ = Solana::SplToken.find_associated_token_address(
@@ -430,12 +603,29 @@ module Solana
       { wire_base64: Base64.strict_encode64(wire), signature: extract_tx_signature(wire) }
     end
 
-    # Phantom flavor for the offramp send: a fully-UNSIGNED single-signer tx —
-    # the user's wallet is BOTH fee payer and transfer authority. Phantom signs
-    # and the client broadcasts (mirroring the lock_contest sign flow), then
-    # POSTs the signature back to /cdp/offramp/sent for verified recording.
+    # Phantom flavor for the offramp send: a fully-UNSIGNED TWO-signer tx — the
+    # HOUSE (admin) is fee payer, the user's wallet is the transfer authority.
+    # Phantom signs its own slot first, the server validates + cosigns the admin
+    # slot (#assert_usdc_transfer_cosign_safe! then #cosign_usdc_transfer), and
+    # the client broadcasts the fully-signed wire, then POSTs the signature back
+    # to /cdp/offramp/sent for verified recording.
+    #
+    # WHY THE HOUSE PAYS (phantom-cashout-needs-sol, 2026-09-14). This used to
+    # serialize with additional_signers: [wallet_bytes] and nothing else, which
+    # made the PLAYER'S wallet the fee payer. A Phantom player holding USDC and
+    # ZERO SOL could not withdraw at all — the one hole in Turf Monster's
+    # otherwise gasless story, and it bit at the worst possible moment. Every
+    # other user-facing path already has the house on the transaction, including
+    # this method's managed-wallet sibling #build_user_usdc_transfer. ONLY the
+    # fee payer changed: the player still signs, because it is their USDC
+    # leaving their token account and that consent is the protection.
+    #
+    # The admin MUST be FIRST in additional_signers — the gem's keyless
+    # serialize_partial takes additional_signers.first as the fee payer, the
+    # same contract #build_partial_unsigned documents.
     def build_user_usdc_transfer_unsigned(wallet_address:, destination_token_account:, amount_lamports:)
       raise ArgumentError, "amount must be positive" unless amount_lamports.to_i.positive?
+      assert_above_withdrawal_minimum!(amount_lamports)
 
       wallet_bytes = Keypair.decode_base58(wallet_address)
       from_ata, _ = Solana::SplToken.find_associated_token_address(wallet_address, Config::USDC_MINT)
@@ -450,7 +640,8 @@ module Solana
         amount: amount_lamports.to_i
       ))
 
-      { serialized_tx: tx.serialize_partial_base64(additional_signers: [wallet_bytes]) }
+      admin_bytes = Keypair.admin.public_key_bytes
+      { serialized_tx: tx.serialize_partial_base64(additional_signers: [admin_bytes, wallet_bytes]) }
     end
 
     # Fund a user's wallet ATA with USDC.
@@ -651,7 +842,72 @@ module Solana
       Current.vault_state = nil
     end
 
-    # --- Pause / unpause (2-of-3) ---
+    # --- GovernanceConfig (turf-vault v0.26) ---
+
+    # Shipped defaults, mirrored from turf-vault `state.rs`. Used only as the
+    # fallback when the account cannot be read — never in place of a read that
+    # succeeded, because both numbers are retunable on-chain by
+    # `set_mint_window_policy` and a stale local copy would mint into the wrong
+    # window.
+    DEFAULT_MINT_WINDOW_SECONDS = 86_400
+    DEFAULT_MINT_WINDOW_CAP = 250
+
+    GOVERNANCE_CACHE_KEY = "solana:governance_config".freeze
+
+    # GovernanceConfig layout (v0.26):
+    #   8 discriminator + 32 thresholds + 8 mint_window_seconds (i64 LE)
+    #   + 4 mint_window_cap (u32 LE) + 1 bump + 64 _reserved = 117
+    GOVERNANCE_ACCOUNT_LEN = 117
+    GOVERNANCE_WINDOW_SECONDS_OFFSET = 8 + 32
+    GOVERNANCE_WINDOW_CAP_OFFSET = GOVERNANCE_WINDOW_SECONDS_OFFSET + 8
+
+    # Read the on-chain threshold table + mint-window policy. Returns nil when
+    # the account does not exist, which is a REAL and expected state: between
+    # the Squads upgrade and `init_governance` the program is v0.26 but the PDA
+    # is not there yet.
+    def read_governance(commitment: "confirmed")
+      pda, _ = governance_pda
+      info = client.get_account_info(Keypair.encode_base58(pda), commitment: commitment)
+      raw = info&.dig("value", "data", 0)
+      return nil if raw.nil?
+
+      data = Base64.decode64(raw)
+      return nil if data.length < GOVERNANCE_WINDOW_CAP_OFFSET + 4
+
+      {
+        thresholds: data[8, 32].bytes,
+        mint_window_seconds: data[GOVERNANCE_WINDOW_SECONDS_OFFSET, 8].unpack1("q<"),
+        mint_window_cap: data[GOVERNANCE_WINDOW_CAP_OFFSET, 4].unpack1("L<")
+      }
+    end
+
+    # Cached governance read. One minute, matching cached_vault_state — the
+    # table changes by deliberate 3-of-N transaction, never on its own.
+    def cached_governance
+      Rails.cache.fetch(GOVERNANCE_CACHE_KEY, expires_in: 1.minute, race_condition_ttl: 5.seconds) do
+        read_governance
+      end
+    rescue StandardError => e
+      Rails.logger.warn("[solana] cached_governance failed: #{Config.redact_message(e.message)}")
+      nil
+    end
+
+    # The cap window a given moment falls in — `unix_timestamp.div_euclid(
+    # mint_window_seconds)`, the same arithmetic as turf-vault's
+    # `GovernanceConfig::window_index_for`, and Ruby's Integer#div IS floor
+    # division, so the two agree for negative timestamps too.
+    #
+    # The window length is read from chain because the program PINS the index
+    # against its own clock (`MintWindowMismatch`) — a Rails-side constant that
+    # drifted from a retuned policy would reject every mint until someone
+    # redeployed. The default is the fallback for an unreadable account only.
+    def mint_window_index(at = Time.current)
+      seconds = cached_governance&.dig(:mint_window_seconds).to_i
+      seconds = DEFAULT_MINT_WINDOW_SECONDS unless seconds.positive?
+      at.to_i.div(seconds)
+    end
+
+    # --- Pause / unpause (PAUSE 2, UNPAUSE 3 from v0.26) ---
 
     def build_pause_vault(cosigner_pubkey:, reason:)
       cosigner_bytes = Keypair.decode_base58(cosigner_pubkey)
@@ -662,11 +918,15 @@ module Solana
 
       data = Transaction.anchor_discriminator("pause") + reason_bytes.pack("C*")
 
+      # PAUSE stayed at 2 in v0.26 — admin + cosigner already satisfy it, so
+      # this builder gains the governance account and nothing else. The brake
+      # is deliberately the one action whose signature count did not rise.
       serialized = build_partial_signed(
         accounts: [
           { pubkey: Keypair.admin.public_key_bytes, is_signer: true,  is_writable: true  },
           { pubkey: cosigner_bytes,                 is_signer: true,  is_writable: false },
-          { pubkey: vault_pda,                      is_signer: false, is_writable: true  }
+          { pubkey: vault_pda,                      is_signer: false, is_writable: true  },
+          *governance_metas
         ],
         data: data,
         additional_signers: [cosigner_bytes]
@@ -674,9 +934,14 @@ module Solana
       { serialized_tx: serialized, vault_pda: Keypair.encode_base58(vault_pda) }
     end
 
-    def build_unpause_vault(cosigner_pubkey:)
+    # UNPAUSE rose to 3 (floored at 3 — three signatures cannot lower it).
+    # `cosigner` is a MANDATORY named slot here, so the third signature rides in
+    # remaining_accounts via `extra_cosigners`. Lifting the brake is deliberately
+    # harder than pulling it: no agent-reachable pair can release its own pause.
+    def build_unpause_vault(cosigner_pubkey:, extra_cosigners: [])
       cosigner_bytes = Keypair.decode_base58(cosigner_pubkey)
       vault_pda, _ = vault_state_pda
+      extras = extra_cosigner_metas(extra_cosigners)
 
       data = Transaction.anchor_discriminator("unpause")
 
@@ -684,24 +949,27 @@ module Solana
         accounts: [
           { pubkey: Keypair.admin.public_key_bytes, is_signer: true,  is_writable: true  },
           { pubkey: cosigner_bytes,                 is_signer: true,  is_writable: false },
-          { pubkey: vault_pda,                      is_signer: false, is_writable: true  }
+          { pubkey: vault_pda,                      is_signer: false, is_writable: true  },
+          *governance_metas,
+          *extras
         ],
         data: data,
-        additional_signers: [cosigner_bytes]
+        additional_signers: [cosigner_bytes, *extras.map { |m| m[:pubkey] }]
       )
       { serialized_tx: serialized, vault_pda: Keypair.encode_base58(vault_pda) }
     end
 
-    # --- Currency registry (2-of-3) ---
+    # --- Currency registry (2 signatures on v0.25, 3 from v0.26) ---
 
     # Build a partially-signed register_currency TX. Admin signs (pays
     # ATA rent), cosigner slot left for Phantom. `kind` is informational
     # (0 = stablecoin).
-    def build_register_currency(cosigner_pubkey:, mint:, kind: 0)
+    def build_register_currency(cosigner_pubkey:, mint:, kind: 0, extra_cosigners: [])
       cosigner_bytes = Keypair.decode_base58(cosigner_pubkey)
       mint_bytes     = Keypair.decode_base58(mint)
       vault_pda, _   = vault_state_pda
       op_rev,    _   = op_rev_ata_pda(mint)
+      extras         = extra_cosigner_metas(extra_cosigners)
 
       data = Transaction.anchor_discriminator("register_currency") + Borsh.encode_u8(kind)
 
@@ -710,22 +978,26 @@ module Solana
           { pubkey: Keypair.admin.public_key_bytes, is_signer: true,  is_writable: true  },
           { pubkey: cosigner_bytes,                 is_signer: true,  is_writable: false },
           { pubkey: vault_pda,                      is_signer: false, is_writable: true  },
+          *governance_metas,
           { pubkey: mint_bytes,                     is_signer: false, is_writable: false },
           { pubkey: op_rev,                         is_signer: false, is_writable: true  },
           { pubkey: Transaction::TOKEN_PROGRAM_ID,   is_signer: false, is_writable: false },
           { pubkey: Transaction::SYSTEM_PROGRAM_ID,  is_signer: false, is_writable: false },
-          { pubkey: Transaction::SYSVAR_RENT_PUBKEY, is_signer: false, is_writable: false }
+          { pubkey: Transaction::SYSVAR_RENT_PUBKEY, is_signer: false, is_writable: false },
+          *extras
         ],
         data: data,
-        additional_signers: [cosigner_bytes]
+        additional_signers: [cosigner_bytes, *extras.map { |m| m[:pubkey] }]
       )
       { serialized_tx: serialized, op_rev_ata: Keypair.encode_base58(op_rev) }
     end
 
-    # Build a partially-signed deactivate_currency TX (2-of-3).
-    def build_deactivate_currency(cosigner_pubkey:, currency_idx:)
+    # Build a partially-signed deactivate_currency TX. 2 signatures on v0.25,
+    # 3 from v0.26 (DEACTIVATE_CURRENCY).
+    def build_deactivate_currency(cosigner_pubkey:, currency_idx:, extra_cosigners: [])
       cosigner_bytes = Keypair.decode_base58(cosigner_pubkey)
       vault_pda, _   = vault_state_pda
+      extras         = extra_cosigner_metas(extra_cosigners)
 
       data = Transaction.anchor_discriminator("deactivate_currency") +
              Borsh.encode_u8(currency_idx)
@@ -734,10 +1006,12 @@ module Solana
         accounts: [
           { pubkey: Keypair.admin.public_key_bytes, is_signer: true,  is_writable: true  },
           { pubkey: cosigner_bytes,                 is_signer: true,  is_writable: false },
-          { pubkey: vault_pda,                      is_signer: false, is_writable: true  }
+          { pubkey: vault_pda,                      is_signer: false, is_writable: true  },
+          *governance_metas,
+          *extras
         ],
         data: data,
-        additional_signers: [cosigner_bytes]
+        additional_signers: [cosigner_bytes, *extras.map { |m| m[:pubkey] }]
       )
       { serialized_tx: serialized }
     end
@@ -786,9 +1060,23 @@ module Solana
       user_pda, _bump = user_account_pda(wallet_address)
       wallet_bytes = Keypair.decode_base58(wallet_address)
 
+      # v0.26 claims the name in the registry in the SAME transaction, so the
+      # PDA lock and the display name can never disagree. `name_key` has to be
+      # an argument because it is a PDA seed and Anchor cannot express a
+      # computed seed — the handler re-derives it and refuses a mismatch
+      # (`UsernameKeyMismatch`, 6061), the same shape `source_ref_hash` uses.
       data = Transaction.anchor_discriminator("create_user_account") +
              Borsh.encode_pubkey(wallet_bytes) +
-             username_bytes32(username)
+             username_bytes32(username) +
+             (Config.governance? ? username_name_key(username) : "".b)
+
+      username_record_metas =
+        if Config.governance?
+          record_pda, _ = username_record_pda(username)
+          [{ pubkey: record_pda, is_signer: false, is_writable: true }]
+        else
+          []
+        end
 
       tx = build_tx(admin)
       tx.add_instruction(
@@ -796,6 +1084,7 @@ module Solana
         accounts: [
           { pubkey: admin.public_key_bytes,         is_signer: true,  is_writable: true  },
           { pubkey: user_pda,                       is_signer: false, is_writable: true  },
+          *username_record_metas,
           { pubkey: Transaction::SYSTEM_PROGRAM_ID, is_signer: false, is_writable: false }
         ],
         data: data
@@ -805,22 +1094,93 @@ module Solana
       { signature: signature, pda: Keypair.encode_base58(user_pda) }
     end
 
+    # Offsets into UserAccount for the two fields the rename rule reads.
+    #
+    # v0.26 carved `username_registered` out of the FIRST byte of `_reserved`
+    # (which dropped 32 -> 31), so field order and total size are both
+    # unchanged, every pre-upgrade account still deserializes, and
+    # USER_ACCOUNT_LEN stays 133. Appending after `_reserved` instead would
+    # have grown the account by a byte and made all 47 live ones too small.
+    USER_ACCOUNT_USERNAME_OFFSET = 8 + 32                                 # 40
+    USER_ACCOUNT_REGISTERED_OFFSET = 8 + 32 + 32 + 8 + 4 + 4 + 4 + 8 + 1  # 101
+
+    # The two UserAccount fields `settle_previous_record` reads. nil when the
+    # account is absent or short — callers treat that as "no record to give up",
+    # which is the same arm a pre-registry account takes.
+    def read_user_account_name_state(wallet_address)
+      user_pda, _ = user_account_pda(wallet_address)
+      info = client.get_account_info(Keypair.encode_base58(user_pda))
+      raw = info&.dig("value", "data", 0)
+      return nil if raw.nil?
+
+      data = Base64.decode64(raw)
+      return nil if data.bytesize < USER_ACCOUNT_LEN
+
+      {
+        username: data.byteslice(USER_ACCOUNT_USERNAME_OFFSET, 32),
+        registered: data.getbyte(USER_ACCOUNT_REGISTERED_OFFSET) == 1
+      }
+    end
+
+    # The `previous_username_record` slot, decided by turf-vault's
+    # `settle_previous_record` rule rather than guessed:
+    #
+    #   renaming AND username_registered == 1  -> the OLD name's record. It is
+    #     closed here and its rent refunded to the wallet. Omitting it is how a
+    #     holder would keep both names for ~0.0015 SOL, so the program makes it
+    #     mandatory on this arm (`UsernameRecordMissing`).
+    #   every other case                       -> None. Passing one anyway is
+    #     REFUSED rather than ignored (`UsernameRecordNotExpected`), because it
+    #     could only be some other record and closing it would be a silent loss.
+    #
+    # "Renaming" means the CANONICAL key changes, so "alice" -> "Alice" is not a
+    # rename and stays idempotent. All 47 production accounts predate the
+    # registry and read `username_registered == 0`, so today every one of them
+    # takes the None arm until `backfill_username_record` locks its current name.
+    def previous_username_record_meta(wallet_address, new_username)
+      state = read_user_account_name_state(wallet_address)
+      return absent_optional_meta if state.nil? || !state[:registered]
+      return absent_optional_meta if username_name_key(state[:username]) == username_name_key(new_username)
+
+      pda, _ = username_record_pda(state[:username])
+      { pubkey: pda, is_signer: false, is_writable: true }
+    end
+
+    # The accounts + trailing args set_username gained in v0.26. Empty on the
+    # v0.25 branch, so both builders below keep one shape each.
+    def set_username_registry_metas(wallet_address, username)
+      return [] unless Config.governance?
+      record_pda, _ = username_record_pda(username)
+      [
+        { pubkey: record_pda, is_signer: false, is_writable: true },
+        previous_username_record_meta(wallet_address, username)
+      ]
+    end
+
     # Server-signed set_username for custodial users (web2).
+    #
+    # The wallet is WRITABLE from v0.26: it pays rent for its own name record
+    # and receives the refund when it gives one up.
     def set_username(wallet_address, username, user_keypair:)
       raise "user_keypair required for a server-signed set_username" unless user_keypair
       admin = Keypair.admin
       user_pda, _ = user_account_pda(wallet_address)
       wallet_bytes = Keypair.decode_base58(wallet_address)
+      wallet_writable = Config.governance?
 
-      data = Transaction.anchor_discriminator("set_username") + username_bytes32(username)
+      data = Transaction.anchor_discriminator("set_username") +
+             username_bytes32(username) +
+             (Config.governance? ? username_name_key(username) : "".b)
 
       tx = build_tx(admin)
       tx.add_signer(user_keypair)
       tx.add_instruction(
         program_id: @program_id,
         accounts: [
-          { pubkey: wallet_bytes, is_signer: true,  is_writable: false },
-          { pubkey: user_pda,     is_signer: false, is_writable: true  }
+          { pubkey: wallet_bytes, is_signer: true,  is_writable: wallet_writable },
+          { pubkey: user_pda,     is_signer: false, is_writable: true  },
+          *set_username_registry_metas(wallet_address, username),
+          *(Config.governance? ? [{ pubkey: Transaction::SYSTEM_PROGRAM_ID, is_signer: false, is_writable: false }] : [])
         ],
         data: data
       )
@@ -831,13 +1191,18 @@ module Solana
     def build_set_username(wallet_address, username)
       user_pda, _ = user_account_pda(wallet_address)
       wallet_bytes = Keypair.decode_base58(wallet_address)
+      wallet_writable = Config.governance?
 
-      data = Transaction.anchor_discriminator("set_username") + username_bytes32(username)
+      data = Transaction.anchor_discriminator("set_username") +
+             username_bytes32(username) +
+             (Config.governance? ? username_name_key(username) : "".b)
 
       serialized = build_partial_signed(
         accounts: [
-          { pubkey: wallet_bytes, is_signer: true,  is_writable: false },
-          { pubkey: user_pda,     is_signer: false, is_writable: true  }
+          { pubkey: wallet_bytes, is_signer: true,  is_writable: wallet_writable },
+          { pubkey: user_pda,     is_signer: false, is_writable: true  },
+          *set_username_registry_metas(wallet_address, username),
+          *(Config.governance? ? [{ pubkey: Transaction::SYSTEM_PROGRAM_ID, is_signer: false, is_writable: false }] : [])
         ],
         data: data,
         additional_signers: [wallet_bytes]
@@ -981,6 +1346,7 @@ module Solana
           { pubkey: Keypair.admin.public_key_bytes, is_signer: true,  is_writable: true  }, # payer
           { pubkey: wallet_bytes,                   is_signer: true,  is_writable: true  }, # creator
           { pubkey: vault_pda,                      is_signer: false, is_writable: false }, # vault_state
+          *governance_metas,
           { pubkey: contest_pda_addr,               is_signer: false, is_writable: true  }, # contest (init)
           { pubkey: prize_pool_addr,                is_signer: false, is_writable: true  }, # prize_pool (init)
           { pubkey: usdc_mint,                      is_signer: false, is_writable: false }, # payout_mint
@@ -1030,6 +1396,7 @@ module Solana
           { pubkey: admin.public_key_bytes,         is_signer: true,  is_writable: true  }, # payer
           { pubkey: admin.public_key_bytes,         is_signer: true,  is_writable: true  }, # creator (== admin, dedup'd)
           { pubkey: vault_pda,                      is_signer: false, is_writable: false },
+          *governance_metas,
           { pubkey: contest_pda_addr,               is_signer: false, is_writable: true  },
           { pubkey: prize_pool_addr,                is_signer: false, is_writable: true  },
           { pubkey: usdc_mint,                      is_signer: false, is_writable: false },
@@ -1060,22 +1427,56 @@ module Solana
 
     # --- Contest lifecycle ---
 
-    # Set (or clear) a contest's derived lock timestamp (1-of-3, admin alone
+    # Set (or clear) a contest's derived lock timestamp. ONE signature on
+    # v0.25; SET_CONTEST_LOCK_TIME (2) from v0.26, escalating to 3 to RE-OPEN a
+    # lock that has already passed — which is why the unattended QA lane loses
+    # this path at the upgrade (docs/SOLANA.md, "THE 3-OF-3 GAP").
+    # (1-of-3, admin alone
     # signs server-side). `lock_timestamp` is Unix seconds; 0 clears the lock
     # (enterable indefinitely). "Lock now" = pass Time.current.to_i. The chain
     # rejects entries once its Clock time >= lock_timestamp — this is the
     # authoritative lock (v0.17 set_contest_lock_time instruction); the Rails
     # `locks_at` checks are advisory UX only. Rejected on-chain once the
     # contest is concluded (Settled/Cancelled → ContestAlreadySettled 6006).
-    def set_contest_lock_time(contest_slug, lock_timestamp)
+    #
+    # ═══════════════════════════════════════════════════════════════════════
+    # UNATTENDED CALLERS ONLY. This is kept ON PURPOSE — do not tidy it away.
+    # ═══════════════════════════════════════════════════════════════════════
+    #
+    # Every OPERATOR route to the lock time now goes through
+    # #build_set_contest_lock_time below, where the admin's own Phantom occupies
+    # the authority slot and the bot is reduced to fee payer.
+    # ContestsController#lock and #update REFUSE an on-chain contest rather than
+    # signing one here, because the program escalates to 2-of-3 only AFTER a
+    # deadline has passed: that closes re-opening a shut window and leaves
+    # EXTENDING a live one at a single signature — push a 1pm lock to 4pm at
+    # 12:59, enter at 3pm with three hours of results known. So a human-facing
+    # caller must never be wired back to this method.
+    #
+    # WHAT STILL CALLS IT: TurfMonster::QaRehearsal::Driver, which drives a whole
+    # contest lifecycle through a remote console with nobody at a keyboard. It
+    # cannot raise a Phantom prompt, so a Phantom-only lock would simply end the
+    # rehearsal. Its conclusion-time twin (#set_contest_conclusion_time below)
+    # has no caller at all today and is kept beside it for the same reason.
+    #
+    # WHAT RETIRES THEM — a bridge with a known end, not a permanent exception.
+    # Under the agreed five-signer structure, DEVNET gives three of the five
+    # slots to agent-owned keys, so automation there can reach any threshold
+    # unattended and this server-signed shortcut stops being needed. MAINNET
+    # keeps the agent at two, where it cannot — which is exactly why the
+    # operator path had to move to Phantom first and separately. Delete these
+    # two when the devnet signer set lands, not before.
+    def set_contest_lock_time(contest_slug, lock_timestamp, extra_signers: [])
       admin = Keypair.admin
       c_pda, _ = contest_pda(contest_slug)
       vault_pda, _ = vault_state_pda
+      extras = unattended_extra_signer_metas("set_contest_lock_time", required: 2, signers: extra_signers)
 
       data = Transaction.anchor_discriminator("set_contest_lock_time") +
              Borsh.encode_i64(lock_timestamp.to_i)
 
       tx = build_tx(admin)
+      extra_signers.each { |kp| tx.add_signer(kp) } if extras.any?
       tx.add_instruction(
         program_id: @program_id,
         accounts: [
@@ -1086,7 +1487,9 @@ module Solana
           # (separate cosign flow) — see ContestsController guard.
           { pubkey: @program_id,            is_signer: false, is_writable: false },
           { pubkey: vault_pda,              is_signer: false, is_writable: false },
-          { pubkey: c_pda,                  is_signer: false, is_writable: true  }
+          *governance_metas,
+          { pubkey: c_pda,                  is_signer: false, is_writable: true  },
+          *extras
         ],
         data: data
       )
@@ -1100,10 +1503,11 @@ module Solana
     # signs, paying no SOL. Mirrors the create_contest dual-signer pattern
     # (build_create_contest): bot partial-signs, Phantom fills its placeholder
     # client-side. Returns base64 for the client to sign + broadcast.
-    def build_set_contest_lock_time(contest_slug, lock_timestamp, admin_pubkey:)
+    def build_set_contest_lock_time(contest_slug, lock_timestamp, admin_pubkey:, extra_cosigners: [])
       admin_bytes = Keypair.decode_base58(admin_pubkey)
       c_pda, _ = contest_pda(contest_slug)
       vault_pda, _ = vault_state_pda
+      extras = extra_cosigner_metas(extra_cosigners)
 
       data = Transaction.anchor_discriminator("set_contest_lock_time") +
              Borsh.encode_i64(lock_timestamp.to_i)
@@ -1113,26 +1517,46 @@ module Solana
           { pubkey: admin_bytes, is_signer: true,  is_writable: true  }, # admin == Phantom (vault signer)
           { pubkey: @program_id, is_signer: false, is_writable: false }, # cosigner: None (1-of-3 pre-lock; v0.19 #5)
           { pubkey: vault_pda,   is_signer: false, is_writable: false }, # vault_state
-          { pubkey: c_pda,       is_signer: false, is_writable: true  }  # contest
+          *governance_metas,
+          { pubkey: c_pda,       is_signer: false, is_writable: true  }, # contest
+          *extras
         ],
         data: data,
-        additional_signers: [admin_bytes]
+        additional_signers: [admin_bytes, *extras.map { |m| m[:pubkey] }]
       )
       { serialized_tx: serialized }
     end
 
-    # Set (or clear) a contest's conclusion timestamp, server-signed (1-of-3).
+    # Set (or clear) a contest's conclusion timestamp, server-signed. ONE
+    # signature on v0.25; SET_CONTEST_CONCLUSION_TIME (2) from v0.26, escalating
+    # to 3 to AMEND one already set.
     # Parallel to set_contest_lock_time. Once chain time passes it the contest
     # has concluded and the lock time can no longer change. 0 clears it.
-    def set_contest_conclusion_time(contest_slug, conclusion_timestamp)
+    #
+    # NO CALLER TODAY, AND KEPT ANYWAY — the same deliberate bridge as
+    # set_contest_lock_time above, whose header carries the full reasoning.
+    # #prepare_conclusion_time took the operator route to Phantom long ago and
+    # nobody noticed this one go quiet, which is the proof the lock-time
+    # migration above was safe. It survives because the unattended lane that
+    # still needs the server-signed LOCK (QaRehearsal::Driver) is the same lane
+    # that would reach for the conclusion next, and because the devnet
+    # three-of-five agent signer set retires both together. An orphan that looks
+    # like an oversight gets deleted by someone being tidy; this one is not.
+    #
+    # Do not wire an operator-facing caller to it. Use
+    # #build_set_contest_conclusion_time — the Phantom path — for anything a
+    # human triggers.
+    def set_contest_conclusion_time(contest_slug, conclusion_timestamp, extra_signers: [])
       admin = Keypair.admin
       c_pda, _ = contest_pda(contest_slug)
       vault_pda, _ = vault_state_pda
+      extras = unattended_extra_signer_metas("set_contest_conclusion_time", required: 2, signers: extra_signers)
 
       data = Transaction.anchor_discriminator("set_contest_conclusion_time") +
              Borsh.encode_i64(conclusion_timestamp.to_i)
 
       tx = build_tx(admin)
+      extra_signers.each { |kp| tx.add_signer(kp) } if extras.any?
       tx.add_instruction(
         program_id: @program_id,
         accounts: [
@@ -1141,7 +1565,9 @@ module Solana
           # already-SET conclusion needs a 2-of-3 cosigner (v0.19, #5).
           { pubkey: @program_id,            is_signer: false, is_writable: false },
           { pubkey: vault_pda,              is_signer: false, is_writable: false },
-          { pubkey: c_pda,                  is_signer: false, is_writable: true  }
+          *governance_metas,
+          { pubkey: c_pda,                  is_signer: false, is_writable: true  },
+          *extras
         ],
         data: data
       )
@@ -1152,10 +1578,11 @@ module Solana
     # Phantom-signable set_contest_conclusion_time (1-of-3). Mirrors
     # build_set_contest_lock_time: bot fee payer, admin's Phantom (a vault
     # signer) signs the `admin` slot. Returns base64 for the client to sign.
-    def build_set_contest_conclusion_time(contest_slug, conclusion_timestamp, admin_pubkey:)
+    def build_set_contest_conclusion_time(contest_slug, conclusion_timestamp, admin_pubkey:, extra_cosigners: [])
       admin_bytes = Keypair.decode_base58(admin_pubkey)
       c_pda, _ = contest_pda(contest_slug)
       vault_pda, _ = vault_state_pda
+      extras = extra_cosigner_metas(extra_cosigners)
 
       data = Transaction.anchor_discriminator("set_contest_conclusion_time") +
              Borsh.encode_i64(conclusion_timestamp.to_i)
@@ -1165,17 +1592,21 @@ module Solana
           { pubkey: admin_bytes, is_signer: true,  is_writable: true  },
           { pubkey: @program_id, is_signer: false, is_writable: false }, # cosigner: None (1-of-3 first set; v0.19 #5)
           { pubkey: vault_pda,   is_signer: false, is_writable: false },
-          { pubkey: c_pda,       is_signer: false, is_writable: true  }
+          *governance_metas,
+          { pubkey: c_pda,       is_signer: false, is_writable: true  },
+          *extras
         ],
         data: data,
-        additional_signers: [admin_bytes]
+        additional_signers: [admin_bytes, *extras.map { |m| m[:pubkey] }]
       )
       { serialized_tx: serialized }
     end
 
-    # Build cancel_contest TX (2-of-3). Refunds prize_pool → creator ATA.
-    def build_cancel_contest(contest_slug, creator_pubkey:, cosigner_pubkey:)
+    # Build cancel_contest TX (2 on v0.25, CANCEL_CONTEST 3 from v0.26).
+    # Refunds prize_pool → creator ATA.
+    def build_cancel_contest(contest_slug, creator_pubkey:, cosigner_pubkey:, extra_cosigners: [])
       cosigner_bytes = Keypair.decode_base58(cosigner_pubkey)
+      extras = extra_cosigner_metas(extra_cosigners)
       c_pda, _ = contest_pda(contest_slug)
       prize_pool_addr, _ = prize_pool_pda(contest_slug)
       vault_pda, _ = vault_state_pda
@@ -1189,14 +1620,16 @@ module Solana
           { pubkey: Keypair.admin.public_key_bytes, is_signer: true,  is_writable: true  },
           { pubkey: cosigner_bytes,                 is_signer: true,  is_writable: false },
           { pubkey: vault_pda,                      is_signer: false, is_writable: false },
+          *governance_metas,
           { pubkey: c_pda,                          is_signer: false, is_writable: true  },
           { pubkey: prize_pool_addr,                is_signer: false, is_writable: true  },
           { pubkey: usdc_mint,                      is_signer: false, is_writable: false },
           { pubkey: creator_ata,                    is_signer: false, is_writable: true  },
-          { pubkey: Transaction::TOKEN_PROGRAM_ID,  is_signer: false, is_writable: false }
+          { pubkey: Transaction::TOKEN_PROGRAM_ID,  is_signer: false, is_writable: false },
+          *extras
         ],
         data: data,
-        additional_signers: [cosigner_bytes]
+        additional_signers: [cosigner_bytes, *extras.map { |m| m[:pubkey] }]
       )
       { serialized_tx: serialized }
     end
@@ -1426,6 +1859,7 @@ module Solana
             { pubkey: user_keypair.public_key_bytes,  is_signer: true,  is_writable: true  }, # user
             { pubkey: user_pda,                       is_signer: false, is_writable: true  },
             { pubkey: vault_pda,                      is_signer: false, is_writable: false },
+            *governance_metas,
             { pubkey: c_pda,                          is_signer: false, is_writable: true  },
             { pubkey: e_pda,                          is_signer: false, is_writable: true  },
             { pubkey: token_pda_bytes,                is_signer: false, is_writable: true  },
@@ -1476,6 +1910,7 @@ module Solana
           { pubkey: wallet_bytes,                   is_signer: true,  is_writable: true  },
           { pubkey: user_pda,                       is_signer: false, is_writable: true  },
           { pubkey: vault_pda,                      is_signer: false, is_writable: false },
+          *governance_metas,
           { pubkey: c_pda,                          is_signer: false, is_writable: true  },
           { pubkey: e_pda,                          is_signer: false, is_writable: true  },
           { pubkey: token_pda_bytes,                is_signer: false, is_writable: true  },
@@ -1490,15 +1925,20 @@ module Solana
 
     # --- Settle ---
 
-    # Settle a contest (2-of-3). v0.16 changes:
+    # Settle a contest (2 on v0.25, SETTLE_CONTEST 3 from v0.26 — the third
+    # signature rides in remaining_accounts, AHEAD of the winner triples).
+    # v0.16 changes:
     #   - remaining_accounts pattern is now TRIPLES: [user_account_pda,
     #     contest_entry_pda, winner_usdc_ata] per winner.
     #   - SPL CPI per winner from prize_pool → winner's USDC ATA.
     #   - TX prepends a set_compute_unit_limit(400_000) instruction to handle
     #     the increased CU cost (spec §10.1 / §11 Q7).
-    def settle_contest(contest_slug, settlements, cosigner_keypair: nil)
+    def settle_contest(contest_slug, settlements, cosigner_keypair: nil, extra_signers: [])
       admin = Keypair.admin
       cosigner = cosigner_keypair || admin
+      # named = admin + cosigner, so a 3-threshold settle needs one more.
+      extras = unattended_extra_signer_metas("settle_contest", required: 3,
+                                             signers: extra_signers)
       c_pda, _ = contest_pda(contest_slug)
       vault_pda, _ = vault_state_pda
       prize_pool_addr, _ = prize_pool_pda(contest_slug)
@@ -1519,6 +1959,7 @@ module Solana
 
       tx = build_tx(admin)
       tx.add_signer(cosigner) if cosigner != admin
+      extra_signers.each { |kp| tx.add_signer(kp) } if extras.any?
       tx.add_instruction(**compute_unit_limit_ix(SETTLE_COMPUTE_UNIT_LIMIT))
       tx.add_instruction(
         program_id: @program_id,
@@ -1526,11 +1967,12 @@ module Solana
           { pubkey: admin.public_key_bytes,        is_signer: true,  is_writable: true  },
           { pubkey: cosigner.public_key_bytes,     is_signer: true,  is_writable: false },
           { pubkey: vault_pda,                     is_signer: false, is_writable: false },
+          *governance_metas,
           { pubkey: c_pda,                         is_signer: false, is_writable: true  },
           { pubkey: prize_pool_addr,               is_signer: false, is_writable: true  },
           { pubkey: usdc_mint,                     is_signer: false, is_writable: false },
           { pubkey: Transaction::TOKEN_PROGRAM_ID, is_signer: false, is_writable: false }
-        ] + remaining,
+        ] + extras + remaining,
         data: data
       )
 
@@ -1539,7 +1981,8 @@ module Solana
     end
 
     # Build a partially-signed settle_contest TX for multisig cosigning.
-    def build_settle_contest(contest_slug, settlements, cosigner_pubkey:)
+    def build_settle_contest(contest_slug, settlements, cosigner_pubkey:, extra_cosigners: [])
+      extras = extra_cosigner_metas(extra_cosigners)
       c_pda, _ = contest_pda(contest_slug)
       vault_pda, _ = vault_state_pda
       prize_pool_addr, _ = prize_pool_pda(contest_slug)
@@ -1567,24 +2010,34 @@ module Solana
           { pubkey: Keypair.admin.public_key_bytes, is_signer: true,  is_writable: true  },
           { pubkey: cosigner_bytes,                 is_signer: true,  is_writable: false },
           { pubkey: vault_pda,                      is_signer: false, is_writable: false },
+          *governance_metas,
           { pubkey: c_pda,                          is_signer: false, is_writable: true  },
           { pubkey: prize_pool_addr,                is_signer: false, is_writable: true  },
           { pubkey: usdc_mint,                      is_signer: false, is_writable: false },
           { pubkey: Transaction::TOKEN_PROGRAM_ID,  is_signer: false, is_writable: false }
-        ] + remaining,
+        ] + extras + remaining,
         data: data
       )
-      serialized = tx.serialize_partial_base64(additional_signers: [cosigner_bytes])
+      serialized = tx.serialize_partial_base64(
+        additional_signers: [cosigner_bytes, *extras.map { |m| m[:pubkey] }]
+      )
       { serialized_tx: serialized, contest_slug: contest_slug }
     end
 
     # --- Close ---
 
-    # close_contest (v0.16): 1-of-3 vault signer. Sweeps any prize-pool dust
+    # close_contest: ONE vault signer on v0.25; CLOSE_CONTEST (2) from v0.26,
+    # which also redirects the reclaimed rent to the pinned treasury rather than
+    # to whichever signer called it. Sweeps any prize-pool dust
     # to the op_rev USDC ATA, then closes both the prize_pool ATA and the
     # Contest PDA. Reclaims rent to admin.
-    def close_contest(contest_slug)
+    def close_contest(contest_slug, extra_signers: [])
       admin = Keypair.admin
+      # v0.26 raised CLOSE_CONTEST to 2 AND redirected the reclaimed rent to the
+      # pinned treasury, so closing is now mildly costly to the caller instead of
+      # mildly profitable — the correct incentive for a janitorial action.
+      extras = unattended_extra_signer_metas("close_contest", required: 2,
+                                             signers: extra_signers)
       c_pda,            _ = contest_pda(contest_slug)
       prize_pool_addr,  _ = prize_pool_pda(contest_slug)
       vault_pda,        _ = vault_state_pda
@@ -1594,16 +2047,20 @@ module Solana
       data = Transaction.anchor_discriminator("close_contest")
 
       tx = build_tx(admin)
+      extra_signers.each { |kp| tx.add_signer(kp) } if extras.any?
       tx.add_instruction(
         program_id: @program_id,
         accounts: [
           { pubkey: admin.public_key_bytes,        is_signer: true,  is_writable: true  },
           { pubkey: vault_pda,                     is_signer: false, is_writable: false },
+          *governance_metas,
+          *treasury_metas,
           { pubkey: c_pda,                         is_signer: false, is_writable: true  },
           { pubkey: prize_pool_addr,               is_signer: false, is_writable: true  },
           { pubkey: usdc_mint,                     is_signer: false, is_writable: false },
           { pubkey: op_rev_usdc,                   is_signer: false, is_writable: true  },
-          { pubkey: Transaction::TOKEN_PROGRAM_ID, is_signer: false, is_writable: false }
+          { pubkey: Transaction::TOKEN_PROGRAM_ID, is_signer: false, is_writable: false },
+          *extras
         ],
         data: data
       )
@@ -1621,13 +2078,14 @@ module Solana
       Keypair.encode_base58(ata_bytes)
     end
 
-    # --- Sweep operator revenue (2-of-3) ---
+    # --- Sweep operator revenue (2 on v0.25, SWEEP_OPERATOR_REVENUE 3 from v0.26) ---
 
     # Build a partially-signed sweep_operator_revenue TX. `amount` of 0
     # sweeps the whole op_rev ATA. `treasury_ata_pubkey` must be a USDC ATA
     # owned by VaultState.treasury_authority (the Squads vault PDA).
-    def build_sweep_operator_revenue(cosigner_pubkey:, currency_mint:, treasury_ata_pubkey:, amount: 0)
+    def build_sweep_operator_revenue(cosigner_pubkey:, currency_mint:, treasury_ata_pubkey:, amount: 0, extra_cosigners: [])
       cosigner_bytes = Keypair.decode_base58(cosigner_pubkey)
+      extras         = extra_cosigner_metas(extra_cosigners)
       mint_bytes     = Keypair.decode_base58(currency_mint)
       vault_pda,    _ = vault_state_pda
       op_rev,       _ = op_rev_ata_pda(currency_mint)
@@ -1641,13 +2099,15 @@ module Solana
           { pubkey: Keypair.admin.public_key_bytes, is_signer: true,  is_writable: true  },
           { pubkey: cosigner_bytes,                 is_signer: true,  is_writable: false },
           { pubkey: vault_pda,                      is_signer: false, is_writable: false },
+          *governance_metas,
           { pubkey: mint_bytes,                     is_signer: false, is_writable: false },
           { pubkey: op_rev,                         is_signer: false, is_writable: true  },
           { pubkey: treasury_ata,                   is_signer: false, is_writable: true  },
-          { pubkey: Transaction::TOKEN_PROGRAM_ID,  is_signer: false, is_writable: false }
+          { pubkey: Transaction::TOKEN_PROGRAM_ID,  is_signer: false, is_writable: false },
+          *extras
         ],
         data: data,
-        additional_signers: [cosigner_bytes]
+        additional_signers: [cosigner_bytes, *extras.map { |m| m[:pubkey] }]
       )
       { serialized_tx: serialized }
     end
@@ -1781,10 +2241,29 @@ module Solana
       ref_hash   = Digest::SHA256.digest(ref_buffer)    # [u8;32] — seed + asserted arg
       pda, _ = Transaction.find_pda([b("entry_token"), ref_hash], @program_id)
 
+      # v0.26 closed the uncapped 1-of-N value-creation hole with a PER-WINDOW
+      # CAP rather than a flat threshold: within the cap this is still ONE
+      # signature (so Stripe fulfilment is untouched), above it the same
+      # instruction demands MINT_ENTRY_TOKEN_OVER_CAP (3). `window_index` is an
+      # ARGUMENT because it seeds the MintWindow PDA and Anchor cannot express a
+      # computed seed — and the handler pins it to the chain clock
+      # (`MintWindowMismatch`), so a caller cannot name an empty window and mint
+      # at the low threshold forever.
+      window_index = Config.governance? ? mint_window_index : nil
+
       data = Transaction.anchor_discriminator("mint_entry_token") +
              [source_u8].pack("C") +   # source: u8
              ref_buffer +              # source_ref: [u8;64] (fixed array — raw bytes)
-             ref_hash                  # source_ref_hash: [u8;32] (fixed array — raw bytes)
+             ref_hash +                # source_ref_hash: [u8;32] (fixed array — raw bytes)
+             (window_index ? Borsh.encode_i64(window_index) : "".b)
+
+      mint_window_metas =
+        if Config.governance?
+          window_pda, _ = mint_window_pda(window_index)
+          [{ pubkey: window_pda, is_signer: false, is_writable: true }]
+        else
+          []
+        end
 
       vault_pda, _ = vault_state_pda
 
@@ -1794,6 +2273,8 @@ module Solana
         accounts: [
           { pubkey: admin.public_key_bytes,         is_signer: true,  is_writable: true  }, # admin
           { pubkey: vault_pda,                      is_signer: false, is_writable: false }, # vault_state
+          *governance_metas,
+          *mint_window_metas,
           { pubkey: wallet_bytes,                   is_signer: false, is_writable: false }, # user_wallet
           { pubkey: pda,                            is_signer: false, is_writable: true  }, # entry_token (init)
           { pubkey: Transaction::SYSTEM_PROGRAM_ID, is_signer: false, is_writable: false }
@@ -1807,7 +2288,8 @@ module Solana
     end
 
     # Void ONE unspent entry token — the operator claw-back counterpart to
-    # #mint_entry_token. 1-of-3 vault signer; the holder does NOT sign.
+    # #mint_entry_token. One vault signer on v0.25; BURN_ENTRY_TOKEN (3) from
+    # v0.26 — it destroys user property and the holder does NOT sign.
     #
     # Identified by `source_ref`, not by PDA, because the ref is what the caller
     # actually has: #list_entry_tokens decodes it off each account, and the ref is
@@ -1827,8 +2309,14 @@ module Solana
     # (6045 / 0x179d), because silently accepting one would overwrite consumed_at and
     # destroy the record of when the burn happened. Callers that retry must
     # re-read the list and skip tokens already carrying `burned: true`.
-    def burn_entry_token(wallet_address:, source_ref:)
+    def burn_entry_token(wallet_address:, source_ref:, extra_signers: [])
       admin = Keypair.admin
+      # BURN_ENTRY_TOKEN ships at 3: it destroys user property, the holder never
+      # signs, and pause does not stop it. Written but NEVER DEPLOYED at 1-of-N,
+      # so three regresses nothing — and three is the reversible direction,
+      # since lowering it later is one transaction and un-burning a voucher is not.
+      extras = unattended_extra_signer_metas("burn_entry_token", required: 3,
+                                             signers: extra_signers)
 
       # The SAME two derivations mint does, from the same input — see
       # #mint_entry_token. `padded_source_ref` raises rather than truncating past
@@ -1844,6 +2332,7 @@ module Solana
       vault_pda, _ = vault_state_pda
 
       tx = build_tx(admin)
+      extra_signers.each { |kp| tx.add_signer(kp) } if extras.any?
       tx.add_instruction(
         program_id: @program_id,
         accounts: [
@@ -1851,7 +2340,9 @@ module Solana
           # instruction itself moves no lamports (a tombstone refunds no rent).
           { pubkey: admin.public_key_bytes, is_signer: true,  is_writable: true  }, # admin
           { pubkey: vault_pda,              is_signer: false, is_writable: false }, # vault_state
-          { pubkey: pda,                    is_signer: false, is_writable: true  }  # entry_token (mut)
+          *governance_metas,
+          { pubkey: pda,                    is_signer: false, is_writable: true  }, # entry_token (mut)
+          *extras
         ],
         data: data
       )
@@ -1861,7 +2352,8 @@ module Solana
       { signature: signature, pda: Keypair.encode_base58(pda) }
     end
 
-    # Admin-signed standalone seed grant (Rails "quest" bonuses). 1-of-3 vault
+    # Admin-signed standalone seed grant (Rails "quest" bonuses). GRANT_SEEDS
+    # stays at ONE signature in v0.26. 1-of-3 vault
     # signer. Credits a fixed `amount` of loyalty seeds into a user's UserAccount
     # OUTSIDE the entry flow — first username change, newsletter join, friend-
     # invite-entered. The user does NOT sign (admin credits on their behalf, the
@@ -1907,6 +2399,23 @@ module Solana
              [kind_u8].pack("C") +       # kind:   u8
              invitee_bytes               # invitee: Pubkey (32 raw bytes; zeros = default)
 
+      # THE INVITEE'S OWN UserAccount (v0.26). Before this, the once-only guard
+      # was seeded on `invitee`, a caller-chosen Pubkey required to correspond to
+      # nothing — so every distinct 32-byte value opened a fresh guard PDA and a
+      # fresh grant, and "once per invited friend" was really once per NUMBER.
+      # REQUIRED for :invite and REFUSED for every other kind
+      # (`InvalidSeedGrantInvitee`); the program additionally demands
+      # `entries > 0`, so manufacturing a fake invitee now costs a real entry.
+      invitee_metas =
+        if !Config.governance?
+          []
+        elsif kind_u8 == SEED_GRANT_KIND[:invite]
+          invitee_pda, _ = user_account_pda(invitee)
+          [{ pubkey: invitee_pda, is_signer: false, is_writable: false }]
+        else
+          [absent_optional_meta]
+        end
+
       signature = with_account_init_retry do
         tx = build_tx(admin)
         tx.add_instruction(
@@ -1914,8 +2423,10 @@ module Solana
           accounts: [
             { pubkey: admin.public_key_bytes,         is_signer: true,  is_writable: true  }, # admin
             { pubkey: vault_pda,                      is_signer: false, is_writable: false }, # vault_state
+            *governance_metas,
             { pubkey: wallet_bytes,                   is_signer: false, is_writable: false }, # user_wallet
             { pubkey: user_pda,                       is_signer: false, is_writable: true  }, # user_account
+            *invitee_metas,
             { pubkey: grant_pda,                      is_signer: false, is_writable: true  }, # seed_grant (init)
             { pubkey: Transaction::SYSTEM_PROGRAM_ID, is_signer: false, is_writable: false }
           ],
@@ -2005,7 +2516,7 @@ module Solana
     # Fallback per-quest reward when no Season is active / can't be read.
     QUEST_SEED_FALLBACK = 25
 
-    def create_season(season_id:, name:, schedule:, quest_seeds: nil, start_at: nil)
+    def create_season(season_id:, name:, schedule:, quest_seeds: nil, start_at: nil, extra_signers: [])
       raise ArgumentError, "schedule must have 5 elements" unless schedule.is_a?(Array) && schedule.length == 5
       schedule.each { |v| raise ArgumentError, "schedule values must be non-negative" if v.to_i.negative? }
 
@@ -2019,6 +2530,10 @@ module Solana
       admin = Keypair.admin
       pda, _ = season_pda(season_id)
       vault_pda, _ = vault_state_pda
+      # CREATE_SEASON went 1 -> 3: the season's per-entry seed schedule has no
+      # upper bound checked on chain, so one key must not be able to write it.
+      extras = unattended_extra_signer_metas("create_season", required: 3,
+                                             signers: extra_signers)
 
       name_bytes = name.to_s.b.bytes.first(32)
       name_bytes += [0] * (32 - name_bytes.length)
@@ -2031,13 +2546,16 @@ module Solana
              Borsh.encode_i64(start_at.to_i)
 
       tx = build_tx(admin)
+      extra_signers.each { |kp| tx.add_signer(kp) } if extras.any?
       tx.add_instruction(
         program_id: @program_id,
         accounts: [
           { pubkey: admin.public_key_bytes, is_signer: true,  is_writable: true  },
           { pubkey: vault_pda,              is_signer: false, is_writable: false },
+          *governance_metas,
           { pubkey: pda,                    is_signer: false, is_writable: true  },
-          { pubkey: Transaction::SYSTEM_PROGRAM_ID, is_signer: false, is_writable: false }
+          { pubkey: Transaction::SYSTEM_PROGRAM_ID, is_signer: false, is_writable: false },
+          *extras
         ],
         data: data
       )
@@ -2174,19 +2692,56 @@ module Solana
     # controller maps it to a generic client message (never leak which check tripped).
     class UnsafeCosignError < StandardError; end
 
-    # Position of the contest_entry (entry PDA) account inside the enter_contest
-    # instruction's account list — see #enter_contest_accounts: 0 payer, 1 user,
-    # 2 user_account, 3 vault_state, 4 contest, 5 contest_entry.
-    ENTER_CONTEST_ENTRY_PDA_POSITION = 5
+    # Raised when a cash-out is below MIN_WITHDRAWAL_USD. Typed (not a bare
+    # ArgumentError) so a controller can map it to copy a person can act on
+    # rather than to a generic validation failure.
+    class BelowMinimumWithdrawalError < StandardError; end
 
-    # Position of the entry_token (EntryTokenAccount PDA) inside the
-    # enter_contest_with_token instruction — see #build_enter_contest_with_token:
-    # 0 payer, 1 user, 2 user_account, 3 vault_state, 4 contest, 5 contest_entry,
-    # 6 entry_token. contest_entry sits at 5 in BOTH entry instructions, which is
-    # why ENTER_CONTEST_ENTRY_PDA_POSITION serves both; the guard's own tests pin
-    # that, so an account-order change fails loudly rather than validating the
-    # wrong slot.
-    ENTER_CONTEST_WITH_TOKEN_TOKEN_PDA_POSITION = 6
+    # ── THE COSIGN GUARD'S ACCOUNT SLOTS — SHAPE-DEPENDENT SINCE v0.26 ──────
+    #
+    # These are the indices `#assert_entry_cosign_safe!` reads to prove a
+    # Phantom-signed wire binds the session's wallet to the entry PDA we derived.
+    # They are the C1 blind-cosign defence, so reading the WRONG slot is not a
+    # cosmetic bug — it is the guard silently validating an account the attacker
+    # chose, while still reporting a pass.
+    #
+    # v0.26 inserts `governance` at index 4, immediately after `vault_state`, in
+    # BOTH entry instructions. Every slot at or after it shifts by one. They were
+    # constants; they are now METHODS, because the correct value is a fact about
+    # the shape this boot builds and a constant cannot follow a runtime switch.
+    #
+    #   account order          v0.25              v0.26
+    #   0 payer                0                  0
+    #   1 user                 1                  1
+    #   2 user_account         2                  2
+    #   3 vault_state          3                  3
+    #   -                      -                  4 governance
+    #   contest                4                  5
+    #   contest_entry          5                  6   <- ENTRY_PDA
+    #   entry_token            6                  7   <- TOKEN_PDA (with_token only)
+    #
+    # contest_entry sits at the same index in BOTH entry instructions on either
+    # shape, which is why one accessor still serves both. `test/services/solana/
+    # vault_account_layout_test.rb` pins every number above against the committed
+    # IDLs, so a future account-order change fails loudly instead of moving the
+    # guard's eye.
+    GOVERNANCE_ACCOUNT_SHIFT = 1
+
+    def self.enter_contest_entry_pda_position
+      Config.governance? ? 5 + GOVERNANCE_ACCOUNT_SHIFT : 5
+    end
+
+    def self.enter_contest_with_token_token_pda_position
+      Config.governance? ? 6 + GOVERNANCE_ACCOUNT_SHIFT : 6
+    end
+
+    def enter_contest_entry_pda_position
+      self.class.enter_contest_entry_pda_position
+    end
+
+    def enter_contest_with_token_token_pda_position
+      self.class.enter_contest_with_token_token_pda_position
+    end
 
     # SystemInstruction::AdvanceNonceAccount discriminant (u32 LE 4) — see
     # SystemProgram.advance_nonce_account in solana-studio. Named so the cosign
@@ -2288,7 +2843,7 @@ module Solana
               "wrong_turf_vault_ix: ix #{i} disc=#{ix[:data].byteslice(0, 8).to_s.unpack1('H*')} != #{expected_ix_name}")
           end
           enter_count += 1
-          slot = ix[:account_indices][ENTER_CONTEST_ENTRY_PDA_POSITION]
+          slot = ix[:account_indices][enter_contest_entry_pda_position]
           ix_entry_pda = slot && account_keys[slot]
           if ix_entry_pda != expected_entry_pda
             cosign_reject!(entry, wallet_address,
@@ -2300,7 +2855,7 @@ module Solana
           # a wire that swaps in a DIFFERENT token this same wallet owns (spending a
           # voucher the server never selected, and never accounted for).
           if token_funded
-            token_slot   = ix[:account_indices][ENTER_CONTEST_WITH_TOKEN_TOKEN_PDA_POSITION]
+            token_slot   = ix[:account_indices][enter_contest_with_token_token_pda_position]
             ix_token_pda = token_slot && account_keys[token_slot]
             if ix_token_pda != expected_token_pda
               cosign_reject!(entry, wallet_address,
@@ -2416,6 +2971,140 @@ module Solana
       true
     end
 
+    # Audit C1 boundary for the PHANTOM CASH-OUT — the SPL-transfer twin of
+    # #assert_entry_cosign_safe! / #assert_create_contest_cosign_safe!.
+    #
+    # Since phantom-cashout-needs-sol the ADMIN is the fee payer on this wire
+    # (see #build_user_usdc_transfer_unsigned), so filling its signature slot is
+    # the house agreeing to pay for whatever bytes the client hands back. Before
+    # that happens, assert the wire is still EXACTLY the transfer this server
+    # prepared:
+    #
+    #   - admin in the fee-payer slot (account 0),
+    #   - the cash-out wallet in a SIGNER slot (the house does not pay for a
+    #     transfer that cannot authorise itself),
+    #   - exactly ONE SPL Token instruction, and it is a Transfer of the exact
+    #     expected amount, from the wallet's own USDC ATA, to the resolved
+    #     Coinbase destination token account, under the wallet's own authority,
+    #   - only fee-capped ComputeBudget and Phantom-injected Lighthouse
+    #     instructions besides, and NO System instruction, ever.
+    #
+    # Raises UnsafeCosignError; the detailed reason is logged server-side and is
+    # NEVER returned to the client. Validate-then-cosign: on reject nothing is
+    # signed and nothing can be broadcast.
+    def assert_usdc_transfer_cosign_safe!(signed_wire_base64, wallet_address:, destination_token_account:,
+                                          amount_lamports:, context: "offramp_send")
+      cosign_reject!(context, wallet_address, "empty_wire: no signed_tx bytes") if signed_wire_base64.blank?
+
+      wallet_bytes = as_key_bytes(wallet_address)
+      from_ata, _  = Solana::SplToken.find_associated_token_address(wallet_address, Config::USDC_MINT)
+      expected_accounts = [as_key_bytes(from_ata), as_key_bytes(destination_token_account), wallet_bytes]
+      expected_data = ([3].pack("C") + [amount_lamports.to_i].pack("Q<")).b
+
+      msg =
+        begin
+          parse_wire_message(Base64.decode64(signed_wire_base64).b, entry: context, wallet_address: wallet_address)
+        rescue UnsafeCosignError
+          raise
+        rescue StandardError => e
+          cosign_reject!(context, wallet_address, "unparseable_wire: #{e.class}: #{e.message}")
+        end
+      account_keys = msg[:account_keys]
+
+      admin_key = Keypair.admin.public_key_bytes.b
+      fee_payer = account_keys[0]
+      if fee_payer != admin_key
+        cosign_reject!(context, wallet_address,
+          "fee_payer_not_admin: account[0]=#{b58(fee_payer)} expected admin=#{Keypair.admin.address}")
+      end
+
+      wallet_index = account_keys.index(wallet_bytes)
+      unless wallet_index && wallet_index < msg[:num_required_signatures].to_i
+        cosign_reject!(context, wallet_address,
+          "wallet_not_signer: #{wallet_address} is not in a signer slot " \
+          "(index=#{wallet_index.inspect} of #{msg[:num_required_signatures]} signer slots)")
+      end
+
+      token_program  = Transaction::TOKEN_PROGRAM_ID.b
+      system_program = Transaction::SYSTEM_PROGRAM_ID.b
+      compute_budget = COMPUTE_BUDGET_PROGRAM_ID.b
+      lighthouse     = LIGHTHOUSE_PROGRAM_ID.b
+
+      transfer_count = 0
+      budget = {}
+
+      msg[:instructions].each_with_index do |ix, i|
+        program_id = account_keys[ix[:program_id_index]]
+        cosign_reject!(context, wallet_address, "bad_program_index: ix #{i} program index out of range") if program_id.nil?
+        program_id = program_id.b
+
+        case program_id
+        when token_program
+          # SPL Token Transfer is discriminator byte 3 (Solana::SplToken
+          # .transfer_instruction). Compare the WHOLE data field, so the amount
+          # is pinned too — a wire that swapped in a larger transfer, or any
+          # other token instruction (Approve, SetAuthority, CloseAccount,
+          # Burn), fails right here.
+          unless ix[:data].to_s.b == expected_data
+            cosign_reject!(context, wallet_address,
+              "token_data_mismatch: ix #{i} data=#{ix[:data].to_s.unpack1('H*')} " \
+              "expected transfer of #{amount_lamports.to_i}")
+          end
+          actual_accounts = ix[:account_indices].map { |idx| account_keys[idx]&.b }
+          unless actual_accounts == expected_accounts
+            cosign_reject!(context, wallet_address,
+              "token_accounts_mismatch: ix #{i} accounts=#{actual_accounts.map { |a| b58(a) }.join(',')} " \
+              "expected=#{expected_accounts.map { |a| b58(a) }.join(',')}")
+          end
+          transfer_count += 1
+        when system_program
+          # No System instruction, ever — the same refusal the entry and
+          # create_contest guards make. A SystemProgram.transfer{from: admin}
+          # is precisely what the admin signature must never be spent on.
+          system_ix_reject!(context, wallet_address, ix, i)
+        when compute_budget
+          # Read, never waved through: the admin pays whatever fee these set.
+          read_compute_budget_ix!(context, wallet_address, ix, i, budget)
+        when lighthouse
+          # Phantom-injected transaction-protection assertions — allowed.
+        else
+          cosign_reject!(context, wallet_address, "disallowed_program: ix #{i} program=#{b58(program_id)}")
+        end
+      end
+
+      unless transfer_count == 1
+        cosign_reject!(context, wallet_address,
+          "transfer_count: found #{transfer_count} SPL transfer ixs, require exactly 1")
+      end
+      assert_priority_fee_capped!(context, wallet_address, budget)
+
+      true
+    end
+
+    # Fill the admin (fee payer) signature slot in the Phantom-signed cash-out
+    # wire and hand the fully-signed bytes back. The caller MUST run
+    # #assert_usdc_transfer_cosign_safe! first — Transaction.cosign_wire signs
+    # the EXACT bytes it is handed, whatever they are.
+    #
+    # Unlike #cosign_and_broadcast_entry this does NOT broadcast. The cash-out
+    # client already owns a working browser broadcast, and it has all three
+    # things the 2026-09-05 operator-wire incident lacked (see
+    # #simulate_and_broadcast): a freshly fetched per-request wire, the app's
+    # own configured RPC URL, and the `confirmed` commitment. It then reports
+    # the signature to Cdp::OfframpSendsController#sent, which verifies it
+    # on-chain before recording — so the verified-report reconciliation this
+    # flow already has stays exactly as it was.
+    #
+    # Returns { signed_tx:, signature: }. The signature is the FIRST signature
+    # on the patched wire — the admin's, since the admin is now the fee payer —
+    # and it is returned so the caller can persist it BEFORE the bytes leave the
+    # server (the same pre-broadcast anchor #build_user_usdc_transfer provides
+    # for the managed path).
+    def cosign_usdc_transfer(signed_wire_base64)
+      patched_b64 = Transaction.cosign_wire_base64(signed_wire_base64, signer: Keypair.admin)
+      { signed_tx: patched_b64, signature: extract_tx_signature(Base64.decode64(patched_b64).b) }
+    end
+
     # Cosign (admin) the Phantom-signed entry wire, pre-flight simulate, then
     # broadcast. Public API called by ContestsController#confirm_onchain_entry.
     # The caller MUST run #assert_entry_cosign_safe! first (audit C1) — this
@@ -2519,6 +3208,10 @@ module Solana
 
       first = wire.getbyte(message_start)
       cosign_reject!(entry, wallet_address, "versioned_message: v0+ tx not supported") if (first & 0x80) != 0
+      # numRequiredSignatures is the first header byte (the v0 high bit is ruled
+      # out above, so the whole byte is the count). Returned so a guard can ask
+      # whether a given key sits in the SIGNER region of the account list.
+      num_required_signatures = first
 
       c = message_start + 3 # skip the 3-byte message header (numReqSigs, roSigned, roUnsigned)
       account_count, c = Transaction.read_compact_u16(wire, c)
@@ -2552,7 +3245,8 @@ module Solana
         instructions << { program_id_index: program_id_index, account_indices: account_indices, data: data }
       end
 
-      { account_keys: account_keys, instructions: instructions }
+      { account_keys: account_keys, instructions: instructions,
+        num_required_signatures: num_required_signatures }
     end
 
     # Log the DETAILED rejection reason server-side (forensics: entry id + wallet
@@ -2620,6 +3314,27 @@ module Solana
         "system_program_ix: ix #{index} data=#{ix[:data].to_s.unpack1('H*')} (no System instruction is cosigned)")
     end
 
+    # The withdrawal floor, asserted in the BUILDERS rather than only in the
+    # controller: this is the last common chokepoint before the transaction
+    # exists, so a future caller of either builder cannot route around it. Both
+    # user cash-out builders call it — the Phantom wire and the managed one —
+    # so the floor does not depend on which wallet the player brought.
+    def assert_above_withdrawal_minimum!(amount_lamports)
+      return if amount_lamports.to_i >= MIN_WITHDRAWAL_BASE_UNITS
+
+      raise BelowMinimumWithdrawalError,
+            "Minimum withdrawal is $#{MIN_WITHDRAWAL_USD} " \
+            "(#{MIN_WITHDRAWAL_BASE_UNITS} base units); got #{amount_lamports.to_i}"
+    end
+
+    # Accept either a base58 address String or raw 32-byte key bytes and return
+    # the raw bytes, so a guard can compare against a parsed wire's account keys
+    # without caring which form its caller had.
+    def as_key_bytes(value)
+      return value.b if value.is_a?(String) && value.bytesize == 32
+      Keypair.decode_base58(value.to_s).b
+    end
+
     # Short base58 for log lines; nil-safe.
     def b58(bytes)
       bytes.nil? ? "nil" : Keypair.encode_base58(bytes)
@@ -2663,6 +3378,7 @@ module Solana
         { pubkey: user_bytes,                     is_signer: true,  is_writable: true  }, # user
         { pubkey: user_pda,                       is_signer: false, is_writable: true  }, # user_account
         { pubkey: vault_pda,                      is_signer: false, is_writable: false }, # vault_state
+        *governance_metas,
         { pubkey: contest_pda,                    is_signer: false, is_writable: true  }, # contest
         { pubkey: entry_pda,                      is_signer: false, is_writable: true  }, # contest_entry (init)
         { pubkey: currency_mint,                  is_signer: false, is_writable: false }, # currency_mint

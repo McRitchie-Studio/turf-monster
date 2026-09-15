@@ -2405,6 +2405,57 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_equal original.to_i, @contest.reload.starts_at.to_i, "non-admin must not move the lock time"
   end
 
+  # THE ROUTING PROPERTY (route-time-changes-to-phantom). An on-chain contest's
+  # lock time is the deadline money depends on, and #lock used to move it with
+  # the always-online admin key signing alone. It must now refuse and send the
+  # operator to the Phantom-signed pair instead.
+  #
+  # THE TWO TESTS ABOVE ARE THIS ONE'S CONTROL. They post to the SAME action on
+  # an OFF-CHAIN contest and still expect a working lock, so a green here cannot
+  # be bought by breaking #lock outright — the difference between them and this
+  # is the single predicate under test, Contest#onchain_verified?.
+  test "lock refuses an onchain contest instead of signing with the server key" do
+    log_in_as(users(:alex))
+    @contest.update!(onchain_contest_id: "onchain_route_#{SecureRandom.hex(4)}")
+    assert @contest.reload.onchain_verified?, "premise: the contest must read as verified on chain"
+    original = @contest.starts_at
+    vault = FakeVault.new
+
+    Solana::Vault.stub :new, vault do
+      post lock_contest_path(@contest)
+    end
+
+    assert_empty vault.set_lock_time_calls,
+      "the server key must not sign a lock-time change — that authority moved to Phantom"
+    assert_equal original.to_i, @contest.reload.starts_at.to_i,
+      "a DB-only lock would claim a lock the chain does not enforce"
+    assert_match(/Phantom/i, flash[:alert],
+      "the refusal has to name the flow that CAN move the lock, or it is a dead end"
+    )
+  end
+
+  # The other half of the same routing move: the builder is reachable for the
+  # contest the signer just refused. Without this, the test above is satisfied
+  # by an app with no lock flow at all.
+  test "the contest lock refused above is still movable through the Phantom builder" do
+    admin = users(:alex)
+    admin.update!(web3_solana_address: "Web3Route#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_route_b#{SecureRandom.hex(4)}", season_id: 1)
+    SeasonConfig.set_current!(1)
+    log_in_as_onchain(admin)
+
+    vault = FakeVault.new
+    Solana::Vault.stub :new, vault do
+      post prepare_lock_time_contest_path(@contest, in_seconds: 30), as: :json
+    end
+
+    assert_response :success
+    assert_empty vault.set_lock_time_calls, "the Phantom route must not fall back to the server key"
+    assert_equal 1, vault.lock_calls.length, "the builder is the route that survives"
+    assert_equal admin.web3_solana_address, vault.lock_calls.first[:admin],
+      "the operator's own wallet occupies the authority slot"
+  end
+
   # --- prepare_lock_time / confirm_lock_time (Phantom-signed lock, v0.17) ---
 
   test "prepare_lock_time builds a Phantom-signable set_contest_lock_time TX" do
@@ -2467,6 +2518,89 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert JSON.parse(response.body)["success"]
     assert_in_delta lock_ts, @contest.reload.starts_at.to_i, 2
+  end
+
+  # THE TWO CAPABILITIES THE SERVER-SIGNED PATH STILL HAD. Routing the lock
+  # through Phantom is only a move, not a loss, if the Phantom route can say
+  # everything the retired one could: an ARBITRARY moment (an NFL flex
+  # reschedule days out, which a 0..3600s relative offset cannot reach) and NO
+  # LOCK AT ALL (the old #update sent `starts_at&.to_i || 0`).
+
+  test "prepare_lock_time accepts an absolute timestamp beyond the relative clamp" do
+    admin = users(:alex)
+    admin.update!(web3_solana_address: "Web3Abs#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_abs#{SecureRandom.hex(4)}", season_id: 1)
+    SeasonConfig.set_current!(1)
+    log_in_as_onchain(admin)
+
+    # Three days out — far outside the 3600s ceiling the quick buttons clamp to,
+    # so a relative-only endpoint could not express it at all.
+    lock_at = 3.days.from_now.to_i
+    vault = FakeVault.new
+    Solana::Vault.stub :new, vault do
+      post prepare_lock_time_contest_path(@contest), params: { lock_timestamp: lock_at }, as: :json
+    end
+
+    assert_response :success
+    assert_equal lock_at, JSON.parse(response.body)["lock_timestamp"],
+      "the absolute moment must survive to the client unchanged"
+    assert_equal lock_at, vault.lock_calls.first[:lock_timestamp],
+      "and reach the builder unclamped — a clamp here is a silently wrong deadline"
+  end
+
+  test "prepare_lock_time treats a zero timestamp as clearing the lock" do
+    admin = users(:alex)
+    admin.update!(web3_solana_address: "Web3Clr#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_clr#{SecureRandom.hex(4)}", season_id: 1)
+    SeasonConfig.set_current!(1)
+    log_in_as_onchain(admin)
+
+    vault = FakeVault.new
+    Solana::Vault.stub :new, vault do
+      post prepare_lock_time_contest_path(@contest), params: { lock_timestamp: 0 }, as: :json
+    end
+
+    assert_response :success
+    assert_equal 0, vault.lock_calls.first[:lock_timestamp],
+      "0 is the program's own spelling of 'no lock' — it must not fall through to a relative 'now'"
+  end
+
+  test "confirm_lock_time clears starts_at when the confirmed timestamp is zero" do
+    admin = users(:alex)
+    admin.update!(web3_solana_address: "Web3ClrC#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_clrc#{SecureRandom.hex(4)}", starts_at: 1.hour.from_now)
+    log_in_as_onchain(admin)
+    assert @contest.reload.starts_at.present?, "premise: the contest starts with a lock to clear"
+
+    vault = FakeVault.new
+    Solana::Vault.stub :new, vault do
+      Solana::Keypair.stub :encode_base58, ->(v) { v.is_a?(String) ? v : v.to_s } do
+        Solana::TxVerifier.stub :verify!, true do
+          post confirm_lock_time_contest_path(@contest),
+            params: { tx_signature: "clear-sig-1", lock_timestamp: 0 }, as: :json
+        end
+      end
+    end
+
+    assert_response :success
+    assert_nil @contest.reload.starts_at,
+      "nil starts_at is the DB's spelling of chain 0 — entries re-open"
+  end
+
+  # ABSENT is still an error. It has to stay distinguishable from zero, or the
+  # clear path above would swallow every malformed call as 'clear the lock'.
+  test "confirm_lock_time still rejects a missing timestamp" do
+    admin = users(:alex)
+    admin.update!(web3_solana_address: "Web3Miss#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_miss#{SecureRandom.hex(4)}", starts_at: 1.hour.from_now)
+    original = @contest.reload.starts_at
+    log_in_as_onchain(admin)
+
+    post confirm_lock_time_contest_path(@contest), params: { tx_signature: "no-ts-sig" }, as: :json
+
+    assert_response :unprocessable_entity
+    assert_match(/Missing lock timestamp/, JSON.parse(response.body)["error"])
+    assert_equal original.to_i, @contest.reload.starts_at.to_i, "a malformed call must not clear the lock"
   end
 
   # --- prepare_conclusion_time / confirm_conclusion_time (v0.18) ---

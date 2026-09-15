@@ -287,4 +287,19 @@ class Cdp::OfframpSendJobTest < ActiveJob::TestCase
     assert_empty vault.offramp_build_calls
     assert_empty vault.client.sent_transactions
   end
+
+  # phantom-cashout-needs-sol: the builder asserts the $0.99 floor as the
+  # unbypassable backstop, but a RAISE here would re-raise into a Sidekiq retry
+  # that can never succeed. A sub-floor row must die quietly instead.
+  test "refuses a sub-floor cash-out cleanly instead of raising into a retry loop" do
+    ramp = create_ramp(sell_amount_value: BigDecimal("0.40"))
+
+    assert_nothing_raised do
+      Cdp::OfframpSendJob.perform_now(ramp_id: ramp.id)
+    end
+
+    ramp.reload
+    assert ramp.cdp_created?, "the row is left alone, not advanced"
+    assert_nil ramp.sent_signature, "nothing was built, so nothing was signed or broadcast"
+  end
 end

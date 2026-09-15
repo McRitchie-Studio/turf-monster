@@ -9,7 +9,13 @@ module Cdp
   #        The server NEVER moves managed funds without this click.
   #   POST /cdp/offramp/prepare_send  — Phantom (web3): server builds the
   #        unsigned USDC transfer (single source of truth for destination
-  #        resolution + amount — the client never dictates either).
+  #        resolution + amount — the client never dictates either). The HOUSE
+  #        is the fee payer on that wire, so a Phantom player holding USDC and
+  #        zero SOL can still withdraw (phantom-cashout-needs-sol).
+  #   POST /cdp/offramp/cosign_send   — Phantom (web3): validates the
+  #        Phantom-signed wire against what THIS server prepared, fills the
+  #        admin (fee payer) signature slot, and hands back the fully-signed
+  #        bytes for the client to broadcast. One cosign per row.
   #   POST /cdp/offramp/sent          — Phantom (web3): records the
   #        client-reported signature AFTER verifying it on-chain (never trust
   #        an unverified client signature — the Lazarus recover_pending_entry
@@ -28,6 +34,7 @@ module Cdp
       end
       return render_state_error unless @ramp.cdp_created?
       return render_deadline_error unless within_send_window?
+      return render_minimum_error if below_minimum_withdrawal?
 
       rescue_and_log(target: @ramp, parent: current_user) do
         @ramp.update!(confirmed_at: Time.current)
@@ -50,6 +57,9 @@ module Cdp
         return render json: { error: "Cash-out amount isn't known yet — please retry in a moment." },
                       status: :unprocessable_entity
       end
+      # Refuse the dust withdrawal HERE, with copy naming the floor, before the
+      # builder's own unbypassable assertion turns it into a generic error.
+      return render_minimum_error if below_minimum_withdrawal?
 
       rescue_and_log(target: @ramp, parent: current_user) do
         destination = OfframpDestination.resolve(@ramp.to_address)
@@ -69,6 +79,140 @@ module Cdp
           cashout_deadline_at: @ramp.cashout_deadline_at&.iso8601
         }
       end
+    rescue Solana::Vault::BelowMinimumWithdrawalError
+      render_minimum_error
+    rescue OfframpDestination::ResolutionError
+      render json: { error: "Couldn't verify the Coinbase destination address — cash-out is paused for safety." },
+             status: :unprocessable_entity
+    rescue Solana::Client::RpcError
+      render json: { error: "Solana is busy right now — please try again in a moment." },
+             status: :bad_gateway
+    rescue StandardError => e
+      render json: { error: e.message }, status: :unprocessable_entity
+    end
+
+    # Phantom mode: fill the house's fee-payer signature slot.
+    #
+    # Since phantom-cashout-needs-sol the cash-out wire names the ADMIN as fee
+    # payer (Solana::Vault#build_user_usdc_transfer_unsigned), so Phantom's
+    # signature alone does not make it broadcastable. Phantom signs first, this
+    # endpoint validates and cosigns, and the client broadcasts the result.
+    #
+    # The destination and amount are re-resolved HERE from the ramp row and are
+    # never read off the request, so the guard measures the returned wire
+    # against the server's own answer — the same source of truth #prepare used.
+    def cosign
+      return render_mode_error("Phantom") unless @ramp.wallet_web3?
+      return render_state_error unless @ramp.cdp_created? || @ramp.sending?
+      return render_deadline_error unless within_send_window?
+      return render_minimum_error if below_minimum_withdrawal?
+
+      signed_tx = params[:signed_tx].to_s
+      if signed_tx.blank?
+        return render json: { error: "signed_tx is required" }, status: :unprocessable_entity
+      end
+
+      amount = amount_base_units
+      if amount <= 0
+        return render json: { error: "Cash-out amount isn't known yet — please retry in a moment." },
+                      status: :unprocessable_entity
+      end
+
+      rescue_and_log(target: @ramp, parent: current_user) do
+        # NETWORK I/O FIRST, OUTSIDE THE LOCK. Both reads below are RPC, and a
+        # row lock held across a network call ties up a database connection for
+        # the length of somebody else's outage.
+        destination = OfframpDestination.resolve(@ramp.to_address)
+        probed_signature = @ramp.sending? ? @ramp.sent_signature.to_s : ""
+        probed_status = probed_signature.present? ? recorded_send_status(probed_signature) : nil
+
+        vault = Solana::Vault.new
+        outcome = nil
+        cosigned = nil
+
+        # EVERYTHING THAT DECIDES OR MUTATES STATE RUNS UNDER THE ROW LOCK.
+        # Between reading the state and writing it sit a guard and a cosign;
+        # without the lock two concurrent requests both read :cdp_created and
+        # both walk away with a broadcastable, house-funded wire for the SAME
+        # cash-out. with_lock reloads, so every check below sees fresh state.
+        # Only CPU work and one UPDATE happen in here — no RPC.
+        @ramp.with_lock do
+          if @ramp.sending? && @ramp.sent_signature.to_s != probed_signature
+            # The row moved while we were on the network, so the verdict we
+            # hold describes a DIFFERENT send. Refuse rather than rewind on a
+            # stale probe.
+            outcome = :in_flight
+          else
+            case rearm_verdict(probed_status)
+            when :already_sent then outcome = :already_sent
+            when :in_flight    then outcome = :in_flight
+            else
+              # Audit C1 (admin blind-cosign): SEMANTICALLY validate the
+              # Phantom-signed wire BEFORE the house signs anything. The admin
+              # is the fee payer here, so an unguarded cosign would let a
+              # crafted wire spend the admin's signature on something other
+              # than this cash-out. Validate-then-cosign: on reject this raises
+              # and the transaction rolls back, so nothing is signed and
+              # nothing is broadcastable.
+              vault.assert_usdc_transfer_cosign_safe!(
+                signed_tx,
+                wallet_address: @ramp.wallet_address,
+                destination_token_account: destination.token_account,
+                amount_lamports: amount,
+                context: "offramp_send:#{@ramp.partner_user_ref}"
+              )
+              signed = vault.cosign_usdc_transfer(signed_tx)
+
+              # THE CAP IS THIS RETURN VALUE, AND IT HAS TO BE READ.
+              # #mark_sending! answers false when the row is no longer
+              # claimable, and a wire rendered anyway is a wire that can be
+              # broadcast — which would make the one-cosign-per-row cap
+              # decorative. Rendering is gated on the claim SUCCEEDING.
+              #
+              # It also persists the signature BEFORE the signed bytes leave
+              # the server: once the client holds a fully-signed wire the
+              # broadcast is out of our hands, and a row that never learned the
+              # signature could not be reconciled against the chain.
+              if @ramp.mark_sending!(signed[:signature])
+                cosigned = signed
+                outcome = :ok
+              else
+                outcome = :claim_lost
+              end
+            end
+          end
+        end
+
+        case outcome
+        when :ok
+          render json: {
+            signed_tx: cosigned[:signed_tx],
+            tx_signature: cosigned[:signature],
+            wallet_address: @ramp.wallet_address
+          }
+        when :already_sent
+          render json: {
+            error: "This cash-out was already sent. Give it a moment to confirm.",
+            tx_signature: @ramp.sent_signature
+          }, status: :unprocessable_entity
+        when :in_flight
+          render json: {
+            error: "Your cash-out is still being confirmed on Solana. Give it a few minutes before trying again.",
+            tx_signature: @ramp.sent_signature
+          }, status: :unprocessable_entity
+        else # :claim_lost
+          render json: {
+            error: "This cash-out is already being sent. Please refresh before trying again."
+          }, status: :unprocessable_entity
+        end
+      end
+    rescue Solana::Vault::UnsafeCosignError
+      # The detailed reason is logged server-side by the guard and is NEVER
+      # returned to the client.
+      render json: { error: "That transaction didn't match your cash-out, so it wasn't signed. Please start the cash-out again." },
+             status: :unprocessable_entity
+    rescue Solana::Vault::BelowMinimumWithdrawalError
+      render_minimum_error
     rescue OfframpDestination::ResolutionError
       render json: { error: "Couldn't verify the Coinbase destination address — cash-out is paused for safety." },
              status: :unprocessable_entity
@@ -134,6 +278,69 @@ module Cdp
       sell = @ramp.sell_amount
       return 0 if sell.nil?
       (sell * Cdp::OfframpSendJob::USDC_BASE_UNITS_PER_USDC).to_i
+    end
+
+    # The $0.99 withdrawal floor (Solana::Vault::MIN_WITHDRAWAL_BASE_UNITS). The
+    # builders assert it too, so it cannot be skipped; this copy exists so a
+    # person with $0.40 reads a floor rather than a fault.
+    def below_minimum_withdrawal?
+      amount = amount_base_units
+      amount.positive? && amount < Solana::Vault::MIN_WITHDRAWAL_BASE_UNITS
+    end
+
+    def render_minimum_error
+      render json: {
+        error: "Minimum withdrawal is $#{Solana::Vault::MIN_WITHDRAWAL_USD}. " \
+               "This cash-out is below that, so it can't be sent.",
+        minimum_usd: Solana::Vault::MIN_WITHDRAWAL_USD
+      }, status: :unprocessable_entity
+    end
+
+    # The history-searched status of a recorded send. `confirm_transaction` is
+    # `getSignatureStatuses` with **searchTransactionHistory: true** — the whole
+    # reason this is not `get_transaction`, which at `confirmed` commitment
+    # answers nil for a transaction that is merely UNINDEXED and would make an
+    # in-flight send read as a dead one.
+    def recorded_send_status(signature)
+      Solana::Config.client.confirm_transaction(signature)&.dig("value", 0)
+    end
+
+    # ONE COSIGN PER CASH-OUT ROW, and the rewind that re-arms it.
+    #
+    # #cosign moves the row to :sending the moment the house signs, so a client
+    # cannot loop the endpoint and mint an unbounded supply of broadcastable,
+    # house-funded wires — every broadcast costs the house its fee whether the
+    # transfer succeeds or fails.
+    #
+    # The legitimate retry — the browser never managed to broadcast — is
+    # re-armed here, and ONLY on a verdict that is DEFINITIVE. The verdict
+    # itself is CdpRampTransaction#send_verdict, the same one
+    # Cdp::OfframpSendJob#verify_pending_send rewinds on, because a wrong
+    # rewind here has the identical consequence its #blockhash_lapsed? comment
+    # names: a second full-amount transfer is built and the player's USDC is
+    # sent TWICE.
+    #
+    # :ambiguous is the common case and it REFUSES. An absent status means
+    # in-flight or not-yet-indexed just as often as it means never-broadcast,
+    # and only the age of the broadcast tells them apart.
+    def rearm_verdict(status)
+      return :proceed unless @ramp.sending?
+      return :proceed if @ramp.sent_signature.blank?
+
+      case @ramp.send_verdict(status)
+      when :landed
+        :already_sent
+      when :failed, :never_landed
+        # Verified-dead: the funds did not move and this signature can never
+        # land. reset_failed_send! clears it and its broadcast_at anchor so a
+        # fresh, fully re-guarded attempt can be built.
+        Rails.logger.warn("[cdp][cosign] #{@ramp.partner_user_ref} sig=#{@ramp.sent_signature} " \
+                          "verified dead — re-arming for a fresh cosign")
+        @ramp.reset_failed_send!
+        :proceed
+      else
+        :in_flight
+      end
     end
 
     def render_mode_error(expected)

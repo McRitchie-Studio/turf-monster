@@ -49,12 +49,18 @@ module TurfMonster
       # sign as the creator it had just named. An email is the roster's own
       # primary key; nothing in the app rewrites one.
       #
-      # This address is the ALEX BOT account — the same wallet the server signs
-      # with as fee payer and contest creator (KeyStore "alex" =>
-      # agent.alex.solana, which is this identity's roster wallet).
+      # This address is XAN (8K81…) — the shared server identity, called "Alex
+      # Bot" until it was renamed on 2026-09-15. Same wallet, same key, new
+      # name: an 8K81… reference elsewhere in this repo is current, not stale.
+      #
+      # THE REHEARSAL NAMES XAN AS CREATOR BUT CANNOT SIGN AS IT, and that is
+      # deliberate. The SERVER signs as Xan from SOLANA_ADMIN_KEY on the dyno;
+      # KeyStore::ITEMS has no entry for it, because its 1Password item lives in
+      # a vault this service account cannot read. See KeyStore::ITEMS for why
+      # that separation is the control rather than a gap.
       CREATOR_EMAIL = "team@mcritchie.studio"
       CREATOR_MISSING = "no user on #{CREATOR_EMAIL} to create the rehearsal contest as — " \
-                        "that is the Alex Bot identity the server signs with, so re-seed " \
+                        "that is the Xan identity the server signs with, so re-seed " \
                         "the app rather than letting another admin stand in"
 
       # The admin drives the HTTP admin surface. turf-5 is an admin account with
@@ -65,11 +71,16 @@ module TurfMonster
 
       # Mason and Mack, and the two exclusions are not preferences:
       #
-      #   * ALEX cannot play. `agent.alex.solana` IS the Alex Bot wallet — the
-      #     fee payer and contest creator. When the player is also the fee
-      #     payer the transaction needs one signature slot, not two, and
+      #   * XAN cannot play, and can no longer even be asked to. Xan (8K81…) is
+      #     the fee payer and contest creator, and when the player is also the
+      #     fee payer the transaction needs one signature slot, not two:
       #     prepare_entry refuses with "Signer count mismatch: 2 provided
-      #     (0 local + 2 additional), 1 required by the account list".
+      #     (0 local + 2 additional), 1 required by the account list". That was
+      #     the whole reason it sat out of this list while KeyStore still filed
+      #     it. Since 2026-09-15 KeyStore files no Xan key at all — its item was
+      #     renamed agent.xan.solana and moved to a vault this service account
+      #     cannot read — so the exclusion is now enforced a rung lower down and
+      #     this bullet records WHY, not just that.
       #   * TURF plays as the phantom.turf wallet (39QTL1dd), NOT as the
       #     turf-5 admin account. turf-5's username is the reserved prefix
       #     "turf" and it has no UserAccount, so the program refuses to
@@ -611,7 +622,7 @@ module TurfMonster
       private
 
       # The unattended half. Mason is the second signer on the vault, the server
-      # already signed as Alex Bot when it built the transaction, and 2-of-3 is
+      # already signed as Xan when it built the transaction, and 2-of-3 is
       # satisfied without a browser. Everything the server does afterwards —
       # TxVerifier, the onchain_settled flip, the winner emails — is unchanged.
       def cosign_with_agent(graded)

@@ -1,0 +1,5537 @@
+{
+  "address": "EQGFJAcABtDb6VXtiijTjZ6cE2UqdvhnqJvoharJbpMJ",
+  "metadata": {
+    "name": "turf_vault",
+    "version": "0.25.0",
+    "spec": "0.1.0",
+    "description": "Solana contest escrow with on-chain currency registry and self-custodial entries"
+  },
+  "instructions": [
+    {
+      "name": "backfill_username_record",
+      "docs": [
+        "MIGRATION ONLY: lock the name a `UserAccount` already displays.",
+        "Permissionless — it has no discretion, taking both the name and the",
+        "owner from the account's own fields, so it can only assert what the",
+        "chain already says. 47 production users, zero case-insensitive",
+        "duplicates (measured 2026-09-15), so this reconciles nothing."
+      ],
+      "discriminator": [
+        225,
+        202,
+        100,
+        101,
+        27,
+        84,
+        224,
+        143
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Pays rent. Any wallet — see the authorization note above."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "user_wallet",
+          "docs": [
+            "by the `user_account` PDA seeds and its stored `wallet` field."
+          ]
+        },
+        {
+          "name": "user_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "user_wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "username_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "name_key"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "name_key",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "burn_entry_token",
+      "docs": [
+        "Void an unspent EntryTokenAccount — the operator claw-back counterpart to",
+        "mint_entry_token. `BURN_ENTRY_TOKEN` (3); the owner does NOT sign.",
+        "Three because it destroys user property at no cost to the destroyer and",
+        "pause does not stop it. It was written but NEVER DEPLOYED at 1-of-N, so",
+        "shipping at 3 regresses nothing — and it is retunable downward.",
+        "",
+        "TOMBSTONE, not close: Rails reads what a user is owed off the on-chain",
+        "token COUNT, so closing the PDA would make the burn re-read as owed and",
+        "re-mint itself. The account survives with `consumed = true` (blocks the",
+        "spend, reusing enter_contest_with_token's existing constraint) and",
+        "`source |= BURNED_FLAG` (tells a burn apart from a real redemption). No",
+        "new field, so accounts minted before this upgrade still deserialize.",
+        "",
+        "`source_ref_hash` seed-binds the target as a FAT-FINGER GUARD, not a",
+        "targeting control: a burn must name its token twice, so an INCONSISTENT",
+        "pair fails the seeds check. A SELF-CONSISTENT one does not — pass another",
+        "token together with that token's own hash and both the seeds check and the",
+        "handler's re-derivation hold, and that token burns. Nothing restricts WHICH",
+        "voucher a signer may burn, so an authorized quorum can burn any unspent voucher",
+        "on the platform (see `docs/KEY_ROTATION.md` R1b)."
+      ],
+      "discriminator": [
+        244,
+        161,
+        210,
+        42,
+        210,
+        20,
+        160,
+        47
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "Vault signer (admin). NOT `mut`: a tombstone refunds no rent and creates",
+            "no account, so this instruction moves no lamports beyond the tx fee."
+          ],
+          "signer": true
+        },
+        {
+          "name": "vault_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "docs": [
+            "Per-action threshold table. Required by every vault-authorized",
+            "instruction since v0.26 — see `instructions::governance::authorize`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "entry_token",
+          "docs": [
+            "The voucher being voided.",
+            "",
+            "SEED-BOUND TO `source_ref_hash` ON PURPOSE — this is the fat-finger guard.",
+            "A burn is destructive and irreversible, so the caller must name its target",
+            "TWICE: once by passing the account, once by passing the ref hash it should",
+            "derive from. An INCONSISTENT pair — an account named without its matching",
+            "hash — fails the seeds check instead of burning something unintended.",
+            "",
+            "IT IS NOT A TARGETING CONTROL. Nothing here restricts WHICH voucher a",
+            "vault signer may burn, and a SELF-CONSISTENT pair defeats the binding",
+            "outright: pass `(some other token, that token's own hash)` and the seeds",
+            "check derives exactly that account and passes. The hash costs nothing to",
+            "obtain — `source_ref` is public account data, so `sha256` of it is",
+            "computable for every voucher on chain. A 1-of-3 vault signer can",
+            "therefore burn ANY unspent voucher on the platform; `docs/KEY_ROTATION.md`",
+            "R1b treats that as a live risk and plans the response.",
+            "",
+            "(The hash is an instruction arg rather than a `hash()` call inside the",
+            "seed expression because `anchor idl build` cannot represent a",
+            "function-call seed — the same reason, and the same shape, as",
+            "`mint_entry_token`. The handler's assert below re-derives that arg from",
+            "the stored `source_ref`; read the note on the assert itself for why that",
+            "re-derivation does not narrow what this seed binding proves.)",
+            "",
+            "Both constraints are load-bearing and neither implies the other:",
+            "* the `BURNED_FLAG` check rejects a DOUBLE burn. It cannot be folded",
+            "into `!consumed`, because a burn sets `consumed = true` itself;",
+            "without this guard a re-burn would be accepted and would overwrite",
+            "`consumed_at`, destroying the record of when the burn happened.",
+            "* `!consumed` rejects a token already SPENT on a real entry — burning",
+            "one would rewrite the history of an entry that exists and stands.",
+            "",
+            "THE ORDER IS THE CONTRACT, not style. Anchor evaluates constraints top to",
+            "bottom and returns the FIRST failure, and a burn sets `consumed` — so",
+            "with `!consumed` written first, a double burn tripped THAT check and",
+            "reported `EntryTokenAlreadyConsumed`, which reads as \"already spent on an",
+            "entry\". `EntryTokenAlreadyBurned` was unreachable: dead code behind a",
+            "misleading message, on the one action an operator cannot undo. Checking",
+            "the flag FIRST is what makes each error mean what it says — burned tokens",
+            "answer \"already burned\", spent tokens answer \"already consumed\". Caught by",
+            "the local-validator run, not by reading."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  110,
+                  116,
+                  114,
+                  121,
+                  95,
+                  116,
+                  111,
+                  107,
+                  101,
+                  110
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "source_ref_hash"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "source_ref_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "cancel_contest",
+      "docs": [
+        "Refund the prize pool to the creator. Open / Locked → Cancelled.",
+        "`CANCEL_CONTEST` (3)."
+      ],
+      "discriminator": [
+        255,
+        250,
+        141,
+        71,
+        184,
+        141,
+        109,
+        80
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "cosigner",
+          "docs": [
+            "Second vault signer. OPTIONAL since the threshold became data: a",
+            "mandatory `Signer` here would be a floor of 2 that no stored table",
+            "could lower, and the table and the account struct would disagree in",
+            "silence. See `named_signers`."
+          ],
+          "signer": true,
+          "optional": true
+        },
+        {
+          "name": "vault_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "docs": [
+            "Per-action threshold table. Required by every vault-authorized",
+            "instruction since v0.26 — see `instructions::governance::authorize`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "contest",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  116,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest.contest_id",
+                "account": "Contest"
+              }
+            ]
+          }
+        },
+        {
+          "name": "prize_pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  122,
+                  101,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest.contest_id",
+                "account": "Contest"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payout_mint"
+        },
+        {
+          "name": "creator_token_account",
+          "docs": [
+            "Creator's USDC ATA — destination of the prize pool refund.",
+            "Constrained to belong to the contest's creator (via token::authority)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "close_contest",
+      "docs": [
+        "Close a settled or cancelled contest's PDA + prize_pool ATA,",
+        "reclaiming rent to the admin. Sweeps residual prize_pool dust to",
+        "the operator-revenue USDC ATA first (decided 2026-05-27, §11 Q8).",
+        "`CLOSE_CONTEST` (2). v0.26: reclaimed rent is paid to the pinned",
+        "TREASURY, not to whichever signer happened to call it."
+      ],
+      "discriminator": [
+        139,
+        238,
+        103,
+        40,
+        217,
+        73,
+        90,
+        72
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "docs": [
+            "Per-action threshold table. Required by every vault-authorized",
+            "instruction since v0.26 — see `instructions::governance::authorize`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "docs": [
+            "`treasury_authority` (the Squads vault PDA), so the constraint — not",
+            "the caller's choice of account — decides where the lamports land. It is",
+            "unchecked because it is a lamport destination only: nothing reads or",
+            "writes its data, and a lamport credit is valid against any account."
+          ],
+          "writable": true
+        },
+        {
+          "name": "contest",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  116,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest.contest_id",
+                "account": "Contest"
+              }
+            ]
+          }
+        },
+        {
+          "name": "prize_pool",
+          "docs": [
+            "Prize pool ATA — closed in this instruction. Any residual balance",
+            "is swept to op_rev_usdc_ata first (decided §11 Q8)."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  122,
+                  101,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest.contest_id",
+                "account": "Contest"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payout_mint"
+        },
+        {
+          "name": "op_rev_usdc_ata",
+          "docs": [
+            "Operator-revenue USDC ATA — destination for any residual prize_pool",
+            "USDC. PDA-bound to the payout mint at [b\"op_rev\", payout_mint]."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  112,
+                  95,
+                  114,
+                  101,
+                  118
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "payout_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_contest",
+      "docs": [
+        "Create a new contest with a per-currency entry-fee schedule and a",
+        "USDC prize pool. Dual-signer: payer (admin bot, pays SOL rent) +",
+        "creator (Phantom wallet, signs prize-pool USDC transfer)."
+      ],
+      "discriminator": [
+        129,
+        189,
+        164,
+        27,
+        152,
+        242,
+        123,
+        93
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "1-of-3 vault signer — pays SOL rent for Contest PDA + prize_pool PDA."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "creator",
+          "docs": [
+            "Creator's wallet — signs USDC transfer for the prize pool."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "docs": [
+            "Per-action threshold table. Required by every vault-authorized",
+            "instruction since v0.26 — see `instructions::governance::authorize`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "contest",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  116,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "contest_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "prize_pool",
+          "docs": [
+            "Per-contest USDC prize pool. PDA at [b\"prize_pool\", contest_id],",
+            "authority = vault_state. Drained on settle_contest, cancel_contest,",
+            "or close_contest (dust sweep)."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  122,
+                  101,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "contest_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payout_mint",
+          "docs": [
+            "Must equal vault_state.payout_mint (canonical USDC)."
+          ]
+        },
+        {
+          "name": "creator_token_account",
+          "docs": [
+            "Creator's USDC ATA — source of the prize pool."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "contest_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "season_id",
+          "type": "u32"
+        },
+        {
+          "name": "entry_fee_by_currency",
+          "type": {
+            "array": [
+              "u64",
+              16
+            ]
+          }
+        },
+        {
+          "name": "max_entries",
+          "type": "u32"
+        },
+        {
+          "name": "payout_amounts",
+          "type": {
+            "vec": "u64"
+          }
+        },
+        {
+          "name": "prize_pool",
+          "type": "u64"
+        },
+        {
+          "name": "lock_timestamp",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "create_season",
+      "docs": [
+        "Create a Season with an immutable per-entry seed-award schedule.",
+        "`CREATE_SEASON` (3) — it sets the per-entry seed schedule with no",
+        "upper bound checked, so a single key must not write it."
+      ],
+      "discriminator": [
+        38,
+        108,
+        29,
+        127,
+        60,
+        126,
+        101,
+        3
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "Vault signer (admin) — pays SOL rent for the Season PDA."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "docs": [
+            "Per-action threshold table. Required by every vault-authorized",
+            "instruction since v0.26 — see `instructions::governance::authorize`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "season",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  97,
+                  115,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "season_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "season_id",
+          "type": "u32"
+        },
+        {
+          "name": "name",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "seed_schedule",
+          "type": {
+            "array": [
+              "u64",
+              5
+            ]
+          }
+        },
+        {
+          "name": "quest_seeds",
+          "type": {
+            "array": [
+              "u64",
+              16
+            ]
+          }
+        },
+        {
+          "name": "start_at",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "create_user_account",
+      "docs": [
+        "Create a new per-wallet UserAccount PDA AND claim its username in the",
+        "registry. Permissionless payer. Fails with `UsernameAlreadyClaimed`",
+        "(6060) if the name is held by another account or reserved by the vault."
+      ],
+      "discriminator": [
+        146,
+        68,
+        100,
+        69,
+        63,
+        46,
+        182,
+        199
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "user_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "username_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "name_key"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "wallet",
+          "type": "pubkey"
+        },
+        {
+          "name": "username",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "name_key",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "deactivate_currency",
+      "docs": [
+        "Flip `accepted_currencies[idx].active = 0`. The slot is never",
+        "reclaimed — preserves currency_idx stability. `DEACTIVATE_CURRENCY` (3)."
+      ],
+      "discriminator": [
+        121,
+        136,
+        102,
+        100,
+        24,
+        6,
+        24,
+        115
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "cosigner",
+          "docs": [
+            "Second vault signer. OPTIONAL since the threshold became data: a",
+            "mandatory `Signer` here would be a floor of 2 that no stored table",
+            "could lower, and the table and the account struct would disagree in",
+            "silence. See `named_signers`."
+          ],
+          "signer": true,
+          "optional": true
+        },
+        {
+          "name": "vault_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "docs": [
+            "Per-action threshold table. Required by every vault-authorized",
+            "instruction since v0.26 — see `instructions::governance::authorize`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "currency_idx",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "enter_contest",
+      "docs": [
+        "Generic single-canonical entry handler. User signs an SPL transfer",
+        "from their ATA → the chosen currency's operator-revenue ATA. Creates",
+        "a ContestEntry PDA, awards seeds, increments stat counters.",
+        "Blocked when vault is paused."
+      ],
+      "discriminator": [
+        124,
+        21,
+        89,
+        144,
+        102,
+        156,
+        149,
+        232
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Admin pays rent for the ContestEntry PDA."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "user",
+          "docs": [
+            "The user's wallet — signs the token transfer."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "user_account",
+          "docs": [
+            "Per-user stat counter PDA."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "docs": [
+            "Per-action threshold table. Required by every vault-authorized",
+            "instruction since v0.26 — see `instructions::governance::authorize`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "contest",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  116,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest.contest_id",
+                "account": "Contest"
+              }
+            ]
+          }
+        },
+        {
+          "name": "contest_entry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  110,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest.contest_id",
+                "account": "Contest"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              },
+              {
+                "kind": "arg",
+                "path": "entry_num"
+              }
+            ]
+          }
+        },
+        {
+          "name": "currency_mint",
+          "docs": [
+            "The mint corresponding to `currency_idx`. Anchor's `token::mint`",
+            "constraints on the ATAs already gate this, but we still pull it in",
+            "so the user's ATA + op_rev_ata can be checked against the same mint."
+          ]
+        },
+        {
+          "name": "user_token_account",
+          "docs": [
+            "User's ATA for the chosen currency."
+          ],
+          "writable": true
+        },
+        {
+          "name": "op_rev_ata",
+          "docs": [
+            "Operator-revenue ATA for the chosen currency.",
+            "PDA-seed-bind via [b\"op_rev\", currency_mint.key()]."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  112,
+                  95,
+                  114,
+                  101,
+                  118
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "currency_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "season",
+          "docs": [
+            "Pinned-season seed schedule (OPSEC-023)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  97,
+                  115,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest.season_id",
+                "account": "Contest"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "entry_num",
+          "type": "u32"
+        },
+        {
+          "name": "currency_idx",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "enter_contest_with_token",
+      "docs": [
+        "Entry funded by consuming an EntryTokenAccount instead of paying",
+        "any currency. Wallet co-signs (OPSEC-004). Blocked when vault is paused."
+      ],
+      "discriminator": [
+        226,
+        96,
+        42,
+        1,
+        205,
+        218,
+        206,
+        231
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Admin pays rent for the ContestEntry PDA."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "user",
+          "docs": [
+            "The user's wallet — signs to authorize token consumption (OPSEC-004)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "user_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "docs": [
+            "Per-action threshold table. Required by every vault-authorized",
+            "instruction since v0.26 — see `instructions::governance::authorize`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "contest",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  116,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest.contest_id",
+                "account": "Contest"
+              }
+            ]
+          }
+        },
+        {
+          "name": "contest_entry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  110,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest.contest_id",
+                "account": "Contest"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              },
+              {
+                "kind": "arg",
+                "path": "entry_num"
+              }
+            ]
+          }
+        },
+        {
+          "name": "entry_token",
+          "docs": [
+            "EntryTokenAccount being consumed to fund this entry.",
+            "Must be owned by `user` and not yet consumed."
+          ],
+          "writable": true
+        },
+        {
+          "name": "season",
+          "docs": [
+            "Pinned-season seed schedule (OPSEC-023)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  97,
+                  115,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest.season_id",
+                "account": "Contest"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "entry_num",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "grant_seeds",
+      "docs": [
+        "Credit a fixed `amount` of loyalty seeds into a user's UserAccount,",
+        "OUTSIDE the entry flow (Rails \"quest\" bonuses: first username change,",
+        "newsletter join, friend-invite-entered). `GRANT_SEEDS` (1); the user",
+        "does not sign. Idempotent per (user, kind[, invitee]) via the SeedGrant",
+        "init-guard PDA. `kind` ∈ seed_grant_kind::*; `invitee` is the friend's",
+        "wallet for INVITE_FRIEND and Pubkey::default() otherwise. v0.26: an",
+        "INVITE_FRIEND grant must also name the invitee's own UserAccount, which",
+        "must have entered a contest — the guard binds to a real account instead",
+        "of a caller-chosen number."
+      ],
+      "discriminator": [
+        93,
+        180,
+        44,
+        93,
+        141,
+        188,
+        172,
+        138
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "Vault signer (1-of-3). Pays SOL rent for the SeedGrant guard PDA."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "docs": [
+            "Per-action threshold table. Required by every vault-authorized",
+            "instruction since v0.26 — see `instructions::governance::authorize`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "user_wallet",
+          "docs": [
+            "user's behalf (like settle_contest). Used to derive + bind the",
+            "UserAccount PDA and to seed the guard PDA."
+          ]
+        },
+        {
+          "name": "user_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "user_wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "invitee_user_account",
+          "docs": [
+            "THE INVITEE'S OWN UserAccount — required for INVITE_FRIEND, forbidden",
+            "otherwise (v0.26).",
+            "",
+            "── WHY THIS ACCOUNT EXISTS ───────────────────────────────────────────",
+            "",
+            "The once-only guard below is seeded on `invitee`, a CALLER-CHOSEN",
+            "Pubkey argument. Nothing required that pubkey to correspond to anything",
+            "— so for INVITE_FRIEND, every distinct 32-byte value opened a fresh",
+            "guard PDA and a fresh grant. `invitee = [1u8; 32]`, `[2u8; 32]`, and so",
+            "on: the \"once per invited friend\" lock was once per NUMBER, and the",
+            "supply of numbers is 2^256. A single 1-of-N signature could mint seeds",
+            "without bound, one cheap transaction at a time, and each grant looked",
+            "individually legitimate on chain.",
+            "",
+            "Binding the guard to a REAL ACCOUNT closes the farm. The invitee must",
+            "now be a wallet that actually has a `UserAccount` PDA, and the account",
+            "is bound by BOTH its PDA seeds and its stored `wallet` field, so it",
+            "cannot be some other user's record renamed.",
+            "",
+            "── AND IT MUST HAVE ENTERED A CONTEST ────────────────────────────────",
+            "",
+            "Existence alone would only raise the price of a fake invitee to one",
+            "rent-exempt account. The quest this instruction pays out for is \"a",
+            "friend you invited ENTERED a contest\", so the check is the business",
+            "rule itself: `entries > 0`. Manufacturing a fake invitee now costs a",
+            "real contest entry, which is more than the grant is worth — the farm is",
+            "not merely gated, it is unprofitable."
+          ],
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "invitee"
+              }
+            ]
+          }
+        },
+        {
+          "name": "seed_grant",
+          "docs": [
+            "Idempotency guard — `init`-once per (user, kind[, invitee])."
+          ],
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "kind",
+          "type": "u8"
+        },
+        {
+          "name": "invitee",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "init_governance",
+      "docs": [
+        "Create the per-action threshold table with the program's shipped",
+        "defaults. Takes NO arguments, which is what makes a 2-signature",
+        "bootstrap safe — it cannot install weak numbers, only the safe ones.",
+        "",
+        "MUST BE CALLED IMMEDIATELY AFTER THE v0.26 UPGRADE: every",
+        "vault-authorized instruction requires this account to exist."
+      ],
+      "discriminator": [
+        23,
+        241,
+        166,
+        67,
+        20,
+        30,
+        182,
+        32
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "Vault signer; pays rent for the GovernanceConfig PDA."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initialize",
+      "docs": [
+        "One-time setup of the singleton vault. Pins payout mint to USDC,",
+        "registers slot 0 (USDC) + slot 1 (USDT) in the currency registry,",
+        "stores the Squads vault PDA as treasury authority, and locks in the",
+        "multisig signer set + threshold. Only callable by INIT_AUTHORITY",
+        "on a mainnet build."
+      ],
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "Must be INIT_AUTHORITY in mainnet builds (any signer in dev/test).",
+            "Pays SOL rent for VaultState + the two operator-revenue ATAs."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault_state",
+          "docs": [
+            "The new VaultState account. PDA at [b\"vault\"].",
+            "Zero-copy: size_of<VaultState>() instead of INIT_SPACE."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "payout_mint",
+          "docs": [
+            "Payout mint — pinned to canonical Circle USDC at mainnet build time.",
+            "Also registered as `accepted_currencies[0]`."
+          ]
+        },
+        {
+          "name": "second_currency_mint",
+          "docs": [
+            "Second accepted entry-fee currency (USDT). In mainnet builds,",
+            "pinned to EXPECTED_USDT_MINT. Registered as `accepted_currencies[1]`."
+          ]
+        },
+        {
+          "name": "payout_op_rev_ata",
+          "docs": [
+            "Operator-revenue ATA for the payout currency (USDC).",
+            "PDA at [b\"op_rev\", payout_mint.key()]. Authority = vault_state."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  112,
+                  95,
+                  114,
+                  101,
+                  118
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "payout_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "second_op_rev_ata",
+          "docs": [
+            "Operator-revenue ATA for the second currency (USDT).",
+            "PDA at [b\"op_rev\", second_currency_mint.key()]. Authority = vault_state."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  112,
+                  95,
+                  114,
+                  101,
+                  118
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "second_currency_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "signers",
+          "type": {
+            "array": [
+              "pubkey",
+              3
+            ]
+          }
+        },
+        {
+          "name": "threshold",
+          "type": "u8"
+        },
+        {
+          "name": "treasury_authority",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "mint_entry_token",
+      "docs": [
+        "Mint a new EntryTokenAccount for a user. `MINT_ENTRY_TOKEN` (1)",
+        "within the per-window cap, `MINT_ENTRY_TOKEN_OVER_CAP` (3) above it —",
+        "v0.26 closed the uncapped 1-of-N value-creation hole.",
+        "PDA is derived from sha256(source_ref) (v0.19, audit #9) — re-minting the",
+        "same source_ref collides on init for true on-chain idempotency."
+      ],
+      "discriminator": [
+        182,
+        192,
+        94,
+        41,
+        82,
+        185,
+        105,
+        21
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "Vault signer (admin) — pays SOL rent for the EntryTokenAccount PDA."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "docs": [
+            "Per-action threshold table, and the mint-window policy (length + cap)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint_window",
+          "docs": [
+            "Per-window mint counter. Created on the window's first mint.",
+            "",
+            "`init_if_needed` is safe here against the reinit attack it usually",
+            "invites: nothing in this program closes a `MintWindow`, so the account",
+            "cannot be destroyed and re-created to zero the counter. Its fields are",
+            "either derived from the seed (`window_index`, `bump`) or monotonic",
+            "(`minted`), so a fresh zeroed account and an existing one take the same",
+            "code path."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  105,
+                  110,
+                  116,
+                  95,
+                  119,
+                  105,
+                  110,
+                  100,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "window_index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user_wallet",
+          "docs": [
+            "account (NOT a PDA seed in v0.19). Not a signer; not modified."
+          ]
+        },
+        {
+          "name": "entry_token",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  110,
+                  116,
+                  114,
+                  121,
+                  95,
+                  116,
+                  111,
+                  107,
+                  101,
+                  110
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "source_ref_hash"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "source",
+          "type": "u8"
+        },
+        {
+          "name": "source_ref",
+          "type": {
+            "array": [
+              "u8",
+              64
+            ]
+          }
+        },
+        {
+          "name": "source_ref_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "window_index",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "overwrite_username",
+      "docs": [
+        "Rename any user WITHOUT that user's signature.",
+        "`OVERWRITE_USERNAME` (3, FLOOR 3) and an `UsernameOverwritten` event on",
+        "every use.",
+        "",
+        "Replaces `admin_set_username`, which required the account owner to",
+        "co-sign and was therefore useless against the only two things it was",
+        "ever wanted for — a squatter and a slur, neither of whom will consent.",
+        "Dropping consent is safe at three-of-five because no agent can reach",
+        "three, and the FLOOR is what keeps that true against a retune."
+      ],
+      "discriminator": [
+        118,
+        40,
+        8,
+        66,
+        62,
+        192,
+        123,
+        189
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "Vault signer; pays rent for the new record."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "cosigner",
+          "docs": [
+            "OPTIONAL by design — see `governance::named_signers`. A mandatory",
+            "second `Signer` would be a floor the account struct imposes, which the",
+            "stored table could then never lower."
+          ],
+          "signer": true,
+          "optional": true
+        },
+        {
+          "name": "vault_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "user_wallet",
+          "docs": [
+            "point of this instruction. Bound by the `user_account` PDA seeds and",
+            "its stored `wallet` field, and `mut` because the rent from their closed",
+            "record is refunded to them rather than pocketed by the caller."
+          ],
+          "writable": true
+        },
+        {
+          "name": "user_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "user_wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "username_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "name_key"
+              }
+            ]
+          }
+        },
+        {
+          "name": "previous_username_record",
+          "docs": [
+            "The record for the name being given up. Required when the target is",
+            "registered and the canonical key really changes; refused otherwise.",
+            "See `username_registry::settle_previous_record`.",
+            "",
+            "Closed to the USER, not to the admin — they paid its rent."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "username",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "name_key",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "pause",
+      "docs": [
+        "Emergency stop: blocks enter_contest{,_with_token}. `PAUSE` (2). `reason`",
+        "is logged on-chain (UTF-8 zero-padded to 64 bytes)."
+      ],
+      "discriminator": [
+        211,
+        22,
+        221,
+        251,
+        74,
+        121,
+        193,
+        47
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "cosigner",
+          "docs": [
+            "Second vault signer. OPTIONAL since the threshold became data: a",
+            "mandatory `Signer` here would be a floor of 2 that no stored table",
+            "could lower, and the table and the account struct would disagree in",
+            "silence. See `named_signers`."
+          ],
+          "signer": true,
+          "optional": true
+        },
+        {
+          "name": "vault_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "docs": [
+            "Per-action threshold table. Required by every vault-authorized",
+            "instruction since v0.26 — see `instructions::governance::authorize`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "reason",
+          "type": {
+            "array": [
+              "u8",
+              64
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "register_currency",
+      "docs": [
+        "Add a currency to `accepted_currencies` at the first empty slot.",
+        "Creates the per-currency operator-revenue ATA. `REGISTER_CURRENCY` (3)."
+      ],
+      "discriminator": [
+        247,
+        229,
+        115,
+        204,
+        45,
+        36,
+        179,
+        104
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "cosigner",
+          "docs": [
+            "Second vault signer. OPTIONAL since the threshold became data: a",
+            "mandatory `Signer` here would be a floor of 2 that no stored table",
+            "could lower, and the table and the account struct would disagree in",
+            "silence. See `named_signers`."
+          ],
+          "signer": true,
+          "optional": true
+        },
+        {
+          "name": "vault_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "docs": [
+            "Per-action threshold table. Required by every vault-authorized",
+            "instruction since v0.26 — see `instructions::governance::authorize`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "op_rev_ata",
+          "docs": [
+            "Per-currency operator-revenue ATA. Anchor's `init` rejects this if",
+            "the PDA already exists, which gives us defense in depth against",
+            "re-registering a previously-deactivated mint (the ATA still exists)."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  112,
+                  95,
+                  114,
+                  101,
+                  118
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "kind",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "release_reserved_username",
+      "docs": [
+        "Put a reserved name back in the pool. `RELEASE_USERNAME` (3, FLOOR 3) —",
+        "a reservation is a brake, and nothing an agent reaches alone lifts a",
+        "brake. Rent goes to the pinned treasury, not to the caller."
+      ],
+      "discriminator": [
+        92,
+        250,
+        253,
+        61,
+        11,
+        121,
+        113,
+        57
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "cosigner",
+          "signer": true,
+          "optional": true
+        },
+        {
+          "name": "vault_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "docs": [
+            "the handler; holds no data this program reads."
+          ],
+          "writable": true
+        },
+        {
+          "name": "username_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "name_key"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "name_key",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "reserve_username",
+      "docs": [
+        "Take a free name off the market — the blocked list, as a claim the",
+        "vault makes rather than a list anyone walks. `RESERVE_USERNAME`",
+        "(3, FLOOR 3). Idempotent; refuses a name a player already holds."
+      ],
+      "discriminator": [
+        139,
+        179,
+        227,
+        172,
+        130,
+        249,
+        149,
+        255
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "Vault signer; pays rent for the record."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "cosigner",
+          "docs": [
+            "OPTIONAL by design. A mandatory second `Signer` is a threshold the",
+            "account struct enforces on its own, which the stored table can then",
+            "never lower — the bug fixed across six instructions in the governance",
+            "change. See `governance::named_signers`."
+          ],
+          "signer": true,
+          "optional": true
+        },
+        {
+          "name": "vault_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "username_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "name_key"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "name_key",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "set_action_threshold",
+      "docs": [
+        "Retune one action's required signature count. 3-of-N, floored per",
+        "action. This is what makes every shipped default reversible by",
+        "transaction instead of by redeploy."
+      ],
+      "discriminator": [
+        172,
+        231,
+        121,
+        221,
+        140,
+        97,
+        56,
+        206
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "vault_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "action",
+          "type": "u8"
+        },
+        {
+          "name": "value",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "set_contest_conclusion_time",
+      "docs": [
+        "Set (or clear) a contest's conclusion timestamp (v0.18).",
+        "`SET_CONTEST_CONCLUSION_TIME` (2), escalating to `..._AMEND` (3) to",
+        "change one already set. Once",
+        "chain time passes it the contest has concluded — set_contest_lock_time",
+        "then rejects. `new_conclusion_timestamp == 0` clears it. Rejected once",
+        "the contest has already concluded or is settled/cancelled."
+      ],
+      "discriminator": [
+        195,
+        150,
+        193,
+        44,
+        20,
+        239,
+        189,
+        84
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "cosigner",
+          "docs": [
+            "Second vault signer, named for wire compatibility with v0.25 callers.",
+            "Since v0.26 it simply counts toward whichever threshold applies."
+          ],
+          "signer": true,
+          "optional": true
+        },
+        {
+          "name": "vault_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "docs": [
+            "Per-action threshold table. Required by every vault-authorized",
+            "instruction since v0.26 — see `instructions::governance::authorize`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "contest",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  116,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest.contest_id",
+                "account": "Contest"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "new_conclusion_timestamp",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "set_contest_lock_time",
+      "docs": [
+        "Set (or clear) a contest's derived lock timestamp.",
+        "`SET_CONTEST_LOCK_TIME` (2), escalating to",
+        "`SET_CONTEST_LOCK_TIME_REOPEN` (3) once the lock has already passed.",
+        "`new_lock_timestamp == 0` clears the lock (enterable indefinitely); any",
+        "non-zero Unix-seconds value locks entries once chain time passes it.",
+        "\"Lock now\" = pass the current chain time. Rejected once the contest is",
+        "concluded (interim guard: Settled/Cancelled)."
+      ],
+      "discriminator": [
+        69,
+        119,
+        242,
+        199,
+        127,
+        5,
+        114,
+        168
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "cosigner",
+          "docs": [
+            "Second vault signer, named for wire compatibility with v0.25 callers.",
+            "Since v0.26 it simply counts toward whichever threshold applies — pass",
+            "it and it is one of the required signatures; omit it and the same",
+            "signature must arrive through `remaining_accounts` instead."
+          ],
+          "signer": true,
+          "optional": true
+        },
+        {
+          "name": "vault_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "docs": [
+            "Per-action threshold table. Required by every vault-authorized",
+            "instruction since v0.26 — see `instructions::governance::authorize`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "contest",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  116,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest.contest_id",
+                "account": "Contest"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "new_lock_timestamp",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "set_mint_window_policy",
+      "docs": [
+        "Retune the entry-token mint cap (window length + per-window ceiling).",
+        "3-of-N."
+      ],
+      "discriminator": [
+        111,
+        168,
+        16,
+        164,
+        189,
+        240,
+        106,
+        147
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "vault_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "window_seconds",
+          "type": "i64"
+        },
+        {
+          "name": "cap",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "set_username",
+      "docs": [
+        "Set / overwrite the username on a UserAccount. Owner signs.",
+        "",
+        "Claims `name_key` in the registry, and CLOSES the record for the name",
+        "given up (refunding its rent to the wallet) when the canonical key",
+        "really changes. `name_key` is the username lowercased and zero-padded",
+        "to 32 bytes — it is the `UsernameRecord` PDA seed, so it has to be an",
+        "argument; the handler re-derives it and refuses a mismatch",
+        "(`UsernameKeyMismatch`, 6061), the same shape `mint_entry_token` uses",
+        "for `source_ref_hash`."
+      ],
+      "discriminator": [
+        103,
+        131,
+        39,
+        36,
+        30,
+        228,
+        75,
+        132
+      ],
+      "accounts": [
+        {
+          "name": "wallet",
+          "docs": [
+            "`mut` since v0.26: the wallet pays rent for its own name record, and",
+            "receives the refund when it gives one up."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "user_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "username_record",
+          "docs": [
+            "The lock on the name being taken."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "name_key"
+              }
+            ]
+          }
+        },
+        {
+          "name": "previous_username_record",
+          "docs": [
+            "The lock on the name being given up. Required on a real rename by a",
+            "registered account; refused otherwise."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "username",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "name_key",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "settle_contest",
+      "docs": [
+        "Grade a contest. Per-winner SPL transfer from the contest's USDC",
+        "prize-pool PDA → winner's USDC ATA. `SETTLE_CONTEST` (3). Extra",
+        "cosigners LEAD `remaining_accounts`, ahead of the winner triples."
+      ],
+      "discriminator": [
+        79,
+        122,
+        33,
+        192,
+        110,
+        98,
+        219,
+        238
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "cosigner",
+          "docs": [
+            "Second vault signer. OPTIONAL since the threshold became data: a",
+            "mandatory `Signer` here would be a floor of 2 that no stored table",
+            "could lower, and the table and the account struct would disagree in",
+            "silence. See `named_signers`."
+          ],
+          "signer": true,
+          "optional": true
+        },
+        {
+          "name": "vault_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "docs": [
+            "Per-action threshold table. Required by every vault-authorized",
+            "instruction since v0.26 — see `instructions::governance::authorize`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "contest",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  116,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest.contest_id",
+                "account": "Contest"
+              }
+            ]
+          }
+        },
+        {
+          "name": "prize_pool",
+          "docs": [
+            "Contest's USDC prize pool PDA — source of payouts."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  122,
+                  101,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "contest.contest_id",
+                "account": "Contest"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payout_mint"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "settlements",
+          "type": {
+            "vec": {
+              "defined": {
+                "name": "Settlement"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "sweep_operator_revenue",
+      "docs": [
+        "Drain a per-currency operator-revenue ATA to the pinned treasury",
+        "wallet's ATA. `amount = 0` sweeps all. `SWEEP_OPERATOR_REVENUE` (3)."
+      ],
+      "discriminator": [
+        163,
+        47,
+        11,
+        182,
+        146,
+        33,
+        128,
+        132
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "cosigner",
+          "docs": [
+            "Second vault signer. OPTIONAL since the threshold became data: a",
+            "mandatory `Signer` here would be a floor of 2 that no stored table",
+            "could lower, and the table and the account struct would disagree in",
+            "silence. See `named_signers`."
+          ],
+          "signer": true,
+          "optional": true
+        },
+        {
+          "name": "vault_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "docs": [
+            "Per-action threshold table. Required by every vault-authorized",
+            "instruction since v0.26 — see `instructions::governance::authorize`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "currency_mint"
+        },
+        {
+          "name": "op_rev_ata",
+          "docs": [
+            "Operator-revenue ATA for the given currency.",
+            "PDA-bound to [b\"op_rev\", currency_mint.key()]."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  112,
+                  95,
+                  114,
+                  101,
+                  118
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "currency_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_ata",
+          "docs": [
+            "Destination ATA — treasury wallet's ATA for this currency.",
+            "`treasury_ata.owner` is verified in the handler against",
+            "`vault_state.treasury_authority` (Squads vault PDA)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "unpause",
+      "docs": [
+        "Lift the emergency stop. `UNPAUSE` (3, floored) — deliberately HARDER",
+        "than pausing, so a captured system can pull the brake but never release it."
+      ],
+      "discriminator": [
+        169,
+        144,
+        4,
+        38,
+        10,
+        141,
+        188,
+        255
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "cosigner",
+          "signer": true
+        },
+        {
+          "name": "vault_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "docs": [
+            "Per-action threshold table. Required by every vault-authorized",
+            "instruction since v0.26 — see `instructions::governance::authorize`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "update_signers",
+      "docs": [
+        "Rotate the multisig signer set IN PLACE (no redeploy). Up to FIVE",
+        "slots since v0.26, left-packed, `Pubkey::default()` meaning empty.",
+        "",
+        "Auth: `gov_action::UPDATE_SIGNERS` (default 3, IMMOVABLE FLOOR 3 — the",
+        "floor is what stops three signatures lowering the bar to two and",
+        "handing the vault back to the two agent-reachable keys).",
+        "",
+        "Enforces: no gaps, no duplicates (`DuplicateSigner` 6014), a set large",
+        "enough for every live threshold (`SignerSetTooSmall` 6052), and",
+        "continuity — at least `threshold` of the keys that AUTHORIZED the",
+        "rotation must survive it (`SignerContinuityRequired` 6017), the N-of-M",
+        "generalization of v0.20's both-cosigners rule."
+      ],
+      "discriminator": [
+        228,
+        82,
+        68,
+        150,
+        92,
+        66,
+        140,
+        174
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "cosigner",
+          "signer": true
+        },
+        {
+          "name": "vault_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance",
+          "docs": [
+            "Per-action threshold table. Required by every vault-authorized",
+            "instruction since v0.26 — see `instructions::governance::authorize`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "new_signers",
+          "type": {
+            "array": [
+              "pubkey",
+              5
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Contest",
+      "discriminator": [
+        216,
+        26,
+        88,
+        18,
+        251,
+        80,
+        201,
+        96
+      ]
+    },
+    {
+      "name": "ContestEntry",
+      "discriminator": [
+        76,
+        184,
+        226,
+        221,
+        82,
+        23,
+        41,
+        74
+      ]
+    },
+    {
+      "name": "EntryTokenAccount",
+      "discriminator": [
+        249,
+        95,
+        33,
+        60,
+        183,
+        10,
+        145,
+        111
+      ]
+    },
+    {
+      "name": "GovernanceConfig",
+      "discriminator": [
+        81,
+        63,
+        124,
+        107,
+        210,
+        100,
+        145,
+        70
+      ]
+    },
+    {
+      "name": "MintWindow",
+      "discriminator": [
+        157,
+        4,
+        67,
+        146,
+        28,
+        53,
+        135,
+        74
+      ]
+    },
+    {
+      "name": "Season",
+      "discriminator": [
+        76,
+        67,
+        93,
+        156,
+        180,
+        157,
+        248,
+        47
+      ]
+    },
+    {
+      "name": "SeedGrant",
+      "discriminator": [
+        232,
+        105,
+        148,
+        147,
+        20,
+        42,
+        209,
+        197
+      ]
+    },
+    {
+      "name": "UserAccount",
+      "discriminator": [
+        211,
+        33,
+        136,
+        16,
+        186,
+        110,
+        242,
+        127
+      ]
+    },
+    {
+      "name": "UsernameRecord",
+      "discriminator": [
+        42,
+        172,
+        136,
+        41,
+        240,
+        123,
+        100,
+        204
+      ]
+    },
+    {
+      "name": "VaultState",
+      "discriminator": [
+        228,
+        196,
+        82,
+        165,
+        98,
+        210,
+        235,
+        152
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "UsernameClaimed",
+      "discriminator": [
+        44,
+        186,
+        0,
+        104,
+        43,
+        52,
+        89,
+        31
+      ]
+    },
+    {
+      "name": "UsernameOverwritten",
+      "discriminator": [
+        71,
+        90,
+        96,
+        113,
+        79,
+        72,
+        185,
+        46
+      ]
+    },
+    {
+      "name": "UsernameReservationCreated",
+      "discriminator": [
+        72,
+        58,
+        180,
+        42,
+        58,
+        128,
+        141,
+        231
+      ]
+    },
+    {
+      "name": "UsernameReservationReleased",
+      "discriminator": [
+        68,
+        36,
+        188,
+        103,
+        209,
+        56,
+        214,
+        198
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "Unauthorized",
+      "msg": "Only the vault admin can perform this action"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidMint",
+      "msg": "Token mint is not accepted by this vault"
+    },
+    {
+      "code": 6002,
+      "name": "InsufficientBalance",
+      "msg": "Insufficient balance for this operation"
+    },
+    {
+      "code": 6003,
+      "name": "ContestNotOpen",
+      "msg": "Contest is not open for entries"
+    },
+    {
+      "code": 6004,
+      "name": "ContestFull",
+      "msg": "Contest is full"
+    },
+    {
+      "code": 6005,
+      "name": "ContestNotSettled",
+      "msg": "Contest has not been settled"
+    },
+    {
+      "code": 6006,
+      "name": "ContestAlreadySettled",
+      "msg": "Contest is already settled"
+    },
+    {
+      "code": 6007,
+      "name": "DuplicateEntry",
+      "msg": "User already entered this contest with this entry number"
+    },
+    {
+      "code": 6008,
+      "name": "SettlementOverflow",
+      "msg": "Settlement payouts exceed prize pool"
+    },
+    {
+      "code": 6009,
+      "name": "Overflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6010,
+      "name": "InvalidPayoutTiers",
+      "msg": "Payout amounts must sum to prize_pool amount"
+    },
+    {
+      "code": 6011,
+      "name": "AccountAlreadyMigrated",
+      "msg": "Account is already larger than expected — cannot migrate"
+    },
+    {
+      "code": 6012,
+      "name": "InvalidAccountData",
+      "msg": "Account data is invalid or has wrong discriminator"
+    },
+    {
+      "code": 6013,
+      "name": "InvalidThreshold",
+      "msg": "Invalid threshold: must be between 1 and the number of active signers (max 5)"
+    },
+    {
+      "code": 6014,
+      "name": "DuplicateSigner",
+      "msg": "Duplicate signer in signers array"
+    },
+    {
+      "code": 6015,
+      "name": "EntryTokenAlreadyConsumed",
+      "msg": "Entry token has already been consumed"
+    },
+    {
+      "code": 6016,
+      "name": "EntryTokenWrongOwner",
+      "msg": "Entry token owner does not match the wallet entering the contest"
+    },
+    {
+      "code": 6017,
+      "name": "SignerContinuityRequired",
+      "msg": "New signer set must retain enough of the authorizing cosigners to meet the update_signers threshold"
+    },
+    {
+      "code": 6018,
+      "name": "VaultPaused",
+      "msg": "Vault is paused — user-facing funds operations are temporarily disabled"
+    },
+    {
+      "code": 6019,
+      "name": "WithdrawDailyCapExceeded",
+      "msg": "Withdrawal would exceed the per-user daily cap"
+    },
+    {
+      "code": 6020,
+      "name": "UsernameReserved",
+      "msg": "Username uses a reserved prefix"
+    },
+    {
+      "code": 6021,
+      "name": "UsernameInvalidChars",
+      "msg": "Username contains characters that are not printable ASCII (0x20..0x7E)"
+    },
+    {
+      "code": 6022,
+      "name": "UsernameTooShort",
+      "msg": "Username must be at least 3 characters"
+    },
+    {
+      "code": 6023,
+      "name": "CurrencyAlreadyRegistered",
+      "msg": "Currency mint is already registered in the vault registry"
+    },
+    {
+      "code": 6024,
+      "name": "CurrencyRegistryFull",
+      "msg": "Vault currency registry is full"
+    },
+    {
+      "code": 6025,
+      "name": "InvalidCurrencyIndex",
+      "msg": "Currency index is out of range or refers to an unused slot"
+    },
+    {
+      "code": 6026,
+      "name": "CurrencyNotActive",
+      "msg": "Currency is registered but deactivated"
+    },
+    {
+      "code": 6027,
+      "name": "EntryFeeNotSet",
+      "msg": "Contest does not accept this currency (entry fee is zero)"
+    },
+    {
+      "code": 6028,
+      "name": "ContestNotLocked",
+      "msg": "Contest is not locked"
+    },
+    {
+      "code": 6029,
+      "name": "ContestNotCancellable",
+      "msg": "Contest cannot be cancelled in its current status"
+    },
+    {
+      "code": 6030,
+      "name": "PrizePoolNotEmpty",
+      "msg": "Prize pool account still holds tokens — cannot close contest"
+    },
+    {
+      "code": 6031,
+      "name": "EmptyRevenueAccount",
+      "msg": "Operator-revenue account is empty — nothing to sweep"
+    },
+    {
+      "code": 6032,
+      "name": "TreasuryAuthorityMismatch",
+      "msg": "Treasury ATA owner does not match the pinned treasury authority"
+    },
+    {
+      "code": 6033,
+      "name": "FeeAndPrizeBothZero",
+      "msg": "Contest must have at least one entry fee or a non-zero prize pool"
+    },
+    {
+      "code": 6034,
+      "name": "ContestLocked",
+      "msg": "Contest is locked — the lock timestamp has passed"
+    },
+    {
+      "code": 6035,
+      "name": "ContestConcluded",
+      "msg": "Contest has concluded — the conclusion timestamp has passed"
+    },
+    {
+      "code": 6036,
+      "name": "InvalidPayoutDestination",
+      "msg": "Settlement payout destination is not the winner's associated token account"
+    },
+    {
+      "code": 6037,
+      "name": "InvalidTimestamp",
+      "msg": "Invalid contest timestamp: must be non-negative, in the future, and lock must precede conclusion"
+    },
+    {
+      "code": 6038,
+      "name": "EntryTokenSeedMismatch",
+      "msg": "Entry token seed hash does not match sha256(source_ref)"
+    },
+    {
+      "code": 6039,
+      "name": "ContestNameTooLong",
+      "msg": "Contest name exceeds the 96-byte on-chain limit"
+    },
+    {
+      "code": 6040,
+      "name": "ContestSlugTooLong",
+      "msg": "Contest slug exceeds the 64-byte on-chain limit"
+    },
+    {
+      "code": 6041,
+      "name": "ContestSlugMismatch",
+      "msg": "Stored slug does not hash to contest_id: sha256(slug) != contest_id"
+    },
+    {
+      "code": 6042,
+      "name": "InvalidSeedGrantKind",
+      "msg": "Seed grant kind is not one of the known quest kinds"
+    },
+    {
+      "code": 6043,
+      "name": "InvalidSeedGrantInvitee",
+      "msg": "Invite grants require a non-default invitee; non-invite grants forbid one"
+    },
+    {
+      "code": 6044,
+      "name": "SeedGrantAmountInvalid",
+      "msg": "Seed grant amount must be greater than 0 and at most MAX_GRANT_SEEDS"
+    },
+    {
+      "code": 6045,
+      "name": "EntryTokenAlreadyBurned",
+      "msg": "Entry token has already been burned"
+    },
+    {
+      "code": 6046,
+      "name": "InsufficientSigners",
+      "msg": "Not enough distinct vault signers authorized this action"
+    },
+    {
+      "code": 6047,
+      "name": "CosignerDidNotSign",
+      "msg": "An account offered as a vault cosigner did not sign the transaction"
+    },
+    {
+      "code": 6048,
+      "name": "GovernanceThresholdInvalid",
+      "msg": "Threshold must be between 1 and the number of active signers"
+    },
+    {
+      "code": 6049,
+      "name": "GovernanceFloorViolation",
+      "msg": "Threshold is below the immovable floor for this action"
+    },
+    {
+      "code": 6050,
+      "name": "InvalidGovernanceAction",
+      "msg": "Governance action id is out of range"
+    },
+    {
+      "code": 6051,
+      "name": "ThresholdExceedsSignerSet",
+      "msg": "Threshold exceeds the number of active signers — would brick the action"
+    },
+    {
+      "code": 6052,
+      "name": "SignerSetTooSmall",
+      "msg": "Signer set is smaller than a live threshold requires, or has a gap before an occupied slot"
+    },
+    {
+      "code": 6053,
+      "name": "MintWindowMismatch",
+      "msg": "Mint window account does not match the window the chain clock is in"
+    },
+    {
+      "code": 6054,
+      "name": "InvalidMintWindowPolicy",
+      "msg": "Mint window policy invalid: window seconds must be positive and the cap non-zero"
+    },
+    {
+      "code": 6055,
+      "name": "SeedGrantInviteeNotRegistered",
+      "msg": "Invite seed grants require the invitee's own UserAccount, and that user must have entered a contest"
+    },
+    {
+      "code": 6056,
+      "name": "InvalidRentDestination",
+      "msg": "Reclaimed rent must be paid to the vault's pinned treasury authority"
+    },
+    {
+      "code": 6057,
+      "name": "ReservedGovernance6057",
+      "msg": "Reserved — do not emit"
+    },
+    {
+      "code": 6058,
+      "name": "ReservedGovernance6058",
+      "msg": "Reserved — do not emit"
+    },
+    {
+      "code": 6059,
+      "name": "ReservedGovernance6059",
+      "msg": "Reserved — do not emit"
+    },
+    {
+      "code": 6060,
+      "name": "UsernameAlreadyClaimed",
+      "msg": "Username is already held by another account, or reserved by the vault"
+    },
+    {
+      "code": 6061,
+      "name": "UsernameKeyMismatch",
+      "msg": "name_key is not the canonical lowercased form of the username"
+    },
+    {
+      "code": 6062,
+      "name": "UsernameRecordMissing",
+      "msg": "This account's current username is registered — its UsernameRecord must be passed so the rename can close it"
+    },
+    {
+      "code": 6063,
+      "name": "UsernameRecordOwnerMismatch",
+      "msg": "The supplied UsernameRecord is not held by this wallet"
+    },
+    {
+      "code": 6064,
+      "name": "UsernameRecordNameMismatch",
+      "msg": "The supplied UsernameRecord does not hold this account's current username"
+    },
+    {
+      "code": 6065,
+      "name": "UsernameRecordNotExpected",
+      "msg": "A previous UsernameRecord was supplied where none is due"
+    },
+    {
+      "code": 6066,
+      "name": "UsernameNotReserved",
+      "msg": "The vault does not hold this username — it is not a reservation"
+    }
+  ],
+  "types": [
+    {
+      "name": "AcceptedCurrency",
+      "docs": [
+        "One slot in the on-chain currency registry. `mint == Pubkey::default()`",
+        "means the slot is unused. `active == 0` means the slot is registered",
+        "but disabled for new entries / new contests (slot is never reclaimed —",
+        "preserves currency_idx stability across the program's life).",
+        "",
+        "`kind` is an operator tag (0 = stablecoin, 1 = sol-wrapped, etc.) —",
+        "informational only, never consulted by program logic. `_pad` reserves",
+        "14 bytes for future fields (per-currency fee-cap, display ticker, etc.).",
+        "",
+        "Zero-copy (Pod-safe): `active` is u8 (0/1) rather than bool — bool is",
+        "not Pod-safe because non-{0,1} byte values cause undefined behavior.",
+        "We provide unsafe Pod + Zeroable impls so this struct can sit inside",
+        "`VaultState`'s `accepted_currencies: [AcceptedCurrency; 16]` and be",
+        "re-interpreted from the account's raw bytes via bytemuck."
+      ],
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "docs": [
+              "SPL mint for this currency. `Pubkey::default()` for unused slots."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "op_rev_ata",
+            "docs": [
+              "Per-currency operator-revenue ATA (PDA at [b\"op_rev\", mint])."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "kind",
+            "docs": [
+              "Operator tag (0 = stablecoin, 1 = sol-wrapped, ...). Informational."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "active",
+            "docs": [
+              "1 == active; 0 == deactivated. Flip to 0 via `deactivate_currency`.",
+              "u8 instead of bool for Pod safety (zero-copy compatibility)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "_pad",
+            "docs": [
+              "Reserved padding for forward-compat. 14 bytes brings the struct to",
+              "80 bytes total for clean alignment + future field expansion."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                14
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Contest",
+      "docs": [
+        "One per contest. Holds the per-currency entry-fee schedule, accumulated",
+        "per-currency fee tallies (operator revenue, separate from prize pool),",
+        "payout tiers, status, season binding, and the creator/admin pubkeys.",
+        "",
+        "PDA seeds: [b\"contest\", contest_id]  (contest_id = SHA256 of Rails slug)"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "contest_id",
+            "docs": [
+              "SHA256(Rails slug). Stable, opaque, 32 bytes."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "admin",
+            "docs": [
+              "Payer pubkey from create_contest (admin bot, pays SOL rent)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "docs": [
+              "Creator pubkey (signs the prize_pool USDC transfer from their ATA)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "season_id",
+            "docs": [
+              "Season this contest is bound to (OPSEC-023). Pins the seed schedule."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "prize_pool",
+            "docs": [
+              "USDC prize pool — pre-funded by creator at create time. Immutable."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "entry_fee_by_currency",
+            "docs": [
+              "Per-currency entry-fee schedule. `entry_fee_by_currency[i] = 0`",
+              "means currency `i` is NOT accepted for this contest."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                16
+              ]
+            }
+          },
+          {
+            "name": "entry_fees",
+            "docs": [
+              "Per-currency collected fees (operator revenue). Increments by the",
+              "fee on every paid entry of currency `i`."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                16
+              ]
+            }
+          },
+          {
+            "name": "max_entries",
+            "docs": [
+              "Maximum number of entries this contest accepts."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "current_entries",
+            "docs": [
+              "Number of entries currently in the contest."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "status",
+            "docs": [
+              "Current lifecycle state."
+            ],
+            "type": {
+              "defined": {
+                "name": "ContestStatus"
+              }
+            }
+          },
+          {
+            "name": "payout_amounts",
+            "docs": [
+              "USDC paid per rank, 6-decimal. Must sum to `prize_pool`. Max 10 ranks."
+            ],
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "lock_timestamp",
+            "docs": [
+              "Derived time-lock (Unix seconds, chain Clock). `now >= lock_timestamp`",
+              "⇒ contest locked (no new entries). `0` = no lock scheduled (enterable",
+              "until a lock time is set). Carved out of the former `[u8; 32]`",
+              "`_reserved` padding (i64 = 8 bytes, `_reserved` 32 → 24) so total",
+              "`INIT_SPACE` is UNCHANGED — existing Contest PDAs need no re-init:",
+              "their zeroed reserved bytes decode as `lock_timestamp == 0`."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "conclusion_timestamp",
+            "docs": [
+              "Derived conclusion marker (Unix seconds, chain Clock). `now >=",
+              "conclusion_timestamp` ⇒ the contest has concluded: its lock time can no",
+              "longer change (`set_contest_lock_time` rejects). `0` = no conclusion",
+              "scheduled. Carved out of `_reserved` (32 → 24 → 16) so total",
+              "`INIT_SPACE` stays UNCHANGED — v0.17 Contest PDAs need no re-init",
+              "(their zeroed bytes decode as `conclusion_timestamp == 0`)."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "Reserved padding for forward-compat."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ContestEntry",
+      "docs": [
+        "One per (contest, wallet, entry_num). A user can have multiple entries",
+        "per contest (Rails caps at 3); each gets its own PDA.",
+        "",
+        "PDA seeds: [b\"entry\", contest_id, wallet.as_ref(), entry_num.to_le_bytes()]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "contest_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "entry_num",
+            "type": "u32"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "EntryStatus"
+              }
+            }
+          },
+          {
+            "name": "rank",
+            "type": "u32"
+          },
+          {
+            "name": "payout",
+            "type": "u64"
+          },
+          {
+            "name": "currency_idx",
+            "docs": [
+              "Index into `vault_state.accepted_currencies` of the currency this",
+              "entry was paid in. `u8::MAX` is the sentinel for token-funded entries",
+              "(no SPL transfer occurred)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "_reserved",
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ContestStatus",
+      "docs": [
+        "Lifecycle of a Contest.",
+        "Open      — accepting entries (locking is now DERIVED from",
+        "`lock_timestamp` vs chain time, not this status — see",
+        "set_contest_lock_time + the enter_contest time gate)",
+        "Locked    — vestigial (v0.17 retired lock_contest/unlock_contest); kept",
+        "for enum-discriminant stability. No instruction sets it.",
+        "Settled   — graded, payouts disbursed",
+        "Cancelled — refunded to creator, no further state transitions allowed"
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "Locked"
+          },
+          {
+            "name": "Settled"
+          },
+          {
+            "name": "Cancelled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EntryStatus",
+      "docs": [
+        "Status of a single contest entry. Settle transitions Active → Won/Lost."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Won"
+          },
+          {
+            "name": "Lost"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EntryTokenAccount",
+      "docs": [
+        "EntryTokenAccount: a pre-purchased contest entry token issued by the admin.",
+        "User redeems one of these to enter a contest without paying the entry fee at entry time.",
+        "",
+        "PDA seeds (v0.19, audit #9): [b\"entry_token\", sha256(source_ref)]. Derived",
+        "from the external reference's hash so re-minting the same `source_ref`",
+        "collides on init (true idempotency); replaces the old caller-supplied",
+        "`sequence`. `source_ref` must be globally unique across wallets.",
+        "Discovery: getProgramAccounts filter by `owner` (still in the account body)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "source",
+            "type": "u8"
+          },
+          {
+            "name": "source_ref",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "consumed",
+            "type": "bool"
+          },
+          {
+            "name": "consumed_at",
+            "type": {
+              "option": "i64"
+            }
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GovernanceConfig",
+      "docs": [
+        "Per-action governance thresholds + the mint-window policy.",
+        "",
+        "PDA seeds: [b\"governance\"]",
+        "",
+        "── WHY THIS IS AN ACCOUNT AND NOT A `const` ──────────────────────────────",
+        "",
+        "Every number in here was a judgment call made in one evening, and a",
+        "judgment call baked into a `const` can only be revised by a program",
+        "upgrade — which for this program means assembling the Squads 2-of-3 vault,",
+        "rebuilding, re-pinning the IDL hash and a devnet rehearsal. That cost is",
+        "what turns \"is three the right number for settle?\" into a question worth",
+        "stalling on. Stored as data, it is one transaction, so the safe default is",
+        "always the cheap choice and no number here is a one-way door.",
+        "",
+        "── WHY IT IS A SEPARATE PDA AND NOT A FIELD ON `VaultState` ──────────────",
+        "",
+        "It could not be a field. `VaultState`'s 64 reserved bytes were consumed",
+        "EXACTLY by `signers_ext`, and growing a `zero_copy` singleton means a",
+        "realloc plus a migration instruction. A fresh PDA costs one rent-exempt",
+        "account and no migration.",
+        "",
+        "Borsh (`#[account]`), not zero-copy: at ~117 bytes it is nowhere near the",
+        "BPF stack limit that forced `VaultState` zero-copy."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "thresholds",
+            "docs": [
+              "Required signature count per `gov_action`. A ZERO means \"never set\" and",
+              "reads back as `DEFAULT_THRESHOLDS` — see `threshold_for`."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "mint_window_seconds",
+            "docs": [
+              "Length of a mint-cap window in seconds."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "mint_window_cap",
+            "docs": [
+              "Entry tokens mintable per window before the threshold escalates."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "Reserved padding for forward-compat. Unlike `VaultState`'s, this one is",
+              "real headroom — this account can also simply be reallocated."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "MintWindow",
+      "docs": [
+        "Per-window mint counter for `mint_entry_token`.",
+        "",
+        "PDA seeds: [b\"mint_window\", window_index.to_le_bytes()]",
+        "",
+        "Uncapped value creation was the worst of the three earlier findings: a",
+        "single 1-of-N signature could mint unlimited free entries, each one a claim",
+        "on a real prize pool. This account is what makes the cap observable on",
+        "chain rather than a Rails-side convention a captured Rails would not honour.",
+        "",
+        "One account per window, created on that window's first mint via",
+        "`init_if_needed`. Nothing closes a `MintWindow`, so the counter cannot be",
+        "reset by closing and re-initialising it."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "window_index",
+            "docs": [
+              "`unix_timestamp.div_euclid(mint_window_seconds)` — also the PDA seed,",
+              "stored so the account is self-describing to an off-chain reader."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "minted",
+            "docs": [
+              "Entry tokens minted in this window."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "Reserved padding for forward-compat."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Season",
+      "docs": [
+        "Season: a contest season with a per-entry seed-award schedule.",
+        "The schedule is set at season creation and is immutable thereafter.",
+        "Entries award `seed_schedule[entry_num.min(4) as usize]` — entries 5+",
+        "clamp to slot 4.",
+        "",
+        "PDA seeds: [b\"season\", season_id.to_le_bytes()] (u32 LE, 4 bytes)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "season_id",
+            "type": "u32"
+          },
+          {
+            "name": "name",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "seed_schedule",
+            "type": {
+              "array": [
+                "u64",
+                5
+              ]
+            }
+          },
+          {
+            "name": "quest_seeds",
+            "type": {
+              "array": [
+                "u64",
+                16
+              ]
+            }
+          },
+          {
+            "name": "start_at",
+            "type": "i64"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SeedGrant",
+      "docs": [
+        "SeedGrant: a once-only guard + audit record for a standalone admin seed",
+        "grant (quest bonus). Its EXISTENCE is the idempotency lock — `init` collides",
+        "on a repeat grant of the same (user, kind[, invitee]), so the TX fails.",
+        "",
+        "PDA seeds: [b\"seed_grant\", user_wallet, kind, invitee]",
+        "- USERNAME_FIRST_CHANGE / NEWSLETTER_JOIN: invitee = Pubkey::default()",
+        "→ once-EVER per user.",
+        "- INVITE_FRIEND: invitee = the friend's wallet → once-per-invitee."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "docs": [
+              "Recipient wallet (the UserAccount whose seeds were credited)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "kind",
+            "docs": [
+              "seed_grant_kind::{USERNAME_FIRST_CHANGE, NEWSLETTER_JOIN, INVITE_FRIEND}."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "invitee",
+            "docs": [
+              "The invited friend's wallet for INVITE_FRIEND; Pubkey::default() otherwise."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "docs": [
+              "Seeds credited by this grant."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "granted_at",
+            "docs": [
+              "Unix timestamp (chain Clock) at grant time."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "Reserved padding for forward-compat."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Settlement",
+      "docs": [
+        "`settle_contest` — grade a contest, disburse USDC payouts.",
+        "",
+        "For each Settlement entry, performs an SPL transfer of `payout` USDC",
+        "from the contest's prize_pool PDA → the winner's USDC ATA (signed by",
+        "vault_state PDA), then updates the ContestEntry and UserAccount stats.",
+        "",
+        "remaining_accounts pattern: the extra cosigners the stored threshold needs",
+        "(`threshold - 2`, since admin + cosigner are named), THEN per settlement 3",
+        "accounts in order: [user_account_pda, contest_entry_pda, winner_usdc_ata]",
+        "",
+        "Validation:",
+        "- `gov_action::SETTLE_CONTEST` signatures (default 3), via `authorize`.",
+        "- contest.status is Open or Locked.",
+        "- payout_mint == vault_state.payout_mint (USDC pin).",
+        "- sum(payouts) <= contest.prize_pool. Entry fees are NOT included",
+        "anymore — they sit in op_rev ATAs, separate from the prize pool.",
+        "- No duplicate (wallet, entry_num) in the vec.",
+        "- remaining_accounts.len() == extra cosigners + settlements.len() * 3.",
+        "",
+        "Per winner:",
+        "- SPL Transfer (PDA-signed): prize_pool → winner_usdc_ata.",
+        "- ContestEntry: status Active → Won (if payout > 0) or Lost.",
+        "- UserAccount: total_won += payout, cashes += (payout > 0),",
+        "wins += (rank == 1).",
+        "",
+        "Final: contest.status = Settled.",
+        "",
+        "CU budget: roughly 5k base + 7k per winner; ≤ 25 winners fits the",
+        "default 200k budget. Rails sets `set_compute_unit_limit(400_000)`",
+        "on every settle TX (decided §11 Q7).",
+        "",
+        "VaultState is zero-copy (v0.16). Vault is read via `load()?` for",
+        "signer-seed derivation; the threshold check runs at the top of the handler",
+        "(it needs `remaining_accounts`, which an `#[account(constraint = …)]`",
+        "attribute cannot see)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "entry_num",
+            "type": "u32"
+          },
+          {
+            "name": "rank",
+            "type": "u32"
+          },
+          {
+            "name": "payout",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UserAccount",
+      "docs": [
+        "One per user wallet. Holds on-chain stat counters (entries / wins /",
+        "cashes / total_won) plus the loyalty seeds counter and the user's",
+        "chosen display name. v0.16 dropped the custodial balance / deposit /",
+        "withdraw / daily-cap fields — funds now live in user ATAs.",
+        "",
+        "PDA seeds: [b\"user\", wallet.as_ref()]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "wallet",
+            "docs": [
+              "Owner wallet."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "username",
+            "docs": [
+              "On-chain master copy of the user's display name. UTF-8 zero-padded."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "seeds",
+            "docs": [
+              "Loyalty points awarded per entry from the contest's Season schedule.",
+              "Rails derives \"level\" client-side from this value."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "entries",
+            "docs": [
+              "Lifetime contests entered. Increments on every successful entry."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "wins",
+            "docs": [
+              "Lifetime 1st-place finishes (rank == 1 in settle_contest)."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "cashes",
+            "docs": [
+              "Lifetime any-payout finishes (payout > 0 in settle_contest)."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "total_won",
+            "docs": [
+              "Lifetime USDC payouts received. Increments by `payout` on settle."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "username_registered",
+            "docs": [
+              "1 once this account's `username` is locked by a `UsernameRecord`.",
+              "",
+              "── WHY A FLAG, AND WHY IT COSTS NO BYTES ─────────────────────────────",
+              "",
+              "A rename must CLOSE the record for the old name, or a user simply keeps",
+              "it: claim \"alice\", rename to \"bob\" while omitting the old record from",
+              "the account list, and now hold both — at about 0.0015 SOL a name, which",
+              "is not a deterrent. The old record is therefore a required account on",
+              "the rename path. But a program cannot prove an account was OMITTED",
+              "rather than absent, so \"the user has no record yet\" had to become a fact",
+              "stored on chain rather than a claim made by the caller.",
+              "",
+              "It is carved from the FIRST BYTE of `_reserved`, which drops to 31. For",
+              "a Borsh `#[account]` what matters is field ORDER and total size, and",
+              "both are unchanged: `INIT_SPACE` stays 125 and every live account",
+              "deserializes exactly as before. Appending after `_reserved` would have",
+              "grown the account by one byte and made every existing one too small to",
+              "load — the mistake `VaultState`'s layout test exists to catch, in the",
+              "one place the reserve was still there to spend.",
+              "",
+              "Reads 0 on all 47 production accounts (created at v0.16+, which zeroes",
+              "the reserve). And if it somehow read 1 on an account with no record, the",
+              "failure is a REFUSED RENAME pointing at `backfill_username_record`, not",
+              "a lost name — the flag fails closed."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "Reserved padding for forward-compat (referral, kyc tier, etc.)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                31
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "UsernameClaimed",
+      "docs": [
+        "A name was claimed by, or confirmed for, a player."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "name",
+            "docs": [
+              "Canonical (lowercased) name — the registry key."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "display_name",
+            "docs": [
+              "The display form written to the `UserAccount`, case preserved."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "previous_name",
+            "docs": [
+              "The name given up, or zeros when there was none."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UsernameOverwritten",
+      "docs": [
+        "A user was renamed by the vault without signing for it.",
+        "",
+        "The whole audit record, and it costs a log line: who was renamed, the",
+        "display name before and after, the registry key now held, which vault",
+        "signer was named on the transaction, how many distinct signatures the",
+        "stored table demanded at the time, and when."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "previous_name",
+            "docs": [
+              "Display name before the rename."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "new_name",
+            "docs": [
+              "Display name after it, case preserved."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "name_key",
+            "docs": [
+              "Canonical (lowercased) form — the registry key now held."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "authorized_by",
+            "type": "pubkey"
+          },
+          {
+            "name": "signatures_required",
+            "type": "u8"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UsernameRecord",
+      "docs": [
+        "One account per claimed name. Its EXISTENCE is the lock, and its `owner`",
+        "says who holds it.",
+        "",
+        "PDA seeds: `[b\"username\", canonical_username_key(name)]`",
+        "",
+        "── THE WHOLE MECHANISM, IN THREE STATES ──────────────────────────────────",
+        "",
+        "absent                 the name is free",
+        "owner == some wallet   that player holds it",
+        "owner == the vault PDA the name is RESERVED — nobody can take it",
+        "",
+        "Uniqueness and the blocked list are therefore ONE mechanism rather than",
+        "two. Blocking a name is the vault claiming it first; lifting a block is",
+        "closing the account. There is no list to walk, nothing to resize, and",
+        "growth is unbounded because each name pays its own rent.",
+        "",
+        "── IT IS AN EXISTING TECHNIQUE, NOT A NEW ONE ────────────────────────────",
+        "",
+        "`mint_entry_token` keys its voucher PDA on `sha256(source_ref)` and",
+        "`grant_seeds` guards on `[b\"seed_grant\", ...]`; both use init-as-a-lock for",
+        "idempotency, and both have been in this program since v0.19. This applies",
+        "the same trick to names.",
+        "",
+        "── WHY THE VAULT PDA AND NOT A SENTINEL ──────────────────────────────────",
+        "",
+        "`owner` is the vault's own `[b\"vault\"]` PDA for a reservation. That address",
+        "is off-curve, so no keypair can produce it — a player-held record is",
+        "written from a `Signer`'s key and can therefore never collide with it. An",
+        "off-chain reader needs no side table: derive `[b\"vault\"]` once and the",
+        "owner field answers \"taken or reserved?\" by itself.",
+        "",
+        "`Pubkey::default()` is NOT a reservation sentinel, but `is_reserved` treats",
+        "it as one anyway — see that method."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "docs": [
+              "Holder: a wallet for a player-held name, the `[b\"vault\"]` PDA for a",
+              "reservation. Never `Pubkey::default()` on any account this program",
+              "writes — which is what lets `init_if_needed` callers tell a",
+              "freshly-created record from one that already existed."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "name",
+            "docs": [
+              "The canonical (lowercased, zero-padded) name — the same 32 bytes that",
+              "seed this PDA. Stored so the account is self-describing to an",
+              "off-chain reader and so a caller naming the wrong record fails a field",
+              "check rather than acting on it."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "claimed_at",
+            "docs": [
+              "Chain time the record was created."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "Reserved padding for forward-compat."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "UsernameReservationCreated",
+      "docs": [
+        "The vault took a name off the market."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "name",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "authorized_by",
+            "docs": [
+              "The NAMED vault signer on the transaction. The other authorizing",
+              "signatures are in the transaction itself; this is the one the",
+              "instruction can point at."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "signatures_required",
+            "docs": [
+              "How many distinct vault signatures the stored table demanded."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UsernameReservationReleased",
+      "docs": [
+        "The vault put a name back in the pool. It is claimable by anyone from the",
+        "next transaction onward — that is what releasing means."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "name",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "authorized_by",
+            "type": "pubkey"
+          },
+          {
+            "name": "signatures_required",
+            "type": "u8"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultState",
+      "docs": [
+        "Singleton vault account. Holds the multisig signer set (up to",
+        "`MAX_SIGNERS`), the pinned payout mint (USDC), the per-currency registry,",
+        "a treasury authority pin, and a pause flag.",
+        "",
+        "PDA seeds: [b\"vault\"]",
+        "",
+        "Zero-copy: VaultState is too large (~1507 data bytes) to deserialize",
+        "onto BPF's 4KB stack via borsh. Anchor's `#[account(zero_copy)]` maps",
+        "the account data buffer directly as a typed reference via bytemuck::Pod,",
+        "avoiding the full-struct stack alloc that borsh's deserialize_reader",
+        "would perform.",
+        "",
+        "── LAYOUT IS POSITIONAL. READ THIS BEFORE EDITING A FIELD ────────────────",
+        "",
+        "`zero_copy(unsafe)` + `#[repr(C)]` means every field's OFFSET is its",
+        "identity. There is no name-keyed decode and no version tag: the program",
+        "reads byte range 96..97 and calls it `threshold` because that is where",
+        "`threshold` sits, not because anything on chain says so.",
+        "",
+        "So a field may only ever be APPENDED, never inserted and never widened in",
+        "place. v0.26 needed two more signer slots and the tempting edit was",
+        "`signers: [Pubkey; 3]` → `[Pubkey; 5]`. That single character shifts",
+        "`threshold`, `bump`, `paused`, `payout_mint`, `treasury_authority` and the",
+        "entire 1280-byte currency registry 64 bytes to the right — and it COMPILES,",
+        "DEPLOYS, AND RUNS. The live vaults on devnet and mainnet would then be read",
+        "with `threshold` taken from the first byte of what is physically signer[3],",
+        "`payout_mint` taken from the middle of the old treasury pin, and the",
+        "currency registry off by 64 bytes. Nothing would error; the vault would",
+        "simply mean something else.",
+        "",
+        "The slots were therefore APPENDED as `signers_ext`, carved out of the",
+        "64 reserved bytes at the tail. Every pre-existing offset is unchanged,",
+        "`size_of::<VaultState>()` is unchanged at 1507, and the account needs no",
+        "realloc and no migration instruction. `scripts/check-reserved.js` proved",
+        "those 64 bytes were ALL ZERO on both clusters before the claim, which is",
+        "what makes the read safe: on a vault that has not yet been rotated the two",
+        "new slots decode as `Pubkey::default()` — exactly the \"empty slot\"",
+        "sentinel `all_signers()` skips. The upgrade is therefore behaviour-neutral",
+        "on deploy; the signer set changes only when a human later runs the",
+        "rotation ceremony.",
+        "",
+        "THE RESERVE IS NOW FULLY CONSUMED. A future field cannot be carved from",
+        "this account — it needs a PDA of its own, which is why the per-action",
+        "threshold table lives in `GovernanceConfig` and the mint cap counter in",
+        "`MintWindow` rather than here.",
+        "",
+        "`paused` is u8 (0/1) rather than bool for Pod safety."
+      ],
+      "serialization": "bytemuckunsafe",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "signers",
+            "docs": [
+              "The first three multisig signer slots. Historically the WHOLE set;",
+              "since v0.26 the set is `signers` ++ `signers_ext`, read through",
+              "`all_signers()`. OFFSET 0 — never move, never widen (see above)."
+            ],
+            "type": {
+              "array": [
+                "pubkey",
+                3
+              ]
+            }
+          },
+          {
+            "name": "threshold",
+            "docs": [
+              "LEGACY global threshold, written once by `initialize`. Since v0.26 the",
+              "authoritative numbers are PER-ACTION and live in `GovernanceConfig`;",
+              "this field is retained only because moving it would shift every field",
+              "below it. Nothing reads it for authorization."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "paused",
+            "docs": [
+              "Emergency pause flag. When 1, enter_contest and",
+              "enter_contest_with_token return VaultPaused. Other ops remain",
+              "available so operators can wind down in-flight state.",
+              "u8 instead of bool for Pod safety (zero-copy compatibility)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "payout_mint",
+            "docs": [
+              "Payout mint — pinned at `initialize`, immutable thereafter.",
+              "All `settle_contest` / `cancel_contest` / `close_contest` flows",
+              "constrain this. In a mainnet build, must equal EXPECTED_USDC_MINT."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury_authority",
+            "docs": [
+              "Squads vault PDA — pinned at `initialize`. `sweep_operator_revenue`",
+              "enforces `treasury_ata.owner == treasury_authority`, and since v0.26",
+              "`close_contest` pays reclaimed rent here rather than to its caller."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "accepted_currencies",
+            "docs": [
+              "On-chain currency registry. Slot 0 holds the payout currency (USDC),",
+              "slot 1 holds USDT, slots 2-15 are populated via `register_currency`."
+            ],
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "AcceptedCurrency"
+                  }
+                },
+                16
+              ]
+            }
+          },
+          {
+            "name": "signers_ext",
+            "docs": [
+              "Signer slots 4 and 5 (v0.26). APPENDED into what was `_reserved`, so",
+              "every offset above is untouched and the account size is unchanged.",
+              "`Pubkey::default()` means the slot is EMPTY — which is how a vault",
+              "deployed but not yet rotated reads, and why this upgrade changes no",
+              "behaviour until the rotation ceremony runs.",
+              "",
+              "Slots are LEFT-PACKED: `update_signers` refuses a set with a gap, so",
+              "\"empty\" can only ever be a suffix and `all_signers()` cannot silently",
+              "skip a live key."
+            ],
+            "type": {
+              "array": [
+                "pubkey",
+                2
+              ]
+            }
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "Reserve EXHAUSTED by `signers_ext` (v0.26). Kept at length zero so the",
+              "next reader sees, in the layout itself, that there is nothing left to",
+              "carve: a new field needs its own PDA."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                0
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

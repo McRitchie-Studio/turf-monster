@@ -391,8 +391,10 @@ module Solana
     ADMIN_KEYPAIR_PATH = ENV.fetch("SOLANA_ADMIN_KEYPAIR", File.expand_path("~/.config/solana/id.json"))
 
     # Multisig signers (base58 public keys). Default = the rotated 2-of-3 set
-    # (post leaked-Alex-Bot rotation 2026-06-02): new Alex Bot 8K81…, cosigner
-    # 7ZDJ…, Mason CytJ…. These are PUBLIC keys and are overridden by the
+    # (post leaked-key rotation 2026-06-02): the replacement Xan key 8K81…,
+    # cosigner 7ZDJ…, Mason CytJ…. "Xan" is the identity this repo called "Alex
+    # Bot" until 2026-09-15 — the rename did not touch the key, so 8K81… here is
+    # current. These are PUBLIC keys and are overridden by the
     # SOLANA_MULTISIG_SIGNERS env var (and authoritatively by VaultState.signers
     # on-chain) in every deployed environment — the literal is a fallback only.
     MULTISIG_SIGNERS = ENV.fetch("SOLANA_MULTISIG_SIGNERS",
@@ -505,10 +507,98 @@ module Solana
     # (hashes churn per turf-vault rev — `bin/rails solana:idl_hash` for the live value)
     # The devnet branch is byte-identical to the prior unconditional path, so
     # the live devnet-prod app's verify_idl!/precompile behavior is unchanged.
-    IDL_PATH = if NETWORK == "mainnet-beta"
-      Rails.root.join("config", "turf_vault.mainnet.idl.json")
-    else
-      Rails.root.join("config", "turf_vault.idl.json")
+    #
+    # ── THE GOVERNANCE SWITCH (turf-vault v0.26) ──────────────────────────
+    #
+    # v0.26 adds a `governance` account to EVERY vault-authorized instruction,
+    # a `treasury` to close_contest, `window_index` + `mint_window` to
+    # mint_entry_token, and `invitee_user_account` to grant_seeds. Those are
+    # ACCOUNT-LIST changes, so the two shapes are mutually unintelligible: a
+    # v0.26 wire sent to the live v0.25 program is rejected, and a v0.25 wire
+    # sent to an upgraded program is rejected too.
+    #
+    # WHY THIS IS A RUNTIME SWITCH AND NOT A DEPLOY. The naive reading of
+    # "update Rails before the upgrade" is a production outage — shipping the
+    # new account set while v0.25 is live breaks the on-chain surface exactly
+    # as surely as upgrading the program before Rails would. The two have to
+    # change TOGETHER, and the only way to make "together" mean seconds rather
+    # than a deploy window is to carry BOTH shapes in one slug and pick between
+    # them at boot.
+    #
+    # So the app is VERSION-AWARE: four IDL artifacts (two clusters x two
+    # program versions), and one config var decides which pair is live.
+    #
+    #   SOLANA_VAULT_GOVERNANCE unset / "off" / "0" / "false"
+    #     -> v0.25 shape. config/turf_vault{,.mainnet}.idl.json.
+    #   SOLANA_VAULT_GOVERNANCE "on" / "1" / "true"
+    #     -> v0.26 shape. config/turf_vault{,.mainnet}.v026.idl.json.
+    #
+    # THE DEFAULT IS OFF BECAUSE OFF IS WHAT IS DEPLOYED. Both clusters run
+    # v0.25, so an absent var resolves to the shape the chain actually speaks.
+    # This is the opposite of the SOLANA_NETWORK footgun documented above: that
+    # var's silent default pointed at the WRONG cluster, whereas this one's
+    # points at the CURRENT program, and the day it becomes wrong is a day an
+    # operator deliberately upgraded the program.
+    #
+    # PRESENT-BUT-GARBAGE RAISES, and so does present-but-empty. `ENV.key?` —
+    # not `ENV.fetch(k, default)` — is what tells "absent" apart from "set to
+    # nonsense", which is the precise hole `empty-solana-network-fails-open`
+    # closed for SOLANA_NETWORK. `SOLANA_VAULT_GOVERNANCE=yes` is a typo, not a
+    # value, and it must not quietly mean "off" on the day of an upgrade.
+    #
+    # WHAT THE FLIP COSTS, AND WHY THAT IS THE WHOLE POINT:
+    #   forward   heroku config:set EXPECTED_IDL_HASH=<v025>,<v026> \
+    #                                SOLANA_VAULT_GOVERNANCE=on
+    #   rollback  heroku config:unset SOLANA_VAULT_GOVERNANCE
+    # Both are a config write plus a dyno restart. No deploy, no rebuild, no
+    # second Squads ceremony — so the program upgrade is reversible from the
+    # Rails side alone, and QA can exercise BOTH shapes against one slug by
+    # flipping the var between rehearsals.
+    GOVERNANCE_ENV_VAR = "SOLANA_VAULT_GOVERNANCE".freeze
+    GOVERNANCE_TRUE  = %w[on 1 true yes enabled].freeze
+    GOVERNANCE_FALSE = %w[off 0 false no disabled].freeze
+
+    GOVERNANCE = begin
+      if !ENV.key?(GOVERNANCE_ENV_VAR)
+        false
+      else
+        raw = ENV[GOVERNANCE_ENV_VAR].to_s.strip.downcase
+        if GOVERNANCE_TRUE.include?(raw)
+          true
+        elsif GOVERNANCE_FALSE.include?(raw)
+          false
+        else
+          raise <<~MSG
+            #{GOVERNANCE_ENV_VAR} is set to #{ENV[GOVERNANCE_ENV_VAR].inspect} — refusing to boot.
+
+            It selects which turf-vault instruction shape this app builds, and
+            the two shapes are mutually unintelligible on-chain. An unreadable
+            value must not resolve to a default, because the default would be
+            silently wrong on exactly the day someone meant to change it.
+
+            Accepted (case-insensitive): #{(GOVERNANCE_TRUE + GOVERNANCE_FALSE).join(" ")}
+            Unset the variable entirely for the v0.25 (pre-governance) shape.
+          MSG
+        end
+      end
+    end
+
+    def self.governance?
+      GOVERNANCE
+    end
+
+    # The turf-vault version whose shape this boot is speaking. Used in log
+    # lines and the health rake; `Config.idl_version` reads the IDL's own
+    # metadata, which is NOT a substitute — turf-vault shipped v0.26 without
+    # bumping its Cargo version, so both IDLs report "0.25.0" (see
+    # docs/SOLANA.md "The version string is not the discriminator").
+    def self.vault_shape
+      GOVERNANCE ? "v0.26" : "v0.25"
+    end
+
+    IDL_PATH = begin
+      base = NETWORK == "mainnet-beta" ? "turf_vault.mainnet" : "turf_vault"
+      Rails.root.join("config", "#{base}#{GOVERNANCE ? ".v026" : ""}.idl.json")
     end
 
     # Accepted IDL hash allow-list (audit OPSEC-014), comma-separated. A deploy
@@ -614,6 +704,58 @@ module Solana
       nil
     end
 
+    # Instruction names declared by the pinned IDL. `[]` when the file is
+    # missing or unparseable — verify_idl! owns those failures, so this stays
+    # silent rather than raising a second, less informative error.
+    def self.idl_instruction_names
+      return [] unless File.exist?(IDL_PATH)
+      JSON.parse(File.read(IDL_PATH)).fetch("instructions", []).map { |i| i["name"] }
+    rescue JSON::ParserError
+      []
+    end
+
+    # STRUCTURAL, not a version string. `init_governance` exists only in v0.26+,
+    # so its presence is a fact about the shape the pinned IDL describes — and
+    # unlike `metadata.version` it cannot be stale, because nobody hand-writes
+    # it. turf-vault built v0.26 with Cargo version "0.25.0" still in place, so
+    # the version string is identical in both artifacts and would have been a
+    # silently useless discriminator.
+    def self.idl_declares_governance?
+      idl_instruction_names.include?("init_governance")
+    end
+
+    # Raised when SOLANA_VAULT_GOVERNANCE disagrees with the IDL it selected.
+    class GovernanceMismatchError < StandardError; end
+
+    # The switch says one thing, the file on disk says another. Reachable by a
+    # bad copy, a half-applied revert, or a hand-edited IDL — every one of which
+    # ends with Rails building an account list the deployed program rejects.
+    #
+    # DELIBERATELY NOT COVERED BY BYPASS_IDL_CHECK. That hatch exists for hash
+    # SKEW across a release boundary, where the shape is right and only the pin
+    # is stale. This is the opposite failure: the shape itself is wrong, and
+    # "carry on anyway" is precisely the outage the switch exists to prevent.
+    # So it runs first, and it runs unconditionally.
+    def self.verify_governance_alignment!
+      return if idl_instruction_names.empty? # missing/corrupt — verify_idl! reports it
+      return if idl_declares_governance? == GOVERNANCE
+
+      raise GovernanceMismatchError, <<~MSG
+        turf-vault instruction shape does not match #{GOVERNANCE_ENV_VAR} — refusing to boot.
+
+        #{GOVERNANCE_ENV_VAR}: #{GOVERNANCE ? "on (expecting the v0.26 governance shape)" : "unset/off (expecting the v0.25 shape)"}
+        Pinned IDL:              #{IDL_PATH}
+        That IDL declares init_governance: #{idl_declares_governance?}
+
+        The account lists this app builds are chosen by the switch, so a
+        disagreement here means every vault transaction would be assembled for
+        a program shape other than the one this slug believes is deployed.
+
+        Fix the switch, or restore the IDL file this build expects. Do NOT set
+        BYPASS_IDL_CHECK — it covers hash skew, not a wrong shape.
+      MSG
+    end
+
     # Raises Solana::Config::IdlMismatchError if the committed IDL's hash
     # doesn't match EXPECTED_IDL_HASH.
     #
@@ -622,6 +764,11 @@ module Solana
     # short-circuit on blank/missing because local iteration is allowed
     # against an older IDL.
     def self.verify_idl!
+      # SHAPE BEFORE HASH, and ahead of the bypass. A wrong shape is a worse
+      # failure than a stale pin and has no legitimate override — see
+      # verify_governance_alignment!.
+      verify_governance_alignment!
+
       # OPSEC-014 emergency bypass. Lets ops break out of a deploy-time IDL
       # skew (e.g. when EXPECTED_IDL_HASH, the committed IDL file, and the
       # freshly-built IDL have all diverged across turf-vault versions).

@@ -411,11 +411,15 @@ class FakeVault
     end
   end
 
-  # Used by ContestsController#update and #lock — the DIRECT (admin-signed)
-  # lock-time broadcast, as opposed to #build_set_contest_lock_time's
-  # Phantom-signed wire. Recorded rather than no-op'd so a test can assert this
-  # instruction is NOT aimed at an unverified `pending` contest's PDA, which was
-  # never initialized on chain.
+  # The DIRECT (admin-signed) lock-time broadcast, as opposed to
+  # #build_set_contest_lock_time's Phantom-signed wire.
+  #
+  # NO CONTROLLER REACHES IT ANY MORE (route-time-changes-to-phantom moved
+  # #lock and #update onto the Phantom builder; the real method survives for
+  # TurfMonster::QaRehearsal::Driver, which runs unattended). It is recorded
+  # rather than no-op'd precisely so a test can assert the silence — an empty
+  # #set_lock_time_calls is now the PROPERTY, not the setup, and the tests that
+  # read it pair it with an assertion that the request was otherwise handled.
   def set_contest_lock_time(contest_slug, lock_timestamp)
     @set_lock_time_calls ||= []
     @set_lock_time_calls << { slug: contest_slug, lock_timestamp: lock_timestamp }
@@ -538,9 +542,10 @@ class FakeVault
   #   offramp_send_signature: the canned tx signature (default below)
   #   offramp_build_raises:   message → raise at build time
 
-  attr_writer :offramp_send_signature, :offramp_build_raises
+  attr_writer :offramp_send_signature, :offramp_build_raises, :offramp_cosign_raises
 
   def build_user_usdc_transfer(user_keypair:, destination_token_account:, amount_lamports:)
+    assert_above_withdrawal_minimum!(amount_lamports)
     @offramp_build_calls ||= []
     @offramp_build_calls << {
       authority: user_keypair.address,
@@ -558,8 +563,10 @@ class FakeVault
     @offramp_build_calls ||= []
   end
 
-  # Phantom flavor — unsigned single-signer tx envelope.
+  # Phantom flavor — unsigned TWO-signer envelope: the house is the fee payer,
+  # the wallet is the transfer authority (phantom-cashout-needs-sol).
   def build_user_usdc_transfer_unsigned(wallet_address:, destination_token_account:, amount_lamports:)
+    assert_above_withdrawal_minimum!(amount_lamports)
     @offramp_unsigned_calls ||= []
     @offramp_unsigned_calls << {
       wallet: wallet_address,
@@ -571,6 +578,46 @@ class FakeVault
 
   def offramp_unsigned_calls
     @offramp_unsigned_calls ||= []
+  end
+
+  # The cash-out cosign guard. Records what it was asked to validate so a test
+  # can assert the server re-derived destination + amount itself; raises when
+  # offramp_cosign_raises is set, mirroring Vault::UnsafeCosignError.
+  def assert_usdc_transfer_cosign_safe!(signed_wire_base64, wallet_address:, destination_token_account:,
+                                        amount_lamports:, context: "offramp_send")
+    @offramp_cosign_guard_calls ||= []
+    @offramp_cosign_guard_calls << {
+      wire: signed_wire_base64,
+      wallet: wallet_address,
+      destination: destination_token_account,
+      amount: amount_lamports,
+      context: context
+    }
+    raise Solana::Vault::UnsafeCosignError, @offramp_cosign_raises if @offramp_cosign_raises
+    true
+  end
+
+  def offramp_cosign_guard_calls
+    @offramp_cosign_guard_calls ||= []
+  end
+
+  def cosign_usdc_transfer(signed_wire_base64)
+    @offramp_cosign_calls ||= []
+    @offramp_cosign_calls << signed_wire_base64
+    { signed_tx: "COSIGNED_#{signed_wire_base64}",
+      signature: (@offramp_send_signature || "FakeOfframpSendSig") }
+  end
+
+  def offramp_cosign_calls
+    @offramp_cosign_calls ||= []
+  end
+
+  # Mirrors the REAL builders' floor so a controller test through this double
+  # meets the same refusal production would (Vault::MIN_WITHDRAWAL_BASE_UNITS).
+  def assert_above_withdrawal_minimum!(amount_lamports)
+    return if amount_lamports.to_i >= Solana::Vault::MIN_WITHDRAWAL_BASE_UNITS
+    raise Solana::Vault::BelowMinimumWithdrawalError,
+          "Minimum withdrawal is $#{Solana::Vault::MIN_WITHDRAWAL_USD}; got #{amount_lamports.to_i}"
   end
 
   # --- Currency registry + sweep (unused-instructions cleanup) ---

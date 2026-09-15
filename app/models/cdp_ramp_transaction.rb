@@ -152,6 +152,59 @@ class CdpRampTransaction < ApplicationRecord
     update!(attrs)
   end
 
+  # A persisted signature still absent from getSignatureStatuses (searched with
+  # searchTransactionHistory) this long after the BROADCAST ATTEMPT
+  # (broadcast_at, stamped by #mark_sending!) can never land.
+  #
+  # Lives HERE rather than on Cdp::OfframpSendJob because two callers now need
+  # the same answer — the job's verify-before-retry path and the Phantom
+  # cash-out cosign endpoint — and this is the number that decides whether a
+  # rewind is verified-dead or a double-send.
+  BLOCKHASH_LAPSE = 5.minutes
+
+  # THE FOUR-WAY VERDICT on a recorded send, given its getSignatureStatuses row
+  # (`confirm_transaction(sig).dig("value", 0)`) and this row's broadcast_at.
+  #
+  #   :landed        — confirmed/finalized with no err. The money MOVED.
+  #   :failed        — an on-chain err. Definitive: the funds did NOT move.
+  #   :never_landed  — absent from a HISTORY-SEARCHED lookup, long past the
+  #                    blockhash window. Verified-dead, not merely unseen.
+  #   :ambiguous     — anything else, and the ONLY safe answer to most of them.
+  #
+  # WHY THIS IS ONE METHOD AND NOT TWO COPIES. Both callers rewind a row on
+  # this verdict, and a rewind is what lets a SECOND full-amount transfer be
+  # built. Getting :ambiguous wrong in either copy double-sends a player's
+  # USDC — so there is one implementation, and both callers read it.
+  #
+  # THE TRAP IT EXISTS TO CLOSE: "no row" is NOT "never landed". An absent
+  # status also means in-flight and not-yet-indexed, and it means that for the
+  # whole blockhash window. Only the age of the BROADCAST separates the two,
+  # which is why this takes broadcast_at and never confirmed_at — the broadcast
+  # can legally trail the user's confirmation click by minutes, so a
+  # confirmed_at anchor can declare a just-broadcast tx dead while it is still
+  # perfectly landable.
+  #
+  # It also REQUIRES a history-searched status. A plain getTransaction at
+  # `confirmed` returns nothing for a tx that is merely unindexed, which reads
+  # as :never_landed here and is exactly the double-send this guards.
+  def send_verdict(status, now: Time.current)
+    if status && status["err"].nil? && %w[confirmed finalized].include?(status["confirmationStatus"])
+      :landed
+    elsif status && status["err"]
+      :failed
+    elsif status.nil? && blockhash_lapsed?(now: now)
+      :never_landed
+    else
+      :ambiguous
+    end
+  end
+
+  # No anchor (shouldn't happen — #mark_sending! always stamps broadcast_at) is
+  # AMBIGUOUS, never verified-dead.
+  def blockhash_lapsed?(now: Time.current)
+    broadcast_at.present? && now > broadcast_at + BLOCKHASH_LAPSE
+  end
+
   # DELIBERATE rewind — the one exception to "never rewind", allowed only
   # after an on-chain verification proved the broadcast definitively failed
   # (getSignatureStatuses returned an err, or the blockhash window lapsed with
