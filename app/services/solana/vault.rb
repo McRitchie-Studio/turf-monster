@@ -102,6 +102,26 @@ module Solana
     COSIGN_MAX_PRIORITY_FEE_MICROLAMPORTS =
       PARTIAL_TX_PRIORITY_FEE_MICROLAMPORTS * PARTIAL_TX_COMPUTE_UNIT_LIMIT * COSIGN_FEE_MARGIN
 
+    # --- the minimum withdrawal (phantom-cashout-needs-sol) -------------------
+    #
+    # Since the HOUSE pays the fee on every user cash-out — both the Phantom
+    # wire (#build_user_usdc_transfer_unsigned) and the managed one
+    # (#build_user_usdc_transfer) — a withdrawal costs the house real SOL
+    # whether it succeeds or fails on-chain. Measured with the defaults above:
+    # 2 signatures x 5_000 lamports base + 50_000 micro-lamports/CU x 200_000 CU
+    # priority = 20_000 lamports = 0.00002 SOL per cash-out.
+    #
+    # A floor keeps a withdrawal worth more than the fee that carries it, and
+    # closes the dust-withdrawal vector (repeatedly cashing out cents to burn
+    # the house's SOL). $0.99, set by Mr. McRitchie 2026-09-14.
+    #
+    # Deliberately NOT ENV-overridable, unlike the fee knobs above: this is a
+    # user-facing money boundary with copy that quotes it, so it should move by
+    # a reviewed change, not by a dyno restart.
+    MIN_WITHDRAWAL_USD = "0.99"
+    USDC_BASE_UNITS_PER_USD = 1_000_000 # USDC carries 6 decimals
+    MIN_WITHDRAWAL_BASE_UNITS = 990_000 # $0.99
+
     # Solana's maximum compute-unit limit. A wire that sets a price but no limit
     # is charged at whatever limit the runtime defaults to; the guard assumes the
     # most it could be, so the fee check can over-estimate but never under-.
@@ -409,6 +429,7 @@ module Solana
     def build_user_usdc_transfer(user_keypair:, destination_token_account:, amount_lamports:)
       raise ArgumentError, "user_keypair required" unless user_keypair
       raise ArgumentError, "amount must be positive" unless amount_lamports.to_i.positive?
+      assert_above_withdrawal_minimum!(amount_lamports)
 
       admin = Keypair.admin
       from_ata, _ = Solana::SplToken.find_associated_token_address(
@@ -430,12 +451,29 @@ module Solana
       { wire_base64: Base64.strict_encode64(wire), signature: extract_tx_signature(wire) }
     end
 
-    # Phantom flavor for the offramp send: a fully-UNSIGNED single-signer tx —
-    # the user's wallet is BOTH fee payer and transfer authority. Phantom signs
-    # and the client broadcasts (mirroring the lock_contest sign flow), then
-    # POSTs the signature back to /cdp/offramp/sent for verified recording.
+    # Phantom flavor for the offramp send: a fully-UNSIGNED TWO-signer tx — the
+    # HOUSE (admin) is fee payer, the user's wallet is the transfer authority.
+    # Phantom signs its own slot first, the server validates + cosigns the admin
+    # slot (#assert_usdc_transfer_cosign_safe! then #cosign_usdc_transfer), and
+    # the client broadcasts the fully-signed wire, then POSTs the signature back
+    # to /cdp/offramp/sent for verified recording.
+    #
+    # WHY THE HOUSE PAYS (phantom-cashout-needs-sol, 2026-09-14). This used to
+    # serialize with additional_signers: [wallet_bytes] and nothing else, which
+    # made the PLAYER'S wallet the fee payer. A Phantom player holding USDC and
+    # ZERO SOL could not withdraw at all — the one hole in Turf Monster's
+    # otherwise gasless story, and it bit at the worst possible moment. Every
+    # other user-facing path already has the house on the transaction, including
+    # this method's managed-wallet sibling #build_user_usdc_transfer. ONLY the
+    # fee payer changed: the player still signs, because it is their USDC
+    # leaving their token account and that consent is the protection.
+    #
+    # The admin MUST be FIRST in additional_signers — the gem's keyless
+    # serialize_partial takes additional_signers.first as the fee payer, the
+    # same contract #build_partial_unsigned documents.
     def build_user_usdc_transfer_unsigned(wallet_address:, destination_token_account:, amount_lamports:)
       raise ArgumentError, "amount must be positive" unless amount_lamports.to_i.positive?
+      assert_above_withdrawal_minimum!(amount_lamports)
 
       wallet_bytes = Keypair.decode_base58(wallet_address)
       from_ata, _ = Solana::SplToken.find_associated_token_address(wallet_address, Config::USDC_MINT)
@@ -450,7 +488,8 @@ module Solana
         amount: amount_lamports.to_i
       ))
 
-      { serialized_tx: tx.serialize_partial_base64(additional_signers: [wallet_bytes]) }
+      admin_bytes = Keypair.admin.public_key_bytes
+      { serialized_tx: tx.serialize_partial_base64(additional_signers: [admin_bytes, wallet_bytes]) }
     end
 
     # Fund a user's wallet ATA with USDC.
@@ -2216,6 +2255,11 @@ module Solana
     # controller maps it to a generic client message (never leak which check tripped).
     class UnsafeCosignError < StandardError; end
 
+    # Raised when a cash-out is below MIN_WITHDRAWAL_USD. Typed (not a bare
+    # ArgumentError) so a controller can map it to copy a person can act on
+    # rather than to a generic validation failure.
+    class BelowMinimumWithdrawalError < StandardError; end
+
     # Position of the contest_entry (entry PDA) account inside the enter_contest
     # instruction's account list — see #enter_contest_accounts: 0 payer, 1 user,
     # 2 user_account, 3 vault_state, 4 contest, 5 contest_entry.
@@ -2458,6 +2502,140 @@ module Solana
       true
     end
 
+    # Audit C1 boundary for the PHANTOM CASH-OUT — the SPL-transfer twin of
+    # #assert_entry_cosign_safe! / #assert_create_contest_cosign_safe!.
+    #
+    # Since phantom-cashout-needs-sol the ADMIN is the fee payer on this wire
+    # (see #build_user_usdc_transfer_unsigned), so filling its signature slot is
+    # the house agreeing to pay for whatever bytes the client hands back. Before
+    # that happens, assert the wire is still EXACTLY the transfer this server
+    # prepared:
+    #
+    #   - admin in the fee-payer slot (account 0),
+    #   - the cash-out wallet in a SIGNER slot (the house does not pay for a
+    #     transfer that cannot authorise itself),
+    #   - exactly ONE SPL Token instruction, and it is a Transfer of the exact
+    #     expected amount, from the wallet's own USDC ATA, to the resolved
+    #     Coinbase destination token account, under the wallet's own authority,
+    #   - only fee-capped ComputeBudget and Phantom-injected Lighthouse
+    #     instructions besides, and NO System instruction, ever.
+    #
+    # Raises UnsafeCosignError; the detailed reason is logged server-side and is
+    # NEVER returned to the client. Validate-then-cosign: on reject nothing is
+    # signed and nothing can be broadcast.
+    def assert_usdc_transfer_cosign_safe!(signed_wire_base64, wallet_address:, destination_token_account:,
+                                          amount_lamports:, context: "offramp_send")
+      cosign_reject!(context, wallet_address, "empty_wire: no signed_tx bytes") if signed_wire_base64.blank?
+
+      wallet_bytes = as_key_bytes(wallet_address)
+      from_ata, _  = Solana::SplToken.find_associated_token_address(wallet_address, Config::USDC_MINT)
+      expected_accounts = [as_key_bytes(from_ata), as_key_bytes(destination_token_account), wallet_bytes]
+      expected_data = ([3].pack("C") + [amount_lamports.to_i].pack("Q<")).b
+
+      msg =
+        begin
+          parse_wire_message(Base64.decode64(signed_wire_base64).b, entry: context, wallet_address: wallet_address)
+        rescue UnsafeCosignError
+          raise
+        rescue StandardError => e
+          cosign_reject!(context, wallet_address, "unparseable_wire: #{e.class}: #{e.message}")
+        end
+      account_keys = msg[:account_keys]
+
+      admin_key = Keypair.admin.public_key_bytes.b
+      fee_payer = account_keys[0]
+      if fee_payer != admin_key
+        cosign_reject!(context, wallet_address,
+          "fee_payer_not_admin: account[0]=#{b58(fee_payer)} expected admin=#{Keypair.admin.address}")
+      end
+
+      wallet_index = account_keys.index(wallet_bytes)
+      unless wallet_index && wallet_index < msg[:num_required_signatures].to_i
+        cosign_reject!(context, wallet_address,
+          "wallet_not_signer: #{wallet_address} is not in a signer slot " \
+          "(index=#{wallet_index.inspect} of #{msg[:num_required_signatures]} signer slots)")
+      end
+
+      token_program  = Transaction::TOKEN_PROGRAM_ID.b
+      system_program = Transaction::SYSTEM_PROGRAM_ID.b
+      compute_budget = COMPUTE_BUDGET_PROGRAM_ID.b
+      lighthouse     = LIGHTHOUSE_PROGRAM_ID.b
+
+      transfer_count = 0
+      budget = {}
+
+      msg[:instructions].each_with_index do |ix, i|
+        program_id = account_keys[ix[:program_id_index]]
+        cosign_reject!(context, wallet_address, "bad_program_index: ix #{i} program index out of range") if program_id.nil?
+        program_id = program_id.b
+
+        case program_id
+        when token_program
+          # SPL Token Transfer is discriminator byte 3 (Solana::SplToken
+          # .transfer_instruction). Compare the WHOLE data field, so the amount
+          # is pinned too — a wire that swapped in a larger transfer, or any
+          # other token instruction (Approve, SetAuthority, CloseAccount,
+          # Burn), fails right here.
+          unless ix[:data].to_s.b == expected_data
+            cosign_reject!(context, wallet_address,
+              "token_data_mismatch: ix #{i} data=#{ix[:data].to_s.unpack1('H*')} " \
+              "expected transfer of #{amount_lamports.to_i}")
+          end
+          actual_accounts = ix[:account_indices].map { |idx| account_keys[idx]&.b }
+          unless actual_accounts == expected_accounts
+            cosign_reject!(context, wallet_address,
+              "token_accounts_mismatch: ix #{i} accounts=#{actual_accounts.map { |a| b58(a) }.join(',')} " \
+              "expected=#{expected_accounts.map { |a| b58(a) }.join(',')}")
+          end
+          transfer_count += 1
+        when system_program
+          # No System instruction, ever — the same refusal the entry and
+          # create_contest guards make. A SystemProgram.transfer{from: admin}
+          # is precisely what the admin signature must never be spent on.
+          system_ix_reject!(context, wallet_address, ix, i)
+        when compute_budget
+          # Read, never waved through: the admin pays whatever fee these set.
+          read_compute_budget_ix!(context, wallet_address, ix, i, budget)
+        when lighthouse
+          # Phantom-injected transaction-protection assertions — allowed.
+        else
+          cosign_reject!(context, wallet_address, "disallowed_program: ix #{i} program=#{b58(program_id)}")
+        end
+      end
+
+      unless transfer_count == 1
+        cosign_reject!(context, wallet_address,
+          "transfer_count: found #{transfer_count} SPL transfer ixs, require exactly 1")
+      end
+      assert_priority_fee_capped!(context, wallet_address, budget)
+
+      true
+    end
+
+    # Fill the admin (fee payer) signature slot in the Phantom-signed cash-out
+    # wire and hand the fully-signed bytes back. The caller MUST run
+    # #assert_usdc_transfer_cosign_safe! first — Transaction.cosign_wire signs
+    # the EXACT bytes it is handed, whatever they are.
+    #
+    # Unlike #cosign_and_broadcast_entry this does NOT broadcast. The cash-out
+    # client already owns a working browser broadcast, and it has all three
+    # things the 2026-09-05 operator-wire incident lacked (see
+    # #simulate_and_broadcast): a freshly fetched per-request wire, the app's
+    # own configured RPC URL, and the `confirmed` commitment. It then reports
+    # the signature to Cdp::OfframpSendsController#sent, which verifies it
+    # on-chain before recording — so the verified-report reconciliation this
+    # flow already has stays exactly as it was.
+    #
+    # Returns { signed_tx:, signature: }. The signature is the FIRST signature
+    # on the patched wire — the admin's, since the admin is now the fee payer —
+    # and it is returned so the caller can persist it BEFORE the bytes leave the
+    # server (the same pre-broadcast anchor #build_user_usdc_transfer provides
+    # for the managed path).
+    def cosign_usdc_transfer(signed_wire_base64)
+      patched_b64 = Transaction.cosign_wire_base64(signed_wire_base64, signer: Keypair.admin)
+      { signed_tx: patched_b64, signature: extract_tx_signature(Base64.decode64(patched_b64).b) }
+    end
+
     # Cosign (admin) the Phantom-signed entry wire, pre-flight simulate, then
     # broadcast. Public API called by ContestsController#confirm_onchain_entry.
     # The caller MUST run #assert_entry_cosign_safe! first (audit C1) — this
@@ -2561,6 +2739,10 @@ module Solana
 
       first = wire.getbyte(message_start)
       cosign_reject!(entry, wallet_address, "versioned_message: v0+ tx not supported") if (first & 0x80) != 0
+      # numRequiredSignatures is the first header byte (the v0 high bit is ruled
+      # out above, so the whole byte is the count). Returned so a guard can ask
+      # whether a given key sits in the SIGNER region of the account list.
+      num_required_signatures = first
 
       c = message_start + 3 # skip the 3-byte message header (numReqSigs, roSigned, roUnsigned)
       account_count, c = Transaction.read_compact_u16(wire, c)
@@ -2594,7 +2776,8 @@ module Solana
         instructions << { program_id_index: program_id_index, account_indices: account_indices, data: data }
       end
 
-      { account_keys: account_keys, instructions: instructions }
+      { account_keys: account_keys, instructions: instructions,
+        num_required_signatures: num_required_signatures }
     end
 
     # Log the DETAILED rejection reason server-side (forensics: entry id + wallet
@@ -2660,6 +2843,27 @@ module Solana
       end
       cosign_reject!(entry, wallet_address,
         "system_program_ix: ix #{index} data=#{ix[:data].to_s.unpack1('H*')} (no System instruction is cosigned)")
+    end
+
+    # The withdrawal floor, asserted in the BUILDERS rather than only in the
+    # controller: this is the last common chokepoint before the transaction
+    # exists, so a future caller of either builder cannot route around it. Both
+    # user cash-out builders call it — the Phantom wire and the managed one —
+    # so the floor does not depend on which wallet the player brought.
+    def assert_above_withdrawal_minimum!(amount_lamports)
+      return if amount_lamports.to_i >= MIN_WITHDRAWAL_BASE_UNITS
+
+      raise BelowMinimumWithdrawalError,
+            "Minimum withdrawal is $#{MIN_WITHDRAWAL_USD} " \
+            "(#{MIN_WITHDRAWAL_BASE_UNITS} base units); got #{amount_lamports.to_i}"
+    end
+
+    # Accept either a base58 address String or raw 32-byte key bytes and return
+    # the raw bytes, so a guard can compare against a parsed wire's account keys
+    # without caring which form its caller had.
+    def as_key_bytes(value)
+      return value.b if value.is_a?(String) && value.bytesize == 32
+      Keypair.decode_base58(value.to_s).b
     end
 
     # Short base58 for log lines; nil-safe.

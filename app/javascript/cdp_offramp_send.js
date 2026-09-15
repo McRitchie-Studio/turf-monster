@@ -4,8 +4,15 @@
 // (single source of truth for destination resolution + amount — the client
 // never dictates either; /cdp/offramp/prepare_send cross-checks the optional
 // toAddress/amountBaseUnits expectations against its own row), Phantom signs,
-// the client broadcasts, then the signature is reported back to
-// /cdp/offramp/sent where it is verified on-chain before being recorded.
+// the SERVER cosigns, the client broadcasts, then the signature is reported
+// back to /cdp/offramp/sent where it is verified on-chain before recording.
+//
+// The cosign hop exists because the HOUSE is the fee payer on this wire
+// (phantom-cashout-needs-sol): a player holding USDC and zero SOL could not
+// otherwise withdraw at all. Phantom fills its own signature slot, the admin
+// slot stays empty until /cdp/offramp/cosign_send fills it, and only then are
+// the bytes broadcastable — which is why the Phantom-signed tx is serialized
+// with requireAllSignatures:false before it is sent back up.
 //
 // Usage (offramp return page / cash-out prompt):
 //   const sig = await window.buildAndSendOfframpUsdcTransfer({
@@ -68,10 +75,27 @@ export async function buildAndSendOfframpUsdcTransfer(opts) {
   }
   var signed = await provider.signTransaction(tx);
 
-  // 3. Broadcast + confirm (same HTTP-poll confirmation as lock_contest).
+  // 3. Server cosigns the admin (fee payer) slot. requireAllSignatures:false —
+  //    the admin slot is still empty here, so a default serialize() would throw
+  //    rather than hand us the bytes to send up. The server re-derives the
+  //    destination and amount itself and refuses any wire that is not the
+  //    cash-out it prepared, so this round trip cannot widen what gets signed.
+  onStatus("Confirming the transfer...");
+  var wireToCosign = btoa(
+    String.fromCharCode.apply(null, signed.serialize({ requireAllSignatures: false }))
+  );
+  var cosigned = await postJson("/cdp/offramp/cosign_send", {
+    partner_user_ref: partnerUserRef,
+    signed_tx: wireToCosign,
+  });
+
+  // 4. Broadcast + confirm (same HTTP-poll confirmation as lock_contest).
   onStatus("Sending USDC to Coinbase...");
+  var fullySigned = Uint8Array.from(atob(cosigned.signed_tx), function (c) {
+    return c.charCodeAt(0);
+  });
   var connection = new solanaWeb3.Connection(rpcUrl, "confirmed");
-  var signature = await connection.sendRawTransaction(signed.serialize(), {
+  var signature = await connection.sendRawTransaction(fullySigned, {
     skipPreflight: true,
     maxRetries: 3,
   });
@@ -79,7 +103,7 @@ export async function buildAndSendOfframpUsdcTransfer(opts) {
   onStatus("Waiting for Solana confirmation...");
   await window.pollConfirmation(rpcUrl, signature);
 
-  // 4. Report back — server verifies the signature on-chain, records it on
+  // 5. Report back — server verifies the signature on-chain, records it on
   //    the ramp row, and nudges the CDP status poll to reconcile.
   onStatus("Recording your send...");
   await postJson("/cdp/offramp/sent", {

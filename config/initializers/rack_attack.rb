@@ -115,6 +115,31 @@ class Rack::Attack
     end
   end
 
+  ### Throttle: Phantom cash-out cosign — ADMIN SOL bleed protection
+  # POST /cdp/offramp/cosign_send spends the house's SOL: since
+  # phantom-cashout-needs-sol the ADMIN is the fee payer on the cash-out wire,
+  # so every wire this endpoint hands back is a broadcastable claim on
+  # SOLANA_ADMIN_KEY — the same wallet that pays for entries, mints and
+  # payouts. A new POST route defaults to EXEMPT here (see the allowlist note
+  # below), which is exactly how a money surface ships uncapped.
+  #
+  # The state machine is the real bound — Cdp::OfframpSendsController#cosign
+  # claims the row (:cdp_created -> :sending) under a row lock and renders
+  # nothing when the claim fails, so one row yields one wire. This throttle is
+  # the second wall: it caps the RATE at which a script can drive the verified-
+  # dead rewind path across many rows, and it costs a human nothing (a cash-out
+  # is one cosign, retried by hand at most a few times inside a 30-minute
+  # window). Keyed per-user like the session mint above, IP as the fallback.
+  # Prepare is capped alongside it — it is free to serve but it is the step
+  # that precedes every cosign.
+  throttle("cdp_offramp_send/user", limit: 10, period: 1.minute) do |req|
+    if req.post? && (req.path == "/cdp/offramp/cosign_send" || req.path == "/cdp/offramp/prepare_send")
+      session = req.env["rack.session"] || {}
+      user_id = session[Studio.session_key.to_s] || session[Studio.session_key]
+      (user_id || req.ip).to_s
+    end
+  end
+
   ### Throttle: PayPal order/capture creation — fee bleed parity with stripe_checkout
   throttle("paypal_checkout/ip", limit: 10, period: 1.minute) do |req|
     req.ip if req.post? && (req.path == "/tokens/paypal_order" || req.path == "/tokens/paypal_capture")

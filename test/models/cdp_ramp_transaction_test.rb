@@ -203,4 +203,60 @@ class CdpRampTransactionTest < ActiveSupport::TestCase
     assert_not sent.reset_failed_send!, "a confirmed send can never be reset"
     assert sent.sent?
   end
+
+  # THE VERDICT THAT DECIDES A REWIND — and a wrong rewind sends a player's
+  # USDC twice. Shared by Cdp::OfframpSendJob#verify_pending_send and
+  # Cdp::OfframpSendsController#cosign, so it is pinned here once.
+
+  def sending_ramp(broadcast_at:)
+    ramp = CdpRampTransaction.create!(
+      user: users(:jordan), direction: "offramp", wallet_mode: "web3",
+      wallet_address: Solana::Keypair.generate.address, status: "cdp_created",
+      to_address: Solana::Keypair.generate.address,
+      sell_amount_value: BigDecimal("19"), sell_amount_currency: "USDC",
+      cashout_deadline_at: 25.minutes.from_now
+    )
+    ramp.mark_sending!("SigUnderTest")
+    ramp.update!(broadcast_at: broadcast_at)
+    ramp
+  end
+
+  test "send_verdict calls a confirmed status landed" do
+    ramp = sending_ramp(broadcast_at: 1.minute.ago)
+    status = { "err" => nil, "confirmationStatus" => "confirmed" }
+    assert_equal :landed, ramp.send_verdict(status)
+    assert_equal :landed, ramp.send_verdict(status.merge("confirmationStatus" => "finalized"))
+  end
+
+  test "send_verdict calls an on-chain err failed, whatever its age" do
+    assert_equal :failed, sending_ramp(broadcast_at: 1.minute.ago).send_verdict({ "err" => { "InstructionError" => 1 } })
+    assert_equal :failed, sending_ramp(broadcast_at: 1.hour.ago).send_verdict({ "err" => { "InstructionError" => 1 } })
+  end
+
+  test "send_verdict calls a MISSING status AMBIGUOUS inside the blockhash window" do
+    ramp = sending_ramp(broadcast_at: 30.seconds.ago)
+
+    assert_equal :ambiguous, ramp.send_verdict(nil),
+                 "a signature absent from getSignatureStatuses is in-flight or unindexed just as " \
+                 "often as it is dead — rewinding on it builds a SECOND full-amount transfer and " \
+                 "sends the player's USDC twice"
+  end
+
+  test "send_verdict calls a missing status never_landed only past the blockhash window" do
+    assert_equal :ambiguous, sending_ramp(broadcast_at: (CdpRampTransaction::BLOCKHASH_LAPSE - 10.seconds).ago).send_verdict(nil)
+    assert_equal :never_landed, sending_ramp(broadcast_at: (CdpRampTransaction::BLOCKHASH_LAPSE + 10.seconds).ago).send_verdict(nil)
+  end
+
+  test "send_verdict is ambiguous with no broadcast anchor at all" do
+    ramp = sending_ramp(broadcast_at: 1.hour.ago)
+    ramp.update!(broadcast_at: nil)
+
+    assert_equal :ambiguous, ramp.send_verdict(nil),
+                 "no anchor cannot prove deadness, so it must never read as verified-dead"
+  end
+
+  test "send_verdict is ambiguous for a processed-but-unconfirmed status" do
+    ramp = sending_ramp(broadcast_at: 1.hour.ago)
+    assert_equal :ambiguous, ramp.send_verdict({ "err" => nil, "confirmationStatus" => "processed" })
+  end
 end

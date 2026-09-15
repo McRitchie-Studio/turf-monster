@@ -973,7 +973,33 @@
 # The method was validated first against the untouched tree, where it returned
 # exactly the declared 307. CI's e2e_declared_set and e2e_executed_set remain
 # the real witnesses.
-total_specs: 310
+# 307 -> 311 on merging accepted into phantom-cashout-needs-sol: one spec in
+# e2e/offramp_house_pays_fee.spec.js, landing on top of the three above. The
+# Phantom cash-out wire is now fee-paid by the HOUSE, which leaves a signer slot
+# Phantom never fills, and the two facts that follow are web3.js semantics no
+# server-side tier can reach: Transaction.serialize() THROWS on an empty
+# required slot (the page must pass requireAllSignatures:false, and the two
+# calls read identically in source), and the bytes that reach the cluster must
+# be the COSIGNED ones rather than the page's own Phantom-signed copy. Not
+# tagged @devnet and it does not skip, so excluded stays 17 and allowed_skips
+# stays 4.
+#
+# THIS FILE'S WARNING FIRED TWICE ON THIS ONE BRANCH, and the two times looked
+# nothing alike:
+#   · Against gift-link-skips-wallet-auth the scalars AUTO-MERGED. Both branches
+#     added one spec, both were cut at 306, and both wrote 307 — the same TEXT
+#     for different specs, so git merged the numbers silently and only the prose
+#     collided. The tree would have held 308 declaring 307.
+#   · Against route-time-changes-to-phantom (above) the scalars CONFLICTED, and
+#     the increment would have been wrong from either side: 308 + 3 and 310 + 1
+#     both happen to reach 311, which is exactly the kind of coincidence that
+#     makes arithmetic feel safe. It is not the reason 311 is written here.
+#
+# 311 is what the LISTER printed on the MERGED tree — "Total: 311 tests in 75
+# files" — cross-checked against the JSON reporter (311 tests, 75 files), which
+# is the same model Playwright builds for itself. The excluded lister re-derived
+# 17 ("Total: 17 tests in 1 file") on the same tree.
+total_specs: 311
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1291,7 +1317,9 @@ allowed_skips: 4
 # on top. The lister re-derived excluded as 17 on the merged tree and
 # allowed_skips stays 4, so both listers agree. Derived with
 # bin/e2e-lane-derive --write ON THE MERGED TREE.
-executed: 289
+# 289 -> 290 alongside total_specs above. Both listers agree on the merged
+# tree, so allowed_skips stays 4: 311 - 17 - 4 = 290.
+executed: 290
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

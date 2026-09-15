@@ -144,11 +144,37 @@ After the user clicks "Cash out now" in the widget, CDP creates a transaction wh
 **Discovery (both modes):** `Cdp::OfframpPollJob` (§11) polls until a row with `status: TRANSACTION_STATUS_CREATED` appears; persist `to_address`, `sell_amount`, `network`, set `cashout_deadline_at = created_at + 30.minutes`.
 
 **Managed mode (server signs):** new `Cdp::OfframpSendJob`:
-- Build the USDC SPL transfer from the user's web2 ATA to `to_address`, mirroring `Solana::Vault#transfer_spl` (`app/services/solana/vault.rb:376`) but with **authority = the user's managed keypair** (`Solana::Keypair.from_encrypted`), mint = `Solana::Config::USDC_MINT` (mainnet `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`), amount = `BigDecimal(sell_amount.value) * 10**6` base units.
+- Build the USDC SPL transfer from the user's web2 ATA to `to_address`, mirroring `Solana::Vault#transfer_spl` but with **authority = the user's managed keypair** (`Solana::Keypair.from_encrypted`), mint = `Solana::Config::USDC_MINT` (mainnet `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`), amount = `BigDecimal(sell_amount.value) * 10**6` base units.
 - `to_address` ambiguity: docs never say whether the Solana `to_address` is an owner address or a token account — inspect on-chain (owned by SPL Token program → use directly as token account; else derive its USDC ATA). Confirm on first mainnet sell (open questions).
 - Guards: **fresh explicit user confirmation click in our UI before the server moves funds**; balance check; refuse sends past `cashout_deadline_at` minus a ~3-minute safety margin; record `sent_signature`; **verify signature status before any retry** (never blind-resend — same class of bug as the Lazarus `recover_pending_entry` finding).
 
-**Phantom mode (client signs):** the offramp return page (plus a StateFanout-driven prompt) shows "Send X USDC to Coinbase" with a live countdown. Client builds the SPL transfer from the web3 ATA to `to_address`(/its ATA) using the existing wallet-adapter plumbing, Phantom signs, client broadcasts, then `POST`s the signature back so the poll job can reconcile. Copy must state the late-send rule: funds sent after 30 minutes still land in the user's **Coinbase crypto balance**, but the sell moves to `TRANSACTION_STATUS_FAILED` and won't auto-complete [^11].
+**Phantom mode (client signs, the HOUSE pays):** the offramp return page (plus a StateFanout-driven prompt) shows "Send X USDC to Coinbase" with a live countdown. The **server** builds the SPL transfer — it is the single source of truth for both the destination and the amount, and the client never dictates either. Copy must state the late-send rule: funds sent after 30 minutes still land in the user's **Coinbase crypto balance**, but the sell moves to `TRANSACTION_STATUS_FAILED` and won't auto-complete [^11].
+
+The wire names the **admin as fee payer**, not the player. Until 2026-09-14 it named the player's own wallet, which meant a Phantom player holding USDC and **zero SOL could not withdraw at all** — the one gap in Turf Monster's otherwise gasless story, met at the worst possible moment. The player still signs, because it is their USDC leaving their token account and that consent is the protection; only the fee payer changed. Because the admin's slot must then be filled, the flow gains a cosign hop and runs in four steps:
+
+1. `POST /cdp/offramp/prepare_send` — server resolves the Coinbase destination on-chain and returns the fully **unsigned** two-signer wire (admin slot 0 = fee payer, wallet slot 1 = transfer authority; both empty).
+2. Phantom signs its own slot. The client serializes with `requireAllSignatures: false` — the admin slot is still empty, so a default `serialize()` would throw.
+3. `POST /cdp/offramp/cosign_send` — server re-derives the destination and amount from its own row, runs `Solana::Vault#assert_usdc_transfer_cosign_safe!` against the returned bytes, then fills the admin slot via `#cosign_usdc_transfer` and hands back the fully-signed wire. **Validate-then-cosign**: on reject nothing is signed and nothing is broadcastable, and the forensic reason is logged server-side but never returned to the client.
+4. Client broadcasts, then `POST`s the signature to `/cdp/offramp/sent`, which verifies it on-chain before recording so the poll job can reconcile.
+
+**Why the guard is mandatory.** The admin is the fee payer, so filling its signature slot is the house agreeing to pay for whatever bytes the client hands back. The guard is the SPL-transfer twin of the entry and create_contest cosign guards: admin in the fee-payer slot, the cash-out wallet in a signer slot, exactly one SPL Token instruction and it is a Transfer of the exact expected amount from the wallet's own USDC ATA to the resolved destination under the wallet's own authority, only fee-capped ComputeBudget and Phantom-injected Lighthouse instructions besides, and **no System instruction, ever**.
+
+**One cosign per row, claimed under a row lock.** `#cosign` moves the row to `sending` the moment the house signs, so the endpoint cannot be looped into a house-funded fee faucet — every broadcast costs the house its fee whether the transfer succeeds or fails. The claim is `CdpRampTransaction#mark_sending!`, and **its return value is the cap**: when it answers false the signed wire is NOT rendered, because bytes handed out are bytes that can be broadcast. The whole decide-guard-cosign-claim sequence runs inside `#with_lock`, since two concurrent requests would otherwise both read `cdp_created` and both walk away with a broadcastable wire for the same cash-out. Every RPC read happens BEFORE the lock, so no database connection is held across a network call.
+
+**The rewind rule — the one that sends a player's USDC twice if it is wrong.** The legitimate retry (the browser never managed to broadcast) is re-armed only on a DEFINITIVE verdict, and that verdict is `CdpRampTransaction#send_verdict` — the same one `Cdp::OfframpSendJob#verify_pending_send` uses, deliberately shared so the two paths cannot drift:
+
+| Verdict | Meaning | Cosign endpoint |
+|---------|---------|-----------------|
+| `:landed` | confirmed/finalized, no err | refuse — the money moved |
+| `:failed` | an on-chain err | re-arm — funds did not move |
+| `:never_landed` | absent from a **history-searched** lookup, past `BLOCKHASH_LAPSE` after `broadcast_at` | re-arm — verified dead |
+| `:ambiguous` | anything else | **refuse** |
+
+Two traps are baked into that table. First, **"no status" is not "never landed"** — an absent signature is in-flight or not-yet-indexed just as often as it is dead, and only the age of the *broadcast* separates them (hence `broadcast_at`, never `confirmed_at`: the broadcast can legally trail the user's click by minutes). Second, the lookup must be `confirm_transaction` — `getSignatureStatuses` with **`searchTransactionHistory: true`** — because a plain `getTransaction` at `confirmed` returns nothing for a merely unindexed transaction, which would read as dead and build a second full-amount transfer.
+
+**Rate limit.** `POST /cdp/offramp/cosign_send` and `/cdp/offramp/prepare_send` are capped at 10/min per user (`cdp_offramp_send/user` in `config/initializers/rack_attack.rb`). A new POST route defaults to EXEMPT there, and this one spends `SOLANA_ADMIN_KEY` — the same wallet that pays for entries, mints and payouts.
+
+**Minimum withdrawal: $0.99** (`Solana::Vault::MIN_WITHDRAWAL_BASE_UNITS`, set 2026-09-14). Since the house now pays the fee on **both** cash-out paths, a withdrawal costs the house real SOL whether it succeeds or fails on-chain — measured at **20,000 lamports (0.00002 SOL)** per cash-out with the current defaults (2 signatures x 5,000 lamports base fee, plus 50,000 micro-lamports/CU x 200,000 CU priority). The floor keeps a withdrawal worth more than the fee carrying it and closes the dust-withdrawal vector. It is asserted in **both builders** (`#build_user_usdc_transfer` and `#build_user_usdc_transfer_unsigned`), not only in the controller, so a future caller cannot route around it; the controller and `Cdp::OfframpSendJob` refuse earlier with copy that names the floor. Deliberately not ENV-overridable: it is a user-facing money boundary whose copy quotes it.
 
 ## 11. Status polling (Sidekiq)
 
@@ -198,6 +224,7 @@ Event types: `onramp.transaction.{created,updated,success,failed}` and `offramp.
 
 ## Risks
 
+- **A balance under $0.99 can never be withdrawn.** The minimum-withdrawal floor is absolute, so a player whose ENTIRE remaining balance sits below it has no cash-out path at all. Accepted deliberately — the amount is under a dollar and the on-chain rent and fees to move it exceed it — but the UI should say so where a small balance is shown, rather than letting it arrive as a support ticket.
 - Offramp hard-requires a Coinbase account with a linked payout method — "Guest checkout is not supported for fiat withdrawal." Some players simply cannot cash out via this path; the UI must say so before they start.
 - Guest Checkout via the hosted widget (debit card / Apple Pay without a Coinbase account) is deprecated June 30, 2026. Onramp must be designed as Coinbase-login-first; supporting wallet-less buyers later means a separate Headless Onramp build.
 - No testnet: onramp delivers real mainnet USDC and offramp moves real funds. The offramp loop (to_address discovery + send + settlement) can only be verified with real money on prod.
