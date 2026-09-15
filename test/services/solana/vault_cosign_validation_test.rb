@@ -138,7 +138,7 @@ class Solana::VaultCosignValidationTest < ActiveSupport::TestCase
     out   = vault.build_enter_contest_with_token(WALLET, SLUG, 0, token, season_id: 1)
 
     # Pins the shared account layout the guard leans on: contest_entry sits at
-    # ENTER_CONTEST_ENTRY_PDA_POSITION (5) in the token instruction too. Reorder
+    # .enter_contest_entry_pda_position in the token instruction too. Reorder
     # that instruction's accounts and this fails instead of silently checking
     # whatever now occupies slot 5.
     err = assert_raises(Solana::Vault::UnsafeCosignError) do
@@ -195,7 +195,7 @@ class Solana::VaultCosignValidationTest < ActiveSupport::TestCase
     tx = Solana::Transaction.new
     tx.set_recent_blockhash(Solana::Keypair.generate.to_base58)
     tx.add_signer(admin)
-    accounts = Array.new(Solana::Vault::ENTER_CONTEST_ENTRY_PDA_POSITION) do
+    accounts = Array.new(Solana::Vault.enter_contest_entry_pda_position) do
       { pubkey: Solana::Keypair.generate.public_key_bytes, is_signer: false, is_writable: false }
     end
     accounts << { pubkey: entry_pda_bytes, is_signer: false, is_writable: true }
@@ -393,7 +393,7 @@ class Solana::VaultCosignValidationTest < ActiveSupport::TestCase
   end
 
   def enter_contest_ix(vault)
-    accounts = Array.new(Solana::Vault::ENTER_CONTEST_ENTRY_PDA_POSITION) do
+    accounts = Array.new(Solana::Vault.enter_contest_entry_pda_position) do
       { pubkey: Solana::Keypair.generate.public_key_bytes, is_signer: false, is_writable: false }
     end
     accounts << { pubkey: vault.entry_pda(SLUG, WALLET, 0).first, is_signer: false, is_writable: true }

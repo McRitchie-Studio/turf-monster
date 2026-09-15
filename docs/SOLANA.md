@@ -105,6 +105,156 @@ Signers (`VaultState.signers`, threshold 2) — the same set on **devnet and mai
 - Alex (human Phantom, = `INIT_AUTHORITY`) — `7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr`
 - Mason — `CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR`
 
+### turf-vault v0.26 — governance-as-data, and how Rails carries TWO program shapes
+
+v0.26 is on turf-vault's `accepted` branch and **is not deployed** — mainnet and
+devnet both still run v0.25. It rewrites the auth model: up to five signer
+slots, per-action signature thresholds stored in a `GovernanceConfig` PDA rather
+than baked into the instruction shape, a per-window cap on free-entry minting,
+and an on-chain username registry.
+
+For Rails the consequence is narrow and severe: **every vault-authorized
+instruction gains a `governance` account**, plus `treasury` on `close_contest`,
+`window_index` + `mint_window` on `mint_entry_token`, `invitee_user_account` on
+`grant_seeds`, and `username_record` on the two username paths. Anchor account
+lists are POSITIONAL, so the two shapes are mutually unintelligible: a v0.26
+wire sent to the live v0.25 program is rejected, and a v0.25 wire sent to an
+upgraded program is rejected too.
+
+#### Why this app is version-aware rather than upgraded in lockstep
+
+"Update Rails before the deploy" and "upgrade the program before Rails" are the
+same outage in opposite directions. Shipping the new account set while v0.25 is
+live breaks the entire on-chain surface exactly as surely as upgrading the
+program first would.
+
+So the slug carries BOTH shapes and picks one at boot:
+
+| `SOLANA_VAULT_GOVERNANCE` | shape | IDL selected (by cluster) |
+|---|---|---|
+| unset (the default), `off`, `0`, `false`, `no`, `disabled` | v0.25 | `config/turf_vault.idl.json` · `config/turf_vault.mainnet.idl.json` |
+| `on`, `1`, `true`, `yes`, `enabled` | v0.26 | `config/turf_vault.v026.idl.json` · `config/turf_vault.mainnet.v026.idl.json` |
+| present but anything else, **including empty** | — | **refuses to boot**, naming the variable |
+
+- **The default is OFF because OFF is what is deployed.** An absent variable
+  resolves to the shape the chain actually speaks, so merging and deploying this
+  code changes nothing in production.
+- **Present-but-garbage raises.** `ENV.key?` distinguishes absent from
+  set-to-nonsense — the precise hole that `empty-solana-network-fails-open`
+  closed for `SOLANA_NETWORK`. A typo must not silently mean "off" on the one day
+  someone meant to turn it on.
+- **The switch can pick a VERSION, never a CLUSTER.** `IDL_PATH`'s basename is
+  still decided by `SOLANA_NETWORK` alone; the switch only appends a suffix.
+  Pinned by `test/services/solana/config_network_required_test.rb`.
+- **`Solana::Config.verify_governance_alignment!` refuses a boot where the
+  switch and the pinned IDL disagree**, and is deliberately NOT covered by
+  `BYPASS_IDL_CHECK` — that hatch exists for hash SKEW, where the shape is right
+  and only the pin is stale. A wrong shape has no legitimate override.
+
+#### The version string is not the discriminator
+
+turf-vault built v0.26 with `version = "0.25.0"` still in
+`programs/turf_vault/Cargo.toml`, so **both IDLs report `metadata.version`
+`0.25.0`**. Anything keying on that string looks correct and selects the wrong
+shape. `Solana::Config.idl_declares_governance?` therefore probes STRUCTURALLY —
+for an `init_governance` instruction, which exists only in v0.26 and which nobody
+hand-maintains. (turf-vault should bump that version; until it does, do not
+reintroduce a version-string check.)
+
+#### IDL hashes — re-pinned from the BUILT IDL
+
+Built with `anchor-cli 0.32.1` at turf-vault `f3edc88`:
+
+```bash
+anchor idl build -o config/turf_vault.v026.idl.json
+anchor idl build -o config/turf_vault.mainnet.v026.idl.json -- --features mainnet
+```
+
+Never `anchor idl fetch` — a Squads deploy does not update the on-chain IDL, so a
+fetch returns the OLD one and the pin would certify the wrong shape.
+
+| file | SHA256 |
+|---|---|
+| `config/turf_vault.idl.json` (v0.25 devnet, **unchanged**) | `f11446facec1043cb15b169929aaff3da9e955e05f3c462e86c7b584706246e9` |
+| `config/turf_vault.mainnet.idl.json` (v0.25 mainnet, **unchanged**) | `b9b522635894a42f5434f1faa1cd126d146f3042ae2c233acd1dd76a300f7152` |
+| `config/turf_vault.v026.idl.json` (devnet) | `259889ced686875b46062aaabce7e8c45e68710e6c0ae0738f3451cd4673060f` |
+| `config/turf_vault.mainnet.v026.idl.json` (mainnet) | `d1eea2a48d0a7f0cf711d3da7c85a1653d13e0903be6bebcf7be47be41404ea7` |
+
+Error codes span **6000-6066** (67 variants, up from 45), and three new account
+types appear: `GovernanceConfig`, `MintWindow`, `UsernameRecord`. The instruction
+count goes 22 -> 28: eight added, and `admin_create_user_account` +
+`admin_set_username` **DELETED** (not deprecated — Rails never called either, and
+`test/services/solana/vault_account_layout_test.rb` keeps it that way).
+
+#### v0.26 signature thresholds
+
+Thresholds are DATA (`GovernanceConfig`), retunable by one `set_action_threshold`
+transaction, some with immovable floors. What changes for Rails:
+
+| action | today | v0.26 | Rails supplies | consequence |
+|---|---|---|---|---|
+| `create_season` | 1 | **3** | admin + 2 in `remaining_accounts` | admin UI cannot create a season alone |
+| `close_contest` | 1 | **2** | admin + 1 | **the unattended close path stops working** |
+| `set_contest_lock_time` / `..._conclusion_time` | 1 | **2** (3 to re-open/amend) | admin + 1 | **the QA rehearsal's unattended set stops working** |
+| `burn_entry_token` | (never deployed) | **3** | admin + 2 | operator claw-back needs three |
+| `settle_contest` · `cancel_contest` · `sweep_operator_revenue` | 2 | **3** | admin + cosigner + 1 | the settle cosign flow needs a third wallet |
+| `register_currency` · `deactivate_currency` · `unpause` | 2 | **3** | admin + cosigner + 1 | |
+| `pause` | 2 | **2** | unchanged | the brake stays cheapest, by design |
+| `mint_entry_token` within the day's cap | 1 | **1** | unchanged | Stripe fulfilment untouched |
+| `mint_entry_token` above the cap (250/day) | — | **3** | admin + 2 | a mint spike asks for three humans |
+| `grant_seeds` · `create_contest` · `enter_contest{,_with_token}` | 1 | **1** | unchanged | the player-facing paths are untouched |
+
+**Extra signatures ride as LEADING `remaining_accounts`** — for this raw client,
+metas appended after the named list, each `is_signer: true`.
+`instructions::governance::authorize` takes exactly `threshold - named.count` of
+them. For `settle_contest` they come BEFORE the winner triples.
+
+Rails REFUSES locally rather than broadcasting a doomed transaction: a
+server-signed path that cannot reach its threshold raises
+`Solana::Vault::ThresholdUnreachableError`, naming the action, the numbers and
+the remedy. The on-chain alternative is `InsufficientSigners` (6046) after the
+fee is already spent.
+
+#### THE 3-OF-3 GAP — what breaks between the upgrade and the signer rotation
+
+At deploy, `VaultState.signers` is still **three** keys, so every action raised
+to threshold 3 is **3-of-3** until `update_signers` widens the set to five.
+Nothing with fewer than all three signatures works, and there is no slack for a
+lost key. Specifically:
+
+- **The QA rehearsal driver breaks.** `lib/turf_monster/qa_rehearsal/driver.rb`
+  `#cosign_with_agent` loads a second key and settles a contest unattended at
+  2-of-3. `settle_contest` becomes 3, and the driver's KeyStore cannot reach a
+  third VAULT signer, so `conclude --cosign agent` fails with
+  `InsufficientSigners`. Its `#conclude` also calls the server-signed
+  `set_contest_lock_time`, now 2 — that fails first.
+- **`close_contest` becomes two-signature**, so the unattended close in
+  `ContestsController` and `driver.rb#close_contest` both stop.
+- **Admin season creation stops** until three wallets are present.
+- **`pause` still works at 2, and `unpause` needs 3** — deliberate, so a
+  compromised pair can pull the brake but never release it.
+
+#### Upgrade ordering — UNFORGIVING
+
+1. Squads upgrade (`turf-vault/scripts/squad-upgrade.js`). **Both Squads
+   multisigs are now 4 members / threshold 3**, and the agent reaches 1 of 4, so
+   this is the operator's ceremony.
+2. **`init_governance` IMMEDIATELY.** Every vault-authorized instruction requires
+   that PDA — `pause` INCLUDED — so between the upgrade and this call the platform
+   has NO BRAKE. `turf-vault/scripts/init-governance.js`; `--cluster` is required
+   and has no default. It takes NO arguments, which is what makes its
+   2-signature bootstrap safe: it can only write the shipped defaults.
+3. `heroku config:set EXPECTED_IDL_HASH="<v0.25>,<v0.26>" SOLANA_VAULT_GOVERNANCE=on`
+   and restart. Widening the allow-list first means no unverified window.
+4. Verify, then tighten `EXPECTED_IDL_HASH` to the v0.26 hash alone.
+5. `update_signers` to widen the set to five — this is what closes the 3-of-3 gap.
+
+**Rollback is `heroku config:unset SOLANA_VAULT_GOVERNANCE` plus a restart** —
+seconds, no deploy, no second ceremony. It returns Rails to the v0.25 shape; if
+the PROGRAM has already been upgraded, rolling the program back is a separate
+Squads act, so treat step 1 as the point of no easy return and steps 3-4 as
+freely reversible.
+
 ### Program Upgrades — Squads multisig (OPSEC-002, 2026-05-19+)
 
 **`anchor deploy` no longer works.** The program upgrade authority is a Squads V4 2-of-3 multisig vault — distinct from `VaultState`'s in-program multisig — not a single keypair. **Each cluster has its own vault PDA**: devnet `BW13kgfiG2koFn3WRkte21NW9TFygsD1ge2fNJdjH6kC`, mainnet `Bk9sS7iiSRL18vuo2KVzkeGw7EekKqxMCjrdoyGGdJm`. Every upgrade goes through the Squad. Running `anchor deploy` will fail because the Solana CLI signs as a single keypair that is no longer the upgrade authority.
