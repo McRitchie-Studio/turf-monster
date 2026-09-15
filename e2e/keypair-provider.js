@@ -13,9 +13,10 @@
  */
 
 // Server-bot pubkey (derived from SOLANA_BOT_KEY). This is the LEGACY bot
-// wallet. The bot's seeded display wallet rotated to 8K81w4e6… on 2026-06-02
-// (and the bot's name/username is now "Alex"/`alex`), but SOLANA_BOT_KEY is the
-// private key for THIS (F6f8…) wallet. For the @devnet keypair-login test to
+// wallet. The seeded display wallet rotated to 8K81w4e6… on 2026-06-02, and the
+// identity is named Xan (renamed from "Alex Bot" on 2026-09-15; it is NOT
+// "Alex", who is Mr. McRitchie, and its seeded username is `mcritchie`).
+// SOLANA_BOT_KEY is still the private key for THIS (F6f8…) wallet. For the @devnet keypair-login test to
 // resolve to the seeded bot again, EITHER seed the bot with F6f8… on devnet OR
 // generate a SOLANA_BOT_KEY for 8K81… and update this constant. Devnet-nightly
 // only — excluded from `npm test`.

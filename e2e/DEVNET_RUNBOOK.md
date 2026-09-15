@@ -7,8 +7,12 @@ End-to-end tests that exercise Turf Monster against real Solana devnet. These te
 - Node.js + `npx playwright` installed (`npm install` in project root)
 - Dev server running on port 3100 (`bin/dev` or `bin/rails server -p 3100`)
 - Sidekiq running (`bundle exec sidekiq`) — required for `EnsureAtaJob` after user registration
-- `SOLANA_BOT_KEY` env var set to Xan's base58-encoded private key (same as `SOLANA_ADMIN_KEY` in `.env`)
-- Xan wallet funded with ~0.2 SOL + ~$20 USDC on devnet
+- `SOLANA_BOT_KEY` env var set to the base58 private key for the devnet e2e bot
+  wallet `F6f8h5yy…` — the LEGACY pre-rotation wallet, which is what the balance
+  commands below check. **Not necessarily the same as `SOLANA_ADMIN_KEY`**, which
+  holds Xan's current key `8K81w4e6…`; `e2e/keypair-provider.js` documents the
+  split and the two ways to close it. Do not "fix" one side by editing this line.
+- That e2e bot wallet funded with ~0.2 SOL + ~$20 USDC on devnet
 - Mack wallet funded with ~1 SOL on devnet (USDC seeded by faucet in Test 6)
 
 ## Pre-Flight Balance Check

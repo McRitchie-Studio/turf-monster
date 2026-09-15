@@ -113,7 +113,7 @@ Same pattern as devnet — any 1-of-3 vault signer creates. Xan is fine.
 SOLANA_NETWORK=mainnet-beta \
 SOLANA_RPC_URL=$ANCHOR_PROVIDER_URL \
 SOLANA_PROGRAM_ID=<MAINNET_PROGRAM_ID> \
-SOLANA_ADMIN_KEY=<alex_bot_mainnet_base58> \
+SOLANA_ADMIN_KEY=<xan_mainnet_base58> \
 bin/rails runner '
   result = Solana::Vault.new.create_season(
     season_id: 1,
@@ -157,8 +157,8 @@ heroku config:set --app turf-monster-mainnet \
   SOLANA_PROGRAM_ID=<MAINNET_PROGRAM_ID> \
   SOLANA_USDC_MINT=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v \
   SOLANA_USDT_MINT=Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB \
-  SOLANA_ADMIN_KEY=<alex_bot_mainnet_base58> \
-  SOLANA_MULTISIG_SIGNERS=F6f8h5yynbnkgWvU5abQx3RJxJpe8EoQmeFBuNKdKzhZ,7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr,CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR \
+  SOLANA_ADMIN_KEY=<xan_mainnet_base58> \
+  SOLANA_MULTISIG_SIGNERS=8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd,7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr,CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR \
   SOLANA_MULTISIG_THRESHOLD=2 \
   SOLANA_MULTISIG_COSIGNER=7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr \
   EXPECTED_IDL_HASH=<from step 5> \

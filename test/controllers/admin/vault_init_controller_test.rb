@@ -4,13 +4,17 @@ class Admin::VaultInitControllerTest < ActionDispatch::IntegrationTest
   # Three real-looking base58 pubkeys for happy-path validation. Pulled
   # from turf-vault/docs/CURRENT_DEPLOYMENT.md so the fixtures stay aligned
   # with the documented signer set.
-  # Legacy bot multisig signer pubkey (MULTISIG_SIGNERS slot 0). The bot's
-  # *display* wallet rotated to 8K81w4e6… in the seed (2026-06-02) and its name
-  # is now "Alex"; this constant mirrors the on-chain signer set, not the seed.
-  ALEX_BOT = "F6f8h5yynbnkgWvU5abQx3RJxJpe8EoQmeFBuNKdKzhZ".freeze
+  # An ARBITRARY realistic pubkey filling signer slot 0 in these fixtures. It is
+  # the legacy pre-rotation wallet, kept because nothing here asserts against the
+  # live set — do not read it as one. The comment this replaces claimed it
+  # "mirrors the on-chain signer set"; docs/SOLANA.md re-verified that set
+  # on-chain on 2026-09-05 as 8K81w4e6… on BOTH devnet and mainnet, so the claim
+  # was false. The identity itself is named Xan (renamed from "Alex Bot"
+  # 2026-09-15); it was never "Alex", which is Mr. McRitchie.
+  XAN_LEGACY = "F6f8h5yynbnkgWvU5abQx3RJxJpe8EoQmeFBuNKdKzhZ".freeze
   ALEX     = Admin::VaultInitController::INIT_AUTHORITY # human (Mr. McRitchie) "7ZDJp7…r2J"
   MASON    = "CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR".freeze
-  SIGNERS  = [ALEX_BOT, ALEX, MASON].freeze
+  SIGNERS  = [XAN_LEGACY, ALEX, MASON].freeze
   # v0.16 added treasury_authority as a 4th initialize arg (pinned to the
   # Squads vault PDA — same one that holds the program upgrade authority).
   TREASURY = "BW13kgfiG2koFn3WRkte21NW9TFygsD1ge2fNJdjH6kC".freeze
@@ -83,7 +87,7 @@ class Admin::VaultInitControllerTest < ActionDispatch::IntegrationTest
 
   test "validate: rejects blank signer slot" do
     assert_raises_with_message("Three signer addresses required") {
-      validate!(signers: [ALEX_BOT, "", MASON])
+      validate!(signers: [XAN_LEGACY, "", MASON])
     }
   end
 
@@ -93,7 +97,7 @@ class Admin::VaultInitControllerTest < ActionDispatch::IntegrationTest
 
   test "validate: rejects invalid base58 signer" do
     assert_raises_with_message(/Invalid pubkey/) {
-      validate!(signers: [ALEX_BOT, "not-base58!@#", MASON])
+      validate!(signers: [XAN_LEGACY, "not-base58!@#", MASON])
     }
   end
 
@@ -109,7 +113,7 @@ class Admin::VaultInitControllerTest < ActionDispatch::IntegrationTest
 
   test "validate: rejects duplicate signers" do
     assert_raises_with_message("Signers must be distinct") {
-      validate!(signers: [ALEX_BOT, ALEX_BOT, MASON], creator: ALEX_BOT)
+      validate!(signers: [XAN_LEGACY, XAN_LEGACY, MASON], creator: XAN_LEGACY)
     }
   end
 
@@ -132,7 +136,7 @@ class Admin::VaultInitControllerTest < ActionDispatch::IntegrationTest
   test "validate: enforces creator == INIT_AUTHORITY on mainnet" do
     with_mainnet do
       assert_raises_with_message(/must equal INIT_AUTHORITY/) {
-        validate!(creator: ALEX_BOT, signers: [ALEX_BOT, MASON, ALEX], threshold: 2)
+        validate!(creator: XAN_LEGACY, signers: [XAN_LEGACY, MASON, ALEX], threshold: 2)
       }
     end
   end
@@ -146,7 +150,7 @@ class Admin::VaultInitControllerTest < ActionDispatch::IntegrationTest
   test "validate: does not enforce INIT_AUTHORITY off-mainnet (creator can be any signer)" do
     # Default config is devnet — the bot as creator is fine there.
     assert_nothing_raised {
-      validate!(creator: ALEX_BOT, signers: [ALEX_BOT, MASON, ALEX], threshold: 2)
+      validate!(creator: XAN_LEGACY, signers: [XAN_LEGACY, MASON, ALEX], threshold: 2)
     }
   end
 
