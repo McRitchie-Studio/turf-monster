@@ -398,14 +398,39 @@ module Solana
     # SOLANA_MULTISIG_SIGNERS env var (and authoritatively by VaultState.signers
     # on-chain) in every deployed environment — the literal is a fallback only.
     #
-    # THIS IS NOT THE SAME "ADMIN" AS KeyStore's turf-admin, and the two must
-    # not be harmonised. This list is ON-CHAIN SIGNER MEMBERSHIP, which only an
-    # `update_signers` transaction changes. KeyStore::ITEMS["turf-admin"] is a
-    # 1PASSWORD FILING — which wallet an agent rehearsal signs the admin HTTP
-    # surface as — and it moved to solana.turf.admin (BLSBw8fX…) on 2026-09-15.
-    # A re-file changes no on-chain state, so 8K81… stays correct here until a
-    # signer rotation is actually transacted. Read VaultState.signers for the
-    # live truth; a 1Password item has never been evidence of it.
+    # THREE DIFFERENT "ADMIN" SETS MEET HERE AND ONLY ONE IS THIS CONSTANT.
+    # Collapsing them is the recurring bug; all three moved in one day once.
+    #
+    #   1. THIS LIST models VaultState.signers — treasury and governance
+    #      cosign, changed only by an `update_signers` transaction. Measured
+    #      on-chain at `finalized` 2026-09-15: 2-of-3, 8K81…/7ZDJ…/CytJ…,
+    #      identical on mainnet and devnet. The literal below matched that
+    #      measurement on that date.
+    #   2. THE SQUADS V4 MULTISIG holds the program UPGRADE authority and is a
+    #      different account entirely. A config transaction at 2026-09-15 09:41
+    #      moved it to 3-of-4 (3Qj4v9…, 7ZDJ…, 9gACbz…, BLSBw8…), REMOVING
+    #      8K81… and CytJ… from both clusters. It changed nothing in (1) — and
+    #      that divergence is the proof these are separate authorities rather
+    #      than two views of one. Before that day they happened to agree, which
+    #      is exactly why the conflation kept surviving review.
+    #   3. KeyStore::ITEMS["turf-admin"] is a 1PASSWORD FILING — which wallet an
+    #      agent rehearsal signs the admin HTTP surface as. It moved to
+    #      solana.turf.admin (BLSBw8fX…) the same day. A re-file is not an
+    #      on-chain event and is never evidence of one.
+    #
+    # SO: read VaultState.signers for what this constant should say, and read
+    # the multisig for who may upgrade. Neither answers the other, and a
+    # 1Password item answers neither. Dates above are measurements, not
+    # guarantees — re-read the chain rather than trusting this comment's age.
+    #
+    # HOW MANY SLOTS VaultState HAS DEPENDS ON WHICH BUILD YOU MEAN. The
+    # DEPLOYED v0.25.0 declares `signers: [Pubkey; 3]`. turf-vault's `accepted`
+    # APPENDS `signers_ext: [Pubkey; 2]` at offset 1443 and reads the whole set
+    # through `all_signers()` — five slots, APPENDED rather than widened so the
+    # upgrade stays layout-compatible on a zero_copy singleton. "Three" and
+    # "five" are each true of a different build, and that gap is the design,
+    # not a discrepancy. Check what the cluster actually runs before trusting
+    # any count — including this one.
     MULTISIG_SIGNERS = ENV.fetch("SOLANA_MULTISIG_SIGNERS",
       "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd,7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr,CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR"
     ).split(",")
