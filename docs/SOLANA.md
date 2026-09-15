@@ -285,29 +285,135 @@ lost key. Specifically:
 
 #### Upgrade ordering — UNFORGIVING
 
-1. Squads upgrade (`turf-vault/scripts/squad-upgrade.js`). **Both Squads
-   multisigs are now 4 members / threshold 3**, and the agent reaches 1 of 4, so
-   this is the operator's ceremony.
+Four steps, and the numbers are the order. **Tightening `EXPECTED_IDL_HASH` is
+NOT one of them** — it is a separate, later act that ends the cheap rollback, and
+it has its own preconditions under "Tightening the pin — the one-way door" below.
+
+1. **Squads upgrade** (`turf-vault/scripts/squad-upgrade.js`). The script reads
+   the multisig's live members, masks and threshold and refuses BEFORE it spends
+   a lamport if the keys in hand cannot both approve and execute — a run that
+   dies at the approve step has already paid for `ExtendProgram` and stranded a
+   buffer. On **devnet it runs unattended**; on **mainnet it stops at a handoff**
+   for Mr. McRitchie's approvals. Which one you get is decided by the membership
+   recorded under "Program Upgrades — Squads multisig" below; read it there
+   rather than assuming, and re-derive it from chain on the day.
 2. **`init_governance` IMMEDIATELY.** Every vault-authorized instruction requires
    that PDA — `pause` INCLUDED — so between the upgrade and this call the platform
    has NO BRAKE. `turf-vault/scripts/init-governance.js`; `--cluster` is required
    and has no default. It takes NO arguments, which is what makes its
    2-signature bootstrap safe: it can only write the shipped defaults.
 3. `heroku config:set EXPECTED_IDL_HASH="<v0.25>,<v0.26>" SOLANA_VAULT_GOVERNANCE=on`
-   and restart. Widening the allow-list first means no unverified window.
-4. Verify, then tighten `EXPECTED_IDL_HASH` to the v0.26 hash alone.
-5. `update_signers` to widen the set to five — this is what closes the 3-of-3 gap.
+   and restart. Widening the allow-list first means no unverified window across
+   the flip — and **leaving it widened is what keeps the rollback one command.**
+4. **`update_signers` to widen the set to five** — this is what closes the 3-of-3
+   gap. **It cannot be pulled earlier than step 1.** v0.25's `VaultState` holds
+   THREE signer slots, and a five-key `update_signers` sent to the deployed
+   v0.25 binary SUCCEEDS: it silently truncates to the first three, under a
+   green simulation. Nothing fails at send time, and the two keys you believe
+   you added are simply absent the next time an action needs them.
 
 **Rollback is `heroku config:unset SOLANA_VAULT_GOVERNANCE` plus a restart** —
-seconds, no deploy, no second ceremony. It returns Rails to the v0.25 shape; if
-the PROGRAM has already been upgraded, rolling the program back is a separate
-Squads act, so treat step 1 as the point of no easy return and steps 3-4 as
-freely reversible.
+seconds, no deploy, no second ceremony. It returns Rails to the v0.25 shape.
+Step 1 is the point of no easy return: rolling the PROGRAM back is a second
+Squads act. **Steps 2-4 are reversible from the Rails side alone for exactly as
+long as `EXPECTED_IDL_HASH` still accepts the v0.25 hash** — which is why the
+tighten is not in the list above.
+
+#### Tightening the pin — the one-way door
+
+Tightening `EXPECTED_IDL_HASH` to the v0.26 hash alone **forfeits the
+one-command rollback.** This is measured, not reasoned: the switch picks the IDL
+file, the allow-list then judges whatever file the switch picked, and a pin that
+names only v0.26 refuses the v0.25 file the rollback selects.
+
+| `EXPECTED_IDL_HASH` | `SOLANA_VAULT_GOVERNANCE` | IDL selected | boot |
+|---|---|---|---|
+| `<v0.25>,<v0.26>` | `on` | v0.26 IDL | boots |
+| `<v0.25>,<v0.26>` | unset | v0.25 IDL | **boots — this is the rollback** |
+| `<v0.26>` | `on` | v0.26 IDL | boots |
+| `<v0.26>` | unset | v0.25 IDL | **`IdlMismatchError` — release phase and every web dyno refuse to boot** |
+| `<v0.25>` | `on` | v0.26 IDL | **`IdlMismatchError` — the same brick, mirrored** |
+
+Measured 2026-09-15 against this tree; `test/docs/governance_rollback_pin_test.rb`
+re-derives every row from the real guard and the real IDL files, so a future
+change that breaks one reddens there rather than on a dyno.
+
+**So why tighten at all?** Because the widened pin cannot tell a deliberate
+retreat from an accidental `config:unset`. Both produce byte-identical state:
+the v0.25 file selected, its hash allow-listed, and
+`verify_governance_alignment!` satisfied — because the switch and the file agree
+with EACH OTHER even though neither agrees with the upgraded program. Nothing
+refuses that boot. Rails then assembles v0.25 account lists for a v0.26 program
+and every vault transaction fails on chain instead of at boot. Tightening is how
+you finally say "we are not going back", and it converts that silent
+misconfiguration into a loud boot refusal. It buys strictness at the exact
+moment you would most want to retreat, so it is worth its cost only once
+retreating is off the table.
+
+**Tighten when all of these hold, and not before:**
+
+- Step 4 (`update_signers`) has landed, so the v0.26 shape is fully operable.
+- The v0.26 shape has carried real traffic — at minimum one contest through
+  `close_contest` and one `settle_contest` — on the cluster being tightened.
+- You have decided you will not retreat. If you would still consider it, the
+  widened pin is the correct state and costs you one allow-listed hash.
+- **`bin/deploy` can see the switch.** It cannot today: `bin/deploy` resolves
+  the IDL file from `SOLANA_NETWORK` ALONE (mirroring only half of
+  `Solana::Config::IDL_PATH`, which is keyed on network **and**
+  `SOLANA_VAULT_GOVERNANCE`), and its post-push step tightens
+  `EXPECTED_IDL_HASH` to that single file's hash. Against a widened pin it is
+  harmless — the v0.25 hash is already allow-listed, so no bump fires. Against a
+  pin tightened to v0.26 it is not: it would read the v0.25 file, see a bump,
+  widen, and then **tighten the live app to the v0.25 hash alone**, which is the
+  last row of the table above. Until that is fixed, a routine deploy after a
+  tightened ceremony bricks the app.
+
+Tighten as its own change, with its own restart, and confirm the app boots
+before walking away.
 
 ### Program Upgrades — Squads multisig (OPSEC-002, 2026-05-19+)
 
-**`anchor deploy` no longer works.** The program upgrade authority is a Squads V4 2-of-3 multisig vault — distinct from `VaultState`'s in-program multisig — not a single keypair. **Each cluster has its own vault PDA**: devnet `BW13kgfiG2koFn3WRkte21NW9TFygsD1ge2fNJdjH6kC`, mainnet `Bk9sS7iiSRL18vuo2KVzkeGw7EekKqxMCjrdoyGGdJm`. Every upgrade goes through the Squad. Running `anchor deploy` will fail because the Solana CLI signs as a single keypair that is no longer the upgrade authority.
+**`anchor deploy` no longer works.** The program upgrade authority is a Squads V4 multisig vault — distinct from `VaultState`'s in-program multisig — not a single keypair. **Each cluster has its own vault PDA**: devnet `BW13kgfiG2koFn3WRkte21NW9TFygsD1ge2fNJdjH6kC`, mainnet `Bk9sS7iiSRL18vuo2KVzkeGw7EekKqxMCjrdoyGGdJm`. Every upgrade goes through the Squad. Running `anchor deploy` will fail because the Solana CLI signs as a single keypair that is no longer the upgrade authority.
 
+
+**Membership and threshold — stated here once, for both clusters.** Every other
+mention in this doc defers to this paragraph; a second number written down
+somewhere else is how this section spent four review rounds disagreeing with
+itself. Measured off chain on **2026-09-15**: each multisig carries **five
+members and a threshold of three**, and all five hold mask `7`
+(`Initiate|Vote|Execute`) — so there are five voters against a threshold of
+three, with two to spare on either cluster.
+
+What that buys the agent differs by cluster, and it is the whole reason step 1
+of the ceremony reads differently on each:
+
+| cluster | multisig | agent-reachable seats | ceremony |
+|---|---|---|---|
+| devnet | `7nRuVw3VZFC6z85tYVDitPnaUHZCkqLpJRSTBNtPmtZB` | **3 of 5** | **autonomous** — the agent reaches the threshold alone |
+| mainnet | `4H3fP3otjMtupk1DQDjKXYY1dWjT6LNM4H4ZWZ1XcKSX` | **2 of 5** | **handoff** — one of Mr. McRitchie's keys supplies the third approval |
+
+Key material is referenced by 1Password item name in the McRitchie Studio
+credential inventory, never pasted here. Re-derive the numbers on the day —
+this is a read, it signs nothing and spends nothing:
+
+```bash
+# Prints threshold, member count and each member's permission mask.
+# @sqds/multisig resolves from turf-vault/node_modules.
+node -e '
+const m=require("@sqds/multisig"),{Connection,PublicKey}=require("@solana/web3.js");
+const [rpc,pda]=process.argv.slice(1);
+m.accounts.Multisig.fromAccountAddress(new Connection(rpc),new PublicKey(pda))
+ .then(ms=>console.log("threshold",Number(ms.threshold),"of",ms.members.length,
+   ms.members.map(x=>x.key.toBase58()+":"+Number(x.permissions.mask)).join(" ")));
+' https://api.devnet.solana.com 7nRuVw3VZFC6z85tYVDitPnaUHZCkqLpJRSTBNtPmtZB
+```
+
+`turf-vault/scripts/squad-upgrade.js` asks the same question itself before it
+spends anything, and refuses the run if the keys in hand cannot both approve and
+execute — so the ceremony fails at the planner rather than halfway through, with
+a paid-for buffer and no way to finish. **Funding is not the blocker:** the
+mainnet fee payer `BLSBw8…` holds 3.58 SOL against a ~2.76 SOL buffer
+requirement.
 **In Rails, read the vault PDA from `Solana::Config.squads_vault_pda` — never as a literal.** It resolves `SOLANA_SQUADS_VAULT_PDA` first (via `.presence`, so an EMPTY value falls through rather than resolving to blank), then falls back to a NETWORK-keyed default (mainnet-beta -> `Bk9s…GdJm`, anything else -> `BW13…H6kC`), so a mainnet build cannot present a devnet authority by omission.
 
 **Neither deployed app sets that variable — the key is ABSENT, not empty.** So the NETWORK-keyed default is the production path on both clusters, and the env var is a runbook escape hatch for pointing an app at a fresh Squad. `SOLANA_NETWORK` is therefore what actually selects the authority: `mainnet-beta` on `turf-monster-mainnet`, `devnet` on `turf-monster-qa` (both present and non-empty).
