@@ -42,8 +42,21 @@ class DeployIdlDanceTest < ActiveSupport::TestCase
   V026 = Digest::SHA256.hexdigest(File.read(Rails.root.join("config", "turf_vault.mainnet.v026.idl.json")))
   STALE = "0" * 64 # a pin left over from an earlier turf-vault revision
 
-  REAL_GIT = `command -v git`.strip.freeze
   CHILD_PATH_TAIL = "/usr/bin:/bin:/usr/sbin:/sbin".freeze
+
+  # A PATH search in pure Ruby, NOT `command -v` in backticks: `command` is a
+  # shell BUILTIN, and Ruby execs a metacharacter-free command string directly
+  # rather than through a shell. Measured on CI 2026-09-15 — the backtick form
+  # raised `Errno::ENOENT - command` while loading this class, taking the whole
+  # test lane down before a single test ran (it happened to work on the author's
+  # laptop, which is exactly how this shape survives review).
+  def self.which(name)
+    ENV["PATH"].to_s.split(File::PATH_SEPARATOR)
+               .map { |dir| File.join(dir, name) }
+               .find { |candidate| File.file?(candidate) && File.executable?(candidate) }
+  end
+
+  REAL_GIT = which("git").freeze
 
   # ── THE REGRESSION ────────────────────────────────────────────────────────
 
@@ -242,8 +255,11 @@ class DeployIdlDanceTest < ActiveSupport::TestCase
                                              .map { |dir| File.join(dir, "heroku") }
                                              .select { |candidate| File.executable?(candidate) }
 
-    assert_equal [File.join(shims, "heroku")], reachable,
-                 "the child PATH must reach the shim and nothing else — the real CLI lives at " \
-                 "#{`command -v heroku`.strip.inspect} and must stay unreachable from this test"
+    # FIRST, not ONLY: PATH resolution takes the first match, so a real CLI
+    # further down the list is never reached — and asserting "only" would redden
+    # this test on any image that ships one in /usr/bin.
+    assert_equal File.join(shims, "heroku"), reachable.first,
+                 "the child PATH must resolve `heroku` to the shim before anything else — the real CLI " \
+                 "on this machine is #{self.class.which("heroku").inspect} and must never be what runs"
   end
 end
