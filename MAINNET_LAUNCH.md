@@ -17,6 +17,7 @@ One-time runbook for the **v0.15.0 mainnet first deploy**. Read top-to-bottom; e
 - [ ] **Devnet smoke test**. Latest v0.15.0 builds + works end-to-end on devnet. Test: deposit, enter, settle (via cosign), withdraw, pause, unpause, $100 cap.
 - [ ] **Wallets funded**:
   - [ ] Xan mainnet wallet: ≥ 5 SOL (program deploy + initial Season + sundry)
+  - [ ] `solana.turf.system` (`7auwTLSv…`) mainnet wallet: **held 0 SOL on 2026-09-15.** This is the key `SOLANA_ADMIN_KEY` is eventually moving to on `turf-monster-mainnet`; repointing it before it is funded breaks production fee payment, so that cutover is gated on this line.
   - [ ] Alex Phantom mainnet wallet: ≥ 0.05 SOL (will sign initialize once)
   - [ ] Mason mainnet wallet: ≥ 0.05 SOL (will Squads-cosign deploys + treasury ops)
 - [ ] **Squads V4 vault created on mainnet** with the same 3 signers as devnet:
@@ -25,7 +26,28 @@ One-time runbook for the **v0.15.0 mainnet first deploy**. Read top-to-bottom; e
   - Mason: `CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR`
   - Threshold: 2
   - Record the new vault PDA → it becomes the program upgrade authority.
-- [ ] **1Password updated**: `agent.xan.solana.mainnet` (Xan mainnet keypair), `agent.mason.solana.mainnet` (Mason mainnet keypair), `agent.managed_wallet.mainnet` (32-byte hex MANAGED_WALLET_ENCRYPTION_KEY for mainnet — generate fresh, do NOT reuse the devnet one).
+
+  > **⚠ THIS SET IS SUPERSEDED BY A DECISION NOT YET TRANSACTED (2026-09-15).**
+  > Mr. McRitchie decided to retire Xan (`8K81…`) from the signer set entirely
+  > and move to **five members at threshold 3**: the system key `7auwTL…`, the
+  > admin key `BLSBw8…`, Alex Phantom `7ZDJ…`, and two further Alex wallets
+  > (`3Qj4v9…`, `9gACbz…`). Nothing has been signed — the three rows above are
+  > still what is on-chain, and they stay here until a Squads config
+  > transaction replaces them.
+  >
+  > **Two things are being confused if you read this as one change.** The
+  > Squads V4 multisig holds the program's **upgrade authority** and its
+  > membership is a config transaction. `VaultState.signers` is a **different**
+  > authority — it is `[Pubkey; 3]`, a fixed three slots changed by
+  > `update_signers`, so a five-member set cannot be expressed there at all.
+  > Decide which one the move applies to before writing any address into
+  > `SOLANA_MULTISIG_SIGNERS` below.
+  >
+  > **Blocked on two unfiled keys.** `3Qj4v9…` and `9gACbz…` have no item in
+  > any vault (checked `studio-agents`, 2026-09-15), so their full addresses
+  > are not recorded anywhere this checklist can reach. File them before the
+  > rotation, or the set cannot be assembled.
+- [ ] **1Password updated**: `agent.mason.solana.mainnet` (Mason mainnet keypair), `agent.managed_wallet.mainnet` (32-byte hex MANAGED_WALLET_ENCRYPTION_KEY for mainnet — generate fresh, do NOT reuse the devnet one). The Turf Solana keys are ALREADY filed and need no mainnet-suffixed twin — all three live in `studio-agents` with HYPHENATED labels (`wallet-address`, `private-key`), verified 2026-09-15: `solana.turf.admin` (`BLSBw8fX…`, the agent governance identity), `solana.turf.system` (`7auwTLSv…`, the server operational key for MAINNET) and `solana.turf.system.devnet` (`2eGs8G3w…`, the same for devnet/QA).
 - [ ] **Mainnet RPC URL** chosen (Helius / QuickNode / Triton — NOT public api.mainnet-beta.solana.com for production traffic).
 - [ ] **Stripe live keys** ready: `STRIPE_SECRET_KEY` (sk_live_...), `STRIPE_WEBHOOK_SECRET` (whsec_... — created against the live mode endpoint).
 - [ ] **Browse `/admin/transactions`** on devnet — confirm no PendingTransactions are stuck in :pending. They won't carry over but cleaner state is easier to debug.

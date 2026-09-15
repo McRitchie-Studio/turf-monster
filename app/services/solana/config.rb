@@ -397,6 +397,15 @@ module Solana
     # current. These are PUBLIC keys and are overridden by the
     # SOLANA_MULTISIG_SIGNERS env var (and authoritatively by VaultState.signers
     # on-chain) in every deployed environment — the literal is a fallback only.
+    #
+    # THIS IS NOT THE SAME "ADMIN" AS KeyStore's turf-admin, and the two must
+    # not be harmonised. This list is ON-CHAIN SIGNER MEMBERSHIP, which only an
+    # `update_signers` transaction changes. KeyStore::ITEMS["turf-admin"] is a
+    # 1PASSWORD FILING — which wallet an agent rehearsal signs the admin HTTP
+    # surface as — and it moved to solana.turf.admin (BLSBw8fX…) on 2026-09-15.
+    # A re-file changes no on-chain state, so 8K81… stays correct here until a
+    # signer rotation is actually transacted. Read VaultState.signers for the
+    # live truth; a 1Password item has never been evidence of it.
     MULTISIG_SIGNERS = ENV.fetch("SOLANA_MULTISIG_SIGNERS",
       "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd,7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr,CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR"
     ).split(",")
