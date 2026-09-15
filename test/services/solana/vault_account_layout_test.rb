@@ -133,6 +133,18 @@ class Solana::VaultAccountLayoutTest < ActiveSupport::TestCase
     @spare_signer ||= Solana::Keypair.from_bytes(Digest::SHA256.digest("layout-test spare cosigner"))
   end
 
+  # A SECOND, DIFFERENT spare, for the builders that need two.
+  #
+  # `[spare_signer, spare_signer]` used to stand in for two — and the Rails
+  # guard accepted it, because it counted the ARRAY rather than the distinct
+  # pubkeys. turf-vault's `validate_threshold` rejects any repeated key outright
+  # (`DuplicateSigner`): the same keypair signing twice is one signature. So
+  # that list normalized a shape the chain refuses, and the layout it certified
+  # could never have landed.
+  def spare_signer2
+    @spare_signer2 ||= Solana::Keypair.from_bytes(Digest::SHA256.digest("layout-test spare cosigner 2"))
+  end
+
   WALLET = "HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH".freeze
   WALLET2 = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM".freeze
   COSIGNER = "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr".freeze
@@ -155,7 +167,7 @@ class Solana::VaultAccountLayoutTest < ActiveSupport::TestCase
       "cancel_contest" => -> { v.build_cancel_contest("slug-a", creator_pubkey: WALLET, cosigner_pubkey: COSIGNER) },
       "settle_contest" => -> { v.build_settle_contest("slug-a", [], cosigner_pubkey: COSIGNER) },
       "close_contest" => -> { v.close_contest("slug-a", extra_signers: Solana::Config.governance? ? [spare_signer] : []) },
-      "create_season" => -> { v.create_season(season_id: 1, name: "S", schedule: [1, 1, 1, 1, 1], extra_signers: Solana::Config.governance? ? [spare_signer, spare_signer] : []) },
+      "create_season" => -> { v.create_season(season_id: 1, name: "S", schedule: [1, 1, 1, 1, 1], extra_signers: Solana::Config.governance? ? [spare_signer, spare_signer2] : []) },
       "sweep_operator_revenue" => -> { v.build_sweep_operator_revenue(cosigner_pubkey: COSIGNER, currency_mint: Solana::Config::USDC_MINT, treasury_ata_pubkey: WALLET2) },
       "enter_contest" => -> { v.build_enter_contest(WALLET, "slug-a", 0, currency_idx: 0, season_id: 1) },
       "enter_contest_with_token" => -> { v.build_enter_contest_with_token(WALLET, "slug-a", 0, WALLET2, season_id: 1) },

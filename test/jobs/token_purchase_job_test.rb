@@ -432,6 +432,106 @@ class TokenPurchaseJobTest < ActiveJob::TestCase
     )
   end
 
+  # ── THE WINDOW CAP, ON THE PATH THAT HAS ALREADY TAKEN MONEY ──────────────
+  #
+  # This job runs AFTER the customer is charged. turf-vault v0.26 caps entry
+  # token mints per window and raises the SAME instruction to three signatures
+  # above it, so a mint past the cap is not a flake a retry clears — the count
+  # only resets when the window rolls, which means all three attempts fail
+  # within minutes of each other and the customer has paid for nothing.
+  #
+  # Before the guard, that arrived as `InsufficientSigners` (6046) from the
+  # chain, after the fee, naming neither the cap nor the wait. These pin what
+  # the fulfilment path does with it now.
+  class CappedVault
+    attr_reader :mint_calls
+
+    def initialize(error:)
+      @error = error
+      @mint_calls = []
+    end
+
+    def list_entry_tokens(_wallet, **_opts) = []
+
+    def mint_entry_token(wallet_address:, source:, source_ref:, **_opts)
+      @mint_calls << source_ref
+      raise @error
+    end
+  end
+
+  CAP_MESSAGE = "mint_entry_token refused: turf-vault window 20345 has minted 250 of its 250. " \
+                "Above the cap the same instruction needs MINT_ENTRY_TOKEN_OVER_CAP (3) signatures " \
+                "and this process holds one".freeze
+
+  # `retry_on StandardError` swallows the raise under perform_now (see the
+  # comment on the mid-loop failure test above), so these assert on the STATE
+  # the fulfilment path leaves behind — which is what an operator actually has.
+  test "a capped window surfaces the cap, files an ErrorLog, and never marks the purchase minted" do
+    vault = CappedVault.new(error: Solana::Vault::MintWindowCapReachedError.new(CAP_MESSAGE))
+
+    assert_difference -> { ErrorLog.count }, 1 do
+      Solana::Vault.stub :new, vault do
+        TokenPurchaseJob.perform_now(user_id: @user.id, pack_id: "single",
+                                     wallet_address: @wallet, stripe_session_id: @sid)
+      end
+    end
+
+    purchase = StripePurchase.for_session(@sid).first
+    assert_equal "failed", purchase.status
+    assert_empty purchase.tx_signatures, "nothing landed, so nothing may be recorded as landed"
+
+    # THE POINT OF THE WHOLE CHANGE, in one assertion: what reaches the operator
+    # names the cap and the remedy, where it used to be 6046 and nothing else.
+    log = ErrorLog.order(:id).last
+    assert_match(/has minted 250 of its 250/, log.message)
+    assert_match(/MINT_ENTRY_TOKEN_OVER_CAP/, log.message)
+    refute_match(/InsufficientSigners|6046/, log.message)
+
+    # TARGET is the purchase (it owns the resume point a re-run restarts from),
+    # PARENT is the buyer (the person an operator has to make whole) — the same
+    # two slots rescue_and_log fills.
+    assert_equal purchase, log.target
+    assert_equal @user, log.parent
+  end
+
+  # THE CONTROL, and it doubles as the record of a gap this change did NOT
+  # close: an ordinary mint failure still files no ErrorLog here. That is
+  # deliberate — a transient RPC flake the next attempt clears should not page
+  # anyone — and it is what makes the row above meaningful rather than noise
+  # every retry produces.
+  test "an ordinary mint failure still fails the purchase without filing a cap row" do
+    vault = CappedVault.new(error: StandardError.new("custom program error: 0x179e"))
+
+    assert_no_difference -> { ErrorLog.count } do
+      Solana::Vault.stub :new, vault do
+        TokenPurchaseJob.perform_now(user_id: @user.id, pack_id: "single",
+                                     wallet_address: @wallet, stripe_session_id: @sid)
+      end
+    end
+
+    assert_equal "failed", StripePurchase.for_session(@sid).first.status
+  end
+
+  # The resume path is what makes "do not auto-refund" a defensible answer: once
+  # the window rolls, re-running this job completes the order the customer paid
+  # for, from where it stopped.
+  test "a re-run after the window rolls completes the order the cap interrupted" do
+    Solana::Vault.stub :new, CappedVault.new(error: Solana::Vault::MintWindowCapReachedError.new(CAP_MESSAGE)) do
+      TokenPurchaseJob.perform_now(user_id: @user.id, pack_id: "trio",
+                                   wallet_address: @wallet, stripe_session_id: @sid)
+    end
+    assert_equal "failed", StripePurchase.for_session(@sid).first.status
+
+    Solana::Vault.stub :new, FakeVault.new do
+      TokenPurchaseJob.perform_now(user_id: @user.id, pack_id: "trio",
+                                   wallet_address: @wallet, stripe_session_id: @sid)
+    end
+
+    purchase = StripePurchase.for_session(@sid).first
+    assert_equal "minted", purchase.status
+    assert_equal 3, purchase.tx_signatures.length, "the full order, not a partial one"
+  end
+
   def create_coinflow_purchase(reference:, pack_id: "single", quantity: 1, price_cents: 19_00)
     CoinflowPurchase.create!(
       user: @user,

@@ -37,6 +37,10 @@ class TokensController < ApplicationController
     if current_user.payment_risk_flag
       return redirect_to tokens_buy_path, alert: "Card purchases are disabled on this account. Please contact support."
     end
+    # The last guard before a payment page opens — see #mint_budget_refusal.
+    if (refusal = mint_budget_refusal(pack_id))
+      return redirect_to tokens_buy_path, alert: refusal
+    end
 
     pack        = StripePurchase.pack(pack_id)
     quantity    = pack[:quantity]
@@ -115,6 +119,10 @@ class TokensController < ApplicationController
     # purchases so a stolen-card buyer can't keep racking up disputes.
     if current_user.payment_risk_flag
       return render json: { error: "Purchases are disabled on this account. Please contact support." }, status: :forbidden
+    end
+    # The last guard before a payment page opens — see #mint_budget_refusal.
+    if (refusal = mint_budget_refusal(pack_id))
+      return render json: { error: refusal }, status: :unprocessable_entity
     end
 
     pack    = StripePurchase.pack(pack_id)
@@ -228,6 +236,10 @@ class TokensController < ApplicationController
     if current_user.payment_risk_flag
       return render json: { error: "Purchases are disabled on this account. Please contact support." }, status: :forbidden
     end
+    # The last guard before a payment page opens — see #mint_budget_refusal.
+    if (refusal = mint_budget_refusal(pack_id))
+      return render json: { error: refusal }, status: :unprocessable_entity
+    end
 
     pack    = StripePurchase.pack(pack_id)
     contest = Contest.find_by(slug: params[:contest].presence)
@@ -295,6 +307,10 @@ class TokensController < ApplicationController
     # purchases so a stolen-account buyer can't keep racking up disputes.
     if current_user.payment_risk_flag
       return render json: { error: "Purchases are disabled on this account. Please contact support." }, status: :forbidden
+    end
+    # The last guard before a payment page opens — see #mint_budget_refusal.
+    if (refusal = mint_budget_refusal(pack_id))
+      return render json: { error: refusal }, status: :unprocessable_entity
     end
     # The linked bank account from the front-end Aerosync widget. STUBBED until
     # merchant creds land (the widget can't load without them) — the server
@@ -511,6 +527,47 @@ class TokensController < ApplicationController
   end
 
   private
+
+  # REFUSE THE PURCHASE BEFORE THE CHARGE, when the day's on-chain mint budget
+  # cannot cover the pack. Returns a buyer-facing sentence, or nil to proceed.
+  #
+  # WHY HERE AND NOT ONLY IN THE JOB. `TokenPurchaseJob` mints AFTER the card is
+  # charged, and turf-vault's cap is PER-WINDOW: above it the mint needs three
+  # signatures the server does not have, so the failure is not a flake that a
+  # retry clears — it persists for the rest of the window. Every fix downstream
+  # of the charge is cleanup on a customer who paid and got nothing. This is the
+  # only point on the path where the irreversible side effect has not happened
+  # yet, so it is the only place the guard is worth much.
+  #
+  # IT NARROWS THE WINDOW, IT DOES NOT CLOSE IT. A checkout opened with room
+  # left can still complete after other mints have filled the cap, and a
+  # Rails-side reservation would be a second ledger free to drift from the
+  # chain's. The job-side refusal (Solana::Vault#assert_mint_window_headroom!)
+  # remains the backstop for exactly that case, and files an ErrorLog.
+  #
+  # FAILS OPEN. An unreadable count must not stop sales — the count rides the
+  # same RPC everything else does, and a blip here is not evidence the cap was
+  # reached. nil in the v0.25 shape too, where no cap exists at all.
+  def mint_budget_refusal(pack_id)
+    quantity = StripePurchase.pack_quantity(pack_id).to_i
+    return nil unless quantity.positive?
+
+    usage = Solana::Vault.new.mint_window_usage
+    remaining = usage&.dig(:remaining)
+    return nil if remaining.nil? || remaining >= quantity
+
+    Rails.logger.warn(
+      "[tokens] mint_budget_refused user=#{current_user.id} pack=#{pack_id} " \
+      "need=#{quantity} remaining=#{remaining} window=#{usage[:window_index]}"
+    )
+    resets = usage[:resets_at]
+    "Entry token purchases are paused — today's on-chain mint limit is reached" \
+      "#{" (it resets at #{resets.strftime('%-l:%M %p UTC')})" if resets}. " \
+      "Nothing has been charged. Please try again after it resets."
+  rescue StandardError => e
+    Rails.logger.warn "[tokens] mint_budget_check_failed pack=#{pack_id} #{e.class}: #{e.message}"
+    nil
+  end
 
   # Order CREATION is double-gated: the operator flag (PAYMENT_PROVIDER) AND
   # configured credentials. Either off → paypal_order refuses, so this branch
