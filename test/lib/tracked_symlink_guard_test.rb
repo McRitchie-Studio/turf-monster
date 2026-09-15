@@ -41,6 +41,8 @@
 #   ruby -Itest test/lib/tracked_symlink_guard_test.rb
 require "minitest/autorun"
 require "open3"
+require "tmpdir"
+require "fileutils"
 
 class TrackedSymlinkGuardTest < Minitest::Test
   ROOT = File.expand_path("../..", __dir__)
@@ -103,64 +105,58 @@ class TrackedSymlinkGuardTest < Minitest::Test
 
   # --- The boundary (integration): ask git, do not infer ---------------
 
-  # Reading the pattern proves what the file SAYS. This proves what git DOES
-  # with it, against a real symlink at the real path — the one shape the old
-  # pattern let through. Without this the test above is a string comparison
-  # that could pass while the pattern still failed to cover a link.
-  def test_git_actually_ignores_a_symlink_at_node_modules
-    with_symlink_at_node_modules do
-      out, _err, status = git("check-ignore", "-v", "node_modules")
+  # Reading the pattern proves what the file SAYS; this proves what git DOES
+  # with it. `git check-ignore` answers from the PATHNAME, so it can be asked
+  # about this repo without creating anything — and the trailing-slash
+  # distinction survives that, which is the whole question here.
+  def test_git_ignores_node_modules_in_this_repo
+    _out, _err, status = git("check-ignore", "-q", "node_modules")
 
-      assert status.success?,
-             "git does not ignore a SYMLINK at node_modules — a routine `git add -A` " \
-             "would stage it, which is the exact defect this file guards"
-      assert_match(/node_modules/, out)
-    end
+    assert status.success?,
+           "git does not ignore node_modules in this repo — a routine `git add -A` " \
+           "would stage whatever sits there, which is the defect this file guards"
   end
 
-  # The end of the causal chain, and the sharpest statement of the fix: with a
-  # symlink sitting there, git must not offer it as something to add.
-  def test_a_symlink_at_node_modules_is_not_offered_as_untracked
-    with_symlink_at_node_modules do
-      out, = git("status", "--porcelain", "--untracked-files=all")
-      # `??` only: the question is whether git OFFERS the symlink as something
-      # to add. Any other status (a staged deletion, say) is a different fact.
-      listed = out.lines.map(&:strip).select { |l| l.start_with?("??") && l.include?("node_modules") }
+  # THE SHAPE THE OLD PATTERN LET THROUGH, proven against a real symlink on
+  # disk — in a THROWAWAY repo seeded with this repo's own .gitignore.
+  #
+  # HERMETIC ON PURPOSE. The first version planted the probe at THIS repo's
+  # root. It passed locally and failed in CI, because `bin/rails test` forks
+  # parallel workers that share one checkout: one worker's probe became another
+  # worker's "node_modules is a SYMLINK here" failure. A guard that mutates
+  # shared state to make its point will eventually fail someone else's run.
+  def test_git_ignores_a_symlink_at_node_modules
+    in_probe_repo do |dir|
+      File.symlink("/nonexistent/probe-target", File.join(dir, "node_modules"))
 
-      assert_empty listed,
-                   "git status still offers node_modules: #{listed.join(', ')}. " \
-                   "That is how it got committed — nobody typed the path, `git add -A` took it."
+      _out, _err, status = probe_git(dir, "check-ignore", "-q", "node_modules")
+      assert status.success?,
+             "this repo's .gitignore does not cover a SYMLINK at node_modules. A " \
+             "pattern ending in `/` matches directories only — that is how the " \
+             "self-referential link reached main in da74fbc5."
+
+      # The end of the causal chain: git must not offer it as something to add,
+      # because nobody typed the path — `git add -A` took it.
+      out, = probe_git(dir, "status", "--porcelain", "--untracked-files=all")
+      listed = out.lines.map(&:strip).select { |l| l.include?("node_modules") }
+      assert_empty listed, "git still offers node_modules as untracked: #{listed.join(', ')}"
     end
   end
 
   private
 
-  # NEVER SKIPS, and that is deliberate. The first draft of this helper stood
-  # down whenever anything existed at the path — which meant that in the exact
-  # buggy state it was written to catch (a symlink sitting there), both boundary
-  # tests went SILENT. A skip is neither a pass nor a fail, so the guard was
-  # blindest precisely when it mattered. Each case now has an answer:
-  #
-  #   * a SYMLINK here IS the defect — fail, and say what it points at;
-  #   * a real installed DIRECTORY is the healthy state — leave it alone and ask
-  #     git the same question against it, which is still meaningful because the
-  #     pattern must cover a directory too;
-  #   * nothing here — plant a probe link and clean it up.
-  def with_symlink_at_node_modules
-    path = File.join(ROOT, "node_modules")
-
-    if File.symlink?(path)
-      flunk "node_modules is a SYMLINK here (-> #{File.readlink(path)}). That is the " \
-            "defect this file guards — a dependency tree is never a link in this repo."
+  # A throwaway git repo carrying THIS repo's real .gitignore. Seeding it from
+  # the actual file is what keeps the probe honest: it asks git about the
+  # pattern this repo ships, not about a copy written into the test.
+  def in_probe_repo
+    Dir.mktmpdir("node-modules-ignore-probe") do |dir|
+      probe_git(dir, "init", "-q", ".")
+      FileUtils.cp(File.join(ROOT, ".gitignore"), File.join(dir, ".gitignore"))
+      yield dir
     end
+  end
 
-    return yield if File.directory?(path)
-
-    File.symlink("/nonexistent/probe-target", path)
-    begin
-      yield
-    ensure
-      File.delete(path) if File.symlink?(path)
-    end
+  def probe_git(dir, *args)
+    Open3.capture3("git", "-C", dir, *args)
   end
 end
