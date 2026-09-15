@@ -1106,6 +1106,34 @@ module Solana
     # authoritative lock (v0.17 set_contest_lock_time instruction); the Rails
     # `locks_at` checks are advisory UX only. Rejected on-chain once the
     # contest is concluded (Settled/Cancelled → ContestAlreadySettled 6006).
+    #
+    # ═══════════════════════════════════════════════════════════════════════
+    # UNATTENDED CALLERS ONLY. This is kept ON PURPOSE — do not tidy it away.
+    # ═══════════════════════════════════════════════════════════════════════
+    #
+    # Every OPERATOR route to the lock time now goes through
+    # #build_set_contest_lock_time below, where the admin's own Phantom occupies
+    # the authority slot and the bot is reduced to fee payer.
+    # ContestsController#lock and #update REFUSE an on-chain contest rather than
+    # signing one here, because the program escalates to 2-of-3 only AFTER a
+    # deadline has passed: that closes re-opening a shut window and leaves
+    # EXTENDING a live one at a single signature — push a 1pm lock to 4pm at
+    # 12:59, enter at 3pm with three hours of results known. So a human-facing
+    # caller must never be wired back to this method.
+    #
+    # WHAT STILL CALLS IT: TurfMonster::QaRehearsal::Driver, which drives a whole
+    # contest lifecycle through a remote console with nobody at a keyboard. It
+    # cannot raise a Phantom prompt, so a Phantom-only lock would simply end the
+    # rehearsal. Its conclusion-time twin (#set_contest_conclusion_time below)
+    # has no caller at all today and is kept beside it for the same reason.
+    #
+    # WHAT RETIRES THEM — a bridge with a known end, not a permanent exception.
+    # Under the agreed five-signer structure, DEVNET gives three of the five
+    # slots to agent-owned keys, so automation there can reach any threshold
+    # unattended and this server-signed shortcut stops being needed. MAINNET
+    # keeps the agent at two, where it cannot — which is exactly why the
+    # operator path had to move to Phantom first and separately. Delete these
+    # two when the devnet signer set lands, not before.
     def set_contest_lock_time(contest_slug, lock_timestamp)
       admin = Keypair.admin
       c_pda, _ = contest_pda(contest_slug)
@@ -1163,6 +1191,20 @@ module Solana
     # Set (or clear) a contest's conclusion timestamp, server-signed (1-of-3).
     # Parallel to set_contest_lock_time. Once chain time passes it the contest
     # has concluded and the lock time can no longer change. 0 clears it.
+    #
+    # NO CALLER TODAY, AND KEPT ANYWAY — the same deliberate bridge as
+    # set_contest_lock_time above, whose header carries the full reasoning.
+    # #prepare_conclusion_time took the operator route to Phantom long ago and
+    # nobody noticed this one go quiet, which is the proof the lock-time
+    # migration above was safe. It survives because the unattended lane that
+    # still needs the server-signed LOCK (QaRehearsal::Driver) is the same lane
+    # that would reach for the conclusion next, and because the devnet
+    # three-of-five agent signer set retires both together. An orphan that looks
+    # like an oversight gets deleted by someone being tidy; this one is not.
+    #
+    # Do not wire an operator-facing caller to it. Use
+    # #build_set_contest_conclusion_time — the Phantom path — for anything a
+    # human triggers.
     def set_contest_conclusion_time(contest_slug, conclusion_timestamp)
       admin = Keypair.admin
       c_pda, _ = contest_pda(contest_slug)

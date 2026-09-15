@@ -936,25 +936,70 @@
 # shape the entry above warns about. 297 is what the lister printed on the
 # MERGED tree, taken as printed: not 293 + 4, not 295 + 2.
 # Derived with bin/e2e-lane-derive --write ON THE MERGED TREE.
-# 307 -> 308 (phantom-cashout-needs-sol): one spec in
-# e2e/offramp_house_pays_fee.spec.js. The Phantom cash-out wire is now fee-paid
-# by the HOUSE, which leaves a signer slot Phantom never fills, and the two
-# facts that follow are web3.js semantics no server-side tier can reach:
-# Transaction.serialize() THROWS on an empty required slot (the page must pass
-# requireAllSignatures:false, and the two calls read identically in source), and
-# the bytes that reach the cluster must be the COSIGNED ones rather than the
-# page's own Phantom-signed copy. Not tagged @devnet and it does not skip, so
-# excluded stays 17 and allowed_skips stays 4.
+# 307 -> 310 (route-time-changes-to-phantom): three specs in
+# e2e/contest_lock_phantom.spec.js for the Phantom lock route's client half,
+# which dor-check refused to let ship without a browser witness — the diff adds
+# interaction logic to contest_lock_picker.js and lock_contest.js, and every
+# tier that change's `backend` shape demands renders to a String.
+#   · the picker's pickedUnix() turning a picked date+time into Unix seconds,
+#     read back through the browser's own clock. A timezone slip there changes
+#     no markup at all; it changes a CONTEST DEADLINE, which is money in both
+#     directions.
+#   · clearing the lock sending `lock_timestamp: 0` and the key SURVIVING
+#     JSON.stringify. Zero is the program's spelling of "no lock" and exactly
+#     the value JavaScript is happiest to drop as falsy.
+#   · the control: the quick buttons still send a relative `in_seconds`, so the
+#     two above pin a body shape chosen per entry point, not one hardcoded.
+# None is tagged @devnet and none skips, so excluded stays 17 and allowed_skips
+# stays 4.
 #
-# THIS IS THE SILENT MERGE THIS FILE WARNS ABOUT, CAUGHT. This branch was cut at
-# 306 and first wrote 307. gift-link-skips-wallet-auth also added ONE spec, was
-# also cut at 306, and also wrote 307 — the SAME TEXT for a DIFFERENT spec, so
-# git merged the two scalars with no conflict and the tree would have held 308
-# declaring 307. Only the comment blocks collided, which is the whole warning
-# above: the number auto-merges, the prose does not. Re-derived with the LISTER
-# on the MERGED tree — "Total: 308 tests in 74 files" — and taken as printed,
-# not as 307 + 1.
-total_specs: 308
+# ⚠️ RE-DERIVED ON THE REBASED TREE, NOT INCREMENTED — and the increment would
+# have been wrong twice over. The base had already moved to 307 under
+# gift-link-skips-wallet-auth, and this branch adds THREE specs where a reader
+# expecting the usual one would have written 308. Per the warning above, a
+# sibling branch adding its own spec will write a number off this same base;
+# whoever merges second must re-derive on the MERGED tree rather than accept a
+# clean-looking merge of these lines.
+#
+# ⚠️ DERIVED WITH THE JSON REPORTER, not `bin/e2e-lane-derive`. That script and
+# the bare `npx playwright test --list` both exit 194 with zero output on this
+# machine, because turf-monster/node_modules is a symlink pointing at ITSELF
+# (committed, broken since Sep 13; being fixed under
+# /tasks/node-modules-symlinks-to-itself). Working around it with a borrowed
+# install, the DEFAULT list reporter still crashes while
+# `playwright test --list --reporter=json` exits 0 — so the numbers above come
+# from the SAME lister Playwright uses to build its own model, read through a
+# reporter that works, never from a grep or from arithmetic on the old value.
+# The method was validated first against the untouched tree, where it returned
+# exactly the declared 307. CI's e2e_declared_set and e2e_executed_set remain
+# the real witnesses.
+# 307 -> 311 on merging accepted into phantom-cashout-needs-sol: one spec in
+# e2e/offramp_house_pays_fee.spec.js, landing on top of the three above. The
+# Phantom cash-out wire is now fee-paid by the HOUSE, which leaves a signer slot
+# Phantom never fills, and the two facts that follow are web3.js semantics no
+# server-side tier can reach: Transaction.serialize() THROWS on an empty
+# required slot (the page must pass requireAllSignatures:false, and the two
+# calls read identically in source), and the bytes that reach the cluster must
+# be the COSIGNED ones rather than the page's own Phantom-signed copy. Not
+# tagged @devnet and it does not skip, so excluded stays 17 and allowed_skips
+# stays 4.
+#
+# THIS FILE'S WARNING FIRED TWICE ON THIS ONE BRANCH, and the two times looked
+# nothing alike:
+#   · Against gift-link-skips-wallet-auth the scalars AUTO-MERGED. Both branches
+#     added one spec, both were cut at 306, and both wrote 307 — the same TEXT
+#     for different specs, so git merged the numbers silently and only the prose
+#     collided. The tree would have held 308 declaring 307.
+#   · Against route-time-changes-to-phantom (above) the scalars CONFLICTED, and
+#     the increment would have been wrong from either side: 308 + 3 and 310 + 1
+#     both happen to reach 311, which is exactly the kind of coincidence that
+#     makes arithmetic feel safe. It is not the reason 311 is written here.
+#
+# 311 is what the LISTER printed on the MERGED tree — "Total: 311 tests in 75
+# files" — cross-checked against the JSON reporter (311 tests, 75 files), which
+# is the same model Playwright builds for itself. The excluded lister re-derived
+# 17 ("Total: 17 tests in 1 file") on the same tree.
+total_specs: 311
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1272,10 +1317,9 @@ allowed_skips: 4
 # on top. The lister re-derived excluded as 17 on the merged tree and
 # allowed_skips stays 4, so both listers agree. Derived with
 # bin/e2e-lane-derive --write ON THE MERGED TREE.
-# 286 -> 287 alongside total_specs above (phantom-cashout-needs-sol). The
-# excluded lister re-derived 17 on the MERGED tree ("Total: 17 tests in 1 file")
-# and allowed_skips stays 4, so both listers agree: 308 - 17 - 4 = 287.
-executed: 287
+# 289 -> 290 alongside total_specs above. Both listers agree on the merged
+# tree, so allowed_skips stays 4: 311 - 17 - 4 = 290.
+executed: 290
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

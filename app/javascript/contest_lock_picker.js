@@ -9,10 +9,16 @@
 //     selected slate's first game kickoff before falling back to sport defaults.
 //   - opts.utcIso (ISO 8601 string): /edit only — hydrates lockDate/Time from
 //     the server-rendered contest.starts_at and skips the sport-default path.
+//   - opts.onchain + opts.slug: /edit only — the contest's lock lives on chain,
+//     so the picked moment goes to Phantom (lockViaPhantom) instead of riding
+//     the form. The view omits the hidden fields entirely in that case.
 //
 // Writes through hidden form fields:
 //   #contest_starts_at, #locks_at_date_selected, #locks_at_time_selected,
-//   #locks_at_timezone_selected — must exist in the surrounding form.
+//   #locks_at_timezone_selected — OPTIONAL. sync() returns early when
+//   #contest_starts_at is absent, which is exactly what an on-chain contest's
+//   edit page renders: the picker still drives the UI, but nothing about the
+//   lock is submitted with the form.
 
 function contestLockPicker(opts) {
   opts = opts || {};
@@ -140,6 +146,30 @@ function contestLockPicker(opts) {
     isToday: function(d) {
       var t = new Date();
       return d === t.getDate() && this.viewMonth === t.getMonth() && this.viewYear === t.getFullYear();
+    },
+
+    // Unix SECONDS for the currently picked local date+time, or null when the
+    // picker is empty. The chain stores seconds, so this is the unit the whole
+    // lock path speaks; `new Date(...)` reads the pair as local time, which is
+    // what the operator chose in front of the tz label the view prints.
+    pickedUnix: function() {
+      if (!this.lockDate || !this.lockTime) return null;
+      var local = new Date(this.lockDate + 'T' + this.lockTime);
+      if (isNaN(local.getTime())) return null;
+      return Math.floor(local.getTime() / 1000);
+    },
+
+    lockViaPhantom: function() {
+      var ts = this.pickedUnix();
+      if (ts === null) {
+        window.alert('Pick a date and time first.');
+        return;
+      }
+      window.lockContestAtViaPhantom(opts.slug, ts);
+    },
+
+    clearLockViaPhantom: function() {
+      window.clearContestLockViaPhantom(opts.slug);
     }
   };
 }
