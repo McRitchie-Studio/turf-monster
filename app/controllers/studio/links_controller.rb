@@ -19,7 +19,11 @@ module Studio
       case link&.kind
       when "magic_link"
         @token = params[:token]
-        @consume_path = link_consume_path(token: @token) # confirm view posts here
+        # The nudge has to survive the interstitial's auto-POST: the GET carries
+        # ?wallet=managed, the POST is a fresh request, and the refusal that
+        # bounces a gifted newcomer to /signin happens in the POST. Without this
+        # the parameter is dropped exactly one hop before it is read.
+        @consume_path = link_consume_path(token: @token, **managed_wallet_params)
         # Inert, exactly as on /magic_link/:token — preview_magic_link never
         # burns. A live link gets the spinner; a dead one is settled here with
         # the session left alone, instead of spinning to a POST that only
@@ -35,7 +39,7 @@ module Studio
         landing = LandingPage.find_by(slug: params[:token])
         return redirect_to(landing_page_path(landing.slug), status: :moved_permanently) if landing
 
-        redirect_to signin_path, alert: "That link is invalid or has expired. Request a fresh one below."
+        redirect_to link_login_path, alert: "That link is invalid or has expired. Request a fresh one below."
       end
     end
 

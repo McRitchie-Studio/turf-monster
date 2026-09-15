@@ -514,7 +514,13 @@ class TestController < ApplicationController
     return render json: { ok: false, error: "no gift for that address" }, status: :not_found if gift.nil?
     return render json: { ok: false, error: "gift has no link" }, status: :not_found if gift.link.nil?
 
-    render json: { ok: true, token: gift.link.token, url: link_path(token: gift.link.token),
+    # `wallet: "managed"` so this returns the URL the recipient ACTUALLY
+    # receives. EntryGiftMailer#gift_invite mints the claim link with that
+    # parameter, and a spec handed a bare /l/<token> would be exercising a URL
+    # no gift email ever sends — silently skipping the nudge it is there to
+    # prove.
+    render json: { ok: true, token: gift.link.token,
+                   url: link_path(token: gift.link.token, wallet: "managed"),
                    status: gift.status }
   end
 

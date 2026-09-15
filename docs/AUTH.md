@@ -667,6 +667,17 @@ Rules worth knowing:
   once at sign-in and the claim is synchronous while `EntryGiftMintJob` is not,
   so a token-only test would read false and re-arm the modal for the whole
   session. Both halves fall away once the entry is spent.
+- **And the wallet UPGRADE is refused while that entry is unspent.**
+  `User#solana_address` resolves as `web3_solana_address || web2_solana_address`
+  — Phantom wins — so a gifted player who links a Phantom while still holding an
+  unspent voucher makes it unreachable: the token stays at the managed address it
+  was minted to, and cannot be moved. Not lost, **stranded**, which reads worse.
+  `EntryGifts::UnspentVoucher` answers whether a link would do that and
+  `AccountsController#link_solana` refuses when it would — before verifying the
+  signature, so nobody is asked to sign and then told no. It **fails closed**: an
+  unreadable voucher is refused with its own message, because a flake costs a
+  retry while a strand is permanent. The refusal lifts the moment the entry is
+  spent, and never applies to an account that already holds a Phantom.
 - **A grandfathered web2 user holding ≥ `WalletSetupPolicy::MIN_USDC` (19) USDC
   is left alone.** 19 USDC is exactly one paid entry (`Contest::FORMATS`), so
   they can still play on their custodial rails and are never interrupted.
@@ -946,7 +957,7 @@ Rules worth knowing:
 - `GET /account` - account settings and identity overview.
 - `PATCH /account` - profile update, first email set, or out-of-band email-change request.
 - `GET /account/complete_profile` and `POST /account/save_profile` - avatar/profile completion.
-- `POST /account/link_solana` - link a Phantom wallet to the current account after a session-bound signature.
+- `POST /account/link_solana` - link a Phantom wallet to the current account after a session-bound signature. Refused (422) while the account holds an unspent gifted entry, which linking would strand - see `EntryGifts::UnspentVoucher`.
 - `POST /account/unlink_google` - remove Google OAuth identity.
 - `PATCH /account/set_inviter` - one-time inviter/referral binding.
 - `POST /account/update_username` and `POST /account/confirm_username` - on-chain username edit.

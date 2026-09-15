@@ -170,7 +170,7 @@ class MagicLinksController < ApplicationController
     # (Existing users take sign_in_existing above and never hit this.)
     # Flag-gated, parked for the first contest — see age_attestation_required?.
     if age_attestation_required? && !result.age_attested
-      return redirect_to signin_path, alert: AGE_ATTESTATION_ERROR
+      return redirect_to link_login_path, alert: AGE_ATTESTATION_ERROR
     end
 
     reset_prior_session!
@@ -329,8 +329,28 @@ class MagicLinksController < ApplicationController
   # --- Studio::LinkConsumption hooks -----------------------------------------
 
   # Turf's sign-in page is /signin, not the engine's /login.
+  #
+  # THE ONE SEAM THE MANAGED-WALLET NUDGE RIDES THROUGH. Studio::LinkConsumption
+  # routes every bounce back to sign-in through this hook — the dead link, the
+  # expired link, and #sign_up_new's age-attestation refusal — so carrying
+  # ?wallet=managed here covers all of them without threading a parameter
+  # through three call sites that would each have to remember it.
+  #
+  # THE AGE-ATTESTATION REFUSAL IS THE ONE THAT MATTERS, because it is how a
+  # gifted NEWCOMER reaches the sign-in card at all. A gift link is minted with
+  # `age_attested: false` on purpose — the operator cannot attest to a
+  # stranger's age (Admin::EntryGiftsController#deliver_invite) — so while
+  # ENABLE_AGE_ATTESTATION is on the consume refuses to create the account and
+  # sends the recipient here holding a live gift, in front of Google, Phantom
+  # and email. Pick Phantom there and they start a SECOND account, and the gift
+  # they came for claims to the wrong one.
+  #
+  # On the flag-off default the happy path never reaches sign-in at all: the
+  # link IS the sign-up, and EntryGifts::Claim#ensure_wallet! mints the managed
+  # wallet the voucher is stamped at. Measured — test/integration/
+  # gift_link_managed_wallet_test.rb pins both halves.
   def link_login_path
-    signin_path
+    signin_path(**managed_wallet_params)
   end
 
   # "Home" for turf is the root board (contests#world_cup) — the same place
