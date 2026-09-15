@@ -39,6 +39,47 @@ module E2eLaneDerive
   # which skips are tolerated, not a fact about the tree.
   EXCLUDED_LIST_COMMAND = %w[npx playwright test --list --grep @devnet].freeze
 
+  # THE LISTER BINARY, RESOLVED AGAINST THE TREE BEING DERIVED.
+  #
+  # `npx playwright` is the documented invocation and stays the fallback, but it
+  # can die SILENTLY. Measured 2026-09-15 on this machine: `npx playwright
+  # --version` exits 194 printing nothing on stdout OR stderr, while
+  # `./node_modules/.bin/playwright --version` answers "Version 1.58.2" and
+  # exits 0. The failure is npx's own resolution step, not this repo's config —
+  # so it is not worktree-specific, and a checkout with a working npx is
+  # unaffected either way.
+  #
+  # THAT SILENCE IS THE WHOLE PROBLEM. This script fails closed, so an unusable
+  # lister is correctly a hard stop — but the message it prints ("cannot derive")
+  # names no cause, and the next person, holding a real spec count and a contract
+  # that must change, is one step from incrementing the scalar by hand. That is
+  # the single thing config/e2e_lane.yml's own history says never to do: three
+  # branches have already written the same total for DIFFERENT specs, because the
+  # scalar auto-merges and arithmetic cannot see a sibling's additions.
+  #
+  # So: prefer the binary that is actually installed in the tree, and keep npx for
+  # a checkout that has no node_modules. This changes no counting and no verdict —
+  # only which executable is asked the same question.
+  #
+  # IT IS NOT A SUBSTITUTE FOR AN INSTALL. A fresh worktree has no node_modules
+  # at all, and the PRIMARY checkout's node_modules cannot be borrowed to cover
+  # for it: it is a symlink pointing AT ITSELF, so every path through it fails
+  # "Too many levels of symbolic links". The durable fix for a desk that needs
+  # the lane is `npm ci` in that desk. This resolver only makes sure that once an
+  # install EXISTS, a broken npx cannot hide it.
+  def self.playwright_bin(root)
+    local = File.join(root.to_s, "node_modules", ".bin", "playwright")
+    File.executable?(local) ? [local] : %w[npx playwright]
+  end
+
+  def self.list_command(root)
+    playwright_bin(root) + %w[test --list]
+  end
+
+  def self.excluded_list_command(root)
+    playwright_bin(root) + %w[test --list --grep @devnet]
+  end
+
   # Playwright's final line: "Total: 200 tests in 54 files".
   TOTAL_LINE = /^\s*Total:\s+(\d+)\s+tests?\s+in\s+(\d+)\s+files?/
 

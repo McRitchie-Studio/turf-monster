@@ -455,7 +455,7 @@ class FakeVault
   end
 
   # Used by ContestsController#prepare_lock_time (Phantom-signed lock flow).
-  def build_set_contest_lock_time(contest_slug, lock_timestamp, admin_pubkey:)
+  def build_set_contest_lock_time(contest_slug, lock_timestamp, admin_pubkey:, extra_cosigners: [])
     @lock_calls ||= []
     @lock_calls << { slug: contest_slug, lock_timestamp: lock_timestamp, admin: admin_pubkey }
     { serialized_tx: "FAKE_TX_lock_#{contest_slug}_#{lock_timestamp}" }
@@ -466,7 +466,7 @@ class FakeVault
   end
 
   # Used by ContestsController#prepare_conclusion_time (Phantom-signed flow).
-  def build_set_contest_conclusion_time(contest_slug, conclusion_timestamp, admin_pubkey:)
+  def build_set_contest_conclusion_time(contest_slug, conclusion_timestamp, admin_pubkey:, extra_cosigners: [])
     @conclusion_calls ||= []
     @conclusion_calls << { slug: contest_slug, conclusion_timestamp: conclusion_timestamp, admin: admin_pubkey }
     { serialized_tx: "FAKE_TX_conclude_#{contest_slug}_#{conclusion_timestamp}" }
@@ -548,9 +548,39 @@ class FakeVault
     { creator: (@read_contest_creator || "CreAtorXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"), pda: "cpda-#{contest_slug}", status: "Open" }
   end
 
-  def build_cancel_contest(contest_slug, creator_pubkey:, cosigner_pubkey:)
+  # settle_contest is the one instruction that ALSO uses remaining_accounts for
+  # payload, so it is the one where a missing cosigner slot fails DIFFERENTLY
+  # (6047 CosignerDidNotSign, not 6046 InsufficientSigners). The double records
+  # extra_cosigners so a test can assert the slot was reserved at all.
+  # The fee-payer balance the treasury index reads once per page. STUBBED
+  # BECAUSE THE REAL ONE IS AN RPC CALL: left unstubbed it reached the network
+  # and cost ~10s per test in timeouts. Returns a funded account by default;
+  # set `fee_payer_status=` to exercise the empty and unreadable branches.
+  attr_writer :fee_payer_status_result
+
+  def fee_payer_status(required_signatures: 3)
+    @fee_payer_status_result || {
+      address: "FakeAdmin1111111111111111111111111111111111",
+      balance_sol: 0.5,
+      minimum_sol: 0.00005,
+      funded: true
+    }
+  end
+
+  def build_settle_contest(contest_slug, settlements, cosigner_pubkey:, extra_cosigners: [])
+    @settle_calls ||= []
+    @settle_calls << { slug: contest_slug, settlements: settlements,
+                       cosigner: cosigner_pubkey, extra_cosigners: extra_cosigners }
+    { serialized_tx: "FAKE_TX_settle_#{contest_slug}", contest_slug: contest_slug }
+  end
+
+  def settle_calls
+    @settle_calls ||= []
+  end
+
+  def build_cancel_contest(contest_slug, creator_pubkey:, cosigner_pubkey:, extra_cosigners: [])
     @cancel_calls ||= []
-    @cancel_calls << { slug: contest_slug, creator: creator_pubkey, cosigner: cosigner_pubkey }
+    @cancel_calls << { slug: contest_slug, creator: creator_pubkey, cosigner: cosigner_pubkey, extra_cosigners: extra_cosigners }
     { serialized_tx: "FAKE_TX_cancel_#{contest_slug}" }
   end
 
@@ -656,9 +686,9 @@ class FakeVault
 
   attr_writer :vault_state
 
-  def build_register_currency(cosigner_pubkey:, mint:, kind: 0)
+  def build_register_currency(cosigner_pubkey:, mint:, kind: 0, extra_cosigners: [])
     @register_calls ||= []
-    @register_calls << { cosigner: cosigner_pubkey, mint: mint, kind: kind }
+    @register_calls << { cosigner: cosigner_pubkey, mint: mint, kind: kind, extra_cosigners: extra_cosigners }
     { serialized_tx: "FAKE_TX_register_#{mint}", op_rev_ata: "oprev-#{mint[0, 4]}" }
   end
 
@@ -666,9 +696,9 @@ class FakeVault
     @register_calls ||= []
   end
 
-  def build_deactivate_currency(cosigner_pubkey:, currency_idx:)
+  def build_deactivate_currency(cosigner_pubkey:, currency_idx:, extra_cosigners: [])
     @deactivate_calls ||= []
-    @deactivate_calls << { cosigner: cosigner_pubkey, currency_idx: currency_idx }
+    @deactivate_calls << { cosigner: cosigner_pubkey, currency_idx: currency_idx, extra_cosigners: extra_cosigners }
     { serialized_tx: "FAKE_TX_deactivate_#{currency_idx}" }
   end
 
@@ -688,9 +718,9 @@ class FakeVault
     ["vault-state-pda", 255]
   end
 
-  def build_sweep_operator_revenue(cosigner_pubkey:, currency_mint:, treasury_ata_pubkey:, amount: 0)
+  def build_sweep_operator_revenue(cosigner_pubkey:, currency_mint:, treasury_ata_pubkey:, amount: 0, extra_cosigners: [])
     @sweep_calls ||= []
-    @sweep_calls << { cosigner: cosigner_pubkey, currency_mint: currency_mint, treasury_ata: treasury_ata_pubkey, amount: amount }
+    @sweep_calls << { cosigner: cosigner_pubkey, currency_mint: currency_mint, treasury_ata: treasury_ata_pubkey, amount: amount, extra_cosigners: extra_cosigners }
     { serialized_tx: "FAKE_TX_sweep_#{currency_mint[0, 4]}" }
   end
 

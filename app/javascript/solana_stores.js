@@ -43,6 +43,31 @@ function registerWalletStore() {
     watching: false,
     pendingAddress: null,
     _provider: null,
+
+    // --- AN EXPECTED SWITCH (operator cosign, 2026-09-15) -----------------
+    //
+    // Wallets this page is DELIBERATELY walking through right now. Empty for
+    // every ordinary page, which is why the watcher's behaviour is unchanged
+    // everywhere else.
+    //
+    // WHY IT HAD TO EXIST. turf-vault v0.26 raised six treasury actions to
+    // THREE vault signatures, and Phantom exposes one account at a time — so
+    // collecting them REQUIRES the operator to switch accounts mid-flow. The
+    // watcher reads any switch away from the server session's address as an
+    // identity change and opens the `wallet-changed` card with
+    // `dismissible: false`. That card is correct for an unexpected switch and
+    // fatal for an expected one: it would cover the cosign flow, refuse to
+    // close, and strand a half-collected treasury transaction.
+    //
+    // THIS IS A SUPPRESSION, NOT A DISABLE, and the difference is the whole
+    // safety argument: only the exact addresses the flow declared are exempt,
+    // only while it is running, and a switch to ANY OTHER wallet still raises
+    // the card. It is also deliberately NOT a parallel wallet-session
+    // implementation — it extends the watcher that already owns this event
+    // rather than standing a second one up beside it. A general answer to
+    // "the session rehydrates against the new wallet" belongs in the shared
+    // session primitives, not here.
+    expectedSwitchAddresses: [],
     _discoveryTimer: null,
 
     // --- THE LIVE-SIGNER FACTS (defect A + B, 2026-08-25) ---
@@ -304,8 +329,30 @@ function registerWalletStore() {
       }
     },
 
+    // Declare the wallets an in-flight flow will legitimately move through.
+    // ALWAYS pair with clearExpectedSwitches() in a finally — a suppression
+    // that outlives its flow silently disarms the guard for the whole page,
+    // which is the same class of mistake as a mutation left in source.
+    expectSwitchesTo: function(addresses) {
+      this.expectedSwitchAddresses = (addresses || []).filter(function(a) { return !!a; });
+    },
+
+    clearExpectedSwitches: function() {
+      this.expectedSwitchAddresses = [];
+    },
+
     _notifySwitch: function(pubkeyB58) {
       if (!pubkeyB58 || pubkeyB58 === this._serverAddress()) return;
+
+      // An EXPECTED switch is not an identity change. Track the address so the
+      // rest of the store stays truthful about which wallet is live, but do not
+      // raise the non-dismissible hand-off card over a ceremony that asked for
+      // this exact wallet.
+      if (this.expectedSwitchAddresses.indexOf(pubkeyB58) !== -1) {
+        this.pendingAddress = null;
+        return;
+      }
+
       this.pendingAddress = pubkeyB58;
       try {
         var modals = window.Alpine && Alpine.store && Alpine.store('modals');

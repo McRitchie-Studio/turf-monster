@@ -2023,9 +2023,31 @@ module Solana
       #   2. One nonce account anchors ONE in-flight tx at a time — a shared
       #      operator nonce under concurrent user entries is a contention bug.
       # Entries re-prepare seconds before signing, so a fresh recent blockhash
-      # (~60-90s validity) comfortably covers the Phantom signing window. The
-      # durable nonce remains for OPERATOR flows (lock-time etc. via
-      # build_partial_signed), where a slow human cosign is the actual problem.
+      # (~60-90s validity) comfortably covers the Phantom signing window.
+      #
+      # CORRECTED 2026-09-15. This comment used to end "the durable nonce
+      # remains for OPERATOR flows (lock-time etc. via build_partial_signed),
+      # where a slow human cosign is the actual problem." That was never true
+      # of the code and is worth stating plainly, because it was read as
+      # licence to design a MULTI-SESSION cosign flow on the premise that an
+      # operator transaction is immortal:
+      #
+      #   * NO builder that goes through `build_partial_signed` passes
+      #     `durable_nonce:` — not the six raised cosign paths, not the two
+      #     set_contest_*_time builders. They all take the `nil` default and
+      #     are anchored on a plain recent blockhash.
+      #   * `durable_nonce_config` has exactly ONE caller: `build_create_contest`
+      #     on its `admin_signs: true` branch, which is SERVER-signed and never
+      #     goes near Phantom.
+      #   * And it could not be otherwise. Reason 1 above is not specific to
+      #     entries: ANY Phantom-signed transaction can have Lighthouse guard
+      #     instructions injected ahead of the advance, and a nonce transaction
+      #     is only recognized when advanceNonceAccount is instruction 0. A
+      #     durable nonce cannot make a Phantom-signed transaction immortal on
+      #     any path — see #simulate_and_broadcast, which says the same thing.
+      #
+      # So the rule in this file is: durable nonce ⟺ server-signed; Phantom ⟺
+      # fresh recent blockhash. Never both.
       dn = nil
 
       serialized =
@@ -2880,6 +2902,62 @@ module Solana
     # AND get_token_accounts_by_owner) share one rescue so a connection-level fault
     # on EITHER read routes through the same contract — previously get_balance sat
     # outside any rescue, so a connection failure there escaped entirely.
+    # Solana's per-signature base fee, in lamports. Fixed protocol constant.
+    LAMPORTS_PER_SIGNATURE = 5_000
+
+    # Headroom multiple on the computed cost. The point is not to predict the
+    # fee to the lamport — it is to refuse a wallet that obviously cannot pay,
+    # while never refusing one that can. Two is loose enough to survive a
+    # priority-fee bump and tight enough that an empty account is still caught.
+    FEE_PAYER_HEADROOM = 2
+
+    # What ONE operator cosign transaction costs its fee payer, in SOL.
+    #
+    # DERIVED, NOT A LITERAL. Both inputs are env-tunable
+    # (SOLANA_PRIORITY_FEE_MICROLAMPORTS, SOLANA_PARTIAL_TX_COMPUTE_UNIT_LIMIT),
+    # so a hardcoded floor would be wrong the first time either moved — and
+    # wrong in the dangerous direction, since raising the priority fee is
+    # exactly when the old floor stops covering it. Priority fee is
+    # price-per-CU x CU limit; base fee is per SIGNATURE, so a three-signature
+    # action costs more than a two-signature one.
+    def self.estimated_fee_sol(required_signatures: 3)
+      priority_lamports = (PARTIAL_TX_PRIORITY_FEE_MICROLAMPORTS * PARTIAL_TX_COMPUTE_UNIT_LIMIT) / 1_000_000.0
+      base_lamports     = LAMPORTS_PER_SIGNATURE * required_signatures.to_i
+      (priority_lamports + base_lamports) / 1_000_000_000.0
+    end
+
+    # The account that actually pays for an operator cosign, and whether it can.
+    #
+    # WHY THE FEE PAYER AND NOT THE COSIGNERS. Measured 2026-09-15 by decoding a
+    # built `unpause` wire: account 0 — the fee payer — is the SERVER's admin
+    # key, not the operator's Phantom wallet. `build_partial_signed` calls
+    # `build_tx(Keypair.admin)`, so admin signs first and pays. A cosigning
+    # wallet with zero SOL is therefore FINE here, and telling the operator to
+    # fund one would be sending him to solve the wrong problem.
+    #
+    # The failure this DOES catch is real and has bitten: an empty fee payer
+    # returns "Attempt to debit an account but found no record of a prior
+    # credit", which names no account and reads like a program bug.
+    #
+    # NIL IS NOT ZERO. A balance that could not be read comes back `nil` with
+    # `funded: nil`, never `0.0`. Zero blocks the button; unknown must not,
+    # because refusing to let the operator act on a transient RPC flake is its
+    # own outage — and an unread balance is not evidence of an empty account.
+    def fee_payer_status(required_signatures: 3)
+      address = Keypair.admin.to_base58
+      minimum = self.class.estimated_fee_sol(required_signatures: required_signatures) * FEE_PAYER_HEADROOM
+
+      result = client.get_balance(address)
+      lamports = result.is_a?(Hash) ? result["value"] : result
+      # A missing `value` key is an unread balance, not a zero one.
+      return { address: address, balance_sol: nil, minimum_sol: minimum, funded: nil } if lamports.nil?
+
+      balance = lamports.to_f / 1_000_000_000.0
+      { address: address, balance_sol: balance, minimum_sol: minimum, funded: balance >= minimum }
+    rescue StandardError
+      { address: address, balance_sol: nil, minimum_sol: minimum, funded: nil }
+    end
+
     def fetch_wallet_balances(wallet_address, raise_on_read_error: false)
       sol_balance = 0.0
       tokens = {}

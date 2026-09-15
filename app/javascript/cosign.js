@@ -34,9 +34,95 @@
 // which simulates it, broadcasts it over the credentialed RPC, verifies what
 // landed, and reports the program's own error when something is wrong.
 
-window.cosignTransaction = async function(slug, txTypeLabel) {
+// Read the extra-cosigner choices that sit beside a Co-sign button.
+//
+// Scoped to the button's own controls container, NOT the document: this page
+// renders one row per pending transaction, and a document-wide query would
+// hand every row the first row's wallet. That failure is silent right up to
+// the point the chain reports DuplicateSigner or Unauthorized on a payout.
+window.collectExtraCosigners = function(buttonEl) {
+  var scope = buttonEl && buttonEl.closest ? buttonEl.closest('[data-cosign-controls]') : null;
+  if (!scope) return [];
+
+  return Array.prototype.map.call(
+    scope.querySelectorAll('[data-extra-cosigner]'),
+    function(el) { return el.value; }
+  ).filter(function(v) { return !!v; });
+};
+
+// KEEP THE ROSTER HONEST WHEN HE CHANGES HIS MIND.
+//
+// The roster is rendered server-side with whichever wallet the select names at
+// page load. If the operator picks a different one and the roster still shows
+// the old address, the page is lying about which wallet is about to be asked
+// for — and he is switching Phantom accounts by reading exactly that row. So
+// the row is repointed on `change`, scoped to the row's own controls container.
+document.addEventListener('change', function(evt) {
+  var select = evt.target;
+  if (!select || !select.matches || !select.matches('[data-extra-cosigner]')) return;
+
+  var scope = select.closest('[data-cosign-controls]');
+  if (!scope) return;
+
+  // The LAST roster row is the extra slot — the server row and the named
+  // cosigner are fixed, and the extras follow them in reserved order.
+  var rows = scope.querySelectorAll('[data-signer-row]');
+  var row = rows[rows.length - 1];
+  if (!row) return;
+
+  row.setAttribute('data-signer-row', select.value);
+  var addressEl = row.querySelector('[data-signer-address]');
+  if (addressEl) {
+    var key = String(select.value || '');
+    addressEl.textContent = key.length > 12 ? key.slice(0, 4) + '\u2026' + key.slice(-4) : key;
+  }
+});
+
+window.cosignTransaction = async function(slug, txTypeLabel, extraCosigners, buttonEl) {
   var label = (txTypeLabel && String(txTypeLabel).trim()) || 'Transaction';
+
+  // The wallets whose remaining-account slots this build must reserve. Chosen
+  // on the page BEFORE the clock starts, because the slots are part of the
+  // message and cannot be added once the first wallet has signed.
+  var chosenExtras = (extraCosigners || []).filter(function(a) { return !!a; });
   var modal = window.Alpine && Alpine.store('solanaModal');
+  var walletStore = window.Alpine && Alpine.store && Alpine.store('wallet');
+
+  // A wallet address the operator can match against what Phantom shows him.
+  // Phantom's own account list abbreviates the same way, so the head and tail
+  // are what he is actually reading off the screen; a full 44-character key in
+  // a modal is a string nobody compares character by character.
+  var shortKey = function(pubkey) {
+    var key = String(pubkey || '');
+    return key.length > 12 ? key.slice(0, 4) + '\u2026' + key.slice(-4) : key;
+  };
+
+  // THE ROSTER — "what's done and what's next", kept true while he works.
+  //
+  // Three signatures collected across Phantom account switches is more state
+  // than anyone should hold in their head between extension dialogs. Each row
+  // carries data-signer-row="<address>"; the indicator inside it takes one of
+  // five states: pending | connected | signing | signed | failed.
+  //
+  // Scoped to the clicked button's own controls container for the same reason
+  // collectExtraCosigners is: this page renders one row PER pending
+  // transaction, and a document-wide write would paint every queued
+  // transaction's roster with this one's progress.
+  // PASSED IN, NOT SNIFFED. `window.event` would have saved a parameter and is
+  // deprecated, absent under a real listener, and wrong whenever anything else
+  // is mid-dispatch — a roster that paints the wrong row is worse than one that
+  // does not paint at all.
+  var rosterScope = (buttonEl && buttonEl.closest)
+    ? buttonEl.closest('[data-cosign-controls]')
+    : null;
+
+  var paintSigner = function(pubkey, state) {
+    if (!rosterScope) return;
+    var row = rosterScope.querySelector('[data-signer-row="' + pubkey + '"]');
+    if (!row) return;
+    var indicator = row.querySelector('[data-signer-state]');
+    if (indicator) indicator.dataset.state = state;
+  };
 
   // Surface failures through the modal when it's available, else fall back to
   // alert() (e.g. modal store not yet registered). A blockhash-expired / send
@@ -104,7 +190,8 @@ window.cosignTransaction = async function(slug, txTypeLabel) {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
         'X-CSRF-Token': csrfToken
-      }
+      },
+      body: JSON.stringify({ extra_cosigners: chosenExtras })
     });
 
     if (!rebuildResp.ok) {
@@ -121,17 +208,66 @@ window.cosignTransaction = async function(slug, txTypeLabel) {
       return;
     }
 
-    // 2. Phantom fills the cosigner slot (the admin slot was signed at build).
-    var txBytes = Uint8Array.from(atob(serializedTx), function(c) { return c.charCodeAt(0); });
-    var tx = solanaWeb3.Transaction.from(txBytes);
+    // 2. Phantom fills EVERY slot the admin key did not. The server signs as
+    //    admin at build time; the named cosigner slot and each extra
+    //    remaining-account slot are collected here, in the order the server
+    //    reserved them — turf-vault reads those accounts positionally.
+    //
+    //    The signing plan comes back WITH the bytes (rebuilt.cosigner_address
+    //    + rebuilt.extra_cosigners) rather than being read off the page, so
+    //    the browser can only ever collect against the slots this very build
+    //    reserved. A page rendered before a threshold changed cannot put the
+    //    wrong wallet in a slot.
+    var signerQueue = [rebuilt.cosigner_address || provider.publicKey.toBase58()]
+      .concat(rebuilt.extra_cosigners || []);
 
-    var signed;
+    var signedB64;
     try {
-      if (modal) modal.show('Co-signing ' + label, 'Approve the transaction in Phantom…');
       if (window.confirmSolanaNetworkIntent) {
         await window.confirmSolanaNetworkIntent({ action: 'Cosign transaction' });
       }
-      signed = await provider.signTransaction(tx);
+
+      // The server's own slot was filled when the transaction was built, so it
+      // is DONE before the operator touches anything. Painting it as done up
+      // front is what makes the roster's count agree with the threshold —
+      // otherwise three-signatures-required shows two rows to act on and the
+      // arithmetic looks wrong.
+      paintSigner(rebuilt.fee_payer_address, 'signed');
+      signerQueue.forEach(function(pubkey) { paintSigner(pubkey, 'pending'); });
+      if (provider.publicKey) paintSigner(provider.publicKey.toBase58(), 'connected');
+
+      // TELL THE WALLET WATCHER THIS SWITCHING IS ON PURPOSE.
+      //
+      // Collecting three signatures REQUIRES the operator to change Phantom
+      // accounts, and the watcher reads any switch away from the session's
+      // address as an identity change — it opens the `wallet-changed` card with
+      // dismissible:false, which would cover this flow, refuse to close, and
+      // strand a half-collected treasury transaction. Declaring the exact
+      // wallets keeps the guard armed for every OTHER address.
+      if (walletStore && walletStore.expectSwitchesTo) {
+        walletStore.expectSwitchesTo(signerQueue);
+      }
+
+      signedB64 = await window.cosignSignatures.collect(provider, serializedTx, signerQueue, {
+        onPrompt: function(pubkey, index, total) {
+          paintSigner(pubkey, 'signing');
+          if (!modal) return;
+          var step = total > 1 ? ' (' + (index + 1) + ' of ' + total + ')' : '';
+          modal.show('Co-signing ' + label + step,
+                     'Approve the transaction in Phantom as ' + shortKey(pubkey) + '…');
+        },
+        // A SWITCH IS AN INSTRUCTION, NOT AN ERROR. Phantom exposes one
+        // account at a time and only the operator can change it, so the only
+        // thing this flow can do is say plainly which wallet it needs next.
+        onWaiting: function(pubkey) {
+          if (!modal) return;
+          modal.show('Switch Phantom Account',
+                     'Open Phantom and select ' + shortKey(pubkey) + ', then approve. ' +
+                     'This transaction needs ' + signerQueue.length + ' wallet signatures.');
+        },
+        onSigned: function(pubkey) { paintSigner(pubkey, 'signed'); },
+        onFailed: function(pubkey) { paintSigner(pubkey, 'failed'); }
+      });
     } catch (rejectErr) {
       var rejMsg = rejectErr && rejectErr.message ? rejectErr.message : String(rejectErr);
       if (/user rejected/i.test(rejMsg) || /user declined/i.test(rejMsg) || (rejectErr && rejectErr.code === 4001)) {
@@ -139,6 +275,13 @@ window.cosignTransaction = async function(slug, txTypeLabel) {
         return;
       }
       throw rejectErr;
+    } finally {
+      // EVERY exit path, including the early `return` above and a thrown
+      // rejection. A suppression that outlives its flow disarms the wallet
+      // guard for the rest of the page — silently, and for every wallet.
+      if (walletStore && walletStore.clearExpectedSwitches) {
+        walletStore.clearExpectedSwitches();
+      }
     }
 
     // 3. Hand the signed wire to the server. It simulates first (so a program
@@ -146,9 +289,6 @@ window.cosignTransaction = async function(slug, txTypeLabel) {
     //    over the credentialed RPC, then runs the OPSEC-010/011 verification
     //    and flips the DB state — all in one round trip.
     if (modal) modal.show('Confirming Onchain', 'Broadcasting from the server…');
-
-    var wire = signed.serialize();
-    var signedB64 = btoa(String.fromCharCode.apply(null, wire));
 
     var resp = await fetch('/admin/pending_transactions/' + slug + '/broadcast', {
       method: 'POST',
@@ -159,7 +299,11 @@ window.cosignTransaction = async function(slug, txTypeLabel) {
       },
       body: JSON.stringify({
         signed_tx: signedB64,
-        cosigner_address: provider.publicKey.toBase58()
+        // The SERVER's plan, echoed back — not `provider.publicKey`, which by
+        // now holds whichever account the operator switched to LAST and would
+        // record the wrong wallet as the named cosigner.
+        cosigner_address: signerQueue[0],
+        extra_cosigners: signerQueue.slice(1)
       })
     });
 

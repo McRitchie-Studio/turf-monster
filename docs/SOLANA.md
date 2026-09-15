@@ -223,6 +223,60 @@ two named slots (admin **and** cosigner), and it is also the one whose "no
 cosigner" spelling puts the admin key in both; a list that is two keys but one
 key is refused here rather than on chain.
 
+#### Collecting the third signature — one session, two Phantom approvals
+
+The six raised OPERATOR paths (`settle_contest`, `cancel_contest`,
+`sweep_operator_revenue`, `register_currency`, `deactivate_currency`, `unpause`)
+are cosigned in the browser, not by the server, so the threshold rise lands as a
+UI problem: the server contributes ONE signature (the admin key, patched into
+its slot by `Transaction.cosign_wire` after the fact) and the browser must now
+come back with TWO instead of one.
+
+**The flow.** The operator picks the second wallet on the page BEFORE clicking —
+the extra signer slots are part of the message and cannot be added once the
+first wallet has signed. `#rebuild` reserves them (`extra_cosigners:`) and
+returns the plan with the bytes. `cosign_signatures.js` then collects one
+signature per wallet in slot order, waiting between them while the operator
+switches accounts in Phantom, and merges them onto one transaction.
+
+**Phantom is never trusted to preserve a signature it did not make.** Each
+wallet signs a FRESH decode of the same bytes; only its own 64 bytes are
+extracted, and the signatures are merged with `addSignature`. Phantom's
+sign-only method is documented legacy with an unpinned return shape — turf-vault's
+own operator console (`docs/vault-console.html`) declined to claim a multi-wallet
+collection flow for exactly that reason — so nothing here depends on what it
+does with a partially-signed transaction it is handed.
+
+**Why ONE SESSION and not a half-signed row handed between sessions.** A
+multi-session collection needs a transaction that does not expire, which means a
+durable nonce, and **a durable nonce cannot anchor a Phantom-signed
+transaction**. A nonce transaction is only recognized when
+`advanceNonceAccount` is instruction 0, and Phantom injects Lighthouse guard
+instructions at positions the app does not control; when one lands ahead of the
+advance, validators read the nonce value as an unknown blockhash and reject at
+preflight. That is the 2026-06-11 mainnet incident recorded in
+`Solana::Vault#build_enter_contest`, and it is why `#simulate_and_broadcast`
+says the same thing.
+
+So these six stay on a fresh recent blockhash, minted at click time, and the
+collection window is the ordinary ~60-90s. **No extra nonce accounts are needed
+— and the single production nonce must NOT be extended to these paths.** It
+serves exactly one caller today (`build_create_contest` on its `admin_signs:
+true`, server-signed branch); pointing Phantom flows at it would add contention
+to a resource that cannot help them anyway.
+
+> A note for whoever reads this next: the comment in `#build_enter_contest` used
+> to end "the durable nonce remains for OPERATOR flows … where a slow human
+> cosign is the actual problem." **That was never true of the code** — no builder
+> reached through `build_partial_signed` has ever passed `durable_nonce:` — and
+> it is the sentence that made a multi-session design look available. It has been
+> corrected in place.
+
+**If two approvals inside 90 seconds proves impractical in practice**, the fix is
+NOT more nonce accounts. It is either an out-of-band ceremony for the rarest of
+the six, or solving the Lighthouse ix-0 ordering problem first — a wallet-behaviour
+investigation, not a Rails change.
+
 #### The mint cap is the one threshold that moves during the day
 
 `mint_entry_token` is 1 signature inside the window's cap and 3 above it, so an
