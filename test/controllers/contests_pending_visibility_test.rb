@@ -137,14 +137,15 @@ class ContestsPendingVisibilityTest < ActionDispatch::IntegrationTest
   # A verified contest is not frozen: only its LOCK TIME left this screen. An
   # edit that moves no deadline still saves, which is what keeps the refusal
   # above a routing rule rather than a read-only page.
+  #
+  # THIS TEST IS ONLY HONEST BECAUSE OF THE VIEW TEST BELOW IT. On its own,
+  # patching `name` with no starts_at proves nothing about the real screen — the
+  # form used to ALWAYS submit contest[starts_at], so the interesting request was
+  # the one this test was not sending. The view test pins that the on-chain edit
+  # page really does omit the field, which is what makes this params shape the
+  # one an operator's browser actually produces.
   test "editing a verified contest's name is still allowed" do
-    verified = Contest.new(
-      name: "Strand Renameable", slug: "strand-renameable", slate: @slate, contest_type: "tiny",
-      status: :open, entry_fee_cents: 100, max_entries: 10, user: @admin,
-      onchain_contest_id: "cpda-strand-renameable"
-    )
-    verified.skip_onchain_callback = true
-    verified.save!
+    verified = onchain_contest("Strand Renameable", "strand-renameable")
 
     log_in_as(@admin)
     vault = FakeVault.new
@@ -157,6 +158,76 @@ class ContestsPendingVisibilityTest < ActionDispatch::IntegrationTest
       "the lock-time guard must not swallow an unrelated edit"
     assert_empty vault.set_lock_time_calls
   end
+
+  # THE SOURCE OF THE RENAME BUG, pinned where it actually lived.
+  #
+  # contest_lock_picker's sync() writes `toISOString().substring(0, 16)` — no
+  # seconds — and init() writes it on PAGE LOAD with no operator input. While the
+  # edit form emitted contest[starts_at], opening this page on a contest locked
+  # at 12:34:56 by confirm_lock_time (or the QA driver) and saving a NEW NAME
+  # resubmitted 12:34:00. #update read the 56-second difference as a lock move
+  # and refused — defeating the very flow this change steers operators toward.
+  #
+  # Fixed at the source rather than by loosening the comparison to whole
+  # minutes, which would have handed back 59 seconds of lock movement that no
+  # Phantom ever signed. The field is simply not rendered for an on-chain
+  # contest, so the form cannot express a lock move on one.
+  test "the edit form does not submit a lock time for an on-chain contest" do
+    verified = onchain_contest("Strand Onchain Form", "strand-onchain-form")
+    verified.update!(starts_at: Time.at(Time.current.to_i).change(sec: 37))
+
+    log_in_as(@admin)
+    get edit_contest_path(verified)
+
+    assert_response :success
+    assert_select "input[name=?]", "contest[starts_at]", false,
+      "an on-chain contest's lock must not ride the form — the picker truncates seconds " \
+      "and writes on load, so any hidden field here resubmits a lock move on a plain rename"
+    assert_select "input[name=?]", "contest[locks_at_time_selected]", false
+  end
+
+  # THE CONTROL for the view test above. An off-chain contest has no chain row to
+  # disagree with, so saving starts_at IS its whole lock and the field must stay.
+  # Without this, deleting the field unconditionally would also pass.
+  test "the edit form still submits a lock time for an off-chain contest" do
+    offchain = Contest.new(
+      name: "Strand Offchain Form", slug: "strand-offchain-form", slate: @slate, contest_type: "tiny",
+      status: :open, entry_fee_cents: 100, max_entries: 10, user: @admin
+    )
+    offchain.skip_onchain_callback = true
+    offchain.save!
+    assert_not offchain.onchain_verified?, "premise: this contest is not on chain"
+
+    log_in_as(@admin)
+    get edit_contest_path(offchain)
+
+    assert_response :success
+    assert_select "input[name=?]", "contest[starts_at]", true,
+      "the off-chain lock still travels with the form"
+  end
+
+  # RESUBMITTING THE PERSISTED VALUE IS NOT A MOVE. A stale tab or a direct API
+  # call that echoes the stored timestamp back must not 422 — the guard refuses
+  # a CHANGE of deadline, not the mention of one.
+  test "re-submitting a verified contest's existing start time is not a lock move" do
+    verified = onchain_contest("Strand Echo", "strand-echo")
+    verified.update!(starts_at: Time.at(Time.current.to_i + 3600))
+    original = verified.reload.starts_at
+
+    log_in_as(@admin)
+    vault = FakeVault.new
+
+    Solana::Vault.stub :new, vault do
+      patch contest_path(verified),
+        params: { contest: { name: "Strand Echoed", starts_at: original.iso8601 } }
+    end
+
+    assert_equal "Strand Echoed", verified.reload.name,
+      "echoing the stored deadline back is not a move and must not block the edit"
+    assert_equal original.to_i, verified.starts_at.to_i
+    assert_empty vault.set_lock_time_calls
+  end
+
 
   # ───────────────────────────────────────────────────────────────────────────
   # THE PREDICATE ITSELF
@@ -178,5 +249,18 @@ class ContestsPendingVisibilityTest < ActionDispatch::IntegrationTest
     assert @pending.onchain?
     assert @pending.skip_onchain_callback_active?,
       "the callback guard must still refuse to re-broadcast for a row that already names a PDA"
+  end
+
+  private
+
+  def onchain_contest(name, slug)
+    contest = Contest.new(
+      name: name, slug: slug, slate: @slate, contest_type: "tiny",
+      status: :open, entry_fee_cents: 100, max_entries: 10, user: @admin,
+      onchain_contest_id: "cpda-#{slug}"
+    )
+    contest.skip_onchain_callback = true
+    contest.save!
+    contest
   end
 end

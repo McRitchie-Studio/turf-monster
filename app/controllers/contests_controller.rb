@@ -1655,6 +1655,24 @@ class ContestsController < ApplicationController
   # prepare_lock_time builds the TX (bot pays the fee, Phantom signs the admin
   # slot); the client signs + broadcasts; confirm_lock_time verifies on-chain
   # then mirrors starts_at (chain is master — DB only moves post-confirm).
+  #
+  # TWO WAYS TO NAME THE MOMENT, because the quick buttons and a real reschedule
+  # want different things and only one of them fits a relative offset:
+  #
+  #   in_seconds      RELATIVE, clamped 0..3600 — "Lock now" and the "Lock in
+  #                   60s" testing buttons on the contest page.
+  #   lock_timestamp  ABSOLUTE Unix seconds — the only shape that can say "next
+  #                   Sunday at 4:25pm" for an NFL flex reschedule. `0` CLEARS
+  #                   the lock and re-opens entries; that is the program's own
+  #                   contract, not a convention invented here (turf_vault
+  #                   set_contest_lock_time: "new_lock_timestamp == 0 clears
+  #                   the lock (enterable indefinitely)").
+  #
+  # The absolute form wins when present. WITHOUT IT THIS ENDPOINT COULD NOT
+  # REPLACE THE SERVER-SIGNED PATH IT RETIRES: the old #update sent an unclamped
+  # absolute timestamp and sent 0 to clear, so a relative-only Phantom route
+  # would have removed two operator capabilities rather than moving them onto
+  # the operator's own key.
   def prepare_lock_time
     return render json: { success: false, error: "Phantom session required" }, status: :forbidden unless onchain_session?
 
@@ -1663,14 +1681,13 @@ class ContestsController < ApplicationController
       raise "Phantom wallet required" unless current_user.phantom_wallet?
       raise "Contest already concluded — lock time can't change" if @contest.settled?
 
-      seconds = params[:in_seconds].to_i.clamp(0, 3600)
-      lock_at = Time.current + seconds.seconds
+      lock_ts = requested_lock_timestamp
 
       result = Solana::Vault.new.build_set_contest_lock_time(
-        @contest.slug, lock_at.to_i, admin_pubkey: current_user.web3_solana_address
+        @contest.slug, lock_ts, admin_pubkey: current_user.web3_solana_address
       )
 
-      render json: { success: true, serialized_tx: result[:serialized_tx], lock_timestamp: lock_at.to_i }
+      render json: { success: true, serialized_tx: result[:serialized_tx], lock_timestamp: lock_ts }
     end
   rescue StandardError => e
     render json: { success: false, error: e.message }, status: :unprocessable_entity
@@ -1679,8 +1696,15 @@ class ContestsController < ApplicationController
   def confirm_lock_time
     rescue_and_log(target: @contest) do
       raise "Wallet not linked" unless current_user.web3_solana_address.present?
+      # ABSENT AND ZERO ARE DIFFERENT ANSWERS. Absent is a malformed call; zero
+      # is the operator CLEARING the lock, which the program defines as valid
+      # (`new_lock_timestamp == 0` = enterable indefinitely). `.to_i.positive?`
+      # collapsed the two and made clearing unreachable through Phantom — the
+      # one capability the retired server-signed #update still had, since it
+      # sent `starts_at&.to_i || 0`.
+      raise "Missing lock timestamp" unless params[:lock_timestamp].present?
       lock_ts = params[:lock_timestamp].to_i
-      raise "Missing lock timestamp" unless lock_ts.positive?
+      raise "Lock timestamp can't be negative" if lock_ts.negative?
 
       contest_pda_b58 = Solana::Keypair.encode_base58(
         Solana::Vault.new.contest_pda(@contest.slug).first
@@ -1693,7 +1717,9 @@ class ContestsController < ApplicationController
       )
 
       # Chain is master — mirror starts_at only after the on-chain TX confirms.
-      @contest.update!(starts_at: Time.at(lock_ts))
+      # nil is the DB's spelling of chain 0: the same mapping the server-signed
+      # path used in reverse when it sent `starts_at&.to_i || 0`.
+      @contest.update!(starts_at: lock_ts.zero? ? nil : Time.at(lock_ts))
 
       render json: { success: true, redirect: contest_path(@contest), locks_at: @contest.locks_at&.iso8601 }
     end
@@ -2883,14 +2909,41 @@ class ContestsController < ApplicationController
   # because #update has to refuse before the write rather than after it —
   # `saved_change_to_starts_at?` can only answer once the row has already moved.
   #
-  # COMPARED IN WHOLE SECONDS, deliberately. Unix seconds is the granularity the
-  # chain stores (set_contest_lock_time takes an i64 of them), and the edit
-  # form's picker round-trips starts_at through a minute-granular control. A
-  # strict dirty check would therefore read sub-second re-serialization as a
-  # lock move and refuse an admin who only renamed an on-chain contest.
+  # COMPARED IN WHOLE SECONDS — the granularity the chain stores, since
+  # set_contest_lock_time takes an i64 of them. Any difference above that is a
+  # real move and is refused.
+  #
+  # THIS IS A BACKSTOP, NOT THE MECHANISM, and an earlier version of this
+  # comment got that wrong in a way that hid a bug. It claimed the whole-second
+  # compare also absorbed the edit form's minute-granular picker. It does not:
+  # contest_lock_picker's sync() writes `toISOString().substring(0, 16)`, which
+  # DROPS SECONDS, and init() writes it on page load with no operator input. So
+  # a contest locked at 12:34:56 by confirm_lock_time or the QA driver
+  # resubmitted 12:34:00 — 56 seconds off — and a pure rename was refused as a
+  # lock move. The fix is at the source: contests/edit.html.erb no longer emits
+  # contest[starts_at] for an on-chain contest at all, so the form cannot
+  # express a lock move on one. Loosening this compare to whole minutes was the
+  # tempting alternative and is the wrong trade — it would hand back 59 seconds
+  # of lock movement that nobody's Phantom ever signed.
   def lock_time_moved?(contest)
     return false unless contest.will_save_change_to_starts_at?
 
     contest.starts_at_was&.to_i != contest.starts_at&.to_i
+  end
+
+  # Unix seconds for the lock the client asked for: the ABSOLUTE value when it
+  # named one, else the clamped RELATIVE offset the quick buttons send.
+  #
+  # `present?`, not `key?` — and in Ruby integer 0 IS present, so a deliberate
+  # "clear the lock" survives the check while an absent param falls through to
+  # the relative branch instead of silently reading as a clear.
+  def requested_lock_timestamp
+    return (Time.current + params[:in_seconds].to_i.clamp(0, 3600).seconds).to_i unless
+      params[:lock_timestamp].present?
+
+    ts = params[:lock_timestamp].to_i
+    raise "Lock timestamp can't be negative" if ts.negative?
+
+    ts
   end
 end

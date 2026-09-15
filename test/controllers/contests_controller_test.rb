@@ -2520,6 +2520,89 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert_in_delta lock_ts, @contest.reload.starts_at.to_i, 2
   end
 
+  # THE TWO CAPABILITIES THE SERVER-SIGNED PATH STILL HAD. Routing the lock
+  # through Phantom is only a move, not a loss, if the Phantom route can say
+  # everything the retired one could: an ARBITRARY moment (an NFL flex
+  # reschedule days out, which a 0..3600s relative offset cannot reach) and NO
+  # LOCK AT ALL (the old #update sent `starts_at&.to_i || 0`).
+
+  test "prepare_lock_time accepts an absolute timestamp beyond the relative clamp" do
+    admin = users(:alex)
+    admin.update!(web3_solana_address: "Web3Abs#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_abs#{SecureRandom.hex(4)}", season_id: 1)
+    SeasonConfig.set_current!(1)
+    log_in_as_onchain(admin)
+
+    # Three days out — far outside the 3600s ceiling the quick buttons clamp to,
+    # so a relative-only endpoint could not express it at all.
+    lock_at = 3.days.from_now.to_i
+    vault = FakeVault.new
+    Solana::Vault.stub :new, vault do
+      post prepare_lock_time_contest_path(@contest), params: { lock_timestamp: lock_at }, as: :json
+    end
+
+    assert_response :success
+    assert_equal lock_at, JSON.parse(response.body)["lock_timestamp"],
+      "the absolute moment must survive to the client unchanged"
+    assert_equal lock_at, vault.lock_calls.first[:lock_timestamp],
+      "and reach the builder unclamped — a clamp here is a silently wrong deadline"
+  end
+
+  test "prepare_lock_time treats a zero timestamp as clearing the lock" do
+    admin = users(:alex)
+    admin.update!(web3_solana_address: "Web3Clr#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_clr#{SecureRandom.hex(4)}", season_id: 1)
+    SeasonConfig.set_current!(1)
+    log_in_as_onchain(admin)
+
+    vault = FakeVault.new
+    Solana::Vault.stub :new, vault do
+      post prepare_lock_time_contest_path(@contest), params: { lock_timestamp: 0 }, as: :json
+    end
+
+    assert_response :success
+    assert_equal 0, vault.lock_calls.first[:lock_timestamp],
+      "0 is the program's own spelling of 'no lock' — it must not fall through to a relative 'now'"
+  end
+
+  test "confirm_lock_time clears starts_at when the confirmed timestamp is zero" do
+    admin = users(:alex)
+    admin.update!(web3_solana_address: "Web3ClrC#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_clrc#{SecureRandom.hex(4)}", starts_at: 1.hour.from_now)
+    log_in_as_onchain(admin)
+    assert @contest.reload.starts_at.present?, "premise: the contest starts with a lock to clear"
+
+    vault = FakeVault.new
+    Solana::Vault.stub :new, vault do
+      Solana::Keypair.stub :encode_base58, ->(v) { v.is_a?(String) ? v : v.to_s } do
+        Solana::TxVerifier.stub :verify!, true do
+          post confirm_lock_time_contest_path(@contest),
+            params: { tx_signature: "clear-sig-1", lock_timestamp: 0 }, as: :json
+        end
+      end
+    end
+
+    assert_response :success
+    assert_nil @contest.reload.starts_at,
+      "nil starts_at is the DB's spelling of chain 0 — entries re-open"
+  end
+
+  # ABSENT is still an error. It has to stay distinguishable from zero, or the
+  # clear path above would swallow every malformed call as 'clear the lock'.
+  test "confirm_lock_time still rejects a missing timestamp" do
+    admin = users(:alex)
+    admin.update!(web3_solana_address: "Web3Miss#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_miss#{SecureRandom.hex(4)}", starts_at: 1.hour.from_now)
+    original = @contest.reload.starts_at
+    log_in_as_onchain(admin)
+
+    post confirm_lock_time_contest_path(@contest), params: { tx_signature: "no-ts-sig" }, as: :json
+
+    assert_response :unprocessable_entity
+    assert_match(/Missing lock timestamp/, JSON.parse(response.body)["error"])
+    assert_equal original.to_i, @contest.reload.starts_at.to_i, "a malformed call must not clear the lock"
+  end
+
   # --- prepare_conclusion_time / confirm_conclusion_time (v0.18) ---
 
   test "prepare_conclusion_time builds a Phantom-signable set_contest_conclusion_time TX" do
