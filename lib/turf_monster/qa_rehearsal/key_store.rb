@@ -12,11 +12,14 @@ module TurfMonster
     #     1Password daily request cap is ACCOUNT-WIDE, shared by every service
     #     account and lane, so a driver that re-reads per step can exhaust a
     #     quota that has nothing to do with this rehearsal.
-    #   * ACCEPT BOTH KEY FORMATS. The vault is not internally consistent:
-    #     `agent.mason.solana` holds an 88-character base58 secret, while
-    #     `agent.turf.solana` holds a Solana-CLI JSON byte array. A loader that
-    #     assumed either one fails on the other with "Invalid base58 character",
-    #     which reads like a corrupt key rather than a second valid encoding.
+    #   * ACCEPT BOTH KEY FORMATS. `agent.mason.solana` holds an 88-character
+    #     base58 secret; a Solana-CLI export is a JSON array of 64 bytes
+    #     instead. A loader that assumed either one fails on the other with
+    #     "Invalid base58 character", which reads like a corrupt key rather
+    #     than a second valid encoding. Every item ITEMS can reach files base58
+    #     as of 2026-09-15, so the JSON branch is DEFENSIVE today rather than
+    #     load-bearing -- kept because this vault was restructured three times
+    #     in one day and the branch costs four lines.
     #   * NEVER RETURN OR LOG THE SECRET. Callers get a Solana::Keypair and can
     #     ask it for a public key; the secret never leaves this file.
     #
@@ -38,12 +41,13 @@ module TurfMonster
       # precedence.
       #
       # ADDRESS WAS A SCALAR UNTIL 2026-09-15, and that is the exact shape of
-      # bug this file exists to prevent. agent.turf.solana was refiled with
-      # hyphenated labels, so a reader keyed to "wallet address" alone found
-      # nothing on it -- and because an absent address SKIPPED the cross-check
-      # below rather than failing it, the one guard that catches a key filed
-      # under the wrong name would have switched itself off in silence, on the
-      # one item whose filing had just changed.
+      # bug this file exists to prevent. The turf keys were refiled with
+      # hyphenated labels -- all three solana.turf.* items spell them
+      # `wallet-address` / `private-key` -- so a reader keyed to "wallet
+      # address" alone found nothing on them. And because an absent address
+      # SKIPPED the cross-check below rather than failing it, the one guard that
+      # catches a key filed under the wrong name would have switched itself off
+      # in silence, on the very items whose filing had just changed.
       SECRET_FIELDS  = ["private key", "private-key"].freeze
       ADDRESS_FIELDS = ["wallet address", "wallet-address"].freeze
 
@@ -53,7 +57,8 @@ module TurfMonster
       Item = Struct.new(:title, :id, keyword_init: true) do
         # An ID is unambiguous; a title is a search. Prefer the pin when one
         # exists, but keep reporting the title -- an error naming a UUID sends
-        # the reader to the wrong place.
+        # the reader to the wrong place. NO slug sets an id today, and ITEMS
+        # explains at length why the last one was removed rather than repointed.
         def locator
           id || title
         end
@@ -69,41 +74,66 @@ module TurfMonster
       # him, not here.
       #
       # THERE IS NO "alex"/"xan" CAST MEMBER, AND ADDING ONE BACK IS A MISTAKE.
-      # The Xan wallet (8K81…, the identity this file called "Alex Bot" until
-      # 2026-09-15) IS the fee payer and contest creator -- but the SERVER signs
-      # as it from SOLANA_ADMIN_KEY on the dyno, never through this class, and
+      # Xan (8K81…, the identity this file called "Alex Bot" until 2026-09-15)
+      # is the fee payer and contest creator -- but the SERVER signs as it from
+      # SOLANA_ADMIN_KEY on the dyno, never through this class, and
       # Driver::DEFAULT_CAST explains why it could not play even if it were
-      # filed. On 2026-09-15 its item was renamed agent.xan.solana AND moved to
-      # the studio-agents-admin vault, which this service account cannot read.
-      # That inaccessibility is the control, not an oversight: it is what drops
-      # an agent from 2-of-3 to 1-of-3 on both Squads multisigs. So repointing
-      # this map at agent.xan.solana would only trade a not-found for a
-      # permissions error, and "fixing" those permissions would quietly undo the
-      # separation. The entry is gone; leave it gone.
+      # filed. Its item is agent.xan.solana in the studio-agents-admin vault,
+      # which this service account cannot read. The entry is gone; leave it gone.
       #
-      # TWO TURF WALLETS, ON PURPOSE.
+      # PINNED BY TITLE, NOT BY ID -- and the id pin this replaces is why.
       #
-      # "turf-admin" (agent.turf.solana, BLSBw8fX) is the turf-5 ADMIN account.
+      # Until 2026-09-15 "turf-admin" was pinned to item id
+      # mczgzinhh42mlltd6h4yvladhi, because two items then shared the title
+      # "agent.turf.solana" and a title read failed with "More than one item
+      # matches". Mr. McRitchie then RECREATED the turf keys under unique,
+      # role-specific titles -- and a recreated item gets a NEW id, so the pin
+      # resolved to an item that no longer existed and every turf-admin read
+      # failed outright. An id is only unambiguous while the OBJECT survives;
+      # it does not survive a re-file, which is the act that keeps happening.
+      #
+      # AN ID PIN ALSO DISARMS AmbiguousItemError. `op item get <id>` resolves
+      # directly and can never report a collision, so the guard in
+      # #op_read_item is unreachable for any slug pinned by id. Pinning by
+      # title is what keeps that guard armed -- "pin by id and keep the guard"
+      # would keep a guard that cannot fire.
+      #
+      # The two failures are asymmetric in the right direction. A collision
+      # raises AmbiguousItemError, which names the item, the vault, and the
+      # fix. A dead id is a bare not-found: no remedy in the message, and the
+      # replacement id discoverable only by listing the vault. The titles below
+      # were verified unique in studio-agents on 2026-09-15 (`op item list`),
+      # and the new scheme is unique BY CONSTRUCTION -- each title names one
+      # role, so filing a further key produces a DIFFERENT title rather than a
+      # second copy of this one. That is exactly the property the old
+      # role-generic `agent.turf.solana` lacked, and why it collided.
+      #
+      # Ids are recorded here as PROVENANCE only -- never passed to `op` -- so a
+      # reader whose title read comes back empty can find the item without
+      # listing the vault:
+      #   solana.turf.admin          2xrfvfho2txchqtem565wmmmfu  BLSBw8fX…
+      #   solana.turf.system         hvt5htkgjqsilq5blv3uztqie4  7auwTLSv…  server, MAINNET
+      #   solana.turf.system.devnet  luzehmyewswpnbgytyawc25sdy  2eGs8G3w…  server, DEVNET/QA
+      #
+      # ONLY THE FIRST IS FILED BELOW. The two system items are the SERVER's
+      # operational keys, reached through SOLANA_ADMIN_KEY on the dyno; this
+      # rehearsal never signs as them, so adding them here would widen what a
+      # rehearsal can move for no gain.
+      #
+      # "turf-admin" (solana.turf.admin, BLSBw8fX) is the turf-5 ADMIN account.
       # It drives the admin HTTP surface and cannot play: its username is the
       # reserved prefix "turf" and it has no on-chain UserAccount, so the
-      # program refuses to register it (6020 UsernameReserved).
+      # program refuses to register it (6020 UsernameReserved). The wallet is
+      # unchanged across the re-file -- the item moved, the identity did not.
       #
-      # It is also THE ONE ITEM PINNED BY ID. Two items in this vault carry the
-      # exact title "agent.turf.solana": mczgzin… (both system wallets, the
-      # hyphenated labels) and wriypyv… (the mainnet wallet only, spaced
-      # labels). A title read matches both and `op` refuses with "More than one
-      # item matches" -- a hard failure mid-rehearsal, for a reason no stack
-      # trace explains. The pin is on the NEWER item, and BLSBw8fX is the same
-      # wallet the older one held, so this resolves the ambiguity without
-      # changing which key the rehearsal acts as. It also survives a human
-      # deleting the duplicate, which is the point: vault tidying is not a
-      # dependency of this code path.
-      #
-      # NOTE the pinned item also carries devnet-wallet-address /
-      # devnet-private-key (2eGs8G3w…), a DIFFERENT wallet. SECRET_FIELDS and
-      # ADDRESS_FIELDS deliberately do not name those labels. turf-5's on-chain
-      # identity in QA is BLSBw8fX, so picking up the devnet pair would sign as
-      # an account the app has never heard of.
+      # THE DEVNET PAIR NO LONGER RIDES ALONG. The old pinned item also carried
+      # devnet-wallet-address / devnet-private-key (2eGs8G3w…), a DIFFERENT
+      # wallet, so SECRET_FIELDS and ADDRESS_FIELDS had to avoid those labels or
+      # the rehearsal would sign as an account the app has never heard of. That
+      # wallet is now its own item (solana.turf.system.devnet) and
+      # solana.turf.admin files exactly one pair -- verified 2026-09-15. The
+      # label lists still exclude the devnet spellings, which now costs nothing
+      # and keeps the guarantee if the pair is ever recombined.
       #
       # "turf" (phantom.turf, 39QTL1dd) is the PLAYER. Its UserAccount already
       # exists, which is the whole reason it works -- ensure_user_account
@@ -112,8 +142,7 @@ module TurfMonster
         "mason"      => Item.new(title: "agent.mason.solana"),
         "mack"       => Item.new(title: "agent.mack.solana"),
         "turf"       => Item.new(title: "phantom.turf"),
-        "turf-admin" => Item.new(title: "agent.turf.solana",
-                                 id: "mczgzinhh42mlltd6h4yvladhi")
+        "turf-admin" => Item.new(title: "solana.turf.admin")
       }.freeze
 
       def initialize(runner: nil)

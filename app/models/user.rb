@@ -237,7 +237,7 @@ class User < ApplicationRecord
     find_by(web3_solana_address: address)
   end
 
-  # The "Turf Monster" house account (seeded admin, tied to the agent.turf.solana
+  # The "Turf Monster" house account (seeded admin, tied to the solana.turf.admin
   # wallet). It's the display author for system chat announcements — e.g. the
   # "<name> joined the contest" line, which is posted as a reactable bubble FROM
   # Turf Monster. Returns nil only in an unseeded DB (callers fall back). Not

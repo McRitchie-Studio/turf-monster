@@ -397,6 +397,54 @@ module Solana
     # current. These are PUBLIC keys and are overridden by the
     # SOLANA_MULTISIG_SIGNERS env var (and authoritatively by VaultState.signers
     # on-chain) in every deployed environment — the literal is a fallback only.
+    #
+    # THREE DIFFERENT "ADMIN" SETS MEET HERE AND ONLY ONE IS THIS CONSTANT.
+    # Collapsing them is the recurring bug; all three moved in one day once.
+    #
+    #   1. THIS LIST models VaultState.signers — treasury and governance
+    #      cosign, changed only by an `update_signers` transaction. Measured
+    #      on-chain at `finalized` 2026-09-15: 2-of-3, 8K81…/7ZDJ…/CytJ…,
+    #      identical on mainnet and devnet. The literal below matched that
+    #      measurement on that date.
+    #   2. THE SQUADS V4 MULTISIG holds the program UPGRADE authority and is a
+    #      different account entirely. A config transaction at 2026-09-15 09:41
+    #      moved it to 3-of-4 (3Qj4v9…, 7ZDJ…, 9gACbz…, BLSBw8…), REMOVING
+    #      8K81… and CytJ… from both clusters. It changed nothing in (1) — and
+    #      that divergence is the proof these are separate authorities rather
+    #      than two views of one. Before that day they happened to agree, which
+    #      is exactly why the conflation kept surviving review.
+    #   3. KeyStore::ITEMS["turf-admin"] is a 1PASSWORD FILING — which wallet an
+    #      agent rehearsal signs the admin HTTP surface as. It moved to
+    #      solana.turf.admin (BLSBw8fX…) the same day. A re-file is not an
+    #      on-chain event and is never evidence of one.
+    #
+    # THE TWO SETS DIFFER BY EXACTLY ONE WALLET, ON PURPOSE, AND ARE NOT MEANT
+    # TO CONVERGE. Squads (upgrade) is FOUR at threshold 3 and is LIVE:
+    # BLSBw8…, 7ZDJ…, 3Qj4v9…, 9gACbz…. VaultState (the money) is FIVE and is
+    # the TARGET: those four PLUS system 7auwTL…, which is deliberately OFF
+    # Squads. FIVE IS NOT WRITABLE YET — the deployed v0.25.0 takes
+    # `update_signers(new_signers: [Pubkey; 3])`, so the five-member set needs
+    # v0.26 on-chain first; MAINNET_LAUNCH.md carries the forced order. 7auwTL… is the app's HOT key — it sits in Heroku config on a
+    # running dyno and signs every entry and payout, so it is the most exposed
+    # key here and the last that should hold upgrade authority; it also has no
+    # job there, since upgrading is a rare human act, never an unattended one.
+    # So "four" and "five" name different sets, not a stale count.
+    #
+    # SO: read VaultState.signers for what this constant should say, and read
+    # the Squads multisig for who may upgrade. Neither answers the other, and a
+    # 1Password item answers neither. NEVER write "the multisig" unqualified in
+    # this file — say Squads or VaultState; the unqualified form is what
+    # produced the claims this comment replaces. Dates above are measurements,
+    # not guarantees — re-read the chain rather than trusting this comment's age.
+    #
+    # HOW MANY SLOTS VaultState HAS DEPENDS ON WHICH BUILD YOU MEAN. The
+    # DEPLOYED v0.25.0 declares `signers: [Pubkey; 3]`. turf-vault's `accepted`
+    # APPENDS `signers_ext: [Pubkey; 2]` at offset 1443 and reads the whole set
+    # through `all_signers()` — five slots, APPENDED rather than widened so the
+    # upgrade stays layout-compatible on a zero_copy singleton. "Three" and
+    # "five" are each true of a different build, and that gap is the design,
+    # not a discrepancy. Check what the cluster actually runs before trusting
+    # any count — including this one.
     MULTISIG_SIGNERS = ENV.fetch("SOLANA_MULTISIG_SIGNERS",
       "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd,7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr,CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR"
     ).split(",")
