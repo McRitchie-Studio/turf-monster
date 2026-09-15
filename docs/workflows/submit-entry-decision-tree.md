@@ -120,13 +120,13 @@ raises "No entry tokens" instead.
 | `assert_enterable!` pre-flight — `Entry#assert_enterable!` | `#enter` at `:896`; definition `app/models/entry.rb:125-159` |
 | season configured? | `#enter` at `app/controllers/contests_controller.rb:901-903` |
 | paid contest with no on-chain PDA → refuse | `#enter` at `:910-912` |
-| payment branch — `ContestsController#resolve_web2_entry_funding!` | `:1918-1990` |
-| token → `Solana::Vault#enter_contest_with_token` | `#resolve_web2_entry_funding!` at `:1934-1946` |
-| no token, `AppFlags.web2_usdc_entry?` → `Solana::Vault#enter_contest_with_usdc` | `#resolve_web2_entry_funding!` at `:1947-1986` |
-| neither → "No entry tokens" | `#resolve_web2_entry_funding!` at `:1988` |
+| payment branch — `ContestsController#resolve_web2_entry_funding!` | `:1944-2016` |
+| token → `Solana::Vault#enter_contest_with_token` | `#resolve_web2_entry_funding!` at `:1960-1972` |
+| no token, `AppFlags.web2_usdc_entry?` → `Solana::Vault#enter_contest_with_usdc` | `#resolve_web2_entry_funding!` at `:1973-2012` |
+| neither → "No entry tokens" | `#resolve_web2_entry_funding!` at `:2014` |
 | durable capture, OUTSIDE the lock | `#enter` at `:930` |
-| `ContestsController#finalize_managed_entry!` → `Entry#confirm!` | `:2089-2115` |
-| transient failure after the spend → `Entries::OnchainReconcileJob.perform_later` | `#finalize_managed_entry!` at `:2114` |
+| `ContestsController#finalize_managed_entry!` → `Entry#confirm!` | `:2115-2141` |
+| transient failure after the spend → `Entries::OnchainReconcileJob.perform_later` | `#finalize_managed_entry!` at `:2140` |
 
 **Why the gate ordering is sacred:** incident 2026-06-08 — the consume ran
 before a validation gate; the gate then failed and the user was paid-on-chain
@@ -213,7 +213,7 @@ confirm_onchain_entry
 | C1 cosign guard — `Solana::Vault#assert_entry_cosign_safe!` | `#confirm_onchain_entry` at `:1411`; definition `app/services/solana/vault.rb:2279-2375` |
 | cosign + simulate + broadcast — `Solana::Vault#cosign_and_broadcast_entry` | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1420`; definition `app/services/solana/vault.rb:2465-2485` |
 | PT stamped with `tx_signature` immediately | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1432` |
-| `ContestsController#verify_and_confirm_onchain_entry!` | `#confirm_onchain_entry` at `:1438-1441`; definition `:2696-2712` |
+| `ContestsController#verify_and_confirm_onchain_entry!` | `#confirm_onchain_entry` at `:1438-1441`; definition `:2722-2738` |
 | PT confirmed | `#confirm_onchain_entry` at `:1443` |
 
 ## 4. Can funds be taken without an entry? (the full inventory)
@@ -238,8 +238,8 @@ and every such case except #3/#6 self-heals automatically.
 - **Trigger**: automatic, on contest-page load, ONLY when the viewer has a
   pending/submitted PT **with a tx_signature** (= broadcast actually happened;
   money may have moved) — `ContestsController#find_pending_recovery_ptx`
-  (`app/controllers/contests_controller.rb:2808-2828`) returns only a signed one
-  (`:2827`). Signatureless PTs trigger nothing — stale ones
+  (`app/controllers/contests_controller.rb:2834-2854`) returns only a signed one
+  (`:2853`). Signatureless PTs trigger nothing — stale ones
   (>10 min, never racing a mid-confirm tab) are silently expired.
 - **Logic**, in `ContestsController#recover_pending_entry`
   (`app/controllers/contests_controller.rb:1253-1351`): entry already active →
@@ -256,7 +256,7 @@ and every such case except #3/#6 self-heals automatically.
 ### 5.2 `Entries::OnchainReconcileJob` / `OnchainReconciler` (web2)
 - **Triggers**: (a) enqueued inline by `ContestsController#finalize_managed_entry!`
   when `confirm!` fails after a successful consume/transfer
-  (`app/controllers/contests_controller.rb:2114`); (b) a no-arg sweep over all
+  (`app/controllers/contests_controller.rb:2140`); (b) a no-arg sweep over all
   eligible open contests via the `reconcile_onchain` task
   (`lib/tasks/entries.rake:33`) or `Entries::OnchainReconcileJob#perform` with no id
   (`app/jobs/entries/onchain_reconcile_job.rb:13-42`, sweep branch at `:26`), which
@@ -281,7 +281,7 @@ and every such case except #3/#6 self-heals automatically.
 ### 5.3 Page-load stale-PT expiry (web3 hygiene)
 Signatureless pending PTs older than 10 minutes are flipped to `expired`
 during contest-page load, inside `ContestsController#find_pending_recovery_ptx`
-(`app/controllers/contests_controller.rb:2823-2825`). Pure cleanup; never touches
+(`app/controllers/contests_controller.rb:2849-2851`). Pure cleanup; never touches
 a PT with a signature.
 
 ### 5.4 Operator surfaces (manual)
