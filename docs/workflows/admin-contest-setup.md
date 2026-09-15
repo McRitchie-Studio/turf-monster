@@ -35,7 +35,7 @@
 **Outcome:** New on-chain `Contest` PDA funded with the prize pool; matching DB `Contest` row promoted to `open`; admin's `Entry` PDA created + DB entry `active`; admin's `UserAccount` PDA seeded.
 **Preconditions:**
 - Admin has `role == "admin"` (`User#admin?` — `app/models/user.rb:263-265`) and a linked Phantom wallet (`web3_solana_address`). Admins are web3-only by policy — `User#generate_managed_wallet!` early-returns for admins (`app/models/user.rb:586`, OPSEC-044).
-- `EXPECTED_IDL_HASH` matches `config/turf_vault.idl.json` (verified at boot — `Solana::Config.verify_idl!`, `app/services/solana/config.rb`).
+- `EXPECTED_IDL_HASH` matches the IDL THIS app selects — `config/turf_vault.idl.json` on devnet with the governance switch off, one of four artifacts keyed by `SOLANA_NETWORK` and `SOLANA_VAULT_GOVERNANCE` (`lib/solana/idl_selection.rb`). Verified at boot — `Solana::Config.verify_idl!`, `app/services/solana/config.rb`.
 - An active `SeasonConfig.current_season_id` exists. Without it, `ContestsController#enter` raises before any consume (`app/controllers/contests_controller.rb:901-903`).
 
 ## Sequence
