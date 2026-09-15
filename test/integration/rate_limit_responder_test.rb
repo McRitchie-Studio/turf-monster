@@ -97,4 +97,20 @@ class RateLimitResponderTest < ActiveSupport::TestCase
     assert_equal 10, throttle.limit
     assert_equal 60, throttle.period
   end
+  # THE EXACT-PATH MATCH IS ONLY AS GOOD AS THE ROUTE. The throttle above
+  # compares req.path with ==, so a route that still accepts an optional
+  # (.:format) segment is throttled at its bare path and EXEMPT at
+  # /cdp/offramp/cosign_send.json — same action, same admin SOL, no cap. This
+  # repo already learned that on the PayPal fee-bleed routes and fixed it with
+  # `format: false` (config/routes.rb, tokens/paypal_order); the cash-out
+  # routes now carry the same remedy, and this pins it.
+  test "the admin-SOL cash-out routes refuse a .json suffix so the throttle cannot be bypassed" do
+    %w[cosign_send prepare_send].each do |action|
+      assert_raises(ActionController::RoutingError,
+                    "POST /cdp/offramp/#{action}.json must not dispatch — it would reach the " \
+                    "same action while skipping the cdp_offramp_send/user throttle") do
+        Rails.application.routes.recognize_path("/cdp/offramp/#{action}.json", method: :post)
+      end
+    end
+  end
 end
