@@ -333,19 +333,27 @@ Use `turf-vault/scripts/squad-upgrade.js` — it builds a buffer, sets the buffe
 **Post-deploy IDL re-pin (mandatory)**: After every Squad upgrade, turf-monster MUST re-pin `EXPECTED_IDL_HASH` from the **freshly built** IDL — NOT `anchor idl fetch`. Squad upgrades run only the BPF `upgrade` instruction; they do NOT update the on-chain IDL account. `anchor idl fetch` therefore returns the stale pre-upgrade IDL.
 
 ```bash
-# After deploying turf-vault, re-pin the IDL file of the CLUSTER YOU UPGRADED.
-# Each cluster commits its own file (they differ only in `address`):
-#   mainnet -> config/turf_vault.mainnet.idl.json  (build with --features mainnet)
-#   devnet  -> config/turf_vault.idl.json          (default build)
+# After deploying turf-vault, re-pin the IDL file of the CLUSTER YOU UPGRADED —
+# and of the program VERSION you upgraded to. FOUR artifacts, cluster x version;
+# cluster files differ only in `address`, and SOLANA_VAULT_GOVERNANCE picks the
+# version half:
+#   mainnet v0.25 -> config/turf_vault.mainnet.idl.json       (--features mainnet)
+#   mainnet v0.26 -> config/turf_vault.mainnet.v026.idl.json  (--features mainnet)
+#   devnet  v0.25 -> config/turf_vault.idl.json               (default build)
+#   devnet  v0.26 -> config/turf_vault.v026.idl.json          (default build)
+# lib/solana/idl_selection.rb owns that choice: Solana::Config applies it to ENV
+# at boot, bin/deploy applies it to the TARGET app's config vars.
 cp /Users/alex/projects/turf-vault/target/idl/turf_vault.json \
    /Users/alex/projects/turf-monster/config/turf_vault.mainnet.idl.json
 cd /Users/alex/projects/turf-monster
 jq -r .address config/turf_vault.mainnet.idl.json   # must be that cluster's program ID
 shasum -a 256 config/turf_vault.mainnet.idl.json    # → the new EXPECTED_IDL_HASH
 
-# Commit, then deploy. bin/deploy reads the app's SOLANA_NETWORK to pick the file,
-# widens EXPECTED_IDL_HASH to {old,new}, pushes, then tightens it to {new}, so
-# both slugs verify across the release with no manual heroku config:set.
+# Commit, then deploy. bin/deploy asks that same rule which file the TARGET boots
+# against — SOLANA_NETWORK *and* SOLANA_VAULT_GOVERNANCE — widens
+# EXPECTED_IDL_HASH to {old,new}, pushes, then tightens to the hashes this slug
+# ships for that cluster: both switch positions, so a `heroku config:unset
+# SOLANA_VAULT_GOVERNANCE` rollback still boots. No manual heroku config:set.
 git add config/turf_vault.mainnet.idl.json
 git commit -m "Re-pin IDL after turf-vault vX.Y.Z deploy"
 bin/deploy

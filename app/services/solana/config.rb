@@ -602,34 +602,22 @@ module Solana
     # second Squads ceremony — so the program upgrade is reversible from the
     # Rails side alone, and QA can exercise BOTH shapes against one slug by
     # flipping the var between rehearsals.
-    GOVERNANCE_ENV_VAR = "SOLANA_VAULT_GOVERNANCE".freeze
-    GOVERNANCE_TRUE  = %w[on 1 true yes enabled].freeze
-    GOVERNANCE_FALSE = %w[off 0 false no disabled].freeze
+    #
+    # WHERE THE RULE LIVES: `lib/solana/idl_selection.rb`, not here. The switch
+    # vocabulary, the presence-before-parse read, and the four-artifact path
+    # table are ONE implementation with two callers — this module applies it to
+    # ENV at boot, and `bin/deploy` applies it to the TARGET app's config vars
+    # before it rewrites EXPECTED_IDL_HASH. They were two implementations for
+    # one day (`make-deploy-governance-aware`): the rule changed here, the bash
+    # copy in bin/deploy did not, and the deploy would have pinned production to
+    # the hash of a file the app does not read. Plain Ruby, no Rails, because a
+    # deploy machine cannot boot this app under the target's environment —
+    # SOLANA_NETWORK=mainnet-beta trips OPSEC-039 against the local RPC.
+    GOVERNANCE_ENV_VAR = IdlSelection::GOVERNANCE_ENV_VAR
+    GOVERNANCE_TRUE  = IdlSelection::GOVERNANCE_TRUE
+    GOVERNANCE_FALSE = IdlSelection::GOVERNANCE_FALSE
 
-    GOVERNANCE = begin
-      if !ENV.key?(GOVERNANCE_ENV_VAR)
-        false
-      else
-        raw = ENV[GOVERNANCE_ENV_VAR].to_s.strip.downcase
-        if GOVERNANCE_TRUE.include?(raw)
-          true
-        elsif GOVERNANCE_FALSE.include?(raw)
-          false
-        else
-          raise <<~MSG
-            #{GOVERNANCE_ENV_VAR} is set to #{ENV[GOVERNANCE_ENV_VAR].inspect} — refusing to boot.
-
-            It selects which turf-vault instruction shape this app builds, and
-            the two shapes are mutually unintelligible on-chain. An unreadable
-            value must not resolve to a default, because the default would be
-            silently wrong on exactly the day someone meant to change it.
-
-            Accepted (case-insensitive): #{(GOVERNANCE_TRUE + GOVERNANCE_FALSE).join(" ")}
-            Unset the variable entirely for the v0.25 (pre-governance) shape.
-          MSG
-        end
-      end
-    end
+    GOVERNANCE = IdlSelection.governance?(ENV)
 
     def self.governance?
       GOVERNANCE
@@ -641,18 +629,19 @@ module Solana
     # bumping its Cargo version, so both IDLs report "0.25.0" (see
     # docs/SOLANA.md "The version string is not the discriminator").
     def self.vault_shape
-      GOVERNANCE ? "v0.26" : "v0.25"
+      IdlSelection.vault_shape(GOVERNANCE)
     end
 
-    IDL_PATH = begin
-      base = NETWORK == "mainnet-beta" ? "turf_vault.mainnet" : "turf_vault"
-      Rails.root.join("config", "#{base}#{GOVERNANCE ? ".v026" : ""}.idl.json")
-    end
+    IDL_PATH = Rails.root.join(IdlSelection.relative_idl_path(network: NETWORK, governance: GOVERNANCE))
 
     # Accepted IDL hash allow-list (audit OPSEC-014), comma-separated. A deploy
     # that bumps the IDL widens this to "<old>,<new>" so BOTH the outgoing and
     # incoming slugs verify across the release boundary, then tightens back to
-    # "<new>" — no unverified window (bin/deploy automates this). A single hash
+    # the hashes the NEW slug ships for its cluster — no unverified window
+    # (bin/deploy automates this). That tightened set is normally TWO hashes,
+    # one per switch position, because `heroku config:unset
+    # SOLANA_VAULT_GOVERNANCE` re-resolves IDL_PATH to the other shape's file
+    # and a pin of one hash would refuse that rollback the boot. A single hash
     # is just a one-element set. Empty string = unset (dev default; required in
     # production). Parse via expected_idl_hashes / idl_hash_acceptable?.
     EXPECTED_IDL_HASH = ENV.fetch("EXPECTED_IDL_HASH", "")
@@ -756,10 +745,7 @@ module Solana
     # missing or unparseable — verify_idl! owns those failures, so this stays
     # silent rather than raising a second, less informative error.
     def self.idl_instruction_names
-      return [] unless File.exist?(IDL_PATH)
-      JSON.parse(File.read(IDL_PATH)).fetch("instructions", []).map { |i| i["name"] }
-    rescue JSON::ParserError
-      []
+      IdlSelection.instruction_names(IDL_PATH)
     end
 
     # STRUCTURAL, not a version string. `init_governance` exists only in v0.26+,
@@ -769,7 +755,10 @@ module Solana
     # the version string is identical in both artifacts and would have been a
     # silently useless discriminator.
     def self.idl_declares_governance?
-      idl_instruction_names.include?("init_governance")
+      # Composed from idl_instruction_names rather than calling
+      # IdlSelection.declares_governance? directly, so the app keeps ONE read of
+      # the file and a stub of that reader still moves this answer.
+      idl_instruction_names.include?(IdlSelection::GOVERNANCE_INSTRUCTION)
     end
 
     # Raised when SOLANA_VAULT_GOVERNANCE disagrees with the IDL it selected.
@@ -856,7 +845,8 @@ module Solana
 
         Normal IDL bumps are automated by `bin/deploy` — it widens
         EXPECTED_IDL_HASH to "<old>,<new>" across the release, then tightens to
-        "<new>", so there's no unverified window. Manual break-glass: `heroku
+        the hashes the new slug ships for this cluster, so there's no
+        unverified window. Manual break-glass: `heroku
         config:set BYPASS_IDL_CHECK=true`, deploy, set EXPECTED_IDL_HASH, then
         `heroku config:unset BYPASS_IDL_CHECK`. Don't leave BYPASS on.
         In dev/test: `unset EXPECTED_IDL_HASH`. Don't ship to prod without a pin.

@@ -129,36 +129,51 @@ class Solana::ConfigNetworkRequiredTest < ActiveSupport::TestCase
   # mainnet app verifies against — this is the coupling that made the fail-open
   # matter, not the mint defaults.
   #
-  # ── THE PREMISE MOVED, AND HERE IS EXACTLY HOW ────────────────────────────
+  # ── THE PREMISE MOVED TWICE, AND HERE IS EXACTLY HOW ──────────────────────
   #
   # This used to assert `IDL_PATH = if NETWORK == "mainnet-beta"` verbatim and
   # that no env var reached IDL_PATH at all. turf-vault v0.26 made this app
   # carry TWO program shapes in one slug (see Solana::Config GOVERNANCE), so
-  # IDL_PATH now selects on two axes — cluster AND program version — and an env
-  # var does move it.
+  # IDL_PATH selects on two axes — cluster AND program version — and an env var
+  # does move it. Then `make-deploy-governance-aware` moved the selection out of
+  # config.rb entirely, into `lib/solana/idl_selection.rb`, so that bin/deploy
+  # applies the SAME rule to the target app's config vars instead of a bash copy
+  # of it that had already gone stale.
   #
-  # The guarded property is unchanged and is asserted below in the form that
-  # still bites: THE ENV SWITCH CANNOT CHANGE THE CLUSTER. It picks a version
-  # suffix; the `turf_vault` / `turf_vault.mainnet` basename is still decided by
-  # NETWORK and by nothing else, so an unset SOLANA_NETWORK on a mainnet app
-  # still selects a devnet IDL whose hash is not in that app's allow-list, and
-  # the boot is still refused.
+  # The guarded property is unchanged through both moves, and is asserted below
+  # in the form that bites hardest: THE ENV SWITCH CANNOT CHANGE THE CLUSTER. It
+  # picks a version suffix; the `turf_vault` / `turf_vault.mainnet` basename is
+  # decided by NETWORK and by nothing else, so an unset SOLANA_NETWORK on a
+  # mainnet app still selects a devnet IDL whose hash is not in that app's
+  # allow-list, and the boot is still refused. It is asserted BEHAVIOURALLY now
+  # rather than as a regex on one expression — a source match survives only
+  # until the next refactor moves the line, which is the whole reason this guard
+  # had to be rewritten today.
   test "IDL_PATH's CLUSTER half is keyed on NETWORK alone, with no env override" do
-    source = CONFIG_RB.read
+    rule = Solana::IdlSelection
 
-    assert_match(/base = NETWORK == "mainnet-beta" \? "turf_vault\.mainnet" : "turf_vault"/, source,
-                 "if IDL_PATH stops keying its cluster on NETWORK, re-read this guard's premise")
-    assert_no_match(/base = ENV/, source,
+    [true, false].each do |governance|
+      %w[devnet localnet testnet].each do |network|
+        refute_includes rule.relative_idl_path(network: network, governance: governance), "mainnet",
+                        "the switch must not be able to name a cluster (#{network}, governance #{governance})"
+      end
+      assert_includes rule.relative_idl_path(network: "mainnet-beta", governance: governance), "turf_vault.mainnet",
+                      "a mainnet app takes the mainnet artifact in BOTH switch positions"
+    end
+
+    # The version axis may only APPEND a suffix, never rewrite the base.
+    %w[mainnet-beta devnet].each do |network|
+      off = rule.idl_basename(network: network, governance: false)
+      on = rule.idl_basename(network: network, governance: true)
+      assert_equal off.sub(".idl.json", ".v026.idl.json"), on,
+                   "the governance switch adds `.v026` to the NETWORK-derived base and does nothing else"
+    end
+
+    # And the cluster half still reads its argument, not the environment.
+    assert_no_match(/base = ENV/, Rails.root.join("lib", "solana", "idl_selection.rb").read,
                     "an env override on the CLUSTER half would give operators a way around this coupling")
-
-    # The version axis is allowed to read env — that is the whole point of the
-    # switch — but it may only append a version suffix, never rewrite the base.
-    version_half = source[/Rails\.root\.join\("config", "#\{base\}.*?\)/m]
-    refute_nil version_half, "IDL_PATH no longer composes its filename from `base`"
-    assert_match(/#\{base\}/, version_half,
-                 "the filename must still be built FROM the NETWORK-derived base")
-    assert_no_match(/mainnet/, version_half,
-                    "the version suffix must not be able to name a cluster")
+    assert_match(/IdlSelection\.relative_idl_path\(network: NETWORK/, CONFIG_RB.read,
+                 "IDL_PATH must feed the rule the NETWORK constant this file guards")
   end
 
   # The switch and the file have to agree, or Rails builds account lists for a
