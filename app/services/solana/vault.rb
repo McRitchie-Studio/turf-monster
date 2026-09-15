@@ -1101,7 +1101,14 @@ module Solana
       return if minted.nil?
 
       cap     = usage[:cap]
-      reserve = reserve.to_i.clamp(0, cap)
+      # A PRIORITY, NEVER A SHUTDOWN. The reserve is a fixed count against a cap
+      # that is retunable on chain, so `set_mint_window_policy` lowering the cap
+      # to at or below the reserve would leave a ceiling of ZERO and refuse every
+      # unattended grant for good — and silently, because a cap refusal
+      # deliberately files no per-user ErrorLog. Half the cap keeps paid
+      # fulfilment first in line at every cap without ever starving the grinder
+      # to nothing; at the shipped 250 it changes nothing.
+      reserve = reserve.to_i.clamp(0, cap / 2)
       ceiling = cap - reserve
       return if minted < ceiling
 

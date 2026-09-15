@@ -174,6 +174,32 @@ class Solana::MintWindowCapTest < ActiveSupport::TestCase
     end
   end
 
+  # A RESERVE IS A PRIORITY, NOT A SHUTDOWN. The reserve is a fixed count and
+  # the cap is retunable on chain, so a cap lowered to at or below the reserve
+  # would leave the unattended path a ceiling of zero — refusing every grant
+  # forever, and quietly, since a cap refusal deliberately files no per-user
+  # ErrorLog. An operator throttling the platform must not silently switch off
+  # level-up rewards as a side effect.
+  test "a cap smaller than the reserve still leaves the unattended path some budget" do
+    tiny = 10
+    reserve = Solana::Vault::UNATTENDED_MINT_WINDOW_RESERVE   # 25, larger than the cap
+    assert_operator reserve, :>, tiny, "this test is only meaningful while the reserve exceeds the cap"
+
+    Solana::Config.stub(:governance?, true) do
+      index = Time.current.to_i.div(Solana::Vault::DEFAULT_MINT_WINDOW_SECONDS)
+      probe = CapturingVault.new(client: RecordingClient.new)
+      pda, _ = probe.mint_window_pda(index)
+      client = RecordingClient.new(Solana::Keypair.encode_base58(pda) => mint_window_account(index, 0))
+      v = CapturingVault.new(client: client)
+
+      v.stub(:cached_governance, governance.merge(mint_window_cap: tiny)) do
+        mint(v, reserve: reserve)
+        assert_equal 1, client.broadcasts.length,
+                     "an empty window must serve the grinder even when the reserve exceeds the cap"
+      end
+    end
+  end
+
   # ── WHAT IT MUST NOT DO ───────────────────────────────────────────────────
 
   # The v0.25 control. Governance off is the PRODUCTION default today: there is
