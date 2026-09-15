@@ -50,4 +50,51 @@ class RateLimitResponderTest < ActiveSupport::TestCase
     assert_equal "auth", headers["X-RateLimit-Tier"]
     assert_equal "auth", JSON.parse(body.first)["tier"]
   end
+  test "the cdp_offramp_send/user throttle is tagged general (wait modal — the cash-out uses authedFetch)" do
+    _, headers, body = call_responder(matched: "cdp_offramp_send/user", period: 60)
+    assert_equal "general", headers["X-RateLimit-Tier"]
+    assert_equal "general", JSON.parse(body.first)["tier"]
+  end
+
+  # THE CASH-OUT COSIGN ROUTE IS NOT EXEMPT. This file's own header notes that
+  # rack-attack is DISABLED in test, so tripping the middleware is not the
+  # assertion available here — but the throttles are still registered, and the
+  # discriminator is a plain block. Calling it directly answers the only
+  # question that matters for a money surface: does this path produce a key, or
+  # does it fall through as EXEMPT the way every unlisted POST route does?
+  #
+  # POST /cdp/offramp/cosign_send spends admin SOL — since
+  # phantom-cashout-needs-sol the house is the fee payer on the cash-out wire,
+  # so every wire it returns is a broadcastable claim on SOLANA_ADMIN_KEY.
+  def cosign_throttle_key(path, method: "POST", session: {})
+    env = Rack::MockRequest.env_for(path, method: method)
+    env["rack.session"] = session
+    env["REMOTE_ADDR"] = "203.0.113.9"
+    Rack::Attack.throttles.fetch("cdp_offramp_send/user").block.call(Rack::Attack::Request.new(env))
+  end
+
+  test "the admin-SOL cash-out routes are covered by a throttle, not exempt" do
+    session = { Studio.session_key.to_s => 4242 }
+
+    assert_equal "4242", cosign_throttle_key("/cdp/offramp/cosign_send", session: session),
+                 "the cosign route spends admin SOL and must be capped per user"
+    assert_equal "4242", cosign_throttle_key("/cdp/offramp/prepare_send", session: session),
+                 "prepare precedes every cosign, so it is capped alongside it"
+  end
+
+  test "the cash-out throttle falls back to IP for an unauthenticated probe" do
+    assert_equal "203.0.113.9", cosign_throttle_key("/cdp/offramp/cosign_send")
+  end
+
+  test "the cash-out throttle ignores other verbs and unrelated paths" do
+    assert_nil cosign_throttle_key("/cdp/offramp/cosign_send", method: "GET")
+    assert_nil cosign_throttle_key("/cdp/offramp/sent")
+    assert_nil cosign_throttle_key("/contests")
+  end
+
+  test "the cash-out throttle is 10 per minute" do
+    throttle = Rack::Attack.throttles.fetch("cdp_offramp_send/user")
+    assert_equal 10, throttle.limit
+    assert_equal 60, throttle.period
+  end
 end

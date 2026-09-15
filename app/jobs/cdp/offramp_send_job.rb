@@ -39,7 +39,12 @@ module Cdp
     # signature still absent from getSignatureStatuses (with
     # searchTransactionHistory) this long after the BROADCAST ATTEMPT
     # (broadcast_at, stamped by mark_sending!) can never land.
-    BLOCKHASH_LAPSE = 5.minutes
+    #
+    # DEFINED ON THE MODEL since phantom-cashout-needs-sol: the Phantom
+    # cash-out cosign endpoint rewinds a row on the same verdict this job does,
+    # and two copies of a number that decides "verified-dead vs double-send" is
+    # how the two paths drift apart.
+    BLOCKHASH_LAPSE = CdpRampTransaction::BLOCKHASH_LAPSE
     # Stop re-verifying an ambiguous signature this long past the cashout
     # deadline — leave the row in :sending for the phase-2 sweep/operator.
     VERIFY_GRACE = 10.minutes
@@ -170,10 +175,14 @@ module Cdp
     def verify_pending_send(ramp)
       status = vault.client.confirm_transaction(ramp.sent_signature).dig("value", 0)
 
-      if status && status["err"].nil? && %w[confirmed finalized].include?(status["confirmationStatus"])
+      # The verdict itself is CdpRampTransaction#send_verdict — shared with
+      # Cdp::OfframpSendsController#cosign, which rewinds on the same answer.
+      # This method still owns what to DO with it (log, reschedule, re-enqueue).
+      case ramp.send_verdict(status)
+      when :landed
         ramp.mark_sent!
         Rails.logger.info("[cdp][send] #{ramp.partner_user_ref} confirmed on-chain sig=#{ramp.sent_signature} — sent")
-      elsif status && status["err"]
+      when :failed
         # DEFINITIVE on-chain failure — funds did not move. Safe to clear and
         # rebuild; the fresh attempt re-runs every guard (deadline, freshness,
         # balance, destination).
@@ -181,7 +190,7 @@ module Cdp
                           "err=#{status['err'].inspect} sig=#{ramp.sent_signature} — resetting for a re-guarded attempt")
         ramp.reset_failed_send!
         self.class.perform_later(ramp_id: ramp.id)
-      elsif status.nil? && blockhash_lapsed?(ramp)
+      when :never_landed
         # Absent from getSignatureStatuses (searchTransactionHistory) long
         # after the blockhash window — the tx can never land. Verified-dead,
         # not a blind retry.
@@ -189,16 +198,22 @@ module Cdp
                           "(blockhash window lapsed) — resetting for a re-guarded attempt")
         ramp.reset_failed_send!
         self.class.perform_later(ramp_id: ramp.id)
-      elsif verify_window_open?(ramp)
-        # Ambiguous (in flight / RPC lag) — never resend; check again shortly.
-        Rails.logger.info("[cdp][send] #{ramp.partner_user_ref} sig=#{ramp.sent_signature} still ambiguous — re-verifying in #{CONFIRM_WAIT.inspect}")
-        schedule_verify(ramp)
-      else
-        Rails.logger.warn("[cdp][send] #{ramp.partner_user_ref} sig=#{ramp.sent_signature} unresolved past " \
-                          "deadline+grace — leaving :sending for the sweep/operator")
+      else # :ambiguous
+        if verify_window_open?(ramp)
+          # Ambiguous (in flight / RPC lag) — never resend; check again shortly.
+          Rails.logger.info("[cdp][send] #{ramp.partner_user_ref} sig=#{ramp.sent_signature} still ambiguous — re-verifying in #{CONFIRM_WAIT.inspect}")
+          schedule_verify(ramp)
+        else
+          Rails.logger.warn("[cdp][send] #{ramp.partner_user_ref} sig=#{ramp.sent_signature} unresolved past " \
+                            "deadline+grace — leaving :sending for the sweep/operator")
+        end
       end
     end
 
+    # MOVED TO CdpRampTransaction#blockhash_lapsed? (phantom-cashout-needs-sol),
+    # so the cash-out cosign endpoint rewinds on the same rule. The reasoning is
+    # kept here because it is the reason the anchor is broadcast_at:
+    #
     # Anchored on broadcast_at — the moment mark_sending! persisted the
     # signature, immediately before the broadcast attempt. NEVER anchor on
     # confirmed_at: the broadcast can legally happen up to CONFIRMATION_TTL
@@ -209,9 +224,6 @@ module Cdp
     # No anchor (shouldn't happen — mark_sending! always stamps it) is
     # AMBIGUOUS, never verified-dead: fall through to the re-verify path,
     # bounded by verify_window_open?.
-    def blockhash_lapsed?(ramp)
-      ramp.broadcast_at.present? && Time.current > ramp.broadcast_at + BLOCKHASH_LAPSE
-    end
 
     def verify_window_open?(ramp)
       deadline = ramp.cashout_deadline_at || (ramp.updated_at + 30.minutes)

@@ -356,22 +356,89 @@ class Cdp::OfframpSendsControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "cosign_send refuses a SECOND cosign once the first send landed on-chain" do
+  # THE REWIND RULE. Every test below drives Cdp::OfframpSendsController#cosign
+  # against a row already :sending, because that is where a wrong answer builds
+  # a SECOND full-amount transfer and sends the player's USDC twice. The status
+  # map is FakeSolanaClient's first positional argument — it answers
+  # confirm_transaction (getSignatureStatuses WITH searchTransactionHistory),
+  # which is the lookup that can tell an unindexed send from a dead one.
+
+  def cosign_post(ramp, vault:, statuses: {}, signed_tx: "PHANTOM_SIGNED_WIRE")
+    fake_client = FakeSolanaClient.new(statuses, account_infos: { @to_address => token_account_info })
+    stub_solana_client(fake_client) do
+      Solana::Vault.stub :new, vault do
+        post cdp_offramp_cosign_send_path,
+             params: { partner_user_ref: ramp.partner_user_ref, signed_tx: signed_tx },
+             as: :json
+      end
+    end
+  end
+
+  test "cosign_send REFUSES while the recorded send is still unconfirmed — never a second wire" do
     with_cdp_ramp do
-      ramp = create_ramp(wallet_mode: "web3", status: "sending", sent_signature: "LandedSig111")
+      ramp = create_ramp(wallet_mode: "web3", status: "sending", sent_signature: "InFlight111",
+                         broadcast_at: 30.seconds.ago)
       log_in_as @user
 
-      landed = { "meta" => { "err" => nil }, "transaction" => { "message" => {} } }
-      fake_client = FakeSolanaClient.new({}, account_infos: { @to_address => token_account_info },
-                                             transactions: { "LandedSig111" => landed })
       vault = FakeVault.new
-      stub_solana_client(fake_client) do
-        Solana::Vault.stub :new, vault do
-          post cdp_offramp_cosign_send_path,
-               params: { partner_user_ref: ramp.partner_user_ref, signed_tx: "SECOND_WIRE" },
-               as: :json
-        end
-      end
+      # No status for the signature: absent from a history-searched lookup.
+      # THIRTY SECONDS after broadcast that means in-flight or unindexed, NOT
+      # dead — this is the double-send the review caught.
+      cosign_post(ramp, vault: vault, statuses: {})
+
+      assert_response :unprocessable_entity
+      assert_match(/still being confirmed/, JSON.parse(response.body)["error"])
+      assert_empty vault.offramp_cosign_calls,
+                   "an ambiguous send must NEVER be rewound: the first transfer may still land, and " \
+                   "a second signed wire would send the player's USDC twice"
+      ramp.reload
+      assert ramp.sending?, "the row is left exactly as it was"
+      assert_equal "InFlight111", ramp.sent_signature, "the recorded signature must survive"
+    end
+  end
+
+  test "cosign_send re-arms once the blockhash window has lapsed with the send absent" do
+    with_cdp_ramp do
+      ramp = create_ramp(wallet_mode: "web3", status: "sending", sent_signature: "NeverLanded111",
+                         broadcast_at: (CdpRampTransaction::BLOCKHASH_LAPSE + 1.minute).ago)
+      log_in_as @user
+
+      vault = FakeVault.new
+      cosign_post(ramp, vault: vault, statuses: {})
+
+      assert_response :success
+      assert_equal ["PHANTOM_SIGNED_WIRE"], vault.offramp_cosign_calls
+      ramp.reload
+      assert ramp.sending?
+      assert_equal "FakeOfframpSendSig", ramp.sent_signature, "the dead signature is replaced"
+    end
+  end
+
+  test "cosign_send re-arms on a DEFINITIVE on-chain failure without waiting out the window" do
+    with_cdp_ramp do
+      ramp = create_ramp(wallet_mode: "web3", status: "sending", sent_signature: "Failed111",
+                         broadcast_at: 10.seconds.ago)
+      log_in_as @user
+
+      vault = FakeVault.new
+      cosign_post(ramp, vault: vault,
+                  statuses: { "Failed111" => { "err" => { "InstructionError" => 1 } } })
+
+      assert_response :success
+      assert_equal ["PHANTOM_SIGNED_WIRE"], vault.offramp_cosign_calls,
+                   "an err verdict proves the funds did not move, so a fresh attempt is safe immediately"
+    end
+  end
+
+  test "cosign_send refuses a SECOND cosign once the first send landed on-chain" do
+    with_cdp_ramp do
+      ramp = create_ramp(wallet_mode: "web3", status: "sending", sent_signature: "LandedSig111",
+                         broadcast_at: 1.minute.ago)
+      log_in_as @user
+
+      vault = FakeVault.new
+      cosign_post(ramp, vault: vault,
+                  statuses: { "LandedSig111" => { "err" => nil, "confirmationStatus" => "confirmed" } })
 
       assert_response :unprocessable_entity
       assert_match(/already sent/, JSON.parse(response.body)["error"])
@@ -381,26 +448,24 @@ class Cdp::OfframpSendsControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "cosign_send RE-ARMS when the recorded send never landed" do
+  test "cosign_send renders NO wire when the row claim fails" do
     with_cdp_ramp do
-      ramp = create_ramp(wallet_mode: "web3", status: "sending", sent_signature: "NeverLanded111")
+      # A row stuck :sending with no signature: the rewind path has nothing to
+      # verify, so it proceeds — and mark_sending! then refuses the claim
+      # because the row is not :cdp_created.
+      ramp = create_ramp(wallet_mode: "web3", status: "sending", sent_signature: nil)
       log_in_as @user
 
-      # get_transaction → nil: the browser never managed to broadcast.
-      fake_client = FakeSolanaClient.new({}, account_infos: { @to_address => token_account_info })
       vault = FakeVault.new
-      stub_solana_client(fake_client) do
-        Solana::Vault.stub :new, vault do
-          post cdp_offramp_cosign_send_path,
-               params: { partner_user_ref: ramp.partner_user_ref, signed_tx: "RETRY_WIRE" },
-               as: :json
-        end
-      end
+      cosign_post(ramp, vault: vault)
 
-      assert_response :success
-      assert_equal ["RETRY_WIRE"], vault.offramp_cosign_calls
-      assert ramp.reload.sending?
-      assert_equal "FakeOfframpSendSig", ramp.sent_signature, "the dead signature is replaced, not kept"
+      assert_response :unprocessable_entity
+      body = JSON.parse(response.body)
+      assert_nil body["signed_tx"],
+                 "a wire handed out is a wire that can be BROADCAST — when the claim fails the cap " \
+                 "is only real if the bytes are withheld"
+      assert_match(/already being sent/, body["error"])
+      assert_nil ramp.reload.sent_signature
     end
   end
 
