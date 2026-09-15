@@ -104,7 +104,7 @@ class GovernanceRollbackPinTest < ActiveSupport::TestCase
         switch: m[2].delete("`").strip,
         selected: m[3],
         refuses: m[4].include?("IdlMismatchError"),
-        raw: m[0].strip,
+        raw: m[0].strip
       }
     end
   end

@@ -357,16 +357,21 @@ retreating is off the table.
   `close_contest` and one `settle_contest` — on the cluster being tightened.
 - You have decided you will not retreat. If you would still consider it, the
   widened pin is the correct state and costs you one allow-listed hash.
-- **`bin/deploy` can see the switch.** It cannot today: `bin/deploy` resolves
-  the IDL file from `SOLANA_NETWORK` ALONE (mirroring only half of
-  `Solana::Config::IDL_PATH`, which is keyed on network **and**
-  `SOLANA_VAULT_GOVERNANCE`), and its post-push step tightens
-  `EXPECTED_IDL_HASH` to that single file's hash. Against a widened pin it is
-  harmless — the v0.25 hash is already allow-listed, so no bump fires. Against a
-  pin tightened to v0.26 it is not: it would read the v0.25 file, see a bump,
-  widen, and then **tighten the live app to the v0.25 hash alone**, which is the
-  last row of the table above. Until that is fixed, a routine deploy after a
-  tightened ceremony bricks the app.
+- **`bin/deploy`'s tighten keeps BOTH switch positions.** Read its tighten step
+  and check that for yourself before you tighten by hand; the requirement is
+  that it writes every hash this slug ships for the target cluster, not one.
+  As measured on 2026-09-15 it did not: it resolved the IDL file from
+  `SOLANA_NETWORK` ALONE — half of the rule, which is keyed on network **and**
+  `SOLANA_VAULT_GOVERNANCE` — and tightened `EXPECTED_IDL_HASH` to that single
+  file's hash. Against a widened pin that is harmless: the v0.25 hash is already
+  allow-listed, so no bump fires and nothing is rewritten. Against a pin already
+  tightened to v0.26 it is not: it reads the v0.25 file, sees a bump, widens,
+  and then tightens the live app to **the v0.25 hash alone** — the last row of
+  the table above, and a `config:set` restarts the dynos on its way out. The
+  `make-deploy-governance-aware` task moves the selection rule into one file
+  applied by both readers and makes the tighten keep both positions; confirm it
+  has MERGED rather than assuming it, since a runbook that trusts an unlanded
+  fix is the failure this bullet exists to prevent.
 
 Tighten as its own change, with its own restart, and confirm the app boots
 before walking away.
