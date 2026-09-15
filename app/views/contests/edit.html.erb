@@ -47,12 +47,31 @@
           id: "contest_status", class: "input-field" %>
       </div>
 
-      <div class="mb-5" x-data="contestLockPicker({ utcIso: '<%= @contest.starts_at&.iso8601 %>' })">
+      <%# THE LOCK TIME OF AN ON-CHAIN CONTEST DOES NOT TRAVEL WITH THIS FORM.
+          The chain is master, and its lock moves only under the operator's own
+          Phantom signature (#prepare_lock_time -> #confirm_lock_time), so for a
+          verified contest we render the picker WITHOUT the hidden
+          contest[starts_at] and hand the picked moment to Phantom instead.
+
+          NOT MERELY COSMETIC — omitting the field is what makes the rename work.
+          contestLockPicker's sync() writes `toISOString().substring(0, 16)`,
+          dropping seconds, and init() writes it on PAGE LOAD. While the field
+          existed, opening this page on a contest locked at 12:34:56 and saving a
+          new NAME resubmitted 12:34:00, which #update correctly read as a lock
+          move and refused. sync() returns early when the hidden input is absent,
+          so the snapshots go quiet with it and the picker still drives the UI.
+
+          An off-chain contest keeps the plain form path below: there is no chain
+          row to disagree with, so saving starts_at IS the whole lock. %>
+      <% onchain_lock = @contest.onchain_verified? %>
+      <div class="mb-5" x-data="contestLockPicker({ utcIso: '<%= @contest.starts_at&.iso8601 %>', slug: '<%= @contest.slug %>', onchain: <%= onchain_lock %> })">
         <label class="block text-sm text-secondary mb-2 font-medium">Starts At</label>
-        <input type="hidden" name="contest[starts_at]" id="contest_starts_at">
-        <input type="hidden" name="contest[locks_at_date_selected]" id="locks_at_date_selected">
-        <input type="hidden" name="contest[locks_at_time_selected]" id="locks_at_time_selected">
-        <input type="hidden" name="contest[locks_at_timezone_selected]" id="locks_at_timezone_selected">
+        <% unless onchain_lock %>
+          <input type="hidden" name="contest[starts_at]" id="contest_starts_at">
+          <input type="hidden" name="contest[locks_at_date_selected]" id="locks_at_date_selected">
+          <input type="hidden" name="contest[locks_at_time_selected]" id="locks_at_time_selected">
+          <input type="hidden" name="contest[locks_at_timezone_selected]" id="locks_at_timezone_selected">
+        <% end %>
         <div class="grid grid-cols-2 gap-3">
           <div class="relative">
             <label class="block text-xs text-muted mb-1">Date</label>
@@ -109,7 +128,26 @@
             <input type="time" x-model="lockTime" @change="sync()" class="input-field">
           </div>
         </div>
-        <p class="text-xs text-muted mt-1">When play starts and the contest stops accepting entries.</p>
+        <% if onchain_lock %>
+          <%= render "shared/wallet_desktop_only_notice" %>
+          <div class="flex flex-wrap gap-2 mt-3">
+            <button type="button" @click="lockViaPhantom()"
+                    class="btn btn-sm bg-yellow-600 hover:bg-yellow-500 text-white">
+              Set lock time with Phantom
+            </button>
+            <button type="button" @click="clearLockViaPhantom()"
+                    class="btn btn-sm bg-surface-alt hover:bg-surface text-secondary border border-subtle">
+              Clear lock
+            </button>
+          </div>
+          <p class="text-xs text-muted mt-1">
+            This contest is on chain, so its lock time is set by your own wallet, not the server.
+            Pick a date and time above, then sign. <strong>Clear lock</strong> re-opens entries indefinitely.
+            Saving this form changes everything else; it never moves the lock.
+          </p>
+        <% else %>
+          <p class="text-xs text-muted mt-1">When play starts and the contest stops accepting entries.</p>
+        <% end %>
       </div>
 
       <div class="mb-6">

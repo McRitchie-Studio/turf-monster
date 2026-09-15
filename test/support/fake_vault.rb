@@ -411,11 +411,15 @@ class FakeVault
     end
   end
 
-  # Used by ContestsController#update and #lock — the DIRECT (admin-signed)
-  # lock-time broadcast, as opposed to #build_set_contest_lock_time's
-  # Phantom-signed wire. Recorded rather than no-op'd so a test can assert this
-  # instruction is NOT aimed at an unverified `pending` contest's PDA, which was
-  # never initialized on chain.
+  # The DIRECT (admin-signed) lock-time broadcast, as opposed to
+  # #build_set_contest_lock_time's Phantom-signed wire.
+  #
+  # NO CONTROLLER REACHES IT ANY MORE (route-time-changes-to-phantom moved
+  # #lock and #update onto the Phantom builder; the real method survives for
+  # TurfMonster::QaRehearsal::Driver, which runs unattended). It is recorded
+  # rather than no-op'd precisely so a test can assert the silence — an empty
+  # #set_lock_time_calls is now the PROPERTY, not the setup, and the tests that
+  # read it pair it with an assertion that the request was otherwise handled.
   def set_contest_lock_time(contest_slug, lock_timestamp)
     @set_lock_time_calls ||= []
     @set_lock_time_calls << { slug: contest_slug, lock_timestamp: lock_timestamp }
