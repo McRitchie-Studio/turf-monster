@@ -333,7 +333,14 @@ module Tokens
         # What IS falsifiable is reaching for the other wallet (`web2_solana_
         # address`), and level_up_grant_test.rb pins exactly that.
         ref = self.class.source_ref(address, level)
-        result = vault.mint_entry_token(wallet_address: address, source: SOURCE, source_ref: ref)
+        # THE ONE PATH THAT YIELDS THE WINDOW'S LAST SLOTS. This sweep is the
+        # only fully unattended grinder on the mint — a 15-minute cron with
+        # nobody watching — so it stops short of the cap and leaves the tail for
+        # paid fulfilment, which cannot be deferred once the card is charged. A
+        # level it defers here is paid on the next pass: the chain is this
+        # file's ledger, so the waterline simply does not advance past the gap.
+        result = vault.mint_entry_token(wallet_address: address, source: SOURCE, source_ref: ref,
+                                        reserve: Solana::Vault::UNATTENDED_MINT_WINDOW_RESERVE)
         minted << level
         Rails.logger.info(
           # FULL signature, not a 16-char prefix: a truncated signature resolves
@@ -370,6 +377,18 @@ module Tokens
         # user into the unpayable channel — the one place an operator looks to
         # find users owed money — and the noise is worst exactly when the design
         # is working best. Logged above either way; only the ErrorLog is skipped.
+        #
+        # The window cap is skipped for the SAME reason wearing different
+        # clothes: it is a PLATFORM-WIDE condition, not this wallet's anomaly.
+        # Filing it per level per user would bury the unpayable channel under
+        # one row for every level of every user in the batch, every fifteen
+        # minutes, all of them saying the same thing about the same window —
+        # and none of them about a user an operator can help. The condition is
+        # loud where it belongs: TokenPurchaseJob files it when real money is
+        # behind it, the admin pages flash it, and it clears when the window
+        # rolls.
+        next if e.is_a?(Solana::Vault::MintWindowCapReachedError)
+
         capture_error(e, level: level) unless self.class.already_granted?(e)
       end
     end

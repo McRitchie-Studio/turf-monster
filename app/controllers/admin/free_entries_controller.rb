@@ -309,10 +309,16 @@ module Admin
           "[free-entries] burned user=#{user.id} pda=#{token[:pda]} ref=#{token[:source_ref]}"
         )
       rescue => e
-        failures << "#{e.class}: #{e.message.to_s[0, 140]}"
+        # 300, not 140. The v0.26 refusals this now collects
+        # (Solana::Vault::ThresholdUnreachableError from burn_entry_token's
+        # 3-signature threshold) put the REMEDY at the end of a long sentence,
+        # and 140 characters cut it off mid-clause — the operator was shown that
+        # something failed and not what to do, which is the one thing these
+        # messages were written to carry.
+        failures << "#{e.class}: #{e.message.to_s[0, 300]}"
         Rails.logger.warn(
           "[free-entries] burn_failed user=#{user.id} pda=#{token[:pda]} " \
-          "ref=#{token[:source_ref]} (#{e.class}: #{e.message.to_s[0, 140]})"
+          "ref=#{token[:source_ref]} (#{e.class}: #{e.message.to_s[0, 300]})"
         )
       end
 

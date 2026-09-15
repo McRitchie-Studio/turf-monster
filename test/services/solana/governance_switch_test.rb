@@ -360,4 +360,93 @@ class Solana::GovernanceSwitchTest < ActiveSupport::TestCase
       assert_equal [], v.send(:unattended_extra_signer_metas, "settle_contest", required: 3, signers: [])
     end
   end
+
+  # ── WHAT THE GUARD IS COUNTING ────────────────────────────────────────────
+  #
+  # The guard used to compute `held = 1 + keypairs.length`, which encodes two
+  # assumptions that are both wrong for `settle_contest`: that exactly ONE slot
+  # is named, and that a supplied keypair is worth a signature whatever key it
+  # carries. `instructions::governance::authorize` asks remaining_accounts for
+  # `required - named.len()`, and `VaultState::validate_threshold` counts
+  # DISTINCT members and rejects repeats. Both halves are corrected here.
+
+  def spare(tag) = Solana::Keypair.from_bytes(Digest::SHA256.digest("switch-test #{tag}"))
+
+  test "a second NAMED signer counts, so admin + cosigner + one extra reaches three" do
+    v = vault
+    cosigner = spare("named cosigner")
+    Solana::Config.stub(:governance?, true) do
+      metas = v.send(:unattended_extra_signer_metas, "settle_contest", required: 3,
+                     signers: [spare("third")],
+                     named: [Solana::Keypair.admin.public_key_bytes, cosigner.public_key_bytes])
+      assert_equal 1, metas.length,
+                   "exactly required - named.count metas ride in remaining_accounts"
+    end
+  end
+
+  # The same call the old accounting REFUSED: it computed 2 for a caller holding
+  # three real signatures, so it would have blocked a valid settle the day the
+  # signer rotation made one possible.
+  test "settle_contest names BOTH of its signer slots" do
+    reached = Class.new(StandardError)
+    v = vault
+    v.define_singleton_method(:build_tx) { |*_args, **_kwargs| raise reached }
+
+    Solana::Config.stub(:governance?, true) do
+      # Two named (admin + a distinct cosigner) plus one extra is three — the
+      # guard must let this through to the builder.
+      assert_raises(reached) do
+        v.settle_contest("slug-a", [], cosigner_keypair: spare("settle cosigner"),
+                                       extra_signers: [spare("settle third")])
+      end
+
+      # ...and one fewer must still be refused, or the fix would just be a
+      # disabled guard.
+      assert_raises(Solana::Vault::ThresholdUnreachableError) do
+        v.settle_contest("slug-a", [], cosigner_keypair: spare("settle cosigner"))
+      end
+    end
+  end
+
+  # `cosigner = cosigner_keypair || admin` is how settle_contest spells "nobody
+  # cosigned" — and it puts the ADMIN key in the cosigner slot, which the chain
+  # reads as a repeat and rejects with DuplicateSigner. Two keys that are one
+  # key are one signature.
+  test "the same signer in two slots is one signature, and is refused by name" do
+    v = vault
+    Solana::Config.stub(:governance?, true) do
+      error = assert_raises(Solana::Vault::ThresholdUnreachableError) do
+        v.settle_contest("slug-a", [], extra_signers: [spare("a"), spare("b")])
+      end
+      assert_match(/same vault signer more than once/, error.message)
+      assert_match(/DuplicateSigner/, error.message, "the message must name the on-chain error it prevents")
+    end
+  end
+
+  # The form test/services/solana/vault_account_layout_test.rb used to pass to
+  # create_season. It satisfied the old array-length count and could never have
+  # landed on chain.
+  test "a keypair passed twice is refused rather than counted twice" do
+    v = vault
+    kp = spare("repeated")
+    Solana::Config.stub(:governance?, true) do
+      error = assert_raises(Solana::Vault::ThresholdUnreachableError) do
+        v.send(:unattended_extra_signer_metas, "create_season", required: 3, signers: [kp, kp])
+      end
+      assert_match(/3 keys that are only 2 different ones/, error.message)
+    end
+  end
+
+  # The control: one named slot is still the default, so the five builders that
+  # declare only `admin` need no change and keep their old verdicts exactly.
+  test "the default naming is the admin alone, unchanged for every other builder" do
+    v = vault
+    Solana::Config.stub(:governance?, true) do
+      assert_equal 1, v.send(:unattended_extra_signer_metas, "close_contest", required: 2,
+                             signers: [spare("one")]).length
+      assert_raises(Solana::Vault::ThresholdUnreachableError) do
+        v.send(:unattended_extra_signer_metas, "close_contest", required: 2, signers: [])
+      end
+    end
+  end
 end
