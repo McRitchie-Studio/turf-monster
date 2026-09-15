@@ -999,7 +999,26 @@
 # files" — cross-checked against the JSON reporter (311 tests, 75 files), which
 # is the same model Playwright builds for itself. The excluded lister re-derived
 # 17 ("Total: 17 tests in 1 file") on the same tree.
-total_specs: 311
+#
+# 311 -> 314 (treasury-cosign-supplies-two-signatures): three specs in
+# e2e/cosign_two_wallet_signatures.spec.js, for the operator cosign collecting
+# TWO Phantom signatures onto one transaction after turf-vault v0.26 raised six
+# actions to three. A browser is the only witness for that: Phantom exposes one
+# account at a time, so a flow that WAITS for a switch and one that signs twice
+# with whatever is selected are indistinguishable to any server-side tier — and
+# the second spelling produces a slot filled twice and DuplicateSigner. None is
+# tagged @devnet and none carries a runtime skip, so excluded stays 17 and
+# allowed_skips stays 4; both listers agree, which is what proves the new specs
+# brought no runtime skip with them. Derived with bin/e2e-lane-derive --write,
+# not by arithmetic.
+#
+# NOTE FOR THE NEXT PERSON WHO HAS TO RUN THE DERIVER: `npx playwright` exits
+# 194 printing NOTHING on this machine, which made the script report "cannot
+# derive" with no cause. bin/lib/e2e_lane_derive.rb now prefers the tree's own
+# node_modules/.bin/playwright. A worktree with no node_modules still needs
+# `npm ci` — the primary's node_modules is a symlink to ITSELF and cannot be
+# borrowed.
+total_specs: 314
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1319,7 +1338,11 @@ allowed_skips: 4
 # bin/e2e-lane-derive --write ON THE MERGED TREE.
 # 289 -> 290 alongside total_specs above. Both listers agree on the merged
 # tree, so allowed_skips stays 4: 311 - 17 - 4 = 290.
-executed: 290
+# 290 -> 293 (treasury-cosign-supplies-two-signatures): the three cosign specs
+# described beside total_specs above. Both listers agree on this tree and
+# allowed_skips stays 4: 314 - 17 - 4 = 293. Derived with
+# bin/e2e-lane-derive --write, not by arithmetic.
+executed: 293
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

@@ -455,7 +455,7 @@ account at all".
 ### 2.8 CONFIRMED — Two facts about which wallet authenticated, and no stated precedence
 
 - **Durable:** `User#web3_wallet_provider` (`user.rb:353`), the column, refreshed on
-  every re-auth (`solana_stores.js:274`).
+  every re-auth (`solana_stores.js:299`).
 - **Per-session:** `session[:wallet_brand]` via `Solana::CurrentWallet`
   (`current_wallet.rb:36`), written at verify (`solana_sessions_controller.rb:75`),
   forgotten at login and logout (`application_controller.rb:65`, `:72`).
@@ -497,13 +497,13 @@ has nowhere to attach today. Slice 9 must re-key **both** sites.
 
 Two layers, not one:
 
-1. `app/javascript/solana_stores.js:179` — `_handleAccountChanged` opens
+1. `app/javascript/solana_stores.js:204` — `_handleAccountChanged` opens
    `if (!publicKey) return;`. The comment above it is right that a null event must
    not log the user out; the code then does nothing at all.
 2. **The `disconnect` event is never listened for.** `grep -rn "'disconnect'"
    app/javascript/ app/views/` returns **no listeners** — only
    `PhantomProvider.disconnect()` (`wallet_provider.js:118`), the outbound call.
-   `solana_stores.js:116` subscribes to `accountChanged` and nothing else.
+   `solana_stores.js:141` subscribes to `accountChanged` and nothing else.
 
 A correction to the brief's framing: the store does **not** already know
 `isConnected` — it has no such field, and `PhantomProvider` exposes no such
@@ -540,7 +540,7 @@ timers at `:157` and `:199` — and did not read what the file logs.
 | It prints request bodies | `:52` — `console.log('request:', _trunc(reqBody, 1500))` |
 | It prints response bodies | `:53` — `console.log('response:', _trunc(body, 1500))` |
 | The wallet-verify body carries auth material | `layouts/application.html.erb:345` — `JSON.stringify({ message, signature: signatureB58, pubkey, age_attestation, wallet_provider })`. Both the SIWS message and the full base58 signature are well inside the 1,500-char truncation |
-| It repeats | On first sign-in, and again on **every** `_reauth` (`solana_stores.js:269`) — which slice 7 makes *more* frequent, since a wallet switch drives a re-auth |
+| It repeats | On first sign-in, and again on **every** `_reauth` (`solana_stores.js:294`) — which slice 7 makes *more* frequent, since a wallet switch drives a re-auth |
 | Responses leak a live CSRF token | `accounts_controller.rb:90` — `session_state` returns `csrf: form_authenticity_token`, printed by `:53` on every visibility rehydrate |
 
 **Severity, stated honestly.** The signature is not a replayable credential: the
@@ -591,7 +591,7 @@ not one — see §2.8. `providerName` must read **`session[:wallet_brand]` first
 falling back to `User#web3_wallet_provider`**, and the order is load-bearing:
 
 - `wallet_brand` answers *"which brand signed into THIS session"* — exactly the
-  question `_preferredProvider()` (`solana_stores.js:93`) asks when it resolves an
+  question `_preferredProvider()` (`solana_stores.js:118`) asks when it resolves an
   adapter, because the adapter must be the one that can sign *now*.
 - The column answers *"which brand does this ACCOUNT use"* — the durable fact,
   correct for a returning user and for server-side rendering, but stale for a
@@ -628,7 +628,7 @@ Three inputs feed `WalletSession`, all through one reducer:
 
 1. `accountChanged(publicKey)` — **including `null`**. A concrete key sets
    `signerAddress` and recomputes `state`; a null sets `signerAvailable = false`
-   and moves to `degraded`. The current early return (`solana_stores.js:179`) is
+   and moves to `degraded`. The current early return (`solana_stores.js:204`) is
    deleted; the "do not log out" intent it protects is preserved by the fact that
    `degraded` never touches the Rails session.
 2. `disconnect` — **newly subscribed**, same reducer path as a null `accountChanged`.
@@ -763,7 +763,7 @@ Each is independently reviewable and independently shippable.
 | 4 | **Collapse the two hydrate endpoints.** `/account/session_refresh` absorbs `balance` + `seeds_to_next`; `/admin/usdc_balance` becomes a deprecated alias delegating to it. Delete the `.to_i` at `accounts_controller.rb:64` — `seeds: nil` stays null. | `backend` | `[unit]` payload shape incl. every-field-null flake case · `[integration]` both routes return identical JSON for the same user | **Preserving** at the endpoint; **fixes** the seeds-zeroing bug |
 | 5 | **One balance-slot rule.** `refreshSession` calls `applyBalanceSlotRule()`; delete the inlined copy (`solana_utils.js:268-281`). Unify the null-paint rule with `refreshBalance`'s. | `ui-only` | `[component]` `$0`+token → "✨ Free Entry" label active after **both** `refreshSession` and `refreshBalance`; single-sided null paints identically | **Preserving** (removes a latent divergence) |
 | 6 | **One `seedsNavbar` writer, max-wins.** Route all five writers through `storage.mergeSeeds()` carrying writer 4's `serverTotal > cacheTotal` rule. | `ui+db` | `[unit]` merge never lowers the cached total; null total is a no-op · `[component]` seeds bar · `[integration]` state-fanout level-up path · `[e2e]` `quest_ladder_web3.spec.js` | **Preserving** (adopts the strictest existing rule) |
-| 7 | **`WalletSession` store + the disconnect reflex.** New store per §4.1; subscribe `disconnect`; delete the `if (!publicKey) return` early return (`solana_stores.js:179`) in favour of the reducer. **Defects A and B ship together here** — the green check at `_solana_wallet_section.html.erb:46` re-keys from `user.solana_connected?` to `walletSession.state === 'live'`. Also: serialise `session[:wallet_brand]` into `#session-context` so `providerName` reads the session fact first (§4.1), and **rename `$store.session.walletConnected` → `walletHasAddress`** (`application_controller.rb:539`, `modals/_wallet_setup.html.erb:564`, `:570`) before its name collides with `signerAvailable` (§2.7). **Extend `e2e/phantom-mock.js` first** — see the note below the table. | `ui+db` | `[unit]` reducer truth table, in the memoised-`Proxy` Node harness · `[component]` indicator renders live/degraded/mismatched · `[integration]` re-auth still single-tab-guarded · `[e2e]` new `wallet_disconnect.spec.js` + existing `wallet_session_switch.spec.js` | **CHANGES** — the check now reflects live connectivity |
+| 7 | **`WalletSession` store + the disconnect reflex.** New store per §4.1; subscribe `disconnect`; delete the `if (!publicKey) return` early return (`solana_stores.js:204`) in favour of the reducer. **Defects A and B ship together here** — the green check at `_solana_wallet_section.html.erb:46` re-keys from `user.solana_connected?` to `walletSession.state === 'live'`. Also: serialise `session[:wallet_brand]` into `#session-context` so `providerName` reads the session fact first (§4.1), and **rename `$store.session.walletConnected` → `walletHasAddress`** (`application_controller.rb:539`, `modals/_wallet_setup.html.erb:564`, `:570`) before its name collides with `signerAvailable` (§2.7). **Extend `e2e/phantom-mock.js` first** — see the note below the table. | `ui+db` | `[unit]` reducer truth table, in the memoised-`Proxy` Node harness · `[component]` indicator renders live/degraded/mismatched · `[integration]` re-auth still single-tab-guarded · `[e2e]` new `wallet_disconnect.spec.js` + existing `wallet_session_switch.spec.js` | **CHANGES** — the check now reflects live connectivity |
 | 8 | **Defect C — never-connected account switch.** Write the spec **first**, confirm today's silence, then confirm slice 7 fixed it. **Blocked on the mock change in slice 7.** | `ui+db` | `[e2e]` switch to an unapproved account → `degraded`, indicator greys, no logout · `[unit]` reducer case | **Preserving** (verification of 7) |
 | 9 | **Read-only degradation.** Re-key **four** sites, not two: `layout:105` (hydrate), `layout:1420` (watcher), and the **server-side twins** `accounts_controller.rb:62` and `admin_controller.rb:405`, all from `solana_connected?` to `solana_address.present?`. Miss the server pair and the client asks for a hydrate the server refuses to compute, so degraded mode renders zeros instead of balances. add the `signer_required` gate to `eligibilityBlocker`; add the reconnect card. | `ui+db` | `[unit]` blocker returns `signer_required` only for web3+`!signerAvailable`, and **after** first-name/age/wallet-setup · `[component]` reconnect card · `[integration]` server `enter` still refuses independently · `[e2e]` delete-the-extension → balances still render, entry blocked | **CHANGES** — requirement 5 |
 | 10 | **Definitive logout.** `reset_session` server-side; `wipeClientState()` client-side from one shared helper on both logout links; cross-tab broadcast. | `ui+db` | `[unit]` wipe empties both storages and re-inits every store · `[integration]` no session key survives `destroy` (assert over the full **17**-key set, `wallet_brand` and `turf_user_id` included) · `[unit]` exactly two browser keys survive the wipe (`theme`, `devMode`) · `[e2e]` log out → log in as user B → zero user-A state · `[component]` both logout links use the shared helper | **CHANGES** — requirement 6 |

@@ -624,7 +624,7 @@ Evidence: `test/lib/wallet_desktop_only_js_test.rb` (copy + device rules),
 `e2e/admin_desktop_only.spec.js` (the only tier that can see the notice paint,
 the buttons disable, and a desktop stay untouched).
 
-`app/javascript/solana_stores.js:232` already guards correctly
+`app/javascript/solana_stores.js:257` already guards correctly
 (`!provider || !provider.connect`) and degrades cleanly. It needs no change.
 
 ---

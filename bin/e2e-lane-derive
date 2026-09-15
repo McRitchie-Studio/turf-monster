@@ -26,9 +26,10 @@ unless File.file?(path)
   exit 1
 end
 
-out, status = Open3.capture2e(*E2eLaneDerive::LIST_COMMAND, chdir: ROOT)
+list_cmd = E2eLaneDerive.list_command(ROOT)
+out, status = Open3.capture2e(*list_cmd, chdir: ROOT)
 unless status.success?
-  warn "E2E LANE DERIVE: `#{E2eLaneDerive::LIST_COMMAND.join(" ")}` failed — cannot derive."
+  warn "E2E LANE DERIVE: `#{list_cmd.join(" ")}` failed — cannot derive."
   warn "  A lister that cannot run is NOT a pass: it leaves the declared side unverified."
   warn out.lines.last(15).join
   exit 1
@@ -44,9 +45,10 @@ end
 # The excluded tag, from the SAME lister. A failure here is NOT a skip: falling back
 # to the hand-declared number is exactly the blind spot deriving it exists to close,
 # so an unusable lister stops the run rather than quietly half-deriving.
-excluded_out, excluded_status = Open3.capture2e(*E2eLaneDerive::EXCLUDED_LIST_COMMAND, chdir: ROOT)
+excluded_cmd = E2eLaneDerive.excluded_list_command(ROOT)
+excluded_out, excluded_status = Open3.capture2e(*excluded_cmd, chdir: ROOT)
 unless excluded_status.success?
-  warn "E2E LANE DERIVE: `#{E2eLaneDerive::EXCLUDED_LIST_COMMAND.join(" ")}` failed — cannot derive `excluded`."
+  warn "E2E LANE DERIVE: `#{excluded_cmd.join(" ")}` failed — cannot derive `excluded`."
   warn "  Deriving total_specs while TRUSTING a stale `excluded` is how a wrong `executed`"
   warn "  gets certified green, so this stops instead."
   warn excluded_out.lines.last(15).join

@@ -63,9 +63,46 @@
             <p class="text-muted text-xs mt-1">Must match the Phantom wallet you connect.</p>
           </div>
 
+          <%# UNPAUSE IS FLOORED AT THREE and pause is not. The two forms on
+              this page now need different numbers of signatures: a brake must
+              be easier to pull than the attack it stops, so nothing an agent
+              can reach alone may lift a brake its own capture triggered. The
+              second wallet is chosen here, before the build, because its slot
+              is part of the message and cannot be added after the first
+              signature exists. %>
+          <% if @unpause_plan.extra_cosigners_needed.positive? %>
+            <div>
+              <label class="label-upper text-xs">
+                Second cosigner (<%= @unpause_plan.required_signatures %> signatures required)
+              </label>
+              <% if @eligible_extras.any? %>
+                <select name="extra_cosigner" data-extra-cosigner
+                        class="input input-bordered w-full font-mono text-xs">
+                  <% @eligible_extras.each do |signer| %>
+                    <option value="<%= signer %>"><%= signer %></option>
+                  <% end %>
+                </select>
+                <p class="text-muted text-xs mt-1">
+                  You will be asked to switch Phantom to this wallet and approve a second time.
+                </p>
+              <% else %>
+                <%# NO WALLET TO OFFER. An empty select would let the operator
+                    click into a 422 naming a threshold rather than the
+                    configuration that cannot meet it. %>
+                <p class="text-error text-xs mt-1">
+                  No second signer is available — unpause needs
+                  <%= @unpause_plan.required_signatures %> vault signatures and the
+                  configured set offers only the admin key and the cosigner above.
+                </p>
+              <% end %>
+            </div>
+          <% end %>
+
           <div class="flex items-center gap-3 pt-2">
             <button id="vault-unpause-btn" type="button" onclick="vaultAction('unpause')"
-                    data-desktop-only-action class="btn btn-primary">
+                    data-desktop-only-action
+                    <%= "disabled" if @unpause_plan.extra_cosigners_needed.positive? && @eligible_extras.empty? %>
+                    class="btn btn-primary">
               Connect Phantom + Unpause
             </button>
             <span id="vault-action-status" class="text-sm text-secondary"></span>
@@ -200,6 +237,10 @@
     var payload = { cosigner_pubkey: fd.get('cosigner_pubkey') };
     if (instruction === 'pause') payload.reason = fd.get('reason');
 
+    // Only unpause rose to three; pause stays at two and sends nothing here.
+    var chosenExtra = fd.get('extra_cosigner');
+    payload.extra_cosigners = chosenExtra ? [chosenExtra] : [];
+
     if (instruction === 'pause' && !payload.reason?.trim()) {
       alert('Reason is required — it gets logged on-chain for incident triage.');
       return;
@@ -216,6 +257,9 @@
     disableBtn(true);
     setStatus('Building transaction…');
 
+    // Hoisted so the `finally` below can reach it on every exit path.
+    var walletStore = window.Alpine && Alpine.store && Alpine.store('wallet');
+
     try {
       var buildResp = await fetch('/admin/vault_state/' + instruction, {
         method: 'POST',
@@ -227,21 +271,47 @@
 
       setStatus('Connecting Phantom…');
       await provider.connect();
-      if (provider.publicKey.toBase58() !== payload.cosigner_pubkey) {
+
+      // The signer queue comes from the SERVER's reply, not from the form: the
+      // slots were reserved by that build, and collecting against anything else
+      // puts a signature in a slot the message does not have.
+      var signerQueue = [payload.cosigner_pubkey].concat(buildData.extra_cosigners || []);
+
+      if (signerQueue.length === 1 && provider.publicKey.toBase58() !== payload.cosigner_pubkey) {
         throw new Error('Connected Phantom (' + provider.publicKey.toBase58() + ') ≠ cosigner (' + payload.cosigner_pubkey + ')');
       }
 
       setStatus('Awaiting Phantom signature…');
-      var txBytes = Uint8Array.from(atob(buildData.serialized_tx), function(c) { return c.charCodeAt(0); });
-      var tx = solanaWeb3.Transaction.from(txBytes);
       if (window.confirmSolanaNetworkIntent) {
         await window.confirmSolanaNetworkIntent({ action: 'Update vault state' });
       }
-      var signed = await provider.signTransaction(tx);
+
+      // The wallet watcher opens a NON-DISMISSIBLE 'wallet-changed' card on any
+      // switch away from the session's address. Unpause needs three signatures
+      // and therefore needs the operator to switch — so declare the wallets as
+      // expected, and clear that suppression on every exit path below.
+      if (walletStore && walletStore.expectSwitchesTo) {
+        walletStore.expectSwitchesTo(signerQueue);
+      }
+
+      var signedB64 = await window.cosignSignatures.collect(
+        provider, buildData.serialized_tx, signerQueue, {
+          onPrompt: function(pubkey, index, total) {
+            setStatus(total > 1
+              ? 'Approve in Phantom as ' + pubkey.slice(0, 4) + '…' + pubkey.slice(-4) +
+                ' (' + (index + 1) + ' of ' + total + ')'
+              : 'Awaiting Phantom signature…');
+          },
+          onWaiting: function(pubkey) {
+            setStatus('Switch Phantom to ' + pubkey.slice(0, 4) + '…' + pubkey.slice(-4) + ', then approve.');
+          }
+        }
+      );
 
       setStatus('Submitting to Solana…');
       var connection = new solanaWeb3.Connection(rpcUrl);
-      var signature = await connection.sendRawTransaction(signed.serialize());
+      var signedWire = Uint8Array.from(atob(signedB64), function(c) { return c.charCodeAt(0); });
+      var signature = await connection.sendRawTransaction(signedWire);
       await Promise.race([
         connection.confirmTransaction(signature, 'confirmed'),
         new Promise(function(_, rej) { setTimeout(function() { rej(new Error('Confirmation timed out after 60s')); }, 60000); })
@@ -253,6 +323,7 @@
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
         body: JSON.stringify({
           cosigner_pubkey: payload.cosigner_pubkey,
+          extra_cosigners: buildData.extra_cosigners || [],
           tx_signature: signature,
           instruction: instruction
         })
@@ -266,6 +337,13 @@
       console.error('Vault ' + instruction + ' failed:', err);
       setStatus('Error: ' + err.message, true);
       disableBtn(false);
+    } finally {
+      // A suppression that outlives its flow disarms the wallet guard for the
+      // rest of the page, silently and for every wallet. Clear it whether the
+      // ceremony succeeded, failed, or threw.
+      if (walletStore && walletStore.clearExpectedSwitches) {
+        walletStore.clearExpectedSwitches();
+      }
     }
   };
 })();
