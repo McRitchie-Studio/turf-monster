@@ -125,16 +125,51 @@ class Solana::ConfigNetworkRequiredTest < ActiveSupport::TestCase
     assert_equal "devnet", resolve_network("development", "")
   end
 
-  # The REACHABLE consequence. IDL_PATH has no env override, so NETWORK alone
-  # decides which IDL a mainnet app verifies against — this is the coupling that
-  # made the fail-open matter, not the mint defaults.
-  test "IDL_PATH is keyed on NETWORK with no env override, which is why the fail-open mattered" do
+  # The REACHABLE consequence. NETWORK alone decides which CLUSTER's IDL a
+  # mainnet app verifies against — this is the coupling that made the fail-open
+  # matter, not the mint defaults.
+  #
+  # ── THE PREMISE MOVED, AND HERE IS EXACTLY HOW ────────────────────────────
+  #
+  # This used to assert `IDL_PATH = if NETWORK == "mainnet-beta"` verbatim and
+  # that no env var reached IDL_PATH at all. turf-vault v0.26 made this app
+  # carry TWO program shapes in one slug (see Solana::Config GOVERNANCE), so
+  # IDL_PATH now selects on two axes — cluster AND program version — and an env
+  # var does move it.
+  #
+  # The guarded property is unchanged and is asserted below in the form that
+  # still bites: THE ENV SWITCH CANNOT CHANGE THE CLUSTER. It picks a version
+  # suffix; the `turf_vault` / `turf_vault.mainnet` basename is still decided by
+  # NETWORK and by nothing else, so an unset SOLANA_NETWORK on a mainnet app
+  # still selects a devnet IDL whose hash is not in that app's allow-list, and
+  # the boot is still refused.
+  test "IDL_PATH's CLUSTER half is keyed on NETWORK alone, with no env override" do
     source = CONFIG_RB.read
 
-    assert_match(/IDL_PATH = if NETWORK == "mainnet-beta"/, source,
-                 "if IDL_PATH stops keying on NETWORK, re-read this guard's premise")
-    assert_no_match(/IDL_PATH = ENV\.fetch/, source,
-                    "an env override on IDL_PATH would give operators a way around this coupling")
+    assert_match(/base = NETWORK == "mainnet-beta" \? "turf_vault\.mainnet" : "turf_vault"/, source,
+                 "if IDL_PATH stops keying its cluster on NETWORK, re-read this guard's premise")
+    assert_no_match(/base = ENV/, source,
+                    "an env override on the CLUSTER half would give operators a way around this coupling")
+
+    # The version axis is allowed to read env — that is the whole point of the
+    # switch — but it may only append a version suffix, never rewrite the base.
+    version_half = source[/Rails\.root\.join\("config", "#\{base\}.*?\)/m]
+    refute_nil version_half, "IDL_PATH no longer composes its filename from `base`"
+    assert_match(/#\{base\}/, version_half,
+                 "the filename must still be built FROM the NETWORK-derived base")
+    assert_no_match(/mainnet/, version_half,
+                    "the version suffix must not be able to name a cluster")
+  end
+
+  # The switch and the file have to agree, or Rails builds account lists for a
+  # program shape other than the one it believes is deployed. That check is
+  # deliberately NOT covered by BYPASS_IDL_CHECK, which exists for hash skew.
+  test "a governance switch that disagrees with the pinned IDL refuses the boot" do
+    source = CONFIG_RB.read
+
+    assert_match(/def self\.verify_governance_alignment!/, source)
+    assert_match(/verify_governance_alignment!\n\n      # OPSEC-014 emergency bypass/, source,
+                 "the shape check must run BEFORE the hash bypass, or BYPASS_IDL_CHECK would cover it")
   end
 
   # The mint defaults key on NETWORK too, but the env override always wins and

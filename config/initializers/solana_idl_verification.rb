@@ -53,7 +53,11 @@ if Rails.env.production? && !ENV["SECRET_KEY_BASE_DUMMY"]
 
   Rails.application.config.after_initialize do
     Solana::Config.verify_idl!
-  rescue Solana::Config::IdlMismatchError => e
+  rescue Solana::Config::IdlMismatchError, Solana::Config::GovernanceMismatchError => e
+    # GovernanceMismatchError joins the rescue so the SHAPE failure is logged
+    # with the same prominence as the HASH one. It is raised from the top of
+    # verify_idl! and is not covered by BYPASS_IDL_CHECK: a slug building the
+    # wrong account list must not reach a dyno that accepts traffic.
     Rails.logger.error(e.message)
     raise
   end

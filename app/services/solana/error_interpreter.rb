@@ -283,6 +283,86 @@ module Solana
         return ok(message: "Entry token reference hash mismatch — retry the mint.", log: true)
       end
 
+      # ── v0.26 codes (6045-6066) ──────────────────────────────────────
+      #
+      # The range grew from 6000-6044 to 6000-6066 with the governance model and
+      # the username registry. Most of these are OPERATOR errors — a caller that
+      # assembled the wrong account list or could not gather enough signatures —
+      # and the right handling is a loud log plus a message that names the cause,
+      # because the alternative is an opaque hex code during a deploy window.
+      #
+      # ONE of them is genuinely a PERSON'S problem, and it is the one this
+      # section exists for: 6060, a username someone else already holds.
+
+      # UsernameAlreadyClaimed (6060 / 0x17ac). The registry made uniqueness an
+      # on-chain fact rather than a Rails convention, so a name can now be taken
+      # between the form render and the submit. Ordinary, user-fixable, and NOT
+      # logged as a fault.
+      if stripped.match?(/0x17ac|\b6060\b|usernamealreadyclaimed/i)
+        return ok(message: "That username is already taken. Please choose another.")
+      end
+
+      # EntryTokenAlreadyBurned (6045 / 0x179d) — the voucher was clawed back
+      # before it was spent. A person hitting this needs to know the token is
+      # gone, not that a constraint tripped.
+      if stripped.match?(/0x179d|\b6045\b|entrytokenalreadyburned/i)
+        return ok(message: "That free entry is no longer available — it was voided. Contact support if this is unexpected.", log: true)
+      end
+
+      # InsufficientSigners (6046) / CosignerDidNotSign (6047). THE SIGNATURE
+      # OF A HALF-FINISHED UPGRADE: v0.26 raised several actions to three
+      # signatures, so a caller still assembling the old two-signature wire
+      # lands here. Loud, and the message says which half is missing rather than
+      # "transaction failed".
+      if stripped.match?(/0x179e|\b6046\b|insufficientsigners/i)
+        return ok(message: "Not enough vault signatures for this action — it now requires more cosigners than were supplied.", log: true)
+      end
+      if stripped.match?(/0x179f|\b6047\b|cosignerdidnotsign/i)
+        return ok(message: "An account offered as a vault cosigner did not sign — the extra signature slot was left empty.", log: true)
+      end
+
+      # MintWindowMismatch (6053 / 0x17a5). Rails names the window from its OWN
+      # clock and the program pins it against the chain's, so this is either
+      # clock skew across a window boundary or a mint-window policy that was
+      # retuned while a cached read was still warm. Retryable.
+      if stripped.match?(/0x17a5|\b6053\b|mintwindowmismatch/i)
+        return ok(message: "Free-entry mint window moved — please try again.", toast: true, log: true)
+      end
+
+      # InvalidMintWindowPolicy (6054 / 0x17a6) — the stored window length or cap
+      # is zero/negative, which no legitimate retune can produce. It means the
+      # governance account is unset or corrupt, and every free-entry mint is
+      # blocked until it is fixed, so this one is loud.
+      if stripped.match?(/0x17a6|\b6054\b|invalidmintwindowpolicy/i)
+        return ok(message: "Free-entry mint policy is not configured on the vault — mints are blocked until it is set.", log: true)
+      end
+
+      # SeedGrantInviteeNotRegistered (6055 / 0x17a7). The invite quest now
+      # demands the friend have a real account that has ENTERED a contest, which
+      # is the business rule itself rather than a technical constraint. Say so.
+      if stripped.match?(/0x17a7|\b6055\b|seedgrantinviteenotregistered/i)
+        return ok(message: "Your invited friend has not entered a contest yet — the bonus lands once they do.")
+      end
+
+      # InvalidRentDestination (6056 / 0x17a8) — a close_contest whose treasury
+      # slot is not the vault's pinned treasury authority. Fund-safety signal.
+      if stripped.match?(/0x17a8|\b6056\b|invalidrentdestination/i)
+        return ok(message: "Reclaimed rent must be paid to the vault's pinned treasury.", log: true)
+      end
+
+      # The governance-table errors (6048-6052). Only reachable from an admin
+      # retune; grouped because none is separately actionable by a person.
+      if stripped.match?(/0x17a[0-4]|\b(6048|6049|6050|6051|6052)\b|governancethresholdinvalid|governancefloorviolation|invalidgovernanceaction|thresholdexceedssignerset|signersettoosmall/i)
+        return ok(message: "Rejected by the vault's governance rules — the requested threshold is not permitted.", log: true)
+      end
+
+      # The registry's record-shape errors (6061-6066). These mean Rails passed
+      # the wrong previous-record account (or passed one where none was due), so
+      # they are a BUG signal rather than anything a person did.
+      if stripped.match?(/0x17a[d-f]|0x17b[0-2]|\b(6061|6062|6063|6064|6065|6066)\b|usernamekeymismatch|usernamerecord(missing|ownermismatch|namemismatch|notexpected)|usernamenotreserved/i)
+        return ok(message: "Username registry mismatch — the rename could not be completed. Please try again.", log: true)
+      end
+
       # Network / RPC flakes — transient, user can just retry.
       if stripped.match?(/blockhash not found|block height exceeded|connection refused|timed out|connection reset/i)
         return ok(message: "Network blip — please try again.", toast: true)
