@@ -9,7 +9,16 @@
 //   onclick="lockContestViaPhantom('<slug>', 60)"      → schedule the lock 60s out
 //   onclick="concludeContestViaPhantom('<slug>', 60)"  → schedule the conclusion 60s out
 //   (inSeconds = 0 → "now".)
-async function setContestTimeViaPhantom(slug, inSeconds, opts) {
+//   lockContestAtViaPhantom('<slug>', 1789451207)      → lock at an ABSOLUTE moment
+//   clearContestLockViaPhantom('<slug>')               → clear the lock (re-open entries)
+//
+// THE SECOND ARGUMENT IS THE PREPARE BODY, not a number, because the server now
+// accepts two ways to name the moment. A relative offset cannot express an NFL
+// flex reschedule three days out, and it cannot express "no lock at all" — the
+// two things the retired server-signed path could still do. `lock_timestamp: 0`
+// is the program's own spelling of "clear", so it is deliberately NOT filtered
+// out as a falsy value anywhere below.
+async function setContestTimeViaPhantom(slug, prepareBody, opts) {
   const modal = window.Alpine && Alpine.store("solanaModal");
   const fail = (msg, title) => {
     if (modal) {
@@ -72,7 +81,7 @@ async function setContestTimeViaPhantom(slug, inSeconds, opts) {
     const prep = await fetch(prepareUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
-      body: JSON.stringify({ in_seconds: inSeconds }),
+      body: JSON.stringify(prepareBody),
     });
     const prepData = await prep.json();
     if (!prep.ok || !prepData.success) {
@@ -86,7 +95,9 @@ async function setContestTimeViaPhantom(slug, inSeconds, opts) {
     const txBytes = Uint8Array.from(atob(prepData.serialized_tx), (c) => c.charCodeAt(0));
     const tx = solanaWeb3.Transaction.from(txBytes);
     if (window.confirmSolanaNetworkIntent) {
-      await window.confirmSolanaNetworkIntent({ action: "Set " + opts.noun.toLowerCase() + " time" });
+      await window.confirmSolanaNetworkIntent({
+        action: opts.clearing ? "Clear the contest lock" : "Set " + opts.noun.toLowerCase() + " time",
+      });
     }
     const signed = await provider.signTransaction(tx);
 
@@ -118,7 +129,7 @@ async function setContestTimeViaPhantom(slug, inSeconds, opts) {
 
     // Reload so the live countdown + admin controls reflect the change. (The
     // shared modal's success card is entry-specific, so we don't use it here.)
-    if (modal) modal.show(opts.noun + " Set", "Refreshing…");
+    if (modal) modal.show(opts.clearing ? "Lock Cleared" : opts.noun + " Set", "Refreshing…");
     window.location.reload();
   } catch (err) {
     console.error(opts.action + " failed:", err);
@@ -126,10 +137,27 @@ async function setContestTimeViaPhantom(slug, inSeconds, opts) {
   }
 }
 
+var LOCK_OPTS = { action: "lock", tsKey: "lock_timestamp", noun: "Lock" };
+
 window.lockContestViaPhantom = function (slug, inSeconds) {
-  return setContestTimeViaPhantom(slug, inSeconds, { action: "lock", tsKey: "lock_timestamp", noun: "Lock" });
+  return setContestTimeViaPhantom(slug, { in_seconds: inSeconds }, LOCK_OPTS);
+};
+
+// An ABSOLUTE lock — what the edit page's picker sends, and the only route to a
+// reschedule further out than the 0..3600s the relative form clamps to.
+window.lockContestAtViaPhantom = function (slug, unixTimestamp) {
+  return setContestTimeViaPhantom(slug, { lock_timestamp: unixTimestamp }, LOCK_OPTS);
+};
+
+// Clear the lock: entries re-open indefinitely. `0` is the program's contract
+// (set_contest_lock_time: "new_lock_timestamp == 0 clears the lock"), and Rails
+// mirrors it as a nil starts_at.
+window.clearContestLockViaPhantom = function (slug) {
+  return setContestTimeViaPhantom(
+    slug, { lock_timestamp: 0 }, { action: "lock", tsKey: "lock_timestamp", noun: "Lock", clearing: true }
+  );
 };
 
 window.concludeContestViaPhantom = function (slug, inSeconds) {
-  return setContestTimeViaPhantom(slug, inSeconds, { action: "conclusion", tsKey: "conclusion_timestamp", noun: "Conclusion" });
+  return setContestTimeViaPhantom(slug, { in_seconds: inSeconds }, { action: "conclusion", tsKey: "conclusion_timestamp", noun: "Conclusion" });
 };

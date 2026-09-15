@@ -936,7 +936,44 @@
 # shape the entry above warns about. 297 is what the lister printed on the
 # MERGED tree, taken as printed: not 293 + 4, not 295 + 2.
 # Derived with bin/e2e-lane-derive --write ON THE MERGED TREE.
-total_specs: 307
+# 307 -> 310 (route-time-changes-to-phantom): three specs in
+# e2e/contest_lock_phantom.spec.js for the Phantom lock route's client half,
+# which dor-check refused to let ship without a browser witness — the diff adds
+# interaction logic to contest_lock_picker.js and lock_contest.js, and every
+# tier that change's `backend` shape demands renders to a String.
+#   · the picker's pickedUnix() turning a picked date+time into Unix seconds,
+#     read back through the browser's own clock. A timezone slip there changes
+#     no markup at all; it changes a CONTEST DEADLINE, which is money in both
+#     directions.
+#   · clearing the lock sending `lock_timestamp: 0` and the key SURVIVING
+#     JSON.stringify. Zero is the program's spelling of "no lock" and exactly
+#     the value JavaScript is happiest to drop as falsy.
+#   · the control: the quick buttons still send a relative `in_seconds`, so the
+#     two above pin a body shape chosen per entry point, not one hardcoded.
+# None is tagged @devnet and none skips, so excluded stays 17 and allowed_skips
+# stays 4.
+#
+# ⚠️ RE-DERIVED ON THE REBASED TREE, NOT INCREMENTED — and the increment would
+# have been wrong twice over. The base had already moved to 307 under
+# gift-link-skips-wallet-auth, and this branch adds THREE specs where a reader
+# expecting the usual one would have written 308. Per the warning above, a
+# sibling branch adding its own spec will write a number off this same base;
+# whoever merges second must re-derive on the MERGED tree rather than accept a
+# clean-looking merge of these lines.
+#
+# ⚠️ DERIVED WITH THE JSON REPORTER, not `bin/e2e-lane-derive`. That script and
+# the bare `npx playwright test --list` both exit 194 with zero output on this
+# machine, because turf-monster/node_modules is a symlink pointing at ITSELF
+# (committed, broken since Sep 13; being fixed under
+# /tasks/node-modules-symlinks-to-itself). Working around it with a borrowed
+# install, the DEFAULT list reporter still crashes while
+# `playwright test --list --reporter=json` exits 0 — so the numbers above come
+# from the SAME lister Playwright uses to build its own model, read through a
+# reporter that works, never from a grep or from arithmetic on the old value.
+# The method was validated first against the untouched tree, where it returned
+# exactly the declared 307. CI's e2e_declared_set and e2e_executed_set remain
+# the real witnesses.
+total_specs: 310
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1254,7 +1291,7 @@ allowed_skips: 4
 # on top. The lister re-derived excluded as 17 on the merged tree and
 # allowed_skips stays 4, so both listers agree. Derived with
 # bin/e2e-lane-derive --write ON THE MERGED TREE.
-executed: 286
+executed: 289
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
