@@ -418,10 +418,22 @@ module Solana
     #      solana.turf.admin (BLSBw8fX…) the same day. A re-file is not an
     #      on-chain event and is never evidence of one.
     #
+    # THE TWO SETS DIFFER BY EXACTLY ONE WALLET, ON PURPOSE, AND ARE NOT MEANT
+    # TO CONVERGE. Squads (upgrade) is FOUR at threshold 3 and is LIVE:
+    # BLSBw8…, 7ZDJ…, 3Qj4v9…, 9gACbz…. VaultState (the money) is FIVE and is
+    # the TARGET: those four PLUS system 7auwTL…, which is deliberately OFF
+    # Squads. 7auwTL… is the app's HOT key — it sits in Heroku config on a
+    # running dyno and signs every entry and payout, so it is the most exposed
+    # key here and the last that should hold upgrade authority; it also has no
+    # job there, since upgrading is a rare human act, never an unattended one.
+    # So "four" and "five" name different sets, not a stale count.
+    #
     # SO: read VaultState.signers for what this constant should say, and read
-    # the multisig for who may upgrade. Neither answers the other, and a
-    # 1Password item answers neither. Dates above are measurements, not
-    # guarantees — re-read the chain rather than trusting this comment's age.
+    # the Squads multisig for who may upgrade. Neither answers the other, and a
+    # 1Password item answers neither. NEVER write "the multisig" unqualified in
+    # this file — say Squads or VaultState; the unqualified form is what
+    # produced the claims this comment replaces. Dates above are measurements,
+    # not guarantees — re-read the chain rather than trusting this comment's age.
     #
     # HOW MANY SLOTS VaultState HAS DEPENDS ON WHICH BUILD YOU MEAN. The
     # DEPLOYED v0.25.0 declares `signers: [Pubkey; 3]`. turf-vault's `accepted`

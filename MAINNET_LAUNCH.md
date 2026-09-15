@@ -38,14 +38,40 @@ One-time runbook for the **v0.15.0 mainnet first deploy**. Read top-to-bottom; e
   > rotation bought. If a ceremony needs his approvals, he gives them — the
   > unblock is a signature, never a filing.
   >
-  > **TWO AUTHORITIES, AND SINCE 09:41 THEY DISAGREE.** The multisig above holds
-  > the program's **upgrade** authority. `VaultState.signers` is a different
-  > authority holding treasury and governance cosign, it changes only by
-  > `update_signers`, and the rotation did not touch it: still **2-of-3**
-  > (`8K81…`, `7ZDJ…`, `CytJ…`) on both clusters, measured the same day. They
-  > agreed until 09:41, which is exactly why conflating them went unnoticed for
-  > so long. `SOLANA_MULTISIG_SIGNERS` below models `VaultState`, not Squads —
-  > so it stays as it is, and a Squads change is never a reason to edit it.
+  > **TWO SETS, AND THE DIFFERENCE IS EXACTLY ONE WALLET — BY DESIGN.** These
+  > are not one authority seen twice, and they are not meant to converge:
+  >
+  > | Wallet | Squads (program upgrade) | `VaultState.signers` (the money) |
+  > |---|---|---|
+  > | system `7auwTL…` | **excluded, deliberately** | slot 1 |
+  > | admin `BLSBw8…` | ✅ | slot 2 |
+  > | Alex Phantom `7ZDJ…` | ✅ | slot 3 |
+  > | Alex two `3Qj4v9…` | ✅ | slot 4 |
+  > | Alex three `9gACbz…` | ✅ | slot 5 |
+  >
+  > **Squads is FOUR at threshold 3 and is LIVE** (09:41, measured above).
+  > **`VaultState` is FIVE and is the TARGET** — on-chain it is still the old
+  > 2-of-3 (`8K81…`, `7ZDJ…`, `CytJ…`) on both clusters, measured the same day,
+  > until an `update_signers` transaction runs. So "four" and "five" are two
+  > different sets, not a discrepancy and not a stale number.
+  >
+  > **Why `solana.turf.system` is on the vault and deliberately OFF Squads:**
+  > it is the app's HOT operational key. It lives in Heroku config on a running
+  > web server and signs on every entry and every payout, which makes it the
+  > most exposed key in the system and the last one that should hold program
+  > upgrade authority. It also has no job there — upgrading a program is a
+  > rare, deliberate, human act, never something the server does unattended.
+  >
+  > The agent therefore holds **1 of 4 on Squads** and, once rotated, **2 of 5
+  > on the vault**. Four seats rather than five keeps an attacker two
+  > signatures from threshold instead of one; five would survive Mr. McRitchie
+  > losing two personal keys. He has that trade and chose four — changeable
+  > later with one config transaction, since he holds 3 of 4.
+  >
+  > **Never write "the multisig" unqualified.** Say *Squads* or *`VaultState`*
+  > every time. The unqualified form is what produced the stale claims this
+  > block replaces. `SOLANA_MULTISIG_SIGNERS` below models `VaultState`, not
+  > Squads — so a Squads change is never a reason to edit it.
   >
   > **HOW MANY SLOTS `VaultState` HAS DEPENDS ON WHICH BUILD YOU MEAN.** The
   > DEPLOYED v0.25.0 declares `signers: [Pubkey; 3]`. turf-vault's `accepted`
@@ -54,7 +80,7 @@ One-time runbook for the **v0.15.0 mainnet first deploy**. Read top-to-bottom; e
   > stays layout-compatible on a `zero_copy` singleton. "Three" and "five" are
   > each true of a different build; that gap is the design, not a discrepancy.
   > Check what the cluster runs before trusting any count.
-- [ ] **1Password updated**: `agent.mason.solana.mainnet` (Mason mainnet keypair), `agent.managed_wallet.mainnet` (32-byte hex MANAGED_WALLET_ENCRYPTION_KEY for mainnet — generate fresh, do NOT reuse the devnet one). The Turf Solana keys are ALREADY filed and need no mainnet-suffixed twin — all three live in `studio-agents` with HYPHENATED labels (`wallet-address`, `private-key`), verified 2026-09-15: `solana.turf.admin` (`BLSBw8fX…`, the agent governance identity), `solana.turf.system` (`7auwTLSv…`, the server operational key for MAINNET) and `solana.turf.system.devnet` (`2eGs8G3w…`, the same for devnet/QA). Note `solana.turf.admin` is also the agent's Squads seat; the two system keys are not multisig members.
+- [ ] **1Password updated**: `agent.mason.solana.mainnet` (Mason mainnet keypair), `agent.managed_wallet.mainnet` (32-byte hex MANAGED_WALLET_ENCRYPTION_KEY for mainnet — generate fresh, do NOT reuse the devnet one). The Turf Solana keys are ALREADY filed and need no mainnet-suffixed twin — all three live in `studio-agents` with HYPHENATED labels (`wallet-address`, `private-key`), verified 2026-09-15: `solana.turf.admin` (`BLSBw8fX…`, the agent governance identity), `solana.turf.system` (`7auwTLSv…`, the server operational key for MAINNET) and `solana.turf.system.devnet` (`2eGs8G3w…`, the same for devnet/QA). Note `solana.turf.admin` is also the agent's single Squads seat. The system keys are **deliberately excluded from Squads** — `solana.turf.system` belongs to the `VaultState.signers` set instead (slot 1 of the five-member target), because a hot key that signs every entry and payout from a web dyno must not also hold program upgrade authority.
 - [ ] **Mainnet RPC URL** chosen (Helius / QuickNode / Triton — NOT public api.mainnet-beta.solana.com for production traffic).
 - [ ] **Stripe live keys** ready: `STRIPE_SECRET_KEY` (sk_live_...), `STRIPE_WEBHOOK_SECRET` (whsec_... — created against the live mode endpoint).
 - [ ] **Browse `/admin/transactions`** on devnet — confirm no PendingTransactions are stuck in :pending. They won't carry over but cleaner state is easier to debug.
