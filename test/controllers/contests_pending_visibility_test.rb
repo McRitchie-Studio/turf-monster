@@ -80,7 +80,13 @@ class ContestsPendingVisibilityTest < ActionDispatch::IntegrationTest
   # against a PDA that was never initialized, because the guard asked `onchain?`
   # — true the instant #finalize stamps the derived PDA on the write-ahead row —
   # and never asked whether the create had been verified.
-  test "editing a pending contest's start time does NOT broadcast a lock-time instruction" do
+  #
+  # THE GUARD STILL TURNS ON Contest#onchain_verified?, but since
+  # route-time-changes-to-phantom it decides something else: not "broadcast or
+  # stay quiet" but "save or refuse". A pending row has no initialized PDA and
+  # therefore no on-chain lock to contradict, so its start time stays editable
+  # here — which is what this test pins.
+  test "editing a pending contest's start time is allowed and broadcasts nothing" do
     log_in_as(@admin)
     vault = FakeVault.new
 
@@ -88,20 +94,23 @@ class ContestsPendingVisibilityTest < ActionDispatch::IntegrationTest
       patch contest_path(@pending), params: { contest: { starts_at: 2.days.from_now } }
     end
 
-    # PROVE THE INPUT REACHED THE GUARD. An empty call list also describes an
-    # update that never happened at all (a validation refusal, a redirect), in
-    # which case this test would pass against unguarded code. Assert the DB edit
-    # landed, so the only remaining explanation for the silence is the guard.
+    # THE PERSIST IS THE LOAD-BEARING ASSERTION, and it is the one the verified
+    # test below contradicts. The empty call list no longer distinguishes
+    # anything on its own — no controller path signs a lock any more — so it is
+    # kept only as a regression pin against wiring the server key back in.
     assert_equal 2.days.from_now.to_date, @pending.reload.starts_at.to_date,
-      "the starts_at edit must actually persist, or this test proves nothing"
+      "an unverified row must stay editable, or this test proves nothing"
     assert_empty vault.set_lock_time_calls,
       "a pending row's PDA does not exist — this instruction would fail with AccountNotInitialized"
   end
 
-  # The control. Same edit, same code path, on a VERIFIED contest: the broadcast
-  # must still happen, or the guard above would be indistinguishable from having
-  # broken the feature.
-  test "editing a verified contest's start time DOES broadcast a lock-time instruction" do
+  # THE CONTROL, INVERTED BY route-time-changes-to-phantom. Same edit, same code
+  # path, on a VERIFIED contest. It used to assert the broadcast HAPPENED; the
+  # server key no longer signs a lock change at all, so the verified side now
+  # asserts the REFUSAL. Something must still differ between the two contests or
+  # the test above is satisfied by code with no guard whatsoever — this is that
+  # difference, and it is why this test was rewritten rather than deleted.
+  test "editing a verified contest's start time is refused, not broadcast" do
     verified = Contest.new(
       name: "Strand Verified", slug: "strand-verified", slate: @slate, contest_type: "tiny",
       status: :open, entry_fee_cents: 100, max_entries: 10, user: @admin,
@@ -109,6 +118,7 @@ class ContestsPendingVisibilityTest < ActionDispatch::IntegrationTest
     )
     verified.skip_onchain_callback = true
     verified.save!
+    original = verified.starts_at
 
     log_in_as(@admin)
     vault = FakeVault.new
@@ -117,7 +127,35 @@ class ContestsPendingVisibilityTest < ActionDispatch::IntegrationTest
       patch contest_path(verified), params: { contest: { starts_at: 2.days.from_now } }
     end
 
-    assert_equal 1, vault.set_lock_time_calls.size
+    assert_response :unprocessable_entity
+    assert_equal original.to_i, verified.reload.starts_at.to_i,
+      "refusing AFTER the save would strand the DB ahead of the chain"
+    assert_empty vault.set_lock_time_calls,
+      "the admin key must not sign a lock-time change — that authority moved to Phantom"
+  end
+
+  # A verified contest is not frozen: only its LOCK TIME left this screen. An
+  # edit that moves no deadline still saves, which is what keeps the refusal
+  # above a routing rule rather than a read-only page.
+  test "editing a verified contest's name is still allowed" do
+    verified = Contest.new(
+      name: "Strand Renameable", slug: "strand-renameable", slate: @slate, contest_type: "tiny",
+      status: :open, entry_fee_cents: 100, max_entries: 10, user: @admin,
+      onchain_contest_id: "cpda-strand-renameable"
+    )
+    verified.skip_onchain_callback = true
+    verified.save!
+
+    log_in_as(@admin)
+    vault = FakeVault.new
+
+    Solana::Vault.stub :new, vault do
+      patch contest_path(verified), params: { contest: { name: "Strand Renamed" } }
+    end
+
+    assert_equal "Strand Renamed", verified.reload.name,
+      "the lock-time guard must not swallow an unrelated edit"
+    assert_empty vault.set_lock_time_calls
   end
 
   # ───────────────────────────────────────────────────────────────────────────

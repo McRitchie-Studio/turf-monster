@@ -491,22 +491,45 @@ class ContestsController < ApplicationController
 
   def update
     rescue_and_log(target: @contest) do
-      @contest.update!(contest_update_params)
-      # Mirror an edited lock time onto the chain (on-chain is master for
-      # locking). nil starts_at sends 0 = clear the lock.
+      @contest.assign_attributes(contest_update_params)
+
+      # THE LOCK TIME IS NO LONGER THE SERVER'S TO MOVE. This used to save
+      # first and then mirror the new starts_at onto the chain with
+      # Solana::Vault#set_contest_lock_time — the always-online admin key
+      # signing alone, 1-of-3. The program escalates to two signatures only
+      # AFTER a deadline has PASSED, so that one key could push a 1pm lock out
+      # to 4pm at 12:59 and then enter at 3pm with three hours of real-world
+      # results already known. #prepare_lock_time → #confirm_lock_time puts the
+      # operator's own Phantom in the authority slot instead and leaves the bot
+      # as fee payer; every Lock button in app/views/contests already calls it.
+      #
+      # REFUSED, NOT SILENTLY SKIPPED. Dropping the broadcast while keeping the
+      # save would leave the DB claiming a lock the chain does not enforce — a
+      # page reading "locked" while enter_contest still accepts entries. That is
+      # the lie in the direction that costs money, so the edit stops here and
+      # names the flow that can move the lock.
+      #
+      # BEFORE the save, not after: nothing wraps this action in a transaction,
+      # so a refusal raised after `update!` would leave the row already moved
+      # with no chain write to match it.
       #
       # `onchain_verified?`, NOT `onchain?`: a stranded `pending` row carries a
       # derived PDA that was never initialized (see Contest#onchain_verified?),
-      # and editing one used to broadcast set_contest_lock_time at that empty
-      # address. Admin-only and no money moves — the instruction fails with
-      # AccountNotInitialized — but it fails as an unexplained program error on
-      # a screen that gave no hint the contest was unverified.
-      if @contest.saved_change_to_starts_at? && @contest.onchain_verified?
-        Solana::Vault.new.set_contest_lock_time(@contest.slug, @contest.starts_at&.to_i || 0)
+      # so it has no on-chain lock to contradict and stays freely editable here.
+      # The same predicate used to keep the broadcast off that empty address.
+      if @contest.onchain_verified? && lock_time_moved?(@contest)
+        raise "This contest's lock time lives on chain. Change it with the " \
+              "Phantom-signed Lock button on the contest page."
       end
+
+      @contest.save!
       redirect_to root_path, notice: "Contest updated."
     end
   rescue StandardError => e
+    # The refusal above is the whole point of this screen re-rendering, and it
+    # is not an ActiveRecord error, so @contest.errors cannot carry it. Without
+    # this the admin got a bare 422 edit page and no reason.
+    flash.now[:alert] = e.message
     render :edit, status: :unprocessable_entity
   end
 
@@ -1597,11 +1620,28 @@ class ContestsController < ApplicationController
   # derived `locked?` + the page countdown agree.
   def lock
     rescue_and_log(target: @contest) do
+      # OFF-CHAIN CONTESTS ONLY. This action used to broadcast the lock with the
+      # admin key before mirroring starts_at — one always-online key deciding a
+      # deadline that is worth money in both directions (see #update for why the
+      # program's 2-of-3 escalation does not cover extending a live window).
+      # The on-chain lock now moves ONLY through the Phantom-signed pair
+      # (#prepare_lock_time → #confirm_lock_time), which is what every Lock
+      # button renders.
+      #
+      # An off-chain contest keeps this path in full: there is no chain row to
+      # disagree with, so moving starts_at IS the whole lock. That is the only
+      # contest the e2e live-page lane locks, and the reason this action stays.
+      #
+      # Refusing rather than skipping the broadcast, for the same reason as
+      # #update: a DB-only lock on an on-chain contest reads "locked" on a page
+      # whose program still accepts entries.
+      if @contest.onchain_verified?
+        raise "This contest's lock time lives on chain. Use the Phantom-signed " \
+              "Lock button — the server key no longer signs a lock change."
+      end
+
       seconds = params[:in_seconds].to_i.clamp(0, 3600)
       lock_at = Time.current + seconds.seconds
-      # `onchain_verified?` for the same reason as #update: a pending row's PDA
-      # was never initialized, so this instruction would target an empty address.
-      Solana::Vault.new.set_contest_lock_time(@contest.slug, lock_at.to_i) if @contest.onchain_verified?
       @contest.update!(starts_at: lock_at)
       notice = seconds.positive? ? "Lock scheduled — entries close in #{seconds}s." : "Contest locked — entries closed."
       redirect_to @contest, notice: notice
@@ -2837,5 +2877,20 @@ class ContestsController < ApplicationController
   # the edit form submit an empty value and purge the existing attachment.
   def contest_update_params
     params.require(:contest).permit(:name, :tagline, :rank, :starts_at, :locks_at_date_selected, :locks_at_time_selected, :locks_at_timezone_selected, :chat_enabled, :coming_soon)
+  end
+
+  # Would this edit MOVE the lock? Asked of an ASSIGNED, not-yet-saved contest,
+  # because #update has to refuse before the write rather than after it —
+  # `saved_change_to_starts_at?` can only answer once the row has already moved.
+  #
+  # COMPARED IN WHOLE SECONDS, deliberately. Unix seconds is the granularity the
+  # chain stores (set_contest_lock_time takes an i64 of them), and the edit
+  # form's picker round-trips starts_at through a minute-granular control. A
+  # strict dirty check would therefore read sub-second re-serialization as a
+  # lock move and refuse an admin who only renamed an on-chain contest.
+  def lock_time_moved?(contest)
+    return false unless contest.will_save_change_to_starts_at?
+
+    contest.starts_at_was&.to_i != contest.starts_at&.to_i
   end
 end
