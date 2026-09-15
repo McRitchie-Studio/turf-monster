@@ -161,10 +161,54 @@ class TokenPurchaseJob < ApplicationJob
   rescue => e
     Rails.logger.error "[tokens] job.error class=#{e.class} message=#{e.message} purchase_id=#{purchase&.id}"
     Rails.logger.error "[tokens] job.error_backtrace=#{e.backtrace.first(6).join(' | ')}" if e.backtrace
+    # THE ONE FAILURE HERE THAT MONEY HAS ALREADY PAID FOR AND TIME CANNOT FIX.
+    # Every other error in this job is either transient (an RPC flake a retry
+    # clears) or self-healing (a PDA collision the resume point reads back). The
+    # window cap is neither: it holds for the REST OF THE WINDOW, so all three
+    # attempts fail within minutes of each other and the customer is left
+    # charged with no token. That is an incident, and an incident needs a row an
+    # operator can find — a Rails.logger line summons nobody.
+    capture_mint_window_cap!(e, purchase, user) if e.is_a?(Solana::Vault::MintWindowCapReachedError)
     # H8 prelaunch audit: never downgrade a minted purchase to failed — the
     # on-chain mint succeeded even if a post-mint step (e.g. TransactionLog
     # write) raised.
     purchase&.mark_failed_unless_minted!
     raise
+  end
+
+  private
+
+  # File the cap refusal against the purchase row, then let the raise stand.
+  #
+  # DELIBERATELY NOT A REFUND. The money is recoverable by hand on every rail
+  # and the tokens are recoverable by re-running this job — which resumes at
+  # `already_minted` and completes the order — once the window rolls or an
+  # operator runs the over-cap ceremony. An automatic refund would fire an
+  # irreversible side effect (across four providers with four different refund
+  # APIs) from a job that is retried three times, to undo a condition that
+  # clears on its own. The refusal that matters happens BEFORE the charge, in
+  # TokensController; this is the backstop for an order already in flight when
+  # the window filled.
+  #
+  # Telemetry must never change control flow, so a failure to record is logged
+  # and swallowed (the Tokens::LevelUpGrant#capture_error pattern).
+  # TARGET is the purchase, PARENT is the buyer — the same two slots
+  # `rescue_and_log` fills, for the same reason: the purchase row OWNS the mint
+  # (it holds the resume point this job restarts from), and the person is who
+  # the operator has to make whole. `slug` is guarded exactly as the engine
+  # guards it — a missing convenience column must never cost the record.
+  def capture_mint_window_cap!(exception, purchase, user)
+    log = ErrorLog.capture!(exception)
+    if purchase
+      log.target = purchase
+      log.target_name = purchase.slug if purchase.respond_to?(:slug)
+    end
+    if user
+      log.parent = user
+      log.parent_name = user.slug if user.respond_to?(:slug)
+    end
+    log.save!
+  rescue StandardError => e
+    Rails.logger.error "[tokens] job.error_log_failed purchase_id=#{purchase&.id} #{e.class}: #{e.message}"
   end
 end

@@ -348,6 +348,18 @@ module Solana
     # process can sign for.
     class ThresholdUnreachableError < StandardError; end
 
+    # The one case where the threshold rose because of a COUNT rather than a
+    # constant: `mint_entry_token` is 1 signature inside the window's cap and
+    # MINT_ENTRY_TOKEN_OVER_CAP (3) above it, so the server's single key stops
+    # being enough partway through a day.
+    #
+    # A SUBCLASS, so every existing `rescue ThresholdUnreachableError` keeps
+    # working unchanged, and the two paths that must tell "the day's mint budget
+    # is spent" apart from "pass more keypairs" can match this one: the fiat
+    # pre-charge gate (TokensController) and the level-up sweep, which must not
+    # file a per-user ErrorLog for a platform-wide condition.
+    class MintWindowCapReachedError < ThresholdUnreachableError; end
+
     # The remaining-account metas for a SERVER-SIGNED path, built from actual
     # keypairs rather than pubkeys — a locally signed transaction cannot leave a
     # slot for someone else to fill, so these paths need the key, not the
@@ -361,11 +373,46 @@ module Solana
     # being read as a cosigner that did not sign (`CosignerDidNotSign`, 6047).
     # Neither error names the action, the threshold, or the fix. This one does,
     # before any SOL is spent.
-    def unattended_extra_signer_metas(action, required:, signers:)
+    #
+    # `named:` is the instruction's NAMED signer slots, as raw pubkey bytes. It
+    # defaults to the admin key alone because that is what all but one builder
+    # declares — `settle_contest` is the exception, naming admin AND cosigner,
+    # and `instructions::governance::authorize` asks `remaining_accounts` for
+    # exactly `required - named.len()`. Counting a fixed ONE there computed 2 for
+    # a caller holding admin + cosigner + one extra, which is three real
+    # signatures, and refused a settle the chain would have accepted.
+    #
+    # DISTINCT KEYS, NOT ARRAY LENGTHS. `VaultState::validate_threshold` counts
+    # distinct members and rejects a repeat outright (`DuplicateSigner`) — N
+    # signatures from one keypair is one signature — so a duplicate anywhere in
+    # the list does not merely count for less than it looks, it fails the whole
+    # transaction. Both readings of a duplicate therefore belong here, ahead of
+    # the fee: a repeated key is refused, and the default `cosigner = admin`
+    # that `settle_contest` uses to mean "nobody cosigned" collapses to the one
+    # distinct key it really is.
+    def unattended_extra_signer_metas(action, required:, signers:, named: nil)
       return [] unless Config.governance?
 
-      keypairs = Array(signers).compact
-      held = 1 + keypairs.length # the admin key this process holds, plus these
+      named_keys = Array(named || Keypair.admin.public_key_bytes).compact
+      keypairs   = Array(signers).compact
+      all_keys   = named_keys + keypairs.map(&:public_key_bytes)
+      distinct   = all_keys.uniq
+
+      if distinct.length < all_keys.length
+        # A duplicate is ALWAYS the more accurate diagnosis than a shortfall,
+        # whichever side of `required` the distinct count lands on: the chain
+        # rejects the transaction on the repeat itself, so "pass more keys"
+        # would be the wrong remedy even when the count is short.
+        raise ThresholdUnreachableError, <<~MSG.strip
+          #{action} was handed the same vault signer more than once. turf-vault's \
+          validate_threshold requires every key to be DISTINCT and rejects the whole \
+          transaction with DuplicateSigner, so #{all_keys.length} keys that are only \
+          #{distinct.length} different ones cannot reach #{required}. Pass #{required} \
+          different vault signers (see docs/SOLANA.md "v0.26 signature thresholds").
+        MSG
+      end
+
+      held = distinct.length
       if held < required
         raise ThresholdUnreachableError, <<~MSG.strip
           #{action} needs #{required} vault signatures under turf-vault v0.26 and this \
@@ -852,6 +899,28 @@ module Solana
     DEFAULT_MINT_WINDOW_SECONDS = 86_400
     DEFAULT_MINT_WINDOW_CAP = 250
 
+    # turf-vault DEFAULT_THRESHOLDS[MINT_ENTRY_TOKEN_OVER_CAP]. Quoted in the
+    # refusal below so the message says what the mint would have needed. Unlike
+    # the cap and the window length this one is NOT read from chain: it is
+    # retunable, but nothing here branches on its value — a server holding one
+    # key cannot reach it at 3 or at 2, and the refusal is the same either way.
+    OVER_CAP_THRESHOLD = 3
+
+    # Slots the FULLY UNATTENDED grinder stops short of, leaving them for a
+    # customer who paid. The realistic way to reach 250 mints in a day is not
+    # 250 card purchases — it is an automated sweep granting level-up rewards on
+    # a 15-minute cron, and every slot it takes at 249 is a slot the Stripe path
+    # needs at 250. A grant deferred to the next window costs the user nothing
+    # (Tokens::LevelUpGrant re-reads the chain and pays it on the next pass); a
+    # purchase refused after the charge costs them money.
+    #
+    # Applied at ONE call site on purpose. Not to EntryGiftMintJob, whose mint
+    # is a promise already made to a person who just clicked; not to the operator
+    # pages, where a human is present and can run the ceremony; never to paid
+    # fulfilment. A starting value, not a measured one — retune or remove it if
+    # the sweep proves it never approaches the cap.
+    UNATTENDED_MINT_WINDOW_RESERVE = 25
+
     GOVERNANCE_CACHE_KEY = "solana:governance_config".freeze
 
     # GovernanceConfig layout (v0.26):
@@ -905,6 +974,146 @@ module Solana
       seconds = cached_governance&.dig(:mint_window_seconds).to_i
       seconds = DEFAULT_MINT_WINDOW_SECONDS unless seconds.positive?
       at.to_i.div(seconds)
+    end
+
+    # MintWindow layout (v0.26):
+    #   8 discriminator + 8 window_index (i64 LE) + 4 minted (u32 LE)
+    #   + 1 bump + 16 _reserved = 37
+    MINT_WINDOW_ACCOUNT_LEN = 37
+    MINT_WINDOW_INDEX_OFFSET = 8
+    MINT_WINDOW_MINTED_OFFSET = MINT_WINDOW_INDEX_OFFSET + 8
+
+    # How many entry tokens the given window has already minted, READ FROM THE
+    # ACCOUNT THE PROGRAM ITSELF COUNTS — `MintWindow.minted` at the PDA the
+    # mint instruction increments. Not a Rails-side tally of our own mints, and
+    # not a `Time`-bucketed count of DB rows: both would drift from the chain
+    # the moment anything minted outside this app (a script, a second dyno, an
+    # operator's console) or a mint landed whose response we never saw, and a
+    # count that drifts LOW is exactly the one that lets a doomed transaction
+    # through.
+    #
+    # A MISSING ACCOUNT IS ZERO, NOT AN ERROR. `mint_entry_token` creates it
+    # with `init_if_needed` on the window's first mint, so "no account" and "no
+    # mints yet this window" are the same state on chain, and the program reads
+    # a freshly zeroed account down the identical code path.
+    #
+    # Returns nil when the count could not be established — see
+    # #mint_window_usage for what a nil is allowed to decide.
+    def read_mint_window(window_index, commitment: "confirmed")
+      pda, _ = mint_window_pda(window_index)
+      info = client.get_account_info(Keypair.encode_base58(pda), commitment: commitment)
+      # `info` present with a null `value` is the definitive "no such account".
+      return 0 if info && info["value"].nil?
+
+      raw = info&.dig("value", "data", 0)
+      return nil if raw.nil?
+
+      data = Base64.decode64(raw)
+      return nil if data.length < MINT_WINDOW_MINTED_OFFSET + 4
+
+      # The account is self-describing; if the index it stores is not the one we
+      # derived the PDA from, our decode is wrong and the number is not usable.
+      return nil unless data[MINT_WINDOW_INDEX_OFFSET, 8].unpack1("q<") == window_index
+
+      data[MINT_WINDOW_MINTED_OFFSET, 4].unpack1("L<")
+    end
+
+    # The cap in force, preferring a live read over the shipped default.
+    def mint_window_cap
+      cap = cached_governance&.dig(:mint_window_cap).to_i
+      cap.positive? ? cap : DEFAULT_MINT_WINDOW_CAP
+    end
+
+    # The current window's budget: `{ window_index:, minted:, cap:, remaining: }`.
+    #
+    # nil has ONE meaning — "this platform has no mint cap to enforce" — and it
+    # is returned only in the v0.25 shape, where `GovernanceConfig` does not
+    # exist and neither does the cap. Callers treat nil as unlimited.
+    #
+    # An unreadable COUNT is a different thing and is reported as
+    # `minted: nil` / `remaining: nil`, because it must not read as either "no
+    # cap" or "cap hit".
+    #
+    # `window_index:` lets a caller that already derived the index reuse it, so
+    # a mint and the guard in front of it cannot land in different windows
+    # across a boundary.
+    def mint_window_usage(at = Time.current, window_index: nil)
+      return nil unless Config.governance?
+
+      index = window_index || mint_window_index(at)
+      cap = mint_window_cap
+      minted = begin
+        read_mint_window(index)
+      rescue StandardError => e
+        Rails.logger.warn("[solana] read_mint_window failed: #{Config.redact_message(e.message)}")
+        nil
+      end
+
+      seconds = cached_governance&.dig(:mint_window_seconds).to_i
+      seconds = DEFAULT_MINT_WINDOW_SECONDS unless seconds.positive?
+
+      { window_index: index, minted: minted, cap: cap,
+        remaining: minted.nil? ? nil : [cap - minted, 0].max,
+        window_seconds: seconds,
+        # When the counter rolls to a fresh window — derived from the SAME
+        # arithmetic the program uses, so a buyer told to come back at this time
+        # is told the truth rather than "tomorrow" on a retuned window.
+        resets_at: Time.at((index + 1) * seconds).utc }
+    end
+
+    # Slots left in the current window, or nil when there is no cap to enforce
+    # or the count could not be read. The fiat pre-charge gate is the caller
+    # that matters: it asks BEFORE taking money whether the tokens it is about
+    # to sell can actually be minted.
+    def mint_window_remaining(at = Time.current)
+      mint_window_usage(at)&.dig(:remaining)
+    end
+
+    # REFUSE A MINT THE WINDOW CANNOT TAKE, before it is broadcast.
+    #
+    # Above the cap the SAME instruction demands MINT_ENTRY_TOKEN_OVER_CAP (3),
+    # and an unattended server path holds one key — so every call site breaks at
+    # the cap, permanently, not as a flake: the count only resets when the
+    # window rolls. Left to the chain it returns `InsufficientSigners` (6046),
+    # which names neither the cap nor the window nor the wait, AFTER the fee.
+    #
+    # BEST-EFFORT BY CONSTRUCTION, AND THAT IS FINE. The count is a snapshot; a
+    # concurrent mint can cross the cap between this read and the broadcast, and
+    # the program stays the authority either way. The guard's job is to convert
+    # the ordinary case from an unexplained revert into a named refusal, not to
+    # replace the on-chain check.
+    #
+    # AN UNREADABLE COUNT FAILS OPEN — deliberately. The read rides the same RPC
+    # the mint itself needs, so a failure here almost always means the mint is
+    # about to fail anyway with its own retryable transport error. Refusing on
+    # ignorance would convert an RPC blip into a refused Stripe fulfilment,
+    # which is worse than the status quo it is meant to improve; proceeding
+    # leaves behaviour exactly as it is today, with a warning logged.
+    #
+    # `reserve` withholds slots from the CALLER, not from the chain: an
+    # unattended grinder passes one so it stops short of the last slots and
+    # leaves them for a paying customer. See Tokens::LevelUpGrant.
+    def assert_mint_window_headroom!(window_index, reserve: 0, label: "mint_entry_token")
+      usage = mint_window_usage(window_index: window_index)
+      return if usage.nil?
+
+      minted = usage[:minted]
+      return if minted.nil?
+
+      cap     = usage[:cap]
+      reserve = reserve.to_i.clamp(0, cap)
+      ceiling = cap - reserve
+      return if minted < ceiling
+
+      raise MintWindowCapReachedError, <<~MSG.strip
+        #{label} refused: turf-vault window #{usage[:window_index]} has minted \
+        #{minted} of its #{cap}#{" (this path stops at #{ceiling}, holding #{reserve} back for paid fulfilment)" if reserve.positive?}. \
+        Above the cap the same instruction needs MINT_ENTRY_TOKEN_OVER_CAP \
+        (#{OVER_CAP_THRESHOLD}) signatures and this process holds one, so the mint would \
+        come back as InsufficientSigners (6046) with the fee already spent. The \
+        count resets when the window rolls; a mint that cannot wait needs the \
+        #{OVER_CAP_THRESHOLD}-signature ceremony (see docs/SOLANA.md "v0.26 signature thresholds").
+      MSG
     end
 
     # --- Pause / unpause (PAUSE 2, UNPAUSE 3 from v0.26) ---
@@ -1936,9 +2145,16 @@ module Solana
     def settle_contest(contest_slug, settlements, cosigner_keypair: nil, extra_signers: [])
       admin = Keypair.admin
       cosigner = cosigner_keypair || admin
-      # named = admin + cosigner, so a 3-threshold settle needs one more.
+      # named = admin + cosigner, so a 3-threshold settle needs one more. This
+      # is the ONE builder with two named slots, and the only one that has to
+      # say so: everywhere else the helper's default (admin alone) is right.
+      # When no cosigner_keypair was supplied the two slots hold the SAME key,
+      # which is not two signatures — the helper counts distinct keys and
+      # refuses, rather than letting `DuplicateSigner` say it after the fee.
       extras = unattended_extra_signer_metas("settle_contest", required: 3,
-                                             signers: extra_signers)
+                                             signers: extra_signers,
+                                             named: [admin.public_key_bytes,
+                                                     cosigner.public_key_bytes])
       c_pda, _ = contest_pda(contest_slug)
       vault_pda, _ = vault_state_pda
       prize_pool_addr, _ = prize_pool_pda(contest_slug)
@@ -2227,7 +2443,10 @@ module Solana
     ENTRY_TOKEN_BURNED_FLAG = 0x80
     ENTRY_TOKEN_SOURCE_MASK = 0x7f
 
-    def mint_entry_token(wallet_address:, source:, source_ref:)
+    # `reserve` is for UNATTENDED grinders only — see #assert_mint_window_headroom!.
+    # Paid fulfilment passes none: it has already taken money and gets the whole
+    # cap.
+    def mint_entry_token(wallet_address:, source:, source_ref:, reserve: 0)
       source_u8 = source.is_a?(Symbol) ? ENTRY_TOKEN_SOURCE.fetch(source) : source.to_i
 
       admin = Keypair.admin
@@ -2250,6 +2469,14 @@ module Solana
       # (`MintWindowMismatch`), so a caller cannot name an empty window and mint
       # at the low threshold forever.
       window_index = Config.governance? ? mint_window_index : nil
+
+      # THE CAP IS READ AND COMPARED, not merely decoded. Until this guard the
+      # window count was fetched by `read_governance`, handed back through
+      # `cached_governance`, and measured against nothing — so the mint that
+      # crossed the cap was broadcast at one signature and came back 6046. The
+      # same index feeds the guard and the PDA below, so the two cannot disagree
+      # across a window boundary.
+      assert_mint_window_headroom!(window_index, reserve: reserve) if window_index
 
       data = Transaction.anchor_discriminator("mint_entry_token") +
              [source_u8].pack("C") +   # source: u8

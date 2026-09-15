@@ -76,6 +76,72 @@ class TokensControllerTest < ActionDispatch::IntegrationTest
     assert_redirected_to "https://stripe.example/cs_test_xyz"
   end
 
+  # ── THE REFUSAL THAT HAPPENS BEFORE THE CHARGE ────────────────────────────
+  #
+  # TokenPurchaseJob mints AFTER the card is charged, and turf-vault v0.26 caps
+  # mints per WINDOW: above the cap the same instruction needs three signatures
+  # the server does not hold, so the failure persists for the rest of the window
+  # rather than clearing on retry. Every remedy downstream of the charge is
+  # cleanup on a customer who paid and got nothing, which is why the guard lives
+  # here — the last point on the path where the money has not moved.
+
+  def connected(user)
+    user.update!(web2_solana_address: "TestWalletAddr123", encrypted_web2_solana_private_key: "x")
+    user
+  end
+
+  test "stripe_checkout refuses BEFORE opening a payment page when the window cannot cover the pack" do
+    log_in_as connected(@jordan)
+    created = false
+    with_stripe_enabled do
+      Solana::Vault.stub :new, FakeVault.new(mint_window_remaining: 2) do
+        Stripe::Checkout::Session.stub :create, ->(*) { created = true } do
+          post tokens_stripe_checkout_path, params: { pack: "trio" } # 3 tokens, 2 slots left
+        end
+      end
+    end
+
+    refute created, "no checkout session may be created for tokens that cannot be minted"
+    assert_redirected_to tokens_buy_path
+    assert_match(/mint limit is reached/, flash[:alert])
+    assert_match(/Nothing has been charged/, flash[:alert],
+                 "the buyer must be told the one fact that matters to them")
+  end
+
+  # The control. A window with room is untouched — the guard must not become a
+  # tax on every purchase, and it is inert entirely in the v0.25 shape, which is
+  # what production runs today (FakeVault's default is no cap).
+  test "stripe_checkout proceeds when the window has room for the whole pack" do
+    log_in_as connected(@jordan)
+    fake_session = Struct.new(:url).new("https://stripe.example/cs_test_room")
+    with_stripe_enabled do
+      Solana::Vault.stub :new, FakeVault.new(mint_window_remaining: 3) do
+        Stripe::Checkout::Session.stub :create, fake_session do
+          post tokens_stripe_checkout_path, params: { pack: "trio" } # 3 tokens, 3 slots left
+        end
+      end
+    end
+    assert_redirected_to "https://stripe.example/cs_test_room"
+  end
+
+  # FAILS OPEN. The count rides the same RPC everything else does; a blip is not
+  # evidence the cap was reached, and refusing on ignorance would stop sales for
+  # a reason that is not true. The job-side guard remains the backstop.
+  test "stripe_checkout still sells when the window count cannot be read" do
+    log_in_as connected(@jordan)
+    fake_session = Struct.new(:url).new("https://stripe.example/cs_test_blind")
+    blind = FakeVault.new
+    blind.define_singleton_method(:mint_window_usage) { |*_a, **_k| raise IOError, "rpc unreachable" }
+    with_stripe_enabled do
+      Solana::Vault.stub :new, blind do
+        Stripe::Checkout::Session.stub :create, fake_session do
+          post tokens_stripe_checkout_path, params: { pack: "trio" }
+        end
+      end
+    end
+    assert_redirected_to "https://stripe.example/cs_test_blind"
+  end
+
   test "stripe_checkout bounces with helpful alert when not configured" do
     log_in_as @jordan
     @jordan.update!(web2_solana_address: "TestWalletAddr123", encrypted_web2_solana_private_key: "x")

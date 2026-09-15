@@ -27,7 +27,7 @@ class FakeVault
                  usdc_balance: nil, usdc_balance_raises: false, account_infos: {},
                  account_info_raises: false, signatures: {},
                  send_raises: nil, season: { season_id: 1 }, season_raises: nil, seasons: nil,
-                 broadcast_raises: nil)
+                 broadcast_raises: nil, mint_window_remaining: nil)
     @fail_after = fail_after
     @starting_sequence = starting_sequence
     @tokens = tokens
@@ -43,6 +43,11 @@ class FakeVault
     @signatures = signatures                 # pda_b58 => [{ "signature" =>, "err" => }] for getSignaturesForAddress
     @send_raises = send_raises               # send_transaction fault (offramp send tests)
     @broadcast_raises = broadcast_raises     # simulate_and_broadcast fault (cosign broadcast tests)
+    # Slots left in the v0.26 per-window mint budget. nil — THE DEFAULT — is the
+    # v0.25 shape, where no GovernanceConfig and therefore no cap exists, which
+    # is what production runs today and what every test that does not care about
+    # the cap should see.
+    @mint_window_remaining = mint_window_remaining
     @season = season
     @season_raises = season_raises
     @seasons = seasons || Array(season)
@@ -165,6 +170,25 @@ class FakeVault
   # collision must not reach the operator's anomaly channel while a real fault
   # must.
   attr_accessor :raise_on_mint
+
+  # The window budget the fiat pre-charge gate reads before it lets a checkout
+  # session open. Shaped exactly like Solana::Vault#mint_window_usage so a test
+  # driving the gate exercises the real branch.
+  def mint_window_usage(_at = Time.current, window_index: nil)
+    return nil if @mint_window_remaining.nil?
+
+    cap = Solana::Vault::DEFAULT_MINT_WINDOW_CAP
+    { window_index: window_index || 20_345,
+      minted: [cap - @mint_window_remaining, 0].max,
+      cap: cap,
+      remaining: @mint_window_remaining,
+      window_seconds: Solana::Vault::DEFAULT_MINT_WINDOW_SECONDS,
+      resets_at: Time.utc(2026, 9, 16) }
+  end
+
+  def mint_window_remaining(at = Time.current)
+    mint_window_usage(at)&.dig(:remaining)
+  end
 
   def mint_entry_token(wallet_address:, source:, source_ref:, **_opts)
     @mint_calls << source_ref

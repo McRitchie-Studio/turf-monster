@@ -215,6 +215,47 @@ server-signed path that cannot reach its threshold raises
 the remedy. The on-chain alternative is `InsufficientSigners` (6046) after the
 fee is already spent.
 
+That guard counts **distinct** keys across the instruction's named slots plus
+the extras it was handed, because `VaultState::validate_threshold` counts
+distinct members and rejects a repeat outright (`DuplicateSigner`) — the same
+keypair signing twice is one signature. `settle_contest` is the one builder with
+two named slots (admin **and** cosigner), and it is also the one whose "no
+cosigner" spelling puts the admin key in both; a list that is two keys but one
+key is refused here rather than on chain.
+
+#### The mint cap is the one threshold that moves during the day
+
+`mint_entry_token` is 1 signature inside the window's cap and 3 above it, so an
+unattended path does not fail on deploy — it fails partway through a busy day,
+permanently until the window rolls. `Solana::Vault#mint_entry_token` therefore
+reads the count the program itself keeps (`MintWindow.minted`, at
+`[b"mint_window", window_index]`) and raises
+`Solana::Vault::MintWindowCapReachedError` — a `ThresholdUnreachableError`
+subclass — before broadcasting. `#mint_window_usage` exposes the same numbers
+(`minted`, `cap`, `remaining`, `resets_at`) to callers that want to ask first.
+
+Two consequences worth knowing before the ceremony:
+
+- **Fiat checkout refuses BEFORE the charge.** `TokenPurchaseJob` mints *after*
+  the card is charged, so a cap hit there is a customer who paid and got
+  nothing, with retries that cannot heal inside the window.
+  `TokensController#mint_budget_refusal` gates all four rails (Stripe, PayPal,
+  Coinflow, Aeropay) at order creation and refuses a pack the window cannot
+  cover. It narrows the race rather than closing it — a checkout opened with
+  room can still complete after the cap fills — so the job-side refusal stays as
+  the backstop and files an `ErrorLog` against the purchase. **Nothing is
+  auto-refunded:** re-running the job after the window rolls resumes at
+  `already_minted` and completes the order.
+- **The level-up sweep yields the last slots.** It is the only fully unattended
+  grinder on the mint (a 15-minute cron), so it stops at
+  `cap - Solana::Vault::UNATTENDED_MINT_WINDOW_RESERVE` and leaves the tail for
+  paid fulfilment. A level it defers is paid on the next pass; a purchase
+  refused after the charge is not.
+
+Both behave correctly with `SOLANA_VAULT_GOVERNANCE` off, which is the
+production default today: in the v0.25 shape there is no cap, and the guard
+issues no RPC at all.
+
 #### THE 3-OF-3 GAP — what breaks between the upgrade and the signer rotation
 
 At deploy, `VaultState.signers` is still **three** keys, so every action raised
@@ -233,6 +274,14 @@ lost key. Specifically:
 - **Admin season creation stops** until three wallets are present.
 - **`pause` still works at 2, and `unpause` needs 3** — deliberate, so a
   compromised pair can pull the brake but never release it.
+- **Mint-under-cap and Stripe fulfilment are untouched — until the cap.** The
+  first 250 mints of a window are still one signature, so nothing breaks on the
+  day of the upgrade. The 251st needs three, which no agent-reachable set can
+  produce during the gap **or after it** (over-cap is 3 permanently, by design —
+  the signer rotation widens the set, it does not lower this bar). Rails refuses
+  that mint locally and fiat checkout refuses the purchase before charging; see
+  "The mint cap is the one threshold that moves during the day" above. Watch
+  `remaining` on a heavy grant day.
 
 #### Upgrade ordering — UNFORGIVING
 
