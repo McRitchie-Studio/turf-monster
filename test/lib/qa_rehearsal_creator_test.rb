@@ -72,15 +72,16 @@ class QaRehearsalCreatorTest < ActiveSupport::TestCase
   end
 
   # The address is only the right key if it names the right ROW. This is the
-  # identity KeyStore files as "alex" (agent.alex.solana) — the wallet the server
-  # signs with as fee payer and contest creator.
+  # Xan identity (8K81…) — the wallet the server signs with as fee payer and
+  # contest creator, from SOLANA_ADMIN_KEY rather than through KeyStore, which
+  # deliberately files no key for it.
   test "the creator address is a parked admin identity in this app" do
     identity = User.parked_identity_for(email: Driver::CREATOR_EMAIL)
 
     refute_nil identity, "the rehearsal creates contests as an identity the roster does not seed"
     assert_equal "admin", identity[:role]
     assert_equal "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd", identity[:wallet],
-                 "the creator must be the Alex Bot wallet the server signs with"
+                 "the creator must be the Xan wallet the server signs with"
   end
 
   # THE MECHANISM, demonstrated rather than argued. Build the row as production

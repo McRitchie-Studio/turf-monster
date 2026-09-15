@@ -16,16 +16,16 @@ One-time runbook for the **v0.15.0 mainnet first deploy**. Read top-to-bottom; e
 
 - [ ] **Devnet smoke test**. Latest v0.15.0 builds + works end-to-end on devnet. Test: deposit, enter, settle (via cosign), withdraw, pause, unpause, $100 cap.
 - [ ] **Wallets funded**:
-  - [ ] Alex Bot mainnet wallet: ≥ 5 SOL (program deploy + initial Season + sundry)
+  - [ ] Xan mainnet wallet: ≥ 5 SOL (program deploy + initial Season + sundry)
   - [ ] Alex Phantom mainnet wallet: ≥ 0.05 SOL (will sign initialize once)
   - [ ] Mason mainnet wallet: ≥ 0.05 SOL (will Squads-cosign deploys + treasury ops)
 - [ ] **Squads V4 vault created on mainnet** with the same 3 signers as devnet:
-  - Alex Bot: `F6f8h5yynbnkgWvU5abQx3RJxJpe8EoQmeFBuNKdKzhZ`
+  - Xan: `8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd` (NOT `F6f8h5yy…` — that key was retired in the 2026-06-02 rotation and must never be placed on a multisig again)
   - Alex: `7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr`
   - Mason: `CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR`
   - Threshold: 2
   - Record the new vault PDA → it becomes the program upgrade authority.
-- [ ] **1Password updated**: `agent.alex.solana.mainnet` (Alex Bot mainnet keypair), `agent.mason.solana.mainnet` (Mason mainnet keypair), `agent.managed_wallet.mainnet` (32-byte hex MANAGED_WALLET_ENCRYPTION_KEY for mainnet — generate fresh, do NOT reuse the devnet one).
+- [ ] **1Password updated**: `agent.xan.solana.mainnet` (Xan mainnet keypair), `agent.mason.solana.mainnet` (Mason mainnet keypair), `agent.managed_wallet.mainnet` (32-byte hex MANAGED_WALLET_ENCRYPTION_KEY for mainnet — generate fresh, do NOT reuse the devnet one).
 - [ ] **Mainnet RPC URL** chosen (Helius / QuickNode / Triton — NOT public api.mainnet-beta.solana.com for production traffic).
 - [ ] **Stripe live keys** ready: `STRIPE_SECRET_KEY` (sk_live_...), `STRIPE_WEBHOOK_SECRET` (whsec_... — created against the live mode endpoint).
 - [ ] **Browse `/admin/transactions`** on devnet — confirm no PendingTransactions are stuck in :pending. They won't carry over but cleaner state is easier to debug.
@@ -71,7 +71,7 @@ solana program deploy target/deploy/turf_vault.so \
   --url $ANCHOR_PROVIDER_URL
 ```
 
-- [ ] Deploy succeeds (~3-5 SOL spent from Alex Bot mainnet wallet).
+- [ ] Deploy succeeds (~3-5 SOL spent from Xan mainnet wallet).
 - [ ] `solana program show MAINNET_PROGRAM_ID --url mainnet-beta` shows the Squads vault PDA as upgrade authority.
 
 > **After this initial deploy**, all future program upgrades require 2-of-3 cosign via `turf-vault/scripts/squad-upgrade.js`. `anchor deploy` will fail silently once the Squads vault is the authority. See `turf-vault/docs/CURRENT_DEPLOYMENT.md` for the current upgrade rule.
@@ -80,7 +80,7 @@ solana program deploy target/deploy/turf_vault.so \
 
 ## 3. Initialize the vault (Alex's Phantom signs)
 
-The v0.15.0 mainnet build's `INIT_AUTHORITY = 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr` (Alex Phantom). The Rails server's Alex Bot key WILL BE REJECTED.
+The v0.15.0 mainnet build's `INIT_AUTHORITY = 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr` (Alex Phantom). The Rails server's Xan key WILL BE REJECTED.
 
 **Quickest path** (if the Init UI from the prompt isn't built yet): use an `anchor` CLI command.
 
@@ -106,14 +106,14 @@ yarn run ts-mocha -p ./tsconfig.json -t 1000000 scripts/init-mainnet.ts
 
 ## 4. Create the first Season
 
-Same pattern as devnet — any 1-of-3 vault signer creates. Alex Bot is fine.
+Same pattern as devnet — any 1-of-3 vault signer creates. Xan is fine.
 
 ```bash
-# From a machine with Alex Bot's mainnet key:
+# From a machine with Xan's mainnet key:
 SOLANA_NETWORK=mainnet-beta \
 SOLANA_RPC_URL=$ANCHOR_PROVIDER_URL \
 SOLANA_PROGRAM_ID=<MAINNET_PROGRAM_ID> \
-SOLANA_ADMIN_KEY=<alex_bot_mainnet_base58> \
+SOLANA_ADMIN_KEY=<xan_mainnet_base58> \
 bin/rails runner '
   result = Solana::Vault.new.create_season(
     season_id: 1,
@@ -157,8 +157,8 @@ heroku config:set --app turf-monster-mainnet \
   SOLANA_PROGRAM_ID=<MAINNET_PROGRAM_ID> \
   SOLANA_USDC_MINT=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v \
   SOLANA_USDT_MINT=Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB \
-  SOLANA_ADMIN_KEY=<alex_bot_mainnet_base58> \
-  SOLANA_MULTISIG_SIGNERS=F6f8h5yynbnkgWvU5abQx3RJxJpe8EoQmeFBuNKdKzhZ,7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr,CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR \
+  SOLANA_ADMIN_KEY=<xan_mainnet_base58> \
+  SOLANA_MULTISIG_SIGNERS=8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd,7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr,CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR \
   SOLANA_MULTISIG_THRESHOLD=2 \
   SOLANA_MULTISIG_COSIGNER=7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr \
   EXPECTED_IDL_HASH=<from step 5> \

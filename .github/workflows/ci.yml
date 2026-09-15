@@ -103,7 +103,7 @@ jobs:
     #   encryptor has a non-empty key (KeyGenerator). NOT the OPSEC-015 prod key.
     # RAILS_MASTER_KEY: repo secret so credentials.secret_key_base decrypts, so
     #   the LEGACY keypair encryptor is exercised against a real secret_key_base.
-    # SOLANA_ADMIN_KEY: a THROWAWAY base58 keypair (NOT the prod Alex Bot
+    # SOLANA_ADMIN_KEY: a THROWAWAY base58 keypair (NOT the prod Xan
     #   signer). No test asserts the pubkey, so any valid keypair works;
     #   secret-stored so the value never lands in the repo.
     env:

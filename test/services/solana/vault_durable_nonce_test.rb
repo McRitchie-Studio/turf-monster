@@ -63,7 +63,7 @@ class Solana::VaultDurableNonceTest < ActiveSupport::TestCase
   # address the two signer slots would collapse to one key (required == 1) and
   # build_partial_signed's OPSEC-017 guard would correctly reject it — a
   # degenerate self-entry, never a real flow. (Mason's seed wallet; the admin /
-  # Alex Bot wallet is 8K81w4e6…aRYd.)
+  # Xan wallet is 8K81w4e6…aRYd.)
   WALLET = "CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR".freeze
 
   test "build_enter_contest IGNORES the durable nonce env (entries use a fresh blockhash)" do

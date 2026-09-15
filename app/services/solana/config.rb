@@ -391,8 +391,10 @@ module Solana
     ADMIN_KEYPAIR_PATH = ENV.fetch("SOLANA_ADMIN_KEYPAIR", File.expand_path("~/.config/solana/id.json"))
 
     # Multisig signers (base58 public keys). Default = the rotated 2-of-3 set
-    # (post leaked-Alex-Bot rotation 2026-06-02): new Alex Bot 8K81…, cosigner
-    # 7ZDJ…, Mason CytJ…. These are PUBLIC keys and are overridden by the
+    # (post leaked-key rotation 2026-06-02): the replacement Xan key 8K81…,
+    # cosigner 7ZDJ…, Mason CytJ…. "Xan" is the identity this repo called "Alex
+    # Bot" until 2026-09-15 — the rename did not touch the key, so 8K81… here is
+    # current. These are PUBLIC keys and are overridden by the
     # SOLANA_MULTISIG_SIGNERS env var (and authoritatively by VaultState.signers
     # on-chain) in every deployed environment — the literal is a fallback only.
     MULTISIG_SIGNERS = ENV.fetch("SOLANA_MULTISIG_SIGNERS",

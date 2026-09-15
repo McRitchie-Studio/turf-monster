@@ -37,12 +37,16 @@ class QaRehearsalDriverOutputTest < ActiveSupport::TestCase
     assert_match(/Contest:/, lines.first)
   end
 
-  # The cast is a deliberate list — see DEFAULT_CAST's comment for why alex and
+  # The cast is a deliberate list — see DEFAULT_CAST's comment for why Xan and
   # the turf-5 admin account cannot play. A silent change here would produce a
   # rehearsal that no longer exercises three real on-chain wallets.
+  #
+  # The "alex" slug is still refuted by NAME rather than by identity: KeyStore
+  # stopped filing a key under it on 2026-09-15, so re-adding it here would fail
+  # at read time instead of at the signer-count refusal this guards.
   test "the default cast is the three wallets with filed keys" do
     assert_equal %w[mason mack turf], Driver::DEFAULT_CAST
-    refute_includes Driver::DEFAULT_CAST, "alex", "alex IS the fee payer — it cannot also be a player"
+    refute_includes Driver::DEFAULT_CAST, "alex", "Xan IS the fee payer — it cannot also be a player"
     refute_includes Driver::DEFAULT_CAST, Driver::ADMIN_ACTOR, "the admin actor drives HTTP, it does not play"
   end
 end

@@ -9,11 +9,13 @@ class Solana::TxVerifierTest < ActiveSupport::TestCase
   PROGRAM_ID    = Solana::Config::PROGRAM_ID
   WALLET_SIGNER = "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr".freeze  # human (Mr. McRitchie) Phantom signer
   CONTEST_PDA   = "C88QKhevowD7c3xQDZ3grfdHbpk4FeyYDtdkjz4nz924".freeze  # Season 1 PDA — arbitrary 32-byte base58
-  # Arbitrary realistic base58 pubkey standing in for the server/admin (bot)
-  # signer. NB: this is the LEGACY bot multisig key — the bot's *display* wallet
-  # rotated to 8K81w4e6… in the seed (2026-06-02), but MULTISIG_SIGNERS still
-  # carries F6f8… so this fixture mirrors the on-chain signer set, not the seed.
-  ADMIN_PUBKEY  = "F6f8h5yynbnkgWvU5abQx3RJxJpe8EoQmeFBuNKdKzhZ".freeze  # bot (multisig signer)
+  # Arbitrary realistic base58 pubkey standing in for the server/admin signer
+  # (the Xan identity, renamed from "Alex Bot" 2026-09-15). It is only an entry
+  # in a synthetic getTransaction response and is never compared to the live
+  # signer set, so the legacy value is harmless — but the comment this replaces
+  # asserted "MULTISIG_SIGNERS still carries F6f8…", which docs/SOLANA.md
+  # contradicts: re-verified on-chain 2026-09-05 as 8K81w4e6… on both clusters.
+  ADMIN_PUBKEY  = "F6f8h5yynbnkgWvU5abQx3RJxJpe8EoQmeFBuNKdKzhZ".freeze  # stand-in only
 
   # Build a getTransaction JSON response with:
   #   - admin as signer 0 (writable), wallet as signer 1 (writable)

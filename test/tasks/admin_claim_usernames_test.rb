@@ -6,7 +6,7 @@ require "rake"
 # set_username is deliberately NOT pushed (Phantom-owned wallets can't be
 # signed server-side); the task reports what's still owed.
 class AdminClaimUsernamesTaskTest < ActiveSupport::TestCase
-  ALEX_BOT_WALLET = "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd".freeze
+  XAN_WALLET = "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd".freeze
   ALEX_WALLET     = "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr".freeze
   MASON_WALLET    = "CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR".freeze
   TURF_WALLET     = "BLSBw8fXHzZc5pbaYCKMpMSsrtXBTbWXpUPVzMrXx9oo".freeze
@@ -30,7 +30,7 @@ class AdminClaimUsernamesTaskTest < ActiveSupport::TestCase
     @alex  = User.create!(email: "human@mcritchie.studio", name: "Mr. McRitchie", role: "admin",
                           username: "mcritchiee", web3_solana_address: ALEX_WALLET)
     @team  = User.create!(email: "team@mcritchie.studio", name: "Team McRitchie", role: "admin",
-                          username: "team-auto", web3_solana_address: ALEX_BOT_WALLET)
+                          username: "team-auto", web3_solana_address: XAN_WALLET)
     @mason = User.create!(email: "mason-task@mcritchie.studio", name: "Mason",
                           username: "mason", web3_solana_address: MASON_WALLET)
     @house = User.create!(email: User::TURF_HOUSE_EMAIL, name: "Turf Monster", role: "admin",
@@ -97,7 +97,7 @@ class AdminClaimUsernamesTaskTest < ActiveSupport::TestCase
     alex = User.create!(email: "human@mcritchie.studio", name: "Alex McRitchie", role: "admin",
                         username: parked("team@mcritchie.studio"), web3_solana_address: ALEX_WALLET)
     team = User.create!(email: "team@mcritchie.studio", name: "Team McRitchie", role: "admin",
-                        username: parked("alex@mcritchie.studio"), web3_solana_address: ALEX_BOT_WALLET)
+                        username: parked("alex@mcritchie.studio"), web3_solana_address: XAN_WALLET)
 
     out = run_task
 
@@ -112,7 +112,7 @@ class AdminClaimUsernamesTaskTest < ActiveSupport::TestCase
     alex = User.create!(email: "human@mcritchie.studio", name: "Alex McRitchie", role: "admin",
                         username: parked("team@mcritchie.studio"), web3_solana_address: ALEX_WALLET)
     team = User.create!(email: "team@mcritchie.studio", name: "Team McRitchie", role: "admin",
-                        username: parked("alex@mcritchie.studio"), web3_solana_address: ALEX_BOT_WALLET)
+                        username: parked("alex@mcritchie.studio"), web3_solana_address: XAN_WALLET)
     ENV["DRY_RUN"] = "1"
 
     out = run_task
