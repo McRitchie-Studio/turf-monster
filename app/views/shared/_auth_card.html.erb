@@ -36,10 +36,26 @@
         Google
       <% end %>
 
-      <%# 2. Solana wallet hub %>
-      <div class="mt-3">
-        <%= render "shared/solana_wallet_connect" %>
-      </div>
+      <%# 2. Solana wallet hub. Suppressed for a gifted newcomer (the gift link
+          carries ?wallet=managed) so the wallet CHOICE is not the first thing
+          they meet: their entry is already paid for, and the claim gives them a
+          managed wallet to spend it from. Inert for anyone who already has a
+          Phantom linked, who would otherwise be pushed into a second account -
+          see ApplicationController#managed_wallet_onboarding?.
+
+          A REMOVAL, not a swap: Google stays, the divider still separates the
+          one-tap options from the email field, and the card keeps its shape at
+          every width. %>
+      <%# data-auth-solana is a TEST SEAM and needs to be one: the shared modal
+          host in the layout renders the Connect Wallet picker on every page, so
+          scanning the response for the Solana mark or the picker's open call
+          finds a hit whether this card drew a button or not. An assertion
+          without this hook passes for a suppression that never happened. %>
+      <% unless managed_wallet_onboarding? %>
+        <div class="mt-3" data-auth-solana>
+          <%= render "shared/solana_wallet_connect" %>
+        </div>
+      <% end %>
 
       <div class="relative my-6">
         <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-strong"></div></div>

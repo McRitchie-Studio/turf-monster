@@ -936,7 +936,7 @@
 # shape the entry above warns about. 297 is what the lister printed on the
 # MERGED tree, taken as printed: not 293 + 4, not 295 + 2.
 # Derived with bin/e2e-lane-derive --write ON THE MERGED TREE.
-# 306 -> 307 (phantom-cashout-needs-sol): one spec in
+# 307 -> 308 (phantom-cashout-needs-sol): one spec in
 # e2e/offramp_house_pays_fee.spec.js. The Phantom cash-out wire is now fee-paid
 # by the HOUSE, which leaves a signer slot Phantom never fills, and the two
 # facts that follow are web3.js semantics no server-side tier can reach:
@@ -945,7 +945,16 @@
 # the bytes that reach the cluster must be the COSIGNED ones rather than the
 # page's own Phantom-signed copy. Not tagged @devnet and it does not skip, so
 # excluded stays 17 and allowed_skips stays 4.
-total_specs: 307
+#
+# THIS IS THE SILENT MERGE THIS FILE WARNS ABOUT, CAUGHT. This branch was cut at
+# 306 and first wrote 307. gift-link-skips-wallet-auth also added ONE spec, was
+# also cut at 306, and also wrote 307 — the SAME TEXT for a DIFFERENT spec, so
+# git merged the two scalars with no conflict and the tree would have held 308
+# declaring 307. Only the comment blocks collided, which is the whole warning
+# above: the number auto-merges, the prose does not. Re-derived with the LISTER
+# on the MERGED tree — "Total: 308 tests in 74 files" — and taken as printed,
+# not as 307 + 1.
+total_specs: 308
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1263,9 +1272,10 @@ allowed_skips: 4
 # on top. The lister re-derived excluded as 17 on the merged tree and
 # allowed_skips stays 4, so both listers agree. Derived with
 # bin/e2e-lane-derive --write ON THE MERGED TREE.
-# 285 -> 286 alongside total_specs above (phantom-cashout-needs-sol):
-# 307 - 17 - 4 = 286.
-executed: 286
+# 286 -> 287 alongside total_specs above (phantom-cashout-needs-sol). The
+# excluded lister re-derived 17 on the MERGED tree ("Total: 17 tests in 1 file")
+# and allowed_skips stays 4, so both listers agree: 308 - 17 - 4 = 287.
+executed: 287
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
