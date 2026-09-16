@@ -518,6 +518,7 @@ Rails.application.routes.draw do
         post :confirm
         post :rebuild
         post :broadcast
+        post :reconcile
       end
     end
 
@@ -576,6 +577,7 @@ Rails.application.routes.draw do
     post "authorities/:slug/rebuild",          to: "authorities#rebuild",   as: :rebuild_authority_rotation
     post "authorities/:slug/broadcast",        to: "authorities#broadcast", as: :broadcast_authority_rotation
     post "authorities/:slug/cancel",           to: "authorities#cancel",    as: :cancel_authority_rotation
+    post "authorities/:slug/reconcile",        to: "authorities#reconcile", as: :reconcile_authority_rotation
 
     # Seasons (on-chain seed schedule template)
     get  "seasons",                            to: "seasons#index",         as: :seasons

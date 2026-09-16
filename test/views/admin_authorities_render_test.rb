@@ -713,7 +713,8 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
 
   # ── THE CLASSES THIS CARD'S AFFORDANCES DEPEND ON ────────────────────────
 
-  COMPILED_CSS = Rails.root.join("app/assets/builds/tailwind.css").freeze
+  # The stylesheet now lives behind CssClassGuard (test/support), which owns
+  # both the path and the question asked of it.
 
   test "the card names no field or colour class the stylesheet leaves undefined" do
     # `input input-bordered` shipped on the slot fields and NEITHER class
@@ -724,11 +725,15 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
     #
     # Nothing in Ruby can see that failure. The stylesheet can, and CI builds it
     # before the suite (.github/workflows/ci.yml) for exactly this class of test.
-    css = COMPILED_CSS.read
-
-    defined_in_css = lambda do |name|
-      css.include?(".#{name.gsub(/[:.\/]/) { |c| "\\#{c}" }}")
-    end
+    #
+    # THE PREDICATE IS SHARED, and it is a boundary regex rather than a
+    # substring match. This lambda used to ask `css.include?(".#{name}")`,
+    # which reports a PREFIX of a real class as DEFINED — `text-danger` reads
+    # as defined because `.text-danger-ink` exists, and so does `input`,
+    # because `.input-field` does. So the guard that caught `input-bordered`
+    # could never have caught its own partner. CssClassGuard closes it in one
+    # place; test/views/admin_vault_phantom_classes_test.rb pins the boundary.
+    defined_in_css = ->(name) { CssClassGuard.defined_in_css?(name) }
 
     render_page
 

@@ -3193,6 +3193,32 @@ module Solana
     # rather than to a generic validation failure.
     class BelowMinimumWithdrawalError < StandardError; end
 
+    # A broadcast refused BEFORE any bytes left this server — see
+    # #simulate_and_broadcast.
+    #
+    # THE ONE DISTINCTION A CALLER CANNOT RECONSTRUCT AFTERWARDS: "provably
+    # un-sent" versus "may already be on the chain". Everything up to and
+    # including the simulation's answer is provably un-sent; everything from
+    # `send_and_confirm` onward is ambiguous, because a network fault after the
+    # wire leaves is indistinguishable here from one before — and because
+    # `Solana::Client#call` RETRIES the faults that mean "the answer was lost"
+    # and hands the caller only the last answer, so even a coded JSON-RPC error
+    # from the send may follow an attempt that already forwarded the wire.
+    #
+    # A caller that CLAIMED a row before broadcasting rewinds that claim on THIS
+    # error and on one other thing only: a verdict from the CHAIN
+    # (`PendingTransaction#reconcile_broadcast!`). It never rewinds on an
+    # exception from the send. Rewinding on an ambiguous failure is how a landed
+    # transaction becomes re-broadcastable, which is the whole defect class
+    # (/tasks/broadcast-records-signature-late, and the CDP offramp's
+    # `rearm_stalled_send!` before it).
+    #
+    # A RuntimeError subclass on purpose: it is the same failure the bare
+    # `raise "Pre-flight simulation failed: …"` used to be, so every existing
+    # `rescue StandardError` chain and every operator-facing message path is
+    # unchanged. Only the callers that need the distinction name the type.
+    class PreflightRejected < RuntimeError; end
+
     # ── THE COSIGN GUARD'S ACCOUNT SLOTS — SHAPE-DEPENDENT SINCE v0.26 ──────
     #
     # These are the indices `#assert_entry_cosign_safe!` reads to prove a
@@ -3657,15 +3683,107 @@ module Solana
     # 2026-06-11 note in #build_enter_contest: Phantom injects Lighthouse guard
     # instructions at positions we do not control, and a nonce tx is only
     # recognized when advanceNonceAccount is instruction 0.
+    # EVERY FAILURE BEFORE `send_and_confirm` IS TYPED `PreflightRejected`, and
+    # NOTHING FROM `send_and_confirm` ONWARD IS — including the node's own
+    # pre-flight refusal, which is un-sent in fact but not PROVABLY un-sent
+    # here. That line is the seam between "nothing left this server, rebuild
+    # freely" and "this may be on the chain, reconcile it".
+    #
+    # The simulation CALL is wrapped too, not merely its `err` answer: an
+    # unreachable or throttled RPC is as provably un-sent as a program refusal,
+    # and leaving it untyped would strand a row on a transient blip.
+    #
+    # ── WHY THE SEAM IS NOT REDRAWN AROUND `client.send_transaction` ──────────
+    #
+    # It is tempting, and it is wrong. `send_and_confirm` is a send plus a ~30s
+    # confirmation poll, and the send runs `skipPreflight: false`, so the NODE
+    # pre-flights against the real blockhash and the real signatures — the two
+    # things the simulation above deliberately does not check — and on refusal
+    # answers with a coded JSON-RPC error WITHOUT forwarding. Splitting the call
+    # and typing a coded `RpcError` from the send as `PreflightRejected` would
+    # make that common case rebuildable at once. It would also re-open the
+    # double-send, because of what sits underneath:
+    #
+    #   `Solana::Client#call` RETRIES INSIDE ONE CALL, AND SWALLOWS WHAT IT
+    #   RETRIED. It retries `Net::ReadTimeout` and `Errno::ECONNRESET` (up to
+    #   MAX_RETRIES, 1s backoff) — the two faults that mean THE REQUEST WAS
+    #   WRITTEN AND THE ANSWER WAS LOST, i.e. the node may have forwarded the
+    #   transaction already. It then re-POSTS the same wire. If that second
+    #   attempt answers `Blockhash not found` — and a blockhash can easily die
+    #   inside the 30s read timeout that produced the first fault — the
+    #   exception the caller finally sees is CODED. Reading that code as "the
+    #   node refused it, nothing was sent" is false for attempt 1. Rewinding on
+    #   it rebuilds and re-sends a transaction that is already on its way.
+    #
+    # The caller cannot see that history: the intermediate exceptions never
+    # leave `#call`, and the final `RpcError` carries no record of them. So the
+    # honest answer is that no exception raised from the send can be read as a
+    # proof, and this method types none of them.
+    #
+    # The recovery the operator needs comes from somewhere better than a guess
+    # about an exception: `PendingTransaction#claim_for_broadcast!` stamps the
+    # signature — derived from the wire by `#signature_for_wire`, not supplied
+    # by the RPC — BEFORE this method is called, so a row whose send failed can
+    # always ask the chain what happened to it
+    # (`PendingTransaction#reconcile_broadcast!`).
     def simulate_and_broadcast(signed_wire_base64)
-      sim = client.simulate_transaction(signed_wire_base64, sig_verify: false,
-                                        replace_recent_blockhash: true)
-      if sim && sim["err"]
-        logs = Array(sim["logs"]).last(6).join("\n")
-        raise "Pre-flight simulation failed: #{sim['err'].inspect}#{logs.empty? ? '' : "\n#{logs}"}"
+      sim = begin
+        client.simulate_transaction(signed_wire_base64, sig_verify: false,
+                                    replace_recent_blockhash: true)
+      rescue StandardError => e
+        raise PreflightRejected, "Pre-flight simulation could not be run: #{e.message}"
       end
 
-      client.send_and_confirm(signed_wire_base64)
+      if sim && sim["err"]
+        logs = Array(sim["logs"]).last(6).join("\n")
+        raise PreflightRejected,
+              "Pre-flight simulation failed: #{sim['err'].inspect}#{logs.empty? ? '' : "\n#{logs}"}"
+      end
+
+      returned = client.send_and_confirm(signed_wire_base64)
+
+      # THE DECODER SELF-CHECK. Callers stamp the signature this class derives
+      # from the wire (`#signature_for_wire`) before the send, and reconcile
+      # against it afterwards, so a wrong derivation would strand every row it
+      # touched while every test still passed. The node computes the same value
+      # from the same bytes; if the two disagree, the bytes we measured are not
+      # the bytes that went out and neither value may be trusted as a record.
+      #
+      # TOLERANT OF A DERIVATION THAT FAILS, STRICT ABOUT ONE THAT DISAGREES.
+      # The send has already happened by this line, so a wire this decoder
+      # cannot read must not be turned into a broadcast failure — there is
+      # simply nothing to compare, and the callers derive the same value BEFORE
+      # they claim, so a genuinely malformed wire is refused up there.
+      expected = begin
+        signature_for_wire(signed_wire_base64)
+      rescue StandardError
+        nil
+      end
+
+      if returned.present? && expected.present? && returned != expected
+        raise "Broadcast signature mismatch: the node returned #{returned} for a wire whose " \
+              "own first signature is #{expected}. Reconcile both on chain before acting."
+      end
+
+      returned
+    end
+
+    # THE SIGNATURE, FROM THE BYTES, WITHOUT ASKING ANYONE.
+    #
+    # A Solana transaction is identified by its first signature, which is
+    # already inside the signed wire — so a caller knows what a broadcast WILL
+    # be called before it makes it, and does not need the RPC's reply to record
+    # it. That is what lets `PendingTransaction#claim_for_broadcast!` stamp the
+    # signature in the same statement that takes the claim, and it is why a
+    # broadcast whose answer is lost is still a row that can be looked up on
+    # chain rather than a dead end. `Cdp::OfframpSendJob` persists its signature
+    # before the send for the same reason.
+    #
+    # Pure: no RPC, no state. Raises on a wire too short to carry a signature,
+    # which is a malformed payload the caller should refuse before claiming
+    # anything.
+    def signature_for_wire(signed_wire_base64)
+      extract_tx_signature(Base64.decode64(signed_wire_base64).b)
     end
 
     def cosign_and_broadcast_create_contest(signed_wire_base64)

@@ -765,14 +765,69 @@ would. Every refusal carries the program's error code.
 | `InsufficientSigners` | 6046 | fewer signatures named than the threshold |
 | `SignerSetTooSmall` | 6052 | a gap; or below `required` / `max_live_threshold` / above 5 |
 
-**The signature is stamped before verification** (`#broadcast` calls
-`update_columns` the instant `simulate_and_broadcast` returns). The treasury path
-stamps it after `TxVerifier.verify!` — filed as
-`/tasks/broadcast-records-signature-late` — so a landed transaction whose verify
-flakes stays `pending` and re-broadcastable. On this surface a second attempt
-would be authorized by keys the first one just evicted, fail `Unauthorized`, and
-read to the operator like his eviction did not work. A row left `submitted` with
-its signature is the safe failure.
+**The signature is stamped before verification, and the row is claimed before
+the wire goes out.** Both broadcast paths — `Admin::AuthoritiesController` and
+the treasury's `Admin::PendingTransactionsController` — share one rule, on the
+model, because the rule decides whether money can move twice:
+
+| step | method | why |
+|---|---|---|
+| derive | `Solana::Vault#signature_for_wire` | the signature is the first 64 bytes of the signed wire, so the server knows it BEFORE it sends and never needs the RPC's reply to record it |
+| claim + stamp | `PendingTransaction#claim_for_broadcast!` | `pending?` is a READ; two requests both pass it and both broadcast. ONE conditional UPDATE takes the claim and writes the signature and `broadcast_at` together, so a claimed row always names its transaction. Not `with_lock` — see below |
+| rewind | `PendingTransaction#rewind_broadcast!` | ONLY on `Solana::Vault::PreflightRejected` (the simulation refused, so the send was never made) or on a verdict from the CHAIN. Guarded on the exact signature proven dead |
+| reconcile | `PendingTransaction#reconcile_broadcast!` | asks `getSignatureStatuses` and applies the four-way verdict (`OnchainSendVerdict#send_verdict`): `:landed` / `:failed` / `:never_landed` / `:ambiguous`. The only path that can clear a transaction which landed and FAILED, because `TxVerifier` refuses anything carrying `meta.err` |
+
+The treasury path used to stamp the signature **after** `TxVerifier.verify!`
+(one RPC call per claimed signer), so a transaction that LANDED and then met an
+RPC hiccup was left `pending`, unsigned and re-broadcastable — the money moved
+and the record said it had not. That was
+`/tasks/broadcast-records-signature-late`. The general rule, shared with
+`Cdp::OfframpSendJob`: **never let a verification step decide whether a
+broadcast happened — the broadcast happened when the wire went out.**
+
+**Why `with_lock` is not the claim.** Not because it ties up a pooled
+connection — the connection is checked out for the request either way. Because
+it opens a **transaction** and takes a **row lock**, then holds both across the
+RPC round trips inside the block: the simulation, the send, and a confirmation
+poll allowed to run 30 seconds before it gives up. A second request for the same
+row would BLOCK for the whole of the first one's work and only then learn it had
+lost. One conditional UPDATE gets the identical exclusion and fails the loser
+immediately.
+
+**Why the signature is stamped BEFORE the send, not the instant it returns.**
+Any stamp taken from the RPC's reply leaves a claimed row with no signature
+whenever that reply is lost — and every door then shuts: `#rebuild` and
+`#broadcast` refuse a non-`pending` row, `#confirm` needs a signature that does
+not exist, and `Admin::AuthoritiesController#cancel` refuses to discard what may
+be on chain. That is the **likely** case, not a rare one: `simulate_and_broadcast`
+simulates with `sig_verify: false` and `replace_recent_blockhash: true`, so the
+node's own pre-flight on the send is the first check of the real blockhash and
+the real signatures, and it refuses without forwarding. Deriving the signature
+from the bytes removes the state entirely.
+
+**Why no exception from the send is treated as a proof.** `Solana::Client#call`
+retries `Net::ReadTimeout` and `Errno::ECONNRESET` — the faults that mean the
+request was written and the answer was lost — and re-POSTs the same wire,
+surfacing only the LAST exception. So a coded `RpcError` (`Blockhash not found`,
+say) can be the answer to a second attempt whose first attempt already forwarded
+the transaction, and a blockhash can die inside the 30-second read timeout that
+produced the first fault. The caller cannot see that history. The chain is the
+only witness, which is what `#reconcile_broadcast!` asks.
+
+**Both broadcast controllers build their `Solana::Vault` above the claim.** Its
+constructor validates the RPC URL and decodes keypairs, so it can raise
+`InsecureRpcUrlError` or a base58 error — neither of which is
+`PreflightRejected`, and so neither would give a claim back. Hoisting it takes
+the whole class of constructor failures out of the claimed window.
+
+On the authorities surface the consequence is worse than a double payout: a
+second attempt after the first landed is authorized by keys the first one just
+evicted, fails `Unauthorized`, and reads to the operator like his eviction did
+not work. A row left `submitted` is the safe failure.
+
+`#confirm` is the one path that still proves before it records, on both
+surfaces, and deliberately: there the signature is an unverified CLIENT claim,
+not one this server produced.
 
 
 ### Multisig Settlement Flow
