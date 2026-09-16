@@ -176,3 +176,5 @@ Two-stage hold-to-confirm followed by the Phantom direct-entry signing flow:
 - [[email-signup-token-to-chat]] — the managed-wallet alternative: `ContestsController#enter` falls through to `#resolve_web2_entry_funding!` (`app/controllers/contests_controller.rb:1944-2016`), which consumes an `EntryTokenAccount` PDA through `Solana::Vault#enter_contest_with_token` (`:1964`) instead of charging USDC. An admin never hits this branch — `#enter` routes it only for a non-`onchain_session?` request (`:914`).
 - [[referral-google-tokens-to-chat]] — the Google OAuth signup path; it lands the user in the same `enter` action with a managed wallet, taking the token-consume branch.
 - [[slate-build]] — the predecessor for NFL contests. A contest is opened on a Slate, and `ContestsController#resolve_span_slate` builds or reuses the span slate via `Nfl::BuildSpanSlate.call` (`app/controllers/contests_controller.rb:2328`). That slate's frozen `turf_score` is what settlement multiplies by, so it must not be rebuilt after picks land.
+
+<!-- citation-guard: enforced -->

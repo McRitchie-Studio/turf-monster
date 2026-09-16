@@ -336,8 +336,83 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
     docs/WALLET_ADAPTER_EVALUATION.md
   ].freeze
 
-  # What the parse reads: every workflow document plus the wallet documents.
-  SCANNED_DOCS = (WORKFLOW_DOCS + WALLET_DOCS).freeze
+  # ------------------------------------------------------ the declaration layer
+  #
+  # WHAT THIS CLOSES. Until 2026-09-15 the parse read `docs/workflows/*.md` plus
+  # two typed wallet documents, and NOTHING read the rest of `docs/`. Measured
+  # that day: 21 documents under `docs/` carry `path:line` citations and 10 were
+  # in scope — 11 documents and 251 citations that no check had ever read. The
+  # drift that found it had been sitting in one of them for three weeks
+  # (`_preferredProvider` 48 lines off, `provider.on('accountChanged')` 67,
+  # `_reauth` 94), found twice by hand, by two agents, hours apart.
+  #
+  # WHY A WIDER GLOB WAS THE WRONG FIX. The worst-drifted document is a DATED
+  # Phase-1 audit snapshot that says on its face "No refactor has been performed."
+  # Its citations are true AS OF ITS DATE and are meant to be frozen, so a glob
+  # wide enough to reach it would redden a document that is behaving correctly.
+  # And some documents cite repositories this one cannot read at all — turf-vault
+  # Rust sources, studio-engine partials — where a line number is unverifiable
+  # here whatever its state.
+  #
+  # SO THE DEFECT WAS NEVER THE SCOPE. It was that "unguarded" and "deliberately
+  # frozen" LOOKED IDENTICAL: both were a file nobody had mentioned. A document
+  # now says which it is, IN ITS OWN TEXT, and the inventory test below makes
+  # silence the one thing it cannot say:
+  #
+  #   <!-- citation-guard: enforced -->
+  #   <!-- citation-guard: snapshot <date> (<N> citations) -->
+  #   <!-- citation-guard: external (<N> citations) — <what it cites> -->
+  #   <!-- citation-guard: unswept (<N> citations) — <what is wrong with them> -->
+  #
+  # THE THREE EXEMPTIONS SAY DIFFERENT THINGS AND ARE NOT INTERCHANGEABLE.
+  # `snapshot` is finished work, true on a date, and nobody should touch it.
+  # `external` is permanent: the citations name a repository this one cannot read,
+  # so no line number written here can ever be checked. `unswept` is a CONFESSION
+  # — live citations into this repo that nobody has verified — and it is the only
+  # one that implies future work. Writing it is not a way to be left alone; it is
+  # a way to be counted. Two documents carry it today because this task measured
+  # their coordinates and found them drifted, and saying so beats qualifying their
+  # paths until the three checks pass while the numbers stay wrong.
+  #
+  # AN EXEMPTION ASSERTS ITS OWN COUNT, and that is the half that keeps this from
+  # being the old hole with a nicer name. A frozen document that grows a citation
+  # reddens this file and forces a deliberate act; it cannot absorb new,
+  # unchecked coordinates the way an unmentioned file could. Same doctrine as
+  # UNCITED_DOCS below: a number asserted EXACTLY is a claim, a list is not.
+  #
+  # THE MARKER GOES AT THE END OF THE FILE, and that is not a style preference.
+  # `docs/SOLANA.md` and `docs/FORMULAS.md` are cited BY LINE from other
+  # documents, so a marker at the top would shift every line in the file and
+  # break the citations pointing into it — a declaration must not move the thing
+  # it declares.
+  DOCS_GLOB    = "docs/**/*.md"
+  DECLARATION  = /<!--\s*citation-guard:\s*(enforced|snapshot|external|unswept)([^>]*)-->/
+  STATED_COUNT = /\((\d+)\s+citations?\)/
+
+  def self.docs_tree
+    Dir[Rails.root.join(DOCS_GLOB)]
+      .map { |p| Pathname.new(p).relative_path_from(Rails.root).to_s }
+      .reject { |p| File.basename(p) == "README.md" || File.basename(p).start_with?("_") }
+      .sort
+  end
+
+  def self.declaration_for(doc)
+    m = File.read(Rails.root.join(doc)).match(DECLARATION)
+    return nil unless m
+
+    { kind: m[1].to_sym, detail: m[2].to_s.strip, count: m[2][STATED_COUNT, 1]&.to_i }
+  end
+
+  DECLARATIONS  = docs_tree.filter_map { |d| [d, declaration_for(d)] if declaration_for(d) }.to_h.freeze
+  ENFORCED_DOCS = DECLARATIONS.select { |_, v| v[:kind] == :enforced }.keys.sort.freeze
+  EXEMPT_DOCS   = DECLARATIONS.reject { |_, v| v[:kind] == :enforced }.keys.sort.freeze
+
+  # What the parse reads: every document that declares itself enforced. The two
+  # constants above still carry their own claims — the workflow glob is what the
+  # COVERAGE-completeness test compares against, and the wallet list is typed so a
+  # rename fails loudly — and the test below pins both sets to a declaration, so a
+  # guarded document cannot be quietly downgraded to an exemption.
+  SCANNED_DOCS = (WORKFLOW_DOCS + WALLET_DOCS + ENFORCED_DOCS).uniq.sort.freeze
 
   # Paths a citation may name that are NOT this repo's code and are not present
   # in CI: node_modules is installed by npm, never committed, so a citation into
@@ -383,6 +458,51 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   ].freeze
 
   MIN_LITERAL_TOKEN = 6
+
+  # THE SAME JUDGEMENT AS STOP_TOKENS, MADE PER FILE — and this is the half that
+  # was missing. STOP_TOKENS says a word can be too common to anchor anything;
+  # it says it ONCE, globally, from a list someone wrote. But commonness is a
+  # property of the FILE the number points into, and a word that is rare in
+  # English can be everywhere in one document.
+  #
+  # MEASURED, the citation that proved it: admin-contest-setup.md:169 cited
+  # `docs/SOLANA.md:542` for the claim that a Squad upgrade runs only the BPF
+  # `upgrade` instruction. The sweep in /tasks/sweep-stale-signer-claims moved
+  # that section, and :542 came to rest on
+  #
+  #     **upgrade** needs a buffer sized `37 + 545928` bytes, which rents for
+  #
+  # — buffer-rent arithmetic, saying nothing whatever about the BPF instruction.
+  # It stayed GREEN, because the line holds the word `upgrade`: 7 characters,
+  # longer than MIN_LITERAL_TOKEN, absent from STOP_TOKENS. `upgrade` occurs on
+  # 22 of that document's 947 lines, so landing on one of them was worth nothing
+  # — the number could have been any of 22 and passed. Its SIBLING citation in
+  # the same sentence shifted too, landed on a blank line, and failed loudly; a
+  # human caught this one. Half a pair is not a guard.
+  #
+  # SO A BARE WORD MUST ALSO BE RARE WHERE IT LANDS. A probe with no structure —
+  # no `_`, `::`, `#`, `.`, `-`, no camelCase, no digit, no space — is an
+  # ordinary word, and an ordinary word anchors only if the cited file says it
+  # seldom. A STRUCTURED probe (`EXPECTED_IDL_HASH`, `Solana::Config.verify_idl!`,
+  # `entry_pda`) is specific by construction and is left alone: capping it too
+  # would redden correct citations when unrelated code grows a mention, which is
+  # the failure this guard must never have.
+  #
+  # THE NUMBER, measured 2026-09-15 over all 215 fallback citations then in
+  # scope. The weakest honest bare-word anchor in the corpus is `detect` in
+  # app/javascript/wallet_provider.js at 9 lines; every cap from 10 up costs
+  # nothing, every cap of 9 or below costs three true citations. The defect above
+  # sat at 22. Twelve sits between them with room on both sides: two lines of
+  # slack over the honest maximum, ten under the measured miss. Tightening it is
+  # a one-number change and the distribution is written down here so the next
+  # reader need not re-measure it.
+  #
+  # WHAT THIS STILL DOES NOT DO, said plainly. It does not prove a coordinate.
+  # It proves the coordinate is not ARBITRARY — that the word the prose named is
+  # not scattered so thickly through the file that any number would have passed.
+  # A bare word on 8 lines still anchors on all 8. The symbol branch is what
+  # proves a landing, and it runs first for exactly that reason.
+  MAX_BARE_WORD_LINES = 12
 
   # A real repo file used as the CONTROL for the blank-line rejection below. It
   # needs only two properties — it exists, and it holds both a blank line and a
@@ -532,6 +652,161 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
                  "file starts from a citation, so an uncited document is unguarded, not weakly " \
                  "guarded — cite it, or move it in UNCITED_DOCS and fix docs/workflows/README.md, " \
                  "which names this set to its readers."
+  end
+
+  # ------------------------------------------------------------- the inventory
+
+  # THE TEST THAT MAKES SILENCE IMPOSSIBLE. Every check in this file starts from
+  # a citation in a document the scope reads, so until now a document was
+  # unguarded by the simple act of not being mentioned — and that looked exactly
+  # like a document deliberately left frozen. This one runs the other way: it
+  # starts from the DIRECTORY, finds every document that cites code, and asks
+  # each one what it is. A document may answer `enforced`, `snapshot` or
+  # `external`; what it may no longer do is fail to answer.
+  test "every docs/ document that cites code says whether it is guarded" do
+    report = undeclared_citing_docs.map { |d| "#{d} (#{parse_doc(d).size} citations)" }
+    assert_empty report,
+                 "these documents carry `path:line` citations and declare nothing, so no check " \
+                 "in this file reads one of them — which is indistinguishable from a document " \
+                 "deliberately frozen. End the file with ONE of:\n" \
+                 "  <!-- citation-guard: enforced -->\n" \
+                 "  <!-- citation-guard: snapshot <date> (<N> citations) -->\n" \
+                 "  <!-- citation-guard: external (<N> citations) — <what it cites> -->\n" \
+                 "  <!-- citation-guard: unswept (<N> citations) — <what is wrong with them> -->\n" \
+                 "`enforced` puts it under the three coordinate checks; the other three are " \
+                 "exemptions and must state their citation count, which this file holds exactly."
+  end
+
+  # AN EXEMPTION THAT DOES NOT COUNT ITSELF IS THE OLD HOLE WITH A NICER NAME.
+  # A frozen document is allowed to keep citations nothing checks; it is NOT
+  # allowed to quietly acquire new ones. Holding the stated count exactly means a
+  # citation added to an exempt document reddens this file and forces a
+  # deliberate act — either sweep the document into `enforced`, or restate the
+  # number and say why it grew.
+  test "an exemption states its citation count, and the count is exact" do
+    wrong = EXEMPT_DOCS.filter_map do |doc|
+      stated   = DECLARATIONS[doc][:count]
+      measured = parse_doc(doc).size
+      next if stated == measured
+
+      "#{doc}: declares #{stated.inspect}, carries #{measured}"
+    end
+    assert_empty wrong,
+                 "an exempt document's citation count moved. The count is the whole of what an " \
+                 "exemption is held to — restate it, or put the document under the guard."
+  end
+
+  # A snapshot's claim is that its citations were true ON A DATE. Without the
+  # date the word means only "not checked", which is the state this layer exists
+  # to abolish.
+  test "a snapshot declaration carries the date its citations are true as of" do
+    undated = EXEMPT_DOCS.select { |d| DECLARATIONS[d][:kind] == :snapshot }
+                         .reject { |d| DECLARATIONS[d][:detail].match?(/\b\d{4}-\d{2}-\d{2}\b/) }
+    assert_empty undated,
+                 "a snapshot must say what it is a snapshot OF: " \
+                 "<!-- citation-guard: snapshot 2026-08-25 (175 citations) -->"
+  end
+
+  # THE TWO MECHANISMS ARE PINNED TO EACH OTHER. The workflow glob and the typed
+  # wallet list are still the claims they always were, and this stops a guarded
+  # document from being downgraded to an exemption by editing one line of its own
+  # text — the declaration must agree with the scope it is already in.
+  test "every workflow and wallet document declares itself enforced" do
+    wrong = (WORKFLOW_DOCS + WALLET_DOCS).uniq.filter_map do |doc|
+      kind = DECLARATIONS[doc]&.fetch(:kind)
+      next if kind == :enforced
+
+      "#{doc}: #{kind ? "declares #{kind}" : 'declares nothing'}"
+    end
+    assert_empty wrong,
+                 "a document this file guards by glob or by name must also declare itself " \
+                 "`enforced`, so the two mechanisms cannot drift apart"
+  end
+
+  # -------------------------------------------------------------- the controls
+
+  # CONTROL FOR THE INVENTORY. The test above is VACUOUSLY green once every
+  # document is declared, so this proves it still bites: a NEW document carrying
+  # a citation, declaring nothing, must be named. Nothing is hard-coded — the
+  # document is written at run time, cited against a file located from the
+  # repository, and removed again — so the control cannot go stale, and it
+  # exercises the shipped predicate rather than re-implementing it.
+  test "the inventory catches a new document that cites code and declares nothing" do
+    rel = "docs/citation-guard-inventory-control.md"
+    File.write(abs(rel), "Control fixture. Cites `#{BLANK_CONTROL_FILE}:1` and declares nothing.\n")
+
+    assert_includes self.class.docs_tree, rel,
+                    "the inventory's glob does not reach a new document in docs/ — it is a list " \
+                    "again, and a new document is unguarded the moment it is written"
+    assert_nil self.class.declaration_for(rel), "the control fixture must declare nothing"
+    assert_equal 1, parse_doc(rel).size, "the control fixture must parse to exactly one citation"
+    assert_includes undeclared_citing_docs, rel,
+                    "the inventory passed a document that cites code and declares nothing — it " \
+                    "is inert, and hole 1 is open again"
+  ensure
+    File.delete(abs(rel)) if rel && File.exist?(abs(rel))
+  end
+
+  # CONTROL FOR THE BARE-WORD RULE — the defect, rebuilt from the repository
+  # rather than described. It takes the real citation into docs/SOLANA.md, proves
+  # it anchors where it points now, then moves ONLY the number onto a line that
+  # merely says `upgrade`, and proves three things about that line: the old rule
+  # passed it, the word is too common in that file to mean anything, and the rule
+  # now rejects it. Every coordinate is located at run time, so the sweep that
+  # moved the section the first time cannot make this control lie.
+  test "a bare word too common in the cited file no longer anchors a number" do
+    real = citations.find { |c| c[:path] == "docs/SOLANA.md" && bare_word_probes(c).include?("upgrade") }
+    assert real, "expected a guarded document to cite docs/SOLANA.md beside the word `upgrade` — " \
+                 "the control is stale; re-point it at whatever carries that shape now"
+    assert anchored?(real), "the live citation #{real[:doc]}:#{real[:line]} #{real[:raw]} stopped " \
+                            "anchoring — the rule is over-tight and is reddening a correct citation"
+
+    src   = source("docs/SOLANA.md")
+    rx    = whole_token("upgrade")
+    spread = src.count { |l| l.match?(rx) }
+    assert_operator spread, :>, MAX_BARE_WORD_LINES,
+                    "`upgrade` now occurs on only #{spread} lines of docs/SOLANA.md, at or under " \
+                    "the cap — the file changed and this control no longer reproduces the defect"
+
+    others = (prose_probes(real) - ["upgrade"])
+    decoy  = src.each_index.find do |i|
+      src[i].match?(rx) && others.none? { |p| src[i].include?(p) } && !real[:ranges].any? { |r| r.cover?(i + 1) }
+    end
+    assert decoy, "docs/SOLANA.md no longer has a line that says `upgrade` and nothing else this " \
+                  "citation names — the control cannot be built"
+
+    moved = real.merge(raw: "docs/SOLANA.md:#{decoy + 1}", ranges: [(decoy + 1)..(decoy + 1)])
+    assert src[decoy].include?("upgrade"),
+           "the control's decoy line must satisfy the OLD literal test, or this proves nothing"
+    refute anchored?(moved),
+           "a citation moved onto docs/SOLANA.md:#{decoy + 1} still anchors:\n" \
+           "    #{src[decoy].strip}\n" \
+           "That line carries the word `upgrade` and nothing else the prose names, and `upgrade` " \
+           "is on #{spread} of this file's #{src.size} lines — the number could be any of them. " \
+           "This is the near-miss the bare-word cap exists to reject."
+  end
+
+  # CONTROL FOR THE EXEMPTIONS — the false-positive half, and the reason this
+  # task did not simply widen the glob. A dated snapshot must stay GREEN. Green
+  # alone proves nothing, so this also measures what enforcing it WOULD cost:
+  # the document has to carry citations that a universal check would reject, or
+  # its exemption is not load-bearing and it should just be swept in.
+  test "a dated snapshot stays exempt, and its exemption is doing work" do
+    snapshots = EXEMPT_DOCS.select { |d| DECLARATIONS[d][:kind] == :snapshot }
+    assert_operator snapshots.size, :>=, 1, "expected at least one dated snapshot under docs/"
+
+    snapshots.each do |doc|
+      refute_includes SCANNED_DOCS, doc,
+                      "#{doc} declares itself a snapshot but the parse reads it anyway — the " \
+                      "declaration is decorative"
+    end
+
+    load_bearing = snapshots.select do |doc|
+      parse_doc(doc).any? { |c| c[:path].nil? || !File.exist?(abs(c[:path])) }
+    end
+    assert_operator load_bearing.size, :>=, 1,
+                    "every snapshot's citations would pass the universal checks today, so nothing " \
+                    "is being spared — sweep them into `enforced` rather than exempting them"
   end
 
   test "the citation convention the parser relies on is stated in the document" do
@@ -881,46 +1156,62 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # is two answers to one question.
   def citations = all_citations.select { |c| GUARDED_DOCS.include?(c[:doc]) }
 
-  def all_citations
-    @all_citations ||= SCANNED_DOCS.flat_map do |doc|
-      lines = File.readlines(abs(doc), chomp: true)
-      basenames = {}
-      lines.each do |l|
-        l.scan(CITE) { basenames[File.basename($1)] ||= $1 if $1.include?("/") }
-      end
+  def all_citations = @all_citations ||= SCANNED_DOCS.flat_map { |doc| parse_doc(doc) }
 
-      context = nil
-      out = []
-      lines.each_with_index do |line, i|
-        context = nil if line.start_with?("## ")
-        line.scan(CITE) do
-          head, nums = $1, $2
-          # Not this repo's code (EXTERNAL_PREFIXES): skip it, and let no bare
-          # `:NN` after it inherit a file it cannot read.
-          if EXTERNAL_PREFIXES.any? { |pre| head.start_with?(pre) }
-            context = nil
-            next
-          end
-          kind = head.empty? ? :bare : :path
-          # A slash-less head is a basename cited elsewhere with its path, or a
-          # file at the repo root (`playwright.config.js`) that has no path.
-          path =
-            if kind == :bare then context
-            elsif head.include?("/") then head
-            else basenames[head] || (File.file?(abs(head)) ? head : nil)
-            end
-          context = path if kind == :path && path
-          out << {
-            doc: doc, line: i + 1, raw: "#{head}:#{nums}", kind: kind, path: path,
-            ranges: nums.split(",").map do |r|
-              a, b = r.strip.split("-").map(&:to_i)
-              (a..(b || a))
-            end
-          }
-        end
-      end
-      out
+  # THE PARSE FOR ONE DOCUMENT, reachable on a document the scope does NOT read.
+  # That is what lets the inventory below count the citations in an unguarded
+  # file — the count an exemption has to state — and what lets its control count
+  # them in a file that does not exist until the control writes it. One parser,
+  # every scope: the defect this whole file exists to catch is two answers to one
+  # question, and a second counter written for the inventory would be exactly
+  # that.
+  def parse_doc(doc)
+    lines = File.readlines(abs(doc), chomp: true)
+    basenames = {}
+    lines.each do |l|
+      l.scan(CITE) { basenames[File.basename($1)] ||= $1 if $1.include?("/") }
     end
+
+    context = nil
+    out = []
+    lines.each_with_index do |line, i|
+      context = nil if line.start_with?("## ")
+      line.scan(CITE) do
+        head, nums = $1, $2
+        # A URL IS NOT A CITATION. `http://localhost:3100` matches the citation shape
+        # exactly — head `http://localhost`, "line" 3100 — and it is written in prose
+        # all over these documents. It cost nothing while the parse read only
+        # docs/workflows; the day the scope widened, two of them in
+        # docs/CDP_RAMP_INTEGRATION.md were reported as citations naming a file this
+        # repo does not have. A scheme separator is the tell and cannot occur in a
+        # path. Skipped ENTIRELY rather than reset like an external prefix, because it
+        # was never a citation and must not disturb the file context a real one set.
+        next if head.include?("://")
+        # Not this repo's code (EXTERNAL_PREFIXES): skip it, and let no bare
+        # `:NN` after it inherit a file it cannot read.
+        if EXTERNAL_PREFIXES.any? { |pre| head.start_with?(pre) }
+          context = nil
+          next
+        end
+        kind = head.empty? ? :bare : :path
+        # A slash-less head is a basename cited elsewhere with its path, or a
+        # file at the repo root (`playwright.config.js`) that has no path.
+        path =
+          if kind == :bare then context
+          elsif head.include?("/") then head
+          else basenames[head] || (File.file?(abs(head)) ? head : nil)
+          end
+        context = path if kind == :path && path
+        out << {
+          doc: doc, line: i + 1, raw: "#{head}:#{nums}", kind: kind, path: path,
+          ranges: nums.split(",").map do |r|
+            a, b = r.strip.split("-").map(&:to_i)
+            (a..(b || a))
+          end
+        }
+      end
+    end
+    out
   end
 
   def engine_references
@@ -1029,14 +1320,52 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
       return enclosing.any? { |n| names.include?(n) }
     end
 
-    cited = citation[:ranges].flat_map { |r| source(citation[:path])[(r.first - 1)..(r.last - 1)] || [] }.join("\n")
+    src   = source(citation[:path])
+    cited = citation[:ranges].flat_map { |r| src[(r.first - 1)..(r.last - 1)] || [] }.join("\n")
     tokens.any? do |t|
       probe = t.sub(/\A[#.:]/, "").split("(").first.to_s.strip
       next false if probe.length < MIN_LITERAL_TOKEN
       next false if STOP_TOKENS.include?(probe.downcase)
-      cited.include?(probe)
+      next cited.include?(probe) unless bare_word?(probe)
+
+      # A bare word is matched WHOLE, never as a fragment: `detect` inside
+      # `detectProvider` is a different word, and the looser test is what lets a
+      # near-miss read as a hit.
+      rx = whole_token(probe)
+      cited.match?(rx) && src.count { |l| l.match?(rx) } <= MAX_BARE_WORD_LINES
     end
   end
+
+  # Every document under docs/ that cites code and answers nothing. Read at CALL
+  # time, not from DECLARATIONS, so the control can write a document and have
+  # this see it — a predicate its own control cannot reach is not controlled.
+  def undeclared_citing_docs
+    self.class.docs_tree
+        .reject { |d| self.class.declaration_for(d) }
+        .select { |d| parse_doc(d).any? }
+  end
+
+  # The probes a citation's prose offers the literal branch, and the bare-word
+  # subset of them. Shared with `anchored?` so the controls test the rule rather
+  # than a copy of it.
+  def prose_probes(citation)
+    prose_tokens(citation).filter_map do |t|
+      probe = t.sub(/\A[#.:]/, "").split("(").first.to_s.strip
+      next if probe.length < MIN_LITERAL_TOKEN
+      next if STOP_TOKENS.include?(probe.downcase)
+
+      probe
+    end.uniq
+  end
+
+  def bare_word_probes(citation) = prose_probes(citation).select { |p| bare_word?(p) }
+
+  # An ordinary word: letters only, no camelCase hump. Everything else — an
+  # underscore, a `::`, a `#`, a dot, a hyphen, a digit, a space, a bang — is
+  # structure a writer had to mean, and structure is what makes a token specific.
+  def bare_word?(probe) = probe.match?(/\A[A-Za-z]+\z/) && !probe.match?(/[a-z][A-Z]/)
+
+  def whole_token(probe) = /(?<![A-Za-z0-9_$])#{Regexp.escape(probe)}(?![A-Za-z0-9_$])/
 
   # --- symbol extraction -----------------------------------------------------
 

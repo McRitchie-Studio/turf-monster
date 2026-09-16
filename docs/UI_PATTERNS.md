@@ -856,3 +856,5 @@ Unset before public launch — the `$1` tier and `$5/3` pack are not customer-fa
 The 5-section seeds progress bar (`components/_seeds_bar.html.erb`) was refactored from per-segment classes (`.seeds-bar` / `.seeds-fill` / `.seeds-text`) to a single `.seeds-bar-continuous` class plus a CSS-registered `--bar-progress` custom property.
 
 **Why**: per-segment classes meant 5 separate width transitions chained together — each segment's animation curve restarted at the segment boundary, producing a visible staircase. The continuous form interpolates all 5 segment widths from a single transition driven by one variable; per-section shimmer overlays positioned in bar coordinates (`left: -(i-1)*100%, width: 500%`) keep the wave continuous across segments. The result: one ease curve over the whole bar, not 5 chained ones. CSS-only — no JS animation loop.
+
+<!-- citation-guard: unswept (21 citations) — most name studio-engine partials BY LINE, the form the wallet documents replaced with `gem: path#symbol`; the rest are unverified -->

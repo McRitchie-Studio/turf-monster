@@ -201,3 +201,5 @@ You now have three written audit reports:
 | Stage 3 — Tests | 2026-05-24 | 5 test launch blockers + 8 launch-week tests + infra gaps |
 
 Pre-mainnet checklist that hasn't moved: **third-party Anchor audit booking** (still recommended; book Neodyme/OtterSec/Halborn now — weeks of lead time).
+
+<!-- citation-guard: snapshot 2026-05-24 (5 citations) — dated coverage audit -->

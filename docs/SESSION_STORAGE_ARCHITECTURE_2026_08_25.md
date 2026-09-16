@@ -872,3 +872,5 @@ Named so the next reader does not mistake silence for a clean bill.
   production exposure (§3.4) is a code change and rides its own bug task. A docs
   PR must not carry a security fix, and a security fix must not wait on a docs
   review.
+
+<!-- citation-guard: snapshot 2026-08-25 (175 citations) — Phase-1 audit; it states on its face that no refactor has been performed, so its citations are true as of that date and are meant to stay frozen -->

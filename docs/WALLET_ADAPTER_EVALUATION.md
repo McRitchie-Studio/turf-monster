@@ -423,3 +423,5 @@ platform. The plan keeps ours as the fallback at every stage.
 - Solflare integration docs: https://docs.solflare.com/solflare/technical/integrate-solflare
 - ConnectorKit: https://github.com/solana-foundation/connectorkit
 - npm registry metadata: `https://registry.npmjs.org/<package>` for every package in the maintenance table
+
+<!-- citation-guard: enforced -->
