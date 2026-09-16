@@ -134,9 +134,22 @@ function registerWalletStore() {
       this._scheduleProviderDiscovery();
 
       // Browser-extension events are best-effort, especially while Chrome's
-      // wallet side panel owns focus. Re-read the injected provider when Turf
-      // Monster regains focus so a missed event cannot strand the navbar on
-      // one account while Phantom shows another.
+      // wallet side panel owns focus. Re-read the WATCHED provider when Turf
+      // Monster regains focus so a missed event cannot strand the navbar on one
+      // account while Phantom shows another.
+      //
+      // "the injected provider" is what this said until 2026-09-15, and it was
+      // describing the bug rather than the intent. The reconcile reads whichever
+      // interface is currently watched — and after the
+      // 'wallet-provider:registered' swap that is the Wallet Standard adapter,
+      // not the injected one. THIS RECOVERY IS ONLY AS GOOD AS THAT PROVIDER'S
+      // publicKey: _reconcileProvider takes the `if (current)` branch whenever
+      // it answers at all, so an adapter that returns a CACHED account makes the
+      // re-read re-affirm the wallet the user just left and never reaches the
+      // `connect({onlyIfTrusted:true})` branch that would find the truth. The
+      // Wallet Standard adapter did exactly that until its getter learned to
+      // read `wallet.accounts` live (wallet_provider.js), which is why this path
+      // was dead on a modern Phantom while passing its spec on the legacy one.
       window.addEventListener('focus', function() {
         self._watchPreferredProvider(true);
       });

@@ -187,13 +187,39 @@ interface first. The watcher retries provider discovery briefly and upgrades
 when Wallet Standard registers late.
 
 Changing accounts does not log the player out. Phantom can emit a temporary
-`null` account while it switches, and the watcher deliberately ignores that
-provider transition because it does not invalidate the signed Rails session.
+`null` account while it switches, and that does not invalidate the signed Rails
+session — but the watcher does not ignore it either. A null arrives at
+`_handleSignerLost`, which drops `signerAvailable`/`signerAddress` and takes the
+session to **read-only** (`degraded`): balances are read server-side by address
+and need no signature, so the player keeps reading while the app stops claiming
+it can sign. The reconnect ask is deferred to the moment a web3 task actually
+needs a signature. (This paragraph described the pre-2026-08-25 behaviour, when
+the null really was discarded; the disconnect reflex replaced that.)
 
 Chrome may mark the page hidden while Phantom's side panel has focus, so a
 concrete account event is queued even in that state. When Turf Monster regains
-focus, the watcher also reads the provider's current public key again; this
-recovers cleanly if the extension missed or delayed its change event.
+focus, the watcher also reads the **currently watched** provider's public key
+again, which recovers if the extension missed or delayed its change event.
+
+**That recovery depends on the adapter not caching, and for months it did.**
+Turf Monster binds one of two interfaces — the legacy injected
+`window.phantom.solana`, whose `publicKey` the extension rewrites in place, or
+the Wallet Standard adapter built in `wallet_provider.js`, which is what the
+watcher is bound to after the `wallet-provider:registered` swap on a modern
+Phantom. The adapter answered `publicKey` from a closure written only by
+`standard:connect`, the `standard:events` change callback, and `disconnect`, so a
+switch Phantom never announced left it reporting the previous account forever.
+The focus re-read then handed `_handleAccountChanged` the address the player had
+just left, it matched the session address, and the reconcile returned early —
+re-affirming the stale wallet instead of correcting it. Measured on a live desk
+2026-09-15: no modal, no store change, `$store.wallet.state` parked at `live` on
+a wallet that was no longer there. The getter now reads `wallet.accounts` live
+(the Wallet Standard's own current view of the authorized accounts), so both
+interfaces recover. Pinned by
+`test/lib/wallet_standard_account_freshness_js_test.rb` and by the
+interface-parameterised cases in `e2e/wallet_session_switch.spec.js` — a spec
+that previously exercised the legacy interface only, which is why the broken half
+stayed green.
 
 Once the provider reports a concrete address that differs from the session's
 address, Turf Monster opens the blocking `wallet-changed` modal. Escape,
@@ -209,6 +235,27 @@ two safe ways forward:
 The modal stays retryable when the player cancels Phantom's signature request
 or verification fails. It never routes through `/logout` or `/signin` as a
 wallet-change fallback.
+
+**The page underneath says so too.** The modal is `dismissible: false` and covers
+the page, so while it is up it is the whole message — but it is not the only one
+that has to be true. The account card (`accounts/_solana_wallet_section`, rendered
+by both `/account` and `/profile`) carries a mounted, `role="status"` notice bound
+to `$store.wallet.state === 'mismatched'`: it names the wallet that is actually
+connected and says in words that the balances below belong to the session wallet,
+not to it. The balance tiles dim on the same condition — as reinforcement only,
+since a dim is invisible to a screen reader and means nothing on its own.
+
+This matters most where the modal is **suppressed**. An operator cosign ceremony
+declares the wallets it will legitimately walk through via
+`$store.wallet.expectSwitchesTo(...)`, which keeps the blocking card from opening
+over a half-collected treasury transaction; before this, the page behind it went
+on presenting the session wallet's address and balances at full confidence, and
+nothing on screen said the wallet had changed at all.
+
+The session's own address stays **server-rendered** and does not follow the
+browser wallet. Until the player completes the handoff the new wallet is not this
+account's identity, and repainting the address as though it were would assert an
+identity the server has not authenticated.
 
 ## Reporting client-side wallet failures
 

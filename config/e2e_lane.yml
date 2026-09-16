@@ -1018,7 +1018,7 @@
 # node_modules/.bin/playwright. A worktree with no node_modules still needs
 # `npm ci` — the primary's node_modules is a symlink to ITSELF and cannot be
 # borrowed.
-total_specs: 314
+total_specs: 316
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1342,7 +1342,7 @@ allowed_skips: 4
 # described beside total_specs above. Both listers agree on this tree and
 # allowed_skips stays 4: 314 - 17 - 4 = 293. Derived with
 # bin/e2e-lane-derive --write, not by arithmetic.
-executed: 293
+executed: 295
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
