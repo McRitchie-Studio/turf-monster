@@ -275,11 +275,19 @@ module Admin
     # Discard an armed eviction. Refuses once a signature exists — a row that
     # has broadcast is a historical fact, not a draft.
     def cancel
-      rescue_and_log(target: @tx) do
-        if @tx.tx_signature.present?
-          raise "This eviction already broadcast (#{@tx.tx_signature}); it cannot be discarded."
-        end
+      # THE GUARD IS NOT AN ERROR. Raising it inside `rescue_and_log` sends an
+      # EXPECTED operator refusal through `ErrorLog.capture!`, which writes a
+      # triage row and fans out to Sentry — "the paging layer", per the engine's
+      # own comment. On an incident console that is a false alarm raised by a
+      # button doing exactly what it says. The guard returns; only the WRITE is
+      # wrapped, which is what the discipline actually asks for.
+      if @tx.tx_signature.present?
+        return redirect_to admin_authorities_path,
+                           alert: "This eviction already broadcast (#{@tx.tx_signature}); " \
+                                  "it cannot be discarded."
+      end
 
+      rescue_and_log(target: @tx) do
         @tx.update!(status: "expired", stale: true)
         redirect_to admin_authorities_path, notice: "Armed eviction discarded."
       end

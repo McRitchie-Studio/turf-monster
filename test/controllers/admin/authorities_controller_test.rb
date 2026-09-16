@@ -485,9 +485,16 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     row = armed_row(StubVault.new)
     row.update!(tx_signature: "LANDED")
 
+    # AND IT RAISES NO ALARM. This refusal is the button working. Routing it
+    # through `rescue_and_log` wrote an ErrorLog row and fanned it out to
+    # Sentry — a page, mid-incident, for an operator clicking a control that
+    # told him what it would do.
+    before = ErrorLog.count
     post admin_cancel_authority_rotation_path(row.slug)
 
     assert_match(/already broadcast/, flash[:alert].to_s)
     assert_equal "pending", row.reload.status
+    assert_equal before, ErrorLog.count,
+                 "an expected refusal must not be logged as an application error"
   end
 end
