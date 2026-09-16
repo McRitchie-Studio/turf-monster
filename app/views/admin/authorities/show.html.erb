@@ -1,0 +1,89 @@
+<% content_for :title, "Authorities" %>
+<%#
+  THE AUTHORITY OVERVIEW + THE EVICTION CONSOLE.
+
+  Every number on this page is READ OFF THE CHAIN. That is not a style
+  preference — the constants disagreed with each other and with the chain when
+  this page was built (config.rb said the upgrade Squad was "FOUR at threshold
+  3", the hub tile said "2-of-3", docs/SOLANA.md said five at three; the chain
+  says THREE OF FIVE on both clusters, with different membership per cluster).
+  A page an operator opens mid-incident cannot inherit that.
+
+  NEVER WRITE "MULTISIG" UNQUALIFIED HERE. Say "vault signer set" or "Squads
+  upgrade multisig". The unqualified word is what produced the claims above.
+%>
+
+<div class="max-w-4xl mx-auto px-4 py-8">
+  <div class="flex items-center justify-between mb-2">
+    <h1 class="text-2xl font-bold text-heading">Authorities</h1>
+    <span class="font-mono text-xs text-muted"><%= @network %></span>
+  </div>
+  <p class="text-secondary text-sm mb-6">
+    Who can do what to this platform, decoded from the chain rather than from
+    config. Three separate authorities are listed; this page can only change the
+    first.
+  </p>
+
+  <%= render "authority_vault", vault: @vault, vault_error: @vault_error,
+                                server_address: @server_address,
+                                max_slots: @max_slots %>
+
+  <%= render "authority_thresholds", governance: @governance,
+                                     governance_pda: @governance_pda,
+                                     config_governance: @config_governance,
+                                     table: @threshold_table,
+                                     network: @network %>
+
+  <%= render "authority_squads", squads: @squads, squads_address: @squads_address,
+                                 squads_app_url: @squads_app_url,
+                                 configured_upgrade_authority: @configured_upgrade_authority,
+                                 network: @network, vault: @vault %>
+
+  <%# (3) THE SERVER'S OWN SIGNING IDENTITY — named so it stops being mistaken
+      for the vault signer set. It is the third "admin" in this codebase and the
+      one that has no on-chain meaning of its own. %>
+  <section class="card p-4 mb-6">
+    <h2 class="text-lg font-bold text-heading mb-1">Server signing identity</h2>
+    <p class="text-secondary text-sm mb-3">
+      The key <em>this Rails process</em> signs with. It is only an authority at
+      all because it also sits in the vault signer set above — being the server
+      confers nothing on chain.
+    </p>
+    <% if @server_address.present? %>
+      <p class="font-mono text-xs text-heading break-all"><%= @server_address %></p>
+      <p class="mt-1 text-xs text-muted">
+        <% if @vault && @vault[:active_signers].include?(@server_address) %>
+          In the vault signer set — so it can sign vault actions, and so it
+          <strong>cannot be evicted by a rotation it leads</strong> (see below).
+        <% else %>
+          <strong>Not</strong> in the vault signer set, so it cannot sign vault
+          actions at all. An eviction must be led by a wallet that is.
+        <% end %>
+      </p>
+    <% else %>
+      <p class="text-sm text-warning-ink">
+        This process holds no admin key, so it cannot sign or lead anything.
+      </p>
+    <% end %>
+  </section>
+
+  <%= render "eviction", rotation: @rotation, plan: @rotation_plan, roster: @roster,
+                         vault: @vault, eligible: @eligible_signers,
+                         required: @required_signatures, max_slots: @max_slots,
+                         server_address: @server_address %>
+
+  <div class="json-debug mt-8">
+    <pre><%= JSON.pretty_generate(
+      network: @network,
+      program_id: @program_id,
+      vault_pda: @vault && @vault[:pda],
+      governance_pda: @governance_pda,
+      governance_on_chain: @governance.present?,
+      governance_configured: @config_governance,
+      squads_multisig: @squads_address,
+      squads_threshold: @squads && "#{@squads[:threshold]} of #{@squads[:members].length}",
+      squads_vault_pda: @squads && @squads[:vault_pda],
+      required_signatures_to_rotate: @required_signatures
+    ) %></pre>
+  </div>
+</div>

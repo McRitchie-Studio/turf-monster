@@ -1,0 +1,535 @@
+module Admin
+  # /admin/authorities — WHO CAN DO WHAT TO THIS PLATFORM, read off the chain,
+  # and the one place an operator can evict a compromised vault signer.
+  #
+  # ── THE THREAT MODEL THIS SERVES ─────────────────────────────────────────
+  #
+  # An external group holds the SYSTEM and ADMIN keys. The Rails app, the deploy
+  # pipeline and the operator's own machine are trustworthy; only the keys are
+  # not. Under that model an IN-APP page is exactly right, because the server is
+  # the part you can still believe. (The different scenario — the system itself
+  # captured — is served by a standalone offline console, deliberately NOT this.)
+  #
+  # ── PAUSE IS NOT A REMEDY, AND THIS PAGE MUST NEVER IMPLY IT IS ──────────
+  #
+  # Verified across all 23 instruction sources on turf-vault `accepted`
+  # (2026-09-15): exactly TWO instructions read `vault.paused` as a gate —
+  # `enter_contest` and `enter_contest_with_token`. `mint_entry_token`,
+  # `grant_seeds`, `create_contest` and the username instructions do not mention
+  # the flag at all. So a paused vault still MINTS ENTRY TOKENS and GRANTS
+  # SEEDS: the value-creating paths a key thief would actually use. Pausing
+  # stops paying customers from entering and does not inconvenience the thief.
+  # EVICTION IS THE ONLY REAL ANSWER, which is what this controller builds.
+  #
+  # ── THREE AUTHORITIES, NEVER CALLED "THE MULTISIG" ───────────────────────
+  #
+  # The page shows all three even though it ACTS on one, because conflating them
+  # is this codebase's most durable defect (see the three-way note on
+  # `Solana::Config::MULTISIG_SIGNERS`):
+  #
+  #   1. VAULT SIGNER SET (`VaultState.signers` ++ `signers_ext`) — signs vault
+  #      actions. Changed by `update_signers`. THE ONLY ONE THIS PAGE WRITES.
+  #   2. PROGRAM UPGRADE AUTHORITY (a Squads V4 multisig, per cluster) — can
+  #      redeploy the program. Changed through Squads' own web UI; this page
+  #      LINKS OUT and does not reimplement it.
+  #   3. SERVER SIGNING IDENTITY (`Solana::Keypair.admin`) — which key THIS
+  #      process signs as. Named explicitly so it stops being mistaken for (1).
+  #
+  # ── WHY SQUADS IS OUT OF SCOPE FOR THE ACTION, STATED ON THE PAGE ────────
+  #
+  # Because a thief cannot execute there. Both Squads read THRESHOLD 3 OF 5
+  # (measured 2026-09-15, and re-read live by `Solana::Squads` rather than
+  # quoted), so a holder of two member keys can create and vote on proposals and
+  # never execute one. The page computes that intersection from the live read
+  # instead of asserting a number — which matters, because the number in
+  # circulation was wrong: the mainnet Squad DOES include the system key
+  # `7auwTL…`, so a system+admin holder reaches 2 of 5 there, not 1 of 4.
+  class AuthoritiesController < ApplicationController
+    before_action :require_admin
+    before_action :set_pending_rotation, only: [:rebuild, :broadcast, :cancel]
+
+    TX_TYPE = "update_signers".freeze
+
+    # WHAT `serialized_tx` HOLDS BETWEEN ARM AND FIRST CLICK.
+    #
+    # Nothing, and it has to SAY nothing. The column is NOT NULL and validated
+    # present, so "no wire yet" cannot be spelled as nil without a migration on
+    # a table five other flows share. A real wire here would be worse than a
+    # sentinel: its blockhash dies within ~90 seconds while the operator is
+    # still reading the set, and the page would then be offering him dead bytes.
+    # `#rebuild` overwrites this at click time and `#broadcast` reads the signed
+    # wire from the request, never from the column — so the sentinel cannot be
+    # broadcast even by accident.
+    UNBUILT_WIRE = "unbuilt".freeze
+
+    def show
+      @network   = Solana::Config::NETWORK
+      @rpc_url   = Solana::Config.public_rpc_url
+      @program_id = Solana::Config::PROGRAM_ID
+
+      # (1) THE VAULT SIGNER SET — all five slots, from chain.
+      @vault = read_vault_state_safely
+      @vault_error = @vault.nil?
+
+      # (2) THE PER-ACTION THRESHOLD TABLE. Nil is a REAL and expected state,
+      # not a failure: between a Squads upgrade to v0.26 and `init_governance`
+      # the PDA does not exist, and today it does not exist on either cluster.
+      # The view says which of those two it is rather than rendering an empty
+      # table that reads like "no thresholds".
+      @governance = read_governance_safely
+      @governance_pda = Solana::Keypair.encode_base58(vault.governance_pda.first)
+      @config_governance = Solana::Config.governance?
+
+      # (3) THE SQUADS UPGRADE MULTISIG. Never blocks the page.
+      @squads = Solana::Squads.read
+      @squads_address = Solana::Config.squads_multisig
+      @squads_app_url = Solana::Config.squads_app_url
+      @configured_upgrade_authority = Solana::Config.squads_vault_pda
+
+      # (4) THE SERVER'S OWN SIGNING IDENTITY.
+      @server_address = Solana::CosignPlan.admin_address
+
+      @threshold_table = threshold_table
+      @eligible_signers = @vault ? @vault[:active_signers] : Solana::Config::MULTISIG_SIGNERS
+      @required_signatures = required_signatures_for_chain
+      @max_slots = chain_governance? ? Solana::Vault::MAX_SIGNERS : Solana::SignerRotation::MAX_SLOTS_V025
+
+      @rotation = PendingTransaction.pending.where(tx_type: TX_TYPE).order(created_at: :desc).first
+      @rotation_plan = @rotation && JSON.parse(@rotation.metadata)["plan"]&.deep_symbolize_keys
+      # ORDER MATTERS: the roster renders the fee payer's balance, so the read
+      # has to happen first or the lead row claims "could not be read" on a page
+      # that did read it.
+      @fee_payer = @rotation_plan && fee_payer_status_for(@rotation_plan)
+      @roster = @rotation_plan && roster_for(@rotation_plan)
+    end
+
+    # ARM AN EVICTION. Validates the proposed set against turf-vault's own
+    # guards, in turf-vault's own order, and records a durable row — WITHOUT
+    # building or signing anything. The operator reads the exact new signer set
+    # here, before a wallet is opened.
+    #
+    # NOTHING IS BUILT YET ON PURPOSE. A transaction built now would carry a
+    # blockhash that expires in ~60-90 seconds, and the whole point of this step
+    # is to give him unhurried time to check the set. The bytes are minted at
+    # CLICK time by #rebuild.
+    def arm
+      rescue_and_log do
+        rotation = build_rotation(
+          proposed: params[:signers],
+          authorizers: params[:authorizers]
+        )
+        rotation.validate!
+
+        plan = rotation.to_plan.merge(
+          lead_signer: rotation.authorizers.first,
+          server_leads: rotation.authorizers.first == Solana::CosignPlan.admin_address,
+          armed_at: Time.current.iso8601
+        )
+
+        # The row is created with the UNBUILT sentinel, not a built wire — see
+        # the constant for why a real one here would be worse than none.
+        record = PendingTransaction.create!(
+          tx_type: TX_TYPE,
+          serialized_tx: UNBUILT_WIRE,
+          target: nil,
+          initiator_address: Solana::CosignPlan.admin_address,
+          metadata: { plan: plan }.to_json
+        )
+
+        redirect_to admin_authorities_path,
+                    notice: "Eviction armed. Review the new signer set, then collect " \
+                            "#{plan[:required_signatures]} signatures. (#{record.slug})"
+      end
+    rescue Solana::SignerRotation::Refusal => e
+      redirect_to admin_authorities_path, alert: "Refused: #{e.message}"
+    rescue StandardError => e
+      redirect_to admin_authorities_path, alert: "Could not arm the eviction: #{e.message}"
+    end
+
+    # Mint the bytes, NOW. Called by cosign.js at click time so the blockhash
+    # window opens when the operator acts rather than when the page rendered.
+    #
+    # THE PLAN IS RE-VALIDATED AGAINST A FRESH CHAIN READ, not trusted from the
+    # armed row. The signer set could have moved between arming and clicking —
+    # by another operator, or by the very thief this page exists to evict — and
+    # a rotation validated against a stale set could break continuity and brick
+    # governance. Re-reading is the only way that is caught before the fee.
+    def rebuild
+      rescue_and_log(target: @tx) do
+        raise "This eviction is #{@tx.status}, not pending" unless @tx.pending?
+
+        plan     = armed_plan
+        rotation = revalidate!(plan)
+        shape    = vault_shape!
+
+        result = vault.build_update_signers(
+          new_signers: rotation.live_slots,
+          lead_signer: plan[:lead_signer],
+          cosigner_pubkey: plan[:authorizers][1],
+          extra_cosigners: plan[:authorizers][2..] || []
+        )
+
+        @tx.update!(serialized_tx: result[:serialized_tx], status: "pending")
+
+        render json: {
+          status: "rebuilt",
+          serialized_tx: result[:serialized_tx],
+          # THE SIGNING PLAN TRAVELS WITH THE BYTES IT DESCRIBES, so the browser
+          # collects against the slots THIS build reserved rather than against
+          # whatever the page was rendered believing.
+          required_signatures: rotation.required,
+          signer_queue: signer_queue_for(plan),
+          cosigner_address: plan[:authorizers][1],
+          extra_cosigners: plan[:authorizers][2..] || [],
+          # NIL WHEN THE OPERATOR LEADS. cosign.js paints this row as already
+          # signed, and it is only true when the SERVER filled the slot at build
+          # time. A green check standing for a signature nobody has produced is
+          # the same lie as an Execute button at 2 of 3.
+          fee_payer_address: result[:server_signed] ? plan[:lead_signer] : nil,
+          shape: shape,
+          new_signers: result[:new_signers]
+        }
+      end
+    rescue Solana::SignerRotation::Refusal => e
+      render json: { error: "Refused: #{e.message}" }, status: :unprocessable_entity
+    rescue StandardError => e
+      render json: { error: e.message }, status: :unprocessable_entity
+    end
+
+    # Simulate, broadcast, RECORD THE SIGNATURE, verify, read back.
+    #
+    # ── THE SIGNATURE IS STAMPED THE INSTANT THE BROADCAST RETURNS ──────────
+    #
+    # Before verification, not after, and by `update_columns` so no validation
+    # or callback can stand between a landed transaction and the record of it.
+    #
+    # The treasury path stamps it AFTER `TxVerifier.verify!` (see
+    # Admin::PendingTransactionsController#verify_and_record_cosign!), so a
+    # transaction that LANDED but whose verification flaked — a slow RPC, a
+    # commitment that has not caught up — leaves the row `pending` with no
+    # signature, and therefore re-broadcastable. That is filed separately as
+    # /tasks/broadcast-records-signature-late and is not fixed here; what is
+    # fixed here is that this NEW path does not inherit the shape. On this
+    # surface the consequence would be worse than a double payout: a second
+    # rotation attempt after the first landed is authorized by keys the first
+    # one just evicted, so it fails `Unauthorized` and reads to the operator
+    # like his eviction did not work — mid-incident, on the one control he has.
+    #
+    # A row left `submitted` is therefore the SAFE failure: the signature is on
+    # the record, the pending? guard refuses a re-broadcast, and the read-back
+    # below tells him what actually happened on chain regardless.
+    def broadcast
+      rescue_and_log(target: @tx) do
+        raise "This eviction is #{@tx.status}, not pending" unless @tx.pending?
+
+        plan     = armed_plan
+        rotation = revalidate!(plan)
+        signed_tx = params[:signed_tx].to_s
+        raise "Signed transaction required" if signed_tx.blank?
+
+        # THE COUNT IS CHECKED, not merely each address's membership. This is
+        # the half `Admin::VaultStateController#confirm` omits — it validates
+        # every extra signer it is GIVEN and never that it was given enough, so
+        # a three-signature action can be recorded on one proven signature.
+        claimed = require_signer_queue!(plan)
+
+        signature = vault.simulate_and_broadcast(signed_tx)
+
+        # DURABLE, IMMEDIATELY, BEFORE ANYTHING ELSE CAN RAISE.
+        @tx.update_columns(tx_signature: signature, status: "submitted",
+                           updated_at: Time.current)
+
+        verify_landed!(signature: signature, claimed: claimed)
+
+        @tx.update!(status: "confirmed",
+                    cosigner_address: claimed[1],
+                    cosigner_addresses: claimed)
+
+        render json: {
+          status: "confirmed",
+          tx_signature: signature,
+          # THE READ-BACK. What the chain says the signer set is NOW, not what
+          # we asked it to be — the only answer worth anything on this page.
+          signers: read_back_signers,
+          expected: rotation.live_slots
+        }
+      end
+    rescue Solana::TxVerifier::VerificationError => e
+      render json: {
+        error: "Broadcast landed but verification failed: #{e.message}. The signature is " \
+               "recorded on this row and it will not be re-broadcast — read the signer set back " \
+               "before acting again.",
+        tx_signature: @tx.reload.tx_signature
+      }, status: :unprocessable_entity
+    rescue StandardError => e
+      render json: { error: e.message }, status: :unprocessable_entity
+    end
+
+    # Discard an armed eviction. Refuses once a signature exists — a row that
+    # has broadcast is a historical fact, not a draft.
+    def cancel
+      if @tx.tx_signature.present?
+        return redirect_to admin_authorities_path,
+                           alert: "This eviction already broadcast (#{@tx.tx_signature}); it cannot be discarded."
+      end
+
+      @tx.update!(status: "expired", stale: true)
+      redirect_to admin_authorities_path, notice: "Armed eviction discarded."
+    end
+
+    private
+
+    def vault
+      @vault_service ||= Solana::Vault.new
+    end
+
+    def set_pending_rotation
+      @tx = PendingTransaction.find_by(slug: params[:slug], tx_type: TX_TYPE)
+      return if @tx
+
+      respond_to do |format|
+        format.json { render json: { error: "Eviction not found" }, status: :not_found }
+        format.html { redirect_to admin_authorities_path, alert: "Eviction not found" }
+      end
+    end
+
+    def armed_plan
+      JSON.parse(@tx.metadata).fetch("plan").deep_symbolize_keys
+    end
+
+    # Build a SignerRotation from a fresh chain read. Everything about the shape
+    # — slot count, threshold, the guard ORDER — follows what is deployed, never
+    # what this boot's env var prefers.
+    def build_rotation(proposed:, authorizers:)
+      state = vault.read_vault_state
+      raise "Vault state could not be read; refusing to plan a rotation blind." if state.nil?
+
+      Solana::SignerRotation.for_chain(
+        current_signers: state[:active_signers],
+        proposed: Array(proposed),
+        authorizers: Array(authorizers).map { |a| a.to_s.strip }.reject(&:blank?),
+        governance: chain_governance?,
+        max_live_threshold: max_live_threshold
+      )
+    end
+
+    def revalidate!(plan)
+      build_rotation(proposed: plan[:proposed], authorizers: plan[:authorizers]).validate!
+    end
+
+    # IS THE CHAIN RUNNING v0.26? Answered by whether the GovernanceConfig PDA
+    # EXISTS, which is the only fact that decides which instruction shape the
+    # deployed binary can decode.
+    #
+    # `read_governance` raises on an RPC failure and returns nil only for a
+    # genuinely absent account, so a network blip cannot be mistaken for
+    # "pre-v0.26" — which would build a three-slot argument against a five-slot
+    # program.
+    def chain_governance?
+      return @chain_governance if defined?(@chain_governance)
+
+      @chain_governance = vault.read_governance.present?
+    end
+
+    # REFUSE WHEN THE ENV SWITCH AND THE CHAIN DISAGREE.
+    #
+    # The builders route their shape through `Config.governance?` (one switch,
+    # seventeen builders — see `Vault#governance_metas`), and that switch is an
+    # env var. When it disagrees with the chain, every build is the wrong shape
+    # and the failure arrives as an opaque deserialization error after a fee.
+    # This names it first, in both directions, and says which lever to move.
+    def vault_shape!
+      chain = chain_governance?
+      config = Solana::Config.governance?
+      return chain ? "v0.26" : "v0.25" if chain == config
+
+      if config && !chain
+        raise "This app is configured for turf-vault v0.26 (#{Solana::Config::GOVERNANCE_ENV_VAR}) " \
+              "but the GovernanceConfig PDA #{Solana::Keypair.encode_base58(vault.governance_pda.first)} " \
+              "does not exist on #{Solana::Config::NETWORK}. Run init_governance after the upgrade, " \
+              "or unset the switch — do not sign a v0.26-shaped transaction against a v0.25 program."
+      end
+
+      raise "The chain is running turf-vault v0.26 (GovernanceConfig exists) but this app is " \
+            "configured for v0.25. Set #{Solana::Config::GOVERNANCE_ENV_VAR}=on and restart before " \
+            "rotating signers — a three-slot argument cannot express the deployed set."
+    end
+
+    def required_signatures_for_chain
+      chain_governance? ? Solana::Governance.required_signatures("update_signers")
+                        : Solana::SignerRotation::REQUIRED_V025
+    rescue StandardError
+      Solana::SignerRotation::REQUIRED_V025
+    end
+
+    # Every governance action with the number of signatures it ACTUALLY needs,
+    # and where that number came from.
+    #
+    # THE `source` COLUMN IS THE POINT. A reader must be able to tell a value
+    # the CHAIN stores from one this app is assuming, because on a pre-v0.26
+    # cluster the whole table is an assumption — the GovernanceConfig PDA does
+    # not exist and the deployed binary enforces a structural two through
+    # `validate_multisig`, which never reads a threshold at all. A table that
+    # rendered identically in both cases would be the exact conflation this
+    # page was built to end.
+    #
+    # `floor` is applied on READ by the program itself, so a stored value below
+    # a floor is raised here too — otherwise this page would report a number
+    # turf-vault would refuse to honour.
+    def threshold_table
+      stored = Array(@governance && @governance[:thresholds])
+      on_chain = @governance.present?
+
+      Solana::Governance::ACTION_IDS.map do |name, id|
+        raw     = stored[id].to_i
+        floor   = Solana::Governance::THRESHOLD_FLOORS.fetch(name, 1)
+        default = Solana::Governance::DEFAULT_THRESHOLDS.fetch(name, 1)
+        value   = raw.zero? ? default : raw
+
+        {
+          action: name,
+          id: id,
+          effective: [value, floor].max,
+          floor: floor,
+          floored: floor > value,
+          source: if !on_chain
+                    "not on chain"
+                  elsif raw.zero?
+                    "program default"
+                  else
+                    "stored"
+                  end
+        }
+      end.sort_by { |row| [-row[:effective], row[:action]] }
+    end
+
+    # The highest threshold ANY live action requires. `update_signers` refuses a
+    # set smaller than this, because rotating below it would brick that action
+    # with no way back except another rotation.
+    def max_live_threshold
+      table = @governance_table ||= (vault.read_governance rescue nil)
+      return nil if table.nil?
+
+      stored = Array(table[:thresholds])
+      Solana::Governance::ACTION_IDS.filter_map do |name, id|
+        value = stored[id].to_i
+        value = Solana::Governance::DEFAULT_THRESHOLDS.fetch(name, 1) if value.zero?
+        [value, Solana::Governance::THRESHOLD_FLOORS.fetch(name, 1)].max
+      end.max
+    end
+
+    # [lead, cosigner, *extras] — the order the slots were reserved in, which is
+    # the order turf-vault reads them positionally.
+    def signer_queue_for(plan)
+      Array(plan[:authorizers])
+    end
+
+    # What the browser CLAIMS signed, checked for count, order and membership
+    # against the armed plan before a word of it is written to the record.
+    def require_signer_queue!(plan)
+      expected = Array(plan[:authorizers])
+      claimed  = Array(params[:signer_queue]).map { |a| a.to_s.strip }.reject(&:blank?)
+      claimed  = Array(params[:cosigner_address]).map(&:to_s) + Array(params[:extra_cosigners]) if claimed.empty?
+      claimed  = claimed.map { |a| a.to_s.strip }.reject(&:blank?)
+
+      if claimed != expected
+        raise "This broadcast names #{claimed.length} signer(s) (#{claimed.join(', ')}) but the " \
+              "armed eviction reserved #{expected.length} slot(s) for #{expected.join(', ')}. " \
+              "turf-vault reads those accounts positionally, so a different set is a different " \
+              "transaction — re-arm rather than re-send."
+      end
+
+      claimed
+    end
+
+    # EVERY claimed signer is asserted to be in a SIGNER SLOT of what landed —
+    # not merely present in the transaction. turf-vault requires `info.is_signer`
+    # on each leading remaining account, and a non-signer sitting in a cosigner
+    # slot is what produces 6047 CosignerDidNotSign.
+    def verify_landed!(signature:, claimed:)
+      vault_pda = Solana::Keypair.encode_base58(vault.vault_state_pda.first)
+
+      claimed.each_with_index do |address, i|
+        Solana::TxVerifier.verify!(
+          signature: signature,
+          instruction_name: TX_TYPE,
+          signer_pubkey: address,
+          # The VaultState PDA is the account this instruction mutates. Asserted
+          # once, on the first signer, because the assertion is about the
+          # transaction rather than about the signer.
+          writable_pubkey: i.zero? ? vault_pda : nil
+        )
+      end
+    end
+
+    # Bust every cached read this rotation invalidates, then re-read. Without
+    # the bust the page would show the OLD signer set for up to a minute after
+    # an eviction — on the one screen where a stale answer is dangerous.
+    def read_back_signers
+      Rails.cache.delete(Solana::Vault::VAULT_STATE_CACHE_KEY)
+      Rails.cache.delete(Solana::Vault::GOVERNANCE_CACHE_KEY)
+      Current.vault_state_fetched = false
+      Current.vault_state = nil
+      Solana::Vault.new.read_vault_state&.dig(:active_signers)
+    rescue StandardError => e
+      Rails.logger.warn("[solana] signer read-back failed: #{Solana::Config.redact_message(e.message)}")
+      nil
+    end
+
+    # Roster rows in the shape admin/pending_transactions/_signer_roster expects.
+    #
+    # THE LEAD ROW IS ONLY "Auto" WHEN THE SERVER ACTUALLY FILLS IT. When the
+    # operator leads — which is the case whenever the SERVER'S OWN KEY is being
+    # evicted — nothing is pre-signed and every row is his to act on.
+    def roster_for(plan)
+      server_leads = plan[:server_leads]
+      fee_payer = @fee_payer
+
+      Array(plan[:authorizers]).each_with_index.map do |address, i|
+        is_lead = i.zero?
+        {
+          address: address,
+          role: is_lead ? "lead" : (i == 1 ? "cosigner" : "extra"),
+          label: if is_lead
+                   server_leads ? "Server (fee payer)" : "Your wallet (fee payer)"
+                 elsif i == 1
+                   "Cosigner"
+                 else
+                   "Wallet #{i + 1}"
+                 end,
+          fee_payer: is_lead,
+          signs_automatically: is_lead && server_leads,
+          balance_sol: is_lead && fee_payer ? fee_payer[:balance_sol] : nil,
+          funded: is_lead && fee_payer ? fee_payer[:funded] : nil,
+          minimum_sol: is_lead && fee_payer ? fee_payer[:minimum_sol] : nil
+        }
+      end
+    end
+
+    # The fee payer is whoever LEADS, which on THIS page is often one of the
+    # operator's own wallets rather than the server — see the lead-signer note
+    # on `Solana::Vault#build_update_signers`. Read once for the page, and the
+    # address is passed explicitly so a server-funded reading can never stand in
+    # for an operator wallet that is actually empty.
+    def fee_payer_status_for(plan)
+      vault.fee_payer_status(
+        required_signatures: plan[:required_signatures].to_i,
+        address: plan[:lead_signer]
+      )
+    end
+
+    def read_vault_state_safely
+      vault.read_vault_state
+    rescue StandardError => e
+      Rails.logger.warn("[solana] vault state read failed: #{Solana::Config.redact_message(e.message)}")
+      nil
+    end
+
+    def read_governance_safely
+      vault.read_governance
+    rescue StandardError => e
+      Rails.logger.warn("[solana] governance read failed: #{Solana::Config.redact_message(e.message)}")
+      nil
+    end
+  end
+end

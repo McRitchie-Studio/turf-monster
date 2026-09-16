@@ -1017,8 +1017,22 @@
 # derive" with no cause. bin/lib/e2e_lane_derive.rb now prefers the tree's own
 # node_modules/.bin/playwright. A worktree with no node_modules still needs
 # `npm ci` — the primary's node_modules is a symlink to ITSELF and cannot be
-# borrowed.
-total_specs: 314
+# borrowed. (Confirmed again 2026-09-15 on this desk: no node_modules at all,
+# `npx playwright` resolved a stray global copy and died on @playwright/test.)
+#
+# 314 -> 319 (admin-evicts-compromised-signers): five specs in
+# e2e/authority_signer_eviction.spec.js for /admin/authorities — the page renders
+# under an unreachable RPC, the Squads link carries its cluster in the ADDRESS
+# rather than a decommissioned devnet host, the eviction planner's JavaScript
+# parsed and its compact-on-evict and continuity guards run, a clean plan
+# produces NO refusal (the control), and the page is admin-only. The middle
+# three are browser-only by construction: an Alpine factory mangled by ERB
+# quoting leaves byte-identical markup and binds nothing, so no Ruby tier can
+# see it. None is tagged @devnet — deliberately, because devnet-nightly.yml has
+# never once executed and a spec filed there would be a tier that looks strict
+# and collects nothing. Derived with bin/e2e-lane-derive --write, not by
+# arithmetic.
+total_specs: 319
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1342,7 +1356,13 @@ allowed_skips: 4
 # described beside total_specs above. Both listers agree on this tree and
 # allowed_skips stays 4: 314 - 17 - 4 = 293. Derived with
 # bin/e2e-lane-derive --write, not by arithmetic.
-executed: 293
+# 293 -> 298 (admin-evicts-compromised-signers): the five specs described beside
+# total_specs above. None is tagged @devnet and none skips, so excluded stays 17
+# and allowed_skips stays 4: 319 - 17 - 4 = 298. Derived with
+# bin/e2e-lane-derive --write ON THE MERGED TREE (fetched origin/accepted first;
+# 0 ahead, 0 behind), not by incrementing — the silent-merge this counter is
+# prone to is two branches writing the SAME number for DIFFERENT files.
+executed: 298
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

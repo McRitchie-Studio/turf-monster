@@ -418,11 +418,20 @@ module Solana
     #      solana.turf.admin (BLSBw8fX…) the same day. A re-file is not an
     #      on-chain event and is never evidence of one.
     #
-    # THE TWO SETS DIFFER BY EXACTLY ONE WALLET, ON PURPOSE, AND ARE NOT MEANT
-    # TO CONVERGE. Squads (upgrade) is FOUR at threshold 3 and is LIVE:
-    # BLSBw8…, 7ZDJ…, 3Qj4v9…, 9gACbz…. VaultState (the money) is FIVE and is
-    # the TARGET: those four PLUS system 7auwTL…, which is deliberately OFF
-    # Squads. FIVE IS NOT WRITABLE YET — the deployed v0.25.0 takes
+    # THE TWO SETS ARE NOT MEANT TO CONVERGE, AND THEIR MEMBERSHIP IS NOT THE
+    # SAME ON BOTH CLUSTERS. Re-measured off chain 2026-09-15 (see
+    # `Solana::Squads`, which reads it rather than quoting it): each Squad is
+    # THRESHOLD 3 OF 5, every member at mask 7 (Initiate|Vote|Execute) —
+    #   devnet  7nRuVw3V… : 2eGs8G3w…, 3Qj4v9…, 7ZDJ…, 8K81…, BLSBw8…
+    #   mainnet 4H3fP3ot… : 7auwTL…,   3Qj4v9…, 7ZDJ…, 9gACbz…, BLSBw8…
+    # This paragraph previously read "Squads (upgrade) is FOUR at threshold 3"
+    # and named one four-wallet set for both clusters; the chain says otherwise
+    # on both counts, and it additionally said system 7auwTL… is "deliberately
+    # OFF Squads" when 7auwTL… IS a mainnet Squads member. Do not re-derive the
+    # blast radius of a stolen key from this comment — /admin/authorities
+    # computes it from a live read, which is the whole reason that page exists.
+    # VaultState (the money) is FIVE and is
+    # the TARGET. FIVE IS NOT WRITABLE YET — the deployed v0.25.0 takes
     # `update_signers(new_signers: [Pubkey; 3])`, so the five-member set needs
     # v0.26 on-chain first; MAINNET_LAUNCH.md carries the forced order. 7auwTL… is the app's HOT key — it sits in Heroku config on a
     # running dyno and signs every entry and payout, so it is the most exposed
@@ -528,6 +537,44 @@ module Solana
     def self.squads_vault_pda(network = NETWORK)
       ENV["SOLANA_SQUADS_VAULT_PDA"].presence ||
         (network == "mainnet-beta" ? MAINNET_SQUADS_VAULT_PDA : DEVNET_SQUADS_VAULT_PDA)
+    end
+
+    # The Squads MULTISIG ACCOUNT — the account that holds the members and the
+    # threshold. Distinct from `squads_vault_pda` above, which is the vault PDA
+    # DERIVED from it and is what actually sits in the program's upgrade
+    # authority slot.
+    #
+    # CONFUSING THE TWO IS THE RECURRING MISTAKE, and it always presents as
+    # "the upgrade authority looks wrong": `solana program show` prints the
+    # VAULT PDA, and comparing that against the MULTISIG address never matches
+    # because they are different accounts by construction. `Solana::Squads.vault_pda`
+    # derives one from the other so the relationship can be PROVEN on the page
+    # instead of asserted in a comment.
+    #
+    # Per cluster, like every other authority in this file. Until this existed
+    # the only copy of the mainnet address in the app was hardcoded into an
+    # admin hub tile, which therefore offered the MAINNET Squad on a devnet
+    # boot — the same shape of defect `admin-shows-devnet-authority` fixed for
+    # the vault PDA, pointing the other way.
+    DEVNET_SQUADS_MULTISIG  = "7nRuVw3VZFC6z85tYVDitPnaUHZCkqLpJRSTBNtPmtZB"
+    MAINNET_SQUADS_MULTISIG = "4H3fP3otjMtupk1DQDjKXYY1dWjT6LNM4H4ZWZ1XcKSX"
+
+    def self.squads_multisig(network = NETWORK)
+      ENV["SOLANA_SQUADS_MULTISIG"].presence ||
+        (network == "mainnet-beta" ? MAINNET_SQUADS_MULTISIG : DEVNET_SQUADS_MULTISIG)
+    end
+
+    # Where the operator goes to change Squads MEMBERSHIP. Squads ships its own
+    # web UI for exactly that, and this app deliberately does not reimplement
+    # it — /admin/authorities links out.
+    #
+    # ONE HOST FOR BOTH CLUSTERS. `devnet.squads.so` is DECOMMISSIONED, so a
+    # devnet-flavoured URL is a dead link rather than a cluster-correct one;
+    # app.squads.so is the only surviving front end and it resolves a multisig
+    # by address. The cluster is therefore carried by the ADDRESS, not by the
+    # host, which is why the caller must say which cluster the link serves.
+    def self.squads_app_url(network = NETWORK)
+      "https://app.squads.so/squads/#{squads_multisig(network)}"
     end
 
     DECIMALS = 6
