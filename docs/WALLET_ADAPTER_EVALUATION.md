@@ -301,7 +301,7 @@ deprecated. And our own round trip completed on a QA iPhone (per
 | Intents (`prepare` / `complete`) | unchanged | unchanged | unchanged | `complete` rewritten: Phantom broadcasts |
 | Resume wrapper around `walletOps.resume` (`_contest_entry_intent.html.erb:128-149`) | retire once the Gemfile floor reaches 0.9.3 | stays for iOS | droppable, but only by accepting the iOS downgrade above | stays for iOS |
 | Journal + engine callback page | unchanged | stay for iOS | droppable, but only by accepting the iOS downgrade above | stay (auth redirect) |
-| `detect()` ordering (`wallet_provider.js:479-514`) | unchanged | must prefer MWA over `forWallet('phantom')` on Android Chrome | replaced | replaced |
+| `detect()` ordering (`wallet_provider.js:516-551`) | unchanged | must prefer MWA over `forWallet('phantom')` on Android Chrome | replaced | replaced |
 | e2e stub | unchanged | a **new** harness: MWA talks over a local WebSocket, which `context.route` cannot intercept (**unverified** how to stub) | new relay stub | new stub |
 | Server (`prepare_entry` / `confirm_onchain_entry`) | unchanged | unchanged | unchanged | cosign moves before the user's signature; confirm becomes reconcile-by-signature |
 | Vendor accounts | none | none | Reown project ID | Phantom Portal app + verified domain |
