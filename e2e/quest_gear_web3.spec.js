@@ -1,15 +1,23 @@
-// Quests via the navbar gear "Next: …" pointer — web3 (Phantom, no email) user.
+// Quests via the gear sidebar's LEAD LINE — web3 (Phantom, no email) user.
 //
-// The gear menu (components/_admin_dropdown) renders a dynamic "Next: …" row
-// from User#next_quest. The username + newsletter steps open their modals
-// straight from the menu (the same modals the /account buttons open); join /
-// chat / invite link to the contest. This spec drives the two MODAL-opening
-// steps and confirms the web3 add-email field on the newsletter one.
+// The gear panel leads with a status line built from User#next_quest
+// (components/_gear_sidebar). The username and newsletter rungs OPEN THEIR
+// MODALS straight from that line — the same modals the /account buttons open;
+// join / chat link the contest instead. This spec drives the two MODAL-opening
+// rungs and confirms the web3 add-email field on the newsletter one.
+//
+// IT CLICKS THE LEAD LINE, NOT A BODY ROW. It used to click "Pick a username"
+// and "Join newsletter" rows in the panel's nav. Those rows are gone: each was a
+// second copy of this same line, on the same condition, to the same
+// destination, so the panel showed every nudge twice. The nav carries no
+// next_quest row at all now, and [data-gear-status-quest] is the one quest
+// surface. GearSidebarStatusTest pins that at the component tier; this spec
+// pins that the surviving line really opens the modal.
 //
 // quest_step is staged server-side (setQuestState) rather than driven through
-// the on-chain username/chat quests, so the gear renders the exact "Next: …"
-// row we want. We only OPEN the modals here (no submit), so no endpoint stubs
-// are needed.
+// the on-chain username/chat quests, so the lead renders the exact rung we
+// want. We only OPEN the modals here (no submit), so no endpoint stubs are
+// needed.
 
 const { test, expect } = require("@playwright/test");
 const {
@@ -31,7 +39,14 @@ async function openGear(page) {
   await page.locator('button[title="Settings"]:visible').first().click();
 }
 
-test("gear 'Pick a username' opens the username modal", async ({ page }) => {
+// The lead line, in whichever panel is visible at this viewport. The status
+// line renders into BOTH the desktop and the mobile panel — two independent
+// Alpine scopes — so :visible is what picks the one on screen.
+function questLead(page) {
+  return page.locator('[data-gear-status-quest="true"]:visible').first();
+}
+
+test("the gear lead line opens the username modal", async ({ page }) => {
   await setupPhantomMock(page, { seedByte: 2 });
   await loginViaPhantom(page);
   // With an entry, next_quest advances from :join to :username (fresh user).
@@ -39,25 +54,27 @@ test("gear 'Pick a username' opens the username modal", async ({ page }) => {
   await page.goto("/account");
 
   await openGear(page);
-  await page.locator('button:has-text("Pick a username"):visible').first().click();
+  await expect(questLead(page)).toHaveText(/Quest: Customize Username/);
+  await questLead(page).click();
 
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByText("Change Username")).toBeVisible();
   await expect(dialog.getByPlaceholder("username")).toBeVisible();
 });
 
-test("gear 'Join newsletter' opens the newsletter modal with the add-email field", async ({ page }) => {
+test("the gear lead line opens the newsletter modal with the add-email field", async ({ page }) => {
   await setupPhantomMock(page, { seedByte: 2 });
   await loginViaPhantom(page);
   await createActiveEntry(page, CONTEST_SLUG);
-  // Stage past username + chat so next_quest === :newsletter (the gear row that
-  // opens the newsletter-subscribe modal). Reload so the server re-renders the
-  // gear with the new pointer.
+  // Stage past username + chat so next_quest === :newsletter (the rung whose
+  // lead line opens the newsletter-subscribe modal). Reload so the server
+  // re-renders the panel with the new pointer.
   await setQuestState(page, { username_changed: true, chat_sent: true });
   await page.goto("/account");
 
   await openGear(page);
-  await page.locator('button:has-text("Join newsletter"):visible').first().click();
+  await expect(questLead(page)).toHaveText(/Quest: Join the Newsletter/);
+  await questLead(page).click();
 
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByText("Join the Newsletter")).toBeVisible();

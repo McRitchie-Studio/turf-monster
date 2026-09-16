@@ -15,9 +15,11 @@
      end
    } %>
 
-<%# Quest state, resolved ONCE and read by both the header status line and the
-    body rows below. Hoisted above both captures because the status line is
-    built first and the two must never disagree about which quest is open. %>
+<%# Quest state, resolved ONCE for the header status line, which is now the
+    ONLY quest surface in this panel (the body nav no longer carries a quest
+    ladder - see the comment in body_html for why). Still hoisted above the
+    capture rather than inlined: main_contest_target is a memoised query and
+    the three locals below are read across four branches of one expression. %>
 <% nq = current_user.respond_to?(:next_quest) ? current_user.next_quest : nil %>
 <% quest_target = nq ? main_contest_target : nil %>
 <% quest_contest_path = quest_target ? contest_path(quest_target) : contests_path %>
@@ -53,9 +55,10 @@
     whichever half does not match the load-time count, so neither flashes before
     Alpine boots.
 
-    THE QUEST RUNG IS ACTIONABLE, and that is what makes dropping the two
-    quest-backed body rows safe: the header now carries the same destination
-    those rows carried. %>
+    THE QUEST RUNG IS ACTIONABLE, and that is what made dropping the body
+    quest rows safe: every one of them opened the same modal or linked the
+    same contest this line does, so the panel showed each nudge twice. This
+    line is the survivor, which is why it must never become inert text. %>
 <% free_entries = display_entry_token_count.to_i %>
 <% status_html = capture do %>
   <div class="flex min-w-0 items-center"
@@ -103,22 +106,18 @@
     <%= link_to account_path, class: link_class do %><%= emoji_swap.("🙂", "✏️") %><span>My Profile</span><% end %>
     <%= link_to my_contests_path, class: link_class do %><%= emoji_swap.("🏆", "⚔️") %><span>My Contests</span><% end %>
 
-    <%# The quest rows that survive. "Send a message" and "Invite a friend" were
-        dropped: both linked quest_contest_path, and the header status line above
-        now carries that same destination under the same condition, so the row
-        was a second copy of one nudge. The three left here still render because
-        only the two named were asked for. See the PR for the case that the whole
-        block now belongs in the header. %>
-    <% if nq %>
-      <% case nq
-         when :join %>
-        <%= link_to quest_contest_path, class: link_class do %><%= emoji_swap.("⚽️", "⚔️") %><span>Join contest</span><% end %>
-      <% when :username %>
-        <button type="button" @click="<%= close_action %>; $store.modals.open('username')" class="<%= link_class %> w-full text-left"><%= emoji_swap.("🤖", "✨") %><span>Pick a username</span></button>
-      <% when :newsletter %>
-        <button type="button" @click="<%= close_action %>; $store.modals.open('newsletter-subscribe')" class="<%= link_class %> w-full text-left"><%= emoji_swap.("📭", "📬") %><span>Join newsletter</span></button>
-      <% end %>
-    <% end %>
+    <%# THERE ARE NO QUEST ROWS IN THIS NAV, AND THAT IS THE DESIGN.
+        This block used to carry a `case next_quest` ladder - "Join contest",
+        "Pick a username", "Join newsletter". Each one was a SECOND COPY of the
+        status line directly above it: same condition, same destination. The
+        panel read "Quest: Join a Contest" in the lead and "Join contest" three
+        rows below, and the reader had no way to tell the two apart.
+        THE ROWS WENT, NOT THE LINE. The lead is the panel's most valuable row
+        and the open quest is the one fact worth spending it on; the line is
+        actionable, so nothing was lost by dropping the rows. Anything keyed on
+        next_quest that lands back in this nav re-creates the duplication.
+        Pinned by GearSidebarStatusTest, "the quest nudge renders once".
+        `nq` survives above because the STATUS LINE reads it. %>
 
     <%# NFL Totals left this menu by request. The page and its route stay, and
         shared/_footer still links it on every page for BOTH audiences, which is
