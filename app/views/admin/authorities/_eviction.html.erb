@@ -428,9 +428,29 @@
       // name would put a person beside a key that is not theirs. On this card
       // that is the one error worth more than all the others: he is choosing
       // which key to REMOVE.
+      //
+      // AND A PROTOTYPE PROPERTY NAME IS NOT A HOLDER. `this.identities` is
+      // JSON.parse output, so it carries Object.prototype, and a bare index
+      // hands back a truthy non-identity for `constructor`, `toString`,
+      // `valueOf` and their siblings. Typing `constructor` into a slot painted
+      // a RESOLVED row labelled "Object" - filled avatar circle, no dashed
+      // ring, no Unresolved chip - which is the one rendering the rest of this
+      // card exists to prevent. The own-property test is the whole fix, and a
+      // miss still returns null, so such a key renders through exactly the
+      // same path as any other string that matched nobody.
+      //
+      // THE BOUND, STATED HONESTLY: no WALLET was ever mislabelled by this.
+      // Every Object.prototype member name is short and lowercase, and
+      // `__proto__` carries underscores, which sit outside the base58 alphabet
+      // - so no Solana address can collide with one, and the arm endpoint
+      // refuses a non-address server-side anyway. The only way in was an
+      // operator typing a word into a pubkey field. It is polish on a page
+      // whose entire job is telling the truth about identities, which is why
+      // it is worth closing - not a severity claim.
       identityFor: function(address) {
         var key = (address || '').trim();
         if (!key) return null;
+        if (!Object.prototype.hasOwnProperty.call(this.identities, key)) return null;
         return this.identities[key] || null;
       },
 
