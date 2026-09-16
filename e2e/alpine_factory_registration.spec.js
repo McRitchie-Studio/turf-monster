@@ -139,7 +139,7 @@ test.describe("Alpine factory registration", () => {
     await page.waitForSelector(BADGE, ATTACHED);
     const shape = () => {
       const el = document.querySelector('[x-data*="entryTokenBadge"]');
-      const d = window.Alpine.$data(el);
+      const d = el._x_dataStack[0]; // own frame: $data merges ancestors, which can hold these keys
       return { count: typeof d.count, init: typeof d.init, destroy: typeof d.destroy };
     };
     const WHOLE = { count: "number", init: "function", destroy: "function" };
@@ -155,7 +155,7 @@ test.describe("Alpine factory registration", () => {
     await page.waitForSelector(FILTER, ATTACHED);
     const shape = () => {
       const el = document.querySelector('[x-data*="cardListFilter"]');
-      const d = window.Alpine.$data(el);
+      const d = el._x_dataStack[0]; // own frame: $data merges ancestors, which can hold these keys
       return {
         search: typeof d.search,
         apply: typeof d.apply,
