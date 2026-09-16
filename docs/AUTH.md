@@ -5,13 +5,17 @@
 > path-qualified citation — file context resets at each `##` heading.
 > `test/docs/workflow_citation_docs_test.rb` checks every number against the
 > symbol its prose names and reddens when one stops landing on it.
-> **That check comes in two strengths, and this document gets the weaker one
+> **That check comes in three strengths, and this document gets the weakest one
 > throughout.** **0 of the 10 citations** here sit inside a definition the guard
-> can see, so the other **10** ride the LITERAL fallback, which asks only that a
-> code token quoted nearby appear in the cited lines. The cause is mechanical
-> rather than editorial: the guard reads Ruby with Prism and inline JS inside
-> `.erb`, and these ten name `.js` modules, ERB markup, a registry entry inside
-> a block, and a `Gemfile` line — none of which offer it a definition to key on.
+> can see, and none cites `config/routes.rb`, so the other **10** ride the LITERAL
+> fallback, which asks only that a code token quoted nearby appear in the cited
+> lines. The cause is mechanical rather than editorial: the guard reads Ruby with
+> Prism and inline JS inside `.erb`, and these ten name `.js` modules, ERB markup,
+> a registry entry inside a block, a `Gemfile` line, and one line of inline JS in
+> `app/views/admin/vault_state/show.html.erb` whose enclosing function is written
+> `window.vaultAction = async function (…)`, a shape the guard's brace-balance
+> parser does not read as a definition. None of them offers it a definition to
+> key on.
 > A green citation here proves the quoted words are in the cited lines, not that
 > the code is. Follow all ten to the code before you trust them.
 

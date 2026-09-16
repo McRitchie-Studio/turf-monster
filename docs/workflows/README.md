@@ -19,9 +19,10 @@ Casual-agent index. Open a per-workflow file for the dirty details.
 > can derive — ERB markup, a `.js` or `.rake` file, a class-body callback —
 > the check falls back to asking that a code token the prose quotes appear in the
 > cited lines. That proves the words are there, not that the code is. Each file's own
-> preamble states how many of its citations get the weaker check, and the test holds
-> it to that number. And no check reads PROSE: a citation can land on the right
-> symbol beside a sentence that is no longer true.
+> preamble states how many of its citations have no definition to anchor on, and how
+> many of THOSE cite `config/routes.rb` — which get the stricter first-line rule below,
+> not the fallback — and the test holds it to both numbers. And no check reads PROSE:
+> a citation can land on the right symbol beside a sentence that is no longer true.
 >
 > **A bare word must also be RARE where it lands** (2026-09-15). The fallback used to
 > accept any quoted token of six characters or more that appeared anywhere in the
