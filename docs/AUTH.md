@@ -262,16 +262,16 @@ since a dim is invisible to a screen reader and means nothing on its own.
 
 **This notice does not reach the cosign ceremony, and the earlier claim that it
 did was wrong.** An operator cosign ceremony declares the wallets it will
-legitimately walk through by calling `expectSwitchesTo`
-(`app/javascript/solana_stores.js:349`), written at its call sites as
-`$store.wallet.expectSwitchesTo(...)`. That keeps the blocking card from opening
+legitimately walk through by calling `expectSwitchesTo` on the wallet store
+(`app/javascript/solana_stores.js:349`), which both call sites reach through
+`Alpine.store('wallet')`. That keeps the blocking card from opening
 over a half-collected treasury transaction. The call has exactly two sites —
 `app/javascript/cosign.js:271` and
 `app/views/admin/vault_state/show.html.erb:314` — but **three admin surfaces
 reach them**. `cosignTransaction` is a global, so any page may wire a button to
 it: `/admin/pending_transactions` and `/admin/authorities` both reach the
-`cosign.js` call, the authorities page by rendering the same
-`admin/pending_transactions/signer_roster` partial
+`cosign.js` call through a button of their own, the authorities page beside the
+same `admin/pending_transactions/signer_roster` partial it renders
 (`app/views/admin/authorities/_eviction.html.erb:188`), and `/admin/vault_state`
 carries its own. **Count the `data-cosign-controls` blocks, not the call
 sites**, when this list next needs checking — a fourth surface costs one button
