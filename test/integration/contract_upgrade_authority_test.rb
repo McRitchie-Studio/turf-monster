@@ -10,6 +10,14 @@ require "test_helper"
 # one page an operator consults before proposing a program upgrade — and it was
 # the only copy of this defect a human ever saw in a browser.
 #
+# THE CAPTION NO LONGER STATES AN ARITY, DELIBERATELY (sweep-stale-signer-claims,
+# 2026-09-15). It read "2-of-3" while the Squad was 3-of-5, having already been
+# stale once as "3-of-4" — rendered copy is the worst place to keep a number that
+# a config transaction can change without touching this repo. The live threshold
+# and membership are stated ONCE in `docs/SOLANA.md`, with the command to
+# re-derive them. This guard asserts the CLUSTER NAME, which is the property the
+# task below was about, and which no Squads change can invalidate.
+#
 # CORRECTION (vault-pda-readers-diverge). This header used to claim the view
 # was the only BROKEN reader — "every other reader (Admin::VaultInitController,
 # `solana:init_vault`) already honoured SOLANA_SQUADS_VAULT_PDA". It was not.
@@ -140,7 +148,7 @@ class ContractUpgradeAuthorityTest < ActionDispatch::IntegrationTest
       with_network("mainnet-beta") do
         get contract_path
         assert_response :success
-        assert_match(/Squads V4 2-of-3 vault PDA on mainnet-beta/, response.body,
+        assert_match(/Squads V4 vault PDA on mainnet-beta/, response.body,
           "the upgrade-authority caption must name the cluster, not describe a generic Squad")
       end
     end

@@ -562,6 +562,21 @@ Rails.application.routes.draw do
     post "vault_state/unpause",                to: "vault_state#unpause",   as: :unpause_vault_state
     post "vault_state/confirm",                to: "vault_state#confirm",   as: :confirm_vault_state
 
+    # Authorities — the read-only overview of WHO CAN DO WHAT (vault signer
+    # set, the per-action threshold table, and the Squads upgrade multisig),
+    # plus the one write: evicting a compromised VaultState signer.
+    #
+    # `arm` is separated from `rebuild` on purpose. Arming records the proposed
+    # set durably and builds NOTHING — a transaction minted here would carry a
+    # blockhash dead within ~90 seconds, and the point of the step is unhurried
+    # review. The bytes are minted at click time by `rebuild`, which is the same
+    # lesson the treasury queue learned the expensive way.
+    get  "authorities",                        to: "authorities#show",      as: :authorities
+    post "authorities/arm",                    to: "authorities#arm",       as: :arm_authority_rotation
+    post "authorities/:slug/rebuild",          to: "authorities#rebuild",   as: :rebuild_authority_rotation
+    post "authorities/:slug/broadcast",        to: "authorities#broadcast", as: :broadcast_authority_rotation
+    post "authorities/:slug/cancel",           to: "authorities#cancel",    as: :cancel_authority_rotation
+
     # Seasons (on-chain seed schedule template)
     get  "seasons",                            to: "seasons#index",         as: :seasons
     post "seasons",                            to: "seasons#create"

@@ -999,7 +999,55 @@
 # files" — cross-checked against the JSON reporter (311 tests, 75 files), which
 # is the same model Playwright builds for itself. The excluded lister re-derived
 # 17 ("Total: 17 tests in 1 file") on the same tree.
-total_specs: 311
+#
+# 311 -> 314 (treasury-cosign-supplies-two-signatures): three specs in
+# e2e/cosign_two_wallet_signatures.spec.js, for the operator cosign collecting
+# TWO Phantom signatures onto one transaction after turf-vault v0.26 raised six
+# actions to three. A browser is the only witness for that: Phantom exposes one
+# account at a time, so a flow that WAITS for a switch and one that signs twice
+# with whatever is selected are indistinguishable to any server-side tier — and
+# the second spelling produces a slot filled twice and DuplicateSigner. None is
+# tagged @devnet and none carries a runtime skip, so excluded stays 17 and
+# allowed_skips stays 4; both listers agree, which is what proves the new specs
+# brought no runtime skip with them. Derived with bin/e2e-lane-derive --write,
+# not by arithmetic.
+#
+# NOTE FOR THE NEXT PERSON WHO HAS TO RUN THE DERIVER: `npx playwright` exits
+# 194 printing NOTHING on this machine, which made the script report "cannot
+# derive" with no cause. bin/lib/e2e_lane_derive.rb now prefers the tree's own
+# node_modules/.bin/playwright. A worktree with no node_modules still needs
+# `npm ci` — the primary's node_modules is a symlink to ITSELF and cannot be
+# borrowed. (Confirmed again 2026-09-15 on this desk: no node_modules at all,
+# `npx playwright` resolved a stray global copy and died on @playwright/test.)
+#
+# 314 -> 316 (wallet-switch-rehydrates-session, PR #722) -> 321
+# (admin-evicts-compromised-signers).
+#
+# THE MIDDLE STEP IS RECORDED HERE BECAUSE #722 DID NOT RECORD IT. This file's
+# history is append-only by convention — every bump names the change that caused
+# it — and that PR moved the scalar with no entry. Backfilling it from the
+# branch that merged next is the cheapest moment to do it: the alternative is a
+# gap nobody can attribute later, on the one file whose whole job is to make a
+# change to these numbers visible to a reviewer.
+# THE COUNTER CONFLICTED RATHER THAN AUTOMERGING, which is the good outcome and
+# not the usual one: this branch rewrote the PROSE beside the scalar, so git had
+# two different texts to reconcile. A branch that only bumped the number would
+# have merged clean into a silently under-declared lane — the exact failure this
+# file's header describes. Re-derived with the lister on the MERGED tree.
+#
+# This branch's five specs, in
+# e2e/authority_signer_eviction.spec.js for /admin/authorities — the page renders
+# under an unreachable RPC, the Squads link carries its cluster in the ADDRESS
+# rather than a decommissioned devnet host, the eviction planner's JavaScript
+# parsed and its compact-on-evict and continuity guards run, a clean plan
+# produces NO refusal (the control), and the page is admin-only. The middle
+# three are browser-only by construction: an Alpine factory mangled by ERB
+# quoting leaves byte-identical markup and binds nothing, so no Ruby tier can
+# see it. None is tagged @devnet — deliberately, because devnet-nightly.yml has
+# never once executed and a spec filed there would be a tier that looks strict
+# and collects nothing. Derived with bin/e2e-lane-derive --write, not by
+# arithmetic.
+total_specs: 321
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1319,7 +1367,18 @@ allowed_skips: 4
 # bin/e2e-lane-derive --write ON THE MERGED TREE.
 # 289 -> 290 alongside total_specs above. Both listers agree on the merged
 # tree, so allowed_skips stays 4: 311 - 17 - 4 = 290.
-executed: 290
+# 290 -> 293 (treasury-cosign-supplies-two-signatures): the three cosign specs
+# described beside total_specs above. Both listers agree on this tree and
+# allowed_skips stays 4: 314 - 17 - 4 = 293. Derived with
+# bin/e2e-lane-derive --write, not by arithmetic.
+# 293 -> 295 (wallet-switch-rehydrates-session, PR #722 — backfilled here; see
+# the note beside total_specs) -> 300 (admin-evicts-compromised-signers). None of
+# this branch's five is tagged @devnet and none skips, so excluded stays 17 and
+# allowed_skips stays 4: 321 - 17 - 4 = 300. Derived with bin/e2e-lane-derive
+# --write ON THE MERGED TREE, not by incrementing — and the first derive, before
+# the merge, wrote 298 against a base that had already moved. That is why the
+# instruction says MERGED TREE and not "run the deriver".
+executed: 300
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

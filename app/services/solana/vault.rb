@@ -133,6 +133,16 @@ module Solana
     # Solana's `Pubkey::default()` (32 zero bytes) base58-encoded.
     ZERO_PUBKEY_B58 = "11111111111111111111111111111111".freeze
 
+    # `VaultState.signers_ext` — slots 4 and 5, APPENDED at struct offset 1443
+    # so every offset above it is untouched and the account needs no realloc.
+    # +8 for the Anchor discriminator. See the layout note on `read_vault_state`.
+    SIGNERS_EXT_OFFSET = 8 + 1443
+
+    # turf-vault `state.rs::MAX_SIGNERS`. Five since v0.26; the DEPLOYED v0.25
+    # binary takes three, which is why nothing here may assume this number
+    # without first establishing which program is on chain.
+    MAX_SIGNERS = 5
+
     # Quest seed-grant kinds — mirror turf-vault `seed_grant_kind` (grant_seeds).
     # Part of the [b"seed_grant", wallet, kind, invitee] guard-PDA seed.
     # CHAT_MESSAGE = 3 added in v0.23 (send first contest-chat message quest).
@@ -828,6 +838,34 @@ module Solana
       signers = 3.times.map do |i|
         Keypair.encode_base58(data.byteslice(8 + i * 32, 32))
       end
+
+      # ── SLOTS 4 AND 5 (`signers_ext`, v0.26) ──────────────────────────────
+      #
+      # APPENDED at offset 1443 (1451 with the discriminator), carved out of
+      # what was `_reserved` — so the account is 1515 bytes on BOTH program
+      # versions and these bytes are readable today. On a vault that has not
+      # been rotated they are all zero and decode as the empty sentinel, which
+      # is exactly what `all_signers()` skips. Measured on both clusters
+      # 2026-09-15: 1515-byte accounts, three live signers, slots 4 and 5 empty.
+      #
+      # READING THEM IS NOT OPTIONAL FOR AN AUTHORITY PAGE. Until this, every
+      # reader here stopped at three, so a five-signer vault would have rendered
+      # as three — under-reporting who can move money, on the page an operator
+      # opens to decide who to evict. The guard is a LENGTH check rather than a
+      # version check: a shorter account is one this build cannot explain, and
+      # two empty slots is the honest answer for it.
+      signers_ext =
+        if data.bytesize >= SIGNERS_EXT_OFFSET + 64
+          2.times.map { |i| Keypair.encode_base58(data.byteslice(SIGNERS_EXT_OFFSET + i * 32, 32)) }
+        else
+          [ZERO_PUBKEY_B58, ZERO_PUBKEY_B58]
+        end
+
+      all_slots = signers + signers_ext
+      # LEFT-PACKED, empties dropped — the same reading `VaultState::all_signers`
+      # performs on chain, and the only list anything should authorize against.
+      active_signers = all_slots.reject { |key| key == ZERO_PUBKEY_B58 }
+
       threshold = data.byteslice(104, 1).unpack1("C")
       bump      = data.byteslice(105, 1).unpack1("C")
       paused    = data.byteslice(106, 1).unpack1("C") == 1
@@ -853,7 +891,15 @@ module Solana
 
       {
         pda:                 Keypair.encode_base58(pda),
+        # UNCHANGED SHAPE, ON PURPOSE. `signers` stays the first THREE slots
+        # because every existing view and test reads it that way, and widening
+        # it in place would silently change what "the signers" means on pages
+        # that were never reviewed for it. The whole set is the new keys below.
         signers:             signers,
+        signers_ext:         signers_ext,
+        signer_slots:        all_slots,
+        active_signers:      active_signers,
+        active_signer_count: active_signers.length,
         threshold:           threshold,
         bump:                bump,
         paused:              paused,
@@ -1173,6 +1219,136 @@ module Solana
         additional_signers: [cosigner_bytes, *extras.map { |m| m[:pubkey] }]
       )
       { serialized_tx: serialized, vault_pda: Keypair.encode_base58(vault_pda) }
+    end
+
+    # ── update_signers — EVICT A COMPROMISED VAULT SIGNER ─────────────────
+    #
+    # The one instruction that changes WHO GOVERNS, and the only real remedy
+    # for a stolen vault key. PAUSE IS NOT A SUBSTITUTE and nothing built on
+    # this path should imply it is: only `enter_contest` and
+    # `enter_contest_with_token` read `vault.paused` (verified across all 23
+    # instruction sources on turf-vault `accepted`, 2026-09-15), so a paused
+    # vault still mints entry tokens, grants seeds and creates contests — the
+    # value-creating paths a key thief would actually use.
+    #
+    # ── TWO SHAPES, AND THE CHAIN PICKS ───────────────────────────────────
+    #
+    #   v0.25 (DEPLOYED on devnet and mainnet today): `new_signers: [Pubkey; 3]`,
+    #     exactly two signatures, no governance account, and a zeroed slot is
+    #     refused outright — so a REDUCED set is not expressible at all.
+    #   v0.26 (turf-vault `accepted`): `new_signers: [Pubkey; 5]`, left-packed
+    #     with `Pubkey::default()` for empty trailing slots, three signatures,
+    #     and the governance account in the list.
+    #
+    # The arg width therefore rides the SAME switch `governance_metas` rides,
+    # so the account list and the argument can never describe different
+    # programs. Callers are expected to have proved the switch agrees with the
+    # chain first (Admin::AuthoritiesController#vault_shape!) — a v0.26-shaped
+    # argument sent to the live v0.25 binary deserializes 160 bytes where 96
+    # are expected and fails, which is loud but wastes a ceremony.
+    #
+    # ── FRESH BLOCKHASH, NOT THE DURABLE NONCE ────────────────────────────
+    #
+    # `build_partial_signed` defaults `durable_nonce: nil` and this builder
+    # keeps that default deliberately. A nonce-anchored transaction requires
+    # `advanceNonceAccount` to be instruction 0, and Phantom injects its own
+    # Lighthouse guard instructions ahead of whatever was built — so the
+    # advance is no longer first and the transaction is rejected. That is the
+    # 2026-06-11 finding recorded on `#simulate_and_broadcast`, and it makes
+    # the nonce unusable for ANY Phantom-signed flow, not merely undesirable.
+    # No cosign builder passes `durable_nonce:`; the only non-nil call site in
+    # this file is `build_create_contest`'s server-signed branch.
+    #
+    # The consequence is a ~60-90 second window, which is the right constraint
+    # for an eviction: the operator is at the keyboard by definition. The page
+    # handles it by rebuilding at CLICK time rather than at render time, so the
+    # clock starts when he acts.
+    #
+    # ── WHO LEADS DECIDES WHAT CAN BE EVICTED, AND IT IS THE WHOLE POINT ──
+    #
+    # `lead_signer` fills the `admin` account — account 0, the fee payer, and
+    # one of the keys `authorize` counts. Continuity requires `threshold` of the
+    # keys that AUTHORIZED a rotation to survive it, and with three signatures
+    # against a threshold of three that means ALL of them. So **a key that leads
+    # cannot be evicted by the transaction it leads.**
+    #
+    # Every other builder in this file signs locally as `Keypair.admin`, which
+    # would make the SERVER an authorizer of every rotation — and therefore make
+    # the server's own vault key the one key this page could never remove. That
+    # is exactly the key most likely to be stolen: it sits in Heroku config on a
+    # running dyno and signs every entry and payout.
+    #
+    # Hence two builds:
+    #   * SERVER LEADS — `build_partial_signed`, the ordinary shape. Account 0
+    #     is signed here and the operator fills the rest.
+    #   * OPERATOR LEADS — `build_partial_unsigned`. NOTHING is pre-signed;
+    #     account 0 is reserved for one of his wallets, which pays the fee, and
+    #     every signature is collected in Phantom. This is the only shape that
+    #     can evict the server's key, and it is why that variant exists here.
+    #
+    # `new_signers` is the LEFT-PACKED live set; this pads to the slot count the
+    # selected shape declares. Validate it with `Solana::SignerRotation` before
+    # calling — the guards it mirrors are the program's, in the program's order.
+    def build_update_signers(new_signers:, cosigner_pubkey:, lead_signer: nil, extra_cosigners: [])
+      server_address = begin
+        Keypair.admin.to_base58
+      rescue StandardError
+        nil
+      end
+      lead          = (lead_signer.presence || server_address).to_s
+      raise ArgumentError, "update_signers needs a lead signer" if lead.blank?
+
+      server_signed = (lead == server_address)
+      lead_bytes    = Keypair.decode_base58(lead)
+      cosigner_bytes = Keypair.decode_base58(cosigner_pubkey)
+      vault_pda, _   = vault_state_pda
+      extras         = extra_cosigner_metas(extra_cosigners)
+
+      slots = Array(new_signers).map { |key| key.to_s.strip }.reject(&:blank?)
+      width = Config.governance? ? MAX_SIGNERS : 3
+      if slots.length > width
+        raise ArgumentError,
+              "update_signers takes #{width} slots on this build and #{slots.length} were given — " \
+              "the deployed program's slot count is not a preference (see Solana::SignerRotation)."
+      end
+
+      # Anchor encodes a FIXED-LENGTH array with no length prefix, so the empty
+      # tail must be written as explicit zero pubkeys rather than omitted.
+      padded = slots + Array.new(width - slots.length, ZERO_PUBKEY_B58)
+      data = Transaction.anchor_discriminator("update_signers") +
+             padded.map { |key| Borsh.encode_pubkey(Keypair.decode_base58(key)) }.join
+
+      accounts = [
+        { pubkey: lead_bytes,     is_signer: true,  is_writable: true  },
+        { pubkey: cosigner_bytes, is_signer: true,  is_writable: false },
+        { pubkey: vault_pda,      is_signer: false, is_writable: true  },
+        *governance_metas,
+        *extras
+      ]
+      extra_bytes = extras.map { |m| m[:pubkey] }
+
+      serialized =
+        if server_signed
+          build_partial_signed(accounts: accounts, data: data,
+                               additional_signers: [cosigner_bytes, *extra_bytes])
+        else
+          # The fee payer MUST be first in `additional_signers` — the gem's
+          # keyless serialize uses `additional_signers.first` as the fee payer
+          # when no local signer is attached.
+          build_partial_unsigned(accounts: accounts, data: data,
+                                 additional_signers: [lead_bytes, cosigner_bytes, *extra_bytes])
+        end
+
+      {
+        serialized_tx: serialized,
+        vault_pda: Keypair.encode_base58(vault_pda),
+        new_signers: padded,
+        slot_width: width,
+        lead_signer: lead,
+        # Whether account 0 is ALREADY filled. The roster paints that row as
+        # done up front and must only do so when it is true.
+        server_signed: server_signed
+      }
     end
 
     # --- Currency registry (2 signatures on v0.25, 3 from v0.26) ---
@@ -2023,9 +2199,31 @@ module Solana
       #   2. One nonce account anchors ONE in-flight tx at a time — a shared
       #      operator nonce under concurrent user entries is a contention bug.
       # Entries re-prepare seconds before signing, so a fresh recent blockhash
-      # (~60-90s validity) comfortably covers the Phantom signing window. The
-      # durable nonce remains for OPERATOR flows (lock-time etc. via
-      # build_partial_signed), where a slow human cosign is the actual problem.
+      # (~60-90s validity) comfortably covers the Phantom signing window.
+      #
+      # CORRECTED 2026-09-15. This comment used to end "the durable nonce
+      # remains for OPERATOR flows (lock-time etc. via build_partial_signed),
+      # where a slow human cosign is the actual problem." That was never true
+      # of the code and is worth stating plainly, because it was read as
+      # licence to design a MULTI-SESSION cosign flow on the premise that an
+      # operator transaction is immortal:
+      #
+      #   * NO builder that goes through `build_partial_signed` passes
+      #     `durable_nonce:` — not the six raised cosign paths, not the two
+      #     set_contest_*_time builders. They all take the `nil` default and
+      #     are anchored on a plain recent blockhash.
+      #   * `durable_nonce_config` has exactly ONE caller: `build_create_contest`
+      #     on its `admin_signs: true` branch, which is SERVER-signed and never
+      #     goes near Phantom.
+      #   * And it could not be otherwise. Reason 1 above is not specific to
+      #     entries: ANY Phantom-signed transaction can have Lighthouse guard
+      #     instructions injected ahead of the advance, and a nonce transaction
+      #     is only recognized when advanceNonceAccount is instruction 0. A
+      #     durable nonce cannot make a Phantom-signed transaction immortal on
+      #     any path — see #simulate_and_broadcast, which says the same thing.
+      #
+      # So the rule in this file is: durable nonce ⟺ server-signed; Phantom ⟺
+      # fresh recent blockhash. Never both.
       dn = nil
 
       serialized =
@@ -2880,6 +3078,70 @@ module Solana
     # AND get_token_accounts_by_owner) share one rescue so a connection-level fault
     # on EITHER read routes through the same contract — previously get_balance sat
     # outside any rescue, so a connection failure there escaped entirely.
+    # Solana's per-signature base fee, in lamports. Fixed protocol constant.
+    LAMPORTS_PER_SIGNATURE = 5_000
+
+    # Headroom multiple on the computed cost. The point is not to predict the
+    # fee to the lamport — it is to refuse a wallet that obviously cannot pay,
+    # while never refusing one that can. Two is loose enough to survive a
+    # priority-fee bump and tight enough that an empty account is still caught.
+    FEE_PAYER_HEADROOM = 2
+
+    # What ONE operator cosign transaction costs its fee payer, in SOL.
+    #
+    # DERIVED, NOT A LITERAL. Both inputs are env-tunable
+    # (SOLANA_PRIORITY_FEE_MICROLAMPORTS, SOLANA_PARTIAL_TX_COMPUTE_UNIT_LIMIT),
+    # so a hardcoded floor would be wrong the first time either moved — and
+    # wrong in the dangerous direction, since raising the priority fee is
+    # exactly when the old floor stops covering it. Priority fee is
+    # price-per-CU x CU limit; base fee is per SIGNATURE, so a three-signature
+    # action costs more than a two-signature one.
+    def self.estimated_fee_sol(required_signatures: 3)
+      priority_lamports = (PARTIAL_TX_PRIORITY_FEE_MICROLAMPORTS * PARTIAL_TX_COMPUTE_UNIT_LIMIT) / 1_000_000.0
+      base_lamports     = LAMPORTS_PER_SIGNATURE * required_signatures.to_i
+      (priority_lamports + base_lamports) / 1_000_000_000.0
+    end
+
+    # The account that actually pays for an operator cosign, and whether it can.
+    #
+    # WHY THE FEE PAYER AND NOT THE COSIGNERS. Measured 2026-09-15 by decoding a
+    # built `unpause` wire: account 0 — the fee payer — is the SERVER's admin
+    # key, not the operator's Phantom wallet. `build_partial_signed` calls
+    # `build_tx(Keypair.admin)`, so admin signs first and pays. A cosigning
+    # wallet with zero SOL is therefore FINE here, and telling the operator to
+    # fund one would be sending him to solve the wrong problem.
+    #
+    # The failure this DOES catch is real and has bitten: an empty fee payer
+    # returns "Attempt to debit an account but found no record of a prior
+    # credit", which names no account and reads like a program bug.
+    #
+    # NIL IS NOT ZERO. A balance that could not be read comes back `nil` with
+    # `funded: nil`, never `0.0`. Zero blocks the button; unknown must not,
+    # because refusing to let the operator act on a transient RPC flake is its
+    # own outage — and an unread balance is not evidence of an empty account.
+    # `address:` DEFAULTS TO THE SERVER because that is who pays on every flow
+    # that existed when this was written. It is a parameter because ONE flow
+    # breaks that assumption and must: an eviction of the server's own vault key
+    # cannot be led by the server (continuity would refuse a rotation that drops
+    # a key which authorized it), so /admin/authorities builds those unsigned
+    # with one of the operator's wallets in account 0. That wallet is then the
+    # fee payer, and asking the SERVER's balance about it would report a funded
+    # account while the one actually paying is empty.
+    def fee_payer_status(required_signatures: 3, address: nil)
+      address = (address.presence || Keypair.admin.to_base58).to_s
+      minimum = self.class.estimated_fee_sol(required_signatures: required_signatures) * FEE_PAYER_HEADROOM
+
+      result = client.get_balance(address)
+      lamports = result.is_a?(Hash) ? result["value"] : result
+      # A missing `value` key is an unread balance, not a zero one.
+      return { address: address, balance_sol: nil, minimum_sol: minimum, funded: nil } if lamports.nil?
+
+      balance = lamports.to_f / 1_000_000_000.0
+      { address: address, balance_sol: balance, minimum_sol: minimum, funded: balance >= minimum }
+    rescue StandardError
+      { address: address, balance_sol: nil, minimum_sol: minimum, funded: nil }
+    end
+
     def fetch_wallet_balances(wallet_address, raise_on_read_error: false)
       sol_balance = 0.0
       tokens = {}

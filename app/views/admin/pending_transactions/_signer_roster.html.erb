@@ -1,0 +1,150 @@
+<%# locals: (roster:, required_signatures:, **) %>
+<%#
+  SIGNER ROSTER — one row per wallet that can sign this treasury action, in
+  the order given, which IS the signing order.
+
+  DRIVEN FROM cosign.js, NOT FROM ALPINE. Each row exposes
+  data-signer-row="<base58>", and the indicator inside it exposes
+  data-signer-state. The JS writes one of pending / connected / signing /
+  signed / failed into data-state on that indicator. All five are styled
+  here, so a state the CSS does not know about cannot render as a blank
+  circle that reads like "pending".
+
+  DO NOT NUMBER THESE ROWS. It is tempting, because cosign.js already says
+  "(2 of 3)" in its status line — but that count comes from signerQueue,
+  which is [cosigner] + extras and does NOT contain the server row. Roster
+  position and prompt position therefore disagree by one on every row below
+  the server, and a number here would quietly contradict the status line the
+  operator is reading at the same moment.
+
+  THE SERVER ROW IS NOT PRE-CHECKED. It carries an Auto chip and says it
+  signs by itself, which is what makes it "not your job" — but its indicator
+  still starts at pending, because at render time the server has not signed
+  anything yet. A green check standing for a signature that does not exist is
+  the same lie as an Execute button at 2 of 3: it reads as progress and it is
+  not. Flip the default here only if the server signature genuinely exists
+  before this renders.
+%>
+<% fee_payer_row  = roster.find { |signer| signer[:fee_payer] } %>
+<% fee_unfunded   = fee_payer_row.present? && fee_payer_row[:funded] == false %>
+<% blocked_reason = fee_unfunded ? "The fee payer holds no SOL, so this transaction cannot pay its network fee." : "" %>
+
+<section data-signer-roster
+         data-required-signatures="<%= required_signatures %>"
+         data-signer-roster-blocked="<%= fee_unfunded ? "true" : "false" %>"
+         data-signer-blocked-reason="<%= blocked_reason %>"
+         class="w-full rounded-lg border border-subtle bg-surface-alt p-2.5">
+
+  <h3 class="label-upper text-3xs text-muted">Signing roster</h3>
+  <p class="mt-0.5 text-xs font-bold text-heading">
+    <%= pluralize(required_signatures, "signature") %> required
+  </p>
+  <p class="mt-0.5 text-3xs text-muted">Signed in the order shown.</p>
+
+  <ol class="mt-2 space-y-1.5">
+    <% roster.each do |signer| %>
+      <% address    = signer[:address].to_s %>
+      <% short      = address.length > 9 ? "#{address[0, 4]}…#{address[-4, 4]}" : address %>
+      <% row_blocks = signer[:fee_payer] && signer[:funded] == false %>
+      <li data-signer-row="<%= address %>"
+          data-signer-role="<%= signer[:role] %>"
+          class="flex items-start gap-2 rounded-md border px-2 py-1.5
+                 <%= row_blocks ? "border-danger bg-danger/10" : "border-subtle bg-surface" %>">
+
+        <%# THE INDICATOR. data-state is the only thing the JS touches; the
+            glyph and the colour both follow from it, and the matching word is
+            carried in an sr-only span so a screen reader tracks the same
+            change without the JS having to maintain a label.
+
+            THE IN-FLIGHT STATES ARE VIOLET, NOT PRIMARY, and that is not a
+            taste call. This app's primary IS its success green (both resolve
+            from #4BAF50), so connected, signing and signed all came out the
+            same hue — measured in a browser, in both themes, before this
+            changed. Green now means DONE and nothing else, which is the whole
+            point of the check. Violet is a real brand colour here, safelisted
+            in config/tailwind.config.js, and it takes the darker 600 on light
+            surfaces and the base on dark ones because neither single shade
+            clears 3 to 1 against both. %>
+        <span data-signer-state
+              data-state="pending"
+              class="group/state relative mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center
+                     rounded-full border text-3xs font-bold leading-none
+                     data-[state=pending]:border-strong data-[state=pending]:text-muted
+                     data-[state=connected]:border-violet-600 data-[state=connected]:text-violet-600
+                     data-[state=connected]:ring-2 data-[state=connected]:ring-violet-600/30
+                     dark:data-[state=connected]:border-violet dark:data-[state=connected]:text-violet
+                     dark:data-[state=connected]:ring-violet/30
+                     data-[state=signing]:border-violet-600/40 data-[state=signing]:text-violet-600
+                     dark:data-[state=signing]:border-violet/40 dark:data-[state=signing]:text-violet
+                     data-[state=signed]:border-success data-[state=signed]:bg-success/15 data-[state=signed]:text-success-ink
+                     data-[state=failed]:border-danger data-[state=failed]:bg-danger/15 data-[state=failed]:text-danger-ink">
+          <span class="hidden group-data-[state=pending]/state:block h-1.5 w-1.5 rounded-full bg-current opacity-60"></span>
+          <span class="sr-only hidden group-data-[state=pending]/state:inline">Not signed yet</span>
+
+          <span class="hidden group-data-[state=connected]/state:block h-2 w-2 rounded-full bg-current"></span>
+          <span class="sr-only hidden group-data-[state=connected]/state:inline">Selected in Phantom</span>
+
+          <span class="hidden group-data-[state=signing]/state:block h-3 w-3 animate-spin rounded-full
+                       border-2 border-transparent border-t-current motion-reduce:animate-none"></span>
+          <span class="sr-only hidden group-data-[state=signing]/state:inline">Signing</span>
+
+          <span aria-hidden="true" class="hidden group-data-[state=signed]/state:block">&check;</span>
+          <span class="sr-only hidden group-data-[state=signed]/state:inline">Signed</span>
+
+          <span aria-hidden="true" class="hidden group-data-[state=failed]/state:block">&times;</span>
+          <span class="sr-only hidden group-data-[state=failed]/state:inline">Failed</span>
+        </span>
+
+        <div class="min-w-0 flex-1">
+          <div class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+            <%# data-signer-address is the JS hook for a live repoint: the
+                operator can change the extra-wallet select after this rendered,
+                and a roster still naming the old wallet would be lying about
+                which account he is about to be asked to switch to — which is
+                the one thing he reads this row for. %>
+            <span data-signer-address
+                  class="font-mono text-2xs text-heading" title="<%= address %>"><%= short %></span>
+            <% if signer[:signs_automatically] %>
+              <span class="rounded bg-surface-alt px-1 py-px text-3xs font-bold uppercase tracking-wide text-muted">Auto</span>
+            <% end %>
+          </div>
+
+          <p class="text-3xs text-secondary"><%= signer[:label] %></p>
+
+          <% if signer[:signs_automatically] %>
+            <p class="mt-0.5 text-3xs text-muted">Signs on the server. Nothing for you to do.</p>
+          <% end %>
+
+          <%# THE FEE PAYER'S BALANCE. Shown at 4 decimal places because that is
+              the precision the caller supplies; a nil balance says so in words
+              rather than rendering a zero it was never given. %>
+          <% if signer[:fee_payer] %>
+            <% if signer[:balance_sol].nil? %>
+              <p class="mt-0.5 text-3xs text-warning-ink">Balance could not be read.</p>
+            <% else %>
+              <p class="mt-0.5 font-mono text-3xs <%= row_blocks ? "text-danger-ink" : "text-secondary" %>">
+                <%= number_with_precision(signer[:balance_sol], precision: 4) %> SOL
+              </p>
+            <% end %>
+
+            <% if row_blocks %>
+              <p class="mt-1 text-3xs font-bold uppercase tracking-wide text-danger-ink">Blocked</p>
+              <p class="text-3xs text-danger-ink">
+                This account pays the network fee and it is empty. Fund it before
+                you sign.
+              </p>
+            <% end %>
+          <% end %>
+        </div>
+      </li>
+    <% end %>
+  </ol>
+
+  <%# The cosigners are not fee payers. Account 0 is the server's admin key, so
+      a cosigning wallet with a zero balance is FINE, and saying so here stops
+      an operator funding a wallet that never needed it. %>
+  <p class="mt-2 border-t border-subtle pt-2 text-3xs text-muted">
+    Only the fee payer needs SOL. The cosigning wallets pay nothing, so a zero
+    balance on one of them is fine.
+  </p>
+</section>

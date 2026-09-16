@@ -223,6 +223,60 @@ two named slots (admin **and** cosigner), and it is also the one whose "no
 cosigner" spelling puts the admin key in both; a list that is two keys but one
 key is refused here rather than on chain.
 
+#### Collecting the third signature — one session, two Phantom approvals
+
+The six raised OPERATOR paths (`settle_contest`, `cancel_contest`,
+`sweep_operator_revenue`, `register_currency`, `deactivate_currency`, `unpause`)
+are cosigned in the browser, not by the server, so the threshold rise lands as a
+UI problem: the server contributes ONE signature (the admin key, patched into
+its slot by `Transaction.cosign_wire` after the fact) and the browser must now
+come back with TWO instead of one.
+
+**The flow.** The operator picks the second wallet on the page BEFORE clicking —
+the extra signer slots are part of the message and cannot be added once the
+first wallet has signed. `#rebuild` reserves them (`extra_cosigners:`) and
+returns the plan with the bytes. `cosign_signatures.js` then collects one
+signature per wallet in slot order, waiting between them while the operator
+switches accounts in Phantom, and merges them onto one transaction.
+
+**Phantom is never trusted to preserve a signature it did not make.** Each
+wallet signs a FRESH decode of the same bytes; only its own 64 bytes are
+extracted, and the signatures are merged with `addSignature`. Phantom's
+sign-only method is documented legacy with an unpinned return shape — turf-vault's
+own operator console (`docs/vault-console.html`) declined to claim a multi-wallet
+collection flow for exactly that reason — so nothing here depends on what it
+does with a partially-signed transaction it is handed.
+
+**Why ONE SESSION and not a half-signed row handed between sessions.** A
+multi-session collection needs a transaction that does not expire, which means a
+durable nonce, and **a durable nonce cannot anchor a Phantom-signed
+transaction**. A nonce transaction is only recognized when
+`advanceNonceAccount` is instruction 0, and Phantom injects Lighthouse guard
+instructions at positions the app does not control; when one lands ahead of the
+advance, validators read the nonce value as an unknown blockhash and reject at
+preflight. That is the 2026-06-11 mainnet incident recorded in
+`Solana::Vault#build_enter_contest`, and it is why `#simulate_and_broadcast`
+says the same thing.
+
+So these six stay on a fresh recent blockhash, minted at click time, and the
+collection window is the ordinary ~60-90s. **No extra nonce accounts are needed
+— and the single production nonce must NOT be extended to these paths.** It
+serves exactly one caller today (`build_create_contest` on its `admin_signs:
+true`, server-signed branch); pointing Phantom flows at it would add contention
+to a resource that cannot help them anyway.
+
+> A note for whoever reads this next: the comment in `#build_enter_contest` used
+> to end "the durable nonce remains for OPERATOR flows … where a slow human
+> cosign is the actual problem." **That was never true of the code** — no builder
+> reached through `build_partial_signed` has ever passed `durable_nonce:` — and
+> it is the sentence that made a multi-session design look available. It has been
+> corrected in place.
+
+**If two approvals inside 90 seconds proves impractical in practice**, the fix is
+NOT more nonce accounts. It is either an out-of-band ceremony for the rarest of
+the six, or solving the Lighthouse ix-0 ordering problem first — a wallet-behaviour
+investigation, not a Rails change.
+
 #### The mint cap is the one threshold that moves during the day
 
 `mint_entry_token` is 1 signature inside the window's cap and 3 above it, so an
@@ -428,10 +482,33 @@ before walking away.
 **Membership and threshold — stated here once, for both clusters.** Every other
 mention in this doc defers to this paragraph; a second number written down
 somewhere else is how this section spent four review rounds disagreeing with
-itself. Measured off chain on **2026-09-15**: each multisig carries **five
-members and a threshold of three**, and all five hold mask `7`
-(`Initiate|Vote|Execute`) — so there are five voters against a threshold of
-three, with two to spare on either cluster.
+itself. Re-measured **on chain** at `finalized` on **2026-09-15**, through two
+independent RPC providers and a raw-byte check of the member offsets: each
+multisig carries **five members and a threshold of three**, and all five hold
+mask `7` (`Initiate|Vote|Execute`) — so there are five voters against a
+threshold of three, with two to spare on either cluster.
+
+**The two clusters do not carry the same five.** Three seats are shared
+(`3Qj4v9…`, `7ZDJ…`, `BLSBw8…`); the other two differ:
+
+| | devnet `7nRuVw3V…` | mainnet `4H3fP3ot…` |
+|---|---|---|
+| shared | `3Qj4v9…`, `7ZDJ…`, `BLSBw8…` | `3Qj4v9…`, `7ZDJ…`, `BLSBw8…` |
+| cluster-only | `2eGs8G3w…` (`solana.turf.system.devnet`), `8K81…` (Xan) | `7auwTLSv…` (`solana.turf.system`), `9gACbz…` |
+
+Two consequences that are easy to get wrong, and both were written down wrong
+before: **Xan `8K81…` was removed from MAINNET only and is still seated on
+devnet** — "removed from both" is false — while **Mason `CytJ…` really is absent
+from both**.
+
+⚠ **The hot system keys hold upgrade authority, against stated policy.**
+`7auwTLSv…` is a full mask-`7` member here and simultaneously the key in
+`turf-monster-mainnet`'s Heroku config that signs every entry and every payout;
+`2eGs8G3w…` is the same on devnet. Every other doc in this ecosystem says these
+keys are "deliberately excluded from Squads". The policy is right and the chain
+does not implement it. Removing them is a Squads config transaction with Mr.
+McRitchie's signature, tracked as its own task — not a doc edit, and not
+something to quietly restate as satisfied.
 
 What that buys the agent differs by cluster, and it is the whole reason step 1
 of the ceremony reads differently on each:
@@ -460,9 +537,36 @@ m.accounts.Multisig.fromAccountAddress(new Connection(rpc),new PublicKey(pda))
 `turf-vault/scripts/squad-upgrade.js` asks the same question itself before it
 spends anything, and refuses the run if the keys in hand cannot both approve and
 execute — so the ceremony fails at the planner rather than halfway through, with
-a paid-for buffer and no way to finish. **Funding is not the blocker:** the
-mainnet fee payer `BLSBw8…` holds 3.58 SOL against a ~2.76 SOL buffer
-requirement.
+a paid-for buffer and no way to finish. **Funding is not the blocker.** Re-measured at `finalized` on 2026-09-15: the
+mainnet fee payer `BLSBw8…` holds `3576585239` lamports (3.5766 SOL). An
+**upgrade** needs a buffer sized `37 + 545928` bytes, which rents for
+`2774152440` lamports (2.7742 SOL) — **refunded** when the upgrade completes,
+so it is a float rather than a cost. That leaves **`802432799` lamports
+(0.8024 SOL) spare.** Do not size this off the ProgramData account's own
+balance: `BCuQEkMK…` holds 3.8009 SOL, which is rent already paid on a
+545,973-byte account at the old 6,960 lamports/byte rate, not a figure anyone
+has to raise. Query the minimum (`solana rent <bytes>`) rather than multiplying
+by a constant — the cluster has been lowering the rate, and it read 5,080 on
+2026-09-15.
+
+> ⚠ **DO NOT PRICE THE BUFFER OFF THE ELF'S LOGICAL END. THIS IS A TRAP THAT
+> HAS NOW CAUGHT TWO READERS.** Inside the 545,928-byte program region the
+> ELF's logical content ends at `e_shoff + e_shnum * e_shentsize` =
+> `544328 + 9 * 64` = **544,904**, and a trailing-zero scan reports **544,889**
+> because the section header table's last 15 bytes are zero. Both are *logical
+> ELF content*. **Neither is the deployed file.** The loader wrote all 545,928
+> bytes and Agave reads the file through EOF, and the proof is the hash: only
+> `sha256` over the full 545,928 bytes gives `e71a3fce…`, the `Program SHA256`
+> row in `turf-vault/docs/CURRENT_DEPLOYMENT.md`. Sizing a buffer at
+> `37 + 544889` yields `2768874320` lamports and **UNDER-FUNDS it by 1,039
+> bytes**, which fails the ceremony after the buffer is paid for. The same
+> distinction is worked through in `app/views/contract/show.html.erb` and
+> pinned by `test/views/contract_measurements_test.rb`.
+
+So the figure to watch is **capacity**: ProgramData carries 545,928 bytes of
+executable room and the deployed v0.25 file is exactly 545,928 bytes — **zero
+headroom**. A v0.26 even one byte larger needs `solana program extend` first,
+and that rent is NOT refunded.
 **In Rails, read the vault PDA from `Solana::Config.squads_vault_pda` — never as a literal.** It resolves `SOLANA_SQUADS_VAULT_PDA` first (via `.presence`, so an EMPTY value falls through rather than resolving to blank), then falls back to a NETWORK-keyed default (mainnet-beta -> `Bk9s…GdJm`, anything else -> `BW13…H6kC`), so a mainnet build cannot present a devnet authority by omission.
 
 **Neither deployed app sets that variable — the key is ABSENT, not empty.** So the NETWORK-keyed default is the production path on both clusters, and the env var is a runbook escape hatch for pointing an app at a fresh Squad. `SOLANA_NETWORK` is therefore what actually selects the authority: `mainnet-beta` on `turf-monster-mainnet`, `devnet` on `turf-monster-qa` (both present and non-empty).
@@ -543,6 +647,133 @@ bin/deploy
    **The deployed file is the whole program region** — `solana program dump` writes it, the loader wrote it, and Agave reads it through EOF — so it is what `deployed_file_bytes` holds and what sizes both the ProgramData account (`+ 45`) and a deploy buffer (`+ 37`). The ELF's logical content usually ends earlier, with zeros after it; that endpoint goes in `elf_content_bytes` and is printed only where the page labels it as ELF content. **Keep balances and minimums apart**: `programdata_balance` / `program_acct_balance` are what the live accounts HOLD (`getMultipleAccounts`), while `pd_rent_min` / `buffer_rent_min` / `program_acct_min` are what they would COST at that slot (`solana rent`). Then update `measured` (version, slot, date, `idl_sha256` of the re-pinned mainnet IDL, `program_sha256`).
 2. **Per-instruction bytes and `.text` buckets — from a debug-info rebuild** of the deployed tag with `--features mainnet` (`CARGO_PROFILE_RELEASE_DEBUG=2 … cargo-build-sbf` → `llvm-objdump --syms | rustfilt`, dedup by address, bucket by instruction module): the deployed binary is stripped, so it cannot attribute them. Update `attributed_on` when you do. Until then the page labels them with the build they came from (`v0.19` as of 2026-09-10).
 3. **Auth roles and Rails call sites** — re-audit the admin playbook's web2/web3 caller map. The playbook names any committed-IDL instruction it does not cover yet.
+
+### The authorities console — `/admin/authorities`
+
+**One page that reads all three authorities off the chain, and the only place a
+compromised `VaultState` signer can be evicted.** Built for a specific threat
+model: the WALLET is compromised, not the infrastructure — the Rails app, the
+deploy pipeline and Mr. McRitchie's own machine are trustworthy and only the keys
+are not. Under that model an in-app page is the right shape, because the server
+is the part you can still believe. (The other scenario — the system itself
+captured — is a separate standalone offline console.)
+
+**PAUSE IS NOT A REMEDY, and the page says so.** Verified across all 23
+instruction sources on turf-vault `accepted`: exactly two read `vault.paused` as a
+gate — `enter_contest` (`:147`) and `enter_contest_with_token` (`:115`).
+`mint_entry_token`, `grant_seeds`, `create_contest` and the username instructions
+do not mention the flag at all. So a paused vault still MINTS ENTRY TOKENS and
+GRANTS SEEDS: the value-creating paths a key thief would use. Pausing stops paying
+customers from entering and does not inconvenience the thief. Re-derive it with
+`grep -rn 'paused' programs/turf_vault/src/instructions/`.
+
+**Why it reads rather than quotes.** When it was built, three places in this repo
+stated the Squads upgrade multisig's membership and threshold and all three
+disagreed — `Solana::Config` said "FOUR at threshold 3", the admin hub tile said
+"2-of-3", and this file's own figure predated the two config ceremonies. The
+measured answer, the per-cluster split, and the hot-key warning are stated ONCE,
+under **Program Upgrades — Squads multisig** above; they are not repeated here,
+because a second copy of a number is how this section came to disagree with
+itself in the first place. What matters for this page is the consequence: a page
+an operator opens mid-incident cannot inherit a figure somebody wrote down.
+`Solana::Squads` decodes the account; `Solana::Squads.vault_pda` DERIVES
+`[b"multisig", <multisig>, b"vault", 0]` under the Squads program, so the match
+against the program's upgrade authority is proven rather than asserted.
+
+| Panel | Source | Written by |
+|---|---|---|
+| Vault signer set | `VaultState.signers` ++ `signers_ext`, all five slots | `update_signers` — **this page** |
+| Per-action thresholds | the `GovernanceConfig` PDA, or "not on chain" | `set_action_threshold` |
+| Program upgrade authority | the Squads V4 multisig account | Squads' own web UI — **link out** |
+| Server signing identity | `Solana::Keypair.admin` | nothing on chain |
+
+**Squads is deliberately out of scope for the ACTION** — because Squads already
+ships a web UI for membership, and a second, less-tested path to the same account
+would be a liability. That reason holds unconditionally.
+
+**Whether a stolen key can EXECUTE there is computed, never assumed.** The page
+intersects the Squads *voting* seats with the live vault signer set and compares
+that count against the Squads threshold, in four states — unread, none, below,
+and at-or-above. The at-or-above branch says plainly that a holder could execute
+a program upgrade and that evicting them from the vault does not touch it. An
+earlier draft of both the page and this paragraph ended "so anyone short of that
+can never carry one out", which was true of the numbers in front of it and is
+**not a general fact**: the intended five-member vault set and the mainnet Squad
+membership now name the same wallets, so the overlap can reach the threshold.
+Only a voting seat counts, because a mask-1 member can approve nothing.
+
+The link is `Solana::Config.squads_app_url`, which is cluster-keyed:
+**`devnet.squads.so` is decommissioned**, so there is no cluster-flavoured host to
+switch to — `app.squads.so` serves both and the cluster is carried by the ADDRESS
+in the URL.
+
+#### Evicting a signer
+
+Two steps, and the split is the design. **Arm** records the proposed set and
+builds nothing, so the operator reads the exact new signer set with no clock
+running. **Co-sign** mints fresh bytes at CLICK time, collects the signatures and
+broadcasts. Building at arm time would hand him bytes whose blockhash dies within
+~90 seconds of him starting to read — the defect that left $140 of payouts unsent
+on the treasury queue for three months.
+
+**A fresh blockhash, never the durable nonce.** A nonce-anchored transaction is
+only recognised when `advanceNonceAccount` is instruction 0, and Phantom injects
+its own Lighthouse guard instructions ahead of whatever was built. That makes the
+nonce unusable for ANY Phantom-signed flow rather than merely undesirable (the
+2026-06-11 finding recorded on `Vault#simulate_and_broadcast`). No cosign builder
+passes `durable_nonce:`; the only non-nil call site in `vault.rb` is
+`build_create_contest`'s server-signed branch.
+
+**A WALLET THAT SIGNS CANNOT BE EVICTED BY THE TRANSACTION IT SIGNS.** Continuity
+requires `threshold` of the keys that authorized a rotation to survive it, and at
+three signatures against a threshold of three that means all of them. Every other
+builder in `vault.rb` signs locally as `Keypair.admin`, which would make the
+SERVER an authorizer of every rotation — and therefore make the server's own vault
+key the one key that could never be removed. That is the key most likely to be
+stolen: it sits in Heroku config on a running dyno and signs every entry and
+payout. So `Vault#build_update_signers` takes a `lead_signer:` and picks its build:
+
+- **server leads** → `build_partial_signed`, the ordinary shape; account 0 is
+  filled at build time and the operator supplies the rest.
+- **operator leads** → `build_partial_unsigned`; NOTHING is pre-signed, account 0
+  is reserved for one of his wallets which pays the network fee, and every
+  signature is collected in Phantom. **This is the only shape that can evict the
+  server's key.**
+
+**The shapes the two live programs accept are different, and the chain decides.**
+`Admin::AuthoritiesController#vault_shape!` refuses to build when
+`SOLANA_VAULT_GOVERNANCE` disagrees with whether the `GovernanceConfig` PDA
+exists, in both directions.
+
+| | deployed v0.25 (devnet + mainnet today) | v0.26 (turf-vault `accepted`) |
+|---|---|---|
+| argument | `[Pubkey; 3]` | `[Pubkey; 5]`, left-packed |
+| signatures | exactly 2 (`validate_multisig`) | `UPDATE_SIGNERS`, default 3, **floor 3** |
+| empty slots | refused outright (6017) | allowed as a SUFFIX only |
+| reduced set | **not expressible** | yes — this is what the page is for |
+
+`Solana::SignerRotation` mirrors both guard sets **in the program's own order**,
+because Anchor returns the FIRST failing constraint and stops: a validator that
+checked them in a different order would name a different problem than the chain
+would. Every refusal carries the program's error code.
+
+| refusal | code | when |
+|---|---|---|
+| `Unauthorized` | 6000 | an authorizer is not in the on-chain set |
+| `DuplicateSigner` | 6014 | a key repeats, in the set or among the authorizers |
+| `SignerContinuityRequired` | 6017 | too few authorizers survive; or (v0.25) any zeroed slot |
+| `InsufficientSigners` | 6046 | fewer signatures named than the threshold |
+| `SignerSetTooSmall` | 6052 | a gap; or below `required` / `max_live_threshold` / above 5 |
+
+**The signature is stamped before verification** (`#broadcast` calls
+`update_columns` the instant `simulate_and_broadcast` returns). The treasury path
+stamps it after `TxVerifier.verify!` — filed as
+`/tasks/broadcast-records-signature-late` — so a landed transaction whose verify
+flakes stays `pending` and re-broadcastable. On this surface a second attempt
+would be authorized by keys the first one just evicted, fail `Unauthorized`, and
+read to the operator like his eviction did not work. A row left `submitted` with
+its signature is the safe failure.
+
 
 ### Multisig Settlement Flow
 1. `Contest#grade!` scores entries and calls `settle_onchain!`

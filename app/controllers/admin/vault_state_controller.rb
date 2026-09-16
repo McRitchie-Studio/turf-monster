@@ -23,6 +23,10 @@ module Admin
       @network        = Solana::Config::NETWORK
       @default_cosigner = Solana::Config::MULTISIG_COSIGNER
       @multisig_signers = Solana::Config::MULTISIG_SIGNERS
+      # `pause` and `unpause` no longer need the same number of signatures, so
+      # the page renders a plan per action rather than one cosigner control.
+      @unpause_plan     = Solana::CosignPlan.new(tx_type: "unpause")
+      @eligible_extras  = Solana::CosignPlan.eligible_cosigners - [@default_cosigner]
     end
 
     # Build a partially-signed `pause` TX. Validates the cosigner is a
@@ -59,8 +63,19 @@ module Admin
         cosigner = params[:cosigner_pubkey].to_s.strip
         validate_cosigner!(cosigner)
 
-        result = vault.build_unpause_vault(cosigner_pubkey: cosigner)
-        render json: result.merge(cosigner_pubkey: cosigner, instruction: "unpause")
+        # UNPAUSE IS FLOORED AT THREE and is the one path here that rose.
+        # `pause` stays at two on purpose — the brake must be easier to pull
+        # than the attack it stops — so the two actions on this page now need
+        # different numbers of signatures and only this one reserves an extra
+        # slot. Lifting the brake is deliberately harder than pulling it: no
+        # agent-reachable pair can release its own pause.
+        plan   = Solana::CosignPlan.new(tx_type: "unpause")
+        extras = plan.validate_extras!(params[:extra_cosigners], primary: cosigner)
+
+        result = vault.build_unpause_vault(cosigner_pubkey: cosigner, extra_cosigners: extras)
+        render json: result.merge(cosigner_pubkey: cosigner, instruction: "unpause",
+                                  required_signatures: plan.required_signatures,
+                                  extra_cosigners: extras)
       end
     rescue StandardError => e
       render json: { error: e.message }, status: :unprocessable_entity
@@ -87,6 +102,21 @@ module Admin
           signer_pubkey: cosigner,
           writable_pubkey: vault_pda_b58
         )
+
+        # Every extra cosigner must be in a SIGNER SLOT of what landed, not
+        # merely named by the request. `unpause` is floored at three, so a
+        # confirmation that proves one signature proves a third of the claim.
+        Array(params[:extra_cosigners]).each do |extra|
+          next if extra.to_s.strip.blank?
+
+          validate_cosigner!(extra.to_s.strip)
+          Solana::TxVerifier.verify!(
+            signature: tx_sig,
+            instruction_name: instruction,
+            signer_pubkey: extra.to_s.strip,
+            writable_pubkey: nil
+          )
+        end
 
         # Bust the navbar badge cache so the 🚨 indicator flips immediately.
         Rails.cache.delete(self.class.paused_cache_key)

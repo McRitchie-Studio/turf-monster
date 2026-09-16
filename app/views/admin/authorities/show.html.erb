@@ -1,0 +1,106 @@
+<% content_for :title, "Authorities" %>
+<%#
+  THE AUTHORITY OVERVIEW + THE EVICTION CONSOLE.
+
+  Every number on this page is READ OFF THE CHAIN. That is not a style
+  preference — the constants disagreed with each other and with the chain when
+  this page was built (config.rb said the upgrade Squad was "FOUR at threshold
+  3", the hub tile said "2-of-3", docs/SOLANA.md said five at three; the chain
+  says THREE OF FIVE on both clusters, with different membership per cluster).
+  A page an operator opens mid-incident cannot inherit that.
+
+  NEVER WRITE "MULTISIG" UNQUALIFIED HERE. Say "vault signer set" or "Squads
+  upgrade multisig". The unqualified word is what produced the claims above.
+%>
+
+<div class="max-w-4xl mx-auto px-4 py-8">
+  <div class="flex items-center justify-between mb-2">
+    <h1 class="text-2xl font-bold text-heading">Authorities</h1>
+    <span class="font-mono text-xs text-muted"><%= @network %></span>
+  </div>
+  <p class="text-secondary text-sm mb-6">
+    Who can do what to this platform, decoded from the chain rather than from
+    config. Three separate authorities are listed; this page can only change the
+    first.
+  </p>
+
+  <%= render "authority_vault", vault: @vault, vault_error: @vault_error,
+                                server_address: @server_address,
+                                max_slots: @max_slots %>
+
+  <%= render "authority_thresholds", governance: @governance,
+                                     governance_pda: @governance_pda,
+                                     config_governance: @config_governance,
+                                     table: @threshold_table,
+                                     network: @network,
+                                     readable: @governance_readable,
+                                     known: @chain_governance_known %>
+
+  <%= render "authority_squads", squads: @squads, squads_address: @squads_address,
+                                 squads_app_url: @squads_app_url,
+                                 configured_upgrade_authority: @configured_upgrade_authority,
+                                 network: @network, vault: @vault %>
+
+  <%# (3) THE SERVER'S OWN SIGNING IDENTITY — named so it stops being mistaken
+      for the vault signer set. It is the third "admin" in this codebase and the
+      one that has no on-chain meaning of its own. %>
+  <section class="card p-4 mb-6">
+    <h2 class="text-lg font-bold text-heading mb-1">Server signing identity</h2>
+    <p class="text-secondary text-sm mb-3">
+      The key <em>this Rails process</em> signs with. It is only an authority at
+      all because it also sits in the vault signer set above — being the server
+      confers nothing on chain.
+    </p>
+    <% if @server_address.present? %>
+      <p class="font-mono text-xs text-heading break-all"><%= @server_address %></p>
+      <%# THREE STATES, NOT TWO. `if @vault && include?` collapses "the read
+          FAILED" into "this key is NOT a signer" — a definite negative fact,
+          followed by an instruction to act on it, while the panel above says the
+          account could not be read. The page would contradict itself, and it is
+          reachable today: it is the state CI renders on every run.
+
+          This is the same rule the GovernanceConfig panel already follows —
+          UNREAD IS NOT ABSENT — and it has to hold everywhere on this page or it
+          holds nowhere. An authority page that asserts a membership fact it
+          could not check is the exact failure this page exists to end. %>
+      <p class="mt-1 text-xs <%= @vault ? "text-muted" : "text-warning-ink" %>">
+        <% if @vault.nil? %>
+          The vault signer set could not be read, so this page cannot say whether
+          this key is in it — and therefore cannot tell you whether the server can
+          lead a rotation. Nothing below is safe to act on until that read
+          succeeds.
+        <% elsif @vault[:active_signers].include?(@server_address) %>
+          In the vault signer set — so it can sign vault actions, and so it
+          <strong>cannot be evicted by a rotation it leads</strong> (see below).
+        <% else %>
+          <strong>Not</strong> in the vault signer set, so it cannot sign vault
+          actions at all. An eviction must be led by a wallet that is.
+        <% end %>
+      </p>
+    <% else %>
+      <p class="text-sm text-warning-ink">
+        This process holds no admin key, so it cannot sign or lead anything.
+      </p>
+    <% end %>
+  </section>
+
+  <%= render "eviction", rotation: @rotation, plan: @rotation_plan, roster: @roster,
+                         vault: @vault, eligible: @eligible_signers,
+                         required: @required_signatures, max_slots: @max_slots,
+                         server_address: @server_address %>
+
+  <div class="json-debug mt-8">
+    <pre><%= JSON.pretty_generate(
+      network: @network,
+      program_id: @program_id,
+      vault_pda: @vault && @vault[:pda],
+      governance_pda: @governance_pda,
+      governance_on_chain: @governance_readable ? @governance.present? : "unread",
+      governance_configured: @config_governance,
+      squads_multisig: @squads_address,
+      squads_threshold: @squads && "#{@squads[:threshold]} of #{@squads[:members].length}",
+      squads_vault_pda: @squads && @squads[:vault_pda],
+      required_signatures_to_rotate: @required_signatures
+    ) %></pre>
+  </div>
+</div>

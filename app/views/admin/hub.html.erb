@@ -67,9 +67,21 @@
     <%= render "hub_tile", name: "Signing Console", external: true,
           url: "https://app.mcritchie.studio/admin/signing_requests",
           note: "Keyless multi-party signing queue (mcritchie-studio)" %>
+    <%= render "hub_tile", name: "Authorities", url: admin_authorities_path,
+          note: "Vault signers, thresholds, Squads — decoded from chain; evict a signer",
+          status: :flagged %>
+    <%# TWO DEFECTS, ONE TILE, FIXED TOGETHER. It hardcoded the MAINNET Squad on
+        every cluster AND called it "2-of-3"; the chain reads 3-of-5 on both,
+        with different membership per cluster. `sweep-stale-signer-claims`
+        dropped the stale threshold from the note and this branch made the URL
+        cluster-keyed — the same tile, corrected from two directions. Kept as
+        ONE fix: the address decides which cluster the link serves, so a
+        hardcoded one is the more dangerous half and had to go.
+        No number lives here at all now. A figure written into a tile cannot be
+        re-derived on the day; the threshold is read live on /admin/authorities. %>
     <%= render "hub_tile", name: "Squads Multisig", external: true,
-          url: "https://app.squads.so/squads/4H3fP3otjMtupk1DQDjKXYY1dWjT6LNM4H4ZWZ1XcKSX",
-          note: "Approve the mainnet program upgrade (2-of-3)" %>
+          url: Solana::Config.squads_app_url,
+          note: "Change program-upgrade membership on #{Solana::Config::NETWORK} (Squads' own UI)" %>
   <% end %>
 
   <%= render layout: "hub_section", locals: { title: "Everything Else" } do %>
