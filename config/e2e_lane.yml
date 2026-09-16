@@ -1020,7 +1020,15 @@
 # borrowed. (Confirmed again 2026-09-15 on this desk: no node_modules at all,
 # `npx playwright` resolved a stray global copy and died on @playwright/test.)
 #
-# 314 -> 319 (admin-evicts-compromised-signers): five specs in
+# 314 -> 316 -> 321 (admin-evicts-compromised-signers, ON TOP OF the wallet
+# session-switch specs that landed on accepted while this branch was building).
+# THE COUNTER CONFLICTED RATHER THAN AUTOMERGING, which is the good outcome and
+# not the usual one: this branch rewrote the PROSE beside the scalar, so git had
+# two different texts to reconcile. A branch that only bumped the number would
+# have merged clean into a silently under-declared lane — the exact failure this
+# file's header describes. Re-derived with the lister on the MERGED tree.
+#
+# This branch's five specs, in
 # e2e/authority_signer_eviction.spec.js for /admin/authorities — the page renders
 # under an unreachable RPC, the Squads link carries its cluster in the ADDRESS
 # rather than a decommissioned devnet host, the eviction planner's JavaScript
@@ -1032,7 +1040,7 @@
 # never once executed and a spec filed there would be a tier that looks strict
 # and collects nothing. Derived with bin/e2e-lane-derive --write, not by
 # arithmetic.
-total_specs: 319
+total_specs: 321
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1356,13 +1364,14 @@ allowed_skips: 4
 # described beside total_specs above. Both listers agree on this tree and
 # allowed_skips stays 4: 314 - 17 - 4 = 293. Derived with
 # bin/e2e-lane-derive --write, not by arithmetic.
-# 293 -> 298 (admin-evicts-compromised-signers): the five specs described beside
-# total_specs above. None is tagged @devnet and none skips, so excluded stays 17
-# and allowed_skips stays 4: 319 - 17 - 4 = 298. Derived with
-# bin/e2e-lane-derive --write ON THE MERGED TREE (fetched origin/accepted first;
-# 0 ahead, 0 behind), not by incrementing — the silent-merge this counter is
-# prone to is two branches writing the SAME number for DIFFERENT files.
-executed: 298
+# 293 -> 295 -> 300 (admin-evicts-compromised-signers, on top of the wallet
+# session-switch specs accepted took while this branch was building). None of
+# this branch's five is tagged @devnet and none skips, so excluded stays 17 and
+# allowed_skips stays 4: 321 - 17 - 4 = 300. Derived with bin/e2e-lane-derive
+# --write ON THE MERGED TREE, not by incrementing — and the first derive, before
+# the merge, wrote 298 against a base that had already moved. That is why the
+# instruction says MERGED TREE and not "run the deriver".
+executed: 300
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

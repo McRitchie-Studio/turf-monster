@@ -191,4 +191,49 @@ class WalletSessionSwitchTest < ActionDispatch::IntegrationTest
                      "the account column still names one. Reading the column here is exactly " \
                      "the bug: it resolves an adapter for a signer this session does not have."
   end
+
+  # THE PAGE UNDER THE CARD, THROUGH A REAL REQUEST — and on BOTH routes that
+  # render it.
+  #
+  # The wallet-changed modal is dismissible: false and covers the page, so for
+  # as long as it is up it IS the message. Underneath it, the account card went
+  # on presenting the session wallet's address and its balances at full
+  # confidence; and for a switch the page deliberately SUPPRESSES (an operator
+  # cosign ceremony declares its addresses through expectSwitchesTo, so no card
+  # opens at all) that card was the only thing on screen and it said nothing had
+  # changed.
+  #
+  # WHY BOTH ROUTES AND NOT JUST /account. This partial has two call sites that
+  # do not share a controller: accounts/show renders it directly, while /profile
+  # reaches it through the ENGINE's ProfilesController and the section registry
+  # in config/initializers/studio.rb. The component test renders the partial in
+  # isolation and cannot tell whether either route actually reaches it, and a
+  # registry row is exactly the kind of wiring that goes missing quietly.
+  test "the mismatch notice reaches the reader on both wallet-card routes" do
+    user = users(:alex)
+    log_in_as_onchain(user)
+
+    ["/account", "/profile"].each do |path|
+      get path
+      assert_response :success, "#{path} must render for a wallet session"
+
+      doc = Nokogiri::HTML(response.body)
+      notice = doc.at_css("[data-wallet-mismatch-notice]")
+      assert notice, "#{path} renders the wallet card but not the mismatch notice"
+
+      # MOUNTED AND EMPTY. Visibility moves; existence does not. A status region
+      # inserted alongside its own content is not reliably announced, so the
+      # binding has to be x-show and never `template x-if`.
+      assert notice["x-show"].to_s.include?("mismatched"),
+             "#{path}: the notice must key on the store's mismatched state"
+      assert_equal "status", notice["role"], "#{path}: the notice must be a live region"
+
+      # The tiles follow the SAME fact, bound client-side rather than painted
+      # server-side — the server cannot know what the browser wallet is holding.
+      tiles = doc.at_css("[data-wallet-tiles]")
+      assert tiles, "#{path} renders no addressable balance tiles"
+      assert tiles[":class"].to_s.include?("mismatched"),
+             "#{path}: the tiles must dim on the same condition the notice shows on"
+    end
+  end
 end
