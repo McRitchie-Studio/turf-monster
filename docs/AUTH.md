@@ -1,5 +1,20 @@
 # Authentication & Account Management
 
+> **Code is law, for the citations here.** A `path/to/file.rb:NN` names this
+> repo's code, and a bare `:NN` inherits the file of the nearest preceding
+> path-qualified citation — file context resets at each `##` heading.
+> `test/docs/workflow_citation_docs_test.rb` checks every number against the
+> symbol its prose names and reddens when one stops landing on it.
+> **That check comes in two strengths, and this document gets the weaker one
+> throughout.** **0 of the 10 citations** here sit inside a definition the guard
+> can see, so the other **10** ride the LITERAL fallback, which asks only that a
+> code token quoted nearby appear in the cited lines. The cause is mechanical
+> rather than editorial: the guard reads Ruby with Prism and inline JS inside
+> `.erb`, and these ten name `.js` modules, ERB markup, a registry entry inside
+> a block, and a `Gemfile` line — none of which offer it a definition to key on.
+> A green citation here proves the quoted words are in the cited lines, not that
+> the code is. Follow all ten to the code before you trust them.
+
 Turf Monster is passwordless. The live sign-in surface is `GET /signin`
 (`SessionsController#new`), and legacy `GET /login` / `GET /signup` redirect
 there while preserving query params.
@@ -247,28 +262,32 @@ since a dim is invisible to a screen reader and means nothing on its own.
 
 **This notice does not reach the cosign ceremony, and the earlier claim that it
 did was wrong.** An operator cosign ceremony declares the wallets it will
-legitimately walk through via `$store.wallet.expectSwitchesTo(...)`
-(`app/javascript/solana_stores.js:349`), which keeps the blocking card from
-opening over a half-collected treasury transaction. That call has exactly two
-sites — `app/javascript/cosign.js:271` and
+legitimately walk through by calling `expectSwitchesTo`
+(`app/javascript/solana_stores.js:349`), written at its call sites as
+`$store.wallet.expectSwitchesTo(...)`. That keeps the blocking card from opening
+over a half-collected treasury transaction. The call has exactly two sites —
+`app/javascript/cosign.js:271` and
 `app/views/admin/vault_state/show.html.erb:314` — but **three admin surfaces
 reach them**. `cosignTransaction` is a global, so any page may wire a button to
-it: `/admin/pending_transactions` and `/admin/authorities`
-(`app/views/admin/authorities/_eviction.html.erb:188`, which reuses the same
-signer roster) both reach the `cosign.js` call, and `/admin/vault_state` carries
-its own. **Count the `data-cosign-controls` blocks, not the call sites**, when
-this list next needs checking — a fourth surface costs one button and no new
-call site. **None of the three renders the account card**, which is mounted only
-by `app/views/accounts/show.html.erb:119` and by `/profile` through the engine
+it: `/admin/pending_transactions` and `/admin/authorities` both reach the
+`cosign.js` call, the authorities page by rendering the same
+`admin/pending_transactions/signer_roster` partial
+(`app/views/admin/authorities/_eviction.html.erb:188`), and `/admin/vault_state`
+carries its own. **Count the `data-cosign-controls` blocks, not the call
+sites**, when this list next needs checking — a fourth surface costs one button
+and no new call site. **None of the three renders the account card**, the
+`accounts/solana_wallet_section` partial, which is mounted only by
+`app/views/accounts/show.html.erb:119` and by `/profile` through the engine
 section registry (`config/initializers/studio.rb:148`). An Alpine store is
 per-document, so `expectedSwitchAddresses`
 (`app/javascript/solana_stores.js:70`) is always empty on the account page and a
 suppressed switch cannot occur there at all.
 
 What actually guards the ceremony is the exemption's narrowness, not a notice:
-`_notifySwitch` (`app/javascript/solana_stores.js:357`) returns early only for a
-DECLARED address (`app/javascript/solana_stores.js:364`), so a switch to any
-other wallet still raises the non-dismissible card mid-ceremony. The residual is
+`_notifySwitch` (`app/javascript/solana_stores.js:357`) returns early only for
+an address the flow declared into `expectedSwitchAddresses`
+(`app/javascript/solana_stores.js:364`), so a switch to any other wallet still
+raises the non-dismissible card mid-ceremony. The residual is
 real and is stated here rather than papered over: **all three ceremony surfaces
 carry no page-level wallet signal at all** — tracked as
 `ceremony-page-lacks-wallet-signal`, which is scoped to all three, not closed by

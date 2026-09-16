@@ -1,5 +1,18 @@
 # Centralized Formulas & Slate System
 
+> **Code is law, for the citations here.** A `path/to/file.rb:NN` names this
+> repo's code, and a bare `:NN` inherits the file of the nearest preceding
+> path-qualified citation — file context resets at each `##` heading.
+> `test/docs/workflow_citation_docs_test.rb` checks every number against the
+> symbol its prose names and reddens when one stops landing on it. This document
+> carries one such number, and it gets the STRONG form of that check:
+> **1 of the 1 citations** here sits inside the definition its prose names, and
+> the other **0** ride the weaker literal fallback.
+> **A formula is not a coordinate.** This guard checks the one number, not the
+> curves quoted beside it. This document is also cited BY LINE from
+> `docs/workflows/slate-build.md`, so a line inserted above the fits moves them —
+> repoint that document in the same commit.
+
 ## Formula Source of Truth (SlateMatchup Model)
 
 All scoring/ranking formulas live as class methods on `SlateMatchup` — single source of truth. JS mirrors in `slates/show.html.erb` and `slates/formula_report.html.erb` with comments noting the model as authoritative.
