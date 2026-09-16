@@ -108,6 +108,21 @@ module Admin
       # that did read it.
       @fee_payer = @rotation_plan && fee_payer_status_for(@rotation_plan)
       @roster = @rotation_plan && roster_for(@rotation_plan)
+
+      # WHO HOLDS EACH WALLET. Resolved LAST, because it takes the addresses the
+      # reads above actually produced rather than a list assembled by hand — a
+      # second list is a second thing to keep in step, and the one that drifts is
+      # always the one nobody renders.
+      @identities = identities_for(
+        Array(@vault && @vault[:signer_slots]) +
+        Array(@vault && @vault[:active_signers]) +
+        Array(@eligible_signers) +
+        Array(@squads && @squads[:members].map { |member| member[:address] }) +
+        Array(@rotation_plan && @rotation_plan[:current]) +
+        Array(@rotation_plan && @rotation_plan[:proposed]) +
+        Array(@rotation_plan && @rotation_plan[:authorizers]) +
+        [@server_address]
+      )
     end
 
     # ARM AN EVICTION. Validates the proposed set against turf-vault's own
@@ -296,6 +311,45 @@ module Admin
     end
 
     private
+
+    # ── WHO HOLDS EACH WALLET, AND THE ONE THING THIS MUST NEVER DO ──────────
+    #
+    # BOTH WALLET COLUMNS ARE SEARCHED, because this app stores one user's
+    # wallet in either of two places: `User#solana_address` is
+    # `web3_solana_address || web2_solana_address`, the first being a linked
+    # Phantom and the second a managed wallet. A lookup against `web3` alone —
+    # which is what `User.from_solana_wallet` does, and why it is not used here —
+    # silently misses every managed account, and a page that misses a user
+    # renders that wallet as unheld.
+    #
+    # AND MOST ADDRESSES HERE MAY HAVE NO USER AT ALL. The signer set is agent
+    # and operator wallets; nothing guarantees any of them is an app account.
+    # So this returns ONLY what it found, the view renders a miss as visibly
+    # unresolved, and the full address renders on every row either way. On a
+    # page whose whole job is deciding WHICH KEY TO REMOVE, a wrong name is
+    # worse than no name — the identity is an ADDITION to the address and never
+    # a replacement for it.
+    #
+    # THE EMPTY SLOT SENTINEL IS DROPPED BEFORE THE QUERY. It is a real base58
+    # string (the all-ones system program id), so it would otherwise be asked
+    # about on every render of a vault that has headroom.
+    def identities_for(addresses)
+      wanted = Array(addresses).map(&:to_s).reject(&:blank?).uniq
+      wanted -= [Solana::SignerRotation::EMPTY]
+      return {} if wanted.empty?
+
+      found = User.where(web3_solana_address: wanted)
+                  .or(User.where(web2_solana_address: wanted))
+
+      found.each_with_object({}) do |user, by_address|
+        # `wanted.include?` guards BOTH assignments: an `.or` across two columns
+        # matches a combo account on one of them, and writing the other column
+        # unconditionally would key this hash by an address nobody on the page
+        # asked about.
+        by_address[user.web3_solana_address] ||= user if wanted.include?(user.web3_solana_address)
+        by_address[user.web2_solana_address] ||= user if wanted.include?(user.web2_solana_address)
+      end
+    end
 
     def vault
       @vault_service ||= Solana::Vault.new
