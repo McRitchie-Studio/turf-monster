@@ -51,7 +51,18 @@ class WalletStandardAccountFreshnessJsTest < ActiveSupport::TestCase
         querySelector() { return null; }, getElementById() { return null; },
         addEventListener() {}, createElement() { return {}; }
       };
-      globalThis.navigator = { userAgent: 'node', maxTouchPoints: 0 };
+      // defineProperty, NOT assignment. On Node 22 `globalThis.navigator` is an
+      // accessor with only a getter, so a plain assign throws
+      // "Cannot set property navigator of #<Object> which has only a getter"
+      // and takes every case in this file with it. It assigns fine on Node 20,
+      // which is what the laptop runs and CI does not — so the failure appears
+      // only on CI. Measured: green locally on v20.20.2, four cases red on
+      // v22.23.2.
+      Object.defineProperty(globalThis, 'navigator', {
+        value: { userAgent: 'node', maxTouchPoints: 0 },
+        configurable: true,
+        writable: true
+      });
       globalThis.localStorage = {
         _d: {}, getItem(k) { return this._d[k] ?? null; },
         setItem(k, v) { this._d[k] = String(v); }, removeItem(k) { delete this._d[k]; }

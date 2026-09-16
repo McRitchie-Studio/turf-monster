@@ -95,7 +95,7 @@ and studio-engine owns the page a wallet returns to.
 | Callback page: `walletOps` resume dispatch, plus the legacy sign-in branch with its **own** base58 decoder and nacl decrypt | `studio-engine: app/views/solana_sessions/phantom_callback.html.erb#hasResumer,b58decode` | 406 |
 | `window.tmWalletOp`: return address, cluster, handoff watch, and the way back | `app/views/shared/_wallet_op_runner.html.erb:49` (`CALLBACK_PATH`), `:163` (`watchHandoff`), `:233` (`window.tmWalletOp`) | 319 (re-measured 2026-09-13) |
 | Intents: entry (with the `redirectLink` default wrapped around `walletOps.resume` at `app/views/shared/_contest_entry_intent.html.erb:128-149`), create + bundle, rename | `app/views/shared/_contest_entry_intent.html.erb`, `_contest_create_intent.html.erb`, `_username_rename_intent.html.erb` | 505 / 201 / 307 (re-measured 2026-09-13) |
-| Provider registry, inline codec, mobile `detect()` | `app/javascript/wallet_provider.js:83` (`INLINE_TX_CODEC`), `:479` (`detect`), `:661` (`requireInlineProvider`) | 671 |
+| Provider registry, inline codec, mobile `detect()` | `app/javascript/wallet_provider.js:83` (`INLINE_TX_CODEC`), `:516` (`detect`), `:698` (`requireInlineProvider`) | 708 (re-measured 2026-09-15) |
 | Stand-in wallet + its spec | `e2e/stub-wallet.js`, `e2e/stub_wallet_round_trip.spec.js` | 498 / 607 (re-measured 2026-09-13) |
 
 **Totals.** The gem's four transport files come to **1,428 lines** in 0.9.3.
@@ -111,7 +111,7 @@ this app needs costs a floor bump.
 
 **Two of the three vendor dialects never run here.** `detect()` returns
 `redirectProvider.forWallet('phantom')` on every phone
-(`app/javascript/wallet_provider.js:511`), and its own comment says why. The
+(`app/javascript/wallet_provider.js:548`), and its own comment says why. The
 wallet picker offers Solflare and Backpack only as a **browse handoff** into
 their in-app browsers
 (`solana-studio: app/views/solana_studio/modals/_wallet_connect.html.erb#openInWallet`).
