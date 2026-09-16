@@ -225,7 +225,11 @@ class Admin::PendingTransactionsBroadcastRecordTest < ActionDispatch::Integratio
     assert_response :success
     assert_match(/Broadcast · unreconciled/, response.body)
     assert_match(/outcome is not yet\s+established/, response.body)
-    assert_match(/Reconcile/, response.body,
+    # THE HOOK, NOT THE WORD. The note four lines above the button already says
+    # "Reconcile reads the chain and settles it", so /Reconcile/ matched the
+    # PROSE and passed with the button deleted — measured. `data-cosign-reconcile`
+    # exists only on the control itself, which is what this row must offer.
+    assert_match(/data-cosign-reconcile="#{tx.slug}"/, response.body,
                  "and it must offer the READ that settles the row, not just a warning")
     assert_no_match(/collectExtraCosigners\(this\)/, response.body,
                     "a row that has broadcast must not offer a Co-sign button")
