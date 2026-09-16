@@ -2916,8 +2916,9 @@ class ContestsController < ApplicationController
   # THIS IS A BACKSTOP, NOT THE MECHANISM, and an earlier version of this
   # comment got that wrong in a way that hid a bug. It claimed the whole-second
   # compare also absorbed the edit form's minute-granular picker. It does not:
-  # contest_lock_picker's sync() writes `toISOString().substring(0, 16)`, which
-  # DROPS SECONDS, and init() writes it on page load with no operator input. So
+  # the contestLockPicker factory (shared/_alpine_factories) has a sync() that
+  # writes `toISOString().substring(0, 16)`, which DROPS SECONDS, and an init()
+  # that writes it on page load with no operator input. So
   # a contest locked at 12:34:56 by confirm_lock_time or the QA driver
   # resubmitted 12:34:00 — 56 seconds off — and a pure rename was refused as a
   # lock move. The fix is at the source: contests/edit.html.erb no longer emits
