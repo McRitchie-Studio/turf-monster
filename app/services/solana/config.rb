@@ -407,37 +407,56 @@ module Solana
     #      identical on mainnet and devnet. The literal below matched that
     #      measurement on that date.
     #   2. THE SQUADS V4 MULTISIG holds the program UPGRADE authority and is a
-    #      different account entirely. A config transaction at 2026-09-15 09:41
-    #      moved it to 3-of-4 (3Qj4v9…, 7ZDJ…, 9gACbz…, BLSBw8…), REMOVING
-    #      8K81… and CytJ… from both clusters. It changed nothing in (1) — and
-    #      that divergence is the proof these are separate authorities rather
-    #      than two views of one. Before that day they happened to agree, which
-    #      is exactly why the conflation kept surviving review.
+    #      different account entirely. TWO config ceremonies on 2026-09-15 moved
+    #      it, five minutes apart — devnet executed 09:41:25 MDT, mainnet
+    #      09:46:51-55 MDT. It was never one transaction across both clusters,
+    #      and writing it as one is how the per-cluster differences below got
+    #      lost. They REMOVED CytJ… from both clusters and 8K81… from MAINNET
+    #      ONLY. Re-measured at `finalized` 2026-09-15, each cluster reads
+    #      threshold 3 of FIVE members, all mask 7:
+    #        devnet  7nRuVw3V…: 2eGs8G3w…, 3Qj4v9…, 7ZDJ…, 8K81…, BLSBw8…
+    #        mainnet 4H3fP3ot…: 7auwTL…, 3Qj4v9…, 7ZDJ…, 9gACbz…, BLSBw8…
+    #      It changed nothing in (1) — and that divergence is the proof these
+    #      are separate authorities rather than two views of one. Before that
+    #      day they happened to agree, which is exactly why the conflation kept
+    #      surviving review.
     #   3. KeyStore::ITEMS["turf-admin"] is a 1PASSWORD FILING — which wallet an
     #      agent rehearsal signs the admin HTTP surface as. It moved to
     #      solana.turf.admin (BLSBw8fX…) the same day. A re-file is not an
     #      on-chain event and is never evidence of one.
     #
-    # THE TWO SETS ARE NOT MEANT TO CONVERGE, AND THEIR MEMBERSHIP IS NOT THE
-    # SAME ON BOTH CLUSTERS. Re-measured off chain 2026-09-15 (see
-    # `Solana::Squads`, which reads it rather than quoting it): each Squad is
-    # THRESHOLD 3 OF 5, every member at mask 7 (Initiate|Vote|Execute) —
-    #   devnet  7nRuVw3V… : 2eGs8G3w…, 3Qj4v9…, 7ZDJ…, 8K81…, BLSBw8…
-    #   mainnet 4H3fP3ot… : 7auwTL…,   3Qj4v9…, 7ZDJ…, 9gACbz…, BLSBw8…
-    # This paragraph previously read "Squads (upgrade) is FOUR at threshold 3"
-    # and named one four-wallet set for both clusters; the chain says otherwise
-    # on both counts, and it additionally said system 7auwTL… is "deliberately
-    # OFF Squads" when 7auwTL… IS a mainnet Squads member. Do not re-derive the
-    # blast radius of a stolen key from this comment — /admin/authorities
-    # computes it from a live read, which is the whole reason that page exists.
-    # VaultState (the money) is FIVE and is
-    # the TARGET. FIVE IS NOT WRITABLE YET — the deployed v0.25.0 takes
+    # WHAT THE TWO SETS MEAN RELATIVE TO EACH OTHER. Item (2) above already
+    # carries WHO is in each Squad and at what threshold, measured; this
+    # paragraph is only about what their relationship is, so the membership is
+    # not restated here. Two corrections of one defect, arriving from two
+    # directions, is how a file comes to disagree with itself.
+    #
+    # MEMBERSHIP CONVERGING IS NOT AUTHORITY MERGING. The VaultState TARGET set
+    # and the mainnet Squad's membership now name the same five wallets. That is
+    # a coincidence of rosters, not of powers: they are separate accounts,
+    # changed by different transactions, and one never implies the other. The
+    # LIVE VaultState set is still the three in (1) — the target is a plan, and
+    # reading it as the current set is the error this whole comment block exists
+    # to prevent.
+    #
+    # FIVE IS NOT WRITABLE YET. The deployed v0.25.0 takes
     # `update_signers(new_signers: [Pubkey; 3])`, so the five-member set needs
-    # v0.26 on-chain first; MAINNET_LAUNCH.md carries the forced order. 7auwTL… is the app's HOT key — it sits in Heroku config on a
-    # running dyno and signs every entry and payout, so it is the most exposed
-    # key here and the last that should hold upgrade authority; it also has no
-    # job there, since upgrading is a rare human act, never an unattended one.
-    # So "four" and "five" name different sets, not a stale count.
+    # v0.26 on-chain first; MAINNET_LAUNCH.md carries the forced order.
+    #
+    # WARNING — 7auwTL… WAS MEANT TO BE OFF SQUADS AND IS NOT. It is the app's
+    # HOT key: it sits in Heroku config on a running dyno and signs every entry
+    # and payout, so it is the most exposed key here and the last that should
+    # hold upgrade authority; it also has no job there, since upgrading is a
+    # rare human act, never an unattended one. That reasoning is unchanged and
+    # still right. The chain disagrees with it: 7auwTL… holds
+    # Initiate|Vote|Execute on the mainnet Squad (2eGs8G3w… likewise on devnet),
+    # re-measured at `finalized` 2026-09-15. Removing it is a Squads config
+    # transaction, not an edit to this comment.
+    #
+    # DO NOT RE-DERIVE A STOLEN KEY'S BLAST RADIUS FROM THIS COMMENT.
+    # /admin/authorities computes it from a live read of both authorities, which
+    # is the whole reason that page exists — and a prose figure here would be a
+    # second answer to a question that already has an authoritative one.
     #
     # SO: read VaultState.signers for what this constant should say, and read
     # the Squads multisig for who may upgrade. Neither answers the other, and a
@@ -468,8 +487,9 @@ module Solana
     # future rotation of either role doesn't silently move the other.
     INIT_AUTHORITY = ENV.fetch("SOLANA_INIT_AUTHORITY", "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr")
 
-    # The PROGRAM UPGRADE AUTHORITY — the Squads V4 2-of-3 vault PDA that holds
-    # the BPFLoaderUpgradeable authority slot for PROGRAM_ID. Three different
+    # The PROGRAM UPGRADE AUTHORITY — the Squads V4 vault PDA that holds the
+    # BPFLoaderUpgradeable authority slot for PROGRAM_ID. Its threshold and
+    # membership are stated once in docs/SOLANA.md; do not restate them here. Three different
     # multisigs live in this file and they are easy to confuse:
     #   MULTISIG_SIGNERS  — VaultState's IN-PROGRAM 2-of-3 (signs vault actions)
     #   INIT_AUTHORITY    — the one wallet allowed to call `initialize`

@@ -70,11 +70,15 @@
     <%= render "hub_tile", name: "Authorities", url: admin_authorities_path,
           note: "Vault signers, thresholds, Squads — decoded from chain; evict a signer",
           status: :flagged %>
-    <%# CLUSTER-KEYED, and the note no longer states a threshold. This tile
-        hardcoded the MAINNET Squad on every cluster and called it "2-of-3";
-        the chain reads 3-of-5 on both, with different membership per cluster.
-        A number written into a tile cannot be re-derived on the day, so the
-        threshold now lives on /admin/authorities where it is read live. %>
+    <%# TWO DEFECTS, ONE TILE, FIXED TOGETHER. It hardcoded the MAINNET Squad on
+        every cluster AND called it "2-of-3"; the chain reads 3-of-5 on both,
+        with different membership per cluster. `sweep-stale-signer-claims`
+        dropped the stale threshold from the note and this branch made the URL
+        cluster-keyed — the same tile, corrected from two directions. Kept as
+        ONE fix: the address decides which cluster the link serves, so a
+        hardcoded one is the more dangerous half and had to go.
+        No number lives here at all now. A figure written into a tile cannot be
+        re-derived on the day; the threshold is read live on /admin/authorities. %>
     <%= render "hub_tile", name: "Squads Multisig", external: true,
           url: Solana::Config.squads_app_url,
           note: "Change program-upgrade membership on #{Solana::Config::NETWORK} (Squads' own UI)" %>
