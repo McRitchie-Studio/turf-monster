@@ -489,13 +489,21 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # the failure this guard must never have.
   #
   # THE NUMBER, measured 2026-09-15 over all 215 fallback citations then in
-  # scope. The weakest honest bare-word anchor in the corpus is `detect` in
-  # app/javascript/wallet_provider.js at 9 lines; every cap from 10 up costs
-  # nothing, every cap of 9 or below costs three true citations. The defect above
-  # sat at 22. Twelve sits between them with room on both sides: two lines of
-  # slack over the honest maximum, ten under the measured miss. Tightening it is
-  # a one-number change and the distribution is written down here so the next
-  # reader need not re-measure it.
+  # scope, and re-derived in review the same day. The weakest honest bare-word
+  # anchor in the corpus is `detect` in app/javascript/wallet_provider.js at 9
+  # lines; every cap from 9 up costs nothing, 8 down to 4 costs three true
+  # citations, and 3 or below costs more.
+  #
+  # COUNT THE DEFECT WITH THE MATCHER THIS CAP ENFORCES, which is the one place
+  # this paragraph could mislead the reader it invites not to re-measure. At
+  # 7c794bf4 `upgrade` was on 22 of docs/SOLANA.md's 947 lines BY SUBSTRING —
+  # the OLD rule's matcher, and the right number for "the coordinate could have
+  # been any of 22 and passed" — but on 17 of those same lines by the
+  # WHOLE-TOKEN match this cap actually counts. Twelve clears the honest
+  # maximum by three and rejects the defect under either figure. Tightening it
+  # is a one-number change, and the distribution is written down here so the
+  # next reader need not re-measure it — with each spread's matcher named,
+  # because a spread means nothing without one.
   #
   # WHAT THIS STILL DOES NOT DO, said plainly. It does not prove a coordinate.
   # It proves the coordinate is not ARBITRARY — that the word the prose named is
