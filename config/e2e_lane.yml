@@ -1020,8 +1020,15 @@
 # borrowed. (Confirmed again 2026-09-15 on this desk: no node_modules at all,
 # `npx playwright` resolved a stray global copy and died on @playwright/test.)
 #
-# 314 -> 316 -> 321 (admin-evicts-compromised-signers, ON TOP OF the wallet
-# session-switch specs that landed on accepted while this branch was building).
+# 314 -> 316 (wallet-switch-rehydrates-session, PR #722) -> 321
+# (admin-evicts-compromised-signers).
+#
+# THE MIDDLE STEP IS RECORDED HERE BECAUSE #722 DID NOT RECORD IT. This file's
+# history is append-only by convention — every bump names the change that caused
+# it — and that PR moved the scalar with no entry. Backfilling it from the
+# branch that merged next is the cheapest moment to do it: the alternative is a
+# gap nobody can attribute later, on the one file whose whole job is to make a
+# change to these numbers visible to a reviewer.
 # THE COUNTER CONFLICTED RATHER THAN AUTOMERGING, which is the good outcome and
 # not the usual one: this branch rewrote the PROSE beside the scalar, so git had
 # two different texts to reconcile. A branch that only bumped the number would
@@ -1364,8 +1371,8 @@ allowed_skips: 4
 # described beside total_specs above. Both listers agree on this tree and
 # allowed_skips stays 4: 314 - 17 - 4 = 293. Derived with
 # bin/e2e-lane-derive --write, not by arithmetic.
-# 293 -> 295 -> 300 (admin-evicts-compromised-signers, on top of the wallet
-# session-switch specs accepted took while this branch was building). None of
+# 293 -> 295 (wallet-switch-rehydrates-session, PR #722 — backfilled here; see
+# the note beside total_specs) -> 300 (admin-evicts-compromised-signers). None of
 # this branch's five is tagged @devnet and none skips, so excluded stays 17 and
 # allowed_skips stays 4: 321 - 17 - 4 = 300. Derived with bin/e2e-lane-derive
 # --write ON THE MERGED TREE, not by incrementing — and the first derive, before
