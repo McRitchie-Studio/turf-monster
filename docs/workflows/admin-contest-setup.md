@@ -63,7 +63,7 @@ Surfaced from the admin Link Hub as **"Vault Init"** when the vault is uninitial
 
 - Visibility check: `Admin::VaultInitController.vault_uninitialized?` (`app/controllers/admin/vault_init_controller.rb:124-130`) — it calls `Solana::Vault#read_vault_state` (`app/services/solana/vault.rb:831-918`) and caches the boolean. `Admin::VaultInitController#confirm` busts that cache on success (`app/controllers/admin/vault_init_controller.rb:104`).
 - Both entry points link to `admin_vault_init_path` — the Link Hub tile (`app/views/admin/hub.html.erb:55`) and the Vault State fallback link (`app/views/admin/vault_state/show.html.erb:13`).
-- Routes: `config/routes.rb:552-554` — `vault_init#show`, `vault_init#build`, `vault_init#confirm`.
+- Routes: `config/routes.rb:554-556` — `vault_init#show`, `vault_init#build`, `vault_init#confirm`.
 - Flow:
   1. `Admin::VaultInitController#build` (`app/controllers/admin/vault_init_controller.rb:64-86`) refuses an already-initialized vault (`:66`), runs `Admin::VaultInitController#validate_init_params!` (`:138-159` — three distinct signers `:149`, threshold 1-3 `:150`, creator must be one of the signers `:151` and must equal `INIT_AUTHORITY` on mainnet `:156-157`), then calls `Solana::Vault#build_initialize_vault` (`app/services/solana/vault.rb:732-763`). The bot fee-pays; the creator slot is left for Phantom.
   2. Phantom cosigns + broadcasts client-side. This is the one flow in this document where the browser still broadcasts.
@@ -75,7 +75,7 @@ Surfaced from the admin Link Hub as **"Vault Init"** when the vault is uninitial
 `ContestsController#enter` raises **"No active season configured. Set one at /admin/seasons before users can enter on-chain contests."** when `SeasonConfig.current_season_id.to_i.zero?` (`app/controllers/contests_controller.rb:901-903`), inside its `with_lock` and before any consume. Step 4 fails loudly if step 2b was skipped. Contest *creation* has its own parallel guard: `ContestsController#onchain_season_error` (`:2515-2532`) returns "…before creating on-chain contests." and `#ensure_onchain_season_ready!` (`:2509-2513`) raises it.
 
 - Admin UI: `Admin::SeasonsController#create` (`app/controllers/admin/seasons_controller.rb:11-39`) reads `name`, `season_id`, and `slot_0..slot_4` from the form (`:14`), validates the five slots (`:22`), calls `Solana::Vault#create_season(season_id:, name:, schedule:)` (`:31`, definition `app/services/solana/vault.rb:2951-2998`), and — when `params[:set_current] == "1"` — flips `SeasonConfig.set_current!(season_id)` (`app/controllers/admin/seasons_controller.rb:32`).
-- Routes: `seasons#create` and `seasons#set_current` (`config/routes.rb:582-584`).
+- Routes: `seasons#create` and `seasons#set_current` (`config/routes.rb:584-585`).
 - The on-chain `Season` PDA lives at `[b"season", season_id_le]` — derived by `Solana::Vault#season_pda` (`app/services/solana/vault.rb:523-526`) — and stores the `seed_schedule` (default `[25, 19, 14, 10, 7]`) the `enter_contest` instruction reads to award seeds (see `docs/SOLANA.md`).
 
 #### 2c. Per-contest Contest PDA init — **fires every time** in step 3
