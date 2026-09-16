@@ -540,14 +540,33 @@ execute — so the ceremony fails at the planner rather than halfway through, wi
 a paid-for buffer and no way to finish. **Funding is not the blocker.** Re-measured at `finalized` on 2026-09-15: the
 mainnet fee payer `BLSBw8…` holds `3576585239` lamports (3.5766 SOL). An
 **upgrade** needs a buffer sized `37 + 545928` bytes, which rents for
-`2768874320` lamports (2.7689 SOL) — and that rent is **refunded** when the
-upgrade completes, so it is a float, not a cost. Roughly 0.81 SOL of headroom.
-Do not size this off the ProgramData account's own balance: `BCuQEkMK…` holds
-3.8009 SOL, which is the rent already paid on a 545,973-byte account, not a
-figure anyone has to raise. The figure to watch instead is **capacity**:
-ProgramData carries 545,928 bytes of executable room and v0.25's `.so` is
-exactly 545,928 bytes, so a v0.26 even one byte larger needs
-`solana program extend` first — and that rent is NOT refunded.
+`2774152440` lamports (2.7742 SOL) — **refunded** when the upgrade completes,
+so it is a float rather than a cost. That leaves **`802432799` lamports
+(0.8024 SOL) spare.** Do not size this off the ProgramData account's own
+balance: `BCuQEkMK…` holds 3.8009 SOL, which is rent already paid on a
+545,973-byte account at the old 6,960 lamports/byte rate, not a figure anyone
+has to raise. Query the minimum (`solana rent <bytes>`) rather than multiplying
+by a constant — the cluster has been lowering the rate, and it read 5,080 on
+2026-09-15.
+
+> ⚠ **DO NOT PRICE THE BUFFER OFF THE ELF'S LOGICAL END. THIS IS A TRAP THAT
+> HAS NOW CAUGHT TWO READERS.** Inside the 545,928-byte program region the
+> ELF's logical content ends at `e_shoff + e_shnum * e_shentsize` =
+> `544328 + 9 * 64` = **544,904**, and a trailing-zero scan reports **544,889**
+> because the section header table's last 15 bytes are zero. Both are *logical
+> ELF content*. **Neither is the deployed file.** The loader wrote all 545,928
+> bytes and Agave reads the file through EOF, and the proof is the hash: only
+> `sha256` over the full 545,928 bytes gives `e71a3fce…`, the `Program SHA256`
+> row in `turf-vault/docs/CURRENT_DEPLOYMENT.md`. Sizing a buffer at
+> `37 + 544889` yields `2768874320` lamports and **UNDER-FUNDS it by 1,039
+> bytes**, which fails the ceremony after the buffer is paid for. The same
+> distinction is worked through in `app/views/contract/show.html.erb` and
+> pinned by `test/views/contract_measurements_test.rb`.
+
+So the figure to watch is **capacity**: ProgramData carries 545,928 bytes of
+executable room and the deployed v0.25 file is exactly 545,928 bytes — **zero
+headroom**. A v0.26 even one byte larger needs `solana program extend` first,
+and that rent is NOT refunded.
 **In Rails, read the vault PDA from `Solana::Config.squads_vault_pda` — never as a literal.** It resolves `SOLANA_SQUADS_VAULT_PDA` first (via `.presence`, so an EMPTY value falls through rather than resolving to blank), then falls back to a NETWORK-keyed default (mainnet-beta -> `Bk9s…GdJm`, anything else -> `BW13…H6kC`), so a mainnet build cannot present a devnet authority by omission.
 
 **Neither deployed app sets that variable — the key is ABSENT, not empty.** So the NETWORK-keyed default is the production path on both clusters, and the env var is a runbook escape hatch for pointing an app at a fresh Squad. `SOLANA_NETWORK` is therefore what actually selects the authority: `mainnet-beta` on `turf-monster-mainnet`, `devnet` on `turf-monster-qa` (both present and non-empty).

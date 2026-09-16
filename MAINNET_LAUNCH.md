@@ -38,13 +38,21 @@ One-time runbook for the **v0.15.0 mainnet first deploy**. Read top-to-bottom; e
   - ⚠ **THE HOT SYSTEM KEY HOLDS UPGRADE AUTHORITY, AND THAT CONTRADICTS THE STATED POLICY.** Both system keys are full `Initiate|Vote|Execute` Squads members. `7auwTLSv…` sits in Heroku config on a running `turf-monster-mainnet` web dyno and signs every entry and every payout, and it also votes on program upgrades. The policy written throughout these docs — that the hot key must never hold upgrade authority — is sound and is **not** what the chain implements. Closing the gap is a Squads config transaction, not a documentation edit; it needs its own task and Mr. McRitchie's signature.
   - Vault PDA (the program upgrade authority) is unchanged: mainnet `Bk9sS7ii…`, devnet `BW13kgfi…`.
 
-  > **THE AGENT HOLDS ONE SEAT OF FOUR AGAINST A THRESHOLD OF THREE, AND THAT
-  > IS THE WHOLE POINT.** The other three members are Mr. McRitchie's own
-  > wallets and are deliberately filed in **no vault at all**. **Never file them
-  > into an agent-readable vault to unblock a ceremony.** That would hand the
-  > agent three of four seats and silently dissolve the separation this
-  > rotation bought. If a ceremony needs his approvals, he gives them — the
-  > unblock is a signature, never a filing.
+  > **ON MAINNET THE AGENT ALREADY HOLDS TWO SEATS OF FIVE AGAINST A THRESHOLD
+  > OF THREE, SO ONE FILING IS ALL IT WOULD TAKE.** It can read `BLSBw8…`
+  > (`solana.turf.admin`) and — because that key is filed in the same
+  > agent-readable `studio-agents` vault — the system key `7auwTL…`. Two of the
+  > three approvals a Squads transaction needs. The other three members
+  > (`3Qj4v9…`, `7ZDJ…`, `9gACbz…`) are Mr. McRitchie's own wallets, deliberately
+  > filed in **no vault at all**. **Filing even ONE of them into agent-readable
+  > storage hands the agent the threshold outright.** Not three filings — one.
+  > If a ceremony needs his approvals, he gives them; the unblock is a
+  > signature, never a filing.
+  >
+  > **On devnet that separation is already gone, by design.** The agent reaches
+  > `BLSBw8…`, `8K81…` and `2eGs8G3w…` — three of five, the threshold — and can
+  > upgrade unattended. That is appropriate for a test cluster and it is exactly
+  > why a devnet rehearsal proves nothing about the mainnet ceremony.
   >
   > **TWO AUTHORITIES. THEY ARE STILL SEPARATE SYSTEMS, BUT ON MAINNET THEIR
   > MEMBERSHIP HAS CONVERGED — AND NOT BY DESIGN.** Re-measured at `finalized`
