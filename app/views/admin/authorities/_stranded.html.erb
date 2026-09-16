@@ -1,0 +1,99 @@
+<%# locals: (rotation:, plan:, identities:) %>
+<%#
+  AN EVICTION WHOSE BROADCAST ANSWER WE NEVER GOT.
+
+  ── WHY THIS PANEL EXISTS AT ALL ─────────────────────────────────────────
+
+  The row is `submitted` and CLAIMED, and that is correct: the claim is what
+  stops a rotation that already landed being sent a second time. On this page
+  a second attempt would be authorized by the very keys the first one evicted,
+  so it fails `Unauthorized` and reads to the operator like his eviction did
+  not work — mid-incident, on the one control he has.
+
+  What was wrong was that `#show` scoped the console to `.pending`, so the row
+  simply DISAPPEARED and the planner rendered in its place. The evidence was
+  gone and the only remedy left was a Rails console, which resolves an incident
+  by deleting the record of it (/tasks/stranded-eviction-has-no-door).
+
+  ── WHAT THIS PANEL MAY AND MAY NOT OFFER ────────────────────────────────
+
+  Exactly one action: Reconcile, which asks the CHAIN what became of this
+  signature and acts on the answer. No co-sign, no rebuild, no discard. Each of
+  those would either re-send the rotation or file a possible on-chain fact as a
+  draft that never happened.
+
+  IT RENDERS BEFORE THE `vault.nil?` REFUSAL, on purpose. Surfacing this row
+  needs no chain read — it is a database fact — and the RPC that lost the
+  broadcast's answer is the same RPC that feeds this page, so the two failures
+  arrive together. A refusal meant to stop a rotation being PLANNED blind must
+  not also take away the only way to resolve one already sent.
+%>
+<div class="rounded-lg border border-subtle bg-surface-alt p-3 mb-4"
+     data-eviction-stranded
+     data-eviction-slug="<%= rotation.slug %>">
+  <p class="text-xs font-bold uppercase tracking-wide text-danger-ink mb-2">
+    Broadcast — the chain's answer was never read back
+  </p>
+
+  <p class="text-sm text-secondary mb-3">
+    This eviction was sent and the reply was lost. It may have landed. It stays
+    claimed and will <strong>not</strong> be re-sent, because a second rotation
+    would be authorized by the keys the first one just removed — it would fail
+    and read like the eviction had not worked.
+  </p>
+
+  <% if plan.present? %>
+    <div class="grid gap-4 sm:grid-cols-2 mb-3">
+      <div>
+        <p class="label-upper text-3xs text-muted mb-1">Signer set it started from</p>
+        <ul class="space-y-1.5">
+          <% Array(plan[:current]).each do |address| %>
+            <%= render "armed_wallet", address: address, user: identities[address],
+                       tone: (Array(plan[:evicted]).include?(address) ? "text-danger-ink line-through" : "text-heading") %>
+          <% end %>
+        </ul>
+      </div>
+      <div>
+        <p class="label-upper text-3xs text-muted mb-1">Signer set it was writing</p>
+        <ul class="space-y-1.5">
+          <% Array(plan[:proposed]).each do |address| %>
+            <%= render "armed_wallet", address: address, user: identities[address],
+                       tone: (Array(plan[:added]).include?(address) ? "text-primary" : "text-heading") %>
+          <% end %>
+        </ul>
+      </div>
+    </div>
+  <% end %>
+
+  <% if rotation.tx_signature.present? %>
+    <p class="label-upper text-3xs text-muted mb-1">Transaction</p>
+    <p class="font-mono text-2xs break-all text-heading mb-3"><%= rotation.tx_signature %></p>
+
+    <%= button_to "Reconcile against the chain",
+                  admin_reconcile_authority_rotation_path(rotation.slug),
+                  method: :post, class: "btn btn-primary btn-sm" %>
+
+    <p class="mt-2 text-3xs text-muted">
+      Reconcile asks the chain about this exact signature. If it landed, the row
+      is left alone and you read the signer set back below — that read, not a
+      status flag, is the authoritative answer on this page. If it failed on
+      chain, or its blockhash window has lapsed so it can never land, the
+      eviction is armed again and can be rebuilt. While it may still land,
+      nothing changes and you reconcile again shortly.
+    </p>
+  <% else %>
+    <%# LEGACY: claimed with no signature. `#claim_for_broadcast!` cannot produce
+        this state any more — it stamps the signature in the same statement that
+        takes the claim — but rows claimed by the older code have no handle to
+        ask the chain with, and #reconcile would refuse them. Showing the button
+        anyway would teach an operator mid-incident that the remedy is broken. %>
+    <p class="text-sm text-warning-ink">
+      This eviction was claimed by an older version of this console, which did
+      not record the transaction's signature — so there is no handle to ask the
+      chain with, and it cannot be reconciled here. Read the vault signer set
+      below to see what the chain actually holds. If it did not change, find the
+      transaction on chain and post its signature through the treasury console's
+      confirm step, which verifies it before writing anything.
+    </p>
+  <% end %>
+</div>

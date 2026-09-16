@@ -89,7 +89,16 @@
     for a stolen vault key, and it is irreversible without another rotation.
   </p>
 
-  <% if vault.nil? %>
+  <%# A CLAIMED ROW IS ANSWERED FIRST, AHEAD OF THE UNREADABLE-VAULT REFUSAL.
+      Surfacing it needs no chain read, and the refusal below exists to stop a
+      rotation being PLANNED blind — a different act from resolving one already
+      sent. The RPC that lost the broadcast's answer is the same RPC this page
+      reads, so the two failures arrive together; letting the second hide the
+      first is how a stranded eviction became a Rails console. %>
+  <% if rotation&.submitted? %>
+    <%= render "stranded", rotation: rotation, plan: plan, identities: identities %>
+
+  <% elsif vault.nil? %>
     <p class="text-sm text-warning-ink">
       The vault signer set could not be read, so nothing can be planned against
       it. Refusing to guess.
