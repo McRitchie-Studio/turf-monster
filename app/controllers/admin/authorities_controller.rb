@@ -46,7 +46,7 @@ module Admin
   # `7auwTL…`, so a system+admin holder reaches 2 of 5 there, not 1 of 4.
   class AuthoritiesController < ApplicationController
     before_action :require_admin
-    before_action :set_pending_rotation, only: [:rebuild, :broadcast, :cancel]
+    before_action :set_pending_rotation, only: [:rebuild, :broadcast, :cancel, :reconcile]
 
     TX_TYPE = "update_signers".freeze
 
@@ -218,28 +218,37 @@ module Admin
       render json: { error: e.message }, status: :unprocessable_entity
     end
 
-    # Simulate, broadcast, RECORD THE SIGNATURE, verify, read back.
+    # RECORD WHAT IS ABOUT TO GO OUT, simulate, broadcast, verify, read back.
     #
-    # ── THE SIGNATURE IS STAMPED THE INSTANT THE BROADCAST RETURNS ──────────
+    # ── THE SIGNATURE IS STAMPED BEFORE THE BROADCAST, NOT AFTER IT ─────────
     #
-    # Before verification, not after, and by `update_columns` so no validation
-    # or callback can stand between a landed transaction and the record of it.
+    # It never comes from the RPC: a transaction's signature is the first 64
+    # bytes of its own signed wire, so `Solana::Vault#signature_for_wire` reads
+    # it here and `PendingTransaction#claim_for_broadcast!` writes it in the
+    # same conditional UPDATE that takes the claim. A broadcast whose answer is
+    # lost therefore leaves a row that still names its transaction, and
+    # #reconcile can ask the chain what became of it.
     #
-    # The treasury path stamps it AFTER `TxVerifier.verify!` (see
-    # Admin::PendingTransactionsController#verify_and_record_cosign!), so a
-    # transaction that LANDED but whose verification flaked — a slow RPC, a
-    # commitment that has not caught up — leaves the row `pending` with no
-    # signature, and therefore re-broadcastable. That is filed separately as
-    # /tasks/broadcast-records-signature-late and is not fixed here; what is
-    # fixed here is that this NEW path does not inherit the shape. On this
-    # surface the consequence would be worse than a double payout: a second
-    # rotation attempt after the first landed is authorized by keys the first
-    # one just evicted, so it fails `Unauthorized` and reads to the operator
-    # like his eviction did not work — mid-incident, on the one control he has.
+    # The treasury path stamped it AFTER `TxVerifier.verify!`, so a transaction
+    # that LANDED but whose verification flaked — a slow RPC, a commitment that
+    # has not caught up — was left `pending` with no signature, and therefore
+    # re-broadcastable. That was /tasks/broadcast-records-signature-late, and it
+    # is now FIXED: `Admin::PendingTransactionsController#broadcast` takes the
+    # claim the same way, because the rule lives on the model
+    # (`PendingTransaction#claim_for_broadcast!` / `#rewind_broadcast!`) rather
+    # than in either controller, so the two cannot drift on what decides whether
+    # money moves twice. That is the ONLY shape they share, and the claim about
+    # it is deliberately narrow: their `#rebuild` siblings still differ — the
+    # treasury's re-checks `pending` inside its UPDATE, and this one does not.
+    #
+    # The consequence here is worse than a double payout: a second rotation
+    # attempt after the first landed is authorized by keys the first one just
+    # evicted, so it fails `Unauthorized` and reads to the operator like his
+    # eviction did not work — mid-incident, on the one control he has.
     #
     # A row left `submitted` is therefore the SAFE failure: the signature is on
-    # the record, the pending? guard refuses a re-broadcast, and the read-back
-    # below tells him what actually happened on chain regardless.
+    # the record, the claim refuses a re-broadcast, and the read-back below
+    # tells him what actually happened on chain regardless.
     def broadcast
       rescue_and_log(target: @tx) do
         raise "This eviction is #{@tx.status}, not pending" unless @tx.pending?
@@ -249,17 +258,42 @@ module Admin
         signed_tx = params[:signed_tx].to_s
         raise "Signed transaction required" if signed_tx.blank?
 
-        # THE COUNT IS CHECKED, not merely each address's membership. This is
-        # the half `Admin::VaultStateController#confirm` omits — it validates
-        # every extra signer it is GIVEN and never that it was given enough, so
-        # a three-signature action can be recorded on one proven signature.
+        # THE COUNT IS CHECKED, not merely each address's membership — one
+        # proven signature must never be recorded as authorization for a
+        # multi-signature act. `Admin::VaultStateController#confirm` omitted this
+        # half and now runs the same check through `CosignPlan#validate_extras!`.
         claimed = require_signer_queue!(plan)
 
-        signature = vault.simulate_and_broadcast(signed_tx)
+        # THE SIGNATURE IS A FACT ABOUT THE BYTES, read before the claim so a
+        # malformed wire is refused without stranding one. `vault` is already
+        # warmed by `revalidate!` above, so its constructor cannot raise inside
+        # the claimed window.
+        signature = vault.signature_for_wire(signed_tx)
 
-        # DURABLE, IMMEDIATELY, BEFORE ANYTHING ELSE CAN RAISE.
-        @tx.update_columns(tx_signature: signature, status: "submitted",
-                           updated_at: Time.current)
+        # CLAIM THE ROW BEFORE THE WIRE GOES OUT, recording what is about to go
+        # out in the same statement. `pending?` above is a READ; two concurrent
+        # requests both pass it and both broadcast. See
+        # PendingTransaction#claim_for_broadcast!.
+        unless @tx.claim_for_broadcast!(signature)
+          raise "This eviction is already being broadcast (it is now #{@tx.status}) — " \
+                "read the signer set back rather than sending a second rotation."
+        end
+
+        begin
+          vault.simulate_and_broadcast(signed_tx)
+        rescue Solana::Vault::PreflightRejected
+          # PROVABLY UN-SENT — the simulation refused it or could not be run, so
+          # the send was never made. Rewind, naming the signature being cleared,
+          # so a program refusal stays retryable.
+          #
+          # Only this type. A failure of the SEND is never a proof: Solana::Client
+          # retries the faults that mean "the answer was lost" and surfaces only
+          # the last one, so a coded error can follow an attempt that already
+          # forwarded the wire (Solana::Vault#simulate_and_broadcast). Such a row
+          # keeps its claim and its signature, and #reconcile asks the chain.
+          @tx.rewind_broadcast!(signature)
+          raise
+        end
 
         verify_landed!(signature: signature, claimed: claimed)
 
@@ -289,6 +323,47 @@ module Admin
 
     # Discard an armed eviction. Refuses once a signature exists — a row that
     # has broadcast is a historical fact, not a draft.
+    # THE DOOR OUT OF AN EVICTION WHOSE BROADCAST ANSWER WE NEVER GOT.
+    #
+    # The sibling of Admin::PendingTransactionsController#reconcile and the same
+    # model call, because a stranded rotation is the same failure as a stranded
+    # settle. Without it #cancel would refuse the row forever — it refuses to
+    # discard anything carrying a signature, and a claim now always records one.
+    #
+    # A :landed row is left alone: on this page the authoritative answer is the
+    # signer set read back off the chain, not a status flag, so the operator is
+    # sent to re-read it rather than having state flipped here.
+    def reconcile
+      rescue_and_log(target: @tx) do
+        unless @tx.awaiting_broadcast_verdict?
+          raise "This eviction is #{@tx.status} with no recorded signature — nothing to reconcile."
+        end
+
+        signature = @tx.tx_signature
+        status = vault.client.confirm_transaction(signature).dig("value", 0)
+
+        notice =
+          case @tx.reconcile_broadcast!(status)
+          when :landed
+            "This rotation LANDED on chain (#{signature}). Read the signer set back to see " \
+            "what the vault holds now; it will not be re-broadcast."
+          when :failed
+            "This rotation landed and FAILED on chain (#{signature}), so the signer set did " \
+            "not change. The eviction is armed again and can be rebuilt."
+          when :never_landed
+            "This rotation never landed and its blockhash window has lapsed, so it can never " \
+            "land. The eviction is armed again and can be rebuilt."
+          else
+            "Still unresolved — the rotation may yet land, so it stays claimed. Do not " \
+            "re-send it; reconcile again shortly."
+          end
+
+        redirect_to admin_authorities_path, notice: notice
+      end
+    rescue StandardError => e
+      redirect_to admin_authorities_path, alert: "Reconciliation failed: #{e.message}"
+    end
+
     def cancel
       # THE GUARD IS NOT AN ERROR. Raising it inside `rescue_and_log` sends an
       # EXPECTED operator refusal through `ErrorLog.capture!`, which writes a
@@ -300,6 +375,19 @@ module Admin
         return redirect_to admin_authorities_path,
                            alert: "This eviction already broadcast (#{@tx.tx_signature}); " \
                                   "it cannot be discarded."
+      end
+
+      # A LEGACY CLAIMED ROW WHOSE ANSWER WAS LOST IS NOT A DRAFT EITHER. It
+      # carries no signature, so the check above waves it through — but its wire
+      # may be on the chain, and marking it `expired` would file a possible
+      # rotation as one that never happened. Only rows claimed by the OLDER code
+      # can be in this state; a claim now stamps its signature, so a modern
+      # stranded row is caught by the `tx_signature.present?` check above and
+      # cleared by #reconcile rather than by hand.
+      if @tx.awaiting_reconciliation?
+        return redirect_to admin_authorities_path,
+                           alert: "This eviction was broadcast and the result was not read back, " \
+                                  "so it may be on chain. Read the signer set before discarding it."
       end
 
       rescue_and_log(target: @tx) do

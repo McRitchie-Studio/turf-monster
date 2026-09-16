@@ -277,7 +277,7 @@ Phantom must be installed in the browser or available via mobile deep link.
        (`:1411-1414`).
      - `Solana::Vault#cosign_and_broadcast_entry` (`:1420`) fills the admin
        slot, runs a `simulate_transaction` pre-flight, then sends and waits for
-       confirmation (`app/services/solana/vault.rb:3608-3628`).
+       confirmation (`app/services/solana/vault.rb:3634-3654`).
      - The `PendingTransaction` is stamped `submitted` with the signature
        (`app/controllers/contests_controller.rb:1432`) — IMMEDIATELY after
        broadcast and BEFORE the verification below. That order is the A1
