@@ -482,10 +482,33 @@ before walking away.
 **Membership and threshold — stated here once, for both clusters.** Every other
 mention in this doc defers to this paragraph; a second number written down
 somewhere else is how this section spent four review rounds disagreeing with
-itself. Measured off chain on **2026-09-15**: each multisig carries **five
-members and a threshold of three**, and all five hold mask `7`
-(`Initiate|Vote|Execute`) — so there are five voters against a threshold of
-three, with two to spare on either cluster.
+itself. Re-measured **on chain** at `finalized` on **2026-09-15**, through two
+independent RPC providers and a raw-byte check of the member offsets: each
+multisig carries **five members and a threshold of three**, and all five hold
+mask `7` (`Initiate|Vote|Execute`) — so there are five voters against a
+threshold of three, with two to spare on either cluster.
+
+**The two clusters do not carry the same five.** Three seats are shared
+(`3Qj4v9…`, `7ZDJ…`, `BLSBw8…`); the other two differ:
+
+| | devnet `7nRuVw3V…` | mainnet `4H3fP3ot…` |
+|---|---|---|
+| shared | `3Qj4v9…`, `7ZDJ…`, `BLSBw8…` | `3Qj4v9…`, `7ZDJ…`, `BLSBw8…` |
+| cluster-only | `2eGs8G3w…` (`solana.turf.system.devnet`), `8K81…` (Xan) | `7auwTLSv…` (`solana.turf.system`), `9gACbz…` |
+
+Two consequences that are easy to get wrong, and both were written down wrong
+before: **Xan `8K81…` was removed from MAINNET only and is still seated on
+devnet** — "removed from both" is false — while **Mason `CytJ…` really is absent
+from both**.
+
+⚠ **The hot system keys hold upgrade authority, against stated policy.**
+`7auwTLSv…` is a full mask-`7` member here and simultaneously the key in
+`turf-monster-mainnet`'s Heroku config that signs every entry and every payout;
+`2eGs8G3w…` is the same on devnet. Every other doc in this ecosystem says these
+keys are "deliberately excluded from Squads". The policy is right and the chain
+does not implement it. Removing them is a Squads config transaction with Mr.
+McRitchie's signature, tracked as its own task — not a doc edit, and not
+something to quietly restate as satisfied.
 
 What that buys the agent differs by cluster, and it is the whole reason step 1
 of the ceremony reads differently on each:
@@ -514,9 +537,17 @@ m.accounts.Multisig.fromAccountAddress(new Connection(rpc),new PublicKey(pda))
 `turf-vault/scripts/squad-upgrade.js` asks the same question itself before it
 spends anything, and refuses the run if the keys in hand cannot both approve and
 execute — so the ceremony fails at the planner rather than halfway through, with
-a paid-for buffer and no way to finish. **Funding is not the blocker:** the
-mainnet fee payer `BLSBw8…` holds 3.58 SOL against a ~2.76 SOL buffer
-requirement.
+a paid-for buffer and no way to finish. **Funding is not the blocker.** Re-measured at `finalized` on 2026-09-15: the
+mainnet fee payer `BLSBw8…` holds `3576585239` lamports (3.5766 SOL). An
+**upgrade** needs a buffer sized `37 + 545928` bytes, which rents for
+`2768874320` lamports (2.7689 SOL) — and that rent is **refunded** when the
+upgrade completes, so it is a float, not a cost. Roughly 0.81 SOL of headroom.
+Do not size this off the ProgramData account's own balance: `BCuQEkMK…` holds
+3.8009 SOL, which is the rent already paid on a 545,973-byte account, not a
+figure anyone has to raise. The figure to watch instead is **capacity**:
+ProgramData carries 545,928 bytes of executable room and v0.25's `.so` is
+exactly 545,928 bytes, so a v0.26 even one byte larger needs
+`solana program extend` first — and that rent is NOT refunded.
 **In Rails, read the vault PDA from `Solana::Config.squads_vault_pda` — never as a literal.** It resolves `SOLANA_SQUADS_VAULT_PDA` first (via `.presence`, so an EMPTY value falls through rather than resolving to blank), then falls back to a NETWORK-keyed default (mainnet-beta -> `Bk9s…GdJm`, anything else -> `BW13…H6kC`), so a mainnet build cannot present a devnet authority by omission.
 
 **Neither deployed app sets that variable — the key is ABSENT, not empty.** So the NETWORK-keyed default is the production path on both clusters, and the env var is a runbook escape hatch for pointing an app at a fresh Squad. `SOLANA_NETWORK` is therefore what actually selects the authority: `mainnet-beta` on `turf-monster-mainnet`, `devnet` on `turf-monster-qa` (both present and non-empty).
