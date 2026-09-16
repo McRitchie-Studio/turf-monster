@@ -245,12 +245,34 @@ connected and says in words that the balances below belong to the session wallet
 not to it. The balance tiles dim on the same condition — as reinforcement only,
 since a dim is invisible to a screen reader and means nothing on its own.
 
-This matters most where the modal is **suppressed**. An operator cosign ceremony
-declares the wallets it will legitimately walk through via
-`$store.wallet.expectSwitchesTo(...)`, which keeps the blocking card from opening
-over a half-collected treasury transaction; before this, the page behind it went
-on presenting the session wallet's address and balances at full confidence, and
-nothing on screen said the wallet had changed at all.
+**This notice does not reach the cosign ceremony, and the earlier claim that it
+did was wrong.** An operator cosign ceremony declares the wallets it will
+legitimately walk through via `$store.wallet.expectSwitchesTo(...)`
+(`app/javascript/solana_stores.js:349`), which keeps the blocking card from
+opening over a half-collected treasury transaction. That call has exactly two
+sites — `app/javascript/cosign.js:271` and
+`app/views/admin/vault_state/show.html.erb:294` — but **three admin surfaces
+reach them**. `cosignTransaction` is a global, so any page may wire a button to
+it: `/admin/pending_transactions` and `/admin/authorities`
+(`app/views/admin/authorities/_eviction.html.erb:188`, which reuses the same
+signer roster) both reach the `cosign.js` call, and `/admin/vault_state` carries
+its own. **Count the `data-cosign-controls` blocks, not the call sites**, when
+this list next needs checking — a fourth surface costs one button and no new
+call site. **None of the three renders the account card**, which is mounted only
+by `app/views/accounts/show.html.erb:119` and by `/profile` through the engine
+section registry (`config/initializers/studio.rb:148`). An Alpine store is
+per-document, so `expectedSwitchAddresses`
+(`app/javascript/solana_stores.js:70`) is always empty on the account page and a
+suppressed switch cannot occur there at all.
+
+What actually guards the ceremony is the exemption's narrowness, not a notice:
+`_notifySwitch` (`app/javascript/solana_stores.js:357`) returns early only for a
+DECLARED address (`app/javascript/solana_stores.js:364`), so a switch to any
+other wallet still raises the non-dismissible card mid-ceremony. The residual is
+real and is stated here rather than papered over: **all three ceremony surfaces
+carry no page-level wallet signal at all** — tracked as
+`ceremony-page-lacks-wallet-signal`, which is scoped to all three, not closed by
+this notice.
 
 The session's own address stays **server-rendered** and does not follow the
 browser wallet. Until the player completes the handoff the new wallet is not this
