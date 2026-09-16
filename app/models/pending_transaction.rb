@@ -24,6 +24,16 @@ class PendingTransaction < ApplicationRecord
   scope :pending, -> { where(status: "pending") }
   scope :confirmed, -> { where(status: "confirmed") }
 
+  # CLAIMED, VERDICT NOT YET IN — the same state `#awaiting_broadcast_verdict?`
+  # and `#awaiting_reconciliation?` describe for a row already in hand.
+  #
+  # It exists because those two predicates cannot be asked of a row nobody has
+  # FOUND yet, and a console that must find one had no scope to reach for but
+  # `.pending` — which excludes exactly these rows.
+  # /admin/authorities did that, and a stranded eviction disappeared from the
+  # one page that exists to resolve it (/tasks/stranded-eviction-has-no-door).
+  scope :submitted, -> { where(status: "submitted") }
+
   # What the operator is actually being asked to sign — `pending` minus the rows
   # marked stale. This is the ONLY count the Signatures badge should ever show:
   # `pending` alone was 11 on production the day the badge was built, and 10 of
@@ -45,6 +55,15 @@ class PendingTransaction < ApplicationRecord
 
   def confirmed?
     status == "confirmed"
+  end
+
+  # CLAIMED — the wire went out (or may have) and no verdict has settled it.
+  # The union of `#awaiting_broadcast_verdict?` and `#awaiting_reconciliation?`,
+  # which split the same status on whether the row names its transaction. A
+  # surface that must decide WHETHER to show the row asks this; one that must
+  # decide WHAT TO OFFER asks the two below it.
+  def submitted?
+    status == "submitted"
   end
 
   # ════════════════════════════════════════════════════════════════════════

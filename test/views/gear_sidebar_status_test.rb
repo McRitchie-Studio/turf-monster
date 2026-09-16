@@ -231,12 +231,90 @@ class GearSidebarStatusTest < ActionDispatch::IntegrationTest
   end
 
   # ── THE ROWS THAT LEFT ──────────────────────────────────────────────────
-  test "[component] the quest-backed rows the status line now carries are gone" do
-    render_sidebar(tokens: 0, quest: :chat) do |body|
-      gear = body[body.index('id="gear-sidebar"'), 9000]
+  #
+  # THE WHOLE QUEST LADDER LEFT THE BODY, not just the two rows named in the
+  # first pass. Every row in it opened the same modal or linked the same contest
+  # the status line above it already does, on the same condition, so the panel
+  # showed each nudge twice: "Quest: Join a Contest" in the lead and "Join
+  # contest" three rows below. The header is the survivor because it is the
+  # panel's most valuable row and the line is actionable.
+  #
+  # STATED AS A PROPERTY OF THE PANEL, NOT A LIST OF STRINGS. A test that only
+  # refutes today's four labels passes the moment someone adds a fifth rung with
+  # a new label, which is exactly the regression it exists to catch. So the
+  # assertion is: for every rung, the nudge appears ONCE in the gear.
+  QUEST_NUDGE_TARGETS = {
+    join:       :contest_link,
+    username:   "$store.modals.open('username')",
+    chat:       :contest_link,
+    newsletter: "$store.modals.open('newsletter-subscribe')"
+  }.freeze
 
-      refute_includes gear, "Send a message",
-        "the header status line carries this nudge now"
+  # ONE panel, not the whole response. The status line and the body nav each
+  # render into BOTH the desktop and the mobile panel - two independent Alpine
+  # scopes, which the precedence tests above depend on - so a count taken over
+  # the response is doubled by design, and a doubled expectation would hide a
+  # real second copy.
+  def desktop_panel(body)
+    from = body.index('id="gear-sidebar"')
+    to   = body.index('id="gear-sidebar-mobile"')
+    assert from, "the gear panel must render"
+    assert to, "the mobile gear panel must render"
+    body[from...to]
+  end
+
+  test "[component] the quest nudge renders once" do
+    QUEST_NUDGE_TARGETS.each_key do |rung|
+      render_sidebar(tokens: 0, quest: rung) do |body|
+        panel = desktop_panel(body)
+        label = ApplicationHelper::GEAR_QUEST_LABELS.fetch(rung)
+
+        assert_equal 1, panel.scan("Quest: #{label}").length,
+          "the :#{rung} nudge must appear exactly once in the panel"
+        assert_equal 1, panel.scan('data-gear-status-quest="true"').length,
+          "the status line is the ONE quest surface - a body row keyed on " \
+          "next_quest re-creates the duplication this task removed"
+      end
+    end
+  end
+
+  test "[component] the body nav carries no quest rows at all" do
+    # The labels the dropped ladder used, named explicitly so a revert is loud.
+    # Paired with the property test above rather than standing alone.
+    %i[join username chat newsletter].each do |rung|
+      render_sidebar(tokens: 0, quest: rung) do |body|
+        panel = desktop_panel(body)
+        nav   = panel[panel.index('aria-label="Settings links"')..]
+
+        ["Join contest", "Pick a username", "Join newsletter",
+         "Send a message", "Invite a friend"].each do |row|
+          refute_includes nav, row,
+            "on the :#{rung} rung the body nav still carries the '#{row}' row"
+        end
+      end
+    end
+  end
+
+  test "[component] dropping the rows did not drop the destinations" do
+    # The rows were safe to drop ONLY because the lead carries what they carried.
+    # If a rung ever loses its destination this reddens instead of the panel
+    # quietly going inert.
+    QUEST_NUDGE_TARGETS.each do |rung, target|
+      render_sidebar(tokens: 0, quest: rung) do |body|
+        block = status_block(body)
+
+        if target == :contest_link
+          # Attribute ORDER is not guaranteed - Rails renders class, then the
+          # data attribute, then href - so match the tag, then look inside it.
+          anchor = block[/<a [^>]*data-gear-status-quest="true"[^>]*>/]
+          assert anchor, "the :#{rung} rung must render its status line as an anchor"
+          assert_match(/href="[^"]+"/, anchor,
+            "the :#{rung} rung must still LINK the contest its row linked")
+        else
+          assert_includes block, target,
+            "the :#{rung} rung must still open the modal its row opened"
+        end
+      end
     end
   end
 

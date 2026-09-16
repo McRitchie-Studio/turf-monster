@@ -1,0 +1,225 @@
+<% content_for :title, "Quest Walk — Turf Monster (dev)" %>
+
+<%# THE QUEST WALKTHROUGH. A development-only page for driving one user up and
+    down the quest ladder so the gear sidebar's lead line can be seen in every
+    state it has. It exists because the ladder is six states deep and five of
+    them are reachable only by doing the quest for real - entering a contest,
+    changing a username on chain, sending a chat message - and the sixth
+    (a free entry) was not reachable live at all: development runs :null_store,
+    and the badge is cache-first.
+
+    THE GATE IS NOT IN THIS FILE. config/routes.rb draws the route dev/test-only
+    and TestController refuses the request outside dev/test. Both are documented
+    above TestController::QUEST_WALK_RUNGS. %>
+
+<div class="mx-auto w-full max-w-3xl px-4 py-6 sm:py-10">
+
+  <span class="badge bg-warning/10 text-warning border-warning/40">Development only</span>
+  <h1 class="mt-3 text-2xl sm:text-3xl font-extrabold text-heading">Quest Walk</h1>
+  <p class="mt-2 text-sm sm:text-base text-body">
+    Move yourself to any rung and watch the gear sidebar&rsquo;s lead line change.
+    Every button rewrites your own quest columns, so this page never exists outside development.
+  </p>
+
+  <% if current_user.nil? %>
+    <div class="empty-state mt-6">
+      <p class="text-body">Sign in first &mdash; the walkthrough drives the signed-in user.</p>
+      <%= link_to "Go to sign in", login_path, class: "btn btn-primary mt-4" %>
+    </div>
+  <% else %>
+    <%
+      free  = display_entry_token_count.to_i
+      nq    = current_user.next_quest
+      label = gear_quest_label(current_user)
+      lead  = if free.positive?
+                "#{free} Free #{'Entry'.pluralize(free)}"
+              elsif label
+                label
+              else
+                current_user.display_name
+              end
+      rung_now = free.positive? ? :free_entry : nq
+
+      # Row order IS the priority order the sidebar renders in: the free-entry
+      # badge outranks every quest client-side, then the four completable rungs,
+      # then the username alone. :invite is last and carries NO quest label -
+      # the model calls it "terminal, ongoing", so it is the state in which the
+      # lead falls through to the name.
+      rows = [
+        { key: :free_entry, n: 1, name: "A free entry on the wallet",
+          lead: "2 Free Entries", how: "the sparkle badge, client-side",
+          note: "Outranks whatever rung you are on - set a rung first, then click this, and watch the badge take the line.",
+          params: { free_entries: 2 } },
+        { key: :join, n: 2, name: "Quest: join a contest",
+          lead: "Quest: Join a Contest", how: "links the main contest",
+          note: "The one rung before the ladder unlocks - contest_entered is false.",
+          params: { rung: "join", free_entries: 0 } },
+        { key: :username, n: 3, name: "Quest: customize username",
+          lead: "Quest: Customize Username", how: "opens the username modal",
+          note: "First rung after entering. The modal is the same one /account opens.",
+          params: { rung: "username", free_entries: 0 } },
+        { key: :chat, n: 4, name: "Quest: send a message",
+          lead: "Quest: Send a Message", how: "links the main contest",
+          note: "This nudge used to render twice - here and as a body row.",
+          params: { rung: "chat", free_entries: 0 } },
+        { key: :newsletter, n: 5, name: "Quest: join the newsletter",
+          lead: "Quest: Join the Newsletter", how: "opens the newsletter modal",
+          note: "Last completable rung.",
+          params: { rung: "newsletter", free_entries: 0 } },
+        { key: :invite, n: 6, name: "Ladder finished - the username alone",
+          lead: current_user.display_name, how: "plain text, no link",
+          note: "next_quest rests on :invite forever. It is deliberately absent from GEAR_QUEST_LABELS, which is the only reason this state is reachable.",
+          params: { rung: "invite", free_entries: 0 } }
+      ]
+    %>
+
+    <%# ── WHERE YOU ARE NOW ─────────────────────────────────────────────── %>
+    <%# data-quest-walk-state is the page's ONE machine-readable fact: which of
+        the six states the sidebar is actually in. It exists because every button
+        here POSTs to this same path and redirects back to it, so a browser
+        driver cannot wait on the URL changing - it never does. Waiting on this
+        attribute is waiting on the POST having landed. %>
+    <section class="card p-4 sm:p-5 mt-6" data-quest-walk-state="<%= rung_now %>" data-quest-walk-free="<%= free %>">
+      <div class="label-upper">The gear panel leads with</div>
+      <p class="mt-1 text-xl sm:text-2xl font-extrabold text-heading break-words"><%= lead %></p>
+
+      <%# NO @click ON THIS BUTTON, AND THAT IS DELIBERATE. The sidebar opens
+          through the layout's document-level handleGearSidebarClick, which
+          matches [data-gear-sidebar-trigger] plus aria-controls and then calls
+          stopImmediatePropagation so the panel's own @click.outside cannot
+          close what the same click just opened. The navbar trigger pairs that
+          with @click.stop because it sits inside an Alpine scope; this button
+          does not, so an Alpine handler here would fire, set the store, and
+          then let the document handler toggle it straight back - one click,
+          no visible change. Carrying only the attributes leaves exactly one
+          handler in play. %>
+      <button type="button"
+              data-gear-sidebar-trigger="true"
+              data-quest-walk-trigger="true"
+              aria-controls="gear-sidebar gear-sidebar-mobile"
+              aria-haspopup="dialog"
+              class="btn btn-primary mt-4 w-full sm:w-auto">
+        Open the gear sidebar
+      </button>
+
+      <dl class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm border-t border-subtle pt-4">
+        <% [["next_quest", nq.inspect],
+            ["free entries (this session's wallet)", free],
+            ["contest_entered", current_user.contest_entered?],
+            ["username_changed_at", current_user.username_changed_at&.strftime("%b %-d, %-l:%M %p") || "-"],
+            ["first_chat_message_at", current_user.first_chat_message_at&.strftime("%b %-d, %-l:%M %p") || "-"],
+            ["joined_email_list_at", current_user.joined_email_list_at&.strftime("%b %-d, %-l:%M %p") || "-"],
+            ["entry-token wallet", @walk_wallet.presence || "none yet"],
+            ["Rails.cache store", @walk_store]].each do |term, value| %>
+          <div class="flex items-baseline justify-between gap-3 sm:block">
+            <dt class="label-upper shrink-0"><%= term %></dt>
+            <dd class="text-body font-medium break-all text-right sm:text-left"><%= value %></dd>
+          </div>
+        <% end %>
+      </dl>
+
+      <p class="mt-4 text-xs text-muted">
+        The entry-token wallet is minted on first use if you have none, and the cache store is swapped to a
+        MemoryStore when development is running <code class="text-secondary">:null_store</code> &mdash; otherwise the
+        badge could never paint. Both are printed above so neither is invisible; a server restart undoes the swap.
+      </p>
+    </section>
+
+    <%# ── THE SIX STATES ────────────────────────────────────────────────── %>
+    <h2 class="mt-8 text-lg font-bold text-heading">The six states</h2>
+    <p class="mt-1 text-sm text-muted">Each button lands you on that state and reopens the panel.</p>
+
+    <ol class="mt-4 space-y-3">
+      <% rows.each do |row| %>
+        <% here = (row[:key] == rung_now) %>
+        <li class="card p-4 <%= here ? 'border-primary/60' : '' %>">
+          <div class="flex items-start gap-3">
+            <span class="shrink-0 flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold
+                         <%= here ? 'bg-primary/15 text-primary' : 'bg-surface-alt text-muted' %>"><%= row[:n] %></span>
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-2">
+                <h3 class="font-bold text-heading"><%= row[:name] %></h3>
+                <% if here %>
+                  <span class="badge bg-primary/10 text-primary border-primary/30">You are here</span>
+                <% end %>
+              </div>
+              <p class="mt-1 text-sm text-body">
+                Lead line reads <span class="font-bold text-heading">&ldquo;<%= row[:lead] %>&rdquo;</span>
+                <span class="text-muted">&mdash; <%= row[:how] %></span>
+              </p>
+              <p class="mt-1 text-xs text-muted"><%= row[:note] %></p>
+
+              <%= button_to "Put me here",
+                            set_quest_walk_path,
+                            params: row[:params].merge(open: 1),
+                            class: "btn btn-secondary btn-sm mt-3 w-full sm:w-auto",
+                            form_class: "mt-0" %>
+            </div>
+          </div>
+        </li>
+      <% end %>
+    </ol>
+
+    <p class="mt-6 text-xs text-muted">
+      Body rows: the panel carries no quest rows any more. Every one of them repeated this lead line, on the same
+      condition, to the same destination.
+    </p>
+  <% end %>
+</div>
+
+<% if current_user %>
+  <%# HOLD THE FREE-ENTRY COUNT AGAINST A STALE HYDRATE.
+      Measured 2026-09-16 on this page: every button here POSTs and redirects,
+      and window.refreshSession() from the PAGE YOU JUST LEFT is still in
+      flight - it takes about 850ms, because it makes real Helius reads. It
+      resolves onto the NEW page and calls updateNavTokens with the count it
+      read a second ago, so the badge you just staged is erased, and the count
+      you just cleared comes back. BOTH DIRECTIONS WERE OBSERVED: staging 2
+      landed on 0, and clearing to 0 landed on 2.
+      THAT RACE IS THE APP'S, NOT THIS PAGE'S. In production the count barely
+      moves, so the stale number is the right number and nobody sees it. Here it
+      changes on every click, which is the entire point of the page, so the
+      server's own number for THIS session is re-asserted through the same event
+      until it sticks. It corrects a stale fact with a fresh one and never
+      invents a count. Bounded to five seconds, and it settles the moment the
+      two agree. %>
+  <script>
+    (function () {
+      var want = <%= free %>;
+      var until = Date.now() + 5000;
+      (function tick() {
+        try {
+          var el = document.querySelector('[data-gear-status="true"]');
+          var data = el && window.Alpine && window.Alpine.$data(el);
+          if (data && data.count !== want) {
+            window.dispatchEvent(new CustomEvent("entry-tokens-updated", { detail: { count: want } }));
+          }
+        } catch (_) {}
+        if (Date.now() < until) setTimeout(tick, 250);
+      })();
+    })();
+  </script>
+<% end %>
+
+<% if params[:open] == "1" %>
+  <%# REOPEN THE PANEL AFTER A STATE CHANGE by clicking the real trigger, so the
+      open path is the same one a person uses - store write plus the layout's
+      panel sync. Alpine may not have booted when this runs (Turbo evaluates body
+      scripts on navigation), so poll for the store, bounded, and give up
+      quietly: the worst case is that the button above is still there to click. %>
+  <script>
+    (function () {
+      var tries = 0;
+      (function attempt() {
+        var ready = window.Alpine && window.Alpine.store && window.Alpine.store("sidebars");
+        if (ready) {
+          var trigger = document.querySelector("[data-quest-walk-trigger]");
+          if (trigger) trigger.click();
+          return;
+        }
+        if (++tries > 40) return;
+        setTimeout(attempt, 50);
+      })();
+    })();
+  </script>
+<% end %>

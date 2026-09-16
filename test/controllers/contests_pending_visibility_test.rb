@@ -161,7 +161,8 @@ class ContestsPendingVisibilityTest < ActionDispatch::IntegrationTest
 
   # THE SOURCE OF THE RENAME BUG, pinned where it actually lived.
   #
-  # contest_lock_picker's sync() writes `toISOString().substring(0, 16)` — no
+  # The contestLockPicker factory (shared/_alpine_factories) has a sync() that
+  # writes `toISOString().substring(0, 16)` — no
   # seconds — and init() writes it on PAGE LOAD with no operator input. While the
   # edit form emitted contest[starts_at], opening this page on a contest locked
   # at 12:34:56 by confirm_lock_time (or the QA driver) and saving a NEW NAME

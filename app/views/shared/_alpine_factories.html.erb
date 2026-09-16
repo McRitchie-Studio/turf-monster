@@ -12,9 +12,21 @@
   CDN script + the deferred importmap entry. So window.factoryName
   is guaranteed available when Alpine evaluates the x-data expression.
 
-  The companion modules at app/javascript/<name>.js remain as
-  importmap-testable duplicates; they harmlessly re-assign the same
-  window globals after Alpine has already used these inline definitions.
+  A companion module at app/javascript/<name>.js is NOT harmless, and the
+  claim that it is cost a live bug (2026-09-16, duplicate-lock-picker-diverged).
+  Re-assigning the same window global late is indeed inert — but a module that
+  ALSO calls Alpine.data("<name>", ...) registers in a table Alpine consults
+  BEFORE the global, and that registration survives a Turbo body swap while this
+  inline script re-runs. The result is arrival-path-dependent: the inline copy
+  wins a direct page load, the module wins a Turbo client-side navigation. While
+  the two agree that is invisible; the moment one is edited alone they are two
+  different components behind one name.
+
+  contestLockPicker was de-duplicated to this file alone. STILL PAIRED, and
+  carrying the same latent split: cardListFilter (app/javascript/card_list_filter.js)
+  and entryTokenBadge (app/javascript/entry_token_badge.js) — both call
+  Alpine.data(). They are currently in sync, so they are a hazard rather than a
+  bug. Edit either copy and you must edit both, or collapse it here as this one was.
 
   Add a new factory: paste it below as `window.factoryName = function(...) {...}`.
 %>
@@ -618,7 +630,36 @@
   // and routes on the SERVER's verdict, so a refusal reaches the age-gate card
   // instead of a dead end. Do not re-add a local copy.
 
-  // === contestLockPicker — /contests/new + /contests/edit calendar =
+  // === contestLockPicker — /contests/new + /contests/edit calendar =====
+  //
+  // SINGLE DEFINITION. A second copy lived in app/javascript/contest_lock_picker.js
+  // until 2026-09-16 (duplicate-lock-picker-diverged), and it was NOT the harmless
+  // mirror the header above describes: it also called
+  // Alpine.data("contestLockPicker", ...), which takes precedence over this global.
+  // Measured, the two copies served DIFFERENT components depending on arrival path
+  // — this parse-time global won a direct page load, the module won a Turbo
+  // client-side navigation — so the three on-chain methods below were missing from
+  // the component a fresh load actually bound, leaving the on-chain lock button
+  // inert. Do not re-add a module copy; add behaviour here.
+  //
+  // Differences between the two flows are handled via opts:
+  //   - opts.sport ("fifa" | "nfl"): /new only — autofires the sport default
+  //     lockDate/Time and view month on init (the FIFA/NFL pills still call
+  //     selectFifa()/selectNfl() directly for explicit user toggles).
+  //   - opts.slateId + opts.slateStarts: /new only — hydrates from the selected
+  //     slate first game kickoff before falling back to sport defaults.
+  //   - opts.utcIso (ISO 8601 string): /edit only — hydrates lockDate/Time from
+  //     the server-rendered contest.starts_at and skips the sport-default path.
+  //   - opts.onchain + opts.slug: /edit only — the contest lock lives on chain, so
+  //     the picked moment goes to Phantom (lockViaPhantom) instead of riding the
+  //     form. The view omits the hidden fields entirely in that case.
+  //
+  // Writes through hidden form fields: #contest_starts_at,
+  // #locks_at_date_selected, #locks_at_time_selected,
+  // #locks_at_timezone_selected — OPTIONAL. sync() returns early when
+  // #contest_starts_at is absent, which is exactly what an on-chain contest
+  // edit page renders: the picker still drives the UI, but nothing about the
+  // lock is submitted with the form.
   window.contestLockPicker = function (opts) {
     opts = opts || {};
     return {
@@ -722,6 +763,31 @@
       isToday: function (d) {
         var t = new Date();
         return d === t.getDate() && this.viewMonth === t.getMonth() && this.viewYear === t.getFullYear();
+      },
+
+      // Unix SECONDS for the currently picked local date+time, or null when the
+      // picker is empty. The chain stores seconds, so this is the unit the whole
+      // lock path speaks; new Date(date + "T" + time) reads the pair as LOCAL
+      // time, which is what the operator chose in front of the tz label the view
+      // prints. An hour of drift here is an hour of entries against known results.
+      pickedUnix: function () {
+        if (!this.lockDate || !this.lockTime) return null;
+        var local = new Date(this.lockDate + "T" + this.lockTime);
+        if (isNaN(local.getTime())) return null;
+        return Math.floor(local.getTime() / 1000);
+      },
+
+      lockViaPhantom: function () {
+        var ts = this.pickedUnix();
+        if (ts === null) {
+          window.alert("Pick a date and time first.");
+          return;
+        }
+        window.lockContestAtViaPhantom(opts.slug, ts);
+      },
+
+      clearLockViaPhantom: function () {
+        window.clearContestLockViaPhantom(opts.slug);
       }
     };
   };

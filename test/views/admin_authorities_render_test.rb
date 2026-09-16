@@ -755,4 +755,131 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
     assert defined_in_css.call("input-field"),
            "the engine field primitive must read as defined, or the check is unsatisfiable"
   end
+
+  # ── THE STRANDED PANEL ───────────────────────────────────────────────────
+  #
+  # /tasks/stranded-eviction-has-no-door. A claimed row whose broadcast answer
+  # was lost used to vanish from this page, because #show was scoped `.pending`.
+  # Every assertion below is about what the operator can SEE and CLICK in that
+  # state, which is the thing no server-side test of #reconcile can check: the
+  # action was already here, wired to a route, and unreachable.
+
+  # The fixture: an armed rotation, then the claim a broadcast takes. Taken
+  # through the model's own method rather than by writing columns, so the row
+  # is in the state the real path produces — `submitted`, naming its signature.
+  def strand_a_rotation(signature: "STRANDED_SIGNATURE")
+    arm_a_rotation
+    row = PendingTransaction.where(tx_type: "update_signers").order(:id).last
+    assert row.claim_for_broadcast!(signature), "the fixture claim must be taken"
+    row
+  end
+
+  def stranded_panel(html)
+    html[/<div class="[^"]*"\s+data-eviction-stranded.*?<\/div>\s*<\/section>/m]
+  end
+
+  test "a stranded eviction renders a panel of its own instead of vanishing" do
+    row = strand_a_rotation
+
+    render_page
+
+    assert_match(/data-eviction-stranded/, response.body)
+    assert_match(/STRANDED_SIGNATURE/, response.body,
+                 "the signature is the handle the chain is asked with")
+    assert_select "form[action=?]", admin_reconcile_authority_rotation_path(row.slug)
+  end
+
+  test "the stranded panel offers reconcile and NOTHING that would send again" do
+    row = strand_a_rotation
+
+    render_page
+
+    # THE ANCHOR FIRST — every assertion after it is a negative, and a page that
+    # dropped the panel entirely would satisfy all of them. That page is the bug.
+    assert_select "form[action=?]", admin_reconcile_authority_rotation_path(row.slug)
+
+    assert_select "form[action=?]", admin_cancel_authority_rotation_path(row.slug), count: 0
+    assert_no_match(/#{Regexp.escape(admin_broadcast_authority_rotation_path(row.slug))}/,
+                    response.body, "a claimed row must never carry a broadcast endpoint")
+    assert_no_match(/#{Regexp.escape(admin_rebuild_authority_rotation_path(row.slug))}/,
+                    response.body, "a claimed row must never carry a rebuild endpoint")
+    # The signing roster is ceremony furniture, and a claimed row is past
+    # signing — #show stops building it for exactly this reason.
+    assert_select "[data-cosign-controls]", count: 0
+  end
+
+  test "the stranded panel survives an unreadable vault, which is when it is needed" do
+    # THE INCIDENT SHAPE, and the state CI's playwright lane renders on every
+    # run: its RPC is a black-hole loopback port, so every chain read fails.
+    # The `vault.nil?` refusal exists to stop a rotation being PLANNED blind —
+    # a different act from resolving one already sent. Letting it swallow this
+    # panel would hide the stranded row exactly when the operator needs it.
+    row = strand_a_rotation
+
+    render_page(vault: RenderVault.new(signers: nil), squads: nil)
+
+    assert_match(/could not be read/, response.body,
+                 "the page must still say the vault read failed")
+    assert_select "form[action=?]", admin_reconcile_authority_rotation_path(row.slug)
+  end
+
+  test "a legacy claimed row with no signature is explained, not given a button that refuses" do
+    # `#claim_for_broadcast!` cannot produce this state any more — it stamps the
+    # signature in the same statement that takes the claim. Rows claimed by the
+    # OLDER code carry no handle to ask the chain with, and #reconcile refuses
+    # them by name. Rendering the control anyway would teach an operator
+    # mid-incident that the remedy is broken.
+    row = strand_a_rotation
+    row.update_columns(tx_signature: nil)
+
+    render_page
+
+    assert_match(/data-eviction-stranded/, response.body,
+                 "it must still surface — a row that cannot be reconciled here is " \
+                 "exactly the row that must not be silently dropped")
+    assert_select "form[action=?]", admin_reconcile_authority_rotation_path(row.slug), count: 0
+    # A fragment that lives on ONE rendered line: the partial wraps its prose,
+    # so a phrase spanning its source line break never matches the HTML.
+    assert_match(/record the transaction's signature/, response.body)
+
+    # AND THE ONWARD POINTER MUST NAME A DOOR THAT OPENS. This used to send him
+    # to the treasury confirm step, which answers `Unsupported tx_type for
+    # verification: update_signers` and writes nothing — safe, but his time.
+    assert_no_match(/post its signature/, response.body, "no endpoint that refuses this row")
+    assert_match(/clear this row/, response.body, "say plainly that no in-app control resolves it")
+  end
+
+  test "the stranded panel names no colour class the stylesheet leaves undefined" do
+    # The same guard the planner card carries, for the same reason: a
+    # colour-shaped class the stylesheet does not define paints NOTHING while
+    # reading perfectly in the markup. This panel is read under incident
+    # pressure, where an unpainted danger cue is worse than none.
+    strand_a_rotation
+
+    render_page
+
+    panel = stranded_panel(response.body)
+    assert panel, "the stranded panel must be findable for this guard to see anything"
+
+    names = panel.scan(/class="([^"]*)"/).flatten.join(" ").split.uniq
+    assert_operator names.length, :>, 5, "the panel must actually carry classes"
+
+    # `button_to` is RAILS' OWN wrapper class on the form it generates, not a
+    # style name this partial chose, and no stylesheet is expected to define
+    # it. Named one by one rather than filtered by a pattern, so a real phantom
+    # cannot slip in behind a loose rule.
+    framework = %w[button_to]
+    phantoms = (names - framework).reject { |name| CssClassGuard.defined_in_css?(name) }
+    assert_empty phantoms,
+                 "these classes are in the stranded panel and absent from the stylesheet, " \
+                 "so they paint nothing: #{phantoms.join(", ")}"
+
+    # THE CONTROL. A guard whose predicate answers "defined" to everything is
+    # indistinguishable from a panel with no phantoms — which is how the
+    # substring version of this check shipped green over `input-bordered`.
+    assert CssClassGuard.defined_in_css?("card"),
+           "a class this panel really uses must read as defined, or the guard is unsatisfiable"
+    assert_not CssClassGuard.defined_in_css?("bg-stranded-amber"),
+               "an invented name must read as undefined, or the guard is inert"
+  end
 end

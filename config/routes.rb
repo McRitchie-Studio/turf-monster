@@ -650,4 +650,15 @@ Rails.application.routes.draw do
     get  "test/user_info/:slug",          to: "test#user_info"
     post "test/warm_entry_tokens",        to: "test#warm_entry_tokens"
   end
+
+  # The quest walkthrough — a DEV-ONLY page for walking the gear sidebar's
+  # status line through every state it has. Deliberately NOT inside the block
+  # above: `unless Rails.env.production?` admits every other RAILS_ENV, a
+  # staging or review-app dyno included, and these two actions rewrite a real
+  # user's quest columns and can mint a wallet key. TestController repeats the
+  # same condition in a before_action, which is the layer a test can pin.
+  if Rails.env.development? || Rails.env.test?
+    get  "test/quest_walk", to: "test#quest_walk",     as: :quest_walk
+    post "test/quest_walk", to: "test#set_quest_walk", as: :set_quest_walk
+  end
 end
