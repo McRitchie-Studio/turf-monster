@@ -16,8 +16,9 @@ End-to-end tests that exercise Turf Monster against real Solana devnet. These te
 - Mack wallet funded with ~1 SOL on devnet (USDC seeded by faucet in Test 6)
 
 > **Three names, three things — do not collapse them.** **Alex** is the seeded
-> **user** (`alex@mcritchie.studio`, username `alex`) that every test below acts
-> as; `e2e/devnet-smoke.spec.js` asserts that username in the account link, so
+> **user** (`alex@mcritchie.studio`, username `alex`) that the admin-side tests
+> below act as — the rows named "Alex" in the table, not Mason's or Mack's;
+> `e2e/devnet-smoke.spec.js` asserts that username in the account link, so
 > renaming it here makes this file disagree with the suite. The **e2e bot
 > wallet** (`F6f8h5yy…`) is a retired signer kept on purpose as a devnet fixture
 > — a wallet, not a person; the run points Alex's `web3_solana_address` at it for
