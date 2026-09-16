@@ -233,10 +233,13 @@ module Admin
     # that LANDED but whose verification flaked — a slow RPC, a commitment that
     # has not caught up — was left `pending` with no signature, and therefore
     # re-broadcastable. That was /tasks/broadcast-records-signature-late, and it
-    # is now FIXED: `Admin::PendingTransactionsController#broadcast` holds the
-    # identical shape, and the claim and the stamp both live on the model
-    # (`PendingTransaction#claim_for_broadcast!` / `#record_broadcast!`) so the
-    # two paths cannot drift on the rule that decides whether money moves twice.
+    # is now FIXED: `Admin::PendingTransactionsController#broadcast` takes the
+    # claim the same way, because the rule lives on the model
+    # (`PendingTransaction#claim_for_broadcast!` / `#rewind_broadcast!`) rather
+    # than in either controller, so the two cannot drift on what decides whether
+    # money moves twice. That is the ONLY shape they share, and the claim about
+    # it is deliberately narrow: their `#rebuild` siblings still differ — the
+    # treasury's re-checks `pending` inside its UPDATE, and this one does not.
     #
     # The consequence here is worse than a double payout: a second rotation
     # attempt after the first landed is authorized by keys the first one just
