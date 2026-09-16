@@ -39,13 +39,20 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     attr_reader :build_calls, :broadcast_calls
     attr_accessor :signers
 
+    # `on_build:` runs INSIDE #build_update_signers, which is the only way to
+    # model the interleaving #rebuild's guard actually has to survive: a
+    # concurrent #broadcast claiming the row AFTER this action read `pending?`
+    # and BEFORE it writes. Claiming the row before the request instead is a
+    # different test — it trips the guard at the top of the action and never
+    # reaches the UPDATE that carried the defect.
     def initialize(signers: [SYSTEM, ALEX, MASON], governance: nil, broadcast_raises: nil,
-                   read_back: nil, signature_statuses: {})
+                   read_back: nil, signature_statuses: {}, on_build: nil)
       @signers = signers
       @governance = governance
       @broadcast_raises = broadcast_raises
       @read_back = read_back
       @signature_statuses = signature_statuses
+      @on_build = on_build
       @build_calls = []
       @broadcast_calls = []
     end
@@ -78,6 +85,7 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     def build_update_signers(new_signers:, cosigner_pubkey:, lead_signer: nil, extra_cosigners: [])
       @build_calls << { new_signers: new_signers, cosigner: cosigner_pubkey,
                         lead: lead_signer, extras: extra_cosigners }
+      @on_build&.call
       { serialized_tx: "FAKE_WIRE", vault_pda: "VAULTPDA", new_signers: new_signers,
         slot_width: 3, lead_signer: lead_signer, server_signed: false }
     end
@@ -579,5 +587,165 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     assert_equal "pending", row.reload.status
     assert_equal before, ErrorLog.count,
                  "an expected refusal must not be logged as an application error"
+  end
+
+  # ── THE STRANDED ROW, AND THE DOOR OUT OF IT ─────────────────────────────
+  #
+  # /tasks/stranded-eviction-has-no-door. A broadcast whose answer is lost
+  # leaves the row `submitted` and claimed — deliberately, because that claim is
+  # what stops a landed rotation being sent a second time. #show was scoped
+  # `.pending`, so the row then VANISHED from the page and the planner rendered
+  # in its place. The remedy left was a Rails console, which resolves an
+  # incident by deleting its evidence; and the console offered to arm a SECOND
+  # eviction while the first one might still be landing.
+
+  # The fixture every test below stands on: a broadcast that raised AFTER the
+  # send. Not a proof of anything, so the claim is kept and the signature stays.
+  def stranded_row
+    row = armed_row(StubVault.new)
+    with_vault(StubVault.new(broadcast_raises: RuntimeError.new("connection reset"))) { broadcast_row(row) }
+    row.reload
+    assert row.awaiting_broadcast_verdict?, "fixture must actually be stranded"
+    row
+  end
+
+  def render_page(vault = StubVault.new)
+    with_vault(vault) do
+      Solana::Squads.stub :read, nil do
+        get admin_authorities_path
+      end
+    end
+  end
+
+  test "a stranded eviction stays ON the page instead of vanishing from it" do
+    row = stranded_row
+
+    render_page
+
+    assert_response :success
+    assert_match(/LANDED_SIGNATURE/, response.body,
+                 "the signature is the handle the chain is asked with — it must be on the page")
+    assert_match(admin_reconcile_authority_rotation_path(row.slug), response.body,
+                 "the door out of a stranded row is the Reconcile control, not a Rails console")
+  end
+
+  test "a stranded eviction offers NOTHING that would send a second rotation" do
+    row = stranded_row
+
+    render_page
+
+    # THE ANCHOR FIRST. Every assertion below is a NEGATIVE, and a page that
+    # dropped the stranded panel altogether would satisfy all of them — which
+    # is precisely the bug being fixed, passing as a green test.
+    assert_match(admin_reconcile_authority_rotation_path(row.slug), response.body,
+                 "the stranded panel must actually be on the page for the refusals below to mean anything")
+
+    assert_no_match(/Collect \d+ signatures/, response.body,
+                    "a claimed row must never re-offer the co-sign ceremony")
+    assert_no_match(/#{Regexp.escape(admin_broadcast_authority_rotation_path(row.slug))}/, response.body)
+    assert_no_match(/#{Regexp.escape(admin_rebuild_authority_rotation_path(row.slug))}/, response.body)
+    assert_no_match(/#{Regexp.escape(admin_cancel_authority_rotation_path(row.slug))}/, response.body,
+                    "Discard refuses this row anyway; offering the button teaches the wrong remedy")
+  end
+
+  test "a stranded eviction outranks an eviction armed after it" do
+    # #arm does not refuse a second row, so a console ordered purely by
+    # created_at would hide the stranded row again the moment anyone armed
+    # after it — this exact bug through a different door.
+    stranded = stranded_row
+    arm(StubVault.new, signers: [ALEX, MASON, ALEX3], authorizers: [ALEX, MASON])
+    newer = PendingTransaction.where(tx_type: "update_signers").order(:id).last
+    assert_not_equal stranded.id, newer.id, "fixture must have armed a SECOND row"
+
+    render_page
+
+    assert_match(admin_reconcile_authority_rotation_path(stranded.slug), response.body,
+                 "the row with an unresolved chain question is the one the operator must deal with first")
+    assert_no_match(/#{Regexp.escape(admin_broadcast_authority_rotation_path(newer.slug))}/, response.body)
+  end
+
+  test "a stranded eviction surfaces even when the vault read FAILS" do
+    # THE INCIDENT SHAPE. The RPC that lost the broadcast's answer is the same
+    # RPC that feeds this page, so the two failures arrive together. Surfacing a
+    # stranded row needs no chain read — it is a database fact — and the
+    # `vault.nil?` refusal exists to stop a rotation being PLANNED blind, which
+    # is a different act. CI's playwright lane renders exactly this state.
+    row = stranded_row
+
+    render_page(StubVault.new(signers: nil))
+
+    assert_response :success
+    assert_match(admin_reconcile_authority_rotation_path(row.slug), response.body,
+                 "an unreadable vault must not take the only remedy off the page with it")
+  end
+
+  # ── #rebuild MAY NOT TOUCH A ROW A BROADCAST HAS CLAIMED ─────────────────
+  #
+  # Measured before the fix: it did NOT un-claim (Rails omits an unchanged
+  # `status` from the UPDATE, and the in-memory row still said pending) but it
+  # DID overwrite `serialized_tx` and answer 200 — handing a second caller
+  # fresh bytes to sign while the claimed wire was already going out. Its
+  # treasury sibling re-checks `pending` inside the UPDATE; this one did not.
+  test "rebuild refuses a row claimed between its own guard read and its write" do
+    row = armed_row(StubVault.new)
+    wire_before = row.reload.serialized_tx
+
+    claim = -> { PendingTransaction.find(row.id).claim_for_broadcast!("SIG_ALREADY_GOING_OUT") }
+    with_vault(StubVault.new(on_build: claim)) do
+      post admin_rebuild_authority_rotation_path(row.slug), as: :json
+    end
+
+    assert_response :unprocessable_entity
+    row.reload
+    assert_equal "submitted", row.status, "the claim must survive a rebuild that raced it"
+    assert_equal "SIG_ALREADY_GOING_OUT", row.tx_signature
+    assert_equal wire_before, row.serialized_tx,
+                 "a claimed row's wire must never be replaced — the claimed one is on its way out"
+  end
+
+  # ── THE INVARIANT THE WHOLE PAGE RESTS ON ────────────────────────────────
+  #
+  # A claim is released on exactly two things: PreflightRejected (the simulation
+  # refused, so nothing left this server) or a verdict FROM THE CHAIN. Never on
+  # an exception raised at or after send_transaction. Asserted over the fault
+  # SHAPES rather than one of them, because the defect this guards is a new
+  # rescue clause someone adds later for a fault that looks harmless.
+  test "no failure at or after send_transaction can release the claim" do
+    post_send_faults = [
+      RuntimeError.new("connection reset"),
+      Solana::Client::RpcError.new("Blockhash not found", code: -32002),
+      Timeout::Error.new("read timeout"),
+      Solana::TxVerifier::VerificationError.new("commitment has not caught up")
+    ]
+
+    post_send_faults.each do |fault|
+      row = armed_row(StubVault.new)
+      with_vault(StubVault.new(broadcast_raises: fault)) { broadcast_row(row) }
+
+      row.reload
+      assert_equal "submitted", row.status,
+                   "#{fault.class} is not a proof that nothing was sent — the claim must be kept"
+      assert_equal "LANDED_SIGNATURE", row.tx_signature,
+                   "#{fault.class} must leave the row naming its transaction so #reconcile can ask"
+
+      # RETIRE IT BEFORE THE NEXT FAULT. `tx_signature` is uniquely indexed and
+      # the stub derives one constant signature from its one constant wire, so
+      # a second claim in the same test would collide. The collision is itself
+      # correct behaviour (see PendingTransaction#claim_for_broadcast!) — it is
+      # just not what this test is about.
+      row.update_columns(status: "expired", tx_signature: nil, stale: true)
+    end
+  end
+
+  test "a PREFLIGHT refusal is the one fault that gives the claim back" do
+    row = armed_row(StubVault.new)
+
+    # A seeded STRING models a pre-flight refusal: the simulation rejected the
+    # wire, so send_transaction was never reached and nothing left this server.
+    with_vault(StubVault.new(broadcast_raises: "insufficient funds for fee")) { broadcast_row(row) }
+
+    row.reload
+    assert row.pending?, "provably un-sent, so the eviction stays retryable"
+    assert_nil row.tx_signature
   end
 end

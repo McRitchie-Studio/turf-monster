@@ -101,13 +101,22 @@ module Admin
       @required_signatures = required_signatures_for_chain
       @max_slots = chain_governance? ? Solana::Vault::MAX_SIGNERS : Solana::SignerRotation::MAX_SLOTS_V025
 
-      @rotation = PendingTransaction.pending.where(tx_type: TX_TYPE).order(created_at: :desc).first
+      @rotation = live_rotation
+      @rotation_stranded = @rotation&.submitted?
       @rotation_plan = @rotation && JSON.parse(@rotation.metadata)["plan"]&.deep_symbolize_keys
+      # NEITHER IS BUILT FOR A STRANDED ROW. Both are signing-ceremony furniture
+      # — who has yet to sign, and whether the lead wallet can pay the fee — and
+      # a claimed row is past signing. Rendering them would dress the one state
+      # this page must refuse to act on as one it is ready to act on. Skipping
+      # `fee_payer_status_for` also skips a chain read, on the page most likely
+      # to be opened while the chain is unreachable.
+      #
       # ORDER MATTERS: the roster renders the fee payer's balance, so the read
       # has to happen first or the lead row claims "could not be read" on a page
       # that did read it.
-      @fee_payer = @rotation_plan && fee_payer_status_for(@rotation_plan)
-      @roster = @rotation_plan && roster_for(@rotation_plan)
+      signing_plan = @rotation_stranded ? nil : @rotation_plan
+      @fee_payer = signing_plan && fee_payer_status_for(signing_plan)
+      @roster = signing_plan && roster_for(signing_plan)
 
       # WHO HOLDS EACH WALLET. Resolved LAST, because it takes the addresses the
       # reads above actually produced rather than a list assembled by hand — a
@@ -191,7 +200,25 @@ module Admin
           extra_cosigners: plan[:authorizers][2..] || []
         )
 
-        @tx.update!(serialized_tx: result[:serialized_tx], status: "pending")
+        # CONDITIONAL, NOT A BARE WRITE — the same shape the treasury sibling
+        # takes, for the same reason. `pending?` at the top of this action is a
+        # READ; a #broadcast that claims the row in the interval leaves this
+        # write racing a wire that is already going out.
+        #
+        # What the bare `update!` did, measured: it did NOT un-claim — `status`
+        # was already "pending" in memory, so Rails omitted it from the UPDATE —
+        # but it DID replace `serialized_tx` and answer 200, handing a second
+        # caller fresh bytes to sign against a row whose claimed transaction may
+        # be landing. Re-checking the state inside the UPDATE is what makes the
+        # guard hold, rather than the accident of an unchanged attribute.
+        rebuilt = PendingTransaction.where(id: @tx.id, status: "pending")
+                                    .update_all(serialized_tx: result[:serialized_tx],
+                                                updated_at: Time.current) == 1
+        unless rebuilt
+          raise "This eviction is no longer pending (it is now #{@tx.reload.status}) — " \
+                "reconcile it against the chain rather than rebuilding it."
+        end
+        @tx.reload
 
         render json: {
           status: "rebuilt",
@@ -237,9 +264,9 @@ module Admin
     # claim the same way, because the rule lives on the model
     # (`PendingTransaction#claim_for_broadcast!` / `#rewind_broadcast!`) rather
     # than in either controller, so the two cannot drift on what decides whether
-    # money moves twice. That is the ONLY shape they share, and the claim about
-    # it is deliberately narrow: their `#rebuild` siblings still differ — the
-    # treasury's re-checks `pending` inside its UPDATE, and this one does not.
+    # money moves twice. Their `#rebuild` siblings now agree too — both re-check
+    # `pending` INSIDE the UPDATE, so neither can write to a row a broadcast has
+    # claimed (/tasks/stranded-eviction-has-no-door; this one used to).
     #
     # The consequence here is worse than a double payout: a second rotation
     # attempt after the first landed is authorized by keys the first one just
@@ -441,6 +468,37 @@ module Admin
 
     def vault
       @vault_service ||= Solana::Vault.new
+    end
+
+    # THE ROTATION THIS PAGE IS ABOUT — and why it is not `.pending`.
+    #
+    # It was `.pending`, and that is /tasks/stranded-eviction-has-no-door. A
+    # broadcast whose answer is lost leaves the row `submitted` and CLAIMED,
+    # deliberately: the claim is what stops a landed rotation being sent twice,
+    # and on this surface a second attempt is authorized by keys the first one
+    # just evicted, so it fails `Unauthorized` and reads to the operator like
+    # his eviction did not work. Scoped to `.pending` the page then dropped that
+    # row and rendered the PLANNER in its place — the evidence gone, and an
+    # invitation to arm a second eviction while the first might still be
+    # landing. The only remedy left was a Rails console, which resolves the
+    # incident by deleting the record of it.
+    #
+    # A CLAIMED ROW OUTRANKS A NEWER ARMED ONE, rather than the newest winning.
+    # `#arm` does not refuse a second row, so ordering purely by `created_at`
+    # would hide the stranded row again the moment anybody armed after it — the
+    # same bug through a different door. The row carrying an unresolved question
+    # to the chain is always the one to deal with first, whatever came after it.
+    #
+    # BOTH KINDS OF CLAIMED ROW ARE TAKEN, on `status` alone rather than on the
+    # signature. A modern row names its transaction and #reconcile can ask the
+    # chain about it; a legacy one does not and cannot (see
+    # `PendingTransaction#awaiting_reconciliation?`). They need different copy,
+    # which the view gives them — but a row that cannot be reconciled here is
+    # exactly the row that must not be silently dropped.
+    def live_rotation
+      rotations = PendingTransaction.where(tx_type: TX_TYPE)
+      rotations.submitted.order(created_at: :desc).first ||
+        rotations.pending.order(created_at: :desc).first
     end
 
     def set_pending_rotation

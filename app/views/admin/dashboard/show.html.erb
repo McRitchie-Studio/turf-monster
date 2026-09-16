@@ -23,6 +23,14 @@
           icon: "M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" %>
     <%= render "admin/dashboard/quick_action", url: admin_pending_transactions_path, label: "Treasury", subtitle: "cosign queue",
           icon: "M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z" %>
+    <%# Authorities sits beside Treasury because they are the two on-chain
+        consoles and they share their machinery — the same PendingTransaction
+        claim/broadcast/reconcile seam. It is also the INCIDENT page: the only
+        remedy for a stolen vault key, opened under pressure. It was reachable
+        from the gear sidebar and the Link Hub, but not from the dashboard an
+        operator actually lands on. %>
+    <%= render "admin/dashboard/quick_action", url: admin_authorities_path, label: "Authorities", subtitle: "vault signers, eviction",
+          icon: "M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" %>
     <%= render "admin/dashboard/quick_action", url: admin_models_path, label: "Models", subtitle: "users, teams, arenas",
           icon: "M3.75 6.75A2.25 2.25 0 0 1 6 4.5h3.879a2.25 2.25 0 0 1 1.591.659l1.061 1.061c.422.422.994.659 1.591.659H18A2.25 2.25 0 0 1 20.25 9v8.25A2.25 2.25 0 0 1 18 19.5H6a2.25 2.25 0 0 1-2.25-2.25V6.75Z" %>
     <%# Model-page protocol (studio-engine): per-record JSON inspector — distinct from the "Models" browser above. Random contest since the engine has no index route. %>

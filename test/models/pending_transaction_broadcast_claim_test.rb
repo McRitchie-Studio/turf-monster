@@ -160,4 +160,47 @@ class PendingTransactionBroadcastClaimTest < ActiveSupport::TestCase
     assert tx.awaiting_reconciliation?, "claimed, no signature — the wire may be on chain"
     assert_not tx.awaiting_broadcast_verdict?, "and it has nothing to reconcile WITH"
   end
+
+  # ── FINDING A CLAIMED ROW, NOT JUST RECOGNISING ONE ──────────────────────
+  #
+  # `#awaiting_broadcast_verdict?` and `#awaiting_reconciliation?` answer for a
+  # row already in hand. A console that must FIND the row had no scope to reach
+  # for but `.pending`, which excludes exactly these rows — so /admin/authorities
+  # rendered its planner while a claimed eviction sat in the table unseen, and
+  # the only remedy left was a Rails console
+  # (/tasks/stranded-eviction-has-no-door).
+
+  test "the submitted scope finds a claimed row that .pending cannot" do
+    claimed = ptx
+    claimed.claim_for_broadcast!("SIG_CLAIMED")
+    armed = ptx
+
+    assert_includes PendingTransaction.submitted, claimed
+    assert_not_includes PendingTransaction.pending, claimed,
+                        "the scope that hid the row must still exclude it — " \
+                        "otherwise this scope is solving nothing"
+    assert_includes PendingTransaction.pending, armed
+    assert_not_includes PendingTransaction.submitted, armed
+  end
+
+  test "submitted? is the union of the two claimed states, both of which must surface" do
+    modern = ptx
+    modern.claim_for_broadcast!("SIG_MODERN")
+    assert modern.submitted?
+    assert modern.awaiting_broadcast_verdict?, "it names its transaction, so the chain can be asked"
+
+    # The legacy shape: claimed by the older code, which stamped the signature
+    # from the RPC's reply and so left nothing behind when that reply was lost.
+    legacy = ptx
+    legacy.claim_for_broadcast!("SIG_LEGACY")
+    legacy.update_columns(tx_signature: nil)
+    legacy.reload
+    assert legacy.submitted?, "a row with no handle to the chain is the one that must NOT be dropped"
+    assert legacy.awaiting_reconciliation?
+    assert_not legacy.awaiting_broadcast_verdict?
+
+    # Neither is pending, which is why a `.pending` console lost both.
+    assert_not modern.pending?
+    assert_not legacy.pending?
+  end
 end
