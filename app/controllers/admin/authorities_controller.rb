@@ -102,7 +102,7 @@ module Admin
       @max_slots = chain_governance? ? Solana::Vault::MAX_SIGNERS : Solana::SignerRotation::MAX_SLOTS_V025
 
       @rotation = live_rotation
-      @rotation_stranded = @rotation&.status == "submitted"
+      @rotation_stranded = @rotation&.submitted?
       @rotation_plan = @rotation && JSON.parse(@rotation.metadata)["plan"]&.deep_symbolize_keys
       # NEITHER IS BUILT FOR A STRANDED ROW. Both are signing-ceremony furniture
       # — who has yet to sign, and whether the lead wallet can pay the fee — and
