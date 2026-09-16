@@ -200,3 +200,5 @@ Stage 3 (test coverage audit) is queued. Want to:
 - Start Stage 3 now (parallel agents over existing test directory)?
 - Pause Stage 3 and execute the launch-blocker fixes (NB1, B4 wired today, H1, H2) first?
 - Mix — kick off Stage 3 in parallel while you triage these findings?
+
+<!-- citation-guard: snapshot 2026-05-23 (17 citations) — dated refactor audit -->

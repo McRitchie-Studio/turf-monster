@@ -20,13 +20,29 @@
   </div>
   <p class="text-secondary text-sm mb-6">
     Who can do what to this platform, decoded from the chain rather than from
-    config. Three separate authorities are listed; this page can only change the
-    first.
+    config. The eviction console leads because it is the only thing this page can
+    change; the three authorities are listed under it, and two of them are
+    read-only here.
   </p>
+
+  <%# ── THE MAIN EVENT, FIRST ────────────────────────────────────────────────
+      The panels below are REFERENCE; this is the act. An operator reaches this
+      page mid-incident to remove a key, and burying that control under four
+      read-only panels made him scroll past everything he already knew to reach
+      the one thing he came for. Ordering is not decoration on a page like this:
+      it is what the page says its job is.
+
+      The panels still follow rather than move elsewhere, because the console
+      cites them — the slot count, the required signatures and the eligible
+      wallets all come from the reads rendered underneath. %>
+  <%= render "eviction", rotation: @rotation, plan: @rotation_plan, roster: @roster,
+                         vault: @vault, eligible: @eligible_signers,
+                         required: @required_signatures, max_slots: @max_slots,
+                         server_address: @server_address, identities: @identities %>
 
   <%= render "authority_vault", vault: @vault, vault_error: @vault_error,
                                 server_address: @server_address,
-                                max_slots: @max_slots %>
+                                max_slots: @max_slots, identities: @identities %>
 
   <%= render "authority_thresholds", governance: @governance,
                                      governance_pda: @governance_pda,
@@ -39,7 +55,8 @@
   <%= render "authority_squads", squads: @squads, squads_address: @squads_address,
                                  squads_app_url: @squads_app_url,
                                  configured_upgrade_authority: @configured_upgrade_authority,
-                                 network: @network, vault: @vault %>
+                                 network: @network, vault: @vault,
+                                 identities: @identities %>
 
   <%# (3) THE SERVER'S OWN SIGNING IDENTITY — named so it stops being mistaken
       for the vault signer set. It is the third "admin" in this codebase and the
@@ -52,7 +69,8 @@
       confers nothing on chain.
     </p>
     <% if @server_address.present? %>
-      <p class="font-mono text-xs text-heading break-all"><%= @server_address %></p>
+      <%= render "wallet_identity", address: @server_address,
+                 user: @identities[@server_address], compact: true %>
       <%# THREE STATES, NOT TWO. `if @vault && include?` collapses "the read
           FAILED" into "this key is NOT a signer" — a definite negative fact,
           followed by an instruction to act on it, while the panel above says the
@@ -71,7 +89,8 @@
           succeeds.
         <% elsif @vault[:active_signers].include?(@server_address) %>
           In the vault signer set — so it can sign vault actions, and so it
-          <strong>cannot be evicted by a rotation it leads</strong> (see below).
+          <strong>cannot be evicted by a rotation it leads</strong> (see the
+          console at the top of this page).
         <% else %>
           <strong>Not</strong> in the vault signer set, so it cannot sign vault
           actions at all. An eviction must be led by a wallet that is.
@@ -83,11 +102,6 @@
       </p>
     <% end %>
   </section>
-
-  <%= render "eviction", rotation: @rotation, plan: @rotation_plan, roster: @roster,
-                         vault: @vault, eligible: @eligible_signers,
-                         required: @required_signatures, max_slots: @max_slots,
-                         server_address: @server_address %>
 
   <div class="json-debug mt-8">
     <pre><%= JSON.pretty_generate(

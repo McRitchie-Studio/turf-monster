@@ -690,3 +690,5 @@ come first.
 7. How many real users are affected? Searching LogRocket sessions for
    `provider.connect` gives the distinct-user count, which should size phase 1's
    urgency against the rest of the backlog.
+
+<!-- citation-guard: enforced -->

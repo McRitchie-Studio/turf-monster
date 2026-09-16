@@ -1,4 +1,4 @@
-<%# locals: (vault:, vault_error:, server_address:, max_slots:) %>
+<%# locals: (vault:, vault_error:, server_address:, max_slots:, identities:) %>
 <%#
   (1) THE VAULT SIGNER SET — `VaultState.signers` ++ `signers_ext`, the keys
   that sign vault ACTIONS. This is the only authority this page writes.
@@ -43,14 +43,19 @@
                 Empty<%= " — and unreachable on the deployed program, which has only #{max_slots} slots" if beyond %>
               </p>
             <% else %>
-              <p class="font-mono text-2xs text-heading break-all"><%= address %></p>
-              <div class="mt-0.5 flex flex-wrap gap-1">
+              <%# THE PERSON FIRST, THE KEY UNDERNEATH — and the key is still
+                  rendered in full. Three unbroken lines of base58 was what this
+                  panel used to be, and an operator cannot tell his own wallet
+                  from a stolen one by reading forty-four characters. %>
+              <% server_badge = capture do %>
                 <% if address == server_address %>
                   <span class="rounded bg-surface-alt px-1 py-px text-3xs font-bold uppercase tracking-wide text-muted">
                     This server
                   </span>
                 <% end %>
-              </div>
+              <% end %>
+              <%= render "wallet_identity", address: address,
+                         user: identities[address], badges: server_badge %>
             <% end %>
           </div>
         </li>
@@ -87,7 +92,7 @@
         actually use. Pausing stops paying customers from entering and does not
         inconvenience a thief.
         <strong>Eviction is the only real answer</strong>, which is what the
-        console at the bottom of this page does.
+        console at the top of this page does.
       </p>
       <p class="mt-1 text-3xs text-muted">
         Re-derive it yourself:

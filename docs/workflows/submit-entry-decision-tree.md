@@ -313,3 +313,5 @@ three:
    signing); the durable nonce is for slow operator cosigns only.
    `Solana::Vault#build_enter_contest` pins `dn = nil` with that reasoning
    (`app/services/solana/vault.rb:2191-2227`). PR #136.
+
+<!-- citation-guard: enforced -->

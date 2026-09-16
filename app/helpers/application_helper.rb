@@ -33,6 +33,35 @@ module ApplicationHelper
     @_main_contest_target = SeasonConfig.main_contest
   end
 
+  # ── The gear sidebar's quest status line ────────────────────────────────
+  #
+  # The label the gear panel's status bar shows while a quest is still open.
+  # Reads User#next_quest — the EXISTING contract (join -> username -> chat ->
+  # newsletter -> invite), not a second ladder invented here.
+  #
+  # :invite IS DELIBERATELY ABSENT, and that absence is the whole design. The
+  # model documents :invite as "terminal, ongoing": #next_quest never returns
+  # nil, so keying the status line on "next_quest is truthy" would make the
+  # quest branch permanently true and the username branch dead code for every
+  # account that has finished the ladder. Mapping only the four COMPLETABLE
+  # steps is what makes "no quests left -> show the username" reachable at all.
+  #
+  # A nil return therefore means "nothing left to nudge", never "no quest system
+  # here" — an account that has not entered a contest is on :join, the first rung.
+  GEAR_QUEST_LABELS = {
+    join:       "Join a Contest",
+    username:   "Customize Username",
+    chat:       "Send a Message",
+    newsletter: "Join the Newsletter"
+  }.freeze
+
+  def gear_quest_label(user)
+    return nil unless user.respond_to?(:next_quest)
+
+    label = GEAR_QUEST_LABELS[user.next_quest]
+    label && "Quest: #{label}"
+  end
+
   # The current user's referral/invite URL landing on `target` (a same-origin
   # path, e.g. a contest). One stable Studio::Link per (user, target); the
   # tokenized /i/<token> replaces the old /contests/<slug>?ref=<slug> share link.
