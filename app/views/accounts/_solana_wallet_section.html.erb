@@ -85,7 +85,7 @@
               <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
             </svg>
           <% end %>
-          <span class="text-body font-mono text-sm break-all"><%= user.solana_address %></span>
+          <span class="text-body font-mono text-sm break-all" data-session-wallet-address><%= user.solana_address %></span>
           <%# Badge keys on wallet_kind (phantom takes precedence), NOT
               managed_wallet? — every account gets an after_create managed
               wallet, so managed_wallet? is always true and would mislabel Phantom
@@ -96,6 +96,52 @@
             <span class="text-xs text-muted px-2 py-0.5 rounded bg-surface-alt">Managed</span>
           <% end %>
         </div>
+
+        <% if user.wallet_kind == :phantom %>
+          <%# THE SWITCH, MADE VISIBLE ON THE PAGE ITSELF.
+              $store.wallet resolves 'mismatched' the moment the browser wallet
+              moves off the address this session authenticated with, and until
+              now exactly ONE thing in the whole UI bound to it: the grey check
+              above. Everything else on this card went on presenting the session
+              wallet's address and the session wallet's money as though the
+              switch had not happened, which is the disagreement that strands
+              value: the reader sees a confident address and a confident balance
+              and has no way to tell they belong to a wallet their browser is no
+              longer holding.
+
+              MOUNTED AND EMPTY RATHER THAN INSERTED. x-show, not template x-if,
+              for the same reason the wallet-changed card's error paragraph is:
+              a status region inserted alongside its own content is not reliably
+              announced, and template x-if carries the one-root-element trap for
+              no gain here.
+
+              It is not redundant with the wallet-changed card. That card is
+              modal and covers this page; this row is what remains true after it
+              closes, and it is the ONLY signal at all on a switch the card
+              deliberately suppresses (an operator cosign ceremony declares its
+              addresses via expectSwitchesTo, so no card opens and the page is
+              otherwise silent about a wallet that did change). %>
+          <div x-data x-cloak
+               x-show="$store.wallet && $store.wallet.state === 'mismatched'"
+               role="status" aria-live="polite"
+               data-wallet-mismatch-notice
+               class="mt-3 rounded-lg border border-warning/40 bg-warning/10 p-3">
+            <p class="text-xs font-semibold text-heading mb-1">
+              A different wallet is connected
+            </p>
+            <p class="text-xs text-secondary mb-2">
+              The address above is the wallet this session signed in with. Your
+              browser wallet is now on a different account, so the balances below
+              are not that account's.
+            </p>
+            <div class="flex items-baseline justify-between gap-3">
+              <span class="text-xs uppercase tracking-wide text-muted">Connected</span>
+              <span class="text-xs text-heading font-mono break-all"
+                    data-live-wallet-address
+                    x-text="$store.wallet && $store.wallet.signerAddress"></span>
+            </div>
+          </div>
+        <% end %>
       </div>
 
       <%# Balance tiles row — USDC | USDT | Entry Tokens | SOL | Seeds.
@@ -108,7 +154,18 @@
           (the render path is RPC-free by design — see
           perform_solana_preload). %>
       <div x-data="walletRefresh()">
-      <div class="grid grid-cols-5 gap-2 mb-3">
+      <%# THE TILES BELONG TO THE SESSION WALLET, and say so while a different
+          one is connected. Every value in this grid is read server-side for
+          user.solana_address, so a switch does not change a single number here
+          — it changes whose numbers they are. Dimming is the honest reading:
+          still shown (they are real, and they are still this account's), no
+          longer presented as the connected wallet's. Paired with the labelled
+          notice above, which carries the words; a dim alone is not a message
+          and is invisible to a screen reader, so it never carries this on its
+          own. %>
+      <div class="grid grid-cols-5 gap-2 mb-3 transition-opacity"
+           data-wallet-tiles
+           :class="$store.wallet && $store.wallet.state === 'mismatched' ? 'opacity-50' : ''">
         <%# All five tiles share an icon row with a fixed 28px height so the
             labels + values line up across emoji icons and the 24px SVGs/PNG. %>
         <%# USDC %>

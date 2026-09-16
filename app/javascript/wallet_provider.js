@@ -425,7 +425,44 @@ function _makeWsAdapter(wallet) {
       account = null;
       return (feat && feat.disconnect) ? feat.disconnect() : Promise.resolve();
     },
-    get publicKey() { return account ? pubObj(account) : null; }
+    // THE WALLET IS THE TRUTH; `account` IS ONLY A CACHE OF IT.
+    //
+    // This used to return the closure unconditionally, and that made the
+    // adapter LIE about which account is current — the one failure the whole
+    // switch reflex is built to catch. `account` is written in exactly three
+    // places (standard:connect, the standard:events change callback, and
+    // disconnect), so a switch Phantom never announced left it holding the
+    // PREVIOUS account forever, with no way to correct it.
+    //
+    // THAT KILLED THE MISSED-EVENT RECOVERY, silently and only on this
+    // interface. solana_stores.js _reconcileProvider — the focus handler's
+    // "re-read the provider so a missed event cannot strand the navbar" path —
+    // opens with `var current = provider && provider.publicKey`, and takes the
+    // `if (current)` branch whenever that is truthy. Fed the stale account it
+    // called _handleAccountChanged with the OLD address, which equals
+    // _serverAddress(), which returns early. So the reconcile re-affirmed the
+    // wallet the user had just left, and the `connect({onlyIfTrusted:true})`
+    // branch that would have re-read the real one was never reached.
+    //
+    // Measured 2026-09-15 on a live desk, Wallet Standard + a switch with no
+    // event: adapter.publicKey 6ASf... while wallet.accounts[0] and the legacy
+    // provider both read 8pM1..., and $store.wallet sat at state 'live' on a
+    // wallet that was no longer there. No card, no store update, nothing.
+    // e2e/wallet_session_switch.spec.js's "refocusing recovers" case passed
+    // throughout because it drives the LEGACY mock, whose publicKey is a live
+    // field — one interface certified, the other broken.
+    //
+    // `wallet.accounts` is the Wallet Standard's own live view of the accounts
+    // this app is authorized to use, and the spec makes the wallet responsible
+    // for keeping it current — so reading it is not a workaround, it is the
+    // source this getter should always have read. Refreshing the cache from it
+    // keeps every other reader of `account` (signMessage, signTransaction,
+    // signIn) on the same account the getter just reported. A wallet that
+    // exposes no `accounts` at all falls back to the cache unchanged.
+    get publicKey() {
+      if (wallet.accounts) account = wallet.accounts[0] || null;
+      return account ? pubObj(account) : null;
+    }
   });
 }
 
