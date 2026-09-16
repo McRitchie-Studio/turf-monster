@@ -120,7 +120,7 @@
                 <% required = tx.required_signatures %>
                 <% extras_needed = tx.extra_cosigners_needed %>
                 <% if extras_needed.positive? && @eligible_extras.any? %>
-                  <label class="text-xs text-base-content/70 flex flex-col gap-1">
+                  <label class="text-xs text-muted flex flex-col gap-1">
                     <span>
                       Second Phantom wallet
                       <span class="opacity-60">(<%= required %> signatures required)</span>
@@ -130,7 +130,7 @@
                         that is one character off spends a build to be told
                         Unauthorized. %>
                     <select data-extra-cosigner
-                            class="select select-bordered select-xs font-mono w-56">
+                            class="input-field w-56 font-mono text-xs">
                       <% @eligible_extras.each do |signer| %>
                         <option value="<%= signer %>"><%= signer.truncate(16) %></option>
                       <% end %>
@@ -141,7 +141,7 @@
                       the honest failure: an empty select would let the operator
                       click into a 422 that names a threshold rather than the
                       configuration that cannot meet it. %>
-                  <p class="text-xs text-error max-w-56">
+                  <p class="text-xs text-danger-ink max-w-56">
                     No second signer is available. This action needs <%= required %>
                     vault signatures and the configured signer set offers only the
                     admin key and <%= @primary_cosigner.truncate(12) %>.
@@ -170,7 +170,7 @@
                        "#{format('%.4f', @fee_payer[:balance_sol].to_f)} SOL and cannot pay the network fee."
                      end %>
                 <% if blocked_reason %>
-                  <p class="text-xs text-error max-w-56" data-cosign-blocked><%= blocked_reason %></p>
+                  <p class="text-xs text-danger-ink max-w-56" data-cosign-blocked><%= blocked_reason %></p>
                 <% end %>
 
                 <%# THE ROSTER — Mr. McRitchie's own requirement: "easy to see
@@ -214,7 +214,7 @@
                     operator can act on. Telling him "do not re-send" and then
                     offering him nothing to do is how a row became a Rails
                     console. %>
-                <p class="text-xs text-error max-w-56" data-cosign-broadcast-note>
+                <p class="text-xs text-danger-ink max-w-56" data-cosign-broadcast-note>
                   <% if tx.awaiting_reconciliation? %>
                     This transaction was broadcast and the result was not read back,
                     so it may be on chain. Check the signer/target account before
