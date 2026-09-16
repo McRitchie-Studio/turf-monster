@@ -319,6 +319,56 @@ class TestController < ApplicationController
                    awaiting: PendingTransaction.awaiting_signature.count }
   end
 
+  # THE TREASURY PAGE AS A GOVERNANCE (turf-vault v0.26) BOOT RENDERS IT — a host
+  # harness for e2e/treasury_cosign_row_layout.spec.js.
+  #
+  # WHY A HARNESS. The controls that overflowed a phone — the second-wallet
+  # select and the signing roster — render only when a row's
+  # `extra_cosigners_needed` is positive, and that answer is 0 unless
+  # Solana::Config.governance?, a BOOT constant this lane leaves off (the same
+  # wall e2e/cosign_two_wallet_signatures.spec.js documents). Overflow is a
+  # layout fact only a real browser can measure, so this renders the REAL
+  # admin/pending_transactions/index template, in the real layout, against the
+  # real stylesheet, and stubs exactly TWO answers per row: how many signatures
+  # the action needs and how many extra wallets that leaves. Every element the
+  # spec measures is the page's own markup — no copied fixture that could drift.
+  #
+  # UNSAVED ROWS, ON PURPOSE. Nothing here writes the database, so the
+  # treasury's EMPTY state (e2e/audit.spec.js) cannot be polluted by this spec.
+  #
+  # The index resolves its roster partial by a RELATIVE name, which looks in the
+  # rendering controller's view prefixes — so the admin prefix is put first, the
+  # way Admin::PendingTransactionsController would resolve it.
+  def treasury_layout_harness
+    lookup_context.prefixes = ["admin/pending_transactions", *lookup_context.prefixes]
+
+    contest = Contest.new(name: "NFL 2026 Week 2 Main Slate")
+    rows = [
+      { slug: "ptx-9001", tx_type: "settle_contest", target: contest,
+        metadata: { settlements: [{ payout: 12_500_000 }, { payout: 7_500_000 }] } },
+      { slug: "ptx-9002", tx_type: "sweep_operator_revenue",
+        metadata: { currency_mint: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU", amount: 0 } },
+      { slug: "ptx-9003", tx_type: "cancel_contest", target: contest, status: "submitted",
+        cosigner_address: Solana::Config::MULTISIG_COSIGNER,
+        tx_signature: "5VERv8NMvzbJMEkV8xnrLkEaWRtSz9CosKDYjCJjBRnbJLgp8uirBgmQpjKhoR4tjF3ZpRzrFmBV6UjKdiSZkQUW",
+        metadata: { creator: "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin" } }
+    ]
+
+    @pending = rows.map do |attrs|
+      tx = PendingTransaction.new({ status: "pending", serialized_tx: "HARNESS_WIRE", created_at: 3.minutes.ago }
+                                    .merge(attrs, metadata: attrs[:metadata].to_json))
+      tx.define_singleton_method(:required_signatures) { 3 }
+      tx.define_singleton_method(:extra_cosigners_needed) { 1 }
+      tx
+    end
+    @pending_count    = @pending.count(&:pending?)
+    @primary_cosigner = Solana::Config::MULTISIG_COSIGNER
+    @eligible_extras  = Solana::CosignPlan.eligible_cosigners - [@primary_cosigner]
+    @fee_payer        = { address: Solana::CosignPlan.admin_address, balance_sol: 6.2313, funded: true }
+
+    render "admin/pending_transactions/index"
+  end
+
   def clear_seeded_contests
     removed = Contest.where("slug LIKE ?", "#{E2E_RAIL_SLUG_PREFIX}%").destroy_all.map(&:slug)
     render json: { ok: true, removed: removed }
