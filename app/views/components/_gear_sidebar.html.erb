@@ -15,57 +15,115 @@
      end
    } %>
 
-<%# Free-entry chip — the count the navbar's ✨ badge used to pop in its own
-    popover. The badge now OPENS this sidebar instead, so the number had to land
-    somewhere the click arrives at. Same .legendary-badge treatment as the disc
-    (paint only; the pill geometry is here), so the two read as one prize.
+<%# Quest state, resolved ONCE and read by both the header status line and the
+    body rows below. Hoisted above both captures because the status line is
+    built first and the two must never disagree about which quest is open. %>
+<% nq = current_user.respond_to?(:next_quest) ? current_user.next_quest : nil %>
+<% quest_target = nq ? main_contest_target : nil %>
+<% quest_contest_path = quest_target ? contest_path(quest_target) : contests_path %>
+<% quest_label = gear_quest_label(current_user) %>
 
-    Live via the entryTokenBadge factory, which subscribes to the window
-    'entry-tokens-updated' event updateNavTokens dispatches — NOT a page reload.
-    body_html renders TWICE (desktop + mobile panel below), so this mounts twice
-    as two independent Alpine scopes; both subscribe, both stay correct. That is
-    also why the count is not synced by querySelector in JS: a single-element
-    lookup would leave the other panel stale.
+<%# ── THE PANEL LEAD IS A STATUS LINE, NOT A TITLE ───────────────────────
+    This bar used to read "Settings" / "Admin Menu". A label that tells the
+    reader what they are already looking at spends the panel's most valuable
+    line on nothing, so it now carries the one fact worth carrying, in a fixed
+    priority:
 
-    x-show hides it at zero, and the server pre-sets display:none in that case so
-    there is no pre-Alpine flash of a chip promising an entry the user lacks. %>
+      1. a FREE ENTRY on the wallet   -> the free-entry badge
+      2. else an OPEN QUEST           -> "Quest: Send a Message"
+      3. else                         -> the username alone
+
+    "FREE ENTRY ON THE WALLET" IS THE ON-CHAIN ENTRY-TOKEN COUNT, not an
+    EntryGift row. The two are different objects and only one of them is
+    spendable: EntryGift is a PROMISE addressed to an email, which may not have
+    an account, a wallet, or a mint yet (its own model header calls the mint the
+    gap it exists to cross). The count here is display_entry_token_count, which
+    is what the navbar sparkle badge already reads and, critically, is scoped to
+    entry_token_wallet_address — the wallet that can actually SIGN a consume in
+    THIS session. A combo account in a web2 session cannot spend a token held by
+    its Phantom wallet, so an account-level read would promise an entry the
+    entry path would then refuse.
+
+    THE PRECEDENCE IS SPLIT ACROSS TWO CLOCKS, on purpose. Rungs 2 and 3 are
+    decided server-side, in one expression, so they can never both paint. Rung 1
+    outranks them CLIENT-side through the shared entryTokenBadge scope, because
+    a mint arrives on the 'entry-tokens-updated' event rather than on a reload;
+    x-show="count > 0" and its exact complement are what let the bar promote
+    itself the moment a token lands. The server pre-sets display:none on
+    whichever half does not match the load-time count, so neither flashes before
+    Alpine boots.
+
+    THE QUEST RUNG IS ACTIONABLE, and that is what makes dropping the two
+    quest-backed body rows safe: the header now carries the same destination
+    those rows carried. %>
 <% free_entries = display_entry_token_count.to_i %>
-<% body_html = capture do %>
-  <div class="px-4 pt-4 pb-3 border-b border-subtle"
-       x-data="entryTokenBadge({ initialCount: <%= free_entries %> })"
-       x-show="count > 0"
-       <%= 'style="display: none;"'.html_safe unless free_entries.positive? %>
-       data-free-entry-chip="true">
-    <span class="legendary-badge inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-bold leading-none whitespace-nowrap">
-      <span aria-hidden="true" style="font-size: 14px; line-height: 1;">✨</span>
-      <span><span x-text="count"><%= free_entries %></span>
-        <span x-text="count === 1 ? 'Free Entry' : 'Free Entries'"><%= free_entries == 1 ? "Free Entry" : "Free Entries" %></span></span>
-    </span>
+<% status_html = capture do %>
+  <div class="flex min-w-0 items-center"
+       data-gear-status="true"
+       x-data="entryTokenBadge({ initialCount: <%= free_entries %> })">
+    <div x-show="count > 0"
+         <%= 'style="display: none;"'.html_safe unless free_entries.positive? %>
+         data-free-entry-chip="true">
+      <span class="legendary-badge inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-bold leading-none whitespace-nowrap">
+        <span aria-hidden="true" style="font-size: 14px; line-height: 1;">✨</span>
+        <span><span x-text="count"><%= free_entries %></span>
+          <span x-text="count === 1 ? 'Free Entry' : 'Free Entries'"><%= free_entries == 1 ? "Free Entry" : "Free Entries" %></span></span>
+      </span>
+    </div>
+    <div class="min-w-0"
+         x-show="!(count > 0)"
+         <%= 'style="display: none;"'.html_safe if free_entries.positive? %>
+         data-gear-status-fallback="true">
+      <% if quest_label %>
+        <% quest_class = "group flex min-w-0 items-center gap-2 text-sm font-bold text-heading hover:text-primary transition" %>
+        <% case nq
+           when :username %>
+          <button type="button"
+                  @click="<%= close_action %>; $store.modals.open('username')"
+                  class="<%= quest_class %>"
+                  data-gear-status-quest="true"><%= emoji_swap.("🤖", "✨") %><span class="truncate"><%= quest_label %></span></button>
+        <% when :newsletter %>
+          <button type="button"
+                  @click="<%= close_action %>; $store.modals.open('newsletter-subscribe')"
+                  class="<%= quest_class %>"
+                  data-gear-status-quest="true"><%= emoji_swap.("📭", "📬") %><span class="truncate"><%= quest_label %></span></button>
+        <% else %>
+          <%= link_to quest_contest_path, class: quest_class, data: { gear_status_quest: true } do %><%= emoji_swap.(nq == :join ? "⚽️" : "💬", nq == :join ? "⚔️" : "👋🏻") %><span class="truncate"><%= quest_label %></span><% end %>
+        <% end %>
+      <% else %>
+        <span class="block truncate text-lg font-bold text-heading"
+              data-gear-status-name="true"><%= current_user.display_name %></span>
+      <% end %>
+    </div>
   </div>
+<% end %>
+
+<% body_html = capture do %>
   <nav class="flex-1 min-h-0 overflow-y-auto py-2" aria-label="Settings links">
     <%= link_to account_path, class: link_class do %><%= emoji_swap.("🙂", "✏️") %><span>My Profile</span><% end %>
     <%= link_to my_contests_path, class: link_class do %><%= emoji_swap.("🏆", "⚔️") %><span>My Contests</span><% end %>
 
-    <% nq = current_user.respond_to?(:next_quest) ? current_user.next_quest : nil %>
+    <%# The quest rows that survive. "Send a message" and "Invite a friend" were
+        dropped: both linked quest_contest_path, and the header status line above
+        now carries that same destination under the same condition, so the row
+        was a second copy of one nudge. The three left here still render because
+        only the two named were asked for. See the PR for the case that the whole
+        block now belongs in the header. %>
     <% if nq %>
-      <% quest_target = main_contest_target %>
-      <% quest_contest_path = quest_target ? contest_path(quest_target) : contests_path %>
       <% case nq
          when :join %>
         <%= link_to quest_contest_path, class: link_class do %><%= emoji_swap.("⚽️", "⚔️") %><span>Join contest</span><% end %>
       <% when :username %>
         <button type="button" @click="<%= close_action %>; $store.modals.open('username')" class="<%= link_class %> w-full text-left"><%= emoji_swap.("🤖", "✨") %><span>Pick a username</span></button>
-      <% when :chat %>
-        <%= link_to quest_contest_path, class: link_class do %><%= emoji_swap.("💬", "👋🏻") %><span>Send a message</span><% end %>
       <% when :newsletter %>
         <button type="button" @click="<%= close_action %>; $store.modals.open('newsletter-subscribe')" class="<%= link_class %> w-full text-left"><%= emoji_swap.("📭", "📬") %><span>Join newsletter</span></button>
-      <% when :invite %>
-        <%= link_to quest_contest_path, class: link_class do %><%= emoji_swap.("🤝", "🎁") %><span>Invite a friend</span><% end %>
       <% end %>
     <% end %>
 
+    <%# NFL Totals left this menu by request. The page and its route stay, and
+        shared/_footer still links it on every page for BOTH audiences, which is
+        the only route a logged-out visitor ever had. %>
     <%= link_to help_how_to_play_path, class: link_class do %><%= emoji_swap.("🎮", "🤔") %><span>How to Play</span><% end %>
-    <%= link_to nfl_team_totals_path, class: link_class do %><%= emoji_swap.("🏈", "📊") %><span>NFL Totals</span><% end %>
     <%= link_to proof_of_reserves_path, class: link_class do %><%= emoji_swap.("🪎", "🏦") %><span>Proof of Reserves</span><% end %>
 
     <button type="button"
@@ -93,8 +151,12 @@
           the hub because the one moment it is needed is the moment nobody wants
           to be hunting for a tile. %>
       <%= link_to admin_authorities_path, class: link_class do %><%= emoji_swap.("🔑", "🛡️") %><span>Authorities</span><% end %>
-      <%= link_to contests_path, class: link_class do %><%= emoji_swap.("✚", "✨") %><span>Contests</span><% end %>
-      <%= link_to admin_users_path, class: link_class do %><%= emoji_swap.("👥", "🏟️") %><span>Users</span><% end %>
+      <%# Contests and Users left this menu by request, and they are the two
+          admin rows that could afford to: both are tiles on the Link Hub
+          (admin/hub, the Admin and Contests sections), and Dashboard directly
+          above is the hub's own front door. Verified, not assumed — the hub
+          tiles are pinned by AdminControllerTest "hub marks reviewed and
+          flagged links", which asserts both hrefs carry data-status. %>
       <%= link_to admin_landing_pages_path, class: link_class do %><%= emoji_swap.("🪂", "🖼️") %><span>Landing Pages</span><% end %>
       <%= link_to admin_entry_gifts_path, class: link_class do %><%= emoji_swap.("🎁", "✨") %><span>Send Free Entry</span><% end %>
       <%= link_to admin_emails_path, class: link_class do %><%= emoji_swap.("✉️", "📮") %><span>Emails</span><% end %>
@@ -106,9 +168,16 @@
   </nav>
 <% end %>
 
+<%# aria_label IS LOAD-BEARING NOW, not a nicety. The panel's accessible name
+    used to come from `title` through _sidebar_panel's labelledby branch, which
+    needs BOTH id and title; with the title replaced by a status line there is no
+    heading left to point at, and title_html deliberately does not feed a name
+    (a name that reads "2 Free Entries" is worse than none). Delete the two
+    aria_label arguments below and the panel is announced as an unnamed
+    navigation region. %>
 <%= render "components/sidebar_panel",
       id: "gear-sidebar",
-      title: current_user.admin? ? "Admin Menu" : "Settings",
+      title_html: status_html,
       open: "$store.sidebars.gearOpen",
       body_html: body_html,
       close_action: close_action,
@@ -121,7 +190,7 @@
 
 <%= render "components/sidebar_panel",
       id: "gear-sidebar-mobile",
-      title: current_user.admin? ? "Admin Menu" : "Settings",
+      title_html: status_html,
       open: "$store.sidebars.gearOpen",
       body_html: body_html,
       close_action: close_action,

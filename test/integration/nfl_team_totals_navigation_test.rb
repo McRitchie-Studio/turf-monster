@@ -17,15 +17,25 @@ class NflTeamTotalsNavigationTest < ActionDispatch::IntegrationTest
     assert_select "footer a[href=?]", nfl_team_totals_path, text: "NFL Totals"
   end
 
-  test "a signed-in visitor reaches it from the gear sidebar" do
+  # REBOUND A SECOND TIME, and for the same reason as the first. The operator
+  # asked for NFL Totals to leave the gear sidebar (task:
+  # sidebar-shows-status-not-title), so the row this used to name is gone. The
+  # concern has not changed — "a signed-in visitor can get to this page from the
+  # site chrome" — and the footer, which renders for BOTH audiences, is now the
+  # answer for both. That is what makes the removal safe rather than stranding.
+  #
+  # SCOPED ON PURPOSE, both halves. An unscoped `a[href=?]` is satisfied by
+  # whichever copy the page happens to carry, so it reported green with the
+  # sidebar row deleted — measured, and it is exactly why the removal needed a
+  # named footer assertion to lean on rather than an ambient one.
+  test "a signed-in visitor reaches it from the footer too" do
     log_in_as users(:jordan)
     get games_path
 
     assert_response :success
-    # SCOPED ON PURPOSE. An unscoped `a[href=?]` is satisfied by the FOOTER link
-    # this same page renders, so this test reported green with the sidebar row
-    # deleted — measured. Name the sidebar, or the assertion is decoration.
-    assert_select "#gear-sidebar a[href=?]", nfl_team_totals_path, text: /NFL Totals/
+    assert_select "footer a[href=?]", nfl_team_totals_path, text: "NFL Totals"
+    # The gear row was dropped; a silent re-add undoes the trim.
+    assert_select "#gear-sidebar a[href=?]", nfl_team_totals_path, count: 0
   end
 
   test "the navbar itself no longer carries it" do

@@ -200,11 +200,19 @@ class NavbarBrandTest < ActionView::TestCase
     assert_includes src, '"Rules"'
   end
 
-  test "the gear sidebar picked both of them up" do
+  # HALF OF THIS MOVE HAS SINCE BEEN UNDONE, deliberately. NFL Totals came off
+  # the navbar to give the wordmark room and landed here; the operator has since
+  # asked for it to leave the gear too (task: sidebar-shows-status-not-title).
+  # What the two tests around this one were really defending is that the page
+  # stays REACHABLE — the assertion below this one owns that, at both audiences,
+  # through the footer — so this one narrows to the half that is still true, and
+  # pins the removal so a silent re-add does not quietly re-crowd the menu.
+  test "the gear sidebar kept Reserves and let NFL Totals go" do
     src = SIDEBAR.read
 
-    assert_includes src, "nfl_team_totals_path", "NFL Totals must land in the sidebar"
     assert_includes src, "proof_of_reserves_path", "Reserves was already here"
+    refute_includes src, "nfl_team_totals_path",
+                    "NFL Totals left the gear by request; the footer is its route now"
   end
 
   test "a logged-out visitor can still reach both pages" do

@@ -1,7 +1,13 @@
 <%# Shared fixed right-sidebar shell.
     Locals:
       id             - DOM id for aria-controls
-      title          - header title
+      title          - header title (plain text; also feeds the accessible name)
+      title_html     - header LEAD SLOT: pre-rendered HTML in the title's place,
+                       for a caller whose lead is a live status line rather than
+                       a label. It is content, NOT a name: it never feeds
+                       aria-labelledby or aria_label, so a caller that passes it
+                       instead of `title` MUST pass its own aria_label or the
+                       panel loses its accessible name entirely.
       open           - Alpine expression controlling visibility
       actions_html   - optional header action HTML
       body_html      - main sidebar body HTML
@@ -17,6 +23,7 @@
 %>
 <% id             = local_assigns.fetch(:id, nil) %>
 <% title          = local_assigns.fetch(:title, nil) %>
+<% title_html     = local_assigns.fetch(:title_html, nil) %>
 <% open           = local_assigns.fetch(:open) %>
 <% actions_html   = local_assigns.fetch(:actions_html, nil) %>
 <% body_html      = local_assigns.fetch(:body_html, nil) %>
@@ -60,10 +67,14 @@
   role="<%= role %>"
   <% if labelledby %>aria-labelledby="<%= labelledby %>"<% elsif aria_label.present? %>aria-label="<%= aria_label %>"<% end %>>
   <div class="flex flex-col h-full">
-    <% if title.present? || actions_html.present? || close_action.present? %>
+    <% if title.present? || title_html.present? || actions_html.present? || close_action.present? %>
       <div class="flex items-center justify-between p-4 border-b border-subtle">
         <% if title.present? %>
           <h3 <% if labelledby %>id="<%= labelledby %>"<% end %> class="text-lg font-bold text-heading"><%= title %></h3>
+        <% elsif title_html.present? %>
+          <%# min-w-0 so a long status line TRUNCATES inside its own box instead
+              of pushing the close button off the panel's right edge on a phone. %>
+          <div class="min-w-0 flex-1"><%= title_html %></div>
         <% end %>
         <div class="flex items-center gap-2 ml-auto">
           <%= actions_html if actions_html.present? %>
