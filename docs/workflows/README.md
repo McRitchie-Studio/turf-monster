@@ -34,7 +34,8 @@ Casual-agent index. Open a per-workflow file for the dirty details.
 > are not capped.
 >
 > **A `config/routes.rb` citation anchors on its FIRST line** (2026-09-16). A routes
-> file defines no method, so no citation into it can ever reach the symbol check —
+> file's cited lines are `draw do` entries, not method bodies, so no citation into
+> it reaches the symbol check —
 > every one of them fell to the fallback, and a routes stanza repeats its own words
 > often enough that a span which had slipped a line still held a token. One inserted
 > route moved five citations in three documents and all five stayed green, one of

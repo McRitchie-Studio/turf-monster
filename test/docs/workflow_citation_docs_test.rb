@@ -188,8 +188,9 @@ require "prism"
 #      line. A citation meant to span definitions should list them separately
 #      (`:12-18, 30-41`) — each part is then judged on its own first line.
 #   8. A ROUTES CITATION IS CHECKED DIFFERENTLY, AND STILL NOT PERFECTLY.
-#      config/routes.rb defines no method, so `definitions` returns nothing for
-#      it and no citation into it can ever reach the symbol branch — see the
+#      Nothing cites the two methods config/routes.rb happens to define
+#      (`SidekiqAdminMiddleware`, :7-42), so no citation into it reaches the
+#      symbol branch and `enclosing_names` is empty for all 21 — see the
 #      ROUTES_FILE note below for the measured drift that came of leaving those
 #      on the plain fallback. They now anchor on their FIRST cited line, which
 #      is where a route entry lives, so a number that has slipped off its route
@@ -527,9 +528,9 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # proves a landing, and it runs first for exactly that reason.
   MAX_BARE_WORD_LINES = 12
 
-  # config/routes.rb IS THE ONE CITED FILE WITH NO SYMBOLS AT ALL, and that is
+  # NO CITATION INTO config/routes.rb REACHES THE SYMBOL BRANCH, and that is
   # why it rotted. `definitions` reads Ruby with Prism and collects DefNodes;
-  # a routes file is one `draw do` block and defines no method, so
+  # the routes a document cites are `draw do` entries, not method bodies, so
   # `enclosing_names` is empty for EVERY citation into it and every one of them
   # falls to the literal branch — not by an editor's choice, by construction.
   # The fallback then asks only that some prose token appear SOMEWHERE in the
@@ -621,8 +622,10 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
 
   # DIRECTORY-WIDE, and the reason is the whole ROUTES_FILE note above: this is
   # the one cited file where the symbol branch can never run, so without this
-  # rule a routes citation gets the weakest check in the file — and it is cited
-  # from six documents, two of which the symbol test does not read at all.
+  # rule a routes citation gets the weakest check in the file. Measured 2026-09-16:
+  # all 21 come from FIVE documents, every one of them in COVERAGE — so this
+  # reaches nothing the symbol test misses today. It is the guard for the day an
+  # `enforced` document outside COVERAGE cites a route.
   test "a config/routes.rb citation starts on the line that carries its route" do
     routes = all_citations.select { |c| c[:path] == ROUTES_FILE }
     assert_operator routes.size, :>=, MIN_ROUTE_CITATIONS,
