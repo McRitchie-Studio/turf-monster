@@ -275,13 +275,16 @@ module Admin
     # Discard an armed eviction. Refuses once a signature exists — a row that
     # has broadcast is a historical fact, not a draft.
     def cancel
-      if @tx.tx_signature.present?
-        return redirect_to admin_authorities_path,
-                           alert: "This eviction already broadcast (#{@tx.tx_signature}); it cannot be discarded."
-      end
+      rescue_and_log(target: @tx) do
+        if @tx.tx_signature.present?
+          raise "This eviction already broadcast (#{@tx.tx_signature}); it cannot be discarded."
+        end
 
-      @tx.update!(status: "expired", stale: true)
-      redirect_to admin_authorities_path, notice: "Armed eviction discarded."
+        @tx.update!(status: "expired", stale: true)
+        redirect_to admin_authorities_path, notice: "Armed eviction discarded."
+      end
+    rescue StandardError => e
+      redirect_to admin_authorities_path, alert: e.message
     end
 
     private
@@ -349,11 +352,21 @@ module Admin
     # developer's stack and caught by CI's deliberately black-holed endpoint.
     # Hence the memo below covers the FAILURE too, not just the answer.
 
+    # THE ONE READ of the GovernanceConfig account. Raises when the chain cannot
+    # be read; nil ONLY when the account genuinely does not exist. Memoized
+    # including the nil, so a caller cannot trigger a second read that fails
+    # differently from the first.
+    def governance_account
+      return @governance_account if defined?(@governance_account)
+
+      @governance_account = vault.read_governance
+    end
+
     # Raises when the chain cannot be read. For anything that builds bytes.
     def chain_governance!
       return @chain_governance if defined?(@chain_governance)
 
-      @chain_governance = vault.read_governance.present?
+      @chain_governance = governance_account.present?
     end
 
     # nil when the chain could not be read. For the page.
@@ -450,8 +463,20 @@ module Admin
     # The highest threshold ANY live action requires. `update_signers` refuses a
     # set smaller than this, because rotating below it would brick that action
     # with no way back except another rotation.
+    # ONE READ, REUSED — not a second one behind a bare `rescue nil`.
+    #
+    # The bare rescue was the one place this controller's own rule slipped: it
+    # folded UNREAD into ABSENT, and nil here means "no ceiling to satisfy", so a
+    # flaked read would have silently dropped the `count >= max_live` guard from
+    # a rotation — the guard that stops a set too small for some OTHER action
+    # bricking it with no way back.
+    #
+    # The fix is not a better rescue, it is not reading twice. `chain_governance!`
+    # has already read this account and memoized it by the time any caller
+    # reaches here, so the ceiling comes from THAT read. It cannot fail
+    # separately, and it cannot disagree with the shape decision made from it.
     def max_live_threshold
-      table = @governance_table ||= (vault.read_governance rescue nil)
+      table = governance_account
       return nil if table.nil?
 
       stored = Array(table[:thresholds])
@@ -572,7 +597,7 @@ module Admin
     # Sets `@governance_read_ok` so the caller can tell ABSENT from UNREAD —
     # two states a nil return cannot distinguish on its own.
     def read_governance_safely
-      result = vault.read_governance
+      result = governance_account
       @governance_read_ok = true
       result
     rescue StandardError => e

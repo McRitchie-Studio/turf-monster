@@ -70,6 +70,12 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
 
   setup { log_in_as(users(:alex)) }
 
+  # Whatever key THIS process signs as. Read rather than hardcoded so the
+  # in-set branch is exercised on any machine's configuration.
+  def server_key
+    Solana::CosignPlan.admin_address
+  end
+
   def render_page(vault: RenderVault.new, squads: SQUAD)
     Solana::Vault.stub :new, vault do
       Solana::Squads.stub :read, squads do
@@ -92,6 +98,54 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
 
   # ── THE COPY CONTRACT ────────────────────────────────────────────────────
 
+  # THE DETECTOR, shared by the page assertion and the controls below.
+  #
+  # ── WHY IT LOOKS AT THE ADJACENT WORDS AND NOT AT A WINDOW ────────────────
+  #
+  # The first cut took 280 characters around each hit and passed if the window
+  # contained squads|upgrade|vault. On a page saturated with all three that
+  # passes almost unconditionally: measured, it survived stripping "Squads" from
+  # the very heading this file's header orders it to protect. A guard that
+  # cannot fail is worse than no guard, because the task's recorded check then
+  # claims an enforcement nobody has.
+  #
+  # The real rule is ADJACENCY. "Squads multisig" and "VaultState's in-program
+  # multisig" are precise; "the multisig", three paragraphs after someone
+  # mentioned Squads, is exactly the ambiguity that produced the wrong claims
+  # this page replaces. So the qualifier has to be within the three words before
+  # the noun — which is where English actually puts it.
+  QUALIFIERS = /\A(squads|vault|vaultstate|in-program|upgrade|program-upgrade)\z/i
+
+  # Code identifiers are exempt and must be: `validate_multisig` is the
+  # program's own function name and naming it precisely is the opposite of the
+  # ambiguity this guard is about. A hit glued to `_` is skipped.
+  MULTISIG = /(?<![A-Za-z0-9_])multisig(?![A-Za-z0-9_])/i
+
+  # Visible text only. Tags and attributes carry class names and hrefs that
+  # would supply a qualifier no reader ever sees.
+  def self.visible_text(html)
+    html.gsub(/<script\b.*?<\/script>/m, " ").gsub(/<[^>]+>/m, " ").gsub(/&[a-z]+;/, " ")
+  end
+
+  # An INDEX walk rather than `Regexp.last_match` inside an enumerator block:
+  # `$~` is frame-local, so it is not reliably visible from a block that
+  # `Enumerator#each` yields into — it happened to read on one input and came
+  # back nil on the next, which is exactly the kind of guard that reports clean
+  # for the wrong reason.
+  def self.unqualified_multisig(html)
+    text = visible_text(html)
+    offenders = []
+    pos = 0
+    while (at = text.index(MULTISIG, pos))
+      recent = text[0...at].scan(/[A-Za-z][A-Za-z'-]*/).last(3)
+      unless recent.any? { |w| w =~ QUALIFIERS }
+        offenders << text[[at - 70, 0].max, 110].gsub(/\s+/, " ").strip
+      end
+      pos = at + 1
+    end
+    offenders
+  end
+
   test "the word multisig is never used unqualified" do
     # THE DEFECT THIS ENDS. `Solana::Config`'s own comment orders: "NEVER write
     # 'the multisig' unqualified in this file — say Squads or VaultState; the
@@ -100,16 +154,40 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
     # mid-incident rather than someone reading a comment.
     render_page
 
-    text = response.body
+    assert_empty self.class.unqualified_multisig(response.body),
+                 "found an unqualified \"multisig\" on the page"
+  end
 
-    # CODE IDENTIFIERS ARE EXEMPT AND MUST BE. `validate_multisig` is the
-    # program's own function name and `MULTISIG_SIGNERS` is a constant — naming
-    # them precisely is the opposite of the ambiguity this guard is about. The
-    # rule is about the ENGLISH word, so a match glued to `_` is skipped.
-    text.enum_for(:scan, /(?<![A-Za-z0-9_])multisig(?![A-Za-z0-9_])/i).each do
-      window = text[[Regexp.last_match.begin(0) - 140, 0].max, 280]
-      assert_match(/squads|upgrade|vault/i, window,
-                   "found an unqualified \"multisig\" near: #{window.gsub(/\s+/, ' ').strip}")
+  test "the guard BITES — it catches the mutations it exists to catch" do
+    # A CONTROL, because a detector that never fires is indistinguishable from a
+    # page that never offends, and the first version of this guard was the
+    # former while claiming to be the latter. Each string below is a realistic
+    # edit someone could make to this page.
+    offending = {
+      "the reviewer's own mutation: Squads stripped from the heading" =>
+        "<h2>Program authority (multisig)</h2><p>It can redeploy the program.</p>",
+      "the bare form the config comment forbids" =>
+        "<p>A holder of stolen keys cannot execute here. The multisig needs 3 approvals.</p>",
+      "a qualifier that is present but too far away to qualify anything" =>
+        "<p>The Squads account is a different thing entirely from the signer set " \
+        "above, and each cluster has its own. Changing the multisig is a separate act.</p>"
+    }
+    offending.each do |why, html|
+      assert_not_empty self.class.unqualified_multisig(html),
+                       "the guard must catch #{why}"
+    end
+
+    # And the other half: the correct forms must NOT trip it, or the guard would
+    # be unsatisfiable and someone would delete it.
+    passing = {
+      "adjacent qualifier" => "<p>The Squads multisig holds the upgrade authority.</p>",
+      "possessive qualifier" => "<p>VaultState's in-program multisig signs vault actions.</p>",
+      "code identifier" => "<p>It calls <code>validate_multisig</code> with two signers.</p>",
+      "constant" => "<p>Read <code>MULTISIG_SIGNERS</code> for the fallback list.</p>"
+    }
+    passing.each do |why, html|
+      assert_empty self.class.unqualified_multisig(html),
+                   "the guard must not trip on #{why}"
     end
   end
 
@@ -190,7 +268,7 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
   test "the page records WHY Squads is out of scope rather than leaving it implicit" do
     render_page
     assert_match(/Deliberately out of scope for this console/i, response.body)
-    assert_match(/create and vote on proposals and never carry one out/i, response.body)
+    assert_match(/create and\s+vote on proposals and never carry one out/i, response.body)
   end
 
   test "an unreadable VAULT refuses to offer an eviction rather than guessing" do
@@ -245,6 +323,39 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
     assert_select "h2", text: /Vault signer set/
     assert_select "h2", text: /Program upgrade authority/
     assert_select "h2", text: /Server signing identity/
+
+    # ── AND THE PANEL BODIES, WHICH IS WHERE THE REAL FAILURE LIVED ────────
+    #
+    # Asserting the headings alone let a self-contradicting page pass: one panel
+    # said the vault account could not be read while the panel below it stated
+    # the server is "NOT in the vault signer set" and told the operator to act on
+    # that. A definite negative FACT plus an INSTRUCTION, from a read that never
+    # happened. Headings cannot see that; bodies can.
+    assert_match(/cannot say whether\s+this key is in it/i, response.body)
+    assert_no_match(/<strong>Not<\/strong> in the vault signer set/, response.body)
+    assert_no_match(/An eviction must be led by a wallet that is/, response.body)
+  end
+
+  test "an unread vault never renders the server as a NON-signer" do
+    # The three states, asserted apart. `if @vault && …include?` collapsed the
+    # first two, and the collapse is reachable today — it is what CI renders on
+    # every run, because the playwright job black-holes the RPC.
+    blind = RenderVault.new
+    blind.define_singleton_method(:read_vault_state) { |**| nil }
+    render_page(vault: blind)
+    assert_match(/cannot say whether\s+this key is in it/i, response.body)
+    assert_no_match(/<strong>Not<\/strong> in the vault signer set/, response.body)
+
+    # IN the set — the server key is slot 1 of the default fixture.
+    render_page(vault: RenderVault.new(signers: [server_key, ALEX, MASON]))
+    assert_match(/In the vault signer set/, response.body)
+    assert_no_match(/cannot say whether/, response.body)
+
+    # NOT in the set — a real, proven negative, which must still be said plainly.
+    render_page(vault: RenderVault.new(signers: [ALEX, MASON, ALEX2]))
+    assert_match(/<strong>Not<\/strong> in the vault signer set/, response.body)
+    assert_match(/An eviction must be led by a wallet that is/, response.body)
+    assert_no_match(/cannot say whether/, response.body)
   end
 
   test "an UNREAD GovernanceConfig is never reported as an ABSENT one" do
@@ -267,6 +378,60 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
     assert_match(/an unread\s+account is not an absent one/i, response.body)
     # And the per-row provenance says "unread" rather than "not on chain".
     assert_match(/>unread</, response.body)
+  end
+
+  # ── THE OVERLAP IS COMPUTED, NEVER CONCLUDED ─────────────────────────────
+
+  test "an overlap BELOW the threshold says a thief can vote but not execute" do
+    render_page # SQUAD: threshold 3, overlap with the vault set is 2
+
+    assert_match(/below the threshold of\s+3/, response.body)
+    assert_match(/can create and vote on proposals and never carry one out/i, response.body)
+    assert_no_match(/could <em>execute<\/em> a program upgrade/, response.body)
+  end
+
+  test "an overlap AT OR ABOVE the threshold says so, and does not reassure" do
+    # THE SENTENCE THIS REPLACES asserted "but it is still below the threshold"
+    # with no comparison to `squads[:threshold]`. True of the number in front of
+    # it the day it was written, and it INVERTS on the documented target: both
+    # Squads are 3-of-5 and the intended five-member vault signer set IS the
+    # mainnet Squad's membership, so the overlap reaches 5 against 3.
+    #
+    # The page would then have reassured an operator that a holder of those keys
+    # "cannot execute here" while they could execute a PROGRAM UPGRADE — a
+    # strictly larger power than anything the vault signer set grants.
+    # Understating blast radius, on the panel whose whole job is computing it.
+    breaching = SQUAD.merge(
+      members: SQUAD[:members].map { |m| m.merge(mask: 7, can_vote: true, can_execute: true) },
+      threshold: 2
+    )
+    render_page(vault: RenderVault.new(signers: [ALEX, MASON, ALEX2]), squads: breaching)
+
+    assert_match(/at or above the threshold of\s+2/, response.body)
+    assert_match(/could <em>execute<\/em> a program upgrade/, response.body)
+    assert_match(/Evicting them from the vault does not touch that/i, response.body)
+    # And it must NOT still be telling him this is safely out of scope.
+    assert_no_match(/never carry one out/, response.body)
+    assert_match(/right now that is a gap/i, response.body)
+  end
+
+  test "an unreadable VAULT makes no claim about the overlap at all" do
+    blind = RenderVault.new
+    blind.define_singleton_method(:read_vault_state) { |**| nil }
+
+    render_page(vault: blind)
+
+    assert_match(/cannot say how\s+many seats the two authorities share/i, response.body)
+    assert_no_match(/below the threshold of/, response.body)
+    assert_no_match(/at or above the threshold of/, response.body)
+  end
+
+  test "no overlap is stated as no overlap, not as a threshold comparison" do
+    render_page(vault: RenderVault.new(signers: %w[
+      8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd
+    ]))
+
+    assert_match(/No seat here is also in the vault signer set/i, response.body)
   end
 
   test "an unreadable Squad says so instead of quoting a number" do

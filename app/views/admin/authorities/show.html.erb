@@ -53,8 +53,23 @@
     </p>
     <% if @server_address.present? %>
       <p class="font-mono text-xs text-heading break-all"><%= @server_address %></p>
-      <p class="mt-1 text-xs text-muted">
-        <% if @vault && @vault[:active_signers].include?(@server_address) %>
+      <%# THREE STATES, NOT TWO. `if @vault && include?` collapses "the read
+          FAILED" into "this key is NOT a signer" — a definite negative fact,
+          followed by an instruction to act on it, while the panel above says the
+          account could not be read. The page would contradict itself, and it is
+          reachable today: it is the state CI renders on every run.
+
+          This is the same rule the GovernanceConfig panel already follows —
+          UNREAD IS NOT ABSENT — and it has to hold everywhere on this page or it
+          holds nowhere. An authority page that asserts a membership fact it
+          could not check is the exact failure this page exists to end. %>
+      <p class="mt-1 text-xs <%= @vault ? "text-muted" : "text-warning-ink" %>">
+        <% if @vault.nil? %>
+          The vault signer set could not be read, so this page cannot say whether
+          this key is in it — and therefore cannot tell you whether the server can
+          lead a rotation. Nothing below is safe to act on until that read
+          succeeds.
+        <% elsif @vault[:active_signers].include?(@server_address) %>
           In the vault signer set — so it can sign vault actions, and so it
           <strong>cannot be evicted by a rotation it leads</strong> (see below).
         <% else %>

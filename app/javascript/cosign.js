@@ -85,8 +85,10 @@ document.addEventListener('change', function(evt) {
 // the roster painting and the "never guess blockhash expired" error handling to
 // drift. Two endpoints and one signer-queue source are the whole difference.
 //
-//   opts.rebuildUrl   — where to mint fresh bytes at click time
-//   opts.broadcastUrl — where to POST the signed wire
+//   opts.rebuildUrl    — where to mint fresh bytes at click time
+//   opts.broadcastUrl  — where to POST the signed wire
+//   opts.successNoun   — what landed, in the surface's own words
+//   opts.backLabel     — the success CTA's label
 window.cosignTransaction = async function(slug, txTypeLabel, extraCosigners, buttonEl, opts) {
   var label = (txTypeLabel && String(txTypeLabel).trim()) || 'Transaction';
   opts = opts || {};
@@ -344,17 +346,31 @@ window.cosignTransaction = async function(slug, txTypeLabel, extraCosigners, but
 
     if (resp.ok) {
       if (modal) {
-        // Generic success variant — admin treasury action, so NO entry
-        // confetti. The "Back to Treasury" CTA reloads so the now-confirmed
-        // row refreshes to its green Confirmed badge (the generic card's CTA
-        // is a plain link with no auto-redirect drain). We also reload on a
-        // bare Dismiss / backdrop close via onClose, but the CTA is the
-        // reliable path across every dismiss route.
+        // Generic success variant — an admin action, so NO entry confetti. The
+        // CTA reloads so the now-confirmed row refreshes to its green badge (the
+        // generic card's CTA is a plain link with no auto-redirect drain). We
+        // also reload on a bare Dismiss / backdrop close via onClose, but the
+        // CTA is the reliable path across every dismiss route.
+        //
+        // THE COPY IS NO LONGER TREASURY-ONLY. This engine had exactly one
+        // caller for its whole life, so "the treasury transaction" and "Back to
+        // Treasury" were accurate by construction. /admin/authorities is the
+        // first caller that is not the treasury, and telling an operator he has
+        // just completed a TREASURY transaction after he evicted a compromised
+        // vault signer is wrong in the one place it most matters — the receipt
+        // he reads to confirm the eviction landed.
+        //
+        // Derived from the page, not from a second flag: the CTA goes back where
+        // he already is, so its name is that page's name. `opts.successNoun` is
+        // the surface's own word for what landed; the treasury caller passes
+        // nothing and keeps its exact sentence.
+        var noun = opts.successNoun || 'treasury transaction';
+        var backLabel = opts.backLabel || 'Back to Treasury';
         modal.success(signature, 'Transaction confirmed on-chain.', {
           variant: 'generic',
           title: label + ' Confirmed',
-          subtitle: 'The treasury transaction landed on-chain and has been recorded.',
-          ctaLabel: 'Back to Treasury',
+          subtitle: 'The ' + noun + ' landed on-chain and has been recorded.',
+          ctaLabel: backLabel,
           ctaHref: window.location.pathname
         });
         modal.onClose = function() { window.location.reload(); };

@@ -111,7 +111,7 @@
           <button data-tx-slug="<%= rotation.slug %>"
                   data-rebuild-url="<%= admin_rebuild_authority_rotation_path(rotation.slug) %>"
                   data-broadcast-url="<%= admin_broadcast_authority_rotation_path(rotation.slug) %>"
-                  onclick="cosignTransaction(this.dataset.txSlug, 'Signer Eviction', [], this, { rebuildUrl: this.dataset.rebuildUrl, broadcastUrl: this.dataset.broadcastUrl })"
+                  onclick="cosignTransaction(this.dataset.txSlug, 'Signer Eviction', [], this, { rebuildUrl: this.dataset.rebuildUrl, broadcastUrl: this.dataset.broadcastUrl, successNoun: 'signer rotation', backLabel: 'Back to Authorities' })"
                   data-desktop-only-action
                   class="btn btn-primary btn-sm">
             Collect <%= plan[:required_signatures] %> signatures &amp; evict

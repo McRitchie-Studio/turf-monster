@@ -72,29 +72,66 @@
     </dl>
   <% end %>
 
-  <%# ── WHY THIS PAGE DOES NOT ACT ON SQUADS ─────────────────────────────
-      Recorded here rather than left implicit, because "we only handle the
-      vault" reads as an omission unless the reasoning is on the page. %>
-  <div class="rounded-lg border border-subtle bg-surface-alt p-3">
-    <p class="text-xs font-bold uppercase tracking-wide text-muted mb-1">
-      Deliberately out of scope for this console
+  <%# ── WHY THIS PAGE DOES NOT ACT ON SQUADS, AND WHAT A STOLEN KEY REACHES
+      Recorded on the page rather than left implicit, because "we only handle
+      the vault" reads as an omission unless the reasoning is visible.
+
+      THE OVERLAP IS COMPUTED — NEVER CONCLUDED. This block used to end "but it is still below the threshold" with NO
+      comparison to `squads[:threshold]`. It was true of the number in front of
+      it on the day it was written (devnet overlap 2 against 3) and it is a
+      CONCLUSION THE PAGE NEVER CHECKED.
+
+      It inverts on the documented target. Both Squads are 3-of-5, and the
+      intended five-member vault signer set IS the mainnet Squad's membership —
+      so the overlap reaches 5 against a threshold of 3, and the page would
+      reassure an operator that a holder of those keys "cannot execute here"
+      while they could execute a PROGRAM UPGRADE. Understating blast radius, on
+      the panel whose entire job is computing it.
+
+      So the comparison is made, and each branch says only what its numbers
+      support. Three states, because an unread vault set supports no claim about
+      the overlap at all. %>
+  <% members  = squads && squads[:members].map { |m| m[:address] } %>
+  <% overlap  = (squads && vault) ? (members & vault[:active_signers]) : nil %>
+  <% breached = overlap && squads && overlap.length >= squads[:threshold] %>
+
+  <div class="rounded-lg border p-3 <%= breached ? "border-danger/40 bg-danger/10" : "border-subtle bg-surface-alt" %>">
+    <p class="text-xs font-bold uppercase tracking-wide mb-1 <%= breached ? "text-danger-ink" : "text-muted" %>">
+      <% if breached %>
+        This console does not act on Squads — and right now that is a gap
+      <% else %>
+        Deliberately out of scope for this console
+      <% end %>
     </p>
     <p class="text-xs text-secondary">
-      A holder of stolen keys cannot <em>execute</em> here.
-      <% if squads %>
-        <% compromised = vault ? (squads[:members].map { |m| m[:address] } & vault[:active_signers]) : [] %>
-        This Squad needs <%= squads[:threshold] %> approvals out of
-        <%= squads[:members].length %> members, so anyone short of that can
-        create and vote on proposals and never carry one out.
-        <% if compromised.any? %>
-          <%= pluralize(compromised.length, "seat") %> here
-          <%= compromised.length == 1 ? "is" : "are" %> also in the vault signer
-          set, which is the overlap worth watching — but it is still below the
-          threshold.
-        <% end %>
+      <% if squads.nil? %>
+        This Squad could not be read, so this page cannot say what a stolen key
+        reaches here. Do not substitute a number from a doc.
       <% else %>
-        Its threshold could not be read just now, so that claim is not verified
-        on this render.
+        This Squad needs <%= squads[:threshold] %> approvals out of
+        <%= squads[:members].length %> members.
+        <% if overlap.nil? %>
+          The vault signer set could not be read, so this page cannot say how
+          many seats the two authorities share — and therefore cannot say what a
+          stolen vault key reaches here.
+        <% elsif overlap.empty? %>
+          No seat here is also in the vault signer set, so a stolen <em>vault</em>
+          key reaches nothing on this authority.
+        <% elsif breached %>
+          <strong><%= pluralize(overlap.length, "seat") %> here
+          <%= overlap.length == 1 ? "is" : "are" %> also in the vault signer
+          set — at or above the threshold of <%= squads[:threshold] %>.</strong>
+          A holder of those keys could <em>execute</em> a program upgrade, which
+          is a strictly larger power than anything the vault signer set grants.
+          Evicting them from the vault does not touch that: change this
+          membership too, through the link below.
+        <% else %>
+          <%= pluralize(overlap.length, "seat") %> here
+          <%= overlap.length == 1 ? "is" : "are" %> also in the vault signer
+          set, which is the overlap worth watching —
+          below the threshold of <%= squads[:threshold] %>, so a holder of those
+          keys can create and vote on proposals and never carry one out.
+        <% end %>
       <% end %>
       Squads already ships a web UI for changing membership, so this page links
       out rather than reimplementing a second, less-tested path to the same
