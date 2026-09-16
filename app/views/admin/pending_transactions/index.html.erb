@@ -16,8 +16,20 @@
     <div class="space-y-3">
       <% @pending.each do |tx| %>
         <div class="card p-4">
-          <div class="flex items-start justify-between gap-4">
-            <div class="flex-1 min-w-0">
+          <%# THE ROW STACKS BELOW md, AND THE CONTROLS COLUMN HAS A FIXED WIDTH ABOVE IT.
+              It was two side-by-side columns at every width, the controls one
+              flex-shrink-0. A column that may not shrink is as wide as its widest
+              unwrapped line, and the signing roster's footer sentence is one long
+              line: measured on a governance boot at 390px, the controls came out
+              550px wide inside a 294px card, the title column collapsed to 0px,
+              and the Co-sign button ran past the edge of the screen. A fixed
+              column makes the roster and the label wrap to it instead, and gives
+              every row the same column, so the controls line up down the page.
+              md, not sm: beside a 320px column at 640px the title column is
+              about 200px, and the slug and status badge broke mid-word there.
+              e2e/treasury_cosign_row_layout.spec.js measures the widths. %>
+          <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div class="min-w-0 md:flex-1">
               <div class="flex items-center gap-2 mb-1">
                 <span class="font-mono text-xs text-muted"><%= tx.slug %></span>
                 <% case tx.status %>
@@ -74,6 +86,9 @@
                 <% end %>
               </div>
 
+              <%# A full base58 address is one unbreakable 44-character word, wider
+                  than a phone's card: break-all lets it wrap inside the card
+                  rather than run past its edge. %>
               <% if tx.metadata.present? %>
                 <% meta = tx.parsed_metadata %>
                 <% if meta["settlements"] %>
@@ -85,24 +100,24 @@
                 <% case tx.tx_type %>
                 <% when "register_currency" %>
                   <div class="mt-2 text-xs text-muted">
-                    Mint: <span class="font-mono"><%= meta["mint"] %></span><% if meta["kind"] %> · kind <%= meta["kind"] %><% end %>
+                    Mint: <span class="font-mono break-all"><%= meta["mint"] %></span><% if meta["kind"] %> · kind <%= meta["kind"] %><% end %>
                   </div>
                 <% when "deactivate_currency" %>
                   <div class="mt-2 text-xs text-muted">Slot: <%= meta["currency_idx"] %></div>
                 <% when "sweep_operator_revenue" %>
                   <div class="mt-2 text-xs text-muted">
-                    Mint: <span class="font-mono"><%= meta["currency_mint"] %></span> ·
+                    Mint: <span class="font-mono break-all"><%= meta["currency_mint"] %></span> ·
                     amount: <%= meta["amount"].to_i.zero? ? "all" : meta["amount"] %>
                   </div>
                 <% when "cancel_contest" %>
                   <div class="mt-2 text-xs text-muted">
-                    Refund creator: <span class="font-mono"><%= meta["creator"] %></span>
+                    Refund creator: <span class="font-mono break-all"><%= meta["creator"] %></span>
                   </div>
                 <% end %>
               <% end %>
             </div>
 
-            <div class="flex flex-col gap-2 flex-shrink-0" data-cosign-controls>
+            <div class="flex flex-col gap-2 md:w-80 md:flex-shrink-0" data-cosign-controls>
               <% if tx.pending? %>
                 <%# HOW MANY SIGNATURES THIS ACTION NEEDS, stated before the
                     operator commits to signing. Six of these rose to three
@@ -130,7 +145,7 @@
                         that is one character off spends a build to be told
                         Unauthorized. %>
                     <select data-extra-cosigner
-                            class="input-field w-56 font-mono text-xs">
+                            class="input-field w-full font-mono text-xs">
                       <% @eligible_extras.each do |signer| %>
                         <option value="<%= signer %>"><%= signer.truncate(16) %></option>
                       <% end %>
@@ -141,7 +156,7 @@
                       the honest failure: an empty select would let the operator
                       click into a 422 that names a threshold rather than the
                       configuration that cannot meet it. %>
-                  <p class="text-xs text-danger-ink max-w-56">
+                  <p class="text-xs text-danger-ink">
                     No second signer is available. This action needs <%= required %>
                     vault signatures and the configured signer set offers only the
                     admin key and <%= @primary_cosigner.truncate(12) %>.
@@ -170,7 +185,7 @@
                        "#{format('%.4f', @fee_payer[:balance_sol].to_f)} SOL and cannot pay the network fee."
                      end %>
                 <% if blocked_reason %>
-                  <p class="text-xs text-danger-ink max-w-56" data-cosign-blocked><%= blocked_reason %></p>
+                  <p class="text-xs text-danger-ink" data-cosign-blocked><%= blocked_reason %></p>
                 <% end %>
 
                 <%# THE ROSTER — Mr. McRitchie's own requirement: "easy to see
@@ -214,7 +229,7 @@
                     operator can act on. Telling him "do not re-send" and then
                     offering him nothing to do is how a row became a Rails
                     console. %>
-                <p class="text-xs text-danger-ink max-w-56" data-cosign-broadcast-note>
+                <p class="text-xs text-danger-ink" data-cosign-broadcast-note>
                   <% if tx.awaiting_reconciliation? %>
                     This transaction was broadcast and the result was not read back,
                     so it may be on chain. Check the signer/target account before
