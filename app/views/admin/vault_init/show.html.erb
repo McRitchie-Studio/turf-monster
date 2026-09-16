@@ -61,11 +61,31 @@
         and partially sign; Phantom then cosigns and submits.
       </p>
 
+      <%# THE FIELDS CARRIED NO STYLING AT ALL, AND THAT WAS INVISIBLE.
+
+          Every input below wore `input input-bordered`, and NEITHER class
+          exists in this app: the engine field primitive is `input-field`. A
+          box- or colour-shaped class the stylesheet does not define paints
+          nothing while reading perfectly in the markup, so these rendered as
+          bare text for the whole life of the page. Nothing in Ruby can see
+          that: no error, no failing request spec, a 200 and a green suite.
+
+          THIS IS THE PAGE WHERE IT MATTERED MOST. Three of the four fields
+          take a base58 pubkey, and treasury_authority is PINNED at initialize
+          and cannot be changed afterwards. A field an operator types a key
+          into, rendering with no visible boundary, is a place to mistype a key
+          that controls money.
+
+          The primitive is adopted rather than hand-rolled. It already carries
+          w-full, and `w-24` on the threshold field still wins because Tailwind
+          emits .input-field BEFORE the width utilities, so equal specificity
+          resolves by order. Guarded now by
+          test/views/admin_vault_phantom_classes_test.rb. %>
       <form id="vault-init-form" class="space-y-4" onsubmit="return false;">
         <div>
           <label class="label-upper text-xs">Creator (INIT_AUTHORITY)</label>
           <input type="text" name="creator_pubkey" value="<%= @init_authority %>"
-                 class="input input-bordered w-full font-mono text-xs" />
+                 class="input-field w-full font-mono text-xs" />
           <p class="text-muted text-xs mt-1">Must match the Phantom wallet you connect below.</p>
         </div>
 
@@ -73,20 +93,20 @@
           <div>
             <label class="label-upper text-xs">Signer <%= i + 1 %></label>
             <input type="text" name="signer_<%= i + 1 %>" value="<%= @default_signers[i] %>"
-                   class="input input-bordered w-full font-mono text-xs" />
+                   class="input-field w-full font-mono text-xs" />
           </div>
         <% end %>
 
         <div>
           <label class="label-upper text-xs">Threshold</label>
           <input type="number" name="threshold" value="<%= @default_threshold %>" min="1" max="3"
-                 class="input input-bordered w-24" />
+                 class="input-field w-24" />
         </div>
 
         <div>
           <label class="label-upper text-xs">Treasury authority (Squads vault PDA)</label>
           <input type="text" name="treasury_authority" value="<%= @default_treasury_authority %>"
-                 class="input input-bordered w-full font-mono text-xs" />
+                 class="input-field w-full font-mono text-xs" />
           <p class="text-muted text-xs mt-1">
             Pinned at init — sweep_operator_revenue refuses any treasury_ata
             whose owner is not this pubkey. Changing it post-init requires a
