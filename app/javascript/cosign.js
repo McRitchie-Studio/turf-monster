@@ -78,8 +78,22 @@ document.addEventListener('change', function(evt) {
   }
 });
 
-window.cosignTransaction = async function(slug, txTypeLabel, extraCosigners, buttonEl) {
+// `opts` is OPTIONAL and every existing caller omits it, so the treasury flow
+// is byte-identical to what shipped. It exists for ONE reason: /admin/authorities
+// runs the same ceremony against different endpoints, and a forked copy of this
+// 260-line function would be a second place for the wallet-guard suppression,
+// the roster painting and the "never guess blockhash expired" error handling to
+// drift. Two endpoints and one signer-queue source are the whole difference.
+//
+//   opts.rebuildUrl    — where to mint fresh bytes at click time
+//   opts.broadcastUrl  — where to POST the signed wire
+//   opts.successNoun   — what landed, in the surface's own words
+//   opts.backLabel     — the success CTA's label
+window.cosignTransaction = async function(slug, txTypeLabel, extraCosigners, buttonEl, opts) {
   var label = (txTypeLabel && String(txTypeLabel).trim()) || 'Transaction';
+  opts = opts || {};
+  var rebuildUrl = opts.rebuildUrl || ('/admin/pending_transactions/' + slug + '/rebuild');
+  var broadcastUrl = opts.broadcastUrl || ('/admin/pending_transactions/' + slug + '/broadcast');
 
   // The wallets whose remaining-account slots this build must reserve. Chosen
   // on the page BEFORE the clock starts, because the slots are part of the
@@ -184,7 +198,7 @@ window.cosignTransaction = async function(slug, txTypeLabel, extraCosigners, but
     //    moment, so the operator gets the full ~60-90s window to approve in
     //    Phantom rather than inheriting whatever was left of a window that
     //    opened when the page rendered.
-    var rebuildResp = await fetch('/admin/pending_transactions/' + slug + '/rebuild', {
+    var rebuildResp = await fetch(rebuildUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -218,8 +232,17 @@ window.cosignTransaction = async function(slug, txTypeLabel, extraCosigners, but
     //    the browser can only ever collect against the slots this very build
     //    reserved. A page rendered before a threshold changed cannot put the
     //    wrong wallet in a slot.
-    var signerQueue = [rebuilt.cosigner_address || provider.publicKey.toBase58()]
-      .concat(rebuilt.extra_cosigners || []);
+    //    `signer_queue` WINS WHEN THE SERVER SENDS ONE. The two-part
+    //    cosigner+extras construction below assumes account 0 was filled by the
+    //    server at build time, which is true of every treasury action and FALSE
+    //    of an eviction that removes the server's own vault key: that one is
+    //    built unsigned with one of the operator's wallets in account 0, so the
+    //    lead has to be collected too. The server knows which shape it built;
+    //    the browser must not re-derive it.
+    var signerQueue = (rebuilt.signer_queue && rebuilt.signer_queue.length)
+      ? rebuilt.signer_queue.slice()
+      : [rebuilt.cosigner_address || provider.publicKey.toBase58()]
+          .concat(rebuilt.extra_cosigners || []);
 
     var signedB64;
     try {
@@ -290,7 +313,7 @@ window.cosignTransaction = async function(slug, txTypeLabel, extraCosigners, but
     //    and flips the DB state — all in one round trip.
     if (modal) modal.show('Confirming Onchain', 'Broadcasting from the server…');
 
-    var resp = await fetch('/admin/pending_transactions/' + slug + '/broadcast', {
+    var resp = await fetch(broadcastUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -303,7 +326,13 @@ window.cosignTransaction = async function(slug, txTypeLabel, extraCosigners, but
         // now holds whichever account the operator switched to LAST and would
         // record the wrong wallet as the named cosigner.
         cosigner_address: signerQueue[0],
-        extra_cosigners: signerQueue.slice(1)
+        extra_cosigners: signerQueue.slice(1),
+        // The WHOLE queue, unsplit. The pair above cannot express an
+        // operator-led build (account 0 is a signer to collect, not a spent
+        // one), so the eviction endpoint reads this and refuses a set that is
+        // not the one whose slots it reserved. Additive: the treasury endpoint
+        // ignores it and keeps reading the pair.
+        signer_queue: signerQueue
       })
     });
 
@@ -317,17 +346,31 @@ window.cosignTransaction = async function(slug, txTypeLabel, extraCosigners, but
 
     if (resp.ok) {
       if (modal) {
-        // Generic success variant — admin treasury action, so NO entry
-        // confetti. The "Back to Treasury" CTA reloads so the now-confirmed
-        // row refreshes to its green Confirmed badge (the generic card's CTA
-        // is a plain link with no auto-redirect drain). We also reload on a
-        // bare Dismiss / backdrop close via onClose, but the CTA is the
-        // reliable path across every dismiss route.
+        // Generic success variant — an admin action, so NO entry confetti. The
+        // CTA reloads so the now-confirmed row refreshes to its green badge (the
+        // generic card's CTA is a plain link with no auto-redirect drain). We
+        // also reload on a bare Dismiss / backdrop close via onClose, but the
+        // CTA is the reliable path across every dismiss route.
+        //
+        // THE COPY IS NO LONGER TREASURY-ONLY. This engine had exactly one
+        // caller for its whole life, so "the treasury transaction" and "Back to
+        // Treasury" were accurate by construction. /admin/authorities is the
+        // first caller that is not the treasury, and telling an operator he has
+        // just completed a TREASURY transaction after he evicted a compromised
+        // vault signer is wrong in the one place it most matters — the receipt
+        // he reads to confirm the eviction landed.
+        //
+        // Derived from the page, not from a second flag: the CTA goes back where
+        // he already is, so its name is that page's name. `opts.successNoun` is
+        // the surface's own word for what landed; the treasury caller passes
+        // nothing and keeps its exact sentence.
+        var noun = opts.successNoun || 'treasury transaction';
+        var backLabel = opts.backLabel || 'Back to Treasury';
         modal.success(signature, 'Transaction confirmed on-chain.', {
           variant: 'generic',
           title: label + ' Confirmed',
-          subtitle: 'The treasury transaction landed on-chain and has been recorded.',
-          ctaLabel: 'Back to Treasury',
+          subtitle: 'The ' + noun + ' landed on-chain and has been recorded.',
+          ctaLabel: backLabel,
           ctaHref: window.location.pathname
         });
         modal.onClose = function() { window.location.reload(); };

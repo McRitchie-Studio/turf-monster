@@ -1,0 +1,279 @@
+<%# locals: (rotation:, plan:, roster:, vault:, eligible:, required:, max_slots:, server_address:) %>
+<%#
+  THE EVICTION CONSOLE.
+
+  TWO STEPS, AND THE SPLIT IS THE DESIGN:
+    ARM      — record the proposed set. Builds NOTHING. The operator reads the
+               exact new signer set with no clock running.
+    CO-SIGN  — mint fresh bytes at CLICK time, collect the signatures, broadcast.
+
+  WHY NOT BUILD AT ARM TIME. A built transaction carries a recent blockhash with
+  a ~60-90 second life. Building it while he reads would mean the bytes are dead
+  before he clicks, which is exactly the defect that left $140 of payouts unsent
+  from June to September on the treasury queue. THE DURABLE NONCE IS NOT THE FIX
+  and cannot be: a nonce transaction is only recognised when
+  `advanceNonceAccount` is instruction 0, and Phantom injects its own Lighthouse
+  guard instructions ahead of whatever was built. So the window is real, and the
+  answer is to start it when he acts.
+%>
+
+<section class="card p-4 mb-6 border-danger/30">
+  <h2 class="text-lg font-bold text-heading mb-1">Evict a vault signer</h2>
+  <p class="text-secondary text-sm mb-4">
+    Writes a new <code>VaultState</code> signer set. This is the only real remedy
+    for a stolen vault key, and it is irreversible without another rotation.
+  </p>
+
+  <% if vault.nil? %>
+    <p class="text-sm text-warning-ink">
+      The vault signer set could not be read, so nothing can be planned against
+      it. Refusing to guess.
+    </p>
+
+  <% elsif rotation.present? && plan.present? %>
+    <%# ── ARMED: SHOW THE EXACT NEW SET BEFORE ANYTHING IS SIGNED ────────── %>
+    <div class="rounded-lg border border-subtle bg-surface-alt p-3 mb-4"
+         data-eviction-armed
+         data-eviction-slug="<%= rotation.slug %>">
+      <p class="text-xs font-bold uppercase tracking-wide text-muted mb-2">
+        Armed — nothing has been signed
+      </p>
+
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div>
+          <p class="label-upper text-3xs text-muted mb-1">Signer set now</p>
+          <ul class="space-y-0.5">
+            <% Array(plan[:current]).each do |address| %>
+              <li class="font-mono text-2xs break-all <%= Array(plan[:evicted]).include?(address) ? "text-danger-ink line-through" : "text-heading" %>">
+                <%= address %>
+              </li>
+            <% end %>
+          </ul>
+        </div>
+        <div>
+          <p class="label-upper text-3xs text-muted mb-1">
+            Signer set after — <%= pluralize(Array(plan[:proposed]).length, "key") %>
+          </p>
+          <ul class="space-y-0.5">
+            <% Array(plan[:proposed]).each do |address| %>
+              <li class="font-mono text-2xs break-all <%= Array(plan[:added]).include?(address) ? "text-primary" : "text-heading" %>">
+                <%= address %>
+              </li>
+            <% end %>
+            <% (max_slots - Array(plan[:proposed]).length).times do %>
+              <li class="text-2xs text-muted">— empty —</li>
+            <% end %>
+          </ul>
+        </div>
+      </div>
+
+      <% if Array(plan[:evicted]).any? %>
+        <p class="mt-3 text-xs text-danger-ink">
+          <strong>Evicting <%= pluralize(Array(plan[:evicted]).length, "key") %>:</strong>
+          <span class="font-mono text-2xs break-all"><%= Array(plan[:evicted]).join(", ") %></span>
+        </p>
+      <% end %>
+      <% if Array(plan[:added]).any? %>
+        <p class="mt-1 text-xs text-primary">
+          <strong>Adding:</strong>
+          <span class="font-mono text-2xs break-all"><%= Array(plan[:added]).join(", ") %></span>
+        </p>
+      <% end %>
+
+      <p class="mt-3 text-xs text-secondary">
+        Signed by <%= pluralize(plan[:required_signatures].to_i, "wallet") %>,
+        led by
+        <span class="font-mono text-2xs"><%= plan[:lead_signer] %></span><%= plan[:server_leads] ? " (this server)" : " (your wallet — it pays the network fee)" %>.
+        Program shape <strong><%= plan[:shape] %></strong>.
+      </p>
+
+      <%# THE RULE THAT DECIDES WHO MAY LEAD. Stated where it bites, because it
+          is counter-intuitive and it is the reason the server cannot always be
+          the one to sign. %>
+      <p class="mt-2 text-3xs text-muted">
+        Continuity requires <%= plan[:required_signatures] %> of the wallets that
+        authorize a rotation to survive it — so
+        <strong>a wallet that signs this transaction cannot be evicted by it</strong>.
+        That is why the lead is chosen rather than assumed: evicting this
+        server’s own key means the server must not sign.
+      </p>
+    </div>
+
+    <%= render "shared/wallet_desktop_only_notice" %>
+
+    <% if roster.present? %>
+      <div class="mb-4" data-cosign-controls>
+        <%= render "admin/pending_transactions/signer_roster",
+                   roster: roster,
+                   required_signatures: plan[:required_signatures].to_i %>
+
+        <div class="mt-3 flex flex-wrap gap-2">
+          <button data-tx-slug="<%= rotation.slug %>"
+                  data-rebuild-url="<%= admin_rebuild_authority_rotation_path(rotation.slug) %>"
+                  data-broadcast-url="<%= admin_broadcast_authority_rotation_path(rotation.slug) %>"
+                  onclick="cosignTransaction(this.dataset.txSlug, 'Signer Eviction', [], this, { rebuildUrl: this.dataset.rebuildUrl, broadcastUrl: this.dataset.broadcastUrl, successNoun: 'signer rotation', backLabel: 'Back to Authorities' })"
+                  data-desktop-only-action
+                  class="btn btn-primary btn-sm">
+            Collect <%= plan[:required_signatures] %> signatures &amp; evict
+          </button>
+
+          <%= button_to "Discard", admin_cancel_authority_rotation_path(rotation.slug),
+                        method: :post, class: "btn btn-outline btn-sm",
+                        form: { data: { turbo_confirm: "Discard this armed eviction?" } } %>
+        </div>
+
+        <p class="mt-2 text-3xs text-muted">
+          The transaction is built when you click, not now — so the ~60-90 second
+          blockhash window starts then and you are never racing a clock you did
+          not start. If it does expire, click again: it rebuilds from scratch
+          and nothing stale is ever re-sent.
+        </p>
+      </div>
+    <% end %>
+
+  <% else %>
+    <%# ── NOTHING ARMED: THE PLANNER ─────────────────────────────────────── %>
+    <%= form_with url: admin_arm_authority_rotation_path, method: :post,
+                  data: { turbo: false }, class: "space-y-4" do |f| %>
+      <div x-data="evictionPlanner()"
+           x-init="init($el)"
+           data-current-signers="<%= Array(vault[:active_signers]).join(',') %>"
+           data-max-slots="<%= max_slots %>"
+           data-required="<%= required %>">
+
+        <div>
+          <p class="label-upper text-xs mb-1">The new signer set</p>
+          <p class="text-3xs text-muted mb-2">
+            Slots are left-packed: turf-vault refuses a gap, so “empty” can only
+            ever be a suffix. Evicting compacts the rest up for you.
+          </p>
+
+          <template x-for="(slot, i) in slots" :key="i">
+            <div class="mb-1.5 flex items-center gap-2">
+              <span class="w-6 shrink-0 text-3xs font-bold uppercase text-muted" x-text="i + 1"></span>
+              <input type="text" name="signers[]" x-model="slots[i]"
+                     placeholder="empty"
+                     class="input input-bordered w-full font-mono text-2xs">
+              <button type="button" class="btn btn-outline btn-sm shrink-0"
+                      x-show="slots[i]" @click="evict(i)">Evict</button>
+            </div>
+          </template>
+
+          <p class="mt-1 text-3xs"
+             :class="liveCount < required ? 'text-danger-ink' : 'text-muted'"
+             x-text="liveCount + ' of ' + maxSlots + ' slots filled; ' + required + ' signatures are required, so the set cannot go below ' + required"></p>
+        </div>
+
+        <div>
+          <p class="label-upper text-xs mb-1">
+            Wallets that will sign (<span x-text="required"></span> required, in order)
+          </p>
+          <p class="text-3xs text-muted mb-2">
+            The first one leads: it fills account 0 and pays the network fee.
+            <strong>A wallet that signs cannot be evicted by this transaction</strong>,
+            so do not name one you are removing.
+          </p>
+
+          <template x-for="(a, i) in authorizers" :key="'a' + i">
+            <div class="mb-1.5 flex items-center gap-2">
+              <span class="w-16 shrink-0 text-3xs font-bold uppercase text-muted"
+                    x-text="i === 0 ? 'lead' : 'wallet ' + (i + 1)"></span>
+              <select name="authorizers[]" x-model="authorizers[i]"
+                      class="input input-bordered w-full font-mono text-2xs">
+                <option value="">— choose —</option>
+                <% Array(eligible).each do |address| %>
+                  <option value="<%= address %>"><%= address %><%= " (this server)" if address == server_address %></option>
+                <% end %>
+              </select>
+            </div>
+          </template>
+
+          <%# AN ANNOUNCED LIVE REGION, mounted empty and only toggled visible.
+              This sentence says the rotation he is assembling would be rejected
+              by the chain — "legible and unannounced is only half a fix", and
+              it is sharper here than on most error lines because the operator
+              is switching wallets and reading a roster while it appears. It is
+              `alert`/assertive because it answers an action he is waiting on.
+              Mounted-and-hidden rather than `<template x-if>`: a live region
+              inserted alongside its own content is not reliably announced. %>
+          <p class="mt-1 text-3xs text-danger-ink" x-show="conflict()" x-cloak
+             role="alert" aria-live="assertive" aria-atomic="true"
+             x-text="conflict()"></p>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-sm">
+          Arm this eviction
+        </button>
+        <p class="text-3xs text-muted">
+          Arming records the proposed set and builds nothing. You will review it
+          before any wallet is opened.
+        </p>
+      </div>
+    <% end %>
+  <% end %>
+</section>
+
+<script>
+  // PROPS LIVE IN THE FACTORY, NOT IN THE ATTRIBUTE. An `x-data` expression
+  // carrying interpolated server values needs quoting that survives ERB, and a
+  // single stray double quote silently kills the whole component — the element
+  // renders, nothing binds, and no error appears anywhere. Reading the values
+  // off data-* attributes in init() has no quoting hazard at all.
+  window.evictionPlanner = function() {
+    return {
+      slots: [],
+      authorizers: [],
+      maxSlots: 3,
+      required: 2,
+
+      init: function(el) {
+        this.maxSlots = parseInt(el.dataset.maxSlots, 10) || 3;
+        this.required = parseInt(el.dataset.required, 10) || 2;
+
+        var current = (el.dataset.currentSigners || '').split(',').filter(function(a) { return !!a; });
+        this.slots = current.slice(0, this.maxSlots);
+        while (this.slots.length < this.maxSlots) this.slots.push('');
+
+        // Pre-seed the signing wallets with the CURRENT set, which is the only
+        // set that can authorize anything. Left for the operator to change —
+        // the one he must change is the lead, whenever he is evicting it.
+        this.authorizers = current.slice(0, this.required);
+        while (this.authorizers.length < this.required) this.authorizers.push('');
+      },
+
+      get liveCount() {
+        return this.slots.filter(function(s) { return !!(s && s.trim()); }).length;
+      },
+
+      // COMPACT ON EVICT. Clearing in place would leave a gap, which turf-vault
+      // refuses (SignerSetTooSmall) — so ordinary use never produces one. The
+      // server still refuses a gap if a request arrives with one; this is
+      // convenience, not the guard.
+      evict: function(i) {
+        this.slots.splice(i, 1);
+        this.slots.push('');
+      },
+
+      // The refusal the CHAIN would give, said here first. Continuity is the
+      // one rule an operator reliably trips: he picks the wallets he has, and
+      // one of them is the key he is trying to remove.
+      conflict: function() {
+        var live = this.slots.map(function(s) { return (s || '').trim(); })
+                             .filter(function(s) { return !!s; });
+        var chosen = this.authorizers.filter(function(a) { return !!a; });
+        var lost = chosen.filter(function(a) { return live.indexOf(a) === -1; });
+        if (lost.length) {
+          return lost.join(', ') + ' would sign this rotation and then be evicted by it. ' +
+                 'turf-vault requires ' + this.required + ' of the authorizing wallets to ' +
+                 'survive, so this set would be rejected (SignerContinuityRequired).';
+        }
+        var dupes = chosen.filter(function(a, i) { return chosen.indexOf(a) !== i; });
+        if (dupes.length) {
+          return dupes.join(', ') + ' is named twice. Every signature must come from a ' +
+                 'distinct wallet (DuplicateSigner).';
+        }
+        return '';
+      }
+    };
+  };
+</script>

@@ -67,9 +67,17 @@
     <%= render "hub_tile", name: "Signing Console", external: true,
           url: "https://app.mcritchie.studio/admin/signing_requests",
           note: "Keyless multi-party signing queue (mcritchie-studio)" %>
+    <%= render "hub_tile", name: "Authorities", url: admin_authorities_path,
+          note: "Vault signers, thresholds, Squads — decoded from chain; evict a signer",
+          status: :flagged %>
+    <%# CLUSTER-KEYED, and the note no longer states a threshold. This tile
+        hardcoded the MAINNET Squad on every cluster and called it "2-of-3";
+        the chain reads 3-of-5 on both, with different membership per cluster.
+        A number written into a tile cannot be re-derived on the day, so the
+        threshold now lives on /admin/authorities where it is read live. %>
     <%= render "hub_tile", name: "Squads Multisig", external: true,
-          url: "https://app.squads.so/squads/4H3fP3otjMtupk1DQDjKXYY1dWjT6LNM4H4ZWZ1XcKSX",
-          note: "Approve the mainnet program upgrade (2-of-3)" %>
+          url: Solana::Config.squads_app_url,
+          note: "Change program-upgrade membership on #{Solana::Config::NETWORK} (Squads' own UI)" %>
   <% end %>
 
   <%= render layout: "hub_section", locals: { title: "Everything Else" } do %>
