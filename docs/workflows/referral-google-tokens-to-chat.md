@@ -7,15 +7,19 @@
 > `test/docs/workflow_citation_docs_test.rb` reddens when a citation stops
 > landing inside the definition its prose names.
 > That symbol check reaches **118 of the 139 citations** here. The other **21**
-> sit in code with no enclosing definition the guard can derive: ERB markup, a
-> `config/routes.rb` entry, a `db/schema.rb` column, the class-body callback and
+> sit in code with no enclosing definition the guard can derive, and they are not
+> all checked alike. **1 of those 21** is a `config/routes.rb` entry, which gets a
+> stricter check: it must OPEN on the line that carries its route, not merely
+> quote a word found somewhere in its span. That catches most one-line drift, not
+> all of it — [the workflows README](README.md) has the measurement. The rest —
+> ERB markup, a `db/schema.rb` column, the class-body callback and
 > `skip_before_action` declarations in `app/models/user.rb`, `app/models/message.rb`,
 > `app/controllers/messages_controller.rb`, `app/controllers/contests_controller.rb`
 > and `app/controllers/webhooks/stripe_controller.rb`, the `PACKS` constant in
 > `app/models/stripe_purchase.rb`, and the inline-JS members written as getters or
 > as `window.name = function (…)` rather than `name(…) {`, which is the shape the
-> guard's brace-balance parser recognises. Those ride the weaker LITERAL fallback:
-> it proves the words the prose quotes are present in the cited lines, not that the
+> guard's brace-balance parser recognises — ride the weaker LITERAL fallback: it
+> proves the words the prose quotes are present in the cited lines, not that the
 > code is. Two citations point deliberately at a COMMENT — the auth wizard's step
 > machine and the tokens partial's note that entry success has no step — and each
 > says so where it stands.

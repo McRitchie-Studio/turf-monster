@@ -6,15 +6,19 @@
 > the claim, and `test/docs/workflow_citation_docs_test.rb` reddens when a
 > citation stops landing inside the definition its prose names.
 > That symbol check reaches **187 of the 230 citations** here. The other **43**
-> sit in code with no enclosing definition the guard can derive: six
-> `config/routes.rb` entries, one `config/schedule.yml` job, ERB markup and form
-> fields, class-body `before_action` / `include` / `after_create` declarations, two
-> constants, and two lines of `docs/SOLANA.md` prose. Those ride the weaker LITERAL
-> fallback: it proves the words the prose quotes are present in the cited lines, not
-> that the code is. **All 14 citations on `app/views/layouts/application.html.erb`
+> sit in code with no enclosing definition the guard can derive, and they are not
+> all checked alike. **6 of those 43** are `config/routes.rb` entries, which get a
+> stricter check: each must OPEN on the line that carries its route, not merely
+> quote a word found somewhere in its span. That catches most one-line drift, not
+> all of it — [the workflows README](README.md) has the measurement. The rest — one
+> `config/schedule.yml` job, ERB markup and form fields, class-body `before_action`
+> / `include` / `after_create` declarations, two constants, and two lines of
+> `docs/SOLANA.md` prose — ride the weaker LITERAL fallback: it proves the words the
+> prose quotes are present in the cited lines, not that the code is.
+> **All 14 citations on `app/views/layouts/application.html.erb`
 > and `app/views/shared/_contest_create_intent.html.erb`** — the Phantom SIWS
 > surface and the contest-create signing intent, i.e. every wallet-facing claim in
-> this document — are in that 43, and the cause is mechanical rather than editorial:
+> this document — ride that fallback, and the cause is mechanical rather than editorial:
 > both are written `window.name = async function (…)`
 > (`window.solanaConnectAndVerify`, `window.tmPrepareContestCreate`), a shape the
 > guard's brace-balance parser does not read as a definition, so no line in their

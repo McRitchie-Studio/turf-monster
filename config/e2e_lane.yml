@@ -1103,7 +1103,33 @@
 #     bare `typeof d._serverSeedsTotal` still answered "number" off an ancestor
 #     frame while the bound component was the stale copy.
 # None is tagged @devnet. Derived with bin/e2e-lane-derive --write, not by arithmetic.
-total_specs: 328
+#
+# 328 -> 330 (cosign-button-clipped-on-mobile): two specs in a NEW file,
+# e2e/treasury_cosign_row_layout.spec.js, for the treasury cosign row's layout.
+#   · AT 390px. On a governance boot the controls column took the roster's longest
+#     unwrapped line (550px) inside a 294px card: the title column collapsed to 0px
+#     and the Co-sign button ran to x=550 on a 390px screen. The spec asserts the
+#     button inside the viewport, the page not scrolling sideways, nothing spilling
+#     past the card, and the title keeping the card width — in both themes, on a
+#     Turbo arrival, and again at 640px, the top of the band where the row stacks.
+#   · AT 1280px. The controls stay beside the title as one group: select, roster
+#     and button share the column's edges, and the title keeps half the row.
+#   · WHY A HARNESS. Those controls render only on a governance boot, which this lane
+#     is not; TestController#treasury_layout_harness renders the REAL index template
+#     with two answers stubbed per row. Red on the old row, green on the new one, and
+#     each half of the fix has a mutation that turns one of the two specs red.
+# Derived with bin/e2e-lane-derive --write, not by arithmetic.
+#
+# 330 -> 331 (seeds-bar-leaks-server-total, on merging accepted): one spec in
+# e2e/alpine_factory_registration.spec.js, "two seeds bars on one page keep separate
+# server totals". seedsBar assigned _serverSeedsTotal without declaring it, so
+# Alpine wrote it to <body x-data> and the quest-success modal bar overwrote the
+# navbar bar's total. The file's three existing seedsBar specs gained an own-frame
+# assertion (_x_dataStack[0]) rather than new specs, so the count moves by one.
+# Not tagged @devnet and it does not skip. This branch first derived 329 against
+# a base without cosign-button-clipped-on-mobile; re-derived with
+# bin/e2e-lane-derive --write ON THE MERGED TREE.
+total_specs: 331
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1434,7 +1460,14 @@ allowed_skips: 4
 # --write ON THE MERGED TREE, not by incrementing — and the first derive, before
 # the merge, wrote 298 against a base that had already moved. That is why the
 # instruction says MERGED TREE and not "run the deriver".
-executed: 307
+# 307 -> 309 (cosign-button-clipped-on-mobile): the two treasury row layout specs
+# described beside total_specs above. Neither is tagged @devnet and neither skips,
+# so excluded stays 17 and allowed_skips stays 4: 330 - 17 - 4 = 309. Derived with
+# bin/e2e-lane-derive --write, not by arithmetic.
+# 309 -> 310 (seeds-bar-leaks-server-total, on merging accepted): the one spec
+# described beside total_specs above. excluded stays 17 and allowed_skips stays 4:
+# 331 - 17 - 4 = 310. Derived with bin/e2e-lane-derive --write ON THE MERGED TREE.
+executed: 310
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

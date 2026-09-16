@@ -9,12 +9,16 @@ what it refuses to do.
 > the claim, and `test/docs/workflow_citation_docs_test.rb` reddens when a citation
 > stops landing inside the definition its prose names.
 > That symbol check reaches **47 of the 72 citations** here. The other **25**
-> sit in code with no enclosing definition the guard can derive: `config/routes.rb`
-> entries, `db/schema.rb` columns and indexes, the `config/schedule.yml` header,
-> the class-body callback declarations on `Goal`, class-body validations and
-> constants, and ERB markup. Those ride the weaker LITERAL fallback: it proves the
+> sit in code with no enclosing definition the guard can derive, and they are not
+> all checked alike. **4 of those 25** are `config/routes.rb` entries, which get a
+> stricter check: each must OPEN on the line that carries its route, not merely
+> quote a word found somewhere in its span. That catches most one-line drift, not
+> all of it — [the workflows README](README.md) has the measurement. The rest —
+> `db/schema.rb` columns and indexes, the `config/schedule.yml` header, the
+> class-body callback declarations on `Goal`, class-body validations and
+> constants, and ERB markup — ride the weaker LITERAL fallback: it proves the
 > words the prose quotes are present in the cited lines, not that the code is.
-> **All 6 citations on `bin/nfl-live-poll`** are in that 25 by construction, not by
+> **All 6 citations on `bin/nfl-live-poll`** ride that fallback by construction, not by
 > choice: the guard reads definitions only from `.rb`
 > (with Prism) and from inline JS in `.erb`, and a script with no extension gets
 > neither. One citation — the `config/schedule.yml` header — is a deliberate comment

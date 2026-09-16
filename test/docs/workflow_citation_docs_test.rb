@@ -44,8 +44,11 @@ require "open3"
 #     methods are ERB text and no Ruby parser sees them;
 #   * where the cited lines sit inside a definition, the prose MUST name that
 #     definition — nothing else will do;
-#   * only where there is no enclosing definition (a routes.rb entry, ERB markup,
-#     a JSON block, a callback declaration in a class body) does it fall back to
+#   * a config/routes.rb citation has no enclosing definition either, and is held
+#     to its own rule instead: it must open on the line that carries its route
+#     (limit 8, and ROUTES_FILE below);
+#   * only where there is no enclosing definition and no route (ERB markup, a
+#     JSON block, a callback declaration in a class body) does it fall back to
 #     asking that a code token the prose quotes appear in the cited lines.
 #
 # Move a method and the number under it stops matching the symbol beside it, so
@@ -489,8 +492,7 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
     m = File.read(Rails.root.join(doc)).to_enum(:scan, DECLARATION).map { Regexp.last_match }.last
     return nil unless m
 
-    { kind: m[1].to_sym, detail: m[2].to_s.strip, count: m[2][STATED_COUNT, 1]&.to_i,
-      offset: m.begin(0) }
+    { kind: m[1].to_sym, detail: m[2].to_s.strip, count: m[2][STATED_COUNT, 1]&.to_i }
   end
 
   DECLARATIONS  = docs_tree.filter_map { |d| [d, declaration_for(d)] if declaration_for(d) }.to_h.freeze
@@ -870,8 +872,10 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
                  "  <!-- citation-guard: snapshot <date> (<N> citations) -->\n" \
                  "  <!-- citation-guard: external (<N> citations) — <what it cites> -->\n" \
                  "  <!-- citation-guard: unswept (<N> citations) — <what is wrong with them> -->\n" \
-                 "`enforced` puts it under the three coordinate checks; the other three are " \
-                 "exemptions and must state their citation count, which this file holds exactly."
+                 "`enforced` puts it under EVERY check here, the symbol check included, so it " \
+                 "also means adding the document to COVERAGE with its floors and its preamble " \
+                 "split; the other three are exemptions and must state their citation count, " \
+                 "which this file holds exactly."
   end
 
   # AN EXEMPTION THAT DOES NOT COUNT ITSELF IS THE OLD HOLE WITH A NICER NAME.
@@ -929,9 +933,11 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   #
   # docs/AUTH.md WAS THE LIVE EXAMPLE, and it is the reason this is a bug report
   # rather than a tidy-up: it is a high-traffic auth document, the badge on it
-  # read as full coverage, and PR 731 added eight coordinates to it that no check
-  # could see. They were verified BY HAND, twice — which is the labour this whole
-  # file exists to remove. Widening it reddened seven citations immediately.
+  # read as full coverage, and PR 731 added eight coordinates to it that the
+  # symbol check could not see — only the three coordinate checks read them, and
+  # those cannot tell a moved number from a right one. They were verified BY HAND,
+  # twice — which is the labour this whole file exists to remove. Widening it
+  # reddened seven citations immediately.
   #
   # TWO COMPLETENESS TESTS ALREADY EXISTED AND NEITHER COULD SEE IT. "scanned but
   # not in COVERAGE" runs inside the `WALLET_DOCS.each` loop above; "every
@@ -1327,6 +1333,47 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
                    "#{mine.size} and #{fallback}. Re-derive the numbers in the preamble — " \
                    "do not drop them."
     end
+  end
+
+  # THE OTHER **K** IS NOT ONE STRENGTH, AND THE PREAMBLE HAS TO SAY SO. The split
+  # above counts every `config/routes.rb` citation in K, because `enclosing_names`
+  # is empty for all of them — correctly: no symbol anchors a route. But since
+  # 2026-09-16 the literal fallback does not check them either. They anchor on the
+  # line that carries their route, or name a whole routes comment block (see
+  # ROUTES_FILE), which is strictly stronger.
+  #
+  # MEASURED, the contradiction this holds shut: PR 737 gave routes citations that
+  # rule and corrected docs/workflows/README.md, and five preambles went on telling
+  # a reader their routes entries "ride the weaker LITERAL fallback" — found by
+  # Carl in review, /tasks/preambles-misstate-routes-check. It UNDERSTATED the
+  # guard, so nobody was misled into trusting a weak check. It was still a document
+  # contradicting the README beside it, and the document is what a reader opens.
+  #
+  # So a preamble whose K holds routes citations says how many, written
+  # `**R of those K**`, and a preamble whose K holds none may not state a count.
+  # The second half matters as much as the first: a document that later gains a
+  # routes citation reddens here, rather than filing it silently under "fallback".
+  test "the preamble counts its routes citations apart from the literal fallback" do
+    checked = 0
+    wrong = COVERAGE.each_key.filter_map do |doc|
+      fallback = citations_for(doc).reject { |c| enclosing_names(c).any? }
+      routes   = fallback.count { |c| c[:path] == ROUTES_FILE }
+      checked += routes
+      m    = preamble_text(doc).match(/\*\*(\d+) of those (\d+)\*\*/)
+      said = m && [m[1].to_i, m[2].to_i]
+      next if routes.zero? ? said.nil? : said == [routes, fallback.size]
+
+      "#{doc}: #{routes} of the other #{fallback.size} cite #{ROUTES_FILE}; the preamble says " \
+        "#{said ? "**#{said[0]} of those #{said[1]}**" : 'nothing'}"
+    end
+    assert_operator checked, :>=, MIN_ROUTE_CITATIONS,
+                    "found #{checked} routes citations across COVERAGE — below the routes floor, so a " \
+                    "green result here would prove nothing"
+    assert_empty wrong,
+                 "a preamble's routes count is wrong or missing. A #{ROUTES_FILE} citation is in the " \
+                 "other **K** but does NOT ride the literal fallback: it anchors on the line that " \
+                 "carries its route. Say how many, written **R of those K**, and describe only the " \
+                 "rest as the weaker fallback"
   end
 
   # The share alone would let a reader assume the fallback is scattered noise. It
@@ -1742,8 +1789,8 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # into `confirm!` passes on a shared `user.with_lock`, which is exactly the
   # near-miss this guard exists to catch (it survived mutation until this branch
   # was ordered). The literal check is reached only where there is no enclosing
-  # symbol to name: routes entries, ERB markup, JSON blocks, callback
-  # declarations in a class body.
+  # symbol to name AND the file is not config/routes.rb, which returns through its
+  # own rule first: ERB markup, JSON blocks, callback declarations in a class body.
   def anchored?(citation)
     return false unless citation[:path] && File.exist?(abs(citation[:path]))
     # ONE PREDICATE, NOT TWO. The routes rule is reached from here rather than

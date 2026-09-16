@@ -48,6 +48,9 @@ const ATTACHED = { state: "attached" };
 // [<module keys>, {}, {}, {}, {_serverSeedsTotal}]). A property assertion would
 // have passed on a component that was genuinely wrong. The methods below are own
 // properties of the bound factory, so their SOURCE is the copy that is live.
+// (That last frame was <body x-data>, and the value on it was the NAVBAR bar's:
+// seedsBar wrote the key without declaring it, so every bar on the page wrote
+// it there. serverTotalFrame below pins the fix.)
 function liveShape(sel) {
   const el = document.querySelector(sel);
   if (!el) return { error: "element not found: " + sel };
@@ -69,6 +72,38 @@ function liveShape(sel) {
 }
 
 const SEEDS_WHOLE = { initReadsServerTotal: true, reconciles: true, control: "function" };
+
+// WHERE THE BAR'S SERVER TOTAL LIVES — read off the frames, never off $data.
+//
+// init() assigns this._serverSeedsTotal. Alpine writes an assignment to the
+// first frame of the merged stack that OWNS the key, and when none does, to the
+// LAST frame. Undeclared, the key therefore landed on <body x-data>, the frame
+// every component on the page shares (task seeds-bar-leaks-server-total). A
+// $data read cannot see that: it resolves through the same merge and answers
+// the value from whichever frame holds it. So this reads the element's OWN frame
+// (_x_dataStack[0]) and lists every ancestor frame that holds the key.
+//
+// `control` guards the vacuous pass: a bar that never bound has no frames, which
+// would otherwise satisfy "no ancestor holds it" trivially.
+function serverTotalFrame(sel) {
+  const el = document.querySelector(sel);
+  if (!el) return { error: "element not found: " + sel };
+  const stack = el._x_dataStack || [];
+  const has = (f) => Object.prototype.hasOwnProperty.call(f, "_serverSeedsTotal");
+  return {
+    control: typeof (stack[0] && stack[0].handleSeedsUpdate),
+    ownFrameHoldsIt: stack.length > 0 && has(stack[0]),
+    ownValueIsServerTotal: stack.length > 0 && stack[0]._serverSeedsTotal === Number(el.dataset.initialSeedsTotal),
+    ancestorFramesHoldingIt: stack.slice(1).map((f, i) => (has(f) ? i + 1 : null)).filter((i) => i !== null),
+  };
+}
+
+const TOTAL_OWNED = {
+  control: "function",
+  ownFrameHoldsIt: true,
+  ownValueIsServerTotal: true,
+  ancestorFramesHoldingIt: [],
+};
 
 // PIN THE TRANSITION, NOT THE DESTINATION. A Turbo visit that silently fell back
 // to a full document load would re-run the parse-time scripts and re-test the
@@ -96,6 +131,7 @@ test.describe("Alpine factory registration", () => {
     await page.goto("/account");
     await page.waitForSelector(SEEDS, ATTACHED);
     expect(await page.evaluate(liveShape, SEEDS)).toEqual(SEEDS_WHOLE);
+    expect(await page.evaluate(serverTotalFrame, SEEDS)).toEqual(TOTAL_OWNED);
   });
 
   test("seedsBar is whole after a Turbo client-side navigation", async ({ page }) => {
@@ -103,6 +139,7 @@ test.describe("Alpine factory registration", () => {
     await page.goto("/account");
     await turboVisit(page, "/contests", SEEDS);
     expect(await page.evaluate(liveShape, SEEDS)).toEqual(SEEDS_WHOLE);
+    expect(await page.evaluate(serverTotalFrame, SEEDS)).toEqual(TOTAL_OWNED);
   });
 
   // THE MOUNT THE "late re-assign is inert" CARVE-OUT DOES NOT COVER. The bars
@@ -126,6 +163,76 @@ test.describe("Alpine factory registration", () => {
     const modalSeeds = `[role=dialog] ${SEEDS}`;
     await page.waitForSelector(modalSeeds, ATTACHED);
     expect(await page.evaluate(liveShape, modalSeeds)).toEqual(SEEDS_WHOLE);
+    expect(await page.evaluate(serverTotalFrame, modalSeeds)).toEqual(TOTAL_OWNED);
+  });
+
+  // TWO BARS, ONE PAGE: the navbar's, bound at the initial walk, and the modal's,
+  // mounted later. Both sit under <body x-data>, so an undeclared key is ONE slot
+  // they share, and the second mount overwrites the first's total. Measured on the
+  // unfixed factory: the navbar bar's $data._serverSeedsTotal went 0 -> 4242 the
+  // moment the modal bar mounted.
+  //
+  // Neither bar's painted level or fill moved, because normalStart() reads the
+  // total once, synchronously, inside the same init() that wrote it. So this pins
+  // STATE, which is where the defect is. It is the assertion that bites the day a
+  // second reader appears.
+  //
+  // THE MODAL BAR IS GIVEN A DIFFERENT TOTAL ON PURPOSE. The e2e user's two server
+  // reads both come back 0, and two equal totals make an overwrite invisible by
+  // value. Retagging the x-if template's content before the modal opens changes
+  // only the number the clone starts from; the clone, the mount and the factory
+  // are the real ones.
+  test("two seeds bars on one page keep separate server totals", async ({ page }) => {
+    await loginAdmin(page);
+    await page.goto("/account");
+    await page.waitForSelector(SEEDS, ATTACHED);
+    const navbarTotal = await page.evaluate((s) => document.querySelector(s).dataset.initialSeedsTotal, SEEDS);
+
+    const MODAL_TOTAL = String(Number(navbarTotal) + 4242);
+    const retagged = await page.evaluate(
+      ([s, total]) => {
+        // The card's template sits INSIDE the host's own x-if template, and
+        // querySelector does not descend into template content — walk it.
+        const find = (root) => {
+          for (const t of root.querySelectorAll("template")) {
+            if ((t.getAttribute("x-if") || "").includes("'quest-success'")) return t;
+            const inner = find(t.content);
+            if (inner) return inner;
+          }
+          return null;
+        };
+        const tmpl = find(document);
+        const bar = tmpl && tmpl.content.querySelector(s);
+        if (bar) bar.setAttribute("data-initial-seeds-total", total);
+        return !!bar;
+      },
+      [SEEDS, MODAL_TOTAL]
+    );
+    expect(retagged).toBe(true);
+
+    await page.evaluate(() => window.Alpine.store("modals").open("quest-success", {}));
+    const modalSeeds = `[role=dialog] ${SEEDS}`;
+    await page.waitForSelector(modalSeeds, ATTACHED);
+
+    const totals = await page.evaluate(
+      ([s, m]) => {
+        const nav = Array.from(document.querySelectorAll(s)).find((el) => !el.closest("[role=dialog]"));
+        const modal = document.querySelector(m);
+        const read = (el) => ({
+          own: el._x_dataStack[0]._serverSeedsTotal,
+          // $data resolves through the merged stack — what the bar's own code
+          // reads as this._serverSeedsTotal.
+          seenByComponent: window.Alpine.$data(el)._serverSeedsTotal,
+        });
+        return { navbar: read(nav), modal: read(modal) };
+      },
+      [SEEDS, modalSeeds]
+    );
+    expect(totals).toEqual({
+      navbar: { own: Number(navbarTotal), seenByComponent: Number(navbarTotal) },
+      modal: { own: Number(MODAL_TOTAL), seenByComponent: Number(MODAL_TOTAL) },
+    });
+    expect(await page.evaluate(serverTotalFrame, modalSeeds)).toEqual(TOTAL_OWNED);
   });
 
   // entryTokenBadge and cardListFilter had twins that were byte-identical, so

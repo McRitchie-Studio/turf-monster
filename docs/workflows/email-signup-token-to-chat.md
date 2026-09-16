@@ -6,15 +6,19 @@
 > the claim, and `test/docs/workflow_citation_docs_test.rb` reddens when a
 > citation stops landing inside the definition its prose names.
 > That symbol check reaches **149 of the 179 citations** here. The other **30**
-> sit in code with no enclosing definition the guard can derive: ERB markup in
-> the four view partials, six `config/routes.rb` entries, one comment block, the
-> `PACKS` constant, and the class-body `before_action` / `skip_before_action` /
+> sit in code with no enclosing definition the guard can derive, and they are not
+> all checked alike. **6 of those 30** are `config/routes.rb` entries, which get a
+> stricter check: each must OPEN on the line that carries its route, not merely
+> quote a word found somewhere in its span. That catches most one-line drift, not
+> all of it — [the workflows README](README.md) has the measurement. The rest —
+> ERB markup in the four view partials, one comment block, the `PACKS` constant,
+> and the class-body `before_action` / `skip_before_action` /
 > `after_create` / `after_commit` / `include` declarations in
 > `app/models/user.rb`, `app/models/message.rb`, `app/models/stripe_purchase.rb`,
 > `app/controllers/tokens_controller.rb`,
 > `app/controllers/messages_controller.rb`,
 > `app/controllers/contests_controller.rb` and
-> `app/controllers/webhooks/stripe_controller.rb`. Those ride the weaker LITERAL
+> `app/controllers/webhooks/stripe_controller.rb` — ride the weaker LITERAL
 > fallback: it proves the words the prose quotes are present in the cited lines,
 > not that the code is. Cross-repo `studio-engine:` references carry NO line
 > number on purpose — the gem is versioned, so a number in it would rot on an

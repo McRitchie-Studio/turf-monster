@@ -5,8 +5,12 @@
 > at each `##` heading. The number is bookkeeping; the SYMBOL beside it is the claim, and
 > `test/docs/workflow_citation_docs_test.rb` reddens when a citation stops landing inside
 > the definition its prose names.
-> That symbol check reaches **N of the M citations** here. The other **K** ride the
-> weaker literal fallback — <say which files or shapes, and why>.
+> That symbol check reaches **N of the M citations** here. The other **K** sit in code
+> with no definition the guard can derive. <If any of them cite `config/routes.rb`:
+> **R of those K** are routes entries, which must open on the line that carries their
+> route — a stricter check, not the fallback. Omit this sentence when R is 0; the test
+> refuses a count there.> The rest ride the weaker literal fallback — <say which files
+> or shapes, and why>.
 
 **Trigger:** <what kicks it off — route, button click, background job, cron, webhook, manual rake task>
 **Actors:** <User / Operator / Sidekiq / Stripe / Resend / Solana RPC / Squads / Phantom / ...>
