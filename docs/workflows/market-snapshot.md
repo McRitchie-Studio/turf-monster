@@ -5,8 +5,8 @@
 > path-qualified citation, so any citation that changes file re-states the path.
 > `test/docs/workflow_citation_docs_test.rb` enforces both rules and checks every
 > number against the symbol its prose names — the symbol is the claim, the number
-> is bookkeeping. That check comes in two strengths, and it is worth knowing which
-> one you are reading. **36 of the 55 citations** below sit inside a definition,
+> is bookkeeping. Two of that check's three strengths apply here, and it is worth
+> knowing which one you are reading. **36 of the 55 citations** below sit inside a definition,
 > and there the prose must name that definition or the citation reddens. The
 > other **19** sit in code the guard finds no definition in, and there it asks
 > only that a code token quoted nearby appear in the cited lines — which proves
