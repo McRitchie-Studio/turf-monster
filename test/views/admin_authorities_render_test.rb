@@ -1,4 +1,5 @@
 require "test_helper"
+require "open3"
 
 # [component] /admin/authorities as MARKUP.
 #
@@ -680,6 +681,157 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
     assert_equal sam.display_name, map.dig(sam.web3_solana_address, "name")
     assert_not map.key?(ALEX),  "an unlinked wallet must be ABSENT, not present and blank"
     assert_not map.key?(MASON)
+  end
+
+  # ── THE PLANNER'S LOOKUP, EXECUTED RATHER THAN READ ──────────────────────
+  #
+  # WHY ONE COMPONENT TEST HERE RUNS JAVASCRIPT. Everything above reads the
+  # markup the server sent. The SLOT identity is painted by Alpine off a map the
+  # page hands over as JSON, so "what does this key resolve to" has no answer in
+  # the response bytes at all: those spans ship empty and are filled after
+  # mount. A source grep for the guard would pass against the broken build and
+  # the fixed one alike — the vacuous green every control in this file exists to
+  # refuse.
+  #
+  # So the factory is lifted OUT OF THE RENDERED PAGE and run in Node against a
+  # stub element carrying this page's own data-* attributes. That certifies the
+  # logic AND that the page ships it: a guard added to some other copy of the
+  # factory leaves this red. The pattern is the repo's rather than a new one —
+  # test/lib/wallet_desktop_only_js_test.rb and six siblings already drive real
+  # JavaScript from Minitest, in this same lane, on the Node the runner image
+  # already carries.
+  #
+  # AND IT NEEDS NO e2e SPEC, so config/e2e_lane.yml does not move. That file is
+  # the reason this was filed rather than zapped; the lowest tier that
+  # reproduces the defect turns out to be this one.
+
+  # The members an operator could plausibly type, plus `__proto__`, which is
+  # spelled differently enough to survive a fix that only blacklists names.
+  PROTOTYPE_KEYS = %w[
+    constructor toString valueOf hasOwnProperty isPrototypeOf
+    propertyIsEnumerable toLocaleString __proto__
+  ].freeze
+
+  # 32 bytes, base58-encoded. The alphabet excludes 0, O, I, l and every
+  # underscore, and the length floor is 32 characters.
+  BASE58_ADDRESS = /\A[1-9A-HJ-NP-Za-km-z]{32,44}\z/
+
+  def self.planner_source(html)
+    chunk = html.split("</script>").find { |c| c.include?("window.evictionPlanner = function") }
+    chunk&.sub(/\A.*?<script[^>]*>/m, "")
+  end
+
+  # One record per probed key: what identityFor decided, and the four painted
+  # consequences hanging off it.
+  #
+  # AN ARRAY OF RECORDS, NOT AN OBJECT KEYED BY THE PROBE. `out[key] = ...` is
+  # the very bug under test — assigning at "__proto__" on a plain object sets
+  # the PROTOTYPE and stores nothing, so that row would come back missing and
+  # the loop over it would assert nothing while reporting green.
+  def probe_planner(keys)
+    body = response.body
+    source = self.class.planner_source(body)
+    assert source, "the eviction planner factory must still ship inside the page"
+
+    dataset = {}
+    %w[identities max-slots required current-signers].each do |name|
+      raw = body[/data-#{name}="([^"]*)"/, 1]
+      assert raw, "the planner must still ship data-#{name}"
+      dataset[name.gsub(/-(.)/) { Regexp.last_match(1).upcase }] = CGI.unescapeHTML(raw)
+    end
+
+    script = <<~JS
+      global.window = global;
+      #{source}
+      var planner = window.evictionPlanner();
+      planner.init({ dataset: #{dataset.to_json} });
+      console.log(JSON.stringify(#{keys.to_json}.map(function (key) {
+        return {
+          key: key,
+          resolved: !!planner.identityFor(key),
+          label: planner.labelFor(key),
+          kind: planner.kindFor(key),
+          initials: planner.initialsFor(key),
+          avatar: planner.avatarStyle(key)
+        };
+      })));
+    JS
+
+    stdout, stderr, status = Open3.capture3("node", "--eval", script)
+    assert status.success?, stderr
+    rows = JSON.parse(stdout.lines.map(&:strip).reject(&:empty?).last)
+    assert_equal keys.length, rows.length, "every probed key must come back, or the sweep below is short"
+    rows.index_by { |row| row["key"] }
+  end
+
+  test "a prototype property name resolves to NOBODY, and a real wallet in the same map still resolves" do
+    # MEASURED IN THE BROWSER 2026-09-15: typing `constructor` into a slot
+    # painted a resolved-looking row labelled "Object" — filled avatar circle
+    # up, dashed ring down, no Unresolved chip. `toString` painted "toString".
+    # The map is JSON.parse output and carried Object.prototype, so a bare index
+    # answered for keys nobody had put in it.
+    sam = users(:sam)
+    render_page(vault: RenderVault.new(signers: [sam.web3_solana_address, ALEX, MASON]))
+
+    rows = probe_planner(PROTOTYPE_KEYS + [ "ZZZnotanaddress", sam.web3_solana_address ])
+
+    PROTOTYPE_KEYS.each do |key|
+      row = rows.fetch(key)
+      assert_not row["resolved"], "#{key} must resolve to nobody"
+      assert_equal "No linked account", row["label"], "#{key} must never be given a name"
+      assert_equal "Unresolved", row["kind"], "#{key} must wear the unresolved chip"
+      assert_equal "", row["initials"], "#{key} must paint no initials"
+      assert_equal "", row["avatar"], "#{key} must paint no avatar circle"
+    end
+
+    # AND IT IS THE ORDINARY MISS PATH, not a fourth state invented for these
+    # keys. A typed string that was never a prototype member has always rendered
+    # this way; the prototype names must be indistinguishable from it.
+    assert_equal rows.fetch("ZZZnotanaddress").except("key"),
+                 rows.fetch("constructor").except("key"),
+                 "a prototype key must render exactly as any other string that matched nobody"
+
+    # THE CONTROL, and the spec is worthless without it: a guard that returned
+    # null for EVERYTHING would satisfy every assertion above. A real seeded
+    # wallet, in the same map, in the same Node run, still resolves.
+    held = rows.fetch(sam.web3_solana_address)
+    assert held["resolved"], "the fix must not cost a real wallet its holder"
+    assert_equal sam.display_name, held["label"]
+    assert_equal "Phantom", held["kind"], "the page must still say WHICH column matched"
+    assert_not_equal "", held["avatar"], "a resolved wallet still paints its circle"
+  end
+
+  test "no Solana address can collide with a prototype member name, which is what bounds this" do
+    # THE CLAIM THE FIX IS ALLOWED TO MAKE, and the one it is not. No WALLET was
+    # ever mislabelled: the leak needed a key that is BOTH an Object.prototype
+    # member AND a thing an operator could paste as an address, and there is no
+    # such string. Asserted against the member list Node itself reports, so a
+    # runtime that grows a member is measured here rather than assumed away.
+    stdout, stderr, status = Open3.capture3(
+      "node", "--eval",
+      "console.log(JSON.stringify(Object.getOwnPropertyNames(Object.prototype)))"
+    )
+    assert status.success?, stderr
+    members = JSON.parse(stdout)
+
+    assert_operator members.length, :>=, 10,
+                    "a truncated member list would make the sweep below vacuous"
+    PROTOTYPE_KEYS.each do |key|
+      assert_includes members, key,
+                      "#{key} must really be a prototype member, or the spec above probes nothing"
+    end
+
+    members.each do |member|
+      assert_no_match BASE58_ADDRESS, member,
+                      "#{member} is shaped like an address, so the bound the view states is wrong"
+    end
+
+    # THE PREDICATE BITES: the same regex accepts the addresses this page
+    # actually handles, so the sweep above is discriminating rather than
+    # uniformly negative.
+    [ SYSTEM, ALEX, MASON, users(:sam).web3_solana_address ].each do |address|
+      assert_match BASE58_ADDRESS, address, "#{address} is a real address and must pass the predicate"
+    end
   end
 
   # ── THE DESTRUCTIVE ROW ACTION ───────────────────────────────────────────

@@ -54,15 +54,24 @@ Casual-agent index. Open a per-workflow file for the dirty details.
 >
 > | Declaration | Means |
 > |---|---|
-> | `<!-- citation-guard: enforced -->` | under the coordinate checks — what every file in this directory carries |
+> | `<!-- citation-guard: enforced -->` | under EVERY check, the symbol check included — what every file in this directory carries |
 > | `<!-- citation-guard: snapshot <date> (<N> citations) -->` | a dated audit; its citations are true as of that date and are frozen |
 > | `<!-- citation-guard: external (<N> citations) — … -->` | names a repository this one cannot read, so no line number here is checkable |
-> | `<!-- citation-guard: unswept (<N> citations) — … -->` | live citations nobody has verified — a confession, not a pass |
+> | `<!-- citation-guard: unswept (<N> citations) — … -->` | live citations nobody has verified — a confession, not a pass, from a pinned list of documents |
 >
 > An exemption states its own citation count and the guard holds it exactly, so a
 > frozen document cannot quietly acquire new unchecked coordinates. The marker goes
-> at the END of the file: `SOLANA.md` and `FORMULAS.md` are cited BY LINE from other
-> documents, and a declaration must not move the thing it declares.
+> at the END of the file, and the guard now checks that it is the last line: the
+> parser reads the LAST marker in a document, and `SOLANA.md` and `FORMULAS.md` are
+> cited BY LINE from other documents, so a declaration must not move the thing it
+> declares.
+>
+> **`enforced` means one strength** (2026-09-16). Until then it bought the three
+> coordinate checks and not the symbol check, which reads only `COVERAGE` —
+> `docs/AUTH.md` wore the badge while seven of its ten citations failed the symbol
+> check nobody was running. The guard now holds the documents declaring `enforced`
+> EQUAL to `COVERAGE`, both ways, and holds the documents declaring `unswept` equal
+> to a pinned list (`UNSWEPT_DOCS`), so a new document cannot go green by confessing.
 
 ## User journeys
 

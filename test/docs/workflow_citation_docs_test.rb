@@ -2,6 +2,7 @@
 
 require "test_helper"
 require "prism"
+require "open3"
 
 # A `path/to/file.rb:NN` CITATION IS A CLAIM ABOUT RUNNING CODE, and until this
 # test existed nothing checked it. docs/workflows/web3-landing-to-entry.md opens
@@ -295,6 +296,36 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
     "docs/WALLET_ADAPTER_EVALUATION.md" => {
       min_citations: 20, min_path: 16, min_bare: 4,
       fallback_only_files: []
+    },
+    # THE TWO DOCUMENTS `enforced` REACHED AND COVERAGE DID NOT, swept in
+    # 2026-09-16 (/tasks/enforced-docs-skip-symbol-check). Until then a doc could
+    # declare itself `enforced`, collect the three COORDINATE checks, and never be
+    # read by the SYMBOL check at all, because that one iterates COVERAGE rather
+    # than the declaration — so the badge on docs/AUTH.md promised a reader a
+    # check eight of its coordinates were not getting. The equality test below is
+    # what makes `enforced` mean ONE strength from here on.
+    #
+    # MEASURED BY THIS FILE'S OWN PARSER, 2026-09-16, before the floors were
+    # written: AUTH.md 10 citations (10 path-qualified, 0 bare), of which SEVEN
+    # failed the symbol check the moment it could see them — every one a prose
+    # defect rather than a wrong number, the coordinates having been verified by
+    # hand when they were written. FORMULAS.md 1 citation, which passed.
+    # AN EMPTY `fallback_only_files` HERE IS THE STRONGEST FORM OF THAT CLAIM,
+    # not an opt-out: AUTH.md's split is **0 of 10**, so "every citation on these
+    # files rides the fallback" is already said by the split itself, exactly, and
+    # a roster would be a second number saying less. FORMULAS.md is 1 of 1 the
+    # other way and has no fallback citation to name.
+    "docs/AUTH.md" => {
+      min_citations: 8, min_path: 8, min_bare: 0,
+      fallback_only_files: []
+    },
+    # A ONE-CITATION DOCUMENT FLOORS AT ONE, like WALLET_TRANSPORT_ARCHITECTURE
+    # above. There is no room under a count of 1 for a floor to sit "just below"
+    # it, and a floor of 0 would be the one thing a floor may never be — green on
+    # a parse that matched nothing.
+    "docs/FORMULAS.md" => {
+      min_citations: 1, min_path: 1, min_bare: 0,
+      fallback_only_files: []
     }
   }.freeze
 
@@ -405,6 +436,38 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   DECLARATION  = /<!--\s*citation-guard:\s*(enforced|snapshot|external|unswept)([^>]*)-->/
   STATED_COUNT = /\((\d+)\s+citations?\)/
 
+  # A CONTROL FIXTURE IS A DOCUMENT THIS FILE WRITES INTO docs/ AT RUN TIME and
+  # deletes again, and its name is reserved so a SIBLING WORKER never reads it.
+  # Rails distributes this class's tests across FORKED PROCESSES under CI
+  # (`test_helper.rb`'s `TestParallelism.default_for` returns
+  # `:number_of_processors` when `CI` is set; locally it clamps to 1, which is
+  # why this only ever bites in CI). `docs_tree` re-globs the directory LIVE, so
+  # a sibling that globs between a fixture's write and its delete gets one of two
+  # wrong answers: `Errno::ENOENT` reading a file that has since vanished, or a
+  # PLANTED DEFECT counted as a real one — the inventory reporting a control
+  # fixture as an undeclared citing document. Measured 2026-09-16 on a one-file
+  # diff in `e2e/` that touched nothing here at all
+  # (/tasks/citation-control-fixture-races, absorbed into the task that widened
+  # COVERAGE because both edit this file).
+  #
+  # THE FIX RESERVES A NAME, NOT A MECHANISM, and that distinction is the whole
+  # of why it does not weaken the controls. The instance-level `docs_tree` below
+  # hides every control fixture EXCEPT the ones this instance planted itself, so
+  # a control still asserts that the REAL glob reached a document that did not
+  # exist when the process started — the globness claim is untouched — while a
+  # sibling's fixture is filtered by NAME, before any read, and can neither raise
+  # nor be counted. An instance variable cannot cross a fork, which is what makes
+  # "mine" the right scope.
+  #
+  # ITS LIMIT, CLOSED: a document COMMITTED under this prefix is hidden from the
+  # inventory, the enforced/COVERAGE equality and the unswept ratchet, while the
+  # load-time coordinate checks still read it, so it looks covered. Measured
+  # 2026-09-16: `enforced` over a wrong line, or `unswept` off the list, stayed
+  # GREEN. The test "no committed document takes the reserved control name" holds it.
+  CONTROL_DOC_PREFIX = "citation-guard-control-"
+
+  def self.control_fixture?(doc) = File.basename(doc).start_with?(CONTROL_DOC_PREFIX)
+
   def self.docs_tree
     Dir[Rails.root.join(DOCS_GLOB)]
       .map { |p| Pathname.new(p).relative_path_from(Rails.root).to_s }
@@ -412,11 +475,22 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
       .sort
   end
 
+  # THE DECLARATION IS THE LAST ONE IN THE FILE, not the first. A document may
+  # WRITE the marker shape without declaring anything — `docs/workflows/README.md`
+  # documents all four in a table, and the first row of it matched — so reading
+  # the first occurrence let a table of contents speak for the file. Reading the
+  # LAST occurrence makes the convention the marker already follows load-bearing:
+  # the declaration is the last line of the file, so the last match IS it, and
+  # "the declaration is the last non-blank line" below now has a test rather than
+  # a habit. Inert when it landed (README.md is excluded from every scope here and
+  # carries no citations) and fixed anyway, because inert is a property of today's
+  # directory, not of the rule.
   def self.declaration_for(doc)
-    m = File.read(Rails.root.join(doc)).match(DECLARATION)
+    m = File.read(Rails.root.join(doc)).to_enum(:scan, DECLARATION).map { Regexp.last_match }.last
     return nil unless m
 
-    { kind: m[1].to_sym, detail: m[2].to_s.strip, count: m[2][STATED_COUNT, 1]&.to_i }
+    { kind: m[1].to_sym, detail: m[2].to_s.strip, count: m[2][STATED_COUNT, 1]&.to_i,
+      offset: m.begin(0) }
   end
 
   DECLARATIONS  = docs_tree.filter_map { |d| [d, declaration_for(d)] if declaration_for(d) }.to_h.freeze
@@ -451,6 +525,33 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # uncited" — and it is the one sanctioned way to exempt a document from the
   # COVERAGE-completeness test: name it here, and say so in the README.
   UNCITED_DOCS = [].freeze
+
+  # THE DOCUMENTS THAT CONFESS, PINNED — because a confession nobody counts is an
+  # unbounded escape hatch. `unswept` is one of the four answers a document under
+  # `docs/` may give, and three of the four were already ratcheted: `enforced`
+  # buys every check, `snapshot` and `external` must state a citation count this
+  # file holds EXACTLY. `unswept` states a count too, so an already-unswept
+  # document cannot quietly grow new unchecked coordinates — but nothing held the
+  # SET, so a brand-new drifted document could satisfy the guard by admitting it.
+  #
+  # MEASURED, not inferred: on 2026-09-15 Carl wrote a new document carrying
+  # unverified citations, declared it `unswept (2)`, and the suite stayed GREEN.
+  # The word is right and stays: `unswept` was chosen over `snapshot` and
+  # `external`, which would have gone green just as easily and read as CORRECT,
+  # because it is the only one of the four that reads as a DEFECT in the
+  # document's own text, where a reader of that document sees it. Writing it is
+  # not a way to be left alone; it is a way to be counted. What was missing is
+  # only the counting.
+  #
+  # SO THE SET IS ASSERTED BY EQUALITY, BOTH WAYS — the UNCITED_DOCS doctrine
+  # above, applied to the one exemption that had escaped it. Adding a document
+  # here is then a deliberate edit to a pinned list, reviewed like any other, and
+  # striking one that has been swept is the same act in reverse: a document that
+  # stops confessing while its name stays here leaves a false claim behind.
+  UNSWEPT_DOCS = %w[
+    docs/RATE_LIMITING.md
+    docs/UI_PATTERNS.md
+  ].freeze
 
   # The floor for the directory-wide parse, set below the 972 citations
   # WORKFLOW_DOCS held after the sweep (measured 2026-09-10 by this file's own
@@ -624,8 +725,11 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # the one cited file where the symbol branch can never run, so without this
   # rule a routes citation gets the weakest check in the file. Measured 2026-09-16:
   # all 21 come from FIVE documents, every one of them in COVERAGE — so this
-  # reaches nothing the symbol test misses today. It is the guard for the day an
-  # `enforced` document outside COVERAGE cites a route.
+  # reaches nothing the symbol test misses today, and since 2026-09-16 it cannot:
+  # `enforced` and COVERAGE are held EQUAL below, so a document outside COVERAGE
+  # can no longer be `enforced` at all. What this still earns is the transient
+  # window — a document added to one and not yet the other reddens the equality,
+  # and while it does, its routes citations are checked here rather than nowhere.
   test "a config/routes.rb citation starts on the line that carries its route" do
     routes = all_citations.select { |c| c[:path] == ROUTES_FILE }
     assert_operator routes.size, :>=, MIN_ROUTE_CITATIONS,
@@ -752,8 +856,10 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # unguarded by the simple act of not being mentioned — and that looked exactly
   # like a document deliberately left frozen. This one runs the other way: it
   # starts from the DIRECTORY, finds every document that cites code, and asks
-  # each one what it is. A document may answer `enforced`, `snapshot` or
-  # `external`; what it may no longer do is fail to answer.
+  # each one what it is. A document may answer `enforced`, `snapshot`, `external`
+  # or `unswept`; what it may no longer do is fail to answer. The three
+  # exemptions each state a citation count this file holds exactly, and the set
+  # of documents confessing `unswept` is pinned besides — see UNSWEPT_DOCS.
   test "every docs/ document that cites code says whether it is guarded" do
     report = undeclared_citing_docs.map { |d| "#{d} (#{parse_doc(d).size} citations)" }
     assert_empty report,
@@ -814,6 +920,88 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
                  "`enforced`, so the two mechanisms cannot drift apart"
   end
 
+  # `enforced` MEANT TWO STRENGTHS, SILENTLY, and this is what collapses them to
+  # one. A declaration flowed into SCANNED_DOCS and bought the three COORDINATE
+  # checks — the cited file exists, the cited line is inside it, the cited lines
+  # are not all blank. It did NOT buy the SYMBOL check, the one with teeth, which
+  # iterates `citations` = GUARDED_DOCS = COVERAGE.keys. So a document could
+  # carry the badge and never have a single symbol read.
+  #
+  # docs/AUTH.md WAS THE LIVE EXAMPLE, and it is the reason this is a bug report
+  # rather than a tidy-up: it is a high-traffic auth document, the badge on it
+  # read as full coverage, and PR 731 added eight coordinates to it that no check
+  # could see. They were verified BY HAND, twice — which is the labour this whole
+  # file exists to remove. Widening it reddened seven citations immediately.
+  #
+  # TWO COMPLETENESS TESTS ALREADY EXISTED AND NEITHER COULD SEE IT. "scanned but
+  # not in COVERAGE" runs inside the `WALLET_DOCS.each` loop above; "every
+  # workflow document opts into COVERAGE" runs over the docs/workflows glob. A
+  # document that is enforced but is neither a wallet document nor a workflow
+  # document falls between them, and both of the ones that did are now in
+  # COVERAGE. Equality, not inclusion, and in BOTH directions: a new enforced
+  # document owes its floors and its preamble before the badge is true, and a
+  # COVERAGE document that quietly downgrades its declaration is the same defect
+  # walking backwards.
+  test "the documents declared enforced are exactly the documents COVERAGE guards" do
+    assert_equal GUARDED_DOCS.sort, declared_docs(:enforced).sort,
+                 "`enforced` and COVERAGE disagree, so the badge on a document does not mean what " \
+                 "a reader takes it to mean. A document declaring `enforced` gets the three " \
+                 "COORDINATE checks from SCANNED_DOCS, but the SYMBOL check — the one that asks " \
+                 "the number to land on the thing the prose names — reads COVERAGE and nothing " \
+                 "else. Opt the document in: make every citation land inside the definition its " \
+                 "prose names, state the split in its preamble as **N of the M citations** / the " \
+                 "other **K**, and add it to COVERAGE with floors measured just below its own " \
+                 "counts. Or, if it should not be enforced, change what it declares."
+  end
+
+  # THE FOURTH ANSWER, RATCHETED. See UNSWEPT_DOCS above for what was open and
+  # what was measured through it. Equality both ways, for the reason UNCITED_DOCS
+  # states: a list is not a claim, a set asserted exactly is.
+  test "the documents confessing `unswept` are exactly the ones named as unswept" do
+    assert_equal UNSWEPT_DOCS.sort, declared_docs(:unswept).sort,
+                 "the set of documents declaring `unswept` changed. `unswept` is a CONFESSION — " \
+                 "live citations into this repo that nobody has verified — and it is the only " \
+                 "declaration that implies future work, so the set is pinned rather than open. " \
+                 "Adding a document here is a deliberate edit and wants a reason in review; " \
+                 "striking one is what sweeping it into `enforced` looks like. Do NOT reach for " \
+                 "`unswept` to make a new document green: it goes green, and it says in the " \
+                 "document's own text that its numbers are wrong."
+  end
+
+  # THE MARKER GOES AT THE END OF THE FILE, and until now that was convention
+  # with nothing holding it. It matters twice: `declaration_for` reads the LAST
+  # match, so a marker that is not last is a marker some other line can outrank;
+  # and `docs/SOLANA.md` and `docs/FORMULAS.md` are cited BY LINE from other
+  # documents, so a marker that moves to the top shifts every line in the file
+  # and breaks the citations pointing into it. A declaration must not move the
+  # thing it declares.
+  test "a declaration is the last non-blank line of its document" do
+    misplaced = DECLARATIONS.keys.filter_map do |doc|
+      lines = File.readlines(abs(doc), chomp: true)
+      last  = lines.rindex { |l| !l.strip.empty? }
+      next if lines[last].to_s.match?(DECLARATION)
+
+      "#{doc}: declares on a line that is not the last (#{lines[last].to_s.strip.truncate(60)})"
+    end
+    assert_empty misplaced,
+                 "a citation-guard declaration is not the last line of its file. Put it there: " \
+                 "the parser reads the LAST marker in a document, and a document cited by line " \
+                 "from elsewhere cannot afford a marker that shifts its contents."
+  end
+
+  # THE INDEX IS WHERE A CONTROL FIXTURE NEVER GOES: a control writes to the
+  # working tree and deletes it again, so a TRACKED file under the prefix is a
+  # document, and see CONTROL_DOC_PREFIX for what that name would hide it from.
+  test "no committed document takes the reserved control name" do
+    out, err, status = Open3.capture3("git", "-C", Rails.root.to_s, "ls-files", "-z", "--", "docs")
+    tracked = out.split("\0")
+    assert status.success?, "git ls-files could not read the index: #{err}"
+    assert_includes tracked, "docs/AUTH.md", "git ls-files listed no docs, so an empty result proves nothing"
+    assert_empty tracked.select { |p| self.class.control_fixture?(p) },
+                 "a committed document is named #{CONTROL_DOC_PREFIX}*, which docs_tree hides from " \
+                 "the inventory, the enforced/COVERAGE equality and the unswept ratchet. Rename it."
+  end
+
   # -------------------------------------------------------------- the controls
 
   # CONTROL FOR THE INVENTORY. The test above is VACUOUSLY green once every
@@ -823,10 +1011,9 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # repository, and removed again — so the control cannot go stale, and it
   # exercises the shipped predicate rather than re-implementing it.
   test "the inventory catches a new document that cites code and declares nothing" do
-    rel = "docs/citation-guard-inventory-control.md"
-    File.write(abs(rel), "Control fixture. Cites `#{BLANK_CONTROL_FILE}:1` and declares nothing.\n")
+    rel = plant_control_doc("undeclared", "Control fixture. Cites `#{BLANK_CONTROL_FILE}:1` and declares nothing.")
 
-    assert_includes self.class.docs_tree, rel,
+    assert_includes docs_tree, rel,
                     "the inventory's glob does not reach a new document in docs/ — it is a list " \
                     "again, and a new document is unguarded the moment it is written"
     assert_nil self.class.declaration_for(rel), "the control fixture must declare nothing"
@@ -835,7 +1022,101 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
                     "the inventory passed a document that cites code and declares nothing — it " \
                     "is inert, and hole 1 is open again"
   ensure
-    File.delete(abs(rel)) if rel && File.exist?(abs(rel))
+    unplant_control_docs
+  end
+
+  # CONTROL FOR LAST-MATCH. Every declaring document in the corpus carries ONE
+  # marker today, so first-match and last-match agree on all of them and the
+  # rule is invisible. This plants the shape that separates them — a document
+  # that DOCUMENTS a marker in its body, the way docs/workflows/README.md does,
+  # and declares something else on its last line — and requires the last line
+  # to win. Under first-match this document reads as a snapshot.
+  test "a declaration is read from the last marker, not a marker the body quotes" do
+    rel = plant_control_doc("quotes-a-marker",
+                            "Control fixture. The convention reads " \
+                            "`<!-- citation-guard: snapshot 2026-01-01 (1 citations) -->`.\n" \
+                            "Cites `#{BLANK_CONTROL_FILE}:1`.\n\n" \
+                            "<!-- citation-guard: enforced -->")
+    body = File.read(abs(rel))
+    assert_operator body.scan(DECLARATION).size, :>=, 2,
+                    "the fixture must carry two markers, or first and last cannot disagree"
+    assert_equal :snapshot, body.match(DECLARATION)[1].to_sym,
+                 "the fixture's FIRST marker must differ from its last, or this proves nothing"
+    assert_equal :enforced, self.class.declaration_for(rel)&.fetch(:kind),
+                 "a marker QUOTED in a document's body outranked the declaration on its last " \
+                 "line — a table documenting the convention would speak for the file"
+  ensure
+    unplant_control_docs
+  end
+
+  # CONTROL FOR THE `enforced` ⟺ COVERAGE EQUALITY, in BOTH DIRECTIONS — because
+  # an equality between two sets that agree today is green whichever way it is
+  # broken, and green proves neither. Each direction is built from a REAL
+  # document this test writes and the REAL predicate reads; the COVERAGE side is
+  # stood in for by a list, which is all COVERAGE.keys is.
+  #
+  #   FORWARD — a document declares `enforced` and COVERAGE does not name it.
+  #   That is docs/AUTH.md's exact state before this task: badge on, symbol check
+  #   off, and nothing red.
+  #
+  #   BACKWARD — COVERAGE names a document that declares something else. That is
+  #   the same defect walking backwards: the floors and the preamble claim stay
+  #   in this file while the document quietly stops being enforced.
+  test "the enforced/COVERAGE equality is broken by a gap in either direction" do
+    assert_equal GUARDED_DOCS.sort, declared_docs(:enforced).sort,
+                 "the base sets already disagree, so neither half of this control proves anything"
+
+    forward = plant_control_doc("enforced-not-covered",
+                                "Control fixture. Cites `#{BLANK_CONTROL_FILE}:1`.\n" \
+                                "<!-- citation-guard: enforced -->")
+    assert_includes declared_docs(:enforced), forward,
+                    "the live reader did not see a document that declares `enforced` — the " \
+                    "control cannot reach the predicate it is meant to break"
+    refute_includes GUARDED_DOCS, forward
+    refute_equal GUARDED_DOCS.sort, declared_docs(:enforced).sort,
+                 "a document declaring `enforced` that COVERAGE does not name left the equality " \
+                 "green — which is docs/AUTH.md's state before this task, and the whole defect"
+
+    backward = plant_control_doc("covered-not-enforced",
+                                 "Control fixture. Cites `#{BLANK_CONTROL_FILE}:1`.\n" \
+                                 "<!-- citation-guard: unswept (1 citations) — control fixture -->")
+    refute_includes declared_docs(:enforced), backward,
+                    "a document declaring `unswept` was read as enforced"
+    refute_equal (GUARDED_DOCS + [backward]).sort, declared_docs(:enforced).sort,
+                 "COVERAGE naming a document that declares something other than `enforced` left " \
+                 "the equality green — the per-document floors and the preamble claim would then " \
+                 "outlive the badge that justifies them"
+  ensure
+    unplant_control_docs
+  end
+
+  # CONTROL FOR THE UNSWEPT RATCHET, in BOTH DIRECTIONS. The forward half is the
+  # measured defect rebuilt: a brand-new document carrying unverified citations,
+  # declared `unswept`, went GREEN on 2026-09-15. The backward half is the other
+  # thing equality buys — a name left on the list after the document it names has
+  # stopped confessing, which leaves a false claim pointing at a swept document.
+  test "the unswept set is broken by a new confession or by a stale name" do
+    assert_equal UNSWEPT_DOCS.sort, declared_docs(:unswept).sort,
+                 "the base sets already disagree, so neither half of this control proves anything"
+
+    confessed = plant_control_doc("new-confession",
+                                  "Control fixture. Cites `#{BLANK_CONTROL_FILE}:1`.\n" \
+                                  "<!-- citation-guard: unswept (1 citations) — never verified -->")
+    assert_includes declared_docs(:unswept), confessed,
+                    "the live reader did not see a document that declares `unswept`"
+    refute_includes UNSWEPT_DOCS, confessed
+    refute_equal UNSWEPT_DOCS.sort, declared_docs(:unswept).sort,
+                 "a NEW document satisfied the guard by confessing — `unswept` is an unbounded " \
+                 "escape hatch again, which is what was measured on 2026-09-15"
+
+    swept = GUARDED_DOCS.first
+    refute_includes declared_docs(:unswept), swept,
+                    "a COVERAGE document declares `unswept` — the control's stand-in is not one"
+    refute_equal (UNSWEPT_DOCS + [swept]).sort, declared_docs(:unswept).sort,
+                 "a name left on UNSWEPT_DOCS after its document stopped confessing left the set " \
+                 "green — the list would then promise a reader a defect that is not there"
+  ensure
+    unplant_control_docs
   end
 
   # CONTROL FOR THE ROUTES ANCHOR — the defect rebuilt from the repository
@@ -1296,6 +1577,17 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # this; the three universal checks read `all_citations`. One parser, two scopes
   # — deliberately not two parsers, because the defect this file exists to catch
   # is two answers to one question.
+  #
+  # THE TWO SCOPES COINCIDE TODAY, and that is the fix, not a redundancy. Measured
+  # 2026-09-16: SCANNED_DOCS and GUARDED_DOCS are the same 12 documents and both
+  # read the same 1013 citations. THE GAP BETWEEN THEM WAS THE BUG — a document
+  # in the first and not the second collected the three coordinate checks and no
+  # symbol check, which is what docs/AUTH.md did while wearing the `enforced`
+  # badge. The equality test holds them together now, so the scopes diverge only
+  # in the window where that test is already red. Keep the two names: they are
+  # different CLAIMS — one is "every document the parse reads", the other is
+  # "every document carrying per-document floors and a preamble" — and collapsing
+  # them to one constant would delete the seam the equality is asserted across.
   def citations = all_citations.select { |c| GUARDED_DOCS.include?(c[:doc]) }
 
   def all_citations = @all_citations ||= SCANNED_DOCS.flat_map { |doc| parse_doc(doc) }
@@ -1482,13 +1774,52 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
     end
   end
 
+  # THE SCOPE EVERY CALL-TIME CHECK READS: the live glob, minus any control
+  # fixture that is not MINE. A sibling worker's fixture is dropped by NAME,
+  # before anything reads it, so it can neither raise `Errno::ENOENT` when that
+  # worker deletes it nor be counted as a real document — see CONTROL_DOC_PREFIX
+  # above for the race and why an instance variable is the right scope. My own
+  # fixtures stay visible, so a control still asserts that the REAL glob reached
+  # a document that did not exist when the process started.
+  def docs_tree
+    self.class.docs_tree.reject do |d|
+      self.class.control_fixture?(d) && !planted_control_docs.include?(d)
+    end
+  end
+
+  def planted_control_docs = @planted_control_docs ||= []
+
+  # Write a control fixture into docs/ and register it as mine. The name carries
+  # the reserved prefix and this process's pid: the prefix is what hides it from
+  # a sibling, and the pid is what keeps two workers running the same control
+  # from colliding on one path.
+  def plant_control_doc(name, body)
+    rel = "docs/#{CONTROL_DOC_PREFIX}#{Process.pid}-#{name}.md"
+    File.write(abs(rel), "#{body}\n")
+    planted_control_docs << rel
+    rel
+  end
+
+  def unplant_control_docs
+    planted_control_docs.each { |rel| File.delete(abs(rel)) if File.exist?(abs(rel)) }
+    planted_control_docs.clear
+  end
+
+  # The documents declaring `kind`, read at CALL time rather than from
+  # DECLARATIONS — that constant is computed once, at load, and a control that
+  # plants a document must be able to reach the predicate it is breaking. A
+  # predicate its own control cannot reach is not controlled.
+  def declared_docs(kind)
+    docs_tree.select { |d| self.class.declaration_for(d)&.fetch(:kind) == kind }
+  end
+
   # Every document under docs/ that cites code and answers nothing. Read at CALL
   # time, not from DECLARATIONS, so the control can write a document and have
   # this see it — a predicate its own control cannot reach is not controlled.
   def undeclared_citing_docs
-    self.class.docs_tree
-        .reject { |d| self.class.declaration_for(d) }
-        .select { |d| parse_doc(d).any? }
+    docs_tree
+      .reject { |d| self.class.declaration_for(d) }
+      .select { |d| parse_doc(d).any? }
   end
 
   # A citation into config/routes.rb. It anchors on the FIRST cited line, which

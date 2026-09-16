@@ -36,9 +36,29 @@
     2026-05-24: window.seedsBar was undefined at x-data parse time
     even with Alpine.data registration). Same pattern as the inline
     solanaModal store in layouts/application.html.erb.
-    A duplicate module copy lives at app/javascript/seeds_bar.js for
-    unit-testability; that one harmlessly re-assigns window.seedsBar
-    later. %>
+
+    THE SCRIPT SHIPS BESIDE ITS CALL SITE, which is load-bearing rather than
+    incidental. This partial also renders into lazily-inserted nodes — the
+    quest-success and newsletter-success modals, which the host mounts by
+    cloning a template x-if — and a lazily-mounted element reads whatever
+    window.seedsBar holds at MOUNT time, long after the importmap has run.
+    It survives that because a script cloned out of a template DOES execute on
+    insertion, so every mount re-installs this definition immediately before
+    Alpine evaluates the x-data below it. Measured 2026-09-16 with
+    Alpine.$data(el) on all three arrival paths — fresh load, Turbo
+    navigation, and inside the cloned modal — this copy binds in every one.
+    (The layout states that a cloned script never runs, at the birthday and
+    leveling assets. Whatever holds for a factory named by the clone's ROOT
+    element, it does not hold for a script that PRECEDES its call site inside
+    the same clone, which is the shape here.)
+
+    THERE IS NO MODULE TWIN, deliberately. app/javascript/seeds_bar.js carried a
+    STALE fork of this factory — no serverSeedsTotal read in init, and the old
+    unconditional branch in normalStart instead of the cache reconciliation
+    below — and was deleted on 2026-09-16 with its importmap pin (task
+    paired-alpine-factories-can-diverge). Do not re-create one to make this
+    "unit-testable": the factory interpolates a server-side constant below, so a
+    module could not carry it, and a second copy is what the deleted one was. %>
 <script>
   window.seedsBar = function () {
     return {

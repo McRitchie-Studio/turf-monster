@@ -11,7 +11,7 @@
       A request was made to change your account email to:
     </p>
 
-    <div class="rounded-xl border border-subtle bg-base p-4 mb-5">
+    <div class="rounded-xl border border-subtle bg-surface-alt p-4 mb-5">
       <p class="text-xs uppercase tracking-wider text-muted mb-1">New email address</p>
       <code class="font-mono text-sm break-all text-heading select-all"><%= @email_change[:new_email] %></code>
     </div>
@@ -23,9 +23,25 @@
       session will be signed out when a change is confirmed.
     </p>
 
+    <%# THE LABEL COLOUR MUST BE SET BY A CLASS THAT EXISTS. This CTA wore
+        `bg-primary text-on-primary`: the fill resolved, the LABEL COLOUR did
+        not — `text-on-primary` is defined by no stylesheet, so the label fell
+        back to inherited body ink on a filled green button.
+        `btn btn-primary` is the house primitive (see accounts/show.html.erb
+        and accounts/complete_profile.html.erb) and it declares the label
+        colour outright — `color: var(--btn-primary-fg, #fff)` — so the
+        contrast is a property of the component rather than of whatever the
+        page happens to inherit. It also brings the focus-visible ring `btn`
+        carries, which the hand-rolled version had none of.
+
+        NOTE FOR ANY FUTURE GUARD: the shared CssClassGuard reads HTML
+        `class="…"` attributes only. This list is a Ruby helper OPTION, so the
+        guard cannot see it and never could have caught the phantom here. The
+        regression test for this line asserts the RENDERED button carries a
+        class that sets a colour. %>
     <%= button_to "Confirm email change",
           apply_email_change_path(token: @email_change_token),
           method: :post,
-          class: "w-full inline-flex items-center justify-center rounded-xl bg-primary text-on-primary font-semibold px-5 py-3 hover:opacity-90 transition" %>
+          class: "btn btn-primary btn-lg w-full" %>
   </div>
 </div>

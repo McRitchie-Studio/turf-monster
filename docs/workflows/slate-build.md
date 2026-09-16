@@ -213,9 +213,9 @@ rather than reading a stored slider (`app/models/slate.rb:102-104`), and default
 scale to `1.0` so the curve tops out at x2.0 (`:108-111`). The NFL curve is linear because
 it was measured that way:
 `Nfl::PointsDistribution` computes the fit dynamically from the checked-in ESPN dataset,
-and the 2023–25 snapshot is written down at `docs/FORMULAS.md:15` — linear **r² 0.9583**
+and the 2023–25 snapshot is written down at `docs/FORMULAS.md:28` — linear **r² 0.9583**
 (`6.76 + 31.54 * (32-rank)/31`) against log **r² 0.9184**
-(`12.52 + 37.84 * ln(32/rank)/ln(32)`) at `docs/FORMULAS.md:14`.
+(`12.52 + 37.84 * ln(32/rank)/ln(32)`) at `docs/FORMULAS.md:27`.
 
 The rank and score are written to **every still-open row of that team**:
 `Nfl::CacheExpectedTeamTotals#rank_slate_matchups!` writes it at
