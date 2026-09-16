@@ -1047,7 +1047,29 @@
 # never once executed and a spec filed there would be a tier that looks strict
 # and collects nothing. Derived with bin/e2e-lane-derive --write, not by
 # arithmetic.
-total_specs: 321
+#
+# 321 -> 323 (duplicate-lock-picker-diverged): two specs in
+# e2e/contest_lock_picker_registration.spec.js, one per ARRIVAL PATH, for a
+# duplicated Alpine factory that served a DIFFERENT component depending on how
+# the operator reached the page.
+#   · WHY TWO AND NOT ONE. contestLockPicker existed twice — inline in
+#     shared/_alpine_factories and again in app/javascript/contest_lock_picker.js
+#     — and the second copy also called Alpine.data(). Measured: a direct
+#     page.goto bound the INLINE copy (Alpine walks x-data before importmap
+#     modules execute), while a Turbo client-side navigation bound the MODULE
+#     copy (its Alpine.data registration survives the body swap and takes
+#     precedence). Only the module had lockViaPhantom/pickedUnix/clearLockViaPhantom,
+#     so the on-chain lock button was INERT on a fresh page load and worked on an
+#     in-app click. One spec would have certified whichever half happened to work.
+#   · WHY NEITHER IS REDUNDANT WITH contest_lock_phantom.spec.js. That spec reads
+#     window.contestLockPicker, which is a DIFFERENT object from the one Alpine
+#     bound to the element — whichever script ran last owns the global — and it
+#     passed green throughout the whole divergence. These two read the LIVE
+#     component off the element instead, which is the only witness that can see
+#     the split. The Turbo spec also pins a same-document sentinel, so a visit
+#     that silently fell back to a full load fails rather than re-testing path one.
+# Derived with bin/e2e-lane-derive --write, not by arithmetic.
+total_specs: 323
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1378,7 +1400,7 @@ allowed_skips: 4
 # --write ON THE MERGED TREE, not by incrementing — and the first derive, before
 # the merge, wrote 298 against a base that had already moved. That is why the
 # instruction says MERGED TREE and not "run the deriver".
-executed: 300
+executed: 302
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
