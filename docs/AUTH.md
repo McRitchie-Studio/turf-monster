@@ -251,7 +251,7 @@ legitimately walk through via `$store.wallet.expectSwitchesTo(...)`
 (`app/javascript/solana_stores.js:349`), which keeps the blocking card from
 opening over a half-collected treasury transaction. That call has exactly two
 sites — `app/javascript/cosign.js:271` and
-`app/views/admin/vault_state/show.html.erb:294` — but **three admin surfaces
+`app/views/admin/vault_state/show.html.erb:314` — but **three admin surfaces
 reach them**. `cosignTransaction` is a global, so any page may wire a button to
 it: `/admin/pending_transactions` and `/admin/authorities`
 (`app/views/admin/authorities/_eviction.html.erb:188`, which reuses the same
