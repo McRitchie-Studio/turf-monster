@@ -1,0 +1,69 @@
+<%# locals: (address:, user:, badges: nil, compact: false) %>
+<%#
+  ONE WALLET, SHOWN AS A PERSON WHERE THERE IS ONE — AND AS AN ADDRESS ALWAYS.
+
+  THE ADDRESS IS NEVER REPLACED BY THE NAME. An operator opens this page to
+  decide which key to remove, and what he removes is a base58 key. So the full
+  address renders on every row whether or not a user was found; the name sits
+  above it as a reading aid and nothing more. That ordering is the whole design:
+  identity is an ADDITION to the address.
+
+  AN UNHELD WALLET SAYS SO, OUT LOUD. Most addresses on this page are agent and
+  operator keys and nothing guarantees any of them is an app account. Rendering
+  a miss as a blank name, or as the same coloured initials circle a real account
+  gets, would read as "an account we know, whose name we did not bother to
+  print" — and a wrong identity here is worse than no identity. So the miss gets
+  a DASHED ring, muted ink and the words, all three of which differ from every
+  resolved row at a glance.
+
+  WHICH COLUMN MATCHED IS PART OF THE ANSWER. This app keeps one user's wallet
+  in either of two places, and saying which one matched is what lets the
+  operator tell a Phantom he can be asked to sign with from a managed wallet
+  this server holds the key to.
+%>
+<% wallet_kind = user && (user.web3_solana_address == address ? "Phantom" : "Managed") %>
+
+<div class="flex min-w-0 items-start gap-2">
+  <% if user %>
+    <%= render "components/avatar", user: user, size: "sm" %>
+  <% else %>
+    <%# NOT AN AVATAR, AND IT MUST NOT LOOK LIKE ONE — no fill, a dashed ring,
+        and the same muted ink the words below it use. %>
+    <span aria-hidden="true"
+          class="mt-px flex h-6 w-6 shrink-0 items-center justify-center rounded-full
+                 border border-dashed border-strong text-3xs font-bold text-muted">
+      ?
+    </span>
+  <% end %>
+
+  <div class="min-w-0 flex-1">
+    <div class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+      <% if user %>
+        <span class="truncate text-xs font-bold text-heading"><%= user.display_name %></span>
+        <span class="rounded bg-surface-alt px-1 py-px text-3xs font-bold uppercase tracking-wide text-muted">
+          <%= wallet_kind %>
+        </span>
+      <% else %>
+        <span class="text-xs font-medium text-muted">No linked account</span>
+        <span class="rounded border border-dashed border-strong px-1 py-px text-3xs font-bold uppercase tracking-wide text-muted">
+          Unresolved
+        </span>
+      <% end %>
+      <%= badges %>
+    </div>
+
+    <p class="font-mono text-2xs text-secondary break-all" data-wallet-address><%= address %></p>
+
+    <%# ONLY THE MISS GETS A SENTENCE. A resolved row has already said everything
+        it has to say — a face, a name and the wallet kind — and repeating "held
+        by an account" under each one buries the row that ISN'T. The unresolved
+        case is the one an operator has to be told about explicitly, because a
+        quiet row reads as an ordinary one. %>
+    <% if user.nil? && !compact %>
+      <p class="text-3xs text-muted">
+        No Turf Monster account holds this address on either wallet, so this
+        page can put no name to it. Evict it by the address above.
+      </p>
+    <% end %>
+  </div>
+</div>

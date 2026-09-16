@@ -531,4 +531,223 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
     assert_match(/60-90 second/, response.body)
     assert_match(/click again/i, response.body)
   end
+
+  # ── ORDER ────────────────────────────────────────────────────────────────
+
+  def heading_at(text)
+    response.body.index(/<h2[^>]*>\s*#{Regexp.escape(text)}/m)
+  end
+
+  test "the eviction console renders ABOVE the read-only authority panels" do
+    # The panels are REFERENCE; the eviction is the act. An operator reaches
+    # this page mid-incident to remove a key, and the control he came for sat
+    # under four panels of material he already knew.
+    render_page
+
+    console = heading_at("Evict a vault signer")
+    vault   = heading_at("Vault signer set")
+    squads  = heading_at("Program upgrade authority")
+    server  = heading_at("Server signing identity")
+    [console, vault, squads, server].each { |at| assert at, "a panel heading went missing" }
+
+    assert console < vault,  "the console must lead the page"
+    assert vault   < squads, "the panels keep their own order under it"
+    assert squads  < server
+
+    # AND THE PROSE POINTERS MOVED WITH IT. Two panels cite the console's
+    # POSITION in words. A reorder that leaves them saying "below" sends an
+    # operator to the bottom of a page that has nothing there — which is worse
+    # than the original ordering, because it reads as a missing feature.
+    assert_match(/console at the top of this page/, response.body)
+    assert_no_match(/console at the bottom of this page/, response.body)
+    assert_no_match(/cannot be evicted by a rotation it leads<\/strong> \(see below\)/, response.body)
+  end
+
+  # ── WHO HOLDS EACH WALLET ────────────────────────────────────────────────
+  #
+  # THE PARSE IS SCOPED TO ONE ROW, not to a window. `data-wallet-address`
+  # splits the body at each rendered wallet, and the name is read from the tail
+  # of the PRECEDING chunk back to that row's own opening element — so a
+  # neighbouring row's "No linked account" can never be counted as this row's.
+  # A window would have made every assertion below true for the wrong reason.
+  ROW_OPEN = 'class="flex min-w-0 items-start gap-2"'.freeze
+
+  def self.wallet_rows(html)
+    parts = html.split("data-wallet-address>")
+    parts.each_cons(2).map do |before, after|
+      opened = before.rindex(ROW_OPEN)
+      tail   = opened ? before[opened..] : before
+      {
+        address: after[/\A[^<]+/].to_s.strip,
+        name: tail[/<span class="truncate text-xs font-bold text-heading">\s*([^<]*?)\s*<\/span>/m, 1],
+        kind: tail[/uppercase tracking-wide text-muted">\s*(Phantom|Managed)\s*<\/span>/m, 1],
+        unresolved: tail.include?("No linked account")
+      }
+    end
+  end
+
+  def row_for(address)
+    self.class.wallet_rows(response.body).find { |row| row[:address] == address }
+  end
+
+  test "an unlinked wallet renders as visibly unresolved and never as a user" do
+    # THE DEFAULT FIXTURE SET IS THE CASE, not a contrivance: none of the three
+    # signer addresses belongs to any user here, which is the state most agent
+    # and operator wallets are in on the live page.
+    #
+    # On a page whose whole job is deciding WHICH KEY TO REMOVE, a wrong name is
+    # worse than no name — so a miss must be LOUD. Blank would be the dangerous
+    # rendering, because a quiet row reads as an ordinary one.
+    render_page
+
+    [SYSTEM, ALEX, MASON].each do |address|
+      row = row_for(address)
+      assert row, "#{address} must still get a row"
+      assert row[:unresolved], "#{address} has no user and the page must say so"
+      assert_nil row[:name], "#{address} must not be given a name"
+      assert_nil row[:kind], "#{address} matched no wallet column, so it can claim no kind"
+    end
+  end
+
+  test "the unresolved detector BITES — the same predicate flips on a linked wallet" do
+    # A CONTROL, because "no name was rendered" is exactly the assertion that
+    # passes when the page renders no names AT ALL. Same parse, same predicate,
+    # one linked wallet swapped in: it must come back resolved, or the test
+    # above proves nothing.
+    sam = users(:sam)
+    render_page(vault: RenderVault.new(signers: [sam.web3_solana_address, ALEX, MASON]))
+
+    linked = row_for(sam.web3_solana_address)
+    assert_not linked[:unresolved], "a linked wallet must NOT report unresolved"
+    assert_equal sam.display_name, linked[:name]
+
+    # And the neighbours in the same render are still misses, so the detector is
+    # discriminating rather than uniformly positive.
+    assert row_for(ALEX)[:unresolved]
+    assert row_for(MASON)[:unresolved]
+  end
+
+  test "a wallet resolves through EITHER column, which is the trap" do
+    # `User#solana_address` is `web3_solana_address || web2_solana_address`, so a
+    # user's wallet lives in one of two columns. `User.from_solana_wallet` reads
+    # only the first — which is why this page does not use it: a lookup against
+    # web3 alone silently misses every managed account, and a page that misses a
+    # user renders that wallet as unheld.
+    #
+    # casey_test holds BOTH, on two DIFFERENT addresses, so each column can be
+    # exercised against the same person.
+    casey = users(:casey)
+    assert_not_equal casey.web2_solana_address, casey.web3_solana_address,
+                     "this fixture only tests two columns while it holds two addresses"
+
+    render_page(vault: RenderVault.new(signers: [casey.web3_solana_address, ALEX, MASON]))
+    phantom = row_for(casey.web3_solana_address)
+    assert_equal casey.display_name, phantom[:name]
+    assert_equal "Phantom", phantom[:kind]
+
+    # THE HALF A web3-ONLY LOOKUP LOSES.
+    render_page(vault: RenderVault.new(signers: [casey.web2_solana_address, ALEX, MASON]))
+    managed = row_for(casey.web2_solana_address)
+    assert_equal casey.display_name, managed[:name], "a managed wallet must resolve too"
+    assert_equal "Managed", managed[:kind],
+                 "the page must say WHICH column matched, not merely that one did"
+  end
+
+  test "identity is an ADDITION to the address, never a replacement for it" do
+    # What an operator removes is a base58 key, not a username. A page that
+    # swapped the key for a name would be unusable for its one decision.
+    casey = users(:casey)
+    render_page(vault: RenderVault.new(signers: [casey.web3_solana_address, ALEX, MASON]))
+
+    [casey.web3_solana_address, ALEX, MASON].each do |address|
+      assert_includes response.body, address,
+                      "#{address} must render in full whether or not it resolved"
+      assert_equal address, row_for(address)[:address]
+    end
+  end
+
+  test "the planner hands Alpine only the wallets that actually resolved" do
+    # The slot fields are editable, so the identity beside them is painted in
+    # the browser off this map. It must carry no address it did not find a user
+    # for — an invented entry there would put a face beside a stranger's key.
+    sam = users(:sam)
+    render_page(vault: RenderVault.new(signers: [sam.web3_solana_address, ALEX, MASON]))
+
+    raw = response.body[/data-identities="([^"]*)"/, 1]
+    assert raw, "the planner must ship an identity map"
+    map = JSON.parse(CGI.unescapeHTML(raw))
+
+    assert_equal sam.display_name, map.dig(sam.web3_solana_address, "name")
+    assert_not map.key?(ALEX),  "an unlinked wallet must be ABSENT, not present and blank"
+    assert_not map.key?(MASON)
+  end
+
+  # ── THE DESTRUCTIVE ROW ACTION ───────────────────────────────────────────
+
+  test "the per-row Evict control shares no colour with the affirmative CTA" do
+    # `btn-outline` draws its border from --color-cta, and in this app that is
+    # the same green as `btn-primary` — so three destructive row buttons came
+    # out the colour of "Arm this eviction" directly below them, on the one card
+    # where a mis-click removes a signing key.
+    render_page
+
+    evict = response.body[/<button type="button"[^>]*evict\(i\)[^>]*>/m]
+    assert evict, "the per-row Evict control must still exist"
+    evict_classes = evict[/class="([^"]*)"/, 1].to_s.split
+
+    arm = response.body[/<button type="submit"[^>]*>\s*Arm this eviction/m]
+    assert arm, "the affirmative CTA must still exist"
+    arm_classes = arm[/class="([^"]*)"/, 1].to_s.split
+
+    assert_includes arm_classes, "btn-primary"
+    assert_includes evict_classes, "text-danger-ink"
+    assert_not_includes evict_classes, "btn-outline"
+
+    # THE REAL PROPERTY, stated as a property rather than as a list of forbidden
+    # names: whatever the two buttons wear, they may not share a class that
+    # carries colour. Only the shape utilities are allowed in common.
+    shape = %w[btn btn-sm shrink-0]
+    assert_empty (evict_classes & arm_classes) - shape,
+                 "the destructive row action and the affirmative CTA share a colour class"
+  end
+
+  # ── THE CLASSES THIS CARD'S AFFORDANCES DEPEND ON ────────────────────────
+
+  COMPILED_CSS = Rails.root.join("app/assets/builds/tailwind.css").freeze
+
+  test "the card names no field or colour class the stylesheet leaves undefined" do
+    # `input input-bordered` shipped on the slot fields and NEITHER class
+    # exists — the engine's field primitive is `input-field`. A box- or
+    # colour-shaped class the stylesheet does not define paints NOTHING while
+    # reading perfectly in the markup, so the three base58 fields rendered as
+    # bare text and an operator had no way to tell they were editable.
+    #
+    # Nothing in Ruby can see that failure. The stylesheet can, and CI builds it
+    # before the suite (.github/workflows/ci.yml) for exactly this class of test.
+    css = COMPILED_CSS.read
+
+    defined_in_css = lambda do |name|
+      css.include?(".#{name.gsub(/[:.\/]/) { |c| "\\#{c}" }}")
+    end
+
+    render_page
+
+    field = response.body[/<input type="text" name="signers\[\]"[^>]*class="([^"]*)"/m, 1] ||
+            response.body[/<input[^>]*name="signers\[\]"[^>]*class="([^"]*)"/m, 1]
+    assert field, "the slot field must still exist"
+
+    evict = response.body[/<button type="button"[^>]*evict\(i\)[^>]*>/m][/class="([^"]*)"/, 1]
+
+    phantoms = (field.split + evict.split).uniq.reject { |name| defined_in_css.call(name) }
+    assert_empty phantoms,
+                 "these classes are in the markup and absent from the stylesheet, " \
+                 "so they paint nothing: #{phantoms.join(", ")}"
+
+    # THE CONTROL. The pair that used to ship here must be caught by the same
+    # lambda, or this guard would pass on a stylesheet that defines nothing.
+    assert_not defined_in_css.call("input-bordered"),
+               "the retired phantom must still read as undefined, or the check is inert"
+    assert defined_in_css.call("input-field"),
+           "the engine field primitive must read as defined, or the check is unsatisfiable"
+  end
 end

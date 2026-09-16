@@ -63,13 +63,24 @@
   <% end %>
 
   <%= render layout: "hub_section", locals: { title: "Signing & Multisig" } do %>
+    <%# AUTHORITIES LEADS THIS SECTION, matching the page it opens. /admin/authorities
+        now puts the eviction console above its four read-only panels, because
+        evicting a compromised vault signer is the act an operator comes here to
+        perform. The tile order says the same thing one level up: the two entries
+        under it are a WIP page in another app and a link out to a third-party UI,
+        neither of which is the thing to reach for first during an incident.
+
+        THE TILE ITSELF IS NOT NEW. It shipped with the page in
+        /tasks/admin-evicts-compromised-signers and has been on `accepted` since.
+        A grep that reported it missing was reading a PRIMARY CHECKOUT sitting on
+        `main`, which lags `accepted` by the release that carries it. %>
+    <%= render "hub_tile", name: "Authorities", url: admin_authorities_path,
+          note: "Evict a vault signer — plus thresholds and Squads, decoded from chain",
+          status: :flagged %>
     <%# Signing Console is a WIP page in the mcritchie-studio app; it may 404 until that app deploys. %>
     <%= render "hub_tile", name: "Signing Console", external: true,
           url: "https://app.mcritchie.studio/admin/signing_requests",
           note: "Keyless multi-party signing queue (mcritchie-studio)" %>
-    <%= render "hub_tile", name: "Authorities", url: admin_authorities_path,
-          note: "Vault signers, thresholds, Squads — decoded from chain; evict a signer",
-          status: :flagged %>
     <%# TWO DEFECTS, ONE TILE, FIXED TOGETHER. It hardcoded the MAINNET Squad on
         every cluster AND called it "2-of-3"; the chain reads 3-of-5 on both,
         with different membership per cluster. `sweep-stale-signer-claims`

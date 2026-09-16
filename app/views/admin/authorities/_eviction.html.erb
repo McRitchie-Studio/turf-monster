@@ -1,6 +1,10 @@
-<%# locals: (rotation:, plan:, roster:, vault:, eligible:, required:, max_slots:, server_address:) %>
+<%# locals: (rotation:, plan:, roster:, vault:, eligible:, required:, max_slots:, server_address:, identities:) %>
 <%#
   THE EVICTION CONSOLE.
+
+  IT LEADS THE PAGE, and that is the point of the ordering rather than a layout
+  preference. The four authority panels under it are REFERENCE; this is the act
+  the operator opened the page to perform.
 
   TWO STEPS, AND THE SPLIT IS THE DESIGN:
     ARM      — record the proposed set. Builds NOTHING. The operator reads the
@@ -15,7 +19,68 @@
   `advanceNonceAccount` is instruction 0, and Phantom injects its own Lighthouse
   guard instructions ahead of whatever was built. So the window is real, and the
   answer is to start it when he acts.
+
+  EVERY ADDRESS HERE CARRIES ITS HOLDER WHERE THERE IS ONE. Five full base58
+  strings with no hierarchy is what this card used to be, and an operator cannot
+  pick a key to remove by comparing forty-four characters by eye. Resolving is
+  not asserting: a wallet with no app account renders as visibly unresolved, and
+  the full address renders on every row either way.
 %>
+
+<%# THE DESTRUCTIVE ROW ACTION, DEFINED ONCE.
+
+    IT MUST NOT WEAR THE AFFIRMATIVE COLOUR. `btn-outline` draws its border from
+    `--color-cta`, which in this app is the same green as `btn-primary` — so the
+    per-row Evict buttons came out the same colour as the "Arm this eviction"
+    call to action directly beneath them. Two buttons, one colour, opposite
+    meanings, on the one card where a mis-click removes a signing key.
+
+    Danger INK on a bare surface, not a danger FILL: the fill belongs to the
+    submit that commits the plan, and three filled red buttons stacked down the
+    card would out-shout it. The classes are written literally here because
+    Tailwind scans source TEXT — a name assembled at render time compiles to no
+    rule at all and paints nothing. %>
+<% evict_button_class = "btn btn-sm shrink-0 border border-danger bg-transparent " \
+                        "text-danger-ink hover:bg-danger hover:text-white" %>
+
+<%# THE FIELDS HAD NO STYLING AT ALL, AND THAT WAS INVISIBLE.
+
+    Both controls carried `input input-bordered`, and NEITHER class exists: the
+    engine's field primitive is `input-field`, and a colour- or box-shaped class
+    the stylesheet does not define paints nothing while reading perfectly in the
+    markup. So the slot inputs rendered as bare text on the surface — three
+    base58 strings an operator had no way to tell were editable, on the one card
+    where typing into them is the entire point.
+
+    The primitive is adopted rather than hand-rolled, with only the density
+    retuned: its own padding is sized for a full-width form and these rows carry
+    four to a card. Written as literal tokens because Tailwind scans source
+    TEXT and a name assembled at render time compiles to nothing — which is the
+    same failure this comment is about.
+
+    STILL PRESENT ELSEWHERE: /admin/vault_state and /admin/vault_init carry
+    eight more of the phantom pair between them. Out of scope here because they
+    are other pages with their own layouts to re-check, not because they are
+    correct. %>
+<% signer_field_class = "input-field w-full rounded-md px-2 py-1.5 font-mono text-2xs" %>
+
+<%# WHAT ALPINE NEEDS TO PAINT A HOLDER IT HAS NOT SEEN BEFORE.
+
+    The slot inputs are editable and the authorizer selects change under the
+    operator's hand, so the identity beside them cannot be server-rendered once
+    and left alone. The map is handed over as JSON on a data attribute and read
+    in `init()` — the same discipline the factory note below records for every
+    other prop, and for the same reason: an interpolated `x-data` expression
+    dies silently on one stray quote. %>
+<% identity_map = identities.each_with_object({}) do |(address, user), map|
+     map[address] = {
+       name: user.display_name,
+       initials: user.avatar_initials,
+       color: user.avatar_color,
+       avatar: (user.avatar.attached? ? url_for(user.avatar) : nil),
+       kind: (user.web3_solana_address == address ? "Phantom" : "Managed")
+     }
+   end %>
 
 <section class="card p-4 mb-6 border-danger/30">
   <h2 class="text-lg font-bold text-heading mb-1">Evict a vault signer</h2>
@@ -42,11 +107,10 @@
       <div class="grid gap-4 sm:grid-cols-2">
         <div>
           <p class="label-upper text-3xs text-muted mb-1">Signer set now</p>
-          <ul class="space-y-0.5">
+          <ul class="space-y-1.5">
             <% Array(plan[:current]).each do |address| %>
-              <li class="font-mono text-2xs break-all <%= Array(plan[:evicted]).include?(address) ? "text-danger-ink line-through" : "text-heading" %>">
-                <%= address %>
-              </li>
+              <%= render "armed_wallet", address: address, user: identities[address],
+                         tone: (Array(plan[:evicted]).include?(address) ? "text-danger-ink line-through" : "text-heading") %>
             <% end %>
           </ul>
         </div>
@@ -54,11 +118,10 @@
           <p class="label-upper text-3xs text-muted mb-1">
             Signer set after — <%= pluralize(Array(plan[:proposed]).length, "key") %>
           </p>
-          <ul class="space-y-0.5">
+          <ul class="space-y-1.5">
             <% Array(plan[:proposed]).each do |address| %>
-              <li class="font-mono text-2xs break-all <%= Array(plan[:added]).include?(address) ? "text-primary" : "text-heading" %>">
-                <%= address %>
-              </li>
+              <%= render "armed_wallet", address: address, user: identities[address],
+                         tone: (Array(plan[:added]).include?(address) ? "text-primary" : "text-heading") %>
             <% end %>
             <% (max_slots - Array(plan[:proposed]).length).times do %>
               <li class="text-2xs text-muted">— empty —</li>
@@ -70,13 +133,23 @@
       <% if Array(plan[:evicted]).any? %>
         <p class="mt-3 text-xs text-danger-ink">
           <strong>Evicting <%= pluralize(Array(plan[:evicted]).length, "key") %>:</strong>
-          <span class="font-mono text-2xs break-all"><%= Array(plan[:evicted]).join(", ") %></span>
+          <% Array(plan[:evicted]).each do |address| %>
+            <span class="block">
+              <span class="font-bold"><%= identities[address]&.display_name || "No linked account" %></span>
+              <span class="font-mono text-2xs break-all"><%= address %></span>
+            </span>
+          <% end %>
         </p>
       <% end %>
       <% if Array(plan[:added]).any? %>
         <p class="mt-1 text-xs text-primary">
           <strong>Adding:</strong>
-          <span class="font-mono text-2xs break-all"><%= Array(plan[:added]).join(", ") %></span>
+          <% Array(plan[:added]).each do |address| %>
+            <span class="block">
+              <span class="font-bold"><%= identities[address]&.display_name || "No linked account" %></span>
+              <span class="font-mono text-2xs break-all"><%= address %></span>
+            </span>
+          <% end %>
         </p>
       <% end %>
 
@@ -105,7 +178,8 @@
       <div class="mb-4" data-cosign-controls>
         <%= render "admin/pending_transactions/signer_roster",
                    roster: roster,
-                   required_signatures: plan[:required_signatures].to_i %>
+                   required_signatures: plan[:required_signatures].to_i,
+                   identities: identities %>
 
         <div class="mt-3 flex flex-wrap gap-2">
           <button data-tx-slug="<%= rotation.slug %>"
@@ -134,39 +208,90 @@
   <% else %>
     <%# ── NOTHING ARMED: THE PLANNER ─────────────────────────────────────── %>
     <%= form_with url: admin_arm_authority_rotation_path, method: :post,
-                  data: { turbo: false }, class: "space-y-4" do |f| %>
+                  data: { turbo: false } do |f| %>
+      <%# TWO STEPS, TWO ENCLOSURES, AND THAT IS THE FIX FOR A REAL DEFECT.
+
+          The slot list ends in a footnote — "N of M slots filled; K signatures
+          are required, so the set cannot go below K" — and with only vertical
+          rhythm between the groups that sentence sat flush against the WALLETS
+          THAT WILL SIGN heading below it. One section's conclusion read as the
+          next section's preamble, which on this card means a sentence about the
+          SIGNER SET reads as a rule about the SIGNING WALLETS. They are
+          different sets with different rules, and confusing them is the exact
+          mistake the continuity note further down exists to prevent.
+
+          Boxing each step states the boundary structurally instead of hoping a
+          margin carries it. %>
       <div x-data="evictionPlanner()"
            x-init="init($el)"
            data-current-signers="<%= Array(vault[:active_signers]).join(',') %>"
            data-max-slots="<%= max_slots %>"
-           data-required="<%= required %>">
+           data-required="<%= required %>"
+           data-identities="<%= identity_map.to_json %>"
+           class="space-y-5">
 
-        <div>
-          <p class="label-upper text-xs mb-1">The new signer set</p>
+        <section class="rounded-lg border border-subtle bg-surface-alt p-3">
+          <p class="label-upper text-xs mb-1">Step 1 — the new signer set</p>
           <p class="text-3xs text-muted mb-2">
             Slots are left-packed: turf-vault refuses a gap, so “empty” can only
             ever be a suffix. Evicting compacts the rest up for you.
           </p>
 
           <template x-for="(slot, i) in slots" :key="i">
-            <div class="mb-1.5 flex items-center gap-2">
-              <span class="w-6 shrink-0 text-3xs font-bold uppercase text-muted" x-text="i + 1"></span>
-              <input type="text" name="signers[]" x-model="slots[i]"
-                     placeholder="empty"
-                     class="input input-bordered w-full font-mono text-2xs">
-              <button type="button" class="btn btn-outline btn-sm shrink-0"
-                      x-show="slots[i]" @click="evict(i)">Evict</button>
+            <div class="mb-1.5 rounded-md border border-subtle bg-surface p-2">
+              <div class="flex items-center gap-2">
+                <span class="w-6 shrink-0 text-3xs font-bold uppercase text-muted" x-text="i + 1"></span>
+                <input type="text" name="signers[]" x-model="slots[i]"
+                       placeholder="empty"
+                       class="<%= signer_field_class %>">
+                <button type="button" class="<%= evict_button_class %>"
+                        x-show="slots[i]" @click="evict(i)"
+                        :aria-label="'Evict slot ' + (i + 1)">Evict</button>
+              </div>
+
+              <%# WHO HOLDS THIS SLOT. Three siblings with `x-show` rather than
+                  one `<template x-if>` per state: a template needs a single root
+                  element and silently mounts NOTHING when given more than one,
+                  and three plain spans cannot fall into that. %>
+              <div class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 pl-8"
+                   x-show="slots[i]" x-cloak>
+                <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full
+                             bg-cover bg-center text-xs font-bold text-white"
+                      x-show="identityFor(slots[i])" x-cloak
+                      :style="avatarStyle(slots[i])"
+                      x-text="initialsFor(slots[i])"></span>
+                <span aria-hidden="true"
+                      class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full
+                             border border-dashed border-strong text-3xs font-bold text-muted"
+                      x-show="!identityFor(slots[i])" x-cloak>?</span>
+                <span class="text-xs"
+                      :class="identityFor(slots[i]) ? 'font-bold text-heading' : 'text-muted'"
+                      x-text="labelFor(slots[i])"></span>
+                <span class="rounded px-1 py-px text-3xs font-bold uppercase tracking-wide text-muted"
+                      :class="identityFor(slots[i]) ? 'bg-surface-alt' : 'border border-dashed border-strong'"
+                      x-text="kindFor(slots[i])"></span>
+
+                <%# THE KEY IN FULL, ON THE ONE WIDTH THAT CANNOT SHOW IT.
+                    A text input clips rather than wraps, so below the small
+                    breakpoint the field holds a 44-character key the operator
+                    can only scroll through — on the card where he is choosing
+                    which key to remove. From `sm` up the field shows the whole
+                    thing and this echo would be a duplicate, so it is hidden
+                    there rather than rendered twice. %>
+                <span class="w-full break-all font-mono text-3xs text-muted sm:hidden"
+                      x-text="slots[i]"></span>
+              </div>
             </div>
           </template>
 
-          <p class="mt-1 text-3xs"
+          <p class="mt-2 text-3xs"
              :class="liveCount < required ? 'text-danger-ink' : 'text-muted'"
              x-text="liveCount + ' of ' + maxSlots + ' slots filled; ' + required + ' signatures are required, so the set cannot go below ' + required"></p>
-        </div>
+        </section>
 
-        <div>
+        <section class="rounded-lg border border-subtle bg-surface-alt p-3">
           <p class="label-upper text-xs mb-1">
-            Wallets that will sign (<span x-text="required"></span> required, in order)
+            Step 2 — wallets that will sign (<span x-text="required"></span> required, in order)
           </p>
           <p class="text-3xs text-muted mb-2">
             The first one leads: it fills account 0 and pays the network fee.
@@ -175,16 +300,43 @@
           </p>
 
           <template x-for="(a, i) in authorizers" :key="'a' + i">
-            <div class="mb-1.5 flex items-center gap-2">
-              <span class="w-16 shrink-0 text-3xs font-bold uppercase text-muted"
-                    x-text="i === 0 ? 'lead' : 'wallet ' + (i + 1)"></span>
-              <select name="authorizers[]" x-model="authorizers[i]"
-                      class="input input-bordered w-full font-mono text-2xs">
-                <option value="">— choose —</option>
-                <% Array(eligible).each do |address| %>
-                  <option value="<%= address %>"><%= address %><%= " (this server)" if address == server_address %></option>
-                <% end %>
-              </select>
+            <div class="mb-1.5 rounded-md border border-subtle bg-surface p-2">
+              <div class="flex items-center gap-2">
+                <span class="w-16 shrink-0 text-3xs font-bold uppercase text-muted"
+                      x-text="i === 0 ? 'lead' : 'wallet ' + (i + 1)"></span>
+                <select name="authorizers[]" x-model="authorizers[i]"
+                        class="<%= signer_field_class %>">
+                  <option value="">— choose —</option>
+                  <%# THE NAME LEADS, THE ADDRESS STAYS. A select option cannot
+                      hold an avatar, so the holder is prefixed to the address
+                      rather than substituted for it, and the chosen wallet gets
+                      the full treatment on the line below. %>
+                  <% Array(eligible).each do |address| %>
+                    <option value="<%= address %>"><%= identities[address]&.display_name || "unresolved" %> · <%= address %><%= " (this server)" if address == server_address %></option>
+                  <% end %>
+                </select>
+              </div>
+
+              <div class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 pl-18"
+                   x-show="authorizers[i]" x-cloak>
+                <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full
+                             bg-cover bg-center text-xs font-bold text-white"
+                      x-show="identityFor(authorizers[i])" x-cloak
+                      :style="avatarStyle(authorizers[i])"
+                      x-text="initialsFor(authorizers[i])"></span>
+                <span aria-hidden="true"
+                      class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full
+                             border border-dashed border-strong text-3xs font-bold text-muted"
+                      x-show="!identityFor(authorizers[i])" x-cloak>?</span>
+                <span class="text-xs"
+                      :class="identityFor(authorizers[i]) ? 'font-bold text-heading' : 'text-muted'"
+                      x-text="labelFor(authorizers[i])"></span>
+                <span class="rounded px-1 py-px text-3xs font-bold uppercase tracking-wide text-muted"
+                      :class="identityFor(authorizers[i]) ? 'bg-surface-alt' : 'border border-dashed border-strong'"
+                      x-text="kindFor(authorizers[i])"></span>
+                <span class="w-full break-all font-mono text-3xs text-muted sm:hidden"
+                      x-text="authorizers[i]"></span>
+              </div>
             </div>
           </template>
 
@@ -196,18 +348,20 @@
               `alert`/assertive because it answers an action he is waiting on.
               Mounted-and-hidden rather than `<template x-if>`: a live region
               inserted alongside its own content is not reliably announced. %>
-          <p class="mt-1 text-3xs text-danger-ink" x-show="conflict()" x-cloak
+          <p class="mt-2 text-3xs text-danger-ink" x-show="conflict()" x-cloak
              role="alert" aria-live="assertive" aria-atomic="true"
              x-text="conflict()"></p>
-        </div>
+        </section>
 
-        <button type="submit" class="btn btn-primary btn-sm">
-          Arm this eviction
-        </button>
-        <p class="text-3xs text-muted">
-          Arming records the proposed set and builds nothing. You will review it
-          before any wallet is opened.
-        </p>
+        <div class="pt-1">
+          <button type="submit" class="btn btn-primary btn-sm">
+            Arm this eviction
+          </button>
+          <p class="mt-1 text-3xs text-muted">
+            Arming records the proposed set and builds nothing. You will review it
+            before any wallet is opened.
+          </p>
+        </div>
       </div>
     <% end %>
   <% end %>
@@ -225,10 +379,22 @@
       authorizers: [],
       maxSlots: 3,
       required: 2,
+      identities: {},
 
       init: function(el) {
         this.maxSlots = parseInt(el.dataset.maxSlots, 10) || 3;
         this.required = parseInt(el.dataset.required, 10) || 2;
+
+        // A MALFORMED MAP MUST NOT TAKE THE PLANNER WITH IT. Everything the
+        // identity map feeds is a reading aid; the slots, the selects and the
+        // continuity guard all work without it. So a parse failure degrades to
+        // "nobody resolves" — which renders as unresolved, the honest answer —
+        // rather than throwing inside init() and leaving an inert form.
+        try {
+          this.identities = JSON.parse(el.dataset.identities || '{}') || {};
+        } catch (e) {
+          this.identities = {};
+        }
 
         var current = (el.dataset.currentSigners || '').split(',').filter(function(a) { return !!a; });
         this.slots = current.slice(0, this.maxSlots);
@@ -243,6 +409,45 @@
 
       get liveCount() {
         return this.slots.filter(function(s) { return !!(s && s.trim()); }).length;
+      },
+
+      // ── WHO HOLDS AN ADDRESS ────────────────────────────────────────────
+      //
+      // A MISS RETURNS null AND IS RENDERED AS A MISS. The operator types into
+      // these fields, so most of what passes through here is a partial address
+      // that matches nothing — and a lookup that fell back to a placeholder
+      // name would put a person beside a key that is not theirs. On this card
+      // that is the one error worth more than all the others: he is choosing
+      // which key to REMOVE.
+      identityFor: function(address) {
+        var key = (address || '').trim();
+        if (!key) return null;
+        return this.identities[key] || null;
+      },
+
+      labelFor: function(address) {
+        var id = this.identityFor(address);
+        return id ? id.name : 'No linked account';
+      },
+
+      kindFor: function(address) {
+        var id = this.identityFor(address);
+        return id ? id.kind : 'Unresolved';
+      },
+
+      // The initials are the FALLBACK, so they are blank whenever a real avatar
+      // is painted behind them — one element carries both, and an initial
+      // showing through an uploaded photo is what the emptiness prevents.
+      initialsFor: function(address) {
+        var id = this.identityFor(address);
+        return (id && !id.avatar) ? id.initials : '';
+      },
+
+      avatarStyle: function(address) {
+        var id = this.identityFor(address);
+        if (!id) return '';
+        if (id.avatar) return 'background-image: url(' + id.avatar + ')';
+        return 'background-color: ' + id.color;
       },
 
       // COMPACT ON EVICT. Clearing in place would leave a gap, which turf-vault
