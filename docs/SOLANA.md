@@ -765,14 +765,34 @@ would. Every refusal carries the program's error code.
 | `InsufficientSigners` | 6046 | fewer signatures named than the threshold |
 | `SignerSetTooSmall` | 6052 | a gap; or below `required` / `max_live_threshold` / above 5 |
 
-**The signature is stamped before verification** (`#broadcast` calls
-`update_columns` the instant `simulate_and_broadcast` returns). The treasury path
-stamps it after `TxVerifier.verify!` — filed as
-`/tasks/broadcast-records-signature-late` — so a landed transaction whose verify
-flakes stays `pending` and re-broadcastable. On this surface a second attempt
-would be authorized by keys the first one just evicted, fail `Unauthorized`, and
-read to the operator like his eviction did not work. A row left `submitted` with
-its signature is the safe failure.
+**The signature is stamped before verification, and the row is claimed before
+the wire goes out.** Both broadcast paths — `Admin::AuthoritiesController` and
+the treasury's `Admin::PendingTransactionsController` — share one rule, on the
+model, because the rule decides whether money can move twice:
+
+| step | method | why |
+|---|---|---|
+| claim | `PendingTransaction#claim_for_broadcast!` | `pending?` is a READ; two requests both pass it and both broadcast. One conditional UPDATE; exactly one caller wins. Not `with_lock` — that holds a row lock across two RPC round trips |
+| stamp | `PendingTransaction#record_broadcast!` | `update_columns` the instant `simulate_and_broadcast` returns, so no validation or callback stands between a landed transaction and the record of it |
+| release | `PendingTransaction#release_broadcast_claim!` | ONLY on `Solana::Vault::PreflightRejected` — the type the vault raises for everything before `send_and_confirm`, which is the only proof nothing left the server |
+| reconcile | `PendingTransaction#awaiting_reconciliation?` | claimed, no signature: the wire may be on chain. Never re-broadcast; `#confirm` records a signature found on chain, verifying it first |
+
+The treasury path used to stamp the signature **after** `TxVerifier.verify!`
+(one RPC call per claimed signer), so a transaction that LANDED and then met an
+RPC hiccup was left `pending`, unsigned and re-broadcastable — the money moved
+and the record said it had not. That was
+`/tasks/broadcast-records-signature-late`. The general rule, shared with
+`Cdp::OfframpSendJob`: **never let a verification step decide whether a
+broadcast happened — the broadcast happened when the wire went out.**
+
+On the authorities surface the consequence is worse than a double payout: a
+second attempt after the first landed is authorized by keys the first one just
+evicted, fails `Unauthorized`, and reads to the operator like his eviction did
+not work. A row left `submitted` is the safe failure.
+
+`#confirm` is the one path that still proves before it records, on both
+surfaces, and deliberately: there the signature is an unverified CLIENT claim,
+not one this server produced.
 
 
 ### Multisig Settlement Flow

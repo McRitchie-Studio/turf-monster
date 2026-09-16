@@ -210,21 +210,23 @@ module Admin
     # Before verification, not after, and by `update_columns` so no validation
     # or callback can stand between a landed transaction and the record of it.
     #
-    # The treasury path stamps it AFTER `TxVerifier.verify!` (see
-    # Admin::PendingTransactionsController#verify_and_record_cosign!), so a
-    # transaction that LANDED but whose verification flaked — a slow RPC, a
-    # commitment that has not caught up — leaves the row `pending` with no
-    # signature, and therefore re-broadcastable. That is filed separately as
-    # /tasks/broadcast-records-signature-late and is not fixed here; what is
-    # fixed here is that this NEW path does not inherit the shape. On this
-    # surface the consequence would be worse than a double payout: a second
-    # rotation attempt after the first landed is authorized by keys the first
-    # one just evicted, so it fails `Unauthorized` and reads to the operator
-    # like his eviction did not work — mid-incident, on the one control he has.
+    # The treasury path stamped it AFTER `TxVerifier.verify!`, so a transaction
+    # that LANDED but whose verification flaked — a slow RPC, a commitment that
+    # has not caught up — was left `pending` with no signature, and therefore
+    # re-broadcastable. That was /tasks/broadcast-records-signature-late, and it
+    # is now FIXED: `Admin::PendingTransactionsController#broadcast` holds the
+    # identical shape, and the claim and the stamp both live on the model
+    # (`PendingTransaction#claim_for_broadcast!` / `#record_broadcast!`) so the
+    # two paths cannot drift on the rule that decides whether money moves twice.
+    #
+    # The consequence here is worse than a double payout: a second rotation
+    # attempt after the first landed is authorized by keys the first one just
+    # evicted, so it fails `Unauthorized` and reads to the operator like his
+    # eviction did not work — mid-incident, on the one control he has.
     #
     # A row left `submitted` is therefore the SAFE failure: the signature is on
-    # the record, the pending? guard refuses a re-broadcast, and the read-back
-    # below tells him what actually happened on chain regardless.
+    # the record, the claim refuses a re-broadcast, and the read-back below
+    # tells him what actually happened on chain regardless.
     def broadcast
       rescue_and_log(target: @tx) do
         raise "This eviction is #{@tx.status}, not pending" unless @tx.pending?
@@ -234,17 +236,33 @@ module Admin
         signed_tx = params[:signed_tx].to_s
         raise "Signed transaction required" if signed_tx.blank?
 
-        # THE COUNT IS CHECKED, not merely each address's membership. This is
-        # the half `Admin::VaultStateController#confirm` omits — it validates
-        # every extra signer it is GIVEN and never that it was given enough, so
-        # a three-signature action can be recorded on one proven signature.
+        # THE COUNT IS CHECKED, not merely each address's membership — one
+        # proven signature must never be recorded as authorization for a
+        # multi-signature act. `Admin::VaultStateController#confirm` omitted this
+        # half and now runs the same check through `CosignPlan#validate_extras!`.
         claimed = require_signer_queue!(plan)
 
-        signature = vault.simulate_and_broadcast(signed_tx)
+        # CLAIM THE ROW BEFORE THE WIRE GOES OUT. `pending?` above is a READ;
+        # two concurrent requests both pass it and both broadcast. See
+        # PendingTransaction#claim_for_broadcast!.
+        unless @tx.claim_for_broadcast!
+          raise "This eviction is already being broadcast (it is now #{@tx.status}) — " \
+                "read the signer set back rather than sending a second rotation."
+        end
+
+        signature =
+          begin
+            vault.simulate_and_broadcast(signed_tx)
+          rescue Solana::Vault::PreflightRejected
+            # PROVABLY UN-SENT — give the claim back so a program refusal stays
+            # retryable. Only this type; an ambiguous failure after the send
+            # keeps the row claimed and unsigned.
+            @tx.release_broadcast_claim!
+            raise
+          end
 
         # DURABLE, IMMEDIATELY, BEFORE ANYTHING ELSE CAN RAISE.
-        @tx.update_columns(tx_signature: signature, status: "submitted",
-                           updated_at: Time.current)
+        @tx.record_broadcast!(signature)
 
         verify_landed!(signature: signature, claimed: claimed)
 
@@ -285,6 +303,16 @@ module Admin
         return redirect_to admin_authorities_path,
                            alert: "This eviction already broadcast (#{@tx.tx_signature}); " \
                                   "it cannot be discarded."
+      end
+
+      # A CLAIMED ROW WHOSE ANSWER WAS LOST IS NOT A DRAFT EITHER. It carries no
+      # signature, so the check above waves it through — but its wire may be on
+      # the chain, and marking it `expired` would file a possible rotation as
+      # one that never happened. Reconcile it, do not discard it.
+      if @tx.awaiting_reconciliation?
+        return redirect_to admin_authorities_path,
+                           alert: "This eviction was broadcast and the result was not read back, " \
+                                  "so it may be on chain. Read the signer set before discarding it."
       end
 
       rescue_and_log(target: @tx) do

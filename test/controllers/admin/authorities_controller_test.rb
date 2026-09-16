@@ -12,16 +12,18 @@ require "minitest/mock"
 #      cheerfully arm a rotation the chain refuses spends a ceremony and three
 #      Phantom dialogs to learn `0x17a4`.
 #   2. THE COUNT OF CLAIMED SIGNERS IS CHECKED, not merely each one's
-#      membership. `Admin::VaultStateController#confirm` validates every extra
-#      signer it is GIVEN and never that it was given enough, so a
-#      three-signature action can be recorded on one proven signature. That
-#      shape is deliberately not copied, and this file proves it.
-#   3. THE SIGNATURE IS STAMPED BEFORE VERIFICATION. The treasury path stamps it
-#      after (filed as /tasks/broadcast-records-signature-late), so a landed
-#      transaction whose verify flakes stays `pending` and re-broadcastable. On
-#      THIS surface a second attempt would be authorized by keys the first one
-#      just evicted — it fails `Unauthorized` and reads to the operator like his
-#      eviction did not work, mid-incident, on the one control he has.
+#      membership. A three-signature action recorded on one proven signature is
+#      a third of the claim written down as the whole of it.
+#      `Admin::VaultStateController#confirm` had exactly that gap and now runs
+#      the same count through `CosignPlan#validate_extras!`.
+#   3. THE SIGNATURE IS STAMPED BEFORE VERIFICATION, and the row is CLAIMED
+#      before the wire goes out. The treasury path stamped it after
+#      (/tasks/broadcast-records-signature-late), so a landed transaction whose
+#      verify flaked stayed `pending` and re-broadcastable; both paths now share
+#      one rule on the model. On THIS surface a second attempt would be
+#      authorized by keys the first one just evicted — it fails `Unauthorized`
+#      and reads to the operator like his eviction did not work, mid-incident,
+#      on the one control he has.
 class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
   SYSTEM = "8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd".freeze
   ALEX   = "7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr".freeze
@@ -79,9 +81,17 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
         slot_width: 3, lead_signer: lead_signer, server_signed: false }
     end
 
+    # A seeded STRING models a PRE-FLIGHT refusal, which the real method raises
+    # as `Solana::Vault::PreflightRejected` — the type that proves nothing left
+    # the server and is therefore the only fault that releases a broadcast
+    # claim. Seed an exception instance to model an AMBIGUOUS failure after the
+    # send, where the wire may already be on chain.
     def simulate_and_broadcast(wire)
       @broadcast_calls << wire
-      raise @broadcast_raises if @broadcast_raises
+      if @broadcast_raises
+        raise(@broadcast_raises.is_a?(String) ? Solana::Vault::PreflightRejected.new(@broadcast_raises)
+                                              : @broadcast_raises)
+      end
 
       "LANDED_SIGNATURE"
     end
@@ -418,8 +428,9 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "broadcast refuses a signer queue SHORTER than the slots it reserved" do
-    # The check `Admin::VaultStateController#confirm` omits. One proven
-    # signature must never be recorded as authorization for a two-signature act.
+    # One proven signature must never be recorded as authorization for a
+    # two-signature act. `Admin::VaultStateController#confirm` omitted this
+    # check and now runs the same one through `CosignPlan#validate_extras!`.
     vault = StubVault.new
     row = armed_row(StubVault.new)
 
@@ -479,6 +490,22 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     assert_redirected_to admin_authorities_path
     assert_equal "expired", row.reload.status
     assert row.stale
+  end
+
+  # A CLAIMED ROW WHOSE ANSWER WAS LOST IS NOT A DRAFT EITHER. It carries no
+  # signature, so the signature guard waves it through — but its wire may be on
+  # chain, and filing a possible rotation as one that never happened is the
+  # worst answer this page can give mid-incident.
+  test "an eviction whose broadcast answer was lost cannot be discarded" do
+    row = armed_row(StubVault.new)
+    row.claim_for_broadcast!
+    assert row.awaiting_reconciliation?
+
+    delete_or_cancel = -> { post admin_cancel_authority_rotation_path(row.slug) }
+    with_vault(StubVault.new) { delete_or_cancel.call }
+
+    assert_equal "submitted", row.reload.status, "it may be on chain — it must not be expired"
+    assert_not row.stale?
   end
 
   test "a broadcast eviction cannot be discarded" do

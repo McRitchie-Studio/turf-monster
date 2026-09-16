@@ -34,9 +34,32 @@ module Admin
     def show
     end
 
+    # Record a signature the operator already has — the signature-FIRST path.
+    #
+    # ── THIS PATH VERIFIES BEFORE IT RECORDS, AND MUST KEEP DOING SO ─────────
+    #
+    # The asymmetry with #broadcast is deliberate and is not a drift to tidy
+    # away. There, the SERVER produced the signature and knows the wire left, so
+    # recording it first is simply the truth. Here the signature is an
+    # UNVERIFIED CLAIM from the client — OPSEC-010 exists because this endpoint
+    # once accepted any string at all — and stamping it before verification
+    # would let a caller pin an arbitrary signature onto a row and make it
+    # un-broadcastable. Produced-by-us is recorded first; claimed-by-a-client is
+    # proven first.
+    #
+    # ── IT IS ALSO THE RECONCILIATION DOOR ──────────────────────────────────
+    #
+    # It accepts a row that is `awaiting_reconciliation?` — one whose broadcast
+    # was claimed and whose ANSWER was lost (an ambiguous RPC fault after the
+    # send). That row must never be re-broadcast, but the operator who finds the
+    # signature on chain has to be able to record it, and this is the only path
+    # that can prove it before writing. Without this the double-send fix would
+    # trade a loss of money for a permanently stuck treasury row.
     def confirm
       rescue_and_log(target: @tx) do
-        raise "Transaction is #{@tx.status}, not pending" unless @tx.pending?
+        unless @tx.pending? || @tx.awaiting_reconciliation?
+          raise "Transaction is #{@tx.status}, not pending"
+        end
 
         # OPSEC-010 / OPSEC-011: semantic-verify the on-chain TX before
         # flipping DB state. Previously this endpoint accepted any string
@@ -72,8 +95,34 @@ module Admin
       end
     end
 
-    # Broadcast the cosigned wire SERVER-SIDE, then run the same OPSEC-010/011
-    # verification #confirm does and flip the DB state.
+    # Claim the row, broadcast the cosigned wire SERVER-SIDE, RECORD THE
+    # SIGNATURE, then run the same OPSEC-010/011 verification #confirm does and
+    # flip the DB state.
+    #
+    # ── THE SIGNATURE IS STAMPED THE INSTANT THE BROADCAST RETURNS ───────────
+    #
+    # Before verification, not after, and by `update_columns` so no validation
+    # or callback can stand between a landed transaction and the record of it.
+    #
+    # This path used to stamp it inside `verify_and_record_cosign!`, i.e. AFTER
+    # `TxVerifier.verify!` had made one RPC call per claimed signer. A treasury
+    # transaction that LANDED and then met an RPC hiccup during verification was
+    # left `pending`, unsigned, and re-broadcastable: the money moved and the
+    # record said it had not. A second click sent a second settle or a second
+    # sweep, and only one of the two was ever reconciled.
+    #
+    # THE RULE, and it is general: never let a VERIFICATION step decide whether
+    # a broadcast happened. The broadcast happened when the wire went out.
+    # `Cdp::OfframpSendJob` persists its signature before the send for the same
+    # reason, and `CdpRampTransaction#rearm_stalled_send!` double-sent a user's
+    # USDC by breaking it. `Admin::AuthoritiesController#broadcast` is the
+    # sibling of this action and holds the identical shape — the two must not
+    # drift, which is why the claim and the stamp live on the model.
+    #
+    # A row left `submitted` is the SAFE failure: the signature is on the record
+    # (or, if the answer itself was lost, `awaiting_reconciliation?` says so),
+    # the guard below refuses a re-broadcast, and #confirm remains open as the
+    # door for recording a signature found on chain.
     #
     # The browser used to call connection.sendRawTransaction itself and then
     # POST the resulting signature to #confirm. That failed on mainnet every
@@ -95,16 +144,45 @@ module Admin
         signed_tx = params[:signed_tx].to_s
         raise "Signed transaction required" if signed_tx.blank?
 
+        # CLAIM THE ROW BEFORE THE WIRE GOES OUT. The `pending?` guard above is
+        # a READ — two concurrent requests both pass it and both broadcast, and
+        # because each rebuild mints fresh bytes the two carry different
+        # signatures, so two settlements land. The claim is a single conditional
+        # UPDATE; exactly one caller wins it. See
+        # PendingTransaction#claim_for_broadcast! for why it is not `with_lock`.
+        unless @tx.claim_for_broadcast!
+          raise "This transaction is already being broadcast (it is now #{@tx.status}) — " \
+                "reconcile it on chain rather than sending a second one."
+        end
+
         # Raises with the PROGRAM's own error + logs when the simulation fails,
         # and never reaches the chain in that case.
-        signature = Solana::Vault.new.simulate_and_broadcast(signed_tx)
+        signature =
+          begin
+            Solana::Vault.new.simulate_and_broadcast(signed_tx)
+          rescue Solana::Vault::PreflightRejected
+            # PROVABLY UN-SENT — the simulation refused it, or could not be run
+            # at all. Only this type gives the claim back; an ambiguous failure
+            # after the send keeps the row claimed and unsigned, which is what
+            # `awaiting_reconciliation?` names.
+            @tx.release_broadcast_claim!
+            raise
+          end
+
+        # DURABLE, IMMEDIATELY, BEFORE ANYTHING ELSE CAN RAISE.
+        @tx.record_broadcast!(signature)
 
         verify_and_record_cosign!(cosigner: cosigner, extras: extras, signature: signature)
 
         render json: { status: "confirmed", tx_signature: signature }
       end
     rescue Solana::TxVerifier::VerificationError => e
-      render json: { error: "Verification failed: #{e.message}" }, status: :unprocessable_entity
+      render json: {
+        error: "Broadcast landed but verification failed: #{e.message}. The signature is " \
+               "recorded on this row and it will not be re-broadcast — reconcile it on chain " \
+               "before acting again.",
+        tx_signature: @tx.reload.tx_signature
+      }, status: :unprocessable_entity
     rescue StandardError => e
       render json: { error: e.message }, status: :unprocessable_entity
     end

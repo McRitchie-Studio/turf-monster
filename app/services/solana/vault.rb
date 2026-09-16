@@ -3193,6 +3193,26 @@ module Solana
     # rather than to a generic validation failure.
     class BelowMinimumWithdrawalError < StandardError; end
 
+    # A broadcast refused BEFORE any bytes left this server — see
+    # #simulate_and_broadcast.
+    #
+    # THE ONE DISTINCTION A CALLER CANNOT RECONSTRUCT AFTERWARDS: "provably
+    # un-sent" versus "may already be on the chain". Everything up to and
+    # including the simulation's answer is provably un-sent; everything from
+    # `send_and_confirm` onward is ambiguous, because a network fault after the
+    # wire leaves is indistinguishable here from one before. A caller that
+    # CLAIMED a row before broadcasting releases that claim on THIS error and on
+    # nothing else — releasing on an ambiguous failure is how a landed
+    # transaction becomes re-broadcastable, which is the whole defect class
+    # (/tasks/broadcast-records-signature-late, and the CDP offramp's
+    # `rearm_stalled_send!` before it).
+    #
+    # A RuntimeError subclass on purpose: it is the same failure the bare
+    # `raise "Pre-flight simulation failed: …"` used to be, so every existing
+    # `rescue StandardError` chain and every operator-facing message path is
+    # unchanged. Only the callers that need the distinction name the type.
+    class PreflightRejected < RuntimeError; end
+
     # ── THE COSIGN GUARD'S ACCOUNT SLOTS — SHAPE-DEPENDENT SINCE v0.26 ──────
     #
     # These are the indices `#assert_entry_cosign_safe!` reads to prove a
@@ -3657,12 +3677,28 @@ module Solana
     # 2026-06-11 note in #build_enter_contest: Phantom injects Lighthouse guard
     # instructions at positions we do not control, and a nonce tx is only
     # recognized when advanceNonceAccount is instruction 0.
+    # EVERY FAILURE BEFORE `send_and_confirm` IS TYPED `PreflightRejected`, and
+    # nothing after it is. That line is the seam between "nothing left this
+    # server, rebuild freely" and "this may be on the chain, reconcile it" — and
+    # it is the only place that knows which side a failure fell on. A caller
+    # that claimed the row (PendingTransaction#claim_for_broadcast!) gives the
+    # claim back on this type alone.
+    #
+    # The simulation CALL is wrapped too, not merely its `err` answer: an
+    # unreachable or throttled RPC is as provably un-sent as a program refusal,
+    # and leaving it untyped would strand a row on a transient blip.
     def simulate_and_broadcast(signed_wire_base64)
-      sim = client.simulate_transaction(signed_wire_base64, sig_verify: false,
-                                        replace_recent_blockhash: true)
+      sim = begin
+        client.simulate_transaction(signed_wire_base64, sig_verify: false,
+                                    replace_recent_blockhash: true)
+      rescue StandardError => e
+        raise PreflightRejected, "Pre-flight simulation could not be run: #{e.message}"
+      end
+
       if sim && sim["err"]
         logs = Array(sim["logs"]).last(6).join("\n")
-        raise "Pre-flight simulation failed: #{sim['err'].inspect}#{logs.empty? ? '' : "\n#{logs}"}"
+        raise PreflightRejected,
+              "Pre-flight simulation failed: #{sim['err'].inspect}#{logs.empty? ? '' : "\n#{logs}"}"
       end
 
       client.send_and_confirm(signed_wire_base64)

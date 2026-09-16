@@ -70,9 +70,21 @@ class FakeVault
   # replaced the browser's own sendRawTransaction. `broadcast_raises:` seeds a
   # failure so a test can assert the REAL error reaches the operator instead of
   # the old blanket "blockhash may have expired" guess.
+  #
+  # THE TYPE IS PART OF THE CONTRACT, so this stub reproduces it. A seeded
+  # STRING is a PRE-FLIGHT refusal — `Solana::Vault::PreflightRejected`, what
+  # the real method raises when the simulation says no or could not be run at
+  # all. That type is the caller's only proof that nothing left the server, and
+  # therefore the only fault that releases a broadcast claim; a stub that raised
+  # a bare RuntimeError would let a test certify a release the real code would
+  # never make. Seed an exception INSTANCE or CLASS instead to model an
+  # AMBIGUOUS failure after the send, where the wire may already be on chain.
   def simulate_and_broadcast(signed_wire_base64)
     @broadcast_calls << signed_wire_base64
-    raise @broadcast_raises if @broadcast_raises
+    if @broadcast_raises
+      raise(@broadcast_raises.is_a?(String) ? Solana::Vault::PreflightRejected.new(@broadcast_raises)
+                                            : @broadcast_raises)
+    end
     "FAKE_SIG_broadcast"
   end
 

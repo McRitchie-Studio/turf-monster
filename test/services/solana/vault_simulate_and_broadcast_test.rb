@@ -92,4 +92,74 @@ class Solana::VaultSimulateAndBroadcastTest < ActiveSupport::TestCase
     assert_match(/Error: InvalidAccountData/, error.message)
     assert_no_match(/blockhash/i, error.message)
   end
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # THE UN-SENT / MAY-HAVE-SENT SEAM
+  # ══════════════════════════════════════════════════════════════════════════
+  #
+  # `send_and_confirm` is the line. Everything before it is provably un-sent and
+  # is typed `PreflightRejected`; everything from it onward is AMBIGUOUS, because
+  # a network fault after the wire leaves is indistinguishable here from one
+  # before. This method is the only place that knows which side a failure fell
+  # on, so it is the only place that can say — and a caller that claimed a
+  # PendingTransaction before broadcasting releases the claim on this type and
+  # on nothing else. Getting it wrong in either direction is money: release too
+  # eagerly and a landed transaction becomes re-broadcastable; never release and
+  # a program refusal strands the row.
+
+  class RaisingClient < StubClient
+    def initialize(sim_raises: nil, send_raises: nil)
+      super({ "err" => nil })
+      @sim_raises = sim_raises
+      @send_raises = send_raises
+    end
+
+    def simulate_transaction(wire, **opts)
+      raise @sim_raises if @sim_raises
+      super
+    end
+
+    def send_and_confirm(wire)
+      raise @send_raises if @send_raises
+      super
+    end
+  end
+
+  test "a simulation the program refuses is typed as provably un-sent" do
+    client = StubClient.new({ "err" => { "InstructionError" => [1, { "Custom" => 6046 }] } })
+
+    assert_raises(Solana::Vault::PreflightRejected) do
+      vault_with(client).simulate_and_broadcast("WIRE")
+    end
+    assert_empty client.sent
+  end
+
+  # An unreachable or throttled RPC is as un-sent as a program refusal, and a
+  # row stranded on a transient blip is the failure mode of leaving it untyped.
+  test "a simulation that could not be RUN at all is typed as provably un-sent" do
+    client = RaisingClient.new(sim_raises: "RPC 429 Too Many Requests")
+
+    error = assert_raises(Solana::Vault::PreflightRejected) do
+      vault_with(client).simulate_and_broadcast("WIRE")
+    end
+    assert_match(/429/, error.message)
+    assert_empty client.sent
+  end
+
+  # THE ONE THAT MUST NOT BE TYPED. The bytes may already be on the chain.
+  test "a failure during the send is NOT typed un-sent" do
+    client = RaisingClient.new(send_raises: "connection reset")
+
+    error = assert_raises(RuntimeError) { vault_with(client).simulate_and_broadcast("WIRE") }
+
+    assert_not_kind_of Solana::Vault::PreflightRejected, error,
+                       "a fault after the wire may have left must never read as provably un-sent"
+    assert_match(/connection reset/, error.message)
+  end
+
+  # Every existing `rescue StandardError` chain and every operator-facing
+  # message path predates the type and must be unchanged by it.
+  test "the typed refusal is still a RuntimeError for every existing rescue" do
+    assert_operator Solana::Vault::PreflightRejected, :<, RuntimeError
+  end
 end

@@ -83,16 +83,35 @@ module Admin
 
     # Verify the on-chain TX after Phantom submits. Asserts:
     #   - instruction matches what the client claims (pause or unpause)
-    #   - cosigner is present as a signer
+    #   - cosigner is in the vault signer set AND present as a signer
+    #   - the COUNT of extra cosigners matches what the action reserves
+    #   - each extra is in the vault signer set AND in a signer slot
     #   - VaultState PDA is writable in the TX
+    #
+    # ── THE COUNT USED TO BE MISSING, AND THE COUNT IS THE POINT ─────────────
+    #
+    # This action validated every extra signer it was GIVEN and never that it
+    # was given enough. On a v0.26 boot `unpause` needs three vault signatures,
+    # so a request naming zero extras proved ONE signature and was recorded as a
+    # confirmed unpause — a third of the claim, written down as the whole of it.
+    # The count now comes from `CosignPlan#validate_extras!`, the same call
+    # `#unpause` sizes its BUILD from and the same one the treasury and
+    # authorities confirm paths use, so the four cannot disagree about how many
+    # wallets an action takes.
     def confirm
       rescue_and_log do
         cosigner    = params[:cosigner_pubkey].to_s.strip
         tx_sig      = params[:tx_signature].to_s.strip
         instruction = params[:instruction].to_s.strip
-        raise "cosigner_pubkey required" if cosigner.blank?
         raise "tx_signature required"    if tx_sig.blank?
         raise "Unsupported instruction"  unless %w[pause unpause].include?(instruction)
+        # MEMBERSHIP ON THE PRIMARY TOO. The sibling paths check it
+        # (`Admin::PendingTransactionsController#require_multisig_cosigner!`);
+        # this one only checked it was non-blank, so a key outside the vault set
+        # could be recorded as the confirming signer of a landed pause.
+        validate_cosigner!(cosigner)
+
+        extras = validated_extras!(instruction, primary: cosigner)
 
         vault_pda_b58 = Solana::Keypair.encode_base58(Solana::Vault.new.vault_state_pda.first)
 
@@ -106,14 +125,11 @@ module Admin
         # Every extra cosigner must be in a SIGNER SLOT of what landed, not
         # merely named by the request. `unpause` is floored at three, so a
         # confirmation that proves one signature proves a third of the claim.
-        Array(params[:extra_cosigners]).each do |extra|
-          next if extra.to_s.strip.blank?
-
-          validate_cosigner!(extra.to_s.strip)
+        extras.each do |extra|
           Solana::TxVerifier.verify!(
             signature: tx_sig,
             instruction_name: instruction,
-            signer_pubkey: extra.to_s.strip,
+            signer_pubkey: extra,
             writable_pubkey: nil
           )
         end
@@ -141,6 +157,32 @@ module Admin
     end
 
     private
+
+    # The extra cosigners this confirmation claims signed, validated by count,
+    # membership and distinctness — the same `CosignPlan` call `#unpause` sized
+    # its build from.
+    #
+    # `pause` IS NOT A COSIGN-PLAN ACTION and must not be forced into one: it
+    # never rose above two signatures, reserves no extra slots, and
+    # `CosignPlan.new(tx_type: "pause")` raises `InvalidCosignerError` by design
+    # (TX_TYPE_ACTIONS refuses an unknown action rather than defaulting it —
+    # defaulting is what would reserve zero slots on a three-signature action and
+    # hide the very defect this file is closing). So it is answered here:
+    # nothing to reserve, and therefore nothing may be CLAIMED either. A request
+    # naming extras on `pause` is describing a transaction that cannot exist.
+    def validated_extras!(instruction, primary:)
+      unless Solana::CosignPlan::TX_TYPE_ACTIONS.key?(instruction)
+        named = Array(params[:extra_cosigners]).map { |a| a.to_s.strip }.reject(&:blank?)
+        if named.any?
+          raise "#{instruction} reserves no extra cosigner slots, so the #{named.length} " \
+                "named here cannot have signed it."
+        end
+        return []
+      end
+
+      Solana::CosignPlan.new(tx_type: instruction)
+                        .validate_extras!(params[:extra_cosigners], primary: primary)
+    end
 
     def validate_cosigner!(cosigner)
       raise "cosigner_pubkey required" if cosigner.blank?

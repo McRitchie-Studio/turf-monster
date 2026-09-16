@@ -23,6 +23,28 @@
                 <% case tx.status %>
                 <% when "pending" %>
                   <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">Pending</span>
+                <% when "submitted" %>
+                  <%# BROADCAST, NOT YET CONFIRMED — and the two facts that share
+                      this status must not look the same:
+
+                        · WITH a signature, the wire LANDED and verification did
+                          not finish (a slow RPC, a commitment behind). The money
+                          moved. Open the TX link and reconcile.
+                        · WITHOUT one, the broadcast's own answer was lost, so the
+                          wire MAY be on chain. Same instruction either way: read
+                          the chain, never re-send.
+
+                      Before this, `submitted` matched no branch and rendered NO
+                      badge at all — an unlabelled row with no Co-sign button,
+                      which is the exact opposite of the alert this state exists
+                      to be. The whole point of recording the signature the
+                      instant the broadcast returns is that the page can say the
+                      money moved. %>
+                  <% if tx.awaiting_reconciliation? %>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Broadcast · result unknown</span>
+                  <% else %>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">Broadcast · unconfirmed</span>
+                  <% end %>
                 <% when "confirmed" %>
                   <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Confirmed</span>
                 <% when "expired" %>
@@ -177,6 +199,23 @@
                         class="btn btn-primary btn-sm">
                   Co-sign
                 </button>
+              <% elsif tx.status == "submitted" %>
+                <%# WHY THERE IS NO BUTTON HERE. A row that has broadcast is not
+                    a draft, and the one thing an operator must not do is press
+                    Co-sign again: the rebuild mints fresh bytes, so a second
+                    click is a second settlement, not a retry of the first. Say
+                    that, rather than leaving an empty column that reads like the
+                    page forgot to render a control. %>
+                <p class="text-xs text-error max-w-56" data-cosign-broadcast-note>
+                  <% if tx.awaiting_reconciliation? %>
+                    This transaction was broadcast and the result was not read back,
+                    so it may be on chain. Check the signer/target account before
+                    acting — a second Co-sign would send a SECOND transaction.
+                  <% else %>
+                    This transaction is on chain; only its verification did not
+                    finish. Open the TX link to reconcile. Do not re-send it.
+                  <% end %>
+                </p>
               <% end %>
             </div>
           </div>

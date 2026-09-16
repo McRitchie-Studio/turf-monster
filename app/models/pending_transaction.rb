@@ -47,6 +47,76 @@ class PendingTransaction < ApplicationRecord
     status == "confirmed"
   end
 
+  # ════════════════════════════════════════════════════════════════════════
+  # THE BROADCAST SEAM
+  # ════════════════════════════════════════════════════════════════════════
+  #
+  # One rule, on the model, because TWO controllers broadcast these rows
+  # (Admin::PendingTransactionsController and Admin::AuthoritiesController) and
+  # the rule decides whether treasury money can move twice. Two copies of it is
+  # how the two paths drift.
+  #
+  # ── WHY `pending?` IS NOT ENOUGH ───────────────────────────────────────────
+  #
+  # A broadcast is a state READ, a simulation, a send, and then a verification
+  # that costs one RPC call per claimed signer. `raise unless @tx.pending?` is a
+  # read, not a claim: two requests can both pass it, both reach
+  # `simulate_and_broadcast`, and both put a wire on the chain. Each rebuild
+  # mints fresh bytes, so the two wires carry different blockhashes and
+  # different signatures — two settlements land, and only one is ever
+  # reconciled. A double-click is enough; no attacker is required.
+  #
+  # ── AND WHY NOT `with_lock` ────────────────────────────────────────────────
+  #
+  # `with_lock` would hold an open transaction and a row lock across two RPC
+  # round trips and a signing step, on a connection pool the whole app shares.
+  # A single conditional UPDATE gets the same exclusion: the database decides,
+  # exactly one caller is told it won, and the lock lives only for the duration
+  # of that statement.
+
+  # WIN THE RIGHT TO BROADCAST. True to exactly one caller; false to everyone
+  # who arrives after. Reloads either way, so a refusal can name the state the
+  # row is ACTUALLY in.
+  def claim_for_broadcast!
+    won = self.class.where(id: id, status: "pending")
+                    .update_all(status: "submitted", updated_at: Time.current) == 1
+    reload
+    won
+  end
+
+  # THE WIRE LANDED — record it, NOW.
+  #
+  # `update_columns` on purpose: no validation and no callback may stand between
+  # a transaction that has left the server and the record of it. This is called
+  # the instant `simulate_and_broadcast` returns, BEFORE verification, so a
+  # flaked verify becomes an alert on a recorded transaction instead of the
+  # absence of a record.
+  def record_broadcast!(signature)
+    update_columns(tx_signature: signature, status: "submitted", updated_at: Time.current)
+  end
+
+  # GIVE THE CLAIM BACK. Only ever for `Solana::Vault::PreflightRejected` — a
+  # failure the vault PROVED happened before any bytes left the server.
+  #
+  # Guarded on `tx_signature: nil` as a second line: a release can never
+  # un-record a broadcast that did happen, even if a caller reaches for it on
+  # the wrong error.
+  def release_broadcast_claim!
+    self.class.where(id: id, status: "submitted", tx_signature: nil)
+              .update_all(status: "pending", updated_at: Time.current)
+    reload
+  end
+
+  # BROADCAST, ANSWER LOST. The claim was taken and no signature came back, so
+  # the wire may or may not be on the chain. This is the one state where a
+  # re-send is forbidden AND a signature may still be recorded out of band —
+  # the operator finds it on chain and posts it to #confirm, which VERIFIES it
+  # before writing. It is the reconciliation door, and it is why closing the
+  # double-send window does not strand the row.
+  def awaiting_reconciliation?
+    status == "submitted" && tx_signature.blank?
+  end
+
   # Every vault signer recorded against this transaction, oldest schema first.
   #
   # FALLS BACK TO THE SINGULAR COLUMN rather than returning empty. Rows
