@@ -482,10 +482,33 @@ before walking away.
 **Membership and threshold — stated here once, for both clusters.** Every other
 mention in this doc defers to this paragraph; a second number written down
 somewhere else is how this section spent four review rounds disagreeing with
-itself. Measured off chain on **2026-09-15**: each multisig carries **five
-members and a threshold of three**, and all five hold mask `7`
-(`Initiate|Vote|Execute`) — so there are five voters against a threshold of
-three, with two to spare on either cluster.
+itself. Re-measured **on chain** at `finalized` on **2026-09-15**, through two
+independent RPC providers and a raw-byte check of the member offsets: each
+multisig carries **five members and a threshold of three**, and all five hold
+mask `7` (`Initiate|Vote|Execute`) — so there are five voters against a
+threshold of three, with two to spare on either cluster.
+
+**The two clusters do not carry the same five.** Three seats are shared
+(`3Qj4v9…`, `7ZDJ…`, `BLSBw8…`); the other two differ:
+
+| | devnet `7nRuVw3V…` | mainnet `4H3fP3ot…` |
+|---|---|---|
+| shared | `3Qj4v9…`, `7ZDJ…`, `BLSBw8…` | `3Qj4v9…`, `7ZDJ…`, `BLSBw8…` |
+| cluster-only | `2eGs8G3w…` (`solana.turf.system.devnet`), `8K81…` (Xan) | `7auwTLSv…` (`solana.turf.system`), `9gACbz…` |
+
+Two consequences that are easy to get wrong, and both were written down wrong
+before: **Xan `8K81…` was removed from MAINNET only and is still seated on
+devnet** — "removed from both" is false — while **Mason `CytJ…` really is absent
+from both**.
+
+⚠ **The hot system keys hold upgrade authority, against stated policy.**
+`7auwTLSv…` is a full mask-`7` member here and simultaneously the key in
+`turf-monster-mainnet`'s Heroku config that signs every entry and every payout;
+`2eGs8G3w…` is the same on devnet. Every other doc in this ecosystem says these
+keys are "deliberately excluded from Squads". The policy is right and the chain
+does not implement it. Removing them is a Squads config transaction with Mr.
+McRitchie's signature, tracked as its own task — not a doc edit, and not
+something to quietly restate as satisfied.
 
 What that buys the agent differs by cluster, and it is the whole reason step 1
 of the ceremony reads differently on each:
@@ -514,9 +537,36 @@ m.accounts.Multisig.fromAccountAddress(new Connection(rpc),new PublicKey(pda))
 `turf-vault/scripts/squad-upgrade.js` asks the same question itself before it
 spends anything, and refuses the run if the keys in hand cannot both approve and
 execute — so the ceremony fails at the planner rather than halfway through, with
-a paid-for buffer and no way to finish. **Funding is not the blocker:** the
-mainnet fee payer `BLSBw8…` holds 3.58 SOL against a ~2.76 SOL buffer
-requirement.
+a paid-for buffer and no way to finish. **Funding is not the blocker.** Re-measured at `finalized` on 2026-09-15: the
+mainnet fee payer `BLSBw8…` holds `3576585239` lamports (3.5766 SOL). An
+**upgrade** needs a buffer sized `37 + 545928` bytes, which rents for
+`2774152440` lamports (2.7742 SOL) — **refunded** when the upgrade completes,
+so it is a float rather than a cost. That leaves **`802432799` lamports
+(0.8024 SOL) spare.** Do not size this off the ProgramData account's own
+balance: `BCuQEkMK…` holds 3.8009 SOL, which is rent already paid on a
+545,973-byte account at the old 6,960 lamports/byte rate, not a figure anyone
+has to raise. Query the minimum (`solana rent <bytes>`) rather than multiplying
+by a constant — the cluster has been lowering the rate, and it read 5,080 on
+2026-09-15.
+
+> ⚠ **DO NOT PRICE THE BUFFER OFF THE ELF'S LOGICAL END. THIS IS A TRAP THAT
+> HAS NOW CAUGHT TWO READERS.** Inside the 545,928-byte program region the
+> ELF's logical content ends at `e_shoff + e_shnum * e_shentsize` =
+> `544328 + 9 * 64` = **544,904**, and a trailing-zero scan reports **544,889**
+> because the section header table's last 15 bytes are zero. Both are *logical
+> ELF content*. **Neither is the deployed file.** The loader wrote all 545,928
+> bytes and Agave reads the file through EOF, and the proof is the hash: only
+> `sha256` over the full 545,928 bytes gives `e71a3fce…`, the `Program SHA256`
+> row in `turf-vault/docs/CURRENT_DEPLOYMENT.md`. Sizing a buffer at
+> `37 + 544889` yields `2768874320` lamports and **UNDER-FUNDS it by 1,039
+> bytes**, which fails the ceremony after the buffer is paid for. The same
+> distinction is worked through in `app/views/contract/show.html.erb` and
+> pinned by `test/views/contract_measurements_test.rb`.
+
+So the figure to watch is **capacity**: ProgramData carries 545,928 bytes of
+executable room and the deployed v0.25 file is exactly 545,928 bytes — **zero
+headroom**. A v0.26 even one byte larger needs `solana program extend` first,
+and that rent is NOT refunded.
 **In Rails, read the vault PDA from `Solana::Config.squads_vault_pda` — never as a literal.** It resolves `SOLANA_SQUADS_VAULT_PDA` first (via `.presence`, so an EMPTY value falls through rather than resolving to blank), then falls back to a NETWORK-keyed default (mainnet-beta -> `Bk9s…GdJm`, anything else -> `BW13…H6kC`), so a mainnet build cannot present a devnet authority by omission.
 
 **Neither deployed app sets that variable — the key is ABSENT, not empty.** So the NETWORK-keyed default is the production path on both clusters, and the env var is a runbook escape hatch for pointing an app at a fresh Squad. `SOLANA_NETWORK` is therefore what actually selects the authority: `mainnet-beta` on `turf-monster-mainnet`, `devnet` on `turf-monster-qa` (both present and non-empty).
