@@ -73,8 +73,30 @@ class AdminControllerTest < ActionDispatch::IntegrationTest
     # Slim admin shortlist (everything else lives on the Link Hub, reachable
     # from the dashboard — no longer linked from the gear).
     assert_select "a[href=?]", admin_dashboard_path     # Admin: Dashboard
-    assert_select "a[href=?]", admin_users_path         # Admin: Users
     assert_select "a[href=?]", admin_landing_pages_path # Admin: Landing Pages
+  end
+
+  # Users and Contests left the gear by request, on the stated ground that both
+  # are reachable from the admin dashboard. That ground was VERIFIED before the
+  # rows were cut, and this is the pair of assertions that keeps it true:
+  # "hub marks reviewed and flagged links" above already pins both hrefs as hub
+  # tiles, and Dashboard — the hub's own front door — is still in the gear.
+  #
+  # SCOPED ON PURPOSE. An unscoped `a[href=?] count: 0` is a claim about the
+  # whole page, which would fail the day any other chrome links these, and would
+  # equally have passed with the row still present on a page that happens to
+  # carry no other copy. Name the sidebar, or the assertion is decoration.
+  test "navbar gear sidebar drops the two admin rows the hub already carries" do
+    log_in_as(@admin)
+    get faucet_path
+    assert_response :success
+
+    assert_select "#gear-sidebar a[href=?]", admin_users_path, count: 0
+    assert_select "#gear-sidebar a[href=?]", contests_path, count: 0
+    # The hub's front door must stay, or the two rows above ARE stranded.
+    # (No trailing string here: assert_select's third argument is a TEXT test,
+    # not a failure message.)
+    assert_select "#gear-sidebar a[href=?]", admin_dashboard_path
   end
 
   test "navbar gear sidebar hides admin links from non-admins" do
