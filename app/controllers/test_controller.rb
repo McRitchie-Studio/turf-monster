@@ -1,12 +1,24 @@
-# Test-only endpoints used by Playwright specs. Routes are guarded in
-# config/routes.rb with `unless Rails.env.production?` so this controller is
-# reachable in dev (Playwright's default boot) but unreachable in production.
+# Test-only endpoints used by Playwright specs, plus ONE operator-facing page
+# (#quest_walk). Most of the routes are guarded in config/routes.rb with
+# `unless Rails.env.production?`, so this controller is reachable in dev
+# (Playwright boots against the dev server) and unreachable in production.
+#
+# THE WALKTHROUGH PAIR IS GUARDED MORE NARROWLY than the rest of this file —
+# dev/test only, at both the route and the request. `unless production?` admits
+# every other RAILS_ENV, a staging or review-app dyno included; see the gate
+# note above QUEST_WALK_RUNGS, and #grant_web3_wallet for the same warning.
 class TestController < ApplicationController
   # Namespaced so #set_pending_signatures only ever clears its own rows.
   E2E_SIGNATURE_TX_TYPE = "e2e_signature_probe".freeze
 
   skip_before_action :require_authentication
   skip_before_action :verify_authenticity_token
+
+  # The walkthrough is the only pair of actions in this file a PERSON drives, and
+  # the only pair that rewrites a real user's state from a browser. See the long
+  # gate note above QUEST_WALK_RUNGS: routes.rb draws them dev/test-only, and
+  # this repeats the condition where a request can actually be refused.
+  before_action :require_dev_walkthrough, only: %i[quest_walk set_quest_walk]
 
   # Fast inter-spec reset. Playwright spec files call this in test.beforeAll
   # to drop the most common cross-spec pollution sources without re-running
@@ -537,5 +549,128 @@ class TestController < ApplicationController
       invitees_in_contest_count: user.invitees_in_contest_count,
       inviter_slug:              user.inviter&.slug
     }
+  end
+
+  # ── THE QUEST WALKTHROUGH (development only) ──────────────────────────────
+  #
+  # A page that drives a REAL user up and down the quest ladder so the gear
+  # sidebar's lead line can be seen in every state it has, without hand-editing
+  # the database. GET renders it; POST parks the signed-in user on a rung and
+  # stages a free-entry count, then redirects back.
+  #
+  # WHY IT IS HERE RATHER THAN A NEW CONTROLLER. Everything it needs already
+  # lives in this file: #set_quest_state writes the same three timestamp columns,
+  # #grant_managed_wallet mints the same keypair, and #warm_entry_tokens already
+  # solved the one hard part (see the cache note below). What was missing was
+  # never a capability — it was a surface a person can click. This is that
+  # surface over the same backdoors, and it deliberately adds no new power.
+  #
+  # WHAT IT ADDS THAT #set_quest_state COULD NOT DO. That endpoint only ratchets
+  # FORWARD: it writes timestamps and never clears them, which is right for a
+  # spec that stages once and throws the user away, and useless to an operator
+  # walking the ladder both ways in one session. QUEST_WALK_RUNGS states each
+  # rung as the COMPLETE column set, so every move is absolute and idempotent —
+  # :join is reachable from :invite, and clicking the same rung twice is a no-op
+  # rather than a drift.
+  #
+  # ── THE GATE ──
+  # TWO LAYERS, AND THE SECOND ONE IS THE LOAD-BEARING ONE.
+  #
+  #   1. config/routes.rb draws these two routes under
+  #      `if Rails.env.development? || Rails.env.test?` — NOT under the
+  #      `unless Rails.env.production?` block its siblings sit in. That block
+  #      admits EVERY non-production RAILS_ENV, a staging or review-app dyno
+  #      included, which #grant_web3_wallet already warns about in its own
+  #      comment. These actions rewrite a real user's quest columns and mint a
+  #      wallet key, so they get the narrower guard.
+  #   2. #require_dev_walkthrough repeats the same condition at REQUEST time.
+  #
+  # Layer 1 is invisible at runtime — a route that was not drawn leaves nothing
+  # to assert on, and a mis-merge that moved these lines into the broader block
+  # would be silent. Layer 2 is what QuestWalkGateTest actually pins: a request
+  # arriving with RAILS_ENV=production, or any staging-shaped env, is refused
+  # 403 by the controller whether or not the route exists. Deleting either layer
+  # leaves the other standing.
+  QUEST_WALK_RUNGS = {
+    # The ladder is join -> username -> chat -> newsletter -> invite. A NIL
+    # timestamp means that quest is still OPEN (User#first_username_change? and
+    # friends test for nil), so each rung clears every column above it. Same
+    # shape as GearSidebarStatusTest::QUEST_STATE, stated absolutely.
+    "join" => { contest_entered: false, username_changed_at: nil,
+                first_chat_message_at: nil, joined_email_list_at: nil, left_email_list_at: nil },
+    "username" => { contest_entered: true, username_changed_at: nil,
+                    first_chat_message_at: nil, joined_email_list_at: nil, left_email_list_at: nil },
+    "chat" => { contest_entered: true, username_changed_at: :now,
+                first_chat_message_at: nil, joined_email_list_at: nil, left_email_list_at: nil },
+    "newsletter" => { contest_entered: true, username_changed_at: :now,
+                      first_chat_message_at: :now, joined_email_list_at: nil, left_email_list_at: nil },
+    "invite" => { contest_entered: true, username_changed_at: :now,
+                  first_chat_message_at: :now, joined_email_list_at: :now, left_email_list_at: nil }
+  }.freeze
+
+  def quest_walk
+    @walk_user   = current_user
+    @walk_wallet = current_user ? entry_token_wallet_address : nil
+    @walk_store  = Rails.cache.class.name
+  end
+
+  def set_quest_walk
+    return redirect_to quest_walk_path unless current_user
+
+    if (rung = QUEST_WALK_RUNGS[params[:rung].to_s])
+      # update_columns: no callbacks, no validations — Entry's after_commit
+      # ratchet is what normally sets contest_entered, and it is one-way.
+      current_user.update_columns(rung.transform_values { |v| v == :now ? Time.current : v })
+    end
+
+    stage_walk_free_entries(params[:free_entries].to_i.clamp(0, 9)) if params[:free_entries].present?
+
+    redirect_to quest_walk_path(open: params[:open])
+  end
+
+  private
+
+  def require_dev_walkthrough
+    return if Rails.env.development? || Rails.env.test?
+
+    head :forbidden
+  end
+
+  # Put `count` spendable entry tokens in front of the CURRENT SESSION.
+  #
+  # KEYED ON entry_token_wallet_address, NOT User#solana_address. The two differ
+  # for a combo account and the sidebar reads the former: a web2 session can only
+  # spend a token held by the managed wallet, so warming the web3 key would leave
+  # the badge dark and send the reader hunting for a bug in the view. This is the
+  # one place this walkthrough departs from #warm_entry_tokens, which is keyed for
+  # the ADMIN free-entries page and is right to be.
+  #
+  # NULL STORE. Development runs :null_store unless tmp/caching-dev.txt exists —
+  # every write a no-op, every read nil — and display_entry_token_count is
+  # cache-first, so the badge could never paint and the free-entry rung was the
+  # one state that could not be reached live. Swapping in a MemoryStore is the
+  # same move #warm_entry_tokens makes and carries the same caveat: it is
+  # PROCESS-WIDE and outlives the request. That is bounded here by being
+  # development-only and by a server restart; the page prints the live store name
+  # so the swap is never invisible.
+  def stage_walk_free_entries(count)
+    address = entry_token_wallet_address
+    if address.blank? && !onchain_session?
+      keypair = Solana::Keypair.generate
+      current_user.update!(web2_solana_address: keypair.to_base58,
+                           encrypted_web2_solana_private_key: keypair.encrypt)
+      address = current_user.web2_solana_address
+    end
+    return if address.blank?
+
+    Rails.cache = ActiveSupport::Cache::MemoryStore.new if Rails.cache.is_a?(ActiveSupport::Cache::NullStore)
+
+    # Same shape Solana::Vault.decode_entry_token returns, so the count the
+    # sidebar derives is derived exactly as it is in production.
+    tokens = Array.new(count) do |i|
+      { pda: "pda-walk-#{i}", source_ref: "operator:quest-walk:#{i}", source: 0,
+        consumed: false, consumed_at: nil, burned: false, created_at: 1_700_000_000 + i }
+    end
+    Rails.cache.write(Solana::Vault.entry_tokens_cache_key(address), tokens, expires_in: 30.minutes)
   end
 end
