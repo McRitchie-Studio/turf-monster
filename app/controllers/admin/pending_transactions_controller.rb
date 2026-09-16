@@ -1,7 +1,7 @@
 module Admin
   class PendingTransactionsController < ApplicationController
     before_action :require_admin
-    before_action :set_pending_transaction, only: [:show, :confirm, :rebuild, :broadcast]
+    before_action :set_pending_transaction, only: [:show, :confirm, :rebuild, :broadcast, :reconcile]
 
     def index
       @pending = PendingTransaction.order(created_at: :desc)
@@ -95,14 +95,17 @@ module Admin
       end
     end
 
-    # Claim the row, broadcast the cosigned wire SERVER-SIDE, RECORD THE
-    # SIGNATURE, then run the same OPSEC-010/011 verification #confirm does and
-    # flip the DB state.
+    # Claim the row AND RECORD WHAT IS ABOUT TO GO OUT, broadcast the cosigned
+    # wire SERVER-SIDE, then run the same OPSEC-010/011 verification #confirm
+    # does and flip the DB state.
     #
-    # ── THE SIGNATURE IS STAMPED THE INSTANT THE BROADCAST RETURNS ───────────
+    # ── THE SIGNATURE IS STAMPED BEFORE THE BROADCAST, NOT AFTER IT ──────────
     #
-    # Before verification, not after, and by `update_columns` so no validation
-    # or callback can stand between a landed transaction and the record of it.
+    # It does not come from the RPC at all. A transaction's signature is the
+    # first 64 bytes of its own signed wire, so the server already holds it the
+    # moment the operator hands the bytes over — `Solana::Vault#signature_for_wire`
+    # reads it, and `PendingTransaction#claim_for_broadcast!` writes it in the
+    # same conditional UPDATE that takes the claim.
     #
     # This path used to stamp it inside `verify_and_record_cosign!`, i.e. AFTER
     # `TxVerifier.verify!` had made one RPC call per claimed signer. A treasury
@@ -116,13 +119,25 @@ module Admin
     # `Cdp::OfframpSendJob` persists its signature before the send for the same
     # reason, and `CdpRampTransaction#rearm_stalled_send!` double-sent a user's
     # USDC by breaking it. `Admin::AuthoritiesController#broadcast` is the
-    # sibling of this action and holds the identical shape — the two must not
-    # drift, which is why the claim and the stamp live on the model.
+    # sibling of this action and holds the same claim/stamp/rewind shape — the
+    # two must not drift, which is why all three live on the model.
     #
-    # A row left `submitted` is the SAFE failure: the signature is on the record
-    # (or, if the answer itself was lost, `awaiting_reconciliation?` says so),
-    # the guard below refuses a re-broadcast, and #confirm remains open as the
-    # door for recording a signature found on chain.
+    # ── AND WHY "BEFORE" MATTERS MORE THAN "IMMEDIATELY" ─────────────────────
+    #
+    # Stamping from the RPC's reply — however fast — means a failure that eats
+    # the reply leaves a claimed row with NO signature. Every door then shuts:
+    # #rebuild and #broadcast refuse a non-pending row, #confirm needs a
+    # signature that does not exist, and Admin::AuthoritiesController#cancel
+    # refuses to discard something that may be on chain. That is a Rails
+    # console, and it is the LIKELY outcome rather than a rare one, because the
+    # node's own pre-flight rejects the real blockhash and the real signatures
+    # that the simulation above deliberately does not check.
+    #
+    # With the signature stamped up front there is always a handle, so a failed
+    # broadcast is answered by asking the chain — #reconcile — instead of by
+    # reading an exception. A row left `submitted` is the SAFE failure: it names
+    # its transaction, the guard below refuses a re-broadcast, and #reconcile
+    # decides what actually happened to it.
     #
     # The browser used to call connection.sendRawTransaction itself and then
     # POST the resulting signature to #confirm. That failed on mainnet every
@@ -144,33 +159,54 @@ module Admin
         signed_tx = params[:signed_tx].to_s
         raise "Signed transaction required" if signed_tx.blank?
 
+        # EVERYTHING THAT CAN RAISE WITHOUT HAVING SENT ANYTHING HAPPENS ABOVE
+        # THE CLAIM. `Solana::Vault.new` validates its RPC URL and decodes
+        # keypairs in its constructor, so it can raise InsecureRpcUrlError or a
+        # base58 error — neither of which is PreflightRejected, so neither
+        # would give a claim back. Building it here costs nothing and takes the
+        # whole class of constructor failures out of the claimed window.
+        # Admin::AuthoritiesController#broadcast warms its vault before its own
+        # claim for the same reason.
+        vault = Solana::Vault.new
+
+        # THE SIGNATURE IS A FACT ABOUT THE BYTES, not an answer from the RPC —
+        # it is the first signature inside the wire the operator just signed.
+        # Deriving it here, BEFORE the claim, does two things: a malformed wire
+        # is refused without stranding a claim, and the claim below can record
+        # what it is about to send in the same statement that takes it.
+        signature = vault.signature_for_wire(signed_tx)
+
         # CLAIM THE ROW BEFORE THE WIRE GOES OUT. The `pending?` guard above is
         # a READ — two concurrent requests both pass it and both broadcast, and
         # because each rebuild mints fresh bytes the two carry different
         # signatures, so two settlements land. The claim is a single conditional
         # UPDATE; exactly one caller wins it. See
         # PendingTransaction#claim_for_broadcast! for why it is not `with_lock`.
-        unless @tx.claim_for_broadcast!
+        unless @tx.claim_for_broadcast!(signature)
           raise "This transaction is already being broadcast (it is now #{@tx.status}) — " \
                 "reconcile it on chain rather than sending a second one."
         end
 
         # Raises with the PROGRAM's own error + logs when the simulation fails,
         # and never reaches the chain in that case.
-        signature =
-          begin
-            Solana::Vault.new.simulate_and_broadcast(signed_tx)
-          rescue Solana::Vault::PreflightRejected
-            # PROVABLY UN-SENT — the simulation refused it, or could not be run
-            # at all. Only this type gives the claim back; an ambiguous failure
-            # after the send keeps the row claimed and unsigned, which is what
-            # `awaiting_reconciliation?` names.
-            @tx.release_broadcast_claim!
-            raise
-          end
-
-        # DURABLE, IMMEDIATELY, BEFORE ANYTHING ELSE CAN RAISE.
-        @tx.record_broadcast!(signature)
+        begin
+          vault.simulate_and_broadcast(signed_tx)
+        rescue Solana::Vault::PreflightRejected
+          # PROVABLY UN-SENT — the simulation refused it, or could not be run at
+          # all, so `client.send_transaction` was never called. This is the ONLY
+          # exception that rewinds the row, and the rewind names the signature
+          # it is clearing so it cannot touch anything else.
+          #
+          # A failure of the SEND does not rewind, however node-ish it looks.
+          # Solana::Client#call retries internally on the faults that mean "the
+          # request went out and the answer was lost", so a coded error can be
+          # the SECOND answer to a wire the first attempt may already have
+          # forwarded — the reasoning is written out on
+          # Solana::Vault#simulate_and_broadcast. Such a row keeps its claim and
+          # its signature, and #reconcile asks the chain instead of guessing.
+          @tx.rewind_broadcast!(signature)
+          raise
+        end
 
         verify_and_record_cosign!(cosigner: cosigner, extras: extras, signature: signature)
 
@@ -185,6 +221,65 @@ module Admin
       }, status: :unprocessable_entity
     rescue StandardError => e
       render json: { error: e.message }, status: :unprocessable_entity
+    end
+
+    # THE DOOR OUT OF A BROADCAST WHOSE ANSWER WE NEVER GOT.
+    #
+    # Asks the chain what happened to the signature this row already carries and
+    # acts on the four-way verdict (PendingTransaction#reconcile_broadcast!).
+    # It exists because NO exception raised by the broadcast can be read as a
+    # proof that nothing was sent — Solana::Client#call retries the faults that
+    # mean "the answer was lost" and hands the caller only the last one, so a
+    # coded error may be the second reply to a wire the first attempt already
+    # forwarded (Solana::Vault#simulate_and_broadcast writes it out). The chain
+    # is the only witness, and this is where it is asked.
+    #
+    # It is also the ONLY path that can clear a transaction which LANDED AND
+    # FAILED. #confirm cannot: Solana::TxVerifier refuses any transaction
+    # carrying meta.err, which is correct for recording an authorisation and
+    # useless for recording a definitive failure.
+    #
+    # A :landed row is NOT confirmed here. It still owes the OPSEC-010/011
+    # verification, so the operator is told to confirm it with its signer set
+    # rather than having state flipped on a bare status read.
+    def reconcile
+      rescue_and_log(target: @tx) do
+        unless @tx.awaiting_broadcast_verdict?
+          raise "Transaction is #{@tx.status} with no recorded signature — nothing to reconcile."
+        end
+
+        signature = @tx.tx_signature
+        # searchTransactionHistory: true — a plain getTransaction at `confirmed`
+        # returns nothing for a merely unindexed transaction, which would read
+        # as "never landed" and rewind a row that is still on its way.
+        status = Solana::Vault.new.client.confirm_transaction(signature).dig("value", 0)
+
+        notice =
+          case @tx.reconcile_broadcast!(status)
+          when :landed
+            "This transaction LANDED on chain (#{signature}). Confirm it with its signer set " \
+            "to record the authorisation; it will not be re-broadcast."
+          when :failed
+            "This transaction landed and FAILED on chain (#{signature}), so the treasury did " \
+            "not move. The row is pending again and can be rebuilt."
+          when :never_landed
+            "This transaction never landed and its blockhash window has lapsed, so it can " \
+            "never land. The row is pending again and can be rebuilt."
+          else
+            "Still unresolved — the transaction may yet land, so the row stays claimed. " \
+            "Do not re-send it; reconcile again shortly."
+          end
+
+        respond_to do |format|
+          format.json { render json: { status: @tx.reload.status, tx_signature: @tx.tx_signature, message: notice } }
+          format.html { redirect_to admin_pending_transactions_path, notice: notice }
+        end
+      end
+    rescue StandardError => e
+      respond_to do |format|
+        format.json { render json: { error: e.message }, status: :unprocessable_entity }
+        format.html { redirect_to admin_pending_transactions_path, alert: "Reconciliation failed: #{e.message}" }
+      end
     end
 
     def rebuild
@@ -235,7 +330,19 @@ module Admin
             raise "Unsupported tx_type for rebuild: #{@tx.tx_type}"
           end
 
-        @tx.update!(serialized_tx: result[:serialized_tx], status: "pending")
+        # CONDITIONAL, not a bare write. `pending?` was read at the top of this
+        # action; a #broadcast request that claimed the row in the interval
+        # would be un-claimed by an unconditional `status: "pending"` here — the
+        # last path that could hand a second caller a row whose wire is already
+        # going out. The UPDATE re-checks the state it assumed.
+        rebuilt = PendingTransaction.where(id: @tx.id, status: "pending")
+                                    .update_all(serialized_tx: result[:serialized_tx],
+                                                updated_at: Time.current) == 1
+        unless rebuilt
+          raise "This transaction is no longer pending (it is now #{@tx.reload.status}) — " \
+                "reconcile it on chain rather than rebuilding it."
+        end
+        @tx.reload
 
         respond_to do |format|
           format.json do

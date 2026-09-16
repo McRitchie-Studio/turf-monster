@@ -71,7 +71,7 @@ class Admin::PendingTransactionsBroadcastRecordTest < ActionDispatch::Integratio
 
     assert_response :unprocessable_entity
     tx.reload
-    assert_equal "FAKE_SIG_broadcast", tx.tx_signature,
+    assert_equal "FAKE_SIG_SIGNED_WIRE", tx.tx_signature,
                  "the transaction landed, so the row must carry its signature even though verify failed"
     assert_not tx.pending?, "a landed transaction must not be left re-broadcastable"
     assert_match(/recorded on this row/, JSON.parse(response.body)["error"],
@@ -80,8 +80,8 @@ class Admin::PendingTransactionsBroadcastRecordTest < ActionDispatch::Integratio
     # THE SECOND SEND — the actual loss. One settle paid; one settle unreconciled.
     with_vault(vault, verifier: ->(**) { true }) { broadcast(tx) }
 
-    assert_response :unprocessable_entity
     assert_equal 1, vault.broadcast_calls.length, "the wire must never go out twice"
+    assert_response :unprocessable_entity
   end
 
   # THE SAME PROPERTY, ISOLATED from the stamp so a regression in either half
@@ -94,9 +94,12 @@ class Admin::PendingTransactionsBroadcastRecordTest < ActionDispatch::Integratio
     with_vault(vault, verifier: flake) { broadcast(tx) }
     with_vault(vault, verifier: ->(**) { true }) { broadcast(tx, wire: "A_SECOND_WIRE") }
 
-    assert_response :unprocessable_entity
+    # THE MONEY ASSERTION FIRST. A response-code assertion above it trips before
+    # this one and reports a status mismatch, which reads like a routing problem
+    # rather than "a second settlement went out".
     assert_equal ["SIGNED_WIRE"], vault.broadcast_calls,
                  "a second, DIFFERENT wire is a second settlement — the loss this task exists to stop"
+    assert_response :unprocessable_entity
   end
 
   # ══════════════════════════════════════════════════════════════════════════
@@ -132,15 +135,17 @@ class Admin::PendingTransactionsBroadcastRecordTest < ActionDispatch::Integratio
 
     assert_response :unprocessable_entity
     tx.reload
-    assert tx.awaiting_reconciliation?,
-           "the wire may be on chain, so the row must say so rather than invite a second send"
+    assert tx.awaiting_broadcast_verdict?,
+           "the wire may be on chain, so the row must stay claimed rather than invite a second send"
     assert_not tx.pending?
+    assert_equal "FAKE_SIG_SIGNED_WIRE", tx.tx_signature,
+                 "and it must NAME the transaction, so the chain can be asked what became of it"
 
     second = FakeVault.new
     with_vault(second, verifier: ->(**) { true }) { broadcast(tx, wire: "A_SECOND_WIRE") }
 
-    assert_response :unprocessable_entity
     assert_empty second.broadcast_calls, "an ambiguous answer is never a licence to re-send"
+    assert_response :unprocessable_entity
   end
 
   # ══════════════════════════════════════════════════════════════════════════
@@ -154,7 +159,10 @@ class Admin::PendingTransactionsBroadcastRecordTest < ActionDispatch::Integratio
 
   test "confirm records a signature found on chain for a stranded row" do
     tx = ptx
-    tx.claim_for_broadcast!
+    # A LEGACY row: claimed by the older code, which stamped from the RPC's
+    # reply and so left nothing behind when that reply was lost. A claim cannot
+    # produce this state any more.
+    tx.update_columns(status: "submitted", tx_signature: nil)
     assert tx.awaiting_reconciliation?
 
     with_vault(FakeVault.new, verifier: ->(**) { true }) do
@@ -173,7 +181,7 @@ class Admin::PendingTransactionsBroadcastRecordTest < ActionDispatch::Integratio
   # future change that "tidies" the two into one order is what this notices.
   test "confirm stamps nothing when the claimed signature does not verify" do
     tx = ptx
-    tx.claim_for_broadcast!
+    tx.update_columns(status: "submitted", tx_signature: nil)
     flake = ->(**) { raise Solana::TxVerifier::VerificationError, "not that transaction" }
 
     with_vault(FakeVault.new, verifier: flake) do
@@ -208,22 +216,24 @@ class Admin::PendingTransactionsBroadcastRecordTest < ActionDispatch::Integratio
 
     flake = ->(**) { raise Solana::TxVerifier::VerificationError, "RPC lagged" }
     with_vault(FakeVault.new, verifier: flake) { broadcast(tx) }
-    assert_equal "FAKE_SIG_broadcast", tx.reload.tx_signature
+    assert_equal "FAKE_SIG_SIGNED_WIRE", tx.reload.tx_signature
 
     Solana::Vault.stub :new, FakeVault.new do
       get admin_pending_transactions_path
     end
 
     assert_response :success
-    assert_match(/Broadcast · unconfirmed/, response.body)
-    assert_match(/only its verification did not/, response.body)
+    assert_match(/Broadcast · unreconciled/, response.body)
+    assert_match(/outcome is not yet\s+established/, response.body)
+    assert_match(/Reconcile/, response.body,
+                 "and it must offer the READ that settles the row, not just a warning")
     assert_no_match(/collectExtraCosigners\(this\)/, response.body,
                     "a row that has broadcast must not offer a Co-sign button")
   end
 
   test "a row whose broadcast answer was lost is labelled differently from one that landed" do
     tx = ptx
-    tx.claim_for_broadcast!
+    tx.update_columns(status: "submitted", tx_signature: nil)
 
     Solana::Vault.stub :new, FakeVault.new do
       get admin_pending_transactions_path
@@ -233,5 +243,178 @@ class Admin::PendingTransactionsBroadcastRecordTest < ActionDispatch::Integratio
     assert_match(/Broadcast · result unknown/, response.body)
     assert_match(/may be on chain/, response.body)
     assert_match(/would send a SECOND transaction/, response.body)
+  end
+  # ══════════════════════════════════════════════════════════════════════════
+  # THE BLOCKER: THE NODE'S OWN PRE-FLIGHT REFUSAL
+  # ══════════════════════════════════════════════════════════════════════════
+  #
+  # `send_and_confirm` runs `skipPreflight: false`, so the NODE checks the real
+  # blockhash and the real signatures — the two things the simulation above
+  # deliberately skips — and refuses with a CODED JSON-RPC error without
+  # forwarding. It is the LIKELY failure on this surface, not an edge: a
+  # blockhash lives ~60-90s and the flow is rebuild → render → open Phantom →
+  # read a treasury settle → approve twice → POST.
+  #
+  # It is NOT typed `PreflightRejected`, and it must not be: Solana::Client#call
+  # retries the faults that mean "the answer was lost" and surfaces only the
+  # last one, so a coded error can be the second answer to a wire the first
+  # attempt already forwarded. Rewinding on it re-sends the treasury.
+  #
+  # So the row stays claimed — and the whole point of the fix is that staying
+  # claimed is no longer a dead end.
+  test "the node's own pre-flight refusal leaves a row that can still be recovered" do
+    tx = ptx
+    refused = Solana::Client::RpcError.new("Blockhash not found", code: -32002)
+    vault = FakeVault.new(broadcast_raises: refused)
+
+    with_vault(vault, verifier: ->(**) { true }) { broadcast(tx) }
+
+    tx.reload
+    assert_not tx.pending?, "the answer is not a proof, so the claim is NOT given back"
+    assert_equal "FAKE_SIG_SIGNED_WIRE", tx.tx_signature,
+                 "but the row names its transaction, which is what keeps it recoverable"
+    assert tx.awaiting_broadcast_verdict?
+    assert_not tx.awaiting_reconciliation?,
+               "it is NOT the old signature-less state — that one had no way back"
+  end
+
+  # THE OTHER HALF OF THE BLOCKER, and the one that was a Rails console: the row
+  # above must actually get out. Nothing landed and the blockhash window has
+  # lapsed, so the chain PROVES it can never land.
+  test "reconcile frees a row whose wire the node refused, once its blockhash lapsed" do
+    tx = ptx
+    vault = FakeVault.new(broadcast_raises: Solana::Client::RpcError.new("Blockhash not found", code: -32002))
+    with_vault(vault, verifier: ->(**) { true }) { broadcast(tx) }
+
+    # The window has to have lapsed — inside it the honest answer is "wait".
+    tx.reload.update_columns(broadcast_at: (OnchainSendVerdict::BLOCKHASH_LAPSE + 1.minute).ago)
+
+    # signature_statuses is empty, so the chain has never heard of it.
+    Solana::Vault.stub :new, FakeVault.new do
+      post reconcile_admin_pending_transaction_path(slug: tx.slug), as: :json
+    end
+
+    assert_response :success
+    tx.reload
+    assert tx.pending?, "verified-dead, so the operator can rebuild — not a console job"
+    assert_nil tx.tx_signature
+    assert_nil tx.broadcast_at, "and the next attempt gets its own anchor"
+  end
+
+  # THE TRAP INSIDE THE DOOR. An absent status means "in flight" as well as
+  # "never landed", and it means that for the whole blockhash window. Rewinding
+  # here is the double-send the claim exists to stop.
+  test "reconcile changes nothing while the transaction can still land" do
+    tx = ptx
+    vault = FakeVault.new(broadcast_raises: RuntimeError.new("connection reset while sending"))
+    with_vault(vault, verifier: ->(**) { true }) { broadcast(tx) }
+
+    Solana::Vault.stub :new, FakeVault.new do
+      post reconcile_admin_pending_transaction_path(slug: tx.slug), as: :json
+    end
+
+    assert_response :success
+    tx.reload
+    assert_not tx.pending?, "an unresolved row must not become rebuildable"
+    assert_equal "FAKE_SIG_SIGNED_WIRE", tx.tx_signature
+
+    second = FakeVault.new
+    with_vault(second, verifier: ->(**) { true }) { broadcast(tx, wire: "A_SECOND_WIRE") }
+    assert_empty second.broadcast_calls, "and a reconcile that resolved nothing is not a licence to re-send"
+  end
+
+  # THE CASE #confirm CANNOT RECORD AT ALL. Solana::TxVerifier refuses anything
+  # carrying meta.err (tx_verifier.rb), which is right for recording an
+  # authorisation and useless for recording a definitive failure — so a
+  # transaction that LANDED AND FAILED had no door before this one.
+  test "reconcile frees a transaction that landed and FAILED on chain" do
+    tx = ptx
+    vault = FakeVault.new(broadcast_raises: RuntimeError.new("Transaction failed: InstructionError"))
+    with_vault(vault, verifier: ->(**) { true }) { broadcast(tx) }
+
+    failed = { "err" => { "InstructionError" => [0, { "Custom" => 6046 }] },
+               "confirmationStatus" => "confirmed" }
+    Solana::Vault.stub :new, FakeVault.new(signature_statuses: { "FAKE_SIG_SIGNED_WIRE" => failed }) do
+      post reconcile_admin_pending_transaction_path(slug: tx.slug), as: :json
+    end
+
+    assert_response :success
+    tx.reload
+    assert tx.pending?, "the treasury did not move, so the row must be rebuildable"
+    assert_nil tx.tx_signature
+  end
+
+  # A LANDED row is NOT confirmed here. Reconcile has no signer set, and
+  # flipping treasury state on a bare status read would skip OPSEC-010/011.
+  test "reconcile refuses to confirm a landed row on its own" do
+    tx = ptx
+    vault = FakeVault.new(broadcast_raises: RuntimeError.new("confirmation timeout"))
+    with_vault(vault, verifier: ->(**) { true }) { broadcast(tx) }
+
+    landed = { "err" => nil, "confirmationStatus" => "finalized" }
+    Solana::Vault.stub :new, FakeVault.new(signature_statuses: { "FAKE_SIG_SIGNED_WIRE" => landed }) do
+      post reconcile_admin_pending_transaction_path(slug: tx.slug), as: :json
+    end
+
+    assert_response :success
+    tx.reload
+    assert_equal "submitted", tx.status, "verification is still owed before the row is confirmed"
+    assert_equal "FAKE_SIG_SIGNED_WIRE", tx.tx_signature
+    assert_match(/LANDED/, JSON.parse(response.body)["message"])
+  end
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # NOTHING THAT CAN RAISE WITHOUT SENDING MAY SIT INSIDE THE CLAIM
+  # ══════════════════════════════════════════════════════════════════════════
+  #
+  # `Solana::Vault.new` validates its RPC URL and decodes keypairs in its
+  # constructor. None of those failures is `PreflightRejected`, so before the
+  # vault was hoisted above the claim they stranded the row — a claim taken for
+  # a wire that provably never existed.
+  test "a vault that cannot even be constructed strands no claim" do
+    tx = ptx
+    boom = -> { raise Solana::Client::InsecureRpcUrlError, "http:// RPC URL refused" }
+
+    Solana::Vault.stub :new, boom do
+      broadcast(tx)
+    end
+
+    assert_response :unprocessable_entity
+    assert tx.reload.pending?, "nothing was sent and nothing could be, so the row stays retryable"
+    assert_nil tx.tx_signature
+  end
+
+  # THE SAME RULE FOR THE WIRE ITSELF: a payload whose signature cannot be read
+  # is refused BEFORE the claim, not after it.
+  test "a wire too short to carry a signature is refused before the claim" do
+    tx = ptx
+    vault = FakeVault.new(signature_for_wire_raises: RuntimeError.new("wire too short to carry a signature"))
+
+    with_vault(vault, verifier: ->(**) { true }) { broadcast(tx) }
+
+    assert_response :unprocessable_entity
+    assert_empty vault.broadcast_calls
+    assert tx.reload.pending?
+    assert_nil tx.tx_signature
+  end
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # #rebuild MAY NOT UN-CLAIM A ROW
+  # ══════════════════════════════════════════════════════════════════════════
+  #
+  # It read `pending?` and then wrote `status: "pending"` unconditionally, so a
+  # #broadcast that claimed the row in between was silently un-claimed — the
+  # last path that could hand a second caller a row whose wire is going out.
+  test "rebuild refuses a row that was claimed after its own guard read" do
+    tx = ptx
+    tx.claim_for_broadcast!("SIG_ALREADY_GOING_OUT")
+
+    Solana::Vault.stub :new, FakeVault.new do
+      post rebuild_admin_pending_transaction_path(slug: tx.slug), as: :json
+    end
+
+    tx.reload
+    assert_equal "submitted", tx.status, "a claimed row must not be rebuilt back to pending"
+    assert_equal "SIG_ALREADY_GOING_OUT", tx.tx_signature
   end
 end

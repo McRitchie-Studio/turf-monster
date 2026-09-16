@@ -27,7 +27,8 @@ class FakeVault
                  usdc_balance: nil, usdc_balance_raises: false, account_infos: {},
                  account_info_raises: false, signatures: {},
                  send_raises: nil, season: { season_id: 1 }, season_raises: nil, seasons: nil,
-                 broadcast_raises: nil, mint_window_remaining: nil)
+                 broadcast_raises: nil, mint_window_remaining: nil,
+                 signature_for_wire_raises: nil)
     @fail_after = fail_after
     @starting_sequence = starting_sequence
     @tokens = tokens
@@ -43,6 +44,7 @@ class FakeVault
     @signatures = signatures                 # pda_b58 => [{ "signature" =>, "err" => }] for getSignaturesForAddress
     @send_raises = send_raises               # send_transaction fault (offramp send tests)
     @broadcast_raises = broadcast_raises     # simulate_and_broadcast fault (cosign broadcast tests)
+    @signature_for_wire_raises = signature_for_wire_raises # a wire too short to carry a signature
     # Slots left in the v0.26 per-window mint budget. nil — THE DEFAULT — is the
     # v0.25 shape, where no GovernanceConfig and therefore no cap exists, which
     # is what production runs today and what every test that does not care about
@@ -85,7 +87,25 @@ class FakeVault
       raise(@broadcast_raises.is_a?(String) ? Solana::Vault::PreflightRejected.new(@broadcast_raises)
                                             : @broadcast_raises)
     end
-    "FAKE_SIG_broadcast"
+    signature_for_wire(signed_wire_base64)
+  end
+
+  # THE SIGNATURE, DERIVED FROM THE BYTES — no RPC, exactly like the real method.
+  #
+  # Callers stamp this BEFORE they send, which is what keeps a failed broadcast
+  # recoverable, so a stub that could not produce it would let a test certify a
+  # claim the real code cannot take. It is deterministic in the wire so a test
+  # can name the value it expects, and it AGREES with `#simulate_and_broadcast`
+  # above so the real method's decoder self-check is modelled rather than
+  # side-stepped.
+  #
+  # `signature_for_wire_raises:` seeds the malformed-wire refusal — the real
+  # method raises on a wire too short to carry a signature, and that refusal
+  # must happen BEFORE the row is claimed.
+  def signature_for_wire(signed_wire_base64)
+    raise @signature_for_wire_raises if @signature_for_wire_raises
+
+    "FAKE_SIG_#{signed_wire_base64}"
   end
 
   # --- Solana RPC client stub (recovery flow) ---

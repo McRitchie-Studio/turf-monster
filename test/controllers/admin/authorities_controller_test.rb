@@ -40,11 +40,12 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     attr_accessor :signers
 
     def initialize(signers: [SYSTEM, ALEX, MASON], governance: nil, broadcast_raises: nil,
-                   read_back: nil)
+                   read_back: nil, signature_statuses: {})
       @signers = signers
       @governance = governance
       @broadcast_raises = broadcast_raises
       @read_back = read_back
+      @signature_statuses = signature_statuses
       @build_calls = []
       @broadcast_calls = []
     end
@@ -93,8 +94,16 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
                                               : @broadcast_raises)
       end
 
-      "LANDED_SIGNATURE"
+      signature_for_wire(wire)
     end
+
+    # The signature is a fact about the BYTES, derived before the send — which
+    # is what lets the claim record it and a failed broadcast stay recoverable.
+    # It agrees with `#simulate_and_broadcast` above so the real method's
+    # decoder self-check is modelled rather than side-stepped.
+    def signature_for_wire(_wire) = "LANDED_SIGNATURE"
+
+    def client = @client ||= FakeSolanaClient.new(@signature_statuses || {})
   end
 
   setup do
@@ -368,6 +377,15 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     PendingTransaction.last
   end
 
+  # The broadcast POST, with verification stubbed green — used by the tests that
+  # are about what happens to the ROW when the send itself fails.
+  def broadcast_row(row)
+    Solana::TxVerifier.stub :verify!, true do
+      post admin_broadcast_authority_rotation_path(row.slug),
+           params: { signed_tx: "SIGNED", signer_queue: [ALEX, MASON] }, as: :json
+    end
+  end
+
   test "broadcast records the landed signature, confirms, and reads the set back" do
     vault = StubVault.new(read_back: [ALEX, MASON, ALEX2])
     row = armed_row(StubVault.new)
@@ -492,13 +510,14 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
     assert row.stale
   end
 
-  # A CLAIMED ROW WHOSE ANSWER WAS LOST IS NOT A DRAFT EITHER. It carries no
-  # signature, so the signature guard waves it through — but its wire may be on
-  # chain, and filing a possible rotation as one that never happened is the
-  # worst answer this page can give mid-incident.
+  # A LEGACY CLAIMED ROW WHOSE ANSWER WAS LOST IS NOT A DRAFT EITHER. It carries
+  # no signature, so the signature guard waves it through — but its wire may be
+  # on chain, and filing a possible rotation as one that never happened is the
+  # worst answer this page can give mid-incident. Only the OLDER code could
+  # produce this state; a claim now stamps its signature.
   test "an eviction whose broadcast answer was lost cannot be discarded" do
     row = armed_row(StubVault.new)
-    row.claim_for_broadcast!
+    row.update_columns(status: "submitted", tx_signature: nil)
     assert row.awaiting_reconciliation?
 
     delete_or_cancel = -> { post admin_cancel_authority_rotation_path(row.slug) }
@@ -506,6 +525,43 @@ class Admin::AuthoritiesControllerTest < ActionDispatch::IntegrationTest
 
     assert_equal "submitted", row.reload.status, "it may be on chain — it must not be expired"
     assert_not row.stale?
+  end
+
+  # ── THE MODERN STRANDED ROW, AND ITS WAY OUT ───────────────────────────────
+  #
+  # A claim now always records the signature, so an eviction whose broadcast
+  # failed is caught by the signature guard rather than the legacy one. That
+  # guard refuses it FOREVER unless something can settle it — which is the
+  # brick this task exists to remove, so the page owes it a Reconcile.
+  test "an eviction the node refused is freed by reconcile once its blockhash lapsed" do
+    refused = Solana::Client::RpcError.new("Blockhash not found", code: -32002)
+    row = armed_row(StubVault.new)
+    with_vault(StubVault.new(broadcast_raises: refused)) { broadcast_row(row) }
+
+    row.reload
+    assert_equal "submitted", row.status, "a coded refusal is not a proof, so the claim is kept"
+    assert_equal "LANDED_SIGNATURE", row.tx_signature
+
+    post admin_cancel_authority_rotation_path(row.slug)
+    assert_equal "submitted", row.reload.status, "cancel cannot discard something that may be on chain"
+
+    row.update_columns(broadcast_at: (OnchainSendVerdict::BLOCKHASH_LAPSE + 1.minute).ago)
+    with_vault(StubVault.new) { post admin_reconcile_authority_rotation_path(row.slug) }
+
+    row.reload
+    assert row.pending?, "verified-dead on chain, so the eviction is armed again"
+    assert_nil row.tx_signature
+  end
+
+  test "reconcile leaves an eviction alone while it can still land" do
+    row = armed_row(StubVault.new)
+    with_vault(StubVault.new(broadcast_raises: RuntimeError.new("connection reset"))) { broadcast_row(row) }
+
+    with_vault(StubVault.new) { post admin_reconcile_authority_rotation_path(row.slug) }
+
+    row.reload
+    assert_equal "submitted", row.status, "an unresolved rotation must not become re-broadcastable"
+    assert_equal "LANDED_SIGNATURE", row.tx_signature
   end
 
   test "a broadcast eviction cannot be discarded" do

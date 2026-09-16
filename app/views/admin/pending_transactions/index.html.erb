@@ -24,26 +24,29 @@
                 <% when "pending" %>
                   <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">Pending</span>
                 <% when "submitted" %>
-                  <%# BROADCAST, NOT YET CONFIRMED — and the two facts that share
-                      this status must not look the same:
+                  <%# BROADCAST, OUTCOME NOT ESTABLISHED — and the two facts that
+                      share this status must not look the same:
 
-                        · WITH a signature, the wire LANDED and verification did
-                          not finish (a slow RPC, a commitment behind). The money
-                          moved. Open the TX link and reconcile.
-                        · WITHOUT one, the broadcast's own answer was lost, so the
-                          wire MAY be on chain. Same instruction either way: read
-                          the chain, never re-send.
+                        · WITH a signature, the row names its transaction, so the
+                          chain can be asked what became of it. Reconcile.
+                        · WITHOUT one — only rows claimed by the older code, which
+                          stamped the signature from the RPC's reply — there is no
+                          handle to ask with. Read the chain by hand.
 
-                      Before this, `submitted` matched no branch and rendered NO
-                      badge at all — an unlabelled row with no Co-sign button,
-                      which is the exact opposite of the alert this state exists
-                      to be. The whole point of recording the signature the
-                      instant the broadcast returns is that the page can say the
-                      money moved. %>
+                      THE BADGE MUST NOT SAY THE MONEY MOVED. A signature on the
+                      row proves the bytes were signed, not that they landed: the
+                      node's own pre-flight can refuse a wire against the real
+                      blockhash and never forward it. Saying "on chain" here sent
+                      the operator to look for a transaction that did not exist.
+
+                      Before either branch, `submitted` matched nothing and
+                      rendered NO badge at all — an unlabelled row with no
+                      Co-sign button, the exact opposite of the alert this state
+                      exists to be. %>
                   <% if tx.awaiting_reconciliation? %>
                     <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Broadcast · result unknown</span>
                   <% else %>
-                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">Broadcast · unconfirmed</span>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">Broadcast · unreconciled</span>
                   <% end %>
                 <% when "confirmed" %>
                   <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Confirmed</span>
@@ -200,22 +203,35 @@
                   Co-sign
                 </button>
               <% elsif tx.status == "submitted" %>
-                <%# WHY THERE IS NO BUTTON HERE. A row that has broadcast is not
-                    a draft, and the one thing an operator must not do is press
-                    Co-sign again: the rebuild mints fresh bytes, so a second
-                    click is a second settlement, not a retry of the first. Say
-                    that, rather than leaving an empty column that reads like the
-                    page forgot to render a control. %>
+                <%# NO CO-SIGN BUTTON HERE, AND ONE THAT IS NOT A RE-SEND. A row
+                    that has broadcast is not a draft, and the one thing an
+                    operator must not do is press Co-sign again: the rebuild mints
+                    fresh bytes, so a second click is a second settlement, not a
+                    retry of the first.
+
+                    Reconcile is the opposite of a re-send — it only READS the
+                    chain, and it is what turns this row back into something the
+                    operator can act on. Telling him "do not re-send" and then
+                    offering him nothing to do is how a row became a Rails
+                    console. %>
                 <p class="text-xs text-error max-w-56" data-cosign-broadcast-note>
                   <% if tx.awaiting_reconciliation? %>
                     This transaction was broadcast and the result was not read back,
                     so it may be on chain. Check the signer/target account before
                     acting — a second Co-sign would send a SECOND transaction.
                   <% else %>
-                    This transaction is on chain; only its verification did not
-                    finish. Open the TX link to reconcile. Do not re-send it.
+                    This transaction was broadcast and its outcome is not yet
+                    established. Reconcile reads the chain and settles it. Do not
+                    re-send it.
                   <% end %>
                 </p>
+                <% if tx.awaiting_broadcast_verdict? %>
+                  <%= button_to "Reconcile",
+                                reconcile_admin_pending_transaction_path(tx.slug),
+                                method: :post,
+                                class: "mt-2 px-3 py-1 rounded text-xs font-medium bg-amber-600 text-white hover:bg-amber-700",
+                                data: { cosign_reconcile: tx.slug } %>
+                <% end %>
               <% end %>
             </div>
           </div>
