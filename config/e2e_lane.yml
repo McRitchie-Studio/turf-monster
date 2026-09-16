@@ -1069,7 +1069,41 @@
 #     the split. The Turbo spec also pins a same-document sentinel, so a visit
 #     that silently fell back to a full load fails rather than re-testing path one.
 # Derived with bin/e2e-lane-derive --write, not by arithmetic.
-total_specs: 323
+#
+# 323 -> 328 (paired-alpine-factories-can-diverge): five specs in a NEW file,
+# e2e/alpine_factory_registration.spec.js, closing the same shape the entry above
+# opened. Three factories still had a twin under app/javascript/ — seedsBar,
+# cardListFilter, entryTokenBadge — and all three twins are deleted here.
+#   · THREE FOR seedsBar, one per MOUNT, not per file. Two of its mounts are bound
+#     at Alpine's initial walk (a direct load and a Turbo navigation); the third is
+#     inserted long after the importmap has run, because the modal host clones the
+#     card out of a template x-if. That third mount is the one the "a late
+#     re-assign of the same global is inert" carve-out does NOT cover, and it is
+#     the only one of the three that a restored twin can take: with the deleted
+#     app/javascript/seeds_bar.js put back AND given an Alpine.data() registration,
+#     the modal spec goes red while the other two stay green. Measured, as the
+#     control for this file.
+#   · ONE EACH for entryTokenBadge and cardListFilter, both arrival paths. Their
+#     twins were byte-identical the day they were deleted, so no browser assertion
+#     could compare copies — the single-definition invariant is owned by
+#     test/views/alpine_factory_definitions_test.rb, which scans source and fails
+#     on a second definition. What these two pin is the half a browser can see:
+#     the component BINDS on a fresh document, which is the path importmap timing
+#     breaks and the path a module-only factory loses.
+#   · WHY NONE OF THEM READS window.<name>. Measured 2026-09-16 on this tree
+#     before the twins were removed: entryTokenBadge and cardListFilter each bound
+#     the INLINE copy on a direct page.goto and the MODULE copy on a Turbo
+#     navigation, while window.<name> reported the opposite one. seedsBar did not
+#     invert at all — its factory ships in the same partial as its call site, so
+#     every mount re-installs it — yet window.seedsBar still read as the module
+#     copy between importmap load and the next seeds-bar render. A spec on the
+#     global would have called the correct page broken and the broken page correct.
+#   · Alpine.$data(el) returns the element's data stack MERGED, so these specs
+#     assert on METHOD SOURCE rather than on a property: under the control above a
+#     bare `typeof d._serverSeedsTotal` still answered "number" off an ancestor
+#     frame while the bound component was the stale copy.
+# None is tagged @devnet. Derived with bin/e2e-lane-derive --write, not by arithmetic.
+total_specs: 328
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1400,7 +1434,7 @@ allowed_skips: 4
 # --write ON THE MERGED TREE, not by incrementing — and the first derive, before
 # the merge, wrote 298 against a base that had already moved. That is why the
 # instruction says MERGED TREE and not "run the deriver".
-executed: 302
+executed: 307
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

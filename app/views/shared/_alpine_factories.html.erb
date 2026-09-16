@@ -1,10 +1,10 @@
 <%#
   Single source of truth for Alpine x-data factory functions.
 
-  Why this exists: the importmap modules in app/javascript/*_factory.js
-  load AFTER Alpine has already processed x-data attributes (verified
-  2026-05-24 via Playwright console traces — Alpine 3.15.12 logs
-  "alpine already loaded" by the time our modules execute).
+  Why this exists: the importmap modules in app/javascript/ load AFTER Alpine
+  has already processed x-data attributes (verified 2026-05-24 via Playwright
+  console traces — Alpine 3.15.12 logs "alpine already loaded" by the time our
+  modules execute).
 
   Any factory referenced as x-data="factoryName(...)" must be defined
   on window BEFORE Alpine starts. A synchronous inline <script> like
@@ -12,21 +12,37 @@
   CDN script + the deferred importmap entry. So window.factoryName
   is guaranteed available when Alpine evaluates the x-data expression.
 
-  A companion module at app/javascript/<name>.js is NOT harmless, and the
-  claim that it is cost a live bug (2026-09-16, duplicate-lock-picker-diverged).
-  Re-assigning the same window global late is indeed inert — but a module that
-  ALSO calls Alpine.data("<name>", ...) registers in a table Alpine consults
-  BEFORE the global, and that registration survives a Turbo body swap while this
-  inline script re-runs. The result is arrival-path-dependent: the inline copy
-  wins a direct page load, the module wins a Turbo client-side navigation. While
-  the two agree that is invisible; the moment one is edited alone they are two
-  different components behind one name.
+  A companion module at app/javascript/<name>.js is NOT harmless, and the claim
+  that it is cost a live bug (2026-09-16, duplicate-lock-picker-diverged). TWO
+  different mechanisms let a twin win, and only one is about Alpine's data table:
 
-  contestLockPicker was de-duplicated to this file alone. STILL PAIRED, and
-  carrying the same latent split: cardListFilter (app/javascript/card_list_filter.js)
-  and entryTokenBadge (app/javascript/entry_token_badge.js) — both call
-  Alpine.data(). They are currently in sync, so they are a hazard rather than a
-  bug. Edit either copy and you must edit both, or collapse it here as this one was.
+    1. Alpine.data("<name>", ...) — a module that registers there puts the name in
+       a table Alpine consults BEFORE the window global, and that registration
+       survives a Turbo body swap while this inline script re-runs.
+    2. the window global on its own — re-assigning it late is inert ONLY for
+       elements Alpine already bound at its initial walk. An element mounted
+       AFTER the module ran reads whatever the global holds at MOUNT time, so a
+       lazily-inserted node is not covered by that carve-out.
+
+  MEASURED, not reasoned — in a browser on 2026-09-16, reading the live component
+  with Alpine.$data(el) off a real element. Never read window.<name> to decide
+  this: it is a different object from the one Alpine bound, and it inverts the
+  other way.
+
+    component          direct page.goto   Turbo client-side nav
+    entryTokenBadge    inline copy        MODULE copy
+    cardListFilter     inline copy        MODULE copy
+
+  So a twin makes the component you get depend on how the reader arrived. While
+  the two copies agree that is invisible; the moment one is edited alone they are
+  two different components behind one name.
+
+  NO FACTORY IS PAIRED TODAY, and that is enforced rather than remembered.
+  contestLockPicker was de-duplicated on 2026-09-16; seedsBar, cardListFilter and
+  entryTokenBadge followed the same day (task paired-alpine-factories-can-diverge),
+  their app/javascript twins deleted along with the importmap pins that loaded
+  them. test/views/alpine_factory_definitions_test.rb FAILS on any factory name
+  defined in more than one file, so a twin cannot come back quietly.
 
   Add a new factory: paste it below as `window.factoryName = function(...) {...}`.
 %>

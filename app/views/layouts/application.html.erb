@@ -1091,7 +1091,8 @@
             // Claim the seeds bar for the length of the level-up animation.
             // A delayed onchainSettled() reload landing mid-flight would snap
             // the bar back to a value the animation is still travelling toward,
-            // or re-fire this milestone. seeds_bar.js clears levelingUp at 3000ms.
+            // or re-fire this milestone. The seedsBar factory (inline in
+            // components/_seeds_bar) clears levelingUp at 3000ms.
             if (window.markSeedsAnimating) window.markSeedsAnimating(3000);
             var props = { level: e.detail.newLevel };
             // The server enqueued the mint from the same fresh seed snapshot.
