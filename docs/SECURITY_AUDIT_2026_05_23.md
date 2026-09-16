@@ -189,3 +189,5 @@ Reply with which of these you want me to:
 - Defer to the refactor stage (some PL items overlap)
 
 Stage 2 (refactor / scalability) is blocked on your triage.
+
+<!-- citation-guard: snapshot 2026-05-23 (10 citations) — dated security audit -->

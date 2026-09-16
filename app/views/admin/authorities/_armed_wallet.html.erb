@@ -1,0 +1,28 @@
+<%# locals: (address:, user:, tone:) %>
+<%#
+  ONE ROW OF THE ARMED BEFORE/AFTER DIFF.
+
+  THE ADDRESS KEEPS THE TONE, NOT THE NAME. `tone` carries the strike-through
+  for an evicted key and the accent for an added one, and it is applied to the
+  ADDRESS because the address is the thing being removed or added. A struck-out
+  username would read as "this person is being removed", which is a different
+  and larger claim than the one this panel makes: a key is leaving the set, and
+  its holder may well still hold others.
+%>
+<li class="flex items-start gap-1.5">
+  <% if user %>
+    <%= render "components/avatar", user: user, size: "sm" %>
+  <% else %>
+    <span aria-hidden="true"
+          class="mt-px flex h-6 w-6 shrink-0 items-center justify-center rounded-full
+                 border border-dashed border-strong text-3xs font-bold text-muted">
+      ?
+    </span>
+  <% end %>
+  <div class="min-w-0 flex-1">
+    <span class="block truncate text-3xs <%= user ? "font-bold text-heading" : "text-muted" %>">
+      <%= user ? user.display_name : "No linked account" %>
+    </span>
+    <span class="block font-mono text-2xs break-all <%= tone %>"><%= address %></span>
+  </div>
+</li>

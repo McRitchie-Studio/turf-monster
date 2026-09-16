@@ -319,3 +319,5 @@ is `nfl_team_total_projections` today.
 - [[admin-contest-setup]] — the successor. `ContestsController#resolve_span_slate`
   (`app/controllers/contests_controller.rb:2302-2332`, step 7's real contest-creation path)
   is that workflow's entrypoint, so a slate built here is what a contest is then opened on.
+
+<!-- citation-guard: enforced -->

@@ -144,3 +144,5 @@
 - [[referral-google-tokens-to-chat]] — converges on the same code from step 6 onward (`TokensController#stripe_checkout`, the webhook, `ContestsController#enter`, `MessagesController#create`). It differs at the signup spine: Google OAuth through `OmniauthCallbacksController#create`, with the `?reference=` funnel attribution writing `users.reference`.
 - [[web3-landing-to-entry]] — an alternate top-of-funnel where the visitor connects Phantom on a landing page; it converges on `ContestsController#prepare_entry` (`app/controllers/contests_controller.rb:1024-1179`) and `#confirm_onchain_entry` (`:1364-1482`) instead of the managed-token branch this flow exercises.
 - [[admin-contest-setup]] — the predecessor flow; it produces the `Contest` and the `SeasonConfig.main_contest_explicit` pointer `Contest.featured` reads first (`app/models/contest.rb:201`).
+
+<!-- citation-guard: enforced -->

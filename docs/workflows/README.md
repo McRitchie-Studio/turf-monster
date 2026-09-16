@@ -22,6 +22,35 @@ Casual-agent index. Open a per-workflow file for the dirty details.
 > preamble states how many of its citations get the weaker check, and the test holds
 > it to that number. And no check reads PROSE: a citation can land on the right
 > symbol beside a sentence that is no longer true.
+>
+> **A bare word must also be RARE where it lands** (2026-09-15). The fallback used to
+> accept any quoted token of six characters or more that appeared anywhere in the
+> cited lines, and a citation that had drifted onto buffer-rent arithmetic stayed
+> green because that line held the word `upgrade`. A token with no structure — no
+> `_`, `::`, `#`, `.`, `-`, no camelCase, no digit — is now matched whole AND must
+> occur on no more than twelve lines of the file it points into; `upgrade` was on 22
+> of that file's 947, so the number could have been any of them. Structured names
+> (`EXPECTED_IDL_HASH`, `Solana::Config.verify_idl!`) are specific by construction and
+> are not capped.
+>
+> **Every document under `docs/` now says whether it is guarded** (2026-09-15).
+> Until then this directory was the whole of the scope, and the other eleven
+> citation-carrying documents in `docs/` were unguarded for the sole reason that
+> nobody had mentioned them — which looked exactly like a document deliberately
+> frozen. Each one now ends with a declaration, and the guard's inventory test
+> fails on any document that carries `path:line` citations and declares nothing:
+>
+> | Declaration | Means |
+> |---|---|
+> | `<!-- citation-guard: enforced -->` | under the coordinate checks — what every file in this directory carries |
+> | `<!-- citation-guard: snapshot <date> (<N> citations) -->` | a dated audit; its citations are true as of that date and are frozen |
+> | `<!-- citation-guard: external (<N> citations) — … -->` | names a repository this one cannot read, so no line number here is checkable |
+> | `<!-- citation-guard: unswept (<N> citations) — … -->` | live citations nobody has verified — a confession, not a pass |
+>
+> An exemption states its own citation count and the guard holds it exactly, so a
+> frozen document cannot quietly acquire new unchecked coordinates. The marker goes
+> at the END of the file: `SOLANA.md` and `FORMULAS.md` are cited BY LINE from other
+> documents, and a declaration must not move the thing it declares.
 
 ## User journeys
 

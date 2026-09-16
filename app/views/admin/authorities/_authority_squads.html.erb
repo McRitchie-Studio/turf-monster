@@ -1,4 +1,4 @@
-<%# locals: (squads:, squads_address:, squads_app_url:, configured_upgrade_authority:, network:, vault:) %>
+<%# locals: (squads:, squads_address:, squads_app_url:, configured_upgrade_authority:, network:, vault:, identities:) %>
 <%#
   (2b) THE PROGRAM UPGRADE AUTHORITY — a Squads V4 multisig, per cluster.
 
@@ -40,19 +40,28 @@
 
     <ul class="space-y-1 mb-3">
       <% squads[:members].each do |member| %>
-        <li class="flex flex-wrap items-baseline gap-x-2 rounded-md border border-subtle bg-surface px-2 py-1">
-          <span class="font-mono text-2xs text-heading break-all"><%= member[:address] %></span>
-          <span class="text-3xs text-muted">
+        <li class="rounded-md border border-subtle bg-surface px-2 py-1.5">
+          <%# SAME TREATMENT AS THE VAULT PANEL, deliberately. A seat that is
+              ALSO a vault signer is the overlap this whole panel computes, and
+              the operator reads that comparison far quicker off two faces than
+              off two columns of base58. Resolving is not asserting: a seat with
+              no app account renders unresolved here exactly as it does above. %>
+          <% overlap_badge = capture do %>
+            <% if vault && vault[:active_signers].include?(member[:address]) %>
+              <span class="rounded bg-surface-alt px-1 py-px text-3xs font-bold uppercase tracking-wide text-muted">
+                Also a vault signer
+              </span>
+            <% end %>
+          <% end %>
+          <%= render "wallet_identity", address: member[:address],
+                     user: identities[member[:address]], compact: true,
+                     badges: overlap_badge %>
+          <p class="mt-0.5 pl-8 text-3xs text-muted">
             mask <%= member[:mask] %>
             (<%= [("initiate" if member[:can_initiate]),
                   ("vote" if member[:can_vote]),
                   ("execute" if member[:can_execute])].compact.join(" · ").presence || "none" %>)
-          </span>
-          <% if vault && vault[:active_signers].include?(member[:address]) %>
-            <span class="rounded bg-surface-alt px-1 py-px text-3xs font-bold uppercase tracking-wide text-muted">
-              Also a vault signer
-            </span>
-          <% end %>
+          </p>
         </li>
       <% end %>
     </ul>

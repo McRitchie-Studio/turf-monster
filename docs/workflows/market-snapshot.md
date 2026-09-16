@@ -468,3 +468,5 @@ Once the split lands, this SOP touches only the first list. Until then, treat st
 
 - [[slate-build]] — the successor. Reads what this SOP writes, and owns everything
   from Slate creation through the frozen multiplier.
+
+<!-- citation-guard: enforced -->

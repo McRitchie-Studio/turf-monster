@@ -431,3 +431,5 @@ Phantom must be installed in the browser or available via mobile deep link.
 - [[referral-google-tokens-to-chat]] — alternate signup lane (Google
   OAuth) sharing the same `cookies[:reference]` first-touch attribution
   set in step 1.
+
+<!-- citation-guard: enforced -->

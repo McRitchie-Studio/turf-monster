@@ -66,9 +66,15 @@ test("turf monster rules page loads @smoke", async ({ page }) => {
   await expect(page).toHaveTitle(/Turf Monster v1/);
 });
 
+// The destination must be a row the gear sidebar ALWAYS carries. "/contests"
+// used to serve here as the admin "Contests" row; that row was dropped (task:
+// sidebar-shows-status-not-title, it is a Link Hub tile), and the only other
+// "/contests" in the panel is the quest link's FALLBACK — live only when no
+// main contest is configured, which makes it the wrong thing to steer by.
+// "/help/how-to-play" is unconditional and admin-independent.
 const signedInSidebarRoutes = [
   { route: "/contests", destination: "/account" },
-  { route: "/account", destination: "/contests" },
+  { route: "/account", destination: "/help/how-to-play" },
   { route: "/contests/my", destination: "/account" },
 ];
 

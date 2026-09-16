@@ -25,6 +25,21 @@
   not. Flip the default here only if the server signature genuinely exists
   before this renders.
 %>
+<%# WHO HOLDS EACH WALLET — OPTIONAL, AND ABSENT MEANS ABSENT.
+
+    /admin/authorities passes a resolved {address => User} map; the treasury
+    console does not, and must keep rendering exactly as it did. So this reads
+    through `local_assigns` with an empty default rather than through a declared
+    local: an un-passed local would raise here, and a `defined?` check in a
+    partial is the wrong instrument (see the block_given? trap — a partial
+    inherits the layout's frame, so "is it there" questions want local_assigns).
+
+    NO AVATAR IN THIS LIST, DELIBERATELY. Every row already leads with the
+    signing-state indicator cosign.js drives, and a second circle beside it
+    reads as a second status rather than as a face. The name and the wallet kind
+    carry the identity here; the avatars live on the planner and the armed diff,
+    where no indicator competes with them. %>
+<% identities = local_assigns.fetch(:identities, {}) %>
 <% fee_payer_row  = roster.find { |signer| signer[:fee_payer] } %>
 <% fee_unfunded   = fee_payer_row.present? && fee_payer_row[:funded] == false %>
 <% blocked_reason = fee_unfunded ? "The fee payer holds no SOL, so this transaction cannot pay its network fee." : "" %>
@@ -110,6 +125,20 @@
           </div>
 
           <p class="text-3xs text-secondary"><%= signer[:label] %></p>
+
+          <%# THE HOLDER, WHEN THE CALLER RESOLVED ONE. A miss says so rather
+              than printing nothing: on a roster the operator reads to decide
+              which wallet to open, a silent blank is indistinguishable from a
+              name that failed to render. %>
+          <% if identities.present? %>
+            <% holder = identities[address] %>
+            <p class="mt-0.5 text-3xs <%= holder ? "font-bold text-heading" : "text-muted" %>">
+              <%= holder ? holder.display_name : "No linked account" %>
+              <span class="font-normal text-muted">
+                <%= holder ? (holder.web3_solana_address == address ? "· Phantom" : "· Managed") : "· unresolved" %>
+              </span>
+            </p>
+          <% end %>
 
           <% if signer[:signs_automatically] %>
             <p class="mt-0.5 text-3xs text-muted">Signs on the server. Nothing for you to do.</p>

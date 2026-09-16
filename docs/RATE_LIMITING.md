@@ -337,3 +337,5 @@ the phasing above:
 - `app/views/layouts/application.html.erb` — modal host + `postMagicLink`.
 - `app/controllers/messages_controller.rb#posting_too_fast?` — existing
   per-user stateful limiter (the model for custom counter logic).
+
+<!-- citation-guard: unswept (4 citations) — their paths were never qualified, so nothing has ever resolved them; re-measured 2026-09-15 and the coordinates have drifted off what the prose names -->
