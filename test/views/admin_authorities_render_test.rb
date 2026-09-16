@@ -841,6 +841,12 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
     # A fragment that lives on ONE rendered line: the partial wraps its prose,
     # so a phrase spanning its source line break never matches the HTML.
     assert_match(/record the transaction's signature/, response.body)
+
+    # AND THE ONWARD POINTER MUST NAME A DOOR THAT OPENS. This used to send him
+    # to the treasury confirm step, which answers `Unsupported tx_type for
+    # verification: update_signers` and writes nothing — safe, but his time.
+    assert_no_match(/post its signature/, response.body, "no endpoint that refuses this row")
+    assert_match(/clear this row/, response.body, "say plainly that no in-app control resolves it")
   end
 
   test "the stranded panel names no colour class the stylesheet leaves undefined" do

@@ -86,14 +86,20 @@
         this state any more — it stamps the signature in the same statement that
         takes the claim — but rows claimed by the older code have no handle to
         ask the chain with, and #reconcile would refuse them. Showing the button
-        anyway would teach an operator mid-incident that the remedy is broken. %>
+        anyway would teach an operator mid-incident that the remedy is broken.
+        AND SO WOULD NAMING ONE IN PROSE: this paragraph used to send him to
+        the treasury confirm step, which answers `Unsupported tx_type for
+        verification: update_signers` and writes nothing. Every in-app door is
+        shut for this row, so the page now says exactly that. %>
     <p class="text-sm text-warning-ink">
       This eviction was claimed by an older version of this console, which did
       not record the transaction's signature — so there is no handle to ask the
       chain with, and it cannot be reconciled here. Read the vault signer set
-      below to see what the chain actually holds. If it did not change, find the
-      transaction on chain and post its signature through the treasury console's
-      confirm step, which verifies it before writing anything.
+      below: that read is the authoritative answer. If it changed, the rotation
+      landed and the eviction worked. If it did not, no control in this app can
+      clear this row — the treasury confirm step refuses a rotation by type — so
+      it takes a console, and it must be retired before a fresh eviction can be
+      armed.
     </p>
   <% end %>
 </div>
