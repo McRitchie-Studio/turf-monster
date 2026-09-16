@@ -2,6 +2,7 @@
 
 require "test_helper"
 require "prism"
+require "open3"
 
 # A `path/to/file.rb:NN` CITATION IS A CLAIM ABOUT RUNNING CODE, and until this
 # test existed nothing checked it. docs/workflows/web3-landing-to-entry.md opens
@@ -458,10 +459,11 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # nor be counted. An instance variable cannot cross a fork, which is what makes
   # "mine" the right scope.
   #
-  # ITS LIMIT, STATED: a document COMMITTED under this prefix would be invisible
-  # to every check here. Nothing enforces that; the prefix is chosen to be one
-  # nobody would reach for by accident, and a control fixture is deleted in an
-  # `ensure` the same test that wrote it.
+  # ITS LIMIT, CLOSED: a document COMMITTED under this prefix is hidden from the
+  # inventory, the enforced/COVERAGE equality and the unswept ratchet, while the
+  # load-time coordinate checks still read it, so it looks covered. Measured
+  # 2026-09-16: `enforced` over a wrong line, or `unswept` off the list, stayed
+  # GREEN. The test "no committed document takes the reserved control name" holds it.
   CONTROL_DOC_PREFIX = "citation-guard-control-"
 
   def self.control_fixture?(doc) = File.basename(doc).start_with?(CONTROL_DOC_PREFIX)
@@ -985,6 +987,19 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
                  "a citation-guard declaration is not the last line of its file. Put it there: " \
                  "the parser reads the LAST marker in a document, and a document cited by line " \
                  "from elsewhere cannot afford a marker that shifts its contents."
+  end
+
+  # THE INDEX IS WHERE A CONTROL FIXTURE NEVER GOES: a control writes to the
+  # working tree and deletes it again, so a TRACKED file under the prefix is a
+  # document, and see CONTROL_DOC_PREFIX for what that name would hide it from.
+  test "no committed document takes the reserved control name" do
+    out, err, status = Open3.capture3("git", "-C", Rails.root.to_s, "ls-files", "-z", "--", "docs")
+    tracked = out.split("\0")
+    assert status.success?, "git ls-files could not read the index: #{err}"
+    assert_includes tracked, "docs/AUTH.md", "git ls-files listed no docs, so an empty result proves nothing"
+    assert_empty tracked.select { |p| self.class.control_fixture?(p) },
+                 "a committed document is named #{CONTROL_DOC_PREFIX}*, which docs_tree hides from " \
+                 "the inventory, the enforced/COVERAGE equality and the unswept ratchet. Rename it."
   end
 
   # -------------------------------------------------------------- the controls
