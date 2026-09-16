@@ -16,7 +16,7 @@ Casual-agent index. Open a per-workflow file for the dirty details.
 > red test until it is swept and opted in (see [`_TEMPLATE.md`](_TEMPLATE.md)).
 >
 > **Strong is not uniform.** Where a cited line sits inside no definition the guard
-> can derive — a route, ERB markup, a `.js` or `.rake` file, a class-body callback —
+> can derive — ERB markup, a `.js` or `.rake` file, a class-body callback —
 > the check falls back to asking that a code token the prose quotes appear in the
 > cited lines. That proves the words are there, not that the code is. Each file's own
 > preamble states how many of its citations get the weaker check, and the test holds
@@ -32,6 +32,17 @@ Casual-agent index. Open a per-workflow file for the dirty details.
 > of that file's 947, so the number could have been any of them. Structured names
 > (`EXPECTED_IDL_HASH`, `Solana::Config.verify_idl!`) are specific by construction and
 > are not capped.
+>
+> **A `config/routes.rb` citation anchors on its FIRST line** (2026-09-16). A routes
+> file defines no method, so no citation into it can ever reach the symbol check —
+> every one of them fell to the fallback, and a routes stanza repeats its own words
+> often enough that a span which had slipped a line still held a token. One inserted
+> route moved five citations in three documents and all five stayed green, one of
+> them opening on a blank line and dropping two of the three routes its prose named.
+> A route entry is ONE line, so the number must land on it; the one exemption is a
+> citation of a routes COMMENT, which must name the whole comment block rather than
+> part of one. Measured: a one-line insertion now reddens 19 of the 21 routes
+> citations, a deletion 17.
 >
 > **Every document under `docs/` now says whether it is guarded** (2026-09-15).
 > Until then this directory was the whole of the scope, and the other eleven

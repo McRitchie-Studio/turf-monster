@@ -187,6 +187,21 @@ require "prism"
 #      starts in a gap, or runs across two definitions, is judged by that one
 #      line. A citation meant to span definitions should list them separately
 #      (`:12-18, 30-41`) — each part is then judged on its own first line.
+#   8. A ROUTES CITATION IS CHECKED DIFFERENTLY, AND STILL NOT PERFECTLY.
+#      config/routes.rb defines no method, so `definitions` returns nothing for
+#      it and no citation into it can ever reach the symbol branch — see the
+#      ROUTES_FILE note below for the measured drift that came of leaving those
+#      on the plain fallback. They now anchor on their FIRST cited line, which
+#      is where a route entry lives, so a number that has slipped off its route
+#      reddens. What that still misses, measured 2026-09-16 over 21 routes
+#      citations: a one-line insertion above a citation reddens 19 of them and a
+#      deletion 17, and the four survivors are all the same shape — the prose
+#      names a probe that the NEIGHBOURING line carries too (`signin_redirect`
+#      is written on three consecutive lines; `vault_init#build` sits one line
+#      under `vault_init#show`, and a citation naming all three anchors on
+#      either). That is the routes-file form of limit 6: the anchor is tight
+#      enough to catch a number that left its stanza, not tight enough to catch
+#      one that moved within it.
 class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # COVERAGE IS PER DOCUMENT, AND THAT IS THE POINT. A second document guarded
   # under one shared floor would be covered in name only: web3-landing-to-entry's
@@ -512,6 +527,52 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # proves a landing, and it runs first for exactly that reason.
   MAX_BARE_WORD_LINES = 12
 
+  # config/routes.rb IS THE ONE CITED FILE WITH NO SYMBOLS AT ALL, and that is
+  # why it rotted. `definitions` reads Ruby with Prism and collects DefNodes;
+  # a routes file is one `draw do` block and defines no method, so
+  # `enclosing_names` is empty for EVERY citation into it and every one of them
+  # falls to the literal branch — not by an editor's choice, by construction.
+  # The fallback then asks only that some prose token appear SOMEWHERE in the
+  # cited span, and a routes stanza repeats its own words, so a span that has
+  # slipped a line or two off its route still holds one.
+  #
+  # MEASURED, the drift this rule exists to reject: phantom-cashout-needs-sol
+  # inserted ONE line (`post "offramp/cosign_send"`) and moved every route below
+  # it by one. Five citations in three documents went stale and all five stayed
+  # GREEN — admin-contest-setup.md:66 cited `vault_init#show, #build, #confirm`
+  # at a span that opened on a blank line, held only `#show`, and dropped the
+  # other two; live-scoring.md cited `resources :weeks` at a span whose first
+  # line was the tail of a five-line comment. Each still contained one token, so
+  # each passed. A wrong number that reads as verified is the defect this whole
+  # file exists to prevent, and here the guard was issuing the certificate.
+  #
+  # SO A ROUTES CITATION ANCHORS ON ITS FIRST LINE, not anywhere in its span.
+  # A route entry is ONE line — `get "vault_init", to: "vault_init#show"` — so
+  # the line that carries the quoted token is the claim, and the number either
+  # lands on it or is wrong. Shift the span and the first line changes; that is
+  # what makes a one-line insertion redden here instead of six months later.
+  #
+  # WITH ONE EXEMPTION, because the documents cite routes COMMENTS deliberately
+  # (limit 3): a route drawn by the engine now has no line of its own in this
+  # file, only the comment block saying so. Such a citation anchors on any line
+  # of that block — but the span must be the WHOLE block, bounded above and
+  # below by non-comment lines. Citing a block exactly is a claim a shift breaks;
+  # citing part of one is how `config.draw_geo_routes` came to be cited at a span
+  # that opened on three transaction-log routes and a blank line.
+  #
+  # AND THE MATCH IS WHOLE-TOKEN, where the literal branch is a substring. The
+  # substring rule reads `Studio::LinksController` as a hit for `Studio::Link`,
+  # which is exactly how a shifted span keeps passing: the neighbouring line
+  # says almost the same words. Whole-token is what the bare-word cap already
+  # uses, applied here to every probe rather than only the ordinary words.
+  ROUTES_FILE = "config/routes.rb"
+
+  # The floor for the routes parse, below the 21 citations into config/routes.rb
+  # that SCANNED_DOCS held when this rule landed (2026-09-16). Same reasoning as
+  # every other floor here: a rule that matches nothing passes having proved
+  # nothing.
+  MIN_ROUTE_CITATIONS = 15
+
   # A real repo file used as the CONTROL for the blank-line rejection below. It
   # needs only two properties — it exists, and it holds both a blank line and a
   # non-blank one — and the control locates them at run time, so it cannot go
@@ -556,6 +617,25 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
     end
     assert_empty over.map { |c| "#{c[:doc]}:#{c[:line]} #{c[:raw]} -> #{c[:path]} has #{source(c[:path]).size} lines" },
                  "citation points past the end of the file"
+  end
+
+  # DIRECTORY-WIDE, and the reason is the whole ROUTES_FILE note above: this is
+  # the one cited file where the symbol branch can never run, so without this
+  # rule a routes citation gets the weakest check in the file — and it is cited
+  # from six documents, two of which the symbol test does not read at all.
+  test "a config/routes.rb citation starts on the line that carries its route" do
+    routes = all_citations.select { |c| c[:path] == ROUTES_FILE }
+    assert_operator routes.size, :>=, MIN_ROUTE_CITATIONS,
+                    "parsed #{routes.size} citations into #{ROUTES_FILE}; the parse or the path " \
+                    "likely stopped matching"
+    src = source(ROUTES_FILE)
+    adrift = routes.reject { |c| route_anchored?(c) }
+    assert_empty adrift.map { |c|
+      first = c[:ranges].first.first
+      "#{c[:doc]}:#{c[:line]}  #{c[:raw]}  opens on: #{src[first - 1].to_s.strip.inspect}  " \
+        "prose names=[#{prose_probes(c).first(6).join(' ')}]"
+    }, "a routes citation does not open on the line carrying the route its prose names. " \
+       "A routes entry is one line — put the number on it, or cite the whole comment block"
   end
 
   test "every citation lands on the symbol its prose names" do
@@ -753,6 +833,57 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
                     "is inert, and hole 1 is open again"
   ensure
     File.delete(abs(rel)) if rel && File.exist?(abs(rel))
+  end
+
+  # CONTROL FOR THE ROUTES ANCHOR — the defect rebuilt from the repository
+  # rather than described, and the half that matters is the SECOND assertion:
+  # green alone would prove only that the new rule is not reddening a correct
+  # citation. The control takes a live routes citation, shifts it the way an
+  # inserted route shifts every citation below it, and shows the rule this
+  # replaced ACCEPTED that span while this one rejects it. Every coordinate is
+  # located at run time, so a later route insertion cannot make the control lie.
+  #
+  # THE CORPUS FLOORS BELOW are the breadth half, and they are floors rather
+  # than equalities because the rule does not claim to catch every shift.
+  # Measured 2026-09-16 over the 21 routes citations then in scope: a one-line
+  # INSERTION above a citation reddens 19 of 21, a DELETION 17 of 21. What
+  # survives is stated in limit 8 above — a probe the prose names that occurs on
+  # the neighbouring line too, which is the routes-file form of the weakness the
+  # bare-word cap addresses elsewhere.
+  ROUTE_CONTROL_PROBE   = "vault_init#show"
+  MIN_INSERTION_CAUGHT  = 19
+  MIN_DELETION_CAUGHT   = 17
+
+  test "a one-line routes shift is rejected where the literal fallback accepted it" do
+    routes = all_citations.select { |c| c[:path] == ROUTES_FILE }
+    assert_operator routes.size, :>=, MIN_ROUTE_CITATIONS,
+                    "parsed #{routes.size} citations into #{ROUTES_FILE} — the control has nothing to shift"
+
+    live = routes.find { |c| prose_probes(c).include?(ROUTE_CONTROL_PROBE) }
+    assert live, "no guarded document cites #{ROUTES_FILE} beside `#{ROUTE_CONTROL_PROBE}` any more — " \
+                 "re-point this control at whatever carries that shape now"
+    assert route_anchored?(live),
+           "the live citation #{live[:doc]}:#{live[:line]} #{live[:raw]} stopped anchoring — the " \
+           "rule is over-tight and is reddening a correct citation"
+
+    shifted = shift_citation(live, -1)
+    assert old_literal_anchored?(shifted),
+           "the shifted span #{shifted[:raw]} no longer satisfies the rule this replaced, so the " \
+           "control proves nothing — it has to reproduce a span the OLD rule passed"
+    refute route_anchored?(shifted),
+           "a citation shifted one line off its route still anchors:\n" \
+           "    #{source(ROUTES_FILE)[shifted[:ranges].first.first - 1].to_s.strip}\n" \
+           "That is exactly what one inserted route did to five citations in three documents, " \
+           "every one of them staying green while naming the wrong lines."
+
+    insertion = routes.count { |c| !route_anchored?(shift_citation(c, -1)) }
+    deletion  = routes.count { |c| !route_anchored?(shift_citation(c, 1)) }
+    assert_operator insertion, :>=, MIN_INSERTION_CAUGHT,
+                    "a one-line insertion now reddens only #{insertion} of #{routes.size} routes " \
+                    "citations; it caught #{MIN_INSERTION_CAUGHT} when this rule landed"
+    assert_operator deletion, :>=, MIN_DELETION_CAUGHT,
+                    "a one-line deletion now reddens only #{deletion} of #{routes.size} routes " \
+                    "citations; it caught #{MIN_DELETION_CAUGHT} when this rule landed"
   end
 
   # CONTROL FOR THE BARE-WORD RULE — the defect, rebuilt from the repository
@@ -1320,6 +1451,10 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # declarations in a class body.
   def anchored?(citation)
     return false unless citation[:path] && File.exist?(abs(citation[:path]))
+    # ONE PREDICATE, NOT TWO. The routes rule is reached from here rather than
+    # living in its own test, so the symbol test over COVERAGE and the
+    # directory-wide routes test below cannot give two answers to one question.
+    return route_anchored?(citation) if citation[:path] == ROUTES_FILE
 
     tokens = prose_tokens(citation)
     enclosing = enclosing_names(citation)
@@ -1351,6 +1486,57 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
     self.class.docs_tree
         .reject { |d| self.class.declaration_for(d) }
         .select { |d| parse_doc(d).any? }
+  end
+
+  # A citation into config/routes.rb. It anchors on the FIRST cited line, which
+  # is the line a route entry lives on — see the ROUTES_FILE note above. The one
+  # exemption is a citation of a whole comment block, which may anchor on any of
+  # its lines because the block is the unit a reader is being sent to.
+  def route_anchored?(citation)
+    src    = source(ROUTES_FILE)
+    probes = prose_probes(citation)
+    return false if probes.empty?
+
+    lines = citation[:ranges].flat_map { |r| (r.first..r.last).to_a }
+    return false if lines.empty? || lines.any? { |n| n > src.size }
+
+    carries = ->(n) { probes.any? { |p| src[n - 1].to_s.match?(whole_token(p)) } }
+    return lines.any?(&carries) if whole_comment_block?(src, lines)
+
+    carries.call(lines.first)
+  end
+
+  # The same citation, moved by `delta` lines — what an inserted or deleted route
+  # above it does to the number without anyone touching the document.
+  def shift_citation(citation, delta)
+    moved = citation[:ranges].map { |r| (r.first + delta)..(r.last + delta) }
+    citation.merge(ranges: moved,
+                   raw: "#{ROUTES_FILE}:#{moved.map { |r| r.first == r.last ? r.first : "#{r.first}-#{r.last}" }.join(", ")}")
+  end
+
+  # THE RULE THIS ONE REPLACED, kept so the control can prove the difference
+  # rather than assert it: a prose token appearing ANYWHERE in the cited span,
+  # by substring. It is the literal branch of `anchored?` with the routes
+  # delegation taken out, and nothing but the control calls it.
+  def old_literal_anchored?(citation)
+    src   = source(citation[:path])
+    cited = citation[:ranges].flat_map { |r| src[(r.first - 1)..(r.last - 1)] || [] }.join("\n")
+    prose_probes(citation).any? { |probe| cited.include?(probe) }
+  end
+
+  def comment_line?(line) = line.to_s.strip.start_with?("#")
+
+  # Exactly a maximal run of comment lines: every cited line is a comment, the
+  # run is contiguous, and the lines on either side of it are not comments. A
+  # span that merely OVERLAPS a comment block is not one — that is the shape the
+  # geo citation had drifted into.
+  def whole_comment_block?(src, lines)
+    return false unless lines == (lines.first..lines.last).to_a
+    return false unless lines.all? { |n| comment_line?(src[n - 1]) }
+
+    above = lines.first >= 2 ? src[lines.first - 2] : nil
+    below = src[lines.last]
+    (above.nil? || !comment_line?(above)) && (below.nil? || !comment_line?(below))
   end
 
   # The probes a citation's prose offers the literal branch, and the bare-word
