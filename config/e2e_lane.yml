@@ -1119,7 +1119,17 @@
 #     with two answers stubbed per row. Red on the old row, green on the new one, and
 #     each half of the fix has a mutation that turns one of the two specs red.
 # Derived with bin/e2e-lane-derive --write, not by arithmetic.
-total_specs: 330
+#
+# 330 -> 331 (seeds-bar-leaks-server-total, on merging accepted): one spec in
+# e2e/alpine_factory_registration.spec.js, "two seeds bars on one page keep separate
+# server totals". seedsBar assigned _serverSeedsTotal without declaring it, so
+# Alpine wrote it to <body x-data> and the quest-success modal bar overwrote the
+# navbar bar's total. The file's three existing seedsBar specs gained an own-frame
+# assertion (_x_dataStack[0]) rather than new specs, so the count moves by one.
+# Not tagged @devnet and it does not skip. This branch first derived 329 against
+# a base without cosign-button-clipped-on-mobile; re-derived with
+# bin/e2e-lane-derive --write ON THE MERGED TREE.
+total_specs: 331
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1454,7 +1464,10 @@ allowed_skips: 4
 # described beside total_specs above. Neither is tagged @devnet and neither skips,
 # so excluded stays 17 and allowed_skips stays 4: 330 - 17 - 4 = 309. Derived with
 # bin/e2e-lane-derive --write, not by arithmetic.
-executed: 309
+# 309 -> 310 (seeds-bar-leaks-server-total, on merging accepted): the one spec
+# described beside total_specs above. excluded stays 17 and allowed_skips stays 4:
+# 331 - 17 - 4 = 310. Derived with bin/e2e-lane-derive --write ON THE MERGED TREE.
+executed: 310
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

@@ -67,6 +67,14 @@
       levelingUp: false,
       finalToward: 0,
       _timers: [],
+      // DECLARE EVERY KEY THIS COMPONENT ASSIGNS, even one init() sets at once.
+      // Alpine writes this.key to the first frame of the merged data stack that
+      // owns the key, and when none does, to the LAST frame: the body x-data,
+      // which every component on the page shares. Undeclared, this total landed
+      // there, and a later bar (the quest-success modal's) overwrote the navbar
+      // bar's copy. test/views/alpine_factory_definitions_test.rb fails on the
+      // next undeclared write.
+      _serverSeedsTotal: 0,
 
       init() {
         var initialToward = parseInt(this.$root.dataset.initialToward, 10) || 0;

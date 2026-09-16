@@ -120,4 +120,63 @@ class AlpineFactoryDefinitionsTest < ActionDispatch::IntegrationTest
     assert_includes inline, "cacheTotal",
                     "the shipped seedsBar lost its cache reconciliation in normalStart"
   end
+
+  # EVERY KEY seedsBar ASSIGNS MUST BE DECLARED IN THE OBJECT IT RETURNS.
+  #
+  # Alpine writes `this.key = v` to the first frame of the merged data stack that
+  # OWNS the key, and when none does, to the LAST frame — <body x-data> in this
+  # layout, which every component on the page shares. init() once assigned
+  # _serverSeedsTotal without declaring it, so each seeds bar parked its server
+  # total on body, and a later bar (the quest-success modal's) overwrote the
+  # navbar bar's. Measured in a browser 2026-09-16, task
+  # seeds-bar-leaks-server-total. The browser half of this is
+  # e2e/alpine_factory_registration.spec.js; this half fails before a browser is
+  # ever started, at the edit that adds the next undeclared write.
+  test "[component] every key seedsBar assigns is declared in its own data" do
+    source = File.read(APP_ROOT.join("app/views/components/_seeds_bar.html.erb"))
+    body = source[/window\.seedsBar = function \(\) \{\s*return \{(.*?)^\s*\};\s*^\s*\};\s*<\/script>/m, 1]
+    assert body, "could not find seedsBar's returned object — the scan needs re-teaching, not deleting"
+
+    declared = top_level_keys(body)
+    assigned = body.scan(/\b(?:this|self)\.([A-Za-z_$][\w$]*)\s*=(?!=)/).flatten.uniq
+
+    # Controls: a parser that finds nothing would pass the subset check vacuously.
+    assert_includes declared, "displaySeeds"
+    assert_includes declared, "init"
+    assert_includes assigned, "displaySeeds"
+
+    undeclared = assigned - declared
+    assert_empty undeclared, <<~MSG
+      seedsBar assigns #{undeclared.join(", ")} without declaring it in the object
+      its factory returns. Undeclared, Alpine writes it to <body x-data>, a frame
+      every component on the page shares, so two seeds bars overwrite each other.
+      Declare it with a default beside displaySeeds.
+    MSG
+  end
+
+  private
+
+  # Keys and method names at depth 1 of an object literal's body. Nested braces
+  # (method bodies, inner literals) are dropped first, so a key inside
+  # JSON.stringify({ ... }) is not mistaken for component data. Line comments go
+  # before that, because an apostrophe in one ("the server's value") would
+  # otherwise open a string and swallow the braces after it.
+  def top_level_keys(body)
+    depth = 0
+    quote = nil
+    flat = +""
+    body.gsub(%r{//[^\n]*}, "").each_char do |ch|
+      if quote
+        quote = nil if ch == quote
+        next
+      end
+      case ch
+      when '"', "'", "`" then quote = ch
+      when "{" then depth += 1
+      when "}" then depth -= 1
+      else flat << ch if depth.zero?
+      end
+    end
+    flat.scan(/(?:\A|,)\s*([A-Za-z_$][\w$]*)\s*[:(]/).flatten
+  end
 end
