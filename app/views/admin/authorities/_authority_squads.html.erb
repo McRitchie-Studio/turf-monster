@@ -93,7 +93,11 @@
       the overlap at all. %>
   <% members  = squads && squads[:members].map { |m| m[:address] } %>
   <% overlap  = (squads && vault) ? (members & vault[:active_signers]) : nil %>
-  <% breached = overlap && squads && overlap.length >= squads[:threshold] %>
+  <%# ONLY A VOTING SEAT REACHES THE THRESHOLD (squads.rb:157). A mask-1 seat
+      votes on nothing, so counting one alarmed over a set that can never
+      approve: "(2 members may vote)" above, "3 seats ... at or above 3" here. %>
+  <% voting_overlap = (squads && vault) ? (Array(squads[:voting_members]) & vault[:active_signers]) : nil %>
+  <% breached = voting_overlap && squads && voting_overlap.length >= squads[:threshold] %>
 
   <div class="rounded-lg border p-3 <%= breached ? "border-danger/40 bg-danger/10" : "border-subtle bg-surface-alt" %>">
     <p class="text-xs font-bold uppercase tracking-wide mb-1 <%= breached ? "text-danger-ink" : "text-muted" %>">
@@ -118,9 +122,9 @@
           No seat here is also in the vault signer set, so a stolen <em>vault</em>
           key reaches nothing on this authority.
         <% elsif breached %>
-          <strong><%= pluralize(overlap.length, "seat") %> here
-          <%= overlap.length == 1 ? "is" : "are" %> also in the vault signer
-          set — at or above the threshold of <%= squads[:threshold] %>.</strong>
+          <strong><%= pluralize(voting_overlap.length, "seat") %> here
+          <%= voting_overlap.length == 1 ? "is" : "are" %> also in the vault signer
+          set and may vote — at or above the threshold of <%= squads[:threshold] %>.</strong>
           A holder of those keys could <em>execute</em> a program upgrade, which
           is a strictly larger power than anything the vault signer set grants.
           Evicting them from the vault does not touch that: change this
@@ -128,9 +132,9 @@
         <% else %>
           <%= pluralize(overlap.length, "seat") %> here
           <%= overlap.length == 1 ? "is" : "are" %> also in the vault signer
-          set, which is the overlap worth watching —
-          below the threshold of <%= squads[:threshold] %>, so a holder of those
-          keys can create and vote on proposals and never carry one out.
+          set, which is the overlap worth watching — <%= voting_overlap.length %> of
+          those may vote, below the threshold of <%= squads[:threshold] %>, so a
+          holder of those keys can create and vote on proposals and never carry one out.
         <% end %>
       <% end %>
       Squads already ships a web UI for changing membership, so this page links

@@ -415,6 +415,19 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
     assert_match(/right now that is a gap/i, response.body)
   end
 
+  test "a NON-VOTING shared seat cannot trip the threshold alarm" do
+    # SQUAD is 3-of-3 with ALEX2 at mask 1 — absent from `voting_members`.
+    # Counting it made the page print "(2 members may vote)" and, six lines
+    # below, "3 seats ... at or above the threshold of 3".
+    render_page(vault: RenderVault.new(signers: [ALEX, MASON, ALEX2]))
+    assert_no_match(/at or above the threshold of/, response.body)
+    assert_match(/2 of\s+those may vote/, response.body)
+
+    # And the alarm still fires AT the threshold, not only above it.
+    render_page(vault: RenderVault.new(signers: [ALEX, MASON, ALEX2]), squads: SQUAD.merge(threshold: 2))
+    assert_match(/at or above the threshold of\s+2/, response.body)
+  end
+
   test "an unreadable VAULT makes no claim about the overlap at all" do
     blind = RenderVault.new
     blind.define_singleton_method(:read_vault_state) { |**| nil }
