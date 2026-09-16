@@ -76,11 +76,17 @@ const SEEDS_WHOLE = { initReadsServerTotal: true, reconciles: true, control: "fu
 // navigation. This sentinel dies with the document, so its survival IS the proof
 // the navigation stayed same-document.
 async function turboVisit(page, path, selector) {
-  await page.evaluate(() => {
+  await page.evaluate((s) => {
     window.__sameDocument = true;
-  });
+    // The ORIGIN page can carry the same selector (the navbar's seeds bar, the
+    // gear sidebar's badge), so a bare wait for it resolves before Turbo renders.
+    document.querySelectorAll(s).forEach((el) => (el.__beforeVisit = true));
+  }, selector);
   await page.evaluate((p) => window.Turbo.visit(p), path);
-  await page.waitForSelector(selector, ATTACHED);
+  await page.waitForFunction((s) => {
+    const el = document.querySelector(s);
+    return !!el && !el.__beforeVisit && !!el._x_dataStack;
+  }, selector);
   expect(await page.evaluate(() => window.__sameDocument)).toBe(true);
 }
 
