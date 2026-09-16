@@ -188,7 +188,16 @@
             </div>
           </template>
 
+          <%# AN ANNOUNCED LIVE REGION, mounted empty and only toggled visible.
+              This sentence says the rotation he is assembling would be rejected
+              by the chain — "legible and unannounced is only half a fix", and
+              it is sharper here than on most error lines because the operator
+              is switching wallets and reading a roster while it appears. It is
+              `alert`/assertive because it answers an action he is waiting on.
+              Mounted-and-hidden rather than `<template x-if>`: a live region
+              inserted alongside its own content is not reliably announced. %>
           <p class="mt-1 text-3xs text-danger-ink" x-show="conflict()" x-cloak
+             role="alert" aria-live="assertive" aria-atomic="true"
              x-text="conflict()"></p>
         </div>
 

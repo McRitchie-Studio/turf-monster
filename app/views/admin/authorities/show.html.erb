@@ -32,7 +32,9 @@
                                      governance_pda: @governance_pda,
                                      config_governance: @config_governance,
                                      table: @threshold_table,
-                                     network: @network %>
+                                     network: @network,
+                                     readable: @governance_readable,
+                                     known: @chain_governance_known %>
 
   <%= render "authority_squads", squads: @squads, squads_address: @squads_address,
                                  squads_app_url: @squads_app_url,
@@ -78,7 +80,7 @@
       program_id: @program_id,
       vault_pda: @vault && @vault[:pda],
       governance_pda: @governance_pda,
-      governance_on_chain: @governance.present?,
+      governance_on_chain: @governance_readable ? @governance.present? : "unread",
       governance_configured: @config_governance,
       squads_multisig: @squads_address,
       squads_threshold: @squads && "#{@squads[:threshold]} of #{@squads[:members].length}",

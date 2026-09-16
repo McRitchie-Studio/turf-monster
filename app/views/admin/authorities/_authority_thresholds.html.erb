@@ -1,4 +1,4 @@
-<%# locals: (governance:, governance_pda:, config_governance:, table:, network:) %>
+<%# locals: (governance:, governance_pda:, config_governance:, table:, network:, readable:, known:) %>
 <%#
   (2) THE PER-ACTION THRESHOLD TABLE — `GovernanceConfig`, seeds [b"governance"].
 
@@ -23,6 +23,25 @@
       Read from the on-chain <code>GovernanceConfig</code>. These are the numbers
       turf-vault actually enforces.
     </p>
+  <% elsif !readable %>
+    <%# UNREAD IS NOT ABSENT. "The account does not exist, so the program is
+        pre-v0.26" is a CLAIM, and under an unreachable RPC it is one this page
+        cannot make. Saying it anyway would put a confident, unverified sentence
+        about the program's version in front of an operator mid-incident — the
+        exact species of claim this page was built to stop. %>
+    <div class="rounded-lg border border-warning/40 bg-warning/10 p-3 mb-3">
+      <p class="text-xs font-bold uppercase tracking-wide text-warning-ink mb-1">
+        The GovernanceConfig account could not be read on <%= network %>
+      </p>
+      <p class="text-xs text-secondary">
+        So this page cannot say which program version is deployed — an unread
+        account is not an absent one, and the difference decides which
+        instruction shape a rotation must use. The table below is the SHIPPED
+        DEFAULT table plus the program's floors; treat it as a reference, not as
+        a reading of this cluster. The eviction console refuses to build while
+        this is true.
+      </p>
+    </div>
   <% else %>
     <div class="rounded-lg border border-warning/40 bg-warning/10 p-3 mb-3">
       <p class="text-xs font-bold uppercase tracking-wide text-warning-ink mb-1">
@@ -40,7 +59,11 @@
     </div>
   <% end %>
 
-  <% if config_governance != governance.present? %>
+  <%# ONLY WHEN THE CHAIN WAS ACTUALLY READ. With an unreadable RPC,
+      `governance.present?` is false for a reason that has nothing to do with the
+      switch, and this panel would accuse the operator's config of a mismatch
+      that may not exist. %>
+  <% if known && config_governance != governance.present? %>
     <div class="rounded-lg border border-danger/40 bg-danger/10 p-3 mb-3">
       <p class="text-xs font-bold uppercase tracking-wide text-danger-ink mb-1">
         This app and the chain disagree about the program version

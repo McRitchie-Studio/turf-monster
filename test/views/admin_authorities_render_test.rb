@@ -213,6 +213,62 @@ class AdminAuthoritiesRenderTest < ActionDispatch::IntegrationTest
                   "nothing may offer to act on a signer set nobody could read"
   end
 
+  test "the page renders when EVERY chain read raises" do
+    # THE EXACT CONDITION CI RUNS UNDER, and the one this page must survive.
+    # The playwright job pins SOLANA_RPC_URL to a black-hole loopback port
+    # (test/lib/ci_playwright_hermetic_test.rb), so every server-side chain read
+    # fails on every render.
+    #
+    # THE FIRST CUT 500'd HERE, and no local run could have seen it: the
+    # governance probe raised, `#show` called it once inside a rescue (so the
+    # memo was never written, the raise happening before the assignment) and
+    # once outside. A developer's stack reaches devnet and renders fine.
+    #
+    # An authority page is opened during an incident, which is exactly when a
+    # provider is most likely to be down. A 500 there is the whole feature lost
+    # at the only moment it exists for.
+    dead = RenderVault.new
+    dead.define_singleton_method(:read_vault_state) { |**| raise Solana::Client::RpcError, "connect refused" }
+    dead.define_singleton_method(:read_governance)  { |**| raise Solana::Client::RpcError, "connect refused" }
+    dead.define_singleton_method(:fee_payer_status) { |**| raise Solana::Client::RpcError, "connect refused" }
+
+    Solana::Vault.stub :new, dead do
+      # Stub the RAISING reader, not `read` — `read` is where the rescue lives,
+      # and replacing it would test the stub instead of the guard.
+      Solana::Squads.stub :read!, ->(**) { raise "connect refused" } do
+        get admin_authorities_path
+      end
+    end
+
+    assert_response :success
+    assert_select "h1", text: "Authorities"
+    assert_select "h2", text: /Vault signer set/
+    assert_select "h2", text: /Program upgrade authority/
+    assert_select "h2", text: /Server signing identity/
+  end
+
+  test "an UNREAD GovernanceConfig is never reported as an ABSENT one" do
+    # Two different facts, and merging them puts a confident claim about the
+    # deployed program version in front of an operator who has no evidence for
+    # it. "The account does not exist, so the program is pre-v0.26" is only true
+    # when the account was actually looked at.
+    unread = RenderVault.new
+    unread.define_singleton_method(:read_governance) { |**| raise Solana::Client::RpcError, "connect refused" }
+
+    Solana::Vault.stub :new, unread do
+      Solana::Squads.stub :read, SQUAD do
+        get admin_authorities_path
+      end
+    end
+
+    assert_response :success
+    assert_match(/could not be read on/, response.body)
+    assert_no_match(/the deployed program is pre-v0\.26/, response.body)
+    assert_match(/an unread\s+account is not an absent one/i, response.body)
+    # And the per-row provenance says "unread" rather than "not on chain".
+    assert_match(/>unread</, response.body)
+  end
+
   test "an unreadable Squad says so instead of quoting a number" do
     render_page(squads: nil)
     assert_match(/could not be read on/, response.body)

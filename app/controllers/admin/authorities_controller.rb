@@ -77,6 +77,12 @@ module Admin
       # The view says which of those two it is rather than rendering an empty
       # table that reads like "no thresholds".
       @governance = read_governance_safely
+      # ABSENT AND UNREAD ARE DIFFERENT FACTS AND THE PAGE MUST NOT MERGE THEM.
+      # "The account does not exist, so the program is pre-v0.26" is a CLAIM;
+      # under an unreachable RPC it is one this page cannot make. Rendering the
+      # same panel for both would put a confident, unverified sentence about the
+      # program's version in front of an operator mid-incident.
+      @governance_readable = @governance_read_ok
       @governance_pda = Solana::Keypair.encode_base58(vault.governance_pda.first)
       @config_governance = Solana::Config.governance?
 
@@ -90,6 +96,7 @@ module Admin
       @server_address = Solana::CosignPlan.admin_address
 
       @threshold_table = threshold_table
+      @chain_governance_known = !chain_governance?.nil?
       @eligible_signers = @vault ? @vault[:active_signers] : Solana::Config::MULTISIG_SIGNERS
       @required_signatures = required_signatures_for_chain
       @max_slots = chain_governance? ? Solana::Vault::MAX_SIGNERS : Solana::SignerRotation::MAX_SLOTS_V025
@@ -308,7 +315,10 @@ module Admin
         current_signers: state[:active_signers],
         proposed: Array(proposed),
         authorizers: Array(authorizers).map { |a| a.to_s.strip }.reject(&:blank?),
-        governance: chain_governance?,
+        # THE RAISING READER. A rotation planned against a guessed program
+        # shape is worse than one refused: the guess reaches the chain as an
+        # opaque deserialization error, after a fee and three Phantom dialogs.
+        governance: chain_governance!,
         max_live_threshold: max_live_threshold
       )
     end
@@ -321,14 +331,41 @@ module Admin
     # EXISTS, which is the only fact that decides which instruction shape the
     # deployed binary can decode.
     #
+    # ── TWO READERS, BECAUSE THE TWO CALLERS WANT OPPOSITE THINGS ────────────
+    #
     # `read_governance` raises on an RPC failure and returns nil only for a
-    # genuinely absent account, so a network blip cannot be mistaken for
-    # "pre-v0.26" — which would build a three-slot argument against a five-slot
-    # program.
-    def chain_governance?
+    # genuinely absent account. A BUILD must never fold those together — a
+    # network blip read as "pre-v0.26" builds a three-slot argument against a
+    # five-slot program — so `chain_governance!` propagates the failure and the
+    # build refuses. But the READ-ONLY page must still render: it is opened
+    # during an incident, which is exactly when a provider is most likely to be
+    # down, and an authority page that 500s on a dead RPC is useless at the one
+    # moment it exists for.
+    #
+    # The first cut had only the raising form, and `#show` called it twice: the
+    # first call sat inside a `rescue` (so `@chain_governance` was never
+    # assigned, the raise happening before the assignment) and the second went
+    # uncaught. Every render 500'd under an unreachable RPC — invisible on a
+    # developer's stack and caught by CI's deliberately black-holed endpoint.
+    # Hence the memo below covers the FAILURE too, not just the answer.
+
+    # Raises when the chain cannot be read. For anything that builds bytes.
+    def chain_governance!
       return @chain_governance if defined?(@chain_governance)
 
       @chain_governance = vault.read_governance.present?
+    end
+
+    # nil when the chain could not be read. For the page.
+    def chain_governance?
+      return @chain_governance_soft if defined?(@chain_governance_soft)
+
+      @chain_governance_soft = begin
+        chain_governance!
+      rescue StandardError => e
+        Rails.logger.warn("[solana] governance probe failed: #{Solana::Config.redact_message(e.message)}")
+        nil
+      end
     end
 
     # REFUSE WHEN THE ENV SWITCH AND THE CHAIN DISAGREE.
@@ -339,7 +376,7 @@ module Admin
     # and the failure arrives as an opaque deserialization error after a fee.
     # This names it first, in both directions, and says which lever to move.
     def vault_shape!
-      chain = chain_governance?
+      chain = chain_governance!
       config = Solana::Config.governance?
       return chain ? "v0.26" : "v0.25" if chain == config
 
@@ -355,11 +392,14 @@ module Admin
             "rotating signers — a three-slot argument cannot express the deployed set."
     end
 
+    # WHAT THE PAGE SHOWS WHEN THE PROBE CAME BACK NIL. The DEPLOYED shape, not
+    # the newer one: both clusters run v0.25 today, and a page that guessed high
+    # would tell the operator he needs three signatures to evict when the chain
+    # will take two — which is a worse error than the reverse, because he would
+    # go looking for a third wallet he does not need mid-incident.
     def required_signatures_for_chain
       chain_governance? ? Solana::Governance.required_signatures("update_signers")
                         : Solana::SignerRotation::REQUIRED_V025
-    rescue StandardError
-      Solana::SignerRotation::REQUIRED_V025
     end
 
     # Every governance action with the number of signatures it ACTUALLY needs,
@@ -392,7 +432,11 @@ module Admin
           effective: [value, floor].max,
           floor: floor,
           floored: floor > value,
-          source: if !on_chain
+          source: if @governance_read_ok == false
+                    # NOT "not on chain" — that is a claim about the CHAIN, and
+                    # a failed read supports no claim about the chain at all.
+                    "unread"
+                  elsif !on_chain
                     "not on chain"
                   elsif raw.zero?
                     "program default"
@@ -525,10 +569,15 @@ module Admin
       nil
     end
 
+    # Sets `@governance_read_ok` so the caller can tell ABSENT from UNREAD —
+    # two states a nil return cannot distinguish on its own.
     def read_governance_safely
-      vault.read_governance
+      result = vault.read_governance
+      @governance_read_ok = true
+      result
     rescue StandardError => e
       Rails.logger.warn("[solana] governance read failed: #{Solana::Config.redact_message(e.message)}")
+      @governance_read_ok = false
       nil
     end
   end

@@ -103,7 +103,7 @@ Phantom must be installed in the browser or available via mobile deep link.
    - `runHoldValidations()` (`:1520-1550`) hits `GET /geo/check` first
      (`:1522`); a blocked state aborts into the `Location Restricted` redirect
      modal (`:1526`). That route is drawn by the engine now, behind
-     `config.draw_geo_routes`, not by this app (`config/routes.rb:604-610`).
+     `config.draw_geo_routes`, not by this app (`config/routes.rb:619-625`).
    - `confirmEntry()` (`_turf_totals_board.html.erb:1567-2054`) short-circuits
      to `showLoginModal()` when the session is a guest (`:1576-1580`), which
      opens the auth wizard at `step: 'credentials'` (`:935-948`) — the entry
@@ -190,8 +190,8 @@ Phantom must be installed in the browser or available via mobile deep link.
    - Skips a user with no wallet (`:12`), then calls
      `Solana::Vault#ensure_user_account` (`:14`).
    - `ensure_user_account` is an idempotent no-op when the PDA already exists —
-     the `:ok` status returns `nil` (`app/services/solana/vault.rb:1253-1262`,
-     `:1256`) — so Sidekiq retries are safe.
+     the `:ok` status returns `nil` (`app/services/solana/vault.rb:1429-1438`,
+     `:1432`) — so Sidekiq retries are safe.
    - The job logs and re-`raise`s so Sidekiq retries
      (`app/jobs/create_onchain_user_account_job.rb:16-18`).
    - This is the FIRST on-chain TX in the whole flow — signup itself is pure
@@ -246,7 +246,7 @@ Phantom must be installed in the browser or available via mobile deep link.
        `build_enter_contest_with_token` (`:1105-1117`); otherwise the currency
        is resolved USDC-or-USDT (`:1055-1065`) and it builds
        `vault.build_enter_contest` (`:1128-1134`,
-       `app/services/solana/vault.rb:1984`). Either way the transaction comes
+       `app/services/solana/vault.rb:2160`). Either way the transaction comes
        back FULLY UNSIGNED.
      - Persists a `PendingTransaction` with `tx_type: "enter_contest"`,
        `status: "pending"`, `target: entry` and a metadata blob naming the entry
@@ -277,7 +277,7 @@ Phantom must be installed in the browser or available via mobile deep link.
        (`:1411-1414`).
      - `Solana::Vault#cosign_and_broadcast_entry` (`:1420`) fills the admin
        slot, runs a `simulate_transaction` pre-flight, then sends and waits for
-       confirmation (`app/services/solana/vault.rb:3424-3444`).
+       confirmation (`app/services/solana/vault.rb:3608-3628`).
      - The `PendingTransaction` is stamped `submitted` with the signature
        (`app/controllers/contests_controller.rb:1432`) — IMMEDIATELY after
        broadcast and BEFORE the verification below. That order is the A1
@@ -286,7 +286,7 @@ Phantom must be installed in the browser or available via mobile deep link.
        as "never broadcast" and lets the user pay a second time.
      - **OPSEC-010 server-side proof.** `verify_and_confirm_onchain_entry!`
        re-derives the entry PDA through `Solana::Vault#entry_pda`
-       (`app/services/solana/vault.rb:440-445`) and refuses a client-supplied
+       (`app/services/solana/vault.rb:450-455`) and refuses a client-supplied
        PDA that disagrees
        (`app/controllers/contests_controller.rb:2722-2738`, `:2724-2727`). Then
        `verify_solana_transaction!` (`:2665-2674`) fetches the transaction from
