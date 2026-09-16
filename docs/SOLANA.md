@@ -1072,3 +1072,5 @@ and every path above, driven through the rake task and graded by exit status),
 ## Error namespace
 
 turf-vault custom errors start at **6000** (`errors.rs`). Anchor framework **3000-range** errors (e.g. 3012 `AccountDidNotDeserialize`) signal **schema drift** between the deployed program and an on-chain account — i.e. an IDL/layout mismatch — **not** a vault error. Key codes: `ContestNotOpen` 6003, `ContestAlreadySettled` 6006, `SettlementOverflow` 6008, `ContestNotCancellable` 6029, `ContestLocked` 6034, `ContestConcluded` 6035. Several codes (6011/6012/6017/6019/6028) are retired-but-kept for numbering stability.
+
+<!-- citation-guard: external (2 citations) — both name turf-vault Rust instruction sources, which this repository does not contain; no line number written here can be checked from turf-monster -->

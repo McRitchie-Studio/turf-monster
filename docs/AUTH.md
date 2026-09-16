@@ -1074,3 +1074,5 @@ redesigned and hardened.
 `/signin` is the canonical human auth page. `POST /login` exists only because
 the engine route remains drawn; the local controller redirects stale password
 posts back to `/signin` with a magic-link hint.
+
+<!-- citation-guard: enforced -->

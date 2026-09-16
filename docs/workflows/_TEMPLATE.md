@@ -60,4 +60,10 @@ How to use this template:
   the **N of the M** / **K** numbers above from the same measurement.
 - Add a row to `docs/workflows/README.md` under the right category.
 - If this workflow chains into another, add the [[slug]] cross-link both ways.
+- Keep the `citation-guard: enforced` declaration at the END of the file. Every
+  `docs/` file that carries citations must declare itself, and the inventory test in
+  `test/docs/workflow_citation_docs_test.rb` reddens on one that declares nothing.
+  It goes last because a document cited BY LINE must not be shifted by its own marker.
 -->
+
+<!-- citation-guard: enforced -->

@@ -245,3 +245,5 @@ pure parse seam and could not see a transport failure.
 
 Treat the feed as unowned: undocumented, unversioned, and free to change. That
 is also why it should not be the last word on a settled contest.
+
+<!-- citation-guard: enforced -->

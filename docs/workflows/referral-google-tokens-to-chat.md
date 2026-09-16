@@ -91,3 +91,5 @@ Cite-density notes for the next agent:
 - `chat_participant?` requires an `:active` or `:complete` entry. Cart-stage entries do not count — check that the `entry.confirm!` call landed before troubleshooting a "can't chat" report.
 - The cart snapshot is localStorage, NOT sessionStorage. This document said sessionStorage until 2026-09-09; `saveCartForRedirect`'s own comment explains why it cannot be.
 -->
+
+<!-- citation-guard: enforced -->
