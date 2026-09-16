@@ -1,0 +1,99 @@
+<%# locals: (vault:, vault_error:, server_address:, max_slots:) %>
+<%#
+  (1) THE VAULT SIGNER SET — `VaultState.signers` ++ `signers_ext`, the keys
+  that sign vault ACTIONS. This is the only authority this page writes.
+
+  ALL FIVE SLOTS ARE RENDERED, including the empty ones. An empty slot is a
+  fact worth seeing: it is headroom on a five-slot program and it is what a
+  reduced set leaves behind. Until this page, `read_vault_state` stopped at
+  three and slots 4-5 were invisible to the app entirely.
+%>
+<section class="card p-4 mb-6">
+  <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+    <h2 class="text-lg font-bold text-heading">Vault signer set</h2>
+    <% if vault %>
+      <span class="font-mono text-2xs text-muted break-all"><%= vault[:pda] %></span>
+    <% end %>
+  </div>
+  <p class="text-secondary text-sm mb-3">
+    <code>VaultState</code> — the keys that authorize settlement, sweeps,
+    contest creation, token minting and rotation itself. Not the program upgrade
+    authority; that is the Squads multisig further down.
+  </p>
+
+  <% if vault_error || vault.nil? %>
+    <p class="text-sm text-warning-ink">
+      The VaultState account could not be read, so this page cannot say who the
+      signers are. Nothing below is safe to act on until it can.
+    </p>
+  <% else %>
+    <ol class="space-y-1.5 mb-4">
+      <% slots = vault[:signer_slots] || vault[:signers] %>
+      <% slots.each_with_index do |address, i| %>
+        <% empty = address == Solana::SignerRotation::EMPTY %>
+        <% beyond = (i + 1) > max_slots %>
+        <li class="flex items-start gap-2 rounded-md border px-2 py-1.5
+                   <%= empty ? "border-dashed border-subtle bg-surface-alt" : "border-subtle bg-surface" %>">
+          <span class="mt-0.5 w-8 shrink-0 text-3xs font-bold uppercase tracking-wide text-muted">
+            <%= i + 1 %>
+          </span>
+          <div class="min-w-0 flex-1">
+            <% if empty %>
+              <p class="text-xs text-muted">
+                Empty<%= " — and unreachable on the deployed program, which has only #{max_slots} slots" if beyond %>
+              </p>
+            <% else %>
+              <p class="font-mono text-2xs text-heading break-all"><%= address %></p>
+              <div class="mt-0.5 flex flex-wrap gap-1">
+                <% if address == server_address %>
+                  <span class="rounded bg-surface-alt px-1 py-px text-3xs font-bold uppercase tracking-wide text-muted">
+                    This server
+                  </span>
+                <% end %>
+              </div>
+            <% end %>
+          </div>
+        </li>
+      <% end %>
+    </ol>
+
+    <dl class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs mb-4">
+      <dt class="text-muted">Live signers</dt>
+      <dd class="text-heading font-medium"><%= vault[:active_signer_count] %></dd>
+      <dt class="text-muted">Slots this program has</dt>
+      <dd class="text-heading font-medium"><%= max_slots %></dd>
+      <dt class="text-muted">Stored <code>threshold</code> field</dt>
+      <dd class="text-heading font-medium">
+        <%= vault[:threshold] %>
+        <span class="text-muted">— legacy, and nothing reads it for authorization</span>
+      </dd>
+      <dt class="text-muted">Treasury authority</dt>
+      <dd class="font-mono text-2xs text-heading break-all"><%= vault[:treasury_authority] %></dd>
+    </dl>
+
+    <%# ── PAUSE IS NOT A REMEDY ──────────────────────────────────────────
+        The single most important sentence on this page. An operator who
+        believes pausing contains a key compromise will pause, feel safe, and
+        leave the thief minting entry tokens. Verified across all 23 turf-vault
+        instruction sources on `accepted`: exactly two read the flag. %>
+    <div class="rounded-lg border border-warning/40 bg-warning/10 p-3">
+      <p class="text-xs font-bold uppercase tracking-wide text-warning-ink mb-1">
+        Vault is <%= vault[:paused] ? "PAUSED" : "not paused" %> — and pausing is not a remedy
+      </p>
+      <p class="text-xs text-secondary">
+        Only <code>enter_contest</code> and <code>enter_contest_with_token</code>
+        check the paused flag. A paused vault still mints entry tokens, grants
+        seeds and creates contests — the value-creating paths a stolen key would
+        actually use. Pausing stops paying customers from entering and does not
+        inconvenience a thief.
+        <strong>Eviction is the only real answer</strong>, which is what the
+        console at the bottom of this page does.
+      </p>
+      <p class="mt-1 text-3xs text-muted">
+        Re-derive it yourself:
+        <code>grep -rn 'paused' programs/turf_vault/src/instructions/</code> in
+        turf-vault. Two gates, plus the three sites that set the flag.
+      </p>
+    </div>
+  <% end %>
+</section>

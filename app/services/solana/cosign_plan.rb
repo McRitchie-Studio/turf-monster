@@ -54,7 +54,12 @@ module Solana
       "register_currency"      => "register_currency",
       "deactivate_currency"    => "deactivate_currency",
       "sweep_operator_revenue" => "sweep_operator_revenue",
-      "unpause"                => "unpause"
+      "unpause"                => "unpause",
+      # EVICTION. Three signatures, and FLOORED at three — `set_action_threshold`
+      # cannot lower it, which is what stops three signatures handing the vault
+      # back to two agent-reachable keys the next day. Driven from
+      # /admin/authorities; see Admin::AuthoritiesController.
+      "update_signers"         => "update_signers"
     }.freeze
 
     # The signers every one of these instructions NAMES in its account struct:

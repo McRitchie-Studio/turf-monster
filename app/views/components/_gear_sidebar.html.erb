@@ -89,6 +89,10 @@
         <span class="ml-auto text-xs tabular-nums <%= signature_count.positive? ? "font-bold text-heading" : "font-normal text-muted" %>"
               data-signature-count="<%= signature_count %>"><%= signature_count %></span>
       <% end %>
+      <%# Authorities — the incident page. Filed in the gear rather than left to
+          the hub because the one moment it is needed is the moment nobody wants
+          to be hunting for a tile. %>
+      <%= link_to admin_authorities_path, class: link_class do %><%= emoji_swap.("🔑", "🛡️") %><span>Authorities</span><% end %>
       <%= link_to contests_path, class: link_class do %><%= emoji_swap.("✚", "✨") %><span>Contests</span><% end %>
       <%= link_to admin_users_path, class: link_class do %><%= emoji_swap.("👥", "🏟️") %><span>Users</span><% end %>
       <%= link_to admin_landing_pages_path, class: link_class do %><%= emoji_swap.("🪂", "🖼️") %><span>Landing Pages</span><% end %>

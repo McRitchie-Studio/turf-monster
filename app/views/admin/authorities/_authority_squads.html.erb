@@ -1,0 +1,157 @@
+<%# locals: (squads:, squads_address:, squads_app_url:, configured_upgrade_authority:, network:, vault:) %>
+<%#
+  (2b) THE PROGRAM UPGRADE AUTHORITY — a Squads V4 multisig, per cluster.
+
+  READ, NOT QUOTED. Three places in this repo stated its membership and
+  threshold and all three disagreed. `Solana::Squads` decodes the account.
+
+  DERIVE THE VAULT PDA, NEVER COMPARE AGAINST THE MULTISIG ADDRESS. The account
+  that sits in the program's upgrade-authority slot is a PDA OWNED BY the
+  multisig — `[b"multisig", <multisig>, b"vault", 0]` under the Squads program.
+  Comparing `solana program show`'s Authority line against the multisig address
+  never matches, and reads as "the authority is wrong" when nothing is wrong.
+  That mistake has been made twice here.
+%>
+<section class="card p-4 mb-6">
+  <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+    <h2 class="text-lg font-bold text-heading">Program upgrade authority (Squads multisig)</h2>
+    <span class="font-mono text-2xs text-muted break-all"><%= squads_address %></span>
+  </div>
+  <p class="text-secondary text-sm mb-3">
+    A <strong>different account entirely</strong> from the vault signer set
+    above. It can redeploy the program; it cannot sign a vault action. Each
+    cluster has its own, with its own membership.
+  </p>
+
+  <% if squads.nil? %>
+    <p class="text-sm text-warning-ink mb-3">
+      The Squads multisig could not be read on <%= network %>. Membership and
+      threshold are unknown — do not substitute a number from a doc.
+    </p>
+  <% else %>
+    <p class="text-sm mb-2">
+      <span class="font-bold text-heading">
+        Threshold <%= squads[:threshold] %> of <%= squads[:members].length %>
+      </span>
+      <span class="text-muted">
+        (<%= pluralize(squads[:voting_members].length, "member") %> may vote)
+      </span>
+    </p>
+
+    <ul class="space-y-1 mb-3">
+      <% squads[:members].each do |member| %>
+        <li class="flex flex-wrap items-baseline gap-x-2 rounded-md border border-subtle bg-surface px-2 py-1">
+          <span class="font-mono text-2xs text-heading break-all"><%= member[:address] %></span>
+          <span class="text-3xs text-muted">
+            mask <%= member[:mask] %>
+            (<%= [("initiate" if member[:can_initiate]),
+                  ("vote" if member[:can_vote]),
+                  ("execute" if member[:can_execute])].compact.join(" · ").presence || "none" %>)
+          </span>
+          <% if vault && vault[:active_signers].include?(member[:address]) %>
+            <span class="rounded bg-surface-alt px-1 py-px text-3xs font-bold uppercase tracking-wide text-muted">
+              Also a vault signer
+            </span>
+          <% end %>
+        </li>
+      <% end %>
+    </ul>
+
+    <dl class="grid grid-cols-1 gap-y-1 text-xs mb-3">
+      <dt class="text-muted">Vault PDA index 0 (derived)</dt>
+      <dd class="font-mono text-2xs text-heading break-all"><%= squads[:vault_pda] %></dd>
+      <dt class="text-muted mt-1">What this app is configured to expect</dt>
+      <dd class="font-mono text-2xs break-all <%= squads[:vault_pda] == configured_upgrade_authority ? "text-heading" : "text-danger-ink" %>">
+        <%= configured_upgrade_authority %>
+        <% if squads[:vault_pda] == configured_upgrade_authority %>
+          <span class="text-3xs text-muted">— matches the derived PDA</span>
+        <% else %>
+          <span class="text-3xs font-bold uppercase tracking-wide">— does NOT match</span>
+        <% end %>
+      </dd>
+    </dl>
+  <% end %>
+
+  <%# ── WHY THIS PAGE DOES NOT ACT ON SQUADS, AND WHAT A STOLEN KEY REACHES
+      Recorded on the page rather than left implicit, because "we only handle
+      the vault" reads as an omission unless the reasoning is visible.
+
+      THE OVERLAP IS COMPUTED — NEVER CONCLUDED. This block used to end "but it is still below the threshold" with NO
+      comparison to `squads[:threshold]`. It was true of the number in front of
+      it on the day it was written (devnet overlap 2 against 3) and it is a
+      CONCLUSION THE PAGE NEVER CHECKED.
+
+      It inverts on the documented target. Both Squads are 3-of-5, and the
+      intended five-member vault signer set IS the mainnet Squad's membership —
+      so the overlap reaches 5 against a threshold of 3, and the page would
+      reassure an operator that a holder of those keys "cannot execute here"
+      while they could execute a PROGRAM UPGRADE. Understating blast radius, on
+      the panel whose entire job is computing it.
+
+      So the comparison is made, and each branch says only what its numbers
+      support. Three states, because an unread vault set supports no claim about
+      the overlap at all. %>
+  <% members  = squads && squads[:members].map { |m| m[:address] } %>
+  <% overlap  = (squads && vault) ? (members & vault[:active_signers]) : nil %>
+  <%# ONLY A VOTING SEAT REACHES THE THRESHOLD (squads.rb:157). A mask-1 seat
+      votes on nothing, so counting one alarmed over a set that can never
+      approve: "(2 members may vote)" above, "3 seats ... at or above 3" here. %>
+  <% voting_overlap = (squads && vault) ? (Array(squads[:voting_members]) & vault[:active_signers]) : nil %>
+  <% breached = voting_overlap && squads && voting_overlap.length >= squads[:threshold] %>
+
+  <div class="rounded-lg border p-3 <%= breached ? "border-danger/40 bg-danger/10" : "border-subtle bg-surface-alt" %>">
+    <p class="text-xs font-bold uppercase tracking-wide mb-1 <%= breached ? "text-danger-ink" : "text-muted" %>">
+      <% if breached %>
+        This console does not act on Squads — and right now that is a gap
+      <% else %>
+        Deliberately out of scope for this console
+      <% end %>
+    </p>
+    <p class="text-xs text-secondary">
+      <% if squads.nil? %>
+        This Squad could not be read, so this page cannot say what a stolen key
+        reaches here. Do not substitute a number from a doc.
+      <% else %>
+        This Squad needs <%= squads[:threshold] %> approvals out of
+        <%= squads[:members].length %> members.
+        <% if overlap.nil? %>
+          The vault signer set could not be read, so this page cannot say how
+          many seats the two authorities share — and therefore cannot say what a
+          stolen vault key reaches here.
+        <% elsif overlap.empty? %>
+          No seat here is also in the vault signer set, so a stolen <em>vault</em>
+          key reaches nothing on this authority.
+        <% elsif breached %>
+          <strong><%= pluralize(voting_overlap.length, "seat") %> here
+          <%= voting_overlap.length == 1 ? "is" : "are" %> also in the vault signer
+          set and may vote — at or above the threshold of <%= squads[:threshold] %>.</strong>
+          A holder of those keys could <em>execute</em> a program upgrade, which
+          is a strictly larger power than anything the vault signer set grants.
+          Evicting them from the vault does not touch that: change this
+          membership too, through the link below.
+        <% else %>
+          <%= pluralize(overlap.length, "seat") %> here
+          <%= overlap.length == 1 ? "is" : "are" %> also in the vault signer
+          set, which is the overlap worth watching — <%= voting_overlap.length %> of
+          those may vote, below the threshold of <%= squads[:threshold] %>, so a
+          holder of those keys can create and vote on proposals and never carry one out.
+        <% end %>
+      <% end %>
+      Squads already ships a web UI for changing membership, so this page links
+      out rather than reimplementing a second, less-tested path to the same
+      account.
+    </p>
+    <p class="mt-2 text-xs">
+      <%= link_to "Open this cluster’s Squad on app.squads.so", squads_app_url,
+                  target: "_blank", rel: "noopener",
+                  class: "text-primary hover:text-primary-300 font-medium underline" %>
+    </p>
+    <p class="mt-1 text-3xs text-muted">
+      That link serves the <strong><%= network %></strong> Squad — the cluster is
+      carried by the ADDRESS in the URL, not by the host.
+      <code>devnet.squads.so</code> is decommissioned, so there is no
+      cluster-flavoured host to use instead; <code>app.squads.so</code> is the
+      only surviving front end for both.
+    </p>
+  </div>
+</section>

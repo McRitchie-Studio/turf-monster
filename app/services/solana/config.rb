@@ -425,15 +425,23 @@ module Solana
     #      solana.turf.admin (BLSBw8fX…) the same day. A re-file is not an
     #      on-chain event and is never evidence of one.
     #
-    # THE TWO SETS ARE DIFFERENT AUTHORITIES WITH DIFFERENT THRESHOLDS. Squads
-    # (upgrade) is FIVE at threshold 3 and is LIVE; on mainnet that is
-    # BLSBw8…, 7ZDJ…, 3Qj4v9…, 9gACbz… AND system 7auwTL…. VaultState (the
-    # money) is FIVE and is the TARGET: the same wallets at threshold 2. They
-    # have converged in MEMBERSHIP on mainnet; they are still separate
-    # accounts, changed by different transactions, and one never implies the
-    # other. FIVE IS NOT WRITABLE YET on VaultState — the deployed v0.25.0
-    # takes `update_signers(new_signers: [Pubkey; 3])`, so the five-member set
-    # needs v0.26 on-chain first; MAINNET_LAUNCH.md carries the forced order.
+    # WHAT THE TWO SETS MEAN RELATIVE TO EACH OTHER. Item (2) above already
+    # carries WHO is in each Squad and at what threshold, measured; this
+    # paragraph is only about what their relationship is, so the membership is
+    # not restated here. Two corrections of one defect, arriving from two
+    # directions, is how a file comes to disagree with itself.
+    #
+    # MEMBERSHIP CONVERGING IS NOT AUTHORITY MERGING. The VaultState TARGET set
+    # and the mainnet Squad's membership now name the same five wallets. That is
+    # a coincidence of rosters, not of powers: they are separate accounts,
+    # changed by different transactions, and one never implies the other. The
+    # LIVE VaultState set is still the three in (1) — the target is a plan, and
+    # reading it as the current set is the error this whole comment block exists
+    # to prevent.
+    #
+    # FIVE IS NOT WRITABLE YET. The deployed v0.25.0 takes
+    # `update_signers(new_signers: [Pubkey; 3])`, so the five-member set needs
+    # v0.26 on-chain first; MAINNET_LAUNCH.md carries the forced order.
     #
     # WARNING — 7auwTL… WAS MEANT TO BE OFF SQUADS AND IS NOT. It is the app's
     # HOT key: it sits in Heroku config on a running dyno and signs every entry
@@ -441,9 +449,14 @@ module Solana
     # hold upgrade authority; it also has no job there, since upgrading is a
     # rare human act, never an unattended one. That reasoning is unchanged and
     # still right. The chain disagrees with it: 7auwTL… holds
-    # Initiate|Vote|Execute on the mainnet Squad (2eGs8G3w… likewise on
-    # devnet), re-measured at `finalized` 2026-09-15. Removing it is a Squads
-    # config transaction, not an edit to this comment.
+    # Initiate|Vote|Execute on the mainnet Squad (2eGs8G3w… likewise on devnet),
+    # re-measured at `finalized` 2026-09-15. Removing it is a Squads config
+    # transaction, not an edit to this comment.
+    #
+    # DO NOT RE-DERIVE A STOLEN KEY'S BLAST RADIUS FROM THIS COMMENT.
+    # /admin/authorities computes it from a live read of both authorities, which
+    # is the whole reason that page exists — and a prose figure here would be a
+    # second answer to a question that already has an authoritative one.
     #
     # SO: read VaultState.signers for what this constant should say, and read
     # the Squads multisig for who may upgrade. Neither answers the other, and a
@@ -544,6 +557,44 @@ module Solana
     def self.squads_vault_pda(network = NETWORK)
       ENV["SOLANA_SQUADS_VAULT_PDA"].presence ||
         (network == "mainnet-beta" ? MAINNET_SQUADS_VAULT_PDA : DEVNET_SQUADS_VAULT_PDA)
+    end
+
+    # The Squads MULTISIG ACCOUNT — the account that holds the members and the
+    # threshold. Distinct from `squads_vault_pda` above, which is the vault PDA
+    # DERIVED from it and is what actually sits in the program's upgrade
+    # authority slot.
+    #
+    # CONFUSING THE TWO IS THE RECURRING MISTAKE, and it always presents as
+    # "the upgrade authority looks wrong": `solana program show` prints the
+    # VAULT PDA, and comparing that against the MULTISIG address never matches
+    # because they are different accounts by construction. `Solana::Squads.vault_pda`
+    # derives one from the other so the relationship can be PROVEN on the page
+    # instead of asserted in a comment.
+    #
+    # Per cluster, like every other authority in this file. Until this existed
+    # the only copy of the mainnet address in the app was hardcoded into an
+    # admin hub tile, which therefore offered the MAINNET Squad on a devnet
+    # boot — the same shape of defect `admin-shows-devnet-authority` fixed for
+    # the vault PDA, pointing the other way.
+    DEVNET_SQUADS_MULTISIG  = "7nRuVw3VZFC6z85tYVDitPnaUHZCkqLpJRSTBNtPmtZB"
+    MAINNET_SQUADS_MULTISIG = "4H3fP3otjMtupk1DQDjKXYY1dWjT6LNM4H4ZWZ1XcKSX"
+
+    def self.squads_multisig(network = NETWORK)
+      ENV["SOLANA_SQUADS_MULTISIG"].presence ||
+        (network == "mainnet-beta" ? MAINNET_SQUADS_MULTISIG : DEVNET_SQUADS_MULTISIG)
+    end
+
+    # Where the operator goes to change Squads MEMBERSHIP. Squads ships its own
+    # web UI for exactly that, and this app deliberately does not reimplement
+    # it — /admin/authorities links out.
+    #
+    # ONE HOST FOR BOTH CLUSTERS. `devnet.squads.so` is DECOMMISSIONED, so a
+    # devnet-flavoured URL is a dead link rather than a cluster-correct one;
+    # app.squads.so is the only surviving front end and it resolves a multisig
+    # by address. The cluster is therefore carried by the ADDRESS, not by the
+    # host, which is why the caller must say which cluster the link serves.
+    def self.squads_app_url(network = NETWORK)
+      "https://app.squads.so/squads/#{squads_multisig(network)}"
     end
 
     DECIMALS = 6
