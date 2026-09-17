@@ -195,8 +195,20 @@ Studio.configure do |config|
     { file: "logo.jpeg",     title: "Auth Logo" },
   ]
 
-  # Theme: green primary, violet as accent2
-  config.theme_primary = "#4BAF50"
+  # Theme: green primary, violet as accent2.
+  #
+  # The primary is #2E7D32, darkened from #4BAF50 on 2026-09-16 by Mr.
+  # McRitchie's decision (task primary-button-fails-contrast). The house
+  # .btn-primary is a white label on this fill, and #4BAF50 measured 2.78:1,
+  # below WCAG AA's 4.5:1. #2E7D32 clears it at 5.13:1 at rest and 8.46:1 on the
+  # engine's 30%-darker hover. Every other use of the primary darkens with it,
+  # which was the point of the choice.
+  #
+  # Two things to know before changing it again. A ThemeSetting row saved from
+  # /admin/theme overrides this value per environment. And
+  # test/views/primary_button_contrast_test.rb measures the label on the
+  # resolved fill, so a lighter green fails there rather than in production.
+  config.theme_primary = "#2E7D32"
   config.theme_accent = "#8E82FE"
 
   # S3 — overrides engine default ("mcritchie-studio") to use this app's bucket

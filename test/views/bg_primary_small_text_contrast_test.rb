@@ -1,23 +1,25 @@
 require "test_helper"
 
 # Component tier for the small-text-on-bg-primary accessibility guard
-# (task: sweep-bg-primary-contrast).
+# (tasks: sweep-bg-primary-contrast, then primary-button-fails-contrast).
 #
-# The theme primary (#4baf50) paints white text at only 2.78:1 — below WCAG AA
-# (4.5:1 for small text) in BOTH themes. PR 249 fixed ONE instance (the
-# pack-button savings pill); a Carl sweep then found ~10 more small-text
-# bg-primary/text-white fills still at 2.78:1 (six text-xs, four text-sm). The
-# durable fix lives in app/assets/tailwind/application.css: an unlayered,
-# compound-selector override that darkens the FILL to an AA-passing green
-# whenever bg-primary carries small white text, so a future
-# `bg-primary text-white text-xs` fill inherits AA for free.
+# HISTORY. The old theme primary #4baf50 painted white text at only 2.78:1,
+# below WCAG AA (4.5:1 for small text) in BOTH themes. PR 249 fixed ONE
+# instance (the pack-button savings pill); a Carl sweep then found ~10 more
+# small-text bg-primary/text-white fills. That sweep ended application.css with
+# an unlayered compound override repainting those fills in #1b5e20.
+#
+# NOW. The primary is #2E7D32 since 2026-09-16 and white clears 5.13:1 on it,
+# so the override was retired: a small white label on bg-primary paints the
+# resolved primary like every other primary button. The guard below therefore
+# measures whichever fill WINS — a small-text override if one exists, the
+# resolved primary if none does — so neither a lighter brand primary nor a new
+# sub-AA override can slip through.
 #
 # This test asserts the PROPERTY (a computed contrast ratio), not a spelling.
-# Re-introducing any sub-4.5:1 fill for the small-text-primary combination —
-# including via a LATER same-specificity override rule (e.g. a dark-mode
-# `html.dark .bg-primary.text-xs { ... }`) — turns it red. The last-wins
-# extraction below is the carry-over from PR 249's known gap, whose
-# declared_colors matched only the FIRST rule and let a later override escape.
+# The last-wins extraction is the carry-over from PR 249's known gap, whose
+# declared_colors matched only the FIRST rule and let a later override escape
+# (e.g. a dark-mode `html.dark .bg-primary.text-xs { ... }`).
 class BgPrimarySmallTextContrastTest < ActiveSupport::TestCase
   APP_CSS = Rails.root.join("app/assets/tailwind/application.css").freeze
 
@@ -65,28 +67,25 @@ class BgPrimarySmallTextContrastTest < ActiveSupport::TestCase
     Studio::ThemeResolver.new(Studio.theme_config).primary_palette_vars["--color-primary"]
   end
 
-  # ── the guarded bug, measured ─────────────────────────────────────────────
+  # ── the property: whichever fill wins clears AA against white ─────────────
 
-  test "white on the theme primary fails AA for small text (the bug this guards)" do
-    ratio = contrast("#ffffff", resolved_primary)
-    assert_operator ratio, :<, 4.5,
-                    "if the primary ever clears 4.5:1 the override is unnecessary; " \
-                    "today it is #{format('%.2f', ratio)}:1 (#{resolved_primary}) — the failure."
-  end
-
-  # ── the fix, measured as a property ───────────────────────────────────────
-
-  test "the small-text bg-primary override paints an AA-passing fill against white" do
-    css  = APP_CSS.read
-    fill = effective_small_primary_fill(css)
-    refute_nil fill,
-               "no rule in application.css darkens small white text on bg-primary — the " \
-               "AA guard is missing. Expected e.g. `.bg-primary.text-white.text-xs { background-color: #1b5e20 }`."
+  test "small white text on bg-primary paints an AA-passing fill" do
+    override = effective_small_primary_fill(APP_CSS.read)
+    fill     = override || resolved_primary
+    source   = override ? "the small-text override in application.css" : "the resolved theme primary (no override)"
 
     ratio = contrast("#ffffff", fill)
     assert_operator ratio, :>=, 4.5,
-                    "small-text bg-primary fill is #{format('%.2f', ratio)}:1 (white on #{fill}) — " \
-                    "AA needs 4.5:1. The theme primary #4baf50 is 2.78:1, which is the bug this guards."
+                    "small-text bg-primary fill is #{format('%.2f', ratio)}:1 (white on #{fill}, from #{source}) — " \
+                    "AA needs 4.5:1. White on the old primary #4baf50 was 2.78:1, which is the bug this guards."
+  end
+
+  # Control for the fallback branch: the resolved-primary path is only a guard
+  # if it would go red on a primary that fails, so measure the retired green.
+  test "with no override, a primary as light as the retired #4baf50 would fail" do
+    assert_operator contrast("#ffffff", "#4baf50"), :<, 4.5
+    assert_nil effective_small_primary_fill(".bg-primary { background-color: #4baf50; }"),
+               "a plain .bg-primary rule is not a small-text override, so the guard falls back to the primary"
   end
 
   # ── last-wins: a later same-specificity override must be the one evaluated ──

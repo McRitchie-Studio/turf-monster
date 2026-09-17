@@ -261,7 +261,7 @@ class TokensPackButtonTest < ActionView::TestCase
     ratio = contrast(bg, fg)
     assert_operator ratio, :>=, 4.5,
                     "savings pill is #{format('%.2f', ratio)}:1 (#{fg} on #{bg}) — " \
-                    "AA needs 4.5:1 for 10px text. The theme primary #4BAF50 is 2.78:1, " \
+                    "AA needs 4.5:1 for 10px text. White on the old theme primary #4BAF50 was 2.78:1, " \
                     "which is the bug this guards."
   end
 
