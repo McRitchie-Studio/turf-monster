@@ -49,7 +49,7 @@ class Admin::VaultInitControllerTest < ActionDispatch::IntegrationTest
     assert_response :redirect
   end
 
-  # --- DEFAULT_SIGNERS derives Alex from INIT_AUTHORITY (single source of truth) ---
+  # --- DEFAULT_SIGNERS derives Mr. McRitchie's key from INIT_AUTHORITY (single source of truth) ---
 
   test "DEFAULT_SIGNERS[1] is derived from INIT_AUTHORITY constant" do
     assert_equal Admin::VaultInitController::INIT_AUTHORITY,

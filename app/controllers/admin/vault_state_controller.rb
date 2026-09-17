@@ -3,7 +3,7 @@ module Admin
   #
   # turf-vault's `pause` / `unpause` instructions require 2-of-3 multisig.
   # The bot signs server-side as `admin`; the cosigner slot is left empty
-  # for a Phantom wallet (Alex or Mason) to fill via the same direct-cosign
+  # for a Phantom wallet (Mr. McRitchie or Mason) to fill via the same direct-cosign
   # pattern the Vault Init UI uses (see VaultInitController).
   #
   # Pause is an EMERGENCY action — designed for rapid response when a bug
@@ -14,7 +14,7 @@ module Admin
 
     # Default cosigner shown in the form. Configurable via env in case the
     # active operator is Mason (or whoever's on call). Matches the existing
-    # Treasury cosign default (Solana::Config::MULTISIG_COSIGNER = Alex).
+    # Treasury cosign default (Solana::Config::MULTISIG_COSIGNER = Mr. McRitchie).
     def show
       @vault          = Solana::Vault.new.read_vault_state
       # BROWSER-facing (rendered into #cosign-config for web3.js), so the

@@ -1890,7 +1890,7 @@ module Solana
     end
 
     # Build a Phantom-signable set_contest_lock_time TX (1-of-3). The admin's
-    # Phantom wallet (which must be a vault signer — e.g. Alex's key) occupies
+    # Phantom wallet (which must be a vault signer — e.g. Mr. McRitchie's key) occupies
     # the `admin` signer slot; the bot stays fee payer (slot 0) so the user only
     # signs, paying no SOL. Mirrors the create_contest dual-signer pattern
     # (build_create_contest): bot partial-signs, Phantom fills its placeholder

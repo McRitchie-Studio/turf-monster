@@ -102,7 +102,7 @@ Separate project at `/Users/alex/projects/turf-vault/`. Current deployment ident
 
 Signers (`VaultState.signers`, threshold 2) — the same set on **devnet and mainnet**, re-verified on-chain 2026-09-05 in both `VaultState` PDAs:
 - Xan (server) — `8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd`
-- Alex (human Phantom, = `INIT_AUTHORITY`) — `7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr`
+- Mr. McRitchie (human Phantom, = `INIT_AUTHORITY`) — `7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr`
 - Mason — `CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR`
 
 ### turf-vault v0.26 — governance-as-data, and how Rails carries TWO program shapes
