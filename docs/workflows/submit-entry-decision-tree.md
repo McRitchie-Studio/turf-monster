@@ -305,7 +305,7 @@ three:
    protected Phantom signer is rejected `disallowed_program` — the
    `LIGHTHOUSE_PROGRAM_ID` constant (`app/services/solana/vault.rb:73`),
    admitted inside `Solana::Vault#assert_entry_cosign_safe!`, whose
-   `when lighthouse` arm (`:3430-3435`) hands each Lighthouse instruction to
+   `when lighthouse` arm (`:3432-3437`) hands each Lighthouse instruction to
    `Solana::Vault#assert_lighthouse_ix_safe!`. PR #134 admitted the program.
    Accepting the program does NOT mean accepting every Lighthouse instruction.
    Its first data byte is a discriminator, and two variants move the payer's
