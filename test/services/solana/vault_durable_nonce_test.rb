@@ -17,7 +17,9 @@ class Solana::VaultDurableNonceTest < ActiveSupport::TestCase
     c = Object.new
     c.define_singleton_method(:get_account_info) { |_pk, **_o| { "value" => { "data" => [nonce_b64, "base64"] } } }
     c.define_singleton_method(:get_latest_blockhash) { |**_o| Solana::Keypair.generate.to_base58 }
-    c
+    # The Phantom-first builders go through Cosign::Builder, which asks for the
+    # `latest_blockhash` STRUCT rather than the bare base58 String.
+    CosignFakeClient.teach(c)
   end
 
   test "build_partial_signed anchors on the durable nonce + prepends the advance ix" do
