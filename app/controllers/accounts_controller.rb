@@ -285,6 +285,10 @@ class AccountsController < ApplicationController
       session: session,
       expected_user_id: current_user.id  # OPSEC-005: session-bind the signature
     )
+    # BEFORE the lookup, the merge and the write below. A small-order key is
+    # refused with the bad-signature error. Stopgap until solana-studio ships
+    # Ed25519Strict — see Solana::ForgeableSigninKeys.
+    Solana::ForgeableSigninKeys.refuse!(pubkey_b58, context: "accounts#link_solana")
 
     rescue_and_log(target: current_user) do
       # Check if Solana wallet belongs to another user

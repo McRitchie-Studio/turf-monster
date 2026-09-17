@@ -164,7 +164,7 @@ prepare_entry
 | `Solana::Vault#ensure_user_account` | `#prepare_entry` at `app/controllers/contests_controller.rb:1092` |
 | username codes 6020-6022 → friendly message, in `Solana::ErrorInterpreter.interpret` | `app/services/solana/error_interpreter.rb:184-196` |
 | ATA for the SELECTED currency — `Solana::Vault#ensure_ata` | `#prepare_entry` at `app/controllers/contests_controller.rb:1122` |
-| unsigned tx on a FRESH blockhash — `Solana::Vault#build_enter_contest` sets no durable nonce | `app/services/solana/vault.rb:2191-2227` |
+| unsigned tx on a FRESH blockhash — `Solana::Vault#build_enter_contest` sets no durable nonce | `app/services/solana/vault.rb:2217-2253` |
 | `PendingTransaction` created, no signature | `#prepare_entry` at `app/controllers/contests_controller.rb:1143-1155` |
 
 ### 3b. Phantom signs (client)
@@ -177,7 +177,9 @@ prepare_entry
   snapshot and returns to §3a for new wire bytes and a fresh blockhash without
   reloading the page. Signed PTs cannot be discarded through this endpoint.
 - **Phantom may inject Lighthouse guard instructions at arbitrary positions**
-  (mainnet only). Allowed by design — see §6.
+  (mainnet only). Its assertion instructions are admitted by design; its
+  memory instructions are refused, because one of them can spend the fee
+  payer's SOL — see §6.
 
 ### 3c. `POST confirm_onchain_entry` (the money request)
 
@@ -190,10 +192,12 @@ confirm_onchain_entry
 ├─ C1 cosign guard: assert_entry_cosign_safe!  (server NEVER blind-cosigns)
 │     allowlist per instruction: exactly ONE enter_contest bound to THIS
 │     entry's server-derived PDA · ComputeBudget (limit + price only, admin's
-│     priority fee capped at 10x our builder's) · Lighthouse (pure
-│     assertions — can only fail the tx). NO System instruction: a transfer
-│     is the C1 attack, and a nonce advance would spend the admin's authority
-│     over the operator nonce.
+│     priority fee capped at 10x our builder's) · Lighthouse ASSERTIONS only
+│     (assert_lighthouse_ix_safe!: discriminators 2-17 can only fail the tx;
+│     MemoryWrite 0 could make the fee payer fund a memory account, so it,
+│     MemoryClose 1, empty data and unknown discriminators are refused).
+│     NO System instruction: a transfer is the C1 attack, and a nonce
+│     advance would spend the admin's authority over the operator nonce.
 │     ANYTHING else → 422 code=tx_rejected, nothing signed, nothing broadcast
 ├─ cosign_wire (admin signature filled into the Phantom-signed bytes)
 ├─ simulateTransaction pre-flight (sig_verify:false, replaceRecentBlockhash:true)
@@ -210,8 +214,8 @@ confirm_onchain_entry
 | Branch | Where — each row names its owner; `ContestsController#confirm_onchain_entry` is `app/controllers/contests_controller.rb:1364-1482` |
 |---|---|
 | `assert_enterable!` PRE-FLIGHT | `#confirm_onchain_entry` at `:1388` |
-| C1 cosign guard — `Solana::Vault#assert_entry_cosign_safe!` | `#confirm_onchain_entry` at `:1411`; definition `app/services/solana/vault.rb:3314-3410` |
-| cosign + simulate + broadcast — `Solana::Vault#cosign_and_broadcast_entry` | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1420`; definition `app/services/solana/vault.rb:3634-3654` |
+| C1 cosign guard — `Solana::Vault#assert_entry_cosign_safe!` | `#confirm_onchain_entry` at `:1411`; definition `app/services/solana/vault.rb:3340-3437` |
+| cosign + simulate + broadcast — `Solana::Vault#cosign_and_broadcast_entry` | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1420`; definition `app/services/solana/vault.rb:3665-3685` |
 | PT stamped with `tx_signature` immediately | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1432` |
 | `ContestsController#verify_and_confirm_onchain_entry!` | `#confirm_onchain_entry` at `:1438-1441`; definition `:2722-2738` |
 | PT confirmed | `#confirm_onchain_entry` at `:1443` |
@@ -297,14 +301,31 @@ signed-wire validation, simulation, or broadcast must be reasoned against all
 three:
 
 1. **Phantom injects Lighthouse guard instructions at signing time, mainnet
-   only.** The cosign allowlist must accept the Lighthouse program (pure
-   post-state assertions, cannot move funds) — the `LIGHTHOUSE_PROGRAM_ID` constant
-   (`app/services/solana/vault.rb:54`), admitted inside
-   `Solana::Vault#assert_entry_cosign_safe!`, on its `when lighthouse` arm (`:3315-3319`). PR #134.
+   only.** The cosign allowlist must accept the Lighthouse program, or every
+   protected Phantom signer is rejected `disallowed_program` — the
+   `LIGHTHOUSE_PROGRAM_ID` constant (`app/services/solana/vault.rb:73`),
+   admitted inside `Solana::Vault#assert_entry_cosign_safe!`, whose
+   `when lighthouse` arm (`:3419-3424`) hands each Lighthouse instruction to
+   `Solana::Vault#assert_lighthouse_ix_safe!`. PR #134 admitted the program.
+   Accepting the program does NOT mean accepting every Lighthouse instruction.
+   Its first data byte is a discriminator, and two variants move the payer's
+   lamports: `MemoryWrite` (0) makes the signer it names as payer fund a
+   memory account whose size the instruction chooses, and `MemoryClose` (1)
+   refunds one. The house fee payer signs every cosigned wire, so an unguarded
+   `MemoryWrite` could lock house SOL and starve every gasless entry. Only
+   variants 2-17 are pure post-state assertions, which can fail the tx but
+   never move funds. So `#assert_lighthouse_ix_safe!` admits discriminators
+   2-17 and refuses `MemoryWrite`, `MemoryClose`, empty data and any unknown
+   discriminator; the entry, create-contest and cash-out guards all call it.
+   The test is the discriminator, not "does it name the fee payer": the real
+   Phantom mainnet wires the house has cosigned carry `AssertAccountInfoMulti`
+   (6) and `AssertTokenAccountMulti` (10), and each has a variant-6 assertion
+   on the fee payer's own post-state, so refusing on the fee payer would
+   reject them all and repeat the 2026-06-11 outage. PR #755 added the guard.
 2. **Simulation of any tx whose blockhash isn't in the recent queue needs
    `replaceRecentBlockhash: true`** (sigVerify must be false alongside it) —
    `Solana::Vault#cosign_and_broadcast_entry` simulates with both
-   (`app/services/solana/vault.rb:3646-3647`). PR #135.
+   (`app/services/solana/vault.rb:3677-3678`). PR #135.
 3. **Never anchor user-driven Phantom-signed txs on a shared durable nonce.**
    Phantom's injection position can displace the advance from instruction 0
    (un-recognizing the nonce → BlockhashNotFound at preflight), and one nonce
@@ -312,6 +333,6 @@ three:
    entrants. Entries use a fresh blockhash (re-prepared seconds before
    signing); the durable nonce is for slow operator cosigns only.
    `Solana::Vault#build_enter_contest` pins `dn = nil` with that reasoning
-   (`app/services/solana/vault.rb:2191-2227`). PR #136.
+   (`app/services/solana/vault.rb:2217-2253`). PR #136.
 
 <!-- citation-guard: enforced -->

@@ -140,7 +140,7 @@ Phantom must be installed in the browser or available via mobile deep link.
      mapped into balance advice (closed 2026-09-09; see `docs/AUTH.md`).
 
 6. **Server verifies + creates User.** `SolanaSessionsController#verify` —
-   `app/controllers/solana_sessions_controller.rb:25-103`.
+   `app/controllers/solana_sessions_controller.rb:25-107`.
    - Signature check: `Solana::SessionAuth#verify_solana_signature!`
      (`studio-engine: app/controllers/concerns/solana/session_auth.rb`) runs
      pure-Ruby ed25519 through `Solana::AuthVerifier.verify!` — nonce
@@ -150,7 +150,7 @@ Phantom must be installed in the browser or available via mobile deep link.
      (`app/models/user.rb:236-238`); if absent, `verify` builds a new `User`
      with `web3_solana_address` and `reference: cookies[:reference]` — the
      first-touch stamp set in step 1
-     (`app/controllers/solana_sessions_controller.rb:34`, `:53-57`).
+     (`app/controllers/solana_sessions_controller.rb:38`, `:57-61`).
    - `user.save!` triggers the shared spine. Declaration and definition sit far
      apart in `app/models/user.rb`, so both are cited:
      - `before_validation :ensure_username` (`app/models/user.rb:106`) —
@@ -171,17 +171,17 @@ Phantom must be installed in the browser or available via mobile deep link.
        `CreateOnchainUserAccountJob.perform_later` (`:793-795`). Async — the
        user is logged in before the on-chain PDA finalizes.
    - `cookies.delete(:reference)` consumes the cookie only for a new signup
-     (`app/controllers/solana_sessions_controller.rb:62`).
+     (`app/controllers/solana_sessions_controller.rb:66`).
    - `set_app_session(user)` writes `session[:turf_user_id]` +
      `session[:session_token]` and clears any stale on-chain flag
      (`app/controllers/application_controller.rb:33-66`, `:41`).
      `promote_to_onchain_session!` then grants it (`:559-564`) — that write is
      what `onchain_session?` reads (`:538-541`), and `verify` calls it at
-     `app/controllers/solana_sessions_controller.rb:77`. It lives in
+     `app/controllers/solana_sessions_controller.rb:81`. It lives in
      `ApplicationController` because the login and wallet-link paths used to
      drift apart.
    - Response: `render json: { success: true, redirect: redirect, new_user:
-     is_new }` (`:97`).
+     is_new }` (`:101`).
    - **The in-board flow does not follow that redirect.** The board's
      `openWalletConnect(ageAttested)` saved the guest lineup before handing off
      to the picker and set `returnUrl` to this contest
@@ -194,8 +194,8 @@ Phantom must be installed in the browser or available via mobile deep link.
    - Skips a user with no wallet (`:12`), then calls
      `Solana::Vault#ensure_user_account` (`:14`).
    - `ensure_user_account` is an idempotent no-op when the PDA already exists —
-     the `:ok` status returns `nil` (`app/services/solana/vault.rb:1429-1438`,
-     `:1432`) — so Sidekiq retries are safe.
+     the `:ok` status returns `nil` (`app/services/solana/vault.rb:1455-1464`,
+     `:1458`) — so Sidekiq retries are safe.
    - The job logs and re-`raise`s so Sidekiq retries
      (`app/jobs/create_onchain_user_account_job.rb:16-18`).
    - This is the FIRST on-chain TX in the whole flow — signup itself is pure
@@ -250,7 +250,7 @@ Phantom must be installed in the browser or available via mobile deep link.
        `build_enter_contest_with_token` (`:1105-1117`); otherwise the currency
        is resolved USDC-or-USDT (`:1055-1065`) and it builds
        `vault.build_enter_contest` (`:1128-1134`,
-       `app/services/solana/vault.rb:2160`). Either way the transaction comes
+       `app/services/solana/vault.rb:2186`). Either way the transaction comes
        back FULLY UNSIGNED.
      - Persists a `PendingTransaction` with `tx_type: "enter_contest"`,
        `status: "pending"`, `target: entry` and a metadata blob naming the entry
@@ -281,7 +281,7 @@ Phantom must be installed in the browser or available via mobile deep link.
        (`:1411-1414`).
      - `Solana::Vault#cosign_and_broadcast_entry` (`:1420`) fills the admin
        slot, runs a `simulate_transaction` pre-flight, then sends and waits for
-       confirmation (`app/services/solana/vault.rb:3634-3654`).
+       confirmation (`app/services/solana/vault.rb:3665-3685`).
      - The `PendingTransaction` is stamped `submitted` with the signature
        (`app/controllers/contests_controller.rb:1432`) — IMMEDIATELY after
        broadcast and BEFORE the verification below. That order is the A1
@@ -290,7 +290,7 @@ Phantom must be installed in the browser or available via mobile deep link.
        as "never broadcast" and lets the user pay a second time.
      - **OPSEC-010 server-side proof.** `verify_and_confirm_onchain_entry!`
        re-derives the entry PDA through `Solana::Vault#entry_pda`
-       (`app/services/solana/vault.rb:450-455`) and refuses a client-supplied
+       (`app/services/solana/vault.rb:476-481`) and refuses a client-supplied
        PDA that disagrees
        (`app/controllers/contests_controller.rb:2722-2738`, `:2724-2727`). Then
        `verify_solana_transaction!` (`:2665-2674`) fetches the transaction from

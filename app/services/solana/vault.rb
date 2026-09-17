@@ -46,12 +46,38 @@ module Solana
 
     # Lighthouse — Phantom's transaction-protection program. On MAINNET (not
     # devnet, which is why staging never sees it) Phantom may INJECT Lighthouse
-    # assertion instructions into the tx at signing time. Lighthouse
-    # instructions are pure post-state assertions: they can only make the tx
-    # FAIL, never move funds or delegate authority, so allowing them preserves
-    # the C1 cosign-safety model. Without this every protected Phantom signer
-    # is cosign-rejected with "disallowed_program" (hit in prod 2026-06-11).
+    # instructions into the tx at signing time, so the cosign guards must admit
+    # them or every protected Phantom signer is rejected "disallowed_program"
+    # (hit in prod 2026-06-11).
+    #
+    # NOT every Lighthouse instruction is safe to cosign blind, though. The
+    # program's first data byte is its instruction discriminator, and TWO of the
+    # variants MOVE the payer's lamports. Confirmed 2026-09-16 on the DEPLOYED,
+    # immutable program by read-only simulation at `finalized`: disc 0 made the
+    # payer fund a 10,008-byte memory PDA, disc 1 refunded it, 18/255 are unknown:
+    #   0 MemoryWrite — a SIGNER named `payer` (account index 2) funds the rent
+    #     of a "memory" PDA whose size THE INSTRUCTION chooses (~0.05 SOL / 10 KiB,
+    #     repeatable). The house is always a signer on a cosigned wire, so an
+    #     unguarded admit lets a crafted wire name the fee payer as that payer
+    #     and lock house SOL (recoverable only by a house-signed MemoryClose) —
+    #     draining the fee payer stops all gasless entries.
+    #   1 MemoryClose — refunds a memory PDA's rent to `payer`.
+    # Every OTHER shipped variant (2..17) is a pure post-state ASSERTION: it can
+    # only make the tx fail, never move funds or grant authority. All five
+    # Lighthouse-bearing wires the house has cosigned (7ZDJ…) carry only 6 and 10. So the
+    # guards admit assertion variants 2..17 and REFUSE 0, 1, empty data, and any
+    # unknown discriminator. Refusing "any Lighthouse ix that names the fee
+    # payer" instead would reject every real Phantom wire, because Phantom's
+    # assertions routinely TARGET the fee payer (it asserts the fee payer's own
+    # post-state) — that is the 2026-06-11 outage again.
     LIGHTHOUSE_PROGRAM_ID = Keypair.decode_base58("L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95")
+
+    # Lighthouse instruction discriminators (first data byte). The two memory
+    # variants move the payer's lamports; 2..17 are assertion-only. See the
+    # LIGHTHOUSE_PROGRAM_ID comment for the on-chain confirmation.
+    LIGHTHOUSE_MEMORY_WRITE = 0
+    LIGHTHOUSE_MEMORY_CLOSE = 1
+    LIGHTHOUSE_ASSERTION_DISCRIMINATORS = (2..17).freeze
 
     # Priority fee for the Phantom-signed partial TXs (create_contest,
     # enter_contest, set_contest_lock_time/conclusion_time, cancel_contest —
@@ -3391,10 +3417,11 @@ module Solana
           # (4) Read, never waved through: the admin pays whatever fee these set.
           read_compute_budget_ix!(entry, wallet_address, ix, i, budget)
         when lighthouse
-          # (5) Phantom-injected Lighthouse protection assertions — allowed.
-          # Pure post-state asserts (the worst they can do is fail the tx);
-          # they cannot transfer funds or grant authority, so they pose no
-          # risk to the admin cosign. See LIGHTHOUSE_PROGRAM_ID.
+          # (5) Phantom-injected Lighthouse instruction — admit assertion
+          # variants only. MemoryWrite/MemoryClose (which move the fee payer's
+          # rent) and any unknown/empty discriminator are refused. See
+          # LIGHTHOUSE_PROGRAM_ID / #assert_lighthouse_ix_safe!.
+          assert_lighthouse_ix_safe!(entry, wallet_address, ix, i)
         else
           # (6) Anything else — reject.
           cosign_reject!(entry, wallet_address, "disallowed_program: ix #{i} program=#{b58(program_id)}")
@@ -3479,7 +3506,9 @@ module Solana
           # Read, never waved through: the admin pays whatever fee these set.
           read_compute_budget_ix!(context, wallet_address, ix, i, budget)
         when lighthouse
-          # Phantom-injected transaction-protection assertions — allowed.
+          # Phantom-injected Lighthouse instruction — assertion variants only.
+          # See LIGHTHOUSE_PROGRAM_ID / #assert_lighthouse_ix_safe!.
+          assert_lighthouse_ix_safe!(context, wallet_address, ix, i)
         else
           cosign_reject!(context, wallet_address, "disallowed_program: ix #{i} program=#{b58(program_id)}")
         end
@@ -3588,7 +3617,9 @@ module Solana
           # Read, never waved through: the admin pays whatever fee these set.
           read_compute_budget_ix!(context, wallet_address, ix, i, budget)
         when lighthouse
-          # Phantom-injected transaction-protection assertions — allowed.
+          # Phantom-injected Lighthouse instruction — assertion variants only.
+          # See LIGHTHOUSE_PROGRAM_ID / #assert_lighthouse_ix_safe!.
+          assert_lighthouse_ix_safe!(context, wallet_address, ix, i)
         else
           cosign_reject!(context, wallet_address, "disallowed_program: ix #{i} program=#{b58(program_id)}")
         end
@@ -3799,6 +3830,52 @@ module Solana
       client.send_and_confirm(patched_b64)
     end
 
+    # PRE-FLIGHT A COSIGNED WIRE THIS SERVER WILL NOT BROADCAST ITSELF.
+    #
+    # #cosign_usdc_transfer hands the house-signed cash-out wire back to a
+    # browser, which broadcasts it with `skipPreflight: true`
+    # (app/javascript/cdp_offramp_send.js). So no node pre-flights it after the
+    # house signs, and a wire that FAILS on chain still charges its fee payer —
+    # the house. The entry and contest-create cosigns simulate before they
+    # broadcast; this is that simulation for the path that does not broadcast.
+    # Cdp::OfframpSendsController#cosign calls it after cosigning and BEFORE it
+    # claims the row or renders the bytes.
+    #
+    # sig_verify:false + replace_recent_blockhash:true — the settings
+    # #cosign_and_broadcast_entry and #simulate_and_broadcast use, and the RPC
+    # refuses sigVerify alongside a replaced blockhash. The fee payer is charged
+    # only for a transaction that EXECUTES; a wire with a bad signature or a dead
+    # blockhash never executes, so the program verdict is the one that protects
+    # the house. It also keeps a player whose blockhash aged during the Phantom
+    # popup from being refused here; that wire cannot land, and the controller's
+    # re-arm rule already handles a send that never lands.
+    #
+    # FAILS CLOSED, and every refusal is `PreflightRejected` — a failed
+    # simulation, one that could not be run, and one that answered nothing.
+    # #simulate_and_broadcast lets an empty answer through because the node
+    # pre-flights its own send; nothing pre-flights this wire after us.
+    #
+    # Returns true. Raises PreflightRejected carrying the program error and the
+    # last log lines, for the server-side log only.
+    def preflight_cosigned_wire!(signed_wire_base64)
+      sim = begin
+        client.simulate_transaction(signed_wire_base64, sig_verify: false,
+                                    replace_recent_blockhash: true)
+      rescue StandardError => e
+        raise PreflightRejected, "Pre-flight simulation could not be run: #{e.message}"
+      end
+
+      raise PreflightRejected, "Pre-flight simulation returned no result" if sim.nil?
+
+      if sim["err"]
+        logs = Array(sim["logs"]).last(6).join("\n")
+        raise PreflightRejected,
+              "Pre-flight simulation failed: #{sim['err'].inspect}#{logs.empty? ? '' : "\n#{logs}"}"
+      end
+
+      true
+    end
+
     private
 
     # Decode a LEGACY (unversioned) Solana wire transaction into its account keys
@@ -3926,6 +4003,36 @@ module Solana
       end
       cosign_reject!(entry, wallet_address,
         "system_program_ix: ix #{index} data=#{ix[:data].to_s.unpack1('H*')} (no System instruction is cosigned)")
+    end
+
+    # One Phantom-injected Lighthouse instruction on a cosigned wire: admit it
+    # only if it is a post-state ASSERTION (discriminator 2..17). REFUSE the two
+    # variants that move the payer's lamports — MemoryWrite (0), which would let
+    # a crafted wire make the house fee payer fund an attacker-sized "memory"
+    # PDA and lock house SOL, and MemoryClose (1) — plus an empty data field and
+    # any unknown discriminator. See the LIGHTHOUSE_PROGRAM_ID comment for why
+    # naming the fee payer is NOT the test (real Phantom assertions target it).
+    def assert_lighthouse_ix_safe!(entry, wallet_address, ix, index)
+      disc = ix[:data].to_s.getbyte(0)
+      if disc.nil?
+        cosign_reject!(entry, wallet_address,
+          "lighthouse_empty_data: ix #{index} carries no discriminator byte")
+      end
+      case disc
+      when LIGHTHOUSE_MEMORY_WRITE
+        cosign_reject!(entry, wallet_address,
+          "lighthouse_memory_write: ix #{index} MemoryWrite (disc 0) would make a signer " \
+          "fund a memory PDA — no cosigned wire may spend the fee payer's rent")
+      when LIGHTHOUSE_MEMORY_CLOSE
+        cosign_reject!(entry, wallet_address,
+          "lighthouse_memory_close: ix #{index} MemoryClose (disc 1) is a memory-account op, not an assertion")
+      when LIGHTHOUSE_ASSERTION_DISCRIMINATORS
+        # Pure post-state assertion — the worst it can do is fail the tx.
+        nil
+      else
+        cosign_reject!(entry, wallet_address,
+          "lighthouse_unknown_disc: ix #{index} discriminator #{disc} is not a known Lighthouse assertion")
+      end
     end
 
     # The withdrawal floor, asserted in the BUILDERS rather than only in the
