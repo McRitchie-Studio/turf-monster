@@ -31,7 +31,7 @@ class SidekiqAdminMiddleware
             <p style="font-size:4rem; margin:0;">&#129300;</p>
             <h1 style="font-size:1.5rem; margin:1rem 0 0.5rem;">You look lost</h1>
             <p style="color:#94a3b8; margin-bottom:1.5rem;">There's nothing to see here.</p>
-            <a href="/" style="background:#4BAF50; color:#fff; padding:0.5rem 1.5rem; border-radius:0.5rem; text-decoration:none; font-weight:bold;">Take me home</a>
+            <a href="/" style="background:#{Studio.theme_primary}; color:#fff; padding:0.5rem 1.5rem; border-radius:0.5rem; text-decoration:none; font-weight:bold;">Take me home</a>
           </div>
         </body>
         </html>

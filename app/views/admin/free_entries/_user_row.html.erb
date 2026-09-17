@@ -22,7 +22,7 @@
       "…" instead of a misleading 0. %>
   <td class="px-3 py-3 text-right font-mono"><%= row[:loading] ? tag.span("…", class: "text-muted", title: "Syncing on-chain data…") : row[:minted] %></td>
   <td class="px-3 py-3 text-right font-mono"><%= row[:loading] ? tag.span("…", class: "text-muted", title: "Syncing on-chain data…") : row[:unconsumed] %></td>
-  <td class="px-3 py-3 text-right font-mono font-bold" style="<%= !row[:loading] && row[:owed] > 0 ? 'color: var(--color-cta);' : 'color: var(--color-text-muted);' %>"><%= row[:loading] ? tag.span("…", class: "font-normal", title: "Syncing on-chain data…") : row[:owed] %></td>
+  <td class="px-3 py-3 text-right font-mono font-bold" style="<%= !row[:loading] && row[:owed] > 0 ? 'color: var(--color-primary-ink);' : 'color: var(--color-text-muted);' %>"><%= row[:loading] ? tag.span("…", class: "font-normal", title: "Syncing on-chain data…") : row[:owed] %></td>
   <td class="px-4 py-3 text-right">
     <div class="inline-flex items-center justify-end gap-2">
       <%# Cold cache: don't offer a Mint on unverified counts — the background

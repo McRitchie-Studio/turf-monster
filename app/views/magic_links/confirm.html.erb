@@ -12,7 +12,7 @@
 <div style="text-align:center;">
   <div role="status" aria-label="Signing you in"
        style="width:88px;height:88px;margin:0 auto;border-radius:9999px;
-              border:8px solid rgba(255,255,255,0.14);border-top-color:#4BAF50;
+              border:8px solid rgba(255,255,255,0.14);border-top-color:<%= Studio.theme_primary %>;
               animation:magic-spin 0.8s linear infinite;"></div>
 
   <div id="magic-fallback" style="display:none;margin-top:2rem;color:#cdd9c9;">
@@ -21,7 +21,7 @@
     <%= button_to consume_path,
           method: :post,
           form: { id: "magic-consume-form", data: { turbo: "false" } },
-          style: "display:inline-block;padding:14px 34px;font-size:16px;font-weight:700;color:#ffffff;background:#4BAF50;border:none;border-radius:10px;cursor:pointer;" do %>
+          style: "display:inline-block;padding:14px 34px;font-size:16px;font-weight:700;color:#ffffff;background:#{Studio.theme_primary};border:none;border-radius:10px;cursor:pointer;" do %>
       Sign in to Turf Monster
     <% end %>
   </div>
