@@ -8,9 +8,15 @@
 ## Branding & Theme
 
 - **Theme**: Dynamic — engine-generated CSS custom properties from 7 role colors (see `studio-engine/docs/NAVBAR_SETUP.md` plus this file's semantic-token notes)
-- **Theme config**: `theme_primary = "#4BAF50"` (green), `theme_accent = "#8E82FE"` (violet) in `studio.rb`
+- **Theme config**: `theme_primary = "#2E7D32"` (green), `theme_success = "#2E7D32"` (the same green), `theme_accent = "#8E82FE"` (violet) in `studio.rb`. A `ThemeSetting` row saved from `/admin/theme` overrides any of them per environment.
 - **Admin theme page**: `/admin/theme` — color editor + styleguide (from engine)
-- **Primary**: `#4BAF50` Green — brand text, CTAs, buttons, nav hovers, money displays, balances, checkmarks, hold button idle state
+- **Primary**: `#2E7D32` Green — brand text, CTAs, buttons, nav hovers, money displays, balances, checkmarks, hold button idle state
+  - **Why this green (2026-09-16).** It replaced `#4BAF50`, which gave `.btn-primary`'s white label 2.78:1, below WCAG AA's 4.5:1. White measures 5.13:1 on `#2E7D32` and 8.46:1 on the engine's hover fill `#205823`. `test/views/primary_button_contrast_test.rb` fails on any primary that drops those below 4.5:1.
+  - **Green TEXT reads the primary ink, not the fill.** As text on the dark theme (the default), `#2E7D32` measures 3.41:1 on the page and 2.18:1 on a card. So `text-primary` resolves to `--color-primary-ink`: `#81C784` in the dark theme (8.68:1 page, 5.54:1 card) and the primary itself in the light theme (4.90:1 page, 5.13:1 card). `#81C784` fails on white (2.01:1), which is why the ink is per theme. The tokens live at the end of `app/assets/tailwind/application.css`; `config/tailwind.config.js` routes `text-primary` (and its `/alpha`, `hover:` and `group-hover:` forms) through them, while `bg-`, `border-` and `ring-primary` keep the fill. In hand-written CSS or an inline `style`, write `color: var(--color-primary-ink)`, never `var(--color-cta)` or `var(--color-primary)`.
+  - **Text on a primary tint reads `--color-primary-badge-ink`.** On the `.level-badge-1` wash (primary at 15 percent) the light-theme primary is only 4.21:1, so the badge ink is the scale's 700 shade there (6.95:1) and the dark ink in the dark theme (5.04:1). Guard for both inks: `test/views/primary_text_contrast_test.rb`.
+  - **Still open (measured, not fixed):** Tailwind badges written as `bg-primary/10`, `/15` or `/20` with `text-primary` (32 lines in `app/views`) get the plain ink, so in the light theme they measure 4.21:1 (4.49:1 on a `/10` tint). The light ink is also 4.10:1 on `bg-inset` (`#E4E6E8`); it clears the page, cards and `bg-surface-alt` (4.61:1). The link hovers still read the fill scale: `hover:text-primary-600` is 1.69:1 on a dark card (the Phantom help page, the admin pending-transactions TX link) and `hover:text-primary-300` is 2.07:1 on white. The navbar balance links add `dark:hover:text-primary-300`, because their 600 hover measured 2.65:1 on the dark page, where the old primary's was 4.66:1.
+  - **Deliberately still `#4BAF50`**: decorative multi-hue light (confetti palettes, `.level-badge-10`'s rainbow, the landing blobs, `.glow-brand` orbs) and chart series colours on the slate reports. There the bright green is one hue among many, and nothing is written on it.
+  - **Success is the same green.** `theme_success = "#2E7D32"`, so `btn-success`'s white label measures 5.13:1 (it was 2.78:1 on the engine default `#4BAF50`). Success text is `text-success-ink`, which the engine derives per theme from that colour and which clears AA on every surface and on its own tint.
 - **Mint**: `#06D6A0` — win badges, contest status (open). Reserved for game mechanics (win), not general selection UI. NOT the hold button's success state any more (2026-08): confirming used to jump to mint/teal, a different hue from the button pressed, with a mint check that barely showed on it — it now brightens within the brand green and draws the check in white.
 - **Accent**: `#8E82FE` Violet — scores, draft badges, `.btn-secondary`, Phantom wallet badge. NOT for CTA-intent elements (use `primary` instead). NOT for turf scores (use `primary`).
 - **Primary for selection UI**: Selection count badges, cart slot borders, matchup selection rings/tints, turf score values, links, sort toggle active state, and FAB buttons all use `primary` (green), not mint or violet.
@@ -799,16 +805,16 @@ When building a component preview that needs to simulate responsive behavior:
 Theme colors flow one direction: studio-engine config → CSS custom properties → Tailwind utilities AND hand-rolled CSS.
 
 ```
-config/initializers/studio.rb   # e.g. theme_primary = "#4BAF50"
+config/initializers/studio.rb   # e.g. theme_primary = "#2E7D32"
         │
         ▼
 ThemeSetting (engine)            # 7 role colors persisted per-app
         │
         ▼
-<style> in <head>                # --color-primary-rgb: 75 175 80; (RGB triplet)
+<style> in <head>                # --color-primary-rgb: 46 125 50; (RGB triplet), cached 1h at studio/theme/<app>
         │                         # --color-cta, --color-cta-hover, --color-page, …
         ├──> Tailwind config     # primary palette = rgb(var(--color-primary-rgb) / <alpha>)
-        │                         #  → utility classes: bg-primary, text-primary, border-primary, ring-primary
+        │                         #  → bg-primary, border-primary, ring-primary; text-primary reads --color-primary-ink-rgb
         └──> Hand-rolled CSS    # rgb(var(--color-primary-rgb)) directly in .matchup-selected, .pick-pulse, etc.
                                   #  (and in the ENGINE's own layer — .hold-btn themes off the same token from studio-engine)
 ```

@@ -31,7 +31,7 @@
             <td class="px-3 py-3 font-mono text-[11px] text-muted"><%= Time.at(s[:created_at]).strftime("%Y-%m-%d %H:%M") rescue "—" %></td>
             <td class="px-4 py-3 text-right">
               <% if is_current %>
-                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-cta); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.4);">CURRENT</span>
+                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background: rgb(var(--color-primary-500-rgb) / 0.15); color: var(--color-primary-badge-ink); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.4);">CURRENT</span>
               <% else %>
                 <%= button_to admin_set_current_season_path(season_id: s[:season_id]), class: "btn btn-outline btn-sm" do %>
                   Set Current
@@ -74,7 +74,7 @@
               <label class="text-muted text-[10px] block mb-1 text-center">entry <%= i %><%= "+" if i == 4 %></label>
               <%= f.number_field "slot_#{i}", value: default, min: 0,
                   class: "w-full text-sm rounded-md border border-subtle px-2 py-1.5 font-mono text-center",
-                  style: "background: var(--color-bg-surface); color: var(--color-cta);" %>
+                  style: "background: var(--color-bg-surface); color: var(--color-primary-ink);" %>
             </div>
           <% end %>
         </div>

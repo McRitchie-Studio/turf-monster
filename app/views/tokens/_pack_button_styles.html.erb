@@ -81,6 +81,9 @@
   .glow-pair-btn:hover:not(:disabled) .orb-r.orb-big   { right: -80px;           top: -64px; filter: blur(36px); transform: scale(1.3); }
   .glow-pair-btn > .glow-content { position: relative; z-index: 20; }
 
+  /* The orb green is the BRIGHT #4BAF50 on purpose, not the theme primary
+     #2E7D32. An orb is light, not a fill: against the dark surface #3C3853 the
+     bright green measures 4.01:1 and the darker primary only 2.18:1. */
   .glow-brand { --orb1: #4BAF50; --orb2: #f97316; --orb-accent: #f97316; }
 
   /* Coinflow rail — same orb choreography, cooler hues so the two payment rails
@@ -101,7 +104,9 @@
      (modals/auth/_paypal_tokens: "bare text-yellow-300 on the light theme's
      white card is near-invisible"). Ratios vs #fff: stripe 5.13:1,
      coinflow 7.90:1, paypal 6.66:1 — all clear AA's 4.5:1.
-     The theme primary (#4BAF50) is NOT usable here: white on it is 2.78:1. */
+     The stripe fill equals the theme primary (#2E7D32) since 2026-09-16, but it
+     stays a literal: the badge names a payment rail, so a brand change must not
+     recolour it. */
   .provider-badge {
     display: inline-block; flex-shrink: 0;
     padding: 4px 10px; border-radius: 9999px;
@@ -114,13 +119,11 @@
        inset ring gives it a definite boundary in both themes. */
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
   }
-  /* Savings accent. Was `bg-primary text-white`, which is white on #4BAF50 =
-     2.78:1 at 10px — failing AA in BOTH themes, not just light. That exact
-     figure is computed a few lines above as the reason the provider badge does
-     NOT use the theme primary; the same trap was sitting one line away on the
-     same card.
+  /* Savings accent. Was `bg-primary text-white` while the primary was #4BAF50:
+     white on it was 2.78:1 at 10px, failing AA in BOTH themes, not just light.
      #1b5e20 is 7.87:1 against white — clears AA with room.
-     It is deliberately not #2e7d32 (the stripe provider badge), but do NOT rely
+     It is deliberately not #2e7d32 (the stripe provider badge, and the theme
+     primary since 2026-09-16), but do NOT rely
      on the hue to tell them apart: measured against each other the two greens
      are only ~1.5:1, which is not a visible difference. What separates a
      savings accent from a provider badge here is SHAPE and POSITION — the badge

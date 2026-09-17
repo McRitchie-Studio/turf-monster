@@ -35,11 +35,11 @@
     <div class="flex flex-wrap items-center gap-2 mb-4">
       <span class="label-upper mr-1">Class:</span>
       <%= link_to "all", admin_error_logs_path(request.query_parameters.except("klass")),
-            class: "badge", style: ("border-color: var(--color-primary); color: var(--color-primary)" if params[:klass].blank?) %>
+            class: "badge", style: ("border-color: var(--color-primary); color: var(--color-primary-ink)" if params[:klass].blank?) %>
       <% @summary[:top_classes_24h].each do |klass, count| %>
         <%= link_to "#{klass} (#{count})",
               admin_error_logs_path(request.query_parameters.merge("klass" => klass)),
-              class: "badge", style: ("border-color: var(--color-primary); color: var(--color-primary)" if params[:klass] == klass) %>
+              class: "badge", style: ("border-color: var(--color-primary); color: var(--color-primary-ink)" if params[:klass] == klass) %>
       <% end %>
     </div>
   <% end %>

@@ -56,6 +56,21 @@ module.exports = {
         ...(studioColors.theme.extend.screens || {}),
         'pill-narrow': '530px',
       },
+      // `text-primary` paints the primary INK, not the primary FILL. The brand
+      // primary #2E7D32 is dark enough for white button labels, but as text on
+      // the dark theme it measures 2.18:1 on a card. --color-primary-ink is
+      // #81C784 in the dark theme and the primary itself in the light theme
+      // (declared in app/assets/tailwind/application.css). Only the DEFAULT is
+      // rerouted; the shades stay the fill scale so text-primary-300 and
+      // text-primary-600 still compile. bg-/border-/ring-primary keep `colors`.
+      // Guard: test/views/primary_text_contrast_test.rb.
+      textColor: {
+        ...studioColors.theme.extend.textColor,
+        primary: {
+          ...studioColors.theme.extend.colors.primary,
+          DEFAULT: 'rgb(var(--color-primary-ink-rgb) / <alpha-value>)',
+        },
+      },
       colors: {
         ...studioColors.theme.extend.colors,
         // primary palette is now dynamic from shared studio config (CSS vars)

@@ -33,7 +33,7 @@
     </div>
     <div class="card p-4" style="<%= 'border-color: var(--color-cta);' if @page_owed > 0 %>">
       <div class="text-muted text-[10px] uppercase tracking-wide">Owed (first <%= @users_data.length %>)</div>
-      <div class="text-2xl font-bold font-mono" style="<%= @page_owed > 0 ? 'color: var(--color-cta);' : '' %>"><%= @page_owed %></div>
+      <div class="text-2xl font-bold font-mono" style="<%= @page_owed > 0 ? 'color: var(--color-primary-ink);' : '' %>"><%= @page_owed %></div>
     </div>
   </div>
 

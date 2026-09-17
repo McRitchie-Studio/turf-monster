@@ -195,8 +195,28 @@ Studio.configure do |config|
     { file: "logo.jpeg",     title: "Auth Logo" },
   ]
 
-  # Theme: green primary, violet as accent2
-  config.theme_primary = "#4BAF50"
+  # Theme: green primary, violet as accent2.
+  #
+  # The primary is #2E7D32, darkened from #4BAF50 on 2026-09-16 by Mr.
+  # McRitchie's decision (task primary-button-fails-contrast). The house
+  # .btn-primary is a white label on this fill, and #4BAF50 measured 2.78:1,
+  # below WCAG AA's 4.5:1. #2E7D32 clears it at 5.13:1 at rest and 8.46:1 on the
+  # engine's 30%-darker hover. Every other FILL of the primary darkens with it,
+  # which was the point of the choice. Green TEXT does not use this value: it
+  # reads --color-primary-ink (app/assets/tailwind/application.css), because
+  # #2E7D32 as text on the dark theme measures only 2.18:1 on a card.
+  #
+  # Two things to know before changing it again. A ThemeSetting row saved from
+  # /admin/theme overrides this value per environment. And
+  # test/views/primary_button_contrast_test.rb measures the label on the
+  # resolved fill, so a lighter green fails there rather than in production.
+  config.theme_primary = "#2E7D32"
+
+  # Success is the same green, for the same reason. Unset, it fell back to the
+  # engine default #4BAF50, where btn-success's white label measured 2.78:1. On
+  # #2E7D32 it is 5.13:1. Success TEXT is not this colour: the engine derives
+  # --color-success-ink from it per theme (#8AB68C dark, #286C2B light).
+  config.theme_success = "#2E7D32"
   config.theme_accent = "#8E82FE"
 
   # S3 — overrides engine default ("mcritchie-studio") to use this app's bucket
