@@ -317,11 +317,11 @@ three:
    never move funds. So `#assert_lighthouse_ix_safe!` admits discriminators
    2-17 and refuses `MemoryWrite`, `MemoryClose`, empty data and any unknown
    discriminator; the entry, create-contest and cash-out guards all call it.
-   The test is the discriminator, not "does it name the fee payer": real
-   Phantom mainnet wires carry `AssertAccountInfoMulti` (6) and
-   `AssertTokenAccountMulti` (10), which assert the fee payer's own
-   post-state, so refusing on the fee payer would reject them all and repeat
-   the 2026-06-11 outage. PR #755 added the guard.
+   The test is the discriminator, not "does it name the fee payer": the real
+   Phantom mainnet wires the house has cosigned carry `AssertAccountInfoMulti`
+   (6) and `AssertTokenAccountMulti` (10), and each has a variant-6 assertion
+   on the fee payer's own post-state, so refusing on the fee payer would
+   reject them all and repeat the 2026-06-11 outage. PR #755 added the guard.
 2. **Simulation of any tx whose blockhash isn't in the recent queue needs
    `replaceRecentBlockhash: true`** (sigVerify must be false alongside it) —
    `Solana::Vault#cosign_and_broadcast_entry` simulates with both
