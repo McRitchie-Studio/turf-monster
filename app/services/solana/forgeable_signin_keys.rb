@@ -2,17 +2,18 @@ module Solana
   # The Ed25519 public keys no wallet can hold, refused wherever this app trusts
   # a Solana signature for an address.
   #
-  # WHY IT EXISTS. solana-studio 0.11.0's Solana::AuthVerifier.verify! accepts
+  # WHY IT EXISTS. solana-studio 0.11.0's Solana::AuthVerifier.verify! accepted
   # small-order public keys. Exactly fourteen 32-byte strings decode to a
   # small-order point, and no keypair produces any of them, so an address from
   # this list is never a real wallet. Refusing them costs no user anything:
   # measured before this shipped, no account on mainnet or QA held one.
   #
-  # STOPGAP — DELETE ONCE turf bumps to a solana-studio release carrying
-  # Solana::Ed25519Strict (task reject-small-order-signin-keys,
-  # https://mcritchie.studio/tasks/reject-small-order-signin-keys). verify! then
-  # refuses these keys itself, and this module, its call sites and its tests
-  # become redundant.
+  # STOPGAP. turf now locks solana-studio 0.12.0, whose verify! refuses these
+  # keys itself through Solana::Ed25519Strict (task reject-small-order-signin-keys,
+  # https://mcritchie.studio/tasks/reject-small-order-signin-keys), so the
+  # sign-in and link call sites are covered twice. WalletExportsController#complete
+  # is not: it checks its signature with Ed25519::VerifyKey directly, not verify!.
+  # Retire this module only once that call site goes through Ed25519Strict too.
   #
   # WHERE IT IS CALLED, each immediately after the signature check and before
   # anything reads or writes a user by the address:
@@ -62,8 +63,10 @@ module Solana
 
     module_function
 
-    # Matched on the decoded bytes as well as the listed spelling: the decoder
-    # maps more than one string to some of these keys.
+    # Matched on the decoded bytes as well as the listed spelling. Before 0.12.0,
+    # solana-studio's base58 decoder mapped more than one string to some of these
+    # keys ("1" * 31 decoded to the all-zero key). 0.12.0 decodes one-to-one, so
+    # the bytes match now guards against a decoder that aliases again.
     def forgeable?(pubkey_b58)
       address = pubkey_b58.to_s
       return false if address.empty? || address.length > MAX_ADDRESS_LENGTH
