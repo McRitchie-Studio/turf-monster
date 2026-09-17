@@ -68,11 +68,14 @@ class WalletExportsController < ApplicationController
     pubkey_bytes = Solana::Keypair.decode_base58(@export_user.solana_address)
     sig_bytes    = Solana::Keypair.decode_base58(signature_b58)
     Ed25519::VerifyKey.new(pubkey_bytes).verify(sig_bytes, expected_msg)
+    # A small-order address is refused like a signature that did not verify.
+    # Stopgap until solana-studio ships Ed25519Strict — see Solana::ForgeableSigninKeys.
+    Solana::ForgeableSigninKeys.refuse!(@export_user.solana_address, context: "wallet_exports#complete")
 
     @export_user.update!(self_custodied_at: Time.current)
     Rails.logger.info "[wallet-export] self_custodied user=#{@export_user.id} address=#{@export_user.solana_address}"
     render json: { success: true, redirect: account_path }
-  rescue Ed25519::VerifyError
+  rescue Ed25519::VerifyError, Solana::AuthVerifier::VerificationError
     render json: { success: false, error: "Signature didn't verify against your wallet — make sure you signed with the imported wallet." }, status: :unprocessable_entity
   rescue ActionController::ParameterMissing => e
     render json: { success: false, error: "Missing #{e.param}" }, status: :unprocessable_entity

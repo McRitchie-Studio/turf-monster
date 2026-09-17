@@ -140,7 +140,7 @@ Phantom must be installed in the browser or available via mobile deep link.
      mapped into balance advice (closed 2026-09-09; see `docs/AUTH.md`).
 
 6. **Server verifies + creates User.** `SolanaSessionsController#verify` —
-   `app/controllers/solana_sessions_controller.rb:25-103`.
+   `app/controllers/solana_sessions_controller.rb:25-107`.
    - Signature check: `Solana::SessionAuth#verify_solana_signature!`
      (`studio-engine: app/controllers/concerns/solana/session_auth.rb`) runs
      pure-Ruby ed25519 through `Solana::AuthVerifier.verify!` — nonce
@@ -150,7 +150,7 @@ Phantom must be installed in the browser or available via mobile deep link.
      (`app/models/user.rb:236-238`); if absent, `verify` builds a new `User`
      with `web3_solana_address` and `reference: cookies[:reference]` — the
      first-touch stamp set in step 1
-     (`app/controllers/solana_sessions_controller.rb:34`, `:53-57`).
+     (`app/controllers/solana_sessions_controller.rb:38`, `:57-61`).
    - `user.save!` triggers the shared spine. Declaration and definition sit far
      apart in `app/models/user.rb`, so both are cited:
      - `before_validation :ensure_username` (`app/models/user.rb:106`) —
@@ -171,17 +171,17 @@ Phantom must be installed in the browser or available via mobile deep link.
        `CreateOnchainUserAccountJob.perform_later` (`:793-795`). Async — the
        user is logged in before the on-chain PDA finalizes.
    - `cookies.delete(:reference)` consumes the cookie only for a new signup
-     (`app/controllers/solana_sessions_controller.rb:62`).
+     (`app/controllers/solana_sessions_controller.rb:66`).
    - `set_app_session(user)` writes `session[:turf_user_id]` +
      `session[:session_token]` and clears any stale on-chain flag
      (`app/controllers/application_controller.rb:33-66`, `:41`).
      `promote_to_onchain_session!` then grants it (`:559-564`) — that write is
      what `onchain_session?` reads (`:538-541`), and `verify` calls it at
-     `app/controllers/solana_sessions_controller.rb:77`. It lives in
+     `app/controllers/solana_sessions_controller.rb:81`. It lives in
      `ApplicationController` because the login and wallet-link paths used to
      drift apart.
    - Response: `render json: { success: true, redirect: redirect, new_user:
-     is_new }` (`:97`).
+     is_new }` (`:101`).
    - **The in-board flow does not follow that redirect.** The board's
      `openWalletConnect(ageAttested)` saved the guest lineup before handing off
      to the picker and set `returnUrl` to this contest
