@@ -336,9 +336,13 @@ module Cdp
     # ONE COSIGN PER CASH-OUT ROW, and the rewind that re-arms it.
     #
     # #cosign moves the row to :sending as soon as it returns a house-signed wire
-    # that passed its simulation, so a client cannot loop the endpoint and mint
-    # an unbounded supply of broadcastable, house-funded wires — every broadcast
-    # costs the house its fee whether the transfer succeeds or fails.
+    # that passed its simulation, so a row holds at most ONE outstanding wire —
+    # every broadcast costs the house its fee whether the transfer succeeds or
+    # fails. That is not a cap on attempts. The simulation sees only failures
+    # present at cosign time; a wire built to fail AFTER it (a Lighthouse clock
+    # assertion, or the USDC moved out first) lands as :failed, the rewind below
+    # re-arms the row, and re-arms are not counted — only the send window and
+    # the cdp_offramp_send/user throttle bound that loop.
     #
     # The legitimate retry — the browser never managed to broadcast — is
     # re-armed here, and ONLY on a verdict that is DEFINITIVE. The verdict
