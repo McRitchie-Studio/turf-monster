@@ -97,10 +97,16 @@ class Solana::VaultCosignValidationTest < ActiveSupport::TestCase
   # bound to THIS entry's PDA) carrying the given Lighthouse instructions, so a
   # test exercises the WHOLE entry guard, not just its Lighthouse arm. Modeled
   # on the real Phantom-injected shape; signatures are not checked by the guard.
+  #
+  # Serialized keyless with BOTH signers, house first, like the real builder.
+  # This helper used to sign as the admin alone, a one-signer wire no builder
+  # emits and Phantom never returned: all five real mainnet wires declare
+  # exactly two signers, the house then the player (phantom_mainnet_cosigned_wires.json).
+  # Once the guards pinned the signer set (pin-cashout-cosign-signer-count) that
+  # shape was refused, which is the point, so the helper now builds the real one.
   def entry_wire_with_lighthouse(vault, lighthouse_ixs)
     tx = Solana::Transaction.new
     tx.set_recent_blockhash(Solana::Keypair.generate.to_base58)
-    tx.add_signer(Solana::Keypair.admin)
     accounts = Array.new(Solana::Vault.enter_contest_entry_pda_position) do
       { pubkey: Solana::Keypair.generate.public_key_bytes, is_signer: false, is_writable: false }
     end
@@ -111,7 +117,8 @@ class Solana::VaultCosignValidationTest < ActiveSupport::TestCase
       data: Solana::Transaction.anchor_discriminator("enter_contest") + ("\x00".b * 8)
     )
     lighthouse_ixs.each { |ix| tx.add_instruction(**ix) }
-    tx.serialize_base64
+    tx.serialize_partial_base64(additional_signers: [Solana::Keypair.admin.public_key_bytes,
+                                                     Solana::Keypair.decode_base58(WALLET)])
   end
 
   # The create-guard twin: a create_contest wire built from the SAME instruction
@@ -723,5 +730,141 @@ class Solana::VaultCosignValidationTest < ActiveSupport::TestCase
     assert_match(/compute_budget_malformed/, refused(vault, ix, [short_price]))
     assert_match(/compute_budget_duplicate/,
                  refused(vault, ix, [cu_price_ix(1), cu_limit_ix(BUILDER_LIMIT), cu_price_ix(1)]))
+  end
+
+  # --- pin-cashout-cosign-signer-count -------------------------------------------
+  #
+  # THE HOLE. Solana charges the fee payer 5_000 lamports for every signature the
+  # message declares, and charges it on a landing that fails too. The guards
+  # pinned the fee payer and capped the priority fee, but never how MANY signers
+  # a wire declares. A client could add signer slots it fills itself and raise
+  # the base fee the house pays. The entry and create guards never even asked
+  # whether the player was one of the signers, so a wire the program must refuse
+  # on landing (no player signature) was cosigned and paid for.
+  #
+  # Every Phantom-first builder declares exactly two signers, and so did all
+  # five real mainnet wires: the house in slot 0, the player in slot 1.
+
+  def house_key  = Solana::Keypair.admin.public_key_bytes
+  def player_key = Solana::Keypair.decode_base58(WALLET)
+  def stranger   = @stranger ||= Solana::Keypair.generate.public_key_bytes
+
+  # `program_ix` under exactly the given signer list, keyless (Phantom-first).
+  def signer_wire(program_ix, signers)
+    tx = Solana::Transaction.new
+    tx.set_recent_blockhash(Solana::Keypair.generate.to_base58)
+    tx.add_instruction(**program_ix)
+    tx.serialize_partial_base64(additional_signers: signers)
+  end
+
+  # create_contest names the creator as a signer in its own account metas, so
+  # the serializer would promote the player to a signer whatever list we pass.
+  # The guard compares account KEYS, not their signer flags, so demoting the
+  # creator is exactly how a wire leaves the player out of the signer set.
+  def create_contest_ix_without_player_signing(vault)
+    ix = create_contest_ix(vault)
+    ix.merge(accounts: ix[:accounts].map { |m| m[:pubkey].b == player_key.b ? m.merge(is_signer: false) : m })
+  end
+
+  def signer_refusal(vault, guard, wire_b64)
+    assert_raises(Solana::Vault::UnsafeCosignError) do
+      guard == :entry ? entry_guard(vault, wire_b64) : create_guard(vault, wire_b64)
+    end.message
+  end
+
+  { entry: :enter_contest_ix, create: :create_contest_ix }.each do |guard, ix_builder|
+    test "the #{guard} guard cosigns the two-signer wire: house slot 0, player slot 1" do
+      vault = Solana::Vault.new(client: fake_client)
+      wire  = signer_wire(send(ix_builder, vault), [house_key, player_key])
+      assert(guard == :entry ? entry_guard(vault, wire) : create_guard(vault, wire))
+    end
+
+    test "REGRESSION: the #{guard} guard refuses a wire declaring a THIRD signer" do
+      vault = Solana::Vault.new(client: fake_client)
+      wire  = signer_wire(send(ix_builder, vault), [house_key, player_key, stranger])
+      assert_match(/signer_count_mismatch: numRequiredSignatures=3, require exactly 2/,
+                   signer_refusal(vault, guard, wire))
+    end
+
+    test "REGRESSION: the #{guard} guard refuses a wire that drops the player's signature" do
+      vault = Solana::Vault.new(client: fake_client)
+      ix = guard == :entry ? enter_contest_ix(vault) : create_contest_ix_without_player_signing(vault)
+      wire = signer_wire(ix, [house_key])
+      assert_match(/signer_count_mismatch: numRequiredSignatures=1, require exactly 2/, signer_refusal(vault, guard, wire))
+    end
+  end
+
+  test "REGRESSION: the entry guard refuses a wire whose second signer is not the player" do
+    vault = Solana::Vault.new(client: fake_client)
+    wire  = signer_wire(enter_contest_ix(vault), [house_key, stranger])
+    assert_match(/wallet_not_signer: account\[1\]=#{Solana::Keypair.encode_base58(stranger)}/,
+                 signer_refusal(vault, :entry, wire))
+  end
+
+  test "REGRESSION: the create guard refuses a wire whose second signer is not the player" do
+    vault = Solana::Vault.new(client: fake_client)
+    wire  = signer_wire(create_contest_ix_without_player_signing(vault), [house_key, stranger])
+    assert_match(/wallet_not_signer: account\[1\]=#{Solana::Keypair.encode_base58(stranger)}/,
+                 signer_refusal(vault, :create, wire))
+  end
+
+  # The cash-out twin of the two fixture tests above: every real Phantom
+  # Lighthouse payload rides the house-paid cash-out wire and is still admitted
+  # under the pinned signer set, because Lighthouse adds instructions, never
+  # signers.
+  test "every real mainnet Phantom Lighthouse instruction is still admitted (cash-out guard)" do
+    vault       = Solana::Vault.new(client: fake_client)
+    destination = Solana::Keypair.generate.address
+    amount      = 19_000_000
+    from_ata, _ = Solana::SplToken.find_associated_token_address(WALLET, Solana::Config::USDC_MINT)
+
+    tx = Solana::Transaction.new
+    tx.set_recent_blockhash(Solana::Keypair.generate.to_base58)
+    tx.add_instruction(**Solana::SplToken.transfer_instruction(
+      from: from_ata, to: destination, authority: player_key, amount: amount
+    ))
+    REAL_MAINNET_LIGHTHOUSE_IXS.each_value { |hex| tx.add_instruction(**ln([hex].pack("H*"))) }
+    wire = tx.serialize_partial_base64(additional_signers: [house_key, player_key])
+
+    assert vault.assert_usdc_transfer_cosign_safe!(wire, wallet_address: WALLET,
+                                                         destination_token_account: destination,
+                                                         amount_lamports: amount)
+  end
+
+  # THE REAL BYTES. The five house-cosigned Phantom wires, exactly as mainnet
+  # finalized them, read through the guards' own parser and signer rule. The
+  # payload tests above prove Lighthouse instructions pass; this proves the
+  # signers the REAL wires declare pass too, so the pin cannot be the 2026-06-11
+  # outage again. (The fee-payer half is asserted directly: the guards compare
+  # slot 0 against the test admin, a different keypair from the mainnet house.)
+  MAINNET_WIRES = JSON.parse(File.read(Rails.root.join("test/fixtures/files/phantom_mainnet_cosigned_wires.json")))
+
+  test "all five real mainnet Phantom wires pass the pinned signer rule" do
+    vault  = Solana::Vault.new(client: fake_client)
+    player = MAINNET_WIRES.fetch("player_wallet")
+    wires  = MAINNET_WIRES.fetch("wires")
+    assert_equal 5, wires.size, "the fixture is the five cosigned wires, no fewer"
+
+    house = Solana::Keypair.decode_base58(MAINNET_WIRES.fetch("house_fee_payer"))
+
+    wires.each do |w|
+      label = "real #{w['flow']} wire #{w['signature'][0, 5]}"
+      msg = vault.send(:parse_wire_message, Base64.decode64(w.fetch("wire_base64")).b,
+                       entry: w.fetch("flow"), wallet_address: player)
+      assert_equal 2, msg[:num_required_signatures], "#{label} declares two signers"
+      assert_equal house.b, msg[:account_keys][0].b, "#{label} has the house in slot 0"
+      begin
+        vault.send(:assert_cosign_signer_set!, w.fetch("flow"), player, msg)
+      rescue Solana::Vault::UnsafeCosignError => e
+        flunk "#{label} must pass the signer rule, got #{e.message}"
+      end
+
+      # Control: the same real bytes, checked for a different player, refuse.
+      # A rule that admitted everything would pass the call above too.
+      err = assert_raises(Solana::Vault::UnsafeCosignError) do
+        vault.send(:assert_cosign_signer_set!, w.fetch("flow"), Solana::Keypair.generate.address, msg)
+      end
+      assert_match(/wallet_not_signer/, err.message)
+    end
   end
 end
