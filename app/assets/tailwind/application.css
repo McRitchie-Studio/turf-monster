@@ -622,11 +622,6 @@
   }
 }
 
-@utility nav-level-pop {
-  /* Nav level-up bounce (shared by _user_nav and _navbar_seeds_bar) */
-  animation: navLevelPop 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
 @utility matchup-selected {
   outline: 3px solid rgb(var(--color-primary-rgb));
   outline-offset: -3px;
@@ -888,14 +883,6 @@
   }
 }
 
-@keyframes navLevelPop {
-  0% { transform: scale(1); }
-  15% { transform: scale(1.5); }
-  35% { transform: scale(1.2); }
-  50% { transform: scale(1.4); }
-  70% { transform: scale(1.1); }
-  100% { transform: scale(1); }
-}
 @keyframes card-shake {
   0%, 100% { transform: translateX(0); }
   15% { transform: translateX(-3px) rotate(-1deg); }
@@ -949,27 +936,14 @@
   --bar-progress: 0;
   transition: --bar-progress 1.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
-@keyframes levelPop {
-  0% { transform: scale(1) rotate(0deg); }
-  12% { transform: scale(3.2) rotate(-4deg); }
-  28% { transform: scale(2.4) rotate(3deg); }
-  42% { transform: scale(2.8) rotate(-1.5deg); }
-  60% { transform: scale(2.2) rotate(1deg); }
-  78% { transform: scale(1.3) rotate(0deg); }
-  100% { transform: scale(1) rotate(0deg); }
-}
-/* levelGlow shares its name with the engine's copy in engine-motion.css, and
-   this later definition is the one that wins, so its syntax is what paints. */
-@keyframes levelGlow {
-  0% { box-shadow: 0 0 0 0 rgb(var(--color-primary-500-rgb) / 0.9); }
-  25% { box-shadow: 0 0 40px 16px rgb(var(--color-primary-500-rgb) / 0.7); }
-  50% { box-shadow: 0 0 25px 10px rgb(var(--color-primary-500-rgb) / 0.4); }
-  100% { box-shadow: 0 0 0 0 rgb(var(--color-primary-500-rgb) / 0); }
-}
-.level-up-pop {
-  animation: levelPop 1.1s cubic-bezier(0.34, 1.56, 0.64, 1), levelGlow 1.4s ease-out;
-  z-index: 10;
-}
+/* The level-up motion (.level-up-pop, .nav-level-pop and their levelPop,
+   levelGlow and navLevelPop keyframes) lives in studio-engine's engine-motion.css
+   and nowhere in this file. Do not copy it back. That import compiles into
+   @layer components, and the engine's reduced-motion rule sits in the same layer,
+   so an app copy here (unlayered, or an @utility) outranks both: an unlayered rule
+   beats every layered one, and a utility beats a component. The copies that stood here did exactly that, so both
+   pops ran with reduced motion on, and the unlayered levelGlow painted instead of
+   the engine's. test/views/level_pop_reduced_motion_guard_test.rb holds the line. */
 
 /* Pick slot attention animations */
 @keyframes pick-pulse {
