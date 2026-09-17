@@ -5,8 +5,8 @@ require "test_helper"
 #
 # THE BUG. studio-engine emits every RGB-triple custom property as a
 # SPACE-separated list: Studio::ThemeResolver#primary_palette_vars writes
-# `--color-primary-500-rgb: 75 175 80`. The legacy comma form
-# `rgba(var(--color-primary-500-rgb), 0.6)` substitutes to `rgba(75 175 80, 0.6)`,
+# `--color-primary-500-rgb: 46 125 50`. The legacy comma form
+# `rgba(var(--color-primary-500-rgb), 0.6)` substitutes to `rgba(46 125 50, 0.6)`,
 # which mixes the space and comma syntaxes and is INVALID. A browser does not
 # report it: the declaration is dropped at computed-value time and the property
 # falls back to `none`. So the seeds-bar glow and the level-up glow painted
@@ -15,8 +15,8 @@ require "test_helper"
 # MEASURED, not inferred. A static page loading the compiled stylesheet and the
 # resolver's real theme vars, rendered in headless Chromium with each animation
 # paused at 25 percent: `.level-up-pop` computed `box-shadow: none` before the fix
-# and `rgba(75, 175, 80, 0.7) 0px 0px 40px 16px` after, the same under `html.dark`
-# and without it. A comma-list var (`75, 175, 80`) in the legacy form DOES paint,
+# and `rgba(46, 125, 50, 0.7) 0px 0px 40px 16px` after, the same under `html.dark`
+# and without it. A comma-list var (`46, 125, 50`) in the legacy form DOES paint,
 # which is why the form looks fine anywhere a comma list happens to be in scope.
 #
 # THE FIX is the slash form `rgb(var(--x-rgb) / A)`, which is valid for a space
@@ -29,9 +29,12 @@ require "test_helper"
 # nothing and needs no var-by-var resolution to stay honest.
 #
 # levelGlow NOTE FOR THE NEXT PERSON: engine-motion.css ships a CORRECT
-# `@keyframes levelGlow`, but application.css defines the same name after the
-# engine import, and the later definition wins. That is how a broken copy hid a
-# fixed one. The compiled-stylesheet scan below sees both.
+# `@keyframes levelGlow`, but application.css used to define the same name too.
+# The engine's copy compiles inside `@layer components` and the app's sat outside
+# any layer, and an unlayered definition beats a layered one wherever it appears
+# (order only decides within one layer). That is how a broken copy hid a fixed
+# one. The app copy is gone now; level_pop_reduced_motion_guard_test.rb keeps it
+# to one definition.
 class LegacyRgbaVarGuardTest < ActiveSupport::TestCase
   # `rgb(` or `rgba(`, then `var(--name)` (optionally with a fallback), then a
   # COMMA. The slash form puts `/` there and a bare `rgb(var(--x))` puts `)`, so

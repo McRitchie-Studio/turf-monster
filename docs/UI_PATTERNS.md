@@ -822,7 +822,7 @@ ThemeSetting (engine)            # 7 role colors persisted per-app
 Practical implications:
 - New role colors require both an engine palette change AND a safelist entry in `config/tailwind.config.js` (the safelist guards `bg`/`text`/`border`/`ring` utilities so they survive purging).
 - Always reference brand colors via the CSS var, never via hex literals — switching themes (or running the `/admin/theme` editor) only updates the var, not hardcoded hex.
-- For alpha variants in hand-rolled CSS, use the four-arg form: `rgb(var(--color-primary-rgb) / 0.2)`.
+- For alpha variants in hand-rolled CSS, use the slash form: `rgb(var(--color-primary-rgb) / 0.2)`. Never the legacy comma form `rgba(var(--x-rgb), A)`: the triples are space-separated, so a browser drops that declaration and paints nothing. `test/views/legacy_rgba_var_guard_test.rb` refuses it in the compiled stylesheet and in app source.
 
 ## Layer scale
 
