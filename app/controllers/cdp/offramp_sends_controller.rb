@@ -422,11 +422,12 @@ module Cdp
       landing = @failed_send_landing
       return unless landing
 
-      outcome = if landing[:verdict] == :exhausted
-                  "cap reached — row failed, player told to start a new cash-out"
-                else
-                  "re-armed for a fresh cosign"
-                end
+      outcome =
+        if landing[:verdict] == :exhausted
+          "cap reached — row failed, player told to start a new cash-out"
+        else
+          "re-armed for a fresh cosign"
+        end
       error_log = ErrorLog.capture!(FailedSendLanded.new(
         "Cash-out #{@ramp.partner_user_ref}: house-paid send #{landing[:signature]} failed on chain " \
         "(err=#{landing[:err].inspect}) — failed send #{landing[:count]} of " \
