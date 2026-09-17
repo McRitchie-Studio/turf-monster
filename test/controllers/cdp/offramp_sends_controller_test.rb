@@ -324,7 +324,7 @@ class Cdp::OfframpSendsControllerTest < ActionDispatch::IntegrationTest
                    "the amount comes from the ramp row, never from the client"
 
       ramp.reload
-      assert ramp.sending?, "the row leaves cdp_created the moment the house signs (one cosign per row)"
+      assert ramp.sending?, "the row leaves cdp_created once the house returns a signed wire (one cosign per row)"
       assert_equal "FakeOfframpSendSig", ramp.sent_signature,
                    "the signature is persisted BEFORE the signed bytes leave the server"
     end
@@ -352,6 +352,7 @@ class Cdp::OfframpSendsControllerTest < ActionDispatch::IntegrationTest
       assert_no_match(/token_accounts_mismatch/, error,
                       "the guard's forensic reason is logged server-side, never returned")
       assert_empty vault.offramp_cosign_calls, "validate-then-cosign: nothing is signed on reject"
+      assert_empty vault.offramp_preflight_calls, "a wire the guard refuses is never simulated"
       assert ramp.reload.cdp_created?, "a rejected wire must not advance the row"
     end
   end
@@ -391,6 +392,7 @@ class Cdp::OfframpSendsControllerTest < ActionDispatch::IntegrationTest
       assert_empty vault.offramp_cosign_calls,
                    "an ambiguous send must NEVER be rewound: the first transfer may still land, and " \
                    "a second signed wire would send the player's USDC twice"
+      assert_empty vault.offramp_preflight_calls, "a refused row spends no simulation"
       ramp.reload
       assert ramp.sending?, "the row is left exactly as it was"
       assert_equal "InFlight111", ramp.sent_signature, "the recorded signature must survive"
@@ -466,6 +468,108 @@ class Cdp::OfframpSendsControllerTest < ActionDispatch::IntegrationTest
                  "is only real if the bytes are withheld"
       assert_match(/already being sent/, body["error"])
       assert_nil ramp.reload.sent_signature
+    end
+  end
+
+  # ── The pre-flight (simulate-cashout-before-cosign-return) ─────────────────
+  #
+  # The browser broadcasts the cosigned wire with skipPreflight:true, and a wire
+  # that fails on chain still charges its fee payer — the house. So the server
+  # simulates the cosigned bytes BEFORE it claims the row and BEFORE the bytes
+  # leave, and a failed simulation returns nothing and claims nothing.
+
+  test "cosign_send simulates the house-cosigned wire before claiming the row and returning it" do
+    with_cdp_ramp do
+      ramp = create_ramp(wallet_mode: "web3")
+      log_in_as @user
+
+      row_at_simulation = nil
+      vault = FakeVault.new
+      vault.offramp_preflight_probe = lambda do |_wire|
+        fresh = CdpRampTransaction.find(ramp.id)
+        row_at_simulation = { status: fresh.status, sent_signature: fresh.sent_signature }
+      end
+      cosign_post(ramp, vault: vault)
+
+      assert_response :success
+      assert_equal "COSIGNED_PHANTOM_SIGNED_WIRE", JSON.parse(response.body)["signed_tx"]
+      assert_equal ["COSIGNED_PHANTOM_SIGNED_WIRE"], vault.offramp_preflight_calls,
+                   "the simulation runs on the exact house-signed bytes that are returned"
+      assert_equal({ status: "cdp_created", sent_signature: nil }, row_at_simulation,
+                   "the claim is taken only AFTER the simulation passes, so a failed or interrupted " \
+                   "simulation can never leave a row claiming a signature that was not returned")
+      ramp.reload
+      assert ramp.sending?
+      assert_equal "FakeOfframpSendSig", ramp.sent_signature
+    end
+  end
+
+  test "cosign_send withholds the signed wire when the simulation fails, and claims nothing" do
+    with_cdp_ramp do
+      ramp = create_ramp(wallet_mode: "web3")
+      log_in_as @user
+
+      vault = FakeVault.new
+      vault.offramp_preflight_raises =
+        "Pre-flight simulation failed: {\"InstructionError\"=>[2, {\"Custom\"=>1}]}\nProgram log: Error: insufficient funds"
+
+      assert_difference -> { ErrorLog.where(target: ramp).count }, 1 do
+        cosign_post(ramp, vault: vault)
+      end
+
+      assert_response :unprocessable_entity
+      body = JSON.parse(response.body)
+      assert_nil body["signed_tx"], "a wire the chain would refuse must never reach the browser"
+      assert_nil body["tx_signature"]
+      assert_match(/couldn't confirm this cash-out would go through/, body["error"])
+      assert_no_match(/InstructionError|insufficient funds|Program log/, body["error"],
+                      "the simulation's detail is logged server-side, never returned")
+      assert_equal ["PHANTOM_SIGNED_WIRE"], vault.offramp_cosign_calls
+      assert_equal ["COSIGNED_PHANTOM_SIGNED_WIRE"], vault.offramp_preflight_calls
+
+      ramp.reload
+      assert ramp.cdp_created?, "a refused simulation must not advance the row"
+      assert_nil ramp.sent_signature, "no row may claim a signature that was never returned"
+      assert_nil ramp.broadcast_at
+    end
+  end
+
+  test "a retry after a failed simulation cosigns again — the row was never capped" do
+    with_cdp_ramp do
+      ramp = create_ramp(wallet_mode: "web3")
+      log_in_as @user
+
+      refusing = FakeVault.new
+      refusing.offramp_preflight_raises = "Pre-flight simulation failed: blocked"
+      cosign_post(ramp, vault: refusing)
+      assert_response :unprocessable_entity
+
+      cosign_post(ramp, vault: FakeVault.new)
+
+      assert_response :success
+      assert_equal "COSIGNED_PHANTOM_SIGNED_WIRE", JSON.parse(response.body)["signed_tx"]
+      assert ramp.reload.sending?
+    end
+  end
+
+  test "a failed simulation after a verified-dead re-arm leaves the row re-armed, never claiming" do
+    with_cdp_ramp do
+      ramp = create_ramp(wallet_mode: "web3", status: "sending", sent_signature: "Failed111",
+                         broadcast_at: 10.seconds.ago)
+      log_in_as @user
+
+      vault = FakeVault.new
+      vault.offramp_preflight_raises = "Pre-flight simulation failed: blocked"
+      cosign_post(ramp, vault: vault,
+                  statuses: { "Failed111" => { "err" => { "InstructionError" => 1 } } })
+
+      assert_response :unprocessable_entity
+      assert_nil JSON.parse(response.body)["signed_tx"]
+      ramp.reload
+      assert ramp.cdp_created?,
+             "the dead send was proven dead on chain, so its re-arm stands; the fresh wire failed, so it claims nothing"
+      assert_nil ramp.sent_signature
+      assert_nil ramp.broadcast_at
     end
   end
 

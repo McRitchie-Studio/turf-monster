@@ -698,6 +698,27 @@ class FakeVault
     @offramp_cosign_calls ||= []
   end
 
+  # The cash-out pre-flight (Vault#preflight_cosigned_wire!). Records the wire
+  # it was asked to simulate. Configure:
+  #   offramp_preflight_raises: message → raise Vault::PreflightRejected, the
+  #                             type the real method raises for a failed OR an
+  #                             unrunnable simulation
+  #   offramp_preflight_probe:  callable → invoked with the wire at simulation
+  #                             time, so a test can read the row's state AT that
+  #                             moment (the claim must not be taken yet)
+  attr_writer :offramp_preflight_raises, :offramp_preflight_probe
+
+  def preflight_cosigned_wire!(signed_wire_base64)
+    offramp_preflight_calls << signed_wire_base64
+    @offramp_preflight_probe&.call(signed_wire_base64)
+    raise Solana::Vault::PreflightRejected, @offramp_preflight_raises if @offramp_preflight_raises
+    true
+  end
+
+  def offramp_preflight_calls
+    @offramp_preflight_calls ||= []
+  end
+
   # Mirrors the REAL builders' floor so a controller test through this double
   # meets the same refusal production would (Vault::MIN_WITHDRAWAL_BASE_UNITS).
   def assert_above_withdrawal_minimum!(amount_lamports)

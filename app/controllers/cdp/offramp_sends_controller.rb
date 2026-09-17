@@ -14,8 +14,9 @@ module Cdp
   #        zero SOL can still withdraw (phantom-cashout-needs-sol).
   #   POST /cdp/offramp/cosign_send   — Phantom (web3): validates the
   #        Phantom-signed wire against what THIS server prepared, fills the
-  #        admin (fee payer) signature slot, and hands back the fully-signed
-  #        bytes for the client to broadcast. One cosign per row.
+  #        admin (fee payer) signature slot, simulates the result, and hands
+  #        back the fully-signed bytes for the client to broadcast only when the
+  #        simulation passes. One cosign per row.
   #   POST /cdp/offramp/sent          — Phantom (web3): records the
   #        client-reported signature AFTER verifying it on-chain (never trust
   #        an unverified client signature — the Lazarus recover_pending_entry
@@ -96,7 +97,8 @@ module Cdp
     # Since phantom-cashout-needs-sol the cash-out wire names the ADMIN as fee
     # payer (Solana::Vault#build_user_usdc_transfer_unsigned), so Phantom's
     # signature alone does not make it broadcastable. Phantom signs first, this
-    # endpoint validates and cosigns, and the client broadcasts the result.
+    # endpoint validates, cosigns and simulates, and the client broadcasts the
+    # result.
     #
     # The destination and amount are re-resolved HERE from the ramp row and are
     # never read off the request, so the guard measures the returned wire
@@ -128,14 +130,19 @@ module Cdp
 
         vault = Solana::Vault.new
         outcome = nil
+        signed = nil
         cosigned = nil
 
-        # EVERYTHING THAT DECIDES OR MUTATES STATE RUNS UNDER THE ROW LOCK.
-        # Between reading the state and writing it sit a guard and a cosign;
-        # without the lock two concurrent requests both read :cdp_created and
-        # both walk away with a broadcastable, house-funded wire for the SAME
-        # cash-out. with_lock reloads, so every check below sees fresh state.
-        # Only CPU work and one UPDATE happen in here — no RPC.
+        # EVERYTHING THAT DECIDES OR MUTATES STATE RUNS UNDER THE ROW LOCK, in
+        # two holds, because the pre-flight simulation between them is RPC. The
+        # first decides whether this row may send at all, then guards and
+        # cosigns; the second takes the claim. Without a lock two concurrent
+        # requests both read :cdp_created and both walk away with a
+        # broadcastable, house-funded wire for the SAME cash-out. Two requests
+        # can still both reach a cosign here, but only one can claim, and only
+        # the claimant's bytes are rendered. with_lock reloads, so every check
+        # below sees fresh state. Only CPU work and UPDATEs happen inside either
+        # hold — no RPC.
         @ramp.with_lock do
           if @ramp.sending? && @ramp.sent_signature.to_s != probed_signature
             # The row moved while we were on the network, so the verdict we
@@ -162,23 +169,38 @@ module Cdp
                 context: "offramp_send:#{@ramp.partner_user_ref}"
               )
               signed = vault.cosign_usdc_transfer(signed_tx)
+            end
+          end
+        end
 
-              # THE CAP IS THIS RETURN VALUE, AND IT HAS TO BE READ.
-              # #mark_sending! answers false when the row is no longer
-              # claimable, and a wire rendered anyway is a wire that can be
-              # broadcast — which would make the one-cosign-per-row cap
-              # decorative. Rendering is gated on the claim SUCCEEDING.
-              #
-              # It also persists the signature BEFORE the signed bytes leave
-              # the server: once the client holds a fully-signed wire the
-              # broadcast is out of our hands, and a row that never learned the
-              # signature could not be reconciled against the chain.
-              if @ramp.mark_sending!(signed[:signature])
-                cosigned = signed
-                outcome = :ok
-              else
-                outcome = :claim_lost
-              end
+        if signed
+          # THE PRE-FLIGHT: simulate the house-signed bytes BEFORE the claim and
+          # BEFORE they leave. The browser broadcasts this wire with
+          # skipPreflight:true, so no node checks it after us, and a wire that
+          # fails on chain still charges its fee payer — the house. On a failed
+          # or unrunnable simulation this raises Vault::PreflightRejected: the
+          # bytes are dropped, no claim was taken, and the row is exactly as the
+          # first hold left it. Running it BEFORE the claim means a crash here
+          # cannot leave a row claiming a signature that was never returned.
+          vault.preflight_cosigned_wire!(signed[:signed_tx])
+
+          @ramp.with_lock do
+            # THE CAP IS THIS RETURN VALUE, AND IT HAS TO BE READ.
+            # #mark_sending! answers false when the row is no longer claimable
+            # (a concurrent request claimed it while we simulated), and a wire
+            # rendered anyway is a wire that can be broadcast — which would make
+            # the one-cosign-per-row cap decorative. Rendering is gated on the
+            # claim SUCCEEDING.
+            #
+            # It also persists the signature BEFORE the signed bytes leave the
+            # server: once the client holds a fully-signed wire the broadcast is
+            # out of our hands, and a row that never learned the signature could
+            # not be reconciled against the chain.
+            if @ramp.mark_sending!(signed[:signature])
+              cosigned = signed
+              outcome = :ok
+            else
+              outcome = :claim_lost
             end
           end
         end
@@ -210,6 +232,12 @@ module Cdp
       # The detailed reason is logged server-side by the guard and is NEVER
       # returned to the client.
       render json: { error: "That transaction didn't match your cash-out, so it wasn't signed. Please start the cash-out again." },
+             status: :unprocessable_entity
+    rescue Solana::Vault::PreflightRejected
+      # The simulation's program error and logs are in the ErrorLog
+      # rescue_and_log wrote; the player gets only what they can act on.
+      render json: { error: "Solana couldn't confirm this cash-out would go through, so it wasn't signed. " \
+                            "Check that your wallet still holds the USDC, then start the cash-out again." },
              status: :unprocessable_entity
     rescue Solana::Vault::BelowMinimumWithdrawalError
       render_minimum_error
@@ -307,10 +335,10 @@ module Cdp
 
     # ONE COSIGN PER CASH-OUT ROW, and the rewind that re-arms it.
     #
-    # #cosign moves the row to :sending the moment the house signs, so a client
-    # cannot loop the endpoint and mint an unbounded supply of broadcastable,
-    # house-funded wires — every broadcast costs the house its fee whether the
-    # transfer succeeds or fails.
+    # #cosign moves the row to :sending as soon as it returns a house-signed wire
+    # that passed its simulation, so a client cannot loop the endpoint and mint
+    # an unbounded supply of broadcastable, house-funded wires — every broadcast
+    # costs the house its fee whether the transfer succeeds or fails.
     #
     # The legitimate retry — the browser never managed to broadcast — is
     # re-armed here, and ONLY on a verdict that is DEFINITIVE. The verdict
