@@ -33,7 +33,7 @@
         end
         bar_pct = 100.0 * ix[:bytes] / max_bytes
       %>
-      <details class="card-hover bg-surface-alt rounded-lg border border-subtle overflow-hidden group">
+      <details class="card-hover bg-surface-alt rounded-lg border border-subtle overflow-hidden group" data-test="contract-instruction-<%= ix[:name] %>">
         <summary class="cursor-pointer list-none p-4 sm:p-5">
           <%# Mobile-first stack; desktop spreads to a row %>
           <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">

@@ -62,7 +62,7 @@ async function setupKeypairProvider(page, base58Key) {
   if (!key) {
     throw new Error(
       "SOLANA_BOT_KEY env var is required for devnet smoke tests. " +
-        "Set it to the server bot's (Alex) base58-encoded private key (64 bytes)."
+        "Set it to the e2e bot wallet's (F6f8h5yy…) base58-encoded private key (64 bytes)."
     );
   }
 
