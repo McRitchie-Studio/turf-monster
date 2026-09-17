@@ -94,6 +94,21 @@ class ForgeableSigninKeysRefusalTest < ActionDispatch::IntegrationTest
     assert_includes ErrorLog.order(:id).last.message, address, "the attempt must be recorded"
   end
 
+  # NOT stubbed. solana-studio 0.11.0 decoded "1" * 31 to the all-zero key, one
+  # of the listed keys. 0.12.0 decodes it to 31 bytes, so the real verify!
+  # refuses it on length, before the signature is checked, and nothing is made.
+  test "sign-in refuses the old all-ones alias of the zero key on length" do
+    address = "1" * 31
+
+    assert_no_difference "User.count" do
+      post "/auth/solana/verify", params: accepted_params(address), as: :json
+    end
+    assert_response :unauthorized
+    assert_equal "Public key must be 32 bytes, got 31", response.parsed_body["error"]
+    assert_nil session[:turf_user_id], "no session may be established"
+    assert_nil User.find_by(web3_solana_address: address)
+  end
+
   test "a real wallet still signs in" do
     key = Ed25519::SigningKey.generate
     address = Solana::Keypair.encode_base58(key.verify_key.to_bytes)

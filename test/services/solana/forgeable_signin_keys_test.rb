@@ -78,15 +78,48 @@ class Solana::ForgeableSigninKeysTest < ActiveSupport::TestCase
     end
   end
 
-  # Matching on decoded bytes, not only on the listed spelling, is what makes
-  # the denylist hold for a string the list does not name.
-  test "a different spelling of a listed key is forgeable too" do
-    spelling = "1" * 31
-    assert_equal ("\x00" * 32).b, Solana::Keypair.decode_base58(spelling),
-                 "control: this spelling must decode to a listed key's bytes"
-    assert_not Solana::ForgeableSigninKeys::ENCODINGS.key?(spelling), "control: the list must not name it"
+  test "every listed address decodes back to its bytes" do
+    Solana::ForgeableSigninKeys::ENCODINGS.each do |address, hex|
+      assert_equal [hex].pack("H*").b, Solana::Keypair.decode_base58(address).b, "decoder drift at #{address}"
+    end
+  end
 
-    assert Solana::ForgeableSigninKeys.forgeable?(spelling)
+  # forgeable? also matches on DECODED bytes, so a spelling the list does not
+  # name is still refused if the decoder maps it onto a listed key. Before
+  # 0.12.0, solana-studio did exactly that: "1" * 31 decoded to the all-zero key.
+  # 0.12.0 decodes one-to-one, so no real string reaches this arm any more; the
+  # stub stands in for an aliasing decoder, once for each listed key.
+  test "the bytes match refuses an unlisted spelling that decodes to any listed key" do
+    spelling = Solana::Keypair.encode_base58(Ed25519::SigningKey.generate.verify_key.to_bytes)
+    assert_not Solana::ForgeableSigninKeys::ENCODINGS.key?(spelling), "control: the list must not name it"
+    assert_not Solana::ForgeableSigninKeys.forgeable?(spelling), "control: with the real decoder it is a real wallet"
+    assert_equal 14, Solana::ForgeableSigninKeys::KEY_BYTES.size
+
+    Solana::ForgeableSigninKeys::KEY_BYTES.each do |bytes|
+      Solana::Keypair.stub(:decode_base58, ->(_) { bytes }) do
+        assert Solana::ForgeableSigninKeys.forgeable?(spelling), "#{bytes.unpack1('H*')} must be matched on bytes"
+      end
+    end
+  end
+
+  # The alias the old decoder had. solana-studio 0.11.0 decoded "1" * 31 to the
+  # 32-byte all-zero key, and only the bytes match caught it. 0.12.0 decodes it
+  # to 31 bytes: not a listed key, and not a key at all, so verify! refuses it on
+  # length before any signature check runs.
+  test "the all-ones alias no longer decodes to a key and is refused on length" do
+    spelling = "1" * 31
+    assert_not Solana::ForgeableSigninKeys::ENCODINGS.key?(spelling), "control: the list must not name it"
+    assert_equal ("\x00" * 31).b, Solana::Keypair.decode_base58(spelling).b,
+                 "31 ones must decode to 31 zero bytes, not the 32-byte zero key"
+
+    error = assert_raises(Solana::AuthVerifier::VerificationError) do
+      Solana::AuthVerifier.verify!(
+        message: "www.example.com wants you to sign in with your Solana account:\n#{spelling}\n\nNonce: n",
+        signature_b58: Solana::Keypair.encode_base58(("\x01" * 64).b),
+        pubkey_b58: spelling, expected_host: "www.example.com", stored_nonce: "n"
+      )
+    end
+    assert_equal "Public key must be 32 bytes, got 31", error.message
   end
 
   test "a real wallet address is not forgeable" do

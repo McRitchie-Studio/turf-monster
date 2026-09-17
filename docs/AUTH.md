@@ -193,9 +193,13 @@ sign-in (`SolanaSessionsController#verify`), wallet link
 (`WalletExportsController#complete`). It runs before any user is found, created,
 merged, or written by the address. The response matches a bad signature, and the
 attempt lands in `error_logs`. This is a stopgap: solana-studio 0.11.0's
-`verify!` accepts small-order public keys, and the guard goes away with the
-solana-studio release that carries `Solana::Ed25519Strict` (task
-`reject-small-order-signin-keys`).
+`verify!` accepted small-order public keys. turf now locks 0.12.0, whose `verify!`
+refuses them itself through `Solana::Ed25519Strict` (task
+`reject-small-order-signin-keys`), so sign-in and link are covered twice. The
+self-custody proof is not: it checks with `Ed25519::VerifyKey` directly, not
+`verify!`, so the guard stays until that call site uses `Ed25519Strict` too.
+0.12.0 also fixed the base58 decoder, which had decoded `"1" * 31` to the
+all-zero key; that string is now 31 bytes and `verify!` refuses it on length.
 
 Successful wallet sign-in sets the normal app session and then marks
 `session[:onchain] = true`. That flag means the current browser session proved
