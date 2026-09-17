@@ -486,7 +486,9 @@ itself. Re-measured **on chain** at `finalized` on **2026-09-15**, through two
 independent RPC providers and a raw-byte check of the member offsets: each
 multisig carries **five members and a threshold of three**, and all five hold
 mask `7` (`Initiate|Vote|Execute`) — so there are five voters against a
-threshold of three, with two to spare on either cluster.
+threshold of three, with two to spare on either cluster. Re-read at `finalized`
+on 2026-09-16, membership and config-transaction history on both clusters:
+unchanged.
 
 **The two clusters do not carry the same five.** Three seats are shared
 (`3Qj4v9…`, `7ZDJ…`, `BLSBw8…`); the other two differ:
@@ -496,10 +498,18 @@ threshold of three, with two to spare on either cluster.
 | shared | `3Qj4v9…`, `7ZDJ…`, `BLSBw8…` | `3Qj4v9…`, `7ZDJ…`, `BLSBw8…` |
 | cluster-only | `2eGs8G3w…` (`solana.turf.system.devnet`), `8K81…` (Xan) | `7auwTLSv…` (`solana.turf.system`), `9gACbz…` |
 
-Two consequences that are easy to get wrong, and both were written down wrong
-before: **Xan `8K81…` was removed from MAINNET only and is still seated on
-devnet** — "removed from both" is false — while **Mason `CytJ…` really is absent
-from both**.
+Two facts are easy to get wrong, and both were written down wrong before.
+**Xan `8K81…` was removed from BOTH Squads on 2026-09-15, then re-seated on
+devnet only.** Devnet transaction #16 removed him at 09:41:25 MDT and mainnet
+transaction #3 at 09:46:55 MDT. Devnet transaction #18 added him back at
+14:02:10 MDT, in the same config transaction that added `2eGs8G3w…` and removed
+`9gACbz…`; mainnet has no such transaction. So "removed from mainnet only" is
+wrong as history, and "removed from both" is wrong as a description of today.
+**Mason `CytJ…` really is absent from both.**
+
+Devnet transaction #17, a proposal to add `7auwTLSv…`, still reads `Active` but
+can never execute: #18 executed after it, and the multisig's stale transaction
+index is 18. Do not approve it expecting a membership change.
 
 ⚠ **The hot system keys hold upgrade authority, against stated policy.**
 `7auwTLSv…` is a full mask-`7` member here and simultaneously the key in
