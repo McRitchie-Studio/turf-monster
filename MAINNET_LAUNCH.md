@@ -18,23 +18,24 @@ One-time runbook for the **v0.15.0 mainnet first deploy**. Read top-to-bottom; e
 - [ ] **Wallets funded**:
   - [ ] Xan mainnet wallet: ≥ 5 SOL (program deploy + initial Season + sundry)
   - [ ] `solana.turf.system` (`7auwTLSv…`) mainnet wallet: **0 SOL at 09:12 on 2026-09-15, funded at 09:20 the SAME MORNING — eight minutes later, not "that afternoon".** Re-measured at `finalized` on 2026-09-15: `1000000000` lamports (1.0000 SOL). Read the balance rather than any number written here. This is the key `SOLANA_ADMIN_KEY` is moving to on `turf-monster-mainnet`; repointing an underfunded fee payer breaks production settlement, so the cutover task owns the call on whether the balance is *sufficient for sustained fee payment*, not merely non-zero.
-  - [ ] Alex Phantom mainnet wallet: ≥ 0.05 SOL (will sign initialize once)
+  - [ ] Mr. McRitchie's Phantom mainnet wallet (`7ZDJ…`): ≥ 0.05 SOL (will sign initialize once)
   - [ ] Mason mainnet wallet: ≥ 0.05 SOL (will Squads-cosign deploys + treasury ops)
-- [x] **Squads V4 multisig exists on mainnet — and its membership was rotated on 2026-09-15.** Each cluster reads **threshold 3 of FIVE members**, every member mask 7 (Initiate|Vote|Execute). Re-measured on-chain at `finalized` on 2026-09-15 from multisig `4H3fP3otjMtupk1DQDjKXYY1dWjT6LNM4H4ZWZ1XcKSX` (mainnet) and `7nRuVw3VZFC6z85tYVDitPnaUHZCkqLpJRSTBNtPmtZB` (devnet), through two independent RPC providers and a raw-byte check of the member offsets. **The clusters do NOT carry the same five** — read the one you mean:
+- [x] **Squads V4 multisig exists on mainnet — and its membership was rotated on 2026-09-15.** Each cluster reads **threshold 3 of FIVE members**, every member mask 7 (Initiate|Vote|Execute). Re-measured on-chain at `finalized` on 2026-09-15 from multisig `4H3fP3otjMtupk1DQDjKXYY1dWjT6LNM4H4ZWZ1XcKSX` (mainnet) and `7nRuVw3VZFC6z85tYVDitPnaUHZCkqLpJRSTBNtPmtZB` (devnet), through two independent RPC providers and a raw-byte check of the member offsets. Re-read at `finalized` on 2026-09-16, membership and config-transaction history on both clusters: unchanged. **The clusters do NOT carry the same five** — read the one you mean:
 
   | seat | devnet `7nRuVw3V…` | mainnet `4H3fP3ot…` |
   |---|---|---|
   | Mr. McRitchie, personal | `3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA` | `3Qj4v9qjhXgkru6zCRCErRVhy8Q6qU3NrNpvpXLTZboA` |
   | Mr. McRitchie, Phantom | `7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr` | `7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr` |
-  | Mr. McRitchie, personal | — | `9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf` |
+  | Mr. McRitchie, personal | — (added by transaction #16, removed by #18) | `9gACbzsCLmkYF9Yx1EBGmwMvvyfuTquJ6qs8QsoQvHXf` |
   | the agent (`solana.turf.admin`) | `BLSBw8fXHzZc5pbaYCKMpMSsrtXBTbWXpUPVzMrXx9oo` | `BLSBw8fXHzZc5pbaYCKMpMSsrtXBTbWXpUPVzMrXx9oo` |
   | the app's HOT system key | `2eGs8G3w…` (`solana.turf.system.devnet`) | `7auwTLSv…` (`solana.turf.system`) |
-  | Xan | `8K81w4e6…` — **still seated** | removed |
+  | Xan | `8K81w4e6…` — removed by #16, **re-seated by #18** | removed by transaction #3 |
 
   - Threshold: **3** on both.
   - **Mason `CytJS23p…` was removed from BOTH clusters** — verified absent from each account's raw data. He should not be re-added; `F6f8h5yy…` was retired in the 2026-06-02 rotation and must never be placed on a multisig again.
-  - ⚠ **Xan `8K81w4e6…` was removed from MAINNET ONLY. He is still a DEVNET member** (member slot 4, mask 7). "Removed from both" was written down on 2026-09-15 and is wrong; re-derive per cluster rather than repeating it.
-  - **`scripts/squad-upgrade.js` cannot drive a MAINNET upgrade.** It signs as `ALEX_BOT_KEY` (`8K81…`) and cosigns with `MASON_KEY` (`CytJ…`), and neither is seated on mainnet. On devnet `8K81…` can still cast one of the three approvals, but `CytJ…` cannot, so the script cannot reach threshold unaided there either. `scripts/squad.json`'s `members` block still lists the old three and is provenance only.
+  - ⚠ **Xan `8K81w4e6…` was removed from BOTH clusters on 2026-09-15, then re-seated on devnet only.** Devnet transaction #16 removed him at 09:41:25 MDT and mainnet transaction #3 at 09:46:55 MDT. Devnet transaction #18 added him back at 14:02:10 MDT, in the same config transaction that added `2eGs8G3w…` and removed `9gACbz…`; mainnet has no such transaction. So he is a devnet member today (member slot 4, mask 7) and absent on mainnet. This file once said "removed from mainnet only", which is wrong as history; "removed from both" is wrong as a description of today. Re-derive per cluster from the config-transaction history rather than repeating either.
+  - Devnet transaction #17, a proposal to add `7auwTLSv…`, still reads `Active` but can never execute: #18 executed after it, and the multisig's stale transaction index is 18. Do not approve it expecting a membership change.
+  - **`scripts/squad-upgrade.js` cannot drive a MAINNET upgrade.** It signs as `ALEX_BOT_KEY` (`8K81…`) and cosigns with `MASON_KEY` (`CytJ…`), and neither is seated on mainnet. On devnet `8K81…` can cast one of the three approvals again (since transaction #18), but `CytJ…` cannot, so the script cannot reach threshold unaided there either. `scripts/squad.json`'s `members` block still lists the old three and is provenance only.
   - ⚠ **THE HOT SYSTEM KEY HOLDS UPGRADE AUTHORITY, AND THAT CONTRADICTS THE STATED POLICY.** Both system keys are full `Initiate|Vote|Execute` Squads members. `7auwTLSv…` sits in Heroku config on a running `turf-monster-mainnet` web dyno and signs every entry and every payout, and it also votes on program upgrades. The policy written throughout these docs — that the hot key must never hold upgrade authority — is sound and is **not** what the chain implements. Closing the gap is a Squads config transaction, not a documentation edit; it needs its own task and Mr. McRitchie's signature.
   - Vault PDA (the program upgrade authority) is unchanged: mainnet `Bk9sS7ii…`, devnet `BW13kgfi…`.
 
@@ -62,9 +63,9 @@ One-time runbook for the **v0.15.0 mainnet first deploy**. Read top-to-bottom; e
   > |---|---|---|
   > | system `7auwTL…` | ✅ **seated, mask 7** | slot 1 |
   > | admin `BLSBw8…` | ✅ | slot 2 |
-  > | Alex Phantom `7ZDJ…` | ✅ | slot 3 |
-  > | Alex two `3Qj4v9…` | ✅ | slot 4 |
-  > | Alex three `9gACbz…` | ✅ | slot 5 |
+  > | Mr. McRitchie's Phantom `7ZDJ…` | ✅ | slot 3 |
+  > | Mr. McRitchie's second `3Qj4v9…` | ✅ | slot 4 |
+  > | Mr. McRitchie's third `9gACbz…` | ✅ | slot 5 |
   >
   > **Squads mainnet is FIVE at threshold 3 and is LIVE.** **`VaultState` is
   > FIVE and is the TARGET** — on-chain it is still the old 2-of-3 (`8K81…`,
@@ -99,8 +100,9 @@ One-time runbook for the **v0.15.0 mainnet first deploy**. Read top-to-bottom; e
   > `[Pubkey; MAX_SIGNERS]` alongside `signers_ext`. So the order is forced:
   >
   > 1. **Restore a working upgrade path.** `scripts/squad-upgrade.js` signs as
-  >    `8K81…` and cosigns with `CytJ…`, both removed from Squads on
-  >    2026-09-15, so it cannot drive an upgrade today. A current member has to
+  >    `8K81…` and cosigns with `CytJ…`, both removed from both Squads on
+  >    2026-09-15 (`8K81…` came back on devnet only, by transaction #18), so it
+  >    cannot drive an upgrade on either cluster today. A current member has to
   >    sign — the agent holds `BLSBw8…` — and three of the five approve.
   > 2. **Deploy v0.26.** This is what puts `signers_ext` on-chain.
   > 3. **Re-pin `EXPECTED_IDL_HASH`** on `turf-monster-mainnet` from the BUILT
@@ -175,14 +177,14 @@ solana program deploy target/deploy/turf_vault.so \
 
 ---
 
-## 3. Initialize the vault (Alex's Phantom signs)
+## 3. Initialize the vault (Mr. McRitchie's Phantom signs)
 
-The v0.15.0 mainnet build's `INIT_AUTHORITY = 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr` (Alex Phantom). The Rails server's Xan key WILL BE REJECTED.
+The v0.15.0 mainnet build's `INIT_AUTHORITY = 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr` (Mr. McRitchie's Phantom). The Rails server's Xan key WILL BE REJECTED.
 
 **Quickest path** (if the Init UI from the prompt isn't built yet): use an `anchor` CLI command.
 
 ```bash
-# From a machine with Alex's keypair available (NOT the Heroku server):
+# From a machine with Mr. McRitchie's keypair available (NOT the Heroku server):
 solana config set --keypair /path/to/alex_phantom.json --url $ANCHOR_PROVIDER_URL
 
 # Confirm pubkey
@@ -367,7 +369,7 @@ The vault paused state DOES persist across program upgrades (it's in VaultState,
 
 ## Open follow-ups (recommend before mainnet, OK to defer to week 2)
 
-- C3 — Mason's mainnet key to genuinely separate custody (not in Alex's 1Password)
+- C3 — Mason's mainnet key to genuinely separate custody (not in Mr. McRitchie's 1Password)
 - C1 / C2 — KMS-managed `MANAGED_WALLET_ENCRYPTION_KEY` (AWS KMS or HashiCorp Vault)
 - H3 — `wallet: Signer` on create_user_account (username squatting)
 - H5 — per-day cap on mint_entry_token

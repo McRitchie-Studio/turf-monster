@@ -411,9 +411,11 @@ module Solana
     #      it, five minutes apart — devnet executed 09:41:25 MDT, mainnet
     #      09:46:51-55 MDT. It was never one transaction across both clusters,
     #      and writing it as one is how the per-cluster differences below got
-    #      lost. They REMOVED CytJ… from both clusters and 8K81… from MAINNET
-    #      ONLY. Re-measured at `finalized` 2026-09-15, each cluster reads
-    #      threshold 3 of FIVE members, all mask 7:
+    #      lost. BOTH ceremonies removed CytJ… and 8K81…. A later devnet config
+    #      transaction, #18 at 14:02:10 MDT, re-seated 8K81… on devnet only,
+    #      adding 2eGs8G3w… and removing 9gACbz… in the same step. Re-read at
+    #      `finalized` 2026-09-16, each cluster reads threshold 3 of FIVE
+    #      members, all mask 7:
     #        devnet  7nRuVw3V…: 2eGs8G3w…, 3Qj4v9…, 7ZDJ…, 8K81…, BLSBw8…
     #        mainnet 4H3fP3ot…: 7auwTL…, 3Qj4v9…, 7ZDJ…, 9gACbz…, BLSBw8…
     #      It changed nothing in (1) — and that divergence is the proof these
