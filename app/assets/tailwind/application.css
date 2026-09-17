@@ -334,7 +334,7 @@
 
 .level-badge-1 {
   background: rgb(var(--color-primary-500-rgb) / 0.15);
-  color: var(--color-cta);
+  color: var(--color-primary-badge-ink);
   border-color: rgb(var(--color-primary-500-rgb) / 0.3);
 }
 
@@ -2001,3 +2001,37 @@ html.dark { --rx-fill: 0 0 0; }
    Guards: test/views/primary_button_contrast_test.rb (white on the resolved
    primary) and test/views/bg_primary_small_text_contrast_test.rb (any future
    small-text override must still clear AA). */
+
+/* ── The primary INK: green used as text ──────────────────────────────────────
+   The primary #2E7D32 is a FILL colour: white labels clear 5.13:1 on it. As
+   TEXT on the dark theme it fails, at 3.41:1 on the page (#1A1535) and 2.18:1
+   on a card (#3C3853). So text reads a separate ink, per theme, in the spirit
+   of the engine's --color-danger-ink (text colour is not fill colour):
+
+     dark   #81C784   8.68:1 page, 5.54:1 card
+     light  the primary itself, 4.90:1 page, 5.13:1 card
+
+   #81C784 cannot serve the light theme (2.01:1 on white), which is why this is
+   per theme and not a new primary. `text-primary` reads the ink through
+   config/tailwind.config.js (textColor.primary); hand-written CSS and inline
+   styles read var(--color-primary-ink) directly.
+
+   --color-primary-badge-ink is the same ink for text sitting ON a primary tint
+   (the level-badge-1 pattern, a 15 percent primary wash). In the light theme the
+   primary measures only 4.21:1 on its own tint, so the badge takes the scale's
+   700 shade there (6.95:1); in the dark theme the ink already clears it (5.04:1).
+
+   Same selectors as the engine's theme block, so a .dark container inside a
+   light page flips these with the rest of the theme.
+   Guard: test/views/primary_text_contrast_test.rb. */
+:root,
+.dark {
+  --color-primary-ink: #81c784;
+  --color-primary-ink-rgb: 129 199 132;
+  --color-primary-badge-ink: var(--color-primary-ink);
+}
+html:not(.dark) {
+  --color-primary-ink: var(--color-primary);
+  --color-primary-ink-rgb: var(--color-primary-rgb);
+  --color-primary-badge-ink: var(--color-primary-700);
+}

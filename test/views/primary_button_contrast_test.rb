@@ -18,6 +18,11 @@ require "test_helper"
 #     resolves to, are read from the engine's own `@utility btn-primary`.
 # If the engine rewires the button, the parse follows it or fails loudly.
 #
+# btn-success is measured here too: this app sets theme_success to the same
+# #2E7D32, because the engine default #4BAF50 gave its white label 2.78:1.
+# Green TEXT is a different contract (a per-theme ink, not the fill) and lives
+# in test/views/primary_text_contrast_test.rb.
+#
 # WHAT IT CANNOT SEE. A ThemeSetting row saved from /admin/theme overrides
 # config.theme_primary per environment, and the test database has none. On
 # 2026-09-16 neither QA nor production had a row, so config was the live value.
@@ -68,6 +73,23 @@ class PrimaryButtonContrastTest < ActiveSupport::TestCase
     hover = body[/&:hover\s*\{([^}]*)\}/m, 1]
     flunk "`@utility btn-primary` declares no &:hover block" unless hover
     { rest: body.sub(/&:hover\s*\{[^}]*\}/m, ""), hover: hover }
+  end
+
+  # The engine's `@utility btn-success`: label and fill at rest. Its hover is a
+  # `filter: brightness(0.9)`, which only darkens the fill and so can only raise
+  # a white label's contrast; that is asserted as a shape, not measured.
+  def btn_success_utility
+    body = ENGINE_CSS.read[/@utility btn-success\s*\{(.*?)\n\}/m, 1]
+    flunk "no `@utility btn-success` in #{ENGINE_CSS}" unless body
+    rest = body.sub(/&:hover\s*\{[^}]*\}/m, "")
+    label = rest.match?(/@apply[^;]*(?<![\w-])text-white(?![\w-])/) ? "#fff" : declaration(rest, "color")
+    { rest: rest, label: label, hover: body[/&:hover\s*\{([^}]*)\}/m, 1].to_s }
+  end
+
+  def success_colors(css, mode)
+    utility = btn_success_utility
+    tokens = theme_tokens(css, mode)
+    [resolve(utility[:label], tokens), resolve(declaration(utility[:rest], "background-color"), tokens)]
   end
 
   def declaration(body, property)
@@ -153,5 +175,30 @@ class PrimaryButtonContrastTest < ActiveSupport::TestCase
                       "white on #4BAF50 measured 2.78:1 when this task opened; a different number means " \
                       "the measurement changed, not the colour"
     end
+  end
+
+  # ── btn-success: the same green, the same white label ──────────────────────
+
+  test "btn-success's fill resolves to #2E7D32 and its white label clears AA in both themes" do
+    css = emitted_theme_css
+    THEME_SELECTORS.each_key do |mode|
+      label, fill = success_colors(css, mode)
+      assert_equal CHOSEN_PRIMARY, expand_hex(fill),
+                   "btn-success's fill in the #{mode} theme is #{fill}; config.theme_success is #2E7D32"
+      ratio = contrast(label, fill)
+      assert_operator ratio, :>=, AA_TEXT,
+                      "btn-success in the #{mode} theme is #{format('%.2f', ratio)}:1 (#{label} on #{fill})"
+    end
+
+    hover = btn_success_utility[:hover]
+    assert_match(/filter:\s*brightness\(0?\.\d+\)/, hover,
+                 "btn-success's hover is no longer a darkening brightness filter; measure the new hover fill")
+  end
+
+  test "control: btn-success on the engine default #4BAF50 fails" do
+    css = emitted_theme_css(Studio.theme_config.merge(success: RETIRED_PRIMARY))
+    label, fill = success_colors(css, :dark)
+    assert_equal RETIRED_PRIMARY, expand_hex(fill), "the control must actually measure the old success green"
+    assert_in_delta 2.78, contrast(label, fill), 0.01
   end
 end
