@@ -178,7 +178,7 @@ prepare_entry
   reloading the page. Signed PTs cannot be discarded through this endpoint.
 - **Phantom may inject Lighthouse guard instructions at arbitrary positions**
   (mainnet only). Its assertion instructions are admitted by design; its
-  memory instructions are refused, because one of them spends the fee
+  memory instructions are refused, because one of them can spend the fee
   payer's SOL — see §6.
 
 ### 3c. `POST confirm_onchain_entry` (the money request)
@@ -194,7 +194,7 @@ confirm_onchain_entry
 │     entry's server-derived PDA · ComputeBudget (limit + price only, admin's
 │     priority fee capped at 10x our builder's) · Lighthouse ASSERTIONS only
 │     (assert_lighthouse_ix_safe!: discriminators 2-17 can only fail the tx;
-│     MemoryWrite 0 would make the fee payer fund a memory account, so it,
+│     MemoryWrite 0 could make the fee payer fund a memory account, so it,
 │     MemoryClose 1, empty data and unknown discriminators are refused).
 │     NO System instruction: a transfer is the C1 attack, and a nonce
 │     advance would spend the admin's authority over the operator nonce.
