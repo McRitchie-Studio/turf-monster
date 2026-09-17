@@ -286,12 +286,12 @@ legitimately walk through by calling `expectSwitchesTo` on the wallet store
 `Alpine.store('wallet')`. That keeps the blocking card from opening
 over a half-collected treasury transaction. The call has exactly two sites —
 `app/javascript/cosign.js:271` and
-`app/views/admin/vault_state/show.html.erb:314` — but **three admin surfaces
+`app/views/admin/vault_state/show.html.erb:321` — but **three admin surfaces
 reach them**. `cosignTransaction` is a global, so any page may wire a button to
 it: `/admin/pending_transactions` and `/admin/authorities` both reach the
 `cosign.js` call through a button of their own, the authorities page beside the
 same `admin/pending_transactions/signer_roster` partial it renders
-(`app/views/admin/authorities/_eviction.html.erb:188`), and `/admin/vault_state`
+(`app/views/admin/authorities/_eviction.html.erb:197`), and `/admin/vault_state`
 carries its own. **Count the `data-cosign-controls` blocks, not the call
 sites**, when this list next needs checking — a fourth surface costs one button
 and no new call site. **None of the three renders the account card**, the
@@ -306,11 +306,21 @@ What actually guards the ceremony is the exemption's narrowness, not a notice:
 `_notifySwitch` (`app/javascript/solana_stores.js:357`) returns early only for
 an address the flow declared into `expectedSwitchAddresses`
 (`app/javascript/solana_stores.js:364`), so a switch to any other wallet still
-raises the non-dismissible card mid-ceremony. The residual is
-real and is stated here rather than papered over: **all three ceremony surfaces
-carry no page-level wallet signal at all** — tracked as
-`ceremony-page-lacks-wallet-signal`, which is scoped to all three, not closed by
-this notice.
+raises the non-dismissible card mid-ceremony.
+
+**The residual this paragraph used to name is closed.** It read "all three
+ceremony surfaces carry no page-level wallet signal at all", tracked as
+`ceremony-page-lacks-wallet-signal`. All three now render
+`shared/_wallet_signal`, which reads that same `expectedSwitchAddresses` list and
+so cannot disagree with the card about which switch was asked for: a declared
+wallet is named as the signer the page asked for, and any other wallet is named
+as one nobody did, in different words. The navbar carries the compact half of the
+same component on every page, signed in or not. `app/javascript/wallet_signal.js`
+holds the states and the words; **Wallet Signal (app-wide)** in
+`docs/UI_PATTERNS.md` holds the rest, including why
+`StudioSession.expectChange` is deliberately never called here — the engine's
+holds are per SOURCE, not per ADDRESS, and one taken for a ceremony would mark a
+switch to any wallet expected, silently.
 
 The session's own address stays **server-rendered** and does not follow the
 browser wallet. Until the player completes the handoff the new wallet is not this
