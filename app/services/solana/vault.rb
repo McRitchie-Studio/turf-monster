@@ -52,19 +52,19 @@ module Solana
     #
     # NOT every Lighthouse instruction is safe to cosign blind, though. The
     # program's first data byte is its instruction discriminator, and TWO of the
-    # variants MOVE the payer's lamports (verified against the DEPLOYED program,
-    # L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95, 2026-09-16 — see
-    # #assert_lighthouse_ix_safe!):
+    # variants MOVE the payer's lamports. Confirmed 2026-09-16 on the DEPLOYED,
+    # immutable program by read-only simulation at `finalized`: disc 0 made the
+    # payer fund a 10,008-byte memory PDA, disc 1 refunded it, 18/255 are unknown:
     #   0 MemoryWrite — a SIGNER named `payer` (account index 2) funds the rent
-    #     of a "memory" PDA whose size THE INSTRUCTION chooses (~0.07 SOL / 10 KiB,
+    #     of a "memory" PDA whose size THE INSTRUCTION chooses (~0.05 SOL / 10 KiB,
     #     repeatable). The house is always a signer on a cosigned wire, so an
     #     unguarded admit lets a crafted wire name the fee payer as that payer
     #     and lock house SOL (recoverable only by a house-signed MemoryClose) —
     #     draining the fee payer stops all gasless entries.
     #   1 MemoryClose — refunds a memory PDA's rent to `payer`.
     # Every OTHER shipped variant (2..17) is a pure post-state ASSERTION: it can
-    # only make the tx fail, never move funds or grant authority. Real mainnet
-    # Phantom wires inject only assertions (measured: variants 6 and 10). So the
+    # only make the tx fail, never move funds or grant authority. All five
+    # Lighthouse-bearing wires the house has cosigned (7ZDJ…) carry only 6 and 10. So the
     # guards admit assertion variants 2..17 and REFUSE 0, 1, empty data, and any
     # unknown discriminator. Refusing "any Lighthouse ix that names the fee
     # payer" instead would reject every real Phantom wire, because Phantom's
