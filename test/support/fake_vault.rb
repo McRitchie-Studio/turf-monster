@@ -700,17 +700,22 @@ class FakeVault
 
   # The cash-out pre-flight (Vault#preflight_cosigned_wire!). Records the wire
   # it was asked to simulate. Configure:
-  #   offramp_preflight_raises: message → raise Vault::PreflightRejected, the
-  #                             type the real method raises for a failed OR an
-  #                             unrunnable simulation
-  #   offramp_preflight_probe:  callable → invoked with the wire at simulation
-  #                             time, so a test can read the row's state AT that
-  #                             moment (the claim must not be taken yet)
-  attr_writer :offramp_preflight_raises, :offramp_preflight_probe
+  #   offramp_preflight_raises:     message → raise Vault::PreflightRejected, the
+  #                                 type the real method raises for a simulation
+  #                                 the PROGRAM refused
+  #   offramp_preflight_unavailable: message → raise Vault::PreflightUnavailable,
+  #                                 the subtype it raises when the simulation
+  #                                 gave no verdict (could not run, empty answer,
+  #                                 no err field)
+  #   offramp_preflight_probe:      callable → invoked with the wire at simulation
+  #                                 time, so a test can read the row's state AT that
+  #                                 moment (the claim must not be taken yet)
+  attr_writer :offramp_preflight_raises, :offramp_preflight_unavailable, :offramp_preflight_probe
 
   def preflight_cosigned_wire!(signed_wire_base64)
     offramp_preflight_calls << signed_wire_base64
     @offramp_preflight_probe&.call(signed_wire_base64)
+    raise Solana::Vault::PreflightUnavailable, @offramp_preflight_unavailable if @offramp_preflight_unavailable
     raise Solana::Vault::PreflightRejected, @offramp_preflight_raises if @offramp_preflight_raises
     true
   end

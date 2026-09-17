@@ -573,6 +573,192 @@ class Cdp::OfframpSendsControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "a simulation that could not give a verdict tells the player to try again, not to check their wallet" do
+    with_cdp_ramp do
+      ramp = create_ramp(wallet_mode: "web3")
+      log_in_as @user
+
+      vault = FakeVault.new
+      vault.offramp_preflight_unavailable = "Pre-flight simulation could not be run: Network error: execution expired"
+
+      assert_difference -> { ErrorLog.where(target: ramp).count }, 1 do
+        cosign_post(ramp, vault: vault)
+      end
+
+      assert_response :bad_gateway
+      body = JSON.parse(response.body)
+      assert_nil body["signed_tx"]
+      assert_match(/Solana is busy right now/, body["error"])
+      assert_no_match(/wallet|USDC|start the cash-out again/i, body["error"],
+                      "an outage says nothing about the player's wallet, so it must not send them to check it")
+      assert_no_match(/execution expired/, body["error"])
+      assert ramp.reload.cdp_created?, "an unrunnable simulation claims nothing"
+    end
+  end
+
+  test "a failed simulation and an unrunnable one give the player different messages" do
+    with_cdp_ramp do
+      log_in_as @user
+
+      refused = FakeVault.new
+      refused.offramp_preflight_raises = "Pre-flight simulation failed: blocked"
+      cosign_post(create_ramp(wallet_mode: "web3"), vault: refused)
+      refused_status = response.status
+      refused_error = JSON.parse(response.body)["error"]
+
+      unrunnable = FakeVault.new
+      unrunnable.offramp_preflight_unavailable = "Pre-flight simulation returned no result"
+      cosign_post(create_ramp(wallet_mode: "web3"), vault: unrunnable)
+      unrunnable_error = JSON.parse(response.body)["error"]
+
+      assert_equal 422, refused_status
+      assert_match(/Check that your wallet still holds the USDC/, refused_error)
+      assert_response :bad_gateway
+      assert_not_equal refused_error, unrunnable_error
+    end
+  end
+
+  # ── THE FAILED-SEND CAP (cap-cashout-failed-send-rearms) ───────────────────
+  #
+  # The house is the fee payer, and a wire that EXECUTES and fails still charges
+  # it. A player can add a Lighthouse clock assertion that passes the pre-flight
+  # and fails on landing; every :failed verdict used to re-arm the row for
+  # another house-signed wire with no count. These drive the loop end to end
+  # through the endpoint: each round, the previously claimed signature reads
+  # :failed on chain and the player asks for another cosign.
+
+  def failed_status
+    { "err" => { "InstructionError" => [0, { "Custom" => 6001 }] }, "confirmationStatus" => "confirmed" }
+  end
+
+  test "cosign_send re-arms every failed send below the cap and counts each one" do
+    with_cdp_ramp do
+      ramp = create_ramp(wallet_mode: "web3", status: "sending", sent_signature: "Failed0",
+                         broadcast_at: 10.seconds.ago)
+      log_in_as @user
+
+      (CdpRampTransaction::MAX_FAILED_SENDS - 1).times do |i|
+        vault = FakeVault.new
+        vault.offramp_send_signature = "Failed#{i + 1}"
+        cosign_post(ramp, vault: vault, statuses: { "Failed#{i}" => failed_status })
+
+        assert_response :success, "failed send #{i + 1} of #{CdpRampTransaction::MAX_FAILED_SENDS} must still re-arm"
+        assert_equal ["PHANTOM_SIGNED_WIRE"], vault.offramp_cosign_calls
+        ramp.reload
+        assert ramp.sending?
+        assert_equal "Failed#{i + 1}", ramp.sent_signature
+        assert_equal i + 1, ramp.failed_send_count
+      end
+    end
+  end
+
+  test "cosign_send refuses the failed send that reaches the cap, ends the row failed, and signs nothing" do
+    with_cdp_ramp do
+      last = CdpRampTransaction::MAX_FAILED_SENDS - 1
+      ramp = create_ramp(wallet_mode: "web3", status: "sending", sent_signature: "FailedLast",
+                         broadcast_at: 10.seconds.ago, failed_send_count: last)
+      log_in_as @user
+
+      vault = FakeVault.new
+      cosign_post(ramp, vault: vault, statuses: { "FailedLast" => failed_status })
+
+      assert_response :unprocessable_entity
+      body = JSON.parse(response.body)
+      assert_nil body["signed_tx"], "no further house-signed wire may leave for this row"
+      assert_match(/start a new cash-out/i, body["error"])
+      assert_empty vault.offramp_cosign_calls, "the house signs nothing once the row is capped"
+      assert_empty vault.offramp_preflight_calls, "a capped row spends no simulation"
+      assert_empty vault.offramp_cosign_guard_calls
+
+      ramp.reload
+      assert ramp.failed?
+      assert_equal CdpRampTransaction::MAX_FAILED_SENDS, ramp.failed_send_count
+    end
+  end
+
+  test "a capped row keeps refusing, with the same start-over copy, on every send endpoint" do
+    with_cdp_ramp do
+      ramp = create_ramp(wallet_mode: "web3", status: "failed", sent_signature: "FailedLast",
+                         failed_send_count: CdpRampTransaction::MAX_FAILED_SENDS)
+      log_in_as @user
+
+      vault = FakeVault.new
+      cosign_post(ramp, vault: vault)
+      assert_response :unprocessable_entity
+      assert_match(/start a new cash-out/i, JSON.parse(response.body)["error"])
+      assert_empty vault.offramp_cosign_calls
+
+      stub_solana_client(FakeSolanaClient.new({}, account_infos: { @to_address => token_account_info })) do
+        Solana::Vault.stub :new, vault do
+          post cdp_offramp_prepare_send_path, params: { partner_user_ref: ramp.partner_user_ref }, as: :json
+        end
+      end
+      assert_response :unprocessable_entity
+      assert_match(/start a new cash-out/i, JSON.parse(response.body)["error"])
+      assert_empty vault.offramp_unsigned_calls
+    end
+  end
+
+  test "each failed-send re-arm writes a durable ErrorLog on the row, and so does the cap" do
+    with_cdp_ramp do
+      ramp = create_ramp(wallet_mode: "web3", status: "sending", sent_signature: "Failed0",
+                         broadcast_at: 10.seconds.ago)
+      log_in_as @user
+
+      assert_difference -> { ErrorLog.where(target: ramp).count }, 1 do
+        cosign_post(ramp, vault: FakeVault.new, statuses: { "Failed0" => failed_status })
+      end
+      assert_response :success
+      rearm_log = ErrorLog.where(target: ramp).order(:id).last
+      assert_match(/Failed0/, rearm_log.message, "the log names the dead signature the house paid for")
+      assert_match(%r{1 of #{CdpRampTransaction::MAX_FAILED_SENDS}}, rearm_log.message)
+      assert_equal @user, rearm_log.parent
+
+      ramp.update!(failed_send_count: CdpRampTransaction::MAX_FAILED_SENDS - 1)
+      assert_difference -> { ErrorLog.where(target: ramp).count }, 1 do
+        cosign_post(ramp, vault: FakeVault.new, statuses: { "FakeOfframpSendSig" => failed_status })
+      end
+      assert_match(/cap reached/i, ErrorLog.where(target: ramp).order(:id).last.message)
+    end
+  end
+
+  test "a never-landed re-arm is not counted against the cap" do
+    with_cdp_ramp do
+      ramp = create_ramp(wallet_mode: "web3", status: "sending", sent_signature: "NeverLanded111",
+                         broadcast_at: (CdpRampTransaction::BLOCKHASH_LAPSE + 1.minute).ago,
+                         failed_send_count: CdpRampTransaction::MAX_FAILED_SENDS - 1)
+      log_in_as @user
+
+      cosign_post(ramp, vault: FakeVault.new, statuses: {})
+
+      assert_response :success, "a send that never executed charged the house nothing, so it cannot close the row"
+      ramp.reload
+      assert ramp.sending?
+      assert_equal CdpRampTransaction::MAX_FAILED_SENDS - 1, ramp.failed_send_count
+    end
+  end
+
+  # The re-arm and its count commit in the same hold as the guard. When the
+  # guard then refuses the wire, the whole hold rolls back: nothing re-armed,
+  # so nothing is counted, and the row still carries the dead signature.
+  test "a failed-send re-arm rolled back by the guard is not counted" do
+    with_cdp_ramp do
+      ramp = create_ramp(wallet_mode: "web3", status: "sending", sent_signature: "Failed0",
+                         broadcast_at: 10.seconds.ago)
+      log_in_as @user
+
+      vault = FakeVault.new
+      vault.offramp_cosign_raises = "token_accounts_mismatch"
+      cosign_post(ramp, vault: vault, statuses: { "Failed0" => failed_status })
+
+      assert_response :unprocessable_entity
+      ramp.reload
+      assert ramp.sending?
+      assert_equal "Failed0", ramp.sent_signature
+      assert_equal 0, ramp.failed_send_count
+    end
+  end
+
   test "sent still accepts the wallet now that it sits in signer slot 1 behind the house" do
     with_cdp_ramp do
       ramp = create_ramp(wallet_mode: "web3")

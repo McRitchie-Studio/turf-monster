@@ -204,6 +204,90 @@ class CdpRampTransactionTest < ActiveSupport::TestCase
     assert sent.sent?
   end
 
+  # ── THE FAILED-SEND CAP (cap-cashout-failed-send-rearms) ──────────────────
+  #
+  # A Phantom cash-out wire names the HOUSE as fee payer, and a wire that
+  # executes and FAILS still charges its fee payer. A player can build one that
+  # passes the server's simulation and fails on landing (a Lighthouse clock
+  # assertion), and every :failed verdict used to re-arm the row for another
+  # house-signed wire, uncounted. The cap bounds how many of those one row pays.
+
+  def failed_landing_ramp(failed_send_count: 0, signature: "FailedSig")
+    build_ramp(direction: "offramp", status: "sending", sent_signature: signature,
+               broadcast_at: 10.seconds.ago, failed_send_count: failed_send_count).tap(&:save!)
+  end
+
+  test "the cap is three failed sends per cash-out row" do
+    assert_equal 3, CdpRampTransaction::MAX_FAILED_SENDS,
+                 "Mr. McRitchie can move this; docs/CDP_RAMP_INTEGRATION.md §10 names the number"
+  end
+
+  test "a new row starts with no failed sends counted" do
+    assert_equal 0, build_ramp(direction: "offramp").tap(&:save!).reload.failed_send_count
+  end
+
+  test "every failed send below the cap re-arms the row and is counted" do
+    ramp = failed_landing_ramp
+
+    (CdpRampTransaction::MAX_FAILED_SENDS - 1).times do |i|
+      assert_equal :rearmed, ramp.rearm_after_failed_send!, "failed send #{i + 1} must still re-arm"
+      ramp.reload
+      assert ramp.cdp_created?
+      assert_nil ramp.sent_signature
+      assert_nil ramp.broadcast_at
+      assert_equal i + 1, ramp.failed_send_count
+      assert_not ramp.failed_sends_exhausted?
+
+      # The next attempt claims and lands a failure of its own.
+      assert ramp.mark_sending!("FailedSig#{i + 1}")
+    end
+  end
+
+  test "the failed send that reaches the cap is refused and ends the row failed" do
+    ramp = failed_landing_ramp(failed_send_count: CdpRampTransaction::MAX_FAILED_SENDS - 1)
+
+    assert_equal :exhausted, ramp.rearm_after_failed_send!
+
+    ramp.reload
+    assert ramp.failed?, "the row must not re-arm for another house-paid wire"
+    assert_equal CdpRampTransaction::MAX_FAILED_SENDS, ramp.failed_send_count
+    assert ramp.failed_sends_exhausted?
+    assert_equal "FailedSig", ramp.sent_signature, "the last dead signature stays on the row for forensics"
+    assert_not ramp.mark_sending!("AnotherSig"), "a failed row can never be claimed again"
+  end
+
+  # Kills the `==` mutant: a row counted past the cap (because the cap was
+  # lowered while it was live) must still be refused, not re-armed forever.
+  test "a row already counted past the cap is refused, not re-armed" do
+    ramp = failed_landing_ramp(failed_send_count: CdpRampTransaction::MAX_FAILED_SENDS + 1)
+
+    assert_equal :exhausted, ramp.rearm_after_failed_send!
+    assert ramp.reload.failed?
+  end
+
+  test "rearm_after_failed_send! touches only a row that is sending" do
+    %w[cdp_created sent success].each do |status|
+      ramp = build_ramp(direction: "offramp", status: status, sent_signature: "Sig#{status}").tap(&:save!)
+      assert_not ramp.rearm_after_failed_send!, status
+      ramp.reload
+      assert_equal status, ramp.status
+      assert_equal 0, ramp.failed_send_count, "#{status}: nothing to count"
+    end
+  end
+
+  # A send that never landed never executed, so it charged the house nothing —
+  # and it is the legitimate retry (the browser never broadcast). Uncounted.
+  test "the never-landed rewind does not count against the cap" do
+    ramp = failed_landing_ramp
+    assert ramp.reset_failed_send!
+    assert_equal 0, ramp.reload.failed_send_count
+  end
+
+  test "a row CDP failed is not an exhausted one" do
+    ramp = build_ramp(direction: "offramp", status: "failed").tap(&:save!)
+    assert_not ramp.failed_sends_exhausted?
+  end
+
   # THE VERDICT THAT DECIDES A REWIND — and a wrong rewind sends a player's
   # USDC twice. Shared by Cdp::OfframpSendJob#verify_pending_send and
   # Cdp::OfframpSendsController#cosign, so it is pinned here once.
