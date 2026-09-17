@@ -186,6 +186,17 @@ tweetnacl too, and nothing asserts that; add coverage with the layout.
 - host binding through the SIWS message, and
 - optional session/user binding when linking a wallet to an existing account.
 
+The app adds one refusal after that check. `Solana::ForgeableSigninKeys` refuses
+the fourteen small-order Ed25519 public keys, which no wallet can hold, at wallet
+sign-in (`SolanaSessionsController#verify`), wallet link
+(`AccountsController#link_solana`), and the self-custody proof
+(`WalletExportsController#complete`). It runs before any user is found, created,
+merged, or written by the address. The response matches a bad signature, and the
+attempt lands in `error_logs`. This is a stopgap: solana-studio 0.11.0's
+`verify!` accepts small-order public keys, and the guard goes away with the
+solana-studio release that carries `Solana::Ed25519Strict` (task
+`reject-small-order-signin-keys`).
+
 Successful wallet sign-in sets the normal app session and then marks
 `session[:onchain] = true`. That flag means the current browser session proved
 fresh wallet ownership and may sign on-chain actions. It is distinct from the

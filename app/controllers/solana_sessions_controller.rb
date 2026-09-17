@@ -29,6 +29,10 @@ class SolanaSessionsController < ApplicationController
       pubkey_b58: params[:pubkey],
       session: session
     )
+    # BEFORE any user is found or created by this address. A small-order key is
+    # refused with the bad-signature error. Stopgap until solana-studio ships
+    # Ed25519Strict — see Solana::ForgeableSigninKeys.
+    Solana::ForgeableSigninKeys.refuse!(pubkey_b58, context: "solana_sessions#verify")
 
     # Find or create user with this Solana address
     user = User.from_solana_wallet(pubkey_b58)
