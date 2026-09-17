@@ -107,4 +107,71 @@ class Solana::VaultPreflightCosignedWireTest < ActiveSupport::TestCase
 
     assert_match(/no result/, error.message)
   end
+
+  # ── AN ANSWER WITH NO VERDICT IS NOT A PASS (cap-cashout-failed-send-rearms) ─
+  #
+  # The old check was `sim["err"]`, which reads a MISSING key exactly like a
+  # clean `"err": null`. Every conforming node sends the key: agave's
+  # RpcSimulateTransactionResult serializes `err: Option<…>` with no
+  # skip_serializing_if, and read-only simulateTransaction calls against both
+  # Helius and the public mainnet RPC on 2026-09-17 returned `"err": null` on a
+  # clean simulation and `"err": "AccountNotFound"` on a failing one. So this
+  # refusal never fires on a real answer; it exists so a proxy, a truncated
+  # body or a future shape change cannot read as the house's go-ahead.
+
+  test "an answer missing its err field refuses rather than passing the wire" do
+    client = StubClient.new({ "logs" => ["Program log: Instruction: Transfer"], "unitsConsumed" => 1714 })
+
+    error = assert_raises(Solana::Vault::PreflightUnavailable) do
+      vault_with(client).preflight_cosigned_wire!("COSIGNED_WIRE")
+    end
+
+    assert_match(/no err field/, error.message)
+  end
+
+  test "an answer that is not an object refuses rather than passing the wire" do
+    ["unexpected", [], 0].each do |answer|
+      error = assert_raises(Solana::Vault::PreflightUnavailable, answer.inspect) do
+        vault_with(StubClient.new(answer)).preflight_cosigned_wire!("COSIGNED_WIRE")
+      end
+      assert_match(/no err field/, error.message)
+    end
+  end
+
+  # ── "TRY AGAIN" IS NOT "CHECK YOUR WALLET" ──────────────────────────────────
+  #
+  # A simulation that could not give a verdict says nothing about the wire, so
+  # the player is told to retry. A program refusal is about the wire, so they
+  # are told to look at their wallet. The controller can only word those
+  # differently if the two arrive as different types.
+
+  test "a simulation that could not be run is typed unavailable" do
+    client = StubClient.new(raises: Solana::Client::RpcError.new("Network error: execution expired"))
+
+    error = assert_raises(Solana::Vault::PreflightUnavailable) do
+      vault_with(client).preflight_cosigned_wire!("COSIGNED_WIRE")
+    end
+    assert_equal "Pre-flight simulation could not be run: Network error: execution expired", error.message
+  end
+
+  test "an empty answer is typed unavailable" do
+    assert_raises(Solana::Vault::PreflightUnavailable) do
+      vault_with(StubClient.new(nil)).preflight_cosigned_wire!("COSIGNED_WIRE")
+    end
+  end
+
+  test "a program refusal is typed rejected and NOT unavailable" do
+    client = StubClient.new({ "err" => { "InstructionError" => [2, { "Custom" => 6001 }] } })
+
+    error = assert_raises(Solana::Vault::PreflightRejected) do
+      vault_with(client).preflight_cosigned_wire!("COSIGNED_WIRE")
+    end
+    assert_not_kind_of Solana::Vault::PreflightUnavailable, error,
+                       "a failed simulation is about the wire — telling the player to just retry would be wrong"
+  end
+
+  # Every existing `rescue PreflightRejected` must still catch the new type.
+  test "unavailable is a kind of rejected" do
+    assert_operator Solana::Vault::PreflightUnavailable, :<, Solana::Vault::PreflightRejected
+  end
 end

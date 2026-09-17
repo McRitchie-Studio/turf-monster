@@ -16,7 +16,8 @@ module Cdp
   #        Phantom-signed wire against what THIS server prepared, fills the
   #        admin (fee payer) signature slot, simulates the result, and hands
   #        back the fully-signed bytes for the client to broadcast only when the
-  #        simulation passes. One cosign per row.
+  #        simulation passes. One cosign per row, and at most
+  #        CdpRampTransaction::MAX_FAILED_SENDS failed landings per row.
   #   POST /cdp/offramp/sent          — Phantom (web3): records the
   #        client-reported signature AFTER verifying it on-chain (never trust
   #        an unverified client signature — the Lazarus recover_pending_entry
@@ -151,8 +152,9 @@ module Cdp
             outcome = :in_flight
           else
             case rearm_verdict(probed_status)
-            when :already_sent then outcome = :already_sent
-            when :in_flight    then outcome = :in_flight
+            when :already_sent           then outcome = :already_sent
+            when :in_flight              then outcome = :in_flight
+            when :failed_sends_exhausted then outcome = :failed_sends_exhausted
             else
               # Audit C1 (admin blind-cosign): SEMANTICALLY validate the
               # Phantom-signed wire BEFORE the house signs anything. The admin
@@ -172,6 +174,11 @@ module Cdp
             end
           end
         end
+
+        # The hold above has COMMITTED, so the count it wrote is real. Written
+        # here rather than inside the hold: a guard that refuses the wire rolls
+        # the re-arm back, and a re-arm that did not happen must not be logged.
+        log_failed_send_landing
 
         if signed
           # THE PRE-FLIGHT: simulate the house-signed bytes BEFORE the claim and
@@ -222,6 +229,8 @@ module Cdp
             error: "Your cash-out is still being confirmed on Solana. Give it a few minutes before trying again.",
             tx_signature: @ramp.sent_signature
           }, status: :unprocessable_entity
+        when :failed_sends_exhausted
+          render_failed_sends_exhausted_error
         else # :claim_lost
           render json: {
             error: "This cash-out is already being sent. Please refresh before trying again."
@@ -233,9 +242,18 @@ module Cdp
       # returned to the client.
       render json: { error: "That transaction didn't match your cash-out, so it wasn't signed. Please start the cash-out again." },
              status: :unprocessable_entity
+    rescue Solana::Vault::PreflightUnavailable
+      # MUST PRECEDE the PreflightRejected rescue — it is a subclass. The
+      # simulation gave no verdict (the RPC was unreachable or throttled, or
+      # answered with nothing usable), so it says nothing about the wire or the
+      # wallet, and the honest advice is to retry. Same copy and status as a
+      # Solana::Client::RpcError below.
+      render json: { error: "Solana is busy right now — please try again in a moment." },
+             status: :bad_gateway
     rescue Solana::Vault::PreflightRejected
-      # The simulation's program error and logs are in the ErrorLog
-      # rescue_and_log wrote; the player gets only what they can act on.
+      # The PROGRAM refused the simulated wire, so the player is pointed at the
+      # one thing they can change. The program error and logs are in the
+      # ErrorLog rescue_and_log wrote; the player gets only what they can act on.
       render json: { error: "Solana couldn't confirm this cash-out would go through, so it wasn't signed. " \
                             "Check that your wallet still holds the USDC, then start the cash-out again." },
              status: :unprocessable_entity
@@ -286,6 +304,12 @@ module Cdp
     private
 
     class SendVerificationError < StandardError; end
+
+    # Never raised. The ErrorLog record of a Phantom cash-out send that landed
+    # and FAILED on chain, which the house paid the fee for — one per re-arm,
+    # and one when the cap ends the row — so the bleed is visible in the error
+    # log and Sentry rather than only in Rails.logger.
+    class FailedSendLanded < StandardError; end
 
     # §10: refuse sends inside the last 3 minutes of the cashout window
     # (mirrors Cdp::OfframpSendJob::DEADLINE_SAFETY — the job re-checks).
@@ -338,11 +362,12 @@ module Cdp
     # #cosign moves the row to :sending as soon as it returns a house-signed wire
     # that passed its simulation, so a row holds at most ONE outstanding wire —
     # every broadcast costs the house its fee whether the transfer succeeds or
-    # fails. That is not a cap on attempts. The simulation sees only failures
-    # present at cosign time; a wire built to fail AFTER it (a Lighthouse clock
-    # assertion, or the USDC moved out first) lands as :failed, the rewind below
-    # re-arms the row, and re-arms are not counted — only the send window and
-    # the cdp_offramp_send/user throttle bound that loop.
+    # fails. The simulation sees only failures present at cosign time; a wire
+    # built to fail AFTER it (a Lighthouse clock assertion, or the USDC moved out
+    # first) lands as :failed. Those re-arms are COUNTED, and the one that reaches
+    # CdpRampTransaction::MAX_FAILED_SENDS ends the row :failed instead
+    # (cap-cashout-failed-send-rearms). Only the throttle and the send window
+    # bounded that loop before.
     #
     # The legitimate retry — the browser never managed to broadcast — is
     # re-armed here, and ONLY on a verdict that is DEFINITIVE. The verdict
@@ -362,17 +387,60 @@ module Cdp
       case @ramp.send_verdict(status)
       when :landed
         :already_sent
-      when :failed, :never_landed
-        # Verified-dead: the funds did not move and this signature can never
-        # land. reset_failed_send! clears it and its broadcast_at anchor so a
-        # fresh, fully re-guarded attempt can be built.
+      when :failed
+        # Verified-dead AND house-paid: the wire executed, failed, and charged
+        # its fee payer. Counted — see CdpRampTransaction#rearm_after_failed_send!.
+        dead_signature = @ramp.sent_signature
+        verdict = @ramp.rearm_after_failed_send!
+        # Anything but the two recorded verdicts means the count was not
+        # written, so refuse rather than cosign an uncounted attempt.
+        return :in_flight unless %i[rearmed exhausted].include?(verdict)
+
+        @failed_send_landing = { verdict: verdict, signature: dead_signature, err: status["err"],
+                                 count: @ramp.failed_send_count }
+        Rails.logger.warn("[cdp][cosign] #{@ramp.partner_user_ref} sig=#{dead_signature} failed on chain " \
+                          "(failed send #{@ramp.failed_send_count} of #{CdpRampTransaction::MAX_FAILED_SENDS}) — " \
+                          "#{verdict == :exhausted ? 'cap reached, row failed' : 're-arming for a fresh cosign'}")
+        verdict == :exhausted ? :failed_sends_exhausted : :proceed
+      when :never_landed
+        # Verified-dead and never executed, so the house paid nothing: not
+        # counted. reset_failed_send! clears the signature and its broadcast_at
+        # anchor so a fresh, fully re-guarded attempt can be built.
         Rails.logger.warn("[cdp][cosign] #{@ramp.partner_user_ref} sig=#{@ramp.sent_signature} " \
-                          "verified dead — re-arming for a fresh cosign")
+                          "never landed — re-arming for a fresh cosign")
         @ramp.reset_failed_send!
         :proceed
       else
         :in_flight
       end
+    end
+
+    # The durable record of a failed landing, written once #cosign's first hold
+    # has committed. Best-effort: the row's state is already decided, and a
+    # failure to log must not turn a correct refusal or re-arm into a 422.
+    def log_failed_send_landing
+      landing = @failed_send_landing
+      return unless landing
+
+      outcome =
+        if landing[:verdict] == :exhausted
+          "cap reached — row failed, player told to start a new cash-out"
+        else
+          "re-armed for a fresh cosign"
+        end
+      error_log = ErrorLog.capture!(FailedSendLanded.new(
+        "Cash-out #{@ramp.partner_user_ref}: house-paid send #{landing[:signature]} failed on chain " \
+        "(err=#{landing[:err].inspect}) — failed send #{landing[:count]} of " \
+        "#{CdpRampTransaction::MAX_FAILED_SENDS}; #{outcome}"
+      ))
+      error_log.target = @ramp
+      error_log.target_name = @ramp.slug
+      error_log.parent = current_user
+      error_log.parent_name = current_user.slug if current_user.respond_to?(:slug)
+      error_log.save!
+    rescue StandardError => e
+      Rails.logger.error("[cdp][cosign] #{@ramp.partner_user_ref} failed-send ErrorLog not written: " \
+                         "#{e.class}: #{e.message}")
     end
 
     def render_mode_error(expected)
@@ -381,7 +449,17 @@ module Cdp
     end
 
     def render_state_error
+      return render_failed_sends_exhausted_error if @ramp.failed_sends_exhausted?
+
       render json: { error: "This cash-out isn't ready to send (status: #{@ramp.status})." },
+             status: :unprocessable_entity
+    end
+
+    # Every counted send failed on chain, so no USDC left the wallet for this
+    # cash-out. Coinbase's side of it lapses with the 30-minute window.
+    def render_failed_sends_exhausted_error
+      render json: { error: "This cash-out failed on Solana too many times, so we've closed it. " \
+                            "No USDC was sent. Please start a new cash-out." },
              status: :unprocessable_entity
     end
 

@@ -214,8 +214,8 @@ confirm_onchain_entry
 | Branch | Where — each row names its owner; `ContestsController#confirm_onchain_entry` is `app/controllers/contests_controller.rb:1364-1482` |
 |---|---|
 | `assert_enterable!` PRE-FLIGHT | `#confirm_onchain_entry` at `:1388` |
-| C1 cosign guard — `Solana::Vault#assert_entry_cosign_safe!` | `#confirm_onchain_entry` at `:1411`; definition `app/services/solana/vault.rb:3340-3437` |
-| cosign + simulate + broadcast — `Solana::Vault#cosign_and_broadcast_entry` | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1420`; definition `app/services/solana/vault.rb:3665-3685` |
+| C1 cosign guard — `Solana::Vault#assert_entry_cosign_safe!` | `#confirm_onchain_entry` at `:1411`; definition `app/services/solana/vault.rb:3351-3448` |
+| cosign + simulate + broadcast — `Solana::Vault#cosign_and_broadcast_entry` | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1420`; definition `app/services/solana/vault.rb:3676-3691` |
 | PT stamped with `tx_signature` immediately | `#confirm_onchain_entry` at `app/controllers/contests_controller.rb:1432` |
 | `ContestsController#verify_and_confirm_onchain_entry!` | `#confirm_onchain_entry` at `:1438-1441`; definition `:2722-2738` |
 | PT confirmed | `#confirm_onchain_entry` at `:1443` |
@@ -305,7 +305,7 @@ three:
    protected Phantom signer is rejected `disallowed_program` — the
    `LIGHTHOUSE_PROGRAM_ID` constant (`app/services/solana/vault.rb:73`),
    admitted inside `Solana::Vault#assert_entry_cosign_safe!`, whose
-   `when lighthouse` arm (`:3419-3424`) hands each Lighthouse instruction to
+   `when lighthouse` arm (`:3430-3435`) hands each Lighthouse instruction to
    `Solana::Vault#assert_lighthouse_ix_safe!`. PR #134 admitted the program.
    Accepting the program does NOT mean accepting every Lighthouse instruction.
    Its first data byte is a discriminator, and two variants move the payer's
@@ -324,8 +324,8 @@ three:
    reject them all and repeat the 2026-06-11 outage. PR #755 added the guard.
 2. **Simulation of any tx whose blockhash isn't in the recent queue needs
    `replaceRecentBlockhash: true`** (sigVerify must be false alongside it) —
-   `Solana::Vault#cosign_and_broadcast_entry` simulates with both
-   (`app/services/solana/vault.rb:3677-3678`). PR #135.
+   `Solana::Vault#cosign_and_broadcast_entry` simulates with both, through the
+   shared `Solana::Vault#simulate_wire!` (`app/services/solana/vault.rb:3903-3904`). PR #135.
 3. **Never anchor user-driven Phantom-signed txs on a shared durable nonce.**
    Phantom's injection position can displace the advance from instruction 0
    (un-recognizing the nonce → BlockhashNotFound at preflight), and one nonce

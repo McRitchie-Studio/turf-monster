@@ -3245,6 +3245,17 @@ module Solana
     # unchanged. Only the callers that need the distinction name the type.
     class PreflightRejected < RuntimeError; end
 
+    # A pre-flight that gave NO VERDICT: the simulation could not be run, or it
+    # answered with nothing usable (no answer, or no `err` field). Raised only by
+    # #preflight_cosigned_wire!, which is the cash-out wire's sole pre-flight.
+    #
+    # A SUBCLASS on purpose. It is still provably un-sent, so every existing
+    # `rescue PreflightRejected` keeps catching it unchanged. It exists so
+    # Cdp::OfframpSendsController#cosign can tell the player "Solana is busy, try
+    # again" instead of "check that your wallet still holds the USDC" — advice
+    # that is only true when the PROGRAM refused the wire.
+    class PreflightUnavailable < PreflightRejected; end
+
     # ── THE COSIGN GUARD'S ACCOUNT SLOTS — SHAPE-DEPENDENT SINCE v0.26 ──────
     #
     # These are the indices `#assert_entry_cosign_safe!` reads to prove a
@@ -3674,12 +3685,7 @@ module Solana
       # pre-flight judges the PROGRAM, not blockhash age (as in #simulate_and_broadcast);
       # send_and_confirm's own preflight still rejects an expired blockhash. The RPC needs
       # sigVerify=false alongside it — already set; the broadcast still checks signatures.
-      sim = client.simulate_transaction(patched_b64, sig_verify: false,
-                                        replace_recent_blockhash: true)
-      if sim && sim["err"]
-        logs = Array(sim["logs"]).last(6).join("\n")
-        raise "Entry pre-flight simulation failed: #{sim['err'].inspect}#{logs.empty? ? '' : "\n#{logs}"}"
-      end
+      simulate_wire!(patched_b64, label: "Entry pre-flight", refusal: RuntimeError)
 
       client.send_and_confirm(patched_b64)
     end
@@ -3758,18 +3764,8 @@ module Solana
     # always ask the chain what happened to it
     # (`PendingTransaction#reconcile_broadcast!`).
     def simulate_and_broadcast(signed_wire_base64)
-      sim = begin
-        client.simulate_transaction(signed_wire_base64, sig_verify: false,
-                                    replace_recent_blockhash: true)
-      rescue StandardError => e
-        raise PreflightRejected, "Pre-flight simulation could not be run: #{e.message}"
-      end
-
-      if sim && sim["err"]
-        logs = Array(sim["logs"]).last(6).join("\n")
-        raise PreflightRejected,
-              "Pre-flight simulation failed: #{sim['err'].inspect}#{logs.empty? ? '' : "\n#{logs}"}"
-      end
+      simulate_wire!(signed_wire_base64, label: "Pre-flight",
+                                         refusal: PreflightRejected, unrunnable: PreflightRejected)
 
       returned = client.send_and_confirm(signed_wire_base64)
 
@@ -3820,12 +3816,7 @@ module Solana
     def cosign_and_broadcast_create_contest(signed_wire_base64)
       patched_b64 = Transaction.cosign_wire_base64(signed_wire_base64, signer: Keypair.admin)
 
-      sim = client.simulate_transaction(patched_b64, sig_verify: false,
-                                        replace_recent_blockhash: true)
-      if sim && sim["err"]
-        logs = Array(sim["logs"]).last(6).join("\n")
-        raise "Contest-create pre-flight simulation failed: #{sim['err'].inspect}#{logs.empty? ? '' : "\n#{logs}"}"
-      end
+      simulate_wire!(patched_b64, label: "Contest-create pre-flight", refusal: RuntimeError)
 
       client.send_and_confirm(patched_b64)
     end
@@ -3850,33 +3841,86 @@ module Solana
     # popup from being refused here; that wire cannot land, and the controller's
     # re-arm rule already handles a send that never lands.
     #
-    # FAILS CLOSED, and every refusal is `PreflightRejected` — a failed
-    # simulation, one that could not be run, and one that answered nothing.
-    # #simulate_and_broadcast lets an empty answer through because the node
-    # pre-flights its own send; nothing pre-flights this wire after us.
+    # FAILS CLOSED, and every refusal is a `PreflightRejected` — a failed
+    # simulation, one that could not be run, one that answered nothing, and one
+    # whose answer carries no `err` field. #simulate_and_broadcast lets an empty
+    # answer through because the node pre-flights its own send; nothing
+    # pre-flights this wire after us.
     #
-    # Returns true. Raises PreflightRejected carrying the program error and the
-    # last log lines, for the server-side log only.
+    # The refusals that gave NO VERDICT are the `PreflightUnavailable` subclass,
+    # so the controller can tell an outage ("try again") from a wire the program
+    # refused ("check your wallet").
+    #
+    # A MISSING `err` IS NOT A PASS. `sim["err"]` reads a missing key exactly
+    # like a clean `"err": null`. Conforming nodes always send the key — agave's
+    # RpcSimulateTransactionResult serializes `err` with no skip_serializing_if,
+    # and read-only calls against Helius and the public mainnet RPC on
+    # 2026-09-17 returned it on both a clean and a failing simulation — so this
+    # refusal should never fire on a real answer. It is here so that a proxy, a
+    # truncated body or a future shape change cannot read as the house's
+    # go-ahead (cap-cashout-failed-send-rearms).
+    #
+    # Returns true. Raises carrying the program error and the last log lines,
+    # for the server-side log only.
     def preflight_cosigned_wire!(signed_wire_base64)
-      sim = begin
-        client.simulate_transaction(signed_wire_base64, sig_verify: false,
-                                    replace_recent_blockhash: true)
-      rescue StandardError => e
-        raise PreflightRejected, "Pre-flight simulation could not be run: #{e.message}"
-      end
-
-      raise PreflightRejected, "Pre-flight simulation returned no result" if sim.nil?
-
-      if sim["err"]
-        logs = Array(sim["logs"]).last(6).join("\n")
-        raise PreflightRejected,
-              "Pre-flight simulation failed: #{sim['err'].inspect}#{logs.empty? ? '' : "\n#{logs}"}"
-      end
-
+      simulate_wire!(signed_wire_base64, label: "Pre-flight", refusal: PreflightRejected,
+                                         unrunnable: PreflightUnavailable, require_verdict: true)
       true
     end
 
     private
+
+    # THE ONE SIMULATE-AND-READ-ERR BLOCK (cap-cashout-failed-send-rearms).
+    #
+    # It was four inline copies — #cosign_and_broadcast_entry,
+    # #cosign_and_broadcast_create_contest, #simulate_and_broadcast and
+    # #preflight_cosigned_wire! — that agreed on the simulation settings and
+    # differed, deliberately, on what to raise. Every difference is an argument,
+    # so each caller still does exactly what its copy did; the table of those
+    # differences is pinned in test/services/solana/vault_simulate_callers_test.rb.
+    #
+    # Settings (all four): sig_verify:false + replace_recent_blockhash:true, and
+    # the client's default commitment. We want the PROGRAM's verdict, not a
+    # re-check of signatures or blockhash age; the fee payer is charged only for
+    # a transaction that executes, and the RPC refuses sigVerify alongside a
+    # replaced blockhash. See #simulate_and_broadcast for the history.
+    #
+    #   label:           message prefix — "<label> simulation failed: <err>"
+    #   refusal:         class raised when the program refuses (`err` present)
+    #   unrunnable:      class raised when the simulate call itself raises, as
+    #                    "<label> simulation could not be run: <message>". nil
+    #                    lets the call's own exception through untouched.
+    #   require_verdict: also refuse, as `unrunnable`, an answer that is nil or
+    #                    has no `err` field. Only for a wire no node will
+    #                    pre-flight after us. Needs `unrunnable`.
+    #
+    # Returns the simulation's `value` hash (nil or err-less only when
+    # require_verdict is off).
+    def simulate_wire!(signed_wire_base64, label:, refusal:, unrunnable: nil, require_verdict: false)
+      raise ArgumentError, "require_verdict needs an unrunnable error class" if require_verdict && unrunnable.nil?
+
+      sim = begin
+        client.simulate_transaction(signed_wire_base64, sig_verify: false,
+                                    replace_recent_blockhash: true)
+      rescue StandardError => e
+        raise if unrunnable.nil?
+        raise unrunnable, "#{label} simulation could not be run: #{e.message}"
+      end
+
+      if require_verdict
+        raise unrunnable, "#{label} simulation returned no result" if sim.nil?
+        unless sim.is_a?(Hash) && sim.key?("err")
+          raise unrunnable, "#{label} simulation returned an answer with no err field"
+        end
+      end
+
+      if sim && sim["err"]
+        logs = Array(sim["logs"]).last(6).join("\n")
+        raise refusal, "#{label} simulation failed: #{sim['err'].inspect}#{logs.empty? ? '' : "\n#{logs}"}"
+      end
+
+      sim
+    end
 
     # Decode a LEGACY (unversioned) Solana wire transaction into its account keys
     # and instructions, for #assert_entry_cosign_safe!. Mirrors the header/account

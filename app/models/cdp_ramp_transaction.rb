@@ -172,6 +172,65 @@ class CdpRampTransaction < ApplicationRecord
     update!(status: :cdp_created, sent_signature: nil, broadcast_at: nil)
   end
 
+  # ── THE FAILED-SEND CAP (cap-cashout-failed-send-rearms) ─────────────────
+  #
+  # How many of a Phantom cash-out's sends may land and FAIL on chain before
+  # the row stops re-arming. The third failure ends the row, so it allows two
+  # re-arms.
+  #
+  # WHY IT EXISTS. The house is the fee payer on the Phantom cash-out wire, and
+  # a wire that executes and fails still charges its fee payer. A player can
+  # build a wire that passes the server's pre-flight simulation and fails on
+  # landing (a Lighthouse AssertSysvarClock on a slot a few blocks ahead, or
+  # the USDC moved out between cosign and broadcast). Every :failed verdict
+  # used to re-arm the row for another house-signed wire, uncounted, so only
+  # the send window and the cdp_offramp_send/user throttle bounded the loop.
+  # No allow-list can close that, because any pass-then-fail condition works.
+  # The bound belongs on the row.
+  #
+  # WHY THREE. No other cash-out retry constant exists to match, so this is the
+  # conservative pick: a player whose first send fails for an honest reason
+  # (Phantom's own Lighthouse guard tripping, a balance race) still gets two
+  # more, and a hostile row costs the house at most three failed landings.
+  # Mr. McRitchie may move it; docs/CDP_RAMP_INTEGRATION.md §10 names it.
+  #
+  # Only :failed counts. A :never_landed send never executed, so it charged the
+  # house nothing; it is the legitimate "the browser never broadcast" retry,
+  # and BLOCKHASH_LAPSE already spaces those out.
+  MAX_FAILED_SENDS = 3
+
+  # Count one send that landed and FAILED on chain, then re-arm the row or end
+  # it. Called by Cdp::OfframpSendsController#cosign under the row lock, and
+  # only on a :failed #send_verdict — the one case where the funds provably did
+  # not move but the house provably paid.
+  #
+  #   :rearmed   — below the cap: the same rewind as #reset_failed_send!, plus
+  #                the count.
+  #   :exhausted — the cap is reached: the row ends :failed and can never be
+  #                claimed again. The last dead signature stays on it.
+  #   false      — the row is not :sending, so there is nothing to count.
+  #
+  # `>=`, not `==`: a row counted past the cap (the constant lowered while the
+  # row was live) must still end, not re-arm forever.
+  def rearm_after_failed_send!
+    return false unless sending?
+
+    count = failed_send_count + 1
+    if count >= MAX_FAILED_SENDS
+      update!(status: :failed, failed_send_count: count)
+      :exhausted
+    else
+      update!(status: :cdp_created, sent_signature: nil, broadcast_at: nil, failed_send_count: count)
+      :rearmed
+    end
+  end
+
+  # A row the cap closed, as opposed to one Coinbase reported failed. The
+  # send endpoints read it to tell the player to start a new cash-out.
+  def failed_sends_exhausted?
+    failed? && failed_send_count >= MAX_FAILED_SENDS
+  end
+
   def mark_success!
     return false if terminal?
     update!(status: :success)
