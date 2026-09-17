@@ -167,7 +167,7 @@ survivor.update_column(:slug, "world-cup-survivor") unless survivor.slug == "wor
 
 # ── Wallet overrides ─────────────────────────────────────────────────
 #
-#   1. Default (manual dev work): the human (mcritchie) keeps the canonical admin wallet
+#   1. Default (manual dev work): the human (`alex`) keeps the canonical admin wallet
 #      seeded by db/seeds/users.rb (7ZDJp7FU…) — the real Phantom wallet
 #      you connect with in the browser.
 #
@@ -176,8 +176,8 @@ survivor.update_column(:slug, "world-cup-survivor") unless survivor.slug == "wor
 #      Playwright cold-starts (playwright.config.js's webServer.env).
 #
 #   3. SOLANA_BOT_PUBKEY=<pubkey>: explicit override (devnet-smoke
-#      tests signing with the server bot's real key — the bot is named "Alex"
-#      after the 2026-06-02 naming flip). Wins over both above.
+#      tests signing with the legacy e2e bot wallet F6f8h5yy…, not Xan's
+#      SOLANA_ADMIN_KEY 8K81…; see e2e/keypair-provider.js). Wins over both above.
 #
 # For local Playwright runs (reuseExistingServer = true) the swap is
 # done at-test-time via globalSetup → POST /test/use_phantom_mock_admin.

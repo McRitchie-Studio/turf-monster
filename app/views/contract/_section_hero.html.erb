@@ -59,8 +59,12 @@
       <div class="font-mono text-2xl sm:text-3xl tabular-nums text-primary leading-tight">
         ~<%= sprintf("%.2f", float_sol) %><span class="text-xs sm:text-sm text-secondary ml-1">SOL</span>
       </div>
-      <div class="text-[11px] sm:text-xs text-muted mt-2 leading-snug">
-        Both accounts exist at once during a deploy. Needed in the bot (Alex) before write-buffer.
+      <%# Names the ROLE, not a key. The buffer rent is paid by the keypair that
+          runs write-buffer, and upgrades execute through the Squads multisig,
+          where Xan (the server bot) holds no mainnet seat. See docs/SOLANA.md,
+          the Membership and threshold paragraph. %>
+      <div class="text-[11px] sm:text-xs text-muted mt-2 leading-snug" data-test="contract-float-holder">
+        Both accounts exist at once during a deploy. Needed in the deploying wallet before write-buffer.
       </div>
     </div>
 
