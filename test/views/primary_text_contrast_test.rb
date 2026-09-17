@@ -213,6 +213,26 @@ class PrimaryTextContrastTest < ActiveSupport::TestCase
                  "Use var(--color-primary-ink) (or --color-primary-badge-ink on a primary tint)."
   end
 
+  # The navbar balance links hover to a FILL shade on bg-page (and the card-toned
+  # peek pill). On #2E7D32 the 600 shade is 2.65:1 on the dark page, where the old
+  # primary's was 4.66:1, so the dark theme hovers to the 300 shade instead.
+  test "the navbar balance links hover to an AA ink on the page and card in both themes" do
+    links = Rails.root.join("app/views/layouts/_navbar.html.erb").read.scan(/class: "(?:nav-balance|free-entry-label) ([^"#]*)/).flatten
+    assert_equal 2, links.size, "expected the nav-balance and free-entry-label links"
+    { light: "hover:text-primary-600", dark: "dark:hover:text-primary-300" }.each do |mode, klass|
+      links.each { |classes| assert_includes classes.split, klass, "a navbar balance link lost its #{mode} hover" }
+      selector = ".#{klass.gsub(':', '\:')}"
+      body = rules(compiled_css).select { |sel, b| sel.start_with?("#{selector}:") && declarations(b).key?("color") }.last&.last
+      flunk "no compiled hover rule for #{klass}" unless body
+      toks = tokens(mode)
+      ink = opaque(declarations(body)["color"], toks)
+      SURFACES.each_value do |var|
+        ratio = contrast(ink, opaque(toks.fetch(var), toks))
+        assert_operator ratio, :>=, AA_TEXT, "#{klass} (#{ink}) on the #{mode} #{var} is #{format('%.2f', ratio)}:1"
+      end
+    end
+  end
+
   # ── success as text ──────────────────────────────────────────────────────────
 
   test "text-success-ink clears AA on the card, the page and its own tint in both themes" do
