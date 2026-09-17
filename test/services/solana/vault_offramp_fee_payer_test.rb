@@ -221,6 +221,74 @@ class Solana::VaultOfframpFeePayerTest < ActiveSupport::TestCase
     assert_match(/system_program_ix/, error.message)
   end
 
+  test "the guard refuses a Lighthouse MemoryWrite naming the house fee payer" do
+    wallet      = Solana::Keypair.generate
+    destination = Solana::Keypair.generate.address
+    from_ata, _ = Solana::SplToken.find_associated_token_address(wallet.to_base58, Solana::Config::USDC_MINT)
+
+    # A correct cash-out transfer (house fee payer, player authority) PLUS a
+    # crafted Lighthouse MemoryWrite (discriminator 0) whose `payer` account is
+    # the house. The house already signs this wire, so an unguarded admit would
+    # make it fund an attacker-sized "memory" PDA and lock its SOL — draining the
+    # fee payer stops all gasless cash-outs and entries. Carl's exploit.
+    tx = Solana::Transaction.new
+    tx.set_recent_blockhash(Solana::Keypair.generate.to_base58)
+    tx.add_instruction(**Solana::SplToken.transfer_instruction(
+      from: from_ata, to: destination, authority: wallet.public_key_bytes, amount: AMOUNT
+    ))
+    tx.add_instruction(
+      program_id: Solana::Vault::LIGHTHOUSE_PROGRAM_ID,
+      accounts: [
+        { pubkey: Solana::Vault::LIGHTHOUSE_PROGRAM_ID,      is_signer: false, is_writable: false },
+        { pubkey: Solana::Transaction::SYSTEM_PROGRAM_ID,    is_signer: false, is_writable: false },
+        { pubkey: Solana::Keypair.admin.public_key_bytes,    is_signer: true,  is_writable: true  }, # payer = house
+        { pubkey: Solana::Keypair.generate.public_key_bytes, is_signer: false, is_writable: true  }, # memory PDA
+        { pubkey: Solana::Keypair.generate.public_key_bytes, is_signer: false, is_writable: false }  # source
+      ],
+      data: ([0, 0, 255].pack("CCC") + [10_000].pack("Q<") + "\x00").b
+    )
+    wire_b64 = tx.serialize_partial_base64(
+      additional_signers: [Solana::Keypair.admin.public_key_bytes, wallet.public_key_bytes]
+    )
+
+    error = assert_raises(Solana::Vault::UnsafeCosignError) do
+      vault.assert_usdc_transfer_cosign_safe!(
+        wire_b64, wallet_address: wallet.to_base58,
+        destination_token_account: destination, amount_lamports: AMOUNT
+      )
+    end
+    assert_match(/lighthouse_memory_write/, error.message)
+  end
+
+  test "the guard admits a Phantom Lighthouse assertion alongside the transfer" do
+    wallet      = Solana::Keypair.generate
+    destination = Solana::Keypair.generate.address
+    from_ata, _ = Solana::SplToken.find_associated_token_address(wallet.to_base58, Solana::Config::USDC_MINT)
+
+    # A real assertion discriminator (6, AssertAccountInfoMulti) from mainnet —
+    # the cash-out guard must keep admitting it so a protected Phantom cash-out
+    # is not rejected.
+    tx = Solana::Transaction.new
+    tx.set_recent_blockhash(Solana::Keypair.generate.to_base58)
+    tx.add_instruction(**Solana::SplToken.transfer_instruction(
+      from: from_ata, to: destination, authority: wallet.public_key_bytes, amount: AMOUNT
+    ))
+    tx.add_instruction(
+      program_id: Solana::Vault::LIGHTHOUSE_PROGRAM_ID,
+      accounts: [{ pubkey: Solana::Keypair.admin.public_key_bytes, is_signer: false, is_writable: false }],
+      data: ["06040203000001000000000000000000"].pack("H*")
+    )
+    wire_b64 = tx.serialize_partial_base64(
+      additional_signers: [Solana::Keypair.admin.public_key_bytes, wallet.public_key_bytes]
+    )
+    phantom = Base64.strict_encode64(phantom_signs(wire_b64, wallet))
+
+    assert vault.assert_usdc_transfer_cosign_safe!(
+      phantom, wallet_address: wallet.to_base58,
+      destination_token_account: destination, amount_lamports: AMOUNT
+    )
+  end
+
   test "the guard refuses a wire that does not name the house as fee payer" do
     wallet      = Solana::Keypair.generate
     destination = Solana::Keypair.generate.address

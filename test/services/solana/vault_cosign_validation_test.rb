@@ -62,6 +62,73 @@ class Solana::VaultCosignValidationTest < ActiveSupport::TestCase
   setup { @nonce_env_prev = ENV.delete("SOLANA_DURABLE_NONCE_PUBKEY") }
   teardown { ENV["SOLANA_DURABLE_NONCE_PUBKEY"] = @nonce_env_prev unless @nonce_env_prev.nil? }
 
+  # --- Lighthouse fixture helpers ---------------------------------------------
+
+  # One Lighthouse instruction hash for tx.add_instruction. The guard reads only
+  # the first data byte (the discriminator), so an assertion's accounts are a
+  # single dummy; the memory-write helper below overrides them to name the fee
+  # payer, matching the real exploit shape.
+  def ln(data, accounts: nil)
+    {
+      program_id: Solana::Vault::LIGHTHOUSE_PROGRAM_ID,
+      accounts: accounts || [{ pubkey: Solana::Keypair.decode_base58(WALLET), is_signer: false, is_writable: false }],
+      data: data.b
+    }
+  end
+
+  # A Lighthouse MemoryWrite (discriminator 0) whose `payer` account (index 2)
+  # is the admin fee payer — the exploit Carl proved: the house is already a
+  # signer on the cosigned wire, so it funds an attacker-sized "memory" PDA and
+  # the SOL is locked until a house-signed MemoryClose. Seeds/size are
+  # irrelevant to the guard, which refuses on the discriminator alone.
+  def memory_write_ix_naming_fee_payer
+    admin = Solana::Keypair.admin
+    data  = [0, 0, 255].pack("CCC") + [10_000].pack("Q<") + "\x00".b # disc, memory_id, bump, write_offset, write_type
+    ln(data, accounts: [
+      { pubkey: Solana::Vault::LIGHTHOUSE_PROGRAM_ID,      is_signer: false, is_writable: false },
+      { pubkey: Solana::Transaction::SYSTEM_PROGRAM_ID,    is_signer: false, is_writable: false },
+      { pubkey: admin.public_key_bytes,                    is_signer: true,  is_writable: true  }, # payer = the house
+      { pubkey: Solana::Keypair.generate.public_key_bytes, is_signer: false, is_writable: true  }, # memory PDA
+      { pubkey: Solana::Keypair.generate.public_key_bytes, is_signer: false, is_writable: false }  # source
+    ])
+  end
+
+  # A full Phantom-first entry wire (admin fee payer + a legit enter_contest
+  # bound to THIS entry's PDA) carrying the given Lighthouse instructions, so a
+  # test exercises the WHOLE entry guard, not just its Lighthouse arm. Modeled
+  # on the real Phantom-injected shape; signatures are not checked by the guard.
+  def entry_wire_with_lighthouse(vault, lighthouse_ixs)
+    tx = Solana::Transaction.new
+    tx.set_recent_blockhash(Solana::Keypair.generate.to_base58)
+    tx.add_signer(Solana::Keypair.admin)
+    accounts = Array.new(Solana::Vault.enter_contest_entry_pda_position) do
+      { pubkey: Solana::Keypair.generate.public_key_bytes, is_signer: false, is_writable: false }
+    end
+    accounts << { pubkey: vault.entry_pda(SLUG, WALLET, 0).first, is_signer: false, is_writable: true }
+    tx.add_instruction(
+      program_id: Solana::Keypair.decode_base58(Solana::Config::PROGRAM_ID),
+      accounts: accounts,
+      data: Solana::Transaction.anchor_discriminator("enter_contest") + ("\x00".b * 8)
+    )
+    lighthouse_ixs.each { |ix| tx.add_instruction(**ix) }
+    tx.serialize_base64
+  end
+
+  # The create-guard twin: a create_contest wire built from the SAME instruction
+  # spec the guard re-derives (so accounts + data match byte-for-byte) plus the
+  # given Lighthouse instructions. Serialized keyless (Phantom-first), like the
+  # real builder.
+  def create_wire_with_lighthouse(vault, lighthouse_ixs)
+    spec = vault.create_contest_instruction(WALLET, SLUG, **create_params)
+    tx = Solana::Transaction.new
+    tx.set_recent_blockhash(Solana::Keypair.generate.to_base58)
+    tx.add_instruction(program_id: Solana::Keypair.decode_base58(Solana::Config::PROGRAM_ID),
+                       accounts: spec[:accounts], data: spec[:data])
+    lighthouse_ixs.each { |ix| tx.add_instruction(**ix) }
+    tx.serialize_partial_base64(additional_signers: [Solana::Keypair.admin.public_key_bytes,
+                                                     Solana::Keypair.decode_base58(WALLET)])
+  end
+
   # --- legit entries PASS ------------------------------------------------------
 
   test "a legit enter_contest (no durable nonce) passes" do
@@ -185,34 +252,104 @@ class Solana::VaultCosignValidationTest < ActiveSupport::TestCase
 
   test "a Phantom-injected Lighthouse assertion alongside enter_contest passes" do
     vault = Solana::Vault.new(client: fake_client)
-    admin = Solana::Keypair.admin
-    entry_pda_bytes = vault.entry_pda(SLUG, WALLET, 0).first
 
     # Mimic Phantom transaction protection on mainnet: the tx we prepared
     # (enter_contest) PLUS a Lighthouse post-state assertion injected at sign
     # time. Without the allowlist case this rejected with disallowed_program
     # and blocked every protected Phantom entry (prod, 2026-06-11).
-    tx = Solana::Transaction.new
-    tx.set_recent_blockhash(Solana::Keypair.generate.to_base58)
-    tx.add_signer(admin)
-    accounts = Array.new(Solana::Vault.enter_contest_entry_pda_position) do
-      { pubkey: Solana::Keypair.generate.public_key_bytes, is_signer: false, is_writable: false }
-    end
-    accounts << { pubkey: entry_pda_bytes, is_signer: false, is_writable: true }
-    tx.add_instruction(
-      program_id: Solana::Keypair.decode_base58(Solana::Config::PROGRAM_ID),
-      accounts: accounts,
-      data: Solana::Transaction.anchor_discriminator("enter_contest") + ("\x00".b * 8)
-    )
-    tx.add_instruction(
-      program_id: Solana::Vault::LIGHTHOUSE_PROGRAM_ID,
-      accounts: [{ pubkey: Solana::Keypair.decode_base58(WALLET), is_signer: false, is_writable: false }],
-      data: "\x02\x00\x01".b # opaque assertion payload — contents are not inspected
-    )
+    wire = entry_wire_with_lighthouse(vault, [ln("\x06\x04\x02\x03\x00\x00\x01" + ("\x00" * 8))])
 
-    assert vault.assert_entry_cosign_safe!(tx.serialize_base64,
+    assert vault.assert_entry_cosign_safe!(wire,
                                            entry: entry_for(entry_number: 0),
                                            wallet_address: WALLET)
+  end
+
+  # --- REAL mainnet Phantom Lighthouse wires still pass ------------------------
+  #
+  # These are the Lighthouse instruction payloads Phantom actually injected into
+  # house-cosigned mainnet transactions (Mr. McRitchie's own Phantom 7ZDJ…,
+  # public chain data), decoded from the wires at `finalized` on 2026-09-16.
+  # ALL of them are assertion variants (discriminator 6 AssertAccountInfoMulti,
+  # 10 AssertTokenAccountMulti), so the guard must keep admitting them — a guard
+  # that broke these would be the 2026-06-11 outage again. Kept as the exact
+  # bytes so a future narrowing of the allowlist that clips a real assertion
+  # turns this red.
+  REAL_MAINNET_LIGHTHOUSE_IXS = {
+    # enter_contest — 2Fv91MyXnJqsud6WoqN9btHPU6b3SpjK9t4dbwEUknjatLhzQk4PNWDvgxh2ei1foG6PUmaAwtMFtzgxPNYzpAdQ
+    "enter_contest/AssertTokenAccountMulti" =>
+      "0a04040300000600000000000000000501e1a9f7d96084158872de684a9ba9c5c6d2d95eedb766e4bab119db53f4d5bc2a0000c6fa7af3bedbad3a3d65f36aabc97431b1bbe4c2d2f6e0e47ca60203452f5d6100",
+    "enter_contest/AssertAccountInfoMulti" =>
+      "06040203000001000000000000000000",
+    # create_contest — XPNUqsyosPeuCRcekWujqYoCuaSkfyVhs8Ng9MsiMn4fGi7mXpP1zYQAuhhq4C5hqhqLkK5meSqVmzThVhBqttu
+    "create_contest/AssertTokenAccountMulti" =>
+      "0a04040228996b0600000000040300000600000000000000000508"
+  }.freeze
+
+  test "every real mainnet Phantom Lighthouse instruction is still admitted (entry guard)" do
+    vault = Solana::Vault.new(client: fake_client)
+    REAL_MAINNET_LIGHTHOUSE_IXS.each do |label, hex|
+      wire = entry_wire_with_lighthouse(vault, [ln([hex].pack("H*"))])
+      assert vault.assert_entry_cosign_safe!(wire, entry: entry_for(entry_number: 0), wallet_address: WALLET),
+             "real Phantom Lighthouse ix #{label} must still pass the entry guard"
+    end
+  end
+
+  test "every real mainnet Phantom Lighthouse instruction is still admitted (create guard)" do
+    vault = Solana::Vault.new(client: fake_client)
+    real  = REAL_MAINNET_LIGHTHOUSE_IXS.values.map { |hex| ln([hex].pack("H*")) }
+    wire  = create_wire_with_lighthouse(vault, real)
+    assert vault.assert_create_contest_cosign_safe!(wire, wallet_address: WALLET,
+                                                    contest_slug: SLUG, onchain_params: create_params),
+           "the create guard must admit every real Phantom Lighthouse assertion alongside create_contest"
+  end
+
+  # --- Lighthouse memory instructions REJECT (this task) -----------------------
+
+  test "a Lighthouse MemoryWrite naming the fee payer is refused on the entry guard" do
+    vault = Solana::Vault.new(client: fake_client)
+    wire  = entry_wire_with_lighthouse(vault, [memory_write_ix_naming_fee_payer])
+    error = assert_raises(Solana::Vault::UnsafeCosignError) do
+      vault.assert_entry_cosign_safe!(wire, entry: entry_for(entry_number: 0), wallet_address: WALLET)
+    end
+    assert_match(/lighthouse_memory_write/, error.message)
+  end
+
+  test "a Lighthouse MemoryClose is refused on the entry guard" do
+    vault = Solana::Vault.new(client: fake_client)
+    # disc 1, memory_id, bump — MemoryClose refunds a memory PDA to its payer.
+    wire  = entry_wire_with_lighthouse(vault, [ln("\x01\x00\xff".b)])
+    error = assert_raises(Solana::Vault::UnsafeCosignError) do
+      vault.assert_entry_cosign_safe!(wire, entry: entry_for(entry_number: 0), wallet_address: WALLET)
+    end
+    assert_match(/lighthouse_memory_close/, error.message)
+  end
+
+  test "an unknown Lighthouse discriminator is refused on the entry guard" do
+    vault = Solana::Vault.new(client: fake_client)
+    wire  = entry_wire_with_lighthouse(vault, [ln("\x63\x00\x00".b)]) # disc 99, above the assertion range
+    error = assert_raises(Solana::Vault::UnsafeCosignError) do
+      vault.assert_entry_cosign_safe!(wire, entry: entry_for(entry_number: 0), wallet_address: WALLET)
+    end
+    assert_match(/lighthouse_unknown_disc/, error.message)
+  end
+
+  test "an empty-data Lighthouse instruction is refused on the entry guard" do
+    vault = Solana::Vault.new(client: fake_client)
+    wire  = entry_wire_with_lighthouse(vault, [ln("".b)])
+    error = assert_raises(Solana::Vault::UnsafeCosignError) do
+      vault.assert_entry_cosign_safe!(wire, entry: entry_for(entry_number: 0), wallet_address: WALLET)
+    end
+    assert_match(/lighthouse_empty_data/, error.message)
+  end
+
+  test "a Lighthouse MemoryWrite naming the fee payer is refused on the create guard" do
+    vault = Solana::Vault.new(client: fake_client)
+    wire  = create_wire_with_lighthouse(vault, [memory_write_ix_naming_fee_payer])
+    error = assert_raises(Solana::Vault::UnsafeCosignError) do
+      vault.assert_create_contest_cosign_safe!(wire, wallet_address: WALLET,
+                                               contest_slug: SLUG, onchain_params: create_params)
+    end
+    assert_match(/lighthouse_memory_write/, error.message)
   end
 
   # --- malicious / mismatched wires REJECT ------------------------------------
