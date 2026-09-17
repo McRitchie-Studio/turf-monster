@@ -177,7 +177,9 @@ prepare_entry
   snapshot and returns to §3a for new wire bytes and a fresh blockhash without
   reloading the page. Signed PTs cannot be discarded through this endpoint.
 - **Phantom may inject Lighthouse guard instructions at arbitrary positions**
-  (mainnet only). Allowed by design — see §6.
+  (mainnet only). Its assertion instructions are admitted by design; its
+  memory instructions are refused, because one of them spends the fee
+  payer's SOL — see §6.
 
 ### 3c. `POST confirm_onchain_entry` (the money request)
 
@@ -190,10 +192,12 @@ confirm_onchain_entry
 ├─ C1 cosign guard: assert_entry_cosign_safe!  (server NEVER blind-cosigns)
 │     allowlist per instruction: exactly ONE enter_contest bound to THIS
 │     entry's server-derived PDA · ComputeBudget (limit + price only, admin's
-│     priority fee capped at 10x our builder's) · Lighthouse (pure
-│     assertions — can only fail the tx). NO System instruction: a transfer
-│     is the C1 attack, and a nonce advance would spend the admin's authority
-│     over the operator nonce.
+│     priority fee capped at 10x our builder's) · Lighthouse ASSERTIONS only
+│     (assert_lighthouse_ix_safe!: discriminators 2-17 can only fail the tx;
+│     MemoryWrite 0 would make the fee payer fund a memory account, so it,
+│     MemoryClose 1, empty data and unknown discriminators are refused).
+│     NO System instruction: a transfer is the C1 attack, and a nonce
+│     advance would spend the admin's authority over the operator nonce.
 │     ANYTHING else → 422 code=tx_rejected, nothing signed, nothing broadcast
 ├─ cosign_wire (admin signature filled into the Phantom-signed bytes)
 ├─ simulateTransaction pre-flight (sig_verify:false, replaceRecentBlockhash:true)
@@ -297,10 +301,27 @@ signed-wire validation, simulation, or broadcast must be reasoned against all
 three:
 
 1. **Phantom injects Lighthouse guard instructions at signing time, mainnet
-   only.** The cosign allowlist must accept the Lighthouse program (pure
-   post-state assertions, cannot move funds) — the `LIGHTHOUSE_PROGRAM_ID` constant
-   (`app/services/solana/vault.rb:73`), admitted inside
-   `Solana::Vault#assert_entry_cosign_safe!`, on its `when lighthouse` arm (`:3341-3345`). PR #134.
+   only.** The cosign allowlist must accept the Lighthouse program, or every
+   protected Phantom signer is rejected `disallowed_program` — the
+   `LIGHTHOUSE_PROGRAM_ID` constant (`app/services/solana/vault.rb:73`),
+   admitted inside `Solana::Vault#assert_entry_cosign_safe!`, whose
+   `when lighthouse` arm (`:3419-3424`) hands each Lighthouse instruction to
+   `Solana::Vault#assert_lighthouse_ix_safe!`. PR #134 admitted the program.
+   Accepting the program does NOT mean accepting every Lighthouse instruction.
+   Its first data byte is a discriminator, and two variants move the payer's
+   lamports: `MemoryWrite` (0) makes the signer it names as payer fund a
+   memory account whose size the instruction chooses, and `MemoryClose` (1)
+   refunds one. The house fee payer signs every cosigned wire, so an unguarded
+   `MemoryWrite` could lock house SOL and starve every gasless entry. Only
+   variants 2-17 are pure post-state assertions, which can fail the tx but
+   never move funds. So `#assert_lighthouse_ix_safe!` admits discriminators
+   2-17 and refuses `MemoryWrite`, `MemoryClose`, empty data and any unknown
+   discriminator; the entry, create-contest and cash-out guards all call it.
+   The test is the discriminator, not "does it name the fee payer": real
+   Phantom mainnet wires carry `AssertAccountInfoMulti` (6) and
+   `AssertTokenAccountMulti` (10), which assert the fee payer's own
+   post-state, so refusing on the fee payer would reject them all and repeat
+   the 2026-06-11 outage. PR #755 added the guard.
 2. **Simulation of any tx whose blockhash isn't in the recent queue needs
    `replaceRecentBlockhash: true`** (sigVerify must be false alongside it) —
    `Solana::Vault#cosign_and_broadcast_entry` simulates with both
