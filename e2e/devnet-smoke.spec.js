@@ -18,7 +18,9 @@ const RUNNER_OPTS = { cwd: process.cwd(), timeout: 15000, stdio: "pipe", env: { 
  * require a small amount of pre-existing USDC ($20) to cover the gap.
  *
  * Prerequisites:
- *   - SOLANA_BOT_KEY env var set to the server bot's (Alex) base58-encoded private key
+ *   - SOLANA_BOT_KEY env var set to the e2e bot wallet's (F6f8h5yy…) base58-encoded
+ *     private key — the legacy pre-rotation signer, not Xan's SOLANA_ADMIN_KEY
+ *     (see e2e/keypair-provider.js)
  *   - the bot wallet funded with ~0.2 SOL + ~$20 USDC on devnet
  *   - Mack wallet funded with ~1 SOL on devnet (USDC seeded by faucet test)
  *   - Test server seeded with SOLANA_BOT_PUBKEY=<bot pubkey>
@@ -96,7 +98,7 @@ test.beforeAll(async () => {
   // CI / devnet runs explicitly supply the key.
   test.skip(
     !process.env.SOLANA_BOT_KEY,
-    "SOLANA_BOT_KEY env var is required. Set it to the server bot's (Alex) base58 private key."
+    "SOLANA_BOT_KEY env var is required. Set it to the e2e bot wallet's (F6f8h5yy…) base58 private key."
   );
 
   // 2. Save original wallets, swap alex to bot key, clear Mack's wallet for fresh registration

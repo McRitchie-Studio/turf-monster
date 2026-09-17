@@ -2,6 +2,13 @@
   Auth model — the 4 signer roles. Same shape as the infographic's
   grid; updated for v0.19 (no deposit/withdraw; currency registry +
   derived lock/conclusion time-gates).
+
+  WHO THE NAMES ARE. The two vault-signer cards list VaultState.signers,
+  the IN-PROGRAM set (Solana::Config::MULTISIG_SIGNERS), not the Squads
+  upgrade multisig. Xan is the server bot key 8K81..., Mr. McRitchie is
+  his Phantom 7ZDJ..., Mason is CytJ.... Alex is the agent orchestrator
+  and holds no seat here. A signer rotation changes this copy:
+  test/views/contract_signer_names_test.rb pins names to that constant.
 %>
 <section class="card p-6 sm:p-8 mb-6">
   <div class="flex flex-col sm:flex-row sm:items-baseline sm:gap-4 mb-2">
@@ -27,7 +34,7 @@
     <%# 1-of-3 routine — any single signer %>
     <div class="bg-surface-alt border border-subtle border-t-2 border-t-violet rounded-lg p-4 sm:p-5">
       <div class="text-[10px] sm:text-xs uppercase tracking-wider text-secondary font-semibold mb-1">1-of-3 vault signer</div>
-      <div class="font-mono text-sm text-heading mb-3">Alex &middot; Mr. McRitchie &middot; Mason</div>
+      <div class="font-mono text-sm text-heading mb-3" data-test="signer-matrix-routine">Xan (bot) &middot; Mr. McRitchie &middot; Mason</div>
       <ul class="space-y-1 text-[12px] sm:text-[13px] text-secondary list-disc list-outside pl-4">
         <li>create_season &middot; create_contest</li>
         <li>set_contest_lock_time</li>
@@ -39,7 +46,7 @@
     <%# 2-of-3 multisig — treasury operations %>
     <div class="bg-surface-alt border border-subtle border-t-2 border-t-primary rounded-lg p-4 sm:p-5">
       <div class="text-[10px] sm:text-xs uppercase tracking-wider text-secondary font-semibold mb-1">2-of-3 multisig</div>
-      <div class="font-mono text-sm text-heading mb-3">2 of {Alex (bot) &middot; Mr. McRitchie &middot; Mason}</div>
+      <div class="font-mono text-sm text-heading mb-3" data-test="signer-matrix-multisig">2 of {Xan (bot) &middot; Mr. McRitchie &middot; Mason}</div>
       <ul class="space-y-1 text-[12px] sm:text-[13px] text-secondary list-disc list-outside pl-4">
         <li>register_currency &middot; deactivate_currency</li>
         <li>settle_contest &middot; cancel_contest</li>
