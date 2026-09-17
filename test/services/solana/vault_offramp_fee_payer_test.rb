@@ -26,6 +26,7 @@ class Solana::VaultOfframpFeePayerTest < ActiveSupport::TestCase
   def fake_client
     client = Object.new
     client.define_singleton_method(:get_latest_blockhash) { |**_o| Solana::Keypair.generate.to_base58 }
+    CosignFakeClient.teach(client)
     client
   end
 
@@ -76,6 +77,40 @@ class Solana::VaultOfframpFeePayerTest < ActiveSupport::TestCase
   def phantom_signs(serialized_tx_b64, keypair)
     Solana::Transaction.cosign_wire(Base64.decode64(serialized_tx_b64),
                                     signer: keypair, require_complete: false)
+  end
+
+  # --- the guard ---------------------------------------------------------------
+  #
+  # `#assert_usdc_transfer_cosign_safe!` is DELETED. What judges a returned
+  # cash-out wire now is `Solana::Cosign::Expectation`, and the expectation is
+  # stated the way Cdp::OfframpSendsController#cosign states it: REBUILT from the
+  # ramp row's own wallet, destination and amount. The cash-out has no stored
+  # wire to read — those three facts live on the row — which is why this flow
+  # uses the rebuild form rather than #cosign_expectation.
+  #
+  # The refusal REASONS are the gem's vocabulary now, and they are broader by
+  # construction rather than enumerated one attack at a time. The old guard
+  # checked the destination, the amount, the fee payer, the signer set, System
+  # instructions and Lighthouse variants as six named rules; the expectation
+  # compares the whole built instruction — every account, in order, and every
+  # byte of data — so a drifted destination is `instruction_accounts_mismatch`, a
+  # drifted amount is `instruction_data_mismatch`, and an instruction nobody
+  # built is `unexpected_instruction` WHATEVER program it names.
+  def cashout_expectation(wallet:, destination:, amount: AMOUNT)
+    vault.usdc_transfer_expectation(
+      wallet_address: wallet.to_base58,
+      destination_token_account: destination,
+      amount_lamports: amount
+    )
+  end
+
+  # Judge a base64 wire. Pure: no key is touched and nothing is signed, which is
+  # what lets it judge a wire the player has not signed yet. Returns the decoded
+  # WireMessage, or raises Cosign::WireRejected naming the first rule it breaks.
+  def cashout_judge(wire_b64, wallet:, destination:, amount: AMOUNT)
+    vault.cosign_completer.verify!(
+      wire_b64, expectation: cashout_expectation(wallet: wallet, destination: destination, amount: amount)
+    )
   end
 
   # --- the defect, stated directly -------------------------------------------
@@ -136,14 +171,16 @@ class Solana::VaultOfframpFeePayerTest < ActiveSupport::TestCase
     assert_not empty_slot?(slots[1]), "Phantom filled its own slot"
 
     signed_b64 = Base64.strict_encode64(user_signed)
-    assert vault.assert_usdc_transfer_cosign_safe!(
-      signed_b64,
-      wallet_address: wallet.to_base58,
-      destination_token_account: destination,
-      amount_lamports: AMOUNT
-    )
+    assert cashout_judge(signed_b64, wallet: wallet, destination: destination),
+           "the expectation must admit the wire this server itself prepared"
 
-    cosigned = vault.cosign_usdc_transfer(signed_b64)
+    # THE JUDGEMENT IS INSIDE THE COSIGN NOW. #cosign_usdc_transfer takes the
+    # expectation and refuses before it reaches for the admin key, so
+    # "validate then cosign" is structural rather than a rule the controller has
+    # to remember — there is no way to reach the house signature without passing.
+    cosigned = vault.cosign_usdc_transfer(
+      signed_b64, expectation: cashout_expectation(wallet: wallet, destination: destination)
+    )
     _count, final = signature_slots(Base64.decode64(cosigned[:signed_tx]))
 
     assert_not empty_slot?(final[0]), "the house signature slot is filled by the cosign"
@@ -163,13 +200,11 @@ class Solana::VaultOfframpFeePayerTest < ActiveSupport::TestCase
     out        = build_cashout(wallet: wallet, destination: theirs)
     signed_b64 = Base64.strict_encode64(phantom_signs(out[:serialized_tx], wallet))
 
-    error = assert_raises(Solana::Vault::UnsafeCosignError) do
-      vault.assert_usdc_transfer_cosign_safe!(
-        signed_b64, wallet_address: wallet.to_base58,
-        destination_token_account: ours, amount_lamports: AMOUNT
-      )
+    error = assert_raises(Solana::Cosign::WireRejected) do
+      cashout_judge(signed_b64, wallet: wallet, destination: ours)
     end
-    assert_match(/token_accounts_mismatch/, error.message)
+    assert_equal "instruction_accounts_mismatch", error.reason
+    assert_match(/differ from built instruction 0/, error.message)
   end
 
   test "the guard refuses a wire that inflates the amount" do
@@ -179,13 +214,10 @@ class Solana::VaultOfframpFeePayerTest < ActiveSupport::TestCase
     out        = build_cashout(wallet: wallet, destination: destination, amount: 500_000_000)
     signed_b64 = Base64.strict_encode64(phantom_signs(out[:serialized_tx], wallet))
 
-    error = assert_raises(Solana::Vault::UnsafeCosignError) do
-      vault.assert_usdc_transfer_cosign_safe!(
-        signed_b64, wallet_address: wallet.to_base58,
-        destination_token_account: destination, amount_lamports: AMOUNT
-      )
+    error = assert_raises(Solana::Cosign::WireRejected) do
+      cashout_judge(signed_b64, wallet: wallet, destination: destination)
     end
-    assert_match(/token_data_mismatch/, error.message)
+    assert_equal "instruction_data_mismatch", error.reason
   end
 
   test "the guard refuses a System instruction riding along with the transfer" do
@@ -212,13 +244,14 @@ class Solana::VaultOfframpFeePayerTest < ActiveSupport::TestCase
       additional_signers: [Solana::Keypair.admin.public_key_bytes, wallet.public_key_bytes]
     )
 
-    error = assert_raises(Solana::Vault::UnsafeCosignError) do
-      vault.assert_usdc_transfer_cosign_safe!(
-        wire_b64, wallet_address: wallet.to_base58,
-        destination_token_account: destination, amount_lamports: AMOUNT
-      )
+    error = assert_raises(Solana::Cosign::WireRejected) do
+      cashout_judge(wire_b64, wallet: wallet, destination: destination)
     end
-    assert_match(/system_program_ix/, error.message)
+    # The old guard had a NAMED rule for System instructions. The expectation
+    # needs none: the cash-out builds exactly one instruction, so a second one
+    # is refused whatever program it names — and the message still says which.
+    assert_equal "unexpected_instruction", error.reason
+    assert_match(/program System was not built/, error.message)
   end
 
   test "the guard refuses a Lighthouse MemoryWrite naming the house fee payer" do
@@ -237,9 +270,9 @@ class Solana::VaultOfframpFeePayerTest < ActiveSupport::TestCase
       from: from_ata, to: destination, authority: wallet.public_key_bytes, amount: AMOUNT
     ))
     tx.add_instruction(
-      program_id: Solana::Vault::LIGHTHOUSE_PROGRAM_ID,
+      program_id: Solana::Cosign::LIGHTHOUSE_PROGRAM_ID,
       accounts: [
-        { pubkey: Solana::Vault::LIGHTHOUSE_PROGRAM_ID,      is_signer: false, is_writable: false },
+        { pubkey: Solana::Cosign::LIGHTHOUSE_PROGRAM_ID,     is_signer: false, is_writable: false },
         { pubkey: Solana::Transaction::SYSTEM_PROGRAM_ID,    is_signer: false, is_writable: false },
         { pubkey: Solana::Keypair.admin.public_key_bytes,    is_signer: true,  is_writable: true  }, # payer = house
         { pubkey: Solana::Keypair.generate.public_key_bytes, is_signer: false, is_writable: true  }, # memory PDA
@@ -251,13 +284,10 @@ class Solana::VaultOfframpFeePayerTest < ActiveSupport::TestCase
       additional_signers: [Solana::Keypair.admin.public_key_bytes, wallet.public_key_bytes]
     )
 
-    error = assert_raises(Solana::Vault::UnsafeCosignError) do
-      vault.assert_usdc_transfer_cosign_safe!(
-        wire_b64, wallet_address: wallet.to_base58,
-        destination_token_account: destination, amount_lamports: AMOUNT
-      )
+    error = assert_raises(Solana::Cosign::WireRejected) do
+      cashout_judge(wire_b64, wallet: wallet, destination: destination)
     end
-    assert_match(/lighthouse_memory_write/, error.message)
+    assert_equal "lighthouse_memory_write", error.reason
   end
 
   test "the guard admits a Phantom Lighthouse assertion alongside the transfer" do
@@ -274,7 +304,7 @@ class Solana::VaultOfframpFeePayerTest < ActiveSupport::TestCase
       from: from_ata, to: destination, authority: wallet.public_key_bytes, amount: AMOUNT
     ))
     tx.add_instruction(
-      program_id: Solana::Vault::LIGHTHOUSE_PROGRAM_ID,
+      program_id: Solana::Cosign::LIGHTHOUSE_PROGRAM_ID,
       accounts: [{ pubkey: Solana::Keypair.admin.public_key_bytes, is_signer: false, is_writable: false }],
       data: ["06040203000001000000000000000000"].pack("H*")
     )
@@ -283,10 +313,7 @@ class Solana::VaultOfframpFeePayerTest < ActiveSupport::TestCase
     )
     phantom = Base64.strict_encode64(phantom_signs(wire_b64, wallet))
 
-    assert vault.assert_usdc_transfer_cosign_safe!(
-      phantom, wallet_address: wallet.to_base58,
-      destination_token_account: destination, amount_lamports: AMOUNT
-    )
+    assert cashout_judge(phantom, wallet: wallet, destination: destination)
   end
 
   test "the guard refuses a wire that does not name the house as fee payer" do
@@ -302,13 +329,12 @@ class Solana::VaultOfframpFeePayerTest < ActiveSupport::TestCase
     ))
     wire_b64 = tx.serialize_partial_base64(additional_signers: [wallet.public_key_bytes])
 
-    error = assert_raises(Solana::Vault::UnsafeCosignError) do
-      vault.assert_usdc_transfer_cosign_safe!(
-        wire_b64, wallet_address: wallet.to_base58,
-        destination_token_account: destination, amount_lamports: AMOUNT
-      )
+    error = assert_raises(Solana::Cosign::WireRejected) do
+      cashout_judge(wire_b64, wallet: wallet, destination: destination)
     end
-    assert_match(/fee_payer_not_admin/, error.message)
+    assert_equal "fee_payer_mismatch", error.reason
+    assert_match(/account 0 is #{wallet.address}/, error.message,
+                 "the refusal names who the wire put in the fee-payer seat")
   end
 
   # --- the signer set: two signatures, house then player ----------------------
@@ -340,16 +366,23 @@ class Solana::VaultOfframpFeePayerTest < ActiveSupport::TestCase
   end
 
   def cashout_guard(wire_bytes, wallet:, destination:)
-    vault.assert_usdc_transfer_cosign_safe!(
-      Base64.strict_encode64(wire_bytes), wallet_address: wallet.to_base58,
-      destination_token_account: destination, amount_lamports: AMOUNT
-    )
+    cashout_judge(Base64.strict_encode64(wire_bytes), wallet: wallet, destination: destination)
   end
 
+  # The ComputeBudget pair at the CEILING this house will cosign. The two
+  # derived constants that used to spell it (COSIGN_MAX_COMPUTE_UNIT_PRICE and
+  # COSIGN_MAX_PRIORITY_FEE_MICROLAMPORTS) are gone: `Solana::Cosign.fee_caps`
+  # computes the same numbers from the builder's own price and limit, which is
+  # what both the builder and every expectation now use, so the worst case this
+  # test constructs follows the app instead of a constant kept in step by hand.
   def budget_ixs
-    cb = Solana::Vault::COMPUTE_BUDGET_PROGRAM_ID
-    [{ program_id: cb, accounts: [], data: "\x03".b + [Solana::Vault::COSIGN_MAX_COMPUTE_UNIT_PRICE].pack("Q<") },
-     { program_id: cb, accounts: [], data: "\x02".b + [Solana::Vault::PARTIAL_TX_COMPUTE_UNIT_LIMIT].pack("V") }]
+    max_price, = Solana::Cosign.fee_caps(
+      compute_unit_price: Solana::Vault::PARTIAL_TX_PRIORITY_FEE_MICROLAMPORTS,
+      compute_unit_limit: Solana::Vault::PARTIAL_TX_COMPUTE_UNIT_LIMIT,
+      margin: Solana::Vault::COSIGN_FEE_MARGIN
+    )
+    [Solana::ComputeBudget.set_compute_unit_price(max_price),
+     Solana::ComputeBudget.set_compute_unit_limit(Solana::Vault::PARTIAL_TX_COMPUTE_UNIT_LIMIT)]
   end
 
   test "REGRESSION: the guard refuses a cash-out wire declaring a THIRD signer" do
@@ -367,10 +400,15 @@ class Solana::VaultOfframpFeePayerTest < ActiveSupport::TestCase
     three = Solana::Transaction.cosign_wire(three, signer: wallet, require_complete: false)
     three = Solana::Transaction.cosign_wire(three, signer: extra, require_complete: false)
 
-    error = assert_raises(Solana::Vault::UnsafeCosignError) do
+    # SET EQUALITY, not a count. The old guard capped the number of signers; the
+    # expectation requires the signer set to be EXACTLY house + player, so the
+    # refusal names the key that does not belong rather than a number.
+    error = assert_raises(Solana::Cosign::WireRejected) do
       cashout_guard(three, wallet: wallet, destination: destination)
     end
-    assert_match(/signer_count_mismatch: numRequiredSignatures=3, require exactly 2/, error.message)
+    assert_equal "signer_set_mismatch", error.reason
+    assert_match(/unexpected signer\(s\) \[#{extra.address}\]/, error.message)
+    assert_match(/missing signer\(s\) \[\]/, error.message, "the player and the house are both where they belong")
   end
 
   test "REGRESSION: the worst-case padded wire is refused -- ten signers fit the packet" do
@@ -385,10 +423,15 @@ class Solana::VaultOfframpFeePayerTest < ActiveSupport::TestCase
                         signers: [admin_bytes, wallet.public_key_bytes, *extras])
     assert_operator wire.bytesize, :<=, 1_232, "the padded wire must be one that could really land"
 
-    error = assert_raises(Solana::Vault::UnsafeCosignError) do
+    error = assert_raises(Solana::Cosign::WireRejected) do
       cashout_guard(wire, wallet: wallet, destination: destination)
     end
-    assert_match(/signer_count_mismatch: numRequiredSignatures=10/, error.message)
+    assert_equal "signer_set_mismatch", error.reason
+    # Every one of the eight is named, which is strictly more than the count the
+    # old refusal carried: a padded wire cannot hide a key in an aggregate.
+    extras.each do |key|
+      assert_match(/#{Solana::Keypair.encode_base58(key)}/, error.message)
+    end
   end
 
   test "REGRESSION: the guard refuses a cash-out wire whose second signer is not the player" do
@@ -399,10 +442,14 @@ class Solana::VaultOfframpFeePayerTest < ActiveSupport::TestCase
     wire = cashout_wire(wallet: wallet, destination: destination,
                         signers: [admin_bytes, stranger.public_key_bytes])
 
-    error = assert_raises(Solana::Vault::UnsafeCosignError) do
+    error = assert_raises(Solana::Cosign::WireRejected) do
       cashout_guard(wire, wallet: wallet, destination: destination)
     end
-    assert_match(/wallet_not_signer: account\[1\]=#{stranger.address}/, error.message)
+    assert_equal "signer_set_mismatch", error.reason
+    assert_match(/unexpected signer\(s\) \[#{stranger.address}\]/, error.message,
+                 "the stranger is named as the key that does not belong…")
+    assert_match(/missing signer\(s\) \[#{wallet.address}\]/, error.message,
+                 "…and the player is named as the consent that is absent")
   end
 
   # --- the $0.99 floor --------------------------------------------------------

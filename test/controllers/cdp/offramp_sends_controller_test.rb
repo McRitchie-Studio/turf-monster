@@ -315,8 +315,15 @@ class Cdp::OfframpSendsControllerTest < ActionDispatch::IntegrationTest
       assert_equal "COSIGNED_PHANTOM_SIGNED_WIRE", body["signed_tx"]
       assert_equal "FakeOfframpSendSig", body["tx_signature"]
 
+      # THE EXPECTATION IS BUILT FROM THE SERVER'S OWN STATE AND TAKES NO WIRE.
+      # That is the point of the shape: the server states the cash-out from the
+      # ramp row, and the client's bytes are only ever the thing JUDGED against
+      # it. The wire reaches the cosign, one step later.
+      assert_equal ["PHANTOM_SIGNED_WIRE"], vault.offramp_cosign_calls,
+                   "the client's wire is judged, never used to build the expectation"
+
       guard = vault.offramp_cosign_guard_calls.first
-      assert_equal "PHANTOM_SIGNED_WIRE", guard[:wire]
+      refute guard.key?(:wire), "a rebuilt expectation must not be derived from anything the client sent"
       assert_equal ramp.wallet_address, guard[:wallet]
       assert_equal @to_address, guard[:destination],
                    "the destination is re-resolved server-side, never read off the request"

@@ -169,10 +169,10 @@ class ContestsController < ApplicationController
   # page loads no solanaWeb3 — so #generate_bundle now leaves the admin slot
   # EMPTY and the cosign happens here, exactly as it does in #finalize.
   #
-  # WHAT THAT BUYS BESIDES MOBILE: this path now runs
-  # assert_create_contest_cosign_safe!, which it never did. The server used to
-  # co-sign nothing and verify the signature after the fact; now a wire that is
-  # not this bundle's create_contest is refused BEFORE the broadcast.
+  # WHAT THAT BUYS BESIDES MOBILE: this path now judges the wire against a
+  # Solana::Cosign::Expectation, which it never did. The server used to co-sign
+  # nothing and verify the signature after the fact; now a wire that is not this
+  # bundle's create_contest is refused BEFORE the broadcast.
   #
   # WHAT IT STILL COSTS, said plainly rather than left to be discovered: steps 4
   # and 5 can raise after the money has moved, which strands a funded PDA with no
@@ -202,20 +202,36 @@ class ContestsController < ApplicationController
     # which is the right answer — the operator rebuilds rather than funding a
     # contest that locks at a time nobody chose.
     draft = ContestBundle.build_unpersisted_contest(key, current_user)
-    vault.assert_create_contest_cosign_safe!(
-      params[:signed_tx],
+
+    # What the server BUILT, rebuilt from the server's own draft — the same
+    # inputs the deleted #assert_create_contest_cosign_safe! compared, now stated
+    # once as an expectation instead of enumerated as a list of refusals.
+    # Solana::Cosign::Expectation then requires the returned wire to carry
+    # exactly this create_contest instruction: same accounts in the same order,
+    # same data, so the fee schedule, max entries, payouts, prize pool and lock
+    # timestamp are all pinned by the comparison rather than field by field.
+    expectation = vault.create_contest_expectation(
       wallet_address: payload[:creator_pubkey],
       contest_slug: payload[:slug],
       onchain_params: draft.onchain_params
     )
 
-    tx_signature = vault.cosign_and_broadcast_create_contest(params[:signed_tx])
     # ERROR level deliberately, on a success path: this line is the only record
     # of the on-chain effect until step 5 writes the row, and a strand between
     # them has to be findable in the same place an operator already looks.
-    Rails.logger.error(
-      "[ContestsController#finalize_bundle] BROADCAST key=#{key} slug=#{payload[:slug]} " \
-      "pda=#{derived_pda_b58} sig=#{tx_signature}"
+    #
+    # It runs in `before_send`, so the record now precedes the broadcast instead
+    # of following it — a crash between the two used to lose the only evidence
+    # that a contest had been funded.
+    tx_signature = vault.cosign_and_broadcast_create_contest(
+      params[:signed_tx],
+      expectation: expectation,
+      before_send: lambda { |signature|
+        Rails.logger.error(
+          "[ContestsController#finalize_bundle] BROADCAST key=#{key} slug=#{payload[:slug]} " \
+          "pda=#{derived_pda_b58} sig=#{signature}"
+        )
+      }
     )
 
     # The operator's navbar balance is now WRONG. Busted here, immediately after
@@ -243,8 +259,9 @@ class ContestsController < ApplicationController
     }
   rescue ActiveSupport::MessageVerifier::InvalidSignature
     render_create_error("Invalid or expired bundle token — restart the provision flow.")
-  rescue Solana::Vault::UnsafeCosignError => e
-    Rails.logger.warn("[ContestsController#finalize_bundle] rejected create_contest cosign: #{e.message}")
+  rescue Solana::Vault::UnsafeCosignError, Solana::Cosign::WireRejected => e
+    Rails.logger.warn("[ContestsController#finalize_bundle] rejected create_contest cosign: " \
+                      "#{e.respond_to?(:reason) ? e.reason : e.class.name}: #{e.message}")
     render_create_error("Signed transaction did not match this bundle. Restart the provision flow and try again.")
   rescue StandardError => e
     Rails.logger.error("[ContestsController#finalize_bundle] #{e.class}: #{e.message}")
@@ -399,8 +416,9 @@ class ContestsController < ApplicationController
     vault = Solana::Vault.new
     ensure_onchain_season_ready!(draft.season_id, vault: vault)
 
-    vault.assert_create_contest_cosign_safe!(
-      params[:signed_tx],
+    # What the server BUILT, rebuilt from the server's own draft. See the twin in
+    # #finalize_bundle for why a rebuild is the right shape for this flow.
+    expectation = vault.create_contest_expectation(
       wallet_address: payload[:creator_pubkey],
       contest_slug: payload[:slug],
       onchain_params: draft.onchain_params
@@ -416,13 +434,18 @@ class ContestsController < ApplicationController
 
     # STEP 2 — the creator's prize pool moves. Past this line the money is real
     # whatever else happens.
-    tx_signature = vault.cosign_and_broadcast_create_contest(params[:signed_tx])
-
-    # STEP 3 — record the signature IMMEDIATELY, before the read-back that can
-    # raise. It is the only off-chain evidence tying this request to the
-    # on-chain effect; losing it because an RPC flaked is avoidable for the cost
-    # of one UPDATE. The row stays `pending`: broadcast is not verification.
-    contest.update!(onchain_tx_signature: tx_signature)
+    #
+    # STEP 3 MOVED INSIDE STEP 2, which is the point of `before_send`. The
+    # signature is stamped on the write-ahead row BEFORE the bytes leave, not
+    # after: it is the only off-chain evidence tying this request to the
+    # on-chain effect, and it used to be written on the line AFTER the
+    # broadcast, where a crash lost it. The row stays `pending` — broadcast is
+    # not verification — and if this UPDATE raises, nothing is sent.
+    tx_signature = vault.cosign_and_broadcast_create_contest(
+      params[:signed_tx],
+      expectation: expectation,
+      before_send: ->(signature) { contest.update!(onchain_tx_signature: signature) }
+    )
 
     # STEP 3b — the creator's navbar balance is now WRONG, so drop it here,
     # immediately after the broadcast rather than beside the render. The pill is
@@ -462,8 +485,9 @@ class ContestsController < ApplicationController
     render json: { success: true, redirect: contest_path(contest), slug: contest.slug }
   rescue ActiveSupport::MessageVerifier::InvalidSignature
     render_create_error("Invalid or expired form token — restart the contest creation flow.")
-  rescue Solana::Vault::UnsafeCosignError => e
-    Rails.logger.warn("[ContestsController#finalize] rejected create_contest cosign: #{e.message}")
+  rescue Solana::Vault::UnsafeCosignError, Solana::Cosign::WireRejected => e
+    Rails.logger.warn("[ContestsController#finalize] rejected create_contest cosign: " \
+                      "#{e.respond_to?(:reason) ? e.reason : e.class.name}: #{e.message}")
     render_create_error("Signed transaction did not match this contest request. Rebuild the transaction and try again.")
   rescue StandardError => e
     Rails.logger.error("[ContestsController#finalize] #{e.class}: #{e.message}")
@@ -1152,7 +1176,14 @@ class ContestsController < ApplicationController
         # an entry we priced in USDC (or the reverse).
         metadata: { entry_pda: result[:entry_pda], contest_slug: @contest.slug, currency_idx: currency_idx,
                     funding: (entry_token ? "token" : "transfer"),
-                    entry_token_pda: entry_token && entry_token[:pda] }.to_json
+                    entry_token_pda: entry_token && entry_token[:pda],
+                    # THE DEADLINE, RECORDED WITH THE WIRE IT BELONGS TO. Past
+                    # this block height the transaction can never land, so
+                    # confirm_onchain_entry can tell "the player took too long"
+                    # from "the program refused" WITHOUT broadcasting to find
+                    # out. Stored rather than re-derived because the blockhash
+                    # this wire is anchored on is only knowable here.
+                    last_valid_block_height: result[:last_valid_block_height] }.to_json
       )
 
       render json: {
@@ -1280,16 +1311,16 @@ class ContestsController < ApplicationController
       }
     end
 
-    # No server-stamped signature scenario. In the Phantom-FIRST flow
-    # (2026-06-05) broadcast is server-side INSIDE confirm_onchain_entry, and the
-    # signature is stamped there IMMEDIATELY after broadcast, BEFORE verification
-    # (A1). So a blank tx_signature here genuinely means broadcast never happened
-    # — nothing landed on-chain — and it is SAFE to release the user to retry
-    # (assign_onchain_entry_number! probes the chain for a free slot, so a retry
-    # won't collide). A broadcast that SUCCEEDED but then failed verification
-    # leaves a STAMPED PT (status "submitted", signature present), which skips this
-    # branch and falls through to the RPC poll + verify_and_confirm below —
-    # crediting the already-paid entry instead of re-charging the user.
+    # No server-stamped signature scenario. In the Phantom-FIRST flow broadcast
+    # is server-side INSIDE confirm_onchain_entry, and the signature is stamped
+    # by `before_send:` BEFORE the bytes are sent — not after, as it was until
+    # turf-adopts-cosign-primitives (A1). That makes this branch's premise
+    # STRONGER, not weaker: a blank tx_signature means the send was never even
+    # REACHED, so nothing can have landed, and it is SAFE to release the user to
+    # retry (assign_onchain_entry_number! probes the chain for a free slot, so a
+    # retry won't collide). A broadcast that was attempted and then failed
+    # ANYWHERE leaves a STAMPED PT (status "submitted", signature present), which
+    # skips this branch and falls through to the RPC poll + verify below.
     if ptx.tx_signature.blank?
       ptx.update!(status: "failed")
       return render json: { status: "failed", error: "Your last entry did not go through — try again." }
@@ -1393,43 +1424,54 @@ class ContestsController < ApplicationController
       # Read it off the PendingTransaction #prepare_entry wrote, before anything
       # is cosigned. The lookup is hoisted above the cosign (it used to sit after
       # the broadcast, purely to stamp the signature) because the answer now gates
-      # the cosign itself; the same row is stamped below, unchanged.
+      # the cosign itself — and because the row is what the expectation is built
+      # FROM, and what `before_send` stamps before the broadcast rather than
+      # after it.
       ptx = PendingTransaction.where(target: entry, status: %w[pending submitted],
                                      initiator_address: current_user.web3_solana_address)
                               .order(:created_at).last
       prepared_token_pda = prepared_entry_token_pda(ptx)
 
-      # Audit C1 (admin blind-cosign): SEMANTICALLY validate the Phantom-signed
-      # wire BEFORE the admin signs anything. Decodes the client's tx and asserts
-      # it is exactly the entry instruction we prepared — admin fee-payer, a single
-      # enter_contest (or enter_contest_with_token, when that is what we built)
-      # IX bound to THIS entry's PDA and to the token we chose, and only
-      # fee-capped ComputeBudget / Lighthouse (NO System ix). Raises Solana::Vault::
-      # UnsafeCosignError (rescued below) on anything else, so a crafted
-      # SystemProgram.transfer{from: admin} / mint_entry_token / grant_seeds never
-      # reaches the cosign. Validate-then-cosign: NO cosign, NO broadcast on reject.
-      vault.assert_entry_cosign_safe!(params[:signed_tx],
-                                      entry: entry,
-                                      wallet_address: current_user.web3_solana_address,
-                                      entry_token_pda: prepared_token_pda)
+      # Audit C1 (admin blind-cosign): state what the SERVER BUILT, from the wire
+      # the server STORED, before the admin signs anything. The expectation is
+      # rebuilt from ptx.serialized_tx — written pre-broadcast by #prepare_entry —
+      # never from params, because a wire from the client is the thing being
+      # judged, not a source of truth about it. It also re-asserts that the
+      # stored wire names THIS session's wallet as its cosigner.
+      #
+      # Solana::Cosign::Expectation then judges the returned wire by MEANING:
+      # admin in account 0 and writable, the signer set exactly admin + this
+      # wallet, and — once ComputeBudget and Phantom's Lighthouse assertions are
+      # set aside — the built instruction EXACTLY, same accounts in the same
+      # order, same data. A crafted SystemProgram.transfer{from: admin},
+      # mint_entry_token or grant_seeds cannot survive that comparison.
+      expectation = vault.cosign_expectation(
+        ptx&.serialized_tx,
+        wallet_address: current_user.web3_solana_address,
+        last_valid_block_height: prepared_last_valid_block_height(ptx)
+      )
 
       # Server-side: admin cosign (fills the empty admin slot in the
-      # Phantom-signed wire tx) → simulateTransaction pre-flight → broadcast →
-      # confirm. cosign_and_broadcast_entry re-asserts OPSEC-017 (fully signed)
-      # and raises on a failed simulation before any broadcast.
-      tx_signature = vault.cosign_and_broadcast_entry(params[:signed_tx])
-
-      # A1 (double-charge guard): stamp the signature on the PendingTransaction
-      # IMMEDIATELY after broadcast, BEFORE verification. The money has moved
-      # on-chain at this point — if verify_and_confirm_onchain_entry! below raises
-      # (e.g. a transient RPC error on getTransaction), the rescue must leave a PT
-      # that CARRIES the signature so recover_pending_entry credits the already-
-      # paid entry. A blank PT here would read as "never broadcast" and let the
-      # user re-enter and pay twice (assign_onchain_entry_number! probes the chain
-      # and would skip the already-paid PDA). The row was looked up above by
-      # target+initiator (prepare_entry creates it pre-broadcast, before any
-      # signature) because the cosign now reads the funding off it too.
-      ptx&.update!(tx_signature: tx_signature, status: "submitted")
+      # Phantom-signed wire tx) → deadline check → simulateTransaction pre-flight
+      # → stamp → broadcast → confirm.
+      #
+      # THE STAMP IS NOW A PRECONDITION OF THE BROADCAST, NOT THE LINE AFTER IT.
+      # `before_send` runs after every check that can refuse the wire and BEFORE
+      # the bytes leave, with the signature the cosigned wire already carries. It
+      # closes the window this flow used to have: the stamp sat twelve lines
+      # below the broadcast, so a crash, a dyno restart or a failed `update!` in
+      # between left a row reading "never broadcast" for money that had already
+      # moved — and `recover_pending_entry` would then let the player pay twice.
+      #
+      # A1 (double-charge guard) is unchanged in intent and stronger in fact: the
+      # row still carries the signature before anything downstream can raise, and
+      # now it cannot be broadcast without it. If this `update!` raises, nothing
+      # is sent.
+      tx_signature = vault.cosign_and_broadcast_entry(
+        params[:signed_tx],
+        expectation: expectation,
+        before_send: ->(signature) { ptx&.update!(tx_signature: signature, status: "submitted") }
+      )
 
       # OPSEC-010 / Lazarus audit #1: server-derive the entry PDA, cross-check
       # the client-supplied one, assert the broadcast TX is the v0.16
@@ -1467,11 +1509,21 @@ class ContestsController < ApplicationController
         **seeds
       }
     end
-  rescue Solana::Vault::UnsafeCosignError
+  rescue Solana::Vault::UnsafeCosignError, Solana::Cosign::WireRejected => e
     # Audit C1: the submitted wire didn't match the entry we prepared, so the
-    # admin never cosigned and nothing was broadcast. The detailed reason is
-    # already logged server-side ([cosign][rejected] …) — return ONLY a generic,
-    # non-revealing message + a stable `code` the frontend keys its retry UX off.
+    # admin never cosigned and nothing was broadcast. BOTH halves of that
+    # boundary land here — UnsafeCosignError when this server could not state
+    # what it built, WireRejected when the returned wire is not it.
+    #
+    # The reason is logged HERE and returned NOWHERE: WireRejected#reason is a
+    # short stable code (:instruction_accounts_mismatch, :lighthouse_memory_write,
+    # :signer_set_mismatch …) and its message carries detail that would tell an
+    # attacker exactly which check tripped. The client gets only a generic
+    # message and the stable `code` its retry UX keys off.
+    Rails.logger.warn(
+      "[cosign][rejected] entry_id=#{params[:entry_id]} wallet=#{current_user.web3_solana_address} " \
+      "reason=#{e.respond_to?(:reason) ? e.reason : e.class.name}: #{e.message}"
+    )
     render json: {
       success: false,
       code: "tx_rejected",
@@ -2707,16 +2759,31 @@ class ContestsController < ApplicationController
   # all). Accept both rather than betting on one — a row written as a real object
   # would otherwise raise TypeError inside the entry's confirm path.
   def prepared_entry_token_pda(ptx)
-    return nil if ptx.nil? || ptx.metadata.blank?
+    prepared_metadata(ptx)["entry_token_pda"].presence
+  end
+
+  # The block height past which the prepared entry can NEVER land, recorded by
+  # #prepare_entry from the builder's own answer. Handed to the expectation so
+  # the completer checks the deadline BEFORE it broadcasts: an expired wire
+  # becomes a Cosign::BlockhashExpired (provably un-sent, rebuild freely)
+  # instead of a broadcast that silently never lands.
+  #
+  # nil for a row prepared before this was stored — the deadline check is then
+  # skipped and the flow behaves exactly as it did, so rows in flight across the
+  # deploy are unaffected.
+  def prepared_last_valid_block_height(ptx)
+    prepared_metadata(ptx)["last_valid_block_height"].presence&.to_i
+  end
+
+  def prepared_metadata(ptx)
+    return {} if ptx.nil? || ptx.metadata.blank?
 
     meta = ptx.metadata
     meta = JSON.parse(meta) if meta.is_a?(String)
-    return nil unless meta.is_a?(Hash)
-
-    meta["entry_token_pda"].presence
+    meta.is_a?(Hash) ? meta : {}
   rescue JSON::ParserError => e
     Rails.logger.warn("[entry] unparseable PendingTransaction metadata ptx=#{ptx&.id}: #{e.message}")
-    nil
+    {}
   end
 
   def verify_and_confirm_onchain_entry!(entry, tx_signature, expected_entry_pda: false,

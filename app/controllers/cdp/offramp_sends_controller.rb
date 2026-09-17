@@ -156,21 +156,24 @@ module Cdp
             when :in_flight              then outcome = :in_flight
             when :failed_sends_exhausted then outcome = :failed_sends_exhausted
             else
-              # Audit C1 (admin blind-cosign): SEMANTICALLY validate the
-              # Phantom-signed wire BEFORE the house signs anything. The admin
-              # is the fee payer here, so an unguarded cosign would let a
-              # crafted wire spend the admin's signature on something other
-              # than this cash-out. Validate-then-cosign: on reject this raises
-              # and the transaction rolls back, so nothing is signed and
-              # nothing is broadcastable.
-              vault.assert_usdc_transfer_cosign_safe!(
-                signed_tx,
+              # Audit C1 (admin blind-cosign): state what the SERVER means by
+              # this cash-out — rebuilt from the ramp row's own wallet,
+              # destination and amount — and let Solana::Cosign judge the
+              # Phantom-signed wire against it. The admin is the fee payer here,
+              # so an unguarded cosign would let a crafted wire spend the
+              # admin's signature on something other than this cash-out.
+              #
+              # THE VERIFY IS NOW INSIDE THE COSIGN. #cosign_usdc_transfer takes
+              # the expectation and refuses before it touches the admin key, so
+              # "validate then cosign" is no longer a rule a caller can forget:
+              # on reject this raises, the transaction rolls back, nothing is
+              # signed and nothing is broadcastable.
+              expectation = vault.usdc_transfer_expectation(
                 wallet_address: @ramp.wallet_address,
                 destination_token_account: destination.token_account,
-                amount_lamports: amount,
-                context: "offramp_send:#{@ramp.partner_user_ref}"
+                amount_lamports: amount
               )
-              signed = vault.cosign_usdc_transfer(signed_tx)
+              signed = vault.cosign_usdc_transfer(signed_tx, expectation: expectation)
             end
           end
         end
@@ -237,20 +240,26 @@ module Cdp
           }, status: :unprocessable_entity
         end
       end
-    rescue Solana::Vault::UnsafeCosignError
-      # The detailed reason is logged server-side by the guard and is NEVER
-      # returned to the client.
+    rescue Solana::Vault::UnsafeCosignError, Solana::Cosign::WireRejected => e
+      # Both halves of the audit-C1 boundary: UnsafeCosignError when this server
+      # could not state what it meant, WireRejected when the returned wire is not
+      # it. The reason is logged HERE and returned NOWHERE — it names which check
+      # tripped, which is an attacker's map.
+      Rails.logger.warn(
+        "[cosign][rejected] offramp_send:#{@ramp&.partner_user_ref} wallet=#{@ramp&.wallet_address} " \
+        "reason=#{e.respond_to?(:reason) ? e.reason : e.class.name}: #{e.message}"
+      )
       render json: { error: "That transaction didn't match your cash-out, so it wasn't signed. Please start the cash-out again." },
              status: :unprocessable_entity
     rescue Solana::Vault::PreflightUnavailable
-      # MUST PRECEDE the PreflightRejected rescue — it is a subclass. The
+      # MUST PRECEDE the Cosign::PreflightRejected rescue — it is a subclass of it. The
       # simulation gave no verdict (the RPC was unreachable or throttled, or
       # answered with nothing usable), so it says nothing about the wire or the
       # wallet, and the honest advice is to retry. Same copy and status as a
       # Solana::Client::RpcError below.
       render json: { error: "Solana is busy right now — please try again in a moment." },
              status: :bad_gateway
-    rescue Solana::Vault::PreflightRejected
+    rescue Solana::Cosign::PreflightRejected
       # The PROGRAM refused the simulated wire, so the player is pointed at the
       # one thing they can change. The program error and logs are in the
       # ErrorLog rescue_and_log wrote; the player gets only what they can act on.

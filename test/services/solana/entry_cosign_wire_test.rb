@@ -5,8 +5,9 @@ require "test_helper"
 # Three tiers already cover the entry cosign and all three are blind to the one
 # fact that decides whether a Phantom entry can complete:
 #
-#   * vault_cosign_validation_test feeds real builder output to the SEMANTIC
-#     guard (#assert_entry_cosign_safe!) and stops there — the guard reads the
+#   * vault_cosign_expectation_test feeds real builder output to the SEMANTIC
+#     judgement (Cosign::Expectation#verify!, which replaced the hand-written
+#     #assert_entry_cosign_safe!) and stops there — the expectation reads the
 #     message, never the signature slots.
 #   * contests_controller_test runs through FakeVault, whose builders return the
 #     literal string "FAKE_TOKEN_TX_…" — no wire exists to cosign.
@@ -42,6 +43,7 @@ class Solana::EntryCosignWireTest < ActiveSupport::TestCase
   def fake_client
     client = Object.new
     client.define_singleton_method(:get_latest_blockhash) { |**_o| Solana::Keypair.generate.to_base58 }
+    CosignFakeClient.teach(client)
     client
   end
 
@@ -101,54 +103,74 @@ class Solana::EntryCosignWireTest < ActiveSupport::TestCase
   end
 
   # --- the full production handshake, both funding paths -----------------------
+  #
+  # THE HANDSHAKE IS THE GEM'S NOW, AND IT IS ONE CALL RATHER THAN TWO.
+  # `#assert_entry_cosign_safe!` is deleted: the guard and the cosign were two
+  # steps a caller had to run in the right order, and `Cosign::Completer#cosign`
+  # makes the order structural — it judges the returned wire against the
+  # expectation, checks the PLAYER's own signature slot, and only then reaches
+  # for the admin key. A refused wire leaves nothing behind that could be
+  # broadcast, so "validate then cosign" is no longer a rule that can be
+  # forgotten.
+  #
+  # The expectation is stated the way ContestsController#confirm_onchain_entry
+  # states it: rebuilt from the wire THIS SERVER STORED and handed out
+  # (PendingTransaction#serialized_tx), never from the client's returned bytes —
+  # a wire from the client is the thing being judged, not a source of truth
+  # about it.
+  #
+  # `cosign` rather than `complete` is the same call `#cosign_and_broadcast_entry`
+  # makes, minus the deadline check, simulation, send and confirmation poll —
+  # every one of which is RPC, and none of which is what this tier is about. The
+  # wire is still the subject.
+
+  # The expectation for a wire this vault prepared, exactly as the confirm
+  # request builds it.
+  def stored_wire_expectation(out, wallet)
+    vault.cosign_expectation(out[:serialized_tx],
+                             wallet_address: wallet.to_base58,
+                             last_valid_block_height: out[:last_valid_block_height])
+  end
+
+  # Phantom signs, then the server cosigns. Returns the Cosigned struct.
+  def server_cosigns(user_signed, expectation)
+    vault.cosign_completer.cosign(Base64.strict_encode64(user_signed), expectation: expectation)
+  end
+
+  def assert_fully_signed(cosigned)
+    count, slots = signature_slots(Base64.decode64(cosigned.wire_base64))
+    assert_equal 2, count
+    slots.each_with_index do |slot, i|
+      refute empty_slot?(slot), "signature slot #{i} must be filled after the admin cosign"
+    end
+    assert cosigned.signature.present?,
+           "the transaction's id is knowable from the bytes before anything is sent, and is " \
+           "what #cosign_and_broadcast_entry stamps in before_send"
+  end
 
   test "a Phantom-signed TOKEN entry wire completes the admin cosign" do
     wallet = Solana::Keypair.generate
     token  = Solana::Keypair.generate.to_base58
-    entry  = FakeEntry.new(7, 0, FakeContest.new(SLUG))
 
     out = vault.build_enter_contest_with_token(wallet.to_base58, SLUG, 0, token, season_id: 1)
 
     # 1. Phantom signs first.
     user_signed = phantom_signs(out[:serialized_tx], wallet)
 
-    # 2. The guard runs on the client's returned wire (confirm_onchain_entry
-    #    validates BEFORE the admin signs anything).
-    assert vault.assert_entry_cosign_safe!(Base64.strict_encode64(user_signed),
-                                           entry: entry,
-                                           wallet_address: wallet.to_base58,
-                                           entry_token_pda: token)
-
-    # 3. The server cosign — the exact call Vault#cosign_and_broadcast_entry
-    #    makes. require_complete defaults to true, so a clean return also
-    #    asserts the wire is fully signed and broadcastable (OPSEC-017).
-    fully_signed = Solana::Transaction.cosign_wire(user_signed, signer: Solana::Keypair.admin)
-
-    count, slots = signature_slots(fully_signed)
-    assert_equal 2, count
-    slots.each_with_index do |slot, i|
-      refute empty_slot?(slot), "signature slot #{i} must be filled after the admin cosign"
-    end
+    # 2 + 3. The judgement runs on the client's returned wire and the admin slot
+    #        is filled only if it passes — one call, in that order, by
+    #        construction.
+    assert_fully_signed(server_cosigns(user_signed, stored_wire_expectation(out, wallet)))
   end
 
   test "a Phantom-signed USDC entry wire completes the admin cosign (control)" do
     wallet = Solana::Keypair.generate
-    entry  = FakeEntry.new(7, 0, FakeContest.new(SLUG))
 
     out = vault.build_enter_contest(wallet.to_base58, SLUG, 0, currency_idx: 0, season_id: 1)
 
     user_signed = phantom_signs(out[:serialized_tx], wallet)
-    assert vault.assert_entry_cosign_safe!(Base64.strict_encode64(user_signed),
-                                           entry: entry,
-                                           wallet_address: wallet.to_base58)
 
-    fully_signed = Solana::Transaction.cosign_wire(user_signed, signer: Solana::Keypair.admin)
-
-    count, slots = signature_slots(fully_signed)
-    assert_equal 2, count
-    slots.each_with_index do |slot, i|
-      refute empty_slot?(slot), "signature slot #{i} must be filled after the admin cosign"
-    end
+    assert_fully_signed(server_cosigns(user_signed, stored_wire_expectation(out, wallet)))
   end
 
   # The legacy server-first shape is what the token builder was stuck in. Pinning
@@ -166,7 +188,4 @@ class Solana::EntryCosignWireTest < ActiveSupport::TestCase
     end
     assert_match(/already holds a signature/, err.message)
   end
-
-  FakeContest = Struct.new(:slug)
-  FakeEntry   = Struct.new(:id, :entry_number, :contest)
 end

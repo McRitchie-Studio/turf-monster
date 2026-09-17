@@ -34,7 +34,7 @@ class ContestsFinalizeWriteOrderingTest < ActionDispatch::IntegrationTest
   class BroadcastSnapshotVault < FakeVault
     attr_reader :row_at_broadcast
 
-    def cosign_and_broadcast_create_contest(signed_wire_base64)
+    def cosign_and_broadcast_create_contest(signed_wire_base64, **)
       row = Contest.find_by(slug: @watch_slug)
       @row_at_broadcast = row && {
         persisted:          row.persisted?,
@@ -276,7 +276,19 @@ class ContestsFinalizeWriteOrderingTest < ActionDispatch::IntegrationTest
   # THE INVERTED FAILURE MODE, which is the whole point of the change. A raise at
   # the broadcast used to leave nothing behind. It must now leave a row that
   # names the PDA, so an operator (and PR 2's sweeper) can find the money.
-  test "a broadcast failure leaves a recoverable pending row naming the PDA" do
+  #
+  # turf-adopts-cosign-primitives INVERTED IT ONE STEP FURTHER, and the
+  # assertion below moved with it. The signature used to be stamped on the line
+  # AFTER the broadcast, so this test asserted `assert_nil
+  # onchain_tx_signature` — a broadcast that raised left the row naming the PDA
+  # but NOT the transaction. That was still a strand: the PDA says which contest,
+  # and only the signature says what happened to the money.
+  #
+  # `Cosign::Completer` calls `before_send` with the signature BEFORE the bytes
+  # leave, so the row now carries BOTH. That matters precisely here, because a
+  # failed send is not proof that nothing was sent: `Solana::Client#call` retries
+  # the faults that mean "the answer was lost", so these bytes may be on chain.
+  test "a broadcast failure leaves a recoverable pending row naming the PDA AND the signature" do
     log_in_as(admin_phantom)
     create_json = run_create(slug: "order-strand", name: "Order Strand")
     vault = FakeVault.new
@@ -287,9 +299,29 @@ class ContestsFinalizeWriteOrderingTest < ActionDispatch::IntegrationTest
     assert_response :unprocessable_entity
     stranded = Contest.find_by(slug: "order-strand")
     refute_nil stranded, "the failed attempt left NO row — the money would be unreachable"
-    assert_equal "pending", stranded.status
+    assert_equal "pending", stranded.status, "broadcast is not verification: the row stays pending"
     assert_equal create_json["contest_pda"], stranded.onchain_contest_id
-    assert_nil stranded.onchain_tx_signature
+    assert_equal "fake-create-cosign-broadcast-sig", stranded.onchain_tx_signature,
+                 "a broadcast that MAY have landed must leave its signature, or the row cannot be " \
+                 "reconciled against the chain"
+  end
+
+  test "a wire REFUSED before the cosign leaves no signature — nothing was signed or sent" do
+    # The other side of the seam, and the reason the assertion above is not
+    # simply 'always stamp'. Cosign::WireRejected is raised before the fee
+    # payer's key is used, so nothing can be on chain and the row must carry no
+    # signature to reconcile.
+    log_in_as(admin_phantom)
+    create_json = run_create(slug: "order-refused", name: "Order Refused")
+    vault = FakeVault.new
+    vault.create_cosign_verify_raises = "instruction_data_mismatch"
+
+    run_finalize(create_json, vault)
+
+    assert_response :unprocessable_entity
+    row = Contest.find_by(slug: "order-refused")
+    assert_nil row&.onchain_tx_signature,
+               "a refused wire was never signed, so there is nothing to reconcile"
   end
 
   # The read-back is the step most likely to raise on a PERFECTLY GOOD

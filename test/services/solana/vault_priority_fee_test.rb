@@ -19,6 +19,7 @@ class Solana::VaultPriorityFeeTest < ActiveSupport::TestCase
       # would desync the wire-format decoder below.
       Solana::Keypair.encode_base58((1..32).to_a.pack("C*"))
     end
+    CosignFakeClient.teach(client)
     Solana::Vault.new(client: client)
   end
 
