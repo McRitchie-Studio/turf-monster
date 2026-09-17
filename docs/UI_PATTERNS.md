@@ -361,6 +361,9 @@ The DEV MODE toggle drives `$store.devMode` (see Dev Mode section).
 ### Geo badge
 Rendered from the ENGINE's `components/_geo_badge` (studio-engine >= 0.57 — this app's fork was deleted in adopt-engine-geo-primitives) — shared by desktop nav and mobile sub-navbar. **Public: renders for every visitor, signed in or not** — detection is IP-based (`Studio::GeoDetection#detect_geo_state` runs on every request), and lookups are cached in `Rails.cache` for 24h keyed by IP (the engine configures Geocoder on boot) so the anonymous ipinfo tier's shared rate limit doesn't blank the state into a red `??`. Shows flag + state code when resolved; red `??` when undetectable (fail-closed); red when blocked or a geo override is active. Stable selector: `.geo-badge`. State flags ship as gem assets (`state-flags/<code>.svg`), so the `src` is an asset path rather than a `public/` one; the image uses inline styles for reliable sizing (`height: 12px; width: 16px; object-fit: cover`). Badge shape is `rounded-lg`.
 
+### Wallet signal
+Beside the geo badge in **both** navbar rows (desktop nav and mobile sub-navbar), and for the same reason the geo badge is there: the navbar is the one piece of chrome every page gets, and both are facts about the reader that the page under them cannot be trusted to repeat. `shared/_wallet_signal`, `variant: :chip`. Full section below: **Wallet Signal (app-wide)**.
+
 ### Right side — logged in: two-row block + avatar
 - **Row 1 (Div 1)**: balance, gear + theme toggle morph (left of username, `hidden md:flex`), username. On mobile, gear + morph shown in sub-navbar instead. `padding-right: 6px` via inline style.
 - **Row 2 (Div 2)**: 5-section seeds progress bar via `render "components/seeds_bar", compact: true` (turf-vault v0.9.0+ refactor — replaced the old `.seeds-bar`/`.seeds-fill`/`.seeds-text` classes). The partial uses the `.seeds-bar-continuous` class + CSS-registered `--bar-progress` custom property so all 5 segment widths interpolate from a single transition (one ease curve, not 5 chained). Per-section shimmer overlays positioned in bar coordinates (`left: -(i-1)*100%, width: 500%`) keep the wave continuous across segments. Wallet address (left) + Level X (right) overlaid via two-layer clip-path text technique (muted underneath, white on top revealed by `clip-path: inset(0 (100-displaySeeds)% 0 0)`). Level-up: `bar → 100% → bump level (.nav-level-pop) → drain → refill`. Listens for `navbar-replay-level` and `navbar-seeds-update` window events.
@@ -374,6 +377,90 @@ Rendered from the ENGINE's `components/_geo_badge` (studio-engine >= 0.57 — th
 - Theme toggle morph (`hidden md:flex`) + a **"Sign in"** button, right-aligned. Theme toggle morph appears in mobile sub-navbar instead.
 - The button is `class="btn btn-primary"` — the theme's primary color, not a hardcoded green.
 - It is a **modal trigger, not a navigation**: `@click.prevent` opens the in-page auth modal via `$store.modals.open('auth', { step: 'credentials', mode: 'signup', … })`. The `signin_path` href is only the no-JS fallback. Login and signup are one create-or-login flow, so the single CTA reads "Sign in" while opening at `mode: 'signup'` (`_navbar.html.erb:118-124`).
+
+## Wallet Signal (app-wide)
+
+Every page says which wallet is live, and a switch anywhere refreshes the state that depends on it. `shared/_wallet_signal` renders it; `app/javascript/wallet_signal.js` decides it.
+
+**Three layers, and none of them is duplicated in this app.**
+
+| Layer | Owner | What it knows |
+|---|---|---|
+| Sessions — stamp, drift, holds, `session:mismatch` | **studio-engine** (>= 0.76.0), `window.StudioSession` | Nothing about wallets. Web2 by rule, and a vocabulary test in that gem keeps it that way. Its contract is the gem's `docs/SESSION_DRIFT.md`. |
+| The wallet as an **identity source** | **solana-studio** (>= 0.12.0), `solana_studio/wallet_identity.js` | Reads the connected address LIVE, re-reads on focus / visibilitychange / pageshow, and reports four statuses. |
+| What it MEANS to a reader of Turf Monster | **this app**, `app/javascript/wallet_signal.js` | Which wallet the page should name, and when a switch is a warning. |
+
+### The eight states
+
+Derived by `deriveWalletSignal()`, a pure function, in this order. The session facts are known at render time and decide first; only a real wallet session reaches the browser-readability questions.
+
+| State | When | Tone |
+|---|---|---|
+| `web2` | Signed in on a managed/custodial signer. The browser's wallet is not this session's. | muted |
+| `guest` | Nobody signed in. **A first-class state, not an absence.** | muted |
+| `unknown` | Wallet session, browser not readable yet (discovery or a silent connect pending). | muted |
+| `none` | Wallet session, no provider in this browser at all. | muted |
+| `disconnected` | A provider is present and holds no account for this site. Read-only, not broken. | warning |
+| `live` | The connected wallet IS the wallet this session signed in with. | success |
+| `expected` | A different wallet, and **this page declared it** (a cosign ceremony). | info |
+| `changed` | A different wallet that **nobody declared**. The warning. | danger |
+
+**`unknown` and `none` never collapse.** A page that cannot yet tell must not render as "you have no wallet" — the same unread-vs-absent distinction that was argued twice on `/admin/authorities`. Pinned by a named assertion in `test/lib/wallet_signal_js_test.rb`.
+
+**The pre-auth state is the point, not an edge case.** The navbar renders on signed-out pages, so the context has to resolve before any connection exists, without throwing and without a flash of wrong state. The chip is *quiet* (mounted, `x-show` false) when there is nothing to say — signed out or managed, with no wallet in view — and `data-wallet-signal-state` still carries the answer either way. Quiet is not absent.
+
+### Two variants, one state
+
+Both read `$store.walletSignal`, so the navbar and a ceremony panel can never disagree about which wallet the browser holds.
+
+| Variant | Where | Shape |
+|---|---|---|
+| `:chip` (default) | Navbar, beside the geo badge, in both rows | Dot + short address, or the state's own words when there is no address |
+| `:panel` | The three cosign ceremony surfaces | Heading, dot + label, connected address, session wallet row, and a sentence per state that needs one |
+
+### The ceremony distinction, and the hold this app does NOT take
+
+`/admin/pending_transactions`, `/admin/vault_state` and `/admin/authorities` all suppress the non-dismissible `wallet-changed` card (PR 720), because a treasury cosign walks the operator through the vault's signers on purpose and a card over a half-collected transaction strands it. Two of the three carry their own cosign script; **`/admin/authorities` reaches the same suppression through the global `cosignTransaction`, and nothing on that page says so.** A signal built for the two obvious ones leaves the console that rewrites the vault's signer set bare.
+
+The suppression is **address-scoped**: `$store.wallet.expectedSwitchAddresses` lists the exact wallets the flow declared, and `_notifySwitch` exempts only those. The signal reads the same list, so the page and the card can never disagree about which switch was asked for.
+
+**`StudioSession.expectChange("wallet")` is deliberately never called.** The engine's holds are per SOURCE, not per ADDRESS (solana-studio's README says so in as many words), so a hold taken for a ceremony would mark a switch to *any* wallet expected for as long as it was held — including one nobody declared, silently. The consequence of not holding is that the engine still reports a declared ceremony switch as a mismatch. That is a NOISY failure rather than a silent one, which is the safe direction, and turf's own address-scoped reading is the one the reader sees.
+
+Guarded in `test/lib/cosign_signatures_js_test.rb` (the `expectChange` refusal, and a SCAN — not a hardcoded file list — for every flow that declares a suppression), and exercised on a real page in `e2e/wallet_signal_ceremony.spec.js`.
+
+### The refresh on a switch
+
+`refreshSession()` already ran on every page load through `hydrateNavbar`. What had no trigger was a switch made while the page stayed open — the balance pill, the `data-wallet-tile` tiles, the seeds bar and the token badge all went on showing values pulled for a wallet the browser was no longer holding. `wallet_signal.js` fires one per switch, declared or not: a ceremony switch changes what the page should show just as much as an accidental one does, and what differs between them is the warning, not the data.
+
+The sentinel is **"has the wallet been read"**, not "have we had a report". A subscriber only hears about a CHANGE, so when the provider is already resolved at install time (a warm extension, a Turbo visit, a bfcache restore) the store is seeded and no report follows — and a counter keyed on reports spends its free pass on the user's first real switch instead of on the page load. It was written that way first, and the node tier caught it.
+
+### Wiring
+
+| Piece | Where |
+|---|---|
+| `solana_studio/wallet_identity.js` | `layouts/application.html.erb`, sprockets tag beside the other solana-studio assets. A blocking classic script in `<head>` always precedes a deferred importmap module, which is why the registration below can assume it. |
+| `wallet_signal` | `config/importmap.rb` + `app/javascript/application.js`, **after** `solana_stores` (it reads `$store.wallet`) and after `solana_utils` (it calls `window.refreshSession`). |
+| Server binding | `ApplicationController#studio_session_identities` returns `{ wallet: current_user&.solana_address }` for a live-signature session and `{}` otherwise. The key must be `wallet` — the engine matches an identity source by NAME. |
+| Session stamp | The engine's `studio/_session_stamp`, already rendered by `layouts/studio/head`. Its `identities` carries the binding; the fingerprint includes it, so re-binding reaches other tabs. |
+
+**`config.draw_session_routes` is deliberately left off.** The engine's `GET /session/state` would inherit this app's `ApplicationController` filters, and this app already has `/account/session_state` (identity) and `/account/session_refresh` (on-chain values) covering both halves. Without the route the stamp still renders and drift is still detected; the engine simply cannot repair a page in place, and `_reauth` reloads the page on success anyway.
+
+### Colour rules this component obeys
+
+- **Tone is a dot, not coloured prose.** Body text has to clear WCAG AA on both themes and a vivid fill cannot, so the fill goes in a dot (no contrast duty) and the label stays on theme ink. Same label-plus-dot pattern as the Live Board State Badge.
+- **The one danger exception sits on a theme surface.** `text-danger-ink` is derived against the four theme surfaces; composited over a red wash it measures 4.25:1 and fails. So the `changed` state is `text-danger-ink` over `bg-surface-alt` with a red **border** for the affordance — never `bg-red-500/10`. Asserted in `test/views/wallet_signal_component_test.rb` and measured by `test/views/error_text_contrast_test.rb`.
+- **Every tone class is a literal string** in the partial's `:class` map. Tailwind scans source TEXT; a class assembled at render time compiles to nothing.
+
+### Tests
+
+| File | Tier | Covers |
+|---|---|---|
+| `test/lib/wallet_signal_js_test.rb` | `[unit]` + `[component]` | The derivation over every population, and the indicator driven through the REAL solana-studio identity source under node — including an undeclared switch mid-ceremony |
+| `test/views/wallet_signal_component_test.rb` | `[component]` | Both variants mount; every Alpine expression survives ERB whole; danger ink on a theme surface |
+| `test/integration/wallet_signal_surfaces_test.rb` | `[integration]` | The three ceremony pages and the navbar (signed in AND out); the assets ship; what the server binds for web3 / email / anonymous sessions |
+| `e2e/wallet_signal_ceremony.spec.js` | `[e2e]` | The screen, on `/admin/pending_transactions`, through the whole switch sequence |
+
+**Why the markup tier cannot grep for the stray quote.** One double quote in an `x-data`/`x-bind` attribute ends the attribute, truncates the expression, and kills every binding in the component — while the server-rendered markup stays byte-identical. Nokogiri, like Chrome, ENDS the attribute at the quote, so the value handed back is short and perfectly clean and the quote is not in it to find. What a truncation always leaves is a severed expression, so the guard asserts balanced brackets and string quotes and no dangling operator, on every Alpine attribute found by walking the elements rather than by naming them. Verified by mutation: inserting one quote turns two tests red.
 
 ## Theme Toggle Morph (Spinner Swap)
 

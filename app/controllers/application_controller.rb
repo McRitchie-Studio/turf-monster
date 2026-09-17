@@ -633,6 +633,36 @@ class ApplicationController < ActionController::Base
     @pending_signature_count ||= PendingTransaction.awaiting_signature.count
   end
 
+  # THE SERVER HALF OF THE WALLET SIGNAL — studio-engine's host hook.
+  #
+  # Studio::SessionDrift (via Studio::ErrorHandling) puts this hash into every
+  # page's studio-session stamp AND into the session fingerprint, under the
+  # source name the browser registers with. solana-studio's walletIdentity
+  # source registers as "wallet" (app/javascript/wallet_signal.js), so the key
+  # must be :wallet and nothing else — the engine matches by name.
+  #
+  # THE SAME ADDRESS THE BROWSER COMPARES AGAINST, deliberately. The body tag
+  # carries data-wallet-address="#{current_user&.solana_address}" and
+  # solana_stores.js reads exactly that to decide `mismatched`. Binding a
+  # different expression here would give the page two answers to "which wallet
+  # signed in", which is the disagreement this whole task exists to end.
+  #
+  # BOUND ONLY FOR A LIVE-SIGNATURE SESSION, and that is a feature. A guest, or
+  # an account on a managed/custodial signer, has no browser wallet this session
+  # is accountable to, so it binds NOTHING. The engine treats a source with a
+  # null bound identity as UNBOUND: it records what the browser holds and never
+  # raises a mismatch. That is how a signed-out page gets real wallet context
+  # without a signed-out visitor being warned about a wallet they never claimed.
+  #
+  # It is in the FINGERPRINT too, so re-authenticating into a different wallet
+  # changes the fingerprint and every other open tab learns the session moved.
+  def studio_session_identities
+    return {} unless onchain_session?
+
+    address = current_user&.solana_address
+    address.present? ? { wallet: address } : {}
+  end
+
   def client_session_payload
     wallet_context.to_h.merge(
       usdcCents:       wallet_field_cents(:usdc),

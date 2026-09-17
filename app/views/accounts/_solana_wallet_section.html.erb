@@ -131,12 +131,18 @@
               the engine section registry are the only two that do). An Alpine
               store is per-document, so $store.wallet.expectedSwitchAddresses is
               ALWAYS empty here and a suppressed switch cannot happen on this
-              page. All three ceremony surfaces still carry no page-level
-              wallet signal at all — that gap is
-              /tasks/ceremony-page-lacks-wallet-signal, not this row. What
-              guards the ceremony is that _notifySwitch exempts only the
-              DECLARED addresses, so a switch to any other wallet still raises
-              the non-dismissible card there. %>
+              page. What guards the ceremony is that _notifySwitch exempts only
+              the DECLARED addresses, so a switch to any other wallet still
+              raises the non-dismissible card there.
+
+              THAT GAP IS NOW CLOSED, and this paragraph used to end by saying
+              it was open. All three ceremony surfaces render
+              shared/_wallet_signal, which reads the same declared list and
+              tells a declared switch from an undeclared one in words. The
+              navbar carries its compact half on every page. This row is not
+              redundant with it: the signal names the wallet the BROWSER holds,
+              and this row is what the account card owes a reader whose tiles
+              and balances below belong to the other one. %>
           <div x-data x-cloak
                x-show="$store.wallet && $store.wallet.state === 'mismatched'"
                role="status" aria-live="polite"
