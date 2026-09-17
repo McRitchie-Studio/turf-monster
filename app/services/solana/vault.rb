@@ -3830,6 +3830,52 @@ module Solana
       client.send_and_confirm(patched_b64)
     end
 
+    # PRE-FLIGHT A COSIGNED WIRE THIS SERVER WILL NOT BROADCAST ITSELF.
+    #
+    # #cosign_usdc_transfer hands the house-signed cash-out wire back to a
+    # browser, which broadcasts it with `skipPreflight: true`
+    # (app/javascript/cdp_offramp_send.js). So no node pre-flights it after the
+    # house signs, and a wire that FAILS on chain still charges its fee payer —
+    # the house. The entry and contest-create cosigns simulate before they
+    # broadcast; this is that simulation for the path that does not broadcast.
+    # Cdp::OfframpSendsController#cosign calls it after cosigning and BEFORE it
+    # claims the row or renders the bytes.
+    #
+    # sig_verify:false + replace_recent_blockhash:true — the settings
+    # #cosign_and_broadcast_entry and #simulate_and_broadcast use, and the RPC
+    # refuses sigVerify alongside a replaced blockhash. The fee payer is charged
+    # only for a transaction that EXECUTES; a wire with a bad signature or a dead
+    # blockhash never executes, so the program verdict is the one that protects
+    # the house. It also keeps a player whose blockhash aged during the Phantom
+    # popup from being refused here; that wire cannot land, and the controller's
+    # re-arm rule already handles a send that never lands.
+    #
+    # FAILS CLOSED, and every refusal is `PreflightRejected` — a failed
+    # simulation, one that could not be run, and one that answered nothing.
+    # #simulate_and_broadcast lets an empty answer through because the node
+    # pre-flights its own send; nothing pre-flights this wire after us.
+    #
+    # Returns true. Raises PreflightRejected carrying the program error and the
+    # last log lines, for the server-side log only.
+    def preflight_cosigned_wire!(signed_wire_base64)
+      sim = begin
+        client.simulate_transaction(signed_wire_base64, sig_verify: false,
+                                    replace_recent_blockhash: true)
+      rescue StandardError => e
+        raise PreflightRejected, "Pre-flight simulation could not be run: #{e.message}"
+      end
+
+      raise PreflightRejected, "Pre-flight simulation returned no result" if sim.nil?
+
+      if sim["err"]
+        logs = Array(sim["logs"]).last(6).join("\n")
+        raise PreflightRejected,
+              "Pre-flight simulation failed: #{sim['err'].inspect}#{logs.empty? ? '' : "\n#{logs}"}"
+      end
+
+      true
+    end
+
     private
 
     # Decode a LEGACY (unversioned) Solana wire transaction into its account keys
