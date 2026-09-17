@@ -3338,6 +3338,8 @@ module Solana
     #      once each, and the priority fee they make the ADMIN pay is capped at
     #      COSIGN_FEE_MARGIN x our builder's own fee (see COSIGN_FEE_MARGIN).
     #   5. Any other program id or instruction → reject.
+    #   6. Exactly two signers, the admin then THIS wallet — the base fee the
+    #      admin pays is per signature (see #assert_cosign_signer_set!).
     #
     # Raises UnsafeCosignError (logged server-side via #cosign_reject!) on the
     # first failure. Returns true when the wire is safe to cosign + broadcast.
@@ -3442,6 +3444,7 @@ module Solana
       unless enter_count == 1
         cosign_reject!(entry, wallet_address, "enter_contest_count: found #{enter_count} #{expected_ix_name} ixs, require exactly 1")
       end
+      assert_cosign_signer_set!(entry, wallet_address, msg)
       assert_priority_fee_capped!(entry, wallet_address, budget)
 
       true
@@ -3452,7 +3455,8 @@ module Solana
     # params_token; the browser only returns Phantom-signed wire bytes. Before
     # filling the admin signature slot, assert that the wire still contains
     # exactly the create_contest instruction for that token's slug, creator,
-    # fee schedule, max entries, payouts, prize pool, and lock timestamp.
+    # fee schedule, max entries, payouts, prize pool, and lock timestamp, under
+    # exactly two signers: the admin, then the creator (#assert_cosign_signer_set!).
     def assert_create_contest_cosign_safe!(signed_wire_base64, wallet_address:, contest_slug:, onchain_params:)
       context = "create_contest:#{contest_slug}"
       cosign_reject!(context, wallet_address, "empty_wire: no signed_tx bytes") if signed_wire_base64.blank?
@@ -3528,6 +3532,7 @@ module Solana
       unless create_count == 1
         cosign_reject!(context, wallet_address, "create_contest_count: found #{create_count} create_contest ixs, require exactly 1")
       end
+      assert_cosign_signer_set!(context, wallet_address, msg)
       assert_priority_fee_capped!(context, wallet_address, budget)
 
       true
@@ -3543,8 +3548,9 @@ module Solana
     # prepared:
     #
     #   - admin in the fee-payer slot (account 0),
-    #   - the cash-out wallet in a SIGNER slot (the house does not pay for a
-    #     transfer that cannot authorise itself),
+    #   - exactly two signers, the admin then the cash-out wallet (the house
+    #     pays a base fee per signature, and does not pay for a transfer that
+    #     cannot authorise itself; see #assert_cosign_signer_set!),
     #   - exactly ONE SPL Token instruction, and it is a Transfer of the exact
     #     expected amount, from the wallet's own USDC ATA, to the resolved
     #     Coinbase destination token account, under the wallet's own authority,
@@ -3578,13 +3584,6 @@ module Solana
       if fee_payer != admin_key
         cosign_reject!(context, wallet_address,
           "fee_payer_not_admin: account[0]=#{b58(fee_payer)} expected admin=#{Keypair.admin.address}")
-      end
-
-      wallet_index = account_keys.index(wallet_bytes)
-      unless wallet_index && wallet_index < msg[:num_required_signatures].to_i
-        cosign_reject!(context, wallet_address,
-          "wallet_not_signer: #{wallet_address} is not in a signer slot " \
-          "(index=#{wallet_index.inspect} of #{msg[:num_required_signatures]} signer slots)")
       end
 
       token_program  = Transaction::TOKEN_PROGRAM_ID.b
@@ -3640,6 +3639,7 @@ module Solana
         cosign_reject!(context, wallet_address,
           "transfer_count: found #{transfer_count} SPL transfer ixs, require exactly 1")
       end
+      assert_cosign_signer_set!(context, wallet_address, msg)
       assert_priority_fee_capped!(context, wallet_address, budget)
 
       true
@@ -4035,6 +4035,47 @@ module Solana
       cosign_reject!(ctx, wallet_address,
         "priority_fee_over_cap: #{price} x #{limit} CU = #{fee / 1_000_000} lamports > " \
         "#{COSIGN_MAX_PRIORITY_FEE_MICROLAMPORTS / 1_000_000} lamports")
+    end
+
+    # The signer set every cosigned wire must declare: exactly
+    # COSIGN_SIGNER_COUNT signatures, the player's wallet in slot 1. (Slot 0 is
+    # the admin fee payer, which each guard checks first as fee_payer_not_admin.)
+    # That is what every Phantom-first builder emits — #build_enter_contest,
+    # #build_enter_contest_with_token, #build_create_contest(admin_signs: false),
+    # #build_user_usdc_transfer_unsigned — and what all five real mainnet Phantom
+    # wires the house has cosigned declare. Lighthouse adds instructions, never
+    # signers.
+    #
+    # WHY THE COUNT (pin-cashout-cosign-signer-count). Solana charges the fee
+    # payer 5_000 lamports per signature the message header declares, on a
+    # landing that fails too. #assert_priority_fee_capped! capped the priority
+    # half of that fee; nothing capped the base half. A player could pad their
+    # wire with signer slots they fill themselves, and it passed every other
+    # check. Ten signers fit the 1_232-byte packet beside a valid cash-out, so the
+    # house paid up to 150_000 lamports per failed landing instead of 110_000
+    # (2 x 5_000 base + the 100_000 priority ceiling). A signature array that
+    # disagrees with the header is refused by the runtime before any fee is
+    # charged, so the header count is the one to pin.
+    #
+    # WHY SLOT 1. Every guarded instruction needs the player's signature, so a
+    # wire that leaves them out passes the instruction checks and then fails on
+    # landing, on the house's fee. With two signers and the admin in slot 0,
+    # slot 1 is the only place the player can be.
+    COSIGN_SIGNER_COUNT = 2
+
+    def assert_cosign_signer_set!(ctx, wallet_address, msg)
+      count = msg[:num_required_signatures].to_i
+      unless count == COSIGN_SIGNER_COUNT
+        cosign_reject!(ctx, wallet_address,
+          "signer_count_mismatch: numRequiredSignatures=#{count}, require exactly #{COSIGN_SIGNER_COUNT} " \
+          "(the admin fee payer, then the player's wallet)")
+      end
+
+      second = msg[:account_keys][1]
+      return if second && second.b == as_key_bytes(wallet_address)
+
+      cosign_reject!(ctx, wallet_address,
+        "wallet_not_signer: account[1]=#{b58(second)} expected wallet=#{wallet_address} in signer slot 1")
     end
 
     # Both cosign guards refuse EVERY System Program instruction. The reason

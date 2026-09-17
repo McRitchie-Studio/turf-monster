@@ -311,6 +311,100 @@ class Solana::VaultOfframpFeePayerTest < ActiveSupport::TestCase
     assert_match(/fee_payer_not_admin/, error.message)
   end
 
+  # --- the signer set: two signatures, house then player ----------------------
+  #
+  # pin-cashout-cosign-signer-count. The house pays 5_000 lamports of base fee
+  # for every signature this wire declares, whether the send lands clean or
+  # lands and fails, and the failed-send cap bounds only HOW MANY landings it
+  # pays for. The guard used to ask only that the player sit somewhere in the
+  # signer region, so a player could append signer slots they fill themselves.
+
+  # The cash-out transfer under an arbitrary signer list, keyless. When the
+  # player is NOT in the list, the transfer's authority meta is demoted so the
+  # serializer does not promote the player back into a signer slot: the guard
+  # compares the transfer's account KEYS, not their signer flags.
+  def cashout_wire(wallet:, destination:, signers:, extra_ixs: [])
+    from_ata, _ = Solana::SplToken.find_associated_token_address(wallet.to_base58, Solana::Config::USDC_MINT)
+    transfer = Solana::SplToken.transfer_instruction(
+      from: from_ata, to: destination, authority: wallet.public_key_bytes, amount: AMOUNT
+    )
+    unless signers.any? { |s| s.b == wallet.public_key_bytes.b }
+      transfer = transfer.merge(accounts: transfer[:accounts].map { |m| m.merge(is_signer: false) })
+    end
+
+    tx = Solana::Transaction.new
+    tx.set_recent_blockhash(Solana::Keypair.generate.to_base58)
+    extra_ixs.each { |ix| tx.add_instruction(**ix) }
+    tx.add_instruction(**transfer)
+    tx.serialize_partial(additional_signers: signers)
+  end
+
+  def cashout_guard(wire_bytes, wallet:, destination:)
+    vault.assert_usdc_transfer_cosign_safe!(
+      Base64.strict_encode64(wire_bytes), wallet_address: wallet.to_base58,
+      destination_token_account: destination, amount_lamports: AMOUNT
+    )
+  end
+
+  def budget_ixs
+    cb = Solana::Vault::COMPUTE_BUDGET_PROGRAM_ID
+    [{ program_id: cb, accounts: [], data: "\x03".b + [Solana::Vault::COSIGN_MAX_COMPUTE_UNIT_PRICE].pack("Q<") },
+     { program_id: cb, accounts: [], data: "\x02".b + [Solana::Vault::PARTIAL_TX_COMPUTE_UNIT_LIMIT].pack("V") }]
+  end
+
+  test "REGRESSION: the guard refuses a cash-out wire declaring a THIRD signer" do
+    wallet      = Solana::Keypair.generate
+    destination = Solana::Keypair.generate.address
+    extra       = Solana::Keypair.generate
+
+    two = cashout_wire(wallet: wallet, destination: destination, signers: [admin_bytes, wallet.public_key_bytes])
+    assert cashout_guard(two, wallet: wallet, destination: destination),
+           "control: the same transfer under exactly house + player must pass"
+
+    # The player and their accomplice key both sign; only the house slot is empty.
+    three = cashout_wire(wallet: wallet, destination: destination,
+                         signers: [admin_bytes, wallet.public_key_bytes, extra.public_key_bytes])
+    three = Solana::Transaction.cosign_wire(three, signer: wallet, require_complete: false)
+    three = Solana::Transaction.cosign_wire(three, signer: extra, require_complete: false)
+
+    error = assert_raises(Solana::Vault::UnsafeCosignError) do
+      cashout_guard(three, wallet: wallet, destination: destination)
+    end
+    assert_match(/signer_count_mismatch: numRequiredSignatures=3, require exactly 2/, error.message)
+  end
+
+  test "REGRESSION: the worst-case padded wire is refused -- ten signers fit the packet" do
+    wallet      = Solana::Keypair.generate
+    destination = Solana::Keypair.generate.address
+    extras      = Array.new(8) { Solana::Keypair.generate.public_key_bytes }
+
+    # The most signers a cash-out wire can declare and still fit Solana's
+    # 1_232-byte packet, with the priority fee at its ceiling. Unpinned, the house
+    # paid 10 x 5_000 base + 100_000 priority = 150_000 lamports per failed landing.
+    wire = cashout_wire(wallet: wallet, destination: destination, extra_ixs: budget_ixs,
+                        signers: [admin_bytes, wallet.public_key_bytes, *extras])
+    assert_operator wire.bytesize, :<=, 1_232, "the padded wire must be one that could really land"
+
+    error = assert_raises(Solana::Vault::UnsafeCosignError) do
+      cashout_guard(wire, wallet: wallet, destination: destination)
+    end
+    assert_match(/signer_count_mismatch: numRequiredSignatures=10/, error.message)
+  end
+
+  test "REGRESSION: the guard refuses a cash-out wire whose second signer is not the player" do
+    wallet      = Solana::Keypair.generate
+    destination = Solana::Keypair.generate.address
+    stranger    = Solana::Keypair.generate
+
+    wire = cashout_wire(wallet: wallet, destination: destination,
+                        signers: [admin_bytes, stranger.public_key_bytes])
+
+    error = assert_raises(Solana::Vault::UnsafeCosignError) do
+      cashout_guard(wire, wallet: wallet, destination: destination)
+    end
+    assert_match(/wallet_not_signer: account\[1\]=#{stranger.address}/, error.message)
+  end
+
   # --- the $0.99 floor --------------------------------------------------------
 
   test "the Phantom builder refuses a withdrawal below the floor" do
