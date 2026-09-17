@@ -266,7 +266,7 @@ class Solana::VaultCosignValidationTest < ActiveSupport::TestCase
 
   # --- REAL mainnet Phantom Lighthouse wires still pass ------------------------
   #
-  # These are the Lighthouse instruction payloads Phantom actually injected into
+  # These are EVERY distinct Lighthouse payload Phantom injected into the five
   # house-cosigned mainnet transactions (Mr. McRitchie's own Phantom 7ZDJ…,
   # public chain data), decoded from the wires at `finalized` on 2026-09-16.
   # ALL of them are assertion variants (discriminator 6 AssertAccountInfoMulti,
@@ -282,7 +282,21 @@ class Solana::VaultCosignValidationTest < ActiveSupport::TestCase
       "06040203000001000000000000000000",
     # create_contest — XPNUqsyosPeuCRcekWujqYoCuaSkfyVhs8Ng9MsiMn4fGi7mXpP1zYQAuhhq4C5hqhqLkK5meSqVmzThVhBqttu
     "create_contest/AssertTokenAccountMulti" =>
-      "0a04040228996b0600000000040300000600000000000000000508"
+      "0a04040228996b0600000000040300000600000000000000000508",
+    # The other 11 distinct payloads, labelled by the wires that carry them — with the
+    # three above, every Lighthouse ix in all five wires (2Fv91 & 2QY6x entries,
+    # XPNUq 64PSG 4MQki creates: 37 ixs, disc 6 x32 + disc 10 x5, 14 distinct).
+    "AssertAccountInfoMulti #2 (2Fv91 2QY6x XPNUq 64PSG 4MQki)" => "06040100000000000000000000",
+    "AssertAccountInfoMulti #3 (2Fv91 2QY6x)" => "06040102bad14677cb7e18cacfc2da6eb24e5dbd3cb2a1af95247a4a3f4a796f0d7d29f000",
+    "AssertAccountInfoMulti #4 (2Fv91)" => "06040303010001a500000000000000000851a365d091db74537db9d33fe38737777e127d89ae79cdf45eeba2a8b780af4600a501",
+    "AssertAccountInfoMulti #5 (2Fv91 XPNUq 64PSG)" => "06040300bba7da07000000000403000001000000000000000000",
+    "AssertTokenAccountMulti #2 (2Fv91)" => "0a040402a8ea410900000000040300000600000000000000000508",
+    "AssertAccountInfoMulti #6 (2QY6x 4MQki)" => "0604030025288d07000000000403000001000000000000000000",
+    "AssertAccountInfoMulti #7 (XPNUq)" => "06040303010001a50000000000000000081f2ba16a4a61c9fd5610bc3f11858a8292e47c5147828bef02c532d80e053e4d00a501",
+    "AssertAccountInfoMulti #8 (64PSG)" => "06040303010001a5000000000000000008c0cda08c2996a0df4aecebd5ed7dee6b7686b1411bbeb300105b0ef233361dbd00a501",
+    "AssertTokenAccountMulti #3 (64PSG)" => "0a040402fae66b0800000000040300000600000000000000000508",
+    "AssertAccountInfoMulti #9 (4MQki)" => "06040303010001a50000000000000000080cfcb0b58d6bad78c35ff0633d48d5ee8f6b37776ff1cf56252c4f45e4d73b5f00a501",
+    "AssertTokenAccountMulti #4 (4MQki)" => "0a0404024ee8b20200000000040300000600000000000000000508"
   }.freeze
 
   test "every real mainnet Phantom Lighthouse instruction is still admitted (entry guard)" do
