@@ -54,29 +54,58 @@
 
 // The eight states, in the order derive() decides them.
 export const WALLET_SIGNAL_STATES = [
-  "web2",         // signed in with a managed/custodial wallet; the browser's is not this session's signer
+  "web2",         // signed in another way, on a page where the browser wallet signs nothing
   "guest",        // nobody is signed in. A first-class state, not an error.
-  "unknown",      // web3 session, the browser cannot be read yet. NEVER rendered as "no wallet".
-  "none",         // web3 session, no wallet provider in this browser at all
-  "disconnected", // web3 session, a provider is present and holds no account for this site
-  "live",         // the connected wallet IS the wallet this session signed in with
+  "unknown",      // the browser cannot be read yet. NEVER rendered as "no wallet".
+  "none",         // no wallet provider in this browser at all
+  "disconnected", // a provider is present and holds no account for this site
+  "live",         // the connected wallet IS this account's wallet
   "expected",     // a different wallet, and this page DECLARED it (a cosign ceremony)
   "changed"       // a different wallet that nobody declared. The warning.
 ];
 
-// The words. Here rather than in the partial so the copy is executable under
-// node and a mutation to it goes red, and so the navbar chip and the ceremony
-// panel can never drift into saying two different things about one fact.
+// The words, in TWO SETS, chosen by whether the session authenticated with a
+// wallet. Here rather than in the partial so the copy is executable under node
+// and a mutation to it goes red, and so the navbar chip and the ceremony panel
+// can never drift into saying two different things about one fact.
+//
+// WHY TWO SETS. A session that signed in BY WALLET signature is accountable to
+// that wallet: "Wallet connected" means the browser and the server agree about
+// who you are. A session that signed in by magic link or Google never made that
+// claim, so the same words would assert an identity the server has not
+// authenticated. The facts are the same; only the sentence changes.
 export const WALLET_SIGNAL_LABELS = {
-  web2: "Managed wallet",
-  guest: "Not signed in",
-  unknown: "Checking wallet",
-  none: "No wallet in this browser",
-  disconnected: "Wallet not connected",
-  live: "Wallet connected",
-  expected: "Expected signer",
-  changed: "Different wallet connected"
+  // The wallet IS the session's identity.
+  wallet: {
+    web2: "Managed wallet",
+    guest: "Not signed in",
+    unknown: "Checking wallet",
+    none: "No wallet in this browser",
+    disconnected: "Wallet not connected",
+    live: "Wallet connected",
+    expected: "Expected signer",
+    changed: "Different wallet connected"
+  },
+  // The session signed in another way. On a page where the browser wallet is
+  // what SIGNS, it still has to be named — it is just not an identity claim.
+  other: {
+    web2: "Managed wallet",
+    guest: "Not signed in",
+    unknown: "Checking wallet",
+    none: "No wallet in this browser",
+    disconnected: "Wallet not connected",
+    live: "This account's wallet",
+    expected: "Declared for this ceremony",
+    changed: "Not declared for this ceremony"
+  }
 };
+
+// Which label set a session gets. Exported so the store, the tests and any
+// future consumer agree on the question rather than each asking it their way.
+export function walletSignalLabel(state, walletAuthenticated) {
+  const set = walletAuthenticated ? WALLET_SIGNAL_LABELS.wallet : WALLET_SIGNAL_LABELS.other;
+  return set[state];
+}
 
 // Tone drives colour only. `info` is deliberately NOT `danger`: a declared
 // ceremony switch is the flow working, and painting it red is how an operator
@@ -104,16 +133,45 @@ export function shortAddress(key) {
   return key.length > 12 ? key.slice(0, 4) + "…" + key.slice(-4) : key;
 }
 
+// Did this session prove ownership of a wallet? Only a live-signature login
+// sets it, so a magic-link or Google admin is false here even when their
+// account has a wallet linked from an earlier session.
+export function walletAuthenticated(input) {
+  const facts = input || {};
+  return facts.sessionMode === "web3" && !!(facts.sessionAddress || "");
+}
+
 // THE DERIVATION. Pure: every input is passed in, nothing is read from the DOM.
 //
 //   status          "unknown" | "none" | "disconnected" | "connected"  (the gem)
 //   observed        the connected address, or null
-//   sessionAddress  the wallet this Rails session authenticated with, or ""
+//   sessionAddress  the wallet on this account, or ""
 //   sessionMode     "web3" | "web2" | "guest"  (SessionContext#mode)
 //   declared        addresses an in-flight flow declared it will walk through
+//   ceremony        true where the BROWSER wallet is what signs (a cosign page)
 //
-// Order is the contract. The session facts are known at render time and decide
-// first; only a real wallet session reaches the browser-readability questions.
+// SESSION MODE NARROWS THE PAGE, NOT THE VOCABULARY — and the first cut of this
+// file had that backwards, which is what sent it back.
+//
+// It returned `web2` for any session that did not authenticate by wallet
+// signature, before ever reading the browser. That is right on an ordinary
+// page: a managed session's browser wallet signs nothing there, so a wallet it
+// happens to hold is not news. It is WRONG on a cosign ceremony page, and the
+// population is ordinary and reachable: `require_admin` is `logged_in? &&
+// admin?` with no session-mode requirement and `cosign.js` has no session-mode
+// gate, so an admin who signed in by magic link reaches all three treasury
+// surfaces and can co-sign there. Measured: that admin read `web2` / "Managed
+// wallet" / muted whether Phantom sat on a wallet the ceremony had DECLARED or
+// on a stranger's — the same words, the same grey dot, for the two cases this
+// panel exists to tell apart, with the stranger's address printed under
+// "Connected" directly above their own under "Session wallet". Silence would
+// have been safer than that, because that reads as "checked, and content".
+//
+// So the rule is: a session that signed in BY WALLET is accountable to that
+// wallet everywhere; a session that did not is accountable to it exactly where
+// the browser wallet is what SIGNS. `ceremony` is that place, set by the page
+// rather than guessed here. The states are then identical for both, and only
+// the words change (WALLET_SIGNAL_LABELS above).
 export function deriveWalletSignal(input) {
   const facts = input || {};
   const status = facts.status || "unknown";
@@ -121,17 +179,20 @@ export function deriveWalletSignal(input) {
   const sessionAddress = facts.sessionAddress || "";
   const declared = facts.declared || [];
 
-  // Mirrors $store.wallet.state's own first line, so the two vocabularies agree
-  // about who is signed in: a session is a wallet session only when the server
-  // says web3 AND it actually bound an address.
-  const isWeb3 = facts.sessionMode === "web3" && !!sessionAddress;
-  if (!isWeb3) return sessionAddress ? "web2" : "guest";
+  if (!walletAuthenticated(facts) && !facts.ceremony) {
+    return sessionAddress ? "web2" : "guest";
+  }
 
   if (status === "unknown") return "unknown";
   if (status === "none") return "none";
   if (status === "disconnected" || !observed) return "disconnected";
 
-  if (observed === sessionAddress) return "live";
+  // THE ACCOUNT'S OWN WALLET IS ASKED FIRST, and it stays first because
+  // _notifySwitch asks it first too: that function returns before it ever
+  // consults the declared list when the address equals the session's. Reordering
+  // here would let the panel and the card disagree about one switch, which is
+  // the one thing this component must never do.
+  if (sessionAddress && observed === sessionAddress) return "live";
 
   // THE DECLARED / UNDECLARED SPLIT. Address-scoped, exactly as _notifySwitch
   // scopes the card it raises, so the signal and the card can never disagree
@@ -146,12 +207,16 @@ export function deriveWalletSignal(input) {
 export function walletSignalSnapshot(input) {
   const facts = input || {};
   const state = deriveWalletSignal(facts);
+  const proved = walletAuthenticated(facts);
   return {
     state: state,
     status: facts.status || "unknown",
     address: facts.observed || null,
     sessionAddress: facts.sessionAddress || "",
-    label: WALLET_SIGNAL_LABELS[state],
+    // The session row has to say so when the session did NOT sign in with a
+    // wallet, or "Session wallet: <address>" reads as an authenticated pair.
+    walletAuthenticated: proved,
+    label: walletSignalLabel(state, proved),
     tone: WALLET_SIGNAL_TONES[state],
     short: shortAddress(facts.observed || ""),
     quiet: WALLET_SIGNAL_QUIET.indexOf(state) !== -1 && !facts.observed
@@ -209,6 +274,25 @@ function hostProvider() {
   return (window.phantom && window.phantom.solana) || window.solana || null;
 }
 
+// IS THE BROWSER WALLET WHAT SIGNS ON THIS PAGE?
+//
+// Declared by the PAGE, not guessed here: shared/_wallet_signal stamps
+// data-wallet-signal-ceremony on its panel, and the panel is rendered only by
+// the three cosign surfaces. So the fact travels with the markup that means it,
+// and a fourth ceremony page gets the behaviour by rendering the panel — the
+// same "count the blocks, not the call sites" rule docs/AUTH.md already asks of
+// this ceremony.
+//
+// Read live rather than captured: a Turbo visit swaps the body, and the answer
+// has to describe the page on screen.
+function ceremonyPage() {
+  try {
+    return !!document.querySelector("[data-wallet-signal-ceremony]");
+  } catch (e) {
+    return false;
+  }
+}
+
 function declaredAddresses() {
   try {
     const store = window.Alpine && window.Alpine.store && window.Alpine.store("wallet");
@@ -253,11 +337,6 @@ function install() {
   });
 
   const source = registered.source;
-  // The last address the wallet was actually READ to hold. `undefined` means it
-  // has never been read; `null` means it was read and holds nobody. Those are
-  // different, and conflating them is what made the first version of this file
-  // swallow a switch — see refreshOnSwitch below.
-  let lastSettled;
   const listeners = [];
 
   function facts() {
@@ -267,7 +346,8 @@ function install() {
       observed: snap.address,
       sessionAddress: sessionAddress(),
       sessionMode: sessionMode(),
-      declared: declaredAddresses()
+      declared: declaredAddresses(),
+      ceremony: ceremonyPage()
     };
   }
 
@@ -290,51 +370,26 @@ function install() {
     return snapshot;
   }
 
-  // THE CALL ON A SWITCH — the applicational half that was missing.
+  // NO refreshSession() ON A SWITCH, AND THE REASON IS MEASURED.
   //
-  // refreshSession() already runs on every page load through hydrateNavbar, so
-  // the state a page OPENS with is correct. What had no trigger was a switch
-  // made while the page stayed open: the balance pill, the tiles, the seeds bar
-  // and the token badge all went on showing values pulled for a wallet the
-  // browser was no longer holding.
+  // This file used to call it on every change of the connected address, under a
+  // paragraph claiming a switch left the balance pill, the tiles, the seeds bar
+  // and the token badge showing another wallet's values. That paragraph was
+  // wrong, and a wrong reason is worse than no call, because the next author
+  // reasons from it.
   //
-  // It is deliberately fired for ANY change of the observed address, declared or
-  // not. A ceremony switch changes what the page should show just as much as an
-  // accidental one does; what differs between them is the WARNING, not the data.
+  // AccountsController#session_refresh takes NO parameters and reads the browser
+  // nowhere: it hydrates from `current_user&.solana_connected?` through
+  // `fetch_navbar_hydrate(current_user)`, so every number it returns is keyed to
+  // the SERVER's idea of the account. A browser wallet switch cannot stale any
+  // of them, and the call repainted identical values while spending several
+  // blocking Solana RPC reads each time — about three per three-signer ceremony,
+  // on the page least able to afford a stall.
   //
-  // NEVER on the page's own first reading of the wallet: hydrateNavbar has
-  // already fired one, and firing again here would double every visit's
-  // session_refresh.
-  //
-  // THE SENTINEL IS "HAS THE WALLET BEEN READ", NOT "HAVE WE HAD A REPORT", and
-  // the difference is a swallowed switch. A subscriber only hears about a
-  // CHANGE, so when the provider is already resolved at install time — a warm
-  // extension, a Turbo visit, a bfcache restore — the store is seeded from
-  // source.current() and no report follows. A counter keyed on reports then
-  // spends its free pass on the user's FIRST REAL SWITCH instead of on the page
-  // load, and the balances stay stale through exactly the event this exists to
-  // catch. It was written that way, and the node tier caught it.
-  //
-  // `unknown` is not a reading. Passing through it on the way to an answer must
-  // not look like the wallet moving.
-  function refreshOnSwitch(snapshot) {
-    if (snapshot.status === "unknown") return;
-    if (lastSettled === undefined) { lastSettled = snapshot.address; return; }
-    if (snapshot.address === lastSettled) return;
-    lastSettled = snapshot.address;
-    try {
-      if (typeof window.refreshSession === "function") window.refreshSession();
-    } catch (e) {
-      console.warn("[wallet-signal] session refresh failed:", e);
-    }
-  }
-
-  // Seed from whatever the wallet already says, so the sentinel is armed
-  // whichever way round the provider and this module resolve.
-  refreshOnSwitch(source.current());
-
-  source.subscribe(function (snapshot) {
-    refreshOnSwitch(snapshot);
+  // What a switch DOES change is which wallet will sign, and that is what this
+  // signal renders. If a future change makes some wallet-derived value actually
+  // follow the browser, refresh it THEN, and say which value.
+  source.subscribe(function () {
     publish();
   });
 
@@ -361,16 +416,22 @@ function install() {
       // the panel without this file knowing the flow exists.
       get sessionAddress() { return sessionAddress(); },
       get declared() { return declaredAddresses(); },
-      get state() {
-        return deriveWalletSignal({
+      get ceremony() { return ceremonyPage(); },
+      get facts() {
+        return {
           status: this.status,
           observed: this.address,
           sessionAddress: this.sessionAddress,
           sessionMode: sessionMode(),
-          declared: this.declared
-        });
+          declared: this.declared,
+          ceremony: this.ceremony
+        };
       },
-      get label() { return WALLET_SIGNAL_LABELS[this.state]; },
+      get state() { return deriveWalletSignal(this.facts); },
+      // Whether the session PROVED this wallet, which decides the words and
+      // whether the session row has to disclaim itself.
+      get walletAuthenticated() { return walletAuthenticated(this.facts); },
+      get label() { return walletSignalLabel(this.state, this.walletAuthenticated); },
       get tone() { return WALLET_SIGNAL_TONES[this.state]; },
       get short() { return shortAddress(this.address || ""); },
       get sessionShort() { return shortAddress(this.sessionAddress || ""); },

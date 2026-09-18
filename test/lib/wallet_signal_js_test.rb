@@ -61,8 +61,17 @@ class WalletSignalJsTest < ActiveSupport::TestCase
 
       const sessionContext = { mode: 'web3', walletBrand: 'phantom' };
 
+      // Flipped by a test to put the page on a cosign surface. The module reads
+      // the flag off the DOM, so the harness has to answer the same query the
+      // panel's markup would satisfy.
+      let onCeremonyPage = false;
+
       globalThis.document = {
         body: { dataset: { walletAddress: #{SESSION_WALLET.to_json}, walletProvider: 'phantom' } },
+      querySelector(selector) {
+        if (selector === '[data-wallet-signal-ceremony]') return onCeremonyPage ? {} : null;
+        return null;
+      },
       getElementById(id) {
         if (id !== 'session-context') return null;
         return { get textContent() { return JSON.stringify(sessionContext); } };
@@ -110,16 +119,10 @@ class WalletSignalJsTest < ActiveSupport::TestCase
       }
     };
 
-    // Records WHAT each refresh was fired for, not only how many. A count alone
-    // cannot tell a refresh on a real switch from a spurious one at page load,
-    // and the page-load case is the one that would double every visit's
-    // session_refresh without ever going red.
-    const refreshedFor = [];
+    // Counts any call at all. This module used to fire one per switch under a
+    // comment that was measurably wrong; the counter now exists to keep it gone.
     globalThis.refreshSession = () => {
       refreshes += 1;
-      // The WALLET's own truth at this instant, not the store's — the store is
-      // written by publish(), which runs after the refresh is fired.
-      refreshedFor.push(providerAddress);
       return Promise.resolve({});
     };
 
@@ -212,7 +215,8 @@ class WalletSignalJsTest < ActiveSupport::TestCase
       out.web3WithoutAddress = d({ sessionMode: 'web3', status: 'connected', observed: OTHER });
 
       out.states = mod.WALLET_SIGNAL_STATES;
-      out.labelled = Object.keys(mod.WALLET_SIGNAL_LABELS);
+      out.labelledWallet = Object.keys(mod.WALLET_SIGNAL_LABELS.wallet);
+      out.labelledOther = Object.keys(mod.WALLET_SIGNAL_LABELS.other);
       out.toned = Object.keys(mod.WALLET_SIGNAL_TONES);
     JS
 
@@ -231,9 +235,89 @@ class WalletSignalJsTest < ActiveSupport::TestCase
                  "a page that cannot yet tell must not render as having no wallet"
 
     # A state added without words or a tone renders a blank chip, which a reader
-    # sees as a broken wallet rather than a broken deploy.
-    assert_equal out["states"].sort, out["labelled"].sort
+    # sees as a broken wallet rather than a broken deploy. BOTH label sets are
+    # checked: a state worded only for a wallet-authenticated session renders
+    # blank for the email admin, which is the population that gets no card.
+    assert_equal out["states"].sort, out["labelledWallet"].sort
+    assert_equal out["states"].sort, out["labelledOther"].sort
     assert_equal out["states"].sort, out["toned"].sort
+  end
+
+  # ── [unit] THE POPULATION THAT SENT THIS BACK ───────────────────────────
+  #
+  # An admin who signs in by magic link has session[:onchain] false, so
+  # SessionContext#mode is web2 — but `require_admin` is `logged_in? && admin?`
+  # with no session-mode requirement, and cosign.js has no session-mode gate. So
+  # they reach all three treasury surfaces and can co-sign there.
+  #
+  # The first cut of this file returned `web2` for them before it ever read the
+  # browser, so a DECLARED wallet and a stranger's produced the same state, the
+  # same words and the same grey dot — on a panel headed "Co-signing wallet",
+  # above their own account's address. Enumerated here by name, at Carl's
+  # request and for the same reason unknown-vs-none is.
+  test "an email-authenticated admin on a ceremony page tells declared from undeclared" do
+    out = run_module(<<~JS)
+      const SESSION = #{SESSION_WALLET.to_json};
+      const DECLARED = #{OTHER_WALLET.to_json};
+      const STRANGER = #{THIRD_WALLET.to_json};
+
+      // The account has a wallet linked from an earlier session; THIS session
+      // signed in by magic link, so it proved nothing about any wallet.
+      const emailAdmin = {
+        sessionMode: 'web2', sessionAddress: SESSION, status: 'connected', declared: [DECLARED]
+      };
+
+      out.offCeremonyDeclared = mod.walletSignalSnapshot({ ...emailAdmin, observed: DECLARED });
+      out.offCeremonyStranger = mod.walletSignalSnapshot({ ...emailAdmin, observed: STRANGER });
+
+      const onCeremony = { ...emailAdmin, ceremony: true };
+      out.declared = mod.walletSignalSnapshot({ ...onCeremony, observed: DECLARED });
+      out.stranger = mod.walletSignalSnapshot({ ...onCeremony, observed: STRANGER });
+      out.ownWallet = mod.walletSignalSnapshot({ ...onCeremony, observed: SESSION });
+      out.noProvider = mod.walletSignalSnapshot({ ...onCeremony, status: 'none', observed: null });
+
+      // The same two facts for an admin who DID sign in by wallet signature.
+      const walletAdmin = { ...onCeremony, sessionMode: 'web3' };
+      out.web3Declared = mod.walletSignalSnapshot({ ...walletAdmin, observed: DECLARED });
+      out.web3Stranger = mod.walletSignalSnapshot({ ...walletAdmin, observed: STRANGER });
+    JS
+
+    # OFF a ceremony page nothing changes: a managed session's browser wallet
+    # signs nothing there, so a wallet it happens to hold is not news.
+    assert_equal "web2", out["offCeremonyDeclared"]["state"]
+    assert_equal "web2", out["offCeremonyStranger"]["state"]
+
+    # ON one, the two cases must part company. This is acceptance criterion 2.
+    assert_equal "expected", out["declared"]["state"]
+    assert_equal "changed", out["stranger"]["state"]
+    refute_equal out["declared"]["state"], out["stranger"]["state"]
+
+    # Not merely a different state — a different SENTENCE and a different TONE,
+    # because the reader sees words and a colour, not a state name.
+    refute_equal out["declared"]["label"], out["stranger"]["label"]
+    assert_equal "info", out["declared"]["tone"]
+    assert_equal "danger", out["stranger"]["tone"],
+                 "an undeclared wallet on a treasury page must not read calm"
+
+    # The words say what is true of THIS session rather than borrowing the
+    # wallet-session vocabulary, which would assert an identity nobody proved.
+    assert_equal "Declared for this ceremony", out["declared"]["label"]
+    assert_equal "Not declared for this ceremony", out["stranger"]["label"]
+    assert_equal false, out["stranger"]["walletAuthenticated"],
+                 "the session row has to be able to disclaim itself"
+
+    # Their own linked wallet is neither a stranger nor a ceremony signer.
+    assert_equal "live", out["ownWallet"]["state"]
+    assert_equal "This account's wallet", out["ownWallet"]["label"]
+
+    # And "no wallet here" still never collapses into a warning.
+    assert_equal "none", out["noProvider"]["state"]
+
+    # A wallet-authenticated admin keeps the vocabulary that was true for them.
+    assert_equal "expected", out["web3Declared"]["state"]
+    assert_equal "changed", out["web3Stranger"]["state"]
+    assert_equal true, out["web3Declared"]["walletAuthenticated"]
+    assert_equal "Different wallet connected", out["web3Stranger"]["label"]
   end
 
   test "a declared switch and an undeclared switch differ only by the declared list" do
@@ -293,7 +377,6 @@ class WalletSignalJsTest < ActiveSupport::TestCase
 
       out.trail = trail;
       out.refreshes = refreshes;
-      out.refreshedFor = refreshedFor;
       out.registeredName = registeredName;
       out.labelWhenChanged = mod.WALLET_SIGNAL_LABELS.changed;
     JS
@@ -317,10 +400,85 @@ class WalletSignalJsTest < ActiveSupport::TestCase
     assert_equal "disconnected", trail[5], "a disconnect is not a switch to someone else"
     assert_equal "live", trail[6], "switching back resolves"
 
-    # THE CALL ON A SWITCH — the applicational half that had no trigger.
-    # refreshSession() already ran on every page load; a switch made with the
-    # page open left every wallet-derived value on screen stale.
-    assert_equal [OTHER_WALLET, THIRD_WALLET, OTHER_WALLET, nil, SESSION_WALLET], out["refreshedFor"],
-                 "one refresh per wallet the browser moves to, and none for the page's own first read"
+    # NO SESSION REFRESH, AND THIS ASSERTION USED TO SAY THE OPPOSITE.
+    #
+    # It asserted one refreshSession() per switch, under a comment claiming a
+    # switch staled the balance pill, the tiles, the seeds bar and the token
+    # badge. Measured: AccountsController#session_refresh takes no parameters
+    # and reads the browser nowhere — it hydrates from
+    # `current_user&.solana_connected?` through `fetch_navbar_hydrate`, so every
+    # number it returns is keyed to the server's idea of the account and a
+    # browser switch cannot move one of them. The call repainted identical
+    # values for several blocking Solana RPC reads a time, about three per
+    # three-signer ceremony, on the page least able to afford a stall.
+    #
+    # So the old assertion was pinning a no-op in place. It is inverted rather
+    # than deleted: the cost was real, and a guard is what stops it coming back
+    # under a fresh wrong reason.
+    assert_equal 0, out["refreshes"],
+                 "a wallet switch must not fire session_refresh — it returns the same numbers " \
+                 "and spends blocking RPC reads to do it"
+  end
+
+  # ── [component] the same page, for the admin who signed in by email ─────
+  #
+  # The derivation is proved for this population in the [unit] tier above. This
+  # one drives it through the REAL solana-studio source and the live Alpine
+  # store, because the two pieces that carry the fix are a DOM read
+  # (data-wallet-signal-ceremony) and a store getter, and neither is exercised
+  # by calling the pure function.
+  test "an email admin on a ceremony page follows a switch through the real source" do
+    out = run_module(<<~JS, browser: true)
+      const SESSION = #{SESSION_WALLET.to_json};
+      const DECLARED = #{OTHER_WALLET.to_json};
+      const STRANGER = #{THIRD_WALLET.to_json};
+
+      // A magic-link admin: the account carries a wallet, the SESSION does not.
+      sessionContext.mode = 'web2';
+      onCeremonyPage = true;
+      Alpine.store('wallet').expectedSwitchAddresses = [DECLARED];
+      await settle();
+
+      const read = () => {
+        const s = signal();
+        return { state: s.state, label: s.label, tone: s.tone, proved: s.walletAuthenticated };
+      };
+
+      out.onOwnWallet = read();
+      await emit(DECLARED);
+      out.onDeclared = read();
+      await emit(STRANGER);
+      out.onStranger = read();
+
+      // The same browser, the same wallet, on an ordinary page.
+      onCeremonyPage = false;
+      out.offCeremony = read();
+
+      out.refreshes = refreshes;
+    JS
+
+    assert_equal "live", out["onOwnWallet"]["state"]
+
+    assert_equal "expected", out["onDeclared"]["state"]
+    assert_equal "Declared for this ceremony", out["onDeclared"]["label"]
+    assert_equal "info", out["onDeclared"]["tone"]
+
+    assert_equal "changed", out["onStranger"]["state"]
+    assert_equal "Not declared for this ceremony", out["onStranger"]["label"]
+    assert_equal "danger", out["onStranger"]["tone"]
+
+    # The store getter, not just the pure function — this is what the session
+    # row binds to in order to disclaim itself.
+    assert_equal false, out["onStranger"]["proved"]
+
+    # The distinction is what was missing, so assert it as a difference too.
+    refute_equal out["onDeclared"]["label"], out["onStranger"]["label"]
+    refute_equal out["onDeclared"]["tone"], out["onStranger"]["tone"]
+
+    # And the ceremony flag is what turns it on: the identical browser state on
+    # an ordinary page is still not news for a managed session.
+    assert_equal "web2", out["offCeremony"]["state"]
+
+    assert_equal 0, out["refreshes"]
   end
 end

@@ -322,6 +322,27 @@ holds the states and the words; **Wallet Signal (app-wide)** in
 holds are per SOURCE, not per ADDRESS, and one taken for a ceremony would mark a
 switch to any wallet expected, silently.
 
+**THE SIGNAL COVERS A POPULATION THE CARD CANNOT, and that is the point of it
+rather than a footnote.** The card is blind to an admin who signed in by magic
+link or Google: `_isWeb3Session` reads `SessionContext#mode`, and `init` returns
+before it watches anything unless the mode is `web3`. But `require_admin` is
+`logged_in? && current_user.admin?` with **no session-mode requirement**
+(studio-engine `error_handling.rb`), and `cosign.js` has no session-mode gate
+either, so that admin reaches all three surfaces and can co-sign on them. For
+them the panel is not a second opinion — it is the only one.
+
+So the signal does **not** take session mode as a precondition for having a
+vocabulary. It takes it as the choice of WORDS. A session that signed in by
+wallet signature is accountable to that wallet everywhere; a session that did not
+is accountable to it exactly where the browser wallet is what SIGNS, which the
+page declares with `data-wallet-signal-ceremony` on the panel. The states are the
+same for both; the wallet-authenticated reader gets "Different wallet connected",
+the email-authenticated one gets "Not declared for this ceremony" and a session
+row that says in as many words that this session never proved the address beside
+it. An earlier cut of the signal gated the whole vocabulary on `web3` and gave
+that admin one grey "Managed wallet" for both cases, which is the defect this
+paragraph exists to keep from coming back.
+
 The session's own address stays **server-rendered** and does not follow the
 browser wallet. Until the player completes the handoff the new wallet is not this
 account's identity, and repainting the address as though it were would assert an

@@ -396,18 +396,53 @@ Derived by `deriveWalletSignal()`, a pure function, in this order. The session f
 
 | State | When | Tone |
 |---|---|---|
-| `web2` | Signed in on a managed/custodial signer. The browser's wallet is not this session's. | muted |
+| `web2` | Signed in another way, on a page where the browser wallet signs nothing. | muted |
 | `guest` | Nobody signed in. **A first-class state, not an absence.** | muted |
-| `unknown` | Wallet session, browser not readable yet (discovery or a silent connect pending). | muted |
-| `none` | Wallet session, no provider in this browser at all. | muted |
+| `unknown` | Browser not readable yet (discovery or a silent connect pending). | muted |
+| `none` | No provider in this browser at all. | muted |
 | `disconnected` | A provider is present and holds no account for this site. Read-only, not broken. | warning |
-| `live` | The connected wallet IS the wallet this session signed in with. | success |
+| `live` | The connected wallet IS this account's wallet. | success |
 | `expected` | A different wallet, and **this page declared it** (a cosign ceremony). | info |
 | `changed` | A different wallet that **nobody declared**. The warning. | danger |
+
+### Session mode narrows the PAGE, not the vocabulary
+
+The first cut of this component had that backwards and was sent back for it, so
+the rule is written out rather than left to the code.
+
+A session that signed in **by wallet signature** is accountable to that wallet
+everywhere. A session that signed in any other way — magic link, Google — is
+accountable to it **exactly where the browser wallet is what signs**. That place
+is the cosign ceremony pages, and the page says so itself: the panel carries
+`data-wallet-signal-ceremony`, and `wallet_signal.js` reads it off the DOM. A
+fourth ceremony surface gets the behaviour by rendering the panel — no list to
+widen, the same "count the blocks, not the call sites" rule `docs/AUTH.md`
+already asks of this ceremony.
+
+**Why it matters, measured.** `require_admin` is `logged_in? && admin?` with no
+session-mode requirement, and `cosign.js` has no session-mode gate, so an admin
+who signed in by magic link reaches all three treasury surfaces and can co-sign
+there — while the `wallet-changed` card cannot see them at all (`init` returns
+early unless `SessionContext#mode` is `web3`). Gating the vocabulary on `web3`
+gave that admin `web2` / "Managed wallet" / muted whether Phantom sat on a
+declared signer or a stranger's, on a panel headed "Co-signing wallet", with the
+stranger's address printed above their own. Silence would have been safer than
+that; it read as "checked, and content".
+
+**Two label sets, one state machine.** The states are identical for both
+populations; only the words change (`WALLET_SIGNAL_LABELS.wallet` vs
+`.other`). The wallet-authenticated reader gets "Different wallet connected";
+the other gets "Not declared for this ceremony", plus a session row labelled
+**Account wallet** rather than Session wallet and a sentence saying this session
+never proved that address. Both label sets are asserted complete over every
+state, because a state worded only for one of them renders a blank chip for the
+other.
 
 **`unknown` and `none` never collapse.** A page that cannot yet tell must not render as "you have no wallet" — the same unread-vs-absent distinction that was argued twice on `/admin/authorities`. Pinned by a named assertion in `test/lib/wallet_signal_js_test.rb`.
 
 **The pre-auth state is the point, not an edge case.** The navbar renders on signed-out pages, so the context has to resolve before any connection exists, without throwing and without a flash of wrong state. The chip is *quiet* (mounted, `x-show` false) when there is nothing to say — signed out or managed, with no wallet in view — and `data-wallet-signal-state` still carries the answer either way. Quiet is not absent.
+
+**The panel honours `quiet` too, and that is a second lock rather than the first.** `guest`'s label is "Not signed in", a sentence that must never reach an authenticated admin. The derivation now keeps `guest` and `web2` off a ceremony page altogether, so the panel cannot reach that state — but if the ceremony flag ever fails to read, the panel degrades to *hidden* rather than to a confident grey dot over two different addresses.
 
 ### Two variants, one state
 
@@ -428,11 +463,27 @@ The suppression is **address-scoped**: `$store.wallet.expectedSwitchAddresses` l
 
 Guarded in `test/lib/cosign_signatures_js_test.rb` (the `expectChange` refusal, and a SCAN — not a hardcoded file list — for every flow that declares a suppression), and exercised on a real page in `e2e/wallet_signal_ceremony.spec.js`.
 
-### The refresh on a switch
+### No refresh on a switch, and the reason is measured
 
-`refreshSession()` already ran on every page load through `hydrateNavbar`. What had no trigger was a switch made while the page stayed open — the balance pill, the `data-wallet-tile` tiles, the seeds bar and the token badge all went on showing values pulled for a wallet the browser was no longer holding. `wallet_signal.js` fires one per switch, declared or not: a ceremony switch changes what the page should show just as much as an accidental one does, and what differs between them is the warning, not the data.
+This component used to call `refreshSession()` on every change of the connected
+address, under a paragraph claiming a switch left the balance pill, the
+`data-wallet-tile` tiles, the seeds bar and the token badge showing another
+wallet's values. **That paragraph was wrong**, and a wrong reason is worse than
+no call because the next author reasons from it.
 
-The sentinel is **"has the wallet been read"**, not "have we had a report". A subscriber only hears about a CHANGE, so when the provider is already resolved at install time (a warm extension, a Turbo visit, a bfcache restore) the store is seeded and no report follows — and a counter keyed on reports spends its free pass on the user's first real switch instead of on the page load. It was written that way first, and the node tier caught it.
+`AccountsController#session_refresh` takes **no parameters** and reads the
+browser nowhere: it hydrates from `current_user&.solana_connected?` through
+`fetch_navbar_hydrate(current_user)`, so every number it returns is keyed to the
+server's idea of the account. A browser wallet switch cannot stale one of them.
+The call repainted identical values while spending several blocking Solana RPC
+reads each time — about three per three-signer ceremony, on the page least able
+to afford a stall.
+
+The call and the paragraph are both gone, and `test/lib/wallet_signal_js_test.rb`
+asserts `refreshes == 0` so it cannot come back under a fresh wrong reason. What
+a switch *does* change is which wallet will sign, and that is what the signal
+renders. If some wallet-derived value is ever made to follow the browser,
+refresh it then — and name the value.
 
 ### Wiring
 
@@ -455,8 +506,8 @@ The sentinel is **"has the wallet been read"**, not "have we had a report". A su
 
 | File | Tier | Covers |
 |---|---|---|
-| `test/lib/wallet_signal_js_test.rb` | `[unit]` + `[component]` | The derivation over every population, and the indicator driven through the REAL solana-studio identity source under node — including an undeclared switch mid-ceremony |
-| `test/views/wallet_signal_component_test.rb` | `[component]` | Both variants mount; every Alpine expression survives ERB whole; danger ink on a theme surface |
+| `test/lib/wallet_signal_js_test.rb` | `[unit]` + `[component]` | The derivation over every population — including the **email-authenticated admin on a ceremony page**, enumerated by name the way `unknown` vs `none` is — and the indicator driven through the REAL solana-studio identity source under node, for both session modes, including an undeclared switch mid-ceremony. Also asserts no `session_refresh` fires. |
+| `test/views/wallet_signal_component_test.rb` | `[component]` | Both variants mount; every Alpine expression survives ERB whole; danger ink on a theme surface; the panel declares the ceremony and honours `quiet`; the undeclared note and the session row each speak differently to a session that proved no wallet |
 | `test/integration/wallet_signal_surfaces_test.rb` | `[integration]` | The three ceremony pages and the navbar (signed in AND out); the assets ship; what the server binds for web3 / email / anonymous sessions |
 | `e2e/wallet_signal_ceremony.spec.js` | `[e2e]` | The screen, on `/admin/pending_transactions`, through the whole switch sequence |
 

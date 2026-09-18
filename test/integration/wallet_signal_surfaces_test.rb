@@ -47,6 +47,15 @@ class WalletSignalSurfacesTest < ActionDispatch::IntegrationTest
       # same answer.
       assert panels.first[":data-wallet-signal-state"].to_s.include?("walletSignal"),
              "#{path} renders a signal that never publishes its state"
+
+      # AND THE PAGE DECLARES THAT THE BROWSER WALLET SIGNS HERE. This is what
+      # lets an admin who signed in by magic link — who reaches this page and can
+      # co-sign on it, because require_admin has no session-mode requirement —
+      # read a declared wallet differently from a stranger's. Without it they get
+      # the same grey "Managed wallet" for both, on a panel headed "Co-signing
+      # wallet", above their own account's address.
+      assert panels.first.key?("data-wallet-signal-ceremony"),
+             "#{what} does not tell the signal that the browser wallet is what signs here"
     end
   end
 

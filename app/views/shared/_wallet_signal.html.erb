@@ -40,10 +40,26 @@
   panel_label = local_assigns.fetch(:label, "Signing wallet")
 %>
 <% if variant == :panel %>
+  <%# data-wallet-signal-ceremony IS THE PAGE SAYING THE BROWSER WALLET SIGNS
+      HERE. wallet_signal.js reads it off the DOM, so the fact travels with the
+      markup that means it: a fourth ceremony surface gets the behaviour by
+      rendering this panel, with nothing to remember and no list to widen. It is
+      the same rule docs/AUTH.md already asks of this ceremony — count the
+      blocks, not the call sites.
+
+      IT IS WHAT LETS AN EMAIL-AUTHENTICATED ADMIN SEE ANYTHING AT ALL. Such an
+      admin reaches all three surfaces and can co-sign; before this flag the
+      signal read the same grey 'Managed wallet' whether Phantom sat on a
+      declared signer or a stranger.
+
+      x-show honours quiet as the chip does. On a ceremony page the derivation
+      can no longer return a quiet state, so this is the second lock rather than
+      the first — but if the flag above ever fails to read, the panel degrades to
+      hidden instead of to a confident grey dot over two different addresses. %>
   <div x-data x-cloak
-       x-show="$store.walletSignal"
+       x-show="$store.walletSignal && !$store.walletSignal.quiet"
        role="status" aria-live="polite"
-       data-wallet-signal data-wallet-signal-variant="panel"
+       data-wallet-signal data-wallet-signal-variant="panel" data-wallet-signal-ceremony
        :data-wallet-signal-state="$store.walletSignal && $store.walletSignal.state"
        class="mb-4 rounded-xl border bg-surface-alt p-4"
        :class="$store.walletSignal && $store.walletSignal.state === 'changed' ? 'border-red-500/60' : 'border-subtle'">
@@ -72,15 +88,32 @@
       </div>
     </div>
 
-    <%# The wallet the Rails session authenticated with. It is the other half of
-        every sentence above, and on a ceremony page it is the account the
-        server will attribute the signature to. %>
-    <div class="mt-3 flex items-baseline justify-between gap-3 border-t border-subtle pt-3"
+    <%# THE OTHER HALF OF EVERY SENTENCE ABOVE — and it has to disclaim itself
+        when the session did not sign in with a wallet.
+
+        An admin who signed in by magic link or Google still has this address on
+        their account from an earlier session, and rendering it under a bare
+        'Session wallet' beside a different connected one reads as an
+        authenticated pair that the system has checked. It was not checked: that
+        session proved nothing about any wallet, which is exactly why the
+        connected one deserves a second look before anyone co-signs. So the label
+        and the qualifier both follow walletAuthenticated. %>
+    <div class="mt-3 border-t border-subtle pt-3"
          x-show="$store.walletSignal && $store.walletSignal.sessionAddress">
-      <span class="text-xs uppercase tracking-wide text-muted">Session wallet</span>
-      <span class="text-xs font-mono text-secondary break-all"
-            data-wallet-signal-session-address
-            x-text="$store.walletSignal && $store.walletSignal.sessionShort"></span>
+      <div class="flex items-baseline justify-between gap-3">
+        <span class="text-xs uppercase tracking-wide text-muted"
+              data-wallet-signal-session-label
+              x-text="($store.walletSignal && $store.walletSignal.walletAuthenticated) ? 'Session wallet' : 'Account wallet'"></span>
+        <span class="text-xs font-mono text-secondary break-all"
+              data-wallet-signal-session-address
+              x-text="$store.walletSignal && $store.walletSignal.sessionShort"></span>
+      </div>
+      <p class="mt-1 text-2xs text-muted"
+         data-wallet-signal-session-note
+         x-show="$store.walletSignal && !$store.walletSignal.walletAuthenticated">
+        This session signed in without a wallet, so it has not proved this
+        address. Whatever wallet is connected above is the one that will sign.
+      </p>
     </div>
 
     <%# THE DECLARED SWITCH. A cosign ceremony walks the operator through the
@@ -95,16 +128,31 @@
       declared, so the hand-off card stays out of the way.
     </p>
 
-    <%# THE UNDECLARED SWITCH. Not suppressed, and never was: the watcher exempts
-        only the exact addresses the flow declared, so the non-dismissible card
-        is already up over this page. This line is what the reader still has
-        after they dismiss their way back to work. %>
+    <%# THE UNDECLARED SWITCH, IN TWO VOICES, because one of them was a lie.
+
+        For a session that signed in BY WALLET the card is already up: the
+        watcher exempts only the exact addresses the flow declared, so this line
+        is what the reader still has after they dismiss their way back to work.
+
+        For a session that signed in ANY OTHER WAY there is no card and never
+        was — solana_stores.js returns early unless the session is web3 — and
+        the old single sentence told that reader this was not the wallet they
+        signed in with, which they never did. Same fact, honest sentence, and
+        the one population that gets no card is the one that most needs the
+        words. %>
     <p class="mt-3 text-xs text-danger-ink"
        data-wallet-signal-changed-note
-       x-show="$store.walletSignal && $store.walletSignal.state === 'changed'">
+       x-show="$store.walletSignal && $store.walletSignal.state === 'changed' && $store.walletSignal.walletAuthenticated">
       This wallet is not one the page asked for, and it is not the wallet this
       session signed in with. Switch back before signing, or sign in again with
       this wallet.
+    </p>
+    <p class="mt-3 text-xs text-danger-ink"
+       data-wallet-signal-changed-note-unproved
+       x-show="$store.walletSignal && $store.walletSignal.state === 'changed' && !$store.walletSignal.walletAuthenticated">
+      No ceremony on this page asked for this wallet, and this session never
+      signed in with one. Nothing will warn you again, so check the address above
+      is the signer you mean before you co-sign.
     </p>
 
     <p class="mt-3 text-xs text-secondary"
