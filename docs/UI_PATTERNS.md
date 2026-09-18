@@ -402,7 +402,7 @@ Derived by `deriveWalletSignal()`, a pure function, in this order. The session f
 | `none` | No provider in this browser at all. | muted |
 | `disconnected` | A provider is present and holds no account for this site. Read-only, not broken. | warning |
 | `live` | The connected wallet IS this account's wallet. | success |
-| `expected` | A different wallet, and **this page declared it** (a cosign ceremony). | info |
+| `expected` | A different wallet, and **this page declared it** (a cosign ceremony) — or declared it and has since finished with it while that wallet stayed connected. See *The declaration a ceremony leaves behind*. | info |
 | `changed` | A different wallet that **nobody declared**. The warning. | danger |
 
 ### Session mode narrows the PAGE, not the vocabulary
@@ -442,7 +442,9 @@ other.
 
 **The pre-auth state is the point, not an edge case.** The navbar renders on signed-out pages, so the context has to resolve before any connection exists, without throwing and without a flash of wrong state. The chip is *quiet* (mounted, `x-show` false) when there is nothing to say — signed out or managed, with no wallet in view — and `data-wallet-signal-state` still carries the answer either way. Quiet is not absent.
 
-**The panel honours `quiet` too, and that is a second lock rather than the first.** `guest`'s label is "Not signed in", a sentence that must never reach an authenticated admin. The derivation now keeps `guest` and `web2` off a ceremony page altogether, so the panel cannot reach that state — but if the ceremony flag ever fails to read, the panel degrades to *hidden* rather than to a confident grey dot over two different addresses.
+**The panel locks on the quiet-listed STATE, and that is a second lock rather than the first.** `guest`'s label is "Not signed in", a sentence that must never reach an authenticated admin. The derivation keeps `guest` and `web2` off a ceremony page altogether, so the panel cannot reach that state — but if the ceremony flag ever fails to read, the panel degrades to *hidden* rather than to a confident grey dot over two different addresses.
+
+**It gated on the `quiet` FIELD for a day, and that could not deliver the claim.** `quiet` is the chip's question — *is there anything worth painting* — so it also requires **no connected address**; a connected address is the only way two different addresses can be on screen at once. The lock was therefore armed for exactly the case that had nothing to degrade from: measured with the flag unread and a stranger's wallet connected, `quiet` was **false**, the panel was **visible**, and it rendered Connected:*stranger* above Account wallet:*their own* under a muted grey dot — the rendering the first review bounced. The panel now reads `quietState` (the same list, without the address clause) and the chip keeps `quiet`. It costs nothing on a page that reads its flag: with `ceremony=true` the reachable states are exactly `changed`, `expected`, `live`, `disconnected`, `none` and `unknown`, and not one of them is quiet-listed — enumerated under node in `test/lib/wallet_signal_js_test.rb`.
 
 ### Two variants, one state
 
@@ -457,11 +459,31 @@ Both read `$store.walletSignal`, so the navbar and a ceremony panel can never di
 
 `/admin/pending_transactions`, `/admin/vault_state` and `/admin/authorities` all suppress the non-dismissible `wallet-changed` card (PR 720), because a treasury cosign walks the operator through the vault's signers on purpose and a card over a half-collected transaction strands it. Two of the three carry their own cosign script; **`/admin/authorities` reaches the same suppression through the global `cosignTransaction`, and nothing on that page says so.** A signal built for the two obvious ones leaves the console that rewrites the vault's signer set bare.
 
-The suppression is **address-scoped**: `$store.wallet.expectedSwitchAddresses` lists the exact wallets the flow declared, and `_notifySwitch` exempts only those. The signal reads the same list, so the page and the card can never disagree about which switch was asked for.
+The suppression is **address-scoped**: `$store.wallet.expectedSwitchAddresses` lists the exact wallets the flow declared, and `_notifySwitch` exempts only those. The signal reads the same list, so the page and the card never disagree about **which switch was asked for**.
+
+**They do not run on the same clock, and reading that promise as more than it says cost a false alarm on a treasury page.** The card is raised by a switch EVENT and then latches until the operator resolves it; the panel is a LIVE reading that re-derives whenever any fact under it moves — including facts that move with no wallet event at all. The property that actually holds, for the web3 session that is the only population the card can reach at all, is `panel == changed` ⇔ `card is up` — measured across BOTH modules from one event sequence in `test/lib/wallet_signal_card_agreement_test.rb`, which also names the one sequence it does not cover (a declaration made while the card is already up, which the non-dismissible card makes unreachable).
 
 **`StudioSession.expectChange("wallet")` is deliberately never called.** The engine's holds are per SOURCE, not per ADDRESS (solana-studio's README says so in as many words), so a hold taken for a ceremony would mark a switch to *any* wallet expected for as long as it was held — including one nobody declared, silently. The consequence of not holding is that the engine still reports a declared ceremony switch as a mismatch. That is a NOISY failure rather than a silent one, which is the safe direction, and turf's own address-scoped reading is the one the reader sees.
 
 Guarded in `test/lib/cosign_signatures_js_test.rb` (the `expectChange` refusal, and a SCAN — not a hardcoded file list — for every flow that declares a suppression), and exercised on a real page in `e2e/wallet_signal_ceremony.spec.js`.
+
+### The declaration a ceremony leaves behind
+
+**After every SUCCESSFUL ceremony the panel used to turn red and say something false, and this is the fix.** `cosign.js` clears the declared list in its `finally`, which runs the moment `collect()` returns — while Phantom is still parked on the signer it just used. The suppression MUST end there (one that outlives its flow disarms the guard for the whole page, silently and for every wallet), so the clear is correct. What was wrong was this panel: reading the list live, it re-derived `expected`/info into `changed`/**danger** with no wallet event behind it, and told the operator *"No ceremony on this page asked for this wallet"* seconds after one had. The hand-off card, correctly, stayed down — so the two disagreed. Shipped to production 2026-09-17, found in review by Jasper and Carl, fixed by `/tasks/ceremony-end-flashes-false-alarm`.
+
+`deriveWalletSignal()` now takes one more fact — `rememberedDeclaration`, an address — and `rememberDeclaration(previous, facts)` advances it as a pure rule:
+
+| Now | The memory | Why |
+|---|---|---|
+| No wallet in view | forgotten | A lock or disconnect re-enters through `_handleAccountChanged`, which raises the card on the way in. |
+| A live list names the connected wallet | remembered | The ordinary mid-ceremony case. |
+| A live list names someone ELSE | forgotten | A second ceremony is the authority while it runs, and its signer is the one to switch to. |
+| No list, wallet unmoved | **kept** | Nothing happened. `expected` stands and the panel says the ceremony has *finished* with this wallet. |
+| No list, wallet moved | forgotten | The suppression ended with the flow, so leaving and returning is a switch the card raises. |
+
+**`expected` rather than a ninth state.** Its words are already past tense ("Declared for this ceremony"), the fact they assert is still true, and a state the card has no counterpart for is a state the two can drift on. Only the SENTENCE changes: `declarationEnded` swaps the mid-ceremony line for *"The ceremony that asked for this wallet has finished with it…"*, which is the clause the old rendering denied.
+
+**The memory is scoped to the path that declared it.** It survives a Turbo visit to the SAME path, because that is the visit the operator makes — the success card closes with a link to `window.location.pathname`, this module survives it, and `solana_stores`' `watching` guard means its `init` does not re-run and cannot re-raise the card. A memory cleared on `turbo:load` would hand the false alarm straight back the moment the receipt is dismissed. It dies on the way anywhere else, where "this page asked for this wallet" would be a claim about a page the reader has left.
 
 ### No refresh on a switch, and the reason is measured
 
@@ -506,8 +528,9 @@ refresh it then — and name the value.
 
 | File | Tier | Covers |
 |---|---|---|
-| `test/lib/wallet_signal_js_test.rb` | `[unit]` + `[component]` | The derivation over every population — including the **email-authenticated admin on a ceremony page**, enumerated by name the way `unknown` vs `none` is — and the indicator driven through the REAL solana-studio identity source under node, for both session modes, including an undeclared switch mid-ceremony. Also asserts no `session_refresh` fires. |
-| `test/views/wallet_signal_component_test.rb` | `[component]` | Both variants mount; every Alpine expression survives ERB whole; danger ink on a theme surface; the panel declares the ceremony and honours `quiet`; the undeclared note and the session row each speak differently to a session that proved no wallet |
+| `test/lib/wallet_signal_js_test.rb` | `[unit]` + `[component]` | The derivation over every population — including the **email-authenticated admin on a ceremony page**, enumerated by name the way `unknown` vs `none` is — and the indicator driven through the REAL solana-studio identity source under node, for both session modes, including an undeclared switch mid-ceremony. Also: the `rememberDeclaration` rule case by case, *completing a ceremony leaves the panel calm*, the quiet lock measured on the module rather than on an attribute, and no `session_refresh` fires. |
+| `test/views/wallet_signal_component_test.rb` | `[component]` | Both variants mount; every Alpine expression survives ERB whole; danger ink on a theme surface; the panel declares the ceremony and locks on `quietState` while the chip keeps `quiet`; the finished-ceremony sentence and the alarm are gated on opposite sides of one fact; the undeclared note and the session row each speak differently to a session that proved no wallet |
+| `test/lib/wallet_signal_card_agreement_test.rb` | `[component]` | **The seam.** Both app modules plus the gem source, driven from ONE event sequence, asserting `panel == changed` ⇔ `card is up` at every step — including the step where the declared list empties under an unmoved wallet |
 | `test/integration/wallet_signal_surfaces_test.rb` | `[integration]` | The three ceremony pages and the navbar (signed in AND out); the assets ship; what the server binds for web3 / email / anonymous sessions |
 | `e2e/wallet_signal_ceremony.spec.js` | `[e2e]` | The screen, on `/admin/pending_transactions`, through the whole switch sequence |
 

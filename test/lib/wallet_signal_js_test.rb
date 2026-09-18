@@ -343,6 +343,90 @@ class WalletSignalJsTest < ActiveSupport::TestCase
                  "the card's suppression is scoped to the exact addresses declared, and so is the signal"
   end
 
+  # ── [unit] THE DECLARATION A CEREMONY LEAVES BEHIND ─────────────────────
+  #
+  # cosign.js clears $store.wallet.expectedSwitchAddresses in its `finally`, which
+  # runs the moment collect() returns — while Phantom is still parked on the signer
+  # it just used. The list emptying re-derives this signal with NO wallet event, so
+  # before rememberDeclaration() existed every SUCCESSFUL ceremony ended with the
+  # panel red and a sentence denying the ceremony had happened.
+  #
+  # The rule is one line of English with one hard edge: the declaration survives
+  # only while the wallet it named has not moved. Every case below is a case where
+  # getting that edge wrong makes the panel contradict the hand-off card.
+  test "a declaration outlives its list only while the wallet has not moved" do
+    out = run_module(<<~JS)
+      const DECLARED = #{OTHER_WALLET.to_json};
+      const STRANGER = #{THIRD_WALLET.to_json};
+      const r = (previous, facts) => mod.rememberDeclaration(previous, facts);
+
+      // Recorded while the ceremony is running.
+      out.recorded = r("", { observed: DECLARED, declared: [DECLARED] });
+
+      // THE DEFECT'S OWN SEQUENCE: the list empties, the wallet has not moved.
+      out.survivesTheClear = r(DECLARED, { observed: DECLARED, declared: [] });
+      // ...and it keeps surviving, because the rule is its own fixpoint and an
+      // Alpine getter re-evaluates it freely.
+      out.stillSurvives = r(out.survivesTheClear, { observed: DECLARED, declared: [] });
+
+      // MOVED. Leaving the declared wallet after the flow ended is a switch the
+      // hand-off card raises, so the memory must not make the panel calm for it.
+      out.forgottenOnMove = r(DECLARED, { observed: STRANGER, declared: [] });
+      // And coming back is the same: the suppression ended with the flow.
+      out.noReturnTicket = r(r(DECLARED, { observed: STRANGER, declared: [] }),
+                             { observed: DECLARED, declared: [] });
+
+      // A LIVE ASK OUTRANKS THE MEMORY. A second ceremony asking for someone
+      // else must not read as calm over the wallet the operator has to leave.
+      out.supersededByNewAsk = r(DECLARED, { observed: DECLARED, declared: [STRANGER] });
+
+      // A lock or a disconnect ends it: the wallet re-arrives through
+      // _handleAccountChanged, which raises the card on the way in.
+      out.forgottenOnDisconnect = r(DECLARED, { observed: null, declared: [] });
+
+      // Nothing is invented from nothing.
+      out.nothingFromNothing = r("", { observed: DECLARED, declared: [] });
+
+      // The derivation's use of it, which is the only thing the reader sees.
+      const facts = {
+        sessionMode: 'web3', sessionAddress: #{SESSION_WALLET.to_json},
+        status: 'connected', observed: DECLARED, declared: [], ceremony: true
+      };
+      out.calm = mod.walletSignalSnapshot({ ...facts, rememberedDeclaration: DECLARED });
+      out.alarm = mod.walletSignalSnapshot({ ...facts, rememberedDeclaration: "" });
+      out.midCeremony = mod.walletSignalSnapshot({
+        ...facts, declared: [DECLARED], rememberedDeclaration: DECLARED
+      });
+    JS
+
+    assert_equal OTHER_WALLET, out["recorded"]
+    assert_equal OTHER_WALLET, out["survivesTheClear"],
+                 "the wallet never moved, so nothing happened for the panel to warn about"
+    assert_equal OTHER_WALLET, out["stillSurvives"], "the rule must be its own fixpoint"
+
+    assert_equal "", out["forgottenOnMove"]
+    assert_equal "", out["noReturnTicket"],
+                 "the card's suppression ended with the flow, so a return trip is a real switch"
+    assert_equal "", out["supersededByNewAsk"],
+                 "a second ceremony's list is the authority while it is running"
+    assert_equal "", out["forgottenOnDisconnect"]
+    assert_equal "", out["nothingFromNothing"]
+
+    # WHAT THE OPERATOR SEES. Same facts, one remembered address apart.
+    assert_equal "expected", out["calm"]["state"]
+    assert_equal "info", out["calm"]["tone"]
+    assert_equal true, out["calm"]["declarationEnded"],
+                 "the panel has to be able to say the ceremony has FINISHED with this wallet"
+
+    assert_equal "changed", out["alarm"]["state"]
+    assert_equal "danger", out["alarm"]["tone"]
+
+    # Mid-ceremony the live list is what holds it, so the finished sentence stays
+    # down and the mid-ceremony one renders.
+    assert_equal "expected", out["midCeremony"]["state"]
+    assert_equal false, out["midCeremony"]["declarationEnded"]
+  end
+
   # ── [component] the indicator, driven through a real identity source ────
 
   test "the indicator follows an undeclared switch, and keeps following it mid-ceremony" do
@@ -396,7 +480,16 @@ class WalletSignalJsTest < ActiveSupport::TestCase
     assert_equal "changed", trail[3],
                  "an undeclared switch DURING a declared ceremony must still raise the indicator"
 
-    assert_equal "changed", trail[4], "clearing the ceremony re-arms the wallet it had declared"
+    # STILL `changed`, AND THE REASON IS THE WALLET MOVED. Step 3 took Phantom to
+    # THIRD, so the declaration this page held for OTHER was forgotten the moment
+    # a live list failed to name the connected wallet; coming back to OTHER after
+    # the list emptied is a switch the hand-off card raises, so the panel has to
+    # warn with it. The case where the list empties UNDER an unmoved wallet is a
+    # different sequence and a different answer — see the calm-after-a-ceremony
+    # test below, which is the defect this assertion was mistaken for.
+    assert_equal "changed", trail[4],
+                 "leaving a declared wallet and returning after the ceremony ended raises the card, " \
+                 "so the panel must warn with it"
     assert_equal "disconnected", trail[5], "a disconnect is not a switch to someone else"
     assert_equal "live", trail[6], "switching back resolves"
 
@@ -480,5 +573,152 @@ class WalletSignalJsTest < ActiveSupport::TestCase
     assert_equal "web2", out["offCeremony"]["state"]
 
     assert_equal 0, out["refreshes"]
+  end
+  # ── [component] completing a ceremony leaves the panel calm ─────────────
+  #
+  # THE WHOLE DEFECT, DRIVEN THROUGH THE REAL SOURCE AND THE REAL STORE. The
+  # [unit] test above proves the rule; this one proves the WIRING, because the
+  # thing that broke was never the rule — it was that the declared list is read
+  # live and cosign.js empties it with no wallet event behind it. Nothing here
+  # emits a switch after the ceremony ends, deliberately: the false alarm arrived
+  # without one, so a test that emitted anything would be answering an easier
+  # question.
+  test "completing a ceremony leaves the panel calm" do
+    out = run_module(<<~JS, browser: true)
+      const SESSION = #{SESSION_WALLET.to_json};
+      const DECLARED = #{OTHER_WALLET.to_json};
+      const STRANGER = #{THIRD_WALLET.to_json};
+
+      onCeremonyPage = true;
+      await settle();
+
+      const read = () => {
+        const s = signal();
+        return {
+          state: s.state, label: s.label, tone: s.tone,
+          declarationEnded: s.declarationEnded, quiet: s.quiet, quietState: s.quietState
+        };
+      };
+
+      // The ceremony declares the signer and the operator switches to it. Same
+      // store field, same assignment cosign.js makes through expectSwitchesTo.
+      Alpine.store('wallet').expectedSwitchAddresses = [DECLARED];
+      await emit(DECLARED);
+      out.midCeremony = read();
+
+      // THE `finally`. collect() has returned, the suppression is cleared so it
+      // cannot outlive the flow — and Phantom has not moved.
+      Alpine.store('wallet').expectedSwitchAddresses = [];
+      await settle();
+      out.afterCeremony = read();
+
+      // The same instant, read as the email-authenticated admin who gets no
+      // hand-off card at all. The words change; the calm does not.
+      sessionContext.mode = 'web2';
+      out.afterCeremonyEmailAdmin = read();
+      sessionContext.mode = 'web3';
+
+      // AND THE ALARM IS NOT DISARMED. A wallet nobody declared, after the same
+      // completed ceremony, still reads as the warning.
+      await emit(STRANGER);
+      out.thenAStranger = read();
+
+      out.refreshes = refreshes;
+    JS
+
+    mid = out["midCeremony"]
+    after = out["afterCeremony"]
+
+    assert_equal "expected", mid["state"]
+    assert_equal false, mid["declarationEnded"],
+                 "while the list still names the wallet, the mid-ceremony sentence is the true one"
+
+    # ACCEPTANCE 1: the panel stays calm. `changed` here is the shipped defect.
+    assert_equal "expected", after["state"],
+                 "the list emptied with the wallet unmoved, so nothing happened to warn about"
+    assert_equal "info", after["tone"]
+    refute_equal "danger", after["tone"],
+                 "a false red on a treasury surface is how an operator learns to ignore red"
+
+    # ACCEPTANCE 3: the page can say the ceremony HAPPENED rather than deny it.
+    assert_equal true, after["declarationEnded"]
+
+    # ACCEPTANCE 2, the card half: no wallet event fired between the two reads, so
+    # the hand-off card cannot have moved. A panel that went red here would be
+    # contradicting a card that is still down — see the agreement test in
+    # test/lib/wallet_signal_card_agreement_test.rb, which drives both modules.
+    assert_equal mid["state"], after["state"],
+                 "clearing a list is not a wallet event; the card did not move, so the panel must not either"
+
+    email = out["afterCeremonyEmailAdmin"]
+    assert_equal "expected", email["state"]
+    assert_equal "Declared for this ceremony", email["label"],
+                 "the population that gets no card is the one that most needs the words"
+
+    stranger = out["thenAStranger"]
+    assert_equal "changed", stranger["state"],
+                 "the memory is scoped to the wallet that never moved, not to the page"
+    assert_equal "danger", stranger["tone"]
+
+    assert_equal 0, out["refreshes"]
+  end
+
+  # ── [component] the panel's fallback lock, measured rather than asserted ─
+  #
+  # Three places claimed the panel degrades to HIDDEN if data-wallet-signal-ceremony
+  # ever fails to read. It did not: the panel gated on `quiet`, which also requires
+  # no connected address — and a connected address is the only way "a confident grey
+  # dot over two different addresses" can happen. The claim was false for exactly
+  # the case it named. Measured here, in the module, rather than by looking for the
+  # string "quiet" in an attribute.
+  test "the panel's lock fires for the case it was written for" do
+    out = run_module(<<~JS, browser: true)
+      const STRANGER = #{THIRD_WALLET.to_json};
+
+      // A managed session with a wallet on the account, a stranger's wallet
+      // connected in the browser, and the ceremony flag UNREAD.
+      sessionContext.mode = 'web2';
+      onCeremonyPage = false;
+      await emit(STRANGER);
+
+      const s = signal();
+      out.flagUnread = { state: s.state, quiet: s.quiet, quietState: s.quietState, address: s.address };
+
+      // THE COST OF THE STATE-ONLY FORM, ON A PAGE THAT READS ITS FLAG: none.
+      // Every reachable state with ceremony=true, enumerated.
+      const seen = {};
+      let quietOnCeremony = null;
+      ['unknown', 'none', 'disconnected', 'connected'].forEach((status) => {
+        [null, #{SESSION_WALLET.to_json}, STRANGER].forEach((observed) => {
+          ['web3', 'web2', 'guest'].forEach((sessionMode) => {
+            [[], [STRANGER]].forEach((declared) => {
+              ['', #{SESSION_WALLET.to_json}].forEach((sessionAddress) => {
+                const snap = mod.walletSignalSnapshot({
+                  status, observed, sessionMode, declared, sessionAddress, ceremony: true
+                });
+                seen[snap.state] = true;
+                if (snap.quietState) quietOnCeremony = snap.state;
+              });
+            });
+          });
+        });
+      });
+      out.ceremonyStates = Object.keys(seen).sort();
+      out.quietOnCeremony = quietOnCeremony;
+    JS
+
+    unread = out["flagUnread"]
+    assert_equal "web2", unread["state"]
+    refute_nil unread["address"], "the case is a wallet CONNECTED while the flag is unread"
+
+    assert_equal false, unread["quiet"],
+                 "this is the measurement: the shipped field cannot fire while a wallet is connected"
+    assert_equal true, unread["quietState"],
+                 "the panel must degrade to hidden rather than to a grey dot over two addresses"
+
+    assert_nil out["quietOnCeremony"],
+               "no quiet-listed state is reachable with the ceremony flag set, which is what makes " \
+               "the state-only lock free"
+    assert_equal %w[changed disconnected expected live none unknown], out["ceremonyStates"]
   end
 end
