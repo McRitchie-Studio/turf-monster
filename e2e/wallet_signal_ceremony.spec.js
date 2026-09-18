@@ -122,12 +122,30 @@ test.describe("Wallet signal on a cosign ceremony page", () => {
     await expect(panel).toHaveAttribute("data-wallet-signal-state", "changed");
     await expect(page.locator("[data-wallet-signal-changed-note]")).toBeVisible();
 
-    // 5. A disconnect is not a switch to someone else. It degrades to read-only
+    // 5. THE CEREMONY ENDS, AND THE OPERATOR HAS NOT TOUCHED PHANTOM. cosign.js
+    //    clears the declared list in its `finally` the instant the last signature
+    //    is collected, while the wallet is still parked on the signer it just
+    //    used. Every successful ceremony shipped a red panel here, saying no
+    //    ceremony had asked for this wallet seconds after one had. No __setWallet
+    //    call: the false alarm arrived without one, so this must too.
+    await settle(DECLARED_WALLET);
+    await expect(panel).toHaveAttribute("data-wallet-signal-state", "expected");
+    await page.evaluate(() => window.Alpine.store("wallet").clearExpectedSwitches());
+    await page.waitForTimeout(150);
+    await expect(panel).toHaveAttribute("data-wallet-signal-state", "expected");
+    await expect(page.locator("[data-wallet-signal-ended-note]")).toBeVisible();
+    await expect(page.locator("[data-wallet-signal-changed-note]")).toBeHidden();
+    await expect(page.locator("[data-wallet-signal-expected-note]")).toBeHidden();
+    // Calm on the SCREEN, not merely in the state attribute: the alarm's
+    // affordance is the red border, and this is where it must not be.
+    await expect(panel).not.toHaveClass(/border-red-500/);
+
+    // 6. A disconnect is not a switch to someone else. It degrades to read-only
     //    and says so, rather than accusing anyone.
     await settle(null);
     await expect(panel).toHaveAttribute("data-wallet-signal-state", "disconnected");
 
-    // 6. Back to the session wallet, and the page is calm again.
+    // 7. Back to the session wallet, and the page is calm again.
     await settle(SESSION_WALLET);
     await expect(panel).toHaveAttribute("data-wallet-signal-state", "live");
   });

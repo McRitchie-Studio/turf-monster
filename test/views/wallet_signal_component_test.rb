@@ -127,8 +127,43 @@ class WalletSignalComponentTest < ActionView::TestCase
     # this change was told not to do.
     refute_equal expected_note.text.squish, changed_note.text.squish
 
-    # And the reassuring one must not read as an alarm.
-    refute_match(/not one the page asked for/, expected_note.text)
+    # And the reassuring one must not read as an alarm. The phrase is quoted from
+    # the LIVE alarm sentence: a refute_match on wording no note carries any more
+    # passes while proving nothing, so it moves when the copy does.
+    refute_match(/not one the page is currently asking for/, expected_note.text)
+  end
+
+  # ── The post-ceremony sentence, and the false alarm it replaced ──────────
+  #
+  # cosign.js clears $store.wallet.expectedSwitchAddresses in its `finally`, the
+  # instant the last signature is collected and while Phantom is still on the
+  # signer it just used. The panel used to re-derive `changed` there — red border,
+  # danger ink, and a sentence denying that any ceremony had asked for this wallet
+  # — with no wallet event behind it and the hand-off card correctly still down.
+  test "a finished ceremony gets its own sentence instead of the alarm" do
+    doc = render_signal(variant: :panel)
+
+    ended = doc.at_css("[data-wallet-signal-ended-note]")
+    expected_note = doc.at_css("[data-wallet-signal-expected-note]")
+    changed_note = doc.at_css("[data-wallet-signal-changed-note]")
+
+    refute_nil ended,
+               "a completed ceremony leaves the operator parked on a vault signer and " \
+               "the panel has nothing to say about it"
+
+    # Gated on opposite sides of one fact, so the mid-ceremony sentence and the
+    # finished one can never both render.
+    assert_includes ended["x-show"], "declarationEnded"
+    assert_includes expected_note["x-show"], "!$store.walletSignal.declarationEnded"
+
+    # It is CALM. The alarm's affordances are danger ink and the red border, and
+    # this sentence carries neither — that is the whole defect it closes.
+    refute_includes ended["class"].to_s, "text-danger-ink"
+    assert_includes changed_note["class"].to_s, "text-danger-ink",
+                    "the real alarm must keep its ink, or this guard proves nothing"
+
+    # And it says a ceremony HAPPENED, which is the clause the old rendering denied.
+    assert_match(/ceremony that asked for this wallet/, ended.text.squish)
   end
 
   test "danger text sits on a theme surface rather than a red tint" do
@@ -165,17 +200,29 @@ class WalletSignalComponentTest < ActionView::TestCase
            "the chip renders on every page and must not make that claim for all of them"
   end
 
-  test "the panel hides when the signal has no opinion, as the chip does" do
+  test "the panel hides on a quiet-listed STATE, not on the chip's quiet field" do
     panel = render_signal(variant: :panel).at_css("[data-wallet-signal]")
+    chip = render_signal.at_css("[data-wallet-signal]")
 
     # A signed-in user with no wallet on their account derives `guest`, whose
     # label is "Not signed in" — a sentence that must never reach an
-    # authenticated admin. The derivation now keeps that state off a ceremony
-    # page, and this is the second lock: if the ceremony flag above ever fails
-    # to read, the panel degrades to hidden rather than to a confident grey dot
-    # over two different addresses.
-    assert_includes panel["x-show"], "quiet",
-                    "the panel must honour quiet the way the chip does"
+    # authenticated admin. The derivation keeps that state off a ceremony page,
+    # and this is the second lock: if the ceremony flag ever fails to read, the
+    # panel degrades to hidden rather than to a confident grey dot over two
+    # different addresses.
+    #
+    # ASSERTING "quiet" HERE WAS NOT ENOUGH, and that is why this test moved.
+    # `quiet` is `<quiet state> && !address`, so it is false whenever a wallet IS
+    # connected — and a connected wallet is the only way two different addresses
+    # reach the screen. The old assertion passed on the substring while the
+    # property it described could not fire. The panel gates on the state alone;
+    # the chip keeps `quiet`, which is correct for its own question. The property
+    # itself is measured under node in test/lib/wallet_signal_js_test.rb.
+    assert_includes panel["x-show"], "quietState",
+                    "the panel's lock must read the STATE, not the chip's quiet field"
+    assert_includes chip["x-show"], "quiet"
+    refute_includes chip["x-show"], "quietState",
+                    "the chip's question is 'anything worth painting', and an address always is"
   end
 
   test "the undeclared note speaks differently to a session that proved no wallet" do

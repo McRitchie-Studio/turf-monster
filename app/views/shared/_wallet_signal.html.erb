@@ -52,12 +52,21 @@
       signal read the same grey 'Managed wallet' whether Phantom sat on a
       declared signer or a stranger.
 
-      x-show honours quiet as the chip does. On a ceremony page the derivation
-      can no longer return a quiet state, so this is the second lock rather than
-      the first — but if the flag above ever fails to read, the panel degrades to
-      hidden instead of to a confident grey dot over two different addresses. %>
+      x-show honours the quiet-listed STATE, and on a ceremony page the derivation
+      can no longer return one of those states, so this is the second lock rather
+      than the first — but if the flag above ever fails to read, the panel degrades
+      to hidden instead of to a confident grey dot over two different addresses.
+
+      IT USED TO GATE ON THE `quiet` FIELD, WHICH COULD NOT DELIVER THAT, and the
+      claim sat here for a day saying it did. `quiet` is the CHIP's question and
+      also requires no connected address — while a connected address is the only
+      way two different addresses can be on screen at once. So the lock was armed
+      for precisely the case that had nothing to degrade from. Measured in review
+      of /tasks/ceremony-page-lacks-wallet-signal; the state-only form costs
+      nothing here, because no quiet-listed state is reachable with the ceremony
+      flag set. %>
   <div x-data x-cloak
-       x-show="$store.walletSignal && !$store.walletSignal.quiet"
+       x-show="$store.walletSignal && !$store.walletSignal.quietState"
        role="status" aria-live="polite"
        data-wallet-signal data-wallet-signal-variant="panel" data-wallet-signal-ceremony
        :data-wallet-signal-state="$store.walletSignal && $store.walletSignal.state"
@@ -123,9 +132,27 @@
         having happened. %>
     <p class="mt-3 text-xs text-secondary"
        data-wallet-signal-expected-note
-       x-show="$store.walletSignal && $store.walletSignal.state === 'expected'">
+       x-show="$store.walletSignal && $store.walletSignal.state === 'expected' && !$store.walletSignal.declarationEnded">
       This page asked for this wallet. It is one of the signers the ceremony
       declared, so the hand-off card stays out of the way.
+    </p>
+
+    <%# THE SAME WALLET, ONE MOMENT LATER. cosign.js clears the declared list the
+        instant the last signature is collected, while Phantom is still parked on
+        the signer it just used. Nothing moved, so the hand-off card correctly
+        stays down — and until this sentence existed the panel turned RED here and
+        said no ceremony had asked for this wallet, seconds after one had.
+
+        The state stays `expected` because the fact it names is still true. What
+        changes is the tense: the ask is over, and saying so is the difference
+        between a calm page and a page that has stopped meaning anything by
+        turning red. /tasks/ceremony-end-flashes-false-alarm. %>
+    <p class="mt-3 text-xs text-secondary"
+       data-wallet-signal-ended-note
+       x-show="$store.walletSignal && $store.walletSignal.declarationEnded">
+      The ceremony that asked for this wallet has finished with it, so nothing
+      here is waiting on a signature from it. Switch Phantom back when you are
+      done.
     </p>
 
     <%# THE UNDECLARED SWITCH, IN TWO VOICES, because one of them was a lie.
@@ -143,16 +170,16 @@
     <p class="mt-3 text-xs text-danger-ink"
        data-wallet-signal-changed-note
        x-show="$store.walletSignal && $store.walletSignal.state === 'changed' && $store.walletSignal.walletAuthenticated">
-      This wallet is not one the page asked for, and it is not the wallet this
-      session signed in with. Switch back before signing, or sign in again with
-      this wallet.
+      This wallet is not one the page is currently asking for, and it is not the
+      wallet this session signed in with. Switch back before signing, or sign in
+      again with this wallet.
     </p>
     <p class="mt-3 text-xs text-danger-ink"
        data-wallet-signal-changed-note-unproved
        x-show="$store.walletSignal && $store.walletSignal.state === 'changed' && !$store.walletSignal.walletAuthenticated">
-      No ceremony on this page asked for this wallet, and this session never
-      signed in with one. Nothing will warn you again, so check the address above
-      is the signer you mean before you co-sign.
+      No ceremony on this page is currently asking for this wallet, and this
+      session never signed in with one. Nothing will warn you again, so check the
+      address above is the signer you mean before you co-sign.
     </p>
 
     <p class="mt-3 text-xs text-secondary"
