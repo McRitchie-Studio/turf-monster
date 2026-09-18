@@ -15,8 +15,30 @@ require "test_helper"
 # what all five real mainnet Phantom wires declare.
 #
 # Like LighthouseCosignGuardLifecycleTest, this runs the ACTUAL Solana::Vault
-# guards against full wires. The controller tests go through FakeVault and never
-# reach them.
+# cosign path against full wires. The controller tests go through FakeVault and
+# never reach it.
+#
+# THE GUARD AND THE COSIGN ARE ONE CALL NOW. The three hand-written
+# `assert_*_cosign_safe!` guards are deleted; `Cosign::Completer#cosign` judges
+# the returned wire against the expectation, checks every cosigner's own
+# signature slot, and only then fills the house's. So "refused before any house
+# signature" — the property the second test in each pair exists for — is no
+# longer an ordering a caller could get wrong: the house key is unreachable
+# from a wire that failed. Each flow below states its expectation the way its
+# controller does, which is the other half of what changed:
+#
+#   cash-out  REBUILT from the ramp row (wallet + destination + amount); there
+#             is no stored wire, the row holds the facts.
+#   entry     read from the wire the SERVER STORED and handed out, because the
+#             entry re-prepares seconds before signing and must judge the exact
+#             bytes the player saw.
+#   create    REBUILT from the draft's own on-chain params, so a slate whose
+#             first kickoff moved is refused rather than funded.
+#
+# The signer-set rule itself is now SET EQUALITY rather than a count: exactly
+# the house plus the named cosigner, no extra and none missing. A padded wire is
+# refused because the accomplice is not in the set, not because three is more
+# than two — which also closes the swap a count cannot see.
 class CosignSignerSetLifecycleTest < ActiveSupport::TestCase
   SLUG   = "signer-set-lifecycle".freeze
   AMOUNT = 19_000_000
@@ -33,6 +55,7 @@ class CosignSignerSetLifecycleTest < ActiveSupport::TestCase
   def fake_client
     client = Object.new
     client.define_singleton_method(:get_latest_blockhash) { |**_o| Solana::Keypair.generate.to_base58 }
+    CosignFakeClient.teach(client)
     client
   end
 
@@ -102,35 +125,35 @@ class CosignSignerSetLifecycleTest < ActiveSupport::TestCase
 
   # --- the three guarded flows, each from its REAL builder ---------------------
 
+  # Judge-and-cosign, the way each flow's controller reaches the house key: one
+  # call, refusal first. Raises Cosign::WireRejected, or returns the Cosigned
+  # struct carrying the completed wire.
+  def cosigner_for(expectation)
+    ->(bytes) { vault.cosign_completer.cosign(Base64.strict_encode64(bytes), expectation: expectation) }
+  end
+
   FLOWS = {
     cashout: lambda do |t, player|
       destination = Solana::Keypair.generate.address
       wire = Base64.decode64(t.vault.build_user_usdc_transfer_unsigned(
         wallet_address: player.to_base58, destination_token_account: destination, amount_lamports: AMOUNT
       )[:serialized_tx])
-      guard = lambda do |bytes|
-        t.vault.assert_usdc_transfer_cosign_safe!(Base64.strict_encode64(bytes), wallet_address: player.to_base58,
-                                                  destination_token_account: destination, amount_lamports: AMOUNT)
-      end
-      [wire, guard]
+      [wire, t.cosigner_for(t.vault.usdc_transfer_expectation(
+        wallet_address: player.to_base58, destination_token_account: destination, amount_lamports: AMOUNT
+      ))]
     end,
     entry: lambda do |t, player|
-      wire = Base64.decode64(t.vault.build_enter_contest(player.to_base58, SLUG, 0, currency_idx: 0,
-                                                                                 season_id: 1)[:serialized_tx])
-      guard = lambda do |bytes|
-        t.vault.assert_entry_cosign_safe!(Base64.strict_encode64(bytes), wallet_address: player.to_base58,
-                                          entry: FakeEntry.new(7, 0, FakeContest.new(SLUG)))
-      end
-      [wire, guard]
+      built = t.vault.build_enter_contest(player.to_base58, SLUG, 0, currency_idx: 0, season_id: 1)
+      [Base64.decode64(built[:serialized_tx]), t.cosigner_for(t.vault.cosign_expectation(
+        built[:serialized_tx], wallet_address: player.to_base58,
+        last_valid_block_height: built[:last_valid_block_height]
+      ))]
     end,
     create: lambda do |t, player|
-      wire = Base64.decode64(t.vault.build_create_contest(player.to_base58, SLUG, **CREATE_PARAMS,
-                                                          admin_signs: false)[:serialized_tx])
-      guard = lambda do |bytes|
-        t.vault.assert_create_contest_cosign_safe!(Base64.strict_encode64(bytes), wallet_address: player.to_base58,
-                                                   contest_slug: SLUG, onchain_params: CREATE_PARAMS)
-      end
-      [wire, guard]
+      built = t.vault.build_create_contest(player.to_base58, SLUG, **CREATE_PARAMS, admin_signs: false)
+      [Base64.decode64(built[:serialized_tx]), t.cosigner_for(t.vault.create_contest_expectation(
+        wallet_address: player.to_base58, contest_slug: SLUG, onchain_params: CREATE_PARAMS
+      ))]
     end
   }.freeze
 
@@ -141,10 +164,14 @@ class CosignSignerSetLifecycleTest < ActiveSupport::TestCase
 
       assert_equal 2, signature_slots(wire).size, "the #{flow} builder declares house + player"
       signed = signed_by(wire, player)
-      assert guard.call(signed)
 
-      completed = Solana::Transaction.cosign_wire(signed, signer: house)
+      cosigned = guard.call(signed)
+      assert cosigned, "the expectation must admit the wire this builder itself produced"
+
+      completed = Base64.decode64(cosigned.wire_base64)
       assert signature_slots(completed).none? { |s| empty_slot?(s) }, "the house cosign completes the wire"
+      assert cosigned.signature.present?,
+             "the transaction's id is known from the bytes before anything is sent"
     end
 
     test "#{flow}: the same wire padded with a player-filled third signer is refused before any house signature" do
@@ -162,8 +189,10 @@ class CosignSignerSetLifecycleTest < ActiveSupport::TestCase
       assert Solana::Transaction.cosign_wire(padded, signer: house),
              "control: the cosign primitive itself does not refuse a padded wire"
 
-      error = assert_raises(Solana::Vault::UnsafeCosignError) { guard.call(padded) }
-      assert_match(/signer_count_mismatch: numRequiredSignatures=3, require exactly 2/, error.message)
+      error = assert_raises(Solana::Cosign::WireRejected) { guard.call(padded) }
+      assert_equal "signer_set_mismatch", error.reason
+      assert_match(/unexpected signer\(s\) \[#{accomplice.address}\]/, error.message,
+                   "the refusal names the key that does not belong, not merely a count")
       assert empty_slot?(signature_slots(padded)[0]), "validate-then-cosign: the house never signed"
     end
   end

@@ -13,7 +13,7 @@ require "test_helper"
 # #finalize_bundle cosigns and broadcasts, exactly as #finalize does.
 #
 # WHAT THAT BUYS BESIDES MOBILE, and it is the reason this file leads with it:
-# the bundle path now runs assert_create_contest_cosign_safe!, which it never
+# the bundle path now judges the wire against a Cosign::Expectation, which it never
 # did. The server used to co-sign nothing and verify the signature after the
 # fact — a wire that was not this bundle's create_contest had already moved
 # money by the time anyone looked.
@@ -26,12 +26,15 @@ class ContestsBundleServerBroadcastTest < ActionDispatch::IntegrationTest
   class SequenceVault < FakeVault
     def sequence = @sequence ||= []
 
-    def assert_create_contest_cosign_safe!(*, **)
+    # The check is now "state the expectation", not "run a guard" — but the
+    # INVARIANT is unchanged and is what this class measures: the server must
+    # decide what it built BEFORE anything is cosigned or broadcast.
+    def create_contest_expectation(**)
       sequence << :checked
       super
     end
 
-    def cosign_and_broadcast_create_contest(wire)
+    def cosign_and_broadcast_create_contest(wire, **)
       sequence << :broadcast
       super
     end

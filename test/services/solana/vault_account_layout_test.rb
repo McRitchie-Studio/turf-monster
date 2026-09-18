@@ -73,13 +73,24 @@ class Solana::VaultAccountLayoutTest < ActiveSupport::TestCase
       "RecordedPartialBase64"
     end
 
-    def build_partial_unsigned(accounts:, data:, additional_signers:, durable_nonce: nil)
+    # THE PHANTOM-FIRST BUILDER IS `Cosign::Builder`-BACKED NOW, so this stand-in
+    # carries its shape rather than the old one: ONE `cosigner:` instead of an
+    # ordered `additional_signers` list (the fee payer is account 0 by
+    # construction in the gem), no `durable_nonce:` (a Phantom-signed wire can
+    # never be nonce-anchored), and a `Cosign::Prepared` back instead of a base64
+    # String — every caller reads `.wire_base64` and `.last_valid_block_height`
+    # off it. A stub returning the old String makes each caller die on
+    # NoMethodError, which is how this file broke; the layout it certifies is
+    # unchanged either way, because the accounts are recorded before the wire
+    # would be built.
+    def build_partial_unsigned(accounts:, data:, cosigner:)
       @recorder.add_instruction(program_id: @program_id, accounts: accounts, data: data)
-      @additional_signers = additional_signers
-      "RecordedPartialBase64"
+      @cosigner = cosigner
+      Solana::Cosign::Prepared.new(wire_base64: "RecordedPartialBase64",
+                                   last_valid_block_height: 1_000_000)
     end
 
-    attr_reader :additional_signers
+    attr_reader :additional_signers, :cosigner
   end
 
   # An RPC that answers only what a builder needs to finish assembling, and
@@ -87,6 +98,7 @@ class Solana::VaultAccountLayoutTest < ActiveSupport::TestCase
   def fake_client
     client = Object.new
     client.define_singleton_method(:get_latest_blockhash) { |commitment: "finalized"| Solana::Keypair.encode_base58((1..32).to_a.pack("C*")) }
+    CosignFakeClient.teach(client)
     client.define_singleton_method(:send_and_confirm) { |_wire| "RecordedSignature" }
     client.define_singleton_method(:get_account_info) { |_pubkey, **_kw| nil }
     client

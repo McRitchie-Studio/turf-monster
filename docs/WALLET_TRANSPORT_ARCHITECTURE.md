@@ -526,8 +526,8 @@ something the resume needed not surviving the page death:
   in the BROWSER and POST only the signature — impossible on the callback
   document, which loads no solanaWeb3. `#generate_bundle` now builds with
   `admin_signs: false` and `#finalize_bundle` cosigns and broadcasts, which also
-  puts the bundle behind `assert_create_contest_cosign_safe!` for the first
-  time.
+  puts the bundle behind the create_contest cosign guard (`Vault#create_contest_expectation`
+  judged by `Solana::Cosign::Expectation`) for the first time.
 
 Line numbers are omitted for the migrated rows on purpose: the call site is now
 three lines of chrome around one `walletOps.run`, and the flow itself lives in a
