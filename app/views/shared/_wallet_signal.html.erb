@@ -1,0 +1,209 @@
+<%# THE WALLET SIGNAL — which wallet is live, on this page, right now.
+
+    locals:
+      variant:  :chip  (default) the navbar pill, on every page
+                :panel           the page-level block the cosign ceremonies get
+      label:    optional heading for the panel variant
+
+    ONE COMPONENT, TWO SIZES, ONE STATE. Both variants read the same
+    Alpine store, so the navbar and a ceremony panel can never disagree about
+    which wallet the browser is holding. The store and its eight states live in
+    app/javascript/wallet_signal.js; read that file before changing the words
+    here, because the words are ITS exports and are asserted under node.
+
+    MOUNTED AND EMPTY RATHER THAN INSERTED. x-show, never template x-if, for the
+    two reasons this app has already paid for: a status region inserted
+    alongside its own content is not reliably announced to a screen reader, and
+    template x-if silently mounts as a no-op when it is given more than one root
+    element. Nothing here is worth that trap.
+
+    WHY THE TONE IS A DOT AND NOT COLOURED PROSE. Body text has to clear WCAG AA
+    on both themes, and a vivid fill cannot. So the fill goes in a dot, which
+    carries no contrast duty, and the label stays on theme ink. The one exception
+    is the undeclared-switch state, which uses text-danger-ink over
+    bg-surface-alt — a THEME surface, not a red tint, because the ink is derived
+    against the theme surfaces and measures 4.25:1 over a red wash. Both rules
+    are in docs/UI_PATTERNS.md and both are guarded by a rendering test.
+
+    SINGLE-QUOTE EVERYTHING INSIDE AN ALPINE ATTRIBUTE. One double quote ends the
+    HTML attribute, truncates the expression, and kills every binding in the
+    component while the server-rendered markup stays byte-identical and every
+    assert_select stays green. A JS comment counts.
+
+    IT IS NOT THE SWITCH CARD. app/javascript/solana_stores.js still owns the
+    non-dismissible wallet-changed modal and its address-scoped ceremony
+    suppression. This is what remains true on the page after that card closes,
+    and the whole of what the three cosign surfaces get, since the card is
+    deliberately suppressed there. %>
+<%
+  variant = local_assigns.fetch(:variant, :chip).to_sym
+  panel_label = local_assigns.fetch(:label, "Signing wallet")
+%>
+<% if variant == :panel %>
+  <%# data-wallet-signal-ceremony IS THE PAGE SAYING THE BROWSER WALLET SIGNS
+      HERE. wallet_signal.js reads it off the DOM, so the fact travels with the
+      markup that means it: a fourth ceremony surface gets the behaviour by
+      rendering this panel, with nothing to remember and no list to widen. It is
+      the same rule docs/AUTH.md already asks of this ceremony — count the
+      blocks, not the call sites.
+
+      IT IS WHAT LETS AN EMAIL-AUTHENTICATED ADMIN SEE ANYTHING AT ALL. Such an
+      admin reaches all three surfaces and can co-sign; before this flag the
+      signal read the same grey 'Managed wallet' whether Phantom sat on a
+      declared signer or a stranger.
+
+      x-show honours quiet as the chip does. On a ceremony page the derivation
+      can no longer return a quiet state, so this is the second lock rather than
+      the first — but if the flag above ever fails to read, the panel degrades to
+      hidden instead of to a confident grey dot over two different addresses. %>
+  <div x-data x-cloak
+       x-show="$store.walletSignal && !$store.walletSignal.quiet"
+       role="status" aria-live="polite"
+       data-wallet-signal data-wallet-signal-variant="panel" data-wallet-signal-ceremony
+       :data-wallet-signal-state="$store.walletSignal && $store.walletSignal.state"
+       class="mb-4 rounded-xl border bg-surface-alt p-4"
+       :class="$store.walletSignal && $store.walletSignal.state === 'changed' ? 'border-red-500/60' : 'border-subtle'">
+    <div class="flex items-start justify-between gap-3 flex-wrap">
+      <div class="min-w-0">
+        <p class="text-xs uppercase tracking-wide text-muted mb-1"><%= panel_label %></p>
+        <p class="flex items-center gap-2 text-sm font-semibold"
+           :class="$store.walletSignal && $store.walletSignal.state === 'changed' ? 'text-danger-ink' : 'text-heading'">
+          <span class="inline-block h-2 w-2 shrink-0 rounded-full"
+                data-wallet-signal-dot
+                :class="{
+                  'bg-primary': $store.walletSignal && $store.walletSignal.tone === 'success',
+                  'bg-violet': $store.walletSignal && $store.walletSignal.tone === 'info',
+                  'bg-warning-500': $store.walletSignal && $store.walletSignal.tone === 'warning',
+                  'bg-red-500': $store.walletSignal && $store.walletSignal.tone === 'danger',
+                  'bg-gray-500': $store.walletSignal && $store.walletSignal.tone === 'muted'
+                }"></span>
+          <span data-wallet-signal-label x-text="$store.walletSignal && $store.walletSignal.label"></span>
+        </p>
+      </div>
+      <div class="text-right min-w-0">
+        <p class="text-xs uppercase tracking-wide text-muted mb-1">Connected</p>
+        <p class="text-sm font-mono text-heading break-all"
+           data-wallet-signal-address
+           x-text="($store.walletSignal && $store.walletSignal.short) || '—'"></p>
+      </div>
+    </div>
+
+    <%# THE OTHER HALF OF EVERY SENTENCE ABOVE — and it has to disclaim itself
+        when the session did not sign in with a wallet.
+
+        An admin who signed in by magic link or Google still has this address on
+        their account from an earlier session, and rendering it under a bare
+        'Session wallet' beside a different connected one reads as an
+        authenticated pair that the system has checked. It was not checked: that
+        session proved nothing about any wallet, which is exactly why the
+        connected one deserves a second look before anyone co-signs. So the label
+        and the qualifier both follow walletAuthenticated. %>
+    <div class="mt-3 border-t border-subtle pt-3"
+         x-show="$store.walletSignal && $store.walletSignal.sessionAddress">
+      <div class="flex items-baseline justify-between gap-3">
+        <span class="text-xs uppercase tracking-wide text-muted"
+              data-wallet-signal-session-label
+              x-text="($store.walletSignal && $store.walletSignal.walletAuthenticated) ? 'Session wallet' : 'Account wallet'"></span>
+        <span class="text-xs font-mono text-secondary break-all"
+              data-wallet-signal-session-address
+              x-text="$store.walletSignal && $store.walletSignal.sessionShort"></span>
+      </div>
+      <p class="mt-1 text-2xs text-muted"
+         data-wallet-signal-session-note
+         x-show="$store.walletSignal && !$store.walletSignal.walletAuthenticated">
+        This session signed in without a wallet, so it has not proved this
+        address. Whatever wallet is connected above is the one that will sign.
+      </p>
+    </div>
+
+    <%# THE DECLARED SWITCH. A cosign ceremony walks the operator through the
+        vault's signers on purpose, and the switch card is suppressed for exactly
+        those addresses. Saying so is the point of this panel: before it existed,
+        a suppressed switch left the page silent, which reads the same as nothing
+        having happened. %>
+    <p class="mt-3 text-xs text-secondary"
+       data-wallet-signal-expected-note
+       x-show="$store.walletSignal && $store.walletSignal.state === 'expected'">
+      This page asked for this wallet. It is one of the signers the ceremony
+      declared, so the hand-off card stays out of the way.
+    </p>
+
+    <%# THE UNDECLARED SWITCH, IN TWO VOICES, because one of them was a lie.
+
+        For a session that signed in BY WALLET the card is already up: the
+        watcher exempts only the exact addresses the flow declared, so this line
+        is what the reader still has after they dismiss their way back to work.
+
+        For a session that signed in ANY OTHER WAY there is no card and never
+        was — solana_stores.js returns early unless the session is web3 — and
+        the old single sentence told that reader this was not the wallet they
+        signed in with, which they never did. Same fact, honest sentence, and
+        the one population that gets no card is the one that most needs the
+        words. %>
+    <p class="mt-3 text-xs text-danger-ink"
+       data-wallet-signal-changed-note
+       x-show="$store.walletSignal && $store.walletSignal.state === 'changed' && $store.walletSignal.walletAuthenticated">
+      This wallet is not one the page asked for, and it is not the wallet this
+      session signed in with. Switch back before signing, or sign in again with
+      this wallet.
+    </p>
+    <p class="mt-3 text-xs text-danger-ink"
+       data-wallet-signal-changed-note-unproved
+       x-show="$store.walletSignal && $store.walletSignal.state === 'changed' && !$store.walletSignal.walletAuthenticated">
+      No ceremony on this page asked for this wallet, and this session never
+      signed in with one. Nothing will warn you again, so check the address above
+      is the signer you mean before you co-sign.
+    </p>
+
+    <p class="mt-3 text-xs text-secondary"
+       data-wallet-signal-disconnected-note
+       x-show="$store.walletSignal && $store.walletSignal.state === 'disconnected'">
+      Your wallet is installed but is not connected to this site, so nothing here
+      can be signed yet. Unlock it, or connect it, and this updates on its own.
+    </p>
+
+    <p class="mt-3 text-xs text-secondary"
+       data-wallet-signal-unknown-note
+       x-show="$store.walletSignal && $store.walletSignal.state === 'unknown'">
+      Still reading your wallet. This is not the same as having none.
+    </p>
+  </div>
+<% else %>
+  <%# THE NAVBAR CHIP. It renders on every page the navbar renders on, which is
+      every page but the funnel layout.
+
+      QUIET IS NOT ABSENT. A signed-out visitor with no wallet extension has
+      nothing worth painting, so the chip hides — but the component is mounted,
+      the store has resolved, and data-wallet-signal-state carries the answer.
+      The context exists before anyone signs in, which is the whole reason it
+      was asked for; only the pixels are conditional. %>
+  <span x-data x-cloak
+        x-show="$store.walletSignal && !$store.walletSignal.quiet"
+        data-wallet-signal data-wallet-signal-variant="chip"
+        :data-wallet-signal-state="$store.walletSignal && $store.walletSignal.state"
+        :title="$store.walletSignal && ($store.walletSignal.label + ($store.walletSignal.address ? ' — ' + $store.walletSignal.address : ''))"
+        class="inline-flex items-center gap-1.5 rounded-lg border bg-surface-alt px-2 py-0.5 whitespace-nowrap"
+        :class="$store.walletSignal && $store.walletSignal.state === 'changed' ? 'border-red-500/60' : 'border-subtle'">
+    <span class="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+          data-wallet-signal-dot
+          :class="{
+            'bg-primary': $store.walletSignal && $store.walletSignal.tone === 'success',
+            'bg-violet': $store.walletSignal && $store.walletSignal.tone === 'info',
+            'bg-warning-500': $store.walletSignal && $store.walletSignal.tone === 'warning',
+            'bg-red-500': $store.walletSignal && $store.walletSignal.tone === 'danger',
+            'bg-gray-500': $store.walletSignal && $store.walletSignal.tone === 'muted'
+          }"></span>
+    <%# The address when there is one, the state's own words when there is not.
+        A chip that says nothing but a colour is a puzzle. %>
+    <span class="text-xs font-mono"
+          data-wallet-signal-address
+          x-show="$store.walletSignal && $store.walletSignal.address"
+          :class="$store.walletSignal && $store.walletSignal.state === 'changed' ? 'text-danger-ink' : 'text-secondary'"
+          x-text="$store.walletSignal && $store.walletSignal.short"></span>
+    <span class="text-xs"
+          data-wallet-signal-label
+          x-show="$store.walletSignal && !$store.walletSignal.address"
+          :class="$store.walletSignal && $store.walletSignal.state === 'changed' ? 'text-danger-ink' : 'text-secondary'"
+          x-text="$store.walletSignal && $store.walletSignal.label"></span>
+  </span>
+<% end %>

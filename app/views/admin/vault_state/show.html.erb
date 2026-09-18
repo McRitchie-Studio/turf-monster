@@ -6,6 +6,13 @@
     <span class="font-mono text-xs text-muted"><%= @network %></span>
   </div>
 
+  <%# THE PAGE-LEVEL WALLET SIGNAL. The unpause flow below declares its signer
+      queue to the wallet watcher and suppresses the wallet-changed card for
+      exactly those addresses, so without this the page went quiet through every
+      deliberate switch — and through an accidental one that happened to be a
+      declared signer. See shared/_wallet_signal. %>
+  <%= render "shared/wallet_signal", variant: :panel, label: "Co-signing wallet" %>
+
   <% unless @vault %>
     <div class="card p-4 mb-6">
       <p class="text-secondary text-sm mb-2">

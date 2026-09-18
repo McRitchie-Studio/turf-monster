@@ -96,13 +96,32 @@
         the deep link reads it on a user tap (safe either way) but the callback
         view's IIFE reads it AT PARSE TIME and hard-fails with no retry.
 
-        Served through sprockets from solana-studio, which declares all four in
-        config.assets.precompile (lib/solana_studio/engine.rb) — a gem-shipped
-        asset not named there 404s in production with no local warning. %>
+        Served through sprockets from solana-studio, which declares every one of
+        them in config.assets.precompile (lib/solana_studio/engine.rb) — a
+        gem-shipped asset not named there 404s in production with no local
+        warning. (This block used to say "all four". wallet_identity below makes
+        five; count it here rather than leaving the sentence to rot.) %>
     <%= javascript_include_tag "solana_studio/wallet_transport" %>
     <%= javascript_include_tag "solana_studio/redirect_provider" %>
     <%= javascript_include_tag "solana_studio/wallet_journal" %>
     <%= javascript_include_tag "solana_studio/wallet_ops" %>
+
+    <%# THE WALLET AS A SESSION IDENTITY (solana-studio 0.12.0+).
+
+        It plugs the connected address into studio-engine's session-drift
+        primitive as an identity source, so every page can say which wallet is
+        live — including before anyone signs in, which is the state the navbar
+        needs on a signed-out page and the one a wallet-shaped design forgets.
+
+        NOT IN THE DEPENDENCY CHAIN ABOVE. It reads no SolanaStudio helper, so
+        its position among these five is free. What is NOT free is that it must
+        execute before app/javascript/wallet_signal.js registers the source, and
+        a blocking classic script in the head always precedes a deferred
+        importmap module — which is exactly the arrangement here.
+
+        It never signs, never sends, never opens a modal, and never probes the
+        wallet silently unless this file's own session gate asks it to. %>
+    <%= javascript_include_tag "solana_studio/wallet_identity" %>
 
     <%# Registered on EVERY page, because the wallet returns to a page this app
         does not own — see the partial for the entry that was lost when this

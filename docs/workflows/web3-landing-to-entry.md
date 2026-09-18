@@ -115,24 +115,24 @@ Phantom must be installed in the browser or available via mobile deep link.
    - `Alpine.store('session').isGuest` is the canonical guest pivot, derived
      from `SessionContext#mode` (`studio-engine: app/models/session_context.rb`)
      and hydrated from the `session-context` JSON block on every render
-     (`app/views/layouts/application.html.erb:264`).
+     (`app/views/layouts/application.html.erb:283`).
 
 5. **Sign up via Phantom.** Choosing Solana in that wizard calls
    `openWalletConnect(ageAttested)`
    (`app/views/contests/_turf_totals_board.html.erb:1023-1028`), which swaps in
    solana-studio's wallet picker. The picker runs
-   `window.solanaConnectAndVerify` — `app/views/layouts/application.html.erb:358`.
-   - The nonce is fetched from `/auth/solana/nonce` (`:394`) →
+   `window.solanaConnectAndVerify` — `app/views/layouts/application.html.erb:377`.
+   - The nonce is fetched from `/auth/solana/nonce` (`:413`) →
      `SolanaSessionsController#nonce`
      (`app/controllers/solana_sessions_controller.rb:5-9`).
    - Two signing paths. A wallet that supports SIWS `signIn` is used directly;
      otherwise the message is built locally — domain, pubkey, statement,
      `Nonce:` — and signed with `provider.signMessage`
-     (`app/views/layouts/application.html.erb:562-563`).
+     (`app/views/layouts/application.html.erb:581-582`).
    - The `User-ID` binding that ties a signature to an account (OPSEC-005) rides
-     only on the wallet-LINK path (`opts.linkMode`), not on signup (`:452`).
+     only on the wallet-LINK path (`opts.linkMode`), not on signup (`:471`).
    - The signature is base58-encoded and POSTed to `/auth/solana/verify`
-     (`:742`) as `signatureB58` alongside the message and pubkey (`:827`).
+     (`:761`) as `signatureB58` alongside the message and pubkey (`:846`).
      An unreadable answer to that POST — an HTML body from a fault of ours,
      which usually arrives as a 302 followed to status 200 rather than a 500;
      see docs/AUTH.md — is

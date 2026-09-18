@@ -89,6 +89,15 @@
     for a stolen vault key, and it is irreversible without another rotation.
   </p>
 
+  <%# THE PAGE-LEVEL WALLET SIGNAL. The third surface that reaches the ceremony
+      suppression, and the one that is easiest to miss: the co-sign button below
+      calls the same global cosignTransaction as the treasury queue, so the
+      wallet-changed card is suppressed HERE too even though nothing on this page
+      says the word suppression. An eviction rewrites the vault's signer set, so
+      of the three this is the page where signing from the wrong account costs
+      the most. See shared/_wallet_signal. %>
+  <%= render "shared/wallet_signal", variant: :panel, label: "Co-signing wallet" %>
+
   <%# A CLAIMED ROW IS ANSWERED FIRST, AHEAD OF THE UNREADABLE-VAULT REFUSAL.
       Surfacing it needs no chain read, and the refusal below exists to stop a
       rotation being PLANNED blind — a different act from resolving one already

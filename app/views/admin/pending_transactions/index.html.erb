@@ -6,6 +6,16 @@
     <% end %>
   </div>
 
+  <%# THE PAGE-LEVEL WALLET SIGNAL. This page is one of three that deliberately
+      SUPPRESS the wallet-changed card: a treasury cosign walks the operator
+      through the vault's signers on purpose, and a non-dismissible card over a
+      half-collected transaction strands it. The suppression is correct and
+      address-scoped, but it left the page with nothing to say — so an operator
+      mid-ceremony had no way to tell which account Phantom was actually on, and
+      an operator who switched by accident got the same silence. This is what
+      goes in its place. See shared/_wallet_signal. %>
+  <%= render "shared/wallet_signal", variant: :panel, label: "Co-signing wallet" %>
+
   <% if @pending.empty? %>
     <%= render "components/empty_state",
           message: "No treasury transactions yet.",

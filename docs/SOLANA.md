@@ -660,6 +660,18 @@ bin/deploy
 
 ### The authorities console — `/admin/authorities`
 
+**It is one of the three cosign ceremony surfaces, and the one that hides it.**
+Its eviction console wires its Co-sign button to the GLOBAL `cosignTransaction`
+(`app/javascript/cosign.js`), so this page reaches the same wallet-changed card
+suppression as `/admin/pending_transactions` and `/admin/vault_state` while
+nothing on it says the word. All three render `shared/_wallet_signal`, which
+names the wallet the browser is holding and tells a switch the ceremony declared
+from one nobody did — for an admin who signed in by wallet signature **and** for
+one who signed in by magic link or Google, who reaches this page and can co-sign
+on it (`require_admin` has no session-mode requirement) but whom the
+wallet-changed card cannot see at all. The words differ between the two; the
+distinction does not. See **Wallet Signal (app-wide)** in `docs/UI_PATTERNS.md`.
+
 **One page that reads all three authorities off the chain, and the only place a
 compromised `VaultState` signer can be evicted.** Built for a specific threat
 model: the WALLET is compromised, not the infrastructure — the Rails app, the

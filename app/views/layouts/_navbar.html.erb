@@ -108,6 +108,12 @@
           <%= link_to "Contests", contests_path, class: "text-secondary hover:text-primary text-sm font-medium transition" %>
           <%= link_to "Rules", turf_monster_v1_path, class: "text-secondary hover:text-primary text-sm font-medium transition" %>
           <%= render "components/geo_badge" %>
+          <%# THE WALLET SIGNAL, beside the geo badge and for the same reason it
+              is: the navbar is the one piece of chrome every page gets, and
+              both of these are facts about the reader that the page under them
+              cannot be trusted to repeat. It renders for a signed-out visitor
+              too, which is the point. See shared/_wallet_signal. %>
+          <%= render "shared/wallet_signal" %>
         </nav>
       </div>
     </div>
@@ -173,6 +179,7 @@
     <%= link_to "Contests", contests_path, class: "text-secondary hover:text-primary text-xs font-medium transition whitespace-nowrap" %>
     <%= link_to "Rules", turf_monster_v1_path, class: "text-secondary hover:text-primary text-xs font-medium transition whitespace-nowrap" %>
     <%= render "components/geo_badge" %>
+    <%= render "shared/wallet_signal" %>
     <span class="ml-auto flex items-center gap-3">
       <%= render "components/gear_sidebar_trigger" %>
       <%= render "components/theme_toggle_morph" %>
