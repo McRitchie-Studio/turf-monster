@@ -660,6 +660,18 @@ bin/deploy
 
 ### The authorities console — `/admin/authorities`
 
+**It is one of the three cosign ceremony surfaces, and the one that hides it.**
+Its eviction console wires its Co-sign button to the GLOBAL `cosignTransaction`
+(`app/javascript/cosign.js`), so this page reaches the same wallet-changed card
+suppression as `/admin/pending_transactions` and `/admin/vault_state` while
+nothing on it says the word. All three render `shared/_wallet_signal`, which
+names the wallet the browser is holding and tells a switch the ceremony declared
+from one nobody did — for an admin who signed in by wallet signature **and** for
+one who signed in by magic link or Google, who reaches this page and can co-sign
+on it (`require_admin` has no session-mode requirement) but whom the
+wallet-changed card cannot see at all. The words differ between the two; the
+distinction does not. See **Wallet Signal (app-wide)** in `docs/UI_PATTERNS.md`.
+
 **One page that reads all three authorities off the chain, and the only place a
 compromised `VaultState` signer can be evicted.** Built for a specific threat
 model: the WALLET is compromised, not the infrastructure — the Rails app, the
@@ -875,7 +887,7 @@ The reason is which failure you would rather have. Broadcasting first meant any 
    - Server builds a fully unsigned `create_contest` TX with both required signature slots reserved (admin payer + creator). Returns the unsigned TX + a signed `params_token`.
 2. Client: `phantom.signTransaction(tx)` only. The browser serializes the Phantom-signed wire with the admin slot still empty and posts it back; it does not simulate, broadcast, or poll.
 3. `POST /contests/finalize` (`ContestsController#finalize`) — collection route, no `:id`.
-   - `Vault#assert_create_contest_cosign_safe!` semantically validates the signed wire against the server-issued payload (fee schedule, payouts, prize pool, lock timestamp, slug-derived PDA, expected accounts) before the admin key signs anything.
+   - `Vault#create_contest_expectation` rebuilds the create_contest instruction from the server's own draft (fee schedule, payouts, prize pool, lock timestamp, slug-derived PDA), and `Solana::Cosign::Expectation` judges the signed wire against it — same accounts in the same order, same data — before the admin key signs anything.
    - **Step 1 — the write-ahead row.** Saves the Contest as `status: :pending` with the derived PDA and `skip_onchain_callback = true`, before a single lamport moves. The flag (plus `onchain?` being true once the PDA is set, plus `create_onchain!`'s own `return if onchain?`) is what stops the legacy `Contest#create_onchain!` after_create callback from broadcasting a SECOND, house-funded `create_contest`. Saving here also moves the column-level failures ahead of the money.
    - **Step 2 — the broadcast.** Rails admin-cosigns, simulates, broadcasts, waits for confirmation. Past this line the money is real.
    - **Step 3 — stamp the signature immediately**, before any read-back that can raise. The row stays `pending`: a broadcast is not a verification.

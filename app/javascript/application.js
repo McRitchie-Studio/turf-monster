@@ -7,6 +7,9 @@ import "wallet_provider"
 import "solana_utils"
 import "solana_errors"
 import "solana_stores"
+// After solana_stores: the signal reads $store.wallet for the ceremony's
+// declared addresses, and after solana_utils for window.refreshSession.
+import "wallet_signal"
 import "cosign_signatures"
 import "cosign"
 import "lock_contest"

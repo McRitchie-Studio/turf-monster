@@ -127,6 +127,18 @@ class CosignSignaturesJsTest < ActiveSupport::TestCase
   # suppression outliving its flow. The behaviour itself is exercised in
   # e2e/cosign_two_wallet_signatures.spec.js, where the stub really does switch
   # accounts mid-collection.
+  # A SOURCE SCAN MUST READ CODE, NOT PROSE. Every guard below looks for a call
+  # by name, and the files that make those calls are also the files that EXPLAIN
+  # them at length — so an unfiltered scan reports the explanation as the thing
+  # explained. Measured twice while writing this file: wallet_signal.js was
+  # flagged for "declaring" a suppression its header only describes, and again
+  # for "taking" the very hold it documents itself as refusing to take.
+  #
+  # Line comments only, and `://` is spared so a URL is not mistaken for one.
+  def code_of(source)
+    source.gsub(%r{^\s*//.*$}, "").gsub(%r{(?<![:'"])//.*$}, "")
+  end
+
   test "the watcher consults the expected-switch list before raising the hand-off card" do
     js = Rails.root.join("app/javascript/solana_stores.js").read
 
@@ -144,20 +156,63 @@ class CosignSignaturesJsTest < ActiveSupport::TestCase
 
   # A SUPPRESSION THAT OUTLIVES ITS FLOW DISARMS THE GUARD FOR THE WHOLE PAGE,
   # silently and for every wallet — the same class of mistake as a mutation left
-  # in source. Both flows that declare one must clear it on every exit path,
+  # in source. Every flow that declares one must clear it on every exit path,
   # including an early return and a thrown rejection.
+  #
+  # FOUND BY SCANNING, NOT BY A LIST. This guard used to name two files in a
+  # hash, with a `next unless src.include?("expectSwitchesTo")` in front of the
+  # assertion — two holes in one. A THIRD flow that learned to suppress was
+  # never checked, and either named file could drop the call and skip its own
+  # assertion on the way past. The scan closes both: whatever declares a
+  # suppression is checked, and finding nothing is itself a failure.
   test "every flow that suppresses the switch card clears it in a finally" do
-    {
-      "app/javascript/cosign.js" => "the treasury cosign flow",
-      "app/views/admin/vault_state/show.html.erb" => "the unpause flow"
-    }.each do |path, what|
-      src = Rails.root.join(path).read
-      next unless src.include?("expectSwitchesTo")
+    roots = %w[app/javascript app/views].map { |dir| Rails.root.join(dir) }
+    declaring = roots.flat_map { |root| Dir.glob("#{root}/**/*.{js,erb}") }
+                     .select { |path| code_of(File.read(path)).include?("expectSwitchesTo(") }
 
-      assert_match(/finally\s*\{[^}]*clearExpectedSwitches/m, src,
-                   "#{what} declares expected switches and must clear them in a finally — " \
+    refute_empty declaring,
+                 "no flow declares an expected switch any more — either the suppression was " \
+                 "deleted (and the cosign ceremonies are now covered by a non-dismissible " \
+                 "card mid-flow) or this scan has stopped finding them"
+
+    # The two known today, named so the scan cannot quietly narrow to one file
+    # and keep reporting success.
+    %w[app/javascript/cosign.js app/views/admin/vault_state/show.html.erb].each do |known|
+      assert_includes declaring.map { |p| Pathname.new(p).relative_path_from(Rails.root).to_s }, known,
+                      "#{known} used to declare expected switches and no longer does"
+    end
+
+    declaring.each do |path|
+      relative = Pathname.new(path).relative_path_from(Rails.root).to_s
+      assert_match(/finally\s*\{[^}]*clearExpectedSwitches/m, File.read(path),
+                   "#{relative} declares expected switches and must clear them in a finally — " \
                    "a catch alone leaves the guard disarmed on the early-return path")
     end
+  end
+
+  # THE SIGNAL THAT REPLACED THE SILENCE. The suppression is correct, and it is
+  # the reason all three cosign surfaces had no page-level wallet signal at all.
+  # shared/_wallet_signal fills that gap, and it reads the SAME address-scoped
+  # list — so the page and the card can never disagree about which switch was
+  # asked for.
+  #
+  # Its own tiers live in test/lib/wallet_signal_js_test.rb and
+  # test/views/wallet_signal_component_test.rb. What is pinned here, beside the
+  # suppression it is paired with, is that the two still share one source of
+  # truth.
+  test "the page-level signal scopes a declared switch by address, like the card does" do
+    js = Rails.root.join("app/javascript/wallet_signal.js").read
+
+    assert_match(/expectedSwitchAddresses/, js,
+                 "the signal must read the same declared list the card is suppressed by")
+
+    refute_match(/expectChange\s*\(/, code_of(js),
+                 "StudioSession holds are per SOURCE, not per ADDRESS: one taken for a ceremony " \
+                 "marks a switch to ANY wallet expected, which is the failure this signal exists " \
+                 "to prevent, and it fails silent")
+    assert_match(/expectChange/, js,
+                 "the file must still say WHY it does not take a hold; deleting the reasoning is " \
+                 "how the next author re-adds the hold")
   end
 
   # ── THE MUTATION THAT SURVIVED THE RUBY SUITE ─────────────────────────────

@@ -308,16 +308,19 @@ module Admin
 
         begin
           vault.simulate_and_broadcast(signed_tx)
-        rescue Solana::Vault::PreflightRejected
+        rescue Solana::Cosign::PreflightRejected
           # PROVABLY UN-SENT — the simulation refused it or could not be run, so
           # the send was never made. Rewind, naming the signature being cleared,
           # so a program refusal stays retryable.
           #
-          # Only this type. A failure of the SEND is never a proof: Solana::Client
-          # retries the faults that mean "the answer was lost" and surfaces only
-          # the last one, so a coded error can follow an attempt that already
-          # forwarded the wire (Solana::Vault#simulate_and_broadcast). Such a row
-          # keeps its claim and its signature, and #reconcile asks the chain.
+          # Only this type, and the gem's hierarchy now says so in its own name:
+          # `Cosign::PreflightRejected` IS "provably never sent", while its
+          # sibling `Cosign::BroadcastFailed` is "may be on chain". A failure of
+          # the SEND is never a proof — Solana::Client retries the faults that
+          # mean "the answer was lost" and surfaces only the last one, so a coded
+          # error can follow an attempt that already forwarded the wire
+          # (Solana::Vault#simulate_and_broadcast). A BroadcastFailed row KEEPS
+          # its claim and its signature, and #reconcile asks the chain.
           @tx.rewind_broadcast!(signature)
           raise
         end

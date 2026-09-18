@@ -476,6 +476,48 @@ class EnginePinContractTest < ActiveSupport::TestCase
                     "resolves to NOTHING without raising: empty modals, no error"
   end
 
+  # THE COSIGN FLOOR, ASKED AS A CAPABILITY RATHER THAN A VERSION.
+  #
+  # SOLANA_STUDIO_MINIMUM above is a RENDER floor — it is about partials, and
+  # 0.9.2 is still the right number for them. turf-adopts-cosign-primitives added
+  # a second, independent floor that has nothing to do with rendering: every
+  # Phantom-first money path in Solana::Vault now BUILDS through
+  # `Cosign::Builder`, JUDGES through `Cosign::Expectation` and COMPLETES through
+  # `Cosign::Completer`, and the three hand-written `assert_*_cosign_safe!`
+  # guards those replaced are deleted, so there is no local fallback. Below
+  # 0.12.0 `Solana::Cosign` is simply not defined and the first prepared entry
+  # raises NameError — a total loss of the money path, not a degraded one.
+  #
+  # Asked as a capability on purpose, in this file's own spirit: a version
+  # comparison would pass against a 0.12.0 that had been yanked and rebuilt
+  # without the module, and would have to be hand-bumped the next time this app
+  # reaches for something new. This asks the resolved artifact whether it carries
+  # the three entry points this app actually calls.
+  test "the resolved solana-studio ships the Cosign API this app's money paths call" do
+    assert defined?(Solana::Cosign), "the resolved solana-studio does not define Solana::Cosign — " \
+                                     "every Phantom entry, contest create and cash-out raises NameError"
+
+    %i[Builder Expectation Completer].each do |const|
+      assert Solana::Cosign.const_defined?(const),
+             "the resolved solana-studio's Solana::Cosign has no #{const}"
+    end
+
+    # The two seams this app's rescues name by type. A gem that shipped the
+    # module without the hierarchy would let a BroadcastFailed be rescued as a
+    # PreflightRejected, which is how a landed transaction becomes
+    # re-broadcastable (see Solana::Vault#simulate_and_broadcast).
+    assert_operator Solana::Cosign::PreflightRejected, :<, Solana::Cosign::Error
+    assert_operator Solana::Cosign::BroadcastFailed, :<, Solana::Cosign::Error
+    assert_not_operator Solana::Cosign::BroadcastFailed, :<, Solana::Cosign::PreflightRejected
+
+    # And the Lighthouse allowlist this app relies on for its own safety. A
+    # resolve that skipped Lighthouse instructions unread — every version below
+    # 0.12.0 — would re-open the house-funded MemoryWrite hole
+    # (/tasks/gem-cosign-lighthouse-allowlist).
+    assert_equal (2..17), Solana::Cosign::LIGHTHOUSE_ASSERTIONS,
+                 "the resolved solana-studio does not carry the Lighthouse assertion allowlist"
+  end
+
   # THE NUMBER IS THE SMALLER HALF OF THE FIX, exactly as it is for studio-engine
   # above: a hand-bumped floor rots the moment the next reference outruns it. So
   # the two facts the collapsed entry call site actually depends on are DERIVED

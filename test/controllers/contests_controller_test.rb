@@ -1550,8 +1550,20 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert body["success"]
     assert body["token_consumed"], "a token-funded entry must report the consume (navbar badge punch)"
 
-    # The guard was handed the SERVER's decision, not a client value.
-    assert_equal "tpda_web3_1", vault.cosign_safe_calls.first[:entry_token_pda]
+    # THE EXPECTATION WAS BUILT FROM THE SERVER'S STORED WIRE, NOT FROM PARAMS.
+    # That is what binds this cosign to the token the server picked: the stored
+    # wire IS the enter_contest_with_token instruction #prepare_entry built for
+    # tpda_web3_1, and Cosign::Expectation requires the returned wire to carry it
+    # exactly. The guard no longer takes the token PDA as an argument because it
+    # no longer needs to be told — the wire it judges against already says so.
+    assert_equal 1, vault.cosign_expectation_calls.length
+    assert_equal "stx", vault.cosign_expectation_calls.first[:built_wire],
+                 "the expectation must come from PendingTransaction#serialized_tx, never from params[:signed_tx]"
+    assert_equal @user.web3_solana_address, vault.cosign_expectation_calls.first[:wallet_address]
+    refute_equal "PHANTOM_SIGNED_TOKEN_WIRE", vault.cosign_expectation_calls.first[:built_wire],
+                 "a wire from the client is the thing being judged, never the source of the expectation"
+
+    # And the server's own record of what it prepared still drives verification.
     assert_equal "enter_contest_with_token", verified.first[:instruction_name]
     assert entry.reload.active?
   end
@@ -1739,6 +1751,14 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     log_in_as_onchain(@user)
     entry = @contest.entries.create!(user: @user, status: :cart, entry_number: 0)
     [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
+    # The prepared row has to EXIST for this test to reach the PDA check at all:
+    # the cosign now refuses a confirm it has no stored wire for, which happens
+    # earlier and is asserted separately below.
+    PendingTransaction.create!(
+      tx_type: "enter_contest", serialized_tx: "stx", status: "pending",
+      target: entry, initiator_address: @user.web3_solana_address,
+      metadata: { entry_pda: "epda-#{@contest.slug}-#{@user.web3_solana_address[0, 4]}-0" }.to_json
+    )
 
     vault = FakeVault.new
     Solana::Vault.stub :new, vault do
@@ -1751,6 +1771,32 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :unprocessable_entity
     assert_match(/Entry PDA mismatch/, JSON.parse(response.body)["error"])
+    assert entry.reload.cart?
+  end
+
+  test "confirm_onchain_entry refuses when the server has no prepared wire to judge against" do
+    @user.update!(web3_solana_address: "Web3NoPrep#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_np", season_id: 1)
+    SeasonConfig.set_current!(1)
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: @user, status: :cart, entry_number: 0)
+    [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
+
+    # NO PendingTransaction: nothing records what this server built. The old
+    # guard decoded the client's wire and derived the entry PDA from it, so it
+    # could pass without one; Cosign::Expectation is built from the wire the
+    # SERVER stored, so a confirm with no prepared row is refused before the
+    # client's bytes are looked at — and before the admin key is touched.
+    vault = FakeVault.new
+    Solana::Vault.stub :new, vault do
+      post confirm_onchain_entry_contest_path(@contest),
+        params: { signed_tx: "PHANTOM_SIGNED_WIRE_B64", entry_id: entry.id, entry_pda: "whatever" },
+        as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_equal "tx_rejected", JSON.parse(response.body)["code"]
+    assert_empty vault.cosign_broadcast_calls, "nothing may be cosigned or broadcast without a prepared wire"
     assert entry.reload.cart?
   end
 
@@ -1782,7 +1828,41 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     assert entry.reload.cart?                          # no charge, safe to retry
   end
 
-  test "confirm_onchain_entry surfaces a cosign/broadcast failure, leaves entry in cart with a BLANK PT (safe retry)" do
+  test "confirm_onchain_entry leaves a BLANK PT when the wire is REFUSED — nothing was signed or sent" do
+    @user.update!(web3_solana_address: "Web3Refused#{SecureRandom.hex(4)}")
+    @contest.update!(onchain_contest_id: "onchain_rf", season_id: 1)
+    SeasonConfig.set_current!(1)
+    log_in_as_onchain(@user)
+    entry = @contest.entries.create!(user: @user, status: :cart, entry_number: 0)
+    [@m1, @m2, @m3, @m4, @m5, @m6].each { |m| entry.selections.create!(slate_matchup: m) }
+    expected_pda = "epda-#{@contest.slug}-#{@user.web3_solana_address[0, 4]}-0"
+    ptx = PendingTransaction.create!(
+      tx_type: "enter_contest", serialized_tx: "stx", status: "pending",
+      target: entry, initiator_address: @user.web3_solana_address,
+      metadata: { entry_pda: expected_pda }.to_json
+    )
+
+    # A REFUSAL, not a broadcast failure: Cosign::WireRejected is raised before
+    # the fee payer's key is used, so provably nothing was signed and nothing
+    # left. THIS is the case where a blank PT is correct — the retry is safe
+    # because there is nothing on chain to double-charge against.
+    vault = FakeVault.new
+    vault.cosign_verify_raises = "instruction_accounts_mismatch"
+    Solana::Vault.stub :new, vault do
+      post confirm_onchain_entry_contest_path(@contest),
+        params: { signed_tx: "PHANTOM_SIGNED_WIRE_B64", entry_id: entry.id, entry_pda: expected_pda },
+        as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_equal "tx_rejected", JSON.parse(response.body)["code"]
+    assert entry.reload.cart?
+    ptx.reload
+    assert ptx.tx_signature.blank?, "a refused wire must leave no signature — it was never signed"
+    assert_equal "pending", ptx.status
+  end
+
+  test "confirm_onchain_entry STAMPS the PT when the broadcast itself fails — the bytes may be on chain" do
     @user.update!(web3_solana_address: "Web3CosignFail#{SecureRandom.hex(4)}")
     @contest.update!(onchain_contest_id: "onchain_cf", season_id: 1)
     SeasonConfig.set_current!(1)
@@ -1796,8 +1876,22 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
       metadata: { entry_pda: expected_pda }.to_json
     )
 
+    # THE INVERSION THIS TASK SHIPPED, AND THE DEFECT IT CLOSES.
+    #
+    # This test used to be called "leaves entry in cart with a BLANK PT (safe
+    # retry)" and asserted `ptx.tx_signature.blank?`. That was the bug. The
+    # signature used to be stamped on the line AFTER the broadcast, so a failure
+    # anywhere from the send onward left a row reading "never broadcast" —
+    # and `recover_pending_entry` reads a blank PT exactly that way and lets the
+    # player enter again. But a failed SEND is not proof that nothing was sent:
+    # Solana::Client retries the faults that mean "the answer was lost", so the
+    # first attempt may already have forwarded the wire.
+    #
+    # `before_send` now stamps the signature BEFORE the bytes leave, so the row
+    # can always be reconciled against the chain. The retry is no longer "safe"
+    # by being blank; it is safe by being RECORDED.
     vault = FakeVault.new
-    vault.cosign_broadcast_raises = "Entry pre-flight simulation failed"
+    vault.cosign_broadcast_raises = "send failed — reconcile before rebuilding"
     Solana::Vault.stub :new, vault do
       post confirm_onchain_entry_contest_path(@contest),
         params: { signed_tx: "PHANTOM_SIGNED_WIRE_B64", entry_id: entry.id, entry_pda: expected_pda },
@@ -1805,12 +1899,11 @@ class ContestsControllerTest < ActionDispatch::IntegrationTest
     end
 
     assert_response :unprocessable_entity
-    assert entry.reload.cart?, "entry must stay in cart when broadcast fails"
+    assert entry.reload.cart?, "entry must stay in cart when the broadcast fails"
     ptx.reload
-    # Broadcast never succeeded → no signature stamped → recover_pending_entry reads
-    # this as 'never broadcast' and safely lets the user retry (no double charge).
-    assert ptx.tx_signature.blank?, "no signature should be stamped when cosign/broadcast raises"
-    assert_equal "pending", ptx.status
+    assert_equal "fake-cosign-broadcast-sig", ptx.tx_signature,
+                 "a broadcast that MAY have landed must leave its signature behind to reconcile"
+    assert_equal "submitted", ptx.status
   end
 
   test "confirm_onchain_entry stamps the PT signature BEFORE verify, so a post-broadcast verify failure stays recoverable (A1)" do

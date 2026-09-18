@@ -129,7 +129,8 @@ class FakeVault
   def build_create_contest(wallet_address, contest_slug, **_params)
     @create_contest_calls ||= []
     @create_contest_calls << { wallet: wallet_address, slug: contest_slug, params: _params }
-    { serialized_tx: "FAKE_TX_create_#{contest_slug}", contest_pda: "cpda-#{contest_slug}" }
+    { serialized_tx: "FAKE_TX_create_#{contest_slug}", contest_pda: "cpda-#{contest_slug}",
+      last_valid_block_height: FAKE_LAST_VALID_BLOCK_HEIGHT }
   end
 
   def create_contest_calls
@@ -344,7 +345,8 @@ class FakeVault
     }
     {
       serialized_tx: "FAKE_TOKEN_TX_#{contest_slug}_#{entry_num}",
-      entry_pda: "epda-#{contest_slug}-#{wallet_address[0, 4]}-#{entry_num}"
+      entry_pda: "epda-#{contest_slug}-#{wallet_address[0, 4]}-#{entry_num}",
+      last_valid_block_height: FAKE_LAST_VALID_BLOCK_HEIGHT
     }
   end
 
@@ -356,21 +358,60 @@ class FakeVault
     }
     {
       serialized_tx: "FAKE_TX_#{contest_slug}_#{entry_num}",
-      entry_pda: "epda-#{contest_slug}-#{wallet_address[0, 4]}-#{entry_num}"
+      entry_pda: "epda-#{contest_slug}-#{wallet_address[0, 4]}-#{entry_num}",
+      last_valid_block_height: FAKE_LAST_VALID_BLOCK_HEIGHT
     }
   end
 
-  # Used by ContestsController#confirm_onchain_entry (Phantom-FIRST flow). The
-  # real Vault cosigns the Phantom-signed wire bytes with the admin keypair,
-  # simulates, broadcasts, and returns the confirmed tx signature. The fake
-  # records the call and returns a deterministic signature.
-  attr_writer :cosign_broadcast_raises
+  # ── THE COSIGN SEAM, MODELLED THE WAY Solana::Cosign DRAWS IT ───────────────
+  #
+  # The real path is `Cosign::Completer#complete`: verify the wire, cosign it,
+  # check the deadline, simulate, call `before_send(signature)`, SEND, confirm.
+  # Two knobs stand in for the two sides of that seam, and which one a test
+  # reaches for is the thing being asserted:
+  #
+  #   cosign_verify_raises    — refused BEFORE before_send. Nothing is stamped,
+  #                             nothing is sent (Cosign::WireRejected).
+  #   cosign_broadcast_raises — fails AFTER before_send. The stamp HAS happened
+  #                             and the transaction may be on chain
+  #                             (Cosign::BroadcastFailed).
+  #
+  # A fake that called before_send only on success would hide the whole point of
+  # the change, so it is called on both paths, in the real order.
+  FAKE_LAST_VALID_BLOCK_HEIGHT = 123_456_789
 
-  def cosign_and_broadcast_entry(signed_wire_base64)
+  attr_writer :cosign_broadcast_raises, :cosign_verify_raises
+
+  # Stands in for Vault#cosign_expectation: reads the wire the SERVER stored and
+  # states what it built. Records the arguments so a test can assert the
+  # controller passed the STORED wire and this session's wallet — never params.
+  def cosign_expectation(built_wire_base64, wallet_address:, last_valid_block_height: nil)
+    @cosign_expectation_calls ||= []
+    @cosign_expectation_calls << { built_wire: built_wire_base64, wallet_address: wallet_address,
+                                   last_valid_block_height: last_valid_block_height }
+    raise Solana::Vault::UnsafeCosignError, "no prepared wire to judge against" if built_wire_base64.blank?
+
+    { fake_expectation_for: built_wire_base64, cosigner: wallet_address }
+  end
+
+  def cosign_expectation_calls
+    @cosign_expectation_calls ||= []
+  end
+
+  # `cosign_broadcast_calls` stays a list of WIRES, the shape every existing
+  # caller asserts on; the expectations it was handed are recorded alongside.
+  def cosign_and_broadcast_entry(signed_wire_base64, expectation: nil, before_send: nil)
     @cosign_broadcast_calls ||= []
     @cosign_broadcast_calls << signed_wire_base64
+    @cosign_broadcast_expectations ||= []
+    @cosign_broadcast_expectations << expectation
+    raise Solana::Cosign::WireRejected.new(:fake_refusal, @cosign_verify_raises) if @cosign_verify_raises
+
+    signature = (@cosign_broadcast_signature ||= "fake-cosign-broadcast-sig")
+    before_send&.call(signature)
     raise StandardError, @cosign_broadcast_raises if @cosign_broadcast_raises
-    @cosign_broadcast_signature ||= "fake-cosign-broadcast-sig"
+
+    signature
   end
 
   attr_writer :cosign_broadcast_signature
@@ -379,30 +420,54 @@ class FakeVault
     @cosign_broadcast_calls ||= []
   end
 
+  def cosign_broadcast_expectations
+    @cosign_broadcast_expectations ||= []
+  end
+
   attr_writer :create_cosign_broadcast_raises, :create_cosign_safe_raises,
               :create_cosign_broadcast_signature
 
-  def assert_create_contest_cosign_safe!(signed_wire_base64, wallet_address:, contest_slug:, onchain_params:)
+  # Stands in for Vault#create_contest_expectation, which REBUILDS the
+  # create_contest instruction from the server's own draft. The recorded
+  # arguments are the same three the deleted guard took, so every existing
+  # assertion about "the controller handed it the server's draft, not the
+  # client's" keeps its meaning.
+  def create_contest_expectation(wallet_address:, contest_slug:, onchain_params:)
     @create_cosign_safe_calls ||= []
     @create_cosign_safe_calls << {
-      wire: signed_wire_base64,
       wallet_address: wallet_address,
       contest_slug: contest_slug,
       onchain_params: onchain_params
     }
     raise Solana::Vault::UnsafeCosignError, @create_cosign_safe_raises if @create_cosign_safe_raises
-    true
+
+    { fake_expectation_for: contest_slug, cosigner: wallet_address }
   end
 
   def create_cosign_safe_calls
     @create_cosign_safe_calls ||= []
   end
 
-  def cosign_and_broadcast_create_contest(signed_wire_base64)
+  attr_writer :create_cosign_verify_raises
+
+  def cosign_and_broadcast_create_contest(signed_wire_base64, expectation: nil, before_send: nil)
     @create_cosign_broadcast_calls ||= []
     @create_cosign_broadcast_calls << signed_wire_base64
+    @create_cosign_broadcast_expectations ||= []
+    @create_cosign_broadcast_expectations << expectation
+    if @create_cosign_verify_raises
+      raise Solana::Cosign::WireRejected.new(:fake_refusal, @create_cosign_verify_raises)
+    end
+
+    signature = (@create_cosign_broadcast_signature ||= "fake-create-cosign-broadcast-sig")
+    before_send&.call(signature)
     raise StandardError, @create_cosign_broadcast_raises if @create_cosign_broadcast_raises
-    @create_cosign_broadcast_signature ||= "fake-create-cosign-broadcast-sig"
+
+    signature
+  end
+
+  def create_cosign_broadcast_expectations
+    @create_cosign_broadcast_expectations ||= []
   end
 
   def create_cosign_broadcast_calls
@@ -421,17 +486,16 @@ class FakeVault
   # prepared this entry against (nil = the currency transfer). Recorded so a test
   # can assert the controller handed the guard its OWN decision rather than
   # anything the client sent.
-  def assert_entry_cosign_safe!(signed_wire_base64, entry:, wallet_address:, entry_token_pda: nil)
-    @cosign_safe_calls ||= []
-    @cosign_safe_calls << { wire: signed_wire_base64, entry: entry, wallet_address: wallet_address,
-                            entry_token_pda: entry_token_pda }
-    raise Solana::Vault::UnsafeCosignError, @cosign_safe_raises if @cosign_safe_raises
-    true
+  # The entry guard is GONE — Cosign::Expectation replaces it, and the fake
+  # states that by keeping only the two things that still exist: the expectation
+  # the controller built (#cosign_expectation) and the wire it judged
+  # (#cosign_and_broadcast_entry). `cosign_safe_raises` still works, and now
+  # refuses at the expectation step, which is where a server that cannot say
+  # what it built refuses.
+  def cosign_safe_calls
+    cosign_expectation_calls
   end
 
-  def cosign_safe_calls
-    @cosign_safe_calls ||= []
-  end
 
   # THE ONLY entry_pda, and it must stay that way. This class carried TWO
   # definitions of it — this one and an earlier `["epda-derived", 255]` at the top
@@ -628,7 +692,12 @@ class FakeVault
   #   offramp_send_signature: the canned tx signature (default below)
   #   offramp_build_raises:   message → raise at build time
 
-  attr_writer :offramp_send_signature, :offramp_build_raises, :offramp_cosign_raises
+  attr_writer :offramp_send_signature, :offramp_build_raises, :offramp_cosign_raises,
+              :offramp_verify_raises
+
+  def offramp_cosign_expectations
+    @offramp_cosign_expectations ||= []
+  end
 
   def build_user_usdc_transfer(user_keypair:, destination_token_account:, amount_lamports:)
     assert_above_withdrawal_minimum!(amount_lamports)
@@ -659,7 +728,8 @@ class FakeVault
       destination: destination_token_account,
       amount: amount_lamports
     }
-    { serialized_tx: "FAKE_TX_offramp_#{wallet_address[0, 4]}_#{amount_lamports}" }
+    { serialized_tx: "FAKE_TX_offramp_#{wallet_address[0, 4]}_#{amount_lamports}",
+      last_valid_block_height: FAKE_LAST_VALID_BLOCK_HEIGHT }
   end
 
   def offramp_unsigned_calls
@@ -669,27 +739,32 @@ class FakeVault
   # The cash-out cosign guard. Records what it was asked to validate so a test
   # can assert the server re-derived destination + amount itself; raises when
   # offramp_cosign_raises is set, mirroring Vault::UnsafeCosignError.
-  def assert_usdc_transfer_cosign_safe!(signed_wire_base64, wallet_address:, destination_token_account:,
-                                        amount_lamports:, context: "offramp_send")
+  # Stands in for Vault#usdc_transfer_expectation, which REBUILDS the SPL
+  # transfer from the ramp row. It takes no wire — the whole point is that the
+  # server states the cash-out from its OWN record — so the recorded call drops
+  # the `wire` key and `context` with it.
+  def usdc_transfer_expectation(wallet_address:, destination_token_account:, amount_lamports:)
     @offramp_cosign_guard_calls ||= []
     @offramp_cosign_guard_calls << {
-      wire: signed_wire_base64,
       wallet: wallet_address,
       destination: destination_token_account,
-      amount: amount_lamports,
-      context: context
+      amount: amount_lamports
     }
     raise Solana::Vault::UnsafeCosignError, @offramp_cosign_raises if @offramp_cosign_raises
-    true
+
+    { fake_expectation_for: wallet_address, amount: amount_lamports }
   end
 
   def offramp_cosign_guard_calls
     @offramp_cosign_guard_calls ||= []
   end
 
-  def cosign_usdc_transfer(signed_wire_base64)
+  def cosign_usdc_transfer(signed_wire_base64, expectation: nil)
     @offramp_cosign_calls ||= []
     @offramp_cosign_calls << signed_wire_base64
+    @offramp_cosign_expectations ||= []
+    @offramp_cosign_expectations << expectation
+    raise Solana::Cosign::WireRejected.new(:fake_refusal, @offramp_verify_raises) if @offramp_verify_raises
     { signed_tx: "COSIGNED_#{signed_wire_base64}",
       signature: (@offramp_send_signature || "FakeOfframpSendSig") }
   end

@@ -191,11 +191,14 @@ module Admin
         # and never reaches the chain in that case.
         begin
           vault.simulate_and_broadcast(signed_tx)
-        rescue Solana::Vault::PreflightRejected
+        rescue Solana::Cosign::PreflightRejected
           # PROVABLY UN-SENT — the simulation refused it, or could not be run at
           # all, so `client.send_transaction` was never called. This is the ONLY
           # exception that rewinds the row, and the rewind names the signature
-          # it is clearing so it cannot touch anything else.
+          # it is clearing so it cannot touch anything else. The gem's hierarchy
+          # states the distinction in its own names: everything that MAY be on
+          # chain is a `Cosign::BroadcastFailed`, which is deliberately NOT
+          # rescued here — such a row keeps its claim and reconciles.
           #
           # A failure of the SEND does not rewind, however node-ish it looks.
           # Solana::Client#call retries internally on the faults that mean "the

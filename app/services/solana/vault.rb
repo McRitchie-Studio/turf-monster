@@ -38,46 +38,23 @@ module Solana
     # ComputeBudget program id (deterministic).
     COMPUTE_BUDGET_PROGRAM_ID = Keypair.decode_base58("ComputeBudget111111111111111111111111111111")
 
-    # The two ComputeBudget instructions our builders emit (see
-    # #compute_unit_limit_ix / #compute_unit_price_ix), and the only two the
-    # cosign guards admit.
-    COMPUTE_BUDGET_SET_LIMIT = 0x02 # u32 LE compute-unit limit
-    COMPUTE_BUDGET_SET_PRICE = 0x03 # u64 LE micro-lamports per compute unit
-
-    # Lighthouse — Phantom's transaction-protection program. On MAINNET (not
-    # devnet, which is why staging never sees it) Phantom may INJECT Lighthouse
-    # instructions into the tx at signing time, so the cosign guards must admit
-    # them or every protected Phantom signer is rejected "disallowed_program"
-    # (hit in prod 2026-06-11).
+    # THE COMPUTEBUDGET AND LIGHTHOUSE CONSTANTS LIVE IN THE GEM NOW.
     #
-    # NOT every Lighthouse instruction is safe to cosign blind, though. The
-    # program's first data byte is its instruction discriminator, and TWO of the
-    # variants MOVE the payer's lamports. Confirmed 2026-09-16 on the DEPLOYED,
-    # immutable program by read-only simulation at `finalized`: disc 0 made the
-    # payer fund a 10,008-byte memory PDA, disc 1 refunded it, 18/255 are unknown:
-    #   0 MemoryWrite — a SIGNER named `payer` (account index 2) funds the rent
-    #     of a "memory" PDA whose size THE INSTRUCTION chooses (~0.05 SOL / 10 KiB,
-    #     repeatable). The house is always a signer on a cosigned wire, so an
-    #     unguarded admit lets a crafted wire name the fee payer as that payer
-    #     and lock house SOL (recoverable only by a house-signed MemoryClose) —
-    #     draining the fee payer stops all gasless entries.
-    #   1 MemoryClose — refunds a memory PDA's rent to `payer`.
-    # Every OTHER shipped variant (2..17) is a pure post-state ASSERTION: it can
-    # only make the tx fail, never move funds or grant authority. All five
-    # Lighthouse-bearing wires the house has cosigned (7ZDJ…) carry only 6 and 10. So the
-    # guards admit assertion variants 2..17 and REFUSE 0, 1, empty data, and any
-    # unknown discriminator. Refusing "any Lighthouse ix that names the fee
-    # payer" instead would reject every real Phantom wire, because Phantom's
-    # assertions routinely TARGET the fee payer (it asserts the fee payer's own
-    # post-state) — that is the 2026-06-11 outage again.
-    LIGHTHOUSE_PROGRAM_ID = Keypair.decode_base58("L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95")
-
-    # Lighthouse instruction discriminators (first data byte). The two memory
-    # variants move the payer's lamports; 2..17 are assertion-only. See the
-    # LIGHTHOUSE_PROGRAM_ID comment for the on-chain confirmation.
-    LIGHTHOUSE_MEMORY_WRITE = 0
-    LIGHTHOUSE_MEMORY_CLOSE = 1
-    LIGHTHOUSE_ASSERTION_DISCRIMINATORS = (2..17).freeze
+    # This file used to declare COMPUTE_BUDGET_SET_LIMIT / _SET_PRICE and the
+    # four LIGHTHOUSE_* constants for its own cosign guards. Those guards are
+    # `Solana::Cosign` now (see the cosign section further down), so the
+    # constants moved with them and the copies here are DELETED rather than kept
+    # in sync by hand:
+    #
+    #   Solana::ComputeBudget::PROGRAM_ID, .parse, .set_compute_unit_{price,limit}
+    #   Solana::Cosign::LIGHTHOUSE_PROGRAM_ID
+    #   Solana::Cosign::LIGHTHOUSE_MEMORY_WRITE / _MEMORY_CLOSE / LIGHTHOUSE_ASSERTIONS
+    #
+    # The mainnet evidence behind the 2..17 allowlist — the read-only
+    # simulations against the deployed, immutable program on 2026-09-16, and the
+    # five real Phantom wires that carry only variants 6 and 10 — is written up
+    # in the gem's own `Solana::Cosign::LIGHTHOUSE_PROGRAM_ID` comment, which is
+    # where the rule that reads it lives. Do not re-derive it here.
 
     # Priority fee for the Phantom-signed partial TXs (create_contest,
     # enter_contest, set_contest_lock_time/conclusion_time, cancel_contest —
@@ -123,10 +100,15 @@ module Solana
     # 10x the builder's fee. With the defaults: price <= 500_000 micro-lamports/CU,
     # fee <= 100_000 lamports (0.0001 SOL). A builder price of 0 makes the
     # ceiling 0: no wallet-added fee is cosigned when we add none ourselves.
+    #
+    # THE TWO DERIVED CEILINGS ARE GONE, NOT MOVED. COSIGN_MAX_COMPUTE_UNIT_PRICE
+    # and COSIGN_MAX_PRIORITY_FEE_MICROLAMPORTS multiplied the ENV knobs above by
+    # this margin. `Solana::Cosign.fee_caps` computes exactly that, from the
+    # ComputeBudget pair on the wire THIS SERVER BUILT — so the ceiling now
+    # follows the transaction it judges rather than a constant that has to be
+    # kept in step with whatever the builder actually emitted. This margin is
+    # still ours, and is handed to the gem as `fee_margin:` at every call site.
     COSIGN_FEE_MARGIN = 10
-    COSIGN_MAX_COMPUTE_UNIT_PRICE = PARTIAL_TX_PRIORITY_FEE_MICROLAMPORTS * COSIGN_FEE_MARGIN
-    COSIGN_MAX_PRIORITY_FEE_MICROLAMPORTS =
-      PARTIAL_TX_PRIORITY_FEE_MICROLAMPORTS * PARTIAL_TX_COMPUTE_UNIT_LIMIT * COSIGN_FEE_MARGIN
 
     # --- the minimum withdrawal (phantom-cashout-needs-sol) -------------------
     #
@@ -689,7 +671,8 @@ module Solana
     # Phantom flavor for the offramp send: a fully-UNSIGNED TWO-signer tx — the
     # HOUSE (admin) is fee payer, the user's wallet is the transfer authority.
     # Phantom signs its own slot first, the server validates + cosigns the admin
-    # slot (#assert_usdc_transfer_cosign_safe! then #cosign_usdc_transfer), and
+    # slot (#cosign_usdc_transfer, which verifies against the expectation before
+    # it touches the admin key — see #cosign_expectation), and
     # the client broadcasts the fully-signed wire, then POSTs the signature back
     # to /cdp/offramp/sent for verified recording.
     #
@@ -703,9 +686,9 @@ module Solana
     # fee payer changed: the player still signs, because it is their USDC
     # leaving their token account and that consent is the protection.
     #
-    # The admin MUST be FIRST in additional_signers — the gem's keyless
-    # serialize_partial takes additional_signers.first as the fee payer, the
-    # same contract #build_partial_unsigned documents.
+    # The house is account 0 by construction now: Cosign::Builder puts its own
+    # fee payer there and asserts it before returning, so the ordered
+    # additional_signers contract this comment used to carry is gone.
     def build_user_usdc_transfer_unsigned(wallet_address:, destination_token_account:, amount_lamports:)
       raise ArgumentError, "amount must be positive" unless amount_lamports.to_i.positive?
       assert_above_withdrawal_minimum!(amount_lamports)
@@ -713,18 +696,24 @@ module Solana
       wallet_bytes = Keypair.decode_base58(wallet_address)
       from_ata, _ = Solana::SplToken.find_associated_token_address(wallet_address, Config::USDC_MINT)
 
-      tx = build_tx_unsigned
-      tx.add_instruction(**compute_unit_price_ix(PARTIAL_TX_PRIORITY_FEE_MICROLAMPORTS))
-      tx.add_instruction(**compute_unit_limit_ix(PARTIAL_TX_COMPUTE_UNIT_LIMIT))
-      tx.add_instruction(**Solana::SplToken.transfer_instruction(
-        from: from_ata,
-        to: destination_token_account,
-        authority: wallet_bytes,
-        amount: amount_lamports.to_i
-      ))
+      # The SPL transfer is passed to Cosign::Builder as an ordinary instruction —
+      # the gem is program-agnostic, so the cash-out rides the same rail as the
+      # entry without the builder knowing what USDC is.
+      prepared = cosign_builder.build(
+        instructions: [Solana::SplToken.transfer_instruction(
+          from: from_ata,
+          to: destination_token_account,
+          authority: wallet_bytes,
+          amount: amount_lamports.to_i
+        )],
+        cosigners: [wallet_bytes],
+        compute_unit_price: PARTIAL_TX_PRIORITY_FEE_MICROLAMPORTS,
+        compute_unit_limit: PARTIAL_TX_COMPUTE_UNIT_LIMIT,
+        fee_margin: COSIGN_FEE_MARGIN
+      )
 
-      admin_bytes = Keypair.admin.public_key_bytes
-      { serialized_tx: tx.serialize_partial_base64(additional_signers: [admin_bytes, wallet_bytes]) }
+      { serialized_tx: prepared.wire_base64,
+        last_valid_block_height: prepared.last_valid_block_height }
     end
 
     # Fund a user's wallet ATA with USDC.
@@ -1307,7 +1296,7 @@ module Solana
     # Hence two builds:
     #   * SERVER LEADS — `build_partial_signed`, the ordinary shape. Account 0
     #     is signed here and the operator fills the rest.
-    #   * OPERATOR LEADS — `build_partial_unsigned`. NOTHING is pre-signed;
+    #   * OPERATOR LEADS — `build_lead_paid_unsigned`. NOTHING is pre-signed;
     #     account 0 is reserved for one of his wallets, which pays the fee, and
     #     every signature is collected in Phantom. This is the only shape that
     #     can evict the server's key, and it is why that variant exists here.
@@ -1358,11 +1347,11 @@ module Solana
           build_partial_signed(accounts: accounts, data: data,
                                additional_signers: [cosigner_bytes, *extra_bytes])
         else
-          # The fee payer MUST be first in `additional_signers` — the gem's
-          # keyless serialize uses `additional_signers.first` as the fee payer
-          # when no local signer is attached.
-          build_partial_unsigned(accounts: accounts, data: data,
-                                 additional_signers: [lead_bytes, cosigner_bytes, *extra_bytes])
+          # The LEAD pays here, not the house — see #build_lead_paid_unsigned for
+          # why this shape cannot go through Solana::Cosign. The fee payer MUST be
+          # first in `additional_signers`.
+          build_lead_paid_unsigned(accounts: accounts, data: data,
+                                   additional_signers: [lead_bytes, cosigner_bytes, *extra_bytes])
         end
 
       {
@@ -1707,30 +1696,27 @@ module Solana
 
       wallet_bytes = Keypair.decode_base58(wallet_address)
 
-      serialized =
-        if admin_signs
-          build_partial_signed(
-            accounts: spec[:accounts],
-            data: spec[:data],
-            additional_signers: [wallet_bytes],
-            # Contest-create is the flow that died on mainnet BlockhashNotFound
-            # when a flagged Phantom warning ate the ~90s blockhash window.
-            durable_nonce: durable_nonce_config
-          )
-        else
-          # Phantom-FIRST contest create: leave both admin and creator signature
-          # slots empty. The browser signs first, then the server validates,
-          # cosigns, simulates, and broadcasts. Fresh blockhash only; a durable
-          # nonce plus wallet-injected guard instructions is too brittle here.
-          build_partial_unsigned(
-            accounts: spec[:accounts],
-            data: spec[:data],
-            additional_signers: [Keypair.admin.public_key_bytes, wallet_bytes],
-            durable_nonce: nil
-          )
-        end
+      if admin_signs
+        serialized = build_partial_signed(
+          accounts: spec[:accounts],
+          data: spec[:data],
+          additional_signers: [wallet_bytes],
+          # Contest-create is the flow that died on mainnet BlockhashNotFound
+          # when a flagged Phantom warning ate the ~90s blockhash window.
+          durable_nonce: durable_nonce_config
+        )
+        return { serialized_tx: serialized, contest_pda: Keypair.encode_base58(spec[:contest_pda]) }
+      end
 
-      { serialized_tx: serialized, contest_pda: Keypair.encode_base58(spec[:contest_pda]) }
+      # Phantom-FIRST contest create: leave both admin and creator signature
+      # slots empty. The browser signs first, then the server validates,
+      # cosigns, simulates, and broadcasts. Fresh blockhash only; a durable
+      # nonce plus wallet-injected guard instructions is too brittle here.
+      prepared = build_partial_unsigned(accounts: spec[:accounts], data: spec[:data],
+                                        cosigner: wallet_bytes)
+      { serialized_tx: prepared.wire_base64,
+        contest_pda: Keypair.encode_base58(spec[:contest_pda]),
+        last_valid_block_height: prepared.last_valid_block_height }
     end
 
     def create_contest_instruction(wallet_address, contest_slug,
@@ -2252,23 +2238,25 @@ module Solana
       # fresh recent blockhash. Never both.
       dn = nil
 
-      serialized =
-        if admin_signs
-          # Legacy server-first: admin signs now, only the user slot is left empty.
-          build_partial_signed(
-            accounts: accounts, data: data,
-            additional_signers: [wallet_bytes], durable_nonce: dn
-          )
-        else
-          # Phantom-first: BOTH slots empty. additional_signers ordered admin
-          # FIRST (fee-payer ordering for the gem's keyless build), then user.
-          build_partial_unsigned(
-            accounts: accounts, data: data,
-            additional_signers: [Keypair.admin.public_key_bytes, wallet_bytes],
-            durable_nonce: dn
-          )
-        end
-      { serialized_tx: serialized, entry_pda: Keypair.encode_base58(e_pda) }
+      if admin_signs
+        # Legacy server-first: admin signs now, only the user slot is left empty.
+        serialized = build_partial_signed(
+          accounts: accounts, data: data,
+          additional_signers: [wallet_bytes], durable_nonce: dn
+        )
+        return { serialized_tx: serialized, entry_pda: Keypair.encode_base58(e_pda) }
+      end
+
+      # Phantom-first: BOTH slots empty, the house in account 0 by construction.
+      prepared = build_partial_unsigned(accounts: accounts, data: data, cosigner: wallet_bytes)
+      { serialized_tx: prepared.wire_base64,
+        entry_pda: Keypair.encode_base58(e_pda),
+        # PERSIST THIS BESIDE THE WIRE. It is the block height past which this
+        # transaction can never land, and it is the only way the confirm request
+        # can tell "the player took too long" from "the program refused" — the
+        # 2026-06-11 BlockhashNotFound class of failure, which this app could
+        # previously only discover by broadcasting and waiting.
+        last_valid_block_height: prepared.last_valid_block_height }
     end
 
     # Atomic token-funded entry (no SPL transfer; consumes EntryTokenAccount).
@@ -2344,7 +2332,7 @@ module Solana
       data = Transaction.anchor_discriminator("enter_contest_with_token") +
              Borsh.encode_u32(entry_num)
 
-      serialized = build_partial_unsigned(
+      prepared = build_partial_unsigned(
         accounts: [
           { pubkey: Keypair.admin.public_key_bytes, is_signer: true,  is_writable: true  },
           { pubkey: wallet_bytes,                   is_signer: true,  is_writable: true  },
@@ -2358,9 +2346,11 @@ module Solana
           { pubkey: Transaction::SYSTEM_PROGRAM_ID, is_signer: false, is_writable: false }
         ],
         data: data,
-        additional_signers: [Keypair.admin.public_key_bytes, wallet_bytes]
+        cosigner: wallet_bytes
       )
-      { serialized_tx: serialized, entry_pda: Keypair.encode_base58(e_pda) }
+      { serialized_tx: prepared.wire_base64,
+        entry_pda: Keypair.encode_base58(e_pda),
+        last_valid_block_height: prepared.last_valid_block_height }
     end
 
     # --- Settle ---
@@ -3205,13 +3195,22 @@ module Solana
       }
     end
 
-    # Raised by #assert_entry_cosign_safe! when the Phantom-signed wire tx the
-    # client POSTs to confirm_onchain_entry is NOT the enter_contest we prepared
-    # (audit C1 — admin blind-cosign). The admin keypair must NEVER blind-sign
-    # arbitrary client bytes: a crafted SystemProgram.transfer{from: admin},
-    # mint_entry_token, grant_seeds, etc. would otherwise be admin-cosigned and
-    # broadcast. The message carries a DETAILED reason for server logs only — the
-    # controller maps it to a generic client message (never leak which check tripped).
+    # Raised by #cosign_expectation when this server cannot state what it BUILT —
+    # a prepared wire that is missing, unreadable, or names a different cosigner
+    # than the session's wallet. It is the audit-C1 boundary's remaining half:
+    # the admin keypair must NEVER blind-sign arbitrary client bytes, so a
+    # request that cannot produce a trustworthy expectation is refused before the
+    # wire is even looked at.
+    #
+    # THE OTHER HALF IS `Solana::Cosign::WireRejected`, raised by the gem when the
+    # RETURNED wire is not what the expectation describes — a crafted
+    # SystemProgram.transfer{from: admin}, a swapped instruction, an extra signer,
+    # an over-cap fee, a Lighthouse MemoryWrite. Both are refusals before any
+    # signature, and every controller that rescues one rescues the other.
+    #
+    # Both carry a DETAILED reason for SERVER LOGS ONLY — the controller maps
+    # them to a generic client message, because the detail tells an attacker
+    # which check tripped.
     class UnsafeCosignError < StandardError; end
 
     # Raised when a cash-out is below MIN_WITHDRAWAL_USD. Typed (not a bare
@@ -3239,30 +3238,44 @@ module Solana
     # (/tasks/broadcast-records-signature-late, and the CDP offramp's
     # `rearm_stalled_send!` before it).
     #
-    # A RuntimeError subclass on purpose: it is the same failure the bare
-    # `raise "Pre-flight simulation failed: …"` used to be, so every existing
-    # `rescue StandardError` chain and every operator-facing message path is
-    # unchanged. Only the callers that need the distinction name the type.
-    class PreflightRejected < RuntimeError; end
+    # THE SEAM IS `Solana::Cosign`'s NOW. This class used to be
+    # `Vault::PreflightRejected < RuntimeError`; it is the gem's
+    # `Cosign::PreflightRejected` — the same distinction, named once, so the
+    # cosign path and the operator broadcast path raise ONE hierarchy and a
+    # caller writes ONE rescue. Its sibling `Cosign::BroadcastFailed` is the
+    # "may already be on the chain" side, which this app previously had no type
+    # for at all and expressed as a bare `raise`.
+    #
+    # The constant stays reachable as `Solana::Vault::PreflightRejected` so a
+    # `rescue` that names it still resolves while call sites move.
+    PreflightRejected = Cosign::PreflightRejected
 
     # A pre-flight that gave NO VERDICT: the simulation could not be run, or it
     # answered with nothing usable (no answer, or no `err` field). Raised only by
     # #preflight_cosigned_wire!, which is the cash-out wire's sole pre-flight.
     #
-    # A SUBCLASS on purpose. It is still provably un-sent, so every existing
-    # `rescue PreflightRejected` keeps catching it unchanged. It exists so
-    # Cdp::OfframpSendsController#cosign can tell the player "Solana is busy, try
-    # again" instead of "check that your wallet still holds the USDC" — advice
-    # that is only true when the PROGRAM refused the wire.
-    class PreflightUnavailable < PreflightRejected; end
+    # STILL A SUBCLASS, now of the gem's class. It is still provably un-sent, so
+    # every `rescue Cosign::PreflightRejected` keeps catching it unchanged. It
+    # exists so Cdp::OfframpSendsController#cosign can tell the player "Solana is
+    # busy, try again" instead of "check that your wallet still holds the USDC" —
+    # advice that is only true when the PROGRAM refused the wire. The gem has no
+    # equivalent because the distinction is this app's product judgement, not a
+    # fact about Solana.
+    class PreflightUnavailable < Cosign::PreflightRejected; end
 
     # ── THE COSIGN GUARD'S ACCOUNT SLOTS — SHAPE-DEPENDENT SINCE v0.26 ──────
     #
-    # These are the indices `#assert_entry_cosign_safe!` reads to prove a
+    # These WERE the indices `#assert_entry_cosign_safe!` read to prove a
     # Phantom-signed wire binds the session's wallet to the entry PDA we derived.
-    # They are the C1 blind-cosign defence, so reading the WRONG slot is not a
-    # cosmetic bug — it is the guard silently validating an account the attacker
-    # chose, while still reporting a pass.
+    # That guard is gone: `Cosign::Expectation` compares EVERY account of the
+    # built instruction, in order, so no index has to be singled out any more and
+    # there is no longer a wrong slot to read.
+    #
+    # They stay as the ACCOUNT-LAYOUT PIN. `test/services/solana/
+    # vault_account_layout_test.rb` asserts these numbers against the committed
+    # IDLs, so a future account-order change (the way v0.26 inserted
+    # `governance` at index 4) fails loudly here instead of silently shifting
+    # what every builder in this file emits.
     #
     # v0.26 inserts `governance` at index 4, immediately after `vault_state`, in
     # BOTH entry instructions. Every slot at or after it shifts by one. They were
@@ -3302,353 +3315,169 @@ module Solana
       self.class.enter_contest_with_token_token_pda_position
     end
 
-    # SystemInstruction::AdvanceNonceAccount discriminant (u32 LE 4) — see
-    # SystemProgram.advance_nonce_account in solana-studio. Named so the cosign
-    # guards can say WHY they refuse it: NO System instruction is permitted in a
-    # cosigned entry or create wire, this one included (see #system_ix_reject!).
-    SYSTEM_ADVANCE_NONCE_DATA = [4].pack("V").freeze
-
-    # SEMANTIC allowlist validation of a Phantom-signed entry wire BEFORE the
-    # admin cosigns it (audit C1). The client round-trips the tx through web3.js
-    # (Transaction.from(...).serialize()), so the returned message bytes may be
-    # RE-ENCODED — byte-equality with the stored serialized_tx would reject legit
-    # entries. Instead we DECODE the wire and assert it is exactly the
-    # enter_contest we built:
+    # ── THE COSIGN PATH IS Solana::Cosign (solana-studio >= 0.12.0) ───────────
     #
-    #   1. Fee payer (account[0]) == the admin managed wallet. Admin is the only
-    #      signature slot the server fills; if admin isn't the fee payer there is
-    #      nothing legitimate to cosign. The strict instruction allowlist below
-    #      means admin can never be the writable destination of a value transfer
-    #      (every System transfer is rejected; enter_contest debits the USER).
-    #   2. EXACTLY ONE turf-vault instruction, and it must be `enter_contest`
-    #      (discriminator match — rejects mint_entry_token / settle_contest / any
-    #      other instruction on our PROGRAM_ID). Its contest_entry account must
-    #      equal the server-derived entry_pda(contest, wallet, entry_num) for THIS
-    #      entry (defense-in-depth; mirrors verify_and_confirm_onchain_entry!).
-    #   3. System Program: NOTHING. A System transfer (opcode 2) is the C1 attack;
-    #      an advanceNonceAccount is refused too. No wire that reaches this guard
-    #      carries one — #build_enter_contest (dn = nil) and
-    #      #build_enter_contest_with_token anchor on a recent blockhash since
-    #      2026-06-11 — and the durable nonce's authority is the admin, the very
-    #      key this guard decides whether to sign with. Admitting an advance let a
-    #      user append one to their own entry and have the admin cosign advance
-    #      the OPERATOR's nonce, stranding any operator tx anchored on it
-    #      (reject-vestigial-nonce-cosign-advance).
-    #   4. ComputeBudget: only SetComputeUnitLimit and SetComputeUnitPrice, at most
-    #      once each, and the priority fee they make the ADMIN pay is capped at
-    #      COSIGN_FEE_MARGIN x our builder's own fee (see COSIGN_FEE_MARGIN).
-    #   5. Any other program id or instruction → reject.
-    #   6. Exactly two signers, the admin then THIS wallet — the base fee the
-    #      admin pays is per signature (see #assert_cosign_signer_set!).
+    # This file used to carry the whole gasless-cosign apparatus: three
+    # near-identical `assert_*_cosign_safe!` guards, a legacy wire decoder
+    # (`parse_wire_message`), a ComputeBudget reader, a priority-fee cap, a
+    # System-instruction refusal and a Lighthouse allowlist. Every one of them is
+    # `Solana::Cosign` now — extracted upward by extract-solana-primitives-upward
+    # and hardened by gem-cosign-lighthouse-allowlist. They are DELETED here
+    # rather than wrapped, so there is exactly one implementation to audit and it
+    # is the one with the 92-test suite.
     #
-    # Raises UnsafeCosignError (logged server-side via #cosign_reject!) on the
-    # first failure. Returns true when the wire is safe to cosign + broadcast.
-    # `entry_token_pda:` — the EntryTokenAccount this entry was PREPARED against
-    # (base58), or nil for the USDC/USDT entry. It is what the SERVER chose in
-    # #prepare_entry, never anything the wire claims, and it selects which single
-    # instruction may be cosigned: with a token PDA only enter_contest_with_token
-    # bound to THAT account, without one only enter_contest. Each expectation
-    # admits exactly one discriminator, so a client cannot swap a paid entry for
-    # a token consume — or spend a token the server never picked — after the fact.
-    def assert_entry_cosign_safe!(signed_wire_base64, entry:, wallet_address:, entry_token_pda: nil)
-      cosign_reject!(entry, wallet_address, "empty_wire: no signed_tx bytes") if signed_wire_base64.blank?
+    # WHAT THE GEM CHECKS, AND WHERE IT IS STRICTER THAN WHAT THIS FILE DID.
+    # `Cosign::Expectation#verify!` judges a returned wire by MEANING, never by
+    # bytes — the browser round-trips the wire through web3.js and may re-encode
+    # it, so byte-equality would refuse legitimate entries:
+    #
+    #   1. Account 0 is the admin managed wallet, and WRITABLE.
+    #   2. The signer set is EXACTLY the admin plus the named cosigner. An extra
+    #      signer and a missing one are both refused, so the base fee the house
+    #      pays per DECLARED signature is pinned by set equality — the padding
+    #      attack the old COSIGN_SIGNER_COUNT capped by counting.
+    #   3. Strip ComputeBudget and Lighthouse; what REMAINS must EQUAL the built
+    #      instruction list — same programs, same ORDERED account keys, same
+    #      data, same order.
+    #   4. ComputeBudget is READ, not waved through: SetComputeUnitLimit and
+    #      SetComputeUnitPrice only, once each, and the fee they make the admin
+    #      pay capped at COSIGN_FEE_MARGIN x the builder's own.
+    #   5. Lighthouse is READ too: a first data byte of 2..17 (an assertion) is
+    #      admitted; MemoryWrite (0), MemoryClose (1), empty data and any unknown
+    #      variant are refused. That is this app's own guard carried upward — see
+    #      the LIGHTHOUSE_PROGRAM_ID comment above for the mainnet evidence.
+    #
+    # RULE 3 IS THE STRICTER ONE, AND IT IS MEASURED, NOT ASSUMED. The guard it
+    # replaces checked the Anchor DISCRIMINATOR plus the entry PDA and the token
+    # PDA, and let every other account and every other byte of the instruction
+    # through. Exact comparison refuses a System transfer, a nonce advance, a
+    # duplicated or swapped instruction and an altered amount by CONSTRUCTION,
+    # instead of by an enumerated refusal each — but it also refuses anything a
+    # legitimate wallet rewrites, and Phantom injects its Lighthouse guard
+    # instructions on MAINNET ONLY, so devnet cannot answer whether a real
+    # Phantom-signed entry still passes.
+    #
+    # It does. All five real mainnet wires this house has cosigned —
+    # test/fixtures/files/phantom_mainnet_cosigned_wires.json, one enter_contest,
+    # one enter_contest_with_token and three create_contest, re-read from
+    # mainnet-beta at finalized — are replayed through this exact rule in
+    # test/services/solana/cosign_mainnet_wire_admission_test.rb, and every one is
+    # ADMITTED. Each carries 7-9 Phantom-injected Lighthouse instructions (only
+    # variants 6 and 10, both assertions) wrapped around EXACTLY ONE app
+    # instruction that Phantom left untouched. That is the measurement the exact
+    # rule rests on; re-run it before widening what any builder emits.
+    #
+    # THE COMMITMENT IS "confirmed" ON BOTH ENDS. `Cosign::Builder` fetches the
+    # blockhash at `confirmed` and the expectation carries that, so
+    # `Cosign::Completer` sends with `preflight_commitment: "confirmed"`. This
+    # file's own builders fetch `finalized` (`build_tx`), which is ~32 slots
+    # behind; a hand-rolled send of a `confirmed`-anchored wire without the
+    # matching preflight commitment dies as "Blockhash not found" on a perfectly
+    # valid transaction. Every cosigned send below goes through the completer for
+    # that reason.
 
-      msg =
-        begin
-          parse_wire_message(Base64.decode64(signed_wire_base64).b, entry: entry, wallet_address: wallet_address)
-        rescue UnsafeCosignError
-          raise
-        rescue StandardError => e
-          cosign_reject!(entry, wallet_address, "unparseable_wire: #{e.class}: #{e.message}")
-        end
-      account_keys = msg[:account_keys]
-
-      admin_key = Keypair.admin.public_key_bytes.b
-
-      # (1) Fee payer (account[0]) must be the admin managed wallet.
-      fee_payer = account_keys[0]
-      if fee_payer != admin_key
-        cosign_reject!(entry, wallet_address,
-          "fee_payer_not_admin: account[0]=#{b58(fee_payer)} expected admin=#{Keypair.admin.address}")
-      end
-
-      # Server-derive the enter_contest binding for THIS entry (never trust the wire).
-      entry_num = entry.entry_number
-      if entry_num.nil?
-        cosign_reject!(entry, wallet_address, "no_entry_number: entry ##{entry.id} has no entry_number to bind")
-      end
-      expected_entry_pda = entry_pda(entry.contest.slug, wallet_address, entry_num).first.b
-
-      token_funded       = entry_token_pda.present?
-      expected_ix_name   = token_funded ? "enter_contest_with_token" : "enter_contest"
-      enter_disc         = Transaction.anchor_discriminator(expected_ix_name).b
-      expected_token_pda = token_funded ? Keypair.decode_base58(entry_token_pda).b : nil
-      turf_vault       = @program_id.b
-      system_program   = Transaction::SYSTEM_PROGRAM_ID.b   # 32 zero bytes
-      compute_budget   = COMPUTE_BUDGET_PROGRAM_ID.b
-      lighthouse       = LIGHTHOUSE_PROGRAM_ID.b
-
-      enter_count = 0
-      budget = {}
-
-      msg[:instructions].each_with_index do |ix, i|
-        program_id = account_keys[ix[:program_id_index]]
-        cosign_reject!(entry, wallet_address, "bad_program_index: ix #{i} program index out of range") if program_id.nil?
-        program_id = program_id.b
-
-        case program_id
-        when turf_vault
-          # (2) Only the PREPARED entry instruction, bound to THIS entry's PDA.
-          unless ix[:data].byteslice(0, 8) == enter_disc
-            cosign_reject!(entry, wallet_address,
-              "wrong_turf_vault_ix: ix #{i} disc=#{ix[:data].byteslice(0, 8).to_s.unpack1('H*')} != #{expected_ix_name}")
-          end
-          enter_count += 1
-          slot = ix[:account_indices][enter_contest_entry_pda_position]
-          ix_entry_pda = slot && account_keys[slot]
-          if ix_entry_pda != expected_entry_pda
-            cosign_reject!(entry, wallet_address,
-              "entry_pda_mismatch: ix #{i} entry account=#{b58(ix_entry_pda)} expected=#{b58(expected_entry_pda)}")
-          end
-          # (2b) Token-funded entry: the consume must hit the EXACT EntryTokenAccount
-          # the server picked. The program already refuses a token whose owner is not
-          # the signer, so this is the second lock rather than the only one — it stops
-          # a wire that swaps in a DIFFERENT token this same wallet owns (spending a
-          # voucher the server never selected, and never accounted for).
-          if token_funded
-            token_slot   = ix[:account_indices][enter_contest_with_token_token_pda_position]
-            ix_token_pda = token_slot && account_keys[token_slot]
-            if ix_token_pda != expected_token_pda
-              cosign_reject!(entry, wallet_address,
-                "entry_token_pda_mismatch: ix #{i} token account=#{b58(ix_token_pda)} expected=#{b58(expected_token_pda)}")
-            end
-          end
-        when system_program
-          # (3) No System instruction, ever — not a transfer, not a nonce advance.
-          system_ix_reject!(entry, wallet_address, ix, i)
-        when compute_budget
-          # (4) Read, never waved through: the admin pays whatever fee these set.
-          read_compute_budget_ix!(entry, wallet_address, ix, i, budget)
-        when lighthouse
-          # (5) Phantom-injected Lighthouse instruction — admit assertion
-          # variants only. MemoryWrite/MemoryClose (which move the fee payer's
-          # rent) and any unknown/empty discriminator are refused. See
-          # LIGHTHOUSE_PROGRAM_ID / #assert_lighthouse_ix_safe!.
-          assert_lighthouse_ix_safe!(entry, wallet_address, ix, i)
-        else
-          # (6) Anything else — reject.
-          cosign_reject!(entry, wallet_address, "disallowed_program: ix #{i} program=#{b58(program_id)}")
-        end
-      end
-
-      unless enter_count == 1
-        cosign_reject!(entry, wallet_address, "enter_contest_count: found #{enter_count} #{expected_ix_name} ixs, require exactly 1")
-      end
-      assert_cosign_signer_set!(entry, wallet_address, msg)
-      assert_priority_fee_capped!(entry, wallet_address, budget)
-
-      true
+    # The cosign builder: the admin managed wallet pays, the player signs.
+    def cosign_builder
+      Cosign::Builder.new(client: client, fee_payer: Keypair.admin)
     end
 
-    # Same admin blind-cosign boundary as #assert_entry_cosign_safe!, but for
-    # contest creation. The form payload is signed server-side into
-    # params_token; the browser only returns Phantom-signed wire bytes. Before
-    # filling the admin signature slot, assert that the wire still contains
-    # exactly the create_contest instruction for that token's slug, creator,
-    # fee schedule, max entries, payouts, prize pool, and lock timestamp, under
-    # exactly two signers: the admin, then the creator (#assert_cosign_signer_set!).
-    def assert_create_contest_cosign_safe!(signed_wire_base64, wallet_address:, contest_slug:, onchain_params:)
-      context = "create_contest:#{contest_slug}"
-      cosign_reject!(context, wallet_address, "empty_wire: no signed_tx bytes") if signed_wire_base64.blank?
-
-      spec = create_contest_instruction(wallet_address, contest_slug, **onchain_params.symbolize_keys)
-      expected_accounts = spec[:accounts].map { |meta| meta[:pubkey].b }
-      expected_data = spec[:data].b
-
-      msg =
-        begin
-          parse_wire_message(Base64.decode64(signed_wire_base64).b, entry: context, wallet_address: wallet_address)
-        rescue UnsafeCosignError
-          raise
-        rescue StandardError => e
-          cosign_reject!(context, wallet_address, "unparseable_wire: #{e.class}: #{e.message}")
-        end
-      account_keys = msg[:account_keys]
-
-      admin_key = Keypair.admin.public_key_bytes.b
-      fee_payer = account_keys[0]
-      if fee_payer != admin_key
-        cosign_reject!(context, wallet_address,
-          "fee_payer_not_admin: account[0]=#{b58(fee_payer)} expected admin=#{Keypair.admin.address}")
-      end
-
-      create_disc      = Transaction.anchor_discriminator("create_contest").b
-      turf_vault       = @program_id.b
-      system_program   = Transaction::SYSTEM_PROGRAM_ID.b
-      compute_budget   = COMPUTE_BUDGET_PROGRAM_ID.b
-      lighthouse       = LIGHTHOUSE_PROGRAM_ID.b
-
-      create_count = 0
-      budget = {}
-
-      msg[:instructions].each_with_index do |ix, i|
-        program_id = account_keys[ix[:program_id_index]]
-        cosign_reject!(context, wallet_address, "bad_program_index: ix #{i} program index out of range") if program_id.nil?
-        program_id = program_id.b
-
-        case program_id
-        when turf_vault
-          unless ix[:data].byteslice(0, 8) == create_disc
-            cosign_reject!(context, wallet_address,
-              "wrong_turf_vault_ix: ix #{i} disc=#{ix[:data].byteslice(0, 8).to_s.unpack1('H*')} != create_contest")
-          end
-          unless ix[:data] == expected_data
-            cosign_reject!(context, wallet_address, "create_data_mismatch: ix #{i} does not match server payload")
-          end
-          actual_accounts = ix[:account_indices].map { |idx| account_keys[idx]&.b }
-          unless actual_accounts == expected_accounts
-            cosign_reject!(context, wallet_address,
-              "create_accounts_mismatch: ix #{i} accounts=#{actual_accounts.map { |a| b58(a) }.join(',')}")
-          end
-          create_count += 1
-        when system_program
-          # No System instruction, ever — every guarded create is built with
-          # admin_signs: false, which passes durable_nonce: nil. The one builder
-          # that anchors on the nonce (admin_signs: true, #prepare_onchain_contest)
-          # is signed by the server FIRST and never reaches this guard.
-          system_ix_reject!(context, wallet_address, ix, i)
-        when compute_budget
-          # Read, never waved through: the admin pays whatever fee these set.
-          read_compute_budget_ix!(context, wallet_address, ix, i, budget)
-        when lighthouse
-          # Phantom-injected Lighthouse instruction — assertion variants only.
-          # See LIGHTHOUSE_PROGRAM_ID / #assert_lighthouse_ix_safe!.
-          assert_lighthouse_ix_safe!(context, wallet_address, ix, i)
-        else
-          cosign_reject!(context, wallet_address, "disallowed_program: ix #{i} program=#{b58(program_id)}")
-        end
-      end
-
-      unless create_count == 1
-        cosign_reject!(context, wallet_address, "create_contest_count: found #{create_count} create_contest ixs, require exactly 1")
-      end
-      assert_cosign_signer_set!(context, wallet_address, msg)
-      assert_priority_fee_capped!(context, wallet_address, budget)
-
-      true
+    # The cosign completer: fills the admin's slot, and nothing else. It never
+    # signs a wire that failed a check — every refusal happens before the key is
+    # used, so a refused wire leaves nothing behind that could be broadcast.
+    def cosign_completer
+      Cosign::Completer.new(client: client, fee_payer: Keypair.admin)
     end
 
-    # Audit C1 boundary for the PHANTOM CASH-OUT — the SPL-transfer twin of
-    # #assert_entry_cosign_safe! / #assert_create_contest_cosign_safe!.
+    # Rebuild what THIS SERVER built, from the wire it STORED, for the request
+    # that receives the wallet's signature.
     #
-    # Since phantom-cashout-needs-sol the ADMIN is the fee payer on this wire
-    # (see #build_user_usdc_transfer_unsigned), so filling its signature slot is
-    # the house agreeing to pay for whatever bytes the client hands back. Before
-    # that happens, assert the wire is still EXACTLY the transfer this server
-    # prepared:
+    # `built_wire_base64` must come from the server's own storage —
+    # `PendingTransaction#serialized_tx`, written pre-broadcast by the prepare
+    # request — and NEVER from a request parameter. A wire from the client is not
+    # a source of expectations; it is the thing being judged, and passing one
+    # here judges it against itself.
     #
-    #   - admin in the fee-payer slot (account 0),
-    #   - exactly two signers, the admin then the cash-out wallet (the house
-    #     pays a base fee per signature, and does not pay for a transfer that
-    #     cannot authorise itself; see #assert_cosign_signer_set!),
-    #   - exactly ONE SPL Token instruction, and it is a Transfer of the exact
-    #     expected amount, from the wallet's own USDC ATA, to the resolved
-    #     Coinbase destination token account, under the wallet's own authority,
-    #   - only fee-capped ComputeBudget and Phantom-injected Lighthouse
-    #     instructions besides, and NO System instruction, ever.
-    #
-    # Raises UnsafeCosignError; the detailed reason is logged server-side and is
-    # NEVER returned to the client. Validate-then-cosign: on reject nothing is
-    # signed and nothing can be broadcast.
-    def assert_usdc_transfer_cosign_safe!(signed_wire_base64, wallet_address:, destination_token_account:,
-                                          amount_lamports:, context: "offramp_send")
-      cosign_reject!(context, wallet_address, "empty_wire: no signed_tx bytes") if signed_wire_base64.blank?
+    # THE BINDING TO THIS ENTRY IS INHERITED FROM THE ROW, then re-asserted.
+    # `from_wire` takes the cosigner set from the stored wire's own signer slots,
+    # so `wallet_address:` is checked against it explicitly: the caller looks the
+    # row up by target + initiator, and this makes the wallet a second, stated
+    # condition rather than a property of a query somewhere else.
+    def cosign_expectation(built_wire_base64, wallet_address:, last_valid_block_height: nil)
+      raise UnsafeCosignError, "no prepared wire to judge against" if built_wire_base64.blank?
 
-      wallet_bytes = as_key_bytes(wallet_address)
-      from_ata, _  = Solana::SplToken.find_associated_token_address(wallet_address, Config::USDC_MINT)
-      expected_accounts = [as_key_bytes(from_ata), as_key_bytes(destination_token_account), wallet_bytes]
-      expected_data = ([3].pack("C") + [amount_lamports.to_i].pack("Q<")).b
-
-      msg =
+      expectation =
         begin
-          parse_wire_message(Base64.decode64(signed_wire_base64).b, entry: context, wallet_address: wallet_address)
-        rescue UnsafeCosignError
-          raise
-        rescue StandardError => e
-          cosign_reject!(context, wallet_address, "unparseable_wire: #{e.class}: #{e.message}")
+          Cosign::Expectation.from_wire(built_wire_base64,
+                                        fee_payer: Keypair.admin,
+                                        last_valid_block_height: last_valid_block_height,
+                                        fee_margin: COSIGN_FEE_MARGIN)
+        rescue ArgumentError => e
+          raise UnsafeCosignError, "unusable_prepared_wire: #{e.message}"
         end
-      account_keys = msg[:account_keys]
 
-      admin_key = Keypair.admin.public_key_bytes.b
-      fee_payer = account_keys[0]
-      if fee_payer != admin_key
-        cosign_reject!(context, wallet_address,
-          "fee_payer_not_admin: account[0]=#{b58(fee_payer)} expected admin=#{Keypair.admin.address}")
+      wanted = as_key_bytes(wallet_address)
+      unless expectation.cosigners == [wanted]
+        raise UnsafeCosignError,
+              "prepared_wire_cosigner_mismatch: stored wire names " \
+              "[#{expectation.cosigners.map { |k| b58(k) }.join(', ')}], expected [#{wallet_address}]"
       end
 
-      token_program  = Transaction::TOKEN_PROGRAM_ID.b
-      system_program = Transaction::SYSTEM_PROGRAM_ID.b
-      compute_budget = COMPUTE_BUDGET_PROGRAM_ID.b
-      lighthouse     = LIGHTHOUSE_PROGRAM_ID.b
+      expectation
+    end
 
-      transfer_count = 0
-      budget = {}
+    # THE OTHER WAY TO STATE AN EXPECTATION: REBUILD IT FROM SERVER STATE.
+    #
+    # #cosign_expectation above reads the wire this server STORED. These two
+    # rebuild the instruction from the server's own record of what the operation
+    # IS, which is what the guards they replace did, and what their flows already
+    # do for other reasons:
+    #
+    #   * contest create re-derives `draft.onchain_params` from the signed bundle
+    #     token before it validates anything, precisely so a slate whose first
+    #     kickoff moved is REFUSED rather than funded at a lock time nobody chose;
+    #   * the cash-out holds the wallet, destination and amount on the ramp row,
+    #     and has no stored wire to read.
+    #
+    # WHY THE ENTRY DOES NOT USE THIS. A rebuild compares against what the server
+    # believes NOW, so any input that drifts between prepare and confirm —
+    # `Config.governance?` flipping, a season rolling over — refuses a wire the
+    # player signed correctly. The entry is the player-money path and re-prepares
+    # seconds before signing, so it judges against the exact bytes it handed out
+    # (#cosign_expectation) and lets the post-broadcast on-chain verification
+    # re-derive the entry PDA. The operator flows prefer the rebuild because for
+    # them a drift SHOULD refuse.
+    def create_contest_expectation(wallet_address:, contest_slug:, onchain_params:)
+      params = onchain_params.to_h.symbolize_keys
+      spec = create_contest_instruction(
+        wallet_address, contest_slug,
+        entry_fee_by_currency: params.fetch(:entry_fee_by_currency),
+        max_entries:           params.fetch(:max_entries),
+        payout_amounts:        params.fetch(:payout_amounts),
+        prize_pool:            params.fetch(:prize_pool),
+        season_id:             params[:season_id],
+        lock_timestamp:        params.fetch(:lock_timestamp, 0)
+      )
+      rebuilt_expectation(
+        instructions: [{ program_id: @program_id, accounts: spec[:accounts], data: spec[:data] }],
+        cosigner: wallet_address
+      )
+    end
 
-      msg[:instructions].each_with_index do |ix, i|
-        program_id = account_keys[ix[:program_id_index]]
-        cosign_reject!(context, wallet_address, "bad_program_index: ix #{i} program index out of range") if program_id.nil?
-        program_id = program_id.b
-
-        case program_id
-        when token_program
-          # SPL Token Transfer is discriminator byte 3 (Solana::SplToken
-          # .transfer_instruction). Compare the WHOLE data field, so the amount
-          # is pinned too — a wire that swapped in a larger transfer, or any
-          # other token instruction (Approve, SetAuthority, CloseAccount,
-          # Burn), fails right here.
-          unless ix[:data].to_s.b == expected_data
-            cosign_reject!(context, wallet_address,
-              "token_data_mismatch: ix #{i} data=#{ix[:data].to_s.unpack1('H*')} " \
-              "expected transfer of #{amount_lamports.to_i}")
-          end
-          actual_accounts = ix[:account_indices].map { |idx| account_keys[idx]&.b }
-          unless actual_accounts == expected_accounts
-            cosign_reject!(context, wallet_address,
-              "token_accounts_mismatch: ix #{i} accounts=#{actual_accounts.map { |a| b58(a) }.join(',')} " \
-              "expected=#{expected_accounts.map { |a| b58(a) }.join(',')}")
-          end
-          transfer_count += 1
-        when system_program
-          # No System instruction, ever — the same refusal the entry and
-          # create_contest guards make. A SystemProgram.transfer{from: admin}
-          # is precisely what the admin signature must never be spent on.
-          system_ix_reject!(context, wallet_address, ix, i)
-        when compute_budget
-          # Read, never waved through: the admin pays whatever fee these set.
-          read_compute_budget_ix!(context, wallet_address, ix, i, budget)
-        when lighthouse
-          # Phantom-injected Lighthouse instruction — assertion variants only.
-          # See LIGHTHOUSE_PROGRAM_ID / #assert_lighthouse_ix_safe!.
-          assert_lighthouse_ix_safe!(context, wallet_address, ix, i)
-        else
-          cosign_reject!(context, wallet_address, "disallowed_program: ix #{i} program=#{b58(program_id)}")
-        end
-      end
-
-      unless transfer_count == 1
-        cosign_reject!(context, wallet_address,
-          "transfer_count: found #{transfer_count} SPL transfer ixs, require exactly 1")
-      end
-      assert_cosign_signer_set!(context, wallet_address, msg)
-      assert_priority_fee_capped!(context, wallet_address, budget)
-
-      true
+    def usdc_transfer_expectation(wallet_address:, destination_token_account:, amount_lamports:)
+      from_ata, _ = Solana::SplToken.find_associated_token_address(wallet_address, Config::USDC_MINT)
+      rebuilt_expectation(
+        instructions: [Solana::SplToken.transfer_instruction(
+          from: from_ata,
+          to: destination_token_account,
+          authority: Keypair.decode_base58(wallet_address),
+          amount: amount_lamports.to_i
+        )],
+        cosigner: wallet_address
+      )
     end
 
     # Fill the admin (fee payer) signature slot in the Phantom-signed cash-out
-    # wire and hand the fully-signed bytes back. The caller MUST run
-    # #assert_usdc_transfer_cosign_safe! first — Transaction.cosign_wire signs
-    # the EXACT bytes it is handed, whatever they are.
+    # wire and hand the fully-signed bytes back.
     #
     # Unlike #cosign_and_broadcast_entry this does NOT broadcast. The cash-out
     # client already owns a working browser broadcast, and it has all three
@@ -3664,30 +3493,42 @@ module Solana
     # and it is returned so the caller can persist it BEFORE the bytes leave the
     # server (the same pre-broadcast anchor #build_user_usdc_transfer provides
     # for the managed path).
-    def cosign_usdc_transfer(signed_wire_base64)
-      patched_b64 = Transaction.cosign_wire_base64(signed_wire_base64, signer: Keypair.admin)
-      { signed_tx: patched_b64, signature: extract_tx_signature(Base64.decode64(patched_b64).b) }
+    # `expectation:` comes from #cosign_expectation on the wire this server
+    # stored when it prepared the cash-out. Completer#cosign VERIFIES the
+    # returned wire against it, checks the player's own signature slot, and only
+    # then fills the admin's — so the "run the guard first" contract the deleted
+    # #assert_usdc_transfer_cosign_safe! relied on a caller to honour is now
+    # structural: there is no way to reach the admin key without passing.
+    def cosign_usdc_transfer(signed_wire_base64, expectation:)
+      cosigned = cosign_completer.cosign(signed_wire_base64, expectation: expectation)
+      { signed_tx: cosigned.wire_base64, signature: cosigned.signature }
     end
 
     # Cosign (admin) the Phantom-signed entry wire, pre-flight simulate, then
     # broadcast. Public API called by ContestsController#confirm_onchain_entry.
-    # The caller MUST run #assert_entry_cosign_safe! first (audit C1) — this
-    # method fills the admin signature slot over WHATEVER bytes it is handed.
-    def cosign_and_broadcast_entry(signed_wire_base64)
-      patched_b64 = Transaction.cosign_wire_base64(signed_wire_base64, signer: Keypair.admin)
-
-      # Server-side pre-flight. sig_verify:false — both sigs are present now but we
-      # don't need the RPC to re-verify; we want program-error + log surfacing.
-      # replace_recent_blockhash:true — entry txs anchor on a RECENT blockhash, never the
-      # durable nonce (#build_enter_contest sets dn = nil; see its 2026-06-11 note). The
-      # flag landed minutes earlier that day, while entries were still nonce-anchored and
-      # a default simulation rejected each one with "BlockhashNotFound". It stays so this
-      # pre-flight judges the PROGRAM, not blockhash age (as in #simulate_and_broadcast);
-      # send_and_confirm's own preflight still rejects an expired blockhash. The RPC needs
-      # sigVerify=false alongside it — already set; the broadcast still checks signatures.
-      simulate_wire!(patched_b64, label: "Entry pre-flight", refusal: RuntimeError)
-
-      client.send_and_confirm(patched_b64)
+    #
+    # `before_send:` IS THE POINT, AND IT CLOSES A REAL GAP. Completer#complete
+    # calls it with the transaction's signature after every check that can refuse
+    # the wire and BEFORE the bytes leave this server. The signature is already
+    # inside the cosigned wire — it is the first signature — so it is knowable
+    # without asking the RPC anything, and stamping it there means a broadcast
+    # that lands can never go unrecorded.
+    #
+    # This method used to return the signature from `send_and_confirm`, and
+    # #confirm_onchain_entry stamped it on the PendingTransaction on the NEXT
+    # LINE. Twelve lines of controller sat between the broadcast and the stamp,
+    # and a crash, a dyno restart or a failed `update!` anywhere in that window
+    # left a row that reads "never broadcast" for money that had already moved —
+    # so `recover_pending_entry` would let the player pay a second time. The
+    # ordering is now pinned by test, not by a comment asking the next editor not
+    # to move a line (test/services/solana/cosign_before_send_ordering_test.rb).
+    #
+    # If `before_send` RAISES, nothing is sent and the exception propagates
+    # unchanged — the stamp is a precondition of the broadcast, not a side effect
+    # of it.
+    def cosign_and_broadcast_entry(signed_wire_base64, expectation:, before_send: nil)
+      cosign_completer.complete(signed_wire_base64, expectation: expectation,
+                                                    before_send: before_send).signature
     end
 
     # Broadcast a FULLY-signed multisig wire on the operator's behalf: the admin
@@ -3763,11 +3604,47 @@ module Solana
     # by the RPC — BEFORE this method is called, so a row whose send failed can
     # always ask the chain what happened to it
     # (`PendingTransaction#reconcile_broadcast!`).
+    # THE ERROR TYPES ARE THE GEM'S NOW; THE BODY IS NOT, AND THAT IS DELIBERATE.
+    #
+    # `Cosign::Completer#complete` cannot serve this path, because this path's
+    # wires are not always ones the house pays for. `Solana::Cosign` is "the
+    # SERVER pays the fee": the completer asserts the expectation's fee payer IS
+    # its own key. `#build_update_signers` on its `server_signed: false` branch
+    # puts an EXTERNAL LEAD SIGNER in account 0 — the lead pays, the house may
+    # not even be a signer — so routing those bytes through the completer would
+    # refuse every lead-paid operator wire with a wiring error. This method keeps
+    # its own simulate-and-send for that reason.
+    #
+    # What DOES change is the vocabulary, so a caller rescues one hierarchy
+    # instead of two: `Cosign::PreflightRejected` is provably un-sent (rebuild
+    # freely) and `Cosign::BroadcastFailed` MAY be on chain (keep the claim and
+    # reconcile `#signature` against the chain — never rewind). The line between
+    # them sits exactly where it sat: everything up to and including the
+    # simulation's answer is provably un-sent; everything from `send_and_confirm`
+    # onward is ambiguous, for the reason the long note above gives.
+    #
+    # NO `preflight_commitment:` HERE, AND IT MUST STAY THAT WAY. These wires
+    # come from `#build_partial_signed` / `#build_lead_paid_unsigned`, which
+    # anchor on `#build_tx`'s FINALIZED blockhash. A finalized blockhash is known
+    # to every commitment level, so the node's default preflight accepts it. The
+    # commitment argument the cosign path needs is for the opposite case — a
+    # `confirmed`-anchored wire, which a finalized preflight rejects as
+    # "Blockhash not found" while it is perfectly valid. Adding one here would be
+    # cargo cult; adding one there is mandatory.
     def simulate_and_broadcast(signed_wire_base64)
       simulate_wire!(signed_wire_base64, label: "Pre-flight",
-                                         refusal: PreflightRejected, unrunnable: PreflightRejected)
+                                         refusal: Cosign::PreflightRejected,
+                                         unrunnable: Cosign::PreflightRejected)
 
-      returned = client.send_and_confirm(signed_wire_base64)
+      returned =
+        begin
+          client.send_and_confirm(signed_wire_base64)
+        rescue StandardError => e
+          raise Cosign::BroadcastFailed.new(
+            "send failed — reconcile before rebuilding: #{e.message}",
+            signature: (signature_for_wire(signed_wire_base64) rescue nil)
+          )
+        end
 
       # THE DECODER SELF-CHECK. Callers stamp the signature this class derives
       # from the wire (`#signature_for_wire`) before the send, and reconcile
@@ -3788,8 +3665,10 @@ module Solana
       end
 
       if returned.present? && expected.present? && returned != expected
-        raise "Broadcast signature mismatch: the node returned #{returned} for a wire whose " \
-              "own first signature is #{expected}. Reconcile both on chain before acting."
+        raise Cosign::BroadcastFailed.new(
+          "the node returned #{returned} for a wire whose own first signature is " \
+          "#{expected} — reconcile both on chain before acting", signature: expected
+        )
       end
 
       returned
@@ -3813,12 +3692,12 @@ module Solana
       extract_tx_signature(Base64.decode64(signed_wire_base64).b)
     end
 
-    def cosign_and_broadcast_create_contest(signed_wire_base64)
-      patched_b64 = Transaction.cosign_wire_base64(signed_wire_base64, signer: Keypair.admin)
-
-      simulate_wire!(patched_b64, label: "Contest-create pre-flight", refusal: RuntimeError)
-
-      client.send_and_confirm(patched_b64)
+    # The contest-create twin of #cosign_and_broadcast_entry, on the same rail and
+    # with the same `before_send:` contract: the signature is stamped on the
+    # PendingTransaction before the bytes leave.
+    def cosign_and_broadcast_create_contest(signed_wire_base64, expectation:, before_send: nil)
+      cosign_completer.complete(signed_wire_base64, expectation: expectation,
+                                                    before_send: before_send).signature
     end
 
     # PRE-FLIGHT A COSIGNED WIRE THIS SERVER WILL NOT BROADCAST ITSELF.
@@ -3920,204 +3799,6 @@ module Solana
       end
 
       sim
-    end
-
-    # Decode a LEGACY (unversioned) Solana wire transaction into its account keys
-    # and instructions, for #assert_entry_cosign_safe!. Mirrors the header/account
-    # walk in Solana::Transaction.cosign_wire and reuses its public read_compact_u16
-    # primitive. Every malformed/oversized read raises (→ converted to
-    # UnsafeCosignError by the caller) so a truncated or crafted payload fails
-    # CLOSED. A versioned (v0+) message — high bit set on numRequiredSignatures —
-    # is rejected: this legacy parser can't safely walk address-table lookups, and
-    # the entry build emits + Phantom round-trips a legacy message, so a v0 here is
-    # anomalous.
-    #
-    # Returns { account_keys: [<32-byte String>, ...],
-    #           instructions: [{ program_id_index:, account_indices: [Int], data: String }, ...] }.
-    def parse_wire_message(wire, entry:, wallet_address:)
-      cursor = 0
-      sig_count, cursor = Transaction.read_compact_u16(wire, cursor)
-      cosign_reject!(entry, wallet_address, "no_signatures: zero signature slots") if sig_count.zero?
-      message_start = cursor + (sig_count * 64)
-      cosign_reject!(entry, wallet_address, "truncated_sigs: wire shorter than declared signatures") if wire.bytesize < message_start + 4
-
-      first = wire.getbyte(message_start)
-      cosign_reject!(entry, wallet_address, "versioned_message: v0+ tx not supported") if (first & 0x80) != 0
-      # numRequiredSignatures is the first header byte (the v0 high bit is ruled
-      # out above, so the whole byte is the count). Returned so a guard can ask
-      # whether a given key sits in the SIGNER region of the account list.
-      num_required_signatures = first
-
-      c = message_start + 3 # skip the 3-byte message header (numReqSigs, roSigned, roUnsigned)
-      account_count, c = Transaction.read_compact_u16(wire, c)
-      account_keys = []
-      account_count.times do
-        cosign_reject!(entry, wallet_address, "truncated_account_keys") if wire.bytesize < c + 32
-        account_keys << wire.byteslice(c, 32)
-        c += 32
-      end
-      c += 32 # recent blockhash / durable nonce value
-      cosign_reject!(entry, wallet_address, "truncated_blockhash") if c > wire.bytesize
-
-      ix_count, c = Transaction.read_compact_u16(wire, c)
-      instructions = []
-      ix_count.times do
-        program_id_index = wire.getbyte(c)
-        cosign_reject!(entry, wallet_address, "truncated_ix_header") if program_id_index.nil?
-        c += 1
-        accounts_len, c = Transaction.read_compact_u16(wire, c)
-        account_indices = []
-        accounts_len.times do
-          idx = wire.getbyte(c)
-          cosign_reject!(entry, wallet_address, "truncated_ix_accounts") if idx.nil?
-          account_indices << idx
-          c += 1
-        end
-        data_len, c = Transaction.read_compact_u16(wire, c)
-        cosign_reject!(entry, wallet_address, "truncated_ix_data") if wire.bytesize < c + data_len
-        data = wire.byteslice(c, data_len) || "".b
-        c += data_len
-        instructions << { program_id_index: program_id_index, account_indices: account_indices, data: data }
-      end
-
-      { account_keys: account_keys, instructions: instructions,
-        num_required_signatures: num_required_signatures }
-    end
-
-    # Log the DETAILED rejection reason server-side (forensics: entry id + wallet
-    # + which check failed) and raise the typed error. The controller maps
-    # UnsafeCosignError to a generic client message — the reason here is NEVER
-    # returned to the client.
-    def cosign_reject!(entry, wallet_address, reason)
-      entry_id = entry.respond_to?(:id) ? entry.id : entry.inspect
-      Rails.logger.warn("[cosign][rejected] entry_id=#{entry_id} wallet=#{wallet_address} reason=#{reason}")
-      raise UnsafeCosignError, reason
-    end
-
-    # Parse one ComputeBudget instruction into `budget` ({ limit:, price: }).
-    # Only the two our builders emit are admitted, once each, at their exact
-    # encoded length: the runtime rejects a duplicate anyway, and anything else
-    # (RequestHeapFrame, the deprecated RequestUnits with its own fee field) is a
-    # shape no builder asks the admin to pay for.
-    def read_compute_budget_ix!(ctx, wallet_address, ix, index, budget)
-      data = ix[:data].to_s.b
-      kind, size =
-        case data.getbyte(0)
-        when COMPUTE_BUDGET_SET_LIMIT then [:limit, 5]
-        when COMPUTE_BUDGET_SET_PRICE then [:price, 9]
-        else
-          cosign_reject!(ctx, wallet_address,
-            "compute_budget_ix_not_allowed: ix #{index} disc=#{data.byteslice(0, 1).to_s.unpack1('H*')} " \
-            "(only SetComputeUnitLimit / SetComputeUnitPrice)")
-        end
-      unless data.bytesize == size
-        cosign_reject!(ctx, wallet_address, "compute_budget_malformed: ix #{index} #{kind} is #{data.bytesize} bytes, expected #{size}")
-      end
-      cosign_reject!(ctx, wallet_address, "compute_budget_duplicate: ix #{index} repeats #{kind}") if budget.key?(kind)
-
-      budget[kind] = kind == :limit ? data.byteslice(1, 4).unpack1("V") : data.byteslice(1, 8).unpack1("Q<")
-    end
-
-    # The fee the admin would pay for this wire, against the ceiling derived
-    # from our builders (COSIGN_FEE_MARGIN). No price means no priority fee; no
-    # limit is assumed to be the runtime maximum, so the check never under-counts.
-    def assert_priority_fee_capped!(ctx, wallet_address, budget)
-      price = budget.fetch(:price, 0)
-      if price > COSIGN_MAX_COMPUTE_UNIT_PRICE
-        cosign_reject!(ctx, wallet_address,
-          "compute_unit_price_over_cap: #{price} > #{COSIGN_MAX_COMPUTE_UNIT_PRICE} micro-lamports/CU")
-      end
-
-      limit = budget.fetch(:limit, MAX_COMPUTE_UNIT_LIMIT)
-      fee = price * limit
-      return if fee <= COSIGN_MAX_PRIORITY_FEE_MICROLAMPORTS
-
-      cosign_reject!(ctx, wallet_address,
-        "priority_fee_over_cap: #{price} x #{limit} CU = #{fee / 1_000_000} lamports > " \
-        "#{COSIGN_MAX_PRIORITY_FEE_MICROLAMPORTS / 1_000_000} lamports")
-    end
-
-    # The signer set every cosigned wire must declare: exactly
-    # COSIGN_SIGNER_COUNT signatures, the player's wallet in slot 1. (Slot 0 is
-    # the admin fee payer, which each guard checks first as fee_payer_not_admin.)
-    # That is what every Phantom-first builder emits — #build_enter_contest,
-    # #build_enter_contest_with_token, #build_create_contest(admin_signs: false),
-    # #build_user_usdc_transfer_unsigned — and what all five real mainnet Phantom
-    # wires the house has cosigned declare. Lighthouse adds instructions, never
-    # signers.
-    #
-    # WHY THE COUNT (pin-cashout-cosign-signer-count). Solana charges the fee
-    # payer 5_000 lamports per signature the message header declares, on a
-    # landing that fails too. #assert_priority_fee_capped! capped the priority
-    # half of that fee; nothing capped the base half. A player could pad their
-    # wire with signer slots they fill themselves, and it passed every other
-    # check. Ten signers fit the 1_232-byte packet beside a valid cash-out, so the
-    # house paid up to 150_000 lamports per failed landing instead of 110_000
-    # (2 x 5_000 base + the 100_000 priority ceiling). A signature array that
-    # disagrees with the header is refused by the runtime before any fee is
-    # charged, so the header count is the one to pin.
-    #
-    # WHY SLOT 1. Every guarded instruction needs the player's signature, so a
-    # wire that leaves them out passes the instruction checks and then fails on
-    # landing, on the house's fee. With two signers and the admin in slot 0,
-    # slot 1 is the only place the player can be.
-    COSIGN_SIGNER_COUNT = 2
-
-    def assert_cosign_signer_set!(ctx, wallet_address, msg)
-      count = msg[:num_required_signatures].to_i
-      unless count == COSIGN_SIGNER_COUNT
-        cosign_reject!(ctx, wallet_address,
-          "signer_count_mismatch: numRequiredSignatures=#{count}, require exactly #{COSIGN_SIGNER_COUNT} " \
-          "(the admin fee payer, then the player's wallet)")
-      end
-
-      second = msg[:account_keys][1]
-      return if second && second.b == as_key_bytes(wallet_address)
-
-      cosign_reject!(ctx, wallet_address,
-        "wallet_not_signer: account[1]=#{b58(second)} expected wallet=#{wallet_address} in signer slot 1")
-    end
-
-    # Both cosign guards refuse EVERY System Program instruction. The reason
-    # names the one worth telling apart in the logs: an advanceNonceAccount is
-    # an attempt to spend the admin's authority over the operator nonce.
-    def system_ix_reject!(entry, wallet_address, ix, index)
-      if ix[:data] == SYSTEM_ADVANCE_NONCE_DATA
-        cosign_reject!(entry, wallet_address,
-          "advance_nonce_rejected: ix #{index} advanceNonceAccount (no cosigned wire may advance a nonce)")
-      end
-      cosign_reject!(entry, wallet_address,
-        "system_program_ix: ix #{index} data=#{ix[:data].to_s.unpack1('H*')} (no System instruction is cosigned)")
-    end
-
-    # One Phantom-injected Lighthouse instruction on a cosigned wire: admit it
-    # only if it is a post-state ASSERTION (discriminator 2..17). REFUSE the two
-    # variants that move the payer's lamports — MemoryWrite (0), which would let
-    # a crafted wire make the house fee payer fund an attacker-sized "memory"
-    # PDA and lock house SOL, and MemoryClose (1) — plus an empty data field and
-    # any unknown discriminator. See the LIGHTHOUSE_PROGRAM_ID comment for why
-    # naming the fee payer is NOT the test (real Phantom assertions target it).
-    def assert_lighthouse_ix_safe!(entry, wallet_address, ix, index)
-      disc = ix[:data].to_s.getbyte(0)
-      if disc.nil?
-        cosign_reject!(entry, wallet_address,
-          "lighthouse_empty_data: ix #{index} carries no discriminator byte")
-      end
-      case disc
-      when LIGHTHOUSE_MEMORY_WRITE
-        cosign_reject!(entry, wallet_address,
-          "lighthouse_memory_write: ix #{index} MemoryWrite (disc 0) would make a signer " \
-          "fund a memory PDA — no cosigned wire may spend the fee payer's rent")
-      when LIGHTHOUSE_MEMORY_CLOSE
-        cosign_reject!(entry, wallet_address,
-          "lighthouse_memory_close: ix #{index} MemoryClose (disc 1) is a memory-account op, not an assertion")
-      when LIGHTHOUSE_ASSERTION_DISCRIMINATORS
-        # Pure post-state assertion — the worst it can do is fail the tx.
-        nil
-      else
-        cosign_reject!(entry, wallet_address,
-          "lighthouse_unknown_disc: ix #{index} discriminator #{disc} is not a known Lighthouse assertion")
-      end
     end
 
     # The withdrawal floor, asserted in the BUILDERS rather than only in the
@@ -4296,12 +3977,77 @@ module Solana
     # (that changes the message bytes and breaks Phantom's sig), so it must build
     # the tx unsigned and surgically patch the admin slot in afterwards.
     #
-    # `additional_signers` MUST list the admin FIRST (fee payer ordering) followed
-    # by the user/Phantom wallet. The advanceNonceAccount ix (when a durable nonce
-    # is set) still names the admin as authority — the gem's keyless build leaves
-    # that slot empty too, and cosign_wire fills it with the admin signature.
-    def build_partial_unsigned(accounts:, data:, additional_signers:, durable_nonce: nil)
-      tx = build_tx_unsigned(durable_nonce: durable_nonce)
+    # IT IS `Cosign::Builder` NOW, and it takes ONE cosigner rather than an
+    # ordered `additional_signers` list. The admin-first ordering this method's
+    # callers used to have to remember is structural in the gem: the fee payer is
+    # account 0 by construction, and the builder asserts it before returning.
+    #
+    # NO `durable_nonce:`. Every caller passed nil — a Phantom-signed transaction
+    # cannot be anchored on a nonce at all, because the advance must be
+    # instruction 0 and Phantom injects Lighthouse ahead of it (2026-06-11; see
+    # the long note in #build_enter_contest). The parameter existed to be nil, so
+    # it is gone; #build_tx_unsigned keeps its nonce branch for nothing that
+    # reaches Phantom.
+    #
+    # RETURNS `Cosign::Prepared`, not a base64 String. The extra thing on it is
+    # `last_valid_block_height`: the block height past which this transaction can
+    # NEVER land. Callers persist it beside the wire so the completer can tell a
+    # player "your wallet took too long, here is a fresh one" instead of
+    # broadcasting a corpse and waiting 30 seconds to find out.
+    #
+    # THE BLOCKHASH IS FETCHED AT `confirmed`, not `finalized`. That is the gem's
+    # default and the completer sends with the matching `preflight_commitment`.
+    # Do not hand this wire to a hand-rolled `send_transaction` — a
+    # `confirmed`-anchored wire preflighted at the default `finalized` is
+    # rejected as "Blockhash not found" while being perfectly valid.
+    def build_partial_unsigned(accounts:, data:, cosigner:)
+      cosign_builder.build(
+        instructions: [{ program_id: @program_id, accounts: accounts, data: data }],
+        cosigners: [cosigner],
+        compute_unit_price: PARTIAL_TX_PRIORITY_FEE_MICROLAMPORTS,
+        compute_unit_limit: PARTIAL_TX_COMPUTE_UNIT_LIMIT,
+        fee_margin: COSIGN_FEE_MARGIN
+      )
+    end
+
+    # The fee caps for a REBUILT expectation. #cosign_expectation gets them from
+    # the ComputeBudget pair on the stored wire; a rebuild has no wire to read,
+    # so it derives them from the same two ENV knobs the builder sets, through
+    # the same `Cosign.fee_caps` the builder uses. One formula, two callers.
+    def rebuilt_expectation(instructions:, cosigner:)
+      max_price, max_fee = Cosign.fee_caps(
+        compute_unit_price: PARTIAL_TX_PRIORITY_FEE_MICROLAMPORTS,
+        compute_unit_limit: PARTIAL_TX_COMPUTE_UNIT_LIMIT,
+        margin: COSIGN_FEE_MARGIN
+      )
+      Cosign::Expectation.new(
+        fee_payer: Keypair.admin,
+        cosigners: [cosigner],
+        instructions: instructions,
+        max_compute_unit_price: max_price,
+        max_priority_fee_micro_lamports: max_fee
+      )
+    end
+
+    # THE LEAD-PAID UNSIGNED BUILD — the one Phantom-first shape `Solana::Cosign`
+    # cannot express, and the reason #build_partial_unsigned above is not simply
+    # this method with a different name.
+    #
+    # `Solana::Cosign` is "the SERVER pays the fee": its builder puts the house
+    # in account 0 and its completer refuses a wire whose fee payer is not its own
+    # key. `#build_update_signers` on its `server_signed: false` branch is the
+    # opposite arrangement — an EXTERNAL LEAD SIGNER is the fee payer, and the
+    # house may not be on the transaction at all. That is a multisig ceremony, not
+    # a gasless cosign, so it keeps the hand-rolled build and goes out through
+    # #simulate_and_broadcast rather than the completer.
+    #
+    # `additional_signers` MUST list the FEE PAYER first — the gem's keyless
+    # serialize takes `additional_signers.first` as the fee payer when no local
+    # signer is attached. That contract is why the gem-backed builder is
+    # preferable wherever the house does pay: there it is structural, here it is
+    # still a rule a caller has to remember.
+    def build_lead_paid_unsigned(accounts:, data:, additional_signers:)
+      tx = build_tx_unsigned
       tx.add_instruction(**compute_unit_price_ix(PARTIAL_TX_PRIORITY_FEE_MICROLAMPORTS))
       tx.add_instruction(**compute_unit_limit_ix(PARTIAL_TX_COMPUTE_UNIT_LIMIT))
       tx.add_instruction(program_id: @program_id, accounts: accounts, data: data)
