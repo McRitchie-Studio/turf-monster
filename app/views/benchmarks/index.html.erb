@@ -1,0 +1,93 @@
+<% content_for :title, "Turf Score Benchmarks — #{@slate.name}" %>
+
+<%# The public pricing board. Every number here is READ, never recomputed:
+    rank and Turf Score come off the stored columns settlement multiplies by
+    (Slate#team_rows), and the DK figures come from the matchups those prices
+    were derived from. A page that recomputed would eventually disagree with
+    what a player is paid, which is the failure this whole column exists to
+    prevent. %>
+<div class="max-w-4xl mx-auto py-8 px-4" data-testid="benchmarks">
+  <h1 class="text-3xl md:text-4xl font-extrabold text-heading mb-2">Turf Score Benchmarks</h1>
+  <p class="text-secondary text-base leading-relaxed mb-6">
+    What the betting market expects every team to score, and the multiplier that earns. Teams are ranked on projected points
+    <span class="font-semibold">per game</span>; your points are <span class="text-heading font-semibold">points scored &times; Turf Score</span>.
+    <%= link_to "How Turf Score works", turf_monster_v1_path, class: "text-primary hover:underline" %>.
+  </p>
+
+  <%# Slate pills, public twins of the admin selector — same ordering, so the
+      span a contest is on sits next to the weeks it holds. %>
+  <div class="flex flex-wrap gap-2 mb-6">
+    <% @slates.each do |slate| %>
+      <% active = slate.id == @slate.id %>
+      <%= link_to "#{slate.sport_emoji} #{slate.selector_label}", benchmarks_path(slug: slate.slug),
+            class: "px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-all #{active ? 'bg-primary text-white' : 'bg-surface-alt text-secondary hover:text-heading'}" %>
+    <% end %>
+  </div>
+
+  <div class="card p-5 mb-6">
+    <p class="text-heading font-semibold"><%= @slate.name %></p>
+    <p class="text-secondary text-sm mt-1" data-testid="benchmarks-source">
+      <% if @snapshot %>
+        <% derived = @snapshots.sum(&:derived_count) %>
+        <% rows = @snapshots.sum(&:row_count) %>
+        Lines from DraftKings, read through ESPN&rsquo;s public scoreboard, pulled
+        <%= @snapshot.captured_at.in_time_zone("America/New_York").strftime("%b %-d, %Y at %-l:%M %p %Z") %>.
+        <%= derived == rows ? "Every team" : "#{derived} of #{rows} team" %> total<%= "s" unless derived == rows %>
+        derived from the game total and the spread.
+      <% else %>
+        Lines have not been recorded for these weeks yet.
+      <% end %>
+    </p>
+    <% if @slate.two_line_pricing? %>
+      <p class="text-secondary text-sm mt-3" data-testid="benchmarks-two-line">
+        <span class="font-semibold text-heading">Two lines.</span>
+        A team with its bye inside these weeks plays <%= @slate.games_per_team - 1 %> games, not <%= @slate.games_per_team %>.
+        It is ranked on points per game with everyone else, then priced on the bye line &mdash; the same curve
+        <span class="font-mono text-violet">&times; <%= number_with_precision(Slate.game_factor(@slate.games_per_team, @slate.games_per_team - 1), precision: 1) %></span>
+        &mdash; so a bye neither helps nor hurts a pick.
+      </p>
+    <% end %>
+  </div>
+
+  <div class="card overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-muted text-xs uppercase tracking-wider">
+          <th class="px-3 py-3 text-left font-semibold">#</th>
+          <th class="px-3 py-3 text-left font-semibold">Team</th>
+          <th class="px-3 py-3 text-right font-semibold">Games</th>
+          <th class="px-3 py-3 text-right font-semibold">Proj / game</th>
+          <th class="px-3 py-3 text-right font-semibold">Proj total</th>
+          <th class="px-3 py-3 text-right font-semibold">Turf Score</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% @team_rows.each do |row| %>
+          <tr class="border-t border-subtle">
+            <td class="px-3 py-3 font-mono text-muted"><%= row.rank || "—" %></td>
+            <td class="px-3 py-3">
+              <span class="text-heading font-semibold"><%= row.team.emoji %> <%= row.team.name %></span>
+              <% if row.game_factor > 1 %>
+                <span class="ml-1 text-xs font-semibold text-violet whitespace-nowrap" data-testid="benchmarks-bye-badge">bye line</span>
+              <% end %>
+            </td>
+            <td class="px-3 py-3 text-right font-mono text-secondary"><%= row.matchups.size %></td>
+            <td class="px-3 py-3 text-right font-mono text-secondary"><%= sprintf("%.1f", row.expected_points_per_game) %></td>
+            <td class="px-3 py-3 text-right font-mono text-muted"><%= sprintf("%.1f", row.expected_points) %></td>
+            <td class="px-3 py-3 text-right font-mono font-bold text-violet">
+              <%# One decimal, like the rules page's curve cards: down a column,
+                  "1.5x / 2x" reads as two unrelated numbers where "1.5x / 2.0x"
+                  reads as a scale. %>
+              <%= row.turf_score ? "#{sprintf('%.1f', row.turf_score)}x" : "—" %>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="text-muted text-xs mt-4">
+    Projections are the market&rsquo;s, not ours: each team&rsquo;s share of its game&rsquo;s total, split by the spread. A multiplier is frozen
+    when a slate is priced &mdash; the number you see when you pick is the number you are paid.
+  </p>
+</div>

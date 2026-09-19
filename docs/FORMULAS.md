@@ -122,6 +122,7 @@ Admin page for managing game results within a slate. Each game renders as a card
 - `/slates/formula_report` — DK Score formula iterations page (soccer) with comparison charts + playground; link-tabs to the NFL report
 - `/slates/nfl_report` — NFL points-distribution report (rank chart, linear + log fits, rank table) on its own tab; linked from the admin dashboard and the admin Link Hub
 - `/slates/admin_formula` — GET, admin page for editing Default slate formula variables
+- `/benchmarks(/:slug)` — PUBLIC, read-only. The pricing board a player can check: per-team points per game, rank, frozen multiplier, the bye line where one applies, and when the lines were pulled. Reads stored values only. Rebuild those values with `bin/rails market:refresh` (see [`workflows/market-snapshot.md`](workflows/market-snapshot.md) step 5)
 - `/slates/update_admin_formula` — PATCH, save Default slate formula variables
 
 <!-- citation-guard: enforced -->

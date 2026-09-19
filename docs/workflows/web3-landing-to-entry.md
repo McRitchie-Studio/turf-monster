@@ -26,7 +26,7 @@
 **Trigger:** `GET /lp/:slug` (a marketing funnel page) — typically reached from a
 paid ad, an X/Twitter post, or a friend's share link with `?reference=…`.
 Links already in the wild still land: `/l/:token` now belongs to `Studio::Link`,
-and an unmatched token falls back to `/lp` (`config/routes.rb:137-139`).
+and an unmatched token falls back to `/lp` (`config/routes.rb:143-145`).
 **Actors:** Guest visitor → User (created mid-flow) · Phantom wallet · Rails ·
 Sidekiq · Solana devnet/mainnet RPC.
 **Outcome:** New `User` row with `web3_solana_address` set, a server-managed
@@ -57,7 +57,7 @@ Phantom must be installed in the browser or available via mobile deep link.
    - The `scroll=280` param drives a `window.scrollTo` past the hero chrome to
      the matchup board (`app/views/contests/show.html.erb:236-249`).
    - Route: `get "lp/:slug", to: "landing_pages#show", as: :landing_page` —
-     `config/routes.rb:139`.
+     `config/routes.rb:145`.
 
 2. **Land on contest.** The new tab opens `GET /contests/:slug?scroll=280` →
    `ContestsController#show` — `app/controllers/contests_controller.rb:670-711`.
@@ -107,7 +107,7 @@ Phantom must be installed in the browser or available via mobile deep link.
    - `runHoldValidations()` (`:1520-1550`) hits `GET /geo/check` first
      (`:1522`); a blocked state aborts into the `Location Restricted` redirect
      modal (`:1526`). That route is drawn by the engine now, behind
-     `config.draw_geo_routes`, not by this app (`config/routes.rb:622-628`).
+     `config.draw_geo_routes`, not by this app (`config/routes.rb:628-634`).
    - `confirmEntry()` (`_turf_totals_board.html.erb:1567-2054`) short-circuits
      to `showLoginModal()` when the session is a guest (`:1576-1580`), which
      opens the auth wizard at `step: 'credentials'` (`:935-948`) — the entry
@@ -422,7 +422,7 @@ Phantom must be installed in the browser or available via mobile deep link.
 
 > **Orphaned endpoint.** `ContestsController#stamp_entry_signature`
 > (`app/controllers/contests_controller.rb:1260-1272`, routed as
-> `post :stamp_entry_signature` at `config/routes.rb:313`) is no longer called
+> `post :stamp_entry_signature` at `config/routes.rb:319`) is no longer called
 > by any client. It belonged to the
 > browser-broadcast flow, and the comment that replaced it says so —
 > `the client no longer calls stamp_entry_signature before confirm`
