@@ -33,12 +33,18 @@ class SlateMatchup < ApplicationRecord
   # Scale defaults mirror Slate#resolved_formula's sport-aware fallback;
   # per-slate overrides resolve at render time and the JS mirrors in
   # slates/show.html.erb use those resolved values.
-  def self.turf_score_for(rank, n, sport: "fifa")
-    return 1.0 if n <= 1
+  #
+  # `game_factor` is the TWO-LINE rule for a span with a bye in it (see
+  # Slate.game_factor). A full-span team passes 1.0 and prices exactly as
+  # before; a team that plays 2 of a span's 3 games passes 1.5 and rides the
+  # two-game line, x1.5 to x3.0. Rounded ONCE, after scaling — scaling an
+  # already-rounded 1.1 would drift a bye team a tenth off its true line.
+  def self.turf_score_for(rank, n, sport: "fifa", game_factor: 1.0)
+    return (1.0 * game_factor).round(1) if n <= 1
 
     nfl = sport.to_s == "nfl"
     curve = nfl ? (rank - 1).to_f / (n - 1) : Math.log(rank) / Math.log(n)
-    (1.0 + (nfl ? 1.0 : 2.0) * curve).round(1)
+    ((1.0 + (nfl ? 1.0 : 2.0) * curve) * game_factor).round(1)
   end
 
   def self.goals_distribution_for(rank, n)

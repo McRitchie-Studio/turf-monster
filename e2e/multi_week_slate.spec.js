@@ -4,8 +4,9 @@ const { loginAdmin, reseed } = require("./helpers");
 test.beforeEach(async ({ request }) => await reseed(request));
 
 // A Slate is a POOL OF GAMES, not one NFL week. "NFL 2026 Weeks 1-3" holds three
-// games per team, and each team is ranked on its SUMMED expected points — so the
-// page must show 32 team rows, not 96 matchup rows. Seeded by e2e/seed.rb.
+// games per team, and each team is ranked on its expected points PER GAME across
+// them — so the page must show 32 team rows, not 96 matchup rows. Seeded by
+// e2e/seed.rb.
 test.describe("multi-week slate page", () => {
   test("ranks teams, not matchup rows", async ({ page }) => {
     await loginAdmin(page);
@@ -32,6 +33,44 @@ test.describe("multi-week slate page", () => {
 
     // Rank 1 always earns exactly the 1.0x floor.
     await expect(topRow).toContainText("1.0x");
+  });
+
+  // Weeks 4-6 holds six bye teams (two games, not three). They rank on points
+  // PER GAME and price on the bye line — the usual curve x1.5 — and the
+  // page's JS mirror must reproduce the server's two-line prices, or a drag or
+  // "Save Multipliers" would knock every bye team back onto the 3-game line.
+  test("a bye span prices bye teams on the two-game line, in Ruby and JS alike", async ({ page }) => {
+    await loginAdmin(page);
+    await page.goto("/slates/nfl-2026-weeks-4-6");
+
+    await expect(page.getByTestId("two-line-note")).toContainText("per game");
+    const byeRows = page.locator("div.sortable-item[data-game-factor='1.5']");
+    await expect(byeRows).toHaveCount(6);
+    await expect(page.getByTestId("bye-line-badge")).toHaveCount(6);
+
+    const prices = async () =>
+      page.locator("div.sortable-item").evaluateAll((rows) =>
+        rows.map((row) => [row.dataset.matchupId, row.querySelector(".turf-score-display").textContent.trim()])
+      );
+    const serverPrices = await prices();
+
+    // Every bye price sits on the x1.5-x3.0 line.
+    for (const text of await byeRows.locator(".turf-score-display").allTextContents()) {
+      const mult = parseFloat(text);
+      expect(mult).toBeGreaterThanOrEqual(1.5);
+      expect(mult).toBeLessThanOrEqual(3.0);
+    }
+
+    // Blank every displayed price, so whatever reads back after the re-sort
+    // can ONLY have come from the JS mirror's recompute — not the server render.
+    await page.locator(".turf-score-display").evaluateAll((els) => els.forEach((el) => (el.textContent = "?")));
+
+    // Sorting by DK per game reproduces the server's order, so the JS prices
+    // must equal the server's, row for row. The wait is on the blanks being
+    // gone, which the pre-click page cannot satisfy.
+    await page.getByRole("button", { name: "Sort by DK Score" }).first().click();
+    await expect(page.locator(".turf-score-display", { hasText: "?" })).toHaveCount(0);
+    expect(await prices()).toEqual(serverPrices);
   });
 
   test("a single-week slate still renders one row per team", async ({ page }) => {

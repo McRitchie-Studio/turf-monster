@@ -143,4 +143,19 @@ module TurfMonsterRules
   def self.turf_score_for_rank(rank)
     SlateMatchup.turf_score_for(rank, TEAM_COUNT, sport: "nfl")
   end
+
+  # A span is three weeks; a team with its bye inside it plays two games.
+  SPAN_GAMES = 3
+  BYE_GAMES = 2
+
+  # How much the bye line scales the curve — derived from Slate.game_factor,
+  # the rule that prices the real board, never typed.
+  def self.bye_game_factor
+    Slate.game_factor(SPAN_GAMES, BYE_GAMES)
+  end
+
+  # The multiplier a bye team earns at `rank` (Slate "Two lines").
+  def self.bye_turf_score_for_rank(rank)
+    SlateMatchup.turf_score_for(rank, TEAM_COUNT, sport: "nfl", game_factor: bye_game_factor)
+  end
 end

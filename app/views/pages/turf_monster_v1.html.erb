@@ -9,6 +9,9 @@
       span         An NFL contest runs on a SPAN slate ("NFL 2026 Weeks 1-3"),
                    so a team plays three games under ONE frozen multiplier and
                    scores its SUMMED points (Selection#compute_points!).
+      bye          A team with its bye in the span plays two games; it ranks on
+                   points PER GAME and prices on the bye line, the curve x1.5
+                   (Slate "Two lines"; TurfMonsterRules.bye_turf_score_for_rank).
 
     Every number below is read from the live Weeks 1-3 slate, not invented. The
     WEEKLY point totals in the scoring example are hypothetical results (those
@@ -187,7 +190,7 @@
     <p class="text-primary font-mono text-sm mb-2">03</p>
     <h2 class="text-2xl md:text-3xl font-bold text-heading mb-4">Turf Score</h2>
     <p class="text-secondary text-base md:text-lg leading-relaxed mb-8">
-      All 32 teams are ranked by how many points they are projected to score across the contest&rsquo;s weeks. Rank 1 is the highest projection and prices at <span class="text-violet font-mono font-bold">1.0&times;</span>; rank 32 prices at <span class="text-violet font-mono font-bold">2.0&times;</span>. In between, a rank is worth <span class="text-violet font-mono font-bold">1 + (rank &minus; 1) / 31, rounded to one decimal</span> &mdash; NFL scoring runs close to linear. The rounding is not a detail: it is the number that gets frozen onto your pick and paid, so ranks 1 and 2 both price at <span class="text-violet font-mono font-bold">1.0&times;</span>, and ranks 3, 4 and 5 all price at <span class="text-violet font-mono font-bold">1.1&times;</span>. Your points are <span class="text-heading font-semibold">points scored &times; Turf Score</span>.
+      All 32 teams are ranked by how many points they are projected to score per game across the contest&rsquo;s weeks. Rank 1 is the highest projection and prices at <span class="text-violet font-mono font-bold">1.0&times;</span>; rank 32 prices at <span class="text-violet font-mono font-bold">2.0&times;</span>. In between, a rank is worth <span class="text-violet font-mono font-bold">1 + (rank &minus; 1) / 31, rounded to one decimal</span> &mdash; NFL scoring runs close to linear. The rounding is not a detail: it is the number that gets frozen onto your pick and paid, so ranks 1 and 2 both price at <span class="text-violet font-mono font-bold">1.0&times;</span>, and ranks 3, 4 and 5 all price at <span class="text-violet font-mono font-bold">1.1&times;</span>. Your points are <span class="text-heading font-semibold">points scored &times; Turf Score</span>.
     </p>
 
     <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
@@ -202,6 +205,19 @@
           <p class="text-secondary text-xs"><%= row[:note] %></p>
         </div>
       <% end %>
+    </div>
+
+    <%# The bye line (Slate "Two lines"). Every number is derived from
+        TurfMonsterRules, which reads the rule that prices the real board.
+        data-test="nfl-bye-line" is also what lets pages_controller_test keep
+        refusing a 3.0x EVERYWHERE ELSE on this page — the World Cup ceiling
+        must never leak into the NFL curve copy, but the bye line's top is a
+        legitimate 3.0x. %>
+    <div class="bg-surface-alt rounded-xl border border-violet/30 p-6 mb-6" data-test="nfl-bye-line">
+      <p class="text-heading font-semibold mb-3">Bye weeks</p>
+      <p class="text-secondary text-sm leading-relaxed">
+        A team with its bye inside the contest plays <%= TurfMonsterRules::BYE_GAMES %> games, not <%= TurfMonsterRules::SPAN_GAMES %>. It is still ranked with everyone else on projected points per game, then priced on the bye line: the same Turf Score times <span class="text-violet font-mono font-bold"><%= number_with_precision(TurfMonsterRules.bye_game_factor, precision: 1) %></span>, which runs from <span class="text-violet font-mono font-bold"><%= number_with_precision(TurfMonsterRules.bye_turf_score_for_rank(1), precision: 1) %>&times;</span> to <span class="text-violet font-mono font-bold"><%= number_with_precision(TurfMonsterRules.bye_turf_score_for_rank(TurfMonsterRules::TEAM_COUNT), precision: 1) %>&times;</span>. At the bye price, <%= TurfMonsterRules::BYE_GAMES %> games score what <%= TurfMonsterRules::SPAN_GAMES %> would at the regular price, so a bye neither helps nor hurts a pick.
+      </p>
     </div>
 
     <div class="bg-surface-alt rounded-xl border border-violet/30 p-6">
@@ -392,10 +408,13 @@
         <div class="text-right text-heading">Points &times; Turf Score</div>
 
         <div class="text-secondary">Games per team</div>
-        <div class="text-right text-heading">All 3 (Weeks 1&ndash;3)</div>
+        <div class="text-right text-heading"><%= TurfMonsterRules::SPAN_GAMES %>, or <%= TurfMonsterRules::BYE_GAMES %> with a bye</div>
 
         <div class="text-secondary">Turf Score range</div>
         <div class="font-mono text-violet text-right">1.0&times; &ndash; 2.0&times;</div>
+
+        <div class="text-secondary">Bye-week range</div>
+        <div class="font-mono text-violet text-right" data-test="nfl-bye-line"><%= number_with_precision(TurfMonsterRules.bye_turf_score_for_rank(1), precision: 1) %>&times; &ndash; <%= number_with_precision(TurfMonsterRules.bye_turf_score_for_rank(TurfMonsterRules::TEAM_COUNT), precision: 1) %>&times;</div>
 
         <div class="text-secondary">Turf Score formula</div>
         <div class="font-mono text-violet text-right">1 + (rank &minus; 1) / 31, to 1 dp</div>

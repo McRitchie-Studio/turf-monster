@@ -1129,7 +1129,7 @@
 # Not tagged @devnet and it does not skip. This branch first derived 329 against
 # a base without cosign-button-clipped-on-mobile; re-derived with
 # bin/e2e-lane-derive --write ON THE MERGED TREE.
-total_specs: 332
+total_specs: 333
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1467,7 +1467,7 @@ allowed_skips: 4
 # 309 -> 310 (seeds-bar-leaks-server-total, on merging accepted): the one spec
 # described beside total_specs above. excluded stays 17 and allowed_skips stays 4:
 # 331 - 17 - 4 = 310. Derived with bin/e2e-lane-derive --write ON THE MERGED TREE.
-executed: 311
+executed: 312
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

@@ -116,10 +116,13 @@ class Slate < ApplicationRecord
   #
   # A Slate is a pool of GAMES. A team appears once per game it plays here, so a
   # one-week slate has one row per team and a "Weeks 1-3" slate has three. The
-  # PICKABLE unit is the team, and everything a player is priced on — expected
-  # points, rank, multiplier — is that team's SUM across its games in the slate.
+  # PICKABLE unit is the team: it scores its SUMMED points across its games,
+  # and it is ranked on its expected points PER GAME — so a team with a bye in
+  # the span is ranked on strength, not sunk by the missing game (see "Two
+  # lines" below).
   #
-  # A one-week slate is the degenerate case: summing one game is that game.
+  # A one-week slate is the degenerate case: one game is both the sum and the
+  # per-game figure.
 
   # { team_slug => [matchup, ...] }, each team's games in kickoff order,
   # week-tie-broken: matchups without games (or sharing a kickoff) all tie on
@@ -138,8 +141,58 @@ class Slate < ApplicationRecord
     end
   end
 
-  # { team_slug => { rank:, turf_score: } }, ranked by SUMMED expected points
-  # (highest expectation = rank 1 = lowest multiplier).
+  # ─── Two lines: pricing a span with a bye in it ─────────────────────
+  #
+  # An NFL span is three weeks, but a team with its bye inside the span plays
+  # only TWO games. Ranking on the summed total sank every bye team to the
+  # bottom of the board whatever its strength (measured on the 2026 weeks 4-6
+  # board: the six bye teams were exactly ranks 27-32), and the x2.0 cap could
+  # not pay back a third of the points — so a bye team was a trap.
+  #
+  # The fix is two lines on one ranking:
+  #   * every team ranks on expected points PER GAME, so strength decides rank;
+  #   * the multiplier is the usual curve times span_games / games. A full-span
+  #     team scales by 1.0 (x1.0-x2.0, unchanged); a 2-of-3 team scales by 1.5
+  #     and rides the two-game line (x1.5-x3.0).
+  # That factor is exactly EV-neutral: two games at 1.5m score what three games
+  # at m do, for a team with the same points per game.
+  #
+  # A slate where every team plays the same number of games — every one-week
+  # slate, and a span with no byes such as weeks 1-3 — has factor 1.0 for all,
+  # and per-game order is sum order, so it prices exactly as before.
+
+  # How much a team's multiplier scales when it plays `games` of a span whose
+  # full-length teams play `span_games`. Never below 1.0 and never undefined.
+  def self.game_factor(span_games, games)
+    return 1.0 if games.to_i <= 0 || games.to_i >= span_games.to_i
+
+    span_games.to_f / games
+  end
+
+  # Expected points per game played. Zero for a team with no games (never
+  # divides by zero).
+  def self.expected_points_per_game(matchups)
+    return 0.0 if matchups.empty?
+
+    matchups.sum { |matchup| matchup.expected_score.to_f } / matchups.size
+  end
+
+  # { team_slug => game_factor } — which line each team prices on.
+  def game_factors(by_team = matchups_by_team)
+    span_games = by_team.values.map(&:size).max.to_i
+    by_team.transform_values { |matchups| self.class.game_factor(span_games, matchups.size) }
+  end
+
+  # True when at least one team plays fewer games than the span — i.e. the
+  # slate prices on two lines.
+  def two_line_pricing?(by_team = matchups_by_team)
+    game_factors(by_team).values.any? { |factor| factor > 1.0 }
+  end
+
+  # { team_slug => { rank:, turf_score:, games:, game_factor: } }, ranked by
+  # expected points PER GAME (highest expectation = rank 1 = lowest
+  # multiplier). On a span with a bye, a short-span team's multiplier rides
+  # the two-game line — see "Two lines" above.
   #
   # The tie-break — earliest kickoff, then team name — deliberately mirrors the
   # per-row ordering this replaced, so a ONE-week slate ranks identically to
@@ -156,24 +209,33 @@ class Slate < ApplicationRecord
     by_team = matchups_by_team
     return {} if by_team.empty?
 
+    factors = game_factors(by_team)
     ranked = by_team.sort_by do |_team_slug, matchups|
       [
-        -matchups.sum { |matchup| matchup.expected_score.to_f },
+        -self.class.expected_points_per_game(matchups),
         matchups.filter_map { |matchup| matchup.game&.kickoff_at }.min || Time.at(0),
         matchups.first.team.name
       ]
     end
 
-    ranked.each_with_index.to_h do |(team_slug, _matchups), index|
+    ranked.each_with_index.to_h do |(team_slug, matchups), index|
       rank = index + 1
-      [team_slug, { rank: rank, turf_score: SlateMatchup.turf_score_for(rank, ranked.size, sport: sport) }]
+      factor = factors.fetch(team_slug)
+      [team_slug, {
+        rank: rank,
+        turf_score: SlateMatchup.turf_score_for(rank, ranked.size, sport: sport, game_factor: factor),
+        games: matchups.size,
+        game_factor: factor
+      }]
     end
   end
 
   # One row per TEAM for the slate page and the ranking admin: the team, the
-  # games it plays here, its SUMMED expected points, and the rank + multiplier
-  # those earn. Ordered by rank.
-  TeamRow = Data.define(:team_slug, :team, :matchups, :expected_points, :rank, :turf_score)
+  # games it plays here, its SUMMED and per-game expected points, the line it
+  # prices on (game_factor), and the rank + multiplier those earn. Ordered by
+  # rank.
+  TeamRow = Data.define(:team_slug, :team, :matchups, :expected_points, :expected_points_per_game,
+                        :game_factor, :rank, :turf_score)
 
   # Reads the STORED rank/turf_score off the matchups — the same values
   # Selection#compute_points! settles from — rather than recomputing.
@@ -193,6 +255,7 @@ class Slate < ApplicationRecord
   def team_rows
     by_team = matchups_by_team
     fallback = by_team.values.all? { |matchups| matchups.first.rank.nil? } ? team_rankings : {}
+    factors = game_factors(by_team)
 
     rows = by_team.map do |team_slug, matchups|
       anchor = matchups.first
@@ -202,6 +265,8 @@ class Slate < ApplicationRecord
         team: anchor.team,
         matchups: matchups,
         expected_points: matchups.sum { |matchup| matchup.expected_score.to_f },
+        expected_points_per_game: self.class.expected_points_per_game(matchups),
+        game_factor: factors.fetch(team_slug),
         rank: anchor.rank || computed[:rank],
         turf_score: anchor.turf_score || computed[:turf_score]
       )
