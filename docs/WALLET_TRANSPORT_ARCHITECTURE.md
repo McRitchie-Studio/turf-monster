@@ -397,6 +397,18 @@ approved it. Both of its order comparisons were anchored on the retired wrapper'
 flag; they are now anchored on the registration call itself, which is what they
 were always really measuring.
 
+**The other two tiers went the same way**, and together with the file above they
+are the whole test-side record of this retirement.
+`test/lib/wallet_resume_redirect_link_js_test.rb` was DELETED: it lifted the
+wrapper out of the partial and drove it, so the wrapper was its entire subject.
+`test/views/contest_entry_intent_resume_wrapper_test.rb` is now
+`test/views/contest_entry_intent_rendered_script_test.rb` — it renders the partial
+and RUNS what came out, which is the one tier that can see an ERB comment
+swallowing the script, and it now asserts the registration rather than the
+default. It also asserts the partial leaves `walletOps.resume` ALONE, so a
+host-side default creeping back reddens against the render and not only against a
+grep.
+
 ---
 
 ## Per-wallet adapters
