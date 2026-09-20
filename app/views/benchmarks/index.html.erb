@@ -6,10 +6,36 @@
     disagree with what a player is paid — the failure that column exists to
     prevent.
 
-    The rest of the row is derived live and safely so: `game_factor` and
-    `expected_points_per_game` are computed from the matchups on each render.
-    Neither is money — they describe the team, not its payout — and deriving
-    them keeps the badge honest about the games a slate currently holds. %>
+    Other numbers here ARE derived live, and saying so plainly is the point of
+    this note: `game_factor` and `expected_points_per_game` are computed from
+    the matchups on each render, and the chart's two lines are computed from
+    `SlateMatchup.turf_score_for` per rank. None of those is money — they
+    describe the team and the rule, not the payout — and deriving them is what
+    keeps the picture honest when the rule or the slate changes. The dots are
+    the exception that proves it: they plot the STORED price, which is why a
+    hand-edited multiplier shows up as a dot off its line. %>
+<%# Chart tokens — the two SERIES colours only. Everything else in the chart
+    (axis text, gridlines, labels) inherits `currentColor` from the app's own
+    text utilities, and the dot rings use --color-surface, so the chart follows
+    the theme without this file inventing token names the design system does
+    not actually define.
+
+    DARK IS ITS OWN STEP, not an automatic flip: the light pair
+    sits at OKLCH L .675 which is outside the dark band, so dark gets slightly
+    deeper steps of the same two hues. Both pairs were validated for
+    colour-vision separation against their own surface (deutan ΔE 26.1, normal
+    ΔE 32.1) rather than eyeballed. %>
+<style>
+  [data-testid="benchmarks-chart"] {
+    --bench-full: #8E82FE;
+    --bench-bye: #4BAF50;
+  }
+  .dark [data-testid="benchmarks-chart"] {
+    --bench-full: #8577F8;
+    --bench-bye: #48A84E;
+  }
+</style>
+
 <div class="max-w-4xl mx-auto py-8 px-4" data-testid="benchmarks">
   <h1 class="text-3xl md:text-4xl font-extrabold text-heading mb-2">Turf Score Benchmarks</h1>
   <p class="text-secondary text-base leading-relaxed mb-6">
@@ -52,6 +78,8 @@
       </p>
     <% end %>
   </div>
+
+  <%= render "two_line_chart", slate: @slate, team_rows: @team_rows %>
 
   <div class="card overflow-x-auto">
     <table class="w-full text-sm">

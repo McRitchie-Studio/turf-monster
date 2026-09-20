@@ -76,10 +76,10 @@ class SlateMatchup < ApplicationRecord
   # the curve's denominator is the 32 TEAMS. Reviving it would have been wrong
   # twice over, and it read like the obvious way to price one row.
   #
-  # A price is written in exactly three shapes, all of which rank the TEAM
-  # first: Slate#team_rankings (through the ingest and the span freeze), the
-  # admin drag/save endpoints, and Nfl::RepriceSpanSlate.
-  # test/models/turf_score_writers_test.rb holds that list and fails on a new one.
+  # Every writer of this column ranks the TEAM first, and
+  # test/models/turf_score_writers_test.rb holds the list — seven files today,
+  # each with the reason it is allowed to write a price. Read that list rather
+  # than trusting a count here, which is exactly the kind of number that rots.
 
   def locked?
     game&.kickoff_at.present? && game.kickoff_at <= Time.current

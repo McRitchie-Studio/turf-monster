@@ -15,8 +15,6 @@ require "test_helper"
 class TurfScoreWritersTest < ActiveSupport::TestCase
   # Every file under app/ or lib/ permitted to assign turf_score, and why.
   SANCTIONED = {
-    "app/models/slate.rb" =>
-      "Slate#team_rankings — ranks teams per game and applies the line factor; the source of truth",
     "app/services/nfl/cache_expected_team_totals.rb" =>
       "the weekly ingest, writing team_rankings' answer and skipping picked rows",
     "app/services/nfl/build_span_slate.rb" =>
@@ -26,24 +24,39 @@ class TurfScoreWritersTest < ActiveSupport::TestCase
     "app/controllers/slates_controller.rb" =>
       "the admin drag + manual multiplier endpoints, which pass the team's game_factor",
     "app/services/world_cup2026_knockout_seed.rb" =>
-      "World Cup seeding — one game per team, so no line factor exists",
+      "World Cup seeding — one fixture per team, so rows ARE teams and no line factor exists",
     "app/services/nfl/build_preseason_slate.rb" =>
-      "the preseason rehearsal slate — one game per team",
+      "the preseason rehearsal slate — one game per team, so rows ARE teams",
     "lib/tasks/slates.rake" =>
       "the recompute pass, which SKIPS any two-line slate rather than re-scaling stale ranks"
   }.freeze
 
-  # `turf_score:` as a keyword in an assignment — update!, update_all, create!,
-  # assign_attributes. Not a read, not a symbol in a pluck.
-  ASSIGNMENT = /turf_score:\s*[^)\s]/
+  # A PERSISTENCE call carrying turf_score — the only thing that can change what
+  # a player is paid.
+  #
+  # Two wrong versions preceded this one, and both failure modes are worth
+  # naming. A bare `turf_score:` keyword flagged `Slate#team_rankings` and
+  # `BenchmarksHelper`, which build hashes and Data objects for the page: a
+  # guard that cries wolf on rendering code gets suppressed, and then it guards
+  # nothing. Keying on the verb but scanning LINE by line then missed
+  # `Nfl::BuildPreseasonSlate`, whose `update!` wraps across three lines —
+  # under-flagging, which is worse, because it reads as a pass.
+  #
+  # So: strip comments, join continuation lines into whole statements, then ask
+  # who WRITES. `new` is deliberately absent — a constructor persists nothing,
+  # and including it is exactly what flagged the chart helper.
+  WRITERS = /(?:update!?|update_all|update_columns|update_attribute|create!?|
+               assign_attributes|insert_all!?|upsert_all)\b[^\n]*turf_score:/x
+
+  # Whole statements, not source lines: a call broken across lines is one write.
+  def statements_in(path)
+    source = File.readlines(path).reject { |line| line.strip.start_with?("#") }.join
+    source.gsub(/\(\s*\n\s*/, "(").gsub(/,\s*\n\s*/, ", ").lines
+  end
 
   test "only the sanctioned files write a price" do
     found = Dir.glob(Rails.root.join("{app,lib}/**/*.{rb,rake}")).select do |path|
-      File.readlines(path).any? do |line|
-        next false if line.strip.start_with?("#")
-
-        ASSIGNMENT.match?(line)
-      end
+      statements_in(path).any? { |statement| WRITERS.match?(statement) }
     end.map { |path| Pathname(path).relative_path_from(Rails.root).to_s }.sort
 
     unexpected = found - SANCTIONED.keys

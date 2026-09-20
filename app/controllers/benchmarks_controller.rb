@@ -30,10 +30,24 @@ class BenchmarksController < ApplicationController
   # started) and then to any slate at all, so the page never renders empty.
   def default_slate
     spans = @slates.select { |slate| slate.week_range.size > 1 }
-    upcoming = spans.select { |slate| slate.first_game_starts_at&.future? }
-    upcoming.min_by(&:first_game_starts_at) ||
-      spans.max_by { |slate| slate.first_game_starts_at || Time.at(0) } ||
+    kickoffs = first_kickoffs_for(spans)
+    upcoming = spans.select { |slate| kickoffs[slate.id]&.future? }
+    upcoming.min_by { |slate| kickoffs[slate.id] } ||
+      spans.max_by { |slate| kickoffs[slate.id] || Time.at(0) } ||
       @slates.first
+  end
+
+  # { slate_id => earliest kickoff } in ONE query.
+  #
+  # `Slate#first_game_starts_at` is per-slate and loads that slate's matchups to
+  # answer, so asking it once per span turned an uncached public page into a
+  # dozen round trips before it drew anything. Grouped here instead: the page
+  # only needs to know which span kicks off next.
+  def first_kickoffs_for(slates)
+    return {} if slates.empty?
+
+    SlateMatchup.joins(:game).where(slate_id: slates.map(&:id))
+                .group(:slate_id).minimum("games.kickoff_at")
   end
 
   # What the slate's prices were derived from. Each projection points at the run
