@@ -102,6 +102,50 @@ test.describe("multi-week slate page", () => {
     });
   });
 
+  // THE WHOLE CHAIN, WHICH ONLY A BROWSER WALKS. The board seeds its scale from
+  // the saved formula, not from the slider, and the Admin Formula field steps by
+  // 0.1 — so an admin can save a scale no slider position equals. The price
+  // table is keyed by string, the lookup misses, every row reads "—x", and a
+  // drag then saves each team's OLD price against its NEW rank.
+  //
+  // Neither half is visible below a browser: the helper test proves the table
+  // HAS a "2.3" row, and the controller test proves the page SHIPS one, but only
+  // here does an admin actually save 2.3 on one page and read prices on another.
+  test("a scale saved off the slider's grid still prices every row", async ({ page }) => {
+    await loginAdmin(page);
+
+    // The real path: type it into the admin formula field and save.
+    await page.goto("/slates/admin_formula");
+    const scale = page.locator('input[name="formula_mult_scale"]');
+    await scale.fill("2.3");
+    await page.locator('form button[type=submit], form input[type=submit]').first().click();
+    await page.waitForLoadState("networkidle");
+
+    await page.goto("/slates/nfl-2026-weeks-1-3");
+
+    const prices = page.locator(".turf-score-display");
+    await expect(prices).toHaveCount(32);
+
+    // "—x" is what a missed lookup renders, and it is the exact text the save
+    // path would then persist against a reordered rank.
+    const texts = await prices.evaluateAll((nodes) => nodes.map((n) => n.textContent.trim()));
+    expect(texts.filter((t) => t === "—x" || t === "" || t === "nullx")).toEqual([]);
+
+    // And the prices shown are the ones RUBY computed for 2.3, cell for cell.
+    const table = await page.evaluate(() => window._fcPrices || _fcPrices);
+    expect(Object.keys(table)).toContain("2.3");
+
+    const shown = await page.locator("div.sortable-item").evaluateAll((rows) =>
+      rows.map((row) => ({
+        factor: (parseFloat(row.dataset.gameFactor) || 1).toFixed(1),
+        text: row.querySelector(".turf-score-display").textContent.trim()
+      }))
+    );
+    shown.forEach((row, index) => {
+      expect(row.text).toBe(table["2.3"][row.factor][index].toFixed(1) + "x");
+    });
+  });
+
   test("a single-week slate still renders one row per team", async ({ page }) => {
     await loginAdmin(page);
     await page.goto("/slates/nfl-2026-week-1");
