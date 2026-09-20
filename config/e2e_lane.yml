@@ -1129,7 +1129,28 @@
 # Not tagged @devnet and it does not skip. This branch first derived 329 against
 # a base without cosign-button-clipped-on-mobile; re-derived with
 # bin/e2e-lane-derive --write ON THE MERGED TREE.
-total_specs: 335
+#
+# 335 -> 337 (bind-wallet-signal-through-registry): two specs in
+# e2e/wallet_signal_provider_binding.spec.js, for which PROVIDER the wallet signal
+# binds. Neither is observable in the response bytes — the object bound is chosen
+# from `window.walletProvider`, an importmap module that does not exist until the
+# page loads it, and a Wallet Standard wallet arrives by a handshake no node
+# harness performs. The pair is a pair on purpose: one proves the binding happens
+# (a Solflare-brand admin read `none` over a wallet the registry was holding an
+# adapter for), the other proves it stops at a provider whose `on()` registers
+# nothing, because binding one of those leaves a page painting a green dot over a
+# wallet that has moved. Each half has a mutation that reddens exactly one: the
+# binding disabled → "Expected Solflare, Received null"; SIGNAL_DEAF_PROVIDERS
+# emptied → "Expected phantom, Received keypair". Not tagged @devnet and neither
+# skips. Derived with bin/e2e-lane-derive --write, not by arithmetic.
+#
+# ⚠️ THE LEDGER ABOVE IS BEHIND THE SCALAR, and this entry does not close that.
+# The narrative stops at 331 while the number stood at 335, so four specs from
+# earlier branches carry no row here. They are not fabricated in: a row invented
+# from a diff nobody read is worse than a visible gap, and the scalar itself is
+# guarded by bin/e2e-lane-derive either way. Whoever next lands a spec pair can
+# recover them from git log over this file if they are worth recovering.
+total_specs: 337
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1467,7 +1488,14 @@ allowed_skips: 4
 # 309 -> 310 (seeds-bar-leaks-server-total, on merging accepted): the one spec
 # described beside total_specs above. excluded stays 17 and allowed_skips stays 4:
 # 331 - 17 - 4 = 310. Derived with bin/e2e-lane-derive --write ON THE MERGED TREE.
-executed: 314
+#
+# 314 -> 316 (bind-wallet-signal-through-registry): the two
+# wallet_signal_provider_binding specs described beside total_specs above. Both run
+# in the chromium lane and neither carries a runtime skip, so excluded HOLDS AT 17
+# and allowed_skips HOLDS AT 4 and the whole delta lands here: 337 - 17 - 4 = 316.
+# Derived with bin/e2e-lane-derive --write on this tree, which re-reads the file to
+# confirm both routes agree, rather than by arithmetic on the line above.
+executed: 316
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
