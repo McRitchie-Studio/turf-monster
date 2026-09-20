@@ -1150,7 +1150,7 @@
 # from a diff nobody read is worse than a visible gap, and the scalar itself is
 # guarded by bin/e2e-lane-derive either way. Whoever next lands a spec pair can
 # recover them from git log over this file if they are worth recovering.
-total_specs: 338
+total_specs: 340
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1495,7 +1495,7 @@ allowed_skips: 4
 # and allowed_skips HOLDS AT 4 and the whole delta lands here: 337 - 17 - 4 = 316.
 # Derived with bin/e2e-lane-derive --write on this tree, which re-reads the file to
 # confirm both routes agree, rather than by arithmetic on the line above.
-executed: 317
+executed: 319
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

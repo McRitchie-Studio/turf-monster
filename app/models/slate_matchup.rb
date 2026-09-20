@@ -39,12 +39,25 @@ class SlateMatchup < ApplicationRecord
   # before; a team that plays 2 of a span's 3 games passes 1.5 and rides the
   # two-game line, x1.5 to x3.0. Rounded ONCE, after scaling — scaling an
   # already-rounded 1.1 would drift a bye team a tenth off its true line.
-  def self.turf_score_for(rank, n, sport: "fifa", game_factor: 1.0)
+  # `scale` is the top of the curve — x2.0 for the NFL, x3.0 for soccer — and it
+  # is a PARAMETER here only because the admin slate page lets an operator drag
+  # it. Passing nil takes the sport's own default, which is every caller but
+  # that page.
+  #
+  # That the slider had no Ruby parameter is why a second implementation grew in
+  # JavaScript, and why the two could disagree: Ruby rounds half away from zero
+  # on the decimal, JS `toFixed` rounds the binary double, and they part company
+  # on an exact tie. Measured across 74,025 cells (both curves, n 2-48, every
+  # slider position, factors 1.0/1.5/3.0): 369 disagreed — none at n=32, so the
+  # NFL board was never exposed, but a World Cup slate at n=6 or n=9 was.
+  # SlatesHelper#turf_score_scale_table now feeds the page from THIS method, so
+  # there is one implementation again and a tie cannot be rounded two ways.
+  def self.turf_score_for(rank, n, sport: "fifa", game_factor: 1.0, scale: nil)
     return (1.0 * game_factor).round(1) if n <= 1
 
     nfl = sport.to_s == "nfl"
     curve = nfl ? (rank - 1).to_f / (n - 1) : Math.log(rank) / Math.log(n)
-    ((1.0 + (nfl ? 1.0 : 2.0) * curve) * game_factor).round(1)
+    ((1.0 + (scale || (nfl ? 1.0 : 2.0)) * curve) * game_factor).round(1)
   end
 
   def self.goals_distribution_for(rank, n)
