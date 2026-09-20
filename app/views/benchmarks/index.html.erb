@@ -1,11 +1,15 @@
 <% content_for :title, "Turf Score Benchmarks — #{@slate.name}" %>
 
-<%# The public pricing board. Every number here is READ, never recomputed:
-    rank and Turf Score come off the stored columns settlement multiplies by
-    (Slate#team_rows), and the DK figures come from the matchups those prices
-    were derived from. A page that recomputed would eventually disagree with
-    what a player is paid, which is the failure this whole column exists to
-    prevent. %>
+<%# The public pricing board. THE PRICE is read, never recomputed: rank and
+    Turf Score come off the stored columns settlement multiplies by
+    (Slate#team_rows), and a page that recomputed them would eventually
+    disagree with what a player is paid — the failure that column exists to
+    prevent.
+
+    The rest of the row is derived live and safely so: `game_factor` and
+    `expected_points_per_game` are computed from the matchups on each render.
+    Neither is money — they describe the team, not its payout — and deriving
+    them keeps the badge honest about the games a slate currently holds. %>
 <div class="max-w-4xl mx-auto py-8 px-4" data-testid="benchmarks">
   <h1 class="text-3xl md:text-4xl font-extrabold text-heading mb-2">Turf Score Benchmarks</h1>
   <p class="text-secondary text-base leading-relaxed mb-6">

@@ -67,14 +67,22 @@ class SlateMatchup < ApplicationRecord
 
   # ─── Instance Methods ───────────────────────────────────────
 
+  # NOTE — there is deliberately NO per-matchup `compute_turf_score!` here.
+  #
+  # One existed until `close-pricing-review-notes` and had zero callers, which
+  # is the only reason it never mispriced anything: it passed no `game_factor`,
+  # so every bye team it touched would have been priced on the full-span line,
+  # and it counted `n` as the slate's ROW count — 96 on a three-week span, where
+  # the curve's denominator is the 32 TEAMS. Reviving it would have been wrong
+  # twice over, and it read like the obvious way to price one row.
+  #
+  # A price is written in exactly three shapes, all of which rank the TEAM
+  # first: Slate#team_rankings (through the ingest and the span freeze), the
+  # admin drag/save endpoints, and Nfl::RepriceSpanSlate.
+  # test/models/turf_score_writers_test.rb holds that list and fails on a new one.
+
   def locked?
     game&.kickoff_at.present? && game.kickoff_at <= Time.current
-  end
-
-  def compute_turf_score!(n = nil)
-    return unless rank.present?
-    n ||= slate.slate_matchups.count
-    update!(turf_score: self.class.turf_score_for(rank, n, sport: slate.sport))
   end
 
   # On a SPAN slate a team has several rows, and two of them can share an

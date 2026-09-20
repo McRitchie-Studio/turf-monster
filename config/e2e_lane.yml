@@ -21,7 +21,7 @@
 # SPELLING of the same event — a spec left the executed set — and enumerating spellings is
 # how the hub's guard was defeated three times before it started reading the receipt.
 #
-#     executed == total_specs - excluded
+#     executed == total_specs - excluded - allowed_skips
 #
 # TO CHANGE THESE NUMBERS you must edit this file, which is a visible, reviewable diff line
 # with a comment attached. That is the point: the hole cannot grow silently, only on
