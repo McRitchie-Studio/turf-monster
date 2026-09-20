@@ -42,7 +42,7 @@
 # narrowed `testDir`, a deleted file, a dropped shard, or next year's flag that nobody in
 # this repo has heard of. They all land on the same line of arithmetic:
 #
-#     executed == total_specs - excluded            (config/e2e_lane.yml)
+#     executed == total_specs - excluded - allowed_skips    (config/e2e_lane.yml)
 #
 # A guard that enumerates spellings must be right every time. A guard that counts what ran
 # has to be beaten by ARITHMETIC — and to move the arithmetic you must edit config/e2e_lane.yml,

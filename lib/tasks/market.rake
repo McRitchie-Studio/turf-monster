@@ -52,8 +52,17 @@ namespace :market do
 
   # The whole benchmark rebuild in one command: pull the lines, ingest them,
   # re-read the span's expected scores, and reprice it under the current rule.
-  # DRY RUN unless APPLY=1 — the dry run names every refusal you would hit,
-  # including the paid-pick one, before anything is written.
+  #
+  # DRY RUN unless APPLY=1 — and what a dry run can tell you is bounded in one
+  # specific way. It performs the real refresh and reprice and rolls them back
+  # (Nfl::RefreshSpanSlate calls RepriceSpanSlate with apply: true inside the
+  # transaction either way), so it DOES name every refusal today's numbers
+  # produce — a started slate, schedule drift, and paid picks included.
+  #
+  # What it cannot anticipate is a refusal only FRESH numbers would create: the
+  # dry run skips the ingest, so if a pulled line would move a price on a slate
+  # carrying paid picks, the dry run sees the old price, reports no change
+  # there, and the APPLY refuses where the preview was quiet.
   #
   #   bin/rails market:refresh WEEKS=4,5,6 SPAN=nfl-2026-weeks-4-6
   #   APPLY=1 REPRICE_PAID_PICKS=nfl-2026-weeks-4-6 \
