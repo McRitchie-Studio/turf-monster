@@ -6,6 +6,8 @@ require "test_helper"
 # The HTTP client is stubbed — the point is the seam BELOW it. What the network
 # actually returns is pinned by the unit tests over the parse seams.
 class NflLiveScoresPollTest < ActionDispatch::IntegrationTest
+  include ActiveJob::TestHelper
+
   # Stands in for Nfl::Espn::Client. Records what was asked for, so a test can
   # assert that a summary was NOT fetched for a game whose score did not move —
   # the optimisation the whole polling budget rests on.
@@ -265,6 +267,73 @@ class NflLiveScoresPollTest < ActionDispatch::IntegrationTest
     assert_equal "completed", Game.find_by(external_id: "EV1").status
     assert_includes result.changes.map(&:kind), "final"
     assert_empty result.anomalies
+  end
+
+  # --- studio recap push -------------------------------------------------
+  # The hub push rides along with a finalisation. Everything below is about one
+  # property: it must never cost a contest its settlement.
+
+  def final_client
+    StubClient.new(
+      scoreboard: scoreboard(home: 10, away: 7, state: "post", completed: true),
+      summaries: { "EV1" => summary }
+    )
+  end
+
+  test "a settled game enqueues a recap push" do
+    ENV["AGENT_API_SECRET"] = "test-secret"
+
+    assert_enqueued_with(job: Studio::GameRecapPushJob) do
+      Nfl::LiveScores::PollCycle.call(slot: @slot, client: final_client)
+    end
+  ensure
+    ENV.delete("AGENT_API_SECRET")
+  end
+
+  test "the push is skipped silently when no secret is configured" do
+    ENV.delete("AGENT_API_SECRET")
+
+    result = nil
+    assert_no_enqueued_jobs only: Studio::GameRecapPushJob do
+      result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: final_client)
+    end
+
+    # Skipped, not failed — an unconfigured stack scores exactly as it always did.
+    assert_empty result.anomalies
+    assert_equal "completed", Game.find_by(external_id: "EV1").status
+  end
+
+  # The point of the whole design: the hub is allowed to be down.
+  test "a failing enqueue is an anomaly and still settles the game" do
+    ENV["AGENT_API_SECRET"] = "test-secret"
+    Studio::GameRecapPushJob.stub(:perform_later, ->(*) { raise RuntimeError, "redis is down" }) do
+      result = Nfl::LiveScores::PollCycle.call(slot: @slot, client: final_client)
+
+      # The game still settled and still reported FINAL.
+      assert_equal "completed", Game.find_by(external_id: "EV1").status
+      assert_includes result.changes.map(&:kind), "final"
+
+      # And the failure was reported rather than swallowed.
+      push_anomalies = result.anomalies.select { |a| a.kind == "recap_push_failed" }
+      assert_equal 1, push_anomalies.length
+      assert_match "redis is down", push_anomalies.first.detail
+    end
+  ensure
+    ENV.delete("AGENT_API_SECRET")
+  end
+
+  test "a game that does not settle enqueues nothing" do
+    ENV["AGENT_API_SECRET"] = "test-secret"
+    client = StubClient.new(
+      scoreboard: scoreboard(home: 10, away: 7),
+      summaries: { "EV1" => summary }
+    )
+
+    assert_no_enqueued_jobs only: Studio::GameRecapPushJob do
+      Nfl::LiveScores::PollCycle.call(slot: @slot, client: client)
+    end
+  ensure
+    ENV.delete("AGENT_API_SECRET")
   end
 
   # A blank score on a game the feed calls LIVE is a degraded response, not 0-0.
