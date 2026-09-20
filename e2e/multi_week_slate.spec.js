@@ -73,6 +73,35 @@ test.describe("multi-week slate page", () => {
     expect(await prices()).toEqual(serverPrices);
   });
 
+  // The slider used to drive a JavaScript copy of the pricing curve, and the two
+  // implementations rounded an exact tie differently — while "Save Multipliers"
+  // posts what is on screen. The page now looks prices up from a Ruby-built
+  // table, so this asserts the display IS that table at a non-default scale.
+  test("dragging the scale shows Ruby's prices, not a recomputed curve", async ({ page }) => {
+    await loginAdmin(page);
+    await page.goto("/slates/nfl-2026-weeks-1-3");
+
+    // Move the multiplier scale off its default and let the page redraw.
+    const slider = page.locator('input[type=range][x-model\\.number="multScale"]');
+    await slider.fill("4.5");
+    await slider.dispatchEvent("input");
+    await expect(page.locator(".turf-score-display").first()).not.toHaveText("—x");
+
+    const shown = await page.locator("div.sortable-item").evaluateAll((rows) =>
+      rows.map((row) => ({
+        factor: (parseFloat(row.dataset.gameFactor) || 1).toFixed(1),
+        text: row.querySelector(".turf-score-display").textContent.trim()
+      }))
+    );
+    const table = await page.evaluate(() => window._fcPrices || _fcPrices);
+
+    expect(shown.length).toBe(32);
+    shown.forEach((row, index) => {
+      const expected = table["4.5"][row.factor][index];
+      expect(row.text).toBe(expected.toFixed(1) + "x");
+    });
+  });
+
   test("a single-week slate still renders one row per team", async ({ page }) => {
     await loginAdmin(page);
     await page.goto("/slates/nfl-2026-week-1");
