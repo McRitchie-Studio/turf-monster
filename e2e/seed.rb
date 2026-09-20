@@ -231,13 +231,24 @@ Studio::GeoSetting.create!(
 
 # ── Multi-week span slate (NFL Weeks 1-3) ────────────────────────────
 # A Slate is a POOL OF GAMES: this one holds three weeks, so each team appears
-# three times, is ranked on its SUMMED expected points, and carries a FROZEN
+# three times, is ranked on its expected points PER GAME, and carries a FROZEN
 # turf_score on every row. Built through the real service so the seed cannot
 # drift from production behaviour. Backs e2e/multi_week_slate.spec.js.
 begin
   Nfl::BuildSpanSlate.call(year: 2026, weeks: [1, 2, 3])
 rescue Nfl::BuildSpanSlate::Error => e
   warn "skipping Weeks 1-3 span slate: #{e.message}"
+end
+
+# ── Bye-week span slate (NFL Weeks 4-6) ──────────────────────────────
+# Six teams have their bye in weeks 5-6, so they play two games here, not
+# three, and the span prices on TWO lines (Slate "Two lines"): per-game rank,
+# bye teams on the x1.5 line. Backs the bye-line cases in
+# e2e/multi_week_slate.spec.js.
+begin
+  Nfl::BuildSpanSlate.call(year: 2026, weeks: [4, 5, 6])
+rescue Nfl::BuildSpanSlate::Error => e
+  warn "skipping Weeks 4-6 span slate: #{e.message}"
 end
 
 # ---------------------------------------------------------------------------

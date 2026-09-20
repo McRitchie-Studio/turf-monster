@@ -1,8 +1,9 @@
 require "test_helper"
 
 # A Slate is a POOL OF GAMES, not one NFL week. A team appears once per game it
-# plays here, and everything it is priced on — expected points, rank, multiplier
-# — is the SUM across those games. A one-week slate is the degenerate case.
+# plays here; it scores its SUMMED points and is ranked on expected points PER
+# GAME across those games (see slate_two_line_pricing_test.rb for the bye line).
+# A one-week slate is the degenerate case.
 class SlateTeamTotalsTest < ActiveSupport::TestCase
   setup do
     @slate = Slate.create!(name: "NFL 2026 Weeks 1-3", slug: "nfl-2026-weeks-1-3")
@@ -36,7 +37,7 @@ class SlateTeamTotalsTest < ActiveSupport::TestCase
     assert_in_delta 75.5, @slate.expected_points_by_team["team-a"], 0.001
   end
 
-  test "rank and turf derive from the summed total, not any single game" do
+  test "rank and turf derive from the whole span, not any single game" do
     # team-a has the WEAKEST single game (5.0) but the strongest three-week
     # total, so ranking on a single row would price it exactly backwards.
     add_game!("team-a", "team-b", 5.0)
@@ -67,8 +68,12 @@ class SlateTeamTotalsTest < ActiveSupport::TestCase
     team_a = rows.find { |row| row.team_slug == "team-a" }
     assert_equal 2, team_a.matchups.size
     assert_in_delta 45.0, team_a.expected_points, 0.001
-    # team-b's single 30.0 beats team-a's 45.0? No — 45 > 30, so team-a ranks 1.
-    assert_equal 1, team_a.rank
+    # Ranked PER GAME: team-b's one 30.0 game beats team-a's 22.5 a game, even
+    # though team-a's 45.0 total is bigger. (Under the old summed-total rule
+    # team-a ranked 1 — that is the bye-week trap this rule removes.)
+    assert_in_delta 22.5, team_a.expected_points_per_game, 0.001
+    assert_equal 2, team_a.rank
+    assert_equal 1, rows.find { |row| row.team_slug == "team-b" }.rank
   end
 
   test "team_rows is ordered by rank" do

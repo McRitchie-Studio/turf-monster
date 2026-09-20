@@ -69,4 +69,56 @@ class SlateTeamRowsTest < ActionDispatch::IntegrationTest
     assert_equal [2, 2], ranks
     assert_equal [1], SlateMatchup.where(slate: @slate, team_slug: "team-b").pluck(:rank)
   end
+
+  # --- two lines: a span with a bye in it (Slate "Two lines") ---------------
+
+  # team-a and team-c play all three weeks; team-b has its bye in the span.
+  # (Distinct opponents per game: a Game's slug is its home-vs-away pair.)
+  def add_bye_span!
+    %w[team-d team-e team-f].each_with_index { |opponent, week| add_game!("team-a", opponent, 20.0 + week) }
+    %w[team-d team-e team-f].each { |opponent| add_game!("team-c", opponent, 18.0) }
+    %w[team-e team-f].each { |opponent| add_game!("team-b", opponent, 25.0) }
+  end
+
+  test "a bye span states the two-line rule and badges each bye team" do
+    add_bye_span!
+
+    get slate_path(@slate)
+
+    assert_response :success
+    assert_select "[data-testid=two-line-note]", text: /per game/
+    assert_select "[data-testid=bye-line-badge]", count: 1, text: /2 games · bye line/
+    # The row carries the line and the per-game figure the JS mirror reads, so
+    # a drag or Save Multipliers keeps team-b on its line.
+    assert_select "div.sortable-item[data-game-factor='1.5'][data-per-game='25.0']", 1
+    assert_includes response.body, "DK 50.0 · 25.0/g"
+  end
+
+  test "a slate with no bye carries no two-line note" do
+    %w[team-c team-d team-e].each { |opponent| add_game!("team-a", opponent, 20.0) }
+    %w[team-c team-d team-e].each { |opponent| add_game!("team-b", opponent, 22.0) }
+
+    get slate_path(@slate)
+
+    assert_response :success
+    assert_select "[data-testid=two-line-note]", 0
+    assert_select "[data-testid=bye-line-badge]", 0
+  end
+
+  test "dragging a bye team moves its rank but keeps it on the two-game line" do
+    add_bye_span!
+    handle = ->(slug) { SlateMatchup.find_by(slate: @slate, team_slug: slug).id }
+
+    # Drag order: team-a, team-c, team-b — the bye team dropped to the bottom.
+    patch update_rankings_slate_path(@slate),
+          params: { matchup_ids: [handle["team-a"], handle["team-c"], handle["team-b"]] }
+
+    prices = SlateMatchup.where(slate: @slate).group(:team_slug).pluck(:team_slug, "MAX(turf_score)").to_h
+    assert_equal 1.0, prices["team-a"].to_f
+    assert_equal 1.5, prices["team-c"].to_f
+    # Rank 3 of 3 is 2.0x on the full line; team-b rides the bye line: 3.0x.
+    assert_equal 3.0, prices["team-b"].to_f
+    assert_equal [3.0, 3.0], SlateMatchup.where(slate: @slate, team_slug: "team-b").pluck(:turf_score).map(&:to_f),
+                 "every row of the bye team carries its price"
+  end
 end

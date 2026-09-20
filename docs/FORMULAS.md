@@ -17,7 +17,7 @@
 
 All scoring/ranking formulas live as class methods on `SlateMatchup` — single source of truth. JS mirrors in `slates/show.html.erb` and `slates/formula_report.html.erb` with comments noting the model as authoritative.
 
-- **Turf Score**: `SlateMatchup.turf_score_for(rank, n, sport:)` — base PINNED to 1.0 (rank 1 always prices x1.0; `Slate#resolved_formula` forces `formula_mult_base` to 1.0 and the Base slider is gone). Sport-keyed curve: fifa `1.0 + 2.0 * ln(rank)/ln(n)` (log decay, x3 top), nfl `1.0 + 1.0 * (rank-1)/(n-1)` (linear, x2 top — NFL scoring runs near-linear by rank per the points-distribution fit, and the flatter cap keeps the Turf and DK chart lines mirrored). **Both curves are rounded to ONE DECIMAL** (`app/models/slate_matchup.rb:41`), and that rounded value is what freezes onto the matchup row and what `Selection#compute_points!` settles from — so the curve alone does not reproduce the multiplier a player is PAID. On the 32-team NFL curve that collapses ranks 1-2 to x1.0 and ranks 3, 4 and 5 all to x1.1; computing rank 5 as 1.129 and expecting to be paid it is wrong. The public rules page at `/turf-monster-v1` carries this caveat and this doc must not contradict it. Per-slate `formula_mult_scale` overrides either default. On NFL slates the chart's Turf axis renders REVERSED (x1.0 at top) so both lines fall with rank. Repricing pass after formula changes: `bin/rails slates:recompute_turf_scores` (preserves stored ranks).
+- **Turf Score**: `SlateMatchup.turf_score_for(rank, n, sport:)` — base PINNED to 1.0 (rank 1 always prices x1.0; `Slate#resolved_formula` forces `formula_mult_base` to 1.0 and the Base slider is gone). Sport-keyed curve: fifa `1.0 + 2.0 * ln(rank)/ln(n)` (log decay, x3 top), nfl `1.0 + 1.0 * (rank-1)/(n-1)` (linear, x2 top — NFL scoring runs near-linear by rank per the points-distribution fit, and the flatter cap keeps the Turf and DK chart lines mirrored). **Both curves are rounded to ONE DECIMAL** (`app/models/slate_matchup.rb:47`), and that rounded value is what freezes onto the matchup row and what `Selection#compute_points!` settles from — so the curve alone does not reproduce the multiplier a player is PAID. On the 32-team NFL curve that collapses ranks 1-2 to x1.0 and ranks 3, 4 and 5 all to x1.1; computing rank 5 as 1.129 and expecting to be paid it is wrong. The public rules page at `/turf-monster-v1` carries this caveat and this doc must not contradict it. Per-slate `formula_mult_scale` overrides either default. On NFL slates the chart's Turf axis renders REVERSED (x1.0 at top) so both lines fall with rank. Repricing pass after formula changes: `bin/rails slates:recompute_turf_scores` (preserves stored ranks; skips a two-line span — see **Two lines** below).
 - **Goals Distribution**: `SlateMatchup.goals_distribution_for(rank, n)` — `0.2 + 4.3 * Math.log(n / rank) / Math.log(n)`, rounded to two decimals. Soccer slates only — the chart series and slider card are hidden on NFL slates. NOTE: the *distribution* is soccer-only, but the `goals` COLUMN is not. Live NFL scoring writes `Goal` rows carrying `points` (a touchdown is 6) and `SlateMatchup#goals` holds a team's POINTS on an NFL slate — see [`workflows/live-scoring.md`](workflows/live-scoring.md). `Game#update_scores_from_goals!` sums `points` rather than counting rows, which leaves every World Cup goal scoring exactly one.
 
 ## NFL Points Distribution (historical model)
@@ -28,6 +28,15 @@ The NFL analog of the goals distribution, learned from real scores instead of ha
 - **linear** (best fit for NFL): `base + scale * (n-rank)/(n-1)` — 2023-2025 snapshot: `6.76 + 31.54 * (32-rank)/31`, r² 0.9583
 
 In both, `base` is the rank-32 expectation and `base + scale` the rank-1 expectation. NFL weekly scoring by rank is nearly linear (~1 point per rank, ~46 down to ~4), unlike World Cup goals which decay logarithmically. Refresh the dataset with `bin/rails nfl:fetch_historical_scores`; print the rank table and current fits with `bin/rails nfl:points_distribution`. Bye-week handling (partial weeks) is deliberately out of scope for now.
+
+## Two lines: a bye inside a span
+
+A three-week NFL span holds two games, not three, for a team whose bye falls inside it. Two rules keep that team fairly priced (the full rationale sits above `Slate.game_factor` in `app/models/slate.rb`):
+
+- **Rank on points per game.** `Slate#team_rankings` sorts on `Slate.expected_points_per_game`, not the summed total, so a strong bye team ranks on its strength. With every team on the same game count (any one-week slate; weeks 1-3 and 16-18 of 2026) per-game order is summed order, and nothing re-prices.
+- **Price on the team's line.** `SlateMatchup.turf_score_for(..., game_factor:)` scales the curve by `span_games / games` before rounding: full-span teams stay on x1.0-x2.0, and a two-of-three team rides the **bye line**, x1.5-x3.0. Two games at 1.5m score what three games at m do.
+
+The admin slate page states the rule, badges each bye team, and its JS mirror applies the same factor, so a drag or "Save Multipliers" keeps a bye team on its line. To move an already-built span onto the rule: `bin/rails "slates:reprice_span[<slug>]"` (dry run), then `APPLY=1`; a slate with paid picks also needs `REPRICE_PAID_PICKS=<slug>`, and a slate that has kicked off is refused outright.
 
 ## Formula Color System
 
@@ -113,6 +122,7 @@ Admin page for managing game results within a slate. Each game renders as a card
 - `/slates/formula_report` — DK Score formula iterations page (soccer) with comparison charts + playground; link-tabs to the NFL report
 - `/slates/nfl_report` — NFL points-distribution report (rank chart, linear + log fits, rank table) on its own tab; linked from the admin dashboard and the admin Link Hub
 - `/slates/admin_formula` — GET, admin page for editing Default slate formula variables
+- `/benchmarks(/:slug)` — PUBLIC, read-only. The pricing board a player can check: per-team points per game, rank, frozen multiplier, the bye line where one applies, and when the lines were pulled. Reads stored values only. Rebuild those values with `bin/rails market:refresh` (see [`workflows/market-snapshot.md`](workflows/market-snapshot.md) step 5)
 - `/slates/update_admin_formula` — PATCH, save Default slate formula variables
 
 <!-- citation-guard: enforced -->

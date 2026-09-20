@@ -19,8 +19,11 @@
   };
 
   <%# Charted per TEAM, not per matchup row — a three-week slate would otherwise
-      plot 96 points for 32 teams and rank each team three times. team_total is
-      the SUM across the team's games, which is what the curve is fitted on. %>
+      plot 96 points for 32 teams and rank each team three times. per_game is
+      the team's expected points PER GAME, which is what it is ranked on (on a
+      one-week slate that is simply its one game). game_factor picks the line
+      it prices on: 1.0 for a full-span team, 1.5 for a team with a bye inside a
+      three-week span (Slate "Two lines"). %>
   var _fcMatchups = <%== @team_rows.map { |row|
     {
       rank: row.rank,
@@ -29,20 +32,28 @@
       short: row.team.short_name,
       opponent: row.matchups.filter_map { |m| m.opponent_team&.short_name }.join(" / "),
       turf_score: row.turf_score&.to_f,
-      team_total: row.expected_points
+      team_total: row.expected_points,
+      per_game: row.expected_points_per_game.round(2),
+      games: row.matchups.size,
+      game_factor: row.game_factor
     }
   }.to_json %>;
+  var FC_TWO_LINES = _fcMatchups.some(function(m) { return m.game_factor > 1; });
+  // A span ranks on points PER GAME, so that is what the DK line plots.
+  var FC_DK_AXIS = _fcMatchups.some(function(m) { return m.games > 1; }) ? 'DK per game' : 'DK Total';
 
   var _fcChart = null;
 
   // Sport-aware multiplier curve, base PINNED at 1.0 (rank 1 always x1.0).
   // fifa: log decay; nfl: linear (points run nearly linear by rank).
+  // gameFactor is the two-line rule: a bye team's curve scales by 1.5.
   // Ruby mirror: SlateMatchup.turf_score_for.
   var FC_SPORT = '<%= @slate.sport %>';
-  function _fcMult(rank, N, multScale) {
-    if (N <= 1) return 1.0;
+  function _fcMult(rank, N, multScale, gameFactor) {
+    var factor = gameFactor || 1.0;
+    if (N <= 1) return factor;
     var curve = FC_SPORT === 'nfl' ? (rank - 1) / (N - 1) : Math.log(rank) / Math.log(N);
-    return 1.0 + multScale * curve;
+    return (1.0 + multScale * curve) * factor;
   }
 
   function _fcCompute(A, lineExp, probExp, multBase, multScale, goalBase, goalScale) {
@@ -52,9 +63,11 @@
       var rank = i + 1;
       return {
         emoji: m.emoji, team: m.team, opponent: m.opponent, rank: rank,
-        mult: Math.round(_fcMult(rank, N, multScale) * 100) / 100,
+        mult: Math.round(_fcMult(rank, N, multScale, m.game_factor) * 100) / 100,
         goals: Math.round((goalBase + goalScale * Math.log(N / rank) / lnN) * 100) / 100,
-        teamTotal: m.team_total
+        teamTotal: m.per_game,
+        games: m.games,
+        twoLine: m.game_factor > 1
       };
     });
   }
@@ -77,6 +90,12 @@
     var pad = Math.max(2, (dkMax - dkMin) * 0.13);
     var y2Min = Math.floor(dkMin - pad);
     var y2Max = Math.ceil(dkMax + pad);
+    // The two-game line tops out at 1.5x the curve, below the DK minimum's
+    // pixel. Stretch the DK axis DOWN until the highest multiplier fits, so the
+    // turf-1.0-at-DK-max anchoring still holds and the bye line stays on chart.
+    var multMax = Math.max.apply(null, data.map(function(d) { return d.mult; }));
+    var neededY2Min = dkMax - (multMax + 0.15 - 1) * (dkMax - dkMin) / multScale;
+    if (multScale > 0 && neededY2Min < y2Min) y2Min = Math.floor(neededY2Min);
     var tMin = 1 - multScale * (y2Max - dkMax) / (dkMax - dkMin);
     var tMax = tMin + multScale * (y2Max - y2Min) / (dkMax - dkMin);
     return { y2Min: y2Min, y2Max: y2Max, tMin: tMin, tMax: tMax };
@@ -93,15 +112,27 @@
     var gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
     var textColor = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)';
 
+    // Two lines on a bye span: full-span teams on the usual curve, bye teams on
+    // the 1.5x line. Each dataset skips the other's teams (null + spanGaps), so
+    // each draws as its own line across the one shared ranking.
     var datasets = [
       {
         label: 'Turf Score',
-        data: data.map(function(d) { return d.mult; }),
+        data: data.map(function(d) { return d.twoLine ? null : d.mult; }),
         borderColor: FC.mult,
         backgroundColor: FC.mult + '14',
-        borderWidth: 2.5, pointRadius: 2, pointHoverRadius: 6, tension: 0.3, fill: false, yAxisID: 'y', order: 1
+        borderWidth: 2.5, pointRadius: 2, pointHoverRadius: 6, tension: 0.3, fill: false, yAxisID: 'y', spanGaps: true, order: 1
       }
     ];
+    if (FC_TWO_LINES) {
+      datasets.push({
+        label: 'Turf Score · bye line',
+        data: data.map(function(d) { return d.twoLine ? d.mult : null; }),
+        borderColor: FC.mult,
+        backgroundColor: FC.mult,
+        borderWidth: 2, borderDash: [2, 3], pointRadius: 4, pointHoverRadius: 7, tension: 0, fill: false, yAxisID: 'y', spanGaps: true, order: 1
+      });
+    }
     // Goals are a soccer concept — on NFL slates the series is noise.
     if (FC_SPORT !== 'nfl') {
       datasets.push({
@@ -144,7 +175,7 @@
               },
               afterTitle: function(items) {
                 var d = _fcLastData[items[0].dataIndex];
-                return 'Rank #' + d.rank + '  ·  Turf Score x' + d.mult.toFixed(1);
+                return 'Rank #' + d.rank + '  ·  Turf Score x' + d.mult.toFixed(1) + (d.twoLine ? '  ·  ' + d.games + ' games (bye line)' : '');
               },
               label: function(ctx) {
                 var val = ctx.parsed.y;
@@ -163,8 +194,8 @@
           // mirrored uselessly on the right. Axis text wears the series green
           // so the accurate scale reads as the green line's.
           y2: windows
-            ? { position: 'left', title: { display: true, text: 'DK Total', color: FC.dkTotal, font: { size: 11 } }, ticks: { color: FC.dkTotal }, grid: { drawOnChartArea: false }, min: windows.y2Min, max: windows.y2Max }
-            : { position: 'left', title: { display: true, text: 'DK Total', color: FC.dkTotal, font: { size: 11 } }, ticks: { color: FC.dkTotal }, grid: { drawOnChartArea: false }, beginAtZero: true },
+            ? { position: 'left', title: { display: true, text: FC_DK_AXIS, color: FC.dkTotal, font: { size: 11 } }, ticks: { color: FC.dkTotal }, grid: { drawOnChartArea: false }, min: windows.y2Min, max: windows.y2Max }
+            : { position: 'left', title: { display: true, text: FC_DK_AXIS, color: FC.dkTotal, font: { size: 11 } }, ticks: { color: FC.dkTotal }, grid: { drawOnChartArea: false }, beginAtZero: true },
           // NFL: reversed so x1.0 sits at the TOP — the Turf line then falls
           // with rank alongside the DK Expectation line instead of crossing it,
           // and the window derived by _fcNflAxisWindows anchors turf 1.0 to the
@@ -200,7 +231,8 @@
     // Label-keyed: NFL charts carry no Goals Distribution dataset, so index
     // positions are not stable across sports.
     _fcChart.data.datasets.forEach(function(ds) {
-      if (ds.label === 'Turf Score') ds.data = data.map(function(d) { return d.mult; });
+      if (ds.label === 'Turf Score') ds.data = data.map(function(d) { return d.twoLine ? null : d.mult; });
+      else if (ds.label === 'Turf Score · bye line') ds.data = data.map(function(d) { return d.twoLine ? d.mult : null; });
       else if (ds.label === 'Goals Distribution') ds.data = data.map(function(d) { return d.goals; });
       else if (ds.label === 'DK Expectation') ds.data = data.map(function(d) { return d.teamTotal; });
     });
@@ -240,8 +272,7 @@
     var lnN = Math.log(N);
     items.forEach(function(item, i) {
       var rank = i + 1;
-      var line = parseFloat(item.dataset.teamTotal);
-      var mult = _fcMult(rank, N, multScale);
+      var mult = _fcMult(rank, N, multScale, parseFloat(item.dataset.gameFactor) || 1.0);
       item.querySelector('.turf-score-display').textContent = mult.toFixed(1) + 'x';
     });
   }
@@ -327,6 +358,16 @@
           <span class="font-mono text-sm" style="color: var(--fc-mult)" x-text="multScale.toFixed(1)"></span>
           <span class="text-muted text-sm"> &times; <%= @slate.sport == "nfl" ? "(rank − 1) / (N − 1)" : "ln(rank) / ln(N)" %></span>
         </div>
+        <%# Two lines on a bye span (Slate "Two lines"): stated where the formula
+            is, so the 1.5x rows in the list below are not read as a bug. %>
+        <% if @team_rows.any? { |row| row.game_factor > 1 } %>
+          <p class="text-xs text-secondary mb-3" data-testid="two-line-note">
+            Two lines: every team ranks on DK points <span class="font-semibold">per game</span>. A team with a bye in this span plays
+            <%= @slate.games_per_team - 1 %> of <%= @slate.games_per_team %> games and rides the bye line &mdash; the same curve
+            <span class="font-mono" style="color: var(--fc-mult)">&times; <%= number_with_precision(Slate.game_factor(@slate.games_per_team, @slate.games_per_team - 1), precision: 1) %></span>,
+            so two games at the bye price score what three would at the full-span price.
+          </p>
+        <% end %>
         <%# Base is pinned — rank 1 always prices x1.0; only the top end flexes. %>
         <div class="grid grid-cols-2 gap-4">
           <div>
@@ -423,15 +464,18 @@
 
       <div class="space-y-1" x-ref="sortableList">
         <%# One row per TEAM. A team's DK total is the SUM across every game it
-            plays in this slate, and that sum is what its rank and multiplier are
-            derived from. A one-week slate has one game per team, so this renders
-            exactly as it always did. The drag handle carries the team's FIRST
-            matchup id; update_rankings resolves it to the team and writes the
-            rank to all of that team's games. %>
+            plays in this slate; its rank comes from DK points PER GAME, and its
+            multiplier from that rank on the line its game count puts it on (a
+            bye team rides the 1.5x line). A one-week slate has one game per
+            team, so this renders exactly as it always did. The drag handle
+            carries the team's FIRST matchup id; update_rankings resolves it to
+            the team and writes the rank to all of that team's games. %>
         <% @team_rows.each_with_index do |row, i| %>
           <div class="flex items-center gap-3 bg-surface rounded-lg px-4 py-3 border border-subtle cursor-grab active:cursor-grabbing sortable-item"
                data-matchup-id="<%= row.matchups.first.id %>"
-               data-team-total="<%= row.expected_points %>">
+               data-team-total="<%= row.expected_points %>"
+               data-per-game="<%= row.expected_points_per_game.round(2) %>"
+               data-game-factor="<%= row.game_factor %>">
             <span class="font-mono text-muted text-sm w-8 text-right rank-number"><%= row.rank || i + 1 %></span>
             <span class="text-lg"><%= row.team.emoji %></span>
             <div class="flex-1 flex items-center gap-2 flex-wrap">
@@ -441,7 +485,10 @@
                 <span class="text-muted text-xs">vs <%= opponents.join(" / ") %></span>
               <% end %>
               <% if row.expected_points.positive? %>
-                <span class="text-muted text-xs">DK <%= sprintf('%.1f', row.expected_points) %></span>
+                <span class="text-muted text-xs">DK <%= sprintf('%.1f', row.expected_points) %><% if row.matchups.size > 1 %> · <%= sprintf('%.1f', row.expected_points_per_game) %>/g<% end %></span>
+              <% end %>
+              <% if row.game_factor > 1 %>
+                <span class="text-xs font-semibold px-1.5 rounded bg-surface-alt" style="color: var(--fc-mult)" data-testid="bye-line-badge"><%= row.matchups.size %> games · bye line</span>
               <% end %>
             </div>
             <span class="font-mono text-primary text-sm w-12 text-right turf-score-display"><%= row.turf_score ? sprintf('%.1f', row.turf_score) : '—' %>x</span>
@@ -526,8 +573,10 @@
       sortByDkScore() {
         const list = this.$refs.sortableList;
         const items = Array.from(list.querySelectorAll('.sortable-item'));
+        // Per game, not the span total — the order the server ranks on, so a
+        // bye team is sorted by strength rather than sunk by its missing game.
         function dkExpectation(el) {
-          return parseFloat(el.dataset.teamTotal) || 0;
+          return parseFloat(el.dataset.perGame) || 0;
         }
         items.sort((a, b) => dkExpectation(b) - dkExpectation(a));
         items.forEach(item => list.appendChild(item));

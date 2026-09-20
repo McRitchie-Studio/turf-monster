@@ -61,6 +61,12 @@ Rails.application.routes.draw do
   # "nfl_live" Turbo stream (Nfl::LiveBroadcast).
   get "live", to: "live#index", as: :live
 
+  # Turf Score benchmarks — the public "why does my team cost that?" page.
+  # Public and read-only like /live: it shows the DraftKings numbers a slate was
+  # priced from, each team's points per game, and the multiplier those earn.
+  # :slug is optional; bare /benchmarks picks the next span slate.
+  get "benchmarks(/:slug)", to: "benchmarks#index", as: :benchmarks
+
   # Prelaunch audit M14 (2026-05-24): dev-only tools — not drawn in production
   # so they don't leak surface area on the public-mainnet app. Drawn in dev +
   # test (so existing template URL helpers continue resolving in the test env).
