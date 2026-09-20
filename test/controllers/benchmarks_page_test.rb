@@ -120,6 +120,98 @@ class BenchmarksPageTest < ActionDispatch::IntegrationTest
     assert_select "[data-testid=benchmarks]", html: /NFL 2026 Weeks 4-6/
   end
 
+  # --- the chart -----------------------------------------------------------
+
+  test "a bye span draws both lines, each labelled" do
+    get benchmarks_path(slug: @span.slug)
+
+    assert_response :success
+    assert_select "[data-testid=benchmarks-chart]"
+    # TWO renders of the same chart (narrow + wide), so two polylines per line.
+    assert_select "[data-testid=benchmarks-chart] polyline", 4
+    legend = css_select("[data-testid=benchmarks-chart-legend]").first.text.squish
+    assert_equal "3 games 2 games · bye", legend
+  end
+
+  test "a span with no bye draws one line and says so" do
+    full = Slate.create!(name: "NFL 2026 Weeks 7-9", slug: "nfl-2026-weeks-7-9", week: 7)
+    %w[full-a full-b].each { |slug| team! slug }
+    { 7 => "opp-seven", 8 => "opp-eight", 9 => "opp-nine" }.each_value { |slug| team! slug }
+    %w[full-a full-b].each do |team_slug|
+      { 7 => "opp-seven", 8 => "opp-eight", 9 => "opp-nine" }.each do |week, opponent|
+        game = Game.create!(slug: "#{team_slug}-vs-#{opponent}", home_team_slug: team_slug,
+                            away_team_slug: opponent, status: "scheduled")
+        SlateMatchup.create!(slate: full, team_slug: team_slug, opponent_team_slug: opponent,
+                             game_slug: game.slug, expected_score: 21.0, week: week, status: "pending")
+      end
+    end
+
+    get benchmarks_path(slug: full.slug)
+
+    assert_response :success
+    assert_select "[data-testid=benchmarks-chart] polyline", 2
+    assert_equal "3 games", css_select("[data-testid=benchmarks-chart-legend]").first.text.squish
+  end
+
+  # The dots are the STORED prices, not the curve — which is what lets a
+  # hand-edited multiplier show up as a dot off its line.
+  test "a team dot follows the stored price, not the rule" do
+    @span.slate_matchups.where(team_slug: "team-b").update_all(turf_score: 2.7)
+
+    get benchmarks_path(slug: @span.slug)
+
+    assert_select "[data-testid=benchmarks-chart] circle title", text: /Team B — rank 1, 2\.7x/
+  end
+
+  test "the chart names both lines to a screen reader" do
+    get benchmarks_path(slug: @span.slug)
+
+    label = css_select("[data-testid=benchmarks-chart] svg[role=img]").first["aria-label"]
+    assert_match(/3 games runs 1\.0x to 2\.0x/, label)
+    assert_match(/2 games · bye runs 1\.5x to 3\.0x/, label)
+  end
+
+  # --- the query budget ----------------------------------------------------
+
+  # The page used to ask each span slate for its own first kickoff, so its query
+  # count grew with the season. The ceiling matters less than the SHAPE: going
+  # from 3 extra slates to 9 must cost NOTHING, which a per-slate query cannot
+  # do. (Measured against 0 extra slates the count moves by exactly 1 — the
+  # LAYOUT's open-contest lookup, not this controller's — so the flat comparison
+  # starts once that has already happened.)
+  test "query count is flat in the number of span slates" do
+    get benchmarks_path(slug: @span.slug) # warm up: the first request also loads schema
+    add_span_slates!(3)
+    with_three = count_queries { get benchmarks_path(slug: @span.slug) }
+    add_span_slates!(6, offset: 3)
+    with_nine = count_queries { get benchmarks_path(slug: @span.slug) }
+
+    assert_equal with_three, with_nine, "six more slates must cost no more queries"
+    assert_operator with_nine, :<=, 15, "an uncached public page should not open a dozen round trips"
+  end
+
+  def add_span_slates!(count, offset: 0)
+    count.times do |index|
+      number = 10 + offset + index
+      slate = Slate.create!(name: "NFL 2026 Weeks #{number}-#{number + 2}",
+                            slug: "nfl-2026-weeks-#{number}-#{number + 2}", week: number)
+      opponent = team!("filler-#{number}")
+      game = Game.create!(slug: "team-a-vs-#{opponent.slug}", home_team_slug: "team-a",
+                          away_team_slug: opponent.slug, status: "scheduled", kickoff_at: 30.days.from_now)
+      SlateMatchup.create!(slate: slate, team_slug: "team-a", opponent_team_slug: opponent.slug,
+                           game_slug: game.slug, expected_score: 20.0, week: number, status: "pending")
+    end
+  end
+
+  def count_queries(&block)
+    count = 0
+    counter = ->(_name, _start, _finish, _id, payload) do
+      count += 1 unless payload[:name].to_s.in?(["SCHEMA", "TRANSACTION"]) || payload[:cached]
+    end
+    ActiveSupport::Notifications.subscribed(counter, "sql.active_record", &block)
+    count
+  end
+
   test "an unknown slate redirects rather than 500ing" do
     get benchmarks_path(slug: "no-such-slate")
 

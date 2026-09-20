@@ -1,0 +1,67 @@
+<%# locals: (slate:, team_rows:) %>
+<%#
+    The two lines, drawn. A span with a bye in it prices on TWO lines, and the
+    prose above says so in words — this says it in one picture: the same curve,
+    twice, the bye line riding 1.5x higher.
+
+    INLINE SVG, no chart library. The admin slate page pulls Chart.js off a CDN,
+    but this page is public, uncached and mobile-first, and two staircases do
+    not earn 80 KB of JavaScript and a third-party origin. No script runs here.
+
+    WHAT THE MARKS MEAN, and why the distinction is worth having:
+      * the LINES are the rule    — SlateMatchup.turf_score_for, per rank
+      * the DOTS are the prices   — each team's STORED turf_score
+    They coincide on a normally-priced slate. A dot OFF its line is a hand-edited
+    multiplier (the admin board can write one), which is exactly the thing worth
+    seeing and would be invisible in the table below.
+
+    IDENTITY IS NEVER COLOUR ALONE: each line carries a dash pattern, a legend
+    entry, and (where there is room) a direct label at its right end. That is
+    also what licenses the light-mode palette — its green sits under 3:1 against
+    the card surface, and labels plus the table below are the relief the
+    contrast rule asks for.
+%>
+<% teams = team_rows.size %>
+<% lines = benchmark_lines(slate, teams) %>
+<% if teams > 1 && lines.first.points.any? %>
+  <% top_score = lines.flat_map { |line| line.points.map(&:turf_score) }.max %>
+  <% y_max = [top_score.ceil(1), 2.0].max %>
+  <% rows_by_factor = team_rows.group_by { |row| row.game_factor > 1 ? "bye" : "full" } %>
+
+  <figure class="card p-4 mb-6" data-testid="benchmarks-chart">
+    <figcaption class="text-secondary text-sm mb-3">
+      <span class="text-heading font-semibold">Points per game &times; rank.</span>
+      Every team is ranked on projected points per game; the line it sits on is set by how many games it plays here.
+    </figcaption>
+
+    <%# Legend — always present for two series, and the only place the colours
+        are named. The text wears the page's own ink; the swatch carries
+        identity, dash and all. %>
+    <div class="flex flex-wrap items-center gap-x-5 gap-y-1 mb-2" data-testid="benchmarks-chart-legend">
+      <% lines.each do |line| %>
+        <span class="inline-flex items-center gap-1.5 text-xs text-secondary">
+          <svg width="22" height="8" aria-hidden="true" class="shrink-0">
+            <line x1="1" y1="4" x2="21" y2="4" stroke="var(--bench-<%= line.key %>)" stroke-width="2.5"
+                  stroke-linecap="round"<%= line.key == "bye" ? ' stroke-dasharray="9 5"'.html_safe : "" %>></line>
+          </svg>
+          <%= line.label %>
+        </span>
+      <% end %>
+    </div>
+
+    <%# TWO RENDERS, ONE PICTURE. A viewBox scales its text along with the box,
+        so a single chart cannot be legible at 390px AND at 900px: sized for the
+        desktop, its axis type lands near 6px on a phone. The narrow render is
+        therefore its own geometry — a tighter box, bigger type, fewer rank
+        ticks, and no end labels, since the legend above already names both
+        lines. Same helper, same points; only the frame changes. %>
+    <div class="sm:hidden">
+      <%= render "benchmarks/two_line_svg", lines: lines, rows_by_factor: rows_by_factor,
+            teams: teams, y_max: y_max, compact: true %>
+    </div>
+    <div class="hidden sm:block">
+      <%= render "benchmarks/two_line_svg", lines: lines, rows_by_factor: rows_by_factor,
+            teams: teams, y_max: y_max, compact: false %>
+    </div>
+  </figure>
+<% end %>
