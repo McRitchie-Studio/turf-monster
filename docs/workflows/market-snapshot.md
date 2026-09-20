@@ -6,26 +6,31 @@
 > `test/docs/workflow_citation_docs_test.rb` enforces both rules and checks every
 > number against the symbol its prose names — the symbol is the claim, the number
 > is bookkeeping. Two of that check's three strengths apply here, and it is worth
-> knowing which one you are reading. **36 of the 55 citations** below sit inside a definition,
+> knowing which one you are reading. **45 of the 65 citations** below sit inside a definition,
 > and there the prose must name that definition or the citation reddens. The
-> other **19** sit in code the guard finds no definition in, and there it asks
+> other **20** sit in code the guard finds no definition in, and there it asks
 > only that a code token quoted nearby appear in the cited lines — which proves
 > the words are present, not that the code is.
 > **All 19 citations on `lib/tasks/nfl.rake`, `lib/tasks/market.rake`,
 > `db/seeds/nfl_2026.rb`, `scripts/scrape_draftkings.js` and
-> `app/services/nfl/espn/client.rb`** are on that weaker branch — which is every
-> fallback citation in this document, so the two numbers account for each other.
+> `app/services/nfl/espn/client.rb`** are on that weaker branch. The twentieth is
+> `Nfl::Espn::MarketLines::PROVIDER` — a constant in a module body, in a file whose
+> other two citations do sit inside definitions, so the file is not fallback-only
+> and is not named above. Together they are every fallback citation in this
+> document, so the two numbers account for each other.
 > The reason is mechanical rather than editorial: the guard parses Ruby with
 > Prism and inline JS inside `.erb`, so a `.rake` task, a `.js` file, a seed
 > script that defines no method, and a constant in a class body offer it nothing
-> to key on. Follow those nineteen to the code before you trust them.
+> to key on. Follow those twenty to the code before you trust them.
 >
-> **Status: MOSTLY LIVE.** The derive math, the per-week ingest, the `MarketSnapshot`
-> artifact, and the posted/derived basis all run today. The one remaining 🔨 PLANNED
-> piece is the NFL DraftKings *fetch*: the scraper is generalized (sport/league/week
-> parameters, `npm run market-snapshot`), but only the soccer parser is wired, so NFL
-> numbers are still hand-transcribed. Every step below is marked ✅ LIVE or 🔨 PLANNED
-> with its task. Do not read a 🔨 step as something you can run now.
+> **Status: LIVE.** The derive math, the per-week ingest, the `MarketSnapshot`
+> artifact, the posted/derived basis and — since `refresh-market-benchmarks` — the NFL
+> *fetch* all run today. The NFL fetch does NOT go to DraftKings directly: DK's
+> sportsbook refuses this network outright, so `bin/rails market:pull` reads DK's own
+> lines out of ESPN's public scoreboard instead (step 1). What remains 🔨 PLANNED is
+> narrower than it was: DK's **posted team totals** (every NFL row is still `derived`),
+> and the soccer scraper's NFL parser, which nothing needs while ESPN carries the
+> numbers. Every step below is marked ✅ LIVE or 🔨 PLANNED with its task.
 
 **Trigger:** Operator command, weekly per sport — before [[slate-build]]
 **Actors:** Operator · DraftKings sportsbook (public web) · Postgres
@@ -217,7 +222,44 @@ on anything live".
 
 ## Sequence
 
-### 1. Fetch — ✅ LIVE for soccer · 🔨 PLANNED for NFL (`market-snapshot-impl`)
+### 1. Fetch — ✅ LIVE (NFL: `market:pull` · soccer: the DK scraper)
+
+**NFL — ✅ LIVE (`refresh-market-benchmarks`).**
+
+```bash
+bin/rails market:pull WEEKS=4,5,6            # DRY RUN: reports every line move
+APPLY=1 bin/rails market:pull WEEKS=4,5,6    # writes the dataset
+```
+
+`Nfl::FetchMarketLines#call` (`app/services/nfl/fetch_market_lines.rb:51`) asks ESPN for
+one week at a time and parses each payload through `Nfl::Espn::MarketLines.rows_from`
+(`app/services/nfl/espn/market_lines.rb:45`), which takes the entry whose
+`provider.name` is `DraftKings` (`:22`) and nothing else — ESPN lists other books on
+some games, and a dataset that records ONE book by name must not mix them.
+
+**Why not DraftKings directly.** DK's sportsbook refuses this network entirely: Akamai
+`403 Access Denied` on plain HTTP and on headless Playwright, every URL shape. ESPN
+publishes DK's own numbers, no key and no auth. What it does NOT carry is a team total,
+only the game total and the spread — so every NFL row this writes is `derived`, and
+nothing here may stamp `posted`.
+
+`Nfl::Espn::MarketLines.favorite_and_spread` (`:86`) is where the sign convention is
+settled: ESPN sends `spread` as the HOME team's line, positive when the away side is
+favored, and the dataset wants the FAVORITE's spread, always negative.
+
+**It refuses rather than writing half a week** (`#refusal_for`,
+`app/services/nfl/fetch_market_lines.rb:75`): a game with no readable DK line, a team
+abbreviation that maps to no `Team`, or SCHEDULE DRIFT — the week's matchups no longer
+matching the dataset's, which is a slate rebuild rather than a refresh and so is the
+operator's call (`ALLOW_SCHEDULE_CHANGE=1` accepts it deliberately). A row whose line
+has not moved is written back verbatim, source stamp and all (`#unchanged?`, `:201`), so
+the diff is the market's movement and not 45 re-dated rows.
+
+`WEEKS` is required (`Market::Runner.weeks`, `app/services/market/runner.rb:21`): a
+season-wide pull would re-rank every week the dataset covers, which is never what a
+benchmark rebuild wants.
+
+**Soccer — ✅ LIVE (the DK scraper).**
 
 ```bash
 # ✅ LIVE — the generalized entry point. Sport/league/week are parameters and the
@@ -225,8 +267,10 @@ on anything live".
 npm run market-snapshot                                   # default: soccer/world-cup-2026
 npm run market-snapshot -- --sport soccer --league world-cup-2026 --week 3
 
-# 🔨 PLANNED — the NFL slot is registered but has no wired parser, so this aborts
-# loudly ("🔨 PLANNED: no DraftKings scraper is wired for nfl/regular-season yet").
+# 🔨 PLANNED, AND NO LONGER THE NFL ROUTE — the NFL slot is registered but has no
+# wired parser, so this aborts loudly ("🔨 PLANNED: no DraftKings scraper is wired for
+# nfl/regular-season yet"). Use `bin/rails market:pull` above: it reads the same book's
+# lines from ESPN, which is the only source this network can reach at all.
 npm run market-snapshot -- --sport nfl --week 3
 ```
 
@@ -243,8 +287,9 @@ Debug screenshots + raw page dumps are now opt-in (`--debug`/`--headed`) and git
 — they are no longer committed. The `nfl/regular-season` entry is registered but its
 parser is `null`: the NFL market posts team totals as **points** (plus game total +
 spread) on a differently shaped page whose markup is not yet mapped, so it fails loudly
-rather than guess. Wiring that parser is the remaining 🔨 PLANNED step; until then NFL
-numbers are hand-transcribed (step 2). This is verified by a dep-free unit suite
+rather than guess. Wiring that parser would buy DK's POSTED team totals, which ESPN does
+not carry; it is no longer what stands between the NFL and a fresh dataset, because
+`market:pull` (above) now writes one. This is verified by a dep-free unit suite
 (`npm run test:scrape`, `scripts/scrape_draftkings.test.js`).
 
 **✅ LIVE — the soccer scraper, and its setup.** These prerequisites are live today and
@@ -283,7 +328,7 @@ agent `curl/8.7.1` → 200. The gap survives because the service's own tests rep
 (`test/services/nfl/fetch_historical_scores_test.rb:135-137`), so no test exercises the
 transport and CI cannot see the 403.
 
-### 2. Write the dataset — 🔨 PLANNED for the NFL scraper · ✅ LIVE columns (`market-snapshot-impl`)
+### 2. Write the dataset — ✅ LIVE (NFL: written by `market:pull`; columns: `market-snapshot-impl`)
 
 Target-state output path: `db/seeds/data/<sport>/<year>-w<NN>-team-totals.csv`. **No
 scraper writes that path today.** The wired soccer entry writes JSON into `scripts/data`
@@ -407,6 +452,35 @@ Every projection `belongs_to :market_snapshot` (optional, so pre-existing rows s
 the ingest stamps it on every upsert going forward). This **replaces the committed debug
 PNGs** — the ~3.5 MB of screenshots in `scripts/data/` are now removed and git-ignored,
 and the artifact row is the record of what ran.
+
+### 5. Rebuild a span's benchmarks — ✅ LIVE (`refresh-market-benchmarks`)
+
+Steps 1-4 end at fresh WEEKLY numbers. A span slate ("NFL 2026 Weeks 4-6") holds its own
+copies, and once a contest is open on it `Nfl::BuildSpanSlate` refuses to rebuild it —
+it rebuilds by destroying matchups, which would cascade to live Selections. So the span
+needs a non-destructive path, and this is it:
+
+```bash
+bin/rails market:refresh WEEKS=4,5,6 SPAN=nfl-2026-weeks-4-6            # DRY RUN
+APPLY=1 bin/rails market:refresh WEEKS=4,5,6 SPAN=nfl-2026-weeks-4-6    # writes
+```
+
+One command runs all four steps: pull → ingest → re-read the span's expected scores from
+the weekly slates (`Nfl::RefreshSpanSlate#source_scores`,
+`app/services/nfl/refresh_span_slate.rb:70`) → reprice under the current rule. The
+refresh and the reprice are ONE transaction (`#call`, `:45`): fresh scores beside stale
+prices is a slate that contradicts itself, so a refusal rolls the scores back too. That
+also makes the dry run honest — it performs the real write and rolls it back, so what it
+reports is what an apply would do.
+
+**What it refuses.** A slate that has kicked off, always. A slate carrying a PAID pick,
+unless the operator names it (`REPRICE_PAID_PICKS=<slug>`) — a paid pick was bought at
+the price it was shown, and moving it is a decision, not a side effect. And schedule
+drift (`#drift_for`, `:80`), which is a rebuild rather than a refresh.
+
+**Where it shows up:** `/benchmarks` — the public board (`BenchmarksController#index`),
+which lists each team's points per game, its rank, and the multiplier those earn, beside
+the `MarketSnapshot` that says when the lines were pulled.
 
 ---
 
