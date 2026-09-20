@@ -11,6 +11,12 @@ module BenchmarksHelper
   # decimal, so ranks 1 and 2 really do both price at x1.0.
   CurvePoint = Data.define(:rank, :turf_score)
 
+  # The frame never shrinks past the range every slate shares: rank 1 prices at
+  # x1.0 and a full-span board runs to x2.0, so a flat slate still reads as a
+  # flat line against a familiar scale instead of filling the box with noise.
+  DEFAULT_FLOOR = 1.0
+  DEFAULT_CEILING = 2.0
+
   def turf_score_curve(teams:, sport:, game_factor: 1.0)
     return [] if teams.to_i < 1
 
@@ -36,5 +42,34 @@ module BenchmarksHelper
     factor = Slate.game_factor(span, span - 1)
     [full, Line.new(key: "bye", label: "#{span - 1} games · bye", game_factor: factor,
                     points: turf_score_curve(teams: teams, sport: slate.sport, game_factor: factor))]
+  end
+
+  # The chart's y range, as [min, max] — sized to the DOTS as well as the lines.
+  #
+  # That is the whole point of the dots. The lines are the rule, but each dot is
+  # a team's STORED multiplier, and the admin board writes one with no bound at
+  # all (SlatesController#update_turf_scores rounds to a tenth and calls
+  # update_all). Sized to the lines alone, a hand-edited 3.5x on a slate whose
+  # bye line tops at 3.0x mapped ABOVE the viewBox and an SVG clipped it away,
+  # so the largest mispricings were exactly the marks the picture dropped.
+  #
+  # A dot sitting ON its line never moves the frame, so an ordinary slate draws
+  # the chart it always drew. Only one that OUTRUNS its line does, and it takes
+  # a tenth of air with it so it reads as a value rather than as ink on the
+  # border. The air is worked in whole tenths because the stored price is
+  # rounded to one decimal and 0.6 minus 0.1 is 0.49999999999999994 in binary
+  # floating point — which floors to 0.4 and relabels the entire axis.
+  def benchmark_y_domain(lines:, team_rows:)
+    curve = lines.flat_map { |line| line.points.map(&:turf_score) }
+    return [DEFAULT_FLOOR, DEFAULT_CEILING] if curve.empty?
+
+    dots = team_rows.filter_map { |row| row.turf_score&.to_f }
+    under = dots.select { |dot| dot < curve.min }.min
+    over = dots.select { |dot| dot > curve.max }.max
+
+    [
+      [under ? ((under * 10).round - 1) / 10.0 : curve.min.floor(1), DEFAULT_FLOOR].min,
+      [over ? ((over * 10).round + 1) / 10.0 : curve.max.ceil(1), DEFAULT_CEILING].max
+    ]
   end
 end

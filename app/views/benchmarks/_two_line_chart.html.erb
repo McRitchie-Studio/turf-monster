@@ -24,8 +24,13 @@
 <% teams = team_rows.size %>
 <% lines = benchmark_lines(slate, teams) %>
 <% if teams > 1 && lines.first.points.any? %>
-  <% top_score = lines.flat_map { |line| line.points.map(&:turf_score) }.max %>
-  <% y_max = [top_score.ceil(1), 2.0].max %>
+  <%# THE FRAME HOLDS THE DOTS, NOT ONLY THE LINES. A stored multiplier is
+      hand-written with no bound, so it can sit above the top of its line or
+      below the floor, and sized to the lines alone the SVG clipped away exactly
+      those marks. Both ends, so an underpriced team is as visible as an
+      overpriced one. The helper owns the arithmetic; an ordinary slate gets
+      back the frame it always had. %>
+  <% y_min, y_max = benchmark_y_domain(lines: lines, team_rows: team_rows) %>
   <% rows_by_factor = team_rows.group_by { |row| row.game_factor > 1 ? "bye" : "full" } %>
 
   <figure class="card p-4 mb-6" data-testid="benchmarks-chart">
@@ -57,11 +62,11 @@
         lines. Same helper, same points; only the frame changes. %>
     <div class="sm:hidden">
       <%= render "benchmarks/two_line_svg", lines: lines, rows_by_factor: rows_by_factor,
-            teams: teams, y_max: y_max, compact: true %>
+            teams: teams, y_min: y_min, y_max: y_max, compact: true %>
     </div>
     <div class="hidden sm:block">
       <%= render "benchmarks/two_line_svg", lines: lines, rows_by_factor: rows_by_factor,
-            teams: teams, y_max: y_max, compact: false %>
+            teams: teams, y_min: y_min, y_max: y_max, compact: false %>
     </div>
   </figure>
 <% end %>
