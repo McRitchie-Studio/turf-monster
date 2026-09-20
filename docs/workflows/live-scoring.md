@@ -8,7 +8,7 @@ what it refuses to do.
 > resets at each `##` heading. The number is bookkeeping; the SYMBOL beside it is
 > the claim, and `test/docs/workflow_citation_docs_test.rb` reddens when a citation
 > stops landing inside the definition its prose names.
-> That symbol check reaches **47 of the 72 citations** here. The other **25**
+> That symbol check reaches **48 of the 73 citations** here. The other **25**
 > sit in code with no enclosing definition the guard can derive, and they are not
 > all checked alike. **4 of those 25** are `config/routes.rb` entries, which get a
 > stricter check: each must OPEN on the line that carries its route, not merely
@@ -205,9 +205,10 @@ citations below name (`app/services/nfl/live_scores/poll_cycle.rb`).
 |---|---|---|---|
 | `fetch_failed` | `#process` (`app/services/nfl/live_scores/poll_cycle.rb:168`) | One game's summary did not arrive | Ignore once. Twice on the same game: report it. |
 | `unknown_team` | `#upsert_game` (`:197`) and `#record_play` (`:380`) | An abbreviation resolved to no team | **Escalate.** A team that cannot be matched silently never scores. |
-| `score_drift` | `#detect_drift` (`:417-426`) | Our summed events disagree with the feed's total | Ignore a single cycle mid-play; persisting means a play was missed. |
+| `score_drift` | `#detect_drift` (`:444-453`) | Our summed events disagree with the feed's total | Ignore a single cycle mid-play; persisting means a play was missed. |
 | `degraded_feed` | `#process` (`:127-128`) and `#sync_scoring_plays` (`:298`, `:320`) | The feed declined to answer — an absent `scoringPlays` key, zero plays against goals we hold, or a blank score on a live game | The cycle **refuses to act**. Investigate if it persists. |
 | `status_regression` | `#status_for` (`:266`) | A stale row reported an earlier state for a completed game | Informational; the game keeps its completed status. |
+| `recap_push_failed` | `#push_recap` (`:429-437`) | The studio hub could not be told a game finished | Informational. The game IS settled; only the content idea is missing. |
 | `unsettled_final` | `#process` (`:149`) | The feed says FINAL but our events disagree with its total | The game is **not settled**. It settles on the next reconciling cycle. |
 | `cycle_error` | `#process` (`:175`) | An unexpected exception, captured to `ErrorLog` | A bug. Read the ErrorLog. |
 
@@ -234,6 +235,29 @@ These are guards with reproductions behind them, not defensive padding.
   unique index `index_goals_on_external_id_when_present` covers with its
   `WHERE external_id IS NOT NULL` predicate (`db/schema.rb:358`) — so a second id-less
   play anywhere in the league would collide across games.
+
+## The studio recap push
+
+When a game SETTLES, the cycle enqueues `Studio::GameRecapPushJob`, which posts
+the final to the McRitchie Studio hub. The hub turns it into a content idea
+("Bills Beat Dolphins 24-17") at the head of the faceless social pipeline.
+
+**It is the least important thing a finalisation does, and it is built that way.**
+By the time it runs the game is already settled and every open contest has
+already re-scored. So it may fail freely: a hub that is down, a Redis that will
+not take the enqueue, or a secret that was never set must not cost a contest its
+settlement or end a twelve-hour watch. Failures become a `recap_push_failed`
+anomaly — reported, never fatal.
+
+It ENQUEUES rather than calling. An HTTP round trip to another host has no
+business inside the loop that re-scores contests people paid to enter; the worker
+dyno pays that cost.
+
+**Configuration.** `AGENT_API_SECRET` is the hub's shared agent secret and is
+what arms the push — with it absent the push is skipped SILENTLY, so a laptop or
+a review app scores exactly as it always did. `STUDIO_API_BASE` overrides the
+hub URL (default `https://mcritchie.studio`). The hub endpoint is idempotent, so
+a Sidekiq retry that already succeeded answers 200 and changes nothing.
 
 ## The external dependency
 

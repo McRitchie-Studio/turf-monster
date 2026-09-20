@@ -408,6 +408,33 @@ module Nfl
         game.conclude!(detail: row.detail)
 
         @changes << change_for(game.reload, "final", detail: row.detail)
+
+        push_recap(game)
+      end
+
+      # Tell the studio hub a game finished, so it can open a content idea for
+      # it. This is the LAST thing a finalisation does and by far the least
+      # important one: the game is already settled and every contest has already
+      # re-scored by the time we get here.
+      #
+      # So it can fail freely. A hub that is down, a Redis that will not take
+      # the enqueue, a secret that was never set — none of those may cost a
+      # contest its settlement, and none of them may end a twelve-hour watch.
+      # Every failure becomes an anomaly, which the cycle already treats as
+      # "reported, never fatal".
+      #
+      # It ENQUEUES rather than calling: an HTTP round trip to another host has
+      # no business inside the loop that re-scores contests people paid to
+      # enter. The worker dyno pays the network cost.
+      def push_recap(game)
+        return unless Studio::PushGameRecap.configured?
+
+        Studio::GameRecapPushJob.perform_later(game.slug)
+      rescue StandardError => e
+        @anomalies << Anomaly.new(
+          kind: "recap_push_failed",
+          detail: "#{game.slug}: #{e.class} — #{e.message}"
+        )
       end
 
       # After reconciling, our score is the sum of our scoring events and the
