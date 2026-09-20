@@ -545,10 +545,14 @@ same base58 wire bytes and converts them through the provider's own
 `deserializeTransaction` / `serializeTransaction`
 (`app/javascript/wallet_provider.js`), `expectedAccount` gives the wrong-wallet
 check a home on both transports, and an intent declares `signOnly` so a
-co-signed transaction is never handed to a wallet's broadcaster. That is a
-PATCH-level floor — `gem "solana-studio", "~> 0.9", ">= 0.9.2"` — and below it
-the inline path throws from inside the wallet extension while `expectedAccount`
-is ignored in silence.
+co-signed transaction is never handed to a wallet's broadcaster. Below 0.9.2 the
+inline path throws from inside the wallet extension while `expectedAccount` is
+ignored in silence. That was stated as a PATCH-level floor —
+`gem "solana-studio", "~> 0.9", ">= 0.9.2"` — until 2026-09-20, when
+`/tasks/retire-wallet-resume-wrapper` raised the pin to `~> 0.12` for
+`Solana::Cosign`. §7 names the floor this app states today; the Gemfile's own
+"PRIOR FLOORS, SUBSUMED RATHER THAN DELETED" note keeps this one, and a `~> 0.12`
+pin admits none of the window it guarded.
 
 **TWO SERVER CHANGES MADE THE LAST TWO FLOWS POSSIBLE**, and both are cases of
 something the resume needed not surviving the page death:
