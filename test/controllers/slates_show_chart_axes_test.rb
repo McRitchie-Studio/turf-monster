@@ -15,15 +15,19 @@ class SlatesShowChartAxesTest < ActionDispatch::IntegrationTest
     get slate_path(@slate)
 
     assert_response :success
-    # The DK dataset is the only spanGaps series — its binding rides with it.
+    # The DK dataset is the one bound to y2. (The Turf Score lines carry
+    # spanGaps too since a bye span draws two of them, but they bind to y.)
     assert_includes response.body, "yAxisID: 'y2', spanGaps: true"
-    # DK Total owns the LEFT axis in both window branches (data-fit + fallback);
-    # Turf sits right. NFL windows derive from the data via _fcNflAxisWindows.
-    assert_includes response.body, "position: 'left', title: { display: true, text: 'DK Total'"
+    # DK owns the LEFT axis in both window branches (data-fit + fallback); Turf
+    # sits right. NFL windows derive from the data via _fcNflAxisWindows. The
+    # title reads "DK per game" on a span — what the span is ranked on — and
+    # "DK Total" on a one-week slate, where the two are the same number.
+    assert_includes response.body, "position: 'left', title: { display: true, text: FC_DK_AXIS"
+    assert_includes response.body, "? 'DK per game' : 'DK Total'"
     assert_includes response.body, "position: 'right', reverse:"
     assert_includes response.body, "_fcNflAxisWindows"
     assert_includes response.body, "beginAtZero: true"
-    refute_includes response.body, "position: 'right', title: { display: true, text: 'DK Total'"
+    refute_includes response.body, "position: 'right', title: { display: true, text: FC_DK_AXIS"
     # Only the Turf Score axis's static fallback stays pinned to 0-5.
     assert_equal 1, response.body.scan("max: 5").count
   end

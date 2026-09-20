@@ -75,13 +75,18 @@ class SlatesController < ApplicationController
         # team plays in this slate — otherwise a multi-week team would be priced
         # by whichever of its three rows happened to be the handle.
         n = params[:matchup_ids].size
+        # A bye team keeps its two-game line through a hand re-rank — a drag
+        # moves its RANK, never which line it prices on (Slate "Two lines").
+        factors = @slate.game_factors
         params[:matchup_ids].each_with_index do |id, index|
           matchup = @slate.slate_matchups.find_by(id: id)
           next unless matchup
 
           rank = index + 1
+          turf_score = SlateMatchup.turf_score_for(rank, n, sport: @slate.sport,
+                                                            game_factor: factors.fetch(matchup.team_slug, 1.0))
           @slate.slate_matchups.where(team_slug: matchup.team_slug).find_each do |team_matchup|
-            team_matchup.update!(rank: rank, turf_score: SlateMatchup.turf_score_for(rank, n, sport: @slate.sport))
+            team_matchup.update!(rank: rank, turf_score: turf_score)
           end
         end
       end

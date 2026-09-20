@@ -5,9 +5,9 @@
 > resets at each `##` heading. The number is bookkeeping; the SYMBOL beside it is
 > the claim, and `test/docs/workflow_citation_docs_test.rb` reddens when a
 > citation stops landing inside the definition its prose names.
-> That symbol check reaches **52 of the 63 citations** here. The other **11** sit in
+> That symbol check reaches **54 of the 66 citations** here. The other **12** sit in
 > code with no enclosing definition the guard can derive: two lines of
-> `docs/FORMULAS.md` prose, one `lib/tasks/slates.rake` task body, the top-level
+> `docs/FORMULAS.md` prose, two `lib/tasks/slates.rake` task bodies, the top-level
 > `db/seeds/nfl_2026.rb` (4) and `e2e/seed.rb` (2) scripts, which define no methods
 > at all, and two comment blocks cited on purpose — the freeze rationale above
 > `rank_slate_matchups!` and the kickoff measurement above `Slate#team_rankings`.
@@ -149,12 +149,12 @@ arena (`:191`); status defaults to `scheduled` (`:193`). Idempotent via
 `NFL <year> Week <n>` (`:199`) and writes `week` as a real column (`:203`).
 
 **`slates` carries `sport` and `year` COLUMNS (`slates-sport-year`, DONE).** `Slate#sport`
-(`app/models/slate.rb:267-271`) and `Slate#season_year` (`:87-91`) read the column, falling
+(`app/models/slate.rb:332-336`) and `Slate#season_year` (`:87-91`) read the column, falling
 back to the name only for a row written before the migration — `Slate#sport_from_name`
-(`:276-278`) and `Slate#year_from_name` (`:282-284`) are those fallback helpers, not the
+(`:341-343`) and `Slate#year_from_name` (`:347-349`) are those fallback helpers, not the
 primary source. Neither `ensure_slate!` sets the columns: `Slate`'s `before_validation`
 derives both from the name for every writer through `Slate#derive_sport_and_year_from_name`
-(`:344-348`), so a missed assignment can no longer leave a column null — and
+(`:409-413`), so a missed assignment can no longer leave a column null — and
 `Nfl::BuildSpanSlate#ensure_slate!` says so in its own comment
 (`app/services/nfl/build_span_slate.rb:112-115`). Every span lookup then scopes by the
 columns: `Nfl::BuildSpanSlate#source_slates` runs
@@ -176,15 +176,21 @@ never came from DK, so it was renamed from the misnomer `dk_goals_expectation` u
 
 ### 5. Rank by TEAM — ✅ LIVE
 
-`Slate#team_rankings` (`app/models/slate.rb:155-171`), reading `Slate#matchups_by_team`
-(`:128-132`) and, through it, `Slate#expected_points_by_team` (`:135-139`).
+`Slate#team_rankings` (`app/models/slate.rb:208-231`), reading `Slate#matchups_by_team`
+(`:131-135`). `Slate#expected_points_by_team` (`:138-142`) still sums a team's games — the
+total the page shows — but the rank does not read it.
 
-**A team is ranked on its summed expected score across every game in the slate**, not
-per row. A three-week span ranks 32 teams, not 96 rows. A one-week slate is the
-degenerate case — summing one game is that game.
+**A team is ranked on its expected score PER GAME across the slate**
+(`Slate.expected_points_per_game`, `:174-178`), not per row and not on the summed total. A
+three-week span ranks 32 teams, not 96 rows. Per game is what lets a team with its bye
+inside the span (two games, not three) rank on its strength instead of sinking to the
+bottom — on the 2026 weeks 4-6 board the summed total put all six bye teams at ranks
+27-32. When every team plays the same number of games (a one-week slate, or a span with no
+bye such as weeks 1-3), per-game order IS summed order, so those slates rank exactly as
+before.
 
 Tie-break is earliest kickoff, then team name — the sort key inside `Slate#team_rankings`
-(`app/models/slate.rb:159-164`). Do not change it: it mirrors the per-row ordering it
+(`app/models/slate.rb:213-219`). Do not change it: it mirrors the per-row ordering it
 replaced, so a one-week slate ranks identically to before.
 
 **The kickoff key is the ACTIVE discriminator, not a dormant one.**
@@ -194,21 +200,29 @@ teams tied on expected score are separated by kickoff *before* the name is ever 
 so changing the key re-prices tied teams on every existing slate.
 
 The comment above `Slate#team_rankings` records the same measurement — cited deliberately,
-since the measurement — and the retraction of an earlier claim that NFL games carry no `kickoff_at` — lives in the comment (`app/models/slate.rb:149-154`) — so doc and
+since the measurement — and the retraction of an earlier claim that NFL games carry no `kickoff_at` — lives in the comment (`app/models/slate.rb:202-207`) — so doc and
 code now agree: the kickoff key is the active discriminator, not a dormant one.
 
 ### 6. Freeze the multiplier — ✅ LIVE
 
-`Slate#team_rankings` calls `SlateMatchup.turf_score_for(rank, n, sport:)` at
-`app/models/slate.rb:169`; the curve itself is `SlateMatchup.turf_score_for`
-(`app/models/slate_matchup.rb:36-42`):
+`Slate#team_rankings` calls `SlateMatchup.turf_score_for(rank, n, sport:, game_factor:)` at
+`app/models/slate.rb:226`; the curve itself is `SlateMatchup.turf_score_for`
+(`app/models/slate_matchup.rb:42-48`):
 
 | Sport | Curve | Top |
 |---|---|---|
 | `nfl` | `1.0 + 1.0 * (rank-1)/(n-1)` — linear | x2.0 |
 | `fifa` | `1.0 + 2.0 * ln(rank)/ln(n)` — log decay | x3.0 |
 
-Rank 1 always prices **x1.0**; `Slate#resolved_formula` pins `formula_mult_base` to `1.0`
+**Two lines on a span with a bye.** The curve is scaled by `game_factor`, which
+`Slate.game_factor` (`app/models/slate.rb:166-170`) sets to `span_games / games`: 1.0 for a
+team that plays the whole span, 1.5 for a team with its bye inside a three-week span. So
+full-span teams price x1.0-x2.0 exactly as before, and bye teams ride the **bye line**,
+x1.5-x3.0, off the SAME per-game ranking. The factor is what keeps a bye EV-neutral: two
+games at 1.5m score what three games at m do, for the same points per game. It is applied
+before the one rounding, so a bye price is never a rounded price scaled.
+
+Rank 1 on the full-span line always prices **x1.0**; `Slate#resolved_formula` pins `formula_mult_base` to `1.0`
 rather than reading a stored slider (`app/models/slate.rb:102-104`), and defaults the NFL
 scale to `1.0` so the curve tops out at x2.0 (`:108-111`). The NFL curve is linear because
 it was measured that way:
@@ -300,15 +314,25 @@ is `nfl_team_total_projections` today.
   `year` + `sport` + `season_type` column scope in `Nfl::BuildSpanSlate#source_slates`
   (`app/services/nfl/build_span_slate.rb:92`), which `slates-sport-year` put in place of the
   old `name LIKE`.
-- **Slate built but never ranked** — `Slate#team_rows` (`app/models/slate.rb:193-211`)
+- **Slate built but never ranked** — `Slate#team_rows` (`app/models/slate.rb:255-276`)
   falls back to a computed ranking when nothing is stored, so the page still renders in a
   sane order.
   It is a fallback, not a price: nothing settles off it.
 - **Formula changed after slates were built** — the `recompute_turf_scores` task
-  (`bin/rails slates:recompute_turf_scores`, `lib/tasks/slates.rake:3-15`) re-derives stored
+  (`bin/rails slates:recompute_turf_scores`, `lib/tasks/slates.rake:3-24`) re-derives stored
   scores from each slate's sport curve,
   preserving ranks. **This re-prices picked slates.** Treat it as a settlement-affecting
-  operation, not a refresh.
+  operation, not a refresh. It SKIPS a two-line slate, because ranks frozen under the old
+  summed-total rule, scaled onto the bye line, overprice every bye team.
+- **Span ranked before the two-line rule** — every span built before `two-line-bye-multipliers`
+  froze its bye teams at the bottom of a summed-total board. `slates:reprice_span`
+  (`lib/tasks/slates.rake:35-69`, over `Nfl::RepriceSpanSlate`) re-ranks one span in place
+  and prints every team's old and new price. It is a dry run unless `APPLY=1`, it never
+  touches a slate that has kicked off, and a slate with a paid pick also needs
+  `REPRICE_PAID_PICKS=<that slate's slug>` — the operator's decision, named on the command.
+  Unpaid (cart, abandoned) picks never block. A paid entry can still edit its picks until
+  the contest locks (`Entry#update_picks!`), so a repriced entrant is not stuck with a pick
+  they would not have made.
 
 ---
 

@@ -95,6 +95,14 @@ class PagesControllerTest < ActionDispatch::IntegrationTest
     node.text
   end
 
+  # The page minus its bye-line copy. The bye line legitimately tops out at
+  # 3.0x; everywhere else a 3.0x is the World Cup ceiling leaking in.
+  def rules_page_text_without_bye_line
+    node = css_select('[data-test="turf-monster-rules"]').first.dup
+    node.css('[data-test="nfl-bye-line"]').each(&:remove)
+    node.text
+  end
+
   test "NFL rules page leads with the four play steps in order" do
     get turf_monster_v1_path
 
@@ -142,7 +150,8 @@ class PagesControllerTest < ActionDispatch::IntegrationTest
     text = rules_page_text
     assert_match(/1\.0/, text)
     assert_match(/2\.0/, text)
-    assert_no_match(/3\.0\s*[x\u00d7]/i, text, "3.0x is the World Cup ceiling, not the NFL one")
+    assert_no_match(/3\.0\s*[x\u00d7]/i, rules_page_text_without_bye_line,
+                    "3.0x is the World Cup ceiling, not the NFL one — only the bye line may reach it")
     assert_no_match(/World Cup/i, text, "this page documents the NFL season")
     # NOT a blunt /goals?/ refutation — "field goal" is the NFL's own word and
     # appears twice on this page legitimately. What must never come back is the
@@ -271,6 +280,23 @@ class PagesControllerTest < ActionDispatch::IntegrationTest
   # SlateMatchup.turf_score_for rounds to one decimal, and that rounded value is
   # what freezes onto the pick — so ranks 1 and 2 both pay 1.0x. A reader
   # computing rank 5 from an unrounded formula gets 1.129 and is paid 1.1.
+  # The bye line is DERIVED from the rule that prices the real board, so the
+  # page cannot quote a range the board does not pay.
+  test "the NFL rules page explains the bye line with the board's own numbers" do
+    get turf_monster_v1_path
+
+    assert_response :success
+    bye = css_select('[data-test="nfl-bye-line"]').map(&:text).join(" ").squish
+    low = format("%.1f", SlateMatchup.turf_score_for(1, 32, sport: "nfl", game_factor: Slate.game_factor(3, 2)))
+    high = format("%.1f", SlateMatchup.turf_score_for(32, 32, sport: "nfl", game_factor: Slate.game_factor(3, 2)))
+
+    assert_equal %w[1.5 3.0], [low, high], "the operator's chosen bye line is x1.5 to x3.0"
+    assert_match(/plays 2 games, not 3/, bye)
+    assert_match(/per game/, bye, "a bye team is ranked on points per game")
+    assert_match(/#{low}\u00d7 to #{high}\u00d7/, bye)
+    assert_match(/#{low}\u00d7 \u2013 #{high}\u00d7/, bye, "the quick reference carries the same range")
+  end
+
   test "the NFL rules page states that the curve is rounded" do
     get turf_monster_v1_path
 
