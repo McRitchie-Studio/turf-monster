@@ -58,7 +58,8 @@
   // the page and the browser never computes a price again — it looks one up.
   var FC_SPORT = '<%= @slate.sport %>';
   var _fcPrices = <%== turf_score_scale_table(slate: @slate, teams: @team_rows.size,
-                                              factors: @team_rows.map(&:game_factor)).to_json %>;
+                                              factors: @team_rows.map(&:game_factor),
+                                              resolved_scale: @slate.resolved_formula[:formula_mult_scale]).to_json %>;
 
   function _fcMult(rank, N, multScale, gameFactor) {
     var byScale = _fcPrices[(multScale || 0).toFixed(1)];
@@ -189,7 +190,10 @@
               },
               afterTitle: function(items) {
                 var d = _fcLastData[items[0].dataIndex];
-                return 'Rank #' + d.rank + '  ·  Turf Score x' + d.mult.toFixed(1) + (d.twoLine ? '  ·  ' + d.games + ' games (bye line)' : '');
+                // `mult` is null when the price table has no cell for this
+                // scale; the tooltip says so rather than throwing on hover.
+                var mult = d.mult === null || d.mult === undefined ? '—' : 'x' + d.mult.toFixed(1);
+                return 'Rank #' + d.rank + '  ·  Turf Score ' + mult + (d.twoLine ? '  ·  ' + d.games + ' games (bye line)' : '');
               },
               label: function(ctx) {
                 var val = ctx.parsed.y;
@@ -232,7 +236,9 @@
     lineExp: _fcDefaults.formula_line_exp,
     probExp: _fcDefaults.formula_prob_exp,
     multBase: _fcDefaults.formula_mult_base,
-    multScale: _fcDefaults.formula_mult_scale,
+    // One decimal, rounded in RUBY, so the only scales this page can hold are
+    // ones the price table has a key for — the slider's half-steps, or this.
+    multScale: <%= price_key(@slate.resolved_formula[:formula_mult_scale]) %>,
     goalBase: _fcDefaults.formula_goal_base,
     goalScale: _fcDefaults.formula_goal_scale
   };
