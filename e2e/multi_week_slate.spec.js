@@ -123,26 +123,33 @@ test.describe("multi-week slate page", () => {
 
     await page.goto("/slates/nfl-2026-weeks-1-3");
 
-    const prices = page.locator(".turf-score-display");
-    await expect(prices).toHaveCount(32);
+    await expect(page.locator("div.sortable-item")).toHaveCount(32);
 
-    // "—x" is what a missed lookup renders, and it is the exact text the save
-    // path would then persist against a reordered rank.
-    const texts = await prices.evaluateAll((nodes) => nodes.map((n) => n.textContent.trim()));
-    expect(texts.filter((t) => t === "—x" || t === "" || t === "nullx")).toEqual([]);
+    // The page seeds the SAVED scale, not a slider position — this is the value
+    // the lookup is about to be keyed on.
+    expect(await page.evaluate(() => (window._fcSliders || _fcSliders).multScale)).toBe(2.3);
 
-    // And the prices shown are the ones RUBY computed for 2.3, cell for cell.
+    // Assert against the page's OWN lookup rather than the rendered text: until
+    // the slider is touched the board shows each matchup's STORED turf_score,
+    // so the text proves nothing about the table. `_fcMult` is what a drag
+    // calls, and what "Save Multipliers" then persists.
+    const priced = await page.evaluate(() => {
+      const rows = Array.from(document.querySelectorAll("div.sortable-item"));
+      return rows.map((row, index) =>
+        _fcMult(index + 1, rows.length, _fcSliders.multScale, parseFloat(row.dataset.gameFactor) || 1.0)
+      );
+    });
+
+    // Before the fix every one of these was null: no "2.3" row existed, so the
+    // board would have saved each team's old price against its new rank.
+    expect(priced).toHaveLength(32);
+    expect(priced.filter((price) => price === null || price === undefined)).toEqual([]);
+
+    // And every one is the number Ruby computed for 2.3.
     const table = await page.evaluate(() => window._fcPrices || _fcPrices);
     expect(Object.keys(table)).toContain("2.3");
-
-    const shown = await page.locator("div.sortable-item").evaluateAll((rows) =>
-      rows.map((row) => ({
-        factor: (parseFloat(row.dataset.gameFactor) || 1).toFixed(1),
-        text: row.querySelector(".turf-score-display").textContent.trim()
-      }))
-    );
-    shown.forEach((row, index) => {
-      expect(row.text).toBe(table["2.3"][row.factor][index].toFixed(1) + "x");
+    priced.forEach((price, index) => {
+      expect(price).toBe(table["2.3"]["1.0"][index]);
     });
   });
 
