@@ -446,6 +446,62 @@ other.
 
 **It gated on the `quiet` FIELD for a day, and that could not deliver the claim.** `quiet` is the chip's question — *is there anything worth painting* — so it also requires **no connected address**; a connected address is the only way two different addresses can be on screen at once. The lock was therefore armed for exactly the case that had nothing to degrade from: measured with the flag unread and a stranger's wallet connected, `quiet` was **false**, the panel was **visible**, and it rendered Connected:*stranger* above Account wallet:*their own* under a muted grey dot — the rendering the first review bounced. The panel now reads `quietState` (the same list, without the address clause) and the chip keeps `quiet`. It costs nothing on a page that reads its flag: with `ceremony=true` the reachable states are exactly `changed`, `expected`, `live`, `disconnected`, `none` and `unknown`, and not one of them is quiet-listed — enumerated under node in `test/lib/wallet_signal_js_test.rb`.
 
+### Which provider it watches
+
+**The wallet the SESSION named, else the injected one.** `hostProvider()` asks
+`walletProvider.get(<the session's brand>)` and binds what comes back;
+`solana_stores`' `_preferredProvider` resolves the same named half, so the signal
+and the wallet watcher hold the identical object and cannot describe two
+different wallets.
+
+**It used to bind the injected wallet every time, and that told a real
+population they had none.** The branch tested `entry.detect()` on what `get()`
+returns — but `detect` is a method on the *registry*, not on any provider, so the
+typeof test was always false and every call fell through to
+`(window.phantom && window.phantom.solana) || window.solana`. A Solflare- or
+Backpack-brand admin registers through Wallet Standard and injects nothing at
+`window.solana`: measured on `/admin/pending_transactions`, gem status `none`,
+panel state `none`, **"No wallet in this browser"** over a wallet the registry
+was holding an adapter for the whole time. Found as REVIEW NOTE 6 by Carl on
+`ceremony-page-lacks-wallet-signal`; fixed by `bind-wallet-signal-through-registry`.
+
+**`detect()` is deliberately left out, so only the NAMED half is taken.** It
+answers a different question — *pick something for a call site that cannot ask
+the user* — and both of its fallbacks are wrong for a page-level reading:
+
+| `detect()` falls back to | What binding it would do |
+|---|---|
+| `SolanaStudio.redirectProvider.forWallet('phantom')`, on a phone | No `publicKey` and no `on` at all, so the gem settles `disconnected` — tone **warning**. Every mobile page on a web3 session would trade a muted "No wallet in this browser", the honest answer where no extension can exist, for a standing amber alarm that never clears. |
+| `KeypairProvider`, in the e2e and bot lanes | Deaf — see below. |
+
+**A deaf provider is never bound.** A provider whose `on()` registers nothing
+cannot report a switch, so binding one produces the single failure this component
+exists to prevent: **a page that reads calm while the wallet moves underneath
+it.** `KeypairProvider.on` is `function() {}`, and no reflection can tell that
+from a real channel. So the deaf ones are named in `SIGNAL_DEAF_PROVIDERS`, and
+the list is *enforced* rather than trusted — `test/lib/wallet_signal_js_test.rb`
+drives `on()` on every provider `get()` can return against a fixture whose every
+downstream channel is a spy, and demands that a provider registering with none of
+them appear on the list. It fails **closed**: a provider forwarding to a channel
+the fixture does not know reads as deaf, and the remedy is to list it or to teach
+the fixture.
+
+Measured with the deaf provider bound, on a real page: the injected wallet moved
+to a stranger and the panel stayed `live`. With the name on the list it reads
+`changed`. Both are pinned.
+
+**The name is not the only defence today, and it is written down because the
+other one is invisible from the JS.** `get('keypair')` is unreachable from this
+call site: the brand comes from `Solana::CurrentWallet` or
+`User#web3_wallet_provider`, both of which store only what
+`Solana::WalletProvider.normalize` accepts, and that registry holds `phantom`,
+`solflare` and `backpack`. Adding `keypair` to it — for a bot lane, say — is a
+one-line Ruby change that would silently make this page deaf, which is why the
+guard lives beside the consequence. A keypair sign-in therefore arrives with a
+**blank** brand and reads the injected wallet exactly as it always did; the e2e
+keypair lanes are byte-for-byte unchanged by the binding (35 specs, green either
+side).
+
 ### Two variants, one state
 
 Both read `$store.walletSignal`, so the navbar and a ceremony panel can never disagree about which wallet the browser holds.

@@ -721,4 +721,287 @@ class WalletSignalJsTest < ActiveSupport::TestCase
                "the state-only lock free"
     assert_equal %w[changed disconnected expected live none unknown], out["ceremonyStates"]
   end
+
+  # ── [component] WHICH PROVIDER THE SIGNAL BINDS ─────────────────────────
+  #
+  # The signal used to watch the INJECTED wallet unconditionally: the registry
+  # branch tested `entry.detect()` on what `walletProvider.get()` returns, and
+  # `detect` is a method on the REGISTRY rather than on any provider, so the
+  # typeof test was always false and every call fell through. A Solflare- or
+  # Backpack-brand admin registers through Wallet Standard and injects nothing at
+  # window.solana, so that admin was told they have no wallet — the mistake the
+  # header of wallet_signal.js calls the most expensive available here.
+  #
+  # THESE TWO CASES ARE A PAIR AND NEITHER MEANS MUCH ALONE. The first proves the
+  # binding happens and that the bound provider's OWN event channel drives the
+  # panel. The second proves the binding stops at a provider that has no channel
+  # — and the reason that second half exists is that binding a DEAF provider
+  # produces the one failure this component cannot have: a page reading CALM over
+  # a wallet that has moved. Measured in a real browser on
+  # /admin/pending_transactions 2026-09-19: with the deaf provider bound, the
+  # injected wallet switched to a stranger and the panel stayed `live`.
+  ADAPTER_WALLET = "AdapterWa11etAddress"
+
+  test "the signal binds the brand the session named and follows that provider's own channel" do
+    out = run_module(<<~JS, browser: true)
+      const SESSION = #{SESSION_WALLET.to_json};
+      const ADAPTER = #{ADAPTER_WALLET.to_json};
+      const THIRD = #{THIRD_WALLET.to_json};
+      await settle();
+
+      // Nothing but the injected wallet exists yet, which is every page that
+      // loads before the registry module does.
+      out.beforeRegistry = {
+        bound: tmWalletSignal.source.current().providerName,
+        state: signal().state
+      };
+
+      // A Wallet Standard wallet registers under the session's brand. This is
+      // _makeWsAdapter's shape where it matters: a LIVE publicKey getter and an
+      // `on` that really registers.
+      let adapterAddress = ADAPTER;
+      let adapterHandler = null;
+      const adapter = {
+        name: 'Solflare',
+        on(event, cb) { if (event === 'accountChanged') adapterHandler = cb; },
+        connect() { return Promise.resolve({ publicKey: adapter.publicKey }); },
+        get publicKey() { return adapterAddress ? { toBase58: () => adapterAddress } : null; }
+      };
+      window.walletProvider = { get: (name) => (name === 'solflare' ? adapter : null) };
+      sessionContext.walletBrand = 'solflare';
+      document.body.dataset.walletProvider = 'solflare';
+
+      // THE REAL ARRIVAL PATH, not a test-only poke: wallet_provider.js fires
+      // this on every Wallet Standard registration and the source rescans on it.
+      // Without it the gem keeps the binding it already holds, because an
+      // accountChanged event folds into the current binding and re-resolves
+      // nothing — which is how the first cut of this measurement lied.
+      (listeners.window['wallet-provider:registered'] || []).forEach((cb) => cb({}));
+      await settle();
+
+      const snap = tmWalletSignal.source.current();
+      out.afterRegistry = { bound: snap.providerName, address: snap.address, state: signal().state };
+
+      // The bound provider's OWN channel is what moves the panel now.
+      out.adapterChannelRegistered = typeof adapterHandler === 'function';
+      adapterAddress = SESSION;
+      adapterHandler(adapter.publicKey);
+      await settle();
+      out.afterAdapterSwitch = signal().state;
+
+      // And the injected wallet no longer speaks for this page. The gem's
+      // closure check makes a superseded provider's listener inert.
+      providerAddress = THIRD;
+      accountChanged(provider.publicKey);
+      await settle();
+      out.afterInjectedMoved = {
+        state: signal().state,
+        address: tmWalletSignal.source.current().address
+      };
+    JS
+
+    assert_equal "phantom", out.dig("beforeRegistry", "bound"),
+                 "with no registry the injected wallet is still what the page reads"
+    assert_equal "live", out.dig("beforeRegistry", "state")
+
+    assert_equal "Solflare", out.dig("afterRegistry", "bound"),
+                 "the registry entry for the session's brand is what the signal must bind — this is " \
+                 "the whole change, and a fall-through to the injected wallet reads `phantom` here"
+    assert_equal ADAPTER_WALLET, out.dig("afterRegistry", "address"),
+                 "bound means READ: the address has to come off the adapter, not off window.solana"
+    assert_equal "changed", out.dig("afterRegistry", "state")
+
+    assert_equal true, out["adapterChannelRegistered"],
+                 "the gem must have subscribed to the adapter, or the binding is deaf"
+    assert_equal "live", out["afterAdapterSwitch"],
+                 "a switch announced by the BOUND provider is what the panel now follows"
+
+    assert_equal "live", out.dig("afterInjectedMoved", "state")
+    assert_equal SESSION_WALLET, out.dig("afterInjectedMoved", "address"),
+                 "one page describes one wallet: the superseded injected provider cannot move it"
+  end
+
+  test "a provider that cannot report a switch is never bound, so no wallet moves under a calm panel" do
+    out = run_module(<<~JS, browser: true)
+      const SESSION = #{SESSION_WALLET.to_json};
+      const OTHER = #{OTHER_WALLET.to_json};
+      await settle();
+
+      // KeypairProvider's exact shape, from app/javascript/wallet_provider.js:
+      // `on()` registers nothing, and publicKey is whatever connect() loaded —
+      // it cannot move and it cannot announce.
+      const deaf = {
+        name: 'keypair',
+        on() { /* no-op — the defect, verbatim */ },
+        connect() { return Promise.resolve({ publicKey: deaf.publicKey }); },
+        get publicKey() { return { toBase58: () => SESSION }; }
+      };
+      const registry = { get: () => deaf };
+      window.walletProvider = registry;
+      sessionContext.walletBrand = 'keypair';
+      document.body.dataset.walletProvider = 'keypair';
+      (listeners.window['wallet-provider:registered'] || []).forEach((cb) => cb({}));
+      await settle();
+
+      out.bound = tmWalletSignal.source.current().providerName;
+      out.selectorRefused = mod.hostProviderFor(registry, 'keypair', provider) === provider;
+
+      // THE MEASUREMENT. The wallet the browser actually holds moves to a
+      // stranger. A page bound to the deaf provider reads SESSION for ever and
+      // paints calm; this page has to raise the alarm.
+      out.afterSwitch = await emit(OTHER);
+      out.deafStillReportsSession = deaf.publicKey.toBase58() === SESSION;
+
+      // THE COUNTERFACTUAL, so the assertion above cannot pass for the wrong
+      // reason. Rename that same provider to something not on the list and the
+      // selector takes it — which is what the list is for.
+      const renamed = { name: 'some-new-wallet', on() {}, get publicKey() { return null; } };
+      out.unlistedIsTaken = mod.hostProviderFor({ get: () => renamed }, 'some-new-wallet', provider).name;
+
+      // A registry entry with no `on` AT ALL is refused for the same reason. This
+      // is SolanaStudio.redirectProvider's shape, which speaks
+      // beginConnect/completeConnect and carries neither `on` nor `publicKey`.
+      const channelless = { name: 'phantom', transport: 'redirect', beginConnect() {} };
+      out.channellessRefused =
+        mod.hostProviderFor({ get: () => channelless }, 'phantom', provider) === provider;
+
+      out.deafList = mod.SIGNAL_DEAF_PROVIDERS;
+    JS
+
+    assert_equal "phantom", out["bound"],
+                 "the deaf provider must never become the bound one, however the brand names it"
+    assert_equal true, out["selectorRefused"]
+    assert_equal true, out["deafStillReportsSession"],
+                 "the precondition: this provider would have reported the OLD wallet after the switch"
+    assert_equal "changed", out["afterSwitch"],
+                 "THE PROPERTY. A wallet that moved must read `changed`; a page bound to the deaf " \
+                 "provider reads `live` here, which is the silent calm this guard exists to prevent"
+
+    assert_equal "some-new-wallet", out["unlistedIsTaken"],
+                 "the refusal has to come from the NAME, or the assertion above proves nothing"
+    assert_equal true, out["channellessRefused"]
+    assert_equal ["keypair"], out["deafList"]
+  end
+
+  # ── [component] the deaf list is ENFORCED, not merely written down ───────
+  #
+  # SIGNAL_DEAF_PROVIDERS names providers by hand because no reflection can tell
+  # a no-op `on()` from a real one — it is a function either way. A hand-kept
+  # list rots, and this one rots SILENTLY: the symptom is a calm page.
+  #
+  # So the list is checked behaviourally instead of trusted. Every provider
+  # `walletProvider.get()` can hand back is driven through `on('accountChanged')`
+  # against a fixture whose every downstream channel is a spy, and a provider
+  # that registered with NONE of them must appear on the list. A provider that
+  # forwards to a channel this fixture does not know reads as deaf and fails
+  # CLOSED — which is the safe direction, because the remedy is either to list it
+  # or to teach the fixture its channel.
+  def scan_providers
+    signal_src = Rails.root.join(SOURCE)
+    provider_src = Rails.root.join("app/javascript/wallet_provider.js")
+    script = <<~JS
+      import { pathToFileURL } from 'node:url';
+      import { readFileSync } from 'node:fs';
+
+      const listeners = {};
+      let spyCalls = 0;
+      globalThis.CustomEvent = class {
+        constructor(type, init) { this.type = type; this.detail = (init || {}).detail; }
+      };
+      globalThis.window = {
+        addEventListener(type, cb) { (listeners[type] ||= []).push(cb); },
+        dispatchEvent(e) { (listeners[e.type] || []).forEach((cb) => cb(e)); return true; },
+        // EVERY downstream channel a provider could forward to is a spy.
+        phantom: { solana: { isPhantom: true, on() { spyCalls += 1; }, publicKey: null } },
+        __WALLET_KEYPAIR_SECRET: new Uint8Array(64)
+      };
+      globalThis.window.solana = globalThis.window.phantom.solana;
+      globalThis.document = {
+        querySelector() { return null; }, getElementById() { return null; },
+        addEventListener() {}, createElement() { return {}; },
+        head: { appendChild() {} }
+      };
+      Object.defineProperty(globalThis, 'navigator', {
+        value: { userAgent: 'node', maxTouchPoints: 0 }, configurable: true, writable: true
+      });
+      globalThis.localStorage = {
+        _d: {}, getItem(k) { return this._d[k] ?? null; },
+        setItem(k, v) { this._d[k] = String(v); }, removeItem(k) { delete this._d[k]; }
+      };
+
+      let wsApi = null;
+      globalThis.window.addEventListener('wallet-standard:app-ready', (e) => { wsApi = e.detail; });
+
+      // The registry is a plain script, delivered the way a script tag does.
+      new Function('window', readFileSync(process.argv[2], 'utf8')).call(globalThis, globalThis.window);
+      const registry = globalThis.window.walletProvider;
+      const deafList = (await import(pathToFileURL(process.argv[1]).href)).SIGNAL_DEAF_PROVIDERS;
+
+      const probe = (label, brand) => {
+        const p = registry.get(brand);
+        if (!p) return { label, brand, resolved: false };
+        spyCalls = 0;
+        try { p.on('accountChanged', () => {}); } catch (e) { /* a thrower registers nothing */ }
+        return { label, brand, resolved: true, name: p.name, registered: spyCalls > 0 };
+      };
+
+      const rows = [];
+      // The legacy singletons first: get('phantom') prefers a Wallet Standard
+      // wallet of the same name, so PhantomProvider is only reachable before one
+      // registers.
+      rows.push(probe('PhantomProvider', 'phantom'));
+      rows.push(probe('KeypairProvider', 'keypair'));
+
+      const changeSpy = { version: '1.0.0', on(ev, cb) { spyCalls += 1; return () => {}; } };
+      wsApi.register({
+        name: 'Solflare',
+        chains: ['solana:mainnet'],
+        get accounts() { return []; },
+        features: {
+          'standard:connect': { version: '1.0.0', connect: async () => ({ accounts: [] }) },
+          'standard:events': changeSpy,
+          'solana:signMessage': { version: '1.0.0', signMessage: async () => [] }
+        }
+      });
+      rows.push(probe('Wallet Standard adapter', 'solflare'));
+
+      console.log(JSON.stringify({ rows, deafList }));
+    JS
+    stdout, stderr, status = Open3.capture3(
+      "node", "--input-type=module", "--eval", script, signal_src.to_s, provider_src.to_s
+    )
+    assert status.success?, "node failed:\n#{stderr}"
+    JSON.parse(stdout.lines.last)
+  end
+
+  test "every provider the registry can hand out either registers a listener or is named deaf" do
+    out = scan_providers
+    rows = out["rows"]
+
+    assert_equal %w[PhantomProvider KeypairProvider], rows.select { |r| r["resolved"] }.first(2).map { |r| r["label"] },
+                 "the scan must actually reach the legacy singletons, or it proves nothing"
+    assert_equal 3, rows.count { |r| r["resolved"] },
+                 "all three shapes get() can return have to be probed: #{rows.inspect}"
+
+    rows.each do |row|
+      next unless row["resolved"]
+      next if row["registered"]
+
+      assert_includes out["deafList"], row["name"].to_s.downcase,
+                      "#{row['label']} (#{row['name']}) registered with no channel, so a page that " \
+                      "bound it could not follow a wallet switch. Either add it to " \
+                      "SIGNAL_DEAF_PROVIDERS in app/javascript/wallet_signal.js, or — if it does " \
+                      "forward to a channel this fixture does not spy on — teach the fixture that " \
+                      "channel. Do not delete this assertion: the symptom it catches is a page that " \
+                      "looks calm while the wallet moves."
+    end
+
+    keypair = rows.find { |r| r["label"] == "KeypairProvider" }
+    assert_equal false, keypair["registered"],
+                 "the control: KeypairProvider is the provider this list exists for, and a fixture " \
+                 "in which it reads as CHANNELLED cannot fail for anyone else either"
+    phantom = rows.find { |r| r["label"] == "PhantomProvider" }
+    assert_equal true, phantom["registered"],
+                 "the other control: a real channel has to read as one, or every row passes vacuously"
+  end
 end
