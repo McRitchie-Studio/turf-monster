@@ -55,10 +55,65 @@ class BenchmarksHelperTest < ActionView::TestCase
     assert_equal [1.0], turf_score_curve(teams: 1, sport: "nfl").map(&:turf_score)
   end
 
+  # --- the y domain --------------------------------------------------------
+
+  # The frame exists to hold the DOTS as much as the lines. A price is written
+  # from the admin board with no bound, so a hand-edited multiplier can sit above
+  # the top of its line or below x1.0; sized to the lines alone, the chart clipped
+  # exactly those marks.
+  test "a normally priced slate keeps the domain the lines alone would give" do
+    lines = benchmark_lines(slate_double(games_per_team: 3, two_line: true), 32)
+    priced = lines.flat_map(&:points).map { |point| row_double(point.turf_score) }
+
+    assert_equal [1.0, 3.0], benchmark_y_domain(lines: lines, team_rows: priced),
+                 "a dot ON its line must not move the frame"
+  end
+
+  test "a price above the top of its line widens the domain to hold it" do
+    lines = benchmark_lines(slate_double(games_per_team: 3, two_line: true), 32)
+
+    y_min, y_max = benchmark_y_domain(lines: lines, team_rows: [row_double(3.5)])
+
+    assert_operator y_max, :>, 3.5, "3.5x belongs inside the frame, not on its edge"
+    assert_equal 1.0, y_min, "the floor is untouched by a high outlier"
+  end
+
+  test "a price below the floor widens the domain downward" do
+    lines = benchmark_lines(slate_double(games_per_team: 3, two_line: true), 32)
+
+    y_min, y_max = benchmark_y_domain(lines: lines, team_rows: [row_double(0.6)])
+
+    assert_operator y_min, :<, 0.6, "0.6x belongs inside the frame, not on its edge"
+    # 0.6 - 0.1 is 0.49999999999999994 in binary floating point, and flooring
+    # that to a tenth gives 0.4 -- a tenth of air is worked in tenths for this.
+    assert_equal 0.5, y_min
+    assert_equal 3.0, y_max, "the ceiling is untouched by a low outlier"
+  end
+
+  test "an unpriced slate keeps the floor at x1.0 rather than collapsing" do
+    lines = benchmark_lines(slate_double(games_per_team: 3, two_line: true), 32)
+
+    # No stored price leaves NO dots at all. A min taken over that is nil, and
+    # reading it as a number drops the floor below zero and squashes the chart.
+    assert_equal [1.0, 3.0], benchmark_y_domain(lines: lines, team_rows: [row_double(nil)])
+  end
+
+  test "an unchartable slate answers with the default frame, not an exception" do
+    empty = benchmark_lines(slate_double(games_per_team: 3, two_line: false), 0)
+
+    assert_equal [1.0, 2.0], benchmark_y_domain(lines: empty, team_rows: [])
+  end
+
   private
 
   def slate_double(games_per_team:, two_line:)
     Struct.new(:games_per_team, :sport, :two_line_pricing?)
           .new(games_per_team, "nfl", two_line)
+  end
+
+  # Only the stored multiplier is read off a team row here, so that is all the
+  # double carries -- and nil is a real value for it, on a slate nobody priced.
+  def row_double(turf_score)
+    Struct.new(:turf_score).new(turf_score)
   end
 end

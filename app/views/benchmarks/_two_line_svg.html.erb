@@ -1,4 +1,4 @@
-<%# locals: (lines:, rows_by_factor:, teams:, y_max:, compact:) %>
+<%# locals: (lines:, rows_by_factor:, teams:, y_min:, y_max:, compact:) %>
 <%#
     One render of the two-line chart. `compact` picks the geometry: the narrow
     frame drops the end labels (the legend names the lines) and buys back that
@@ -20,8 +20,16 @@
 <% plot_w = width - pad[:left] - pad[:right] %>
 <% plot_h = height - pad[:top] - pad[:bottom] %>
 <% x_for = ->(rank) { pad[:left] + (teams == 1 ? 0 : (rank - 1).to_f / (teams - 1) * plot_w) } %>
-<% y_for = ->(score) { pad[:top] + plot_h - ((score - 1.0) / (y_max - 1.0) * plot_h) } %>
-<% gridlines = (10..(y_max * 10).round).step(5).map { |tenth| tenth / 10.0 } %>
+<%# The floor comes from the caller, never from a hardcoded 1.0. It IS 1.0 on
+    every ordinary slate, and drops below it only when a hand-edited price does
+    — which is the one case where hardcoding put the dot outside the box. %>
+<% y_for = ->(score) { pad[:top] + plot_h - ((score - y_min) / (y_max - y_min) * plot_h) } %>
+<%# Ticks stay on .0 and .5 whatever the floor is, so the axis reads the same on
+    every slate and agrees with the multipliers in the table below. They start at
+    the first half step inside the frame rather than at y_min itself: a 0.6 floor
+    labelled 0.6, 1.1, 1.6 would look like a different scale entirely. %>
+<% first_tick = ((y_min * 10).round / 5.0).ceil * 5 %>
+<% gridlines = (first_tick..(y_max * 10).round).step(5).map { |tenth| tenth / 10.0 } %>
 <% rank_ticks = (compact ? [1, (teams / 2.0).round, teams] : [1, (teams / 4.0).round, (teams / 2.0).round, (teams * 0.75).round, teams]).uniq %>
 
 <svg viewBox="0 0 <%= width %> <%= height %>" class="w-full h-auto" role="img"
