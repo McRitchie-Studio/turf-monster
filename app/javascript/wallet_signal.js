@@ -349,61 +349,107 @@ function sessionWalletBrand() {
   return (document.body && document.body.dataset.walletProvider) || "";
 }
 
-// The provider this app watches: the INJECTED one, every time.
+// THE PROVIDER THIS APP WATCHES: the wallet the SESSION named, else the injected
+// one.
 //
-// THE REGISTRY BRANCH BELOW CANNOT FIRE, and the comment that used to sit here
-// said the opposite — "prefers turf's own registry (the same one solana_stores.js
-// resolves through, so the signal and the watcher can never end up bound to two
-// different wallets)". Both halves were false. `walletProvider.get()` returns
-// KeypairProvider, a Wallet Standard adapter, or PhantomProvider, and not one of
-// those carries a `detect` method — `detect` is a method ON the registry object
-// itself. So the typeof test is always false, `found` is always null, and every
-// call reaches the injected provider on the last line. Meanwhile solana_stores'
-// _preferredProvider takes `registry.get(name)` DIRECTLY as its provider, so the
-// two readers genuinely CAN bind different objects. Recorded in review of
-// /tasks/ceremony-page-lacks-wallet-signal by Jasper and Carl.
+// ONE OBJECT, TWO READERS. solana_stores' `_preferredProvider` resolves
+// `registry.get(name) || registry.detect()` and watches whatever that returns.
+// This function resolves the SAME named half, so whenever the session names a
+// brand the registry can serve, the signal and the watcher hold the identical
+// object and cannot end up describing two different wallets. Until 2026-09-19
+// they genuinely could: the branch here tested `entry.detect()` on what `get()`
+// returns, `detect` is a method on the REGISTRY and not on any provider, so the
+// typeof test was always false and every call fell through to the injected
+// wallet. Recorded as REVIEW NOTE 6 by Carl on
+// /tasks/ceremony-page-lacks-wallet-signal.
 //
-// WHAT IT COSTS A READER: a Solflare- or Backpack-brand admin whose wallet is not
-// injected at window.solana resolves to null, the gem settles on `none`, and the
-// panel tells someone who HAS a wallet that they have none — the one mistake the
-// header of this file calls the most expensive available here.
+// WHAT IT BUYS A READER, which is the whole reason it is worth binding. A
+// Solflare- or Backpack-brand admin registers through Wallet Standard and injects
+// nothing at `window.solana`. Measured on /admin/pending_transactions with the
+// dead branch in place: gem status `none`, panel state `none`, "No wallet in this
+// browser" — over a wallet whose adapter the registry was holding the whole time.
+// That is the most expensive wrong answer the header of this file names, and it
+// was being given to a real population.
 //
-// IT CANNOT MIS-SIGN. cosign.js reads bare `window.solana` and hard-requires
-// isPhantom, so a non-Phantom browser makes the co-sign REFUSE ("Wallet
-// Required") rather than sign with a wallet this panel never described.
+// IT STILL CANNOT MIS-SIGN, and that is unchanged by the binding. cosign.js reads
+// bare `window.solana` and hard-requires isPhantom, so a non-Phantom browser makes
+// the co-sign REFUSE ("Wallet Required") rather than sign with a wallet this panel
+// never described. Nothing here can route a signature anywhere.
 //
-// WHY THE ONE-LINE FIX IS NOT TAKEN HERE, now that the interface question behind
-// it has an answer (measured 2026-09-18 by reading both files):
+// WHAT THE BINDING DOES CHANGE FOR THAT ADMIN, said plainly rather than left for
+// someone to find: the panel now names their Solflare wallet, and the co-sign
+// button still refuses it, so they read "This account's wallet" above a button
+// that answers "Wallet Required". Before, the two agreed — by both being wrong
+// about whether a wallet existed. That is the better trade and not a close call.
+// The chip renders on EVERY page, not only the three cosign surfaces, so softening
+// one button's refusal by telling every page there is no wallet is exactly the
+// conflation this file's header forbids: "no wallet" and "a wallet this ceremony
+// cannot use" are different facts, and cosign's own refusal already states the
+// second one at the moment it applies. Teaching cosign.js the registry is the
+// separate fix; it is not this one, and it does not belong in a signal.
 //
-//   VERIFIED — all three shapes get() can return expose a live `publicKey` and
-//   an `on`, and none of them satisfies solana-studio's isWalletStandard() (it
-//   requires `features` AND an own `accounts` key), so the gem would read every
-//   one of them through addressOf(provider.publicKey), which is the path it
-//   already uses for the injected provider. The Wallet Standard adapter's
-//   publicKey getter re-reads wallet.accounts live, so it is strictly better
-//   than a cached one.
+// detect() IS DELIBERATELY LEFT OUT, so this takes the named half ONLY. It
+// answers a different question — "pick something for a call site that cannot ask
+// the user" — and both of its fallbacks are wrong here. Measured 2026-09-19
+// against the installed solana-studio 0.12.0 asset and this repo's e2e lanes:
 //
-//   NOT VERIFIED — the CONSEQUENCE for the `keypair` brand. get('keypair')
-//   returns KeypairProvider, whose `on()` is a no-op and whose connect() loads a
-//   keypair from window.__WALLET_KEYPAIR_SECRET: binding it would turn every
-//   keypair-brand session (the e2e sign-in lane, bots) from "No wallet in this
-//   browser" into a live wallet with no event channel to follow it. That is a
-//   live behaviour change in a lane this task cannot drive, so it belongs to
-//   /tasks/bind-wallet-signal-through-registry and not to a copy fix.
+//   ON A PHONE it returns SolanaStudio.redirectProvider.forWallet('phantom'),
+//   which carries no `publicKey` and no `on` at all (it speaks
+//   beginConnect/completeConnect). The gem reads the absent key as null and
+//   settles `disconnected`, whose tone is WARNING — so every mobile page on a
+//   web3 session would trade a muted "No wallet in this browser", the honest
+//   answer where no extension can exist, for a standing amber alarm that never
+//   clears.
 //
+//   IN THE E2E AND BOT LANES it returns KeypairProvider, which is deaf — below.
+//
+// A DEAF PROVIDER IS NEVER BOUND. A provider whose `on()` registers nothing
+// cannot report a switch, so binding one produces the single failure this whole
+// file exists to prevent: a page that reads CALM while the wallet moves
+// underneath it. KeypairProvider is exactly that shape (`on: function() {}` in
+// app/javascript/wallet_provider.js), and no reflection can tell it from a real
+// channel, because a no-op is a function like any other. So the deaf providers
+// are NAMED here — and the naming is ENFORCED rather than trusted:
+// test/lib/wallet_signal_js_test.rb drives `on()` on every provider `get()` can
+// return, against a fixture whose every downstream channel is a spy, and demands
+// that a provider which registered with none of them appear on this list.
+//
+// THE NAME IS NOT TODAY'S ONLY DEFENCE, and it is written down because the other
+// one is invisible from this file. `get('keypair')` is unreachable from this call
+// site today: the brand arrives from Solana::CurrentWallet or
+// User#web3_wallet_provider, both of which store only what
+// Solana::WalletProvider.normalize accepts, and that registry holds phantom,
+// solflare and backpack. Adding "keypair" to it — for a bot lane, say — is a
+// one-line change in Ruby that would silently make this page deaf. The guard
+// belongs where the consequence lands.
+export const SIGNAL_DEAF_PROVIDERS = ["keypair"];
+
+// Pure, so the rule is executable under node: the registry, the brand and the
+// injected provider all come in, and nothing is read from the DOM.
+//
+// A BLANK BRAND FALLS THROUGH, and that is the common case rather than an edge.
+// `get("")` returns null anyway, but naming the guard states the population: a
+// guest, a magic-link session on an account with no remembered brand, and every
+// keypair sign-in (normalize rejects "keypair", so the column and the session key
+// both stay empty) all arrive here with "" and read the injected wallet exactly
+// as they did before.
+export function hostProviderFor(registry, brand, injected) {
+  try {
+    if (registry && typeof registry.get === "function" && brand) {
+      const named = registry.get(brand);
+      const deaf = SIGNAL_DEAF_PROVIDERS.indexOf(String((named && named.name) || "").toLowerCase()) !== -1;
+      if (named && typeof named.on === "function" && !deaf) return named;
+    }
+  } catch (e) { /* a registry that throws is one this page cannot use */ }
+  return injected || null;
+}
+
 // Called on EVERY reconcile by design: window.walletProvider is an importmap
 // MODULE and does not exist while the head is parsing, so a resolver that
 // captured it once would capture null and never recover.
 function hostProvider() {
-  try {
-    const registry = window.walletProvider;
-    if (registry && typeof registry.get === "function") {
-      const entry = registry.get(sessionWalletBrand());
-      const found = entry && typeof entry.detect === "function" ? entry.detect() : null;
-      if (found) return found;
-    }
-  } catch (e) { /* fall through to the injected provider */ }
-  return (window.phantom && window.phantom.solana) || window.solana || null;
+  const injected = (window.phantom && window.phantom.solana) || window.solana || null;
+  return hostProviderFor(window.walletProvider, sessionWalletBrand(), injected);
 }
 
 // IS THE BROWSER WALLET WHAT SIGNS ON THIS PAGE?
