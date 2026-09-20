@@ -1,0 +1,69 @@
+<%# locals: (lines:, rows_by_factor:, teams:, y_max:, compact:) %>
+<%#
+    One render of the two-line chart. `compact` picks the geometry: the narrow
+    frame drops the end labels (the legend names the lines) and buys back that
+    space for type big enough to survive the scale-down on a phone.
+
+    Everything except the two series colours inherits `currentColor` from the
+    page's own text utilities, so both themes are handled by the design system
+    rather than by a second palette defined here.
+%>
+<% if compact %>
+  <% pad = { left: 38, right: 10, top: 12, bottom: 36 } %>
+  <% width, height = 380, 250 %>
+  <% axis_size, label_size, dot_r = 13, 12, 4.5 %>
+<% else %>
+  <% pad = { left: 46, right: 92, top: 14, bottom: 32 } %>
+  <% width, height = 640, 250 %>
+  <% axis_size, label_size, dot_r = 11, 11, 4 %>
+<% end %>
+<% plot_w = width - pad[:left] - pad[:right] %>
+<% plot_h = height - pad[:top] - pad[:bottom] %>
+<% x_for = ->(rank) { pad[:left] + (teams == 1 ? 0 : (rank - 1).to_f / (teams - 1) * plot_w) } %>
+<% y_for = ->(score) { pad[:top] + plot_h - ((score - 1.0) / (y_max - 1.0) * plot_h) } %>
+<% gridlines = (10..(y_max * 10).round).step(5).map { |tenth| tenth / 10.0 } %>
+<% rank_ticks = (compact ? [1, (teams / 2.0).round, teams] : [1, (teams / 4.0).round, (teams / 2.0).round, (teams * 0.75).round, teams]).uniq %>
+
+<svg viewBox="0 0 <%= width %> <%= height %>" class="w-full h-auto" role="img"
+     aria-label="Turf Score by rank: <%= lines.map { |line| "#{line.label} runs #{sprintf('%.1f', line.points.first.turf_score)}x to #{sprintf('%.1f', line.points.last.turf_score)}x" }.to_sentence %>. The table below lists every team.">
+  <%# Grid and axis ink inherit the page's muted text colour, so the recessive
+      layer stays recessive in both themes without a second set of tokens. %>
+  <g class="text-muted" fill="currentColor" stroke="currentColor">
+    <% gridlines.each do |score| %>
+      <line x1="<%= pad[:left] %>" y1="<%= y_for.(score).round(1) %>" x2="<%= pad[:left] + plot_w %>"
+            y2="<%= y_for.(score).round(1) %>" stroke-width="1" opacity="0.22"></line>
+      <text x="<%= pad[:left] - 7 %>" y="<%= (y_for.(score) + 4).round(1) %>" text-anchor="end"
+            font-size="<%= axis_size %>" stroke="none"><%= sprintf("%.1f", score) %>x</text>
+    <% end %>
+
+    <% rank_ticks.each do |rank| %>
+      <text x="<%= x_for.(rank).round(1) %>" y="<%= height - 14 %>" text-anchor="middle"
+            font-size="<%= axis_size %>" stroke="none">#<%= rank %></text>
+    <% end %>
+    <text x="<%= (pad[:left] + plot_w / 2.0).round(1) %>" y="<%= height - 2 %>" text-anchor="middle"
+          font-size="<%= axis_size - 1 %>" stroke="none">rank (best projection first)</text>
+  </g>
+
+  <% lines.each do |line| %>
+    <polyline fill="none" stroke="var(--bench-<%= line.key %>)" stroke-width="2"
+              stroke-linejoin="round" stroke-linecap="round"<%= line.key == "bye" ? ' stroke-dasharray="9 5"'.html_safe : "" %>
+              points="<%= line.points.map { |point| "#{x_for.(point.rank).round(1)},#{y_for.(point.turf_score).round(1)}" }.join(" ") %>"></polyline>
+
+    <% unless compact %>
+      <%# Direct label at the line's end, so identity survives without colour. %>
+      <text x="<%= (pad[:left] + plot_w + 8).round(1) %>"
+            y="<%= (y_for.(line.points.last.turf_score) + 4).round(1) %>"
+            font-size="<%= label_size %>" class="text-secondary" fill="currentColor"><%= line.label %></text>
+    <% end %>
+
+    <%# The teams themselves, each on the line its game count earns. A surface
+        ring keeps neighbours legible where the staircase stacks them. %>
+    <% (rows_by_factor[line.key] || []).each do |row| %>
+      <% next if row.rank.blank? || row.turf_score.blank? %>
+      <circle cx="<%= x_for.(row.rank).round(1) %>" cy="<%= y_for.(row.turf_score.to_f).round(1) %>"
+              r="<%= dot_r %>" fill="var(--bench-<%= line.key %>)" stroke="var(--color-surface)" stroke-width="1.5">
+        <title><%= row.team.name %> — rank <%= row.rank %>, <%= sprintf("%.1f", row.turf_score) %>x</title>
+      </circle>
+    <% end %>
+  <% end %>
+</svg>
