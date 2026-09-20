@@ -163,6 +163,91 @@ class BenchmarksPageTest < ActionDispatch::IntegrationTest
     assert_select "[data-testid=benchmarks-chart] circle title", text: /Team B — rank 1, 2\.7x/
   end
 
+  # --- the domain has to cover the dots ------------------------------------
+
+  # A multiplier is hand-written from the admin board with no bound whatsoever
+  # (SlatesController#update_turf_scores rounds to a tenth and calls update_all),
+  # and the DOTS are the only place such an edit shows up as a picture. Sized to
+  # the LINES alone, the domain dropped exactly those marks: an SVG clips to its
+  # own viewBox, so the biggest mispricing on the slate became the one the chart
+  # omitted, while the partial promised it was "the thing worth seeing".
+  #
+  # These assert on GEOMETRY. The older guard above moves the stored price to
+  # 2.7x, which is INSIDE the line's own range, and then reads the tooltip text,
+  # so no amount of clipping could ever have failed it.
+  test "a price above the top of its line still renders inside the frame" do
+    # The bye line tops out at 3.0x on this span, so 3.5x mapped above the box.
+    @span.slate_matchups.where(team_slug: "team-b").update_all(turf_score: 3.5)
+
+    get benchmarks_path(slug: @span.slug)
+
+    assert_response :success
+    assert_dots_inside_frame "Team B"
+  end
+
+  test "a price below the floor of its line still renders inside the frame" do
+    # Every line starts at 1.0x, so a sub-1.0 edit fell off the bottom instead.
+    @span.slate_matchups.where(team_slug: "team-b").update_all(turf_score: 0.6)
+
+    get benchmarks_path(slug: @span.slug)
+
+    assert_response :success
+    assert_dots_inside_frame "Team B"
+  end
+
+  # Widening the floor must not relabel the scale. Ticks that followed y_min
+  # would read 0.5x, 1.0x on one slate and 0.6x, 1.1x on the next, and stop
+  # agreeing with the multipliers printed in the table below.
+  test "the axis stays on half steps when a low price widens the domain" do
+    @span.slate_matchups.where(team_slug: "team-b").update_all(turf_score: 0.6)
+
+    get benchmarks_path(slug: @span.slug)
+
+    ticks = css_select("[data-testid=benchmarks-chart] text").map(&:text).grep(/\A\d+\.\d+x\z/)
+    assert_includes ticks, "1.0x"
+    assert_includes ticks, "0.5x", "the widened floor earns its own labelled gridline"
+    assert ticks.all? { |tick| (tick.to_f * 10).round % 5 == 0 },
+           "ticks must stay on .0 and .5: #{ticks.inspect}"
+  end
+
+  # Every dot drawn for a team, in BOTH frames, with the whole mark inside its
+  # own viewBox -- centre and radius, because half a circle over the border is
+  # still a clipped circle. The count is asserted first so a selector that stops
+  # matching cannot turn this into a test of nothing.
+  def assert_dots_inside_frame(team_name)
+    marks = css_select("[data-testid=benchmarks-chart] svg[role=img]").flat_map do |frame|
+      box_height = frame["viewBox"].split.last.to_f
+      css_select(frame, "circle").select { |dot| dot.text.include?(team_name) }
+                                 .map { |dot| [dot["cy"].to_f, dot["r"].to_f, box_height] }
+    end
+
+    assert_equal 2, marks.size, "#{team_name} should have one dot per render, narrow and wide"
+    marks.each do |cy, radius, box_height|
+      assert_operator cy - radius, :>=, 0,
+                      "#{team_name} is clipped off the top (cy #{cy}, r #{radius})"
+      assert_operator cy + radius, :<=, box_height,
+                      "#{team_name} is clipped off the bottom (cy #{cy}, r #{radius}, box #{box_height})"
+    end
+  end
+
+  # --- identity is never colour alone --------------------------------------
+
+  # The dash is the constraint, not decoration: the two lines must be separable
+  # WITHOUT colour. On the compact render the end labels are dropped, so the
+  # dash is the only per-mark channel left, and this palette needs it -- its
+  # tritan separation is dE 7.8 light and 7.7 dark, inside the band that a
+  # secondary encoding is what licenses. Until this test, deleting the attribute
+  # left every other test in the repo green.
+  test "the bye line is dashed in both renders and in its legend swatch" do
+    get benchmarks_path(slug: @span.slug)
+
+    dashes = css_select("[data-testid=benchmarks-chart] polyline").filter_map { |line| line["stroke-dasharray"] }
+    assert_equal ["9 5", "9 5"], dashes, "one dashed bye line per render, narrow and wide"
+
+    swatches = css_select("[data-testid=benchmarks-chart-legend] line").filter_map { |line| line["stroke-dasharray"] }
+    assert_equal ["9 5"], swatches, "the legend swatch carries the same dash"
+  end
+
   test "the chart names both lines to a screen reader" do
     get benchmarks_path(slug: @span.slug)
 
