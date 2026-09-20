@@ -292,8 +292,15 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
     # The two WALLET documents (see WALLET_DOCS). Their floors are small because
     # most of what they cite lives in GEMS, and a gem fact is a GEM_REF — file and
     # symbol, no line — so it is counted by MIN_WALLET_GEM_REFS, not here.
+    # FLOORED AT 2 SINCE 2026-09-20, DOWN FROM 3, AND THE MISSING ONE IS NOT A
+    # WEAKENED GUARD. The third citation named the `walletOps.resume` redirect_link
+    # wrapper in app/views/shared/_contest_entry_intent.html.erb;
+    # /tasks/retire-wallet-resume-wrapper deleted that wrapper, so the coordinate it
+    # pointed at no longer exists. A floor must track the coordinates a document
+    # really has — left at 3 it would red on a document that is correct, and the
+    # remedy a reader would reach for is inventing a citation.
     "docs/WALLET_TRANSPORT_ARCHITECTURE.md" => {
-      min_citations: 3, min_path: 3, min_bare: 0,
+      min_citations: 2, min_path: 2, min_bare: 0,
       fallback_only_files: []
     },
     "docs/WALLET_ADAPTER_EVALUATION.md" => {
@@ -1493,58 +1500,99 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
 
   # §7's version claim, clause by clause. The paragraph dates the gem half of
   # the redirect_link fix by the release that shipped it, names the Gemfile
-  # floor, and says the turf-side default stays because the floor is below that
-  # release. Each clause is re-derived here rather than trusted:
+  # floor, and records that the turf-side default has been RETIRED because that
+  # floor now clears the release. Each clause is re-derived here rather than
+  # trusted:
   #
   #   * the floor it names is the Gemfile's floor, to the patch;
-  #   * that floor is still BELOW the release it names — the day it is not, the
-  #     turf-side default is dead weight, and this goes red naming it;
+  #   * that floor is at or above the release it names;
+  #   * the retirement floor it records neither predates the fix nor outruns the
+  #     Gemfile;
+  #   * the wrapper really is gone from the partial, so the document and the code
+  #     cannot drift back apart;
   #   * the RESOLVED gem still does both things §7 says it does. A lock bump that
-  #     drops either one reddens here, not in a wallet on a phone. This is the gem
-  #     half of the retirement trigger;
-  #     test/integration/phantom_callback_redirect_link_test.rb holds the engine half.
+  #     drops either one reddens here, not in a wallet on a phone.
   #
-  # Measured 2026-09-10: on the installed solana-studio 0.9.2 tree, both
-  # behaviour predicates below come back false; on 0.9.3, 0.10.0 and 0.11.0,
-  # both come back true. So the predicates read the code, not the lockfile.
+  # THIS COMPARISON USED TO RUN THE OTHER WAY, AND THAT IS THE WHOLE HISTORY OF
+  # THIS TEST. Until 2026-09-20 it asserted `floor < arrival` and, the day that
+  # stopped holding, failed naming the turf-side `walletOps.resume` wrapper to
+  # retire. It was a tripwire. It fired when /tasks/turf-adopts-cosign-primitives
+  # needed 0.12.0 for `Solana::Cosign`, that task deliberately did not trip it, and
+  # /tasks/retire-wallet-resume-wrapper acted on it. A tripwire cannot pass in the
+  # world it was waiting for, so the relation is INVERTED rather than deleted: the
+  # same comparison now guards the retirement instead of predicting it, and a floor
+  # walking backwards reddens here saying what is no longer there to cover for it.
+  #
+  # WHY THE GEM PREDICATES MATTER MORE NOW, NOT LESS. They used to be one of two
+  # things standing between this app and a signing hop with no return address; the
+  # wrapper was the other, and it covered every intent. The wrapper is gone, so
+  # these two are it. Measured 2026-09-10: on the installed solana-studio 0.9.2
+  # tree both come back false; on 0.9.3, 0.10.0 and 0.11.0 both come back true.
+  # Re-measured 2026-09-20 against the resolved 0.12.0: both true — `beginConnect`
+  # journals `redirectLink`, and `requireField` covers `redirect_link` in the
+  # connect builder and the method builder alike.
+  #
+  # PROVED BY MUTATION, 2026-09-20, because a green suite could not settle it. With
+  # the wrapper deleted, e2e/stub_wallet_round_trip.spec.js stays green; with
+  # `beginConnect`'s journalled redirectLink stripped from the served gem asset it
+  # goes RED on three tests, and the page renders the gem's own refusal —
+  # "Cannot build a signTransaction wallet request without redirect_link". The same
+  # mutation with the wrapper STILL INSTALLED is green, which is exactly why a
+  # green run with a safety net in place proves nothing about the net.
   SECTION_SEVEN_DOC = "docs/WALLET_TRANSPORT_ARCHITECTURE.md"
   SECTION_SEVEN_ARRIVAL = Gem::Version.new("0.9.3")
+  SECTION_SEVEN_PARTIAL = "app/views/shared/_contest_entry_intent.html.erb"
 
-  test "section 7 dates the redirect_link fix by its release, and the resolved gem still carries it" do
+  test "section 7 records the retired default, and the floor and resolved gem still carry the fix" do
     text = section_text(SECTION_SEVEN_DOC, "### 7. ")
     assert text, "#{SECTION_SEVEN_DOC} has no \"### 7. \" section any more — the §7 claim moved or was deleted"
     flat = flatten_prose(text)
 
     arrival = flat[/Both arrived in (\d+\.\d+\.\d+)/, 1]
     said_floor = flat[/The Gemfile floor is >= (\d+\.\d+\.\d+)/, 1]
-    retirement = flat[/until the floor reaches (\d+\.\d+\.\d+)/, 1]
+    retired_at = flat[/retired at floor >= (\d+\.\d+\.\d+)/, 1]
     assert arrival, "§7 must date the fix by the release that shipped it, written **Both arrived in X.Y.Z**"
     assert said_floor, "§7 must state the Gemfile floor, written The Gemfile floor is `>= X.Y.Z`"
-    assert retirement, "§7 must name the floor that retires the turf-side default"
+    assert retired_at, "§7 must record the floor the turf-side default was retired at, written " \
+                       "**The turf-side default was retired at floor `>= X.Y.Z`**"
     arrival = Gem::Version.new(arrival)
     assert_equal SECTION_SEVEN_ARRIVAL, arrival,
                  "§7 moved the fix from its verified first release, #{SECTION_SEVEN_ARRIVAL}, to #{arrival}"
-    assert_equal arrival, Gem::Version.new(retirement),
-                 "§7 says the turf-side default retires at #{retirement}, but dates the gem fix to #{arrival}"
 
-    # The relation is asserted FIRST, so the day someone raises the pin the red
-    # names the default to retire, not merely the sentence to edit.
+    # THE RELATION, ASSERTED FIRST so a floor walking backwards names what is
+    # missing rather than merely a sentence to edit.
     floor = gemfile_floor("solana-studio")
-    assert_operator floor, :<, arrival,
-                    "the Gemfile floor (#{floor}) has reached #{arrival}, the release that journals " \
-                    "redirectLink. The turf-side default — the walletOps.resume wrapper in " \
-                    "app/views/shared/_contest_entry_intent.html.erb — is dead weight now: retire it, " \
-                    "and rewrite §7, which says it stays until this day"
+    assert_operator floor, :>=, arrival,
+                    "the Gemfile floor (#{floor}) has dropped below #{arrival}, the release where the " \
+                    "gem itself journals redirectLink — and the turf-side default that used to cover " \
+                    "that gap was retired by /tasks/retire-wallet-resume-wrapper. On a resolve below " \
+                    "#{arrival} the signing hop has no return address and walletTransport refuses to " \
+                    "build it, so a cold mobile entry dies. Raise the floor back, or restore the " \
+                    "wrapper in #{SECTION_SEVEN_PARTIAL} and rewrite §7 to say so"
     assert_equal floor, Gem::Version.new(said_floor),
                  "§7 says the Gemfile floor is >= #{said_floor}; the Gemfile's solana-studio requirement " \
                  "floors at #{floor}. Move the sentence with the pin"
+    assert_operator Gem::Version.new(retired_at), :>=, arrival,
+                    "§7 records the turf-side default retired at floor #{retired_at}, below the " \
+                    "#{arrival} that made it redundant — a retirement cannot predate the fix it rests on"
+    assert_operator floor, :>=, Gem::Version.new(retired_at),
+                    "§7 records the turf-side default retired at floor #{retired_at}, but the Gemfile " \
+                    "floors at #{floor}. The retirement rests on a floor this Gemfile no longer states"
+
+    # THE RETIREMENT IS REALLY DONE. §7 now tells a reader the gem carries this
+    # alone; a wrapper creeping back would make that sentence false with nothing
+    # else noticing, so the absence is asserted rather than assumed.
+    refute_match(/tmRedirectLinkDefaulted/, File.read(abs(SECTION_SEVEN_PARTIAL)),
+                 "#{SECTION_SEVEN_PARTIAL} carries a walletOps.resume redirect_link default again, but " \
+                 "§7 says the gem carries this alone. Rewrite §7, or drop the wrapper")
 
     resolved = Gem.loaded_specs.fetch("solana-studio").version
     assert_operator resolved, :>=, arrival,
                     "Gemfile.lock resolves solana-studio #{resolved}, below the #{arrival} §7 says the fix arrived in"
     assert journals_redirect_link?(gem_file("solana-studio", "app/assets/javascripts/solana_studio/redirect_provider.js")),
            "solana-studio #{resolved}: beginConnect no longer journals redirectLink, so hop two can leave " \
-           "without a redirect_link again, and §7's \"the gem half is fixed\" is false"
+           "without a redirect_link again — and with the turf-side default retired there is nothing left " \
+           "to supply it"
     assert refuses_missing_redirect_link?(gem_file("solana-studio", "app/assets/javascripts/solana_studio/wallet_transport.js")),
            "solana-studio #{resolved}: the connect and method URL builders no longer both refuse a " \
            "request without redirect_link, which §7 says they do"

@@ -16,7 +16,7 @@ Anything not verified is marked **unverified**.
 > a `path:NN`, and a bare `:NN` inherits the nearest preceding path — file
 > context resets at each `##` heading. `test/docs/workflow_citation_docs_test.rb`
 > reddens when one stops landing on the symbol or literal its prose names. That
-> symbol check reaches **4 of the 25 citations** here. The other **21** ride the
+> symbol check reaches **4 of the 23 citations** here. The other **19** ride the
 > weaker LITERAL fallback — `.js` files, ERB, the Playwright config, and Ruby
 > lines outside any method (a `before_action` list, the CSP block), where the
 > guard finds no definition — so a green one proves the quoted words are in the
@@ -94,7 +94,7 @@ and studio-engine owns the page a wallet returns to.
 | Legacy Phantom sign-in (undocumented `signIn` deeplink) | `solana-studio: app/views/solana_studio/_phantom_deeplink.html.erb#startPhantomDeepLink` | 179 |
 | Callback page: `walletOps` resume dispatch, plus the legacy sign-in branch with its **own** base58 decoder and nacl decrypt | `studio-engine: app/views/solana_sessions/phantom_callback.html.erb#hasResumer,b58decode` | 406 |
 | `window.tmWalletOp`: return address, cluster, handoff watch, and the way back | `app/views/shared/_wallet_op_runner.html.erb:49` (`CALLBACK_PATH`), `:163` (`watchHandoff`), `:233` (`window.tmWalletOp`) | 319 (re-measured 2026-09-13) |
-| Intents: entry (with the `redirectLink` default wrapped around `walletOps.resume` at `app/views/shared/_contest_entry_intent.html.erb:128-149`), create + bundle, rename | `app/views/shared/_contest_entry_intent.html.erb`, `_contest_create_intent.html.erb`, `_username_rename_intent.html.erb` | 505 / 201 / 307 (re-measured 2026-09-13) |
+| Intents: entry, create + bundle, rename | `app/views/shared/_contest_entry_intent.html.erb`, `_contest_create_intent.html.erb`, `_username_rename_intent.html.erb` | 435 / 201 / 307 (entry re-measured 2026-09-20, 70 lines lighter since the `redirectLink` default was retired; the other two 2026-09-13) |
 | Provider registry, inline codec, mobile `detect()` | `app/javascript/wallet_provider.js:83` (`INLINE_TX_CODEC`), `:516` (`detect`), `:698` (`requireInlineProvider`) | 708 (re-measured 2026-09-15) |
 | Stand-in wallet + its spec | `e2e/stub-wallet.js`, `e2e/stub_wallet_round_trip.spec.js` | 498 / 607 (re-measured 2026-09-13) |
 
@@ -224,7 +224,7 @@ REST API, both read 2026-09-10.
 
 | | iOS Safari signing | Keeps the page alive | Phantom · Solflare · Backpack | Co-signed entry (`ptx_slug`) | Loads in turf |
 |---|---|---|---|---|---|
-| **Ours** | ✅ Phantom, end to end on a QA iPhone (per `/tasks/carry-entry-celebration-across-redirect`) | ❌ page destroyed per hop | Phantom signs; Solflare and Backpack browse-handoff only | ✅ `signOnly: true` (`_contest_entry_intent.html.erb:68`) | ✅ today |
+| **Ours** | ✅ Phantom, end to end on a QA iPhone (per `/tasks/carry-entry-celebration-across-redirect`) | ❌ page destroyed per hop | Phantom signs; Solflare and Backpack browse-handoff only | ✅ `signOnly: true` (`app/views/shared/_contest_entry_intent.html.erb:68`) | ✅ today |
 | **MWA** | ❌ "MWA is not available on any iOS browser" | ✅ by construction: the page holds a WebSocket to the wallet (spec 2.0); not device-verified here | Android: Phantom ✅, Solflare ✅, Backpack not listed | ⚠ sign-only `sign_transactions` is under "Deprecated Methods" in spec 2.0 | ✅ prototype, see below |
 | **Anza adapter** | ❌ its mobile path is MWA | Android only, via MWA | injected wallets + MWA | inline path ✅ | ⚠ React-first (`APP.md`) |
 | **Phantom Connect** | ⚠ embedded wallets only; existing seed-phrase app wallets are not documented from a mobile browser | ✅ for embedded signing (**unverified** on a device) | Phantom only | ❌ co-signing only through `presignTransaction` on `signAndSendTransaction`, so Phantom broadcasts | needs a Portal app ID and a verified domain; not prototyped |
@@ -299,7 +299,7 @@ deprecated. And our own round trip completed on a QA iPhone (per
 |---|---|---|---|---|
 | `tmWalletOp` runner | unchanged | unchanged; MWA arrives as an inline provider | replaced by the AppKit modal | replaced |
 | Intents (`prepare` / `complete`) | unchanged | unchanged | unchanged | `complete` rewritten: Phantom broadcasts |
-| Resume wrapper around `walletOps.resume` (`_contest_entry_intent.html.erb:128-149`) | retire once the Gemfile floor reaches 0.9.3 | stays for iOS | droppable, but only by accepting the iOS downgrade above | stays for iOS |
+| Resume wrapper around `walletOps.resume` | **retired 2026-09-20** — solana-studio journals `redirectLink` in `beginConnect` from 0.9.3 and the Gemfile floor is now `>= 0.12.0`, so this piece no longer exists in any column | — | — | — |
 | Journal + engine callback page | unchanged | stay for iOS | droppable, but only by accepting the iOS downgrade above | stay (auth redirect) |
 | `detect()` ordering (`wallet_provider.js:516-551`) | unchanged | must prefer MWA over `forWallet('phantom')` on Android Chrome | replaced | replaced |
 | e2e stub | unchanged | a **new** harness: MWA talks over a local WebSocket, which `context.route` cannot intercept (**unverified** how to stub) | new relay stub | new stub |
