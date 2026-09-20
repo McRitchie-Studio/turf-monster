@@ -102,6 +102,8 @@
     <% end %>
     <%= render "hub_tile", name: "Formula",           url: formula_report_slates_path, status: :flagged %>
     <%= render "hub_tile", name: "🏈 NFL Points Distribution", url: nfl_report_slates_path, status: :flagged %>
+    <%= render "hub_tile", name: "🏈 Turf Score Benchmarks", url: benchmarks_path,
+          note: "Public — the pricing board players read" %>
     <%= render "hub_tile", name: "Formula Defaults",  url: admin_formula_slates_path, status: :flagged %>
     <%= render "hub_tile", name: "Contest Generator", url: generator_contests_path, status: :flagged %>
     <%= render "hub_tile", name: "Transactions",      url: admin_transactions_path, status: :flagged %>

@@ -34,6 +34,34 @@ test.describe("benchmarks page", () => {
     }
   });
 
+  test("the chart draws both lines, and they do not depend on colour alone", async ({ page }) => {
+    await page.goto("/benchmarks/nfl-2026-weeks-4-6");
+
+    const chart = page.getByTestId("benchmarks-chart");
+    await expect(chart).toBeVisible();
+
+    // The wide render is the visible one at this viewport; the narrow twin is
+    // display:none. Assert on what a reader can actually see.
+    const visibleSvg = chart.locator("div:not(.sm\\:hidden) > svg[role=img]");
+    await expect(visibleSvg.locator("polyline")).toHaveCount(2);
+
+    // Identity without colour: a legend entry and an end label per line.
+    await expect(page.getByTestId("benchmarks-chart-legend")).toContainText("3 games");
+    await expect(page.getByTestId("benchmarks-chart-legend")).toContainText("2 games · bye");
+    await expect(visibleSvg.locator("text", { hasText: /^2 games · bye$/ })).toHaveCount(1);
+
+    // The bye line sits ABOVE the full line at the same rank — the whole point
+    // of the picture. Compare the two polylines' last y coordinate (SVG y grows
+    // downward, so the higher-priced line has the SMALLER y).
+    const lastY = await visibleSvg.locator("polyline").evaluateAll((nodes) =>
+      nodes.map((n) => {
+        const pts = n.getAttribute("points").trim().split(/\s+/);
+        return parseFloat(pts[pts.length - 1].split(",")[1]);
+      })
+    );
+    expect(lastY[1]).toBeLessThan(lastY[0]);
+  });
+
   test("it sends a reader to the rules for the formula itself", async ({ page }) => {
     await page.goto("/benchmarks/nfl-2026-weeks-4-6");
     await page.getByRole("link", { name: "How Turf Score works" }).click();

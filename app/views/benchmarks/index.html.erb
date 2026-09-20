@@ -6,6 +6,28 @@
     were derived from. A page that recomputed would eventually disagree with
     what a player is paid, which is the failure this whole column exists to
     prevent. %>
+<%# Chart tokens — the two SERIES colours only. Everything else in the chart
+    (axis text, gridlines, labels) inherits `currentColor` from the app's own
+    text utilities, and the dot rings use --color-surface, so the chart follows
+    the theme without this file inventing token names the design system does
+    not actually define.
+
+    DARK IS ITS OWN STEP, not an automatic flip: the light pair
+    sits at OKLCH L .675 which is outside the dark band, so dark gets slightly
+    deeper steps of the same two hues. Both pairs were validated for
+    colour-vision separation against their own surface (deutan ΔE 26.1, normal
+    ΔE 32.1) rather than eyeballed. %>
+<style>
+  [data-testid="benchmarks-chart"] {
+    --bench-full: #8E82FE;
+    --bench-bye: #4BAF50;
+  }
+  .dark [data-testid="benchmarks-chart"] {
+    --bench-full: #8577F8;
+    --bench-bye: #48A84E;
+  }
+</style>
+
 <div class="max-w-4xl mx-auto py-8 px-4" data-testid="benchmarks">
   <h1 class="text-3xl md:text-4xl font-extrabold text-heading mb-2">Turf Score Benchmarks</h1>
   <p class="text-secondary text-base leading-relaxed mb-6">
@@ -48,6 +70,8 @@
       </p>
     <% end %>
   </div>
+
+  <%= render "two_line_chart", slate: @slate, team_rows: @team_rows %>
 
   <div class="card overflow-x-auto">
     <table class="w-full text-sm">
