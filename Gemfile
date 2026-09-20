@@ -162,41 +162,67 @@ gem "studio-engine", "~> 0.74", ">= 0.74.9" # 0.74.9 is the real floor, and the 
 # for tidiness. test/lib/view_path_order_contract_test.rb asserts the
 # resulting order, so a reorder fails there instead of changing which gem a
 # partial renders from.
-# THE FLOOR BELOW UNDERSTATES WHAT THIS APP NEEDS, DELIBERATELY, AND HERE IS WHY.
-# Since /tasks/turf-adopts-cosign-primitives every Phantom-first money path in
-# Solana::Vault — the entry, the contest create and the cash-out — builds through
-# `Solana::Cosign::Builder`, judges through `Cosign::Expectation` and completes
-# through `Cosign::Completer`, and the three hand-written `assert_*_cosign_safe!`
-# guards those replaced are DELETED. `Solana::Cosign` first ships in 0.12.0, so
-# the TRUE floor is 0.12.0, and below it `Solana::Vault` raises NameError on the
-# first prepared entry — a total loss of the money path, not a degraded one.
+# THE FLOOR IS 0.12.0, AND THE PIN STATES IT — in ONE requirement, unlike the
+# studio-engine line above, because this floor is a MINOR rather than a PATCH and
+# a two-segment `~>` can say it exactly: `~> 0.12` means `>= 0.12, < 1.0`.
 #
-# The pin is NOT raised to `~> 0.12` yet, and that is a decision rather than an
-# oversight. Raising it past 0.9.3 fires a tripwire that has been waiting for
-# exactly that moment: the §7 test in test/docs/workflow_citation_docs_test.rb
-# says that once this floor reaches 0.9.3 — the release where the gem itself
-# journals `redirectLink` — the turf-side `walletOps.resume` wrapper in
-# app/views/shared/_contest_entry_intent.html.erb becomes dead weight and must be
-# retired, with §7 of docs/WALLET_TRANSPORT_ARCHITECTURE.md rewritten to match.
-# That tripwire is RIGHT: both of its gem predicates now pass against the
-# resolved 0.12.0 (`beginConnect` journals `redirectLink`, and both URL builders
-# `requireField` it), which is measured, not assumed.
+# WHAT SETS IT. Since /tasks/turf-adopts-cosign-primitives every Phantom-first
+# money path in Solana::Vault — the entry, the contest create and the cash-out —
+# builds through `Solana::Cosign::Builder`, judges through `Cosign::Expectation`
+# and completes through `Cosign::Completer`, and the three hand-written
+# `assert_*_cosign_safe!` guards those replaced are DELETED, so there is no local
+# fallback. `Solana::Cosign` first ships in 0.12.0, and below it `Solana::Vault`
+# raises NameError on the first prepared entry — a total loss of the money path,
+# not a degraded one.
 #
-# But retiring that wrapper is a mobile Phantom REDIRECT change with its own test
-# tiers (test/lib/contest_entry_intent_js_test.rb, e2e/stub_wallet_round_trip.spec.js)
-# and it cannot be proven from a desk with no phone and no mainnet. Bundling it
-# into a money-path refactor is how the incidents those very comments describe
-# happened. It is filed as its own task, and raising this pin is that task's
-# FIRST step, not a side effect of someone else's.
+# RAISING IT WAS A TASK OF ITS OWN, AND IT IS NOW DONE.
+# /tasks/turf-adopts-cosign-primitives deliberately left this pin at
+# `~> 0.9, >= 0.9.2`: crossing 0.9.3 fires the §7 tripwire in
+# test/docs/workflow_citation_docs_test.rb, which said that once this floor
+# reached the release where the gem itself journals `redirectLink`, the turf-side
+# `walletOps.resume` wrapper in app/views/shared/_contest_entry_intent.html.erb
+# was dead weight and had to be retired with §7 of
+# docs/WALLET_TRANSPORT_ARCHITECTURE.md rewritten to match. Bundling a mobile
+# Phantom REDIRECT change into a money-path refactor is how the incidents those
+# comments describe happened, so it was filed separately.
+# /tasks/retire-wallet-resume-wrapper did it on 2026-09-20: the wrapper is gone,
+# §7 is rewritten, and that test's comparison now guards the retirement instead of
+# predicting it. PROVED BY MUTATION, not by a green run — with the wrapper deleted
+# e2e/stub_wallet_round_trip.spec.js stays green, and with `beginConnect`'s
+# journalled redirectLink stripped from the served asset it goes RED. A green run
+# with the wrapper still installed was measured too, and it is green either way:
+# that is why a green run could never have settled this.
 #
-# NOTHING IS UNGUARDED IN THE MEANTIME, and the guard is stronger than the pin
-# would be. test/lib/engine_pin_contract_test.rb asks the RESOLVED gem whether it
-# carries Cosign::Builder, ::Expectation, ::Completer, the
-# PreflightRejected/BroadcastFailed seam and the Lighthouse 2..17 allowlist — a
-# CAPABILITY check, which a yanked-and-rebuilt 0.12.0 would fail and a version
-# comparison would not. The lock already resolves 0.12.0 and `~> 0.9` admits it,
-# so only a deliberate downgrade can go below, and that reddens immediately.
-gem "solana-studio", "~> 0.9", ">= 0.9.2" # 0.9.2 is the real floor, and the pin SAYS so — and like the studio-engine 0.69.5 floor above, this one is a PATCH, which a two-segment `~>` CANNOT state, so the line carries two requirements instead of one. `~> 0.9` means `>= 0.9, < 1.0` and therefore ADMITS 0.9.0 and 0.9.1 — precisely the window that breaks. WHAT MOVED IT: /tasks/collapse-inline-entry-call-site retired this app's hand-rolled inline entry path and now runs BOTH transports through one SolanaStudio.walletOps.run, which needs two things that first exist in 0.9.2 — the inline provider's transaction CODEC (walletOps calls provider.deserializeTransaction / provider.serializeTransaction; see INLINE_TX_CODEC in app/javascript/wallet_provider.js) and the run() option `expectedAccount`. BOTH FAILURE MODES, and they differ, which is why this note is worth its length. (1) LOUD, and it takes out every desktop entry: 0.9.0's runInline passes `prepared.transaction` STRAIGHT to provider.signTransaction, and this app's prepare() now returns base58 wire bytes, so an injected wallet is handed a STRING and throws `t.serialize is not a function` from inside the extension — after the user has already held to confirm. (2) SILENT: `expectedAccount` is simply not read below 0.9.2, so the wrong-wallet guard disappears with nothing raised, logged, or failed, and someone on the wrong account gets an Anchor program error instead of the sentence that tells them which wallet to switch to. DERIVED, not read off a changelog: unpacking the published gems, wallet_ops.js contains ZERO occurrences of deserializeTransaction, serializeTransaction and expectedAccount in BOTH 0.9.0 and 0.9.1, and 0.9.2 contains all three. Stated as the EARLIEST containing version rather than as a list, for the reason the studio-engine notes record at length. VISIBLE TO THE RESOLVER, unlike most bumps in this file — but NOT REACHABLE TODAY: Gemfile.lock already resolves 0.9.2 and both CI and deploy install from the lock, so nothing installs differently; the exposure is a future `bundle update` or a lock rebuilt from this file alone. The number is the smaller half of the fix — test/lib/engine_pin_contract_test.rb asserts the RESOLVED version against SOLANA_STUDIO_MINIMUM and, since this change, DERIVES the contract itself from the resolved gem's own wallet_ops.js, so a backwards resolve fails there rather than in a wallet. PRIOR FLOOR NOTE, still true: 0.9.0 is the real floor, and the pin SAYS so. This app now LOADS the redirect transport (solana_studio/wallet_transport, redirect_provider, wallet_journal, wallet_ops — see layouts/application) and registers the contest_entry intent against it, which is what gives a phone any way to sign at all. TWO SEPARATE ARRIVALS, and the floor is the LATER one. (1) The transport itself first exists in 0.8.0 — below that `SolanaStudio.walletOps` is undefined and walletOps.run throws on the first hold-to-confirm, a LOUD failure. (2) The floor that actually moved the pin is 0.9.0, and it fails SILENTLY, which is the only reason this note is worth its length: solana_studio/modals/_wallet_connect gained mobileHandoffs + openInWallet there, the getters that paint a Solflare or Backpack row on a phone. Below 0.9.0 the picker never asks the registry this app now loads, so those two wallets fall back to their DESKTOP EXTENSION download rows — the exact dead end /tasks/fix-wallet-picker-deeplink-claim removed — and nothing raises, logs, or fails a test. DERIVED, not read off a changelog: unpacking the published gems, 0.8.0 ships the four transport files with ZERO mobileHandoffs in the picker, and 0.9.0 ships both. INVISIBLE TO THE RESOLVER in the usual way — the old "~> 0.6" already admitted 0.9.0 and the lockfile resolved 0.7.0 — so this bump is the FLOOR moving, and `bundle update solana-studio` is what makes the lock agree.
+# THIS PIN DOES NOT SUPERSEDE THE CAPABILITY TEST. Do not delete
+# test/lib/engine_pin_contract_test.rb's Cosign test as redundant now that the
+# number is stated here. It asks the RESOLVED gem whether it carries
+# Cosign::Builder / ::Expectation / ::Completer, the PreflightRejected and
+# BroadcastFailed seam — including that BroadcastFailed is NOT under
+# PreflightRejected, so a preflight rescue cannot swallow a broadcast failure —
+# and the Lighthouse 2..17 allowlist. No version comparison can state any of
+# that: a yanked-and-rebuilt 0.12.0, a `path:` override, or a future 0.13 that
+# renames `Completer` all satisfy this pin and fail that test. It is also the half
+# that runs in the lanes that SHIP — CI and deploy install from Gemfile.lock, so
+# this pin is invisible to them, and its own exposure is a future
+# `bundle update` or a lock rebuilt from this file alone.
+#
+# PRIOR FLOORS, SUBSUMED RATHER THAN DELETED. `~> 0.12` admits none of the windows
+# the earlier notes guarded, so they are recorded here instead of restated as live
+# requirements — each was DERIVED by unpacking the published gems, not read off a
+# changelog. 0.8.0 first ships the redirect transport: below it
+# `SolanaStudio.walletOps` is undefined and the first hold-to-confirm throws.
+# 0.9.0 adds mobileHandoffs + openInWallet to solana_studio/modals/_wallet_connect;
+# below it Solflare and Backpack fall back to their DESKTOP EXTENSION download
+# rows on a phone, and nothing raises, logs or fails. 0.9.2 adds the inline
+# transaction codec (deserializeTransaction / serializeTransaction) and the `run`
+# option `expectedAccount`: without the codec every desktop entry throws
+# `t.serialize is not a function` inside the extension AFTER the user has held to
+# confirm, and without `expectedAccount` the wrong-wallet guard disappears
+# silently. 0.9.3 journals `redirectLink` in `beginConnect` and makes both URL
+# builders refuse a request without one. SOLANA_STUDIO_MINIMUM in
+# test/lib/engine_pin_contract_test.rb stays at 0.9.2 on purpose: that is a RENDER
+# floor about which partials resolve, a different question from this one.
+gem "solana-studio", "~> 0.12"
 
 # IP geolocation for state-level geo-blocking
 gem "geocoder"

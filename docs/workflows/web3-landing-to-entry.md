@@ -231,7 +231,7 @@ Phantom must be installed in the browser or available via mobile deep link.
      minted for the wrong wallet.
    - **`POST /contests/:id/prepare_entry`** from the intent's
      `tmPrepareContestEntry`
-     (`app/views/shared/_contest_entry_intent.html.erb:203-205`) →
+     (`app/views/shared/_contest_entry_intent.html.erb:133-135`) →
      `ContestsController#prepare_entry`
      (`app/controllers/contests_controller.rb:1048-1210`).
      - Requires `onchain_session?` — a session with no live wallet signature
@@ -270,7 +270,7 @@ Phantom must be installed in the browser or available via mobile deep link.
      multi-signer "could be malicious" banner.
    - **`POST /contests/:id/confirm_onchain_entry`** with those wire bytes as
      `signed_tx`, from the intent's `tmCompleteContestEntry`
-     (`app/views/shared/_contest_entry_intent.html.erb:335-338`) →
+     (`app/views/shared/_contest_entry_intent.html.erb:265-268`) →
      `ContestsController#confirm_onchain_entry`
      (`app/controllers/contests_controller.rb:1395-1534`). The server owns
      everything from here — it judges the wire, cosigns with
@@ -316,7 +316,7 @@ Phantom must be installed in the browser or available via mobile deep link.
    - Modal closes; the seeds bar animates; `lobbyUrl` drives the countdown
      redirect back to the contest page. It is set by the shared painter both
      transports reach, never by the board
-     (`app/views/shared/_contest_entry_intent.html.erb:486`).
+     (`app/views/shared/_contest_entry_intent.html.erb:416`).
 
 ## Data touched
 

@@ -10,7 +10,7 @@ transaction, and the message is key-bearing; see "Wallet export cannot cross the
 redirect" below. Sign-in still rides the undocumented Phantom `signIn` deeplink.
 The design below describes the target; the **Scope** table records what has
 actually landed.
-**Written:** 2026-09-07 · **Last corrected:** 2026-09-10
+**Written:** 2026-09-07 · **Last corrected:** 2026-09-20
 **Adapter recommendation (2026-09-10, awaiting Mr. McRitchie's ratification):**
 keep this protocol and narrow it rather than adopt a maintained adapter; the
 evidence, and what would re-open the question, are in
@@ -22,11 +22,11 @@ evidence, and what would re-open the question, are in
 > and a bare `:NN` inherits the nearest preceding path — file context resets at
 > each `##` heading. `test/docs/workflow_citation_docs_test.rb` reddens when one
 > stops landing on the symbol or literal its prose names. That symbol check
-> reaches **0 of the 3 citations** here. The other **3** ride the weaker LITERAL
-> fallback — two on `.js` files, where the guard reads no definitions, and one on
-> an intent partial whose wrapper is an assignment rather than a named function —
-> so a green one proves the quoted words are in the cited lines, not that the
-> code is. Code in a GEM is named by file and symbol instead, written
+> reaches **0 of the 2 citations** here. The other **2** ride the weaker LITERAL
+> fallback — both on `.js` files, where the guard reads no definitions — so a
+> green one proves the quoted words are in the cited lines, not that the code is.
+> It was three until 2026-09-20: the third named the `walletOps.resume` wrapper
+> in an intent partial, and went out with the wrapper (§7). Code in a GEM is named by file and symbol instead, written
 > `solana-studio: path#symbol`, and checked against the gem the lock resolves: a
 > gem line number would rot on an unrelated `bundle update`.
 > **One blind spot left.** A citation inside a markdown TABLE used to anchor on
@@ -287,26 +287,50 @@ sharpest illustration in this document of why it exists.
 harness reproduced it on `accepted` at 20:14 MDT (`3f565729`). That proves the
 harness can see the class; it was not the first to see it.
 
-**The gem half is fixed, and this paragraph dates the fix by the release that
-shipped it — never by the version the lockfile holds.** A sentence naming the
-locked version is how this section went stale twice: it named 0.9.3 as locked,
-and the lock moved on. solana-studio journals `redirectLink` in `beginConnect`
+**SETTLED 2026-09-20 — THE GEM CARRIES THIS ALONE NOW.**
+`/tasks/retire-wallet-resume-wrapper` raised the Gemfile floor past the release
+that fixed it and DELETED the turf-side `walletOps.resume` wrapper this section
+used to describe as live wiring. There is no app-side default any more: if hop
+two carries a `redirect_link`, the gem put it there. Read the defect narrative
+below as history — it is kept because it is the reason two of this document's
+rules exist, not because any of it is still wired.
+
+**The gem half, dated by the release that shipped it — never by the version the
+lockfile holds.** A sentence naming the locked version is how this section went
+stale twice: it named 0.9.3 as locked, and the lock moved on. solana-studio
+journals `redirectLink` in `beginConnect`
 (`solana-studio: app/assets/javascripts/solana_studio/redirect_provider.js#beginConnect`),
-and its URL builders refuse a request without one
-(`solana-studio: app/assets/javascripts/solana_studio/wallet_transport.js#requireField`).
-Both arrived in **0.9.3**: one commit adds both (`5683561`, "Refuse a wallet
-request with nowhere to return"), `v0.9.3` is the earliest tag containing it,
-and the published 0.9.2 gem carries neither. The Gemfile floor is `>= 0.9.2`,
-one patch below that release, so a lock rebuilt from the Gemfile alone may
-resolve a gem without the fix. That is why the turf-side default below stays
-until the floor reaches 0.9.3. The paragraphs below describe 0.9.2.
+so `resume`'s `opts.redirectLink || journal.redirectLink` resolves from trip
+state rather than from the caller; and its URL builders refuse a request without
+one
+(`solana-studio: app/assets/javascripts/solana_studio/wallet_transport.js#requireField`),
+so a hop that somehow lost it now THROWS before anyone is asked to approve
+anything, instead of stranding a user who already did. Both arrived in **0.9.3**:
+one commit adds both (`5683561`, "Refuse a wallet request with nowhere to
+return"), `v0.9.3` is the earliest tag containing it, and the published 0.9.2 gem
+carries neither. The Gemfile floor is `>= 0.12.0` — raised for `Solana::Cosign`,
+and well clear of 0.9.3 — so no resolve this Gemfile admits can produce a gem
+without the fix. **The turf-side default was retired at floor `>= 0.12.0`.**
 
 **Each clause above is asserted, not trusted.** `test/docs/workflow_citation_docs_test.rb`
 reads this paragraph: the resolved gem must still journal the link and refuse a
 request without it, the floor named here must be the Gemfile's floor, and that
-floor must sit below the release named here. Raise the floor to 0.9.3 and the
-test goes red, naming the default to retire. It also refuses any sentence in
-these two wallet documents that says what the lock resolves.
+floor must now sit **at or above** the release named here. That last comparison
+used to run the other way, as a tripwire waiting for the floor to rise; it has
+fired and been acted on, so it now guards the retirement instead. Drop the floor
+below 0.9.3 and it goes red saying what is no longer there to cover for it. The
+same test refuses any sentence in these two wallet documents that says what the
+lock resolves, and refuses a turf-side default reappearing without this section
+changing with it.
+
+**The retirement was checked by MUTATION, not by a green run** (2026-09-20).
+`e2e/stub_wallet_round_trip.spec.js` drives a cold two-hop session through the
+app's own runner and judges the deeplink a wallet receives. With the wrapper
+deleted it stays green — and with `beginConnect`'s journalled `redirectLink`
+stripped from the served gem asset, it goes RED. Only the second run proves
+anything: a green suite with a safety net still installed is equally consistent
+with a gem that supplies the value and a gem that does not, which is exactly how
+this defect survived its first suite.
 
 Phantom documents `redirect_link` as **required** on `connect` and on
 `signTransaction` alike (docs.phantom.com, provider-methods pages, fetched
@@ -314,7 +338,8 @@ Phantom documents `redirect_link` as **required** on `connect` and on
 A signing deeplink without one is not degraded — it is a dead end: the user
 approves the transaction inside their wallet, and nothing comes back.
 
-The two-hop machine above supplies it on hop one and dropped it on hop two.
+**THE DEFECT, FOR THE RECORD.** The two-hop machine above supplies
+`redirect_link` on hop one and, in 0.9.2, dropped it on hop two.
 `walletOps.resume` builds the signing hop as
 
 ```js
@@ -323,12 +348,13 @@ signingHop(provider, connected.journal, {
 })
 ```
 
-and, in 0.9.2, **neither side of that `||` existed in production**.
-`studio-engine`'s `solana_sessions/phantom_callback.html.erb` — the page a
-wallet returns to — calls `walletOps.resume(params, { navigate })` and passes no
-`redirectLink` (it still does not); `solana-studio`'s
-`redirect_provider.beginConnect` journalled `dappSecretKey`, `dappPublicKey` and
-`intent`, and no redirect link. `walletTransport`'s query
+and **neither side of that `||` existed in production**. `studio-engine`'s
+`solana_sessions/phantom_callback.html.erb` — the page a wallet returns to —
+calls `walletOps.resume(params, { navigate })` and passes no `redirectLink`. It
+still does not, and that no longer matters: the journal is the side that
+resolves, so the engine's silence is now harmless rather than fatal.
+`solana-studio`'s `redirect_provider.beginConnect` journalled `dappSecretKey`,
+`dappPublicKey` and `intent`, and no redirect link. `walletTransport`'s query
 builder drops `undefined` values silently, so the parameter simply vanished.
 Measured against solana-studio 0.9.2 + studio-engine 0.74.6: hop two's query
 string was `[dapp_encryption_public_key, nonce, payload]`.
@@ -343,36 +369,33 @@ RECEIVES against the vendor's own parameter table, and it answers only by
 redirecting to the `redirect_link` the URL carries — so a missing one strands the
 trip instead of failing an assertion.
 
-**Where the value comes from now.** `app/views/shared/_contest_entry_intent.html.erb:128-149`
-wraps `walletOps.resume` and defaults `redirectLink` to
-`window.location.origin + window.location.pathname` — **the URL the document is
-on**. `resume()` only runs with a pending journal, which only happens on a
-document a wallet redirected to, so that value *is* the `redirect_link` that
-worked one hop earlier. Not a configured path, not a re-derived route, and
-correct by construction for a host that mounts the callback anywhere else.
+**WHAT THE RETIRED WRAPPER DID, and why the breadth is the part worth
+remembering.** From 2026-09-09 to 2026-09-20 this app defaulted the missing
+parameter itself: it replaced `SolanaStudio.walletOps.resume` once, guarded by a
+flag, and defaulted `redirectLink` to `window.location.origin +
+window.location.pathname` — the URL the document was on, correct by construction
+because `resume()` only runs on a page a wallet redirected to. Because it wrapped
+the ONE function the callback document calls, it covered every intent rather than
+just contest entry: the `username_rename` intent added by
+`/tasks/migrate-account-wallet-flows` inherited a working hop two without a line
+of its own. A per-intent default would have left the next flow to rediscover this
+on a phone. It was written as a DEFAULT rather than an override precisely so that
+the day the gem supplied its own value, retiring it would be a deletion and not a
+bug hunt — which is how 2026-09-20 went.
 
-**IT COVERS EVERY INTENT, NOT JUST CONTEST ENTRY**, and that is deliberate rather
-than incidental. The wrapper replaces `SolanaStudio.walletOps.resume` itself —
-once, guarded by `tmRedirectLinkDefaulted` — so the fix lands on the ONE function
-the callback document actually calls, whoever registered the intent behind it.
-The `username_rename` intent added by `/tasks/migrate-account-wallet-flows`
-registers handlers and never calls `resume`; the engine's callback page is the
-only caller, and it runs long after both partials have installed. So username
-rename inherited a working hop two without a line of its own, and any future
-intent will too. The alternative — a per-intent default — would have left the
-next flow to rediscover this on a phone.
-
-**It is a default, not an override**, and it is meant to be retired. The real fix
-is one line in `solana-studio`'s `beginConnect` — journal the redirect link so
-`resume`'s existing `|| journal.redirectLink` resolves — which is a gem change, a
-release, and another floor on the chain in the Gemfile. The gem change and the
-release are done (0.9.3, above); the floor is not.
-`test/integration/phantom_callback_redirect_link_test.rb` carries the ENGINE
-half of the retirement trigger: it asserts, against the DELIVERED callback
-document, that studio-engine still calls `resume` without a redirect link, and
-names what to delete when that stops being true. It never looked at the GEM
-half, which is how §7 went stale twice without a test noticing. The §7 test in
-`test/docs/workflow_citation_docs_test.rb`, described above, now covers that half.
+`test/integration/phantom_callback_redirect_link_test.rb` carried the ENGINE half
+of the retirement trigger, and its wrapper assertions went out with the wrapper —
+so the file is now
+`test/integration/phantom_callback_intent_registration_test.rb`, because what
+survives in it is not about `redirect_link` at all. That surviving guard is the
+composition that still matters, and it is the sharper of the two defects: the
+`contest_entry` intent's handlers must reach the callback document, and must be
+registered BEFORE studio-engine's callback script dispatches, because `resume()`
+consumes the journal at `take()` before `requireHandler` — so an unregistered
+intent loses the entry with nothing left to retry, after the user has already
+approved it. Both of its order comparisons were anchored on the retired wrapper's
+flag; they are now anchored on the registration call itself, which is what they
+were always really measuring.
 
 ---
 
