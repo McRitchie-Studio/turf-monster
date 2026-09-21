@@ -50,9 +50,12 @@
   // rule is a second rule: Ruby rounds a tie away from zero on the decimal,
   // `toFixed` rounds the binary double, and on an exact tie they disagree. That
   // mattered because "Save Multipliers" posts the text ON SCREEN, so the page
-  // could write a price the curve never produced. Measured before the fix:
-  // 369 of 74,025 cells disagreed — none at n=32, so the NFL board was clean,
-  // but a World Cup slate at n=6 or n=9 was not.
+  // could write a price the curve never produced. Measured before the fix over
+  // both curves, n 2-48, all 21 slider positions and game factors 1.0/1.5/1.25:
+  // 314 of 148,050 cells disagreed (309 nfl, 5 fifa). The NFL board was clean
+  // because the NFL CURVE is clean at n=32 — not because nothing diverged
+  // there: all five fifa cells sit at n=32, which is a World Cup group stage
+  // as readily as it is an NFL season.
   //
   // The slider has 21 positions (0..10 step 0.5), so the whole space fits in
   // the page and the browser never computes a price again — it looks one up.

@@ -17,7 +17,7 @@
 
 All scoring/ranking formulas live as class methods on `SlateMatchup` — single source of truth. The admin board (`slates/show.html.erb`) holds **no mirror**: it looks up a price table Ruby renders (`SlatesHelper#turf_score_scale_table`). A JS copy of the curve rounded a tie differently, and "Save Multipliers" persists the number on screen, so the copy could write a price the curve never produced. `slates/formula_report.html.erb` still mirrors the soccer curve, and may, because that page only reports — it saves nothing. The server now also BOUNDS what that page may post back (`SlateMatchup.price_band`), derived from the same curve and the same `SlateMatchup::SLIDER_SCALES` the table is built from — see **Bounding a hand-entered multiplier** under Slate Routes.
 
-- **Turf Score**: `SlateMatchup.turf_score_for(rank, n, sport:)` — base PINNED to 1.0 (rank 1 always prices x1.0; `Slate#resolved_formula` forces `formula_mult_base` to 1.0 and the Base slider is gone). Sport-keyed curve: fifa `1.0 + 2.0 * ln(rank)/ln(n)` (log decay, x3 top), nfl `1.0 + 1.0 * (rank-1)/(n-1)` (linear, x2 top — NFL scoring runs near-linear by rank per the points-distribution fit, and the flatter cap keeps the Turf and DK chart lines mirrored). **Both curves are rounded to ONE DECIMAL** (`app/models/slate_matchup.rb:70`), and that rounded value is what freezes onto the matchup row and what `Selection#compute_points!` settles from — so the curve alone does not reproduce the multiplier a player is PAID. On the 32-team NFL curve that collapses ranks 1-2 to x1.0 and ranks 3, 4 and 5 all to x1.1; computing rank 5 as 1.129 and expecting to be paid it is wrong. The public rules page at `/turf-monster-v1` carries this caveat and this doc must not contradict it. Per-slate `formula_mult_scale` overrides either default. On NFL slates the chart's Turf axis renders REVERSED (x1.0 at top) so both lines fall with rank. Repricing pass after formula changes: `bin/rails slates:recompute_turf_scores` (preserves stored ranks; skips a two-line span — see **Two lines** below).
+- **Turf Score**: `SlateMatchup.turf_score_for(rank, n, sport:)` — base PINNED to 1.0 (rank 1 always prices x1.0; `Slate#resolved_formula` forces `formula_mult_base` to 1.0 and the Base slider is gone). Sport-keyed curve: fifa `1.0 + 2.0 * ln(rank)/ln(n)` (log decay, x3 top), nfl `1.0 + 1.0 * (rank-1)/(n-1)` (linear, x2 top — NFL scoring runs near-linear by rank per the points-distribution fit, and the flatter cap keeps the Turf and DK chart lines mirrored). **Both curves are rounded to ONE DECIMAL** (`app/models/slate_matchup.rb:74`), and that rounded value is what freezes onto the matchup row and what `Selection#compute_points!` settles from — so the curve alone does not reproduce the multiplier a player is PAID. On the 32-team NFL curve that collapses ranks 1-2 to x1.0 and ranks 3, 4 and 5 all to x1.1; computing rank 5 as 1.129 and expecting to be paid it is wrong. The public rules page at `/turf-monster-v1` carries this caveat and this doc must not contradict it. Per-slate `formula_mult_scale` overrides either default. On NFL slates the chart's Turf axis renders REVERSED (x1.0 at top) so both lines fall with rank. Repricing pass after formula changes: `bin/rails slates:recompute_turf_scores` (preserves stored ranks; skips a two-line span — see **Two lines** below).
 - **Goals Distribution**: `SlateMatchup.goals_distribution_for(rank, n)` — `0.2 + 4.3 * Math.log(n / rank) / Math.log(n)`, rounded to two decimals. Soccer slates only — the chart series and slider card are hidden on NFL slates. NOTE: the *distribution* is soccer-only, but the `goals` COLUMN is not. Live NFL scoring writes `Goal` rows carrying `points` (a touchdown is 6) and `SlateMatchup#goals` holds a team's POINTS on an NFL slate — see [`workflows/live-scoring.md`](workflows/live-scoring.md). `Game#update_scores_from_goals!` sums `points` rather than counting rows, which leaves every World Cup goal scoring exactly one.
 
 ## NFL Points Distribution (historical model)
@@ -134,8 +134,21 @@ settles from. It used to write `entry[:turf_score].to_f.round(1)` through
 construction, so the guard has to sit at the write rather than on the model.
 
 Two rules now run over EVERY posted row before ANY row is written; one bad row
-refuses the whole batch, naming each offending team, because the board posts all
-32 rows in one form and a half-written board is worse than a refusal.
+refuses the whole batch, because the board posts all 32 rows in one form and a
+half-written board is worse than a refusal.
+
+**The refusal message is CAPPED, and that cap is a correctness rule, not
+tidiness.** The flash is serialized into the session cookie, which
+ActionDispatch caps at 4096 bytes and raises `CookieOverflow` past — from
+middleware, AFTER the action returns, where `update_turf_scores`' own
+`rescue StandardError` cannot see it. Measured against the seeded rosters with
+every row refused: 48 World Cup teams produce a 2,532-byte alert, 32 NFL teams
+1,994. Neither exceeds 4096 alone, which is exactly why it was latent — the
+alert is only part of the session, so it 500s for an admin whose session is
+already full and not for one who just signed in. The controller now names the
+first three teams and appends `and N more.`, bounded by BYTES as well as by
+count (`SlatesController::REFUSAL_MAX_BYTES`) so the ceiling does not rest on a
+claim about how long a team name is.
 
 - **Readable** — `SlateMatchup.parse_turf_score` uses `Kernel#Float`, which
   raises rather than guessing. `String#to_f` misreads in two ways and announces
@@ -148,12 +161,25 @@ refuses the whole batch, naming each offending team, because the board posts all
 
 **The band is a deliberate OVERRIDE band, wider than the slate's resolved
 curve** — the widest price this slate's own board can display: `x1.0` up to
-`(1.0 + 10.0) * the widest game_factor here` (x11.0 on a one-week slate, x16.5
+`(1.0 + TOP) * the widest game_factor here` (x11.0 on a one-week slate, x16.5
 on a span with a two-of-three bye team). It is NOT the curve's own range,
 because the scale slider runs 0-10, repaints every row live, and "Save
 Multipliers" is a separate button from "Save Formula" — a bound at the resolved
 curve's top would refuse the operator's own screen, and a guard that fires on
 correct work gets deleted.
+
+**`TOP` is `max(10, the slate's resolved scale)`, not a flat 10**, because the
+board is not only the 21 slider positions: `turf_score_scale_table` builds its
+rows from `SLIDER_SCALES + [resolved_scale]`, so a slate whose
+`formula_mult_scale` sits off the grid gets an extra row the slider cannot
+reach. The band reads the same expression the view feeds that helper, so the
+sentence above is true by construction rather than by coincidence. It did not
+used to be: measured on a 32-team NFL slate against the flat-10 band, a resolved
+scale of 20 put 16 of 32 board rows outside the band and a scale of 100 put 28
+of 32 outside — every one of them a price the operator's own screen had just
+drawn. Nothing in production reaches it (`formula_mult_scale` is NULL on every
+slate today), so it was a latent contradiction rather than an outage. A resolved
+scale BELOW the grid cannot narrow the band; the slider is still on the page.
 
 The FLOOR is not a judgment call. Every price the curve can emit is
 `(1.0 + scale * curve) * game_factor` with `scale >= 0`, `curve >= 0` and

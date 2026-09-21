@@ -1144,13 +1144,28 @@
 # emptied → "Expected phantom, Received keypair". Not tagged @devnet and neither
 # skips. Derived with bin/e2e-lane-derive --write, not by arithmetic.
 #
+# 340 -> 341 (clean-up-pricing-test-debt): one spec in e2e/multi_week_slate.spec.js,
+# "the off-grid scale is handed back, not left on the Default slate". Its whole job is
+# to catch CROSS-SPEC POLLUTION, so it is ordered immediately after the spec that
+# causes it and asserts the observable that spec moves. The off-grid spec saves
+# formula_mult_scale=2.3 on the ONE "Default" Slate row every other slate falls back
+# through, and `reseed` touches no Slate row — so until now every slate spec ordered
+# after this file inherited a scale nobody set (an NFL board resolving 2.3 instead of
+# its sport-aware 1.0). It was latent, not failing: the one downstream slate spec
+# reads STORED turf_scores and held at 2.3.
+#
+# Its mutation is the restore itself: drop the `saveDefaultMultScale(page, "")` in
+# that spec's `finally` and this one reddens with "Expected: 1, Received: 2.3"
+# (measured). Not tagged @devnet and it does not skip. Derived with
+# bin/e2e-lane-derive --write, not by arithmetic.
+#
 # ⚠️ THE LEDGER ABOVE IS BEHIND THE SCALAR, and this entry does not close that.
 # The narrative stops at 331 while the number stood at 335, so four specs from
 # earlier branches carry no row here. They are not fabricated in: a row invented
 # from a diff nobody read is worse than a visible gap, and the scalar itself is
 # guarded by bin/e2e-lane-derive either way. Whoever next lands a spec pair can
 # recover them from git log over this file if they are worth recovering.
-total_specs: 340
+total_specs: 341
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1495,7 +1510,7 @@ allowed_skips: 4
 # and allowed_skips HOLDS AT 4 and the whole delta lands here: 337 - 17 - 4 = 316.
 # Derived with bin/e2e-lane-derive --write on this tree, which re-reads the file to
 # confirm both routes agree, rather than by arithmetic on the line above.
-executed: 319
+executed: 320
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a
