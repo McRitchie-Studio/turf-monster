@@ -25,6 +25,14 @@ class Athlete < ApplicationRecord
 
   before_save :refuse_local_writes_to_synced_rows
 
+  # The columns McRitchie Studio owns on a synced row. Anything NOT here stays
+  # locally writable — this app's own importers fill draft and college data the
+  # master neither holds nor sends.
+  STUDIO_MASTERED = %w[
+    sport position team_slug height_inches weight_lbs espn_headshot_url
+    gsis_id espn_id nflverse_id pff_id otc_id pfr_id sleeper_id
+  ].freeze
+
   validates :person_slug, presence: true, uniqueness: true
   validates :sport, presence: true
 
@@ -78,8 +86,20 @@ class Athlete < ApplicationRecord
     return if synced_at.blank?           # never synced — this row is ours
     return unless changed?               # a no-op save is harmless
 
-    # Provenance columns are the sync's own bookkeeping and are not "local".
-    local = changed - %w[synced_at source_updated_at updated_at]
+    # THE AXIS IS "DOES THE MASTER OWN THIS COLUMN", not "is this provenance".
+    #
+    # The first cut refused every column except the sync's own bookkeeping,
+    # which locked out this app's OWN nflverse importer — measured attempting
+    # college_name, draft_pick, draft_round, draft_year and jersey_number, none
+    # of which McRitchie Studio masters or sends. A synced athlete therefore
+    # rendered "Drafted: Undrafted" forever, and the importer's rescue does not
+    # catch ReadOnlyRecord (it rescues RecordInvalid/RecordNotUnique, siblings
+    # rather than ancestors), so the write died rather than degrading.
+    #
+    # So: refuse a local write to a column the MASTER owns, and leave the rest
+    # alone. STUDIO_MASTERED is asserted against the projection's own key set in
+    # the sync's test, so the two cannot drift apart silently.
+    local = changed & STUDIO_MASTERED
     return if local.empty?
 
     raise ActiveRecord::ReadOnlyRecord,

@@ -23,7 +23,13 @@ module Studio
 
     class Error < StandardError; end
 
-    Result = Struct.new(:rows_seen, :rows_written, :pages, :status, keyword_init: true)
+    Result = Struct.new(:rows_seen, :rows_written, :pages, :status, :collisions, keyword_init: true) do
+      # A row the replica REFUSED rather than wrote. Never empty silently: the
+      # rake task prints every one, because each is a human the master and the
+      # replica disagree about and only the master can resolve.
+      def collisions = self[:collisions] || []
+      def collided? = collisions.any?
+    end
 
     def self.configured? = ENV["AGENT_API_SECRET"].present?
 
@@ -42,6 +48,7 @@ module Studio
       return skip(cursor, "AGENT_API_SECRET not set") unless self.class.configured?
 
       token = authenticate
+      @collisions = []
       seen = written = pages = 0
       since, after_id = start_from(cursor)
 
@@ -61,9 +68,20 @@ module Studio
         break unless meta["more"]
       end
 
-      Result.new(rows_seen: seen, rows_written: written, pages: pages, status: "ok")
+      Result.new(rows_seen: seen, rows_written: written, pages: pages,
+                 status: @collisions.any? ? "ok_with_collisions" : "ok", collisions: @collisions)
+    # StandardError, not just Error. A narrow rescue let any ActiveRecord
+    # exception escape `call` entirely, so `record_failure!` never ran and the
+    # cursor kept `last_status: "ok"` after a crashed run — a sync that died
+    # looked like a sync that found nothing, which is the worst of both. The
+    # message is redacted to its class for anything we did not raise ourselves:
+    # a foreign exception may quote its input, and this string lands in a
+    # durable column.
     rescue Error => e
       cursor&.record_failure!(e.message)
+      Result.new(rows_seen: 0, rows_written: 0, pages: 0, status: "failed")
+    rescue StandardError => e
+      cursor&.record_failure!(e.class.to_s)
       Result.new(rows_seen: 0, rows_written: 0, pages: 0, status: "failed")
     end
 
@@ -110,12 +128,43 @@ module Studio
       data_changed
     end
 
+    # WHICH ATHLETE ROW THIS BELONGS TO — and when the answer is "somebody
+    # else's", refusing rather than adopting.
+    #
+    # The lookup in `upsert` keys on gsis_id and is correct. This is the CREATE
+    # fallback, reached when the master sends a person we hold under a different
+    # league id. Adopting blindly here overwrote a DIFFERENT HUMAN who happens to
+    # share the slug: measured on production data, MS's `00-0028946` (Aaron
+    # Brewer) took over our `00-0036171`, and MS's `chris-smith` `00-0038602`
+    # took over our `00-0038661` — a man the master holds NO row for, so a full
+    # rebuild could not have restored him. Nothing raised: there are zero unique
+    # collisions across the two tables, so the bad write simply succeeded, and
+    # the Person row is untouched so the page still showed the right name.
+    #
+    # The replica cannot fix this itself. It cannot overwrite (that is the bug),
+    # it cannot make a twin (`person_slug` is unique on athletes), and it must
+    # not invent a disambiguated slug, because SLUGS ARE THE MASTER'S. So it
+    # refuses, records who collided with whom, and the sweep reports it.
+    #
+    # The sibling importer, `Nflverse::SeedPlayers#resolve_athlete!` in the hub,
+    # carries the same predicate and its comment records what the unguarded
+    # version cost. I wrote that guard and then wrote this writer without it.
     def build_for(row)
       person = upsert_person(row)
       return nil if person.nil?
 
       existing = Athlete.find_by(person_slug: person.slug)
-      existing || Athlete.new(person_slug: person.slug, sport: row["sport"].presence || "football")
+      return Athlete.new(person_slug: person.slug, sport: row["sport"].presence || "football") if existing.nil?
+
+      held = existing.gsis_id.to_s.strip
+      incoming = row["gsis_id"].to_s.strip
+
+      # An athlete with NO league id is an unidentified local row for this name —
+      # a seed, or a hand-entered one. Adopting it is the point of the sync.
+      return existing if held.empty? || held == incoming
+
+      (@collisions ||= []) << { person_slug: person.slug, ours: held, theirs: incoming }
+      nil
     end
 
     def upsert_person(row)

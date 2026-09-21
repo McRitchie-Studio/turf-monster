@@ -19,6 +19,18 @@ namespace :studio do
     puts "  seen:    #{result.rows_seen}"
     puts "  written: #{result.rows_written}"
     puts "  cursor:  #{cursor.watermark_updated_at&.iso8601 || 'none'} (id #{cursor.watermark_id || '-'})"
+
+    # NEVER QUIET. Each of these is a person the master and the replica disagree
+    # about, and the replica deliberately refused to write rather than overwrite
+    # a different human who shares the slug. Only the master can resolve it —
+    # give the operator both league ids so they can.
+    if result.collided?
+      warn "  COLLISIONS: #{result.collisions.length} row(s) REFUSED — not written, nothing overwritten"
+      result.collisions.each do |c|
+        warn "    #{c[:person_slug]}: we hold gsis #{c[:ours]}, the master sent #{c[:theirs]}"
+      end
+      warn "    → resolve in McRitchie Studio (give one of them a disambiguated person), then re-run."
+    end
     puts "  detail:  #{cursor.detail}" if cursor.detail.present?
 
     # Exit non-zero ONLY on a real failure. A skip (no secret) is a legitimate
