@@ -22,7 +22,9 @@ class TurfScoreWritersTest < ActiveSupport::TestCase
     "app/services/nfl/reprice_span_slate.rb" =>
       "the in-place reprice, writing team_rankings' answer under its refusals",
     "app/controllers/slates_controller.rb" =>
-      "the admin drag + manual multiplier endpoints, which pass the team's game_factor",
+      "the admin drag + manual multiplier endpoints, which pass the team's game_factor; the " \
+      "manual one also parses with Kernel#Float and bounds against Slate#admin_price_band " \
+      "BEFORE writing, since its update_all skips validations",
     "app/services/world_cup2026_knockout_seed.rb" =>
       "World Cup seeding — one fixture per team, so rows ARE teams and no line factor exists",
     "app/services/nfl/build_preseason_slate.rb" =>

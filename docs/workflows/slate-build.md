@@ -149,12 +149,12 @@ arena (`:191`); status defaults to `scheduled` (`:193`). Idempotent via
 `NFL <year> Week <n>` (`:199`) and writes `week` as a real column (`:203`).
 
 **`slates` carries `sport` and `year` COLUMNS (`slates-sport-year`, DONE).** `Slate#sport`
-(`app/models/slate.rb:332-336`) and `Slate#season_year` (`:87-91`) read the column, falling
+(`app/models/slate.rb:344-348`) and `Slate#season_year` (`:87-91`) read the column, falling
 back to the name only for a row written before the migration — `Slate#sport_from_name`
-(`:341-343`) and `Slate#year_from_name` (`:347-349`) are those fallback helpers, not the
+(`:353-355`) and `Slate#year_from_name` (`:359-361`) are those fallback helpers, not the
 primary source. Neither `ensure_slate!` sets the columns: `Slate`'s `before_validation`
 derives both from the name for every writer through `Slate#derive_sport_and_year_from_name`
-(`:409-413`), so a missed assignment can no longer leave a column null — and
+(`:421-425`), so a missed assignment can no longer leave a column null — and
 `Nfl::BuildSpanSlate#ensure_slate!` says so in its own comment
 (`app/services/nfl/build_span_slate.rb:112-115`). Every span lookup then scopes by the
 columns: `Nfl::BuildSpanSlate#source_slates` runs
@@ -207,7 +207,7 @@ code now agree: the kickoff key is the active discriminator, not a dormant one.
 
 `Slate#team_rankings` calls `SlateMatchup.turf_score_for(rank, n, sport:, game_factor:)` at
 `app/models/slate.rb:226`; the curve itself is `SlateMatchup.turf_score_for`
-(`app/models/slate_matchup.rb:55-61`):
+(`app/models/slate_matchup.rb:65-71`):
 
 | Sport | Curve | Top |
 |---|---|---|
