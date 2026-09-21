@@ -17,7 +17,11 @@ module SlatesHelper
   # is "1.3", and 1.25 is the bye factor of a five-week span. Rounding FIRST with
   # `Float#round` (half away from zero) agrees with `toFixed` on every value
   # either side can hold here; `price_key` is the single place that happens.
-  SLIDER_SCALES = (0..20).map { |step| (step * 0.5).round(1) }.freeze
+  # Defined on the MODEL, beside the curve it parameterizes, so the price table
+  # here and the band SlatesController#update_turf_scores accepts back cannot
+  # drift apart. Aliased rather than moved outright: this is the name the view
+  # and this file's tests already read.
+  SLIDER_SCALES = SlateMatchup::SLIDER_SCALES
 
   # The one rule both languages must agree on. Also the reason the view seeds
   # the slider from a value already rounded to one decimal: the page can then
@@ -33,7 +37,22 @@ module SlatesHelper
   def turf_score_scale_table(slate:, teams:, factors:, resolved_scale: nil)
     return {} if teams.to_i < 1
 
-    scales = SLIDER_SCALES + Array(resolved_scale).map(&:to_f)
+    # A NEGATIVE SCALE IS NOT A BOARD, so the table does not draw one. The curve
+    # is (1.0 + scale * curve) * game_factor, so a scale below zero prices the
+    # WORST team lowest — on a 32-team NFL slate at scale -5.0 the rows run down
+    # to x-4.0, and at -1.0 down to x0.0. Those are not cheap teams; they are the
+    # exact value this whole guard exists to stop reaching `turf_score`, which
+    # `SlateMatchup` validates at >= 1.0 and which pays a player nothing.
+    #
+    # It also kept `price_band` from being able to follow the table honestly.
+    # The band's CEILING tracks this set, but its FLOOR is structural (x1.0 at
+    # rank 1) and must NOT: deriving the floor from a negative scale would open
+    # the guard to the zero it was written to refuse. Dropping the row here is
+    # what lets both be true at once — measured before this line existed, a
+    # resolved scale of -5.0 put 31 of 32 board rows outside the band and -1.0
+    # put 30 of 32, every one of them a price no write could have stored anyway.
+    offered = Array(resolved_scale).map(&:to_f).select { |scale| scale >= SLIDER_SCALES.min }
+    scales = SLIDER_SCALES + offered
     lines = factors.uniq.index_by { |factor| price_key(factor) }
 
     scales.each_with_object({}) do |scale, table|

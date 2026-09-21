@@ -47,11 +47,19 @@ module BenchmarksHelper
   # The chart's y range, as [min, max] — sized to the DOTS as well as the lines.
   #
   # That is the whole point of the dots. The lines are the rule, but each dot is
-  # a team's STORED multiplier, and the admin board writes one with no bound at
-  # all (SlatesController#update_turf_scores rounds to a tenth and calls
-  # update_all). Sized to the lines alone, a hand-edited 3.5x on a slate whose
-  # bye line tops at 3.0x mapped ABOVE the viewBox and an SVG clipped it away,
-  # so the largest mispricings were exactly the marks the picture dropped.
+  # a team's STORED multiplier, hand-written from the admin board. Sized to the
+  # lines alone, a hand-edited 3.5x on a slate whose bye line tops at 3.0x
+  # mapped ABOVE the viewBox and an SVG clipped it away, so the largest
+  # mispricings were exactly the marks the picture dropped.
+  #
+  # THE WRITE IS BOUNDED NOW, AND THAT DOES NOT RETIRE THIS. Since
+  # bound-admin-turf-score, SlatesController#update_turf_scores refuses a price
+  # outside SlateMatchup.price_band. But that band is deliberately the widest
+  # price this slate's BOARD can display, not the widest its lines reach — x1.0
+  # up to the top of the scale slider — so x3.5 on a bye line topping at x3.0
+  # is still accepted, on purpose, and still lands outside the frame the lines
+  # would draw. Both ends remain reachable: the band floors at x1.0, while the
+  # bye line starts at x1.5, so a bye team stored at x1.0 sits under its line.
   #
   # A dot sitting ON its line never moves the frame, so an ordinary slate draws
   # the chart it always drew. Only one that OUTRUNS its line does, and it takes

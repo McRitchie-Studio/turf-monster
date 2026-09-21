@@ -15,6 +15,33 @@ class Slate < ApplicationRecord
 
   validates :name, presence: true
 
+  # The slider this column parameterizes runs 0..10, and the admin formula field
+  # that writes it had no bounds at all — so a typo could store a scale the
+  # board would draw and the server would then refuse, or one that prices teams
+  # below x1.0 outright. Bounded HERE rather than only on the field, because the
+  # field is a hint and this is the rule: a direct PATCH reaches the column too.
+  #
+  # THE SHARP EDGE, stated causally rather than by calendar: a row that ALREADY
+  # holds an out-of-range scale becomes unsaveable by ANY writer. A rename, a
+  # status flip, anything — `save` returns false with "Formula mult scale must
+  # be less than or equal to 10.0", an error about a column the writer never
+  # touched. No validated path can create such a row; only `update_column`, raw
+  # SQL or a restored backup can. If one appears, clear ONLY the out-of-range
+  # rows rather than loosening this — the unscoped form takes every legitimately
+  # configured scale with it:
+  #
+  #   Slate.where("formula_mult_scale < 0 OR formula_mult_scale > ?",
+  #               SlateMatchup::SLIDER_SCALES.max)
+  #        .update_all(formula_mult_scale: nil) (Observed 2026-09-21: prod 35 slates and QA 34,
+  # `formula_mult_scale` non-null on ZERO of them. That is a dated observation,
+  # not the reason the rule is safe.)
+  validates :formula_mult_scale,
+            numericality: {
+              greater_than_or_equal_to: 0,
+              less_than_or_equal_to: SlateMatchup::SLIDER_SCALES.max
+            },
+            allow_nil: true
+
   # Fill `sport` / `year` from the name whenever a writer did not set them. Six call
   # sites create Slates (two services, three seed paths, one controller) and a seventh
   # will appear; patching each is how a column ends up null in production. Deriving
@@ -273,6 +300,23 @@ class Slate < ApplicationRecord
     end
 
     rows.sort_by { |row| row.rank || Float::INFINITY }
+  end
+
+  # The band SlatesController#update_turf_scores will accept for this slate — the
+  # widest price this slate's own admin board can display. Derived from the
+  # slate's OWN lines, so a span with a bye in it gets the wider ceiling its
+  # two-game line legitimately reaches, and a one-week slate does not.
+  #
+  # Which side of the override question this lands on, and why, is written out on
+  # SlateMatchup.price_band.
+  # `resolved_scale` is passed from the SAME expression the board's price table is
+  # built from (slates/show.html.erb feeds it to SlatesHelper#turf_score_scale_table).
+  # Reading one source in the view and another here is how the band came to refuse
+  # prices the page had just drawn — see SlateMatchup.price_band.
+  def admin_price_band(by_team = matchups_by_team)
+    SlateMatchup.price_band(teams: by_team.size, sport: sport,
+                            game_factors: game_factors(by_team).values,
+                            resolved_scale: resolved_formula[:formula_mult_scale])
   end
 
   # True when any team plays more than once here — i.e. the slate spans weeks.
