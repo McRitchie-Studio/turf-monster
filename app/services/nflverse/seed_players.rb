@@ -114,17 +114,40 @@ class Nflverse::SeedPlayers
       athlete = resolve_athlete!(person, first, last, gsis_id, espn_id)
     end
 
+    # DEFER TO THE MASTER ON A SYNCED ROW, rather than letting the write be
+    # refused whole.
+    #
+    # build_attrs writes 16 columns and 11 of them are Athlete::STUDIO_MASTERED.
+    # `update!` is ATOMIC, so on a synced athlete the guard refuses the call and
+    # the five columns this importer genuinely owns — college_name, the three
+    # draft fields, jersey_number — are discarded with it. That is the exact
+    # "Drafted: Undrafted forever" symptom the guard was narrowed to fix, and
+    # narrowing it alone did not fix it: measured at be34e40e, the write raised
+    # and all five local columns stayed nil. Worse, the rescue below catches
+    # RecordInvalid/RecordNotUnique — SIBLINGS of ReadOnlyRecord, not ancestors
+    # — so `nfl:players_seed` died at that row instead of degrading.
+    #
+    # So drop what the master owns and write what we own. Master-owned columns
+    # arrive through Studio::SyncAthletes; this importer is the local half.
     attrs = build_attrs(row, gsis_id)
+    attrs = attrs.except(*Athlete::STUDIO_MASTERED.map(&:to_sym)) if athlete.synced_at.present?
     begin
       athlete.update!(attrs.compact)
       @stats[:athletes_updated] += 1
-    rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique => e
+    # ReadOnlyRecord is listed because it is a SIBLING of the two below, not an
+    # ancestor — rescuing RecordInvalid never caught it. The `except` above
+    # should mean we never raise it; this is the belt to that braces, so a row
+    # that races the sync degrades to a counted failure instead of killing the
+    # whole seed.
+    rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique, ActiveRecord::ReadOnlyRecord => e
       @stats[:athletes_failed] += 1
       vputs "  [!] update fail #{person&.slug} (gsis=#{gsis_id}): #{e.message}"
       return nil
     end
 
-    cache_headshot(athlete) if @upload_headshots && attrs[:espn_headshot_url]
+    # ASK THE ATHLETE, NOT THIS WRITE: `attrs` is excepted of every mastered
+    # column on a synced row, and headshot_url has no fallback. cache! is idempotent.
+    cache_headshot(athlete) if @upload_headshots && athlete.espn_headshot_url.present?
     athlete
   end
 

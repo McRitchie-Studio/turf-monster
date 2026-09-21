@@ -28,7 +28,7 @@
       <%
         auth_pill_classes = case ix[:auth_class]
           when "user"  then "bg-mint/10 text-mint border-mint/30"
-          when "auth1" then "bg-violet/10 text-violet border-violet/30"
+          when "auth1" then "bg-violet/10 text-violet-ink border-violet/30"
           else "bg-surface-alt text-secondary border-subtle"
         end
         bar_pct = 100.0 * ix[:bytes] / max_bytes

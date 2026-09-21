@@ -25,11 +25,13 @@
 <% lines = benchmark_lines(slate, teams) %>
 <% if teams > 1 && lines.first.points.any? %>
   <%# THE FRAME HOLDS THE DOTS, NOT ONLY THE LINES. A stored multiplier is
-      hand-written with no bound, so it can sit above the top of its line or
-      below the floor, and sized to the lines alone the SVG clipped away exactly
-      those marks. Both ends, so an underpriced team is as visible as an
-      overpriced one. The helper owns the arithmetic; an ordinary slate gets
-      back the frame it always had. %>
+      hand-written, and the band the admin write is now checked against is the
+      widest price the BOARD can show rather than the widest its lines reach —
+      so a dot can still sit above the top of its line or below the floor, and
+      sized to the lines alone the SVG clipped away exactly those marks. Both
+      ends, so an underpriced team is as visible as an overpriced one. The
+      helper owns the arithmetic; an ordinary slate gets back the frame it
+      always had. %>
   <% y_min, y_max = benchmark_y_domain(lines: lines, team_rows: team_rows) %>
   <% rows_by_factor = team_rows.group_by { |row| row.game_factor > 1 ? "bye" : "full" } %>
 

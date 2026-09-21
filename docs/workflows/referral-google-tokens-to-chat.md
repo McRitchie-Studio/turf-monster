@@ -30,7 +30,7 @@
 `/l/:slug` links still land, as the trigger note in [[web3-landing-to-entry]] explains.
 **Actors:** Visitor → Google OAuth → Rails (`LandingPagesController` / `OmniauthCallbacksController` / `TokensController` / `ContestsController` / `MessagesController`) → Stripe → Sidekiq (`TokenPurchaseJob`) → Solana RPC (managed-wallet `mint_entry_token` + `enter_contest_with_token`) → ActionCable.
 **Outcome:** `users` row with `reference = "<landing-slug>"`, a `stripe_purchases` row in status `minted` with 3 on-chain `EntryTokenAccount` PDAs (one consumed), an `entries` row in status `complete` with `onchain_tx_signature`, a `messages` row broadcast on `[contest, :messages]`.
-**Preconditions:** Contest is `open`, `onchain`, and carries `chat_enabled` — a column defaulting to true (`db/schema.rb:189`). The contest's season must be live on-chain: `ContestsController#ensure_onchain_season_ready!` (`app/controllers/contests_controller.rb:2561-2565`) raises the message built by `#onchain_season_error` (`:2567-2577`) when `SeasonConfig.current_season_id` names a season the vault cannot read. Stripe enabled. Visitor not in a blocked geo state.
+**Preconditions:** Contest is `open`, `onchain`, and carries `chat_enabled` — a column defaulting to true (`db/schema.rb:192`). The contest's season must be live on-chain: `ContestsController#ensure_onchain_season_ready!` (`app/controllers/contests_controller.rb:2561-2565`) raises the message built by `#onchain_season_error` (`:2567-2577`) when `SeasonConfig.current_season_id` names a season the vault cannot read. Stripe enabled. Visitor not in a blocked geo state.
 
 ## Sequence
 

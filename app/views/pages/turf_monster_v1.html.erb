@@ -37,7 +37,7 @@
     </div>
     <h1 class="text-4xl md:text-6xl font-extrabold text-heading mb-2">
       Turf <span class="text-primary">Monster</span>
-      <span class="ml-2 px-2 py-0.5 bg-violet/20 text-violet text-sm md:text-base font-mono rounded-md align-middle border border-violet/30">v1</span>
+      <span class="ml-2 px-2 py-0.5 bg-violet/20 text-violet-ink text-sm md:text-base font-mono rounded-md align-middle border border-violet/30">v1</span>
     </h1>
     <p class="text-2xl md:text-3xl font-bold text-body mt-4 mb-3">Pick teams. Stack points. Get paid.</p>
     <p class="text-secondary text-lg max-w-xl mx-auto mb-8">
@@ -190,7 +190,7 @@
     <p class="text-primary font-mono text-sm mb-2">03</p>
     <h2 class="text-2xl md:text-3xl font-bold text-heading mb-4">Turf Score</h2>
     <p class="text-secondary text-base md:text-lg leading-relaxed mb-8">
-      All 32 teams are ranked by how many points they are projected to score per game across the contest&rsquo;s weeks. Rank 1 is the highest projection and prices at <span class="text-violet font-mono font-bold">1.0&times;</span>; rank 32 prices at <span class="text-violet font-mono font-bold">2.0&times;</span>. In between, a rank is worth <span class="text-violet font-mono font-bold">1 + (rank &minus; 1) / 31, rounded to one decimal</span> &mdash; NFL scoring runs close to linear. The rounding is not a detail: it is the number that gets frozen onto your pick and paid, so ranks 1 and 2 both price at <span class="text-violet font-mono font-bold">1.0&times;</span>, and ranks 3, 4 and 5 all price at <span class="text-violet font-mono font-bold">1.1&times;</span>. Your points are <span class="text-heading font-semibold">points scored &times; Turf Score</span>.
+      All 32 teams are ranked by how many points they are projected to score per game across the contest&rsquo;s weeks. Rank 1 is the highest projection and prices at <span class="text-violet-ink font-mono font-bold">1.0&times;</span>; rank 32 prices at <span class="text-violet-ink font-mono font-bold">2.0&times;</span>. In between, a rank is worth <span class="text-violet-ink font-mono font-bold">1 + (rank &minus; 1) / 31, rounded to one decimal</span> &mdash; NFL scoring runs close to linear. The rounding is not a detail: it is the number that gets frozen onto your pick and paid, so ranks 1 and 2 both price at <span class="text-violet-ink font-mono font-bold">1.0&times;</span>, and ranks 3, 4 and 5 all price at <span class="text-violet-ink font-mono font-bold">1.1&times;</span>. Your points are <span class="text-heading font-semibold">points scored &times; Turf Score</span>.
     </p>
 
     <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
@@ -201,7 +201,7 @@
           <%# One decimal, like every other multiplier on this page: these three
               cards show a RANGE, and "1x / 1.5x / 2x" reads as three unrelated
               numbers where "1.0x / 1.5x / 2.0x" reads as a scale. %>
-          <p class="text-3xl font-mono font-bold text-violet mb-1"><%= number_with_precision(TurfMonsterRules.turf_score_for_rank(row[:rank]), precision: 1) %>&times;</p>
+          <p class="text-3xl font-mono font-bold text-violet-ink mb-1"><%= number_with_precision(TurfMonsterRules.turf_score_for_rank(row[:rank]), precision: 1) %>&times;</p>
           <p class="text-secondary text-xs"><%= row[:note] %></p>
         </div>
       <% end %>
@@ -216,7 +216,7 @@
     <div class="bg-surface-alt rounded-xl border border-violet/30 p-6 mb-6" data-test="nfl-bye-line">
       <p class="text-heading font-semibold mb-3">Bye weeks</p>
       <p class="text-secondary text-sm leading-relaxed">
-        A team with its bye inside the contest plays <%= TurfMonsterRules::BYE_GAMES %> games, not <%= TurfMonsterRules::SPAN_GAMES %>. It is still ranked with everyone else on projected points per game, then priced on the bye line: the same Turf Score times <span class="text-violet font-mono font-bold"><%= number_with_precision(TurfMonsterRules.bye_game_factor, precision: 1) %></span>, which runs from <span class="text-violet font-mono font-bold"><%= number_with_precision(TurfMonsterRules.bye_turf_score_for_rank(1), precision: 1) %>&times;</span> to <span class="text-violet font-mono font-bold"><%= number_with_precision(TurfMonsterRules.bye_turf_score_for_rank(TurfMonsterRules::TEAM_COUNT), precision: 1) %>&times;</span>. At the bye price, <%= TurfMonsterRules::BYE_GAMES %> games score what <%= TurfMonsterRules::SPAN_GAMES %> would at the regular price, so a bye neither helps nor hurts a pick.
+        A team with its bye inside the contest plays <%= TurfMonsterRules::BYE_GAMES %> games, not <%= TurfMonsterRules::SPAN_GAMES %>. It is still ranked with everyone else on projected points per game, then priced on the bye line: the same Turf Score times <span class="text-violet-ink font-mono font-bold"><%= number_with_precision(TurfMonsterRules.bye_game_factor, precision: 1) %></span>, which runs from <span class="text-violet-ink font-mono font-bold"><%= number_with_precision(TurfMonsterRules.bye_turf_score_for_rank(1), precision: 1) %>&times;</span> to <span class="text-violet-ink font-mono font-bold"><%= number_with_precision(TurfMonsterRules.bye_turf_score_for_rank(TurfMonsterRules::TEAM_COUNT), precision: 1) %>&times;</span>. At the bye price, <%= TurfMonsterRules::BYE_GAMES %> games score what <%= TurfMonsterRules::SPAN_GAMES %> would at the regular price, so a bye neither helps nor hurts a pick.
       </p>
     </div>
 
@@ -273,7 +273,7 @@
               <% example.weekly_points.each do |points| %>
                 <td class="px-4 py-3 text-center text-heading"><%= points %></td>
               <% end %>
-              <td class="px-4 py-3 text-center font-mono text-violet"><%= number_with_precision(example.turf_score, precision: 1) %>&times;</td>
+              <td class="px-4 py-3 text-center font-mono text-violet-ink"><%= number_with_precision(example.turf_score, precision: 1) %>&times;</td>
               <td class="px-4 py-3 text-right font-mono text-primary font-bold"><%= number_with_precision(example.entry_points, precision: 1) %></td>
             </tr>
           <% end %>
@@ -281,7 +281,7 @@
         <tfoot>
           <tr class="border-t-2 border-violet/30 bg-surface-alt">
             <td colspan="5" class="px-4 py-3 text-right text-heading font-semibold">Total Score</td>
-            <td class="px-4 py-3 text-right font-mono text-xl text-violet font-bold"><%= number_with_precision(TurfMonsterRules.lineup_total, precision: 1) %></td>
+            <td class="px-4 py-3 text-right font-mono text-xl text-violet-ink font-bold"><%= number_with_precision(TurfMonsterRules.lineup_total, precision: 1) %></td>
           </tr>
         </tfoot>
       </table>
@@ -411,13 +411,13 @@
         <div class="text-right text-heading"><%= TurfMonsterRules::SPAN_GAMES %>, or <%= TurfMonsterRules::BYE_GAMES %> with a bye</div>
 
         <div class="text-secondary">Turf Score range</div>
-        <div class="font-mono text-violet text-right">1.0&times; &ndash; 2.0&times;</div>
+        <div class="font-mono text-violet-ink text-right">1.0&times; &ndash; 2.0&times;</div>
 
         <div class="text-secondary">Bye-week range</div>
-        <div class="font-mono text-violet text-right" data-test="nfl-bye-line"><%= number_with_precision(TurfMonsterRules.bye_turf_score_for_rank(1), precision: 1) %>&times; &ndash; <%= number_with_precision(TurfMonsterRules.bye_turf_score_for_rank(TurfMonsterRules::TEAM_COUNT), precision: 1) %>&times;</div>
+        <div class="font-mono text-violet-ink text-right" data-test="nfl-bye-line"><%= number_with_precision(TurfMonsterRules.bye_turf_score_for_rank(1), precision: 1) %>&times; &ndash; <%= number_with_precision(TurfMonsterRules.bye_turf_score_for_rank(TurfMonsterRules::TEAM_COUNT), precision: 1) %>&times;</div>
 
         <div class="text-secondary">Turf Score formula</div>
-        <div class="font-mono text-violet text-right">1 + (rank &minus; 1) / 31, to 1 dp</div>
+        <div class="font-mono text-violet-ink text-right">1 + (rank &minus; 1) / 31, to 1 dp</div>
 
         <div class="text-secondary">Entries per user</div>
         <div class="text-heading text-right">Up to 3</div>

@@ -3,7 +3,7 @@
     card's height. Score still surfaces on settled contests. %>
 <% if @contest.settled? && entry.score %>
   <div class="flex justify-end mb-0.5">
-    <span class="text-[10px] font-mono text-violet"><%= sprintf('%.1f', entry.score) %></span>
+    <span class="text-[10px] font-mono text-violet-ink"><%= sprintf('%.1f', entry.score) %></span>
   </div>
 <% end %>
 <%# 6 picks → 3×2 mini-grid. Tight padding so 3 entry cards fit side by side. %>

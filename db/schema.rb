@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_17_060000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_21_050000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -99,7 +99,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_17_060000) do
     t.string "position"
     t.string "sleeper_id"
     t.string "slug", null: false
+    t.datetime "source_updated_at"
     t.string "sport", null: false
+    t.datetime "synced_at"
     t.string "team_slug"
     t.datetime "updated_at", null: false
     t.integer "weight_lbs"
@@ -114,6 +116,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_17_060000) do
     t.index ["sleeper_id"], name: "index_athletes_on_sleeper_id", unique: true
     t.index ["slug"], name: "index_athletes_on_slug", unique: true
     t.index ["sport"], name: "index_athletes_on_sport"
+    t.index ["synced_at"], name: "index_athletes_on_synced_at"
     t.index ["team_slug"], name: "index_athletes_on_team_slug"
   end
 
@@ -565,6 +568,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_17_060000) do
     t.string "last_name", null: false
     t.string "location"
     t.string "slug", null: false
+    t.datetime "source_updated_at"
+    t.datetime "synced_at"
     t.datetime "updated_at", null: false
     t.index ["aliases"], name: "index_people_on_aliases", using: :gin
     t.index ["last_name", "first_name"], name: "index_people_on_last_name_and_first_name"
@@ -841,6 +846,20 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_17_060000) do
     t.index ["number"], name: "index_survivor_rounds_on_number", unique: true
     t.index ["slug"], name: "index_survivor_rounds_on_slug", unique: true
     t.index ["status"], name: "index_survivor_rounds_on_status"
+  end
+
+  create_table "sync_cursors", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.text "detail"
+    t.datetime "last_run_at"
+    t.string "last_status"
+    t.integer "rows_seen", default: 0
+    t.integer "rows_written", default: 0
+    t.string "source", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "watermark_id"
+    t.datetime "watermark_updated_at"
+    t.index ["source"], name: "index_sync_cursors_on_source", unique: true
   end
 
   create_table "teams", force: :cascade do |t|

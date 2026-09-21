@@ -70,6 +70,14 @@ module.exports = {
           ...studioColors.theme.extend.colors.primary,
           DEFAULT: 'rgb(var(--color-primary-ink-rgb) / <alpha-value>)',
         },
+        // `text-violet-ink` is violet as SMALL text; `violet` stays the FILL
+        // and keeps large display type. It lives in textColor and NOT in
+        // colors on purpose — there is no bg-violet-ink or border-violet-ink,
+        // because a fill has no contrast duty and must not drift off the
+        // brand. Per-theme values and the measurements behind them:
+        // app/assets/tailwind/application.css, "The violet INK".
+        // Guard: test/views/violet_text_contrast_test.rb.
+        'violet-ink': 'var(--color-violet-ink)',
       },
       colors: {
         ...studioColors.theme.extend.colors,
