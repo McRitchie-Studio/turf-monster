@@ -4,7 +4,7 @@ require "test_helper"
 #
 # Every test here drives ingest_row directly with a hand-built CSV row rather
 # than the 7MB live feed, so the suite never touches the network. Headshot
-# caching is off throughout (it needs AWS and is covered by its own rake task).
+# caching is off except where a test stubs the uploader and says so.
 class Nflverse::SeedPlayersTest < ActiveSupport::TestCase
   # A row shaped like the real players.csv. Only the columns the importer reads
   # are present; the live file has ~40.
@@ -37,6 +37,70 @@ class Nflverse::SeedPlayersTest < ActiveSupport::TestCase
     assert_equal "Rookie Newman", athlete.person.full_name
     assert athlete.person.athlete?, "an nflverse row is by definition an athlete"
     assert_equal "football", athlete.sport
+  end
+
+  # THE PATH THE GUARD ACTUALLY BREAKS, and the one no test covered.
+  #
+  # build_attrs writes 16 columns and 11 are STUDIO_MASTERED. `update!` is
+  # ATOMIC, so on a SYNCED athlete the write-guard refuses the whole call and
+  # the five columns this importer owns go down with it. Narrowing the guard
+  # was not enough on its own — measured, the write still raised and
+  # college/draft/jersey all stayed nil, which is verbatim the
+  # "Drafted: Undrafted forever" symptom the narrowing was meant to cure.
+  #
+  # The earlier end-to-end check missed it by writing LOCAL COLUMNS ONLY —
+  # the one shape this importer never produces.
+  test "a SYNCED athlete still receives the columns this importer owns" do
+    person = Person.create!(first_name: "Rookie", last_name: "Newman")
+    synced = Athlete.new(person_slug: person.slug, sport: "football")
+    synced.syncing = true
+    synced.gsis_id = "00-0099999"
+    synced.position = "QB"          # master-owned, and deliberately WRONG for the row
+    synced.synced_at = Time.current
+    synced.save!
+
+    assert_nothing_raised { seeder.send(:ingest_row, row) }
+
+    got = Athlete.find_by(person_slug: person.slug)
+    assert_equal "Test Tech", got.college_name, "the importer's OWN column must land"
+    assert_equal 2026, got.draft_year
+    assert_equal 2, got.draft_round
+    assert_equal 44, got.draft_pick
+    assert_equal 11, got.jersey_number
+
+    assert_equal "QB", got.position,
+                 "a master-owned column must NOT be overwritten by the local importer"
+    assert_equal "00-0099999", got.gsis_id
+  end
+
+  # The control: on an UNSYNCED row the importer still owns everything, or the
+  # deferral above would be indistinguishable from "never writes mastered".
+  # A synced athlete must still get its headshot cached: `attrs` is excepted of
+  # every mastered column there, so a condition read off it is always nil — and
+  # headshot_url has no fallback, so the miss renders as initials, permanently.
+  test "a SYNCED athlete still gets its headshot cached" do
+    person = Person.create!(first_name: "Rookie", last_name: "Newman")
+    synced = Athlete.new(person_slug: person.slug, sport: "football", gsis_id: "00-0099999")
+    synced.syncing = true
+    synced.espn_headshot_url = "https://a.espncdn.com/i/headshots/nfl/players/full/4099999.png"
+    synced.synced_at = Time.current
+    synced.save!
+    s = seeder                                         # set after construction so the
+    s.instance_variable_set(:@upload_headshots, true)  # AWS guard stays out of this test
+    cached = []
+    Studio::ImageCache.stub(:cache!, ->(**kw) { cached << kw[:owner].person_slug }) do
+      s.send(:ingest_row, row)
+    end
+    assert_equal [ person.slug ], cached, "a synced athlete's headshot must still be cached"
+  end
+
+  test "an UNSYNCED athlete still receives every column, mastered included" do
+    seeder.send(:ingest_row, row)
+
+    got = Athlete.find_by(gsis_id: "00-0099999")
+    assert_equal "WR", got.position, "with no sync in play the importer owns the lot"
+    assert_equal "Test Tech", got.college_name
+    assert_nil got.synced_at
   end
 
   test "prefers common_first_name over first_name" do

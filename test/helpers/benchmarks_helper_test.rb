@@ -81,12 +81,15 @@ class BenchmarksHelperTest < ActionView::TestCase
   test "a price below the floor widens the domain downward" do
     lines = benchmark_lines(slate_double(games_per_team: 3, two_line: true), 32)
 
-    y_min, y_max = benchmark_y_domain(lines: lines, team_rows: [row_double(0.6)])
+    y_min, y_max = benchmark_y_domain(lines: lines, team_rows: [row_double(0.3)])
 
-    assert_operator y_min, :<, 0.6, "0.6x belongs inside the frame, not on its edge"
-    # 0.6 - 0.1 is 0.49999999999999994 in binary floating point, and flooring
-    # that to a tenth gives 0.4 -- a tenth of air is worked in tenths for this.
-    assert_equal 0.5, y_min
+    assert_operator y_min, :<, 0.3, "0.3x belongs inside the frame, not on its edge"
+    # 0.3x is the fixture BECAUSE it separates the shipped whole-tenths form from
+    # the naive subtraction it exists to reject: (0.3 - 0.1) is
+    # 0.19999999999999998, which floors to 0.1, while working in whole tenths
+    # gives 0.2. A 0.6x dot cannot tell them apart -- both answer 0.5 there, so
+    # this assertion used to pass against the very expression it rejects.
+    assert_equal 0.2, y_min
     assert_equal 3.0, y_max, "the ceiling is untouched by a low outlier"
   end
 
