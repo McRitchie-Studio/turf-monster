@@ -37,7 +37,7 @@
           <% else %>
             <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-surface-alt text-muted flex-shrink-0">OUT&nbsp;·&nbsp;R<%= entry.eliminated_round %></span>
           <% end %>
-          <span class="text-right font-mono text-sm flex-shrink-0 <%= alive ? 'text-violet' : 'text-muted' %>" style="min-width:3.25rem">
+          <span class="text-right font-mono text-sm flex-shrink-0 <%= alive ? 'text-violet-ink' : 'text-muted' %>" style="min-width:3.25rem">
             <%= entry.rounds_survived %>&nbsp;<span class="text-muted text-xs">rd<%= 's' unless entry.rounds_survived == 1 %></span>
           </span>
         </div>
