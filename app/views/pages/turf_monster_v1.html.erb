@@ -201,7 +201,7 @@
           <%# One decimal, like every other multiplier on this page: these three
               cards show a RANGE, and "1x / 1.5x / 2x" reads as three unrelated
               numbers where "1.0x / 1.5x / 2.0x" reads as a scale. %>
-          <p class="text-3xl font-mono font-bold text-violet mb-1"><%= number_with_precision(TurfMonsterRules.turf_score_for_rank(row[:rank]), precision: 1) %>&times;</p>
+          <p class="text-3xl font-mono font-bold text-violet-ink mb-1"><%= number_with_precision(TurfMonsterRules.turf_score_for_rank(row[:rank]), precision: 1) %>&times;</p>
           <p class="text-secondary text-xs"><%= row[:note] %></p>
         </div>
       <% end %>
@@ -281,7 +281,7 @@
         <tfoot>
           <tr class="border-t-2 border-violet/30 bg-surface-alt">
             <td colspan="5" class="px-4 py-3 text-right text-heading font-semibold">Total Score</td>
-            <td class="px-4 py-3 text-right font-mono text-xl text-violet font-bold"><%= number_with_precision(TurfMonsterRules.lineup_total, precision: 1) %></td>
+            <td class="px-4 py-3 text-right font-mono text-xl text-violet-ink font-bold"><%= number_with_precision(TurfMonsterRules.lineup_total, precision: 1) %></td>
           </tr>
         </tfoot>
       </table>

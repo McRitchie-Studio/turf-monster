@@ -57,15 +57,33 @@ class VioletTextContrastTest < ActiveSupport::TestCase
   # and fails too, so the exemption cannot quietly grow.
   BARE_TEXT_VIOLET_ALLOWED = {
     # WCAG large text (>= 24px, or >= 18.66px bold) clears at 3:1, and the brand
-    # violet does: 3.60:1 on the dark card, 3.10:1 on the light card.
-    "app/views/pages/turf_totals_v1.html.erb" => 5,
-    "app/views/pages/turf_monster_v1.html.erb" => 2,
-    "app/views/admin/scoring/index.html.erb" => 1,
-    "app/views/games/index.html.erb" => 1,
+    # violet does ON THE CARD: 3.10:1 light (#ffffff), 3.60:1 dark (#3C3853).
+    #
+    # ON THE CARD IS THE WHOLE EXEMPTION, and an earlier revision of this list
+    # got it wrong. It also exempted seven lines in pages/turf_totals_v1 and
+    # pages/turf_monster_v1 under the same 3.10:1 figure — but every one of them
+    # sits inside a `bg-surface-alt` container, where the brand violet measures
+    # **2.79:1** light (#F1F3F4), UNDER the 3:1 large-text floor. A large-text
+    # exemption is a claim about a SURFACE, not about a font size, so citing the
+    # card for text that is not on the card exempts a genuine failure. Worse, the
+    # exemption is a COUNT: pinning those seven here would have made the next
+    # person who fixed one red this test and told them to restore the number.
+    # They read `text-violet-ink` now (5.42:1 light, 10.64:1 dark on that
+    # surface) and are gone from this list.
+    #
+    # The two that remain are `text-2xl font-extrabold` (24px bold) directly on
+    # `.card`, which compiles to var(--color-surface). Verified, not assumed.
+    # EACH ENTRY CARRIES ITS KIND, because the two kinds are exempt for
+    # different reasons and only one of them is a claim about a surface.
+    "app/views/admin/scoring/index.html.erb" => { count: 1, kind: :large_text },
+    "app/views/games/index.html.erb" => { count: 1, kind: :large_text },
     # Not text: a 4x4 status dot whose label is sr-only. It is a graphical
     # object under WCAG 1.4.11 (3:1), and it already picks its shade per theme
-    # on purpose — violet-600 on light surfaces, the base violet on dark.
-    "app/views/admin/pending_transactions/_signer_roster.html.erb" => 2
+    # on purpose — violet-600 on light surfaces, the base violet on dark. Its
+    # surface is unresolvable from here BY CONSTRUCTION: it is a partial, so the
+    # background comes from whichever view renders it. What makes it safe is the
+    # `dark:` scoping, and that is what gets asserted.
+    "app/views/admin/pending_transactions/_signer_roster.html.erb" => { count: 2, kind: :graphical }
   }.freeze
 
   # ── colour arithmetic, deliberately independent of Studio::ColorScale ──────
@@ -209,6 +227,75 @@ class VioletTextContrastTest < ActiveSupport::TestCase
     [ ink, grounds(mode, **opts).transform_values { |bg| [ contrast(ink, bg), bg ] } ]
   end
 
+
+  # ── which SURFACE a line actually sits on ──────────────────────────────────
+  #
+  # The allow-list's exemption is a claim about a surface, not about a font
+  # size: WCAG large type clears at 3:1, and whether the brand violet reaches
+  # 3:1 depends entirely on what is behind it. It does on the card (3.10:1
+  # light) and does NOT on `bg-surface-alt` (2.79:1 light). So the exemption is
+  # MEASURED here rather than asserted in a comment, because a comment is
+  # exactly how seven failing lines were once exempted by citing a surface they
+  # were not on.
+  #
+  # The walk is adapted from error_text_contrast_test's `element_chains`: ERB
+  # tags and HTML comments are blanked with their newlines preserved, so line
+  # numbers still map, and the remaining tags are walked with a stack.
+  VOID_TAGS = %w[area base br col embed hr img input link meta source track wbr].freeze
+
+  # Longest first — `bg-surface-alt` contains `bg-surface`.
+  SURFACE_CLASSES = {
+    "bg-surface-alt" => :"surface-alt", "bg-surface" => :card, "bg-page" => :page,
+    "bg-inset" => :inset, "card" => :card
+  }.freeze
+
+  def element_chains(path)
+    @element_chains ||= {}
+    @element_chains[path] ||= begin
+      src = File.read(path).gsub(/<%.*?%>|<!--.*?-->/m) { |m| "\n" * m.count("\n") }
+      stack = []
+      chains = Hash.new { |h, k| h[k] = [] }
+      src.scan(%r{<(/?)([a-zA-Z][\w-]*)([^>]*?)(/?)>}) do
+        closing, tag, attrs, selfclose = Regexp.last_match.captures
+        line = src[0...Regexp.last_match.begin(0)].count("\n") + 1
+        tag = tag.downcase
+        if closing == "/"
+          idx = stack.rindex { |candidate, _| candidate == tag }
+          stack.slice!(idx..) if idx
+        else
+          classes = attrs.scan(/(?::class|class)="([^"]*)"/).flatten.join(" ")
+          chains[line] << (stack.map(&:last) + [ classes ])
+          stack << [ tag, classes ] unless selfclose == "/" || VOID_TAGS.include?(tag)
+        end
+      end
+      chains
+    end
+  end
+
+  # The INNERMOST enclosing surface. `nil` when nothing in the chain names one —
+  # reported rather than defaulted, because guessing the card is the mistake
+  # this method exists to stop.
+  def enclosing_surface(path, line, token: "text-violet")
+    candidates = element_chains(path)[line]
+    chain = candidates.find { |c| c.last.to_s.include?(token) } || candidates.first || []
+
+    found = nil
+    chain.each do |classes|
+      classes.to_s.split(/\s+/).each do |klass|
+        bare = klass.sub(/\A.*:/, "")
+        name = SURFACE_CLASSES.find { |css, _| bare == css }&.last
+        found = name if name
+      end
+    end
+    found
+  end
+
+  def bare_violet_lines(path)
+    File.readlines(Rails.root.join(path)).each_with_index.filter_map do |text, i|
+      i + 1 if text.match?(/text-violet(?![\w-])/)
+    end
+  end
+
   # ── the fill stays the fill ────────────────────────────────────────────────
 
   test "text-violet-ink paints an ink while bg-violet and text-violet keep the brand fill" do
@@ -285,10 +372,79 @@ class VioletTextContrastTest < ActiveSupport::TestCase
                  "these paint text with the brand FILL, which is 3.10:1 on the light card. " \
                  "Use text-violet-ink, or add the file to BARE_TEXT_VIOLET_ALLOWED with the reason it is large type."
 
-    BARE_TEXT_VIOLET_ALLOWED.each do |path, count|
-      assert_equal count, found[path],
-                   "#{path} has #{found[path]} bare text-violet uses, not #{count}. If a NEW one is small text it owes " \
+    BARE_TEXT_VIOLET_ALLOWED.each do |path, rule|
+      assert_equal rule[:count], found[path],
+                   "#{path} has #{found[path]} bare text-violet uses, not #{rule[:count]}. If a NEW one is small text it owes " \
                    "text-violet-ink; if it is genuinely large type, bump the count here and say why."
     end
+  end
+
+  # THE EXEMPTION IS ABOUT THE SURFACE. Large type buys 3:1, not a pass — so
+  # every allow-listed line has to sit somewhere the brand violet reaches 3:1.
+  # Without this, the list is prose: seven lines were once exempted here citing
+  # the card's 3.10:1 while sitting in bg-surface-alt at 2.79:1, and because the
+  # exemption is a COUNT, fixing one of them would have reddened this suite and
+  # told the fixer to restore the number.
+  test "every allow-listed bare text-violet sits on a surface where the fill clears 3:1" do
+    large_text = 3.0
+
+    BARE_TEXT_VIOLET_ALLOWED.select { |_, rule| rule[:kind] == :large_text }.each_key do |path|
+      lines = bare_violet_lines(path)
+      assert_equal BARE_TEXT_VIOLET_ALLOWED[path][:count], lines.length,
+                   "#{path}: the line scan and the count must agree"
+
+      lines.each do |line|
+        surface = enclosing_surface(path, line)
+        assert surface, "#{path}:#{line} names no enclosing surface — resolve it rather than assuming the card"
+
+        %i[light dark].each do |mode|
+          fill = opaque(last_rule_for(".text-violet", "color")["color"], tokens(mode))
+          ground = grounds(mode).fetch(surface.to_s)
+          ratio = contrast(fill, ground)
+
+          assert_operator ratio, :>=, large_text,
+                          "#{path}:#{line} paints the brand fill on #{surface} (#{ground}) in the #{mode} theme, " \
+                          "where it is #{ratio.round(2)}:1 — under the #{large_text}:1 WCAG large-text floor. " \
+                          "Large type does not exempt a surface the fill cannot clear; use text-violet-ink."
+        end
+      end
+    end
+  end
+
+  # The OTHER kind. A graphical exemption is not a claim about a surface — it is
+  # a claim that the fill only ever paints where the theme can carry it. That is
+  # true here only because every use is `dark:`-scoped, and on the dark theme the
+  # brand clears 3:1 on all four surfaces. Assert BOTH halves: drop the `dark:`
+  # and this reds, which is the real failure mode (a light-theme dot at 2.79:1).
+  test "a graphical bare text-violet is dark-scoped, and the fill clears 3:1 there" do
+    BARE_TEXT_VIOLET_ALLOWED.select { |_, rule| rule[:kind] == :graphical }.each_key do |path|
+      File.readlines(Rails.root.join(path)).each_with_index do |text, i|
+        text.scan(/(\S*)text-violet(?![\w-])/) do |(prefix)|
+          assert_includes prefix, "dark:",
+                          "#{path}:#{i + 1} paints the brand fill unscoped — a graphical exemption only holds " \
+                          "where the theme can carry it, and the light theme cannot (2.79:1 on bg-surface-alt)"
+        end
+      end
+    end
+
+    fill = opaque(last_rule_for(".text-violet", "color")["color"], tokens(:dark))
+    SURFACES.each_key do |name|
+      assert_operator contrast(fill, grounds(:dark).fetch(name.to_s)), :>=, 3.0,
+                      "the dark #{name} no longer carries the brand fill at 3:1 — the graphical exemption is void"
+    end
+  end
+
+  # The control for the walk itself. A resolver that answered `card` for
+  # everything would pass the test above no matter what shipped, so prove it
+  # reads a real bg-surface-alt out of the file the finding came from.
+  test "control: the ancestor walk really finds bg-surface-alt" do
+    path = "app/views/pages/turf_totals_v1.html.erb"
+    resolved = File.readlines(Rails.root.join(path)).each_with_index.filter_map do |text, i|
+      enclosing_surface(path, i + 1, token: "text-violet-ink") if text.match?(/text-violet-ink/)
+    end
+
+    assert_includes resolved, :"surface-alt",
+                    "the walk found #{resolved.tally.inspect} — if it can no longer see bg-surface-alt, " \
+                    "the guard above is measuring the wrong ground for every line"
   end
 end

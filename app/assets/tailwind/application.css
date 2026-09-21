@@ -2038,7 +2038,7 @@ html:not(.dark) {
    --color-danger-ink / --color-success-ink: text colour is not fill colour.
 
    THE VALUES, both on the brand's own violet line, each tuned against its OWN
-   theme (a dark-theme ink is not a flip of the light one; #5B50CE is 2.25:1 on
+   theme (a dark-theme ink is not a flip of the light one; #5B50CE is 1.85:1 on
    the dark card and #C5C0FE is 1.70:1 on the light card, so neither can serve
    both):
 
