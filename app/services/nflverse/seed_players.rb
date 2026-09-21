@@ -145,7 +145,9 @@ class Nflverse::SeedPlayers
       return nil
     end
 
-    cache_headshot(athlete) if @upload_headshots && attrs[:espn_headshot_url]
+    # ASK THE ATHLETE, NOT THIS WRITE: `attrs` is excepted of every mastered
+    # column on a synced row, and headshot_url has no fallback. cache! is idempotent.
+    cache_headshot(athlete) if @upload_headshots && athlete.espn_headshot_url.present?
     athlete
   end
 

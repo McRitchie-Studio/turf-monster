@@ -4,7 +4,7 @@ require "test_helper"
 #
 # Every test here drives ingest_row directly with a hand-built CSV row rather
 # than the 7MB live feed, so the suite never touches the network. Headshot
-# caching is off throughout (it needs AWS and is covered by its own rake task).
+# caching is off except where a test stubs the uploader and says so.
 class Nflverse::SeedPlayersTest < ActiveSupport::TestCase
   # A row shaped like the real players.csv. Only the columns the importer reads
   # are present; the live file has ~40.
@@ -75,6 +75,25 @@ class Nflverse::SeedPlayersTest < ActiveSupport::TestCase
 
   # The control: on an UNSYNCED row the importer still owns everything, or the
   # deferral above would be indistinguishable from "never writes mastered".
+  # A synced athlete must still get its headshot cached: `attrs` is excepted of
+  # every mastered column there, so a condition read off it is always nil — and
+  # headshot_url has no fallback, so the miss renders as initials, permanently.
+  test "a SYNCED athlete still gets its headshot cached" do
+    person = Person.create!(first_name: "Rookie", last_name: "Newman")
+    synced = Athlete.new(person_slug: person.slug, sport: "football", gsis_id: "00-0099999")
+    synced.syncing = true
+    synced.espn_headshot_url = "https://a.espncdn.com/i/headshots/nfl/players/full/4099999.png"
+    synced.synced_at = Time.current
+    synced.save!
+    s = seeder                                         # set after construction so the
+    s.instance_variable_set(:@upload_headshots, true)  # AWS guard stays out of this test
+    cached = []
+    Studio::ImageCache.stub(:cache!, ->(**kw) { cached << kw[:owner].person_slug }) do
+      s.send(:ingest_row, row)
+    end
+    assert_equal [ person.slug ], cached, "a synced athlete's headshot must still be cached"
+  end
+
   test "an UNSYNCED athlete still receives every column, mastered included" do
     seeder.send(:ingest_row, row)
 
