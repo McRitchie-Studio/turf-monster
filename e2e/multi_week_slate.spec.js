@@ -3,6 +3,32 @@ const { loginAdmin, reseed } = require("./helpers");
 
 test.beforeEach(async ({ request }) => await reseed(request));
 
+// Write the Admin Formula's multiplier scale through the REAL form — the same
+// path an admin uses, and the same one the off-grid spec below exercises.
+//
+// A BLANK value clears the column: `params.permit` passes "" straight through
+// and ActiveRecord casts it to nil on the float column, which is the seeded
+// state (db/seeds.rb creates "Default" with no formula attributes at all).
+// Do NOT "restore" by typing back what the form displays — the field renders
+// `resolved[:formula_mult_scale]`, which is the 2.0 FALLBACK, not the stored
+// value. Saving that would leave every NFL slate resolving at 2.0 instead of
+// the sport-aware 1.0 it gets when nothing stores a scale: the same pollution,
+// one step quieter.
+async function saveDefaultMultScale(page, value) {
+  await page.goto("/slates/admin_formula");
+  await page.locator('input[name="formula_mult_scale"]').fill(value);
+  await page.locator('form button[type=submit], form input[type=submit]').first().click();
+  await page.waitForLoadState("networkidle");
+}
+
+// The scale the board is actually keyed on, read from the page's own seed
+// (`_fcSliders.multScale` = `price_key(@slate.resolved_formula[...])`). This is
+// the observable the Default slate's stored scale moves.
+async function boardMultScale(page, slug) {
+  await page.goto(`/slates/${slug}`);
+  return page.evaluate(() => (window._fcSliders || _fcSliders).multScale);
+}
+
 // A Slate is a POOL OF GAMES, not one NFL week. "NFL 2026 Weeks 1-3" holds three
 // games per team, and each team is ranked on its expected points PER GAME across
 // them — so the page must show 32 team rows, not 96 matchup rows. Seeded by
@@ -114,43 +140,74 @@ test.describe("multi-week slate page", () => {
   test("a scale saved off the slider's grid still prices every row", async ({ page }) => {
     await loginAdmin(page);
 
-    // The real path: type it into the admin formula field and save.
-    await page.goto("/slates/admin_formula");
-    const scale = page.locator('input[name="formula_mult_scale"]');
-    await scale.fill("2.3");
-    await page.locator('form button[type=submit], form input[type=submit]').first().click();
-    await page.waitForLoadState("networkidle");
+    try {
+      // The real path: type it into the admin formula field and save.
+      await saveDefaultMultScale(page, "2.3");
 
-    await page.goto("/slates/nfl-2026-weeks-1-3");
+      await page.goto("/slates/nfl-2026-weeks-1-3");
 
-    await expect(page.locator("div.sortable-item")).toHaveCount(32);
+      await expect(page.locator("div.sortable-item")).toHaveCount(32);
 
-    // The page seeds the SAVED scale, not a slider position — this is the value
-    // the lookup is about to be keyed on.
-    expect(await page.evaluate(() => (window._fcSliders || _fcSliders).multScale)).toBe(2.3);
+      // The page seeds the SAVED scale, not a slider position — this is the value
+      // the lookup is about to be keyed on.
+      expect(await page.evaluate(() => (window._fcSliders || _fcSliders).multScale)).toBe(2.3);
 
-    // Assert against the page's OWN lookup rather than the rendered text: until
-    // the slider is touched the board shows each matchup's STORED turf_score,
-    // so the text proves nothing about the table. `_fcMult` is what a drag
-    // calls, and what "Save Multipliers" then persists.
-    const priced = await page.evaluate(() => {
-      const rows = Array.from(document.querySelectorAll("div.sortable-item"));
-      return rows.map((row, index) =>
-        _fcMult(index + 1, rows.length, _fcSliders.multScale, parseFloat(row.dataset.gameFactor) || 1.0)
-      );
-    });
+      // Assert against the page's OWN lookup rather than the rendered text: until
+      // the slider is touched the board shows each matchup's STORED turf_score,
+      // so the text proves nothing about the table. `_fcMult` is what a drag
+      // calls, and what "Save Multipliers" then persists.
+      const priced = await page.evaluate(() => {
+        const rows = Array.from(document.querySelectorAll("div.sortable-item"));
+        return rows.map((row, index) =>
+          _fcMult(index + 1, rows.length, _fcSliders.multScale, parseFloat(row.dataset.gameFactor) || 1.0)
+        );
+      });
 
-    // Before the fix every one of these was null: no "2.3" row existed, so the
-    // board would have saved each team's old price against its new rank.
-    expect(priced).toHaveLength(32);
-    expect(priced.filter((price) => price === null || price === undefined)).toEqual([]);
+      // Before the fix every one of these was null: no "2.3" row existed, so the
+      // board would have saved each team's old price against its new rank.
+      expect(priced).toHaveLength(32);
+      expect(priced.filter((price) => price === null || price === undefined)).toEqual([]);
 
-    // And every one is the number Ruby computed for 2.3.
-    const table = await page.evaluate(() => window._fcPrices || _fcPrices);
-    expect(Object.keys(table)).toContain("2.3");
-    priced.forEach((price, index) => {
-      expect(price).toBe(table["2.3"]["1.0"][index]);
-    });
+      // And every one is the number Ruby computed for 2.3.
+      const table = await page.evaluate(() => window._fcPrices || _fcPrices);
+      expect(Object.keys(table)).toContain("2.3");
+      priced.forEach((price, index) => {
+        expect(price).toBe(table["2.3"]["1.0"][index]);
+      });
+    } finally {
+      // PUT THE GLOBAL DEFAULT SLATE BACK. 2.3 is saved on the ONE "Default"
+      // row every other slate falls back through (Slate#resolved_formula), and
+      // `reseed` does not touch that record — so without this, every slate spec
+      // ordered after this file inherits a scale nobody set. It is not confined
+      // to the Default row either: with 2.3 stored there, an NFL slate that
+      // stores no scale of its own resolves 2.3 instead of 1.0, because the
+      // sport-aware fallback only fires while BOTH are unset.
+      //
+      // In `finally`, so a failed assertion above still hands the next spec a
+      // clean board. The restore is ASSERTED by the test that follows, not
+      // here — an expect() in this block would mask the real failure.
+      await saveDefaultMultScale(page, "");
+    }
+  });
+
+  // THE PROOF THAT THE RESTORE ABOVE ACTUALLY RAN — ordered immediately after
+  // it, reading the same observable the save moved.
+  //
+  // 1.0 is the seeded answer for an NFL board: neither the slate nor the
+  // "Default" row stores a `formula_mult_scale`, so `Slate#resolved_formula`
+  // takes its sport-aware branch (NFL tops out at x2.0 on a base of 1.0) rather
+  // than FORMULA_DEFAULTS' fifa value of 2.0. Reading 2.3 here means the spec
+  // above leaked; reading 2.0 would mean someone "restored" it by typing back
+  // the number the admin form displays, which is the resolved fallback and not
+  // the stored value.
+  //
+  // `reseed` in beforeEach cannot cover for this — it clears caches, throttles,
+  // OmniAuth mocks, users and entries, and touches no Slate row. So this test
+  // is only green because the spec above cleaned up after itself.
+  test("the off-grid scale is handed back, not left on the Default slate", async ({ page }) => {
+    await loginAdmin(page);
+
+    expect(await boardMultScale(page, "nfl-2026-weeks-1-3")).toBe(1.0);
   });
 
   test("a single-week slate still renders one row per team", async ({ page }) => {
