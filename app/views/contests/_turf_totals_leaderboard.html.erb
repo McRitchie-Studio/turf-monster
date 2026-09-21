@@ -255,7 +255,7 @@
                     in /admin/pending_transactions). Winners' UserAccount.balance
                     is credited on settle; they withdraw via /wallet themselves. %>
                 <div data-role="entry-score"
-                     class="font-mono font-bold text-lg text-right flex-shrink-0 <%= rank_prize.to_i > 0 ? '' : 'ml-auto' %> <%= dimmed ? 'text-muted' : 'text-violet' %>"
+                     class="font-mono font-bold text-lg text-right flex-shrink-0 <%= rank_prize.to_i > 0 ? '' : 'ml-auto' %> <%= dimmed ? 'text-muted' : 'text-violet-ink' %>"
                      style="min-width:3.5rem"><%= sprintf('%.1f', entry.score) %></div>
               </div>
             <%# Selections — stacked on mobile (tap to expand 3×2), inline on desktop.

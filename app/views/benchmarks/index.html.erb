@@ -73,7 +73,7 @@
         <span class="font-semibold text-heading">Two lines.</span>
         A team with its bye inside these weeks plays <%= @slate.games_per_team - 1 %> games, not <%= @slate.games_per_team %>.
         It is ranked on points per game with everyone else, then priced on the bye line &mdash; the same curve
-        <span class="font-mono text-violet">&times; <%= number_with_precision(Slate.game_factor(@slate.games_per_team, @slate.games_per_team - 1), precision: 1) %></span>
+        <span class="font-mono text-violet-ink">&times; <%= number_with_precision(Slate.game_factor(@slate.games_per_team, @slate.games_per_team - 1), precision: 1) %></span>
         &mdash; so a bye neither helps nor hurts a pick.
       </p>
     <% end %>
@@ -100,13 +100,13 @@
             <td class="px-3 py-3">
               <span class="text-heading font-semibold"><%= row.team.emoji %> <%= row.team.name %></span>
               <% if row.game_factor > 1 %>
-                <span class="ml-1 text-xs font-semibold text-violet whitespace-nowrap" data-testid="benchmarks-bye-badge">bye line</span>
+                <span class="ml-1 text-xs font-semibold text-violet-ink whitespace-nowrap" data-testid="benchmarks-bye-badge">bye line</span>
               <% end %>
             </td>
             <td class="px-3 py-3 text-right font-mono text-secondary"><%= row.matchups.size %></td>
             <td class="px-3 py-3 text-right font-mono text-secondary"><%= sprintf("%.1f", row.expected_points_per_game) %></td>
             <td class="px-3 py-3 text-right font-mono text-muted"><%= sprintf("%.1f", row.expected_points) %></td>
-            <td class="px-3 py-3 text-right font-mono font-bold text-violet">
+            <td class="px-3 py-3 text-right font-mono font-bold text-violet-ink">
               <%# One decimal, like the rules page's curve cards: down a column,
                   "1.5x / 2x" reads as two unrelated numbers where "1.5x / 2.0x"
                   reads as a scale. %>

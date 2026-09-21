@@ -52,7 +52,7 @@
             <td class="px-3 py-3 text-secondary truncate max-w-[14rem]"><%= u.email || "—" %></td>
             <td class="px-3 py-3">
               <% if u.phantom_wallet? %>
-                <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-violet/10 text-violet">PHANTOM</span>
+                <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-violet/10 text-violet-ink">PHANTOM</span>
               <% elsif u.managed_wallet? %>
                 <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-surface-alt text-muted">MANAGED</span>
               <% else %>

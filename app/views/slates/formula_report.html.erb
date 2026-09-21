@@ -412,7 +412,7 @@
           <h2 class="text-lg font-bold text-heading"><%= f[:label] %></h2>
         </div>
 
-        <div class="bg-inset border border-subtle rounded-lg px-4 py-2 mb-3 font-mono text-sm text-violet">
+        <div class="bg-inset border border-subtle rounded-lg px-4 py-2 mb-3 font-mono text-sm text-violet-ink">
           <%= f[:formula] %>
         </div>
 
@@ -444,7 +444,7 @@
                   <td class="px-3 py-2 text-right text-secondary font-mono"><%= m[:line] %></td>
                   <td class="px-3 py-2 text-right text-secondary font-mono"><%= m[:over_odds] > 0 ? "+#{m[:over_odds]}" : m[:over_odds] %></td>
                   <td class="px-3 py-2 text-right text-secondary font-mono"><%= sprintf('%.0f%%', m[:prob] * 100) %></td>
-                  <td class="px-4 py-2 text-right text-violet font-mono font-bold"><%= sprintf('%.2f', m[f[:key]]) %></td>
+                  <td class="px-4 py-2 text-right text-violet-ink font-mono font-bold"><%= sprintf('%.2f', m[f[:key]]) %></td>
                 </tr>
               <% end %>
             </tbody>
@@ -477,8 +477,8 @@
     <h2 class="text-lg font-bold text-heading mb-3">Implied Probability Conversion</h2>
     <div class="bg-surface border border-subtle rounded-lg px-4 py-3">
       <div class="font-mono text-sm text-secondary space-y-1">
-        <p>Negative odds: <span class="text-violet">prob = |odds| / (|odds| + 100)</span></p>
-        <p>Positive odds: <span class="text-violet">prob = 100 / (odds + 100)</span></p>
+        <p>Negative odds: <span class="text-violet-ink">prob = |odds| / (|odds| + 100)</span></p>
+        <p>Positive odds: <span class="text-violet-ink">prob = 100 / (odds + 100)</span></p>
       </div>
       <p class="text-muted text-xs mt-3">
         Example: -140 → 140/240 = 58.3% · +160 → 100/260 = 38.5%
@@ -495,7 +495,7 @@
 
     <!-- Controls -->
     <div class="bg-surface border border-subtle rounded-lg p-4 mb-6 space-y-4">
-      <div class="bg-inset border border-subtle rounded-lg px-4 py-2 font-mono text-sm text-violet">
+      <div class="bg-inset border border-subtle rounded-lg px-4 py-2 font-mono text-sm text-violet-ink">
         <span x-text="formulaDisplay"></span>
       </div>
 
@@ -503,7 +503,7 @@
       <div>
         <div class="flex items-center justify-between mb-1">
           <label class="text-sm font-medium text-heading">A <span class="text-muted font-normal">(coefficient)</span></label>
-          <span class="font-mono text-sm text-violet" x-text="A.toFixed(2)"></span>
+          <span class="font-mono text-sm text-violet-ink" x-text="A.toFixed(2)"></span>
         </div>
         <input type="range" min="0.1" max="5.0" step="0.01" x-model.number="A" @input="refresh()"
                class="w-full" style="accent-color: #8E82FE;">
@@ -513,7 +513,7 @@
       <div>
         <div class="flex items-center justify-between mb-1">
           <label class="text-sm font-medium text-heading">Line exponent</label>
-          <span class="font-mono text-sm text-violet" x-text="lineExp.toFixed(2)"></span>
+          <span class="font-mono text-sm text-violet-ink" x-text="lineExp.toFixed(2)"></span>
         </div>
         <input type="range" min="0.0" max="3.0" step="0.01" x-model.number="lineExp" @input="refresh()"
                class="w-full" style="accent-color: #8E82FE;">
@@ -523,7 +523,7 @@
       <div>
         <div class="flex items-center justify-between mb-1">
           <label class="text-sm font-medium text-heading">Prob exponent</label>
-          <span class="font-mono text-sm text-violet" x-text="probExp.toFixed(2)"></span>
+          <span class="font-mono text-sm text-violet-ink" x-text="probExp.toFixed(2)"></span>
         </div>
         <input type="range" min="0.0" max="3.0" step="0.01" x-model.number="probExp" @input="refresh()"
                class="w-full" style="accent-color: #8E82FE;">
@@ -560,7 +560,7 @@
               </td>
               <td class="px-3 py-2 text-right text-secondary font-mono" x-text="row.line"></td>
               <td class="px-3 py-2 text-right text-secondary font-mono" x-text="Math.round(row.prob * 100) + '%'"></td>
-              <td class="px-3 py-2 text-right font-mono font-bold text-violet" x-text="row.score.toFixed(2)"></td>
+              <td class="px-3 py-2 text-right font-mono font-bold text-violet-ink" x-text="row.score.toFixed(2)"></td>
               <td class="px-3 py-2 text-right text-primary font-mono" x-text="'x' + row.mult.toFixed(1)"></td>
               <td class="px-3 py-2 text-right font-mono font-bold text-primary" x-text="row.pts1g.toFixed(2)"></td>
               <td class="px-4 py-2 text-right font-mono text-mint" x-text="row.goal.toFixed(2)"></td>

@@ -48,7 +48,7 @@
         <% if @user.managed_wallet? %>
           <span class="text-xs text-muted px-2 py-0.5 rounded bg-surface-alt">Managed</span>
         <% else %>
-          <span class="text-xs text-violet px-2 py-0.5 rounded bg-violet/10">Phantom</span>
+          <span class="text-xs text-violet-ink px-2 py-0.5 rounded bg-violet/10">Phantom</span>
         <% end %>
       </div>
       <% if Solana::Config.devnet? %>
@@ -160,7 +160,7 @@
           class: "btn bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 border border-yellow-600/50" %>
         <% if @user.solana_connected? %>
           <%= button_to "Airdrop 1 SOL", airdrop_wallet_path, method: :post,
-            class: "btn bg-violet/20 hover:bg-violet/30 text-violet border border-violet/50" %>
+            class: "btn bg-violet/20 hover:bg-violet/30 text-violet-ink border border-violet/50" %>
         <% end %>
       </div>
       <p class="text-xs text-muted mt-2">Test USDC is added to your app balance only. SOL airdrop sends real devnet SOL for transaction fees.</p>

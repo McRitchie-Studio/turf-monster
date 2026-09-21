@@ -170,7 +170,7 @@
             <% end %>
             <span class="text-muted text-xs font-mono">r² <%= fit.r_squared %> · rmse <%= fit.rmse %></span>
           </div>
-          <div class="font-mono text-sm text-violet"><%= fit.formula(nfl.team_count) %></div>
+          <div class="font-mono text-sm text-violet-ink"><%= fit.formula(nfl.team_count) %></div>
         </div>
       <% end %>
     </div>
@@ -194,7 +194,7 @@
             <% rank = index + 1 %>
             <tr class="border-b border-subtle last:border-0">
               <td class="px-2 py-2 text-right text-muted font-mono text-xs"><%= rank %></td>
-              <td class="px-3 py-2 text-right font-mono font-bold text-violet"><%= sprintf('%.2f', actual) %></td>
+              <td class="px-3 py-2 text-right font-mono font-bold text-violet-ink"><%= sprintf('%.2f', actual) %></td>
               <td class="px-3 py-2 text-right text-secondary font-mono"><%= sprintf('%.2f', nfl_linear.expected_points_for(rank, nfl.team_count)) %></td>
               <td class="px-4 py-2 text-right text-secondary font-mono"><%= sprintf('%.2f', nfl_log.expected_points_for(rank, nfl.team_count)) %></td>
             </tr>
@@ -206,7 +206,7 @@
     <div class="bg-surface border border-subtle rounded-lg p-8 text-center">
       <p class="text-heading font-medium mb-1">Historical dataset not available</p>
       <p class="text-secondary text-sm">
-        Refresh it with <span class="font-mono text-violet">bin/rails nfl:fetch_historical_scores</span>,
+        Refresh it with <span class="font-mono text-violet-ink">bin/rails nfl:fetch_historical_scores</span>,
         then reload this page.
       </p>
     </div>
