@@ -66,11 +66,17 @@ DEMO_ATHLETES.each do |first, last, team_slug, position, jersey, height, weight,
     created += 1
   end
 
-  athlete.assign_attributes(
-    sport: "football", team_slug: team_slug, position: position,
-    jersey_number: jersey, height_inches: height, weight_lbs: weight,
-    gsis_id: gsis_id, college_name: college
-  )
+  # Same deferral as the importer: on a SYNCED athlete the master owns
+  # sport/team_slug/position/height/weight/gsis_id, and assigning them makes the
+  # write-guard refuse the whole save — taking jersey_number and college_name,
+  # which are ours, down with it. Measured: RAISED ReadOnlyRecord (attempted:
+  # height_inches, position, team_slug, weight_lbs).
+  demo_attrs = { sport: "football", team_slug: team_slug, position: position,
+                 jersey_number: jersey, height_inches: height, weight_lbs: weight,
+                 gsis_id: gsis_id, college_name: college }
+  demo_attrs = demo_attrs.except(*Athlete::STUDIO_MASTERED.map(&:to_sym)) if athlete.synced_at.present?
+
+  athlete.assign_attributes(demo_attrs)
   athlete.save!
 end
 
