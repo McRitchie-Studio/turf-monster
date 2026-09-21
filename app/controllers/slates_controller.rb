@@ -230,9 +230,13 @@ class SlatesController < ApplicationController
   # 2,532 — a real run of the first 48 soccer teams ALPHABETICALLY, which is not
   # a slate — and then 2,511, which was that roster under the label "x1.0-x3.0",
   # a label the code cannot emit: `price_band`'s `top` is at least
-  # SLIDER_SCALES.max, so the ceiling is at least x11.0 on any slate that has
-  # teams at all. Both real slates above therefore carry the SAME label, which
-  # is why 2,559 and 1,994 differ by their rosters and nothing else.
+  # SLIDER_SCALES.max, so the ceiling is at least x11.0 on any slate with
+  # n >= 2 teams. (Measured: teams=0 and teams=1 both band x1.0-x1.0, because
+  # turf_score_for returns early at n <= 1; teams=2 is the first x1.0-x11.0.
+  # That boundary is a NUMBER, and this clause took three passes to say so —
+  # "always", then "any slate that has teams", then n >= 2.) Both real slates
+  # above therefore carry the SAME label, which is why 2,559 and 1,994 differ by
+  # their rosters and nothing else.
   #
   # The figure is not the argument. It only has to be a large fraction of 4,096
   # for the rest of the session to decide the outcome.

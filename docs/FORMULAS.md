@@ -148,8 +148,9 @@ with every row refused, each under the band its own `admin_price_band` emits:
 the roster and the band — a figure whose construction is unstated is not
 reproducible, and an earlier revision of this line quoted a roster that was not
 a slate and then a band label the code cannot emit (`price_band`'s `top` is at
-least `SLIDER_SCALES.max`, so the ceiling is at least `x11.0` on any slate that
-has teams). Neither exceeds 4096 alone, which is exactly why it was latent — the
+least `SLIDER_SCALES.max`, so the ceiling is at least `x11.0` on any slate with
+**n ≥ 2** teams — `turf_score_for` returns early at `n <= 1`, so a zero- or
+one-team slate bands at `x1.0-x1.0`). Neither exceeds 4096 alone, which is exactly why it was latent — the
 alert is only part of the session, so it 500s for an admin whose session is
 already full and not for one who just signed in. The controller now names the
 first three teams and appends `and N more.`, bounded by BYTES as well as by
@@ -190,8 +191,14 @@ scale BELOW the grid cannot narrow the band; the slider is still on the page.
 **A row that already holds an out-of-range scale becomes unsaveable by any
 writer** — `save` returns false with an error about a column the writer never
 touched. No validated path can create one; only `update_column`, raw SQL or a
-restored backup can. Clear it (`update_all(formula_mult_scale: nil)`) rather
-than loosening the rule.
+restored backup can. Clear **only the out-of-range rows** rather than loosening
+the rule — an unscoped `update_all` takes every legitimately configured scale
+with it:
+
+```ruby
+Slate.where("formula_mult_scale < 0 OR formula_mult_scale > ?", SlateMatchup::SLIDER_SCALES.max)
+     .update_all(formula_mult_scale: nil)
+```
 
 The FLOOR is not a judgment call. Every price the curve can emit is
 `(1.0 + scale * curve) * game_factor` with `scale >= 0`, `curve >= 0` and

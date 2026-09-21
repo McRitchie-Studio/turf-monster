@@ -149,12 +149,12 @@ arena (`:191`); status defaults to `scheduled` (`:193`). Idempotent via
 `NFL <year> Week <n>` (`:199`) and writes `week` as a real column (`:203`).
 
 **`slates` carries `sport` and `year` COLUMNS (`slates-sport-year`, DONE).** `Slate#sport`
-(`app/models/slate.rb:372-376`) and `Slate#season_year` (`:110-114`) read the column, falling
+(`app/models/slate.rb:376-380`) and `Slate#season_year` (`:114-118`) read the column, falling
 back to the name only for a row written before the migration — `Slate#sport_from_name`
-(`:381-383`) and `Slate#year_from_name` (`:387-389`) are those fallback helpers, not the
+(`:385-387`) and `Slate#year_from_name` (`:391-393`) are those fallback helpers, not the
 primary source. Neither `ensure_slate!` sets the columns: `Slate`'s `before_validation`
 derives both from the name for every writer through `Slate#derive_sport_and_year_from_name`
-(`:449-453`), so a missed assignment can no longer leave a column null — and
+(`:453-457`), so a missed assignment can no longer leave a column null — and
 `Nfl::BuildSpanSlate#ensure_slate!` says so in its own comment
 (`app/services/nfl/build_span_slate.rb:112-115`). Every span lookup then scopes by the
 columns: `Nfl::BuildSpanSlate#source_slates` runs
@@ -176,12 +176,12 @@ never came from DK, so it was renamed from the misnomer `dk_goals_expectation` u
 
 ### 5. Rank by TEAM — ✅ LIVE
 
-`Slate#team_rankings` (`app/models/slate.rb:231-254`), reading `Slate#matchups_by_team`
-(`:154-158`). `Slate#expected_points_by_team` (`:161-165`) still sums a team's games — the
+`Slate#team_rankings` (`app/models/slate.rb:235-258`), reading `Slate#matchups_by_team`
+(`:158-162`). `Slate#expected_points_by_team` (`:165-169`) still sums a team's games — the
 total the page shows — but the rank does not read it.
 
 **A team is ranked on its expected score PER GAME across the slate**
-(`Slate.expected_points_per_game`, `:197-201`), not per row and not on the summed total. A
+(`Slate.expected_points_per_game`, `:201-205`), not per row and not on the summed total. A
 three-week span ranks 32 teams, not 96 rows. Per game is what lets a team with its bye
 inside the span (two games, not three) rank on its strength instead of sinking to the
 bottom — on the 2026 weeks 4-6 board the summed total put all six bye teams at ranks
@@ -190,7 +190,7 @@ bye such as weeks 1-3), per-game order IS summed order, so those slates rank exa
 before.
 
 Tie-break is earliest kickoff, then team name — the sort key inside `Slate#team_rankings`
-(`app/models/slate.rb:236-242`). Do not change it: it mirrors the per-row ordering it
+(`app/models/slate.rb:240-246`). Do not change it: it mirrors the per-row ordering it
 replaced, so a one-week slate ranks identically to before.
 
 **The kickoff key is the ACTIVE discriminator, not a dormant one.**
@@ -200,13 +200,13 @@ teams tied on expected score are separated by kickoff *before* the name is ever 
 so changing the key re-prices tied teams on every existing slate.
 
 The comment above `Slate#team_rankings` records the same measurement — cited deliberately,
-since the measurement — and the retraction of an earlier claim that NFL games carry no `kickoff_at` — lives in the comment (`app/models/slate.rb:225-230`) — so doc and
+since the measurement — and the retraction of an earlier claim that NFL games carry no `kickoff_at` — lives in the comment (`app/models/slate.rb:229-234`) — so doc and
 code now agree: the kickoff key is the active discriminator, not a dormant one.
 
 ### 6. Freeze the multiplier — ✅ LIVE
 
 `Slate#team_rankings` calls `SlateMatchup.turf_score_for(rank, n, sport:, game_factor:)` at
-`app/models/slate.rb:237`; the curve itself is `SlateMatchup.turf_score_for`
+`app/models/slate.rb:241`; the curve itself is `SlateMatchup.turf_score_for`
 (`app/models/slate_matchup.rb:69-75`):
 
 | Sport | Curve | Top |
@@ -215,7 +215,7 @@ code now agree: the kickoff key is the active discriminator, not a dormant one.
 | `fifa` | `1.0 + 2.0 * ln(rank)/ln(n)` — log decay | x3.0 |
 
 **Two lines on a span with a bye.** The curve is scaled by `game_factor`, which
-`Slate.game_factor` (`app/models/slate.rb:189-193`) sets to `span_games / games`: 1.0 for a
+`Slate.game_factor` (`app/models/slate.rb:193-197`) sets to `span_games / games`: 1.0 for a
 team that plays the whole span, 1.5 for a team with its bye inside a three-week span. So
 full-span teams price x1.0-x2.0 exactly as before, and bye teams ride the **bye line**,
 x1.5-x3.0, off the SAME per-game ranking. The factor is what keeps a bye EV-neutral: two
@@ -223,8 +223,8 @@ games at 1.5m score what three games at m do, for the same points per game. It i
 before the one rounding, so a bye price is never a rounded price scaled.
 
 Rank 1 on the full-span line always prices **x1.0**; `Slate#resolved_formula` pins `formula_mult_base` to `1.0`
-rather than reading a stored slider (`app/models/slate.rb:125-127`), and defaults the NFL
-scale to `1.0` so the curve tops out at x2.0 (`:131-134`). The NFL curve is linear because
+rather than reading a stored slider (`app/models/slate.rb:129-131`), and defaults the NFL
+scale to `1.0` so the curve tops out at x2.0 (`:135-138`). The NFL curve is linear because
 it was measured that way:
 `Nfl::PointsDistribution` computes the fit dynamically from the checked-in ESPN dataset,
 and the 2023–25 snapshot is written down at `docs/FORMULAS.md:28` — linear **r² 0.9583**
@@ -314,7 +314,7 @@ is `nfl_team_total_projections` today.
   `year` + `sport` + `season_type` column scope in `Nfl::BuildSpanSlate#source_slates`
   (`app/services/nfl/build_span_slate.rb:92`), which `slates-sport-year` put in place of the
   old `name LIKE`.
-- **Slate built but never ranked** — `Slate#team_rows` (`app/models/slate.rb:278-299`)
+- **Slate built but never ranked** — `Slate#team_rows` (`app/models/slate.rb:282-303`)
   falls back to a computed ranking when nothing is stored, so the page still renders in a
   sane order.
   It is a fallback, not a price: nothing settles off it.

@@ -26,9 +26,13 @@ class Slate < ApplicationRecord
   # status flip, anything — `save` returns false with "Formula mult scale must
   # be less than or equal to 10.0", an error about a column the writer never
   # touched. No validated path can create such a row; only `update_column`, raw
-  # SQL or a restored backup can. If one appears, clear it —
-  # `Slate.where.not(formula_mult_scale: nil).update_all(formula_mult_scale: nil)`
-  # — rather than loosening this. (Observed 2026-09-21: prod 35 slates and QA 34,
+  # SQL or a restored backup can. If one appears, clear ONLY the out-of-range
+  # rows rather than loosening this — the unscoped form takes every legitimately
+  # configured scale with it:
+  #
+  #   Slate.where("formula_mult_scale < 0 OR formula_mult_scale > ?",
+  #               SlateMatchup::SLIDER_SCALES.max)
+  #        .update_all(formula_mult_scale: nil) (Observed 2026-09-21: prod 35 slates and QA 34,
   # `formula_mult_scale` non-null on ZERO of them. That is a dated observation,
   # not the reason the rule is safe.)
   validates :formula_mult_scale,
