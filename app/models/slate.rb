@@ -20,6 +20,17 @@ class Slate < ApplicationRecord
   # board would draw and the server would then refuse, or one that prices teams
   # below x1.0 outright. Bounded HERE rather than only on the field, because the
   # field is a hint and this is the rule: a direct PATCH reaches the column too.
+  #
+  # THE SHARP EDGE, stated causally rather than by calendar: a row that ALREADY
+  # holds an out-of-range scale becomes unsaveable by ANY writer. A rename, a
+  # status flip, anything — `save` returns false with "Formula mult scale must
+  # be less than or equal to 10.0", an error about a column the writer never
+  # touched. No validated path can create such a row; only `update_column`, raw
+  # SQL or a restored backup can. If one appears, clear it —
+  # `Slate.where.not(formula_mult_scale: nil).update_all(formula_mult_scale: nil)`
+  # — rather than loosening this. (Observed 2026-09-21: prod 35 slates and QA 34,
+  # `formula_mult_scale` non-null on ZERO of them. That is a dated observation,
+  # not the reason the rule is safe.)
   validates :formula_mult_scale,
             numericality: {
               greater_than_or_equal_to: 0,

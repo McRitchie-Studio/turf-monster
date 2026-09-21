@@ -141,13 +141,15 @@ half-written board is worse than a refusal.
 tidiness.** The flash is serialized into the session cookie, which
 ActionDispatch caps at 4096 bytes and raises `CookieOverflow` past — from
 middleware, AFTER the action returns, where `update_turf_scores`' own
-`rescue StandardError` cannot see it. Measured against the seeded rosters with
-every row refused: the real 48-team World Cup slate produces a **2,511**-byte
-alert under the band label `x1.0-x3.0`, and the 32-team NFL roster **1,994**
-under `x1.0-x11.0`. The label is part of the measurement — each refusal sentence
-carries it, so one extra character is +48 bytes on a 48-team board, which is why
-two independent measurements of "the 48-team case" came back 2,511 and 2,559.
-Neither exceeds 4096 alone, which is exactly why it was latent — the
+`rescue StandardError` cannot see it. Measured against the real seeded slates
+with every row refused, each under the band its own `admin_price_band` emits:
+**World Cup 2026 Group 1** (48 teams, `x1.0-x11.0`) gives **2,559** bytes, and
+**NFL 2026 Preseason Week 4** (32 teams, the same band) gives **1,994**. Name
+the roster and the band — a figure whose construction is unstated is not
+reproducible, and an earlier revision of this line quoted a roster that was not
+a slate and then a band label the code cannot emit (`price_band`'s `top` is at
+least `SLIDER_SCALES.max`, so the ceiling is at least `x11.0` on any slate that
+has teams). Neither exceeds 4096 alone, which is exactly why it was latent — the
 alert is only part of the session, so it 500s for an admin whose session is
 already full and not for one who just signed in. The controller now names the
 first three teams and appends `and N more.`, bounded by BYTES as well as by
@@ -184,6 +186,12 @@ of 32 outside — every one of them a price the operator's own screen had just
 drawn. Nothing in production reaches it (`formula_mult_scale` is NULL on every
 slate today), so it was a latent contradiction rather than an outage. A resolved
 scale BELOW the grid cannot narrow the band; the slider is still on the page.
+
+**A row that already holds an out-of-range scale becomes unsaveable by any
+writer** — `save` returns false with an error about a column the writer never
+touched. No validated path can create one; only `update_column`, raw SQL or a
+restored backup can. Clear it (`update_all(formula_mult_scale: nil)`) rather
+than loosening the rule.
 
 The FLOOR is not a judgment call. Every price the curve can emit is
 `(1.0 + scale * curve) * game_factor` with `scale >= 0`, `curve >= 0` and

@@ -218,20 +218,24 @@ class SlatesController < ApplicationController
   # instead of being told which price was refused, which is acceptance criterion
   # 3 of this task failing on a slate shape that exists in production.
   #
-  # It is not hypothetical and it is not all-or-nothing. Measured here against
-  # the seeded rosters, every row refused:
+  # It is not hypothetical and it is not all-or-nothing. Measured against the
+  # real seeded slates, every row refused, each under the band ITS OWN
+  # admin_price_band emits:
   #
-  #   the real 48-team World Cup slate, band label "x1.0-x3.0"  -> 2,511 bytes
-  #   the 32-team NFL roster, band label "x1.0-x11.0"           -> 1,994 bytes
+  #   World Cup 2026 Group 1, 48 teams, band x1.0-x11.0  -> 2,559 bytes
+  #   NFL 2026 Preseason Week 4, 32 teams, same band     -> 1,994 bytes
   #
-  # THE BAND LABEL IS PART OF THE MEASUREMENT, and naming it is not pedantry:
-  # every refusal sentence carries the label, so one extra character in it is
-  # +48 bytes on a 48-team board. Two people measuring "the 48-team case" this
-  # week got 2,511 and 2,559 for exactly that reason, and an earlier revision of
-  # this comment printed 2,532 — a real run of the first 48 soccer teams
-  # ALPHABETICALLY, which is not a slate. The figure is not the argument; it
-  # only has to be a large fraction of 4,096 for the rest of the session to
-  # decide the outcome.
+  # NAME THE ROSTER AND THE BAND, because a figure whose construction is
+  # unstated is not reproducible. An earlier revision of this comment printed
+  # 2,532 — a real run of the first 48 soccer teams ALPHABETICALLY, which is not
+  # a slate — and then 2,511, which was that roster under the label "x1.0-x3.0",
+  # a label the code cannot emit: `price_band`'s `top` is at least
+  # SLIDER_SCALES.max, so the ceiling is at least x11.0 on any slate that has
+  # teams at all. Both real slates above therefore carry the SAME label, which
+  # is why 2,559 and 1,994 differ by their rosters and nothing else.
+  #
+  # The figure is not the argument. It only has to be a large fraction of 4,096
+  # for the rest of the session to decide the outcome.
   #
   # Neither exceeds 4,096 on its own, and that is exactly what made this latent:
   # the alert is only PART of the session, so whether it overflows depends on how
