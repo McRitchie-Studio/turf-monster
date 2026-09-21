@@ -1810,7 +1810,9 @@ html.dark { --rx-fill: 0 0 0; }
    properties (verified in app/assets/builds/tailwind.css: text-mint resolves to
    #06d6a0, text-violet to #8e82fe). A var() here would resolve to nothing and
    the ribbon would render transparent. These two are the palette's mint-500 and
-   violet DEFAULT.
+   violet DEFAULT. (That `text-violet` reading is about how the palette COMPILES,
+   not a pattern to copy: small violet text reads var(--color-violet-ink), the
+   ink declared at the foot of this file.)
 
    Navy (#1A1535) is the text on both fills rather than white: on mint-500 white
    measures 2.56:1 — below AA and the same trap the bg-primary guard at the foot
