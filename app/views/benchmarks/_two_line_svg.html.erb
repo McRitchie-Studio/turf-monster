@@ -37,9 +37,8 @@
     is driven out). The count grows linearly with the column:
     precision 4 would give 4001, precision 6 would give 400001. So a migration
     widening that column, not an edit here, is what could turn this public and
-    uncached page into a hang. Do not clamp here: nothing clamps turf_score
-    today, and if an explicit bound is ever wanted it belongs on the admin
-    write that stores the price, not on this render. %>
+    uncached page into a hang. Do not clamp here: a bound on the price
+    belongs on the admin write that stores it, not on this render. %>
 <% gridlines = (first_tick..(y_max * 10).round).step(5).map { |tenth| tenth / 10.0 } %>
 <% rank_ticks = (compact ? [1, (teams / 2.0).round, teams] : [1, (teams / 4.0).round, (teams / 2.0).round, (teams * 0.75).round, teams]).uniq %>
 
