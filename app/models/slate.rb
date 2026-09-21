@@ -275,6 +275,18 @@ class Slate < ApplicationRecord
     rows.sort_by { |row| row.rank || Float::INFINITY }
   end
 
+  # The band SlatesController#update_turf_scores will accept for this slate — the
+  # widest price this slate's own admin board can display. Derived from the
+  # slate's OWN lines, so a span with a bye in it gets the wider ceiling its
+  # two-game line legitimately reaches, and a one-week slate does not.
+  #
+  # Which side of the override question this lands on, and why, is written out on
+  # SlateMatchup.price_band.
+  def admin_price_band(by_team = matchups_by_team)
+    SlateMatchup.price_band(teams: by_team.size, sport: sport,
+                            game_factors: game_factors(by_team).values)
+  end
+
   # True when any team plays more than once here — i.e. the slate spans weeks.
   def multi_game_per_team?
     matchups_by_team.any? { |_team_slug, matchups| matchups.size > 1 }

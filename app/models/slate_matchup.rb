@@ -17,6 +17,16 @@ class SlateMatchup < ApplicationRecord
   # Rails generates `game_slug IS NULL` here and catches that case.
   validates :team_slug, uniqueness: { scope: [:slate_id, :game_slug] }
 
+  # Defense in depth, and deliberately only the FLOOR. Every writer that goes
+  # through `update!` prices off `.turf_score_for`, which cannot emit below x1.0
+  # (see .price_band) — so this can only ever catch a mistake.
+  #
+  # It is NOT the fix for the admin board: `update_all` skips validations by
+  # construction, which is exactly why SlatesController#update_turf_scores checks
+  # the band itself before writing. Read this as the net under the OTHER writers,
+  # never as the reason that endpoint is safe.
+  validates :turf_score, numericality: { greater_than_or_equal_to: 1.0 }, allow_nil: true
+
   scope :ranked, -> { order(:rank) }
   scope :pending, -> { where(status: "pending") }
   scope :completed, -> { where(status: "completed") }
@@ -58,6 +68,81 @@ class SlateMatchup < ApplicationRecord
     nfl = sport.to_s == "nfl"
     curve = nfl ? (rank - 1).to_f / (n - 1) : Math.log(rank) / Math.log(n)
     ((1.0 + (scale || (nfl ? 1.0 : 2.0)) * curve) * game_factor).round(1)
+  end
+
+  # The scale positions the admin board's slider offers — `min="0" max="10"
+  # step="0.5"` on slates/show.html.erb. It lives HERE, beside the curve it
+  # parameterizes, because THREE things now have to agree on it: the slider, the
+  # price table the page looks each row up in (SlatesHelper#turf_score_scale_table),
+  # and the band the server accepts back (.price_band below). A second copy is a
+  # second rounding rule waiting to happen — see the 369 disagreeing cells above.
+  SLIDER_SCALES = (0..20).map { |step| (step * 0.5).round(1) }.freeze
+
+  # A posted multiplier as a number, or nil when the text is not one.
+  #
+  # This exists because `String#to_f` answers 0.0 for anything it cannot read and
+  # never says so: `"2.5x".to_f`, `"".to_f` and `"—".to_f` are all 0.0. On this
+  # column those are not the same statement as `"0".to_f` — one is a typo and the
+  # other is a price — and `Kernel#Float` is what can tell them apart, because it
+  # raises instead of guessing. Rounded to a tenth, the way the board both
+  # displays and stores a price.
+  #
+  # `finite?` is not paranoia: `Float("1e400")` returns Infinity without raising,
+  # and `Infinity.round(1)` raises FloatDomainError out of a request.
+  def self.parse_turf_score(raw)
+    return nil if raw.nil?
+
+    text = raw.to_s.strip
+    return nil if text.empty?
+
+    value = Float(text)
+    return nil unless value.finite?
+
+    value.round(1)
+  rescue ArgumentError, TypeError
+    nil
+  end
+
+  # The band a HAND-ENTERED multiplier has to land in, as a Range.
+  #
+  # ── THE PRODUCT DECISION, stated here because the two answers are different
+  #    products ──────────────────────────────────────────────────────────────
+  #
+  # This is a deliberate OVERRIDE band — WIDER than the slate's resolved curve —
+  # not the curve's own range. Chosen because the admin board can legitimately
+  # display, and "Save Multipliers" legitimately posts, prices above that curve:
+  # the scale slider runs 0..10 and repaints every row live, and saving the
+  # multipliers is a separate button from saving the formula. A bound set at the
+  # resolved curve's top (x2.0 on an NFL slate) would therefore refuse the
+  # operator's own screen. A guard that fires on correct work is a guard someone
+  # deletes, and then nothing stops the typo either.
+  #
+  # So the band is the WIDEST PRICE THIS SLATE'S OWN BOARD CAN SHOW, computed
+  # from the same two sources the board's prices come from — this curve and
+  # SLIDER_SCALES — so the guard cannot drift away from the page. Re-tune either
+  # and both move together.
+  #
+  #   floor   = turf_score_for(rank 1, scale 0)   -> always x1.0
+  #   ceiling = turf_score_for(rank n, scale 10)  -> x11.0 * the widest line here
+  #
+  # The FLOOR is not a judgment call. Every price the curve can emit is
+  # (1.0 + scale * curve) * game_factor with scale >= 0, curve >= 0 and
+  # game_factor >= 1.0, so x1.0 is its structural minimum and the operator rule
+  # ("rank 1 always prices x1.0") pins it there. A price under x1.0 is not a
+  # cheap team, it is a bug — and 0.0 is the specific bug this guards.
+  #
+  # What this DOES leave through, said plainly: on a one-week slate whose curve
+  # tops at x2.0, a hand-typed x3.5 is accepted, because the slider can put x3.5
+  # on that same screen. The server cannot tell that apart from a deliberate
+  # override, and pretending it can is how the slider stops working.
+  def self.price_band(teams:, sport: "fifa", game_factors: [1.0])
+    factors = Array(game_factors).map(&:to_f).select(&:positive?)
+    factors = [1.0] if factors.empty?
+    n = [teams.to_i, 1].max
+
+    floor = turf_score_for(1, n, sport: sport, game_factor: factors.min, scale: SLIDER_SCALES.min)
+    ceiling = turf_score_for(n, n, sport: sport, game_factor: factors.max, scale: SLIDER_SCALES.max)
+    floor..ceiling
   end
 
   def self.goals_distribution_for(rank, n)

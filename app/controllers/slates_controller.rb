@@ -96,20 +96,35 @@ class SlatesController < ApplicationController
     redirect_to @slate ? slate_path(@slate) : root_path, alert: e.message
   end
 
+  # Manual multiplier override — the one endpoint that writes a price nobody
+  # computed. It used to be a single unguarded line:
+  #
+  #   update_all(turf_score: entry[:turf_score].to_f.round(1))
+  #
+  # `.to_f` reads "2.5x", "" and an unpriced row's "—" as 0.0 without a word, and
+  # `update_all` skips validations by construction, so the guard has to live
+  # HERE, at the write. `turf_score` is the column Selection#compute_points!
+  # settles from, frozen at pick time and paid on-chain: a zero pays nothing.
+  #
+  # The band is a deliberate OVERRIDE band, wider than the slate's resolved
+  # curve — the widest price this slate's own board can display. The reasoning,
+  # and what it deliberately still lets through, is on SlateMatchup.price_band.
   def update_turf_scores
     rescue_and_log(target: @slate) do
-      if params[:turf_scores].present?
-        params[:turf_scores].each do |entry|
-          matchup = @slate.slate_matchups.find_by(id: entry[:id])
-          next unless matchup
+      writes, refusals = planned_turf_scores
 
-          # Same as update_rankings: the edited row is a TEAM, so the multiplier
-          # applies to every game that team plays here.
-          @slate.slate_matchups.where(team_slug: matchup.team_slug)
-                .update_all(turf_score: entry[:turf_score].to_f.round(1))
+      if refusals.any?
+        redirect_to slate_path(@slate), alert: "No multipliers saved. #{refusals.join(' ')}"
+      else
+        ActiveRecord::Base.transaction do
+          writes.each do |team_slug, price|
+            # Same as update_rankings: the edited row is a TEAM, so the multiplier
+            # applies to every game that team plays here.
+            @slate.slate_matchups.where(team_slug: team_slug).update_all(turf_score: price)
+          end
         end
+        redirect_to slate_path(@slate), notice: "Turf Scores saved!"
       end
-      redirect_to slate_path(@slate), notice: "Turf Scores saved!"
     end
   rescue StandardError => e
     redirect_to @slate ? slate_path(@slate) : root_path, alert: e.message
@@ -144,6 +159,51 @@ class SlatesController < ApplicationController
   end
 
   private
+
+  # Reads EVERY posted row before anything is written, and returns
+  # [{ team_slug => price }, ["why this row was refused", ...]].
+  #
+  # Validate-then-write, and one bad row refuses the WHOLE batch. The board
+  # posts all 32 rows in one form, so writing the readable ones and dropping the
+  # rest would leave the slate in a state the admin never typed — half the board
+  # re-priced, half not, under a "Turf Scores saved!" flash. That is worse than
+  # the typo. (House rule: validate before irreversible side effects.)
+  #
+  # Each refusal names the TEAM and what it saw, because the admin's next move is
+  # to go find that row.
+  def planned_turf_scores
+    entries = params[:turf_scores]
+    return [{}, []] if entries.blank?
+
+    band = @slate.admin_price_band
+    writes = {}
+    refusals = []
+
+    entries.each do |entry|
+      matchup = @slate.slate_matchups.find_by(id: entry[:id])
+      next unless matchup
+
+      posted = entry[:turf_score]
+      price = SlateMatchup.parse_turf_score(posted)
+      name = matchup.team&.name || matchup.team_slug
+
+      if price.nil?
+        seen = posted.to_s.strip.presence&.inspect || "a blank cell"
+        refusals << "#{name}: #{seen} is not a number."
+      elsif !band.cover?(price)
+        refusals << "#{name}: #{price_label(price)} is outside " \
+                    "#{price_label(band.first)}-#{price_label(band.last)} for this slate."
+      else
+        writes[matchup.team_slug] = price
+      end
+    end
+
+    [writes, refusals]
+  end
+
+  def price_label(value)
+    format("x%.1f", value)
+  end
 
   def set_slate
     @slate = Slate.find_by(slug: params[:id])

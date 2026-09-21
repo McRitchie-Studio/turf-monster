@@ -17,7 +17,11 @@ module SlatesHelper
   # is "1.3", and 1.25 is the bye factor of a five-week span. Rounding FIRST with
   # `Float#round` (half away from zero) agrees with `toFixed` on every value
   # either side can hold here; `price_key` is the single place that happens.
-  SLIDER_SCALES = (0..20).map { |step| (step * 0.5).round(1) }.freeze
+  # Defined on the MODEL, beside the curve it parameterizes, so the price table
+  # here and the band SlatesController#update_turf_scores accepts back cannot
+  # drift apart. Aliased rather than moved outright: this is the name the view
+  # and this file's tests already read.
+  SLIDER_SCALES = SlateMatchup::SLIDER_SCALES
 
   # The one rule both languages must agree on. Also the reason the view seeds
   # the slider from a value already rounded to one decimal: the page can then
