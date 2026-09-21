@@ -173,7 +173,7 @@ class SlatesTurfScoreBoundsTest < ActionDispatch::IntegrationTest
     assert_match(/No multipliers saved/i, flash[:alert])
   end
 
-  test "the refusal names every offending row, not just the first" do
+  test "the refusal names more than the first offending row" do
     seed_two_teams!
 
     save_multipliers([
@@ -183,6 +183,61 @@ class SlatesTurfScoreBoundsTest < ActionDispatch::IntegrationTest
 
     assert_match(/Team A/, flash[:alert])
     assert_match(/Team B/, flash[:alert])
+  end
+
+  # --- the refusal list is a COOKIE, and a cookie has a ceiling ------------
+
+  # This endpoint refuses ALL-OR-NOTHING, so a bad formula change refuses every
+  # row at once — and the flash carrying those refusals is serialized into the
+  # session cookie, which ActionDispatch caps at 4096 bytes. Past it the
+  # middleware raises CookieOverflow AFTER the action has returned, so
+  # #update_turf_scores' own `rescue StandardError` cannot see it and the admin
+  # gets a bare 500 instead of being told which price was wrong. That is
+  # acceptance criterion 3 of this task failing on a slate shape production has.
+  test "a slate-wide refusal is capped instead of overflowing the session cookie" do
+    # Read the slug BACK off the record. Team derives it from the name, so a slug
+    # passed in is not necessarily the slug stored — and a mismatch here fails as
+    # "Home team must exist", which reads like a missing row rather than a
+    # renamed one.
+    teams = (1..14).map do |i|
+      Team.create!(name: "Cap Team #{i}", sport: "football", league: "nfl").slug
+    end
+    assert_equal 14, teams.uniq.size
+    matchups = teams.each_cons(2).map { |a, b| add_game!(a, b, turf_score: 1.5, rank: 1) }
+
+    save_multipliers(matchups.map { |m| { id: m.id, turf_score: "0.2" } })
+
+    alert = flash[:alert]
+    assert_response :redirect, "the cap has to keep this a redirect — an overflow is a 500"
+    assert_operator alert.bytesize, :<, 500,
+                    "the whole alert must stay far under the 4096-byte cookie: #{alert.inspect}"
+    assert_match(/and #{matchups.size - 3} more\./, alert,
+                 "the operator must be told the list was cut, not shown a silent subset")
+    # The first three are NAMED — a bounded message is still a message.
+    assert_equal 3, alert.scan(/is outside/).size
+  end
+
+  # A COUNT bound is not a BYTE bound. Team names come from seed data this
+  # controller does not own, so three sentences can still be arbitrarily long;
+  # only the byte budget makes the ceiling provable without a claim about names.
+  test "the byte budget holds even when the names are long and multi-byte" do
+    controller = SlatesController.new
+    refusals = Array.new(48) { |i| "#{'Ā' * 300} #{i}: x0.0 is outside x1.0-x3.0 for this slate." }
+
+    alert = controller.send(:refusal_alert, refusals)
+
+    assert_operator alert.bytesize, :<, 500, "bounded by bytes, not by sentence count"
+    assert alert.valid_encoding?,
+           "byteslice can cut mid-codepoint, and an invalid string raises on the next regex"
+    assert_match(/and 45 more\./, alert)
+  end
+
+  test "a refusal list that already fits is left exactly as it was" do
+    controller = SlatesController.new
+    one = ["Team A: x0.0 is outside x1.0-x11.0 for this slate."]
+
+    assert_equal "No multipliers saved. #{one.first}", controller.send(:refusal_alert, one)
+    assert_no_match(/more\./, controller.send(:refusal_alert, one))
   end
 
   # --- the bye line widens the band, because it widens the board -----------

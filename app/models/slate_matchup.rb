@@ -79,7 +79,7 @@ class SlateMatchup < ApplicationRecord
   # parameterizes, because THREE things now have to agree on it: the slider, the
   # price table the page looks each row up in (SlatesHelper#turf_score_scale_table),
   # and the band the server accepts back (.price_band below). A second copy is a
-  # second rounding rule waiting to happen — see the 369 disagreeing cells above.
+  # second rounding rule waiting to happen — see the 314 disagreeing cells above.
   SLIDER_SCALES = (0..20).map { |step| (step * 0.5).round(1) }.freeze
 
   # A posted multiplier as a number, or nil when the text is not one.
@@ -139,8 +139,23 @@ class SlateMatchup < ApplicationRecord
   # SLIDER_SCALES — so the guard cannot drift away from the page. Re-tune either
   # and both move together.
   #
-  #   floor   = turf_score_for(rank 1, scale 0)   -> always x1.0
-  #   ceiling = turf_score_for(rank n, scale 10)  -> x11.0 * the widest line here
+  #   floor   = turf_score_for(rank 1, scale 0)         -> always x1.0
+  #   ceiling = turf_score_for(rank n, scale TOP)       -> TOP+1 * the widest line
+  #
+  # TOP IS NOT ALWAYS SLIDER_SCALES.max, AND THAT IS THE WHOLE POINT. The board
+  # does not show only the 21 slider positions: SlatesHelper#turf_score_scale_table
+  # builds its rows from `SLIDER_SCALES + [resolved_scale]`, so a slate whose
+  # `formula_mult_scale` sits off the grid gets an EXTRA row, and that row is
+  # where the page starts before the slider is touched. This method has to read
+  # the same two sources or the sentence above is false.
+  #
+  # It was false. Measured on the merged tree before this parameter existed, with
+  # `formula_mult_scale` set on a 32-team NFL slate: at scale 20, 16 of 32 board
+  # rows priced above the band; at scale 100, 28 of 32 did. Every one of them was
+  # a price the operator's own screen had just displayed, and every one would have
+  # been refused — the exact failure this band was designed not to have. Nothing
+  # in production reaches it today (`formula_mult_scale` is NULL on every slate),
+  # which is why it was latent rather than reported.
   #
   # The FLOOR is not a judgment call. Every price the curve can emit is
   # (1.0 + scale * curve) * game_factor with scale >= 0, curve >= 0 and
@@ -152,13 +167,18 @@ class SlateMatchup < ApplicationRecord
   # tops at x2.0, a hand-typed x3.5 is accepted, because the slider can put x3.5
   # on that same screen. The server cannot tell that apart from a deliberate
   # override, and pretending it can is how the slider stops working.
-  def self.price_band(teams:, sport: "fifa", game_factors: [1.0])
+  def self.price_band(teams:, sport: "fifa", game_factors: [1.0], resolved_scale: nil)
     factors = Array(game_factors).map(&:to_f).select(&:positive?)
     factors = [1.0] if factors.empty?
     n = [teams.to_i, 1].max
 
+    # Mirror turf_score_scale_table's `SLIDER_SCALES + [resolved_scale]`. A
+    # resolved scale BELOW the grid cannot narrow the band — the slider is still
+    # on the page and can still be dragged to 10 — so this only ever widens.
+    top = [SLIDER_SCALES.max, resolved_scale.to_f].max
+
     floor = turf_score_for(1, n, sport: sport, game_factor: factors.min, scale: SLIDER_SCALES.min)
-    ceiling = turf_score_for(n, n, sport: sport, game_factor: factors.max, scale: SLIDER_SCALES.max)
+    ceiling = turf_score_for(n, n, sport: sport, game_factor: factors.max, scale: top)
     floor..ceiling
   end
 

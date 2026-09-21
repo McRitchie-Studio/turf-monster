@@ -116,7 +116,7 @@ class SlatesController < ApplicationController
       writes, refusals = planned_turf_scores
 
       if refusals.any?
-        redirect_to slate_path(@slate), alert: "No multipliers saved. #{refusals.join(' ')}"
+        redirect_to slate_path(@slate), alert: refusal_alert(refusals)
       else
         ActiveRecord::Base.transaction do
           writes.each do |team_slug, price|
@@ -205,6 +205,51 @@ class SlatesController < ApplicationController
 
   def price_label(value)
     format("x%.1f", value)
+  end
+
+  # The flash rides the SESSION COOKIE, and a cookie is capped at 4096 bytes.
+  # ActionDispatch raises CookieOverflow past it — from MIDDLEWARE, after the
+  # action has already returned, so the `rescue StandardError` on
+  # #update_turf_scores cannot catch it. The operator gets a bare HTTP 500
+  # instead of being told which price was refused, which is acceptance criterion
+  # 3 of this task failing on a slate shape that exists in production.
+  #
+  # It is not hypothetical and it is not all-or-nothing. Measured here against
+  # the seeded rosters, every row refused:
+  #
+  #   48 World Cup teams -> 2,532 bytes in one alert (48 sentences)
+  #   32 NFL teams       -> 1,994 bytes in one alert (32 sentences)
+  #
+  # Neither exceeds 4,096 on its own, and that is exactly what made this latent:
+  # the alert is only PART of the session, so whether it overflows depends on how
+  # full that admin's session already is. Shannon drove the 48-team case through a
+  # real browser session on a desk stack and got the raise — HTTP 500,
+  # "cookie overflowed with size 4144 bytes" — while the same payload on a session
+  # holding nothing but a login did not. Some operators, not others.
+  #
+  # The list is therefore bounded TWICE, and the two bounds answer different
+  # questions. PREVIEW answers "how much can a person read in a four-second
+  # toast" — 48 near-identical sentences is not a message, it is a wall.
+  # MAX_BYTES answers "can this overflow the cookie" WITHOUT a claim about how
+  # long a team name is: the names come from seed data this controller does not
+  # own, so a count alone bounds the sentences, not the bytes.
+  REFUSAL_PREVIEW = 3
+  REFUSAL_MAX_BYTES = 400
+
+  def refusal_alert(refusals)
+    shown = refusals.first(REFUSAL_PREVIEW)
+    hidden = refusals.size - shown.size
+    tail = hidden.positive? ? " and #{hidden} more." : ""
+
+    body = shown.join(" ")
+    budget = [REFUSAL_MAX_BYTES - tail.bytesize, 0].max
+    # byteslice, not [0, n] — the latter counts CHARACTERS, and a multi-byte
+    # team name would slip past a byte budget measured in characters. It can cut
+    # mid-codepoint, so .scrub repairs the tail; an invalid-encoding string is
+    # not merely ugly, it raises on the next regex that touches it.
+    body = "#{body.byteslice(0, budget).scrub}…" if body.bytesize > budget
+
+    "No multipliers saved. #{body}#{tail}"
   end
 
   def set_slate

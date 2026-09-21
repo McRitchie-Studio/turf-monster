@@ -282,9 +282,14 @@ class Slate < ApplicationRecord
   #
   # Which side of the override question this lands on, and why, is written out on
   # SlateMatchup.price_band.
+  # `resolved_scale` is passed from the SAME expression the board's price table is
+  # built from (slates/show.html.erb feeds it to SlatesHelper#turf_score_scale_table).
+  # Reading one source in the view and another here is how the band came to refuse
+  # prices the page had just drawn — see SlateMatchup.price_band.
   def admin_price_band(by_team = matchups_by_team)
     SlateMatchup.price_band(teams: by_team.size, sport: sport,
-                            game_factors: game_factors(by_team).values)
+                            game_factors: game_factors(by_team).values,
+                            resolved_scale: resolved_formula[:formula_mult_scale])
   end
 
   # True when any team plays more than once here — i.e. the slate spans weeks.

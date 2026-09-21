@@ -117,6 +117,59 @@ class TurfScoreBandTest < ActiveSupport::TestCase
     end
   end
 
+  # THE PARAMETERIZATION ABOVE COULD NOT SEE THIS, and that is the finding.
+  # Every spec there leaves `formula_mult_scale` at its default, which resolves
+  # ON the slider grid (x1.0 nfl / x2.0 fifa) — so the extra row
+  # turf_score_scale_table adds for the resolved scale is a row SLIDER_SCALES
+  # already covers, and the old band happened to contain it. The predicate
+  # "the board can only show what the band accepts" was being checked exactly
+  # where it could not fail.
+  #
+  # An operator sets that column from slates/admin_formula, a number_field with
+  # step 0.1 and NO max. Off the grid, or above it, the table grows a row the
+  # band never knew about. Measured on the code before price_band took the
+  # parameter, 32-team NFL, game factor 1.0, against the old x1.0-x11.0 band:
+  #
+  #   resolved scale  20 -> 16 of 32 board rows refused (top row x21.0)
+  #   resolved scale 100 -> 28 of 32 board rows refused (top row x101.0)
+  #
+  # Nothing in production reaches it — `formula_mult_scale` is NULL on every
+  # slate today — so this is a latent contradiction, not an outage. It is still
+  # the band refusing the operator's own screen, which is the one thing
+  # price_band's comment promises it will never do.
+  [2.3, 12.0, 20.0, 100.0].each do |resolved_scale|
+    test "the band follows the board when the slate's resolved scale is #{resolved_scale}" do
+      slate = Slate.new(name: "NFL 2026 Week 4", formula_mult_scale: resolved_scale)
+      resolved = slate.resolved_formula[:formula_mult_scale]
+      assert_equal resolved_scale, resolved, "the fixture must actually reach resolved_formula"
+
+      band = SlateMatchup.price_band(teams: 32, sport: slate.sport,
+                                     game_factors: [1.0], resolved_scale: resolved)
+      table = turf_score_scale_table(slate: slate, teams: 32, factors: [1.0],
+                                     resolved_scale: resolved)
+      prices = table.values.flat_map { |by_line| by_line.values.flatten }
+
+      assert_operator prices.size, :>, 0
+      outside = prices.reject { |price| band.cover?(price) }.uniq.sort
+      assert_empty outside,
+                   "the board can display #{outside.inspect} but the server would refuse it — " \
+                   "band #{band.inspect}"
+    end
+  end
+
+  test "a resolved scale BELOW the grid cannot narrow the band" do
+    # The slider is still on the page and can still be dragged to 10, so the
+    # ceiling is a max, never a replacement. Without this the parameter would
+    # turn a low per-slate scale into a NEW way to refuse the operator's screen.
+    wide = SlateMatchup.price_band(teams: 32, sport: "nfl", game_factors: [1.0])
+
+    assert_equal wide, SlateMatchup.price_band(teams: 32, sport: "nfl", game_factors: [1.0],
+                                               resolved_scale: 0.3)
+    assert_equal wide, SlateMatchup.price_band(teams: 32, sport: "nfl", game_factors: [1.0],
+                                               resolved_scale: nil)
+    assert_equal 1.0..11.0, wide
+  end
+
   test "the slider grid has ONE definition, so the table and the band cannot drift" do
     assert_same SlateMatchup::SLIDER_SCALES, SlatesHelper::SLIDER_SCALES
     assert_equal 0.0, SlateMatchup::SLIDER_SCALES.min
