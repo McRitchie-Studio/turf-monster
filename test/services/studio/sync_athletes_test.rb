@@ -195,13 +195,21 @@ class Studio::SyncAthletesTest < ActiveSupport::TestCase
     # attributes_from `.compact`s, so its key set depends on the INPUT. Feed it
     # a row with every field populated, or this measures the fixture rather than
     # the projection — the first draft did, and compared 5 keys against 13.
-    full = row(1).merge(
-      "height_inches" => 74, "weight_lbs" => 210, "espn_headshot_url" => "http://x/i.png",
-      "nflverse_id" => "n1", "pff_id" => 1, "otc_id" => "o1", "pfr_id" => "r1", "sleeper_id" => "s1"
-    )
-    sent = Studio::SyncAthletes.new(secret: "shh").send(:attributes_from, full).keys.map(&:to_s).sort
+    # THE FIXTURE IS DERIVED FROM THE METHOD'S OWN SOURCE, not hand-written.
+    # `attributes_from` .compacts, so a field the fixture omits vanishes from
+    # the key set and the comparison silently narrows — a hand-maintained
+    # count of 13 would stay 13 while a 14th field drifted in unprotected.
+    # Read the row keys the method actually asks for, and populate every one.
+    src = File.read(Rails.root.join("app/services/studio/sync_athletes.rb"))
+    body = src[/def attributes_from.*?\n    end/m].to_s
+    wanted = body.scan(/row\["([a-z_]+)"\]/).flatten.uniq
 
-    assert_equal 13, sent.length, "the control: every mastered field must be present in the fixture"
+    assert_operator wanted.length, :>=, 13,
+                    "the control: the row-key scan found #{wanted.length} keys — if attributes_from " \
+                    "stopped using row[\"...\"] this test would compare an empty set"
+
+    full = row(1).merge(wanted.index_with { |k| k.end_with?("_id") ? "x1" : 1 })
+    sent = Studio::SyncAthletes.new(secret: "shh").send(:attributes_from, full).keys.map(&:to_s).sort
 
     assert_equal sent, Athlete::STUDIO_MASTERED.sort,
                  "Athlete::STUDIO_MASTERED and SyncAthletes#attributes_from have drifted"

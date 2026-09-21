@@ -39,6 +39,51 @@ class Nflverse::SeedPlayersTest < ActiveSupport::TestCase
     assert_equal "football", athlete.sport
   end
 
+  # THE PATH THE GUARD ACTUALLY BREAKS, and the one no test covered.
+  #
+  # build_attrs writes 16 columns and 11 are STUDIO_MASTERED. `update!` is
+  # ATOMIC, so on a SYNCED athlete the write-guard refuses the whole call and
+  # the five columns this importer owns go down with it. Narrowing the guard
+  # was not enough on its own — measured, the write still raised and
+  # college/draft/jersey all stayed nil, which is verbatim the
+  # "Drafted: Undrafted forever" symptom the narrowing was meant to cure.
+  #
+  # The earlier end-to-end check missed it by writing LOCAL COLUMNS ONLY —
+  # the one shape this importer never produces.
+  test "a SYNCED athlete still receives the columns this importer owns" do
+    person = Person.create!(first_name: "Rookie", last_name: "Newman")
+    synced = Athlete.new(person_slug: person.slug, sport: "football")
+    synced.syncing = true
+    synced.gsis_id = "00-0099999"
+    synced.position = "QB"          # master-owned, and deliberately WRONG for the row
+    synced.synced_at = Time.current
+    synced.save!
+
+    assert_nothing_raised { seeder.send(:ingest_row, row) }
+
+    got = Athlete.find_by(person_slug: person.slug)
+    assert_equal "Test Tech", got.college_name, "the importer's OWN column must land"
+    assert_equal 2026, got.draft_year
+    assert_equal 2, got.draft_round
+    assert_equal 44, got.draft_pick
+    assert_equal 11, got.jersey_number
+
+    assert_equal "QB", got.position,
+                 "a master-owned column must NOT be overwritten by the local importer"
+    assert_equal "00-0099999", got.gsis_id
+  end
+
+  # The control: on an UNSYNCED row the importer still owns everything, or the
+  # deferral above would be indistinguishable from "never writes mastered".
+  test "an UNSYNCED athlete still receives every column, mastered included" do
+    seeder.send(:ingest_row, row)
+
+    got = Athlete.find_by(gsis_id: "00-0099999")
+    assert_equal "WR", got.position, "with no sync in play the importer owns the lot"
+    assert_equal "Test Tech", got.college_name
+    assert_nil got.synced_at
+  end
+
   test "prefers common_first_name over first_name" do
     # nflverse carries both; the common name is what a broadcast says.
     athlete = seeder.ingest_row(row("common_first_name" => "Rookie", "first_name" => "Rookford"))
