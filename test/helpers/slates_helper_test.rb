@@ -42,13 +42,26 @@ class SlatesHelperTest < ActionView::TestCase
     end
   end
 
-  # The cells that actually disagreed before the fix. Measured by sweeping both
-  # curves over n 2-48 at every slider position and each reachable game factor,
+  # The cells that actually disagreed before the fix. Two sweeps, each over BOTH
+  # curves, n 2-48, every rank, and all 21 slider positions (0.0-10.0 by 0.5),
   # comparing Ruby's `round(1)` against `toFixed(1)` emulated exactly (half-up
-  # on the binary double, via Rational): 314 of 98,700 cells.
+  # on the binary double, via Rational). Each count belongs to the total beside
+  # it — a ratio quoted without its run's factor set cannot be re-derived:
   #
-  # The split is the opposite of what it looks like. 309 are NFL and 5 are
-  # soccer, and n=32 — the NFL board — is NOT clear: five cells diverge there.
+  #   game factors 1.0, 1.5        ->  249 of  98,700 cells (244 nfl, 5 fifa)
+  #   game factors 1.0, 1.5, 1.25  ->  314 of 148,050 cells (309 nfl, 5 fifa)
+  #
+  # An earlier revision of this comment paired the 314 with the OTHER run's
+  # 98,700, so neither half could be checked against the run that produced it.
+  # That is why each line above carries its own total and its own factor set.
+  #
+  # n=32 is NOT clear, and the five cells there are not the NFL board: all five
+  # are on the FIFA curve (factor 1.5, scales 3.5/4.5/5.5/6.5/9.5), and n=32 is
+  # the only slate size where fifa diverges at all. NFL at n=32 is clean — the
+  # NFL curve diverges only where (n-1) is a multiple of 5 (n = 6, 11, 16 … 46),
+  # and 32 is not one of those. Slate SIZE is not sport: 32 teams is a World Cup
+  # group stage as readily as an NFL season.
+  #
   # Both coordinates below were measured, not derived; the earlier revision of
   # this test cited two that never diverged at all.
   test "a tie that JavaScript rounded down now reads Ruby's answer" do

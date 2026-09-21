@@ -47,9 +47,13 @@ class SlateMatchup < ApplicationRecord
   # That the slider had no Ruby parameter is why a second implementation grew in
   # JavaScript, and why the two could disagree: Ruby rounds half away from zero
   # on the decimal, JS `toFixed` rounds the binary double, and they part company
-  # on an exact tie. Measured across 74,025 cells (both curves, n 2-48, every
-  # slider position, factors 1.0/1.5/3.0): 369 disagreed — none at n=32, so the
-  # NFL board was never exposed, but a World Cup slate at n=6 or n=9 was.
+  # on an exact tie. Measured over both curves, n 2-48, every rank, all 21
+  # slider positions and game factors 1.0/1.5/1.25: 314 of 148,050 cells
+  # disagreed — 309 on the NFL curve, 5 on the FIFA curve. The NFL board came
+  # through clean, but NOT because nothing diverged at n=32: all five fifa cells
+  # ARE at n=32, the only size where that curve disagrees at all. It is the NFL
+  # CURVE that is clean there, diverging only where (n-1) is a multiple of 5.
+  # Slate size is not sport — 32 teams is also a World Cup group stage.
   # SlatesHelper#turf_score_scale_table now feeds the page from THIS method, so
   # there is one implementation again and a tie cannot be rounded two ways.
   def self.turf_score_for(rank, n, sport: "fifa", game_factor: 1.0, scale: nil)
