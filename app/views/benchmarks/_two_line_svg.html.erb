@@ -33,8 +33,8 @@
     how many. The bound is the COLUMN: slate_matchups.turf_score is decimal
     precision 3 scale 1, so a stored price spans -99.9 to 99.9, the widest
     domain those ends can force is -100.0 to 100.0, and that is 401 gridlines
-    (measured 2026-09-21 against this expression; 207 for one low outlier
-    against the default ceiling). The count grows linearly with the column:
+    (measured 2026-09-21 against this expression; about 200 when only one end
+    is driven out). The count grows linearly with the column:
     precision 4 would give 4001, precision 6 would give 400001. So a migration
     widening that column, not an edit here, is what could turn this public and
     uncached page into a hang. Do not add a second clamp here; the bound belongs
