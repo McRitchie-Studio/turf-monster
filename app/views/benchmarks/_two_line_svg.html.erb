@@ -29,6 +29,16 @@
     the first half step inside the frame rather than at y_min itself: a 0.6 floor
     labelled 0.6, 1.1, 1.6 would look like a different scale entirely. %>
 <% first_tick = ((y_min * 10).round / 5.0).ceil * 5 %>
+<%# The map materialises every gridline at once, and nothing in this view caps
+    how many. The bound is the COLUMN: slate_matchups.turf_score is decimal
+    precision 3 scale 1, so a stored price spans -99.9 to 99.9, the widest
+    domain those ends can force is -100.0 to 100.0, and that is 401 gridlines
+    (measured 2026-09-21 against this expression; about 200 when only one end
+    is driven out). The count grows linearly with the column:
+    precision 4 would give 4001, precision 6 would give 400001. So a migration
+    widening that column, not an edit here, is what could turn this public and
+    uncached page into a hang. Do not clamp here: a bound on the price
+    belongs on the admin write that stores it, not on this render. %>
 <% gridlines = (first_tick..(y_max * 10).round).step(5).map { |tenth| tenth / 10.0 } %>
 <% rank_ticks = (compact ? [1, (teams / 2.0).round, teams] : [1, (teams / 4.0).round, (teams / 2.0).round, (teams * 0.75).round, teams]).uniq %>
 
