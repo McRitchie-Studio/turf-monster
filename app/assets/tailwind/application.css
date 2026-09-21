@@ -2015,3 +2015,60 @@ html:not(.dark) {
   --color-primary-ink-rgb: var(--color-primary-rgb);
   --color-primary-badge-ink: var(--color-primary-700);
 }
+
+/* ── The violet INK: violet used as SMALL TEXT ────────────────────────────────
+   WHICH VIOLET DO I REACH FOR?
+
+     `violet` (#8E82FE)  — every NON-text use, unchanged: fills (bg-violet,
+                           bg-violet/10, bg-violet/20), borders, rings, chart
+                           strokes, confetti, AND large display type (WCAG
+                           large = 24px, or 18.66px bold, which clears at 3:1).
+     `text-violet-ink`   — violet as SMALL text: anything under 24px that is
+                           not bold-and-over-18.66px. Body copy, table cells,
+                           badges, mono values, captions.
+
+   WHY TWO. #8E82FE is a FILL colour. As small TEXT it measures 3.10:1 on the
+   light card and 3.60:1 on the dark card — both under WCAG AA's 4.5:1 (found
+   by Shannon reviewing turf PR 774, 2026-09-19, on the /benchmarks Turf Score
+   column). Darkening the brand token itself would repaint every fill and
+   visibly shift the brand, so the ink is a second token and the brand violet
+   is untouched. Same shape as --color-primary-ink above, and as the engine's
+   --color-danger-ink / --color-success-ink: text colour is not fill colour.
+
+   THE VALUES, both on the brand's own violet line, each tuned against its OWN
+   theme (a dark-theme ink is not a flip of the light one; #5B50CE is 2.25:1 on
+   the dark card and #C5C0FE is 1.70:1 on the light card, so neither can serve
+   both):
+
+     dark   #C5C0FE   the brand ramp's violet-300, straight off the scale.
+                      6.56:1 card, 10.27:1 page, 5.01:1 inside bg-violet/20.
+                      violet-200 (#b2aafe) is nearer the brand but stops at
+                      4.09:1 on the bg-violet/20 badge over the card.
+     light  #5B50CE   the ramp's violet-600 (#6558E5) darkened 10 percent
+                      along its own line — the smallest step past 600 that
+                      clears AA with headroom on every ground. 6.03:1 card,
+                      5.76:1 page, 4.75:1 inside bg-violet/20. violet-600
+                      itself is 4.11:1 on bg-inset and 4.06:1 in that badge;
+                      the next ramp value, violet-800 (#3b2cb3), clears at
+                      7.5:1 but reads navy rather than violet.
+
+   MEASURED AND NOT CLEARED — both are FILL bugs, not ink bugs, so they are out
+   of this token's reach and are noted rather than asserted:
+     * `bg-violet-900/30` (CONTEST_BADGE_STYLES "pending") composites to a pale
+       lavender in the light theme; the ink is 3.50:1 on it, up from 1.80:1.
+       Its four sibling rows (mint, yellow, red) share the defect.
+     * `hover:bg-violet/30` (the wallets airdrop button) is 4.46:1 light and
+       4.38:1 dark at rest-plus-hover; the rest state bg-violet/20 clears.
+
+   Same selectors as the engine's theme block, so a .dark container inside a
+   light page flips this with the rest of the theme.
+   Guard: test/views/violet_text_contrast_test.rb — it resolves what the
+   COMPILED stylesheet paints and computes the ratio, so editing a hex here
+   without re-measuring fails the suite. */
+:root,
+.dark {
+  --color-violet-ink: #C5C0FE;
+}
+html:not(.dark) {
+  --color-violet-ink: #5B50CE;
+}
