@@ -80,11 +80,24 @@ class SlateMatchup < ApplicationRecord
 
   # A posted multiplier as a number, or nil when the text is not one.
   #
-  # This exists because `String#to_f` answers 0.0 for anything it cannot read and
-  # never says so: `"2.5x".to_f`, `"".to_f` and `"—".to_f` are all 0.0. On this
-  # column those are not the same statement as `"0".to_f` — one is a typo and the
-  # other is a price — and `Kernel#Float` is what can tell them apart, because it
-  # raises instead of guessing. Rounded to a tenth, the way the board both
+  # This exists because `String#to_f` never refuses. It MISREADS in two different
+  # ways, and the difference is worth knowing before trusting either — measured,
+  # not assumed:
+  #
+  #   ""     .to_f -> 0.0      an empty cell
+  #   "—"    .to_f -> 0.0      what an UNPRICED row's display renders
+  #   "x2.5" .to_f -> 0.0      the x typed first
+  #   "2.5x" .to_f -> 2.5      the x typed last — TRUNCATED, not zeroed
+  #   "1.2.3".to_f -> 1.2
+  #
+  # The first three pay a player NOTHING; the last two quietly invent a price the
+  # admin did not finish typing. (An earlier version of this note, and the ticket
+  # it came from, both claimed `"2.5x"` was one of the zeroes. It is not — it is
+  # 2.5. The zeroes are the empty cell, the em dash and a leading `x`.)
+  #
+  # None of those is the same statement as `"0"`, which IS a number and is refused
+  # by the band below instead. `Kernel#Float` is what tells them apart, because it
+  # raises rather than guessing. Rounded to a tenth, the way the board both
   # displays and stores a price.
   #
   # `finite?` is not paranoia: `Float("1e400")` returns Infinity without raising,

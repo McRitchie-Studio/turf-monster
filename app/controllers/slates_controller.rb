@@ -101,10 +101,12 @@ class SlatesController < ApplicationController
   #
   #   update_all(turf_score: entry[:turf_score].to_f.round(1))
   #
-  # `.to_f` reads "2.5x", "" and an unpriced row's "—" as 0.0 without a word, and
-  # `update_all` skips validations by construction, so the guard has to live
-  # HERE, at the write. `turf_score` is the column Selection#compute_points!
-  # settles from, frozen at pick time and paid on-chain: a zero pays nothing.
+  # `.to_f` never refuses: an empty cell, an unpriced row's "—" and a leading-x
+  # "x2.5" all arrive as 0.0, while "2.5x" arrives TRUNCATED to 2.5 (measured —
+  # see SlateMatchup.parse_turf_score). `update_all` skips validations by
+  # construction, so the guard has to live HERE, at the write. `turf_score` is
+  # the column Selection#compute_points! settles from, frozen at pick time and
+  # paid on-chain: a zero pays nothing.
   #
   # The band is a deliberate OVERRIDE band, wider than the slate's resolved
   # curve — the widest price this slate's own board can display. The reasoning,

@@ -10,10 +10,12 @@ require "test_helper"
 #
 #   1. NOTHING BOUNDED THE VALUE. A hand-typed or scripted multiplier landed on
 #      the slate whatever it said.
-#   2. `.to_f` TURNED A TYPO INTO 0.0 IN SILENCE. `"2.5x".to_f`, `"".to_f` and
-#      `"—".to_f` are all 0.0, and the admin saw "Turf Scores saved!".
+#   2. `.to_f` MISREAD A TYPO IN SILENCE, in two different ways. `"".to_f`,
+#      `"—".to_f` and `"x2.5".to_f` are all 0.0; `"2.5x".to_f` is 2.5, truncated
+#      rather than zeroed (measured — the ticket had that one backwards). Either
+#      way the admin saw "Turf Scores saved!".
 #
-# The second one is reachable from the page itself, not only from a fat finger:
+# The zero half is reachable from the page itself, not only from a fat finger:
 # an unranked row renders its multiplier as `—x` (slates/show.html.erb), and
 # `saveMultipliers` posts `textContent.replace('x', '')` — so one click on a
 # slate with an unpriced team wrote 0.0 onto every game that team plays.
@@ -59,6 +61,7 @@ class SlatesTurfScoreBoundsTest < ActionDispatch::IntegrationTest
   {
     "an em dash from an unpriced row" => "—",
     "a multiplier typed with its x" => "2.5x",
+    "a multiplier with the x typed first" => "x2.5",
     "an empty cell" => "",
     "whitespace only" => "   ",
     "prose" => "two point five"
