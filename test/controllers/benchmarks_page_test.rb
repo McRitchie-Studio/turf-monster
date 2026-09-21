@@ -213,7 +213,7 @@ class BenchmarksPageTest < ActionDispatch::IntegrationTest
 
     ticks = css_select("[data-testid=benchmarks-chart] text").map(&:text).grep(/\A\d+\.\d+x\z/)
     assert_includes ticks, "1.0x"
-    assert_includes ticks, "0.5x", "the widened floor earns its own labelled gridline"
+    assert_includes ticks, "0.5x", "the first half step inside the widened floor must be labelled"
     assert ticks.all? { |tick| (tick.to_f * 10).round % 5 == 0 },
            "ticks must stay on .0 and .5: #{ticks.inspect}"
   end
