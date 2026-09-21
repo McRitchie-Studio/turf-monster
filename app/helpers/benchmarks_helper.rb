@@ -57,8 +57,11 @@ module BenchmarksHelper
   # the chart it always drew. Only one that OUTRUNS its line does, and it takes
   # a tenth of air with it so it reads as a value rather than as ink on the
   # border. The air is worked in whole tenths because the stored price is
-  # rounded to one decimal and 0.6 minus 0.1 is 0.49999999999999994 in binary
-  # floating point — which floors to 0.4 and relabels the entire axis.
+  # rounded to one decimal but float subtraction is not: 0.7 minus 0.2 is
+  # 0.49999999999999994 in binary floating point — which floors to 0.4 and
+  # relabels the entire axis. Across the 1999 prices this column can hold, the
+  # whole-tenths form below and a naive (dot - 0.1).floor(1) disagree on 168 of
+  # them (measured 2026-09-21, Ruby 3.3.11; 0.3 is the smallest positive one).
   def benchmark_y_domain(lines:, team_rows:)
     curve = lines.flat_map { |line| line.points.map(&:turf_score) }
     return [DEFAULT_FLOOR, DEFAULT_CEILING] if curve.empty?

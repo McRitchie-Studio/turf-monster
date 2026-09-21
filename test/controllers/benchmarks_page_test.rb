@@ -198,14 +198,22 @@ class BenchmarksPageTest < ActionDispatch::IntegrationTest
   # Widening the floor must not relabel the scale. Ticks that followed y_min
   # would read 0.5x, 1.0x on one slate and 0.6x, 1.1x on the next, and stop
   # agreeing with the multipliers printed in the table below.
+  #
+  # 0.3x is the fixture BECAUSE it makes that bite. It widens the floor to
+  # y_min 0.2, where the shipped snap starts the ticks at 0.5 while an unsnapped
+  # (y_min * 10).round would start them at 0.2 -- 0.2, 0.7, 1.2 -- which the
+  # half-step assertion below catches. A 0.6x dot gives y_min 0.5, where snapped
+  # and unsnapped produce the IDENTICAL list, so this test passed with the
+  # snapping deleted. Every assertion here survives the swap: the shipped ticks
+  # still run 0.5, 1.0, 1.5, 2.0, 2.5, 3.0.
   test "the axis stays on half steps when a low price widens the domain" do
-    @span.slate_matchups.where(team_slug: "team-b").update_all(turf_score: 0.6)
+    @span.slate_matchups.where(team_slug: "team-b").update_all(turf_score: 0.3)
 
     get benchmarks_path(slug: @span.slug)
 
     ticks = css_select("[data-testid=benchmarks-chart] text").map(&:text).grep(/\A\d+\.\d+x\z/)
     assert_includes ticks, "1.0x"
-    assert_includes ticks, "0.5x", "the widened floor earns its own labelled gridline"
+    assert_includes ticks, "0.5x", "the first half step inside the widened floor must be labelled"
     assert ticks.all? { |tick| (tick.to_f * 10).round % 5 == 0 },
            "ticks must stay on .0 and .5: #{ticks.inspect}"
   end
