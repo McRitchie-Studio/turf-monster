@@ -142,8 +142,12 @@ tidiness.** The flash is serialized into the session cookie, which
 ActionDispatch caps at 4096 bytes and raises `CookieOverflow` past — from
 middleware, AFTER the action returns, where `update_turf_scores`' own
 `rescue StandardError` cannot see it. Measured against the seeded rosters with
-every row refused: 48 World Cup teams produce a 2,532-byte alert, 32 NFL teams
-1,994. Neither exceeds 4096 alone, which is exactly why it was latent — the
+every row refused: the real 48-team World Cup slate produces a **2,511**-byte
+alert under the band label `x1.0-x3.0`, and the 32-team NFL roster **1,994**
+under `x1.0-x11.0`. The label is part of the measurement — each refusal sentence
+carries it, so one extra character is +48 bytes on a 48-team board, which is why
+two independent measurements of "the 48-team case" came back 2,511 and 2,559.
+Neither exceeds 4096 alone, which is exactly why it was latent — the
 alert is only part of the session, so it 500s for an admin whose session is
 already full and not for one who just signed in. The controller now names the
 first three teams and appends `and N more.`, bounded by BYTES as well as by

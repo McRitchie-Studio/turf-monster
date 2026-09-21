@@ -172,9 +172,18 @@ class SlateMatchup < ApplicationRecord
     factors = [1.0] if factors.empty?
     n = [teams.to_i, 1].max
 
-    # Mirror turf_score_scale_table's `SLIDER_SCALES + [resolved_scale]`. A
-    # resolved scale BELOW the grid cannot narrow the band — the slider is still
-    # on the page and can still be dragged to 10 — so this only ever widens.
+    # Mirror turf_score_scale_table's `SLIDER_SCALES + [resolved_scale]` — but
+    # only the CEILING mirrors it, and that asymmetry is deliberate.
+    #
+    # A resolved scale below the grid cannot narrow the band: the slider is
+    # still on the page and can still be dragged to 10, so `max` only ever
+    # widens. The FLOOR is not derived from the scale set at all, because
+    # deriving it would hand a negative scale the power to open the guard to the
+    # very zero it exists to refuse (at scale -5.0 the curve reaches x-4.0).
+    # That asymmetry would leave the table drawing rows the band rejects — so
+    # SlatesHelper#turf_score_scale_table drops a below-grid row instead, and
+    # Slate validates the column at 0..#{SLIDER_SCALES.max}. Both halves are
+    # needed: the validation stops a NEW one, the helper contains a legacy one.
     top = [SLIDER_SCALES.max, resolved_scale.to_f].max
 
     floor = turf_score_for(1, n, sport: sport, game_factor: factors.min, scale: SLIDER_SCALES.min)

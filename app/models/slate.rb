@@ -15,6 +15,18 @@ class Slate < ApplicationRecord
 
   validates :name, presence: true
 
+  # The slider this column parameterizes runs 0..10, and the admin formula field
+  # that writes it had no bounds at all — so a typo could store a scale the
+  # board would draw and the server would then refuse, or one that prices teams
+  # below x1.0 outright. Bounded HERE rather than only on the field, because the
+  # field is a hint and this is the rule: a direct PATCH reaches the column too.
+  validates :formula_mult_scale,
+            numericality: {
+              greater_than_or_equal_to: 0,
+              less_than_or_equal_to: SlateMatchup::SLIDER_SCALES.max
+            },
+            allow_nil: true
+
   # Fill `sport` / `year` from the name whenever a writer did not set them. Six call
   # sites create Slates (two services, three seed paths, one controller) and a seventh
   # will appear; patching each is how a column ends up null in production. Deriving

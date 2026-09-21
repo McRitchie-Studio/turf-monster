@@ -157,6 +157,51 @@ class TurfScoreBandTest < ActiveSupport::TestCase
     end
   end
 
+  # THE PARAMETERIZATION ABOVE STILL COULD NOT SEE THIS, one review later. Every
+  # scale it tries is POSITIVE, and the band's ceiling follows a positive scale
+  # by design — so the cases that mattered were the ones on the other side of
+  # zero. Measured before the helper dropped a below-grid row: a resolved scale
+  # of -5.0 put 31 of 32 board rows outside the band and -1.0 put 30 of 32.
+  #
+  # The band could not simply follow them. A negative scale inverts the curve
+  # (x-4.0 at -5.0, x0.0 at -1.0), and deriving the FLOOR from it would open the
+  # guard to the zero this whole task exists to refuse. So the table stops
+  # drawing the row instead, and Slate refuses to store the scale at all.
+  [ -5.0, -1.0, -0.1 ].each do |resolved_scale|
+    test "a resolved scale of #{resolved_scale} draws no row the band would refuse" do
+      slate = Slate.new(name: "NFL 2026 Week 4", formula_mult_scale: resolved_scale)
+      resolved = slate.resolved_formula[:formula_mult_scale]
+
+      band = SlateMatchup.price_band(teams: 32, sport: slate.sport,
+                                     game_factors: [ 1.0 ], resolved_scale: resolved)
+      prices = turf_score_scale_table(slate: slate, teams: 32, factors: [ 1.0 ],
+                                      resolved_scale: resolved)
+                 .values.flat_map { |by_line| by_line.values.flatten }
+
+      assert_operator prices.size, :>, 0
+      assert_operator prices.min, :>=, 1.0,
+                      "the board drew a price under the structural floor — that is the zero, not a cheap team"
+      outside = prices.reject { |price| band.cover?(price) }.uniq.sort
+      assert_empty outside, "the board can display #{outside.inspect} but the server would refuse it"
+    end
+  end
+
+  test "the column refuses a scale the slider cannot reach" do
+    slate = Slate.new(name: "NFL 2026 Week 4")
+
+    [ -0.1, -5.0, SlateMatchup::SLIDER_SCALES.max + 0.1, 100.0 ].each do |bad|
+      slate.formula_mult_scale = bad
+      assert_not slate.valid?, "formula_mult_scale #{bad} must not be storable"
+      assert_match(/formula mult scale/i, slate.errors.full_messages.join)
+    end
+
+    [ nil, 0.0, 0.3, 2.0, SlateMatchup::SLIDER_SCALES.max ].each do |good|
+      slate.formula_mult_scale = good
+      slate.valid?
+      assert_empty slate.errors[:formula_mult_scale], "formula_mult_scale #{good.inspect} must stay legal"
+    end
+  end
+
   test "a resolved scale BELOW the grid cannot narrow the band" do
     # The slider is still on the page and can still be dragged to 10, so the
     # ceiling is a max, never a replacement. Without this the parameter would
