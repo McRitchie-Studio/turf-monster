@@ -207,7 +207,7 @@ code now agree: the kickoff key is the active discriminator, not a dormant one.
 
 `Slate#team_rankings` calls `SlateMatchup.turf_score_for(rank, n, sport:, game_factor:)` at
 `app/models/slate.rb:226`; the curve itself is `SlateMatchup.turf_score_for`
-(`app/models/slate_matchup.rb:55-61`):
+(`app/models/slate_matchup.rb:59-65`):
 
 | Sport | Curve | Top |
 |---|---|---|
