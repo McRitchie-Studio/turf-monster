@@ -277,7 +277,7 @@ class VioletTextContrastTest < ActiveSupport::TestCase
   # this method exists to stop.
   def enclosing_surface(path, line, token: "text-violet")
     candidates = element_chains(path)[line]
-    chain = candidates.find { |c| c.last.to_s.include?(token) } || candidates.first || []
+    chain = (candidates.find { |c| token && c.last.to_s.include?(token) } if token) || candidates.first || []
 
     found = nil
     chain.each do |classes|
@@ -294,6 +294,96 @@ class VioletTextContrastTest < ActiveSupport::TestCase
     File.readlines(Rails.root.join(path)).each_with_index.filter_map do |text, i|
       i + 1 if text.match?(/text-violet(?![\w-])/)
     end
+  end
+
+  # Inline `color:` declarations are a separate lane from Tailwind classes.
+  # That distinction matters: slates/show once painted six small labels with
+  # `color: var(--fc-mult)`, so the class-only scan below never saw the same
+  # brand violet it correctly rejected as `text-violet`.
+  def inline_style_colors(path)
+    src = File.read(path)
+    line_of = ->(offset) { src[0...offset].count("\n") + 1 }
+    element_line = lambda do |offset|
+      open_at = src[0...offset].rindex("<") || offset
+      line_of.call(open_at)
+    end
+
+    src.to_enum(:scan, /style=(['"])(.*?)\1/m).flat_map do
+      match = Regexp.last_match
+      line = element_line.call(match.begin(0))
+      match[2].scan(/(?<![-\w])color\s*:\s*([^;]+)/).map { |(value)| [ line, value.strip ] }
+    end
+  end
+
+  # Resolve page-local custom properties with the same theme cascade used for
+  # the compiled app tokens. This is what turns `var(--fc-mult)` into the real
+  # colour the browser paints instead of treating the variable name as proof.
+  def embedded_style_tokens(path, mode)
+    css = File.read(path).scan(%r{<style[^>]*>(.*?)</style>}m).flatten.join("\n")
+    rules(css).each_with_object({}) do |(selector, body), seen|
+      selectors = selector.split(",")
+      applies = selectors.include?(":root") ||
+        (mode == :dark && selectors.any? { |s| [ ".dark", "html.dark" ].include?(s) }) ||
+        (mode == :light && selectors.include?("html:not(.dark)"))
+      seen.merge!(declarations(body).select { |name, _| name.start_with?("--") }) if applies
+    end
+  end
+
+  # Some inline colours are dynamic ERB values and belong to a different
+  # component. Return nil for those; resolve every static literal/var chain so
+  # a literal brand violet and a page-local alias take the same measured path.
+  def static_color(expr, toks)
+    return if expr.include?("<%")
+
+    value = expr.dup
+    20.times do
+      break unless value.include?("var(")
+
+      unresolved = false
+      value = value.gsub(/var\(\s*(--[\w-]+)\s*(?:,\s*([^()]*))?\)/) do
+        replacement = toks[Regexp.last_match(1)] || Regexp.last_match(2)
+        unresolved = true unless replacement
+        replacement.to_s
+      end
+      return if unresolved
+    end
+    return if value.include?("var(")
+
+    case value.strip
+    when /\A#\h{3}(?:\h{3})?\z/
+      hex(*rgb(value.strip))
+    when %r{\Argb\(\s*(\d+)\s+(\d+)\s+(\d+)\s*(?:/\s*[\d.]+)?\s*\)\z}
+      hex(Regexp.last_match(1).to_i, Regexp.last_match(2).to_i, Regexp.last_match(3).to_i)
+    when %r{\Aoklab\(\s*([\d.]+)%\s+(-?[\d.]+)\s+(-?[\d.]+)\s*(?:/\s*[\d.]+)?\s*\)\z}
+      oklab_to_hex(Regexp.last_match(1).to_f / 100.0, Regexp.last_match(2).to_f, Regexp.last_match(3).to_f)
+    end
+  end
+
+  def inline_violet_sites(mode)
+    app = tokens(mode)
+    violet = [
+      opaque(last_rule_for(".text-violet", "color")["color"], app),
+      opaque(last_rule_for(".text-violet-ink", "color")["color"], app)
+    ].map(&:upcase)
+
+    SCANNED.flat_map do |root|
+      Dir[root.join("**/*.{erb,rb}")].flat_map do |path|
+        rel = Pathname(path).relative_path_from(Rails.root).to_s
+        page = app.merge(embedded_style_tokens(path, mode))
+        inline_style_colors(path).filter_map do |line, expr|
+          color = static_color(expr, page)
+          next unless color && violet.include?(color.upcase)
+
+          [ rel, line, expr, color, enclosing_surface(rel, line, token: nil) ]
+        end
+      end
+    end
+  end
+
+  def classes_for_testid(path, testid)
+    tag = File.read(Rails.root.join(path))[/<[^>]*data-testid=["']#{Regexp.escape(testid)}["'][^>]*>/m]
+    assert tag, "#{path} has no element with data-testid=#{testid.inspect}"
+    tag[/class=["']([^"']*)["']/, 1].to_s.split.sort
   end
 
   # ── the fill stays the fill ────────────────────────────────────────────────
@@ -329,6 +419,31 @@ class VioletTextContrastTest < ActiveSupport::TestCase
                         "#{format('%.2f', ratio)}:1; AA needs 4.5:1 for small text"
       end
     end
+  end
+
+  test "inline violet color declarations clear AA on their real surfaces in both themes" do
+    THEME_SELECTORS.each_key do |mode|
+      sites = inline_violet_sites(mode)
+      assert_operator sites.length, :>, 0,
+                      "the inline lane found no violet text in the #{mode} theme; without a real site this guard is vacuous"
+
+      sites.each do |path, line, expr, color, surface|
+        assert surface, "#{path}:#{line} #{expr.inspect} names no enclosing theme surface"
+        ground = grounds(mode).fetch(surface.to_s)
+        ratio = contrast(color, ground)
+        assert_operator ratio, :>=, AA_TEXT,
+                        "#{path}:#{line} inline #{expr} resolves to #{color} on the #{mode} #{surface} " \
+                        "(#{ground}), #{format('%.2f', ratio)}:1; AA needs 4.5:1 for small text"
+      end
+    end
+  end
+
+  test "the slate bye-line badge uses the benchmarks badge treatment" do
+    benchmark = classes_for_testid("app/views/benchmarks/index.html.erb", "benchmarks-bye-badge")
+    slate = classes_for_testid("app/views/slates/show.html.erb", "bye-line-badge")
+
+    assert_equal benchmark, slate,
+                 "the two pages describe the same bye line; keep their small violet label treatment identical"
   end
 
   # ── controls: each half of the fix has to be load-bearing ──────────────────
