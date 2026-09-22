@@ -23,29 +23,46 @@ class NflverseMergedRowAuditReadonlyTest < ActionDispatch::IntegrationTest
     common_first_name first_name last_name status last_season
   ].freeze
 
-  # A database carrying BOTH failure shapes plus clean rows, so the run under
+  # A database carrying EVERY failure shape plus clean rows, so the run under
   # observation is the real one and not a trivially empty scan.
+  #
+  # The last two rows exercise the WIDENED name lookup — one reached through the
+  # feed's second spelling, one through a Person alias. Both are new query paths,
+  # and a new path that runs outside this subscriber is a path the read-only
+  # proof does not cover, so they are seeded here rather than only in the unit
+  # suite. Each uses its own surname: a shared one would let `occupants.find`
+  # pick either occupant and make the assertion depend on row order.
   setup do
     @clean = make_athlete("Alice", "Ant", gsis_id: "00-0020001")
     @foreign = make_athlete("Cara", "Crane", gsis_id: "00-0020003")  # actually Dave Drake's
     @namesake = make_athlete("Chris", "Smith", gsis_id: "00-0038661")
+    @feed_spelling = make_athlete("Robert", "Beal", gsis_id: "00-0020005")
+    @aliased = make_athlete("Christopher", "Stone", aliases: ["Chris Stone"], gsis_id: "00-0020007")
 
     @csv = CSV.generate do |csv|
       csv << HEADERS
       [
-        ["00-0020001", "Alice", "Ant"],
-        ["00-0020002", "Cara", "Crane"],
-        ["00-0020003", "Dave", "Drake"],
-        ["00-0038661", "Chris", "Smith"],
-        ["00-0031234", "Chris", "Smith"]
-      ].each do |gsis_id, first, last|
-        csv << [gsis_id, nil, nil, nil, nil, nil, first, first, last, "ACT", "2026"]
+        ["00-0020001", "Alice", "Alice", "Ant"],
+        ["00-0020002", "Cara", "Cara", "Crane"],
+        ["00-0020003", "Dave", "Dave", "Drake"],
+        ["00-0038661", "Chris", "Chris", "Smith"],
+        ["00-0031234", "Chris", "Chris", "Smith"],
+        # Turf stored "Robert"; the feed PREFERS "Rob" and carries "Robert" only
+        # in first_name. The unheld twin is spelled the same way.
+        ["00-0020005", "Rob", "Robert", "Beal"],
+        ["00-0020006", "Rob", "Robert", "Beal"],
+        # Turf stored "Christopher" with a "Chris Stone" alias; the feed knows
+        # only "Chris", so the alias is the sole bridge.
+        ["00-0020007", "Chris", "Chris", "Stone"],
+        ["00-0020008", "Chris", "Chris", "Stone"]
+      ].each do |gsis_id, common_first, first, last|
+        csv << [gsis_id, nil, nil, nil, nil, nil, common_first, first, last, "ACT", "2026"]
       end
     end
   end
 
-  def make_athlete(first, last, **ids)
-    person = Person.create!(first_name: first, last_name: last, athlete: true)
+  def make_athlete(first, last, aliases: [], **ids)
+    person = Person.create!(first_name: first, last_name: last, athlete: true, aliases: aliases)
     Athlete.create!(person_slug: person.slug, sport: "football", **ids)
   end
 
@@ -75,7 +92,10 @@ class NflverseMergedRowAuditReadonlyTest < ActionDispatch::IntegrationTest
     assert_operator statements.size, :>=, 2, "the audit must actually query"
     assert_operator result.athletes_checked, :>=, 3
     assert_equal 1, result.foreign_ids.size, "the seeded foreign-ID row is found"
-    assert_equal 1, result.absorbed_namesakes.size, "the seeded namesake merge is found"
+    assert_equal %w[chris-smith-athlete christopher-stone-athlete robert-beal-athlete],
+                 result.absorbed_namesakes.map(&:athlete_slug).sort,
+                 "all three namesake shapes are found under observation — the exact " \
+                 "spelling, the feed's second spelling, and the alias"
 
     writes = statements.grep(WRITE_SQL)
     assert_empty writes, "the audit issued write SQL: #{writes.inspect}"
