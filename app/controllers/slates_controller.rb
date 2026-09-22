@@ -134,8 +134,11 @@ class SlatesController < ApplicationController
 
   def update_formula
     rescue_and_log(target: @slate) do
-      @slate.update!(formula_params)
-      redirect_to slate_path(@slate), notice: "Formula saved!"
+      if @slate.update(formula_params)
+        redirect_to slate_path(@slate), notice: "Formula saved!"
+      else
+        redirect_to slate_path(@slate), alert: @slate.errors.full_messages.to_sentence
+      end
     end
   rescue StandardError => e
     redirect_to @slate ? slate_path(@slate) : root_path, alert: e.message
@@ -153,8 +156,11 @@ class SlatesController < ApplicationController
     return redirect_to root_path, alert: "Default slate not found" unless @default_slate
 
     rescue_and_log(target: @default_slate) do
-      @default_slate.update!(formula_params)
-      redirect_to admin_formula_slates_path, notice: "Default formula saved!"
+      if @default_slate.update(formula_params)
+        redirect_to admin_formula_slates_path, notice: "Default formula saved!"
+      else
+        redirect_to admin_formula_slates_path, alert: @default_slate.errors.full_messages.to_sentence
+      end
     end
   rescue StandardError => e
     redirect_to admin_formula_slates_path, alert: e.message
