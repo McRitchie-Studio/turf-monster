@@ -756,11 +756,12 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   #
   # ITS RESIDUAL WEAKNESS, the routes-file form of limit 6 again: a shift onto a
   # NEIGHBOURING line that calls the SAME member still anchors. `session.delete`
-  # is written on four consecutive lines of application_controller.rb (:41, :45,
-  # :46, :47), so a pin that moved within that run would pass. The rule is tight
-  # enough to catch a number that left its call — measured the day it landed, a
-  # one-line insertion above reddens 37 of 37 and a deletion 35 — but not one
-  # that moved within a run of identical calls.
+  # is written FOUR times inside `set_app_session` — at :41, then :45, :46, :47
+  # — so a pin that slipped from :45 to :46 would pass, while the same one-line
+  # slip from :41 lands on a comment and reddens. The rule is tight enough to
+  # catch a number that left its call — measured the day it landed, a one-line
+  # insertion above reddens 37 of 37 call-site pins and a deletion 35 — but not
+  # one that moved within a RUN of identical calls.
   #
   # The floor is set below the 37 call-site pins SCANNED_DOCS held that day. Same
   # reasoning as every other floor here: an attachment rule that stops matching
