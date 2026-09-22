@@ -58,11 +58,12 @@ Chart/formula visualization colors are defined once at the top of `slates/show.h
   the card the graphics sit on, by `test/views/violet_text_contrast_test.rb`'s
   own helpers: `--fc-goals` **1.96:1** light, `--fc-dk-score` **2.22:1** dark,
   `--fc-dk-total` **2.78:1** light; only `--fc-mult` clears both (3.10 / 3.60).
-  The 1.96 and 2.22 quoted below as the *text* failure are also under the
-  *graphical* floor. This is pre-existing and was not introduced by the ink
-  work — the fills are byte-identical before and after it — and the fix is
-  tracked separately as `raise-series-fills-graphical-floor`. Do not read this
-  bullet as a clearance.
+  The 1.96 and 2.22 above are the same two ratios that fail as *text*, which
+  the **Ink** bullet below answers; both are under both bars. This is
+  pre-existing and was not introduced by the ink work — the fills are
+  byte-identical before and after it — and the fix is tracked separately as
+  `raise-series-fills-graphical-floor`. Do not read this bullet as a
+  clearance.
 - **Ink** paints anything read as small TEXT, which owes 4.5:1. Only the theme
   that actually fails moves, so a series keeps its own brand colour wherever it
   already clears: `--fc-goals-ink` is `#B8B0FF` in dark and `--color-violet-ink`
