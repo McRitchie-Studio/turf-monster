@@ -100,9 +100,10 @@ class VioletTextContrastTest < ActiveSupport::TestCase
   SLATE_PAGE = "app/views/slates/show.html.erb"
 
   # Mailer templates render in their own layout with a fixed palette and never
-  # see a theme surface, so neither the theme grounds nor the page fallback
-  # describes them. They are skipped rather than measured against a ground they
-  # do not have.
+  # see a theme surface. They are still SCANNED — a brand colour written into a
+  # mailer is still a finding — but the page fallback does not apply to them, so
+  # an unresolved ground fails loudly instead of being measured against a
+  # surface the template never sits on.
   MAILER_VIEWS = %r{/app/views/[\w]*mailer/}
 
   # The violet tints small labels sit inside, and the surfaces they sit on.
@@ -456,7 +457,20 @@ class VioletTextContrastTest < ActiveSupport::TestCase
   # Defaulting to the CARD would be the guess this walk exists to prevent — the
   # page is the one ground that is actually true for an element naming nothing,
   # and without it the two Save Formula buttons have no ground at all.
-  def surface_or_page(chain) = surface_from_chain(chain) || :page
+  #
+  # MAILERS KEEP THE OLD STRICTNESS, so that adding this fallback cannot narrow
+  # the guard. They render in their own layout with a fixed palette and never
+  # see a theme surface, so the page is NOT their ground — but the answer to
+  # that is to keep failing unresolved, exactly as this lane did before the
+  # fallback existed, rather than to skip the file. Skipping would mean a violet
+  # written into a mailer stops being caught, which is a coverage LOSS dressed
+  # up as a fix.
+  def surface_or_page(path, chain)
+    found = surface_from_chain(chain)
+    return found if found
+
+    path.to_s.match?(MAILER_VIEWS) ? nil : :page
+  end
 
   # The series colours, resolved ONCE from the page that declares the tokens
   # and then hunted on EVERY scanned page.
@@ -509,7 +523,7 @@ class VioletTextContrastTest < ActiveSupport::TestCase
     app = tokens(mode)
 
     SCANNED.flat_map do |root|
-      Dir[root.join("**/*.{erb,rb}")].reject { |p| p.match?(MAILER_VIEWS) }.flat_map do |path|
+      Dir[root.join("**/*.{erb,rb}")].flat_map do |path|
         rel = Pathname(path).relative_path_from(Rails.root).to_s
         page = app.merge(embedded_style_tokens(path, mode))
         palette = scanned_palette(mode, app)
@@ -517,7 +531,7 @@ class VioletTextContrastTest < ActiveSupport::TestCase
           color = static_color(expr, page)
           next unless color && palette.key?(color.upcase)
 
-          [ rel, line, expr, color, surface_or_page(chain), series_for(expr, color, palette) ]
+          [ rel, line, expr, color, surface_or_page(path, chain), series_for(expr, color, palette) ]
         end
       end
     end
@@ -591,6 +605,8 @@ class VioletTextContrastTest < ActiveSupport::TestCase
       end
 
       sites.each do |path, line, expr, color, surface, series|
+        assert surface, "#{path}:#{line} #{expr.inspect} names no enclosing theme surface, and no page " \
+                        "fallback applies to it — resolve its ground rather than assuming one"
         ground = grounds(mode).fetch(surface.to_s)
         ratio = contrast(color, ground)
         assert_operator ratio, :>=, AA_TEXT,
