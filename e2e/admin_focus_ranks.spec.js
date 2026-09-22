@@ -74,6 +74,14 @@ test.describe("Focus order board", () => {
     // this app's contract and pinning it here would make the spec a metronome
     // for a library. What IS the contract: the drag moved the game up, and the
     // server stored exactly the order the browser ended up showing.
+
+    // ARM THE RESPONSE WAITER BEFORE THE DRAG. The save can be answered before
+    // the poll below even returns, and waitForResponse only sees traffic that
+    // arrives after it is created.
+    const saved = page.waitForResponse(
+      (r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/reorder")
+    );
+
     const cards = page.locator("#dropzone-focus .kanban-card");
     await dragCard(page, cards.last(), cards.first(), 6);
 
@@ -83,6 +91,42 @@ test.describe("Focus order board", () => {
 
     const after = await slugsInList(page);
     expect(after).not.toEqual(before);
+
+    // WAIT FOR THE WRITE, NOT FOR THE SCREEN. This is the line that keeps the
+    // spec honest on a slow runner, and it is a race REMOVED rather than a
+    // timeout raised.
+    //
+    // The drop's save is FIRE-AND-FORGET. studioBoard.saveOrder() (the engine's
+    // studio/_board_assets) calls request(reorderUrl, "POST", ...) and never
+    // awaits it, and nothing on the page changes when it lands -- so there is no
+    // DOM signal to poll for, and every assertion above is satisfied the instant
+    // SortableJS drops the card, while the POST is still in flight.
+    //
+    // A page.reload() ABORTS an in-flight fetch. So the reload below was racing
+    // the very save it exists to verify, and whoever won decided the verdict.
+    //
+    // MEASURED, 2026-09-22, one isolated test-env stack. THIS FILE, A/B against
+    // a 400ms sleep in Admin::Nfl::WeeksController#reorder, same stack, same run:
+    //   this spec WITHOUT the wait below ............ 10/10 RED
+    //   this spec WITH it ........................... 10/10 green
+    // and, on a faithful copy driven through page.route latency:
+    //   idle laptop, no added latency, no wait ...... 20/20 green
+    //   +150 / +400 / +800ms, no wait ............... 10/10 RED each
+    //   +0 / +150 / +400 / +800ms, with the wait .... 10/10 green each
+    //
+    // Past a latency threshold the race stops being a coin flip and turns
+    // DETERMINISTIC, which is what makes it worse than an ordinary flake: retries
+    // cannot rescue it. That is the shape of the real failure this fix is for --
+    // on origin/release b5981d2 the spec failed its initial attempt AND both
+    // retries at this exact assertion (the order came back in kickoff order),
+    // while the same check had passed on the same commit eight minutes earlier.
+    // Reading that as a real regression is what nearly got a nine-member release
+    // reverted to chase a race.
+    //
+    // The response is the only honest "the server has it" signal here, and
+    // waiting for it also STATES the claim the old spec could make only by
+    // inference: the drop really did POST, and the server really did accept it.
+    expect((await saved).ok()).toBeTruthy();
 
     // THE RELOAD IS THE ASSERTION. Everything above is equally true of a board
     // that moved the card on screen and never told the server.

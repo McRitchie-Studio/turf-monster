@@ -165,6 +165,59 @@ test("the restored cart carries the picks themselves, not just the count", async
 // and no-cache strands the guest this file exists to protect), so it is filed as
 // /tasks/turbo-concurrent-visit-rendering. That is why the leg settles between
 // its two traversals rather than asserting the hazard away.
+// WHEN THIS TEST GOES RED, IT IS TELLING THE TRUTH. READ THIS BEFORE RE-RUNNING.
+//
+// This leg is the one that fails on a loaded runner, and on 2026-09-22 its red
+// was read as a flake while a SIBLING red on the same job was read as a
+// regression -- which nearly got a nine-member release reverted. So: what this
+// red means was measured, and here is the answer.
+//
+// ITS RED IS A TRUE POSITIVE. The guest's cart really does not survive Back when
+// the machine is slow. MEASURED on one isolated test-env stack, this leg alone:
+//
+//   unthrottled ................. 2/15 red
+//   4x CPU throttle ............ 15/15 red
+//   8x CPU throttle ............ 15/15 red
+//
+// and the failing page is not a mid-swap artifact -- it is the contest page
+// carrying SIX EMPTY SLOTS ("Pick 1".."Pick 6", "Your Picks", counter 0 / 6): a
+// fresh SERVER render with no cart, which is precisely the user-visible loss
+// this file exists to catch. The CI failure on origin/release b5981d2 printed
+// the same 3372-character body with the same empty-slot signature, so the local
+// reproduction and the CI failure are the same event.
+//
+// THE RACE: Back is pressed as soon as the URL FLIPS, and Turbo flips the URL at
+// before-render -- INSIDE the outgoing render, which app/javascript/turbo_snapshot_cache.js
+// deliberately lengthens by one macrotask. Under load the restoration visit
+// therefore starts while the Rules visit is still rendering, and the cart
+// snapshot is never read. That is the SECOND failure mode written up in that
+// module, filed as /tasks/turbo-concurrent-visit-rendering and knowingly NOT
+// fixed. Pausing 400ms before Back is green 10/10 at 4x; pausing 50ms is red
+// 10/10 -- so it is the outgoing RENDER that has to finish, not merely a tick.
+//
+// DO NOT "STABILISE" THIS BY WAITING FOR THE SWAP. Two candidate fixes were
+// built and MEASURED and both were REJECTED, because each turns the guard into a
+// rubber stamp. With `import "turbo_snapshot_cache"` REMOVED from
+// app/javascript/application.js -- the bug fully restored -- both stayed green:
+//
+//   wait for the body swap before Back ........ 10/10 GREEN at 1x AND at 4x
+//   assert the snapshot is filed, at turbo:render  8/8 GREEN at 1x AND at 4x
+//
+// Any wait long enough to clear the flake is also long enough to let Turbo's
+// clone timer land, which is the very ordering the guard is checking. The flake
+// window and the guard window are THE SAME WINDOW. There is no timing edit here
+// that is both stable and discriminating; the remedy is the product bug.
+//
+// (The guard is weak even today, and that is worth knowing: with the module
+// unimported the whole file reds only 3/10 unthrottled. A single green run has
+// never been strong evidence that the restore works.)
+//
+// TELLING A FLAKE FROM A REAL FAILURE, the cheap way and the honest way:
+//   cheap  -- compare the check's conclusion across two runs of the SAME commit
+//             (gh api repos/<r>/commits/<sha>/check-runs?per_page=100).
+//   honest -- reproduce it: run this file against an isolated test-env stack with
+//             a CDP CPU throttle applied (Emulation.setCPUThrottlingRate rate 4).
+//             Red at 4x and green unthrottled is this hazard, not a broken diff.
 test("a signed-out visitor's picks survive the same journey", async ({ page }) => {
   await pickSix(page);
 
