@@ -192,7 +192,8 @@ class TurfScoreBandTest < ActiveSupport::TestCase
     [ -0.1, -5.0, SlateMatchup::SLIDER_SCALES.max + 0.1, 100.0 ].each do |bad|
       slate.formula_mult_scale = bad
       assert_not slate.valid?, "formula_mult_scale #{bad} must not be storable"
-      assert_match(/formula mult scale/i, slate.errors.full_messages.join)
+      assert_match(/\AScale /, slate.errors.full_messages.join,
+                   "the validation must use the admin field's label")
     end
 
     [ nil, 0.0, 0.3, 2.0, SlateMatchup::SLIDER_SCALES.max ].each do |good|
