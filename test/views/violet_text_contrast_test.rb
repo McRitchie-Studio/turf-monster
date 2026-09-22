@@ -95,6 +95,10 @@ class VioletTextContrastTest < ActiveSupport::TestCase
     "DK Total" => { fill: "--fc-dk-total", ink: nil, paints_text: false }
   }.freeze
 
+  # The page that declares the series tokens; the lane resolves them here once
+  # and then hunts the resulting colours everywhere.
+  SLATE_PAGE = "app/views/slates/show.html.erb"
+
   # Mailer templates render in their own layout with a fixed palette and never
   # see a theme surface, so neither the theme grounds nor the page fallback
   # describes them. They are skipped rather than measured against a ground they
@@ -454,22 +458,39 @@ class VioletTextContrastTest < ActiveSupport::TestCase
   # and without it the two Save Formula buttons have no ground at all.
   def surface_or_page(chain) = surface_from_chain(chain) || :page
 
+  # The series colours, resolved ONCE from the page that declares the tokens
+  # and then hunted on EVERY scanned page.
+  #
+  # RESOLVING THEM PER PAGE WOULD MAKE THE LANE PAGE-LOCAL, which is the whole
+  # property this scan exists to have. Any other view declares no `--fc-goals`,
+  # so a bare `#B8B0FF` written there would match nothing and sail through —
+  # the guard would only ever police the one file that happens to define the
+  # token. What is being hunted is the COLOUR, wherever it is written.
+  def series_palette(mode)
+    @series_palette ||= {}
+    @series_palette[mode] ||= begin
+      path = Rails.root.join(SLATE_PAGE).to_s
+      page = tokens(mode).merge(embedded_style_tokens(path, mode))
+      INLINE_SERIES.each_with_object({}) do |(name, series), out|
+        [ series[:fill], series[:ink] ].compact.each do |token|
+          raw = page[token] or flunk "#{SLATE_PAGE} declares no #{token} in the #{mode} theme"
+          color = static_color(raw, page) or flunk "#{token} does not resolve statically in the #{mode} theme"
+          out[color.upcase] ||= name
+        end
+      end
+    end
+  end
+
   # Every colour the inline lane stops on, mapped to the series that owns it.
   # The brand violet pair maps to nil: it is scanned wherever it is written
   # inline (the property PR 796 built this lane for) but it is a utility class
   # rather than a series, so it carries no page token to attribute to.
-  def scanned_palette(page, app)
+  def scanned_palette(mode, app)
     palette = {}
     [ ".text-violet", ".text-violet-ink" ].each do |klass|
       palette[opaque(last_rule_for(klass, "color")["color"], app).upcase] ||= nil
     end
-    INLINE_SERIES.each do |name, series|
-      [ series[:fill], series[:ink] ].compact.each do |token|
-        raw = page[token] or next
-        color = static_color(raw, page) or next
-        palette[color.upcase] ||= name
-      end
-    end
+    series_palette(mode).each { |color, name| palette[color] ||= name }
     palette
   end
 
@@ -491,7 +512,7 @@ class VioletTextContrastTest < ActiveSupport::TestCase
       Dir[root.join("**/*.{erb,rb}")].reject { |p| p.match?(MAILER_VIEWS) }.flat_map do |path|
         rel = Pathname(path).relative_path_from(Rails.root).to_s
         page = app.merge(embedded_style_tokens(path, mode))
-        palette = scanned_palette(page, app)
+        palette = scanned_palette(mode, app)
         inline_style_colors(path).filter_map do |line, expr, chain|
           color = static_color(expr, page)
           next unless color && palette.key?(color.upcase)
@@ -613,8 +634,6 @@ class VioletTextContrastTest < ActiveSupport::TestCase
   end
 
   # ── the series inks, measured per member ───────────────────────────────────
-
-  SLATE_PAGE = "app/views/slates/show.html.erb"
 
   # Every ground a series fill FAILS on as text — the defect each ink exists to
   # answer. One row per (series, theme, ground), because a control that covers
