@@ -3,10 +3,19 @@
 <style>
   /* FILL vs INK, per series. Each formula series has ONE brand colour that
      paints its graphics — the chart stroke, the panel's border-left, the
-     sliders' accent-color — and those are graphical objects, which WCAG 1.4.11
-     clears at 3:1. The same colour also paints the panel's small mono values,
-     and small TEXT owes 4.5:1. Three of the four series cannot do both jobs
-     with one hex, so each keeps its fill and gets an -ink for text.
+     sliders' accent-color — and those are graphical objects, whose bar is WCAG
+     1.4.11's 3:1 rather than 4.5:1. The same colour also paints the panel's
+     small mono values, and small TEXT owes 4.5:1. Three of the four series
+     cannot do both jobs with one hex, so each keeps its fill and gets an -ink
+     for text.
+
+     THE 3:1 BAR IS THE BAR, NOT A CLEARANCE. Three of the four fills are under
+     it in one theme, measured on this card: --fc-goals 1.96:1 light,
+     --fc-dk-score 2.22:1 dark, --fc-dk-total 2.78:1 light. Only --fc-mult
+     clears both (3.10 light, 3.60 dark). That is pre-existing — the fills are
+     untouched by the ink work below — and it is tracked as
+     raise-series-fills-graphical-floor rather than fixed here. The two numbers
+     quoted below as TEXT failures are also under the graphical floor.
 
      ONLY THE FAILING THEME MOVES. A series that already clears as text in one
      theme keeps its own brand colour there, so the tie between a number and
@@ -27,11 +36,25 @@
      on the layout body's bg-page: 3.48:1 before, 8.68:1 on --color-primary-ink.
      A fix scoped to the three panels would have left them.
 
-     Both borrowed inks are DERIVED per theme by Studio::ThemeResolver, so they
-     track a theme change instead of pinning a hex that stops being true. Same
-     selector convention as the engine's theme block and as --color-violet-ink
-     in app/assets/tailwind/application.css, so a .dark container inside a light
-     page flips these with the rest of the theme.
+     BOTH BORROWED INKS ARE THIS APP'S OWN TOKENS, NOT THE RESOLVER'S. They are
+     declared in app/assets/tailwind/application.css — Studio::ThemeResolver
+     emits neither --color-primary-ink nor --color-violet-ink (it emits
+     --color-primary and its scale, plus the danger, warning and success inks).
+     So NONE of the four values above tracks a theme change; until 2026-09-22
+     this comment said they were "DERIVED per theme by Studio::ThemeResolver",
+     and that was false. Borrowing them is still the right design — they move
+     with the ink tokens the rest of the app already reads, instead of adding a
+     fourth pinned pair here — it just is not the reason that was written down.
+     "control: the borrowed inks are the app's, not the resolver's" in the guard
+     asserts this, so the claim reds if it stops being true.
+
+     WHAT THE THEME DOES MOVE IS THE GROUND. The four surfaces ARE
+     resolver-derived, so changing the dark base shifts every ratio above while
+     these inks stay pinned. The guard catches that by reddening.
+
+     Same selector convention as the engine's theme block and as
+     --color-violet-ink in app/assets/tailwind/application.css, so a .dark
+     container inside a light page flips these with the rest of the theme.
 
      Guard: test/views/violet_text_contrast_test.rb resolves every inline
      `color:` on this page through these tokens and measures it against the
