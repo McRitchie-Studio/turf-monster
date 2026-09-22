@@ -66,7 +66,7 @@ class SlatesFormulaPersistenceTest < ActionDispatch::IntegrationTest
 
   # The companion to the schema pin above, and the one that actually watches the
   # permit list. SlatesController#formula_params is `params.permit(*Slate::
-  # FORMULA_COLUMNS)` today, and a key hand-added there — `, :mult_ceiling` — is
+  # FORMULA_COLUMNS)` today, and a column hand-added there — `, :week` — is
   # invisible to every other assertion in this file: they all derive their column
   # list from the constant, so they would never post it and never miss it.
   #
