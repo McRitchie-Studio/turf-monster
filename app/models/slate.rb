@@ -23,18 +23,23 @@ class Slate < ApplicationRecord
   #
   # THE SHARP EDGE, stated causally rather than by calendar: a row that ALREADY
   # holds an out-of-range scale becomes unsaveable by ANY writer. A rename, a
-  # status flip, anything — `save` returns false with "Formula mult scale must
-  # be less than or equal to 10.0", an error about a column the writer never
-  # touched. No validated path can create such a row; only `update_column`, raw
+  # status flip, anything — `save` returns false with "Scale must be less than
+  # or equal to 10.0", an error about a column the writer never touched. The
+  # message says "Scale" and not the column name because en.yml maps
+  # `activerecord.attributes.slate.formula_mult_scale` to it, so the one word
+  # the confused writer has to go on does not name the column at all.
+  # No validated path can create such a row; only `update_column`, raw
   # SQL or a restored backup can. If one appears, clear ONLY the out-of-range
   # rows rather than loosening this — the unscoped form takes every legitimately
   # configured scale with it:
   #
   #   Slate.where("formula_mult_scale < 0 OR formula_mult_scale > ?",
   #               SlateMatchup::SLIDER_SCALES.max)
-  #        .update_all(formula_mult_scale: nil) (Observed 2026-09-21: prod 35 slates and QA 34,
-  # `formula_mult_scale` non-null on ZERO of them. That is a dated observation,
-  # not the reason the rule is safe.)
+  #        .update_all(formula_mult_scale: nil)
+  #
+  # (Observed 2026-09-21: prod 35 slates and QA 34, `formula_mult_scale`
+  # non-null on ZERO of them. That is a dated observation, not the reason the
+  # rule is safe.)
   validates :formula_mult_scale,
             numericality: {
               greater_than_or_equal_to: 0,

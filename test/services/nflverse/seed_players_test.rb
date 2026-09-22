@@ -290,7 +290,189 @@ class Nflverse::SeedPlayersTest < ActiveSupport::TestCase
     assert_equal 1, stats[:skipped_old]
   end
 
+  # THE BUG THIS TASK EXISTS FOR — and the one the namesake tests above cannot
+  # see, because every one of them gives both men a gsis_id.
+  #
+  # The old adopt condition was `existing.gsis_id.blank? || existing.gsis_id ==
+  # gsis_id`. Its FIRST branch is true for a blank-GSIS namesake PAIR, and
+  # nflverse ships plenty: a player carries no GSIS until he appears in a game,
+  # so two undrafted rookies sharing a name both arrive blank. The second row
+  # then adopted the first man's Athlete and overwrote him.
+  test "two blank-GSIS namesakes stay two humans" do
+    wr = seeder.ingest_row(row(
+      "gsis_id" => "", "common_first_name" => "Justin", "last_name" => "Jefferson",
+      "espn_id" => "4262921", "pff_id" => "60001", "otc_id" => "otc-bg1",
+      "pfr_id" => "JeffJu00", "nfl_id" => "52481", "latest_team" => "MIN"
+    ))
+    lb = seeder.ingest_row(row(
+      "gsis_id" => "", "common_first_name" => "Justin", "last_name" => "Jefferson",
+      "espn_id" => "4430737", "pff_id" => "60002", "otc_id" => "otc-bg2",
+      "pfr_id" => "JeffJu01", "nfl_id" => "58122", "latest_team" => "CLE"
+    ))
+
+    assert_not_nil lb, "the second namesake must be created, not merged away"
+    assert_not_equal wr.id, lb.id, "two humans, two Athlete rows"
+    assert_equal "4262921", wr.reload.espn_id, "the first player must not be overwritten"
+    assert_equal "4430737", lb.reload.espn_id
+    assert_equal 2, Person.where(last_name: "Jefferson").count
+  end
+
+  # ORDER-DEPENDENT IDENTITY — and the reason a COUNT cannot catch it.
+  #
+  # Both orderings produce two people and two athletes, so every cardinality
+  # assertion passes under the swap. What changes is WHICH human owns the clean
+  # `justin-jefferson` slug. person_slug is the foreign key this whole schema
+  # joins on — grades, stats, headshots, contest picks — so a feed reorder
+  # silently hands one man's record to the other on the next rebuild.
+  #
+  # So assert the MAPPING, not the cardinality. It drives `call` rather than
+  # `ingest_row`, because `ordered` is the fix under test and calling
+  # `ingest_row` directly would step straight over it.
+  test "reversing the two blank-GSIS rows does not swap who owns the clean slug" do
+    forward = namesake_mapping(namesake_csv(jefferson_a, jefferson_b))
+    clear_jeffersons
+    reversed = namesake_mapping(namesake_csv(jefferson_b, jefferson_a))
+
+    assert_equal({ "justin-jefferson" => "4262921", "justin-jefferson-0737" => "4430737" },
+                 forward, "the lower ESPN id sorts first and keeps the clean slug")
+    assert_equal forward, reversed,
+                 "CSV order decided which namesake owned the clean slug — every FK is that slug"
+  end
+
+  test "ordered sorts on the whole identifier priority, not the csv row index" do
+    service = Nflverse::SeedPlayers.new(upload_headshots: false, csv_body: "")
+    rows = [
+      { "gsis_id" => "", "espn_id" => "4430737", "marker" => "late-espn" },
+      { "gsis_id" => "", "espn_id" => "4262921", "marker" => "early-espn" },
+      { "gsis_id" => "00-0036322", "espn_id" => "1", "marker" => "has-gsis" },
+      { "gsis_id" => "", "espn_id" => "", "pff_id" => "7", "marker" => "pff-only" },
+      { "gsis_id" => "", "espn_id" => "", "marker" => "no-ids" }
+    ]
+
+    order = service.send(:ordered, rows).map { |r| r["marker"] }
+
+    assert_equal %w[has-gsis early-espn late-espn pff-only no-ids], order
+    assert_equal order, service.send(:ordered, rows.reverse).map { |r| r["marker"] },
+                 "the ingest order still depends on how the feed listed the rows"
+  end
+
+  # COLLISION-SAFE DISAMBIGUATORS. `digits.last(4)` is a preference, not a
+  # uniqueness guarantee: two namesakes whose IDs end in the same four digits
+  # compute the same slug and `Person.create!` raises RecordNotUnique — which,
+  # in a ~25k-row bulk rake task, drops every row after it.
+  #
+  # It takes THREE namesakes to reach, because the first keeps the clean slug
+  # and never computes a suffix at all.
+  test "a third namesake sharing the last four digits widens instead of raising" do
+    a = seeder.ingest_row(row(**unique, "gsis_id" => "", "espn_id" => "1110737",
+                              "common_first_name" => "Justin", "last_name" => "Jefferson"))
+    b = seeder.ingest_row(row(**unique, "gsis_id" => "", "espn_id" => "2220737",
+                              "common_first_name" => "Justin", "last_name" => "Jefferson"))
+    c = nil
+    assert_nothing_raised do
+      c = seeder.ingest_row(row(**unique, "gsis_id" => "", "espn_id" => "3330737",
+                                "common_first_name" => "Justin", "last_name" => "Jefferson"))
+    end
+
+    assert_equal "justin-jefferson", a.person_slug
+    assert_equal "justin-jefferson-0737", b.person_slug
+    assert_equal "justin-jefferson-3330737", c&.person_slug,
+                 "the third must widen to the whole identifier rather than collide on 0737"
+    assert_equal 3, Person.where(last_name: "Jefferson").count
+  end
+
+  # THE POLICY: skip and RECORD. A namesake carrying no identifier at all cannot
+  # be given a stable slug, and a raise here would drop every remaining row of a
+  # bulk rebuild. So the row is refused, recorded by name, and the run carries on.
+  #
+  # The third row is another no-ID row, so it sorts into the same bucket and is
+  # ingested AFTER the refusal — otherwise "the run continues" would be proved
+  # by a row that had already landed before the refusal happened.
+  test "a namesake with no identifier is recorded, and a later row still lands" do
+    blank = { "gsis_id" => "", "espn_id" => "", "pff_id" => "",
+              "otc_id" => "", "pfr_id" => "", "nfl_id" => "" }
+    csv = namesake_csv(
+      jefferson_a,
+      jefferson_a.merge(blank),
+      jefferson_a.merge(blank).merge("common_first_name" => "Other", "first_name" => "Other",
+                                     "last_name" => "Guy")
+    )
+
+    service = Nflverse::SeedPlayers.new(upload_headshots: false, csv_body: csv)
+    stats = nil
+    assert_nothing_raised { stats = service.call }
+
+    assert_equal 1, stats[:namesake_collisions_skipped]
+    assert_equal 1, service.namesake_collisions.size
+    refused = service.namesake_collisions.first
+    assert_equal "justin-jefferson", refused[:person_slug]
+    assert_equal "Justin Jefferson", refused[:name], "the refusal must NAME the human, not just count"
+    assert_equal "4262921", refused[:ours]
+
+    assert_equal 1, Person.where(last_name: "Jefferson").count,
+                 "the unslugable namesake must not have merged onto the first"
+    assert_equal "4262921", Athlete.find_by(person_slug: "justin-jefferson").espn_id
+    assert Person.exists?(slug: "other-guy"), "a row ingested AFTER the refusal must still land"
+  end
+
+  # The predicate itself. gsis_id is no longer privileged: ANY shared
+  # cross-reference means the same human, and an athlete carrying none at all is
+  # the unidentified stub the demo seed leaves behind, which must still adopt.
+  test "a conflicting secondary identity refuses name-based adoption" do
+    service = Nflverse::SeedPlayers.new(upload_headshots: false, csv_body: "")
+    existing = Athlete.new(espn_id: "111", pff_id: 222)
+    matching = { gsis_id: nil, espn_id: "111", pff_id: nil,
+                 otc_id: nil, pfr_id: nil, nflverse_id: nil }
+
+    assert service.send(:adoptable_name_match?, existing, matching)
+    assert_not service.send(:adoptable_name_match?, existing, matching.merge(espn_id: "333"))
+    assert service.send(:adoptable_name_match?, Athlete.new, matching.merge(espn_id: "333")),
+           "an unidentified hand-entered athlete is still adopted — that is the point of the stub path"
+  end
+
   private
+
+  NAMESAKE_CSV_HEADERS = %w[
+    gsis_id nfl_id pff_id otc_id espn_id pfr_id
+    common_first_name first_name last_name status last_season position latest_team
+  ].freeze
+
+  def jefferson(espn_id:, pff_id:, otc_id:, pfr_id:, nfl_id:, team:)
+    { "gsis_id" => "", "nfl_id" => nfl_id, "pff_id" => pff_id, "otc_id" => otc_id,
+      "espn_id" => espn_id, "pfr_id" => pfr_id,
+      "common_first_name" => "Justin", "first_name" => "Justin", "last_name" => "Jefferson",
+      "status" => "ACT", "last_season" => "2026", "position" => "WR", "latest_team" => team }
+  end
+
+  def jefferson_a
+    jefferson(espn_id: "4262921", pff_id: "60001", otc_id: "otc-ja",
+              pfr_id: "JeffJu00", nfl_id: "52481", team: "MIN")
+  end
+
+  def jefferson_b
+    jefferson(espn_id: "4430737", pff_id: "60002", otc_id: "otc-jb",
+              pfr_id: "JeffJu01", nfl_id: "58122", team: "CLE")
+  end
+
+  def namesake_csv(*rows)
+    CSV.generate do |out|
+      out << NAMESAKE_CSV_HEADERS
+      rows.each { |r| out << NAMESAKE_CSV_HEADERS.map { |header| r[header] } }
+    end
+  end
+
+  # slug => espn_id for everyone named Jefferson. The MAPPING is the assertion;
+  # the count is not, because both orderings produce the same count.
+  def namesake_mapping(csv)
+    Nflverse::SeedPlayers.new(upload_headshots: false, csv_body: csv).call
+    Athlete.where(person_slug: Person.where(last_name: "Jefferson").select(:slug))
+           .to_h { |athlete| [athlete.person_slug, athlete.espn_id] }
+  end
+
+  def clear_jeffersons
+    Athlete.where(person_slug: Person.where(last_name: "Jefferson").select(:slug)).destroy_all
+    Person.where(last_name: "Jefferson").destroy_all
+  end
 
   # Fresh cross-reference IDs so a case that wants a NEW athlete does not get
   # matched onto the previous one by the ID hierarchy.

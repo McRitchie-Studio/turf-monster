@@ -26,6 +26,24 @@ class Nflverse::SeedPlayers
   DEFAULT_MIN_SEASON = 2026
   HEADSHOT_WIDTHS = [100, 400].freeze
 
+  # Every cross-reference this importer treats as proof of identity. A row that
+  # shares NONE of these with an existing athlete of the same name is a
+  # different human, whatever the names say.
+  IDENTITY_COLUMNS = %i[gsis_id pff_id otc_id espn_id pfr_id nflverse_id].freeze
+
+  # The order a namesake's slug suffix is cut from — and, by construction, the
+  # order `ordered` sorts on. ONE list, so the row that sorts first is the row
+  # whose suffix is computed from the highest-priority identifier. Two lists
+  # would be free to drift.
+  DISAMBIGUATOR_PRIORITY = %i[gsis_id espn_id pff_id otc_id pfr_id nflverse_id].freeze
+
+  # The CSV header each identity column arrives under. Only `nflverse_id`
+  # differs from its column name — the feed ships it as `nfl_id`.
+  IDENTITY_CSV_COLUMNS = {
+    gsis_id: "gsis_id", espn_id: "espn_id", pff_id: "pff_id",
+    otc_id: "otc_id", pfr_id: "pfr_id", nflverse_id: "nfl_id"
+  }.freeze
+
   # nflverse uses standard NFL abbreviations with a few quirks: "LA" for the
   # Rams, "LAC" for the Chargers, "LV" for the Raiders, "WAS" for the
   # Commanders. Maps to the team slugs this app already uses.
@@ -48,7 +66,11 @@ class Nflverse::SeedPlayers
     "TEN" => "tennessee-titans",     "WAS" => "washington-commanders"
   }.freeze
 
-  attr_reader :stats
+  # `namesake_collisions` is the REFUSAL LOG — one entry per human this importer
+  # declined to write because it could not give them their own slug. Never empty
+  # silently: `call` prints every entry unconditionally, because each one is a
+  # player missing from a live contest, not a statistic.
+  attr_reader :stats, :namesake_collisions
 
   def initialize(verbose: false, upload_headshots: true,
                  min_season: DEFAULT_MIN_SEASON, status_filter: "ACT",
@@ -64,10 +86,11 @@ class Nflverse::SeedPlayers
     @source_url = source_url
     @csv_body = csv_body
     @stats = Hash.new(0)
+    @namesake_collisions = []
   end
 
   def call
-    rows = parse_csv
+    rows = ordered(parse_csv)
     puts "  #{rows.size} rows; filter: status=#{@status_filter || "any"} last_season>=#{@min_season}"
 
     rows.each do |row|
@@ -79,8 +102,39 @@ class Nflverse::SeedPlayers
       ingest_row(row)
     end
 
+    report_namesake_collisions
     puts "\nnflverse seed: #{@stats.inspect}"
     @stats
+  end
+
+  # A DETERMINISTIC ingest order, independent of how the feed happens to ship
+  # the file.
+  #
+  # It matters only for namesakes, and only on a rebuild from empty — which is
+  # exactly what a pre-season re-seed is. Of two players sharing a name, the
+  # FIRST one ingested keeps the clean "justin-jefferson" slug and the second
+  # gets the disambiguated one. Leave that to CSV order and a rebuild can hand
+  # the clean slug to the other player.
+  #
+  # That is not cosmetic here: person_slug is the foreign key this whole schema
+  # joins on — grades, stats, headshots, contest picks — so a feed reorder
+  # silently reassigns one man's record to another man. Measured on two
+  # blank-GSIS Jefferson rows, reversing them moved the clean slug from ESPN
+  # 4262921 to 4430737.
+  #
+  # It sorts on the WHOLE identifier priority, not on gsis_id alone. GSIS first
+  # keeps the established order, but GSIS is blank on BOTH rows of a real
+  # namesake pair often enough to matter, and when it is, it discriminates
+  # nothing — leaving the CSV index as the only tiebreak, which is precisely the
+  # file-order dependency this method exists to remove.
+  #
+  # The index survives as the LAST tiebreak, for rows sharing every identifier
+  # (or carrying none): Ruby's `sort_by` is not stable, so without it those rows
+  # could shuffle between runs.
+  def ordered(rows)
+    rows.each_with_index
+        .sort_by { |row, index| identity_sort_key(row) << index }
+        .map(&:first)
   end
 
   # Public so tests can drive a single row without a CSV. Returns the Athlete,
@@ -97,7 +151,9 @@ class Nflverse::SeedPlayers
     # regardless of what the name says. This is what prevents "Will Anderson
     # Jr." (carrying a pff_id) and "Will Anderson" (from a source that drops
     # the suffix) from living as two Person+Athlete pairs.
-    athlete = lookup_athlete_by_ids(gsis_id:, pff_id:, otc_id:, espn_id:, pfr_id:)
+    nflverse_id = row["nfl_id"].to_s.strip.presence
+    identifiers = { gsis_id:, pff_id:, otc_id:, espn_id:, pfr_id:, nflverse_id: }
+    athlete = lookup_athlete_by_ids(**identifiers)
     person = athlete&.person
 
     if athlete.nil?
@@ -111,7 +167,12 @@ class Nflverse::SeedPlayers
       person = Person.find_or_create_by_name!(first, last, athlete: true)
       @stats[:people_created] += 1 if person.previously_new_record?
 
-      athlete = resolve_athlete!(person, first, last, gsis_id, espn_id)
+      athlete = resolve_athlete!(person, first, last, identifiers)
+      # resolve_athlete! now REFUSES a namesake it cannot slug and returns nil.
+      # Without this guard the nil falls through to `athlete.update!` below and
+      # raises NoMethodError out of the rescue's reach — turning a counted skip
+      # back into the run-killing raise the refusal exists to avoid.
+      return nil unless athlete
     end
 
     # DEFER TO THE MASTER ON A SYNCED ROW, rather than letting the write be
@@ -153,12 +214,18 @@ class Nflverse::SeedPlayers
 
   private
 
-  def lookup_athlete_by_ids(gsis_id:, pff_id:, otc_id:, espn_id:, pfr_id:)
+  def lookup_athlete_by_ids(gsis_id:, pff_id:, otc_id:, espn_id:, pfr_id:, nflverse_id: nil)
     return Athlete.find_by(gsis_id:)     if gsis_id && Athlete.exists?(gsis_id:)
     return Athlete.find_by(pff_id:)      if pff_id  && Athlete.exists?(pff_id:)
     return Athlete.find_by(otc_id:)      if otc_id  && Athlete.exists?(otc_id:)
     return Athlete.find_by(espn_id:)     if espn_id && Athlete.exists?(espn_id:)
     return Athlete.find_by(pfr_id:)      if pfr_id  && Athlete.exists?(pfr_id:)
+    # nflverse_id is written by build_attrs and carries a UNIQUE index, so it
+    # must be probed here too. Missing it meant a row whose nflverse_id already
+    # belonged to another athlete fell through to the NAME path, where the
+    # guard below then reads it as a namesake and mints a second Person for one
+    # human — and `update!` raises on the unique index either way.
+    return Athlete.find_by(nflverse_id:) if nflverse_id && Athlete.exists?(nflverse_id:)
 
     nil
   end
@@ -167,47 +234,199 @@ class Nflverse::SeedPlayers
   #
   # Reaching here means no cross-reference ID matched, so the Person we just
   # found may not be this human at all — two active players can share a name.
-  # Seven pairs do in the 2026 league, and the previous version of this method
-  # took `Athlete.find_by(person_slug:)` at face value and let the second of
-  # each pair overwrite the first, silently losing seven players.
+  # Seven pairs do in the 2026 league, and the first version of this method took
+  # `Athlete.find_by(person_slug:)` at face value and let the second of each
+  # pair overwrite the first, silently losing seven players.
   #
-  # The tell is the existing record's own league ID:
-  #   - no athlete yet            -> create one
-  #   - athlete with no gsis_id   -> an unidentified record for this name (the
-  #                                  offline demo seed, or a hand-entered row);
-  #                                  adopt it rather than making a twin
-  #   - athlete with a DIFFERENT
-  #     gsis_id                   -> a different human who shares the name;
-  #                                  give them their own Person, slugged with a
-  #                                  disambiguator so the two never collide
-  def resolve_athlete!(person, first, last, gsis_id, espn_id)
+  # The tell is whether the existing record shares ANY cross-reference with this
+  # row — not gsis_id alone:
+  #   - no athlete yet              -> create one
+  #   - athlete with no identity ID -> an unidentified record for this name (the
+  #                                    offline demo seed, or a hand-entered
+  #                                    row); adopt it rather than making a twin
+  #   - athlete sharing an ID       -> the same human; adopt
+  #   - athlete sharing NONE        -> a DIFFERENT human who happens to share
+  #                                    the name; give them their own Person,
+  #                                    slugged with a disambiguator, so the two
+  #                                    never collide
+  #
+  # READING gsis_id ALONE IS THE BUG THIS REPLACES. The old condition
+  # — `existing.gsis_id.blank? || existing.gsis_id == gsis_id` — is TRUE for a
+  # blank-GSIS namesake PAIR, and nflverse ships plenty: a player has no GSIS
+  # until he appears in a game, so two undrafted rookies sharing a name both
+  # arrive blank. Both men then merged onto one athlete row. Nothing raised —
+  # the row counted as an update, the Person was untouched, so the page still
+  # showed a plausible name. The sibling replica sync hit the identical failure
+  # on production data, where `chris-smith` ended up holding another man's gsis
+  # 00-0038661: a row the master holds nothing for, so no rebuild could restore
+  # him. That is why this is guarded in BOTH writers rather than in the one that
+  # happened to be caught.
+  def resolve_athlete!(person, first, last, identifiers)
     existing = Athlete.find_by(person_slug: person.slug)
 
-    if existing && (existing.gsis_id.blank? || existing.gsis_id == gsis_id)
-      return existing
+    return existing if existing && adoptable_name_match?(existing, identifiers)
+
+    disambiguator = disambiguator_for(identifiers, first, last) if existing
+    if existing && disambiguator.blank?
+      refuse_namesake!(first, last, existing, identifiers, "no league ID to derive a slug from")
+      return nil
     end
 
+    # ONE TRANSACTION, because the two writes are one fact. A Person created
+    # here whose Athlete then fails leaves an ID-less orphan — and the NEXT run
+    # recomputes the same disambiguator and dies on the unique index, wedging
+    # every row after it. `ingest_row`'s rescue wraps `update!` and cannot see
+    # any of this, which is why the rescue below belongs to THIS method.
+    ActiveRecord::Base.transaction do
+      if existing
+        person = Person.create!(
+          first_name: first, last_name: last, athlete: true,
+          disambiguator: disambiguator
+        )
+        @stats[:people_created] += 1
+        @stats[:name_collisions] += 1
+        vputs "  [~] name collision: #{first} #{last} -> #{person.slug}"
+      end
+
+      @stats[:athletes_created] += 1
+      Athlete.create!(person_slug: person.slug, sport: "football")
+    end
+  rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordInvalid => e
+    # SKIP AND RECORD — the policy this importer chose, and the reason the raise
+    # that used to live in `disambiguator_for` is gone rather than moved.
+    #
+    # `nfl:players_seed` is a BULK rake task over a ~25k-row file. A raise on one
+    # malformed row drops every row after it, so the rebuild meant to REPAIR the
+    # data truncates instead, and the operator gets a stack trace rather than the
+    # list of players who are missing. Taking the raise out of `disambiguator_for`
+    # and leaving its twin one call away in `Person.create!` would only have moved
+    # it: a uniqueness failure on the computed slug kills the run just as dead,
+    # and reaching it takes nothing more exotic than three namesakes whose IDs
+    # end in the same four digits.
+    #
+    # `disambiguator_for` already widens past a taken slug, so this is the
+    # backstop for what it cannot see — a racing writer, or a Person the name
+    # lookup could not reach — not the primary defence.
     if existing
-      person = Person.create!(
-        first_name: first, last_name: last, athlete: true,
-        disambiguator: disambiguator_for(gsis_id, espn_id)
-      )
-      @stats[:people_created] += 1
-      @stats[:name_collisions] += 1
-      vputs "  [~] name collision: #{first} #{last} -> #{person.slug}"
+      refuse_namesake!(first, last, existing, identifiers, e.message)
+    else
+      @stats[:athletes_failed] += 1
+      vputs "  [!] could not create #{first} #{last}: #{e.message}"
     end
-
-    @stats[:athletes_created] += 1
-    Athlete.create!(person_slug: person.slug, sport: "football")
+    nil
   end
 
-  # A short, STABLE suffix. Derived from the league ID rather than a counter,
-  # so re-running the seed in a different row order produces the same slug.
-  def disambiguator_for(gsis_id, espn_id)
-    source = gsis_id.presence || espn_id.presence
-    raise "cannot disambiguate a namesake with no league ID" if source.blank?
+  # Name matching can adopt a genuinely unidentified seed record — that is the
+  # whole point of the demo-seed path. Once an Athlete carries ANY
+  # cross-reference, though, a row that shares none of them is another person,
+  # even when GSIS is blank on both sides.
+  def adoptable_name_match?(existing, identifiers)
+    existing_ids = IDENTITY_COLUMNS.filter_map do |column|
+      value = existing.public_send(column)
+      [column, value] if value.present?
+    end.to_h
 
-    source.gsub(/\D/, "").last(4)
+    return true if existing_ids.empty?
+
+    identifiers.any? do |column, incoming|
+      incoming.present? && existing_ids[column].to_s == incoming.to_s
+    end
+  end
+
+  # REFUSE AND RECORD, in the vocabulary the sibling writer already uses.
+  #
+  # `Studio::SyncAthletes#build_for` records `{ person_slug:, ours:, theirs: }`
+  # for exactly this event, and both writers land in the same two tables — so an
+  # operator reading this app's output should meet ONE shape, not two. The hub
+  # importer only COUNTS these; a bare counter is nearly as silent as the merge
+  # it replaces, and this app settles contests people paid to enter, so the
+  # humans get named.
+  def refuse_namesake!(first, last, existing, identifiers, reason)
+    @stats[:namesake_collisions_skipped] += 1
+    @namesake_collisions << {
+      person_slug: existing.person_slug,
+      name: "#{first} #{last}",
+      ours: leading_identifier(existing),
+      theirs: DISAMBIGUATOR_PRIORITY.filter_map { |column| identifiers[column].presence }.first,
+      reason: reason
+    }
+    vputs "  [!] refused namesake #{first} #{last}: #{reason}"
+  end
+
+  def leading_identifier(athlete)
+    DISAMBIGUATOR_PRIORITY.filter_map { |column| athlete.public_send(column).presence }.first
+  end
+
+  # UNCONDITIONAL, not behind `verbose`. A refused namesake is a player who will
+  # not appear in a contest — it is the one line of this run's output that has to
+  # survive being ignored.
+  def report_namesake_collisions
+    return if @namesake_collisions.empty?
+
+    puts "\n  [!] #{@namesake_collisions.size} namesake(s) REFUSED — resolve these by hand:"
+    @namesake_collisions.each do |collision|
+      puts "      #{collision[:name]}: #{collision[:person_slug]} already holds " \
+           "#{collision[:ours].inspect}, incoming #{collision[:theirs].inspect} " \
+           "(#{collision[:reason]})"
+    end
+  end
+
+  # The ingest order, as a sort key: each identifier in DISAMBIGUATOR_PRIORITY
+  # order, present-before-absent then by value. Derived from that ONE list, so
+  # the row that sorts FIRST is the row whose highest-priority identifier sorts
+  # first — the same chain the suffix is cut from, by construction rather than
+  # by two lists happening to agree.
+  #
+  # The comparison is lexicographic, so "1000" sorts before "999". Arbitrary,
+  # but TOTAL, which is all this needs: the order has to be a function of the
+  # data and of nothing else.
+  def identity_sort_key(row)
+    DISAMBIGUATOR_PRIORITY.flat_map do |column|
+      value = row[IDENTITY_CSV_COLUMNS.fetch(column)].to_s.strip
+      [value.empty? ? 1 : 0, value]
+    end
+  end
+
+  # A short, STABLE suffix, derived from the league ID rather than a counter —
+  # a counter would make a person's public URL depend on CSV ordering.
+  #
+  # Four digits reads well and separates almost every pair, but "almost" is not
+  # a uniqueness guarantee against a unique index: two namesakes whose IDs end in
+  # the same four digits compute the SAME slug, and `Person.create!` then raises
+  # RecordNotUnique. So four digits is a PREFERENCE — when that slug already
+  # belongs to someone else, widen to the whole identifier, which is unique
+  # because the identifier is. It takes THREE namesakes to reach, because the
+  # first keeps the clean slug and never computes a suffix at all.
+  #
+  # Widening is deterministic only because `ordered` is: the namesakes arrive in
+  # an order fixed by their identifiers, so the same one widens on every run.
+  # Returns nil when nothing is free, which the caller refuses and records.
+  def disambiguator_for(identifiers, first, last)
+    source = DISAMBIGUATOR_PRIORITY.filter_map { |column| identifiers[column].presence }.first
+    return if source.blank?
+
+    disambiguator_candidates(source).find do |candidate|
+      !Person.exists?(slug: namesake_slug(first, last, candidate))
+    end
+  end
+
+  # Shortest first, then the whole identifier. Both are a function of the source
+  # ID alone, so the ladder cannot drift between runs.
+  def disambiguator_candidates(source)
+    digits = source.to_s.gsub(/\D/, "")
+    return [digits.last(4), digits].uniq if digits.present?
+
+    alnum = source.to_s.gsub(/[^a-z0-9]/i, "").downcase
+    alnum.present? ? [alnum.last(8), alnum].uniq : []
+  end
+
+  # Ask Person for the slug rather than re-deriving it here. Re-deriving would be
+  # a second copy of `name_slug`'s rule, free to drift from the one that actually
+  # writes the column — and this check is only worth making if it tests the slug
+  # really about to be inserted. (Sluggable DERIVES `slug` in a before_save, so a
+  # `slug:` passed to `new` is ignored; `name_slug` is the only honest source.)
+  def namesake_slug(first, last, candidate)
+    Person.new(first_name: first, last_name: last, disambiguator: candidate).name_slug
   end
 
   def build_attrs(row, gsis_id)

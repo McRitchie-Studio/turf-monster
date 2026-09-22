@@ -167,9 +167,16 @@ require "open3"
 #      BLANK line, three past the `useOnchainFlow` branch it names at :1618 — and
 #      passed. This is NOT fixed by tightening the anchor: a citation
 #      legitimately points into a long function, and demanding a tighter match
-#      would redden honest ones. What IS fixed is the degenerate case — a
-#      citation whose cited lines are entirely blank is now rejected outright, at
-#      0 false positives across all 164. The rest of the weakness stands stated.
+#      would redden honest ones — measured, a blunt version of exactly that would
+#      have reddened 53 of 301 single-line pins, nearly all correct. What IS
+#      fixed is TWO cases, both degenerate rather than general. A citation whose
+#      cited lines are entirely blank is rejected outright, at 0 false positives
+#      across all 164. And a SINGLE-LINE pin with a qualified symbol written
+#      beside it is now held to that line rather than to the definition around it
+#      — see limit 9 and MIN_CALL_SITE_CITATIONS. The rest of the weakness stands
+#      stated: a citation pointing into the middle of a long function, with the
+#      prose describing the line in English, is checked no more tightly than it
+#      ever was.
 #   7. A TABLE ROW ANCHORS ONLY ON ITSELF — and until 2026-09-10 it anchored on
 #      the WHOLE TABLE. prose_unit knows lists (a citation's own item plus its
 #      ancestors) and paragraphs (blank-line delimited). A markdown row starts
@@ -207,6 +214,16 @@ require "open3"
 #      either). That is the routes-file form of limit 6: the anchor is tight
 #      enough to catch a number that left its stanza, not tight enough to catch
 #      one that moved within it.
+#   9. A SINGLE-LINE PIN WITH A SYMBOL BESIDE IT IS HELD TO THAT LINE, since
+#      2026-09-21 (/tasks/pin-citations-by-symbol). This is the one shape a
+#      mechanical `+N` re-pinning pass can break invisibly: a RANGE pin has the
+#      definition as its endpoints, so re-deriving the definition re-derives the
+#      pin, while a lone number moves in step with its siblings and is then
+#      judged only by limit 6's loose anchor. Two citations in this repo had
+#      drifted that way — one by 12 lines through three consecutive passes in a
+#      single afternoon — and the whole suite was green on both. The rule, the
+#      three conditions that keep it off honest citations, and what it still
+#      cannot see are written at MIN_CALL_SITE_CITATIONS below.
 class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # COVERAGE IS PER DOCUMENT, AND THAT IS THE POINT. A second document guarded
   # under one shared floor would be covered in name only: web3-landing-to-entry's
@@ -684,6 +701,87 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # nothing.
   MIN_ROUTE_CITATIONS = 15
 
+  # A CALL-SITE PIN IS A CLAIM ABOUT ONE LINE, and limit 6 above is why nothing
+  # was checking it. The symbol branch asks only that the cited line fall
+  # SOMEWHERE inside the definition the prose names, so a number that has slipped
+  # off the call it points at still anchors as long as it lands anywhere in the
+  # same method. A RANGE pin does not slip that way — its endpoints ARE the
+  # definition, so re-deriving the definition re-derives the citation — but a
+  # SINGLE-LINE pin has no such self-correcting property, and a re-pinning pass
+  # that computes `+N` from a diff moves it in step with its siblings while never
+  # resolving what it now lands on.
+  #
+  # MEASURED, the drift this rule exists to reject, and it is the same defect
+  # twice in one repository:
+  #   * docs/workflows/slate-build.md said `Slate#team_rankings` calls
+  #     `SlateMatchup.turf_score_for(...)` at `app/models/slate.rb:241`. The call
+  #     was at :253; :241 was `[`, the opening bracket of the sort key. It had
+  #     been wrong by exactly 12 lines through THREE consecutive mechanical `+N`
+  #     passes in one afternoon, and stayed GREEN every time because :241 sits
+  #     inside `def team_rankings` (235-258) and the prose names it.
+  #   * docs/workflows/admin-contest-setup.md said `set_app_session` clears the
+  #     flag at `session.delete(:onchain)` — `application_controller.rb:39`. That
+  #     call is at :41; :39 is the middle of the comment ABOVE it. Found by this
+  #     rule, not by hand.
+  # The whole test/docs suite was green across both (56 runs, 467 assertions),
+  # and `bin/fast-check` never maps test/docs, so only a deliberate run looks.
+  #
+  # SO A SINGLE-LINE PIN WITH A SYMBOL WRITTEN BESIDE IT MUST LAND ON THAT SYMBOL.
+  # "Beside it" is literal and narrow, and the narrowness is the whole design:
+  # the rule fires only where the prose has ATTACHED a qualified name to the
+  # coordinate with nothing but glue between them (`X.y` at `file.rb:NN`,
+  # `X#y` (`:NN`)). That is the shape that says "this symbol is HERE", and it is
+  # the only shape whose claim a single line can carry.
+  #
+  # WHAT IT DELIBERATELY DOES NOT TOUCH, because limit 6 is right that a blunt
+  # tightening reddens honest citations. Measured over the corpus the day this
+  # landed, requiring EVERY single-line in-definition pin to carry a prose symbol
+  # would have reddened 53 of 301 — nearly all of them correct, because a citation
+  # may legitimately point at a line the prose describes in ENGLISH rather than by
+  # name (`validate_init_params!` ... three distinct signers `:149`, threshold 1-3
+  # `:150`) or at one specific line inside the method it names
+  # (`ApplicationController#capture_reference` (`...:459`)). Three conditions cut
+  # that to the claims only:
+  #   1. the attached name is QUALIFIED (`Foo#bar`, `Foo.bar`, `Foo::Bar`) — an
+  #      unqualified word (`with_lock`, `PendingTransaction`) or a placeholder
+  #      (`<home>-vs-<away>`) is not a located call, and all three were false
+  #      positives before this condition went in;
+  #   2. the attached name is NOT the definition the line sits in — when the
+  #      prose names the enclosing method, the enclosing rule is already the right
+  #      question and a pin anywhere inside it is honest;
+  #   3. only GLUE separates the two — whitespace, brackets, a comma, or one of
+  #      `at`/`in`/`is`/`calls`/`called`/a dash. Any other English between them
+  #      means the number is not claiming that symbol's location.
+  # Measured: 37 citations reached, 2 rejected, and both were real.
+  #
+  # ITS RESIDUAL WEAKNESS, the routes-file form of limit 6 again: a shift onto a
+  # NEIGHBOURING line that calls the SAME member still anchors. `session.delete`
+  # is written FOUR times inside `set_app_session` — at :41, then :45, :46, :47
+  # — so a pin that slipped from :45 to :46 would pass, while the same one-line
+  # slip from :41 lands on a comment and reddens. The rule is tight enough to
+  # catch a number that left its call — measured the day it landed, a one-line
+  # insertion above reddens 37 of 37 call-site pins and a deletion 35 — but not
+  # one that moved within a RUN of identical calls.
+  #
+  # The floor is set below the 37 call-site pins SCANNED_DOCS held that day. Same
+  # reasoning as every other floor here: an attachment rule that stops matching
+  # passes having proved nothing, and this is what makes that red instead of quiet.
+  MIN_CALL_SITE_CITATIONS = 30
+
+  # Only glue may separate an attached symbol from the coordinate that locates it.
+  CALL_SITE_GLUE = /\A[\s(,\[]*(?:at|in|is|calls?|called|and|—|–|-|→|,)?[\s(,\[]*\z/i
+
+  # A qualified code name: two or more identifiers joined by `::`, `#` or `.`.
+  # Structure is what makes a name a located call rather than an ordinary word —
+  # the same judgement STOP_TOKENS and `bare_word?` make elsewhere in this file.
+  QUALIFIED_NAME = /\A[A-Za-z_][\w]*[!?]?(?:(?:::|[#.])[A-Za-z_][\w]*[!?]?)+\z/
+
+  BACKTICKED = /`([^`]+)`/
+
+  # An identifier shorter than this anchors nothing (`to`, `id`), so it is not
+  # read as carrying the claim.
+  MIN_ATTACHED_IDENT = 3
+
   # A real repo file used as the CONTROL for the blank-line rejection below. It
   # needs only two properties — it exists, and it holds both a blank line and a
   # non-blank one — and the control locates them at run time, so it cannot go
@@ -752,6 +850,27 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
         "prose names=[#{prose_probes(c).first(6).join(' ')}]"
     }, "a routes citation does not open on the line carrying the route its prose names. " \
        "A routes entry is one line — put the number on it, or cite the whole comment block"
+  end
+
+  # DIRECTORY-WIDE, and for the reason the routes rule is directory-wide: it asks
+  # a question the symbol test CANNOT. The symbol test is satisfied by a citation
+  # landing anywhere inside the right definition, so it was green on both of the
+  # defects in the note above and would be green on the next one. This is the
+  # check that reads the line itself.
+  test "a single-line pin lands on the call its prose attaches to it" do
+    claims = all_citations.select { |c| call_site_claim?(c) }
+    assert_operator claims.size, :>=, MIN_CALL_SITE_CITATIONS,
+                    "parsed #{claims.size} call-site pins; there were #{MIN_CALL_SITE_CITATIONS}+ " \
+                    "when this rule landed, so the parse or the attachment rule stopped matching"
+
+    adrift = claims.reject { |c| call_site_anchored?(c) }
+    assert_empty adrift.map { |c|
+      n = c[:ranges].first.first
+      "#{c[:doc]}:#{c[:line]}  #{c[:raw]}  says `#{c[:attached]}` is on #{c[:path]}:#{n}, " \
+        "which reads #{source(c[:path])[n - 1].to_s.strip.inspect}"
+    }, "a single-line citation does not land on the symbol written beside it. Re-resolve the " \
+       "number against the source — a mechanical +N pass is what puts one here, because it " \
+       "updates the number without ever checking what it lands on"
   end
 
   test "every citation lands on the symbol its prose names" do
@@ -1181,6 +1300,50 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
     assert_operator deletion, :>=, MIN_DELETION_CAUGHT,
                     "a one-line deletion now reddens only #{deletion} of #{routes.size} routes " \
                     "citations; it caught #{MIN_DELETION_CAUGHT} when this rule landed"
+  end
+
+  # CONTROL FOR THE CALL-SITE RULE — the defect rebuilt from the repository, not
+  # described. It takes the real citation this task was opened for, proves it
+  # anchors where it points NOW, then moves the number ONE line and proves two
+  # things about it: the symbol branch still accepts it (so the control
+  # reproduces a pin the guard used to pass) and the call-site rule rejects it.
+  # One line, not twelve, because a rule that only catches the drift that has
+  # already happened is a rule fitted to its own defect.
+  CALL_SITE_CONTROL_DOC    = "docs/workflows/slate-build.md"
+  CALL_SITE_CONTROL_SYMBOL = "SlateMatchup.turf_score_for"
+  MIN_SHIFT_CAUGHT         = 33
+
+  test "a call-site pin one line off its call is rejected where the symbol branch accepted it" do
+    claims = all_citations.select { |c| call_site_claim?(c) }
+    assert_operator claims.size, :>=, MIN_CALL_SITE_CITATIONS,
+                    "parsed #{claims.size} call-site pins — the control has nothing to shift"
+
+    live = claims.find { |c| c[:doc] == CALL_SITE_CONTROL_DOC && c[:attached] == CALL_SITE_CONTROL_SYMBOL }
+    assert live, "#{CALL_SITE_CONTROL_DOC} no longer pins `#{CALL_SITE_CONTROL_SYMBOL}` to a single " \
+                 "line — re-point this control at whatever carries that shape now"
+    assert anchored?(live),
+           "the live citation #{live[:doc]}:#{live[:line]} #{live[:raw]} stopped anchoring — the " \
+           "rule is over-tight and is reddening a correct citation"
+
+    off  = shift_citation(live, -1)
+    line = off[:ranges].first.first
+    assert_equal true, enclosing_anchored?(off),
+                 "the shifted pin no longer satisfies the SYMBOL branch, so this control proves " \
+                 "nothing — it has to reproduce a pin the guard passed before this rule existed"
+    refute call_site_anchored?(off),
+           "a pin moved one line off its call still anchors:\n" \
+           "    #{off[:path]}:#{line} reads #{source(off[:path])[line - 1].to_s.strip.inspect}\n" \
+           "That line does not call `#{CALL_SITE_CONTROL_SYMBOL}`. This is the near-miss the " \
+           "rule exists to reject — #{live[:doc]} carried it for 12 lines and three re-pinning " \
+           "passes while the whole suite stayed green."
+    refute anchored?(off),
+           "#{off[:path]}:#{line} is rejected by the call-site rule but still anchors overall — " \
+           "the rule is not reaching `anchored?`"
+
+    caught = claims.count { |c| !call_site_anchored?(shift_citation(c, -1)) }
+    assert_operator caught, :>=, MIN_SHIFT_CAUGHT,
+                    "a one-line insertion now reddens only #{caught} of #{claims.size} call-site " \
+                    "pins; it caught #{MIN_SHIFT_CAUGHT}+ when this rule landed"
   end
 
   # CONTROL FOR THE BARE-WORD RULE — the defect, rebuilt from the repository
@@ -1707,6 +1870,10 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
       context = nil if line.start_with?("## ")
       line.scan(CITE) do
         head, nums = $1, $2
+        # CAPTURED BEFORE ANYTHING ELSE RUNS. `attached_before` scans for backticks
+        # and clobbers `Regexp.last_match`, so the offset of THIS match has to be
+        # taken while it is still ours.
+        at = Regexp.last_match.begin(0)
         # A URL IS NOT A CITATION. `http://localhost:3100` matches the citation shape
         # exactly — head `http://localhost`, "line" 3100 — and it is written in prose
         # all over these documents. It cost nothing while the parse read only
@@ -1733,6 +1900,10 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
         context = path if kind == :path && path
         out << {
           doc: doc, line: i + 1, raw: "#{head}:#{nums}", kind: kind, path: path,
+          # The symbol the prose ATTACHED to this coordinate, resolved from the
+          # document rather than from the numbers — so a citation shifted by a
+          # control still carries the claim it was written to make.
+          attached: attached_before(lines, i, at),
           ranges: nums.split(",").map do |r|
             a, b = r.strip.split("-").map(&:to_i)
             (a..(b || a))
@@ -1846,12 +2017,15 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
     # directory-wide routes test below cannot give two answers to one question.
     return route_anchored?(citation) if citation[:path] == ROUTES_FILE
 
+    # A CALL-SITE PIN IS AN ADDITIONAL REQUIREMENT, not a fourth branch. A
+    # citation that attaches a qualified name to ONE line must land on it, and
+    # must then still satisfy whichever branch below applies — so this can only
+    # reject, never excuse.
+    return false if call_site_claim?(citation) && !call_site_anchored?(citation)
+
     tokens = prose_tokens(citation)
-    enclosing = enclosing_names(citation)
-    if enclosing.any?
-      names = tokens.flat_map { |t| t.scan(/[A-Za-z_][\w]*[!?]?/) }.uniq
-      return enclosing.any? { |n| names.include?(n) }
-    end
+    encl   = enclosing_anchored?(citation)
+    return encl unless encl.nil?
 
     src   = source(citation[:path])
     cited = citation[:ranges].flat_map { |r| src[(r.first - 1)..(r.last - 1)] || [] }.join("\n")
@@ -1935,12 +2109,107 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
     carries.call(lines.first)
   end
 
-  # The same citation, moved by `delta` lines — what an inserted or deleted route
+  # ------------------------------------------------- the call-site line check
+  #
+  # See MIN_CALL_SITE_CITATIONS above for what this rejects and what it leaves
+  # alone. Three predicates, kept apart so each says one thing.
+
+  def single_line_pin?(citation)
+    citation[:ranges].size == 1 && citation[:ranges].first.first == citation[:ranges].first.last
+  end
+
+  def line_spans(line)
+    line.to_enum(:scan, BACKTICKED).map { [Regexp.last_match.begin(0), Regexp.last_match.end(0), $1] }
+  end
+
+  # The qualified code name written IMMEDIATELY BEFORE a citation, with nothing
+  # but glue between them — the symbol whose location that coordinate claims.
+  # nil for most citations, which is the point: the rule fires only on the shape
+  # that makes a line-level claim.
+  #
+  # SCANNED PER LINE, never across the whole document. A fenced code block is
+  # three backticks, so global pairing shifts on the first fence and every span
+  # after it comes back with the wrong neighbour — which reads as a finding
+  # rather than as a parse error. slate-build.md alone carries 12 fences.
+  # `parse_doc` reads line by line for the same reason, and a citation that opens
+  # its line looks back to the previous non-blank line, because a sentence may
+  # wrap between the symbol and the number it attaches to — which is exactly how
+  # the slate-build defect was written.
+  def attached_before(lines, idx, offset)
+    line  = lines[idx].to_s
+    prev  = line_spans(line).reverse.find { |_b, e, _t| e <= offset }
+    if prev
+      between = line[prev[1]...offset]
+    else
+      j = idx - 1
+      j -= 1 while j >= 0 && lines[j].to_s.strip.empty?
+      return nil if j.negative?
+      prev = line_spans(lines[j].to_s).last
+      return nil unless prev
+      between = "#{lines[j].to_s[prev[1]..]}\n#{line[0...offset]}"
+    end
+
+    return nil if prev[2].match?(/\A[\w.\/-]*:#{LINES}\z/)  # a coordinate locates nothing itself
+    return nil unless between.match?(CALL_SITE_GLUE)
+
+    probe = prev[2].sub(/\A[#.:]/, "").split("(").first.to_s.strip
+    probe.match?(QUALIFIED_NAME) ? probe : nil
+  end
+
+  def attached_identifiers(probe)
+    probe.to_s.scan(/[A-Za-z_][\w]*[!?]?/).uniq.select { |i| i.length >= MIN_ATTACHED_IDENT }
+  end
+
+  # A CALL-SITE CLAIM: one line, a qualified name attached to it, and that name
+  # is not the definition the line sits in. The last condition is what keeps this
+  # off an honest pin into the middle of the method the prose names — there the
+  # enclosing rule is already asking the right question.
+  def call_site_claim?(citation)
+    return false unless citation[:attached] && single_line_pin?(citation)
+    return false unless citation[:path] && citation[:path] != ROUTES_FILE
+    return false unless File.exist?(abs(citation[:path]))
+
+    (attached_identifiers(citation[:attached]) & enclosing_names(citation)).empty?
+  end
+
+  # THE MEMBER IS THE CLAIM, not the receiver. `entry.confirm!` says something
+  # about `confirm!`; `entry` is on half the lines of the file it points into, and
+  # anchoring on it is how three pins survived a deliberate one-line shift while
+  # the rule was reading every identifier. Measured the day this landed: matching
+  # the member alone costs NOTHING on the corpus — 37 of 37 still anchor — and
+  # takes a one-line insertion from reddening 34 of them to reddening all 37.
+  def call_site_anchored?(citation)
+    member = attached_member(citation[:attached])
+    return false unless member
+
+    source(citation[:path])[citation[:ranges].first.first - 1].to_s.match?(whole_token(member))
+  end
+
+  # The last identifier of a qualified name: the method or constant being located.
+  def attached_member(probe)
+    member = probe.to_s.scan(/[A-Za-z_][\w]*[!?]?/).last
+    member if member && member.length >= MIN_ATTACHED_IDENT
+  end
+
+  # THE SYMBOL BRANCH ON ITS OWN — the prose names the definition the cited lines
+  # sit in. nil where there is no enclosing definition, so `anchored?` can tell
+  # "this branch says no" from "this branch does not apply". Extracted so the
+  # call-site control can PROVE that the new rule rejects a shift this one still
+  # accepts, rather than asserting it against a copy.
+  def enclosing_anchored?(citation)
+    enclosing = enclosing_names(citation)
+    return nil if enclosing.empty?
+
+    names = prose_tokens(citation).flat_map { |t| t.scan(/[A-Za-z_][\w]*[!?]?/) }.uniq
+    enclosing.any? { |n| names.include?(n) }
+  end
+
+  # The same citation, moved by `delta` lines — what an inserted or deleted line
   # above it does to the number without anyone touching the document.
   def shift_citation(citation, delta)
     moved = citation[:ranges].map { |r| (r.first + delta)..(r.last + delta) }
     citation.merge(ranges: moved,
-                   raw: "#{ROUTES_FILE}:#{moved.map { |r| r.first == r.last ? r.first : "#{r.first}-#{r.last}" }.join(", ")}")
+                   raw: "#{citation[:path]}:#{moved.map { |r| r.first == r.last ? r.first : "#{r.first}-#{r.last}" }.join(", ")}")
   end
 
   # THE RULE THIS ONE REPLACED, kept so the control can prove the difference
