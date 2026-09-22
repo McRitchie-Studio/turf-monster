@@ -146,9 +146,19 @@ module Studio
     # not invent a disambiguated slug, because SLUGS ARE THE MASTER'S. So it
     # refuses, records who collided with whom, and the sweep reports it.
     #
-    # The sibling importer, `Nflverse::SeedPlayers#resolve_athlete!` in the hub,
-    # carries the same predicate and its comment records what the unguarded
-    # version cost. I wrote that guard and then wrote this writer without it.
+    # THREE WRITERS REACH THESE TABLES, and all three now carry this predicate:
+    # the hub's `Nflverse::SeedPlayers#resolve_athlete!` (the master), this
+    # replica sync, and THIS app's own local importer of the same name. Each was
+    # guarded in a separate pass, because guarding one is what made the next one
+    # findable.
+    #
+    # They diverge only on what to do once a namesake is detected, and the
+    # difference is the lane, not the taste:
+    #   - a SYNC handles one row the master already named, so it must not invent
+    #     a slug — SLUGS ARE THE MASTER'S — and refuses, recording who collided.
+    #   - an IMPORTER reads a third-party CSV the master never sent, so there is
+    #     no master slug to contradict; it mints a disambiguated one, and refuses
+    #     only when it cannot derive a free slug at all.
     def build_for(row)
       person = upsert_person(row)
       return nil if person.nil?
