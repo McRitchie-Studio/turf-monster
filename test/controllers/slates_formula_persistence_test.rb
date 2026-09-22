@@ -22,9 +22,12 @@ require "test_helper"
 # BOTH CALL SITES. `formula_params` feeds two actions — SlatesController
 # #update_formula (a real slate) and #update_admin_formula (the "Default" row) —
 # so both are exercised. A permit list is shared state; one green path does not
-# speak for the other. Everything the two paths share — including the assertion
+# speak for the other. Every GUARD the two paths share — including the assertion
 # that the payload is the FULL constant — lives in #assert_formula_columns_land,
 # so a guard cannot be satisfied on one path on behalf of the other.
+# (#formula_payload and the setup block are shared too and sit outside it. The
+# payload is the state the size guard exists to catch someone shrinking, so it
+# is read by both paths and owned by neither.)
 class SlatesFormulaPersistenceTest < ActionDispatch::IntegrationTest
   setup do
     @slate = slates(:one)
