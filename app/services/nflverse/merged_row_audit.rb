@@ -8,7 +8,16 @@ require "set"
 # adopted any name-matched athlete whose gsis_id was BLANK. Two humans sharing a
 # name, neither carrying a league ID at ingest, therefore collapsed into ONE row:
 # the first man's Person keeps the slug and the name, and the second man's gsis_id
-# is stamped onto it. The hub lost chris-smith to exactly this, holding 00-0038661.
+# is stamped onto it.
+#
+# NO RECORDED VICTIM — THIS RESTS ON THE SHAPE, NOT ON AN INCIDENT. An earlier
+# draft of this comment named a hub athlete as a confirmed casualty. That claim
+# is WITHDRAWN: it is unsourced, and neither this repo nor the hub holds the
+# gsis_id it cited. What justifies detector two is that the defect above ran
+# unguarded, and that the feed carries humans sharing BOTH forename and
+# surname — two of them arriving without a league ID is the entire recipe. A
+# named victim would add nothing the code above does not already say.
+#
 # PR 799 stops new merges. It does not un-merge what is already stored, and
 # turf-monster settles contests people paid to enter — a merged athlete means two
 # humans graded as one, so stats, goals and payouts attribute to the wrong person.
@@ -32,7 +41,7 @@ require "set"
 #     and catches permutations (a swap raises two findings, a count raises none).
 #
 #   :absorbed_namesake — the row's name AGREES with the feed, and the row is
-#     still wrong. This is the chris-smith shape and detector one is blind to it:
+#     still wrong. This is the NAMESAKE shape and detector one is blind to it:
 #     when both humans share a name, the feed names the stolen ID's owner
 #     "Chris Smith" and the row is also "Chris Smith", so the mapping check
 #     passes. The tell is elsewhere — the OTHER Chris Smith's gsis_id is held by
@@ -100,13 +109,21 @@ class Nflverse::MergedRowAudit
     def held_columns = held_ids.map(&:first)
     def held_summary = held_ids.map { |column, value| "#{column}=#{value}" }.join(" ")
 
-    # WOULD THE IMPORTER HAVE MADE HIM A ROW AT ALL? This splits a real lead
-    # from an absence that is already explained, and without it the two look
-    # identical on the page. Nflverse::SeedPlayers ingests only status=ACT, so a
-    # DEV, RES, PUP or CUT human has no row because the importer skipped him —
-    # not because a merge swallowed him. Measured against production 2026-09-22:
-    # the one candidate raised, anthony-johnson, is status DEV, and reading this
-    # field is what turned it from a finding into an explained absence in minutes.
+    # WOULD THE IMPORTER HAVE MADE HIM A ROW AT ALL? This splits a real lead from
+    # an absence that is already explained, and without it the two look identical
+    # on the page. Nflverse::SeedPlayers DEFAULTS to `status_filter: "ACT"` — a
+    # parameter, disabled by passing nil, not an invariant — so a DEV, RES, PUP or
+    # CUT human normally has no row because the importer skipped him.
+    #
+    # IT READS TODAY'S STATUS, NOT THE STATUS AT SEED TIME, and the two differ
+    # for roughly a third of the population — 884 of the 2,694 resolvable turf
+    # rows are non-ACT today, all of them ACT when they were seeded.
+    # "DEV today" is therefore COMPATIBLE with "ACT at seed time": a human
+    # absorbed while ACT who has since gone DEV lands in the quiet bucket. This is
+    # a TRIAGE HINT, never a clearance. The one production candidate raised so
+    # far, anthony-johnson, was settled STRUCTURALLY — turf's row holds six IDs
+    # that all belong to one gsis, and no turf row holds any identifier of the
+    # other human — and his DEV status is why he was read first, not why he cleared.
     def missing_row_is_unexplained? = other_status == Feed::INGESTED_STATUS
 
     def to_line
@@ -124,12 +141,20 @@ class Nflverse::MergedRowAudit
 
   Result = Struct.new(
     :findings, :athletes_checked, :ids_checked, :unverifiable_ids,
-    :unidentified_athletes, :feed_rows, :active_feed_rows, :checked_at,
+    :unidentified_athletes, :namesake_blind_athletes, :feed_rows,
+    :active_feed_rows, :checked_at,
     keyword_init: true
   ) do
     def foreign_ids = findings.select { |f| f.kind == :foreign_id }
     def absorbed_namesakes = findings.select { |f| f.kind == :absorbed_namesake }
     def clean? = findings.empty?
+
+    # DISTINCT ATHLETES, because the two kinds do NOT partition by athlete and
+    # `findings.size` therefore over-counts damaged rows. One athlete raises both
+    # kinds whenever his own gsis_id is right, another column is foreign, and a
+    # namesake of his is unrepresented — two different other-humans, two real
+    # problems, one row. The unit of the acceptance criterion is the ATHLETE.
+    def athletes_flagged = findings.map(&:athlete_slug).uniq.size
 
     # The report states its own blind spots. An audit that prints findings but
     # not its limits invites the reader to treat "0 findings" as "0 merges",
@@ -155,18 +180,37 @@ class Nflverse::MergedRowAudit
 
       unexplained, explained = absorbed_namesakes.partition(&:missing_row_is_unexplained?)
       lines << "ABSORBED NAMESAKE — a feed human has no row, and a same-named row holds another ID (#{absorbed_namesakes.size})"
-      lines << "  · INVESTIGATE FIRST — the importer ingests status=#{Feed::INGESTED_STATUS}, so these should have a row (#{unexplained.size})"
+      lines << "  · INVESTIGATE FIRST — status=#{Feed::INGESTED_STATUS} TODAY, so the importer should have made a row (#{unexplained.size})"
       lines.concat(section(unexplained))
-      lines << "  · absence already explained — the importer skips this status (#{explained.size})"
+      lines << "  · absence explained by TODAY'S status — the importer skips it (#{explained.size})"
       lines.concat(section(explained))
+      lines << "  That split reads a SNAPSHOT. Status drifts, and a human seeded while"
+      lines << "  #{Feed::INGESTED_STATUS} who has since been cut reads as 'explained' here — so the second"
+      lines << "  group is de-prioritised, never cleared."
       lines << "  These are CANDIDATES, not proof, and even the first group has an"
       lines << "  innocent explanation to rule out: the named human may have signed"
       lines << "  after the last seed run, which reads identically from here."
       lines << ""
 
+      lines << "#{findings.size} finding(s) across #{athletes_flagged} distinct athlete(s). The two kinds"
+      lines << "overlap: they are disjoint only when the disagreeing ID is the row's OWN"
+      lines << "gsis_id. A row with the right gsis_id, a foreign espn_id and an"
+      lines << "unrepresented namesake raises one of each — two other-humans, one row."
+      lines << ""
+
       lines << "WHAT THIS AUDIT CANNOT SEE:"
       lines << "  - a merge whose absorbed human is absent from the feed entirely"
       lines << "    (no league ID anywhere) — nothing names him, so nothing flags him"
+      lines << "  - a NAMESAKE merge on a row whose OWN gsis_id the feed cannot resolve"
+      lines << "    (blank, or an ID this feed never heard of). Detector two will not"
+      lines << "    name a second human on behalf of a row whose own occupant is"
+      lines << "    unconfirmed, so it is structurally SILENT on #{namesake_blind_athletes} of the"
+      lines << "    #{athletes_checked} rows scanned here — whatever the feed contains."
+      lines << "  - a name variant recorded by NEITHER side. Both detectors compare the"
+      lines << "    feed's two spellings (common_first_name, first_name) against the"
+      lines << "    Person's stored name and every alias. A spelling in none of those"
+      lines << "    four places is invisible; the remedy for a known variant is a"
+      lines << "    Person alias, which both detectors already honour."
       lines << "  - which goals, stats or payouts belong to which human on a merged row"
       lines << "  - #{UNCHECKABLE_ID_COLUMNS.join(', ')}, which this feed does not carry"
       lines.join("\n")
@@ -196,6 +240,7 @@ class Nflverse::MergedRowAudit
     ids_checked = 0
     unverifiable = 0
     unidentified = 0
+    namesake_blind = 0
 
     people = people_by_slug
     athletes = 0
@@ -208,7 +253,8 @@ class Nflverse::MergedRowAudit
       next if person.nil?
 
       held_gsis_ids << athlete.gsis_id.to_s.strip if athlete.gsis_id.present?
-      by_name[normalized(person.first_name, person.last_name)] << [athlete, person]
+      index_by_name(by_name, athlete, person)
+      namesake_blind += 1 if own_feed_row(feed, athlete).nil?
 
       checkable = 0
       mismatched = []
@@ -233,6 +279,7 @@ class Nflverse::MergedRowAudit
     Result.new(
       findings: findings, athletes_checked: athletes, ids_checked: ids_checked,
       unverifiable_ids: unverifiable, unidentified_athletes: unidentified,
+      namesake_blind_athletes: namesake_blind,
       feed_rows: feed.size, active_feed_rows: feed.current_league.size,
       checked_at: Time.current
     )
@@ -266,11 +313,23 @@ class Nflverse::MergedRowAudit
   # NOT `status == ACT`, though that is what the importer filters on at seed
   # time, and the difference is most of the audit's reach. Status is a SNAPSHOT
   # and it drifts: a player seeded while ACT is later CUT, RES, PUP or DEV, and
-  # the row turf stored does not move with him. Measured against production
-  # 2026-09-22 — turf holds 2,896 athletes from a preseason seed, while the feed
-  # now calls just 1,731 of them ACT and 2,511 current-league. Scoped to ACT this
-  # detector could not see 40% of the population it is auditing, and an absorbed
-  # human who has since been cut is exactly the case it would drop.
+  # the row turf stored does not move with him.
+  #
+  # MEASURED AGAINST PRODUCTION 2026-09-22, EVERY FIGURE FROM ONE RUN. The two
+  # populations are different and an earlier draft of this comment mixed them,
+  # which is how it reported a 40% loss that no population shows:
+  #
+  #   THE FEED ROWS DOING THE AUDITING — this detector walks feed.current_league,
+  #     2,511 of the feed's 24,830 rows. Only 1,731 of those 2,511 are ACT today,
+  #     so scoping by status would drop 780 of them: 31.1%.
+  #
+  #   THE TURF ROWS BEING AUDITED — 2,896 football athletes from a preseason
+  #     seed. 2,694 carry a gsis_id the feed resolves, and those 2,694 are 1,810
+  #     ACT and 2,389 current-league today.
+  #
+  # An absorbed human who has since been cut is exactly the case a status scope
+  # would drop, and 884 of the 2,694 resolvable rows (32.8%) are already
+  # something other than ACT.
   #
   # The signature is a CONJUNCTION, and each half alone is innocent: a feed human
   # with no turf row is merely un-imported, and a turf row holding an ID is
@@ -282,10 +341,20 @@ class Nflverse::MergedRowAudit
       next if gsis_id.empty?
       next if held_gsis_ids.include?(gsis_id)
 
+      # ASKS UNDER BOTH FEED SPELLINGS, against buckets filed under every spelling
+      # the Person carries (see index_by_name) — so this lookup poses exactly the
+      # question `names_agree?` answers, and the two detectors cannot drift apart.
+      #
       # `fetch` with an explicit default, NOT `[]`: `by_name` carries a
       # default_proc that inserts on read, and `[]` here would grow the hash by
-      # one empty bucket per unmatched feed row. `fetch` never calls default_proc.
-      occupants = by_name.fetch(normalized(*feed.name_parts(feed_row)), [])
+      # one empty bucket per unmatched feed row — now twice per row, once per
+      # spelling. `fetch` never calls default_proc.
+      #
+      # `uniq` because one athlete is filed under several spellings and both feed
+      # spellings can land on him; the SAME pair object is filed in each bucket,
+      # so this dedupes by identity and never merges two humans.
+      occupants = feed_row_spellings(feed_row)
+                  .flat_map { |spelling| by_name.fetch(spelling, []) }.uniq
       next if occupants.empty?
 
       athlete, person = occupants.find { |a, p| double_duty?(feed, a, p, gsis_id) }
@@ -319,28 +388,79 @@ class Nflverse::MergedRowAudit
   #     detector one already owns this row and reporting it twice under a second
   #     heading turns one problem into two.
   #
-  # Together they make the detectors partition the findings rather than overlap.
+  # Together they keep detector two off a row detector one already owns FOR THAT
+  # SAME ID. They do NOT make the two kinds disjoint per ATHLETE, and the file
+  # used to claim they did: when the row's own gsis_id agrees while a DIFFERENT
+  # column is foreign, one athlete raises both kinds — a foreign-id finding about
+  # one other human and a namesake finding about a second. Both are real. The
+  # report prints the DISTINCT athlete count for exactly this reason.
   def double_duty?(feed, athlete, person, unheld_gsis_id)
     held = athlete.gsis_id.to_s.strip
-    return false if held.empty? || held == unheld_gsis_id
+    return false if held == unheld_gsis_id
 
-    own = feed.by_id("gsis_id", held)
+    own = own_feed_row(feed, athlete)
     return false if own.nil?
 
     names_agree?(person, own)
   end
 
-  # A turf row and a feed row name the same human when any spelling either side
-  # recorded agrees. The feed carries two (`common_first_name` and `first_name`)
-  # and Person carries its own plus every alias a past ingest recorded, so the
-  # comparison is deliberately generous: a false accusation of a merge costs a
-  # real investigation, and a genuine merge holds two entirely different names
-  # rather than a suffix or a period.
+  # The occupant's own row in the feed, or nil when his identity is unconfirmed —
+  # a blank gsis_id, or one the feed has never heard of. Detector two cannot
+  # proceed past a nil (see the first guard above), so the run COUNTS the nils
+  # and the report states how much of the population that silences. Shared with
+  # the counter deliberately: a counter re-deriving this condition could drift
+  # from the guard it claims to measure, and the report would then understate.
+  def own_feed_row(feed, athlete)
+    held = athlete.gsis_id.to_s.strip
+    return nil if held.empty?
+
+    feed.by_id("gsis_id", held)
+  end
+
+  # Files one athlete under EVERY spelling of his name, so detector two's lookup
+  # asks the question detector one's comparator answers.
+  #
+  # WIDENED 2026-09-22; it filed the Person's stored spelling ONLY, with no
+  # aliases. Detector one meanwhile compared generously, so a merge presenting as
+  # "Christopher Smith" with a "Chris Smith" alias was silent on BOTH detectors —
+  # detector one because the alias agreed, detector two because the bucket key
+  # did not match. Measured with a matched control pair, identical merge data
+  # both times: caught as "Chris Smith", missed as "Christopher Smith" + alias.
+  #
+  # This widens the LOOKUP, not the comparator. The lookup asks "which turf rows
+  # might this feed row be about?" and widening it RAISES findings; `names_agree?`
+  # asks "do these name one human?" and every true it returns SUPPRESSES one.
+  # They carry opposite risk, which is why only this one moved.
+  def index_by_name(by_name, athlete, person)
+    pair = [athlete, person]
+    person_spellings(person).each { |spelling| by_name[spelling] << pair }
+  end
+
+  # THE COMPARATOR — and it is a SUPPRESSOR, left deliberately UNCHANGED by the
+  # lookup widening above. Every `true` it returns SILENCES a finding: detector
+  # one skips the column, and double_duty? clears the row. Loosening it therefore
+  # HIDES merges, which is why prefix-matching surnames was rejected — it would
+  # make "Coleman" swallow "Coleman-Lyles" and "Brown" swallow "Browning" across
+  # every comparison the audit makes. The remedy for a real spelling variant is a
+  # Person alias, which this already honours; a fuzzy match is not needed and
+  # would cost suppression it cannot get back.
+  #
+  # Generous within those bounds: any spelling either side recorded is agreement.
+  # A false accusation of a merge costs a real investigation, and a genuine merge
+  # holds two entirely different names rather than a suffix or a period.
   def names_agree?(person, feed_row)
-    feed_names = feed_row_spellings(feed_row)
-    stored = [normalized(person.first_name, person.last_name)]
-    stored.concat(Array(person.aliases).map { |a| normalized(a, nil) })
-    (stored & feed_names).any?
+    (person_spellings(person) & feed_row_spellings(feed_row)).any?
+  end
+
+  # Every spelling of a turf human's name: the one stored on his Person, plus
+  # every alias a past ingest recorded. An alias is a WHOLE name ("RG Three"),
+  # never a bare forename, which is why it normalizes against a nil surname.
+  # Shared by the comparator and by index_by_name, so the two cannot disagree
+  # about what this human is called.
+  def person_spellings(person)
+    ([normalized(person.first_name, person.last_name)] +
+      Array(person.aliases).map { |alias_name| normalized(alias_name, nil) })
+      .uniq.reject(&:empty?)
   end
 
   def feed_row_spellings(feed_row)

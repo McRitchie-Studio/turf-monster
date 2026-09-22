@@ -142,8 +142,14 @@ namespace :nfl do
     puts result.to_report
     puts
     # A non-zero exit would make this unusable in a pipeline that treats failure
-    # as breakage; findings are a REPORT, not an error. The count is the summary.
+    # as breakage; findings are a REPORT, not an error.
+    #
+    # THE ATHLETE COUNT IS PRINTED SEPARATELY because the two kinds do not
+    # partition by athlete: one row whose own gsis_id is right, whose espn_id is
+    # foreign, and one of whose namesakes is unrepresented raises one of each.
+    # "findings: 2" then reads as two damaged humans when there is one.
     puts "findings: #{result.findings.size} " \
-         "(#{result.foreign_ids.size} foreign-id, #{result.absorbed_namesakes.size} absorbed-namesake)"
+         "(#{result.foreign_ids.size} foreign-id, #{result.absorbed_namesakes.size} absorbed-namesake) " \
+         "across #{result.athletes_flagged} distinct athlete(s)"
   end
 end
