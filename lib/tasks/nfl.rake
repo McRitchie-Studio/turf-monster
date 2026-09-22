@@ -128,4 +128,22 @@ namespace :nfl do
     puts "skipped: #{skipped} (already complete)"
     puts "failed:  #{failed}"
   end
+
+  desc "READ-ONLY audit: athlete rows that merged two humans into one (safe against production)"
+  task audit_merged_rows: :environment do
+    # Safe to run anywhere, including `heroku run` against production: the audit
+    # opens only `.readonly` relations and issues no INSERT, UPDATE or DELETE.
+    # It fetches the public nflverse players.csv over HTTPS and needs no AWS
+    # credentials, no secrets, and no write access.
+    result = Nflverse::MergedRowAudit.call(
+      min_season: Integer(ENV.fetch("MIN_SEASON", Nflverse::MergedRowAudit::DEFAULT_MIN_SEASON))
+    )
+
+    puts result.to_report
+    puts
+    # A non-zero exit would make this unusable in a pipeline that treats failure
+    # as breakage; findings are a REPORT, not an error. The count is the summary.
+    puts "findings: #{result.findings.size} " \
+         "(#{result.foreign_ids.size} foreign-id, #{result.absorbed_namesakes.size} absorbed-namesake)"
+  end
 end

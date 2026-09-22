@@ -40,10 +40,29 @@ The admin slate page states the rule, badges each bye team, and its JS mirror ap
 
 ## Formula Color System
 
-Chart/formula visualization colors are defined once at the top of `slates/show.html.erb`:
-- **CSS custom properties** (`--fc-mult`, `--fc-goals`, `--fc-dk-total`) for inline styles
-- **JS `FC` object** (`FC.mult`, `FC.goals`, `FC.dkTotal`) for Chart.js datasets
-- Colors: Turf Score = violet `#8E82FE`, Goals Distribution = light violet `#B8B0FF`, DK Expectation = green `#4BAF50`
+Chart/formula visualization colors are defined once at the top of `slates/show.html.erb`.
+**Each series has TWO tokens, and picking the wrong one is an accessibility bug**:
+
+| Series | Fill (graphics) | Ink (small text) |
+|---|---|---|
+| Turf Score | `--fc-mult` `#8E82FE` | `--fc-mult-ink` |
+| Goals Distribution | `--fc-goals` `#B8B0FF` | `--fc-goals-ink` |
+| DK Score | `--fc-dk-score` `#15803D` | `--fc-dk-score-ink` |
+| DK Expectation | `--fc-dk-total` `#4BAF50` | none — graphics only |
+
+- **Fill** paints graphical objects only: the chart stroke, the panel's
+  `border-left`, the sliders' `accent-color`. WCAG 1.4.11 clears those at 3:1,
+  and the brand colours are correct there.
+- **Ink** paints anything read as small TEXT, which owes 4.5:1. Only the theme
+  that actually fails moves, so a series keeps its own brand colour wherever it
+  already clears: `--fc-goals-ink` is `#B8B0FF` in dark and `--color-violet-ink`
+  in light; `--fc-dk-score-ink` is `#15803D` in light and `--color-primary-ink`
+  in dark. Both borrowed inks are derived per theme by `Studio::ThemeResolver`.
+- **JS `FC` object** (`FC.mult`, `FC.goals`, `FC.dkTotal`) for Chart.js
+  datasets — strokes, so it reads the fills.
+- Guard: `test/views/violet_text_contrast_test.rb` resolves every inline
+  `color:` through these tokens and measures it against the surface the element
+  actually sits on, in both themes. Reaching for a fill as text fails the suite.
 
 ## Slate Show Page (`/slates/:id`)
 

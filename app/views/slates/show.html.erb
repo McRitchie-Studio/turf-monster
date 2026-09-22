@@ -1,12 +1,57 @@
 <% content_for :title, "Slate — #{@slate.name}" %>
 
 <style>
+  /* FILL vs INK, per series. Each formula series has ONE brand colour that
+     paints its graphics — the chart stroke, the panel's border-left, the
+     sliders' accent-color — and those are graphical objects, which WCAG 1.4.11
+     clears at 3:1. The same colour also paints the panel's small mono values,
+     and small TEXT owes 4.5:1. Three of the four series cannot do both jobs
+     with one hex, so each keeps its fill and gets an -ink for text.
+
+     ONLY THE FAILING THEME MOVES. A series that already clears as text in one
+     theme keeps its own brand colour there, so the tie between a number and
+     its chart line stays exact wherever it can:
+
+       --fc-goals      #B8B0FF   light 1.96:1 on the card  FAILS
+                                 dark  5.68:1 on the card  clears
+       --fc-goals-ink  dark  #B8B0FF ................. 5.68:1 (the series itself)
+                       light var(--color-violet-ink) . 6.03:1 (#5B50CE)
+
+       --fc-dk-score      #15803D  dark  2.22:1 on the card  FAILS
+                                   light 5.02:1 on the card  clears
+       --fc-dk-score-ink  light #15803D ................... 5.02:1 (the series itself)
+                          dark  var(--color-primary-ink) .. 5.54:1 card (#81C784)
+
+     THE DARK GREEN HAS A SECOND GROUND TO CLEAR. Two Save Formula buttons
+     paint this token as text while naming no surface of their own, so they sit
+     on the layout body's bg-page: 3.48:1 before, 8.68:1 on --color-primary-ink.
+     A fix scoped to the three panels would have left them.
+
+     Both borrowed inks are DERIVED per theme by Studio::ThemeResolver, so they
+     track a theme change instead of pinning a hex that stops being true. Same
+     selector convention as the engine's theme block and as --color-violet-ink
+     in app/assets/tailwind/application.css, so a .dark container inside a light
+     page flips these with the rest of the theme.
+
+     Guard: test/views/violet_text_contrast_test.rb resolves every inline
+     `color:` on this page through these tokens and measures it against the
+     surface the element actually sits on, so editing a hex here without
+     re-measuring fails the suite. */
   :root {
     --fc-mult: #8E82FE;
     --fc-mult-ink: var(--color-violet-ink);
     --fc-goals: #B8B0FF;
     --fc-dk-score: #15803D;
     --fc-dk-total: #4BAF50;
+  }
+  :root,
+  .dark {
+    --fc-goals-ink: #B8B0FF;
+    --fc-dk-score-ink: var(--color-primary-ink);
+  }
+  html:not(.dark) {
+    --fc-goals-ink: var(--color-violet-ink);
+    --fc-dk-score-ink: #15803D;
   }
 </style>
 
@@ -413,18 +458,18 @@
           <div class="mb-3">
             <span class="text-sm font-bold text-heading">Goals Distribution</span>
             <span class="text-muted text-sm"> = </span>
-            <span class="font-mono text-sm" style="color: var(--fc-goals)" x-text="goalBase.toFixed(1)"></span>
+            <span class="font-mono text-sm" style="color: var(--fc-goals-ink)" x-text="goalBase.toFixed(1)"></span>
             <span class="text-muted text-sm"> + </span>
-            <span class="font-mono text-sm" style="color: var(--fc-goals)" x-text="goalScale.toFixed(1)"></span>
+            <span class="font-mono text-sm" style="color: var(--fc-goals-ink)" x-text="goalScale.toFixed(1)"></span>
             <span class="text-muted text-sm"> &times; ln(N/rank) / ln(N)</span>
           </div>
           <div class="grid grid-cols-2 gap-4">
             <div>
-              <label class="text-xs text-muted block mb-1">Base <span class="font-mono" style="color: var(--fc-goals)" x-text="goalBase.toFixed(1)"></span></label>
+              <label class="text-xs text-muted block mb-1">Base <span class="font-mono" style="color: var(--fc-goals-ink)" x-text="goalBase.toFixed(1)"></span></label>
               <input type="range" min="0" max="3" step="0.1" x-model.number="goalBase" @input="refresh()" class="w-full" style="accent-color: var(--fc-goals);">
             </div>
             <div>
-              <label class="text-xs text-muted block mb-1">Scale <span class="font-mono" style="color: var(--fc-goals)" x-text="goalScale.toFixed(1)"></span></label>
+              <label class="text-xs text-muted block mb-1">Scale <span class="font-mono" style="color: var(--fc-goals-ink)" x-text="goalScale.toFixed(1)"></span></label>
               <input type="range" min="0" max="10" step="0.5" x-model.number="goalScale" @input="refresh()" class="w-full" style="accent-color: var(--fc-goals);">
             </div>
           </div>
@@ -436,21 +481,21 @@
         <div class="mb-3">
           <span class="text-sm font-bold text-heading">DK Score</span>
           <span class="text-muted text-sm"> = </span>
-          <span class="font-mono text-sm" style="color: var(--fc-dk-score)"><span x-text="A.toFixed(2)"></span></span>
-          <span class="text-muted text-sm"> &times; line</span><sup class="font-mono text-sm" style="color: var(--fc-dk-score)" x-text="lineExp.toFixed(2)"></sup>
-          <span class="text-muted text-sm"> &times; prob</span><sup class="font-mono text-sm" style="color: var(--fc-dk-score)" x-text="probExp.toFixed(2)"></sup>
+          <span class="font-mono text-sm" style="color: var(--fc-dk-score-ink)"><span x-text="A.toFixed(2)"></span></span>
+          <span class="text-muted text-sm"> &times; line</span><sup class="font-mono text-sm" style="color: var(--fc-dk-score-ink)" x-text="lineExp.toFixed(2)"></sup>
+          <span class="text-muted text-sm"> &times; prob</span><sup class="font-mono text-sm" style="color: var(--fc-dk-score-ink)" x-text="probExp.toFixed(2)"></sup>
         </div>
         <div class="grid grid-cols-3 gap-4">
           <div>
-            <label class="text-xs text-muted block mb-1">A <span class="font-mono" style="color: var(--fc-dk-score)" x-text="A.toFixed(2)"></span></label>
+            <label class="text-xs text-muted block mb-1">A <span class="font-mono" style="color: var(--fc-dk-score-ink)" x-text="A.toFixed(2)"></span></label>
             <input type="range" min="0" max="5" step="0.05" x-model.number="A" @input="refresh()" class="w-full" style="accent-color: var(--fc-dk-score);">
           </div>
           <div>
-            <label class="text-xs text-muted block mb-1">Line Exp <span class="font-mono" style="color: var(--fc-dk-score)" x-text="lineExp.toFixed(2)"></span></label>
+            <label class="text-xs text-muted block mb-1">Line Exp <span class="font-mono" style="color: var(--fc-dk-score-ink)" x-text="lineExp.toFixed(2)"></span></label>
             <input type="range" min="0" max="3" step="0.02" x-model.number="lineExp" @input="refresh()" class="w-full" style="accent-color: var(--fc-dk-score);">
           </div>
           <div>
-            <label class="text-xs text-muted block mb-1">Prob Exp <span class="font-mono" style="color: var(--fc-dk-score)" x-text="probExp.toFixed(2)"></span></label>
+            <label class="text-xs text-muted block mb-1">Prob Exp <span class="font-mono" style="color: var(--fc-dk-score-ink)" x-text="probExp.toFixed(2)"></span></label>
             <input type="range" min="0" max="3" step="0.02" x-model.number="probExp" @input="refresh()" class="w-full" style="accent-color: var(--fc-dk-score);">
           </div>
         </div>
@@ -475,7 +520,7 @@
         <button type="button" @click="saveMultipliers()" class="btn btn-primary btn-lg flex-1">
           Save Multipliers
         </button>
-        <button type="button" @click="saveFormula()" class="btn btn-outline btn-lg flex-1" style="border-color: var(--fc-dk-score); color: var(--fc-dk-score);">
+        <button type="button" @click="saveFormula()" class="btn btn-outline btn-lg flex-1" style="border-color: var(--fc-dk-score); color: var(--fc-dk-score-ink);">
           Save Formula
         </button>
       </div>
@@ -532,7 +577,7 @@
         <button type="button" @click="saveMultipliers()" class="btn btn-primary btn-lg flex-1">
           Save Multipliers
         </button>
-        <button type="button" @click="saveFormula()" class="btn btn-outline btn-lg flex-1" style="border-color: var(--fc-dk-score); color: var(--fc-dk-score);">
+        <button type="button" @click="saveFormula()" class="btn btn-outline btn-lg flex-1" style="border-color: var(--fc-dk-score); color: var(--fc-dk-score-ink);">
           Save Formula
         </button>
       </div>
