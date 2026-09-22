@@ -51,13 +51,31 @@ Chart/formula visualization colors are defined once at the top of `slates/show.h
 | DK Expectation | `--fc-dk-total` `#4BAF50` | none — graphics only |
 
 - **Fill** paints graphical objects only: the chart stroke, the panel's
-  `border-left`, the sliders' `accent-color`. WCAG 1.4.11 clears those at 3:1,
-  and the brand colours are correct there.
+  `border-left`, the sliders' `accent-color`. Those are graphical objects, so
+  the bar they owe is WCAG 1.4.11's 3:1 rather than 4.5:1 — but **three of the
+  four fills are UNDER that bar in one theme**, so "the brand colours are
+  correct there" (what this said until 2026-09-22) was not true. Measured on
+  the card the graphics sit on, by `test/views/violet_text_contrast_test.rb`'s
+  own helpers: `--fc-goals` **1.96:1** light, `--fc-dk-score` **2.22:1** dark,
+  `--fc-dk-total` **2.78:1** light; only `--fc-mult` clears both (3.10 / 3.60).
+  The 1.96 and 2.22 quoted below as the *text* failure are also under the
+  *graphical* floor. This is pre-existing and was not introduced by the ink
+  work — the fills are byte-identical before and after it — and the fix is
+  tracked separately as `raise-series-fills-graphical-floor`. Do not read this
+  bullet as a clearance.
 - **Ink** paints anything read as small TEXT, which owes 4.5:1. Only the theme
   that actually fails moves, so a series keeps its own brand colour wherever it
   already clears: `--fc-goals-ink` is `#B8B0FF` in dark and `--color-violet-ink`
   in light; `--fc-dk-score-ink` is `#15803D` in light and `--color-primary-ink`
-  in dark. Both borrowed inks are derived per theme by `Studio::ThemeResolver`.
+  in dark. Both borrowed inks are **this app's own per-theme tokens**, declared
+  in `app/assets/tailwind/application.css` — `Studio::ThemeResolver` emits
+  neither (it emits `--color-primary` and its scale, plus the danger, warning
+  and success inks). Borrowing them still beats pinning a fourth hex pair,
+  because they move with the ink tokens the rest of the app already reads; but
+  none of the four values here tracks a theme change, and until 2026-09-22 this
+  line claimed they did. What the theme DOES move is the **ground**: the four
+  surfaces are resolver-derived, so changing the dark base shifts every ratio
+  above while the inks stay put. The guard catches that by reddening.
 - **JS `FC` object** (`FC.mult`, `FC.goals`, `FC.dkTotal`) for Chart.js
   datasets — strokes, so it reads the fills.
 - Guard: `test/views/violet_text_contrast_test.rb` resolves every inline

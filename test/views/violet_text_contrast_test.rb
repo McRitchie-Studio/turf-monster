@@ -1,4 +1,5 @@
 require "test_helper"
+require "tmpdir"
 
 # Component tier for violet TEXT (task: fix-violet-text-contrast).
 #
@@ -55,14 +56,41 @@ require "test_helper"
 # member N by reddening member 1, so every series that paints text must be
 # FOUND painting text, in both themes, or the suite says so.
 #
-# KNOWN BLIND SPOT, measured rather than guessed at. Rails tag-helper `style:`
-# options are invisible to this walk: the ERB is blanked before the tag scan,
-# so `<%%= tag.span style: "color: ..." %>` never becomes an element. Measured
-# 2026-09-22: 18 `style:` matches under app/views and app/helpers, of which 7
-# are JS object literals in toast_test/index and only FIVE declare a `color:`
-# (admin/seasons/index x3, shared/_impersonation_banner, magic_links/confirm).
-# None resolves to a registered series colour, so a lane for them would assert
-# nothing today — it is recorded as a gap instead of shipped inert.
+# THE TAG-HELPER BLIND SPOT, NOW CLOSED. Rails tag-helper `style:` options are
+# invisible to the walk above: the ERB is blanked before the tag scan, so
+# `<%%= tag.span style: "color: ..." %>` never becomes an element. That is a
+# hole in the property this file claims two paragraphs up — "planting
+# `style="color: #B8B0FF"` on any scanned page is caught" is FALSE for the
+# tag-helper form — so it gets a lane of its own (TAG_HELPER_* below) rather
+# than a note.
+#
+# THE COUNT THIS PARAGRAPH USED TO CARRY WAS WRONG TWICE OVER, and it is worth
+# recording why, because both errors are the kind a hand grep produces. It read
+# "18 `style:` matches ... only FIVE declare a `color:` ... None resolves to a
+# registered series colour, so a lane for them would assert nothing today".
+# Re-derived 2026-09-22 (carl, reviewing PR 802; re-run by shannon with this
+# file's own regex), the three numbers that matter are:
+#
+#   34  lines under app/views + app/helpers carry a `style:` OPTION
+#    9  of those also match this file's `color:` regex, /(?<![-\w])color\s*:/
+#    7  of those nine yield a parseable CSS declaration — the two in
+#       tokens/_paypal_sdk are JS object literals whose `color: 'blue'` is a
+#       PayPal funding enum, not a colour, and `static_color` drops them
+#    3  of those seven resolve to a REGISTERED SERIES COLOUR (in dark)
+#
+# So "none resolves to a registered series colour" was false, and it was
+# falsifiable from INSIDE the old list of five: admin/seasons/index:77 writes
+# `color: var(--color-primary-ink)`, which is exactly what `--fc-dk-score-ink`
+# resolves to in dark (#81C784). The other two are admin/error_logs/index:38
+# and :42, which the old count missed entirely. Each of the three numbers above
+# is now asserted below rather than left as prose, because a hand count in a
+# comment is precisely what rotted here.
+#
+# NO LIVE BUG EVER HID BEHIND IT. All three write `--color-primary-ink`, and
+# the sibling guard test/views/primary_text_contrast_test.rb already proves
+# that token clears AA on the card and the page in both themes. The lane below
+# is therefore not a bug fix — it is the scanner catching up with a claim this
+# file was already making.
 class VioletTextContrastTest < ActiveSupport::TestCase
   AA_TEXT = 4.5
   COMPILED_CSS = Rails.root.join("app/assets/builds/tailwind.css").freeze
@@ -105,6 +133,46 @@ class VioletTextContrastTest < ActiveSupport::TestCase
   # an unresolved ground fails loudly instead of being measured against a
   # surface the template never sits on.
   MAILER_VIEWS = %r{/app/views/[\w]*mailer/}
+
+  # ── the tag-helper `style:` lane ───────────────────────────────────────────
+  #
+  # A Rails tag-helper option, `style: "color: ..."`, rather than an HTML
+  # `style=` attribute. The `(?<!:)` is what keeps this off the attribute form
+  # Alpine writes (`:style=`), which the element walk already covers.
+  TAG_HELPER_STYLE = /(?<![-\w:])style:\s/
+
+  # HOW BIG THE BLIND SPOT IS, ASSERTED. Every line under app/views +
+  # app/helpers carrying a `style:` option whose text also matches this file's
+  # `color:` regex, by file. The total is the NINE in the header; a hand count
+  # said five, which is why it is a constant now and not a sentence. A new
+  # tag-helper `color:` bumps a number here and fails, so the blind spot cannot
+  # quietly grow — same doctrine as BARE_TEXT_VIOLET_ALLOWED above.
+  TAG_HELPER_COLOR_SITES = {
+    "app/views/admin/error_logs/index.html.erb" => 2,
+    "app/views/admin/seasons/index.html.erb" => 3,
+    "app/views/magic_links/confirm.html.erb" => 1,
+    "app/views/shared/_impersonation_banner.html.erb" => 1,
+    "app/views/tokens/_paypal_sdk.html.erb" => 2
+  }.freeze
+
+  # WHICH OF THEM PAINT A REGISTERED SERIES COLOUR, per theme, with the ground
+  # the site actually sits on recorded beside it. LIGHT IS ASSERTED EMPTY and
+  # that is a tripwire, not a vacuous pass: `--color-primary-ink` is
+  # `var(--color-primary)` there (#2E7D32), which is nobody's series colour, so
+  # a light-theme entry appearing here means a new site started painting one.
+  #
+  # The ground column is documentation, not the measurement. See the lane.
+  TAG_HELPER_SERIES_SITES = {
+    # #81C784 — what --fc-dk-score-ink resolves to in dark.
+    dark: [
+      # the class chips close their cards at :30, so these sit on the PAGE
+      [ "app/views/admin/error_logs/index.html.erb", 38 ],
+      [ "app/views/admin/error_logs/index.html.erb", 42 ],
+      # inside `card p-6` at :51, so this one sits on the CARD
+      [ "app/views/admin/seasons/index.html.erb", 77 ]
+    ],
+    light: []
+  }.freeze
 
   # The violet tints small labels sit inside, and the surfaces they sit on.
   TINT_CLASSES = [ ".bg-violet\\/10", ".bg-violet\\/20" ].freeze
@@ -399,6 +467,33 @@ class VioletTextContrastTest < ActiveSupport::TestCase
     end
   end
 
+  # The tag-helper twin of `inline_style_colors`, reading LINES rather than
+  # elements because there is no element to read: the ERB these live in is
+  # blanked before the tag scan, so nothing reaches `parse_elements`.
+  #
+  # Returns `[line, [expr, ...]]` per line that declares a `color:`. The value
+  # pattern stops at a quote as well as a `;`, which is what keeps the PayPal
+  # SDK's JS object literals (`style: { color: 'blue', height: 48 }`) out: the
+  # character after `color: ` is the quote, so nothing is captured and the line
+  # yields no declaration. They are still COUNTED by TAG_HELPER_COLOR_SITES —
+  # the blind spot is a property of the text, not of what parses out of it.
+  def tag_helper_style_colors(path)
+    File.readlines(path).each_with_index.filter_map do |text, i|
+      next unless text.match?(TAG_HELPER_STYLE)
+
+      exprs = text.scan(/(?<![-\w])color\s*:\s*([^;"']+)/).flatten.map(&:strip)
+      [ i + 1, exprs ] unless exprs.empty?
+    end
+  end
+
+  # Every line that COUNTS toward the blind spot: a `style:` option whose text
+  # matches the `color:` regex, parseable or not.
+  def tag_helper_color_lines(path)
+    File.readlines(path).each_with_index.filter_map do |text, i|
+      i + 1 if text.match?(TAG_HELPER_STYLE) && text.match?(/(?<![-\w])color\s*:/)
+    end
+  end
+
   # Resolve page-local custom properties with the same theme cascade used for
   # the compiled app tokens. This is what turns `var(--fc-mult)` into the real
   # colour the browser paints instead of treating the variable name as proof.
@@ -537,6 +632,28 @@ class VioletTextContrastTest < ActiveSupport::TestCase
     end
   end
 
+  # The tag-helper twin of `inline_series_sites`. Same resolution path — page
+  # tokens merged over app tokens, `static_color`, then the registered palette
+  # — so a colour written as a tag-helper option is measured exactly like the
+  # same colour written as a `style=` attribute.
+  def tag_helper_series_sites(mode)
+    app = tokens(mode)
+    palette = scanned_palette(mode, app)
+
+    SCANNED.flat_map do |root|
+      Dir[root.join("**/*.{erb,rb}")].sort.flat_map do |path|
+        rel = Pathname(path).relative_path_from(Rails.root).to_s
+        page = app.merge(embedded_style_tokens(path, mode))
+        tag_helper_style_colors(path).flat_map do |line, exprs|
+          exprs.filter_map do |expr|
+            color = static_color(expr, page)
+            [ rel, line, expr, color ] if color && palette.key?(color.upcase)
+          end
+        end
+      end
+    end
+  end
+
   def classes_for_testid(path, testid)
     tag = File.read(Rails.root.join(path))[/<[^>]*data-testid=["']#{Regexp.escape(testid)}["'][^>]*>/m]
     assert tag, "#{path} has no element with data-testid=#{testid.inspect}"
@@ -614,6 +731,119 @@ class VioletTextContrastTest < ActiveSupport::TestCase
                         "#{mode} #{surface} (#{ground}), #{format('%.2f', ratio)}:1; AA needs 4.5:1 for small text"
       end
     end
+  end
+
+  # ── the tag-helper `style:` lane ───────────────────────────────────────────
+
+  test "the tag-helper style: blind spot is exactly the size this file says" do
+    found = Hash.new(0)
+    SCANNED.each do |root|
+      Dir[root.join("**/*.{erb,rb}")].each do |path|
+        lines = tag_helper_color_lines(path)
+        found[Pathname(path).relative_path_from(Rails.root).to_s] = lines.length if lines.any?
+      end
+    end
+
+    assert_equal TAG_HELPER_COLOR_SITES, found,
+                 "the tag-helper `color:` sites moved. This number is the SIZE OF THE BLIND SPOT and it is " \
+                 "asserted because a hand count of it was wrong by four (five, actually nine — see the header). " \
+                 "Re-derive it, update TAG_HELPER_COLOR_SITES, and check whether the new site paints a series " \
+                 "colour — the lane below measures it if it does."
+    assert_equal 9, found.values.sum, "the header states NINE tag-helper `color:` lines; keep the two in step"
+  end
+
+  test "a tag-helper style: option may not paint a series colour that fails AA" do
+    THEME_SELECTORS.each_key do |mode|
+      sites = tag_helper_series_sites(mode)
+
+      assert_equal TAG_HELPER_SERIES_SITES.fetch(mode), sites.map { |rel, line, _, _| [ rel, line ] },
+                   "the tag-helper sites painting a registered series colour in the #{mode} theme changed. " \
+                   "An entry appearing under `light` is the tripwire firing: nothing resolved to a series " \
+                   "colour there when this was written."
+
+      sites.each do |rel, line, expr, color|
+        # EVERY BARE SURFACE, not one resolved ground, and that is deliberate.
+        # A blanked line has no element, so the ancestor walk cannot answer
+        # what this sits on — and the two grounds these sites really have
+        # DIFFER (error_logs is on the page, seasons/index is in a card), so
+        # picking one would be the guess that the surface-exemption tests below
+        # exist to stop. Clearing all four clears whichever it is.
+        #
+        # The violet TINT grounds are excluded on purpose: they are a
+        # slates/benchmarks pattern that no tag-helper site sits on, and
+        # --color-primary-ink is 4.23:1 on bg-violet/20 over the card, so
+        # including them would red on a ground these elements are not on —
+        # the same error in the other direction.
+        SURFACES.each_key do |surface|
+          ground = grounds(mode).fetch(surface.to_s)
+          ratio = contrast(color, ground)
+
+          assert_operator ratio, :>=, AA_TEXT,
+                          "#{rel}:#{line} paints #{expr} (#{color}) through a tag-helper `style:` option, and it " \
+                          "is #{format('%.2f', ratio)}:1 on the #{mode} #{surface} (#{ground}). This lane cannot " \
+                          "see which surface the element sits on, so a registered colour written here must clear " \
+                          "AA on all four — use the series' -ink token."
+        end
+      end
+    end
+  end
+
+  # THE CONTROL FOR THE LANE ABOVE, and it has to be three separate halves
+  # because each could rot on its own and each would leave the lane green: the
+  # scanner could stop finding tag-helper lines, the palette could stop
+  # recognising a series fill, and the ratio could stop being a failure. The
+  # planted file lives in a TMPDIR rather than under app/views, because a
+  # fixture written into a scanned directory is read by the sibling forks CI
+  # runs this suite in.
+  test "control: the tag-helper lane finds a planted site and the fill it writes fails" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "planted.html.erb")
+      File.write(path, %(  <%= tag.span "x", class: "badge", style: "color: var(--fc-goals)" %>\n))
+
+      assert_equal [ [ 1, [ "var(--fc-goals)" ] ] ], tag_helper_style_colors(path),
+                   "the tag-helper scanner no longer finds a planted `style:` option — the lane above is blind"
+    end
+
+    page = tokens(:light).merge(embedded_style_tokens(Rails.root.join(SLATE_PAGE).to_s, :light))
+    color = static_color("var(--fc-goals)", page)
+    assert_equal "#B8B0FF", color.to_s.upcase, "--fc-goals no longer resolves to the Goals fill"
+    assert scanned_palette(:light, tokens(:light)).key?(color.upcase),
+           "the palette no longer recognises the Goals fill, so the lane would walk past it"
+
+    ratio = contrast(color, grounds(:light).fetch("card"))
+    assert_operator ratio, :<, AA_TEXT,
+                    "the Goals fill now clears AA on the light card at #{format('%.2f', ratio)}:1; if that is real " \
+                    "the lane above can no longer fail on it, and this control is asserting nothing"
+  end
+
+  # THE CLAIM THE COMMENTS MAKE ABOUT WHERE THESE INKS COME FROM. Both the
+  # slates/show comment and docs/FORMULAS.md said the borrowed inks were
+  # "derived per theme by Studio::ThemeResolver" and therefore tracked a theme
+  # change. They are not and do not — they are this app's own tokens. That was
+  # corrected in prose, and prose is what went wrong the first time, so the
+  # corrected claim is asserted here: if the resolver ever DOES emit one, this
+  # reds and the comments get to be right again.
+  test "control: the borrowed inks are the app's own tokens, not the resolver's" do
+    colors = ThemeSetting.current.resolved_colors
+
+    %i[dark light].each do |mode|
+      emitted = engine_tokens(mode, colors)
+
+      [ "--color-primary-ink", "--color-violet-ink" ].each do |token|
+        refute emitted.key?(token),
+               "Studio::ThemeResolver now emits #{token} in the #{mode} theme. slates/show.html.erb and " \
+               "docs/FORMULAS.md both say it does NOT, and that the four ink values pin rather than track — " \
+               "update them, because the resolver-derived version is the better story and would now be true."
+      end
+
+      assert emitted.key?("--color-primary"),
+             "the resolver stopped emitting --color-primary in the #{mode} theme, so this control can no longer " \
+             "tell 'the resolver does not emit the ink' from 'the resolver emitted nothing'"
+    end
+
+    app = app_tokens(compiled_css, THEME_SELECTORS[:dark])
+    assert app.key?("--color-primary-ink"), "--color-primary-ink is no longer declared by this app's own CSS"
+    assert app.key?("--color-violet-ink"), "--color-violet-ink is no longer declared by this app's own CSS"
   end
 
   test "the slate bye-line badge uses the benchmarks badge treatment" do
