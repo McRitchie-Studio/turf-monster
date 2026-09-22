@@ -39,14 +39,30 @@ require "test_helper"
 #   * `hover:bg-violet/30` on the wallets airdrop button is 4.46:1 light and
 #     4.38:1 dark; the rest state (`bg-violet/20`) clears.
 #
-# TWO SIBLING SERIES ARE OUT OF SCOPE BY COLOUR, NOT BY LUCK. slates/show paints
-# three formula panels as small inline text, and the inline lane below filters to
-# the violet pair, so it measures the Turf Score series and walks past the other
-# two. Measured here so a green suite is not read as a clean page:
-# `--fc-goals: #B8B0FF` is 1.96:1 on the light card (5.68:1 dark) and
-# `--fc-dk-score: #15803D` is 2.22:1 on the dark card (5.02:1 light). Each wants
-# its own theme-aware ink, the way Turf Score got --fc-mult-ink; widening this
-# guard to every hue instead would red the suite on defects it cannot fix.
+# THE INLINE LANE IS NO LONGER VIOLET-ONLY. It used to filter to the violet
+# pair, so it measured slates/show's Turf Score series and walked past its two
+# siblings — `--fc-goals` at 1.96:1 on the light card and `--fc-dk-score` at
+# 2.22:1 on the dark card, both recorded here as known-and-unfixed. Both are
+# fixed now (task: fix-goals-and-dk-contrast), and the lane is PARAMETERISED
+# over INLINE_SERIES below rather than copied per series: each entry names the
+# page-local FILL token and the INK token that series must use as small text,
+# and the scan filters to the colours those tokens resolve to.
+#
+# IT IS STILL LIST-FREE IN THE WAY THAT MATTERS. The registry names TOKENS, not
+# files or lines, so planting `style="color: #B8B0FF"` on any scanned page is
+# caught without widening anything. The per-series vacuity assertion is what
+# keeps the loop honest: a guard that iterates a list proves nothing about
+# member N by reddening member 1, so every series that paints text must be
+# FOUND painting text, in both themes, or the suite says so.
+#
+# KNOWN BLIND SPOT, measured rather than guessed at. Rails tag-helper `style:`
+# options are invisible to this walk: the ERB is blanked before the tag scan,
+# so `<%%= tag.span style: "color: ..." %>` never becomes an element. Measured
+# 2026-09-22: 18 `style:` matches under app/views and app/helpers, of which 7
+# are JS object literals in toast_test/index and only FIVE declare a `color:`
+# (admin/seasons/index x3, shared/_impersonation_banner, magic_links/confirm).
+# None resolves to a registered series colour, so a lane for them would assert
+# nothing today — it is recorded as a gap instead of shipped inert.
 class VioletTextContrastTest < ActiveSupport::TestCase
   AA_TEXT = 4.5
   COMPILED_CSS = Rails.root.join("app/assets/builds/tailwind.css").freeze
@@ -56,6 +72,35 @@ class VioletTextContrastTest < ActiveSupport::TestCase
     card: "--color-surface", page: "--color-page",
     "surface-alt": "--color-surface-alt", inset: "--color-inset"
   }.freeze
+  # ── the brand series the inline lane measures ─────────────────────────────
+  #
+  # Each series is a colour that paints BOTH a graphic (a chart stroke, a
+  # border-left, an accent-color — 3:1 under WCAG 1.4.11) and small TEXT, which
+  # owes 4.5:1. `fill` is the token that must keep painting the graphics;
+  # `ink` is the token the same series must use as text.
+  #
+  # BOTH are scanned, and that is the point: the fill so a site that reaches
+  # back for it is caught, the ink so the fix stays measured instead of assumed.
+  # The filter is by RESOLVED COLOUR, so a bare `#B8B0FF` is caught exactly like
+  # the `var()` form.
+  #
+  # `paints_text: false` is a series that is graphics-only today. It is
+  # registered anyway — its fill is scanned, so the day someone paints it as
+  # text the lane measures it instead of discovering it a year later, which is
+  # precisely how --fc-goals and --fc-dk-score went unwatched.
+  INLINE_SERIES = {
+    "Turf Score" => { fill: "--fc-mult", ink: "--fc-mult-ink", paints_text: true },
+    "Goals" => { fill: "--fc-goals", ink: "--fc-goals-ink", paints_text: true },
+    "DK Score" => { fill: "--fc-dk-score", ink: "--fc-dk-score-ink", paints_text: true },
+    "DK Total" => { fill: "--fc-dk-total", ink: nil, paints_text: false }
+  }.freeze
+
+  # Mailer templates render in their own layout with a fixed palette and never
+  # see a theme surface, so neither the theme grounds nor the page fallback
+  # describes them. They are skipped rather than measured against a ground they
+  # do not have.
+  MAILER_VIEWS = %r{/app/views/[\w]*mailer/}
+
   # The violet tints small labels sit inside, and the surfaces they sit on.
   TINT_CLASSES = [ ".bg-violet\\/10", ".bg-violet\\/20" ].freeze
   TINT_SURFACES = { card: "--color-surface", page: "--color-page" }.freeze
@@ -149,8 +194,17 @@ class VioletTextContrastTest < ActiveSupport::TestCase
     end
   end
 
+  # CSS COMMENTS ARE STRIPPED FIRST, and that is load-bearing rather than
+  # tidiness. A selector here is "everything since the last brace", so a `/* */`
+  # comment sitting above a rule becomes part of its selector: `:root` parses as
+  # `/*...*/:root`, matches nothing, and the whole block's custom properties
+  # vanish from the guard's view. The sites that read them then resolve to
+  # nothing and are SKIPPED rather than failed, so documenting a page's <style>
+  # block would quietly switch this lane off for that page. Measured 2026-09-22:
+  # adding the FILL-vs-INK comment to slates/show did exactly that, and the
+  # per-series vacuity assertion is what caught it.
   def rules(css)
-    css.scan(/([^{}]+)\{([^{}]*)\}/).map { |sel, body| [ sel.gsub(/\s+/, ""), body ] }
+    css.gsub(%r{/\*.*?\*/}m, "").scan(/([^{}]+)\{([^{}]*)\}/).map { |sel, body| [ sel.gsub(/\s+/, ""), body ] }
   end
 
   def declarations(body)
@@ -392,22 +446,57 @@ class VioletTextContrastTest < ActiveSupport::TestCase
     end
   end
 
-  def inline_violet_sites(mode)
+  # An element whose own ancestor chain names no surface sits on the PAGE: the
+  # app layout's <body> carries `bg-page`. That is ASSERTED by "the page
+  # fallback is the layout's real background" below rather than assumed here.
+  # Defaulting to the CARD would be the guess this walk exists to prevent — the
+  # page is the one ground that is actually true for an element naming nothing,
+  # and without it the two Save Formula buttons have no ground at all.
+  def surface_or_page(chain) = surface_from_chain(chain) || :page
+
+  # Every colour the inline lane stops on, mapped to the series that owns it.
+  # The brand violet pair maps to nil: it is scanned wherever it is written
+  # inline (the property PR 796 built this lane for) but it is a utility class
+  # rather than a series, so it carries no page token to attribute to.
+  def scanned_palette(page, app)
+    palette = {}
+    [ ".text-violet", ".text-violet-ink" ].each do |klass|
+      palette[opaque(last_rule_for(klass, "color")["color"], app).upcase] ||= nil
+    end
+    INLINE_SERIES.each do |name, series|
+      [ series[:fill], series[:ink] ].compact.each do |token|
+        raw = page[token] or next
+        color = static_color(raw, page) or next
+        palette[color.upcase] ||= name
+      end
+    end
+    palette
+  end
+
+  # Attribute a site to its series by the TOKEN NAME it actually writes, and
+  # only fall back to the resolved colour for a bare hex. Two series can share
+  # an ink — --fc-mult-ink and .text-violet-ink are both #C5C0FE — so colour
+  # alone cannot tell them apart, while the token name can.
+  def series_for(expr, color, palette)
+    named = INLINE_SERIES.find do |_, series|
+      [ series[:fill], series[:ink] ].compact.any? { |t| expr.match?(/#{Regexp.escape(t)}(?![\w-])/) }
+    end
+    named ? named.first : palette[color.upcase]
+  end
+
+  def inline_series_sites(mode)
     app = tokens(mode)
-    violet = [
-      opaque(last_rule_for(".text-violet", "color")["color"], app),
-      opaque(last_rule_for(".text-violet-ink", "color")["color"], app)
-    ].map(&:upcase)
 
     SCANNED.flat_map do |root|
-      Dir[root.join("**/*.{erb,rb}")].flat_map do |path|
+      Dir[root.join("**/*.{erb,rb}")].reject { |p| p.match?(MAILER_VIEWS) }.flat_map do |path|
         rel = Pathname(path).relative_path_from(Rails.root).to_s
         page = app.merge(embedded_style_tokens(path, mode))
+        palette = scanned_palette(page, app)
         inline_style_colors(path).filter_map do |line, expr, chain|
           color = static_color(expr, page)
-          next unless color && violet.include?(color.upcase)
+          next unless color && palette.key?(color.upcase)
 
-          [ rel, line, expr, color, surface_from_chain(chain) ]
+          [ rel, line, expr, color, surface_or_page(chain), series_for(expr, color, palette) ]
         end
       end
     end
@@ -454,19 +543,38 @@ class VioletTextContrastTest < ActiveSupport::TestCase
     end
   end
 
-  test "inline violet color declarations clear AA on their real surfaces in both themes" do
+  test "inline brand-series color declarations clear AA on their real surfaces in both themes" do
     THEME_SELECTORS.each_key do |mode|
-      sites = inline_violet_sites(mode)
+      sites = inline_series_sites(mode)
       assert_operator sites.length, :>, 0,
-                      "the inline lane found no violet text in the #{mode} theme; without a real site this guard is vacuous"
+                      "the inline lane found no brand-series text in the #{mode} theme; without a real site this guard is vacuous"
 
-      sites.each do |path, line, expr, color, surface|
-        assert surface, "#{path}:#{line} #{expr.inspect} names no enclosing theme surface"
+      # PER-SERIES vacuity. The whole-lane count above is satisfied by ONE
+      # series, so it says nothing about the others — and "the others" is
+      # exactly where the gap lived: this lane measured Turf Score and walked
+      # past Goals and DK Score for a whole release. Reddening one member of a
+      # loop proves nothing about member N, so every series that paints text
+      # has to be FOUND painting text before its measurement means anything.
+      painted = sites.group_by(&:last)
+      INLINE_SERIES.select { |_, s| s[:paints_text] }.each_key do |name|
+        assert_operator painted.fetch(name, []).length, :>, 0,
+                        "the inline lane found no #{name} text in the #{mode} theme. Either the series stopped " \
+                        "painting text (drop paints_text) or its ink token was renamed — until then its row in " \
+                        "INLINE_SERIES asserts nothing."
+      end
+
+      INLINE_SERIES.reject { |_, s| s[:paints_text] }.each_key do |name|
+        assert_empty painted.fetch(name, []),
+                     "#{name} is registered as graphics-only but now paints text in the #{mode} theme. " \
+                     "Give it an ink token and set paints_text, rather than letting a fill become small text."
+      end
+
+      sites.each do |path, line, expr, color, surface, series|
         ground = grounds(mode).fetch(surface.to_s)
         ratio = contrast(color, ground)
         assert_operator ratio, :>=, AA_TEXT,
-                        "#{path}:#{line} inline #{expr} resolves to #{color} on the #{mode} #{surface} " \
-                        "(#{ground}), #{format('%.2f', ratio)}:1; AA needs 4.5:1 for small text"
+                        "#{path}:#{line} inline #{expr} (#{series || 'brand violet'}) resolves to #{color} on the " \
+                        "#{mode} #{surface} (#{ground}), #{format('%.2f', ratio)}:1; AA needs 4.5:1 for small text"
       end
     end
   end
@@ -502,6 +610,91 @@ class VioletTextContrastTest < ActiveSupport::TestCase
                       "#{wrong_ink} on the #{mode} card is #{format('%.2f', ratio)}:1; the ink must stay per theme, " \
                       "not a flip of the other one"
     end
+  end
+
+  # ── the series inks, measured per member ───────────────────────────────────
+
+  SLATE_PAGE = "app/views/slates/show.html.erb"
+
+  # Every ground a series fill FAILS on as text — the defect each ink exists to
+  # answer. One row per (series, theme, ground), because a control that covers
+  # only the first member of a list says nothing about the rest, and "the rest"
+  # is where this card's two defects lived. The third row is the pair of Save
+  # Formula buttons, which name no surface and sit on the page.
+  SERIES_FILL_FAILURES = [
+    { series: "Goals", token: "--fc-goals", mode: :light, surface: "card", was: 1.96 },
+    { series: "DK Score", token: "--fc-dk-score", mode: :dark, surface: "card", was: 2.22 },
+    { series: "DK Score", token: "--fc-dk-score", mode: :dark, surface: "page", was: 3.48 }
+  ].freeze
+
+  # What each ink measures on the grounds its text actually sits on. Pinned so
+  # that editing a hex in the page's <style> block cannot quietly move a ratio.
+  SERIES_INK_FIGURES = [
+    { token: "--fc-goals-ink", mode: :light, surface: "card", ratio: 6.03 },
+    { token: "--fc-goals-ink", mode: :dark, surface: "card", ratio: 5.68 },
+    { token: "--fc-dk-score-ink", mode: :light, surface: "card", ratio: 5.02 },
+    { token: "--fc-dk-score-ink", mode: :light, surface: "page", ratio: 4.79 },
+    { token: "--fc-dk-score-ink", mode: :dark, surface: "card", ratio: 5.54 },
+    { token: "--fc-dk-score-ink", mode: :dark, surface: "page", ratio: 8.68 }
+  ].freeze
+
+  def slate_token(name, mode)
+    path = Rails.root.join(SLATE_PAGE).to_s
+    page = tokens(mode).merge(embedded_style_tokens(path, mode))
+    raw = page[name] or flunk "#{SLATE_PAGE} declares no #{name} in the #{mode} theme"
+    static_color(raw, page) or flunk "#{name} does not resolve to a static colour in the #{mode} theme"
+  end
+
+  test "control: each series fill still fails AA as text on the ground its text sits on" do
+    SERIES_FILL_FAILURES.each do |row|
+      fill = slate_token(row[:token], row[:mode])
+      ground = grounds(row[:mode]).fetch(row[:surface])
+      ratio = contrast(fill, ground)
+
+      assert_operator ratio, :<, AA_TEXT,
+                      "#{row[:token]} (#{fill}) now measures #{format('%.2f', ratio)}:1 on the #{row[:mode]} " \
+                      "#{row[:surface]}; if the fill clears on its own, #{row[:series]}'s ink is pointless and " \
+                      "this lane would pass on the unfixed markup"
+      assert_in_delta row[:was], ratio, 0.01,
+                      "the #{row[:mode]} #{row[:surface]} measured #{row[:was]}:1 for #{row[:series]} when this was built"
+    end
+  end
+
+  test "each series ink clears AA on the grounds its text sits on" do
+    SERIES_INK_FIGURES.each do |row|
+      ink = slate_token(row[:token], row[:mode])
+      ground = grounds(row[:mode]).fetch(row[:surface])
+      ratio = contrast(ink, ground)
+
+      assert_operator ratio, :>=, AA_TEXT,
+                      "#{row[:token]} (#{ink}) on the #{row[:mode]} #{row[:surface]} (#{ground}) is " \
+                      "#{format('%.2f', ratio)}:1; AA needs 4.5:1 for small text"
+      assert_in_delta row[:ratio], ratio, 0.01,
+                      "#{row[:token]} on the #{row[:mode]} #{row[:surface]} measured #{row[:ratio]}:1 when this was built"
+    end
+  end
+
+  # Neither ink may collapse back onto its own fill: that is what "per theme"
+  # buys, and a copy-paste that points both themes at one value would otherwise
+  # pass every ratio above in the theme that happens to clear.
+  test "control: each series ink differs from its fill in the theme the fill fails" do
+    SERIES_FILL_FAILURES.each do |row|
+      ink_token = "#{row[:token]}-ink"
+      refute_equal slate_token(row[:token], row[:mode]).upcase, slate_token(ink_token, row[:mode]).upcase,
+                   "#{ink_token} resolves to the fill in the #{row[:mode]} theme, where the fill is " \
+                   "#{row[:was]}:1 — the ink must be per theme, not an alias of the colour it replaces"
+    end
+  end
+
+  # The page fallback is only honest while the layout really paints bg-page. If
+  # the body stops carrying it, every element that names no surface of its own
+  # is being measured against a ground it is not on — starting with the two
+  # Save Formula buttons, which is the whole reason the fallback exists.
+  test "the page fallback is the layout's real background" do
+    body = File.read(Rails.root.join("app/views/layouts/application.html.erb"))[/<body[^>]*>/m]
+    assert body, "the app layout has no <body> tag to read a background from"
+    assert_includes body[/class="([^"]*)"/, 1].to_s.split, "bg-page",
+                    "surface_or_page measures an unmarked element against the page; the layout body must paint bg-page"
   end
 
   # ── no view may reach for the fill as small text ───────────────────────────
