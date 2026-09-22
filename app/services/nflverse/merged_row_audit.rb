@@ -81,24 +81,43 @@ class Nflverse::MergedRowAudit
   # and a suffix gap is a spelling difference, not two humans.
   NAME_SUFFIXES = %w[jr jnr sr snr ii iii iv v].freeze
 
-  # kind             :foreign_id or :absorbed_namesake
-  # occupant_*       the human this turf row is NAMED for — read from THIS database
-  # held_column/value the identifier the row carries
-  # other_*          the second human — read from the FEED, never inferred
+  # kind          :foreign_id or :absorbed_namesake
+  # occupant_*    the human this turf row is NAMED for — read from THIS database
+  # held_ids      [[column, value], ...] — every identifier pointing at the other human
+  # other_*       the second human — read from the FEED, never inferred
+  #
+  # ONE FINDING PER ATHLETE PER OTHER HUMAN, not per ID column. A merged row
+  # holds the absorbed human's whole cross-reference set, so a per-column finding
+  # reports one row five or six times. Measured against production: a single
+  # flagged row produced five findings, and "findings: 5" reads as five damaged
+  # athletes to anyone who does not open the list. The unit of the acceptance
+  # criterion is the ATHLETE, so that is the unit of a finding.
   Finding = Struct.new(
     :kind, :athlete_slug, :person_slug, :occupant_name,
-    :held_column, :held_value, :other_name, :other_gsis_id,
+    :held_ids, :other_name, :other_gsis_id, :other_status, :other_last_season,
     keyword_init: true
   ) do
+    def held_columns = held_ids.map(&:first)
+    def held_summary = held_ids.map { |column, value| "#{column}=#{value}" }.join(" ")
+
+    # WOULD THE IMPORTER HAVE MADE HIM A ROW AT ALL? This splits a real lead
+    # from an absence that is already explained, and without it the two look
+    # identical on the page. Nflverse::SeedPlayers ingests only status=ACT, so a
+    # DEV, RES, PUP or CUT human has no row because the importer skipped him —
+    # not because a merge swallowed him. Measured against production 2026-09-22:
+    # the one candidate raised, anthony-johnson, is status DEV, and reading this
+    # field is what turned it from a finding into an explained absence in minutes.
+    def missing_row_is_unexplained? = other_status == Feed::INGESTED_STATUS
+
     def to_line
       case kind
       when :foreign_id
-        "#{athlete_slug}  holds #{held_column}=#{held_value}  " \
-          "named here: #{occupant_name}  —  the feed says that ID is #{other_name}"
+        "#{athlete_slug}  named here: #{occupant_name}  —  the feed says #{held_summary} " \
+          "#{held_ids.one? ? "is" : "are all"} #{other_name}"
       when :absorbed_namesake
-        "#{athlete_slug}  holds #{held_column}=#{held_value}  " \
-          "named here: #{occupant_name}  —  the feed's other #{other_name} " \
-          "(gsis #{other_gsis_id}) has no row at all"
+        "#{athlete_slug}  named here: #{occupant_name}  holds #{held_summary}  —  " \
+          "the feed's other #{other_name} (gsis #{other_gsis_id}, " \
+          "status #{other_status}, last season #{other_last_season}) has no row at all"
       end
     end
   end
@@ -121,7 +140,7 @@ class Nflverse::MergedRowAudit
       lines << "READ-ONLY. No INSERT, UPDATE or DELETE is issued by this task."
       lines << ""
       lines << "Scanned #{athletes_checked} football athletes · #{ids_checked} stored IDs checked " \
-               "against #{feed_rows} feed rows (#{active_feed_rows} active)."
+               "against #{feed_rows} feed rows (#{active_feed_rows} in the current league)."
       lines << "#{unverifiable_ids} stored ID(s) matched no feed row — NOT verifiable either way."
       lines << "#{unidentified_athletes} athlete(s) carry no checkable ID at all."
       lines << "Columns checked: #{FEED_ID_COLUMNS.keys.join(', ')}. " \
@@ -134,11 +153,15 @@ class Nflverse::MergedRowAudit
       lines << "  audit's alias check did not cover (\"Chig\" vs \"Chigoziem\")."
       lines << ""
 
+      unexplained, explained = absorbed_namesakes.partition(&:missing_row_is_unexplained?)
       lines << "ABSORBED NAMESAKE — a feed human has no row, and a same-named row holds another ID (#{absorbed_namesakes.size})"
-      lines.concat(section(absorbed_namesakes))
-      lines << "  These are CANDIDATES, not proof. Innocent explanation to rule out:"
-      lines << "  the named human was simply never imported (he signed after the last"
-      lines << "  seed run), which reads identically from here."
+      lines << "  · INVESTIGATE FIRST — the importer ingests status=#{Feed::INGESTED_STATUS}, so these should have a row (#{unexplained.size})"
+      lines.concat(section(unexplained))
+      lines << "  · absence already explained — the importer skips this status (#{explained.size})"
+      lines.concat(section(explained))
+      lines << "  These are CANDIDATES, not proof, and even the first group has an"
+      lines << "  innocent explanation to rule out: the named human may have signed"
+      lines << "  after the last seed run, which reads identically from here."
       lines << ""
 
       lines << "WHAT THIS AUDIT CANNOT SEE:"
@@ -188,6 +211,7 @@ class Nflverse::MergedRowAudit
       by_name[normalized(person.first_name, person.last_name)] << [athlete, person]
 
       checkable = 0
+      mismatched = []
       FEED_ID_COLUMNS.each_key do |column|
         value = athlete.public_send(column).to_s.strip
         next if value.empty?
@@ -198,16 +222,10 @@ class Nflverse::MergedRowAudit
         next unverifiable += 1 if feed_row.nil?
         next if names_agree?(person, feed_row)
 
-        findings << Finding.new(
-          kind: :foreign_id,
-          athlete_slug: athlete.slug, person_slug: athlete.person_slug,
-          occupant_name: person.full_name,
-          held_column: column, held_value: value,
-          other_name: feed.display_name(feed_row),
-          other_gsis_id: feed_row["gsis_id"].to_s.strip.presence
-        )
+        mismatched << [column, value, feed_row]
       end
       unidentified += 1 if checkable.zero?
+      findings.concat(foreign_id_findings(feed, athlete, person, mismatched))
     end
 
     findings.concat(absorbed_namesakes(feed, held_gsis_ids, by_name))
@@ -215,24 +233,51 @@ class Nflverse::MergedRowAudit
     Result.new(
       findings: findings, athletes_checked: athletes, ids_checked: ids_checked,
       unverifiable_ids: unverifiable, unidentified_athletes: unidentified,
-      feed_rows: feed.size, active_feed_rows: feed.active.size,
+      feed_rows: feed.size, active_feed_rows: feed.current_league.size,
       checked_at: Time.current
     )
   end
 
   private
 
-  # DETECTOR TWO. Runs over the ACTIVE feed only — the population the importer
-  # actually ingests (status=ACT, last_season >= min_season). Over the full
+  # Collapses one athlete's mismatched IDs into one finding per OTHER HUMAN.
+  # Grouping on the feed row's gsis_id rather than on its name, because two
+  # different humans can share a name — grouping on the name would merge them
+  # back together, which is the very confusion this audit exists to report.
+  def foreign_id_findings(feed, athlete, person, mismatched)
+    mismatched.group_by { |_column, _value, feed_row| feed_row["gsis_id"].to_s.strip }
+              .map do |other_gsis_id, group|
+      Finding.new(
+        kind: :foreign_id,
+        athlete_slug: athlete.slug, person_slug: athlete.person_slug,
+        occupant_name: person.full_name,
+        held_ids: group.map { |column, value, _row| [column, value] },
+        other_name: feed.display_name(group.first.last),
+        other_gsis_id: other_gsis_id.presence
+      )
+    end
+  end
+
+  # DETECTOR TWO. Runs over the feed's CURRENT-LEAGUE population — every human
+  # with last_season >= min_season, whatever his status says today. Over the full
   # 25k-row historical feed this would fire on every retired player who shares a
-  # name with an active one, which is a flood of false positives and not a merge.
+  # name with a current one, which is a flood of false positives and not a merge.
+  #
+  # NOT `status == ACT`, though that is what the importer filters on at seed
+  # time, and the difference is most of the audit's reach. Status is a SNAPSHOT
+  # and it drifts: a player seeded while ACT is later CUT, RES, PUP or DEV, and
+  # the row turf stored does not move with him. Measured against production
+  # 2026-09-22 — turf holds 2,896 athletes from a preseason seed, while the feed
+  # now calls just 1,731 of them ACT and 2,511 current-league. Scoped to ACT this
+  # detector could not see 40% of the population it is auditing, and an absorbed
+  # human who has since been cut is exactly the case it would drop.
   #
   # The signature is a CONJUNCTION, and each half alone is innocent: a feed human
   # with no turf row is merely un-imported, and a turf row holding an ID is
   # merely a player. Together — his ID held by nobody, while a row carrying his
   # name holds a DIFFERENT ID — that row is doing double duty for two humans.
   def absorbed_namesakes(feed, held_gsis_ids, by_name)
-    feed.active.filter_map do |feed_row|
+    feed.current_league.filter_map do |feed_row|
       gsis_id = feed_row["gsis_id"].to_s.strip
       next if gsis_id.empty?
       next if held_gsis_ids.include?(gsis_id)
@@ -250,8 +295,10 @@ class Nflverse::MergedRowAudit
         kind: :absorbed_namesake,
         athlete_slug: athlete.slug, person_slug: athlete.person_slug,
         occupant_name: person.full_name,
-        held_column: "gsis_id", held_value: athlete.gsis_id.to_s.strip,
-        other_name: feed.display_name(feed_row), other_gsis_id: gsis_id
+        held_ids: [["gsis_id", athlete.gsis_id.to_s.strip]],
+        other_name: feed.display_name(feed_row), other_gsis_id: gsis_id,
+        other_status: feed_row["status"].to_s.strip,
+        other_last_season: feed_row["last_season"].to_s.strip
       )
     end
   end
@@ -334,7 +381,10 @@ class Nflverse::MergedRowAudit
   # the audit asks it ~6 questions per athlete and a linear scan each time would
   # be 25k × 6 × 3k comparisons.
   class Feed
-    ACTIVE_STATUS = "ACT".freeze
+    # The one status Nflverse::SeedPlayers ingests. Named here because a
+    # finding's triage depends on it: an absent human who is not ACT was skipped
+    # by the importer, and that absence is explained rather than suspicious.
+    INGESTED_STATUS = "ACT".freeze
 
     attr_reader :rows
 
@@ -357,10 +407,11 @@ class Nflverse::MergedRowAudit
 
     def size = rows.size
 
-    def active
-      @active ||= rows.select do |row|
-        next false unless row["status"].to_s.strip == ACTIVE_STATUS
-
+    # The humans in the league this season, by SEASON and not by today's status.
+    # A blank/zero last_season is included rather than dropped: the column is
+    # absent for some rows, and excluding them would silently narrow the audit.
+    def current_league
+      @current_league ||= rows.select do |row|
         last_season = row["last_season"].to_i
         last_season.zero? || last_season >= @min_season
       end

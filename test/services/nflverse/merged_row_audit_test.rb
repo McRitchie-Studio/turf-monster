@@ -69,8 +69,7 @@ class Nflverse::MergedRowAuditTest < ActiveSupport::TestCase
     assert_equal 1, result.foreign_ids.size
     finding = result.foreign_ids.sole
     assert_equal "alice-ant-athlete", finding.athlete_slug
-    assert_equal "gsis_id", finding.held_column
-    assert_equal "00-0010002", finding.held_value
+    assert_equal [["gsis_id", "00-0010002"]], finding.held_ids
 
     # BOTH HUMANS, each READ rather than inferred: the occupant from this
     # database, the other from the feed.
@@ -125,7 +124,7 @@ class Nflverse::MergedRowAuditTest < ActiveSupport::TestCase
 
     finding = result.absorbed_namesakes.sole
     assert_equal "chris-smith-athlete", finding.athlete_slug
-    assert_equal "00-0038661", finding.held_value
+    assert_equal [["gsis_id", "00-0038661"]], finding.held_ids
     assert_equal "Chris Smith", finding.occupant_name
     assert_equal "Chris Smith", finding.other_name
     assert_equal "00-0031234", finding.other_gsis_id,
@@ -144,19 +143,95 @@ class Nflverse::MergedRowAuditTest < ActiveSupport::TestCase
                  "a player who was simply never imported is not a merge"
   end
 
-  # The active-feed scope is load-bearing, not a tidy-up: over the full 25k-row
-  # historical feed every retired namesake of an active player would fire. Both
-  # directions are asserted so the filter cannot be dropped and still look green.
-  test "an INACTIVE feed namesake does not fire, while the same row ACTIVE does" do
+  # THE FEED SCOPE IS LOAD-BEARING IN BOTH DIRECTIONS, and getting it wrong is
+  # silent either way — too wide floods the report, too narrow drops real merges.
+  #
+  # Scoped by SEASON, not by today's status. Measured against production
+  # 2026-09-22: turf holds 2,896 athletes seeded in the preseason, of whom the
+  # feed now calls only 1,731 ACT but 2,511 current-league. A status filter would
+  # blind this detector to 40% of the rows it audits — and an absorbed human who
+  # has since been CUT is precisely the case it must not drop.
+  test "a CUT player still in the current league is in scope; a retired one is not" do
     athlete!("Chris", "Smith", gsis_id: "00-0038661")
     held = feed_row(gsis_id: "00-0038661", first: "Chris", last: "Smith")
 
     retired = audit(held, feed_row(gsis_id: "00-0031234", first: "Chris", last: "Smith",
                                    status: "RET", last_season: "2011"))
-    assert_empty retired.findings, "a retired namesake is not evidence of a merge"
+    assert_empty retired.findings, "a namesake who left the league years ago is not evidence"
 
-    active = audit(held, feed_row(gsis_id: "00-0031234", first: "Chris", last: "Smith"))
-    assert_equal 1, active.absorbed_namesakes.size, "the same row, active, IS a candidate"
+    cut = audit(held, feed_row(gsis_id: "00-0031234", first: "Chris", last: "Smith",
+                               status: "CUT", last_season: "2026"))
+    assert_equal 1, cut.absorbed_namesakes.size,
+                 "a current-league player is in scope whatever his status says today"
+  end
+
+  # ONE ATHLETE IS ONE FINDING. A merged row holds the absorbed human's whole
+  # cross-reference set, so a per-column finding reports one row six times and
+  # "findings: 6" reads as six damaged athletes. Measured against production: a
+  # single flagged row produced five.
+  test "a row whose whole ID set belongs to one other human is ONE finding" do
+    athlete!("Cara", "Crane", gsis_id: "00-0010002", espn_id: "4000002",
+             pff_id: 90002, otc_id: "otc-2", pfr_id: "DrakDa00", nflverse_id: "nfl-2")
+
+    result = audit(
+      feed_row(gsis_id: "00-0010001", first: "Cara", last: "Crane", espn_id: "4000001"),
+      feed_row(gsis_id: "00-0010002", first: "Dave", last: "Drake", espn_id: "4000002",
+               pff_id: "90002", otc_id: "otc-2", pfr_id: "DrakDa00", nfl_id: "nfl-2")
+    )
+
+    finding = result.foreign_ids.sole
+    assert_equal %w[gsis_id espn_id pff_id otc_id pfr_id nflverse_id].sort,
+                 finding.held_columns.sort, "every foreign ID is listed on the one finding"
+    assert_equal "Dave Drake", finding.other_name
+  end
+
+  # ...but two DIFFERENT other humans on one row stay two findings. Grouping on
+  # the feed's gsis_id rather than its name is what keeps them apart, and a
+  # name-grouped version would merge two humans back into one — the exact
+  # confusion this audit reports.
+  test "IDs belonging to two different humans produce two findings on one row" do
+    athlete!("Cara", "Crane", gsis_id: "00-0010002", espn_id: "4000003")
+
+    result = audit(
+      feed_row(gsis_id: "00-0010002", first: "Dave", last: "Drake"),
+      feed_row(gsis_id: "00-0010003", first: "Erin", last: "Egret", espn_id: "4000003")
+    )
+
+    assert_equal 2, result.foreign_ids.size
+    assert_equal ["Dave Drake", "Erin Egret"], result.foreign_ids.map(&:other_name).sort
+  end
+
+  # A CANDIDATE AND AN EXPLAINED ABSENCE LOOK IDENTICAL WITHOUT THIS. The
+  # importer ingests status=ACT only, so a DEV/RES/PUP/CUT human has no row
+  # because it skipped him — that is not evidence of a merge. Measured against
+  # production 2026-09-22: the sole candidate raised (anthony-johnson) is DEV,
+  # and this field is what settled it without a database investigation.
+  test "a candidate is marked unexplained only when the importer would have ingested him" do
+    athlete!("Chris", "Smith", gsis_id: "00-0038661")
+    held = feed_row(gsis_id: "00-0038661", first: "Chris", last: "Smith")
+
+    skipped = audit(held, feed_row(gsis_id: "00-0031234", first: "Chris", last: "Smith",
+                                   status: "DEV")).absorbed_namesakes.sole
+    assert_equal "DEV", skipped.other_status
+    assert_not skipped.missing_row_is_unexplained?,
+               "the importer skips a non-ACT row, so his absence is already explained"
+
+    lead = audit(held, feed_row(gsis_id: "00-0031234", first: "Chris", last: "Smith",
+                                status: "ACT")).absorbed_namesakes.sole
+    assert lead.missing_row_is_unexplained?,
+           "an ACT human the importer should have created a row for is a real lead"
+  end
+
+  test "the report separates real leads from absences the importer explains" do
+    athlete!("Chris", "Smith", gsis_id: "00-0038661")
+
+    report = audit(
+      feed_row(gsis_id: "00-0038661", first: "Chris", last: "Smith"),
+      feed_row(gsis_id: "00-0031234", first: "Chris", last: "Smith", status: "DEV")
+    ).to_report
+
+    assert_match(/INVESTIGATE FIRST.*\(0\)/, report)
+    assert_match(/absence already explained.*\(1\)/, report)
   end
 
   # ── Spelling variance must not be reported as a merge ───────────────────────
@@ -188,7 +263,8 @@ class Nflverse::MergedRowAuditTest < ActiveSupport::TestCase
     )
 
     finding = result.foreign_ids.sole
-    assert_equal "espn_id", finding.held_column
+    assert_equal ["espn_id"], finding.held_columns,
+                 "the correct gsis_id is not flagged alongside the foreign espn_id"
     assert_equal "Bob Bee", finding.other_name
   end
 
