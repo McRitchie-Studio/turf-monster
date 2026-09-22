@@ -38,6 +38,15 @@ require "test_helper"
 #     the defect, so the fix is the badge family, not this token.
 #   * `hover:bg-violet/30` on the wallets airdrop button is 4.46:1 light and
 #     4.38:1 dark; the rest state (`bg-violet/20`) clears.
+#
+# TWO SIBLING SERIES ARE OUT OF SCOPE BY COLOUR, NOT BY LUCK. slates/show paints
+# three formula panels as small inline text, and the inline lane below filters to
+# the violet pair, so it measures the Turf Score series and walks past the other
+# two. Measured here so a green suite is not read as a clean page:
+# `--fc-goals: #B8B0FF` is 1.96:1 on the light card (5.68:1 dark) and
+# `--fc-dk-score: #15803D` is 2.22:1 on the dark card (5.02:1 light). Each wants
+# its own theme-aware ink, the way Turf Score got --fc-mult-ink; widening this
+# guard to every hue instead would red the suite on defects it cannot fix.
 class VioletTextContrastTest < ActiveSupport::TestCase
   AA_TEXT = 4.5
   COMPILED_CSS = Rails.root.join("app/assets/builds/tailwind.css").freeze
@@ -249,12 +258,27 @@ class VioletTextContrastTest < ActiveSupport::TestCase
     "bg-inset" => :inset, "card" => :card
   }.freeze
 
-  def element_chains(path)
-    @element_chains ||= {}
-    @element_chains[path] ||= begin
+  # ONE walk over the file produces both lanes, so they cannot disagree about
+  # which element a line belongs to. `chains` answers "what encloses line N"
+  # for the class lane; `styles` carries each inline `style` attribute TOGETHER
+  # WITH the chain of the element that wrote it.
+  #
+  # Pairing the style with its own chain is the point. Resolving it by line
+  # number instead means picking one of the several elements that can open on a
+  # line, and the pick is a guess: on `<label ...>Base <span style="color:…">`
+  # the styled element is the SECOND one. Today both answer `card`, so a
+  # position-based pick looks correct — but two siblings on one line, the first
+  # carrying `bg-inset` and the second the style, would measure the colour
+  # against a surface it is not on. That is the same "guess the surface" error
+  # the allow-list test below exists to prevent, so the inline lane does not
+  # make it either.
+  def parse_elements(path)
+    @parse_elements ||= {}
+    @parse_elements[path] ||= begin
       src = File.read(path).gsub(/<%.*?%>|<!--.*?-->/m) { |m| "\n" * m.count("\n") }
       stack = []
       chains = Hash.new { |h, k| h[k] = [] }
+      styles = []
       src.scan(%r{<(/?)([a-zA-Z][\w-]*)([^>]*?)(/?)>}) do
         closing, tag, attrs, selfclose = Regexp.last_match.captures
         line = src[0...Regexp.last_match.begin(0)].count("\n") + 1
@@ -264,21 +288,22 @@ class VioletTextContrastTest < ActiveSupport::TestCase
           stack.slice!(idx..) if idx
         else
           classes = attrs.scan(/(?::class|class)="([^"]*)"/).flatten.join(" ")
-          chains[line] << (stack.map(&:last) + [ classes ])
+          chain = stack.map(&:last) + [ classes ]
+          chains[line] << chain
+          attrs.scan(/(?::style|style)="([^"]*)"/) { styles << [ line, Regexp.last_match(1), chain ] }
           stack << [ tag, classes ] unless selfclose == "/" || VOID_TAGS.include?(tag)
         end
       end
-      chains
+      { chains: chains, styles: styles }
     end
   end
 
-  # The INNERMOST enclosing surface. `nil` when nothing in the chain names one —
-  # reported rather than defaulted, because guessing the card is the mistake
-  # this method exists to stop.
-  def enclosing_surface(path, line, token: "text-violet")
-    candidates = element_chains(path)[line]
-    chain = (candidates.find { |c| token && c.last.to_s.include?(token) } if token) || candidates.first || []
+  def element_chains(path) = parse_elements(path)[:chains]
 
+  # The INNERMOST surface named anywhere in one element's ancestor chain. `nil`
+  # when nothing names one — reported rather than defaulted, because guessing
+  # the card is the mistake this method exists to stop.
+  def surface_from_chain(chain)
     found = nil
     chain.each do |classes|
       classes.to_s.split(/\s+/).each do |klass|
@@ -290,6 +315,11 @@ class VioletTextContrastTest < ActiveSupport::TestCase
     found
   end
 
+  def enclosing_surface(path, line, token: "text-violet")
+    candidates = element_chains(path)[line]
+    surface_from_chain(candidates.find { |c| c.last.to_s.include?(token) } || candidates.first || [])
+  end
+
   def bare_violet_lines(path)
     File.readlines(Rails.root.join(path)).each_with_index.filter_map do |text, i|
       i + 1 if text.match?(/text-violet(?![\w-])/)
@@ -297,21 +327,16 @@ class VioletTextContrastTest < ActiveSupport::TestCase
   end
 
   # Inline `color:` declarations are a separate lane from Tailwind classes.
-  # That distinction matters: slates/show once painted six small labels with
+  # That distinction matters: slates/show once painted five small labels with
   # `color: var(--fc-mult)`, so the class-only scan below never saw the same
   # brand violet it correctly rejected as `text-violet`.
+  #
+  # Reads `:style` as well as `style`, since Alpine writes the bound form.
+  # Returns the element's own ancestor CHAIN with each declaration, so the
+  # caller measures against the surface that element actually sits on.
   def inline_style_colors(path)
-    src = File.read(path)
-    line_of = ->(offset) { src[0...offset].count("\n") + 1 }
-    element_line = lambda do |offset|
-      open_at = src[0...offset].rindex("<") || offset
-      line_of.call(open_at)
-    end
-
-    src.to_enum(:scan, /style=(['"])(.*?)\1/m).flat_map do
-      match = Regexp.last_match
-      line = element_line.call(match.begin(0))
-      match[2].scan(/(?<![-\w])color\s*:\s*([^;]+)/).map { |(value)| [ line, value.strip ] }
+    parse_elements(path)[:styles].flat_map do |line, style, chain|
+      style.scan(/(?<![-\w])color\s*:\s*([^;]+)/).map { |(value)| [ line, value.strip, chain ] }
     end
   end
 
@@ -329,9 +354,17 @@ class VioletTextContrastTest < ActiveSupport::TestCase
     end
   end
 
-  # Some inline colours are dynamic ERB values and belong to a different
-  # component. Return nil for those; resolve every static literal/var chain so
-  # a literal brand violet and a page-local alias take the same measured path.
+  # Resolve every STATIC colour — a literal hex, an rgb()/oklab() triple, or any
+  # depth of `var()` chain — so a bare `#8E82FE` and a page-local alias like
+  # `var(--fc-mult-ink)` take the same measured path. Anything a static scan
+  # cannot resolve returns nil and is skipped rather than guessed at.
+  #
+  # Two kinds are out of reach, both deliberately: a colour ERB computes at
+  # render time (`style="color: <%= palette[:accent] %>"`, which the tag walk
+  # has already blanked to an unresolvable fragment by the time it arrives) and
+  # one an Alpine expression computes at runtime. Neither has a value to
+  # measure without rendering the page, so both fall out here. The sibling
+  # guard, test/views/error_text_contrast_test.rb, stops at the same wall.
   def static_color(expr, toks)
     return if expr.include?("<%")
 
@@ -370,11 +403,11 @@ class VioletTextContrastTest < ActiveSupport::TestCase
       Dir[root.join("**/*.{erb,rb}")].flat_map do |path|
         rel = Pathname(path).relative_path_from(Rails.root).to_s
         page = app.merge(embedded_style_tokens(path, mode))
-        inline_style_colors(path).filter_map do |line, expr|
+        inline_style_colors(path).filter_map do |line, expr, chain|
           color = static_color(expr, page)
           next unless color && violet.include?(color.upcase)
 
-          [ rel, line, expr, color, enclosing_surface(rel, line, token: nil) ]
+          [ rel, line, expr, color, surface_from_chain(chain) ]
         end
       end
     end
