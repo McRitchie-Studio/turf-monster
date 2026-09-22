@@ -71,12 +71,21 @@ require "tmpdir"
 # Re-derived 2026-09-22 (carl, reviewing PR 802; re-run by shannon with this
 # file's own regex), the three numbers that matter are:
 #
-#   34  lines under app/views + app/helpers carry a `style:` OPTION
+#   34  lines under app/views + app/helpers carry a `style:` OPTION — CONTEXT
+#       ONLY, and the one number here that is not asserted: it moves whenever
+#       anyone writes `style: "width: ..."`, so pinning it would red on changes
+#       that have nothing to do with colour. Re-derive it with
+#       `grep -rEn '(^|[^-\w:])style:[[:space:]]' app/views app/helpers
+#       --include='*.erb' --include='*.rb' | wc -l` rather than trusting it.
 #    9  of those also match this file's `color:` regex, /(?<![-\w])color\s*:/
 #    7  of those nine yield a parseable CSS declaration — the two in
 #       tokens/_paypal_sdk are JS object literals whose `color: 'blue'` is a
 #       PayPal funding enum, not a colour, and `static_color` drops them
 #    3  of those seven resolve to a REGISTERED SERIES COLOUR (in dark)
+#
+# The 9, the 7 and the 3 are each ASSERTED below. That is the point of the
+# rewrite: the figure this paragraph carried before was a hand count, it was
+# wrong, and nothing would have failed when it went wrong.
 #
 # So "none resolves to a registered series colour" was false, and it was
 # falsifiable from INSIDE the old list of five: admin/seasons/index:77 writes
@@ -473,15 +482,23 @@ class VioletTextContrastTest < ActiveSupport::TestCase
   #
   # Returns `[line, [expr, ...]]` per line that declares a `color:`. The value
   # pattern stops at a quote as well as a `;`, which is what keeps the PayPal
-  # SDK's JS object literals (`style: { color: 'blue', height: 48 }`) out: the
-  # character after `color: ` is the quote, so nothing is captured and the line
-  # yields no declaration. They are still COUNTED by TAG_HELPER_COLOR_SITES —
-  # the blind spot is a property of the text, not of what parses out of it.
+  # SDK's JS object literals (`style: { color: 'blue', height: 48 }`) out —
+  # `color: 'blue'` is a PayPal funding enum, not a colour.
+  #
+  # THE BLANK REJECT IS NOT TIDINESS, it is what makes that exclusion real.
+  # `\s*` backtracks to zero, so on `color: 'blue'` the `[^;"']+` happily
+  # matches the SPACE before the quote and captures `" "`. Without the reject
+  # those two lines yield an empty-string "declaration" and the parseable count
+  # is 9 rather than 7 — measured, by the assertion below reddening when this
+  # was first written with `unless exprs.empty?` alone.
+  #
+  # Both lines are still COUNTED by TAG_HELPER_COLOR_SITES: the blind spot is a
+  # property of the text, not of what parses out of it.
   def tag_helper_style_colors(path)
     File.readlines(path).each_with_index.filter_map do |text, i|
       next unless text.match?(TAG_HELPER_STYLE)
 
-      exprs = text.scan(/(?<![-\w])color\s*:\s*([^;"']+)/).flatten.map(&:strip)
+      exprs = text.scan(/(?<![-\w])color\s*:\s*([^;"']+)/).flatten.map(&:strip).reject(&:empty?)
       [ i + 1, exprs ] unless exprs.empty?
     end
   end
@@ -750,6 +767,20 @@ class VioletTextContrastTest < ActiveSupport::TestCase
                  "Re-derive it, update TAG_HELPER_COLOR_SITES, and check whether the new site paints a series " \
                  "colour — the lane below measures it if it does."
     assert_equal 9, found.values.sum, "the header states NINE tag-helper `color:` lines; keep the two in step"
+
+    # THE PARSEABLE SUBSET, which is the number the lane below actually works
+    # over. It is SEVEN, not nine, and the gap is the whole reason the header
+    # spells the partition out: tokens/_paypal_sdk's two `style: { color:
+    # 'blue' }` are JS object literals, and `color: 'blue'` is a PayPal funding
+    # enum rather than a colour. If this ever equals the nine above, the value
+    # pattern in `tag_helper_style_colors` has started swallowing quoted JS and
+    # the lane is resolving strings that are not CSS.
+    parseable = SCANNED.sum do |root|
+      Dir[root.join("**/*.{erb,rb}")].sum { |path| tag_helper_style_colors(path).length }
+    end
+    assert_equal 7, parseable,
+                 "#{parseable} tag-helper `style:` lines yield a parseable CSS colour, not 7. The header " \
+                 "partitions the blind spot 9 matched / 7 parseable / 3 registered — re-derive all three."
   end
 
   test "a tag-helper style: option may not paint a series colour that fails AA" do
