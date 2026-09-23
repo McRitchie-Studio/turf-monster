@@ -1988,9 +1988,18 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
         # That second half is the real reason to keep the capture. The hazard is
         # a same-frame regex op added between here and the use of `at` 30-odd
         # lines below — `head.include?`/`start_with?` are String ops and safe
-        # today, but a future `=~` or `match?` on this line would silently
-        # repoint `Regexp.last_match` and move every citation's offset. Taking
-        # the offset first makes that edit harmless instead of subtle.
+        # today, but a future `=~`, `match`, `sub` or `start_with?(Regexp)` on
+        # this line would silently repoint `Regexp.last_match` and move every
+        # citation's offset. Taking the offset first makes that edit harmless
+        # instead of subtle.
+        #
+        # NOT `match?`, which this comment named until 2026-09-22 and which is
+        # the one regex predicate that does NOT touch the register — that is
+        # the whole reason it exists. Measured same-frame on Ruby 3.3.11:
+        # `=~`, `String#match`, `scan`, `sub` and `start_with?(Regexp)` all
+        # repoint; `String#match?`, `Regexp#match?`, `include?` and
+        # `start_with?(String)` do not. Naming a safe op as the hazard is the
+        # same defect as the clobber claim above it, one correction later.
         at = Regexp.last_match.begin(0)
         # A URL IS NOT A CITATION. `http://localhost:3100` matches the citation shape
         # exactly — head `http://localhost`, "line" 3100 — and it is written in prose
