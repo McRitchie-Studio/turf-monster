@@ -26,6 +26,14 @@ class Nflverse::SeedPlayers
   DEFAULT_MIN_SEASON = 2026
   HEADSHOT_WIDTHS = [100, 400].freeze
 
+  # The FACET a refused namesake files itself under in /admin/error_logs. It is
+  # never raised — a refusal is this importer's policy, not an escaped
+  # exception — but `Admin::ErrorLogsHelper.error_class_from_inspect` reads the
+  # class name out of the `inspect` column, so refusals need a real class name
+  # to group under. Naming it here keeps that string from being invented at the
+  # write site, where a typo would silently scatter the facet.
+  NamesakeRefused = Class.new(StandardError)
+
   # Every cross-reference this importer treats as proof of identity. A row that
   # shares NONE of these with an existing athlete of the same name is a
   # different human, whatever the names say.
@@ -277,20 +285,44 @@ class Nflverse::SeedPlayers
     # recomputes the same disambiguator and dies on the unique index, wedging
     # every row after it. `ingest_row`'s rescue wraps `update!` and cannot see
     # any of this, which is why the rescue below belongs to THIS method.
+    athlete  = nil
+    collided = false
     ActiveRecord::Base.transaction do
       if existing
         person = Person.create!(
           first_name: first, last_name: last, athlete: true,
           disambiguator: disambiguator
         )
-        @stats[:people_created] += 1
-        @stats[:name_collisions] += 1
-        vputs "  [~] name collision: #{first} #{last} -> #{person.slug}"
+        collided = true
       end
 
-      @stats[:athletes_created] += 1
-      Athlete.create!(person_slug: person.slug, sport: "football")
+      athlete = Athlete.create!(person_slug: person.slug, sport: "football")
     end
+
+    # COUNTED AFTER THE COMMIT, never inside it. The rescue below rolls the
+    # DATABASE back; it cannot roll `@stats` back. An increment taken inside the
+    # transaction therefore SURVIVES the rollback, and the run summary
+    # over-reports on exactly the runs that refused a human — the runs an
+    # operator most needs a true number from.
+    #
+    # `athletes_created` was the worse half: it sat one line ABOVE the `create!`
+    # it claimed to count, so it over-counted on every failure of that write,
+    # not merely on a late one. The `vputs` moves out for the same reason — it
+    # announced a name collision whose Person the rollback then took away.
+    if collided
+      @stats[:people_created] += 1
+      @stats[:name_collisions] += 1
+      vputs "  [~] name collision: #{first} #{last} -> #{person.slug}"
+    end
+    @stats[:athletes_created] += 1
+
+    # RETURNED EXPLICITLY. `ingest_row` calls `athlete.update!` on what this
+    # returns, so the method's value is load-bearing — and once the counters
+    # moved below the transaction, the transaction's own value stopped being
+    # the last expression. Leaving it implicit returned the Integer from the
+    # `+= 1` above, and `ingest_row` died on `undefined method 'synced_at' for
+    # an instance of Integer` two lines later.
+    athlete
   rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordInvalid => e
     # SKIP AND RECORD — the policy this importer chose, and the reason the raise
     # that used to live in `disambiguator_for` is gone rather than moved.
@@ -343,14 +375,70 @@ class Nflverse::SeedPlayers
   # humans get named.
   def refuse_namesake!(first, last, existing, identifiers, reason)
     @stats[:namesake_collisions_skipped] += 1
-    @namesake_collisions << {
+    collision = {
       person_slug: existing.person_slug,
       name: "#{first} #{last}",
       ours: leading_identifier(existing),
       theirs: DISAMBIGUATOR_PRIORITY.filter_map { |column| identifiers[column].presence }.first,
       reason: reason
     }
+    @namesake_collisions << collision
+    record_refusal(collision, existing)
     vputs "  [!] refused namesake #{first} #{last}: #{reason}"
+  end
+
+  # THE DURABLE HALF of skip-and-record. `report_namesake_collisions` answers
+  # "who did we refuse" only for whoever happened to be watching the run; a week
+  # later the scrollback is gone and the question is unanswerable. ErrorLog is
+  # the durable home this repo ALREADY has — `Admin::ErrorLogsController` browses
+  # it — so recording here introduces no table and no new concept.
+  #
+  # NOT `rescue_and_log`. That helper is a CONTROLLER concern and it RE-RAISES
+  # (studio-engine app/controllers/concerns/studio/error_handling.rb). Re-raising
+  # here would drop every remaining row of a ~25k-row rebuild — precisely the
+  # truncation the rescue in `resolve_athlete!` exists to prevent. A refused
+  # namesake is this importer's POLICY, not an exception that escaped.
+  #
+  # NOT `ErrorLog.capture!` EITHER, and that is the one worth writing down,
+  # because it IS this repo's ordinary way in — 44 call sites across 30 files
+  # on 2026-09-22 (`grep -rn 'ErrorLog\.capture!' app lib config`, discounting
+  # the two mentions in this comment), against three bare `ErrorLog.create!`
+  # sites including this one. The admin index calls the table first-stop triage
+  # over `ErrorLog.capture!` rows. `Solana::ManagedWalletRotation#log_failure`
+  # is very nearly this
+  # shape: a per-row record written inside a bulk loop without raising. What
+  # separates them is what the row MEANS. `capture!` fans out to Sentry
+  # whenever a DSN is set (the `defined?(::Sentry)` branch in studio-engine
+  # `app/models/error_log.rb`; `config/initializers/sentry.rb` arms it in
+  # production), and Sentry is the PAGING layer. A failed re-seal is worth a
+  # page; a refused namesake is this importer working exactly as designed, so
+  # a rebuild refusing forty of them would page forty times for nothing.
+  #
+  # Hence the direct write below — and the `update_column` is a deliberate
+  # copy of `capture!`'s own slug line, not an oversight. It is the price of
+  # stepping outside the convention: if the engine ever changes that scheme,
+  # this is the site that has to follow it by hand.
+  #
+  # `slug` is set because `Admin::ErrorLogsController#show` looks rows up BY
+  # slug, so a row without one is written but unreachable in the only UI that
+  # reads it. `inspect` is written in the `#<Class: message>` shape
+  # `Admin::ErrorLogsHelper.error_class_from_inspect` parses, so these group
+  # under their own facet instead of falling into "Unknown".
+  def record_refusal(collision, existing)
+    log = ErrorLog.create!(
+      message: "nflverse seed refused namesake #{collision[:name]}: #{collision[:reason]}",
+      inspect: "#<#{NamesakeRefused}: #{collision.to_json}>",
+      target: existing,
+      target_name: collision[:person_slug]
+    )
+    log.update_column(:slug, "error-log-#{log.id}")
+    log
+  rescue StandardError => e
+    # A BOOKKEEPING ROW MUST NEVER KILL THE IMPORT IT ONLY DESCRIBES. This is
+    # the one place where swallowing is right: the refusal is already counted,
+    # already in `@namesake_collisions`, and already on its way to stdout.
+    vputs "  [!] could not record refusal for #{collision[:name]}: #{e.class}: #{e.message}"
+    nil
   end
 
   def leading_identifier(athlete)
