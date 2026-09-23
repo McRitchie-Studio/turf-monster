@@ -89,7 +89,7 @@
         <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">Mode</label>
         <select x-model="shineMode"
                 class="w-full text-sm rounded-md border border-subtle px-2 py-1.5"
-                style="background: var(--color-bg-surface); color: var(--color-text-primary);">
+                style="background: var(--color-surface-alt); color: var(--color-text);">
           <option value="continuous">Continuous (every 2.5s)</option>
           <option value="pulse">Pulse (shine + pause)</option>
           <option value="once">Once (on mount / trigger)</option>
@@ -112,7 +112,7 @@
       <div>
         <label class="text-muted text-[10px] uppercase tracking-wide block mb-1">Active CSS</label>
         <code class="block text-[10px] font-mono text-secondary px-2 py-1 rounded border border-subtle truncate"
-              style="background: var(--color-bg-surface);"
+              style="background: var(--color-inset);"
               x-text="shineDebug()"></code>
       </div>
     </div>
@@ -240,7 +240,7 @@
 
       <div class="bg-inset border border-subtle rounded-lg px-3 py-3">
         <div class="relative overflow-hidden rounded-md"
-             style="height: 22px; background: var(--color-bg-surface); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.25);">
+             style="height: 22px; background: rgb(var(--color-primary-500-rgb) / 0.06); border: 1px solid rgb(var(--color-primary-500-rgb) / 0.25);">
           <%# Fill %>
           <div class="absolute inset-y-0 left-0"
                style="background: var(--color-cta); transition: width 1.2s cubic-bezier(0.16, 1, 0.3, 1);"
@@ -297,7 +297,7 @@
                      filter: sectionFill(i) >= 100 ? 'grayscale(0) opacity(1)' : 'grayscale(0.7) opacity(0.45)'
                    }"
                    x-text="sectionFill(i) >= 100 ? '🌳' : '🌱'"></div>
-              <div class="h-1.5 w-full rounded-full overflow-hidden" style="background: var(--color-bg-surface);">
+              <div class="h-1.5 w-full rounded-full overflow-hidden" style="background: rgb(var(--color-primary-500-rgb) / 0.06);">
                 <div class="h-full rounded-full"
                      style="background: var(--color-cta); transition: width 1.2s cubic-bezier(0.16, 1, 0.3, 1);"
                      :style="{ width: sectionFill(i) + '%' }"></div>
@@ -332,7 +332,7 @@
                :class="levelingUp ? 'level-up-pop' : ''">
             <template x-for="i in 5" :key="i">
               <div class="relative overflow-hidden rounded-sm"
-                   style="width: 32px; height: 22px; background: var(--color-bg-surface);">
+                   style="width: 32px; height: 22px; background: rgb(var(--color-primary-500-rgb) / 0.06);">
                 <div class="absolute inset-y-0 left-0"
                      style="background: var(--color-cta); transition: width 1.2s cubic-bezier(0.16, 1, 0.3, 1);"
                      :style="{ width: sectionFill(i) + '%' }"></div>
