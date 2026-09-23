@@ -399,6 +399,26 @@ class Nflverse::SeedPlayers
   # truncation the rescue in `resolve_athlete!` exists to prevent. A refused
   # namesake is this importer's POLICY, not an exception that escaped.
   #
+  # NOT `ErrorLog.capture!` EITHER, and that is the one worth writing down,
+  # because it IS this repo's ordinary way in — 44 call sites across 30 files
+  # on 2026-09-22 (`grep -rn 'ErrorLog\.capture!' app lib config`, discounting
+  # the two mentions in this comment), against three bare `ErrorLog.create!`
+  # sites including this one. The admin index calls the table first-stop triage
+  # over `ErrorLog.capture!` rows. `Solana::ManagedWalletRotation#log_failure`
+  # is very nearly this
+  # shape: a per-row record written inside a bulk loop without raising. What
+  # separates them is what the row MEANS. `capture!` fans out to Sentry
+  # whenever a DSN is set (the `defined?(::Sentry)` branch in studio-engine
+  # `app/models/error_log.rb`; `config/initializers/sentry.rb` arms it in
+  # production), and Sentry is the PAGING layer. A failed re-seal is worth a
+  # page; a refused namesake is this importer working exactly as designed, so
+  # a rebuild refusing forty of them would page forty times for nothing.
+  #
+  # Hence the direct write below — and the `update_column` is a deliberate
+  # copy of `capture!`'s own slug line, not an oversight. It is the price of
+  # stepping outside the convention: if the engine ever changes that scheme,
+  # this is the site that has to follow it by hand.
+  #
   # `slug` is set because `Admin::ErrorLogsController#show` looks rows up BY
   # slug, so a row without one is written but unreachable in the only UI that
   # reads it. `inspect` is written in the `#<Class: message>` shape
