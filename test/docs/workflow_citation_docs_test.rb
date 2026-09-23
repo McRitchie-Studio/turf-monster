@@ -723,7 +723,12 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   #     flag at `session.delete(:onchain)` — `application_controller.rb:39`. That
   #     call is at :41; :39 is the middle of the comment ABOVE it. Found by this
   #     rule, not by hand.
-  # The whole test/docs suite was green across both (56 runs, 467 assertions).
+  # The whole test/docs suite was green across both. The figure that used to
+  # sit here — "56 runs, 467 assertions" — was stale, and stayed stale through
+  # the edit that rewrote this very sentence: re-punctuating a count is not
+  # re-deriving it. Measured on this tree with the command beside it, which is
+  # the only form this file accepts: `bin/rails test test/docs` reads 61 runs,
+  # 484 assertions.
   #
   # WHO ACTUALLY LOOKS, because the obvious reading of that is wrong and several
   # briefs have since repeated it. `bin/fast-check` never maps test/docs — true —
