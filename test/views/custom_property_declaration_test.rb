@@ -70,11 +70,11 @@ class CustomPropertyDeclarationTest < ActiveSupport::TestCase
   # quotes the engine's `var(--btn-primary-fg, #fff)` contract in exactly that
   # way. HTML comments are NOT stripped — they are served, and a `var()` inside
   # one is still shipped text.
-#
-# THE BLANKING PRESERVES NEWLINES, so a multi-line `<%# %>` does not shift
-# every line number below it. Reporting a read at the wrong line sends the
-# next reader to innocent markup, which is how a guard gets distrusted.
-def readable_source(text) = text.gsub(/<%#.*?%>/m) { |m| "\n" * m.count("\n") }
+  #
+  # THE BLANKING PRESERVES NEWLINES, so a multi-line `<%# %>` does not shift
+  # every line number below it. Reporting a read at the wrong line sends the
+  # next reader to innocent markup, which is how a guard gets distrusted.
+  def readable_source(text) = text.gsub(/<%#.*?%>/m) { |m| "\n" * m.count("\n") }
 
   def source_files(root, exts)
     Dir[Pathname(root).join("**/*.{#{exts}}")].reject { |p| p.include?("assets/builds") }.sort
