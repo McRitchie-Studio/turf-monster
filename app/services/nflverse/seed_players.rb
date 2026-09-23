@@ -285,6 +285,7 @@ class Nflverse::SeedPlayers
     # recomputes the same disambiguator and dies on the unique index, wedging
     # every row after it. `ingest_row`'s rescue wraps `update!` and cannot see
     # any of this, which is why the rescue below belongs to THIS method.
+    athlete  = nil
     collided = false
     ActiveRecord::Base.transaction do
       if existing
@@ -295,7 +296,7 @@ class Nflverse::SeedPlayers
         collided = true
       end
 
-      Athlete.create!(person_slug: person.slug, sport: "football")
+      athlete = Athlete.create!(person_slug: person.slug, sport: "football")
     end
 
     # COUNTED AFTER THE COMMIT, never inside it. The rescue below rolls the
@@ -314,6 +315,14 @@ class Nflverse::SeedPlayers
       vputs "  [~] name collision: #{first} #{last} -> #{person.slug}"
     end
     @stats[:athletes_created] += 1
+
+    # RETURNED EXPLICITLY. `ingest_row` calls `athlete.update!` on what this
+    # returns, so the method's value is load-bearing — and once the counters
+    # moved below the transaction, the transaction's own value stopped being
+    # the last expression. Leaving it implicit returned the Integer from the
+    # `+= 1` above, and `ingest_row` died on `undefined method 'synced_at' for
+    # an instance of Integer` two lines later.
+    athlete
   rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordInvalid => e
     # SKIP AND RECORD — the policy this importer chose, and the reason the raise
     # that used to live in `disambiguator_for` is gone rather than moved.
