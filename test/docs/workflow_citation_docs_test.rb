@@ -723,8 +723,22 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   #     flag at `session.delete(:onchain)` — `application_controller.rb:39`. That
   #     call is at :41; :39 is the middle of the comment ABOVE it. Found by this
   #     rule, not by hand.
-  # The whole test/docs suite was green across both (56 runs, 467 assertions),
-  # and `bin/fast-check` never maps test/docs, so only a deliberate run looks.
+  # The whole test/docs suite was green across both. The figure that used to
+  # sit here — "56 runs, 467 assertions" — was stale, and stayed stale through
+  # the edit that rewrote this very sentence: re-punctuating a count is not
+  # re-deriving it. Measured on this tree with the command beside it, which is
+  # the only form this file accepts: `bin/rails test test/docs` reads 61 runs,
+  # 484 assertions.
+  #
+  # WHO ACTUALLY LOOKS, because the obvious reading of that is wrong and several
+  # briefs have since repeated it. `bin/fast-check` never maps test/docs — true —
+  # but CI is not fast-check: `.github/workflows/ci.yml:260` runs an ARGLESS
+  # `bin/rails db:test:prepare test`, which sweeps in every file under test/,
+  # this one included. So the trap is CLOSED AT CI and OPEN AT THE BUILDER'S
+  # LOCAL CERT: a docs-only diff maps to no local test at all, so a mechanical
+  # `+N` re-pinning pass certifies green against nothing and only learns it was
+  # wrong once CI runs. That is the window all three defects above lived in —
+  # not an absence of any check, but a cert that could not see this file.
   #
   # SO A SINGLE-LINE PIN WITH A SYMBOL WRITTEN BESIDE IT MUST LAND ON THAT SYMBOL.
   # "Beside it" is literal and narrow, and the narrowness is the whole design:
@@ -750,8 +764,18 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   #      prose names the enclosing method, the enclosing rule is already the right
   #      question and a pin anywhere inside it is honest;
   #   3. only GLUE separates the two — whitespace, brackets, a comma, or one of
-  #      `at`/`in`/`is`/`calls`/`called`/a dash. Any other English between them
-  #      means the number is not claiming that symbol's location.
+  #      `at`/`in`/`is`/`calls`/`called`/an EM or EN dash. Any other English
+  #      between them means the number is not claiming that symbol's location.
+  #
+  #      THE ASCII HYPHEN IS NOT GLUE, and used to be. A markdown bullet opens
+  #      its line with `- `, so a list item ending in a backticked qualified name
+  #      followed by a SIBLING bullet that opens with a citation put `"\n- "`
+  #      between them — which read as glue and turned an unrelated list item into
+  #      a call-site claim about the item above it. The prose dash this branch was
+  #      written for is an em or en dash, and both stay. Re-derived on this tree
+  #      before the hyphen came out and again after: 37 call-site pins reached
+  #      either way, and a one-line insertion reddens 37 of 37 either way, so the
+  #      corpus pays nothing for the narrowing.
   # Measured: 37 citations reached, 2 rejected, and both were real.
   #
   # ITS RESIDUAL WEAKNESS, the routes-file form of limit 6 again: a shift onto a
@@ -769,7 +793,7 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   MIN_CALL_SITE_CITATIONS = 30
 
   # Only glue may separate an attached symbol from the coordinate that locates it.
-  CALL_SITE_GLUE = /\A[\s(,\[]*(?:at|in|is|calls?|called|and|—|–|-|→|,)?[\s(,\[]*\z/i
+  CALL_SITE_GLUE = /\A[\s(,\[]*(?:at|in|is|calls?|called|and|—|–|→|,)?[\s(,\[]*\z/i
 
   # A qualified code name: two or more identifiers joined by `::`, `#` or `.`.
   # Structure is what makes a name a located call rather than an ordinary word —
@@ -871,6 +895,89 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
     }, "a single-line citation does not land on the symbol written beside it. Re-resolve the " \
        "number against the source — a mechanical +N pass is what puts one here, because it " \
        "updates the number without ever checking what it lands on"
+  end
+
+  # THE GLUE RULE, driven through `attached_before` rather than asserted against
+  # the regex — a test that restates CALL_SITE_GLUE would pass on any regex the
+  # constant happened to hold.
+  #
+  # The shape is an ordinary markdown list: one bullet ending in a backticked
+  # qualified name, the next opening with a citation. Nothing on the second
+  # bullet claims anything about the first, but `between` is "\n- ", and while
+  # the ASCII hyphen was glue that read as "`Slate#team_rankings` at
+  # app/models/slate.rb:253" — a call-site claim invented out of two unrelated
+  # list items, which the guard would then enforce.
+  test "a markdown dash bullet is not citation glue" do
+    # THE SECOND BULLET MUST OPEN WITH THE CITATION. `between` is everything from
+    # the end of the previous backtick span to the start of this one, so a bullet
+    # reading "- the sort key lives at `...`" carries that prose INSIDE `between`
+    # and is rejected by ordinary English whatever the dash rule says. Written
+    # that way this test passed with the hyphen still in — green, and blind to
+    # the defect it names. Measured with the hyphen restored: `between` is
+    # "\n- " for the shape below and "\n- the sort key lives at " for that one.
+    lines = [
+      "- the ranking comes from `Slate#team_rankings`",
+      "- `app/models/slate.rb:253` is the sort key"
+    ]
+    offset = lines[1].index("`app/models/slate.rb:253`")
+
+    assert_nil attached_before(lines, 1, offset),
+               "a sibling list item must not attach the PREVIOUS bullet's symbol to this citation"
+
+    nested = ["- the ranking comes from `Slate#team_rankings`",
+              "  - `app/models/slate.rb:253` is the sort key"]
+    assert_nil attached_before(nested, 1, nested[1].index("`app/models/slate.rb:253`")),
+               "an indented sub-bullet is the same shape with leading whitespace"
+  end
+
+  # THE OTHER HALF, so the narrowing above cannot pass by rejecting everything:
+  # a prose em dash is still glue, and so is the plain "at" this rule was written
+  # for. Re-derived on this tree, the corpus reach is unchanged at 37 either way.
+  test "a prose dash and a plain preposition are still citation glue" do
+    em = ["the ranking comes from `Slate#team_rankings`",
+          "— `app/models/slate.rb:253`"]
+    assert_equal "Slate#team_rankings",
+                 attached_before(em, 1, em[1].index("`app/models/slate.rb:253`")),
+                 "an em dash is the prose dash this branch exists for"
+
+    inline = ["the ranking comes from `Slate#team_rankings` at `app/models/slate.rb:253`"]
+    assert_equal "Slate#team_rankings",
+                 attached_before(inline, 0, inline[0].index("`app/models/slate.rb:253`")),
+                 "the ordinary inline form must keep attaching"
+  end
+
+  # A CLAIM THE RULE CANNOT TEST MUST NOT BE READ AS A CLAIM.
+  #
+  # `call_site_anchored?` answers on the MEMBER alone, so `tx.id` — whose member
+  # is under MIN_ATTACHED_IDENT — gives it nothing to match and it returns false.
+  # Before the guard below, `call_site_claim?` was still TRUE for such a name, so
+  # `anchored?` hit its `call_site_claim? && !call_site_anchored?` rejection and
+  # threw out a CORRECT pin unconditionally. The assertions mirror that
+  # expression directly — BY SYMBOL, not by line: the first draft of this test
+  # cited ":2054", which the very edit that added the test pushed to :2134. This
+  # file exists to catch that, so it must not commit it.
+  test "a short member name still pins correctly" do
+    short = synthetic_pin("tx.id")
+    long  = synthetic_pin("Slate.team_rankings")
+
+    refute call_site_claim?(short),
+           "a name whose member is under MIN_ATTACHED_IDENT (#{MIN_ATTACHED_IDENT}) gives the " \
+           "call-site rule nothing to match, so it must not be read as making the claim"
+    refute(call_site_claim?(short) && !call_site_anchored?(short),
+           "this mirrors the rejection in `anchored?` — while it held, a correct short-member " \
+           "rejected however right its line number was")
+
+    assert call_site_claim?(long),
+           "the guard must still bite for an ordinary qualified name, or the line above " \
+           "passes by exempting everything"
+  end
+
+  # A citation built by hand, so the two cases above differ ONLY in the attached
+  # name. Line 1 of this very file is outside every `def`, so `enclosing_names`
+  # is empty for both and cannot decide the result on its own.
+  def synthetic_pin(attached, path: "test/docs/workflow_citation_docs_test.rb", line: 1)
+    { doc: "docs/synthetic-for-test.md", line: 1, raw: "#{path}:#{line}", kind: :path,
+      path: path, attached: attached, ranges: [(line..line)] }
   end
 
   test "every citation lands on the symbol its prose names" do
@@ -1870,9 +1977,29 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
       context = nil if line.start_with?("## ")
       line.scan(CITE) do
         head, nums = $1, $2
-        # CAPTURED BEFORE ANYTHING ELSE RUNS. `attached_before` scans for backticks
-        # and clobbers `Regexp.last_match`, so the offset of THIS match has to be
-        # taken while it is still ours.
+        # CAPTURED BEFORE ANYTHING ELSE RUNS — but NOT for the reason this
+        # comment used to give. It claimed `attached_before` "clobbers
+        # `Regexp.last_match`", and it cannot: the match register is FRAME-LOCAL
+        # (and thread-local), so the scanning `attached_before` does in
+        # `line_spans` happens in its own frame and leaves this one untouched.
+        # Verified both ways on Ruby 3.3: a callee running `scan` does not move
+        # the caller's `$~`, while a regex op written in THIS frame does.
+        #
+        # That second half is the real reason to keep the capture. The hazard is
+        # a same-frame regex op added between here and the use of `at` 30-odd
+        # lines below — `head.include?`/`start_with?` are String ops and safe
+        # today, but a future `=~`, `match`, `sub` or `start_with?(Regexp)` on
+        # this line would silently repoint `Regexp.last_match` and move every
+        # citation's offset. Taking the offset first makes that edit harmless
+        # instead of subtle.
+        #
+        # NOT `match?`, which this comment named until 2026-09-22 and which is
+        # the one regex predicate that does NOT touch the register — that is
+        # the whole reason it exists. Measured same-frame on Ruby 3.3.11:
+        # `=~`, `String#match`, `scan`, `sub` and `start_with?(Regexp)` all
+        # repoint; `String#match?`, `Regexp#match?`, `include?` and
+        # `start_with?(String)` do not. Naming a safe op as the hazard is the
+        # same defect as the clobber claim above it, one correction later.
         at = Regexp.last_match.begin(0)
         # A URL IS NOT A CITATION. `http://localhost:3100` matches the citation shape
         # exactly — head `http://localhost`, "line" 3100 — and it is written in prose
@@ -2168,6 +2295,22 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
     return false unless citation[:attached] && single_line_pin?(citation)
     return false unless citation[:path] && citation[:path] != ROUTES_FILE
     return false unless File.exist?(abs(citation[:path]))
+    # A CLAIM THIS RULE CANNOT TEST IS NOT A CLAIM. `call_site_anchored?` answers
+    # on the MEMBER alone, so a name whose member is shorter than
+    # MIN_ATTACHED_IDENT (`tx.id`, `Foo.id`) gives it nothing to match and it
+    # returns false — and `anchored?` then rejects the pin UNCONDITIONALLY,
+    # however correct the line number is.
+    #
+    # Worse, the shortness made such a name MORE likely to be read as a claim:
+    # `attached_identifiers` drops the same short tokens, so the intersection
+    # with the enclosing names below empties out and the last condition passes.
+    # A short member was thus a guaranteed rejection rather than an exemption —
+    # the exact inverse of what MIN_ATTACHED_IDENT's own comment promises, that
+    # an identifier that short "is not read as carrying the claim".
+    #
+    # Zero occurrences today: nothing in SCANNED_DOCS pins a member under three
+    # characters, which is why this shipped green and stayed latent.
+    return false unless attached_member(citation[:attached])
 
     (attached_identifiers(citation[:attached]) & enclosing_names(citation)).empty?
   end
