@@ -51,6 +51,13 @@ class CustomPropertyDeclarationTest < ActiveSupport::TestCase
   # form stopped appearing" cannot quietly widen into "nothing is scanned".
   DYNAMIC_READ = /var\(\s*--[\w-]*<%/
 
+  # The SAME read, matched as a whole `var(...)` call so it can be blanked out
+  # of a line rather than costing the line. `DYNAMIC_READ` above matches only
+  # the opening, which is all the vacuity control needs to COUNT these; `reads`
+  # needs the closing paren too, so that what it removes is exactly the dynamic
+  # call and every static sibling on that line is still scanned.
+  DYNAMIC_READ_CALL = /var\(\s*--[\w-]*<%.*?%>[^)]*\)/
+
   # A read this file has measured and deliberately allows, with the reason.
   # EMPTY, and that is the claim: every name a view reads today is written
   # somewhere. A new entry here needs a measured reason, the same doctrine as
@@ -87,9 +94,16 @@ class CustomPropertyDeclarationTest < ActiveSupport::TestCase
         source_files(Rails.root.join(root), "erb,rb,css,js").each do |path|
           rel = Pathname(path).relative_path_from(Rails.root).to_s
           readable_source(File.read(path)).each_line.with_index do |line, i|
-            next if line.match?(DYNAMIC_READ)
-
-            line.scan(/var\(\s*(--[\w-]+)\s*[,)]/).flatten.each { |name| out[name] << "#{rel}:#{i + 1}" }
+            # BLANK THE DYNAMIC READ, DO NOT SKIP ITS LINE. Skipping the whole
+            # line made every OTHER `var()` on it invisible, and one line in
+            # this repo carries both: `benchmarks/_two_line_svg.html.erb:82`
+            # reads `var(--bench-<%= line.key %>)` and `var(--color-surface)`
+            # in the same tag. Measured 2026-09-22 — a retired name planted as
+            # that second read passed the whole suite, `control: the retired
+            # utility-shaped names are still written nowhere` included, because
+            # the read never entered this hash for either test to see.
+            scannable = line.gsub(DYNAMIC_READ_CALL, "")
+            scannable.scan(/var\(\s*(--[\w-]+)\s*[,)]/).flatten.each { |name| out[name] << "#{rel}:#{i + 1}" }
           end
         end
       end
@@ -188,5 +202,32 @@ class CustomPropertyDeclarationTest < ActiveSupport::TestCase
       assert_includes writers, declared.first,
                       "--color-surface is not in the writer index, so the guard would red on correct code too"
     end
+  end
+
+  # CONTROL: A DYNAMIC READ COSTS ONLY ITSELF, NOT ITS WHOLE LINE.
+  #
+  # `reads` used to `next` past any line matching DYNAMIC_READ, so a static
+  # `var()` sharing that line was never scanned. This is not hypothetical:
+  # `benchmarks/_two_line_svg.html.erb:82` reads `var(--bench-<%= line.key %>)`
+  # and `var(--color-surface)` in one tag, and a retired name planted as that
+  # second read passed the entire suite — this file's RETIRED control included,
+  # because the name never entered `reads` for it to find.
+  #
+  # Asserted on the real line rather than a fixture, so that the line moving or
+  # losing its dynamic read is a visible failure rather than a quiet one.
+  test "control: a static var() sharing a line with a dynamic one is still scanned" do
+    mixed = %(  r="<%= dot_r %>" fill="var(--bench-<%= line.key %>)" stroke="var(--color-surface)"\n)
+
+    assert_match DYNAMIC_READ, mixed, "the fixture no longer contains a dynamic read, so it tests nothing"
+    assert_equal [ "--color-surface" ],
+                 mixed.gsub(DYNAMIC_READ_CALL, "").scan(/var\(\s*(--[\w-]+)\s*[,)]/).flatten,
+                 "blanking the dynamic call must leave the static sibling — and must not leave the dynamic " \
+                 "name itself, which has no static spelling to check"
+
+    live = reads.fetch("--color-surface", [])
+    assert_includes live, "app/views/benchmarks/_two_line_svg.html.erb:82",
+                    "the live mixed-read line is no longer registering its static `var(--color-surface)`. " \
+                    "Either the line moved — re-pin it — or `reads` is skipping whole lines again, which is " \
+                    "the blind spot this control exists to hold closed."
   end
 end
