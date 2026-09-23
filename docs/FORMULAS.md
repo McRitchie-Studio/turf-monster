@@ -43,27 +43,50 @@ The admin slate page states the rule, badges each bye team, and its JS mirror ap
 Chart/formula visualization colors are defined once at the top of `slates/show.html.erb`.
 **Each series has TWO tokens, and picking the wrong one is an accessibility bug**:
 
-| Series | Fill (graphics) | Ink (small text) |
-|---|---|---|
-| Turf Score | `--fc-mult` `#8E82FE` | `--fc-mult-ink` |
-| Goals Distribution | `--fc-goals` `#B8B0FF` | `--fc-goals-ink` |
-| DK Score | `--fc-dk-score` `#15803D` | `--fc-dk-score-ink` |
-| DK Expectation | `--fc-dk-total` `#4BAF50` | none — graphics only |
+  | Series | Fill — light | Fill — dark | Ink (small text) |
+  |---|---|---|---|
+  | Turf Score | `--fc-mult` `#8E82FE` | `#8E82FE` | `--fc-mult-ink` |
+  | Goals Distribution | `--fc-goals` `#6558E5` | `#B8B0FF` | `--fc-goals-ink` |
+  | DK Score | `--fc-dk-score` `#15803D` | `#3AA757` | `--fc-dk-score-ink` |
+  | DK Expectation | `--fc-dk-total` `#3E9E43` | `#4BAF50` | none — graphics only |
+
+  **Three of the four fills are per theme now** (`raise-series-fills-graphical-floor`,
+  2026-09-22). Only `--fc-mult` is one value for both.
+
 
 - **Fill** paints graphical objects only: the chart stroke, the panel's
   `border-left`, the sliders' `accent-color`. Those are graphical objects, so
-  the bar they owe is WCAG 1.4.11's 3:1 rather than 4.5:1 — but **three of the
-  four fills are UNDER that bar in one theme**, so "the brand colours are
-  correct there" (what this said until 2026-09-22) was not true. Measured on
-  the card the graphics sit on, by `test/views/violet_text_contrast_test.rb`'s
-  own helpers: `--fc-goals` **1.96:1** light, `--fc-dk-score` **2.22:1** dark,
-  `--fc-dk-total` **2.78:1** light; only `--fc-mult` clears both (3.10 / 3.60).
-  The 1.96 and 2.22 above are the same two ratios that fail as *text*, which
-  the **Ink** bullet below answers; both are under both bars. This is
-  pre-existing and was not introduced by the ink work — the fills are
-  byte-identical before and after it — and the fix is tracked separately as
-  `raise-series-fills-graphical-floor`. Do not read this bullet as a
-  clearance.
+  the bar they owe is WCAG 1.4.11's 3:1 rather than 4.5:1 — and **all four now
+  clear it in both themes**, measured on the card the graphics sit on by
+  `test/views/violet_text_contrast_test.rb`'s own helpers:
+
+  | Fill | light card | dark card |
+  |---|---|---|
+  | `--fc-mult` | 3.10 | 3.60 |
+  | `--fc-goals` | 5.15 (was 1.96) | 5.68 |
+  | `--fc-dk-score` | 5.02 | 3.64 (was 2.22) |
+  | `--fc-dk-total` | 3.40 (was 2.78) | 4.01 |
+
+  Three were under the bar until 2026-09-22, and until then this bullet said
+  "the brand colours are correct there", which was not true. **Only the
+  failing theme moved**, so a series keeps its brand colour wherever it
+  already cleared. `--fc-dk-score` also owes the **page** (3.48 → **5.69**
+  dark, 4.79 light): the two Save Formula buttons paint it as `border-color`
+  and name no surface of their own. `--fc-mult` is the thin one at 3.10 and
+  was deliberately left alone — raising it means moving the brand violet,
+  which was Mr. McRitchie's call on 2026-09-21.
+
+  Every row above is pinned in `SERIES_FILL_FIGURES`, with a control asserting
+  that every series registered in `INLINE_SERIES` has a row — the gap that let
+  `--fc-dk-total`'s 2.78:1 sit a release with prose quoting it and nothing
+  asserting it.
+- **The chart's DK axis text is still short, and is NOT a fill defect.**
+  Chart.js paints the DK axis title and tick labels in `--fc-dk-total` at
+  11px. That is small TEXT on the canvas, so it owes 4.5:1; raising the fill
+  took it from 2.78 to **3.40** light, over the graphical floor but under AA.
+  Closing it means a `--fc-dk-total-ink` and a canvas-text lane the DOM scan
+  in `violet_text_contrast_test.rb` cannot reach — a different apparatus, so
+  a different change. Recorded here rather than fixed.
 - **Ink** paints anything read as small TEXT, which owes 4.5:1. Only the theme
   that actually fails moves, so a series keeps its own brand colour wherever it
   already clears: `--fc-goals-ink` is `#B8B0FF` in dark and `--color-violet-ink`
@@ -77,8 +100,16 @@ Chart/formula visualization colors are defined once at the top of `slates/show.h
   line claimed they did. What the theme DOES move is the **ground**: the four
   surfaces are resolver-derived, so changing the dark base shifts every ratio
   above while the inks stay put. The guard catches that by reddening.
-- **JS `FC` object** (`FC.mult`, `FC.goals`, `FC.dkTotal`) for Chart.js
-  datasets — strokes, so it reads the fills.
+- **JS `_fcColors()`** builds `FC.mult` / `FC.goals` / `FC.dkTotal` for the
+  Chart.js datasets by READING the CSS tokens through `getComputedStyle`, at
+  chart-build time. It used to be three hex literals under a comment calling
+  itself "single source of truth" while the `<style>` block declared the same
+  three colours — two sources, and that one was the copy. A per-theme fill
+  cannot live in a literal, and a canvas stroke is not reachable from the
+  static scan that measures an inline `style:`, so the copy is now asserted
+  gone. It also has **no hex fallback**: a fallback is the copy. The guard
+  asserts every fill is a 6-digit hex, which is what keeps the `+ '14'` alpha
+  suffix a valid `#RRGGBBAA`.
 - Guard: `test/views/violet_text_contrast_test.rb` resolves every inline
   `color:` through these tokens and measures it against the surface the element
   actually sits on, in both themes. Reaching for a fill as text fails the suite.
