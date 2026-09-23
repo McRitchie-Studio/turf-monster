@@ -835,16 +835,24 @@ class VioletTextContrastTest < ActiveSupport::TestCase
                    "the tag-helper scanner no longer finds a planted `style:` option — the lane above is blind"
     end
 
-    page = tokens(:light).merge(embedded_style_tokens(Rails.root.join(SLATE_PAGE).to_s, :light))
-    color = static_color("var(--fc-goals)", page)
-    assert_equal "#B8B0FF", color.to_s.upcase, "--fc-goals no longer resolves to the Goals fill"
-    assert scanned_palette(:light, tokens(:light)).key?(color.upcase),
-           "the palette no longer recognises the Goals fill, so the lane would walk past it"
+    # DK SCORE IN DARK, not Goals in light. The raised Goals fill (#6558E5)
+    # measures 5.15:1 on the light card now, so it would make the third leg below
+    # assert nothing — a control whose failure case has been fixed is a control
+    # that passes for the wrong reason. DK Score on the dark card is the one fill
+    # still under AA as text (3.64:1), which is the state this leg needs.
+    page = tokens(:dark).merge(embedded_style_tokens(Rails.root.join(SLATE_PAGE).to_s, :dark))
+    color = static_color("var(--fc-dk-score)", page)
+    assert_equal "#3AA757", color.to_s.upcase, "--fc-dk-score no longer resolves to the DK Score fill in dark"
+    assert scanned_palette(:dark, tokens(:dark)).key?(color.upcase),
+           "the palette no longer recognises the DK Score fill, so the lane would walk past it"
 
-    ratio = contrast(color, grounds(:light).fetch("card"))
+    ratio = contrast(color, grounds(:dark).fetch("card"))
     assert_operator ratio, :<, AA_TEXT,
-                    "the Goals fill now clears AA on the light card at #{format('%.2f', ratio)}:1; if that is real " \
+                    "the DK Score fill now clears AA on the dark card at #{format('%.2f', ratio)}:1; if that is real " \
                     "the lane above can no longer fail on it, and this control is asserting nothing"
+    assert_operator ratio, :>=, GRAPHICAL_FLOOR,
+                    "the DK Score fill is #{format('%.2f', ratio)}:1 on the dark card, under the 3:1 graphical " \
+                    "floor it was raised to clear"
   end
 
   # THE CLAIM THE COMMENTS MAKE ABOUT WHERE THESE INKS COME FROM. Both the
@@ -912,15 +920,50 @@ class VioletTextContrastTest < ActiveSupport::TestCase
 
   # ── the series inks, measured per member ───────────────────────────────────
 
-  # Every ground a series fill FAILS on as text — the defect each ink exists to
-  # answer. One row per (series, theme, ground), because a control that covers
-  # only the first member of a list says nothing about the rest, and "the rest"
-  # is where this card's two defects lived. The third row is the pair of Save
-  # Formula buttons, which name no surface and sit on the page.
+  # Every ground a series fill still FAILS on as text — the defect each ink
+  # exists to answer. One row per (series, theme, ground), because a control
+  # that covers only the first member of a list says nothing about the rest.
+  #
+  # THIS LIST SHRANK FROM THREE ROWS TO ONE when the fills were raised to the
+  # 3:1 graphical floor, and the two that left did so for a REAL reason rather
+  # than by being deleted — raising a fill past 3:1 can carry it past 4.5:1 too:
+  #
+  #   Goals light card     1.96 -> 5.15  (#B8B0FF -> #6558E5)  now clears AA
+  #   DK Score dark page   3.48 -> 5.69  (#15803D -> #3AA757)  now clears AA
+  #   DK Score dark card   2.22 -> 3.64  still under 4.5, still needs its ink
+  #
+  # SO TWO INKS ARE NOW BELT-AND-BRACES IN ONE THEME, AND THEY STAY. An ink is
+  # this app's rule for small text, not a patch that expires when a fill happens
+  # to clear; and --fc-goals-ink tracks --color-violet-ink, so it keeps moving
+  # with the app's violet while the raised fill is pinned to a ramp shade.
+  # SERIES_INK_FIGURES below is unchanged and still measures all six.
   SERIES_FILL_FAILURES = [
-    { series: "Goals", token: "--fc-goals", mode: :light, surface: "card", was: 1.96 },
-    { series: "DK Score", token: "--fc-dk-score", mode: :dark, surface: "card", was: 2.22 },
-    { series: "DK Score", token: "--fc-dk-score", mode: :dark, surface: "page", was: 3.48 }
+    { series: "DK Score", token: "--fc-dk-score", mode: :dark, surface: "card", was: 3.64 }
+  ].freeze
+
+  # THE GRAPHICAL FLOOR, per series and per theme, on the ground the graphics
+  # really sit on. WCAG 1.4.11 asks 3:1 of a graphical object, and the chart
+  # canvas plus all three variable panels are `bg-surface border border-subtle
+  # rounded-lg p-4` — the CARD. The two Save Formula buttons name no surface of
+  # their own, so --fc-dk-score also owes the PAGE; those rows are listed rather
+  # than assumed to follow from the card.
+  #
+  # EVERY SERIES IS LISTED, including the two that always cleared. A floor
+  # asserted only where it once failed stops being checked the moment it is
+  # fixed — which is exactly how --fc-dk-total's 2.78:1 spent a release with
+  # prose quoting it and nothing asserting it.
+  GRAPHICAL_FLOOR = 3.0
+  SERIES_FILL_FIGURES = [
+    { token: "--fc-mult", mode: :light, surface: "card", ratio: 3.10 },
+    { token: "--fc-mult", mode: :dark, surface: "card", ratio: 3.60 },
+    { token: "--fc-goals", mode: :light, surface: "card", ratio: 5.15 },
+    { token: "--fc-goals", mode: :dark, surface: "card", ratio: 5.68 },
+    { token: "--fc-dk-score", mode: :light, surface: "card", ratio: 5.02 },
+    { token: "--fc-dk-score", mode: :dark, surface: "card", ratio: 3.64 },
+    { token: "--fc-dk-score", mode: :light, surface: "page", ratio: 4.79 },
+    { token: "--fc-dk-score", mode: :dark, surface: "page", ratio: 5.69 },
+    { token: "--fc-dk-total", mode: :light, surface: "card", ratio: 3.40 },
+    { token: "--fc-dk-total", mode: :dark, surface: "card", ratio: 4.01 }
   ].freeze
 
   # What each ink measures on the grounds its text actually sits on. Pinned so
@@ -953,6 +996,101 @@ class VioletTextContrastTest < ActiveSupport::TestCase
                       "this lane would pass on the unfixed markup"
       assert_in_delta row[:was], ratio, 0.01,
                       "the #{row[:mode]} #{row[:surface]} measured #{row[:was]}:1 for #{row[:series]} when this was built"
+    end
+  end
+
+  # THE FLOOR ITSELF. Every registered series, every theme, measured on the
+  # ground its graphics sit on.
+  test "every series fill clears the 3:1 graphical floor on the ground its graphics sit on" do
+    SERIES_FILL_FIGURES.each do |row|
+      fill = slate_token(row[:token], row[:mode])
+      ground = grounds(row[:mode]).fetch(row[:surface])
+      ratio = contrast(fill, ground)
+
+      assert_operator ratio, :>=, GRAPHICAL_FLOOR,
+                      "#{row[:token]} (#{fill}) is #{format('%.2f', ratio)}:1 on the #{row[:mode]} " \
+                      "#{row[:surface]} (#{ground}). WCAG 1.4.11 asks 3:1 of a graphical object, and this token " \
+                      "paints a chart stroke, a border-left and a slider's accent-color."
+      assert_in_delta row[:ratio], ratio, 0.01,
+                      "#{row[:token]} on the #{row[:mode]} #{row[:surface]} measured #{row[:ratio]}:1 when this " \
+                      "was built; re-measure and update the row rather than widening the delta"
+    end
+  end
+
+  # VACUITY GUARD for the list above: a series registered in INLINE_SERIES but
+  # missing from SERIES_FILL_FIGURES would be silently unmeasured, which is the
+  # precise shape of the --fc-dk-total gap this task closed.
+  test "control: the graphical floor list covers every registered series in both themes" do
+    want = INLINE_SERIES.values.map { |s| s[:fill] }.product(%i[light dark]).map { |tok, mode| [ tok, mode, "card" ] }
+    have = SERIES_FILL_FIGURES.map { |row| [ row[:token], row[:mode], row[:surface] ] }
+
+    assert_empty want - have,
+                 "these (series, theme) pairs are registered in INLINE_SERIES but have no card row in " \
+                 "SERIES_FILL_FIGURES, so their graphical floor is asserted nowhere"
+    assert_empty have.map(&:first).uniq - INLINE_SERIES.values.map { |s| s[:fill] },
+                 "SERIES_FILL_FIGURES names a token that is not a registered series fill"
+  end
+
+  # THE GROUND CLAIM, ASSERTED. Every ratio above is measured against the card
+  # because that is what the graphics sit on. If a panel stops carrying
+  # bg-surface, every figure above is being measured against a surface the
+  # element is not on — the same error the bare-text-violet allow-list exists
+  # to stop, in the other lane.
+  test "the series graphics really sit on the card" do
+    src = File.read(Rails.root.join(SLATE_PAGE))
+
+    panels = src.each_line.select { |l| l.include?("border-left: 3px solid var(--fc-") }
+    assert_equal 3, panels.size,
+                 "#{panels.size} panels carry a series border-left, not 3; the ground claim was measured over 3"
+    panels.each do |line|
+      assert_includes line[/class="([^"]*)"/, 1].to_s.split, "bg-surface",
+                      "a series panel no longer carries bg-surface, so the CARD is not its ground: #{line.strip}"
+    end
+
+    canvas_line = src.each_line.each_cons(2).find { |_, nxt| nxt.include?("id=\"formulaCurvesChart\"") }&.first
+    assert canvas_line, "the chart canvas moved; its enclosing element can no longer be read"
+    assert_includes canvas_line[/class="([^"]*)"/, 1].to_s.split, "bg-surface",
+                    "the chart canvas no longer sits inside bg-surface, so the card is not the chart's ground"
+  end
+
+  # THE CHART MUST NOT KEEP A COPY OF THE FILLS. It used to hold three hex
+  # literals under a comment calling itself the single source of truth. With
+  # per-theme fills a literal paints the wrong theme, and a canvas stroke is
+  # not reachable from the static scans above — so the copy is asserted gone
+  # rather than trusted to stay gone.
+  test "the chart reads the fill tokens instead of holding a copy of them" do
+    src = File.read(Rails.root.join(SLATE_PAGE))
+    body = src[/function _fcColors\(\).*?\n  \}/m]
+    assert body, "_fcColors is gone; the chart is getting its colours from somewhere this guard cannot see"
+
+    %w[--fc-mult --fc-goals --fc-dk-total].each do |token|
+      assert_includes body, "read('#{token}')", "_fcColors no longer reads #{token} from the CSS tokens"
+    end
+    assert_empty body.scan(/#\h{6}\b/),
+                 "_fcColors contains a hex literal again. A fallback IS the copy this removed: it would paint " \
+                 "the wrong theme's colour whenever the token it shadows is the per-theme one."
+
+    script = src[/<script>\n  \/\/ THE CHART READS.*?<\/script>/m].to_s
+    live = script.gsub(%r{//[^\n]*}, "")
+    %w[#8E82FE #B8B0FF #4BAF50 #15803D #6558E5 #3AA757 #3E9E43].each do |hexv|
+      refute_includes live, hexv,
+                      "#{hexv} is written as a literal in this page's script. Series colours live in the <style> " \
+                      "block and reach the chart through _fcColors()."
+    end
+  end
+
+  # The chart concatenates an alpha suffix onto each fill (`FC.mult + '14'`),
+  # so a token that stopped being a 6-digit hex would silently produce a
+  # malformed colour and Chart.js would draw nothing rather than complain.
+  test "every series fill is declared as a six-digit hex" do
+    %i[light dark].each do |mode|
+      page = tokens(mode).merge(embedded_style_tokens(Rails.root.join(SLATE_PAGE).to_s, mode))
+      INLINE_SERIES.each_value do |series|
+        raw = page.fetch(series[:fill])
+        assert_match(/\A#\h{6}\z/, raw,
+                     "#{series[:fill]} is #{raw.inspect} in the #{mode} theme. The chart appends '14' to it for " \
+                     "the fill wash, which only yields a valid #RRGGBBAA from a 6-digit hex.")
+      end
     end
   end
 

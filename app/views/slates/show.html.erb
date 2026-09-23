@@ -9,27 +9,66 @@
      cannot do both jobs with one hex, so each keeps its fill and gets an -ink
      for text.
 
-     THE 3:1 BAR IS THE BAR, NOT A CLEARANCE. Three of the four fills are under
-     it in one theme, measured on this card: --fc-goals 1.96:1 light,
-     --fc-dk-score 2.22:1 dark, --fc-dk-total 2.78:1 light. Only --fc-mult
-     clears both (3.10 light, 3.60 dark). That is pre-existing — the fills are
-     untouched by the ink work below — and it is tracked as
-     raise-series-fills-graphical-floor rather than fixed here. The two numbers
-     quoted below as TEXT failures are also under the graphical floor.
+     EVERY FILL CLEARS THE 3:1 BAR ON THIS CARD, IN BOTH THEMES. Three of the
+     four did not, measured here: --fc-goals 1.96:1 light, --fc-dk-score 2.22:1
+     dark, --fc-dk-total 2.78:1 light; only --fc-mult cleared both (3.10 / 3.60).
+     Each failing theme now takes a raised fill and the PASSING theme is
+     untouched, so a series keeps its brand colour wherever it already cleared.
+     The ink work below is UNCHANGED: the inks answer small TEXT at 4.5:1, a
+     different bar, and a fill that clears 3:1 does not make its ink redundant.
+
+     THE GROUND IS THE CARD, VERIFIED rather than assumed. The chart's canvas and
+     all three variable panels are `bg-surface border border-subtle rounded-lg
+     p-4`, and bg-surface compiles to var(--color-surface). The two Save Formula
+     buttons name no surface of their own, so their `border-color: var(--fc-dk-score)`
+     sits on the PAGE — measured separately below and asserted separately.
+
+     --fc-mult IS THE THIN ONE, deliberately left alone. It is 3.10:1 on the light
+     card, over the bar with 0.10 to spare, and 2.96:1 on the light PAGE, which it
+     never sits on. Raising it would move the brand violet itself, which was Mr.
+     McRitchie's call on 2026-09-21 and is not this task's to reopen.
 
      ONLY THE FAILING THEME MOVES. A series that already clears as text in one
      theme keeps its own brand colour there, so the tie between a number and
      its chart line stays exact wherever it can:
 
-       --fc-goals      #B8B0FF   light 1.96:1 on the card  FAILS
-                                 dark  5.68:1 on the card  clears
+       --fc-goals      dark  #B8B0FF  5.68:1 card — unchanged, it cleared
+                       light #6558E5  5.15:1 card (was #B8B0FF, 1.96:1)
+                                      The brand ramp's violet-600 — a NAMED shade,
+                                      not a fresh hex — and 1.66:1 from --fc-mult,
+                                      so the two violet chart lines stay apart.
+                                      Darkening #B8B0FF toward grey instead reached
+                                      3.25:1 at only 1.05:1 from --fc-mult: over the
+                                      bar and useless. Identity is measured here,
+                                      not eyeballed.
        --fc-goals-ink  dark  #B8B0FF ................. 5.68:1 (the series itself)
                        light var(--color-violet-ink) . 6.03:1 (#5B50CE)
 
-       --fc-dk-score      #15803D  dark  2.22:1 on the card  FAILS
-                                   light 5.02:1 on the card  clears
+       --fc-dk-score      light #15803D  5.02:1 card — unchanged, it cleared
+                          dark  #3AA757  3.64:1 card (was #15803D, 2.22:1)
+                                         and 5.69:1 on the PAGE, the ground of the
+                                         two Save Formula buttons' border-color.
+
+     THE TWO DARK GREENS CANNOT BE SEPARATED BY LUMINANCE, and that is physics
+     rather than a shortcut. --fc-dk-score and --fc-dk-total must BOTH clear 3:1
+     on the same dark card, which forces both into one luminance band: measured
+     over nine candidate greens, the best separation from --fc-dk-total that
+     still clears the floor is 1.27:1 (#359B52, floor 3.17), against 1.10:1 for
+     the #3AA757 chosen here (floor 3.64). Neither gap is perceptible, so the
+     thicker floor margin wins. What keeps them apart is not luminance: they
+     never appear as adjacent marks — DK Score is a variable PANEL with its own
+     heading and sliders, DK Expectation is a CHART line with its own legend
+     entry. Do not "fix" the 1.10 by lowering a fill back under the bar.
        --fc-dk-score-ink  light #15803D ................... 5.02:1 (the series itself)
                           dark  var(--color-primary-ink) .. 5.54:1 card (#81C784)
+
+       --fc-dk-total   dark  #4BAF50  4.01:1 card — unchanged, it cleared
+                       light #3E9E43  3.40:1 card (was #4BAF50, 2.78:1)
+                                      Graphics-only in the DOM, so it has no -ink.
+                                      It DOES paint the chart's DK axis title and
+                                      tick labels, which are CANVAS text at 11px and
+                                      owe 4.5:1 — out of this guard's reach and
+                                      recorded in docs/FORMULAS.md, not fixed here.
 
      THE DARK GREEN HAS A SECOND GROUND TO CLEAR. Two Save Formula buttons
      paint this token as text while naming no surface of their own, so they sit
@@ -63,16 +102,19 @@
   :root {
     --fc-mult: #8E82FE;
     --fc-mult-ink: var(--color-violet-ink);
-    --fc-goals: #B8B0FF;
-    --fc-dk-score: #15803D;
-    --fc-dk-total: #4BAF50;
   }
   :root,
   .dark {
+    --fc-goals: #B8B0FF;
+    --fc-dk-score: #3AA757;
+    --fc-dk-total: #4BAF50;
     --fc-goals-ink: #B8B0FF;
     --fc-dk-score-ink: var(--color-primary-ink);
   }
   html:not(.dark) {
+    --fc-goals: #6558E5;
+    --fc-dk-score: #15803D;
+    --fc-dk-total: #3E9E43;
     --fc-goals-ink: var(--color-violet-ink);
     --fc-dk-score-ink: #15803D;
   }
@@ -80,12 +122,34 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script>
-  // Formula curve line colors — single source of truth
-  var FC = {
-    mult:    '#8E82FE',            // Turf Score (violet)
-    goals:   '#B8B0FF',            // Goals Distribution (light violet)
-    dkTotal: '#4BAF50'             // DK Expectation (green)
-  };
+  // THE CHART READS THE FILL TOKENS; IT DOES NOT KEEP A COPY OF THEM.
+  //
+  // This was three hex literals under a comment calling itself "single source
+  // of truth", while the <style> block above declared the same three colours.
+  // There were two sources, and this was the copy. That was survivable while
+  // the fills were theme-independent. It is not now: --fc-goals, --fc-dk-score
+  // and --fc-dk-total each take a different value per theme, so a literal here
+  // paints the wrong theme's colour — and nothing would say so, because a
+  // canvas stroke is not reachable from the static scan that measures an
+  // inline `style:`.
+  //
+  // Read at BUILD time, not at parse time: the MutationObserver at the foot of
+  // this script rebuilds the chart when <html>'s class list flips, and that is
+  // what carries a per-theme fill onto the canvas at all.
+  //
+  // NO HEX FALLBACK, on purpose — a fallback is the copy this removes. The
+  // guard asserts the page declares all four tokens as 6-digit hexes in both
+  // themes, which is also what keeps the `+ '14'` alpha suffix below a valid
+  // 8-digit #RRGGBBAA instead of a silently malformed colour.
+  function _fcColors() {
+    var style = getComputedStyle(document.documentElement);
+    var read = function(name) { return style.getPropertyValue(name).trim(); };
+    return {
+      mult:    read('--fc-mult'),      // Turf Score (violet)
+      goals:   read('--fc-goals'),     // Goals Distribution (violet, per theme)
+      dkTotal: read('--fc-dk-total')   // DK Expectation (green, per theme)
+    };
+  }
 
   <%# Charted per TEAM, not per matchup row — a three-week slate would otherwise
       plot 96 points for 32 teams and rank each team three times. per_game is
@@ -195,6 +259,7 @@
     if (existing) existing.destroy();
     var windows = _fcNflAxisWindows(data, _fcSliders.multScale);
 
+    var FC = _fcColors();
     var isDark = document.documentElement.classList.contains('dark');
     var gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
     var textColor = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)';

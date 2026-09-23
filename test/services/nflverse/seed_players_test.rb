@@ -1,4 +1,14 @@
 require "test_helper"
+# REQUIRED HERE, not inherited. `CSV` reaches this file only because
+# `app/services/nflverse/seed_players.rb:1` requires it, so the constant exists
+# only once Zeitwerk has autoloaded that service. Every test whose FIRST
+# reference is `row` or `namesake_csv` — rather than `Nflverse::SeedPlayers` —
+# therefore resolves `CSV` before anything has loaded it and dies on
+# `uninitialized constant Nflverse::SeedPlayersTest::CSV`. Minitest randomises
+# order, so which run pays for it is a dice roll: measured on origin/accepted
+# at 09cdfb3, seeds 14 and 33 of the first 40 reddened, both on
+# "a namesake with no identifier is recorded, and a later row still lands".
+require "csv"
 
 # [unit] Nflverse::SeedPlayers — the identity importer.
 #
@@ -413,6 +423,104 @@ class Nflverse::SeedPlayersTest < ActiveSupport::TestCase
                  "the unslugable namesake must not have merged onto the first"
     assert_equal "4262921", Athlete.find_by(person_slug: "justin-jefferson").espn_id
     assert Person.exists?(slug: "other-guy"), "a row ingested AFTER the refusal must still land"
+  end
+
+  # THE COUNTERS MUST DESCRIBE WHAT COMMITTED. `resolve_athlete!` wraps its two
+  # writes in one transaction and rescues the failure; that rescue rolls the
+  # DATABASE back, but `@stats` is a plain Hash and survives it untouched. An
+  # increment taken inside the transaction is therefore a number the run cannot
+  # honour — and it inflates on exactly the runs that refused a human, which are
+  # the runs an operator most needs a true number from.
+  #
+  # WHY THIS STUBS, when nothing else in this file does. The only surviving way
+  # to fail that `create!` is the race the rescue's own comment names — "a racing
+  # writer, or a Person the name lookup could not reach". Neither is reachable
+  # from a CSV: `Athlete belongs_to :person` is required, so no orphan Athlete
+  # can be planted for the new slug to collide with, and `disambiguator_for`
+  # widens past every Person slug it can see. The stub stands in for that race
+  # and for nothing else — `Athlete.create!` has exactly ONE call site in the
+  # importer, so it cannot catch a write this test did not mean to catch.
+  test "an athlete whose write rolled back is not counted as created" do
+    before = Athlete.count
+    stats  = nil
+
+    Athlete.stub(:create!, ->(*) { raise ActiveRecord::RecordNotUnique, "racing writer" }) do
+      stats = Nflverse::SeedPlayers.new(upload_headshots: false,
+                                        csv_body: namesake_csv(jefferson_a)).call
+    end
+
+    assert_equal 1, stats[:athletes_failed], "the failure itself must still be counted"
+    assert_equal Athlete.count - before, stats[:athletes_created],
+                 "athletes_created must equal the athletes that actually committed"
+  end
+
+  # The namesake half of the same defect, and the one with two counters on it.
+  # Here `Person.create!` SUCCEEDS and the `Athlete.create!` after it fails, so
+  # the transaction takes the Person back out — while `people_created` and
+  # `name_collisions` keep counting a human who does not exist.
+  test "a rolled-back namesake Person is not counted as created or collided" do
+    Nflverse::SeedPlayers.new(upload_headshots: false, csv_body: namesake_csv(jefferson_a)).call
+    assert_equal 1, Person.where(last_name: "Jefferson").count, "precondition: the first man landed"
+
+    before = Person.where(last_name: "Jefferson").count
+    stats  = nil
+
+    Athlete.stub(:create!, ->(*) { raise ActiveRecord::RecordNotUnique, "racing writer" }) do
+      stats = Nflverse::SeedPlayers.new(upload_headshots: false,
+                                        csv_body: namesake_csv(jefferson_b)).call
+    end
+
+    assert_equal before, Person.where(last_name: "Jefferson").count,
+                 "precondition: the namesake Person really was rolled back"
+    assert_equal 0, stats[:people_created], "a rolled-back Person is not a created Person"
+    assert_equal 0, stats[:name_collisions], "a collision that did not commit is not a collision"
+    assert_equal 1, stats[:namesake_collisions_skipped], "it is counted as a REFUSAL instead"
+  end
+
+  # THE DURABLE HALF of skip-and-record. Before this, a refusal existed only as
+  # stdout: an operator who was not watching the run could not answer "did we
+  # refuse anyone, and who" a week later. ErrorLog is the home this repo already
+  # had — no new table, and deliberately NOT the hub's ImportRun.
+  test "a refused namesake is recorded to ErrorLog, not just printed" do
+    csv = namesake_csv(jefferson_a, jefferson_a.merge(
+      "gsis_id" => "", "espn_id" => "", "pff_id" => "",
+      "otc_id" => "", "pfr_id" => "", "nfl_id" => ""
+    ))
+
+    assert_difference "ErrorLog.count", 1 do
+      Nflverse::SeedPlayers.new(upload_headshots: false, csv_body: csv).call
+    end
+
+    log = ErrorLog.order(:id).last
+    assert_match(/refused namesake Justin Jefferson/, log.message)
+    assert_equal "Athlete", log.target_type, "the refusal must point at the row that held the slug"
+    assert_equal "justin-jefferson", log.target_name
+    assert_equal "Nflverse::SeedPlayers::NamesakeRefused",
+                 Admin::ErrorLogsHelper.error_class_from_inspect(log.inspect_field),
+                 "it must file under its own facet, not fall into Unknown"
+    assert_equal "justin-jefferson", JSON.parse(log.inspect_field[/\{.*\}/])["person_slug"]
+  end
+
+  # A BOOKKEEPING ROW MUST NEVER KILL THE IMPORT IT ONLY DESCRIBES. The whole
+  # reason the refusal path exists is that a raise mid-rebuild truncates every
+  # row after it; a durable record bought at the price of that truncation would
+  # be a worse trade than the stdout line it replaced.
+  test "an ErrorLog that cannot be written does not stop the run" do
+    csv = namesake_csv(jefferson_a, jefferson_a.merge(
+      "gsis_id" => "", "espn_id" => "", "pff_id" => "",
+      "otc_id" => "", "pfr_id" => "", "nfl_id" => ""
+    ), jefferson_a.merge(
+      "gsis_id" => "", "espn_id" => "", "pff_id" => "", "otc_id" => "", "pfr_id" => "",
+      "nfl_id" => "", "common_first_name" => "Other", "first_name" => "Other", "last_name" => "Guy"
+    ))
+
+    stats = nil
+    ErrorLog.stub(:create!, ->(*) { raise ActiveRecord::StatementInvalid, "error_logs is gone" }) do
+      assert_nothing_raised { stats = Nflverse::SeedPlayers.new(upload_headshots: false, csv_body: csv).call }
+    end
+
+    assert_equal 1, stats[:namesake_collisions_skipped], "the refusal is still counted"
+    assert Person.exists?(slug: "other-guy"), "a row ingested AFTER the failed record must still land"
   end
 
   # The predicate itself. gsis_id is no longer privileged: ANY shared

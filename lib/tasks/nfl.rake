@@ -82,12 +82,33 @@ namespace :nfl do
       min_season:       ENV.fetch("MIN_SEASON", Nflverse::SeedPlayers::DEFAULT_MIN_SEASON),
       status_filter:    ENV.fetch("STATUS", "ACT")
     )
-    seeder.call
+    stats = seeder.call
 
     puts
     puts "people:   #{Person.count}"
     puts "athletes: #{Athlete.count} (#{Athlete.on_a_team.count} on a roster)"
     puts "headshots: #{ImageCache.where(owner_type: 'Athlete', purpose: 'headshot').count} variants cached"
+
+    # NEVER QUIET, AND NEVER A SILENT SUCCESS — the convention its sibling
+    # `studio:sync_athletes` already follows (lib/tasks/studio_sync.rake). This
+    # task used to end at the line above: it discarded `call`'s return value,
+    # printed every word to STDOUT, and exited 0 whatever happened. Two bulk
+    # importers in one repo disagreeing about how they report trouble is how a
+    # future caller learns the wrong lesson from whichever it reads first.
+    #
+    # The split mirrors THIS importer's own policy, so the exit code says what
+    # the code means:
+    #   REFUSED — the policy working. The row is recorded (stdout + ErrorLog)
+    #     and needs a human, but a refusal is an expected outcome of a rebuild
+    #     and must not redden the run.
+    #   FAILED  — a fault. A row this importer expected to write did not write.
+    #     That is what a non-zero exit is for.
+    refused = stats[:namesake_collisions_skipped].to_i
+    failed  = stats[:athletes_failed].to_i
+
+    warn "  NAMESAKES: #{refused} row(s) REFUSED — recorded to ErrorLog, resolve by hand." if refused.positive?
+
+    abort "nfl:players_seed FAILED — #{failed} row(s) could not be written" if failed.positive?
   end
 
   desc "Cache headshot variants for Athletes that have an espn_id but no cached image. Idempotent."
