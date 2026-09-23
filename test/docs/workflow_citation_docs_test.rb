@@ -946,8 +946,11 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # `call_site_anchored?` answers on the MEMBER alone, so `tx.id` — whose member
   # is under MIN_ATTACHED_IDENT — gives it nothing to match and it returns false.
   # Before the guard below, `call_site_claim?` was still TRUE for such a name, so
-  # `anchored?` (:2054) hit `claim? && !anchored?` and rejected a CORRECT pin
-  # unconditionally. The assertions mirror that expression directly.
+  # `anchored?` hit its `call_site_claim? && !call_site_anchored?` rejection and
+  # threw out a CORRECT pin unconditionally. The assertions mirror that
+  # expression directly — BY SYMBOL, not by line: the first draft of this test
+  # cited ":2054", which the very edit that added the test pushed to :2134. This
+  # file exists to catch that, so it must not commit it.
   test "a short member name still pins correctly" do
     short = synthetic_pin("tx.id")
     long  = synthetic_pin("Slate.team_rankings")
@@ -956,7 +959,7 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
            "a name whose member is under MIN_ATTACHED_IDENT (#{MIN_ATTACHED_IDENT}) gives the " \
            "call-site rule nothing to match, so it must not be read as making the claim"
     refute(call_site_claim?(short) && !call_site_anchored?(short),
-           "this is the expression at :2054 — while it held, a correct short-member pin was " \
+           "this mirrors the rejection in `anchored?` — while it held, a correct short-member " \
            "rejected however right its line number was")
 
     assert call_site_claim?(long),
