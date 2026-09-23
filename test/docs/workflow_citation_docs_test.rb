@@ -903,9 +903,16 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
   # app/models/slate.rb:253" — a call-site claim invented out of two unrelated
   # list items, which the guard would then enforce.
   test "a markdown dash bullet is not citation glue" do
+    # THE SECOND BULLET MUST OPEN WITH THE CITATION. `between` is everything from
+    # the end of the previous backtick span to the start of this one, so a bullet
+    # reading "- the sort key lives at `...`" carries that prose INSIDE `between`
+    # and is rejected by ordinary English whatever the dash rule says. Written
+    # that way this test passed with the hyphen still in — green, and blind to
+    # the defect it names. Measured with the hyphen restored: `between` is
+    # "\n- " for the shape below and "\n- the sort key lives at " for that one.
     lines = [
       "- the ranking comes from `Slate#team_rankings`",
-      "- the sort key lives at `app/models/slate.rb:253`"
+      "- `app/models/slate.rb:253` is the sort key"
     ]
     offset = lines[1].index("`app/models/slate.rb:253`")
 
@@ -913,7 +920,7 @@ class WorkflowCitationDocsTest < ActiveSupport::TestCase
                "a sibling list item must not attach the PREVIOUS bullet's symbol to this citation"
 
     nested = ["- the ranking comes from `Slate#team_rankings`",
-              "  - the sort key lives at `app/models/slate.rb:253`"]
+              "  - `app/models/slate.rb:253` is the sort key"]
     assert_nil attached_before(nested, 1, nested[1].index("`app/models/slate.rb:253`")),
                "an indented sub-bullet is the same shape with leading whitespace"
   end
