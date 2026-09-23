@@ -149,7 +149,11 @@ class CustomPropertyDeclarationTest < ActiveSupport::TestCase
                     "#{path} no longer registers a `var(#{name})` read, so the scan above may be finding nothing"
     assert_operator reads.size, :>=, 40,
                     "only #{reads.size} distinct custom properties are read across #{READ_ROOTS.join(', ')}; " \
-                    "63 were read when this was written, so the scanner has probably narrowed"
+                    "60 are read on this branch, so the scanner has probably narrowed. (63 was the " \
+                    "origin/accepted figure, quoted here until 2026-09-22 without being re-derived after " \
+                    "this task retired five names from being read at all. The floor of 40 is not slack: " \
+                    "app/views alone reads 38 and app/assets/tailwind alone 34, so 40 is the tightest " \
+                    "integer that still bites on losing either whole root.)"
 
     dynamic = READ_ROOTS.sum do |root|
       source_files(Rails.root.join(root), "erb,rb,css,js").sum do |p|
