@@ -69,10 +69,17 @@ class StudioSyncTaskTest < ActiveSupport::TestCase
 
     out = err = nil
     Studio::SyncAthletes.stub(:new, ->(*_a, **_k) { svc }) do
-      # a designed refusal must not abort the task
-      assert_nothing_raised do
+      # SystemExit is NOT a StandardError, so `assert_nothing_raised` would let
+      # an abort kill the whole runner instead of failing this test by name.
+      # Catch it explicitly and assert on the exit status.
+      exited = nil
+      begin
         out, err = invoke("sync_athletes")
+      rescue SystemExit => e
+        exited = e
       end
+      assert_nil exited,
+                 "a designed refusal must not abort the task (exited #{exited&.status})"
     end
 
     assert_match(/ok_with_collisions/, out, "the control: the run actually collided")
@@ -94,7 +101,13 @@ class StudioSyncTaskTest < ActiveSupport::TestCase
 
   test "a skipped run exits zero" do
     stub_result(status: "skipped") do
-      assert_nothing_raised { invoke("sync_athletes") }
+      exited = nil
+      begin
+        invoke("sync_athletes")
+      rescue SystemExit => e
+        exited = e
+      end
+      assert_nil exited, "a stack that does not sync must not redden a deploy (exited #{exited&.status})"
     end
   end
 
