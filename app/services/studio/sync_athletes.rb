@@ -23,6 +23,14 @@ module Studio
 
     class Error < StandardError; end
 
+    # The FACET a refused row files itself under in /admin/error_logs. It is
+    # never raised — a refusal is this sync's POLICY, not an escaped exception —
+    # but `Admin::ErrorLogsHelper.error_class_from_inspect` reads the class name
+    # out of the `inspect` column, so refusals need a real class name to group
+    # under. Naming it here keeps that string from being invented at the write
+    # site, where a typo would silently scatter the facet into "Unknown".
+    CollisionRefused = Class.new(StandardError)
+
     Result = Struct.new(:rows_seen, :rows_written, :pages, :status, :collisions, keyword_init: true) do
       # A row the replica REFUSED rather than wrote. Never empty silently: the
       # rake task prints every one, because each is a human the master and the
@@ -39,10 +47,24 @@ module Studio
       @full = full
     end
 
-    # Returns a Result. NEVER raises for an environment condition — an
-    # unconfigured stack or an unreachable provider is a skip, recorded on the
-    # cursor, because this runs from a cadence and a raise there is noise
-    # somebody eventually learns to ignore.
+    # Returns a Result and NEVER raises out of this method. It runs from a
+    # cadence and never in a request path, and a raise there is noise somebody
+    # eventually learns to ignore.
+    #
+    # THE THREE NON-CLEAN OUTCOMES ARE NOT INTERCHANGEABLE, and an earlier
+    # version of this comment called an unreachable provider a "skip". It is
+    # not, and the difference is an exit code:
+    #   - SKIPPED is the no-secret path below, and ONLY that path. A stack that
+    #     does not sync is a legitimate state, so the rake task exits ZERO —
+    #     its own comment reads "A skip (no secret)", singular.
+    #   - FAILED is a provider that could not be read. SocketError,
+    #     Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EHOSTUNREACH,
+    #     Timeout::Error, OpenSSL::SSL::SSLError, any non-2xx and an
+    #     unparseable body all raise `Error` from `request`, are rescued below,
+    #     and record `failed` — on which `studio:sync_athletes` ABORTS
+    #     NON-ZERO. An outage is late data, but it is not a skip.
+    #   - OK_WITH_COLLISIONS is a run that COMPLETED and refused rows. It exits
+    #     zero on purpose; `record_refusal` says why.
     def call
       cursor = SyncCursor.for(SOURCE)
       return skip(cursor, "AGENT_API_SECRET not set") unless self.class.configured?
@@ -64,12 +86,17 @@ module Studio
         meta = page["meta"] || {}
         since = meta["next_updated_since"]
         after_id = meta["next_after_id"]
-        cursor.advance!(updated_at: since, id: after_id, rows_seen: seen, rows_written: written)
+        # Cumulative, not per-page: `@collisions` accumulates across pages, so
+        # a refusal on page 1 still colours the cursor after a clean page 2
+        # overwrites it. The cursor is written per page so a partial run
+        # resumes, which means the LAST write is the one that survives.
+        cursor.advance!(updated_at: since, id: after_id, rows_seen: seen, rows_written: written,
+                        status: run_status, detail: collision_detail)
         break unless meta["more"]
       end
 
       Result.new(rows_seen: seen, rows_written: written, pages: pages,
-                 status: @collisions.any? ? "ok_with_collisions" : "ok", collisions: @collisions)
+                 status: run_status, collisions: @collisions)
     # StandardError, not just Error. A narrow rescue let any ActiveRecord
     # exception escape `call` entirely, so `record_failure!` never ran and the
     # cursor kept `last_status: "ok"` after a crashed run — a sync that died
@@ -173,8 +200,83 @@ module Studio
       # a seed, or a hand-entered one. Adopting it is the point of the sync.
       return existing if held.empty? || held == incoming
 
-      (@collisions ||= []) << { person_slug: person.slug, ours: held, theirs: incoming }
+      collision = { person_slug: person.slug, ours: held, theirs: incoming }
+      (@collisions ||= []) << collision
+      record_refusal(collision, existing)
       nil
+    end
+
+    # THE DURABLE HALF of refuse-and-record. Until this existed, a refusal
+    # reached the operator only as stdout from whoever happened to be watching:
+    # the first production run (2026-09-24) refused two rows and
+    # `studio:sync_status` reported that same run as "(ok)". The cursor now
+    # carries a one-line summary, but it is overwritten by the next run — an
+    # ErrorLog row per refusal is what is still answerable a week later, and
+    # `Admin::ErrorLogsController` already browses that table, so this
+    # introduces no new home.
+    #
+    # NOT `rescue_and_log`. That helper is a CONTROLLER concern and it RE-RAISES
+    # (studio-engine app/controllers/concerns/studio/error_handling.rb), so
+    # reaching for it inside this loop would abandon every remaining row of the
+    # feed at the first refusal — the exact truncation the reporting exists to
+    # prevent. A refused row is this sync's policy, not an exception that
+    # escaped.
+    #
+    # NOT `ErrorLog.capture!` either, though it IS this repo's ordinary way in
+    # (16 service files write ErrorLog; most use `capture!`). Two measured
+    # reasons. It fans out to SENTRY whenever a DSN is set (the
+    # `defined?(::Sentry)` branch in studio-engine app/models/error_log.rb), and
+    # Sentry is the PAGING layer — a refusal is this guard working exactly as
+    # designed, and the condition is STICKY (the master keeps sending the same
+    # row, so every run refuses it again), which would page on a schedule
+    # forever for something no retry can fix. And `capture!` takes an exception
+    # and nothing else, so it cannot carry `target`, which is what makes the row
+    # point at the athlete we kept. THIS APP'S OWN `Nflverse::SeedPlayers`
+    # importer resolved it identically, in `#record_refusal` — same shape, same
+    # `update_column` slug line, same swallow. Not the hub's class of the same
+    # name: the MASTER has no `record_refusal` at all. It holds refusals in
+    # memory and reports them to stderr (`refuse!` / `report_refusals`), and its
+    # only `ErrorLog` write is one run-level `capture!` of the whole import — so
+    # a reader sent there would draw the OPPOSITE lesson. Two classes share this
+    # name across the two repos; the comment above on `build_for` keeps them
+    # straight, and this one did not.
+    #
+    # `slug` is backfilled because `Admin::ErrorLogsController#show` looks rows
+    # up BY slug (`ErrorLog.find_by!(slug: params[:slug])`) and `ErrorLog#to_param`
+    # returns it — a row without one is written but UNREACHABLE in the only UI
+    # that reads it, which would make a recorded refusal invisible to the person
+    # meant to find it. The `update_column` is a deliberate copy of `capture!`'s
+    # own slug line: the price of stepping outside the convention is that if the
+    # engine ever changes that scheme, this is a site that must follow by hand.
+    def record_refusal(collision, existing)
+      log = ErrorLog.create!(
+        message: "studio sync refused #{collision[:person_slug]}: " \
+                 "we hold gsis #{collision[:ours]}, the master sent #{collision[:theirs]}",
+        inspect: "#<#{CollisionRefused}: #{collision.to_json}>",
+        target: existing,
+        target_name: collision[:person_slug]
+      )
+      log.update_column(:slug, "error-log-#{log.id}")
+      log
+    rescue StandardError => e
+      # A BOOKKEEPING ROW MUST NEVER KILL THE RUN IT ONLY DESCRIBES. Swallowing
+      # is right here and nowhere else: the refusal is already counted in
+      # `@collisions`, already bound for the cursor, and already on its way to
+      # the rake task's stderr.
+      Rails.logger.warn("[SyncAthletes] could not record refusal for " \
+                        "#{collision[:person_slug]}: #{e.class}")
+      nil
+    end
+
+    def run_status = @collisions.to_a.any? ? "ok_with_collisions" : "ok"
+
+    # The operator needs BOTH league ids to resolve it, because only the master
+    # can: give them the slug, what we hold, and what was sent.
+    def collision_detail
+      return nil if @collisions.to_a.empty?
+
+      summary = @collisions.map { |c| "#{c[:person_slug]} (ours #{c[:ours]} / master #{c[:theirs]})" }
+      "#{@collisions.length} row(s) REFUSED — #{summary.join('; ')}"
     end
 
     def upsert_person(row)
