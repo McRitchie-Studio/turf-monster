@@ -262,4 +262,142 @@ class Studio::SyncAthletesTest < ActiveSupport::TestCase
     assert_equal 1, result.rows_seen
     assert_equal 0, result.rows_written, "an unchanged row must not count as a write"
   end
+
+  # ─── WHAT A COLLIDED RUN LEAVES BEHIND ────────────────────────────────────
+  #
+  # The refusal guard above worked; REPORTING it did not. The first production
+  # run (2026-09-24) refused two rows and returned "ok_with_collisions", and
+  # `studio:sync_status` reported that same run as "(ok)". The refusals existed
+  # only in the Result object, which dies with the process.
+  #
+  # THE TWO PRODUCTION PAIRS, reproduced exactly: aaron-brewer (we hold
+  # 00-0036171, master sent 00-0028946) and chris-smith (we hold 00-0038661,
+  # master sent 00-0038602) — two pairs of different humans sharing a name.
+  def colliding_fixture!
+    [ [ 1, "00-0038661", "00-0038602" ], [ 2, "00-0036171", "00-0028946" ] ].map do |n, ours, theirs|
+      person = Person.create!(first_name: "P#{n}", last_name: "Remote")
+      assert_equal "p#{n}-remote", person.slug, "the control: the fixture must actually collide"
+      mine = Athlete.new(person_slug: person.slug, sport: "football")
+      mine.syncing = true
+      mine.gsis_id = ours
+      mine.save!
+      [ person.slug, ours, theirs ]
+    end
+  end
+
+  def collided_feed(pairs) = page(pairs.each_with_index.map { |(_s, _o, theirs), i| row(i + 1).merge("gsis_id" => theirs) })
+
+  test "a collided run is not recorded as ok on the cursor" do
+    pairs = colliding_fixture!
+    result = syncer(pages: [ collided_feed(pairs) ]).call
+
+    assert_equal 2, result.collisions.length, "the control: the run must actually have refused rows"
+    assert_equal "ok_with_collisions", result.status, "the control: the Result already knew"
+
+    cursor = SyncCursor.for(Studio::SyncAthletes::SOURCE)
+    assert_not_equal "ok", cursor.last_status,
+                     "a run that refused rows must not be recorded as a clean one"
+    assert_equal "ok_with_collisions", cursor.last_status
+  end
+
+  # ACCEPTANCE: the status task shows what the last run refused. `sync_status`
+  # prints `cursor.detail`, so the refused slugs have to reach that column.
+  test "the cursor names who was refused, so the status task can show it" do
+    pairs = colliding_fixture!
+    syncer(pages: [ collided_feed(pairs) ]).call
+
+    detail = SyncCursor.for(Studio::SyncAthletes::SOURCE).detail
+    assert detail.present?, "a refusal that reaches no durable column cannot be reported"
+    pairs.each { |slug, ours, theirs| assert_includes detail, slug }
+    assert_includes detail, pairs.first[1], "the operator needs OUR league id to resolve it"
+    assert_includes detail, pairs.first[2], "and the master's"
+  end
+
+  # THE DURABLE HALF. The cursor holds one summary line and is overwritten by
+  # the next run; an ErrorLog row per refusal is what survives a week.
+  test "each refusal survives the run as its own ErrorLog row" do
+    pairs = colliding_fixture!
+
+    assert_difference -> { ErrorLog.count }, 2 do
+      syncer(pages: [ collided_feed(pairs) ]).call
+    end
+
+    rows = ErrorLog.where("inspect LIKE ?", "#<#{Studio::SyncAthletes::CollisionRefused}%").to_a
+    assert_equal 2, rows.length
+    assert_equal pairs.map(&:first).sort, rows.map(&:target_name).sort
+  end
+
+  # A ROW WITHOUT A SLUG IS WRITTEN BUT UNREACHABLE. `Admin::ErrorLogsController#show`
+  # looks rows up BY slug (`ErrorLog.find_by!(slug: params[:slug])`) and
+  # `ErrorLog#to_param` returns it, so a nil slug hides the refusal from the only
+  # UI that reads it. Creation is not the property; REACHABILITY is.
+  test "a refusal ErrorLog is reachable the way the admin page finds it" do
+    pairs = colliding_fixture!
+    syncer(pages: [ collided_feed(pairs) ]).call
+
+    rows = ErrorLog.where("inspect LIKE ?", "#<#{Studio::SyncAthletes::CollisionRefused}%").to_a
+    assert_equal 2, rows.length, "the control: the refusals were recorded at all"
+
+    rows.each do |log|
+      assert log.slug.present?, "a refusal without a slug is invisible in /admin/error_logs"
+      assert_equal log, ErrorLog.find_by!(slug: log.to_param)
+      assert_equal "Studio::SyncAthletes::CollisionRefused",
+                   Admin::ErrorLogsHelper.error_class_from_inspect(log.inspect_field),
+                   "the row must file under its own facet, not Unknown"
+      assert_equal "Athlete", log.target_type, "the refusal must point at the athlete we kept"
+    end
+  end
+
+  # BOOKKEEPING MUST NEVER KILL THE RUN IT ONLY DESCRIBES. This is why the
+  # refusal is not written through `rescue_and_log`, which RE-RAISES.
+  test "a refusal whose ErrorLog cannot be written does not truncate the run" do
+    pairs = colliding_fixture!
+    rows = collided_feed(pairs)["data"] + [ row(9) ]
+    s = syncer(pages: [ page(rows) ])
+    ErrorLog.stub(:create!, ->(*) { raise ActiveRecord::StatementInvalid, "log table gone" }) do
+      result = nil
+      assert_nothing_raised { result = s.call }
+      assert_equal 2, result.collisions.length, "the refusals are still counted"
+      assert_equal 1, result.rows_written, "and the good row after them was still written"
+    end
+    assert Athlete.find_by(gsis_id: "00-0000009"), "the run must not stop at the first refusal"
+  end
+
+  # WHY THE RAKE TASK STILL EXITS ZERO. Measured: the same feed refuses the same
+  # two rows on every run — the replica cannot resolve it, only the master can.
+  # A non-zero exit would therefore be PERMANENTLY red until a human edits
+  # another system, and this repo has already deleted one cron for exactly that
+  # kind of noise (see the solana_reconcile note in config/schedule.yml).
+  test "the same collision recurs on every run until the master resolves it" do
+    pairs = colliding_fixture!
+    feed = collided_feed(pairs)
+
+    statuses = 3.times.map { syncer(pages: [ feed ]).call.collisions.length }
+
+    assert_equal [ 2, 2, 2 ], statuses, "a collision is sticky — retrying cannot clear it"
+  end
+
+  # THE EXIT-CODE CONTRACT the rake task reads. A refusal is the guard working
+  # as designed, not a failure, so it must never abort a run or a future cadence.
+  test "a collided run is not a failure" do
+    pairs = colliding_fixture!
+    result = syncer(pages: [ collided_feed(pairs) ]).call
+
+    assert_equal 2, result.collisions.length, "the control: the run refused rows"
+    assert_not_equal "failed", result.status,
+                     "a designed refusal must not redden a deploy or retry-storm a cadence"
+  end
+
+  # A stale detail makes the status line lie about the CURRENT run.
+  test "a later clean run stops reporting the refusals it no longer has" do
+    pairs = colliding_fixture!
+    syncer(pages: [ collided_feed(pairs) ]).call
+    assert SyncCursor.for(Studio::SyncAthletes::SOURCE).detail.present?, "the control: something was refused"
+
+    syncer(pages: [ page([ row(9) ]) ]).call
+
+    cursor = SyncCursor.for(Studio::SyncAthletes::SOURCE)
+    assert_equal "ok", cursor.last_status
+    assert_nil cursor.detail, "a clean run must not keep reporting the last run's refusals"
+  end
 end
