@@ -231,8 +231,15 @@ module Studio
     # row, so every run refuses it again), which would page on a schedule
     # forever for something no retry can fix. And `capture!` takes an exception
     # and nothing else, so it cannot carry `target`, which is what makes the row
-    # point at the athlete we kept. `Nflverse::SeedPlayers#record_refusal` is
-    # the same predicate on the master side and resolved this identically.
+    # point at the athlete we kept. THIS APP'S OWN `Nflverse::SeedPlayers`
+    # importer resolved it identically, in `#record_refusal` — same shape, same
+    # `update_column` slug line, same swallow. Not the hub's class of the same
+    # name: the MASTER has no `record_refusal` at all. It holds refusals in
+    # memory and reports them to stderr (`refuse!` / `report_refusals`), and its
+    # only `ErrorLog` write is one run-level `capture!` of the whole import — so
+    # a reader sent there would draw the OPPOSITE lesson. Two classes share this
+    # name across the two repos; the comment above on `build_for` keeps them
+    # straight, and this one did not.
     #
     # `slug` is backfilled because `Admin::ErrorLogsController#show` looks rows
     # up BY slug (`ErrorLog.find_by!(slug: params[:slug])`) and `ErrorLog#to_param`
