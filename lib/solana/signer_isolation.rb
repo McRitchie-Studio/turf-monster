@@ -51,11 +51,19 @@ module Solana
     MODES = %w[warn enforce].freeze
     DEFAULT_MODE = "warn".freeze
 
-    # bin/deploy refuses on THIS exit status and nothing else. A guard that
-    # crashed (a Ruby error, a missing file) exits 1 and is reported as a guard
-    # that did not run, so a bug in the guard cannot freeze deploys while the
-    # guard is only warning.
+    # bin/deploy refuses on THIS exit status: enforce saw a finding. A guard
+    # that crashed on a readable registry (a Ruby error, the guard file itself
+    # missing) exits 1 and is reported as a guard that did not run, so a bug in
+    # the guard cannot freeze deploys while the guard is only warning.
     REFUSED_EXIT = 3
+
+    # bin/deploy refuses on this one too, in EITHER mode: the registry itself
+    # is missing, unparseable or invalid. The registry is where `mode: enforce`
+    # is committed, so a file that cannot be read cannot say enforce was NOT
+    # committed — and reading it as "the guard did not run" dropped a committed
+    # enforce in silence. Fail closed. Distinct from REFUSED_EXIT so the deploy
+    # can say which of the two happened.
+    REGISTRY_INVALID_EXIT = 4
 
     REGISTRY_PATH = File.expand_path("../../config/solana_signers.yml", __dir__)
 
@@ -66,6 +74,9 @@ module Solana
     ED25519_PKCS8_PREFIX = ["302e020100300506032b657004220420"].pack("H*").freeze
 
     class RegistryError < StandardError; end
+    # The registry FILE is broken: missing, not YAML, or not the shape it must
+    # be. Distinct from a lookup on a good registry (an unknown environment).
+    class RegistryInvalid < RegistryError; end
     class UnderivableKey < StandardError; end
 
     # A finding names a KIND and says it in words that carry public keys only.
@@ -77,18 +88,23 @@ module Solana
 
       def self.load(path = REGISTRY_PATH)
         new(YAML.safe_load(File.read(path)) || {})
-      rescue Errno::ENOENT
-        raise RegistryError, "signer registry not found at #{path}"
+      rescue Errno::ENOENT, Errno::EACCES, Errno::EISDIR
+        raise RegistryInvalid, "signer registry not readable at #{path}"
       rescue Psych::Exception => e
-        raise RegistryError, "signer registry is not valid YAML (#{e.class})"
+        raise RegistryInvalid, "signer registry is not valid YAML (#{e.class})"
       end
 
       def initialize(data)
-        @mode = data.fetch("mode", DEFAULT_MODE).to_s
-        raise RegistryError, "signer registry mode #{@mode.inspect} is not one of #{MODES.join(', ')}" unless MODES.include?(@mode)
+        # Anything but a map (a list, a bare string) used to reach `fetch` and
+        # crash with NoMethodError — exit 1, "the guard did not run", and a
+        # committed enforce silently dropped. It is an invalid registry.
+        raise RegistryInvalid, "signer registry must be a map, got #{data.class}" unless data.is_a?(Hash)
 
-        @environments = data.fetch("environments") { raise RegistryError, "signer registry names no environments" }
-        raise RegistryError, "signer registry environments must be a map" unless @environments.is_a?(Hash)
+        @mode = data.fetch("mode", DEFAULT_MODE).to_s
+        raise RegistryInvalid, "signer registry mode #{@mode.inspect} is not one of #{MODES.join(', ')}" unless MODES.include?(@mode)
+
+        @environments = data.fetch("environments") { raise RegistryInvalid, "signer registry names no environments" }
+        raise RegistryInvalid, "signer registry environments must be a map" unless @environments.is_a?(Hash)
 
         validate_wallets!
       end
@@ -135,19 +151,19 @@ module Solana
       def validate_wallets!
         filed = environments.transform_values { |spec| spec.is_a?(Hash) ? spec["system_wallet"] : :bad }
         bad = filed.select { |_, v| v == :bad }.keys
-        raise RegistryError, "signer registry entries must be maps: #{bad.join(', ')}" if bad.any?
+        raise RegistryInvalid, "signer registry entries must be maps: #{bad.join(', ')}" if bad.any?
 
         filed.compact.each do |name, pubkey|
           next if SignerIsolation.valid_pubkey?(pubkey)
 
-          raise RegistryError, "signer registry: #{name}.system_wallet is not a 32-byte base58 public key"
+          raise RegistryInvalid, "signer registry: #{name}.system_wallet is not a 32-byte base58 public key"
         end
 
         shared = filed.compact.group_by { |_, pubkey| pubkey }.select { |_, pairs| pairs.length > 1 }
         return if shared.empty?
 
         names = shared.values.flatten(1).map(&:first)
-        raise RegistryError, "signer registry files one system wallet for several environments: #{names.join(', ')}"
+        raise RegistryInvalid, "signer registry files one system wallet for several environments: #{names.join(', ')}"
       end
     end
 
@@ -302,19 +318,15 @@ module Solana
     # Reads the target app's config JSON on STDIN — never argv, which `ps`
     # shows to every user on the machine. An empty or unparseable STDIN is an
     # UNREADABLE config, which is a finding: absence is not isolation.
-    # Prints the report; exits 0, or REFUSED_EXIT when enforce refuses.
+    # Prints the report; exits 0, REFUSED_EXIT when enforce refuses, or
+    # REGISTRY_INVALID_EXIT when the registry file itself is broken.
     def cli(argv, stdin: $stdin, out: $stdout, env: ENV, registry_path: REGISTRY_PATH)
       # `--list-apps` prints "<heroku app> <environment>" per deployed app, so
       # bin/deploy loops over the registry instead of keeping its own list.
-      # A broken registry exits 1 here (the guard did not run) rather than 0,
-      # so the caller never reads an error sentence as an app list.
+      # A broken registry never exits 0 here, so the caller never reads an
+      # error sentence as an app list.
       if argv.include?("--list-apps")
-        begin
-          apps = Registry.load(registry_path).environments.select { |_, spec| spec["heroku_app"] }
-        rescue RegistryError => e
-          out.puts "signer isolation: the guard could not run — #{e.message}"
-          return enforce_requested?(env) ? REFUSED_EXIT : 1
-        end
+        apps = Registry.load(registry_path).environments.select { |_, spec| spec["heroku_app"] }
         apps.each { |name, spec| out.puts "#{spec['heroku_app']} #{name}" }
         return 0
       end
@@ -330,9 +342,15 @@ module Solana
                       registry: registry, mode_values: [env[MODE_ENV_VAR]])
       out.puts verdict.report
       verdict.refuse? ? REFUSED_EXIT : 0
+    rescue RegistryInvalid => e
+      # FAIL CLOSED: a broken file cannot say enforce was not committed.
+      out.puts "signer isolation: REFUSED — #{e.message}. The registry is where `mode: enforce` is " \
+               "committed, so an unreadable one refuses in either mode. Fix config/solana_signers.yml."
+      REGISTRY_INVALID_EXIT
     rescue RegistryError => e
-      # A broken registry is the guard not running. Under enforce that refuses;
-      # under warn it is reported and the deploy carries on.
+      # A good registry asked about an environment it does not file: the guard
+      # did not run for it. Under enforce that refuses; under warn it is
+      # reported and the deploy carries on.
       out.puts "signer isolation: the guard could not run — #{e.message}"
       enforce_requested?(env) ? REFUSED_EXIT : 0
     end
