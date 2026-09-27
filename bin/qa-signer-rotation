@@ -8,7 +8,7 @@
 # get_account_info and refuses everything else.
 #
 #   bin/qa-signer-rotation --show
-#   bin/qa-signer-rotation --qa-pubkey <PUBKEY> --replace <CURRENT SIGNER> --cosigners <A>,<B>
+#   bin/qa-signer-rotation --qa-pubkey <PUBKEY> --replace <CURRENT SIGNER> --cosigners <A>,<B>   # v0.25: exactly two, both stay
 #   bin/qa-signer-rotation --qa-pubkey <PUBKEY> --append --cosigners <A>,<B>,<C>   # v0.26 only
 #
 # --qa-pubkey takes the PUBLIC key only (solana-keygen pubkey <file>). Never pass
@@ -22,7 +22,8 @@ parser = OptionParser.new do |o|
   o.on("--qa-pubkey PK", "The new QA system wallet's PUBLIC key") { |v| options[:qa_pubkey] = v }
   o.on("--replace PK", "The current signer whose slot the QA key takes (v0.25 or v0.26)") { |v| options[:replace] = v }
   o.on("--append", "Add the QA key to the first empty v0.26 slot") { options[:append] = true }
-  o.on("--cosigners LIST", "Comma-separated current signers who will sign (first leads)") { |v| options[:cosigners] = v.split(",") }
+  o.on("--cosigners LIST", "Comma-separated current signers who will sign (first leads). " \
+                           "v0.25: exactly two, and both must stay") { |v| options[:cosigners] = v.split(",") }
   o.on("--rpc URL", "Devnet RPC (default: the public devnet endpoint)") { |v| options[:rpc] = v }
 end
 
