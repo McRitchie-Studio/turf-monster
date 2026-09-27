@@ -690,12 +690,7 @@ module Admin
       table = governance_account
       return nil if table.nil?
 
-      stored = Array(table[:thresholds])
-      Solana::Governance::ACTION_IDS.filter_map do |name, id|
-        value = stored[id].to_i
-        value = Solana::Governance::DEFAULT_THRESHOLDS.fetch(name, 1) if value.zero?
-        [value, Solana::Governance::THRESHOLD_FLOORS.fetch(name, 1)].max
-      end.max
+      Solana::Governance.max_live_threshold(table[:thresholds])
     end
 
     # [lead, cosigner, *extras] — the order the slots were reserved in, which is
