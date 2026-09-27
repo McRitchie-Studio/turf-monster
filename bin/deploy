@@ -209,8 +209,11 @@ if [ "$SKIP_CHECKS" != "1" ]; then
   # `mode: enforce` in the yml or SIGNER_ISOLATION=enforce (here or on the
   # app) refuses. turf-monster#624 refused from the day it merged and would have
   # frozen every production deploy until the rotation — which is why it closed.
-  # Exit 3 is the guard's REFUSAL and nothing else is: a guard that crashed is
-  # reported as not having run, so a bug in it cannot block a warn-mode deploy.
+  # Exit 3 is the guard's REFUSAL. Exit 4 is a registry that cannot be read
+  # (missing, not YAML, wrong shape), and it refuses in EITHER mode: the file
+  # is where `mode: enforce` is committed, so an unreadable one cannot prove
+  # warn. Anything else is a guard that crashed on a readable registry, which
+  # is reported as not having run, so a bug in it cannot block a warn deploy.
   #
   # Config JSON goes in on STDIN, never argv. The report prints public keys only.
   signer_isolation() { # $1 heroku app, $2 environment, $3 that app's config JSON
@@ -230,21 +233,31 @@ if [ "$SKIP_CHECKS" != "1" ]; then
       "$SIGNER_REFUSED_EXIT")
         printf '%s\n' "$report" >&2
         fail "Signer isolation refused on $1 (enforce mode). Runbook: docs/qa-signing-key-rotation.md" ;;
+      "$SIGNER_REGISTRY_INVALID_EXIT")
+        printf '%s\n' "$report" >&2
+        fail "Signer isolation refused: config/solana_signers.yml could not be read, so a committed enforce cannot be ruled out." ;;
       *)
         printf '%s\n' "$report" | sed 's/^/    /' >&2
         warn "Signer isolation guard did not run for $1 (exit $status) — nothing was checked." ;;
     esac
   }
   SIGNER_REFUSED_EXIT=3
+  SIGNER_REGISTRY_INVALID_EXIT=4
+  # The app list is STDOUT only. Ruby's stderr (a warning, a backtrace) goes to
+  # its own file and is shown only when the command failed, so no stray line is
+  # ever read as "<heroku app> <environment>".
+  SIGNER_APPS_ERR=$(mktemp)
   set +e
-  SIGNER_APPS=$(ruby lib/solana/signer_isolation.rb --list-apps 2>&1)
+  SIGNER_APPS=$(ruby lib/solana/signer_isolation.rb --list-apps 2>"$SIGNER_APPS_ERR")
   SIGNER_APPS_STATUS=$?
   set -e
-  if [ "$SIGNER_APPS_STATUS" = "$SIGNER_REFUSED_EXIT" ]; then
-    printf '%s\n' "$SIGNER_APPS" >&2
-    fail "Signer isolation refused: its registry could not be read (enforce mode)."
+  if [ "$SIGNER_APPS_STATUS" != "0" ]; then
+    { printf '%s\n' "$SIGNER_APPS"; cat "$SIGNER_APPS_ERR"; } | sed 's/^/    /' >&2
+  fi
+  rm -f "$SIGNER_APPS_ERR"
+  if [ "$SIGNER_APPS_STATUS" = "$SIGNER_REGISTRY_INVALID_EXIT" ]; then
+    fail "Signer isolation refused: config/solana_signers.yml could not be read, so a committed enforce cannot be ruled out."
   elif [ "$SIGNER_APPS_STATUS" != "0" ]; then
-    printf '%s\n' "$SIGNER_APPS" | sed 's/^/    /' >&2
     warn "Signer isolation guard did not run (exit $SIGNER_APPS_STATUS) — nothing was checked."
   else
     while read -r SIGNER_APP SIGNER_ENV; do

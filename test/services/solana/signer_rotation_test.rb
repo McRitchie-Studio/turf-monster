@@ -266,13 +266,50 @@ class Solana::SignerRotationTest < ActiveSupport::TestCase
     assert_match(/#{MASON}/, e.message)
   end
 
-  test "v0.25 needs exactly two signatures, not three" do
+  # v0.25's `UpdateSigners` has exactly two signer accounts, `admin` and
+  # `cosigner`, and `validate_multisig(admin, cosigner)` is the whole
+  # authorization. There is no InsufficientSigners in v0.25 (its errors stop
+  # at 6044), so one signature, a repeated one and an outsider all come back
+  # Unauthorized, 6000.
+  test "v0.25: one signature is refused as Unauthorized, because 6046 does not exist there" do
     e = refusal_for(proposed: [ALEX, MASON, ALEX2],
                     authorizers: [ALEX],
                     governance: false, max_live: nil)
 
-    assert_equal 6046, e.code
-    assert_match(/needs 2 vault signatures/, e.message)
+    assert_equal 6000, e.code
+    assert_match(/exactly 2 signers/, e.message)
+  end
+
+  test "v0.25: a repeated authorizer is Unauthorized (validate_multisig wants two DISTINCT keys)" do
+    e = refusal_for(proposed: [ALEX, MASON, ALEX2],
+                    authorizers: [ALEX, ALEX],
+                    governance: false, max_live: nil)
+
+    assert_equal 6000, e.code
+    assert_match(/more than once/, e.message)
+  end
+
+  # The regression this test exists for (fix-qa-signer-ceremony-tooling): three
+  # authorizers where any two survive passed here, but the chain only ever
+  # sees the first two as `admin` and `cosigner`, and SYSTEM is evicted — so
+  # the transaction fails 6017 after the Phantom dance.
+  test "v0.25: three authorizers are refused, even when two of them would survive" do
+    e = refusal_for(proposed: [ALEX2, ALEX, MASON],
+                    authorizers: [SYSTEM, ALEX, MASON],
+                    governance: false, max_live: nil)
+
+    assert_not_nil e, "v0.25 takes exactly two signers; a third is not an account the instruction has"
+    assert_match(/exactly 2 signers/, e.message)
+    assert_match(/admin.*cosigner/, e.message)
+  end
+
+  test "v0.25: BOTH named authorizers must stay, the first two included" do
+    e = refusal_for(proposed: [ALEX2, ALEX, MASON],
+                    authorizers: [SYSTEM, ALEX],
+                    governance: false, max_live: nil)
+
+    assert_equal 6017, e.code
+    assert_match(/#{SYSTEM}/, e.message)
   end
 
   # ── THE PLAN THE PAGE AND THE RECORD BOTH READ ───────────────────────────

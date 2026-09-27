@@ -32,10 +32,14 @@ has to be seated on the devnet vault first, and only then handed to QA.
 | Devnet `VaultState` | `J7b5g9uS5M2Nog1Ly1UATXTDMtXdpXK3JffRAHXGHkK2`: `8K81…` (Xan), `7ZDJ…` (Alex), `CytJ…` (Mason); slots 4 and 5 empty | `bin/qa-signer-rotation --show` |
 | `GovernanceConfig` | absent, so the v0.25 rules apply | `bin/qa-signer-rotation --show` |
 
-The v0.25 program has three fixed slots and takes exactly two signatures, and
-**both signers must stay in the new set** (`SignerContinuityRequired`, 6017). So
-today the QA key cannot be ADDED; it takes one current signer's slot. The two
-empty slots belong to v0.26, which devnet does not run yet.
+The v0.25 program has three fixed slots, and its `update_signers` has exactly
+two signer accounts, `admin` and `cosigner`: name **exactly two cosigners**, never
+three. **Both must stay in the new set** (`SignerContinuityRequired`, 6017). A
+third named cosigner is not a spare: the chain judges only the first two, so a
+plan that evicts either of them fails on chain however many others stay. So
+today the QA key cannot be ADDED; it takes the slot of the one current signer who
+does not sign. The two empty slots belong to v0.26, which devnet does not run yet.
+Read at turf-vault tag `v0.25.0`, `instructions/update_signers.rs`.
 
 ## Step 1 — Choose the rotation (a decision, not a command)
 
@@ -71,30 +75,53 @@ a duplicate. Vault: **`studio-applications`**, because the consumer is a Heroku
 config var. Labels are hyphenated, to match the other Solana items.
 
 `SOLANA_ADMIN_KEY` wants the **base58** 64-byte secret, not the JSON array that
-`solana-keygen` writes. Convert it straight into a variable, never onto the
-screen:
+`solana-keygen` writes. The secret never touches a shell variable or a command
+line: Ruby reads the keypair file, converts it, and writes a JSON item template
+to a pipe, and `op item create -` reads the concealed field from that pipe. The
+`op` CLI's own help warns that assignment statements (`field[concealed]=…`) are
+visible to other processes and land in shell history; the template on stdin is
+its documented alternative. Only public values ride on the command line.
 
 ```bash
 # Admin lane first (the SOP, section 4), then:
 QA_PUBKEY="$(solana-keygen pubkey "$f")"
-VALUE="$(ruby -rjson -e 'a="123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"; b=JSON.parse(File.read(ARGV[0])).pack("C*"); n=b.unpack1("H*").to_i(16); s=+""; while n>0; n,r=n.divmod(58); s.prepend(a[r]); end; print "1"*b.bytes.take_while(&:zero?).size + s' "$f")"
-[ -n "$VALUE" ] || { echo "VALUE is empty — refusing to file"; exit 1; }
-
-op item create --category "API Credential" --vault studio-applications \
+ruby -rjson -e '
+  a = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+  b = JSON.parse(File.read(ARGV[0])).pack("C*")
+  abort "refusing: the keypair file is not 64 bytes" unless b.bytesize == 64
+  n = b.unpack1("H*").to_i(16); s = +""
+  while n > 0; n, r = n.divmod(58); s.prepend(a[r]); end
+  s = "1" * b.bytes.take_while(&:zero?).size + s
+  print JSON.generate("fields" => [{ "id" => "private-key", "label" => "private-key",
+                                     "type" => "CONCEALED", "value" => s }])
+' "$f" | op item create --category "API Credential" --vault studio-applications \
   --title "solana.turf.system.devnet" \
   --url "https://explorer.solana.com/address/$QA_PUBKEY?cluster=devnet" \
-  "private-key[concealed]=$VALUE" \
+  - \
   "wallet-address[text]=$QA_PUBKEY" \
   "used-by[text]=turf-monster-qa SOLANA_ADMIN_KEY (devnet system wallet)" \
   "notesPlain=scope: devnet VaultState signer (turf-vault EQGF…bpMJ) and QA fee payer
 CAN: sign devnet vault instructions as one signer; pay devnet fees
 CANNOT: sign anything on mainnet; it is in no mainnet signer set
-Never copy this value to another app or to a local .env."
-unset VALUE
+Never copy this value to another app or to a local .env." > /dev/null
+```
+
+`> /dev/null` because `op item create` prints the item it made. If `op` rejects
+the one-field template, start from `op item template get "API Credential"` (it
+holds no secret), add the `private-key` field to it the same way, and pipe that.
+Never fall back to an assignment statement for the key.
+
+Prove the filed secret signs as the QA key. This prints a public key and nothing
+else; run it from a turf-monster checkout:
+
+```bash
+op read "op://studio-applications/solana.turf.system.devnet/private-key" \
+  | ruby -r ./lib/solana/signer_isolation -e 'puts Solana::SignerIsolation.derive_pubkey($stdin.read)'
+echo "$QA_PUBKEY"                                            # the two must match
 rm -P "$f"
 ```
 
-Read back the public field only: `op item get solana.turf.system.devnet --vault
+Read back the public field too: `op item get solana.turf.system.devnet --vault
 studio-applications --fields wallet-address`.
 
 ## Step 4 — Fund it with devnet SOL
@@ -113,18 +140,27 @@ From a turf-monster checkout. It reads devnet, holds no key, and cannot send.
 
 ```bash
 bin/qa-signer-rotation --show
-# Option A:
+# Option A (the QA key takes Mason's slot; Xan and Alex sign and both stay):
 bin/qa-signer-rotation --qa-pubkey "$QA_PUBKEY" \
   --replace CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR \
   --cosigners 8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd,7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr
+# Option B (the QA key takes Xan's slot; Alex and Mason sign and both stay):
+bin/qa-signer-rotation --qa-pubkey "$QA_PUBKEY" \
+  --replace 8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd \
+  --cosigners 7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr,CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR
 ```
 
-It checks the plan against the rules of the program devnet actually runs:
-authorizers in the set, no duplicates, the signature count, continuity, the slot
-count, and whether `--append` has a slot to use. It also refuses a QA key that is
-already a signer or is another environment's system wallet. It exits non-zero
-and names the rule when a plan fails, and prints the exact values to sign when it
-passes. The chain is still the real gate.
+Its first line names the rules it applied (`rules applied: turf-vault v0.25
+update_signers` today). On v0.25 it refuses anything but exactly two cosigners,
+and refuses a plan that evicts either of them: `--replace 8K81… --cosigners
+8K81…,7ZDJ…,CytJ…` is refused here, because on chain it would fail 6017. It also
+checks that the cosigners are current signers and distinct, the slot count, and
+whether `--append` has a slot to use, and it refuses a QA key that is already a
+signer or is another environment's system wallet. It exits non-zero and names
+the rule when a plan fails. When a plan passes, it prints the exact values to
+sign and the exact signer list for step 8, as one line:
+`SOLANA_MULTISIG_SIGNERS=<slot 1>,<slot 2>,<slot 3>`. Keep that line. The chain is
+still the real gate.
 
 ## Step 6 — Sign the devnet signer change (Mr. McRitchie)
 
@@ -144,16 +180,57 @@ Do not go on until it does.
 
 ## Step 8 — Point turf-monster-qa at the new key (QA ONLY, never mainnet)
 
+Only after step 7's `bin/qa-signer-rotation --show` lists the QA key. For
+**every option** this step sets two config vars on `turf-monster-qa`, together,
+in one release:
+
+- `SOLANA_ADMIN_KEY`, the QA secret.
+- `SOLANA_MULTISIG_SIGNERS`, QA's model of the devnet signer set, set to the
+  value step 5 printed (public keys, in slot order). Left alone, QA keeps its
+  old list and goes on offering an evicted key (Mason under A, Xan under B) as a
+  cosigner. Under C it would omit the QA key.
+
+First note the current release. It is what a rollback returns to:
+
 ```bash
-heroku config:set SOLANA_ADMIN_KEY="$(op read 'op://studio-applications/solana.turf.system.devnet/private-key')" \
-  --app turf-monster-qa
+heroku releases -n 1 --app turf-monster-qa
 ```
 
-Check whether QA overrides the signer list, and if it does, set it to the new
-set. This prints true or false, not values:
+`heroku config:set` takes its values on the command line only, so it cannot
+carry the secret. This uses the Platform API instead, which is the same call the
+CLI makes, and it creates a release just as `config:set` does. The secret goes
+from `op` into the request body over a pipe, and your Heroku token goes into a
+header file readable only by you, so neither is ever an argument. The API answers
+with every config var on the app, secrets included, so the body is discarded and
+only the HTTP status is printed; `200` is success.
 
 ```bash
-heroku config --json --app turf-monster-qa | jq 'has("SOLANA_MULTISIG_SIGNERS")'
+SIGNERS="<the value after SOLANA_MULTISIG_SIGNERS= from step 5>"   # public keys only
+umask 077; h="$(mktemp)"
+heroku auth:token | sed 's/^/Authorization: Bearer /' > "$h"
+op read "op://studio-applications/solana.turf.system.devnet/private-key" \
+  | SIGNERS="$SIGNERS" ruby -rjson -e 'print JSON.generate(
+      "SOLANA_ADMIN_KEY" => $stdin.read.strip,
+      "SOLANA_MULTISIG_SIGNERS" => ENV.fetch("SIGNERS"))' \
+  | curl -sS -o /dev/null -w '%{http_code}\n' -X PATCH \
+      https://api.heroku.com/apps/turf-monster-qa/config-vars \
+      -H "Accept: application/vnd.heroku+json; version=3" \
+      -H "Content-Type: application/json" \
+      -H @"$h" --data-binary @-
+rm -P "$h"
+```
+
+The trade-off, stated plainly: for the seconds this runs, the Heroku token sits
+in a `0600` temp file, which `rm -P` then removes. That is the one argv-free
+route to Heroku config; there is no stdin form of `heroku config:set`.
+
+Read it back. Both lines print public keys only:
+
+```bash
+heroku config:get SOLANA_MULTISIG_SIGNERS --app turf-monster-qa        # must equal $SIGNERS
+heroku config:get SOLANA_ADMIN_KEY --app turf-monster-qa \
+  | ruby -r ./lib/solana/signer_isolation -e 'puts Solana::SignerIsolation.derive_pubkey($stdin.read)'
+                                                                        # must equal $QA_PUBKEY
 ```
 
 **Why the chain goes first.** QA's server signs every admin instruction with
@@ -164,10 +241,50 @@ up. And if the chain change then fails, QA stays dead. With the chain first, QA
 keeps working on its old key (options A and C) until the flip, and afterward it
 works on the new one.
 
-**Rollback.** `heroku rollback <previous release> --app turf-monster-qa` restores
-the previous config vars. Under options A and C the old key is still a devnet
-signer, so QA works again at once. It also means QA shares production's key
-again, so treat rollback as a pause, not a resting state.
+### Rollback
+
+`heroku rollback <the release you noted> --app turf-monster-qa` restores both
+config vars as they were: the old key, `8K81…`, and the old signer list. It
+reverts **config only; it never touches the chain**, so whether QA works
+afterwards depends on whether the chain still seats `8K81…`. Any rollback also
+puts QA back on production's key, so treat it as a pause, not a resting state.
+
+**Option A** (the QA key took Mason's slot). `8K81…` is still a devnet signer,
+so QA's server works again at once. But the restored list names Mason, whom the
+chain no longer seats. Either set the list back to what the chain holds (public
+keys, so `config:set` is fine here):
+
+```bash
+heroku config:set --app turf-monster-qa \
+  SOLANA_MULTISIG_SIGNERS="8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd,7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr,$QA_PUBKEY"
+```
+
+or seat Mason again with a reverse rotation, after which the restored list is
+true: on `/admin/authorities`, slots `8K81…`, `7ZDJ…`, `CytJ…`, authorizers
+`8K81…` (the QA server leads on its restored key) and `7ZDJ…`.
+
+**Option B** (the QA key took Xan's slot). `heroku rollback` alone does **not**
+recover QA: it restores `8K81…`, which is **no longer a devnet signer**, so every
+admin instruction fails `Unauthorized`. Recovery needs a reverse rotation that
+seats `8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd` again, chain first:
+
+1. On `/admin/authorities` (turf-monster-qa, still on the QA key), enter slots
+   `8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd`,
+   `7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr`,
+   `CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR`, and authorizers `7ZDJ…` (lead)
+   and `CytJ…`, both Phantom signatures. The QA key cannot authorize it, because
+   this rotation evicts it (6017). The page checks the same v0.25 rules as the
+   dry run; `bin/qa-signer-rotation` cannot plan this one, because it refuses to
+   seat production's key.
+2. `bin/qa-signer-rotation --show` must list `8K81…` and not the QA key.
+3. Then `heroku rollback <the release you noted> --app turf-monster-qa`. The
+   restored list, `8K81…,7ZDJ…,CytJ…`, now matches the chain. QA is dead between
+   steps 1 and 3; keep them close together.
+
+**Option C** (v0.26, the QA key appended). `8K81…` is still a devnet signer, so
+QA works again at once. The restored list omits the QA key, which the chain still
+seats; set `SOLANA_MULTISIG_SIGNERS` to what `bin/qa-signer-rotation --show`
+reads, as under option A.
 
 ## Step 9 — Verify QA
 
@@ -196,6 +313,7 @@ meantime. Nothing can relax a committed `enforce`.
 |---|---|---|
 | `bin/deploy` pre-flight, for every app in `config/solana_signers.yml` | warn (default) | prints the finding, and the deploy continues |
 | `bin/deploy` pre-flight | enforce | refuses the deploy before anything is pushed |
+| `bin/deploy` pre-flight, when `config/solana_signers.yml` is missing, not YAML, or the wrong shape | either | refuses (exit 4): the file is where `enforce` is committed, so an unreadable one cannot prove warn. A guard that crashes on a readable file still only warns |
 | Boot, on deployed apps (`config/initializers/solana_signer_isolation.rb`) | either | logs an ERROR line and records one ErrorLog from `web.1`. It never refuses |
 
 It compares the public key that `SOLANA_ADMIN_KEY` derives, never the string,

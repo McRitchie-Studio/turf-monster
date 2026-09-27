@@ -15,6 +15,10 @@
 #   warn     (default) report a finding loudly and carry on. Nothing is blocked.
 #   enforce  bin/deploy refuses the production deploy on any finding.
 #
+# If THIS FILE cannot be read (missing, not YAML, not the shape below),
+# bin/deploy refuses in either mode: it cannot tell whether enforce was
+# committed here, so it fails closed.
+#
 # SIGNER_ISOLATION=enforce, in the target app's config or the deploying shell,
 # also turns enforcement on. Either source can ESCALATE to enforce; neither can
 # relax it. Flip this to enforce only after the QA ceremony below has run and

@@ -1,6 +1,7 @@
 require "test_helper"
 require "open3"
 require "stringio"
+require "tmpdir"
 
 # Solana::SignerIsolation — "this app's key IS this environment's system wallet"
 # (task separate-qa-solana-signing-key).
@@ -188,6 +189,52 @@ class SignerIsolationTest < ActiveSupport::TestCase
     assert_raises(GUARD::RegistryError) { registry(qa_wallet: "not-a-key") }
   end
 
+  # ── A BROKEN REGISTRY FAILS CLOSED ──────────────────────────────────────
+  #
+  # The registry is where `mode: enforce` is committed. A file that cannot be
+  # read cannot say whether enforce was committed, so reading it as "the guard
+  # did not run" (warn, deploy continues) silently drops the switch the day it
+  # matters. Every way the file can be broken is REGISTRY_INVALID_EXIT, which
+  # bin/deploy refuses on, in either mode.
+  BROKEN_REGISTRIES = {
+    "unparseable YAML" => "mode: enforce\nenvironments: [unclosed\n",
+    "a list, not a map" => "- mode\n- enforce\n",
+    "a bare string" => "enforce\n",
+    "an empty file" => "",
+    "environments as a list" => "mode: enforce\nenvironments:\n  - production\n",
+    "a bad mode" => "mode: enforse\nenvironments: {}\n"
+  }.freeze
+
+  test "a registry that is not a map is invalid, not a crash" do
+    %w[string list].zip(["enforce", %w[mode enforce]]).each do |label, data|
+      assert_raises(GUARD::RegistryInvalid, label) { GUARD::Registry.new(data) }
+    end
+  end
+
+  test "CLI: every broken registry exits REGISTRY_INVALID_EXIT, in warn and for both commands" do
+    assert_not_equal GUARD::REFUSED_EXIT, GUARD::REGISTRY_INVALID_EXIT
+    assert_not_equal 1, GUARD::REGISTRY_INVALID_EXIT, "1 is what a crashed Ruby exits"
+
+    BROKEN_REGISTRIES.each do |label, body|
+      with_registry(body) do |path|
+        out = StringIO.new
+        status = GUARD.cli(%w[--list-apps], out: out, env: {}, registry_path: path)
+        assert_equal GUARD::REGISTRY_INVALID_EXIT, status, "--list-apps, #{label}: #{out.string}"
+        assert_match(/signer registry/, out.string, label)
+
+        out = StringIO.new
+        status = GUARD.cli(%w[--environment qa], stdin: StringIO.new("{}"), out: out, env: {}, registry_path: path)
+        assert_equal GUARD::REGISTRY_INVALID_EXIT, status, "--environment, #{label}: #{out.string}"
+      end
+    end
+  end
+
+  test "CLI: a missing registry fails closed too" do
+    out = StringIO.new
+    status = GUARD.cli(%w[--list-apps], out: out, env: {}, registry_path: "/nonexistent/solana_signers.yml")
+    assert_equal GUARD::REGISTRY_INVALID_EXIT, status, out.string
+  end
+
   # ── THE CLI bin/deploy RUNS ─────────────────────────────────────────────
 
   test "CLI: warn mode exits 0, enforce exits REFUSED_EXIT, and neither prints the secret" do
@@ -236,6 +283,14 @@ class SignerIsolationTest < ActiveSupport::TestCase
   end
 
   private
+
+  def with_registry(body)
+    Dir.mktmpdir("signer-registry") do |dir|
+      path = File.join(dir, "solana_signers.yml")
+      File.write(path, body)
+      yield path
+    end
+  end
 
   # Runs the file exactly as bin/deploy does: plain `ruby`, no Rails, no
   # bundler, config on STDIN.

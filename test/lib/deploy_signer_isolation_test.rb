@@ -117,6 +117,46 @@ class DeploySignerIsolationTest < ActiveSupport::TestCase
     assert_includes result[:log], "push heroku-mainnet main"
   end
 
+  # ── A BROKEN REGISTRY FAILS CLOSED; A CRASHED GUARD DOES NOT ────────────
+  #
+  # fix-qa-signer-ceremony-tooling: a malformed config/solana_signers.yml used
+  # to read as "guard did not run" and the deploy pushed, dropping a committed
+  # `mode: enforce` in silence. The file is where enforce lives, so a file that
+  # cannot be read refuses — in warn mode too, because nothing can prove warn.
+
+  test "an unparseable registry refuses before the push, even with no enforce anywhere" do
+    result = deploy(qa_key: QA_SECRET, registry_body: "mode: enforce\nenvironments: [unclosed\n")
+
+    refute_equal 0, result[:status]
+    refute_includes result[:log], "push heroku-mainnet main"
+    assert_match(/Signer isolation refused: config\/solana_signers.yml could not be read/, result[:stderr])
+    refute_match(/guard did not run/, result[:stderr])
+  end
+
+  test "a registry that parses but is the wrong shape refuses too" do
+    result = deploy(qa_key: QA_SECRET, registry_body: "- mode\n- enforce\n")
+
+    refute_equal 0, result[:status]
+    refute_includes result[:log], "push heroku-mainnet main"
+  end
+
+  test "a guard that CRASHES on a valid registry still warns and pushes" do
+    result = deploy(qa_key: PROD_SECRET, crash_guard: true)
+
+    assert_equal 0, result[:status], result[:stderr]
+    assert_match(/Signer isolation guard did not run/, result[:stderr])
+    assert_includes result[:log], "push heroku-mainnet main"
+  end
+
+  # Ruby's stderr (a warning, a deprecation) must never be read as an app name.
+  test "stderr from the guard is not parsed as part of the app list" do
+    result = deploy(qa_key: QA_SECRET, qa_wallet: QA.to_base58, noisy_guard: true)
+
+    assert_equal 0, result[:status], result[:stderr]
+    refute_match(/(on|for) harness-noise/, result[:stderr], "a stderr line was checked as if it were a Heroku app")
+    assert_match(/turf-monster-qa signs as qa's own system wallet/, result[:stdout])
+  end
+
   private
 
   def assert_no_secret(result)
@@ -127,14 +167,16 @@ class DeploySignerIsolationTest < ActiveSupport::TestCase
   end
 
   # qa_key nil = the QA app's config cannot be read at all.
-  def deploy(qa_key:, mode: "warn", qa_wallet: nil, shell_env: {}, mainnet_extra: {}, drop_guard: false)
+  def deploy(qa_key:, mode: "warn", qa_wallet: nil, shell_env: {}, mainnet_extra: {}, drop_guard: false,
+             registry_body: nil, crash_guard: false, noisy_guard: false)
     Dir.mktmpdir("deploy-signer") do |work|
       repo = File.join(work, "repo")
       shims = File.join(work, "shims")
       store = File.join(work, "configs")
       log = File.join(work, "heroku.log")
 
-      build_repo(repo, mode: mode, qa_wallet: qa_wallet, drop_guard: drop_guard)
+      build_repo(repo, mode: mode, qa_wallet: qa_wallet, drop_guard: drop_guard,
+                       registry_body: registry_body, crash_guard: crash_guard, noisy_guard: noisy_guard)
       build_shims(shims, log)
       FileUtils.mkdir_p(store)
       mainnet = { "EXPECTED_IDL_HASH" => V025, "STRIPE_SECRET_KEY" => "sk_live_fake",
@@ -158,7 +200,7 @@ class DeploySignerIsolationTest < ActiveSupport::TestCase
     end
   end
 
-  def build_repo(repo, mode:, qa_wallet:, drop_guard:)
+  def build_repo(repo, mode:, qa_wallet:, drop_guard:, registry_body: nil, crash_guard: false, noisy_guard: false)
     FileUtils.mkdir_p(File.join(repo, "bin"))
     FileUtils.cp(DEPLOY, File.join(repo, "bin", "deploy"))
     COPIED.each do |rel|
@@ -167,7 +209,15 @@ class DeploySignerIsolationTest < ActiveSupport::TestCase
       FileUtils.mkdir_p(File.join(repo, File.dirname(rel)))
       FileUtils.cp(Rails.root.join(rel), File.join(repo, rel))
     end
-    File.write(File.join(repo, "config", "solana_signers.yml"), {
+    guard = File.join(repo, "lib", "solana", "signer_isolation.rb")
+    # A crash AFTER the registry is proven readable: a bug in the guard, not a
+    # broken file. The real code is loaded and then a check blows up.
+    if crash_guard
+      File.write(guard, File.read(guard).sub(/^exit\(Solana::SignerIsolation\.cli\(ARGV\)\).*$/,
+                                             'Solana::SignerIsolation::Registry.load; raise "harness: guard bug"'))
+    end
+    File.write(guard, "$stderr.puts 'harness-noise warning: something deprecated'\n" + File.read(guard)) if noisy_guard
+    registry_body ||= {
       "mode" => mode,
       "environments" => {
         "production" => { "network" => "mainnet-beta", "deployed" => true,
@@ -175,7 +225,8 @@ class DeploySignerIsolationTest < ActiveSupport::TestCase
         "qa" => { "network" => "devnet", "deployed" => true,
                   "heroku_app" => "turf-monster-qa", "system_wallet" => qa_wallet }
       }
-    }.to_yaml)
+    }.to_yaml
+    File.write(File.join(repo, "config", "solana_signers.yml"), registry_body)
 
     git(repo, "init", "-q", "-b", "main")
     git(repo, "config", "user.email", "harness@example.test")
