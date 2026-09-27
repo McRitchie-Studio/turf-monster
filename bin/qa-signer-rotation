@@ -12,7 +12,7 @@
 #   bin/qa-signer-rotation --qa-pubkey <PUBKEY> --append --cosigners <A>,<B>,<C>   # v0.26 only
 #
 # --qa-pubkey takes the PUBLIC key only (solana-keygen pubkey <file>). Never pass
-# a secret to this or any command. Runbook: docs/workflows/qa-signing-key-rotation.md
+# a secret to this or any command. Runbook: docs/qa-signing-key-rotation.md
 require "optparse"
 
 options = { cosigners: [] }

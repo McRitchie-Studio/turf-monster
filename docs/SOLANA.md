@@ -1065,6 +1065,28 @@ initializer against real non-JSON bodies over a real socket, and asserts BOTH
 halves — the indeterminate cases boot, a real mismatch still refuses) and
 `test/tasks/solana_health_unauthorized_rpc_test.rb`.
 
+## Per-environment system wallets (`SOLANA_ADMIN_KEY`)
+
+Every deployed app's `SOLANA_ADMIN_KEY` must be **its own environment's system
+wallet, and no other environment's**. `config/solana_signers.yml` names each
+environment's PUBLIC key; `lib/solana/signer_isolation.rb` derives the public
+key a loaded secret signs as and compares it to that registry.
+
+- **`bin/deploy`** checks every app the registry names (turf-monster-mainnet
+  and turf-monster-qa) in its pre-flight. It ships in **warn** mode: a finding
+  prints and the deploy continues. `mode: enforce` in the yml, or
+  `SIGNER_ISOLATION=enforce` in the deploying shell or on an app, makes it
+  refuse. Either source can escalate; neither can relax a committed enforce.
+- **Boot**, on deployed apps: one `[signer-isolation]` log line, and on a
+  finding one ErrorLog row from `web.1`. It never refuses.
+
+**Live finding (2026-09-25):** QA holds production's key, `8K81…`, so the QA
+dyno can sign as production on mainnet. The fix is a devnet signer ceremony,
+not a config change, because a key outside the devnet `VaultState` signer set
+fails `Unauthorized`. The runbook and its dry-run tool:
+[`qa-signing-key-rotation.md`](qa-signing-key-rotation.md) and
+`bin/qa-signer-rotation`.
+
 ## Rotating the managed-wallet key (`MANAGED_WALLET_ENCRYPTION_KEY`)
 
 Every managed wallet's Ed25519 secret sits in `users.encrypted_web2_solana_private_key`,
@@ -1148,6 +1170,6 @@ and every path above, driven through the rake task and graded by exit status),
 
 ## Error namespace
 
-turf-vault custom errors start at **6000** (`errors.rs`). Anchor framework **3000-range** errors (e.g. 3012 `AccountDidNotDeserialize`) signal **schema drift** between the deployed program and an on-chain account — i.e. an IDL/layout mismatch — **not** a vault error. Key codes: `ContestNotOpen` 6003, `ContestAlreadySettled` 6006, `SettlementOverflow` 6008, `ContestNotCancellable` 6029, `ContestLocked` 6034, `ContestConcluded` 6035. Several codes (6011/6012/6017/6019/6028) are retired-but-kept for numbering stability.
+turf-vault custom errors start at **6000** (`errors.rs`). Anchor framework **3000-range** errors (e.g. 3012 `AccountDidNotDeserialize`) signal **schema drift** between the deployed program and an on-chain account — i.e. an IDL/layout mismatch — **not** a vault error. Key codes: `ContestNotOpen` 6003, `ContestAlreadySettled` 6006, `SettlementOverflow` 6008, `ContestNotCancellable` 6029, `ContestLocked` 6034, `ContestConcluded` 6035. Codes 6011/6012/6019/6028 are retired-but-kept for numbering stability. **6017 `SignerContinuityRequired` is live**: `update_signers` raises it on every deployed program since v0.20.
 
 <!-- citation-guard: external (2 citations) — both name turf-vault Rust instruction sources, which this repository does not contain; no line number written here can be checked from turf-monster -->

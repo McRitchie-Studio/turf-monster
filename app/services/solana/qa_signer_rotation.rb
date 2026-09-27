@@ -1,7 +1,7 @@
 module Solana
   # THE DRY RUN FOR GIVING turf-monster-qa ITS OWN SIGNING KEY
   # (task separate-qa-solana-signing-key; runbook
-  # docs/workflows/qa-signing-key-rotation.md; CLI bin/qa-signer-rotation).
+  # docs/qa-signing-key-rotation.md; CLI bin/qa-signer-rotation).
   #
   # It reads the devnet VaultState, works out the signer set the ceremony
   # would write, judges that set against turf-vault's own guards, and prints
@@ -148,7 +148,7 @@ module Solana
         lines << "    vault authority until they are re-pointed. Mainnet is unaffected."
       end
       lines << ""
-      lines << "Mr. McRitchie signs it himself (docs/workflows/qa-signing-key-rotation.md, step 4):"
+      lines << "Mr. McRitchie signs it himself (docs/qa-signing-key-rotation.md, step 6):"
       if result.shape == "v0.25"
         lines << "  1. Sign in to turf-monster-qa as an admin and open /admin/authorities."
         lines << "  2. In the eviction form, enter exactly these values, in this order:"
@@ -168,7 +168,7 @@ module Solana
       lines << ""
       lines << "Then verify, read-only:"
       lines << "  bin/qa-signer-rotation --show        # must list #{qa_pubkey}"
-      lines << "Only AFTER the chain lists the QA key: set SOLANA_ADMIN_KEY on turf-monster-qa (runbook step 5)."
+      lines << "Only AFTER the chain lists the QA key: set SOLANA_ADMIN_KEY on turf-monster-qa (runbook step 8)."
       lines.join("\n")
     end
 

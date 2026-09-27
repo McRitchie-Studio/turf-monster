@@ -229,7 +229,7 @@ if [ "$SKIP_CHECKS" != "1" ]; then
         fi ;;
       "$SIGNER_REFUSED_EXIT")
         printf '%s\n' "$report" >&2
-        fail "Signer isolation refused on $1 (enforce mode). Runbook: docs/workflows/qa-signing-key-rotation.md" ;;
+        fail "Signer isolation refused on $1 (enforce mode). Runbook: docs/qa-signing-key-rotation.md" ;;
       *)
         printf '%s\n' "$report" | sed 's/^/    /' >&2
         warn "Signer isolation guard did not run for $1 (exit $status) — nothing was checked." ;;

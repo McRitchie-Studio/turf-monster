@@ -24,7 +24,7 @@
 #
 # turf-monster-qa and turf-monster-mainnet carry the SAME SOLANA_ADMIN_KEY
 # (compared by hash 2026-09-25). QA's system wallet is therefore null until
-# Mr. McRitchie runs docs/workflows/qa-signing-key-rotation.md, which generates
+# Mr. McRitchie runs docs/qa-signing-key-rotation.md, which generates
 # the QA key, seats it on the devnet VaultState, points turf-monster-qa at it,
 # and then fills in `qa.system_wallet` here.
 #
@@ -59,7 +59,10 @@ environments:
   development:
     network: devnet
     deployed: false
-    # Local machines and the devnet e2e lane. No key of its own is filed yet;
-    # a development identity needs a VaultState slot the deployed v0.25 program
-    # does not have (see the runbook, "What this ceremony does not fix").
+    # Local machines and the devnet e2e lane. No key of its own is filed yet:
+    # the primary checkout's .env derives production's 8K81… (measured
+    # 2026-09-27, public key only), and a development identity needs a
+    # VaultState slot the deployed v0.25 program does not have (see the
+    # runbook, "What this ceremony does not fix"). The boot guard does not run
+    # in development.
     system_wallet: null

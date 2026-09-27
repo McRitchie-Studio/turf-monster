@@ -176,7 +176,7 @@ module Solana
           verb = refuse? ? "REFUSED" : "WARNING"
           lines << "signer isolation (#{environment}): #{verb} [mode #{mode}]"
           findings.each { |f| lines << "  - #{f.message}" }
-          lines << "  Runbook: docs/workflows/qa-signing-key-rotation.md" unless refuse?
+          lines << "  Runbook: docs/qa-signing-key-rotation.md" unless refuse?
           lines << "  Warn mode: nothing was blocked." unless enforce?
         end
         notes.each { |n| lines << "  note: #{n}" }
