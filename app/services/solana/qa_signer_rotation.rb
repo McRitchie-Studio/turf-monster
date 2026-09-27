@@ -160,7 +160,7 @@ module Solana
         lines << "     every other authorizer is a Phantom signature."
         lines << "  3. Collect the signatures, broadcast, and let the page read the set back."
       else
-        lines << "  cd /Users/alex/projects/turf-vault"
+        lines << "  # from a turf-vault checkout"
         lines << "  node scripts/rotate-devnet-signers.js --slots #{result.proposed.join(',')} \\"
         lines << "    #{result.authorizers.map { |a| "--signer <keypair file for #{a}>" }.join(' ')}"
         lines << "  (a dry run until you add --send; /admin/authorities on turf-monster-qa builds the same set)"
