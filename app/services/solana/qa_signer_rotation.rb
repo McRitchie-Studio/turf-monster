@@ -27,6 +27,9 @@ module Solana
   # else, so the class refuses to plan against any other cluster or program.
   class QaSignerRotation
     DEVNET = "devnet".freeze
+    # QA's model of the VaultState signer set (Solana::Config::MULTISIG_SIGNERS).
+    # Left alone, QA keeps offering an evicted key as a cosigner.
+    MULTISIG_SIGNERS_VAR = "SOLANA_MULTISIG_SIGNERS".freeze
     DEVNET_PROGRAM_ID = "EQGFJAcABtDb6VXtiijTjZ6cE2UqdvhnqJvoharJbpMJ".freeze
     MAINNET_PROGRAM_ID = "DaFv83yokwTz8msP9CzJ13eazSGk15NuUTxjkfzJzxMM".freeze
 
@@ -123,6 +126,7 @@ module Solana
       production = registry.system_wallet("production")
       lines = []
       lines << "QA signer rotation — DRY RUN (devnet only; nothing is signed or sent)"
+      lines << "  rules applied: turf-vault #{result.shape} update_signers, the shape devnet runs" if result.shape
       lines << ""
       result.notes.each { |n| lines << "  #{n}" }
       lines << "" if result.notes.any?
@@ -168,7 +172,10 @@ module Solana
       lines << ""
       lines << "Then verify, read-only:"
       lines << "  bin/qa-signer-rotation --show        # must list #{qa_pubkey}"
-      lines << "Only AFTER the chain lists the QA key: set SOLANA_ADMIN_KEY on turf-monster-qa (runbook step 8)."
+      lines << "Only AFTER the chain lists the QA key, set BOTH of these on turf-monster-qa in one"
+      lines << "release (runbook step 8). The signer list is public; copy this line as printed:"
+      lines << "  #{MULTISIG_SIGNERS_VAR}=#{result.proposed.join(',')}"
+      lines << "  SOLANA_ADMIN_KEY=<the QA secret, from 1Password over stdin — never on a command line>"
       lines.join("\n")
     end
 
