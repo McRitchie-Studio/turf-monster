@@ -297,12 +297,28 @@ module Solana
     # ── CLI (bin/deploy) ────────────────────────────────────────────────────
     #
     #   heroku config --json --app <app> | ruby lib/solana/signer_isolation.rb --environment production
+    #   ruby lib/solana/signer_isolation.rb --list-apps
     #
     # Reads the target app's config JSON on STDIN — never argv, which `ps`
     # shows to every user on the machine. An empty or unparseable STDIN is an
     # UNREADABLE config, which is a finding: absence is not isolation.
     # Prints the report; exits 0, or REFUSED_EXIT when enforce refuses.
     def cli(argv, stdin: $stdin, out: $stdout, env: ENV, registry_path: REGISTRY_PATH)
+      # `--list-apps` prints "<heroku app> <environment>" per deployed app, so
+      # bin/deploy loops over the registry instead of keeping its own list.
+      # A broken registry exits 1 here (the guard did not run) rather than 0,
+      # so the caller never reads an error sentence as an app list.
+      if argv.include?("--list-apps")
+        begin
+          apps = Registry.load(registry_path).environments.select { |_, spec| spec["heroku_app"] }
+        rescue RegistryError => e
+          out.puts "signer isolation: the guard could not run — #{e.message}"
+          return enforce_requested?(env) ? REFUSED_EXIT : 1
+        end
+        apps.each { |name, spec| out.puts "#{spec['heroku_app']} #{name}" }
+        return 0
+      end
+
       environment = argv.each_cons(2).find { |flag, _| flag == "--environment" }&.last
       if environment.nil? || environment.empty?
         out.puts "usage: <config json> | ruby lib/solana/signer_isolation.rb --environment <name>"
@@ -317,9 +333,14 @@ module Solana
     rescue RegistryError => e
       # A broken registry is the guard not running. Under enforce that refuses;
       # under warn it is reported and the deploy carries on.
-      mode, = resolve_mode(DEFAULT_MODE, [env[MODE_ENV_VAR]])
       out.puts "signer isolation: the guard could not run — #{e.message}"
-      mode == "enforce" ? REFUSED_EXIT : 0
+      enforce_requested?(env) ? REFUSED_EXIT : 0
+    end
+
+    # Enforce as far as it can be known WITHOUT the registry: the shell's own
+    # switch. Used only when the registry itself is what failed.
+    def enforce_requested?(env)
+      resolve_mode(DEFAULT_MODE, [env[MODE_ENV_VAR]]).first == "enforce"
     end
 
     # JSON parse errors quote the input, and this input carries every secret
