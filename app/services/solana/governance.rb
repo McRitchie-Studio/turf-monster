@@ -138,6 +138,21 @@ module Solana
       [DEFAULT_THRESHOLDS.fetch(key, 1), THRESHOLD_FLOORS.fetch(key, 1)].max
     end
 
+    # The highest threshold ANY live action requires, from a stored threshold
+    # table (`Vault#read_governance[:thresholds]`): `threshold_for`'s own rule —
+    # a stored zero falls back to the shipped default, and nothing reads below
+    # its floor. `update_signers` refuses a set smaller than this. Shared by
+    # /admin/authorities and bin/qa-signer-rotation so the two cannot disagree
+    # about what a rotation must leave standing.
+    def self.max_live_threshold(thresholds)
+      stored = Array(thresholds)
+      ACTION_IDS.filter_map do |name, id|
+        value = stored[id].to_i
+        value = DEFAULT_THRESHOLDS.fetch(name, 1) if value.zero?
+        [value, THRESHOLD_FLOORS.fetch(name, 1)].max
+      end.max
+    end
+
     # How many EXTRA signer slots a builder must leave in `remaining_accounts`
     # for `action`, given how many signers the instruction NAMES in its account
     # struct.

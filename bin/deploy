@@ -11,7 +11,8 @@
 #   bin/deploy        # turf-monster-mainnet (real funds) → heroku-mainnet (confirm)
 #
 # What it does:
-#   1. Pre-flight (clean tree, branch, sync, network-keyed IDL pin, Stripe, tests)
+#   1. Pre-flight (clean tree, branch, sync, network-keyed IDL pin, Stripe,
+#      signer isolation — warn-only unless enforced, tests)
 #   2. Confirm (real-funds deploy requires explicit consent)
 #   3. IDL re-pin via allow-list widen→tighten if the bundled IDL bumped
 #      (EXPECTED_IDL_HASH accepts {old,new} across the release → no unverified window)
@@ -193,6 +194,71 @@ if [ "$SKIP_CHECKS" != "1" ]; then
   STRIPE_KEY=$(heroku config:get STRIPE_SECRET_KEY --app "$HEROKU_APP" 2>/dev/null || echo "")
   case "$STRIPE_KEY" in sk_test_*) fail "STRIPE_SECRET_KEY on $HEROKU_APP is test mode — must be sk_live_." ;; esac
   ok "Stripe live mode"
+
+  # Signer isolation — is every deployed app's SOLANA_ADMIN_KEY ITS OWN
+  # environment's system wallet, and nobody else's? The rule and the filed
+  # public keys live in lib/solana/signer_isolation.rb and
+  # config/solana_signers.yml; this block only feeds it each app's config.
+  #
+  # It checks turf-monster-qa as well as the target because QA is where the
+  # finding lives: the two apps were measured sharing one key (2026-09-25), so
+  # QA can sign as production. This pre-flight is the one place that can read
+  # both apps' config at once — a dyno sees only its own ENV, CI sees neither.
+  #
+  # WARN BY DEFAULT. A finding prints and the deploy carries on; only
+  # `mode: enforce` in the yml or SIGNER_ISOLATION=enforce (here or on the
+  # app) refuses. turf-monster#624 refused from the day it merged and would have
+  # frozen every production deploy until the rotation — which is why it closed.
+  # Exit 3 is the guard's REFUSAL and nothing else is: a guard that crashed is
+  # reported as not having run, so a bug in it cannot block a warn-mode deploy.
+  #
+  # Config JSON goes in on STDIN, never argv. The report prints public keys only.
+  signer_isolation() { # $1 heroku app, $2 environment, $3 that app's config JSON
+    local report status
+    set +e
+    report=$(printf '%s' "$3" | ruby lib/solana/signer_isolation.rb --environment "$2" 2>&1)
+    status=$?
+    set -e
+    case "$status" in
+      0)
+        if printf '%s\n' "$report" | grep -q '): OK'; then
+          ok "$1 signs as $2's own system wallet"
+        else
+          printf '%s\n' "$report" | sed 's/^/    /' >&2
+          warn "Signer isolation finding on $1 (warn mode — deploy continues)."
+        fi ;;
+      "$SIGNER_REFUSED_EXIT")
+        printf '%s\n' "$report" >&2
+        fail "Signer isolation refused on $1 (enforce mode). Runbook: docs/qa-signing-key-rotation.md" ;;
+      *)
+        printf '%s\n' "$report" | sed 's/^/    /' >&2
+        warn "Signer isolation guard did not run for $1 (exit $status) — nothing was checked." ;;
+    esac
+  }
+  SIGNER_REFUSED_EXIT=3
+  set +e
+  SIGNER_APPS=$(ruby lib/solana/signer_isolation.rb --list-apps 2>&1)
+  SIGNER_APPS_STATUS=$?
+  set -e
+  if [ "$SIGNER_APPS_STATUS" = "$SIGNER_REFUSED_EXIT" ]; then
+    printf '%s\n' "$SIGNER_APPS" >&2
+    fail "Signer isolation refused: its registry could not be read (enforce mode)."
+  elif [ "$SIGNER_APPS_STATUS" != "0" ]; then
+    printf '%s\n' "$SIGNER_APPS" | sed 's/^/    /' >&2
+    warn "Signer isolation guard did not run (exit $SIGNER_APPS_STATUS) — nothing was checked."
+  else
+    while read -r SIGNER_APP SIGNER_ENV; do
+      [ -n "$SIGNER_APP" ] || continue
+      if [ "$SIGNER_APP" = "$HEROKU_APP" ]; then
+        SIGNER_CONFIG="$TARGET_CONFIG"
+      else
+        # </dev/null: the loop's own STDIN is the app list, and heroku must not eat it.
+        SIGNER_CONFIG=$(heroku config --json --app "$SIGNER_APP" 2>/dev/null </dev/null || echo "")
+      fi
+      signer_isolation "$SIGNER_APP" "$SIGNER_ENV" "$SIGNER_CONFIG"
+    done <<< "$SIGNER_APPS"
+    SIGNER_CONFIG=""
+  fi
 
   if [ "${SKIP_TESTS:-0}" != "1" ]; then
     bold "Running tests"

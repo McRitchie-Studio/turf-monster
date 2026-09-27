@@ -1,0 +1,68 @@
+# Which PUBLIC key each environment's system wallet must be.
+#
+# The system wallet is the key an app loads from SOLANA_ADMIN_KEY: the server's
+# own vault signer, fee payer and contest creator. This file names the PUBLIC
+# half only. It never holds, and must never hold, a secret.
+#
+# Read by lib/solana/signer_isolation.rb, which asks two questions of a loaded
+# key: is it THIS environment's system wallet, and is it ANOTHER environment's?
+# bin/deploy asks them of turf-monster-mainnet and turf-monster-qa before every
+# production deploy; config/initializers/solana_signer_isolation.rb asks them of
+# the running app at boot and logs the answer.
+#
+# ── mode ─────────────────────────────────────────────────────────────────────
+#
+#   warn     (default) report a finding loudly and carry on. Nothing is blocked.
+#   enforce  bin/deploy refuses the production deploy on any finding.
+#
+# SIGNER_ISOLATION=enforce, in the target app's config or the deploying shell,
+# also turns enforcement on. Either source can ESCALATE to enforce; neither can
+# relax it. Flip this to enforce only after the QA ceremony below has run and
+# `qa.system_wallet` is filled in, or every production deploy will refuse.
+#
+# ── the ceremony this file is waiting on ─────────────────────────────────────
+#
+# turf-monster-qa and turf-monster-mainnet carry the SAME SOLANA_ADMIN_KEY
+# (compared by hash 2026-09-25). QA's system wallet is therefore null until
+# Mr. McRitchie runs docs/qa-signing-key-rotation.md, which generates
+# the QA key, seats it on the devnet VaultState, points turf-monster-qa at it,
+# and then fills in `qa.system_wallet` here.
+#
+# ── resolving "this environment" ─────────────────────────────────────────────
+#
+# By the app's own facts, never by a name it is told: a DEPLOYED app (Rails
+# production) on mainnet-beta is `production`, a deployed app on devnet is `qa`,
+# and anything not deployed is `development`. bin/deploy names the environment
+# per Heroku app through `heroku_app`.
+
+mode: warn
+
+environments:
+  production:
+    network: mainnet-beta
+    deployed: true
+    heroku_app: turf-monster-mainnet
+    # Xan (the key formerly called Alex Bot): VaultState signer slot 0 on
+    # mainnet, and the fee payer on the server's mainnet transactions (read off
+    # chain 2026-09-27: CreateUserAccount, EnterContest, GrantSeeds, SetUsername
+    # all paid by this key). Derived from the chain, never from the secret.
+    system_wallet: 8K81w4e6UcB7TiANhM9N8sAgijJvTxxybRi8AENRaRYd
+
+  qa:
+    network: devnet
+    deployed: true
+    heroku_app: turf-monster-qa
+    # null until the QA ceremony runs. Today QA holds production's key, which is
+    # exactly the finding the guard reports.
+    system_wallet: null
+
+  development:
+    network: devnet
+    deployed: false
+    # Local machines and the devnet e2e lane. No key of its own is filed yet:
+    # the primary checkout's .env derives production's 8K81… (measured
+    # 2026-09-27, public key only), and a development identity needs a
+    # VaultState slot the deployed v0.25 program does not have (see the
+    # runbook, "What this ceremony does not fix"). The boot guard does not run
+    # in development.
+    system_wallet: null
