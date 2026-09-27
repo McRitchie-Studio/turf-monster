@@ -1,0 +1,64 @@
+#!/usr/bin/env ruby
+# bin/qa-signer-rotation — DRY RUN of the devnet signer change that gives
+# turf-monster-qa its own SOLANA_ADMIN_KEY. Reads the devnet VaultState, checks
+# the plan against turf-vault's rules, and prints what Mr. McRitchie signs.
+#
+# It has NO path that signs or sends: it holds no key, builds no transaction,
+# and reads through Solana::QaSignerRotation::ReadOnlyClient, which answers
+# get_account_info and refuses everything else.
+#
+#   bin/qa-signer-rotation --show
+#   bin/qa-signer-rotation --qa-pubkey <PUBKEY> --replace <CURRENT SIGNER> --cosigners <A>,<B>
+#   bin/qa-signer-rotation --qa-pubkey <PUBKEY> --append --cosigners <A>,<B>,<C>   # v0.26 only
+#
+# --qa-pubkey takes the PUBLIC key only (solana-keygen pubkey <file>). Never pass
+# a secret to this or any command. Runbook: docs/qa-signing-key-rotation.md
+require "optparse"
+
+options = { cosigners: [] }
+parser = OptionParser.new do |o|
+  o.banner = "usage: bin/qa-signer-rotation (--show | --qa-pubkey PK (--replace PK | --append) --cosigners A,B[,C])"
+  o.on("--show", "Print the devnet signer set and program shape, and stop") { options[:show] = true }
+  o.on("--qa-pubkey PK", "The new QA system wallet's PUBLIC key") { |v| options[:qa_pubkey] = v }
+  o.on("--replace PK", "The current signer whose slot the QA key takes (v0.25 or v0.26)") { |v| options[:replace] = v }
+  o.on("--append", "Add the QA key to the first empty v0.26 slot") { options[:append] = true }
+  o.on("--cosigners LIST", "Comma-separated current signers who will sign (first leads)") { |v| options[:cosigners] = v.split(",") }
+  o.on("--rpc URL", "Devnet RPC (default: the public devnet endpoint)") { |v| options[:rpc] = v }
+end
+
+begin
+  parser.parse!(ARGV)
+rescue OptionParser::ParseError => e
+  warn e.message
+  warn parser.banner
+  exit 2
+end
+
+unless options[:show] || options[:qa_pubkey]
+  warn parser.banner
+  exit 2
+end
+
+# The devnet vault from THIS machine's config: development defaults to devnet
+# and the devnet program, and the service refuses anything else by name.
+ENV["RAILS_ENV"] ||= "development"
+require_relative "../config/environment"
+
+vault = options[:rpc] ? Solana::QaSignerRotation.devnet_vault(rpc_url: options[:rpc]) : Solana::QaSignerRotation.devnet_vault
+
+begin
+  if options[:show]
+    puts Solana::QaSignerRotation.new(qa_pubkey: "", cosigners: [], vault: vault).show
+    exit 0
+  end
+
+  result = Solana::QaSignerRotation.new(
+    qa_pubkey: options[:qa_pubkey], cosigners: options[:cosigners],
+    replace: options[:replace], append: options[:append], vault: vault
+  ).plan
+  puts Solana::QaSignerRotation.render(result, qa_pubkey: options[:qa_pubkey])
+  exit(result.ok? ? 0 : 1)
+rescue Solana::QaSignerRotation::WrongCluster => e
+  warn e.message
+  exit 1
+end

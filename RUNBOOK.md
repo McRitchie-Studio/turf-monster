@@ -57,6 +57,21 @@ Troubleshooting guide for autonomous agents. Format: problem, diagnosis, fix.
   load runs. Set missing values with
   `heroku config:set KEY=value --app turf-monster-mainnet`.
 
+**Deploy pre-flight: "Signer isolation finding" or "Signer isolation refused"**
+- Diagnosis: `bin/deploy` asked `lib/solana/signer_isolation.rb` whether each
+  app's `SOLANA_ADMIN_KEY` is its own environment's system wallet
+  (`config/solana_signers.yml`). The report names public keys only.
+- "finding ... (warn mode — deploy continues)" is expected until the QA
+  ceremony runs: QA holds production's key. Nothing was blocked.
+- "refused ... (enforce mode)": enforcement is on and a key is not its
+  environment's own. Fix the key, not the guard, by following
+  `docs/qa-signing-key-rotation.md`. Do not relax `mode:` to push a deploy
+  through. `--skip-checks` bypasses it like any other pre-flight, so use it only
+  for a deploy that is itself the remediation, and say so.
+- "guard did not run": the check crashed or its registry is missing. The deploy
+  continued unchecked, so re-run `ruby lib/solana/signer_isolation.rb --list-apps`
+  to see why.
+
 **Magic-link request succeeds but email never arrives**
 - Diagnosis: `/magic_link` returns `{"success":true}` but Sidekiq logs show a
   provider error, often `Resend::Error: The <domain> domain is not verified`.
