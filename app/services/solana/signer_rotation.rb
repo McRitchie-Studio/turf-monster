@@ -32,8 +32,12 @@ module Solana
   #
   #   v0.25 (what is DEPLOYED on both clusters today) is a different program
   #   with a different order and a different shape — three slots, no empties
-  #   allowed at all, exactly two signatures, and BOTH of them must survive:
-  #     validate_multisig    -> Unauthorized 6000
+  #   allowed at all, exactly two signatures, and BOTH of them must survive.
+  #   Read at turf-vault tag v0.25.0, instructions/update_signers.rs:
+  #     two signer accounts  -> `admin` + `cosigner`, no third (a third named
+  #                             key is never seen; the first two are judged)
+  #     validate_multisig    -> Unauthorized 6000 (also a REPEATED signer:
+  #                             it wants s1 != s2; v0.25 has no 6046)
   #     duplicate in the set -> DuplicateSigner 6014
   #     any zeroed slot      -> SignerContinuityRequired 6017
   #     continuity           -> SignerContinuityRequired 6017
@@ -194,6 +198,8 @@ module Solana
     # shape is not copied here: a rotation authorized by too few keys is
     # refused by the same method that refuses an unknown one.
     def validate_authorizers!
+      return validate_v025_authorizers! unless governance?
+
       if authorizers.uniq.length != authorizers.length
         dupes = authorizers.tally.select { |_, n| n > 1 }.keys
         refuse!("#{dupes.join(', ')} would authorize this rotation more than once; turf-vault " \
@@ -211,6 +217,45 @@ module Solana
 
       refuse!("this rotation needs #{required} vault #{'signature'.pluralize(required)} and " \
               "#{authorizers.length} #{authorizers.length == 1 ? 'was' : 'were'} named", INSUFFICIENT)
+    end
+
+    # v0.25's `UpdateSigners` names exactly two signer accounts, `admin` and
+    # `cosigner`, and its whole authorization is
+    # `validate_multisig(admin, cosigner)`: two DISTINCT current signers.
+    #
+    # A third authorizer is not a weaker form of the same plan. The instruction
+    # has no account for it, so whatever builds the transaction signs with the
+    # first two and the third is never judged — while this class, counting
+    # "any two survive", approved a set that evicts one of those first two.
+    # That is the dry run passing and the chain failing 6017. So v0.25 takes
+    # exactly two, and continuity (run last) then requires BOTH to stay.
+    #
+    # Every failure here is Unauthorized 6000 on chain: v0.25's error enum stops
+    # at 6044, so there is no InsufficientSigners to name, and a repeated key
+    # fails `s1 != s2` inside validate_multisig, not the set's DuplicateSigner.
+    def validate_v025_authorizers!
+      if authorizers.length > REQUIRED_V025
+        refuse!("#{authorizers.length} authorizers were named, but v0.25's update_signers takes exactly " \
+                "#{REQUIRED_V025} signers — the admin and the cosigner accounts, and no third. The chain " \
+                "judges only the first two (#{authorizers.first(REQUIRED_V025).join(', ')}), and both must " \
+                "stay in the new set. Name exactly two", UNAUTHORIZED)
+      end
+
+      if authorizers.uniq.length != authorizers.length
+        refuse!("#{authorizers.first} would authorize this rotation more than once; v0.25's " \
+                "validate_multisig wants two DISTINCT current signers", UNAUTHORIZED)
+      end
+
+      unknown = authorizers - current_signers
+      if unknown.any?
+        refuse!("#{unknown.join(', ')} is not in the vault's on-chain signer set " \
+                "(#{current_signers.join(', ')}), so it cannot authorize a rotation", UNAUTHORIZED)
+      end
+
+      return if authorizers.length == REQUIRED_V025
+
+      refuse!("v0.25's update_signers takes exactly #{REQUIRED_V025} signers (admin and cosigner) and " \
+              "#{authorizers.length} #{authorizers.length == 1 ? 'was' : 'were'} named", UNAUTHORIZED)
     end
 
     # v0.26: gaps, then duplicates, then the three count rules.

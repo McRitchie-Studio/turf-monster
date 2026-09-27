@@ -68,7 +68,11 @@ Troubleshooting guide for autonomous agents. Format: problem, diagnosis, fix.
   `docs/qa-signing-key-rotation.md`. Do not relax `mode:` to push a deploy
   through. `--skip-checks` bypasses it like any other pre-flight, so use it only
   for a deploy that is itself the remediation, and say so.
-- "guard did not run": the check crashed or its registry is missing. The deploy
+- "refused: config/solana_signers.yml could not be read": the registry is
+  missing, not YAML, or the wrong shape. This refuses in warn mode too, because
+  the file is where `enforce` is committed and a broken one cannot prove warn.
+  Fix the file; `ruby lib/solana/signer_isolation.rb --list-apps` names the fault.
+- "guard did not run": the check crashed on a readable registry. The deploy
   continued unchecked, so re-run `ruby lib/solana/signer_isolation.rb --list-apps`
   to see why.
 

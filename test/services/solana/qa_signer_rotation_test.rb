@@ -117,9 +117,31 @@ class Solana::QaSignerRotationTest < ActiveSupport::TestCase
     assert_match(/SignerContinuityRequired, 6017/, result.refusals.join)
   end
 
-  test "below threshold: one v0.25 signature is refused" do
+  test "below threshold: one v0.25 signature is refused as Unauthorized (v0.25 has no 6046)" do
     result = plan(cosigners: [BOT])
-    assert_match(/InsufficientSigners, 6046/, result.refusals.join)
+    assert_match(/Unauthorized, 6000/, result.refusals.join)
+    refute_match(/6046/, result.refusals.join)
+  end
+
+  # The regression (fix-qa-signer-ceremony-tooling). v0.25's update_signers has
+  # two signer accounts, and the chain requires BOTH to stay. This plan named
+  # three cosigners, two of which stay, and passed the dry run; on chain the
+  # first two are admin and cosigner, 8K81 is evicted, and it fails 6017.
+  test "v0.25: --replace 8K81 --cosigners 8K81,7ZDJ,CytJ is refused by the dry run" do
+    result = plan(replace: BOT, cosigners: [BOT, ALEX, MASON])
+
+    refute result.ok?, "the chain would reject this as SignerContinuityRequired"
+    assert_match(/exactly 2 signers/, result.refusals.join)
+  end
+
+  test "v0.25: three cosigners are refused even when all three stay" do
+    result = plan(governance: false, replace: MASON, cosigners: [BOT, ALEX, MASON])
+    refute result.ok?
+  end
+
+  test "v0.25: two cosigners with the first one evicted is refused as continuity" do
+    result = plan(replace: BOT, cosigners: [BOT, ALEX])
+    assert_match(/SignerContinuityRequired, 6017/, result.refusals.join)
   end
 
   test "below threshold: two v0.26 signatures are refused where update_signers needs three" do
@@ -127,9 +149,12 @@ class Solana::QaSignerRotationTest < ActiveSupport::TestCase
     assert_match(/needs 3 vault signatures/, result.refusals.join)
   end
 
-  test "duplicate: the same cosigner twice is refused" do
+  # v0.25's validate_multisig wants s1 != s2, so a repeat is Unauthorized there;
+  # DuplicateSigner 6014 is the NEW SET's rule, not the signers'.
+  test "duplicate: the same cosigner twice is refused as Unauthorized on v0.25" do
     result = plan(cosigners: [BOT, BOT])
-    assert_match(/DuplicateSigner, 6014/, result.refusals.join)
+    assert_match(/Unauthorized, 6000/, result.refusals.join)
+    assert_match(/more than once/, result.refusals.join)
   end
 
   test "duplicate: a QA key already in the set is refused" do
@@ -145,6 +170,33 @@ class Solana::QaSignerRotationTest < ActiveSupport::TestCase
   test "--append on the deployed v0.25 program is refused: it has no fourth slot" do
     result = plan(append: true, replace: nil)
     assert_match(/devnet runs v0.25/, result.refusals.join)
+  end
+
+  # ── WHAT THE OPERATOR IS TOLD ───────────────────────────────────────────
+
+  test "the render names the program version whose rules it applied" do
+    v025 = Solana::QaSignerRotation.render(plan, qa_pubkey: QA_KEY, registry: registry)
+    assert_match(/rules applied: turf-vault v0\.25/, v025)
+
+    refused = Solana::QaSignerRotation.render(plan(cosigners: [BOT, ALEX, MASON]), qa_pubkey: QA_KEY, registry: registry)
+    assert_match(/rules applied: turf-vault v0\.25/, refused, "a refusal must say which rules refused it")
+
+    v026 = plan(governance: true, append: true, replace: nil, cosigners: [BOT, ALEX, MASON])
+    assert_match(/rules applied: turf-vault v0\.26/,
+                 Solana::QaSignerRotation.render(v026, qa_pubkey: QA_KEY, registry: registry))
+  end
+
+  test "a passing plan prints the exact SOLANA_MULTISIG_SIGNERS value, in slot order" do
+    text = Solana::QaSignerRotation.render(plan, qa_pubkey: QA_KEY, registry: registry)
+    assert_includes text.lines.map(&:strip), "SOLANA_MULTISIG_SIGNERS=#{BOT},#{ALEX},#{QA_KEY}"
+
+    b = Solana::QaSignerRotation.render(plan(replace: BOT, cosigners: [ALEX, MASON]), qa_pubkey: QA_KEY, registry: registry)
+    assert_includes b.lines.map(&:strip), "SOLANA_MULTISIG_SIGNERS=#{QA_KEY},#{ALEX},#{MASON}"
+  end
+
+  test "a refused plan prints no SOLANA_MULTISIG_SIGNERS value to set" do
+    text = Solana::QaSignerRotation.render(plan(cosigners: [BOT, ALEX, MASON]), qa_pubkey: QA_KEY, registry: registry)
+    refute_match(/SOLANA_MULTISIG_SIGNERS=/, text)
   end
 
   # ── PLANS THAT WOULD NOT ISOLATE QA ─────────────────────────────────────
