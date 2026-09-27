@@ -60,7 +60,7 @@ module Solana
     end
 
     def self.devnet_vault(rpc_url: Config::PUBLIC_CLUSTER_RPC_URLS.fetch(DEVNET))
-      Vault.new(client: ReadOnlyClient.new(Solana::Client.new(rpc_url: rpc_url)))
+      Vault.new(client: ReadOnlyClient.new(Config.client(rpc_url: rpc_url)))
     end
 
     def initialize(qa_pubkey:, cosigners:, replace: nil, append: false, vault:,
