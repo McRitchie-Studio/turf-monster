@@ -773,13 +773,20 @@
      column has no use for is not free, it is just spent somewhere the header's
      own guard does not look.
 
-     WHAT THE READER GETS, measured at the six widths this app's spec holds.
-     Below 365px the floor binds and the wordmark's longer word ELLIPSES — 46px
-     of it at 320px, 70px at 344px, 86px at 360px — instead of painting over the
-     seeds bar. From 365px up the whole wordmark fits, and at 430px and above the
-     column is byte-identical to what shipped before. The remaining lever at the
-     narrow end is the seeds bar's own 8rem floor, which is a decision about that
-     component rather than about this cap. */
+     WHAT THE READER GETS, swept one pixel at a time rather than reasoned. The
+     whole wordmark fits from 363px up; below that its longer word ELLIPSES —
+     86px of it at 360px, 70px at 344px, 46px at 320px — instead of painting
+     over the seeds bar. The floor stops binding at 369px, so 363..368 is the
+     band where the wordmark is whole because the floor happens to leave just
+     enough, not because the cap does. At 430px and above the column is
+     byte-identical to what shipped before.
+
+     THE COST, stated rather than buried: the username loses one readable
+     character where the wordmark was spilling. Measured with the nine-character
+     `mcritchie`, characters whose glyphs fit the clipped button — 6/6/6/6/9/9
+     before at 320/344/360/390/412/430, 5/5/5/6/8/9 after. The remaining lever
+     at the narrow end is the seeds bar's own 8rem floor, which is a decision
+     about that component rather than about this cap. */
   .user-nav-col {
     --user-nav-floor: 11.875rem;
     --nav-left-need: 11.125rem;
