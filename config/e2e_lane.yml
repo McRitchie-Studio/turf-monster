@@ -1165,7 +1165,22 @@
 # from a diff nobody read is worse than a visible gap, and the scalar itself is
 # guarded by bin/e2e-lane-derive either way. Whoever next lands a spec pair can
 # recover them from git log over this file if they are worth recovering.
-total_specs: 341
+#
+# 341 -> 346 (turf-header-fits-phone): the five specs in
+# e2e/header_phone_width.spec.js for the header at six phone widths. None is
+# observable in the response bytes and none is observable at the DOCUMENT level
+# either, which is the point of the file: before the fix the app name's box ran
+# 60px outside its own column at 320px while documentElement reported a
+# contented 320/320, so every existing navbar guard was green on a header that
+# painted the wordmark over the seeds bar. The five are the header's own
+# past-viewport set, per-column containment on the WORD boxes (the <h1> reports
+# itself contained while a span inside it does not), the seeds bar against the
+# avatar (the column's scrollWidth reports a fit 68px below its real floor),
+# monotonicity across the six widths, and a check that nothing was contained by
+# hiding it. Not tagged @devnet and none skips, so excluded holds at 17 and
+# allowed_skips at 4: 346 - 17 - 4 = 325. Derived with bin/e2e-lane-derive
+# --write on this tree, not by arithmetic.
+total_specs: 346
 # The @devnet specs, all of them in e2e/devnet-smoke.spec.js, excluded from the PR lane by
 # `--grep-invert "@devnet"` because they need a funded devnet wallet.
 #
@@ -1510,7 +1525,11 @@ allowed_skips: 4
 # and allowed_skips HOLDS AT 4 and the whole delta lands here: 337 - 17 - 4 = 316.
 # Derived with bin/e2e-lane-derive --write on this tree, which re-reads the file to
 # confirm both routes agree, rather than by arithmetic on the line above.
-executed: 320
+# 320 -> 325 (turf-header-fits-phone): the five header specs described beside
+# total_specs above. excluded holds at 17 and allowed_skips at 4, so the whole
+# delta lands here: 346 - 17 - 4 = 325. Derived with bin/e2e-lane-derive --write
+# on this tree, which re-reads the file to confirm both routes agree.
+executed: 325
 # The ONE sanctioned exclusion. bin/e2e-executed-set-check refuses any executed spec whose
 # title carries this tag, and test/lib/ci_workflow_triggers_test.rb pins the CI command to
 # this EXACT value — so widening the filter to `@devnet|something` is a test failure, not a

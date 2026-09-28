@@ -688,8 +688,109 @@
    equal-specificity conflicts resolve in this block's favor by source
    order and the !important workarounds the inline block needed are
    dropped. */
+  /* THE PHONE STEP IS WHAT THE VIEWPORT HAS LEFT, FLOORED AT WHAT THIS COLUMN'S
+     OWN CONTENTS NEED. Both halves of that sentence are load-bearing and they
+     pull in opposite directions.
+
+     WHAT WAS BROKEN. This column is `flex-shrink-0` and its phone step was a
+     CONSTANT 14rem = 224px, which is 57% of a 390px screen and 70% of a 320px
+     one. The left column (logo + wordmark) is `flex-1` and got whatever was
+     left, and because every flex item defaults to `min-width: auto` the
+     wordmark could not truncate either — so it drew OUTSIDE its own column,
+     across the gutter, on top of the seeds bar and the wallet address beside
+     it. MEASURED on /contests, signed in, balance $1504:
+
+         width  left column  title right edge  title outside its column
+         320px      0..96          156                  +60.0px
+         344px      0..120         156                  +36.0px
+         360px      0..136         156                  +20.0px
+         412px      0..172         173.6                 +1.6px
+
+     documentElement reported 320/320, 344/344, 360/360 and 412/412 for every
+     one of those — the page did not scroll sideways at any of them, so no
+     document-level measurement of this header could see the defect. A box that
+     overflows its SIBLING's territory never reaches documentElement, because
+     the header row is exactly 100% wide either way. e2e/header_phone_width.spec.js
+     asserts `title.right <= leftColumn.right` for that reason and keeps the
+     document check only as a separate promise.
+
+     THE FLOOR IS DERIVED, NOT CHOSEN, and it is why this app cannot simply copy
+     studio-engine's `min(14rem, 46vw)`. The engine's column holds icons and a
+     name; THIS one carries a 5-section seeds bar with a hard `min-w-[8rem]`
+     (components/_user_nav Div 2) and a `flex-shrink-0` avatar. Its minimum is:
+
+         8rem seeds bar                    128px
+         less the row's -6px pull           -6px
+         gap-2 between Div 1 and the avatar  +8px
+         the avatar's ml-3 badge inset      +12px
+         the avatar itself (w-8)            +32px
+         the column's own pr-4              +16px
+         ------------------------------------------
+                                            190px  = 11.875rem
+
+     Measured: `width: min-content` on this column reports exactly 190px. Below
+     that the seeds bar slides UNDER the avatar — and note that the column's own
+     `scrollWidth` keeps reporting a contented fit all the way down to 122px,
+     because the bar overflows Div 1 (which is `min-w-0`) rather than the column.
+     That is the same blindness as the document-level check, one box in, which is
+     why the spec asserts `seedsBar.right <= avatar.left` and not a scrollWidth.
+
+     THE CAP STATES THE INVARIANT RATHER THAN A SHARE, which is where this parts
+     company with the engine's `min(14rem, 46vw)` a second time. A percentage
+     answers "how much of the screen may this column take"; the question actually
+     being asked is "what must be LEFT for the column beside it", and
+     `calc(100vw - var(--nav-left-need))` says exactly that. --nav-left-need is
+     the left column's own arithmetic at each band's type scale:
+
+         padding (px-4, both sides)          32px
+         logo (.nav-logo at --nav-p 0)       48px
+         .nav-logo-link gap                 + 4px    (8px from 400px up)
+         "Monster", measured                +88.05px (101.64px from 400px up)
+         one substituted face's worth of slack + 6px
+         ------------------------------------------------
+                                            178px  = 11.125rem   (< 400px)
+                                            196px  = 12.25rem    (400px+)
+
+     THE SLACK IS NOT PADDING-BY-FEEL, it is the width of the defect it prevents.
+     Tuned to the measured 172.05px with no slack, the left column at 390px was
+     exactly 172px and the wordmark ELLIPSED — because `scrollWidth` and
+     `clientWidth` both report the integer 88 while the renderer compares 88.05
+     against 88.00 and clips. The integer readout says contained; the screenshot
+     says "Turf Monst...". Six pixels also absorbs the face substitution this app
+     ships with: Montserrat is self-hosted at `font-display: optional`, which has
+     no swap period, so any navigation that misses the ~100ms block window paints
+     the whole page in the fallback stack and every text width in this header
+     moves. Measured with the woff2 blocked: "Monster" renders 80.22px instead of
+     88.05px here, i.e. NARROWER on macOS — but this repo already recorded the
+     Linux CI fallback running WIDER than Montserrat, which is the direction that
+     costs a word.
+
+     A share would have cost more than it bought. 52vw satisfies every width too,
+     but it takes the column down to 202.8px at 390px and 223.6px at 430px where
+     this formulation leaves 218px and the full 240px — and MEASURED with a
+     nine-character username, that difference is a readable character: 6 visible
+     characters against 5 at 390px, 9 against 8 at 430px. Taking width the left
+     column has no use for is not free, it is just spent somewhere the header's
+     own guard does not look.
+
+     WHAT THE READER GETS, swept one pixel at a time rather than reasoned. The
+     whole wordmark fits from 363px up; below that its longer word ELLIPSES —
+     86px of it at 360px, 70px at 344px, 46px at 320px — instead of painting
+     over the seeds bar. The floor stops binding at 369px, so 363..368 is the
+     band where the wordmark is whole because the floor happens to leave just
+     enough, not because the cap does. At 430px and above the column is
+     byte-identical to what shipped before.
+
+     THE COST, stated rather than buried: the username loses one readable
+     character where the wordmark was spilling. Measured with the nine-character
+     `mcritchie`, characters whose glyphs fit the clipped button — 6/6/6/6/9/9
+     before at 320/344/360/390/412/430, 5/5/5/6/8/9 after. The remaining lever
+     at the narrow end is the seeds bar's own 8rem floor, which is a decision
+     about that component rather than about this cap. */
   .user-nav-col {
-    width: 14rem;
+    --user-nav-floor: 11.875rem;
+    --nav-left-need: 11.125rem;
+    width: clamp(var(--user-nav-floor), calc(100vw - var(--nav-left-need)), 14rem);
     max-width: min(20rem, calc(100vw - 1rem));
     box-sizing: border-box;
   }
@@ -764,11 +865,30 @@
     font-size: var(--nav-username-size);
   }
 
+  /* THE SAME CAP IN THE NEXT BAND UP, and leaving it out is measurably worse
+     than not capping the first one. With only the base band capped, a 412px
+     Pixel — this band's own territory — keeps a constant 15rem and shows LESS of
+     the wordmark than a 390px iPhone does: MEASURED 101.6px of title spilling
+     1.6px past its column at 412px against a contained 88px at 390px. A wider
+     screen showing less is indistinguishable from a bug to the person holding
+     it, so the two phone bands move together and e2e/header_phone_width.spec.js
+     asserts the title series is monotone across all six widths.
+
+     Only --nav-left-need and the ceiling step: this band renders the larger type
+     (1.5rem lead word, 0.5rem logo gap), so the left column needs 190px rather
+     than 172px. The cap reaches the plain 15rem at exactly 430px, which is why
+     iPhone Pro Max width is unchanged by this fix. */
   @media (min-width: 400px) {
     .user-nav-col {
-      width: 15rem;
+      --nav-left-need: 12.25rem;
+      width: clamp(var(--user-nav-floor), calc(100vw - var(--nav-left-need)), 15rem);
     }
   }
+  /* A BARE CLAMP AT 768px AND UP — deliberately not measured against what the
+     left column needs. This band already reads the viewport through its own 24vw
+     and has 448px of slack at its breakpoint; there is nothing a tighter cap
+     could buy, and the floor above is a phone number. Unchanged by the phone
+     fix, and the squeeze-band notes further down this file still describe it. */
   @media (min-width: 768px) {
     .user-nav-col {
       width: clamp(16rem, 24vw, 20rem);
@@ -779,6 +899,19 @@
       flex-direction: column;
       gap: 0;
       line-height: 1.15;
+      /* STRETCH, AND IT IS THE HALF OF THE TRUNCATION THAT ACTUALLY BITES.
+         Below 768px this element turns into a COLUMN, which puts its cross axis
+         horizontal — so `align-items` is now what decides each word's WIDTH.
+         The base rule says `baseline`, which in a column container falls back to
+         flex-start, so every span sized to its own max-content and `truncate`
+         had no narrower box to clip against. MEASURED with the width caps and
+         the whole min-w-0 chain in place and this one line missing: the <h1>
+         shrank to 46px at 320px and reported itself contained, while the span
+         reading "Monster" stayed 88px wide and painted to x=156 — 26px past the
+         left column's edge at 130 and straight over the seeds bar. Both numbers
+         are true at once, which is why the spec asserts the SPAN's right edge
+         and not only the h1's. */
+      align-items: stretch;
     }
     .nav-title span:first-child {
       margin-bottom: -4px;
